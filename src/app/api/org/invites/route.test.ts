@@ -34,9 +34,22 @@ vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat") }));
 vi.mock("@/lib/email/invite", () => ({ dispatchInviteEmail: vi.fn(async () => ({ ok: true, skipped: false })) }));
+vi.mock("@/lib/db/invites", () => ({
+  resendInvite: vi.fn(async () => ({
+    id: "inv_1",
+    email: "invitee@example.test",
+    githubLogin: null,
+    role: "member",
+    token: "tok_new",
+    invitedBy: "octocat",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    expiresAt: "2026-07-15T00:00:00.000Z",
+  })),
+}));
 
 import { DELETE, POST } from "./route";
 import { createInvite, recordOrgAudit, revokeInvite } from "@/lib/db";
+import { resendInvite } from "@/lib/db/invites";
 import { requireOrgRole } from "@/lib/authz";
 import { dispatchInviteEmail } from "@/lib/email/invite";
 
@@ -45,6 +58,7 @@ const mockAudit = vi.mocked(recordOrgAudit);
 const mockRole = vi.mocked(requireOrgRole);
 const mockSend = vi.mocked(dispatchInviteEmail);
 const mockRevoke = vi.mocked(revokeInvite);
+const mockResend = vi.mocked(resendInvite);
 
 function post(body: unknown) {
   return new Request("http://localhost/api/org/invites", {
@@ -61,6 +75,16 @@ beforeEach(() => {
   mockRole.mockResolvedValue(null as never);
   mockSend.mockResolvedValue({ ok: true, skipped: false });
   mockRevoke.mockResolvedValue({ revoked: true, target: "invitee@example.test" } as never);
+  mockResend.mockResolvedValue({
+    id: "inv_1",
+    email: "invitee@example.test",
+    githubLogin: null,
+    role: "member",
+    token: "tok_new",
+    invitedBy: "octocat",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    expiresAt: "2026-07-15T00:00:00.000Z",
+  } as never);
   // clearAllMocks clears CALLS, not implementations — restate the default invite each test.
   mockCreate.mockResolvedValue({
     id: "inv_1",
@@ -220,5 +244,59 @@ describe("revoking an invite is on the record", () => {
     const res = await DELETE(del("org=acme&id=nope"));
     expect(res.status).toBe(404);
     expect(mockAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST resend rotates the token and re-mails without creating a row", () => {
+  const resendBody = { org: "acme", id: "inv_1", action: "resend" as const };
+
+  it("mails the rotated token, does not create, and records org.member.invite_resent", async () => {
+    const res = await POST(post(resendBody));
+    expect(res.status ?? 200).toBe(200);
+    expect(await bodyOf(res)).toMatchObject({ emailed: "sent", invite: { id: "inv_1", token: "tok_new" } });
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockResend).toHaveBeenCalledWith("acme", "inv_1");
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0]![1]).toMatchObject({
+      org: "acme",
+      url: "https://ascent.test/invite/tok_new",
+    });
+    expect(mockAudit).toHaveBeenCalledWith(
+      "org.member.invite_resent",
+      "acme",
+      expect.objectContaining({ inviteId: "inv_1", emailed: "sent", target: "invitee@example.test" }),
+      "octocat",
+    );
+  });
+
+  it("a non-owner cannot resend — the role gate runs first", async () => {
+    mockRole.mockResolvedValue(new Response("nope", { status: 403 }) as never);
+    await POST(post(resendBody));
+    expect(mockResend).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("404s when there is no pending invite to rotate", async () => {
+    mockResend.mockResolvedValueOnce(null);
+    const res = await POST(post(resendBody));
+    expect(res.status).toBe(404);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing for a login-pinned invite (no address)", async () => {
+    mockResend.mockResolvedValueOnce({
+      id: "inv_2",
+      email: null,
+      githubLogin: "someone",
+      role: "member",
+      token: "tok_new",
+      invitedBy: "octocat",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      expiresAt: "2026-07-15T00:00:00.000Z",
+    } as never);
+    const res = await POST(post({ org: "acme", id: "inv_2", action: "resend" }));
+    expect(await bodyOf(res)).toMatchObject({ emailed: null, invite: { token: "tok_new" } });
+    expect(mockSend).not.toHaveBeenCalled();
   });
 });

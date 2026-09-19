@@ -8,15 +8,16 @@
 //
 // It also carries the opt-in LOW-BALANCE warning (the honest half of "auto-recharge"): a pre-emptive
 // notice + one-click top-up while the balance is still positive, driven by a per-org threshold. Nothing
-// here charges anyone — see CreditsControl.autorecharge.ts for why that is not possible today.
+// here charges anyone — see src/lib/autorecharge.ts for why that is not possible today. Owner-facing
+// chrome labels this "Low-balance warning"; it must not claim a purchase happens without a click.
 //
 // State/effects/handlers live in useCreditsControl.ts — this file is JSX only. Public props are
-// unchanged (a sibling reads the auto-recharge preference through CreditsControl.autorechargeUi's
+// unchanged (a sibling reads the low-balance preference through CreditsControl.autorechargeUi's
 // accessor, so its shape must not move).
 
 import type { CreditPack } from "@/lib/polar";
-import { GrantSection, LedgerSection, PacksSection, UnlimitedChip } from "./CreditsControl.sections";
-import { creditPressure } from "./CreditsControl.autorecharge";
+import { GrantSection, LedgerSection, ManageBillingLink, PacksSection, UnlimitedChip } from "./CreditsControl.sections";
+import { creditPressure } from "@/lib/autorecharge";
 import { AutoRechargeSection, LowBalanceNotice } from "./CreditsControl.autorechargeUi";
 import { useCreditsControl } from "./useCreditsControl";
 
@@ -150,6 +151,11 @@ export function CreditsControl({
           )}
 
           {buyEnabled && packs.length > 0 && <PacksSection org={org} packs={packs} />}
+          {buyEnabled && packs.length === 0 && (
+            <div className="mt-3">
+              <ManageBillingLink org={org} />
+            </div>
+          )}
 
           {grantsEnabled && <GrantSection buyEnabled={buyEnabled} busy={busy} grant={grant} />}
 

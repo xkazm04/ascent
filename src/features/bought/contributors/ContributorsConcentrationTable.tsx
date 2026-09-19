@@ -10,9 +10,9 @@
 import { OrgTable, SectionHeader } from "@/components/org/shared/ui";
 import { DecisionControl } from "@/components/org/DecisionControl";
 import { ConcentrationCurve, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
-import { CHAMPION_MIN_POP, topContributorLabel } from "@/components/org/shared/champions";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import type { ContributorInsights } from "@/lib/db";
+import { CHAMPION_MIN_POP, topContributorLabel } from "@/lib/org/champions";
 import { AiBar } from "./AiBar";
 
 /** The demoted A2 caveat: what the knee means for the reader, on demand rather than in the header. */

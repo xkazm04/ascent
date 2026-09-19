@@ -1,17 +1,16 @@
 // The Integrations module: a fidelity explainer (how each provider's spend reaches a repo) tied back
-// to the /delivery views, then one card per provider. Every available provider renders its connect
-// surface inline — Claude Code the OTel push panel, Copilot the admin-pull sync — and a `planned`
-// provider renders none. Server-safe: only the two setup panels are client components.
+// to the /delivery views, then one card per provider. Available rows render a connect surface;
+// planned rows render none. Server-safe: only ClaudeCodeSetup and CopilotSetup are client components.
 //
-// The dispatch reads the REGISTRY ROW (`connectKind` + `status`), never a literal id. It used to test
-// `p.id === "claude-code"`, which meant Copilot — declared available + admin-pull in providers.ts
-// since W3b, with a finished owner-gated sync route behind it — showed a green "Available" badge and
-// offered no way to act on it. Keying on the row means adding a provider is a data change: give it a
-// status and a connect kind and the right surface appears, or none does.
+// Status gates whether a surface appears. The panel itself is chosen per provider id (`CONNECT_SETUP`),
+// not by `connectKind` alone. Kind-only dispatch was the Copilot fix (the panel used to test
+// `p.id === "claude-code"`, so available Copilot offered no way to act) but it mapped every available
+// admin-pull row onto CopilotSetup. OpenAI is already admin-pull and planned; available must not
+// inherit Copilot's GitHub App pull.
 
 import Link from "next/link";
 import { Surface, Kicker } from "@/components/ui";
-import { PROVIDERS, FIDELITY_META, type Fidelity, type ProviderDef } from "@/lib/integrations/providers";
+import { PROVIDERS, FIDELITY_META, CONNECT_SETUP, type Fidelity, type ProviderDef } from "@/lib/integrations/providers";
 import type { ProviderIngestStatus } from "@/lib/db";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { ProviderCard } from "./ProviderCard";
@@ -23,12 +22,14 @@ export function IntegrationsPanel({
   ingestToken,
   ingestPath,
   statuses = [],
+  providers = PROVIDERS,
 }: {
   slug: string;
   ingestToken: string;
   ingestPath: string;
   /** Per-source delivery status (AiUsageRecord.updatedAt) — what each provider has actually landed. */
   statuses?: ProviderIngestStatus[];
+  providers?: readonly ProviderDef[];
 }) {
   return (
     <div className="space-y-5">
@@ -60,7 +61,7 @@ export function IntegrationsPanel({
       </Surface>
 
       <div className="space-y-4">
-        {PROVIDERS.map((p) => (
+        {providers.map((p) => (
           <ProviderCard key={p.id} provider={p} status={statuses.find((s) => s.source === p.id) ?? null}>
             {connectSurface(p, { slug, ingestToken, ingestPath })}
           </ProviderCard>
@@ -70,9 +71,9 @@ export function IntegrationsPanel({
   );
 }
 
-/** The connect surface a provider row asks for. `planned` gets none; the rest dispatch on the
- *  mechanism the row declares, so the switch is exhaustive over `ConnectKind` by type — a new kind is
- *  a compile error here rather than a card that silently offers nothing.
+/** The connect surface a provider row asks for. `planned` gets none. Available rows dispatch on
+ *  `CONNECT_SETUP[id]` (total over provider ids — a new id is a compile error until it is mapped to a
+ *  panel, or to `none` with a reason). `connectKind` names the mechanism; it is not the panel.
  *
  *  Called as a FUNCTION, not rendered as `<ConnectSurface/>`: a component element is always truthy,
  *  so a planned provider would hand ProviderCard a non-null child and draw an empty hairline block
@@ -82,10 +83,22 @@ function connectSurface(
   { slug, ingestToken, ingestPath }: { slug: string; ingestToken: string; ingestPath: string },
 ): React.ReactNode {
   if (provider.status !== "available") return null;
-  switch (provider.connectKind) {
-    case "otel-push":
+  const setup = CONNECT_SETUP[provider.id];
+  switch (setup.panel) {
+    case "claude-code":
       return <ClaudeCodeSetup slug={slug} ingestToken={ingestToken} ingestPath={ingestPath} />;
-    case "admin-pull":
+    case "copilot":
       return <CopilotSetup slug={slug} />;
+    case "none":
+      return <OpenAISetup reason={setup.reason} />;
   }
+}
+
+/** Explicit unshipped surface so an available openai admin-pull row cannot inherit CopilotSetup. */
+function OpenAISetup({ reason }: { reason: string }) {
+  return (
+    <p data-testid="openai-setup" className="type-body-sm text-slate-400">
+      {reason}
+    </p>
+  );
 }

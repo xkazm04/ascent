@@ -105,6 +105,48 @@ async function looksLikeNavigation(): Promise<boolean> {
   return (h.get("accept") ?? "").includes("text/html");
 }
 
+type HeaderGetter = { get: (name: string) => string | null };
+
+/** First non-empty header. URIs are not comma-split — query values may contain commas. */
+function headerValue(h: HeaderGetter, name: string): string | null {
+  const v = h.get(name)?.trim();
+  return v ? v : null;
+}
+
+/**
+ * Reconstruct the path the browser asked for. requireViewer is not threaded a Request (callers
+ * sit deep in mutating API routes), so we recover it from headers Next / a reverse proxy already
+ * set: x-forwarded-uri (proxy original URI), next-url (Next request URL), else x-invoke-path
+ * (Next invoke path; origin comes from host separately).
+ */
+function rawRequestedPath(h: HeaderGetter): string | null {
+  const forwarded = headerValue(h, "x-forwarded-uri");
+  if (forwarded) return forwarded;
+  const nextUrl = headerValue(h, "next-url");
+  if (nextUrl) return nextUrl;
+  const invoke = headerValue(h, "x-invoke-path");
+  if (invoke) return invoke.startsWith("/") ? invoke : `/${invoke}`;
+  return null;
+}
+
+/**
+ * Candidate for safeNext: root-relative values (including `//host`) pass through so the guard
+ * can reject protocol-relative / backslash open-redirects. An absolute http(s) URL contributes
+ * pathname+search+hash only when its host matches the redirect host (next-url is typically the
+ * full request URL); any other origin is left absolute so safeNext rejects it.
+ */
+function pathCandidate(raw: string, host: string): string {
+  if (raw[0] === "/") return raw;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return raw;
+    if (u.host.toLowerCase() !== host.toLowerCase()) return raw;
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return raw;
+  }
+}
+
 /**
  * API-route gate, the Supabase sibling of requireOrgAccess: returns a 401 NextResponse when the
  * login wall is enforced and there is no viewer, or null when the request may proceed. No-op (null)
@@ -112,28 +154,35 @@ async function looksLikeNavigation(): Promise<boolean> {
  *
  * G6-12: a lapsed session hitting a gated route via top-level navigation used to get a raw JSON 401
  * body with no path back to login — a dead end for a human, since nothing on that screen is clickable.
- * Navigable requests (per `looksLikeNavigation`) now get a 303 redirect to the sign-in page instead;
- * every other caller (fetch/XHR — the overwhelming majority of this gate's callers, which parse the
- * JSON body themselves) is completely unaffected and still gets the 401 JSON it already handles.
+ * Navigable requests (per `looksLikeNavigation`) now 303 to `/onboarding?next=<safe path>`
+ * (path reconstructed from headers, run through safeNext); every other caller (fetch/XHR — the
+ * overwhelming majority of this gate's callers, which parse the JSON body themselves) is
+ * completely unaffected and still gets the 401 JSON it already handles.
  */
 export async function requireViewer(): Promise<NextResponse | null> {
   if (!authGateEnabled()) return null;
   if (await getViewer()) return null;
   if (await looksLikeNavigation()) {
-    // No request/pathname is threaded through this gate (it's called deep inside mutating API routes
-    // with no page context to return to), so this sends the visitor to the app's normal sign-in
-    // landing rather than guessing at a `next` target it can't verify. Origin is rebuilt from headers
-    // the same way publicOriginForRequest (src/lib/auth.ts) does for a proxied deployment — prefer the
-    // EXTERNAL forwarded host/proto over any internal one, validating the forwarded host against a
-    // plain hostname[:port] grammar so an attacker-controlled header can't rewrite the redirect target
-    // (this module deliberately avoids a static import of @/lib/auth's copy — see resolveViewerLogin's
-    // comment on keeping this file's Edge-safe import graph).
+    // Origin is rebuilt from headers the same way publicOriginForRequest (src/lib/auth.ts) does for
+    // a proxied deployment — prefer the EXTERNAL forwarded host/proto over any internal one,
+    // validating the forwarded host against a plain hostname[:port] grammar so an attacker-controlled
+    // header can't rewrite the redirect target. The requested path is reconstructed from headers
+    // (this gate is not threaded a Request) and attached as ?next= after safeNext() — the shared
+    // open-redirect guard the OAuth callback uses. safeNext is imported lazily so this file keeps
+    // its Edge-safe import graph (see resolveViewerLogin).
     const h = await headers();
     const fwdProto = h.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
     const proto = fwdProto === "http" ? "http" : "https";
     const fwdHost = h.get("x-forwarded-host")?.split(",")[0]?.trim();
     const host = fwdHost && /^[A-Za-z0-9.-]+(:\d{1,5})?$/.test(fwdHost) ? fwdHost : h.get("host");
-    if (host) return NextResponse.redirect(new URL("/onboarding", `${proto}://${host}`), { status: 303 });
+    if (host) {
+      const dest = new URL("/onboarding", `${proto}://${host}`);
+      const { safeNext } = await import("@/lib/auth");
+      const raw = rawRequestedPath(h);
+      const next = raw ? safeNext(pathCandidate(raw, host), "") : "";
+      if (next && next !== "/" && next !== "/onboarding") dest.searchParams.set("next", next);
+      return NextResponse.redirect(dest, { status: 303 });
+    }
     // No usable host header at all (unexpected outside a real HTTP request, e.g. a malformed proxy) —
     // fail back to the JSON 401 rather than constructing an invalid redirect URL.
   }

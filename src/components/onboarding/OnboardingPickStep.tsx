@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { demoOrgHref } from "@/lib/site";
+import { DEMO_ORG_SLUG, demoOrgHref } from "@/lib/site";
 
 /** A GitHub App installation the signed-in user can scan through (private repos included). */
 export interface Installation {
   login: string;
   id: string;
 }
-
-const SUGGESTIONS = ["vercel", "anthropics", "openai"];
-
+// Demo org first; two well-known publics fill remaining chips when distinct.
+export const pickTryChips = (demo: string) => [demo, ...["vercel", "anthropics", "openai"].filter((s) => s !== demo).slice(0, 2)];
+const SUGGESTIONS = pickTryChips(DEMO_ORG_SLUG);
 /** Which of the three entry points on this step produced the current `error`. Used to route the
  *  error to the control that actually caused it — G6-10: focus/announcement used to always jump to
  *  the handle input even when an installation or suggested-org button failed, disorienting keyboard

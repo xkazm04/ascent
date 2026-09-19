@@ -96,6 +96,20 @@ const WAVE1_LEDGERS = [
   // failure — which is how a whole table quietly stops being erased.
   "repoAdmission",
   "installation",
+  // Remaining org-level tenant ledgers: BYOM ciphertext, API tokens, alert history. OrgMemory
+  // beyond Athena is NOT in this array — that table is already a dual-predicate stub because
+  // eraseOrgAthena reads it first with source:"athena"; a generic ledger would make the two
+  // sweeps share rows and double-count the preview.
+  "orgLlmConfig",
+  "orgApiToken",
+  "alertEvent",
+  // Latest-scan evidence persistScanReport writes on Repository. Drained in eraseRepo (keyed by
+  // repoId), not eraseOrgLedgers: a repo-scoped erase must take them without sweeping the tenant,
+  // and a fake that omits a delegate makes that drain THROW rather than silently skip.
+  "aiChange",
+  "repoContributor",
+  "repoTeam",
+  "deployment",
 ] as const;
 type Wave1Ledger = (typeof WAVE1_LEDGERS)[number];
 type LedgerDelegate = {
@@ -103,6 +117,41 @@ type LedgerDelegate = {
   count: ReturnType<typeof vi.fn>;
   deleteMany: ReturnType<typeof vi.fn>;
 };
+
+const ATHENA_SOURCE = "athena";
+
+/** Dual-predicate OrgMemory store: Athena's sweep (`source: "athena"`) and the remaining-memory
+ *  drain (anything else) share one delegate so a test can prove the two counters do not overlap. */
+function makeOrgMemoryStore(seed: { athena?: string[]; remaining?: string[] } = {}) {
+  const athena = [...(seed.athena ?? [])];
+  const remaining = [...(seed.remaining ?? [])];
+  const pick = (where: { source?: unknown } | undefined) =>
+    where?.source === ATHENA_SOURCE ? athena : remaining;
+  return {
+    athena,
+    remaining,
+    delegate: {
+      findMany: vi.fn(async ({ where, take }: { where?: { source?: unknown }; take: number }) =>
+        pick(where).slice(0, take).map((id) => ({ id })),
+      ),
+      count: vi.fn(async ({ where }: { where?: { source?: unknown } } = {}) => pick(where).length),
+      deleteMany: vi.fn(async ({ where }: { where?: { id?: { in: string[] } } } = {}) => {
+        const ids = where?.id?.in ?? [...athena, ...remaining];
+        let count = 0;
+        for (const id of ids) {
+          for (const arr of [athena, remaining]) {
+            const at = arr.indexOf(id);
+            if (at >= 0) {
+              arr.splice(at, 1);
+              count++;
+            }
+          }
+        }
+        return { count };
+      }),
+    } satisfies LedgerDelegate,
+  };
+}
 
 /**
  * Stateful delegates for the wave-1 ledgers: deleted ids really leave `rows`, so the paging loops
@@ -147,9 +196,31 @@ function makeWave1Ledgers(seed: Partial<Record<Wave1Ledger, string[]>> = {}) {
   return { rows, delegates };
 }
 
+/** Scan-graph child counts the dry-run path reads. Empty by default so pre-existing fixtures that
+ *  never seeded dimensions still get a measured 0 instead of throwing. */
+function scanGraphDelegates(seed: { dimensions?: number; recommendations?: number; events?: number } = {}) {
+  return {
+    scanDimension: {
+      count: vi.fn(async () => seed.dimensions ?? 0),
+      findMany: vi.fn(async () => []),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
+    recommendation: {
+      count: vi.fn(async () => seed.recommendations ?? 0),
+      findMany: vi.fn(async () => []),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
+    recommendationEvent: {
+      count: vi.fn(async () => seed.events ?? 0),
+      findMany: vi.fn(async () => []),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
+  };
+}
+
 /** The same delegates, empty — the default every pre-existing fixture in this file gets. */
 function wave1Delegates() {
-  return makeWave1Ledgers().delegates;
+  return { ...makeWave1Ledgers().delegates, ...scanGraphDelegates() };
 }
 
 // Most fixtures in this file deliberately use tiny windows (retentionMaxScans: 1 or 2) to exercise the
@@ -336,6 +407,8 @@ describe("purgeExpiredData — destructive-override safety floor + dry run (data
           { repoId: "r1", _count: { _all: 5 } },
           { repoId: "r2", _count: { _all: 1 } },
         ]),
+        // Stale-id walk for dependent counts. Empty → measured 0 dependents (G4), not a throw.
+        findMany: vi.fn(async () => []),
       },
       auditLog: { count: vi.fn(async () => 4) },
       $transaction: vi.fn(),
@@ -353,6 +426,81 @@ describe("purgeExpiredData — destructive-override safety floor + dry run (data
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(recordAudit).not.toHaveBeenCalled();
     expect(purgeStalePublicScanQuota).not.toHaveBeenCalled();
+  });
+
+  it("dry run counts dependents of STALE scans only, over the same skip:max window the delete uses (G4)", async () => {
+    // Newest-first: kept_1 is inside the keep-window (max=1); stale_* die. Dependents on the kept
+    // scan must not inflate the preview — that would be counting rows the confirmed run leaves.
+    const ordered = ["kept_1", "stale_1", "stale_2"];
+    const dims: Record<string, number> = { kept_1: 9, stale_1: 3, stale_2: 5 };
+    const recs: Record<string, number> = { kept_1: 4, stale_1: 1, stale_2: 1 };
+    const events: Record<string, number> = { kept_1: 8, stale_1: 2, stale_2: 3 };
+    const outcomesByScan: Record<string, string[]> = {
+      kept_1: ["io_kept"],
+      stale_1: ["io_stale"],
+      stale_2: ["io_stale", "io_straddle"],
+    };
+    const prisma = {
+      ...wave1Delegates(),
+      organization: {
+        findMany: vi.fn(async () => [{ id: "org_1", slug: "acme", retentionMaxScans: 1, retentionAuditDays: 7 }]),
+      },
+      scan: {
+        groupBy: vi.fn(async () => [{ repoId: "r1", _count: { _all: 3 } }]),
+        findMany: vi.fn(async ({ skip = 0, take = 500 }: { skip?: number; take?: number }) =>
+          ordered.slice(skip, skip + take).map((id) => ({ id })),
+        ),
+      },
+      scanDimension: {
+        count: vi.fn(async ({ where }: { where: { scanId: { in: string[] } } }) =>
+          where.scanId.in.reduce((n, id) => n + (dims[id] ?? 0), 0),
+        ),
+      },
+      recommendation: {
+        count: vi.fn(async ({ where }: { where: { scanId: { in: string[] } } }) =>
+          where.scanId.in.reduce((n, id) => n + (recs[id] ?? 0), 0),
+        ),
+      },
+      recommendationEvent: {
+        count: vi.fn(async ({ where }: { where: { recommendation: { scanId: { in: string[] } } } }) =>
+          where.recommendation.scanId.in.reduce((n, id) => n + (events[id] ?? 0), 0),
+        ),
+      },
+      interventionOutcome: {
+        count: vi.fn(
+          async ({
+            where,
+          }: {
+            where: { OR: Array<{ beforeScanId?: { in: string[] }; afterScanId?: { in: string[] } }> };
+          }) => {
+            const ids = new Set([
+              ...(where.OR[0]?.beforeScanId?.in ?? []),
+              ...(where.OR[1]?.afterScanId?.in ?? []),
+            ]);
+            const out = new Set<string>();
+            for (const id of ids) for (const o of outcomesByScan[id] ?? []) out.add(o);
+            return out.size;
+          },
+        ),
+      },
+      conformanceFinding: {
+        count: vi.fn(async () => 6),
+      },
+      auditLog: { count: vi.fn(async () => 0) },
+      $transaction: vi.fn(),
+    };
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const summary = await purgeExpiredData({ dryRun: true });
+
+    expect(summary!.scansDeleted).toBe(2);
+    expect(summary!.dimensionsDeleted).toBe(8); // 3+5, not 9+3+5
+    expect(summary!.recommendationsDeleted).toBe(2);
+    expect(summary!.recommendationEventsDeleted).toBe(5);
+    expect(summary!.outcomesDeleted).toBe(2); // io_stale + io_straddle, not io_kept
+    expect(summary!.conformanceFindingsDeleted).toBe(6);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(recordAudit).not.toHaveBeenCalled();
   });
 });
 
@@ -1626,6 +1774,7 @@ function fakeErasePrisma(seed?: {
   athenaThreads?: string[];
   athenaIdentity?: string[];
   athenaMemories?: string[];
+  remainingMemories?: string[];
 }) {
   const repoIds = seed?.repos ?? ["repo_1", "repo_2"];
   const scansByRepo: Record<string, string[]> = {};
@@ -1649,9 +1798,13 @@ function fakeErasePrisma(seed?: {
     athenaProposalsByThread[t] = [`${t}_prop`];
   }
   const athenaIdentityRows = [...(seed?.athenaIdentity ?? ["ident_constitution", "ident_self_model"])];
-  /** OrgMemory rows SHE wrote. Rows from other sources are deliberately absent from the fixture —
-   *  the sweep's predicate is `source: "athena"`, and this fake only ever serves that predicate. */
-  const athenaMemories = [...(seed?.athenaMemories ?? ["mem_1", "mem_2", "mem_3"])];
+  /** OrgMemory rows SHE wrote, plus remaining memories (empty by default so Athena tests stay
+   *  isolated). The delegate routes on `where.source === "athena"` vs everything else. */
+  const memoryStore = makeOrgMemoryStore({
+    athena: seed?.athenaMemories ?? ["mem_1", "mem_2", "mem_3"],
+    remaining: seed?.remainingMemories ?? [],
+  });
+  const athenaMemories = memoryStore.athena;
   /** Deletes as issued, so a test can assert proposals→turns→threads (no FK cascade). */
   const athenaDeleteOrder: string[] = [];
   const cacheResets: { id: string; data: Record<string, unknown> }[] = [];
@@ -1771,6 +1924,11 @@ function fakeErasePrisma(seed?: {
       ),
       count: vi.fn(async ({ where }: { where: { repoId: string } }) => (scansByRepo[where.repoId] ?? []).length),
     },
+    // Dry-run scan-graph dependents: same per-repo constants the apply-path tx deleteMany returns,
+    // so a preview of this fixture equals the confirmed run (2 repos × these).
+    scanDimension: { count: vi.fn(async () => 4) },
+    recommendation: { count: vi.fn(async () => 1), findMany: vi.fn(async () => [{ id: "rec_1" }]) },
+    recommendationEvent: { count: vi.fn(async () => 2) },
     loopRun: {
       // Cursor-paged like the real read; deleted runs leave the fixture, so the real path's
       // cursor-less paging terminates for the same reason it does in production.
@@ -1819,29 +1977,7 @@ function fakeErasePrisma(seed?: {
         return { count };
       }),
     },
-    orgMemory: {
-      // The ONLY predicate this fake serves is the sweep's own `{ orgId, source: "athena" }`; the
-      // assertion below pins it, so a widened predicate fails loudly instead of quietly erasing more.
-      findMany: vi.fn(async ({ where, take }: { where: { source: string }; take: number }) => {
-        expect(where.source).toBe("athena");
-        return athenaMemories.slice(0, take).map((id) => ({ id }));
-      }),
-      count: vi.fn(async ({ where }: { where: { source: string } }) => {
-        expect(where.source).toBe("athena");
-        return athenaMemories.length;
-      }),
-      deleteMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => {
-        let count = 0;
-        for (const id of where.id.in) {
-          const at = athenaMemories.indexOf(id);
-          if (at >= 0) {
-            athenaMemories.splice(at, 1);
-            count++;
-          }
-        }
-        return { count };
-      }),
-    },
+    orgMemory: memoryStore.delegate,
     auditLog: {
       // Serves BOTH readers: the delete sweep (ids only) and the redaction loop (id/action/orgId/at,
       // cursor-paged). `skip` is honored so the cursor walk advances instead of re-reading page one.
@@ -1884,6 +2020,7 @@ function fakeErasePrisma(seed?: {
     athenaProposalsByThread,
     athenaIdentityRows,
     athenaMemories,
+    remainingMemories: memoryStore.remaining,
     athenaDeleteOrder,
   };
 }
@@ -1952,7 +2089,86 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
     // Scan-derived caches on Repository are cleared too, so an "erased" repo can't still render its
     // cached passport / tech stack on the dashboard.
     expect(cacheResets.map((c) => c.id).sort()).toEqual(["repo_1", "repo_2"]);
-    expect(cacheResets[0]!.data).toMatchObject({ techStackJson: null, passportJson: null, lastScanAt: null });
+    expect(cacheResets[0]!.data).toEqual({
+      techStackJson: null,
+      passportJson: null,
+      contextHealthJson: null,
+      manifestJson: null,
+      guidanceGraphJson: null,
+      aiConformance: null,
+      aiConformanceFails: null,
+      aiConformanceWarns: null,
+      aiConformanceAt: null,
+      headSha: null,
+      headEtag: null,
+      lastScanAt: null,
+      lastScanStatus: null,
+      lastScanError: null,
+      lastScanAttemptAt: null,
+    });
+  });
+
+  it("a preview counts scan-graph dependents (not 0) over the same keep-nothing window", async () => {
+    const { prisma } = fakeErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.dryRun).toBe(true);
+    expect(preview.scansDeleted).toBe(4);
+    expect(preview.dimensionsDeleted).toBe(8);
+    expect(preview.recommendationsDeleted).toBe(2);
+    expect(preview.recommendationEventsDeleted).toBe(4);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+
+    const done = await eraseOrgData({ orgSlug: "acme" });
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    expect(preview.dimensionsDeleted).toBe(done.dimensionsDeleted);
+    expect(preview.recommendationsDeleted).toBe(done.recommendationsDeleted);
+    expect(preview.recommendationEventsDeleted).toBe(done.recommendationEventsDeleted);
+  });
+
+  // persistScanReport also caches contextHealth/manifest/guidanceGraph + aiConformance* on
+  // Repository and writes AiChange / RepoContributor / RepoTeam / Deployment as latest-scan
+  // evidence. ERASED_REPO_CACHE_RESET used to null only techStack/passport/head, so a "complete"
+  // DSR still rendered Passports, contributor ledgers, CODEOWNERS teams and deployments.
+  it("resets every leftover scan-derived cache and evidence table (dryRun keeps them, apply clears 8/8)", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    const cacheResets: { id: string; data: Record<string, unknown> }[] = [];
+    prisma.repository.update = vi.fn(
+      async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        cacheResets.push({ id: where.id, data });
+        return { id: where.id };
+      },
+    );
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const leftoverTables = ["aiChange", "repoContributor", "repoTeam", "deployment"] as const;
+    const leftoverCaches = [
+      "contextHealthJson",
+      "manifestJson",
+      "guidanceGraphJson",
+      "aiConformance",
+      "aiConformanceFails",
+      "aiConformanceWarns",
+      "aiConformanceAt",
+    ] as const;
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+    expect(preview.ok && preview.dryRun).toBe(true);
+    expect(cacheResets).toHaveLength(0);
+    for (const name of leftoverTables) expect(ledgers.rows[name].length).toBeGreaterThan(0);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+    expect(outcome.ok && outcome.complete).toBe(true);
+    expect(cacheResets).toHaveLength(1);
+    for (const field of leftoverCaches) expect(cacheResets[0]!.data[field]).toBeNull();
+    for (const name of leftoverTables) {
+      expect(ledgers.rows[name]).toEqual([]);
+      expect(prisma[name].findMany.mock.calls[0]![0].where).toEqual({ repoId: "repo_1" });
+    }
   });
 
   // The improvement loop (src/lib/local/loop-engine.ts) writes org-scoped tenant data: which repos
@@ -2071,12 +2287,21 @@ describe("eraseOrgData — on-demand DSR erasure", () => {
 
     await eraseOrgData({ orgSlug: "acme" });
 
-    // The fixture asserts `where.source === "athena"` on every read; this pins the DELETE side too,
-    // so a future widening to "all of the org's memory" cannot slip in under this counter's name.
-    for (const call of f.prisma.orgMemory.findMany.mock.calls) {
-      expect((call[0] as { where: { source: string } }).where.source).toBe("athena");
-    }
-    expect(f.prisma.orgMemory.findMany).toHaveBeenCalled();
+    // Athena's own counter stays source-narrow; remaining memories are a separate sweep whose
+    // predicate excludes her writes so a preview cannot double-count them.
+    const athenaReads = f.prisma.orgMemory.findMany.mock.calls.filter(
+      (call) => (call[0] as { where: { source?: string } }).where.source === "athena",
+    );
+    const remainingReads = f.prisma.orgMemory.findMany.mock.calls.filter(
+      (call) => (call[0] as { where: { source?: string } }).where.source !== "athena",
+    );
+    expect(athenaReads.length).toBeGreaterThan(0);
+    expect(remainingReads.length).toBeGreaterThan(0);
+    expect((remainingReads[0]![0] as { where: { orgId: string; OR: unknown } }).where.orgId).toBe("org_1");
+    expect((remainingReads[0]![0] as { where: { OR: unknown } }).where.OR).toEqual([
+      { source: { not: "athena" } },
+      { source: null },
+    ]);
   });
 
   it("a repo-scoped erase never touches Athena — a thread is not a repo's row", async () => {
@@ -2383,6 +2608,7 @@ function fakeWave1PurgePrisma() {
 
   const prisma = {
     ...ledgers.delegates,
+    ...scanGraphDelegates(),
     organization: {
       findMany: vi.fn(async () => [{ id: "org_1", slug: "acme", retentionMaxScans: 5, retentionAuditDays: 30 }]),
     },
@@ -2469,6 +2695,8 @@ describe("purgeExpiredData — moonshot wave-1 ledger cascades", () => {
 
     expect(summary?.usageEventsDeleted).toBe(3);
     expect(summary?.conformanceReportsDeleted).toBe(1);
+    expect(summary?.conformanceFindingsDeleted).toBe(2);
+    expect(summary?.outcomesDeleted).toBe(2);
     expect(ledgers.rows.usageEvent).toEqual(["ue_1", "ue_2", "ue_3"]);
     expect(ledgers.rows.conformanceReport).toEqual(["cr_1"]);
     expect(recordAudit).not.toHaveBeenCalled();
@@ -2477,6 +2705,10 @@ describe("purgeExpiredData — moonshot wave-1 ledger cascades", () => {
 
 /** Erase fixture: the org-scoped variant of the same tables, all seeded. */
 function fakeWave1ErasePrisma() {
+  const memories = makeOrgMemoryStore({
+    athena: ["mem_ath_1"],
+    remaining: ["om_1", "om_2"],
+  });
   const ledgers = makeWave1Ledgers({
     interventionOutcome: ["io_1"],
     usageEvent: ["ue_1", "ue_2"],
@@ -2517,6 +2749,18 @@ function fakeWave1ErasePrisma() {
     // would pass both while never being erased at all.
     repoAdmission: ["ad_1", "ad_2"],
     installation: ["in_1"],
+    // Remaining org-level ledgers (BYOM / API tokens / alerts). Seeded for the same "nothing
+    // survives" / "preview removes nothing" reason; remaining OrgMemory is a dual-predicate stub
+    // beside this fixture, not a WAVE1_LEDGERS row.
+    orgLlmConfig: ["llm_1"],
+    orgApiToken: ["tok_1", "tok_2"],
+    alertEvent: ["al_1", "al_2", "al_3"],
+    // persistScanReport's latest-scan evidence — seeded so the "nothing survives" / "preview removes
+    // nothing" assertions cannot pass while these four tables are never touched.
+    aiChange: ["ac_1", "ac_2"],
+    repoContributor: ["cn_1"],
+    repoTeam: ["tm_1"],
+    deployment: ["dp_1", "dp_2"],
   });
   const tx = {
     ...ledgers.delegates,
@@ -2532,6 +2776,7 @@ function fakeWave1ErasePrisma() {
   };
   const prisma = {
     ...ledgers.delegates,
+    ...scanGraphDelegates(),
     organization: { findUnique: vi.fn(async () => ({ id: "org_1" })) },
     repository: {
       findMany: vi.fn(async () => [{ id: "repo_1" }]),
@@ -2545,15 +2790,11 @@ function fakeWave1ErasePrisma() {
     athenaTurn: { count: vi.fn(async () => 0) },
     athenaProposal: { count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
     athenaIdentity: { count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
-    orgMemory: {
-      findMany: vi.fn(async () => []),
-      count: vi.fn(async () => 0),
-      deleteMany: vi.fn(async () => ({ count: 0 })),
-    },
+    orgMemory: memories.delegate,
     auditLog: { findMany: vi.fn(async () => []), count: vi.fn(async () => 0), deleteMany: vi.fn(async () => ({ count: 0 })) },
     $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   };
-  return { prisma, tx, ledgers };
+  return { prisma, tx, ledgers, memories };
 }
 
 describe("eraseOrgData — moonshot wave-1 ledger cascades", () => {
@@ -2840,6 +3081,133 @@ describe("eraseOrgData — moonshot wave-4 ledger cascades", () => {
     expect(ledgers.rows.installation).toEqual(["in_1"]);
     expect(prisma.repoAdmission.deleteMany).not.toHaveBeenCalled();
     expect(prisma.installation.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// Remaining org-level tenant ledgers: OrgMemory beyond Athena, OrgLlmConfig (BYOM ciphertext),
+// OrgApiToken, AlertEvent. None has an FK cascade that fires — an erase never deletes the
+// Organization row — so without these drains an "erasure" leaves the tenant's knowledge store, its
+// BYOM secret, its API tokens and its alert bodies. Gate: seeded rows of each family; preview count
+// equals delete count.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+describe("eraseOrgData — remaining tenant ledgers (OrgMemory, BYOM, API tokens, alerts)", () => {
+  beforeEach(() => {
+    mockGetPrisma.mockReset();
+    mockIsDbConfigured.mockReset();
+    mockIsDbConfigured.mockReturnValue(true);
+    vi.mocked(recordAudit).mockResolvedValue(true);
+    delete process.env[ERASE_AUDIT_FORCE_ENV];
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it("org scope: drains all four leftover families, org-scoped, and reports what it removed", async () => {
+    const { prisma, ledgers, memories } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.orgMemoriesDeleted).toBe(2);
+    expect(outcome.athenaMemoriesDeleted).toBe(1);
+    expect(outcome.llmConfigsDeleted).toBe(1);
+    expect(outcome.apiTokensDeleted).toBe(2);
+    expect(outcome.alertEventsDeleted).toBe(3);
+    expect(memories.remaining).toEqual([]);
+    expect(memories.athena).toEqual([]);
+    for (const name of ["orgLlmConfig", "orgApiToken", "alertEvent"] as const) {
+      expect(ledgers.rows[name]).toEqual([]);
+      expect(prisma[name].findMany.mock.calls[0]![0].where).toEqual({ orgId: "org_1" });
+    }
+  });
+
+  it("a preview counts each family over the delete's own predicate and removes nothing", async () => {
+    const { prisma, ledgers, memories } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    expect(preview.orgMemoriesDeleted).toBe(2);
+    expect(preview.athenaMemoriesDeleted).toBe(1);
+    expect(preview.llmConfigsDeleted).toBe(1);
+    expect(preview.apiTokensDeleted).toBe(2);
+    expect(preview.alertEventsDeleted).toBe(3);
+    expect(memories.remaining).toEqual(["om_1", "om_2"]);
+    expect(memories.athena).toEqual(["mem_ath_1"]);
+    expect(ledgers.rows.orgLlmConfig).toEqual(["llm_1"]);
+    expect(ledgers.rows.orgApiToken).toEqual(["tok_1", "tok_2"]);
+    expect(ledgers.rows.alertEvent).toEqual(["al_1", "al_2", "al_3"]);
+    expect(prisma.orgLlmConfig.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.orgApiToken.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.alertEvent.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.orgMemory.deleteMany).not.toHaveBeenCalled();
+
+    const done = await eraseOrgData({ orgSlug: "acme" });
+    expect(done.ok).toBe(true);
+    if (!done.ok) return;
+    expect(preview.orgMemoriesDeleted).toBe(done.orgMemoriesDeleted);
+    expect(preview.athenaMemoriesDeleted).toBe(done.athenaMemoriesDeleted);
+    expect(preview.llmConfigsDeleted).toBe(done.llmConfigsDeleted);
+    expect(preview.apiTokensDeleted).toBe(done.apiTokensDeleted);
+    expect(preview.alertEventsDeleted).toBe(done.alertEventsDeleted);
+  });
+
+  it("remaining OrgMemory excludes Athena so a preview cannot double-count her episodes", async () => {
+    const { prisma } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const preview = await eraseOrgData({ orgSlug: "acme", dryRun: true });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    // Two remaining + one Athena, reported on two counters — not 3+1 and not 3+3.
+    expect(preview.orgMemoriesDeleted + preview.athenaMemoriesDeleted).toBe(3);
+    expect(preview.orgMemoriesDeleted).not.toBe(preview.athenaMemoriesDeleted);
+
+    const remainingWhere = prisma.orgMemory.count.mock.calls
+      .map((call) => (call[0] as { where?: { OR?: unknown; source?: string } } | undefined)?.where)
+      .find((where) => where?.OR);
+    expect(remainingWhere).toEqual({
+      orgId: "org_1",
+      OR: [{ source: { not: "athena" } }, { source: null }],
+    });
+  });
+
+  it("a repo-scoped erase never touches the four leftover families (they are the org's rows)", async () => {
+    const { prisma, ledgers, memories } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme", repoFullName: "acme/api" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.orgMemoriesDeleted).toBe(0);
+    expect(outcome.llmConfigsDeleted).toBe(0);
+    expect(outcome.apiTokensDeleted).toBe(0);
+    expect(outcome.alertEventsDeleted).toBe(0);
+    expect(memories.remaining).toEqual(["om_1", "om_2"]);
+    expect(ledgers.rows.orgLlmConfig).toEqual(["llm_1"]);
+    expect(ledgers.rows.orgApiToken).toEqual(["tok_1", "tok_2"]);
+    expect(ledgers.rows.alertEvent).toEqual(["al_1", "al_2", "al_3"]);
+    expect(prisma.orgLlmConfig.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.orgApiToken.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.alertEvent.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("records the four leftover counters in the data.erased audit meta", async () => {
+    const { prisma } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await eraseOrgData({ orgSlug: "acme", actorId: "owner-login" });
+
+    const meta = vi.mocked(recordAudit).mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(meta.orgMemoriesDeleted).toBe(2);
+    expect(meta.llmConfigsDeleted).toBe(1);
+    expect(meta.apiTokensDeleted).toBe(2);
+    expect(meta.alertEventsDeleted).toBe(3);
   });
 });
 

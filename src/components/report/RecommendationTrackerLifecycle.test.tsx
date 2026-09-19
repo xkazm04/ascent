@@ -6,10 +6,13 @@
 //     standing decision the next scan's prompt reads.
 //   * Direction 2 — a done row shows whether its dimension actually moved, with "not re-measured"
 //     as a state of its own.
+//   * Direction 3 — the append-only event trail (sandbox notes, status flips) is fetched on expand
+//     from GET /api/recommendations/:id/events. Loading, error, empty, and a truncated page are
+//     four distinct states; an open trail refetches after a successful save.
 // The payoff/meta chips and the orphan panel are stubbed so these target the tracker's own wiring.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { PersistedRecommendation, ScanReport } from "@/lib/types";
 
 vi.mock("@/components/report/OrphanedTracking", () => ({ OrphanedTracking: () => null }));
@@ -181,5 +184,106 @@ describe("RecommendationTracker done reconciliation", () => {
       />,
     );
     expect(screen.queryByText(/You marked this done/)).not.toBeInTheDocument();
+  });
+});
+
+// Direction 3: the tracker writes the event trail (status, sandbox notes, dismissal reasons) and
+// never rendered it. Follow-ups already show GET /events on expand; the report row that made the
+// change did not. Fetch waits until open so a report does not fire one request per gap on load.
+describe("RecommendationTracker event trail", () => {
+  function stubEvents(payload: unknown, status = 200) {
+    const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") return new Response(JSON.stringify({ status: "done" }), { status: 200 });
+      if (String(input).includes("/events")) return new Response(JSON.stringify(payload), { status });
+      return new Response("nope", { status: 500 });
+    });
+    vi.stubGlobal("fetch", mock);
+    return mock;
+  }
+
+  function openTrail() {
+    fireEvent.click(screen.getByRole("button", { name: /Show activity for Add CI gate/ }));
+  }
+
+  it("does not fetch the trail until the row is opened", async () => {
+    const fetchMock = stubEvents({ events: [], truncated: false, limit: 200 });
+    render(<RecommendationTracker items={[item()]} report={report} />);
+    expect(fetchMock).not.toHaveBeenCalled();
+    openTrail();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/api\/recommendations\/r1\/events$/);
+  });
+
+  it("renders who changed what, and the sandbox note the commit stamped", async () => {
+    stubEvents({
+      events: [
+        {
+          id: "e1",
+          actor: "alice",
+          kind: "status",
+          from: "open",
+          to: "in_progress",
+          note: "Committed from sandbox simulation, projected +12 pts overall.",
+          at: "2026-09-17T12:00:00.000Z",
+        },
+      ],
+      truncated: false,
+      limit: 200,
+    });
+    render(<RecommendationTracker items={[item()]} report={report} />);
+    openTrail();
+    expect(await screen.findByText("@alice")).toBeInTheDocument();
+    expect(screen.getByText("@alice").closest("li")?.textContent).toMatch(/Status Open → In progress/);
+    expect(screen.getByText(/Committed from sandbox simulation, projected \+12 pts overall/)).toBeInTheDocument();
+    expect(screen.queryByText(/most recent changes/)).not.toBeInTheDocument();
+  });
+
+  it("empty is not an error, and an error is never the empty copy", async () => {
+    stubEvents({ events: [], truncated: false, limit: 200 });
+    const { unmount } = render(<RecommendationTracker items={[item()]} report={report} />);
+    openTrail();
+    expect(await screen.findByText(/No changes recorded yet/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    unmount();
+
+    stubEvents({ error: "nope" }, 500);
+    render(<RecommendationTracker items={[item()]} report={report} />);
+    openTrail();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Couldn’t load history/);
+    expect(screen.queryByText(/No changes recorded yet/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("a truncated page names the route's limit, not a client recount of the array", async () => {
+    stubEvents({
+      events: [{ id: "e1", actor: null, kind: "note", from: null, to: null, note: "kept", at: "2026-09-17T12:00:00.000Z" }],
+      truncated: true,
+      limit: 50,
+    });
+    render(<RecommendationTracker items={[item()]} report={report} />);
+    openTrail();
+    expect(await screen.findByText(/Showing the 50 most recent changes/)).toBeInTheDocument();
+    expect(screen.getByText("system")).toBeInTheDocument();
+    expect(screen.getByText(/noted/)).toBeInTheDocument();
+  });
+
+  it("an open trail refetches after a save so the new event is visible", async () => {
+    let n = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") return new Response(JSON.stringify({ status: "done" }), { status: 200 });
+      n += 1;
+      const events =
+        n === 1
+          ? []
+          : [{ id: "e2", actor: "alice", kind: "status", from: "open", to: "done", note: null, at: "2026-09-18T00:00:00.000Z" }];
+      return new Response(JSON.stringify({ events, truncated: false, limit: 200 }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RecommendationTracker items={[item()]} report={report} />);
+    openTrail();
+    expect(await screen.findByText(/No changes recorded yet/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Recommendation status" }), { target: { value: "done" } });
+    expect(await screen.findByText("@alice")).toBeInTheDocument();
+    expect(screen.getByText("@alice").closest("li")?.textContent).toMatch(/Status Open → Done/);
   });
 });

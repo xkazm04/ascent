@@ -47,8 +47,17 @@ commands and CI setup step (node, python, go, rust, or generic), so a Node repo 
 degrades to placeholders when context is sparse.
 
 `POST /api/practices/generate` accepts `{ repo, practiceId }`, fetches read-only repo
-context from GitHub, calls `buildArtifact`, and returns the spec for **preview** (no
-writes).
+context from GitHub, and returns `{ artifact, shape }` for **preview** (no writes).
+Generation goes through `buildPracticeArtifact` — the same call `applyPracticeToRepo`
+makes — so a caller with standing reviews the same house-or-generic **body** apply
+will commit. For one repo context the generate payload's `artifact.body` equals the
+apply artifact, and `artifactFingerprint` of both matches; a 409 `content-drift` then
+only means the repo changed between preview and apply, never that preview was the
+generic starter while apply baked in the house pattern. `shape` is
+`{ kind: "house", exemplars }` or `{ kind: "generic" }`: the one-line kicker above the
+previewed artifact ("House pattern from N exemplars" vs "Generic starter (no mined
+pattern yet)"). Without standing, orgSlug is omitted: a generic starter, and mined
+structure stays inside the org.
 
 A GitHub failure is answered with the status its *condition* means, via the single
 `githubErrorStatus` mapping in `src/lib/api/github-status.ts` — shared with `/api/scan`,
@@ -101,8 +110,17 @@ base branch").
 Both the single-repo and batch routes go through `applyPracticeToRepo()`, so the
 three behaviors below apply to either. Its inner write (openDraftPr + the uniform
 `path`/`pr`/`reused` audit envelope) is exported as `openArtifactDraftPr()`, which the
-AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply`, see
-[org-intelligence.md](./org-intelligence.md)) instead of forking the customer-repo write path.
+AI-stance module reuses to open its `AI_POLICY.md` PR (`/api/org/ai-stance/apply` and
+`/api/org/ai-stance/apply-batch`, see [org-intelligence.md](./org-intelligence.md)) instead
+of forking the customer-repo write path. The single apply is HITL: `preview: true` or
+`dryRun: true` returns the exact `AI_POLICY.md` bytes (`{ preview, path, body, bytes, version }`)
+without minting an installation token or calling `openDraftPr`. The **admin** role gate still
+runs (policy bytes are org-authored, not public). `StanceApplyControl` shows path, byte count,
+and body before the Open PR button; absent those flags, the write path is unchanged. Fleet
+rollout is `POST /api/org/ai-stance/apply-batch` (`StanceApplyBatch`): the same admin / one-org /
+`MAX_BATCH = 25` / `mapPool` floors as practice apply-batch, through `applyStanceToRepo` →
+`openArtifactDraftPr`, returning `{ results, attempted, skipped }` (N ≤ 25). Confirm uses
+`batchPrConfirm`; one bad repo never aborts the rest.
 
 - **Generation is factored out (2026-08-28).** `buildPracticeArtifact()`
   (`src/lib/practices/artifact.ts`) owns the house-pattern lookup + `buildArtifact` call
@@ -143,7 +161,8 @@ in flight), the drift strip and the **practice library** (`PracticesView` →
 `PracticeRolloutStrip`), one row per practice grouped by dimension (see *The practice library* below).
 Opening a row shows a layer-2 modal (`PracticeDetailModal` →
 `MinedPracticeDetail`) with the embedded `PracticeApply`: pick a target gap repo, **Preview**
-(→ `/generate`, the artifact body in a collapsible block), **Open draft PR** (→ `/apply`, a link
+(→ `/generate`, a one-line shape kicker above the artifact body in a collapsible block:
+"House pattern from N exemplars" or "Generic starter (no mined pattern yet)"), **Open draft PR** (→ `/apply`, a link
 to the PR, labelled "Existing draft PR" when reused), or **Roll out to the fleet**
 (`PracticeApplyBatch` → `/apply-batch`, confirm dialog, neediest-first, `skipped` surfaced).
 Errors surface inline. (Rewritten 2026-09-05; the previous text described the pre-tab card
@@ -242,9 +261,17 @@ application, not an observation of the repo), `measured` beside a scan-derived s
 ## Playbooks: the org's OWN standards (authored, not mined)
 
 Alongside the mined practices, the Practice Library lists **playbooks** an org authors for
-itself (`src/lib/db/playbooks.ts`, `/api/org/playbooks`). Three things connect the two
+itself (`src/lib/db/playbooks.ts`, `/api/org/playbooks`). Four things connect the two
 halves:
 
+- **Seed from the briefing's ranked next move.** `POST /api/org/playbooks` accepts
+  `{ org, fromDim: "D5" }` or `{ org, fromRec: true }` and fills title, dimId, summary and
+  steps from `PLAYBOOK_TEMPLATES` (`src/lib/org/playbook-templates.ts`). `fromRec` reads
+  rank 1 of `getOrgRecommendations` — the same row `briefingNextMove` prints on the
+  executive page, PDF and markdown. The rec's title and dimension carry over; the
+  checklist is the leak-free template for that dim, never LLM-authored (G4). An unknown
+  dim 400s; a blank title without a seed is still rejected. The author form prefills from
+  the same `PLAYBOOK_TEMPLATES` list (`NewPracticeModal`).
 - **Promote a mined practice into a playbook (G7-25).** A mined practice detail carries a
   "Save as playbook →" action that opens the author form pre-filled from the practice:
   its label becomes the title, its dimension carries over, its "what" plus the exemplar
@@ -254,15 +281,20 @@ halves:
   `src/features/shared/practices/promotePractice.ts`), so nothing is silently truncated on
   save. Everything stays editable: a promotion is a review, not a commit.
 - **Fleet rollout for playbooks (G7-24).** `POST /api/org/playbooks/[id]/apply-batch
-  { repos[] }` opens a draft PR seeding the playbook into a whole segment (or the whole
-  fleet) in one action, mirroring the practices batch verbatim. Its bounds: the **admin**
+  { repos[], dryRun?: true }` opens a draft PR seeding the playbook into a whole segment (or the
+  whole fleet) in one action, mirroring the practices batch verbatim. Its bounds: the **admin**
   role (resolved from the playbook's own org; the single-repo `apply` stays member-level),
   every repo must belong to that org (a foreign coordinate fails the whole batch, never
   partially applies), **25 repos per call** after case-insensitive dedupe with the excess
   reported as `skipped`, and `SCAN_CONCURRENCY` lanes. One repo's failure never aborts the
-  rest. UI: `PlaybookApplyBatch.tsx`, behind the same `batchPrConfirm` dialog the practices
-  rollout uses; the single-repo and batch paths are mutually locked. The write sequence
-  itself is single-sourced in `src/lib/org/playbook-apply.ts`, shared with the single route.
+  rest. `dryRun: true` is the HITL preview: it returns `{ repos, starter, skipped }` where
+  `starter` is the exact `playbookStarterFile` bytes that would be committed, after the same
+  admin / tenancy / cap gates, and it returns before `requirePrWriteContext` so no installation
+  token is minted and `applyPlaybookToRepo` is never called. The write path is unchanged when
+  `dryRun` is absent or false. UI: `PlaybookApplyBatch.tsx`, behind the same `batchPrConfirm`
+  dialog the practices rollout uses; the single-repo and batch paths are mutually locked. The
+  write sequence itself is single-sourced in `src/lib/org/playbook-apply.ts`, shared with the
+  single route.
 - **Rollout rollup (G7-20).** `summarizeRollout` (in `practiceRows.ts`) folds the rows
   already on screen into the fleet answer: repos adopting, starter PRs landed / in flight,
   and lift, rendered by `PracticeRolloutStrip.tsx`. It adds no query and no schema: the
@@ -294,14 +326,16 @@ straight at the CI-gates practice and its exemplars.
 | `src/lib/practice-artifact.ts` | `buildArtifact()`: deterministic, language-aware artifact builder. |
 | `src/lib/practices/artifact.ts` | `buildPracticeArtifact()` / `resolveHousePattern()`: the generation step, shared by the PR path and the loop's practice lane. |
 | `src/lib/practice-artifact.test.ts` | Verifies tailored AGENTS.md, language-appropriate CI, non-null for every practice, null for unknown, placeholder degradation. |
-| `src/app/api/practices/generate/route.ts` | Preview endpoint (no writes). |
+| `src/app/api/practices/generate/route.ts` | Preview endpoint (no writes); returns `shape` (house vs generic). |
 | `src/app/api/practices/apply/route.ts` | Apply endpoint: gates + `openDraftPr` + audit. |
 | `src/lib/github/write.ts` | `openDraftPr()`: branch → file → draft PR (idempotent). |
 | `src/features/shared/practices/PracticeApply.tsx` | Preview + apply UI. |
-| `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout: admin-gated, org-scoped, capped at 25 repos/run. |
+| `src/features/shared/practices/PracticePreviewKicker.tsx` | One-line house-vs-generic kicker above the previewed artifact. |
+| `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout: admin-gated, org-scoped, capped at 25 repos/run. `dryRun: true` returns `{ repos, starter, skipped }` and opens 0 PRs. |
 | `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
+| `src/lib/org/playbook-templates.ts` | Leak-free per-dimension starters; `seedPlaybookCreate` prefills POST/form from `fromDim` or the briefing's ranked next move. |
 | `src/features/shared/practices/PracticeRolloutStrip.tsx` | The practice library: every practice grouped by dimension, stage cells beside the counts, source filter, totals below, zero state instead of zeros. Rows: `PracticeRolloutMatrix` · `PracticeRolloutRow` · `PracticeRolloutReadout`; grouping in `practiceRolloutGroups.ts`. |
 | `src/features/shared/practices/foundation/` | Moved from Repositories 2026-09-15: `FoundationRolloutPanel` (+ grid, row view, secrets dialog, `foundationViz.ts`) and `GuidanceCoherenceCard` (+ `coherenceSpread.ts`, `guidanceCoherenceModel.ts`). |
 | `src/features/shared/practices/practiceRolloutViz.ts` | Pure view model: practice × (assessed, adopted, landed, verified) → kit states. Tested. |
@@ -496,16 +530,34 @@ Playbook applies stamp the same ledger under `playbook:<uuid>` beside the existi
 the default branch is the merge evidence). Adoption rows and pattern versions are strictly
 org-internal: no public report, leaderboard, shared corpus or cross-org read.
 
+## Governance perimeter: advisory findings on the repo node (2026-09-17)
+
+The AI-stance apply path reuses this writer's `openArtifactDraftPr` (see *Shared write path* above).
+The published `AI_POLICY.md` is the committed form of the Governance perimeter, whose repo node is
+`RepoNode` in `src/features/standing/governance/stance/perimeterParts.tsx`. Opening a single PR is
+preview-then-confirm: the control posts `preview: true` first, renders the file bytes, and only
+then offers the write. Opening across the fleet is `StanceApplyBatch` →
+`POST /api/org/ai-stance/apply-batch` (admin, one org, cap 25, confirm, per-repo results).
+
+`evaluateStanceCompliance` already emits path-scoped no-AI zones as `advisory: true` findings
+(compliant stays true because every finding is advisory). The node used to drop them
+(`filter((f) => !f.advisory)`), so a declared-not-checked clause was invisible on the repo it binds.
+The node now shows those findings: a muted "N advisory" count, with the finding text on the node's
+title. Non-advisory findings stay on the danger count. The band header's "findings" tally remains
+contradictions only. See [org-intelligence.md](./org-intelligence.md) for the stance perimeter.
+
 ## Known gaps
 
 - (Closed; the entry was wrong, corrected 2026-09-05.) ~~Overwrites existing files~~: `openDraftPr`
   (`src/lib/github/write.ts`, `existingFileSha`) reads the path on the **base** branch and refuses
   with a 409 rather than overwrite it with a starter artifact; it checks base, not the branch, so a
   re-seed of the draft branch stays idempotent. The 25-repo fan-out is the reason the guard exists.
-- **Batch apply is capped**: both `POST /api/practices/apply-batch` and
-  `POST /api/org/playbooks/[id]/apply-batch` are bounded to **25 repos per call** (a
-  deliberate bound, not a limitation to remove: one click must never become hundreds of
-  PRs); larger fleets need repeated, re-confirmed passes. The `base` override has no UI yet.
+- **Batch apply is capped**: `POST /api/practices/apply-batch`,
+  `POST /api/org/playbooks/[id]/apply-batch`, and `POST /api/org/ai-stance/apply-batch`
+  are bounded to **25 repos per call** (a deliberate bound, not a limitation to remove:
+  one click must never become hundreds of PRs); larger fleets need repeated, re-confirmed
+  passes. Playbook apply-batch also accepts `dryRun: true` so the operator can inspect the
+  starter bytes and the capped repo list before the write. The `base` override has no UI yet.
 - (Closed 2026-08-14.) ~~The rollout rollup is page-local.~~ The rollout proof now rides
   the executive briefing: `buildExecBriefing` folds `buildPracticeLibrarySummary(...)
   .rollout` onto `ExecBriefing.proof`, and one shared `briefingProofLine` renders it on the

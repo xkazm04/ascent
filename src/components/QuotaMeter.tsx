@@ -63,10 +63,8 @@ export function QuotaMeter() {
     // uses for this state) instead of a raw amber hex, so a theme change to "warn" propagates here too.
     <p className={`mt-2 type-mono-sm ${low ? "text-warn" : "text-slate-500"}`}>
       <span className="font-semibold">{q.remaining}</span> of {q.limit} free scans left this month
-      {/* A real CTA, not dead text — and the SAME action hierarchy as the report-side QuotaNotice
-          banners (sign in first, plans as fallback), so the two quota surfaces give one answer to
-          "what do I do about the limit". Suppressed while the visitor still holds the FULL allowance:
-          an upsell before anything has been spent is a premature nudge. */}
+      {/* Same CTA hierarchy as QuotaNotice (sign in only when it raises the allowance, else plans).
+          Suppressed while the visitor still holds the FULL allowance. */}
       {q.scope === "anon" && q.remaining < q.limit && (
         <>
           {" "}

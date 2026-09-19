@@ -2,10 +2,15 @@
 // adoption breakdown (in_sync | stale | diverged | local_only) that the Skills heatmap drills into.
 // Shared by all three directions. Server-safe (no hooks): the pointer-PR action lives in
 // RegistryActions and is composed alongside this.
+//
+// Pointing and 30d-sync are R5. Until that pass exists the loader omits the counts, and this
+// panel hatches the meters — unmeasured is not 0%. Reporting (usage-lane contributors) is real.
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { Meter, MeterRow } from "@/components/org/shared/ui";
+import { stateTitle } from "@/components/org/viz";
+import { MatrixHatchDefs, MatrixMark } from "@/components/org/viz/matrixMark";
 import { scoreHex } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { RegistryView } from "@/lib/org/registry-view";
@@ -17,15 +22,31 @@ const SYNC_STATES = [
   { key: "localOnly", label: "local_only", hint: "a skill that exists only in that repo" },
 ] as const;
 
+function UnmeasuredMeter({ label }: { label: string }) {
+  return (
+    <div data-fleet-meter={label} data-state="not-judged">
+      <div className="flex items-center justify-between type-mono-sm uppercase tracking-widest text-slate-500">
+        <span>{label}</span>
+        <span className="relative h-4 w-10 shrink-0" role="img" aria-label={stateTitle("not-judged", label)}>
+          <MatrixHatchDefs />
+          <MatrixMark state="not-judged" alpha={1} />
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: RegistryView; slug: string; layout?: "stacked" | "rows" }) {
   const { reposTotal, reposPointing, reposSynced30d, adoption } = view.fleet;
-  const pointPct = reposTotal === 0 ? 0 : Math.round((reposPointing / reposTotal) * 100);
-  const syncPct = reposPointing === 0 ? 0 : Math.round((reposSynced30d / reposPointing) * 100);
+  const pointingMeasured = typeof reposPointing === "number";
+  const syncedMeasured = typeof reposSynced30d === "number" && pointingMeasured;
+  const pointPct = !pointingMeasured || reposTotal === 0 ? 0 : Math.round((reposPointing / reposTotal) * 100);
+  const syncPct = !syncedMeasured || reposPointing === 0 ? 0 : Math.round((reposSynced30d / reposPointing) * 100);
   const totalStates = SYNC_STATES.reduce((s, x) => s + adoption[x.key], 0);
   // Reporting is a DIFFERENT population from pointing: an installation contributes to the registry's
   // usage lane whether or not its repo carries the pointer, so this is measured against the fleet
-  // total and sits beside the other two meters rather than inside them. It is also the only one of
-  // the three that is real today — pointing/synced stay at zero until the adoption pass (#18).
+  // total and sits beside the other two meters rather than inside them. It is the only one of the
+  // three that is real today — pointing/synced hatch until the adoption pass (R5).
   const reporting = view.telemetry.reposReporting;
   const reportPct = reposTotal === 0 ? 0 : Math.round((reporting / reposTotal) * 100);
 
@@ -39,22 +60,34 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
       </div>
 
       <div className={layout === "rows" ? "space-y-2" : "grid gap-3 sm:grid-cols-2"}>
-        <MeterRow
-          layout="stacked"
-          label={`Pointing · ${reposPointing}/${reposTotal}`}
-          value={pointPct}
-          display={`${pointPct}%`}
-          color={scoreHex(pointPct)}
-          ariaLabel="Repos pointing at the registry"
-        />
-        <MeterRow
-          layout="stacked"
-          label={`Synced 30d · ${reposSynced30d}/${reposPointing}`}
-          value={syncPct}
-          display={`${syncPct}%`}
-          color={scoreHex(syncPct)}
-          ariaLabel="Pointing repos that synced in the last 30 days"
-        />
+        {pointingMeasured ? (
+          <div data-fleet-meter="Pointing" data-state="measured">
+            <MeterRow
+              layout="stacked"
+              label={`Pointing · ${reposPointing}/${reposTotal}`}
+              value={pointPct}
+              display={`${pointPct}%`}
+              color={scoreHex(pointPct)}
+              ariaLabel="Repos pointing at the registry"
+            />
+          </div>
+        ) : (
+          <UnmeasuredMeter label="Pointing" />
+        )}
+        {syncedMeasured ? (
+          <div data-fleet-meter="Synced 30d" data-state="measured">
+            <MeterRow
+              layout="stacked"
+              label={`Synced 30d · ${reposSynced30d}/${reposPointing}`}
+              value={syncPct}
+              display={`${syncPct}%`}
+              color={scoreHex(syncPct)}
+              ariaLabel="Pointing repos that synced in the last 30 days"
+            />
+          </div>
+        ) : (
+          <UnmeasuredMeter label="Synced 30d" />
+        )}
         <MeterRow
           layout="stacked"
           label={`Reporting · ${reporting}/${reposTotal}`}

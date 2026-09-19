@@ -149,6 +149,7 @@ describe("movement formatting helpers", () => {
     expect(movementEventLabel("regression")).toBe("regressed");
     expect(movementEventLabel("level-change")).toBe("level change");
     expect(movementEventLabel("recommendation-closed")).toBe("gap closed");
+    expect(movementEventLabel("control-failed")).toBe("control failed");
     expect(movementEventLabel("")).toBe("moved");
   });
 

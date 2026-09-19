@@ -8,8 +8,10 @@
 // visible marker reserved for the attainment case.
 
 import { describe, expect, it } from "vitest";
-import { GOAL_ATTAINMENT_MARKER, goalBasisMarker, goalMeterAriaLabel } from "./goalViewLogic";
+import { GOAL_ATTAINMENT_MARKER, goalBasisMarker, goalMeterAriaLabel, readout } from "./goalViewLogic";
 import { GOAL_PCT_LABEL } from "@/lib/db/plan";
+import { forecastTrajectory } from "@/lib/maturity/forecast";
+import type { GoalProgressView } from "./GoalViewTypes";
 
 const base = { label: "Fleet to 70", current: 63, target: 70 };
 
@@ -44,5 +46,46 @@ describe("goalMeterAriaLabel", () => {
   it("states the numbers alone when the payload predates the basis fields (still a usable name)", () => {
     expect(goalMeterAriaLabel(base)).toBe("Fleet to 70: 63 of 70");
     expect(goalMeterAriaLabel({ ...base, pctLabel: undefined })).toBe("Fleet to 70: 63 of 70");
+  });
+});
+
+function view(over: Partial<GoalProgressView> = {}): GoalProgressView {
+  return {
+    id: "g1",
+    label: "Fleet to 70",
+    metric: "overall",
+    metricLabel: "Overall",
+    target: 80,
+    current: 60,
+    pct: 50,
+    achieved: false,
+    status: "active",
+    targetDate: "2026-03-01",
+    pace: "behind",
+    perWeek: 35,
+    trajectory: "rising",
+    fitQuality: 1,
+    etaDays: 20,
+    etaDate: "2026-02-21",
+    requiredPerWeek: 15,
+    laggards: [],
+    belowCount: 0,
+    ...over,
+  };
+}
+
+describe("readout — presenters go through composeGoal so they cannot drop the hedge", () => {
+  it("prints Delivery's refusal for a 2-scan-day fit, never the bare pace/ETA", () => {
+    const thin = forecastTrajectory([
+      { date: "2026-08-21", value: 60 },
+      { date: "2026-08-22", value: 65 },
+    ]);
+    const line = readout(view({ forecast: thin }));
+    expect(line).toContain("Not enough history to project");
+    expect(line).not.toMatch(/On pace|Behind:|\/wk/);
+  });
+
+  it("falls back to local copy when the payload predates `forecast`", () => {
+    expect(readout(view())).toMatch(/^Behind:/);
   });
 });

@@ -9,20 +9,19 @@
 // SERVER component: it owns the data fetch and hands plain props to the client-free Half-life
 // renderer. It reads the rollup through `getOrgRollupShared` at the SAME scope its sibling
 // leaderboard uses, for two reasons: the tab ran two full rollups per render, and this panel's was
-// UNSCOPED — so `?stack=` narrowed the table above while the context lens below kept describing the
-// whole fleet. Two panels on one screen must not describe different repo sets.
+// UNSCOPED — so `?stack=` / `?segment=` narrowed the table above while the context lens below kept
+// describing the whole fleet. Two panels on one screen must not describe different repo sets.
+// Scope is the SHARED promise RepositoriesTab created once; awaiting it here does not re-run it.
 
 import { getOrgRollupShared } from "@/lib/db";
-import { resolveStackScope } from "@/lib/org/scope";
+import type { OrgScope } from "@/lib/org/scope";
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { buildContextRows } from "./contextHealthModel";
 import { ContextHalfLife } from "./ContextHalfLife";
 
-type SearchParams = { [key: string]: string | string[] | undefined };
-
-export async function ContextHealthPanel({ slug, sp }: { slug: string; sp: SearchParams }) {
-  const { techGroupId } = await resolveStackScope(slug, sp);
-  const rollup = await getOrgRollupShared(slug, undefined, null, techGroupId);
+export async function ContextHealthPanel({ slug, scope }: { slug: string; scope: Promise<OrgScope> }) {
+  const { segmentId, techGroupId } = await scope;
+  const rollup = await getOrgRollupShared(slug, undefined, segmentId, techGroupId);
   if (!rollup || rollup.repos.length === 0) {
     return <SectionEmpty>No repositories to read a context layer from yet.</SectionEmpty>;
   }

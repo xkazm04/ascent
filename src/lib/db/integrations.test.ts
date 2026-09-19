@@ -1,10 +1,12 @@
 // AI-usage storage behind the /delivery AI-ROI $ figures. Pins recordUsage (idempotent replace vs
 // additive counter modes, malformed-row skipping, negative/NaN sanitization) and getOrgUsageRollup
-// (measured-per-repo case-folded aggregation with peak seats, allocated org totals, the trailing window).
+// (measured-per-repo case-folded aggregation with peak seats, allocated org totals, the org window).
 // A single in-memory aiUsageRecord store models the composite-unique upsert so writes + reads are tested
 // against the same rows. The client + org-shared boundaries are mocked.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 
 const { mockIsDbConfigured, mockGetPrisma, mockGetOrgBySlug } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
@@ -59,16 +61,22 @@ function fakeUsageStore() {
       rows.push({ ...create });
       return create;
     }),
-    findMany: vi.fn(async ({ where }: { where: { orgId: string; periodStart?: { gte?: Date } } }) => {
-      const since = where.periodStart?.gte;
-      return rows.filter((r) => r.orgId === where.orgId && (!since || r.periodStart.getTime() >= since.getTime()));
+    findMany: vi.fn(async ({ where }: { where: { orgId: string; periodStart?: { gte?: Date; lte?: Date } } }) => {
+      const gte = where.periodStart?.gte;
+      const lte = where.periodStart?.lte;
+      return rows.filter((r) => {
+        if (r.orgId !== where.orgId) return false;
+        if (gte && r.periodStart.getTime() < gte.getTime()) return false;
+        if (lte && r.periodStart.getTime() > lte.getTime()) return false;
+        return true;
+      });
     }),
   };
   return { prisma: { aiUsageRecord }, rows };
 }
 
 /**
- * Day-buckets RELATIVE TO NOW. `getOrgUsageRollup` reads a TRAILING 35-day window, so a fixture
+ * Day-buckets RELATIVE TO NOW. Windowed reads take an explicit `{ start, end }`, so a fixture
  * pinned to a fixed calendar date is a time bomb: it sits inside the window when written and
  * silently ages out of it, at which point every "aggregates …" assertion fails with an empty rollup
  * and looks like a regression in code that never changed. That is exactly what happened to the two
@@ -213,19 +221,65 @@ describe("getOrgUsageRollup", () => {
     expect(rollup!.sources).toContain("copilot");
   });
 
-  it("excludes records older than the trailing window", async () => {
+  it("30d and 90d windows use the passed start as the inclusive lower bound", async () => {
     const { prisma } = fakeUsageStore();
     mockGetPrisma.mockReturnValue(prisma);
 
-    const old = daysAgo(60);
+    const start30 = daysAgo(30);
+    const start90 = daysAgo(90);
+    const mid = daysAgo(60); // inside 90d, outside 30d
     const recent = daysAgo(2);
     await recordUsage("acme", [
-      rec({ scopeKey: "acme/old", periodStart: old, costCents: 999 }),
+      rec({ scopeKey: "acme/mid", periodStart: mid, costCents: 500 }),
       rec({ scopeKey: "acme/new", periodStart: recent, costCents: 111 }),
     ]);
 
-    const rollup = await getOrgUsageRollup("acme", 35);
-    expect(Object.keys(rollup!.perRepo)).toEqual(["acme/new"]);
+    const r30 = await getOrgUsageRollup("acme", { start: start30, end: null });
+    expect(Object.keys(r30!.perRepo)).toEqual(["acme/new"]);
+
+    const r90 = await getOrgUsageRollup("acme", { start: start90, end: null });
+    expect(Object.keys(r90!.perRepo).sort()).toEqual(["acme/mid", "acme/new"]);
+
+    const calls = prisma.aiUsageRecord.findMany.mock.calls as unknown as [{ where: { periodStart: { gte: Date } } }][];
+    expect(calls[0]![0].where.periodStart).toEqual({ gte: start30 });
+    expect(calls[1]![0].where.periodStart).toEqual({ gte: start90 });
+  });
+
+  it("honors an inclusive end so a custom range clips the upper side", async () => {
+    const { prisma } = fakeUsageStore();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const start = daysAgo(30);
+    const end = daysAgo(5);
+    await recordUsage("acme", [
+      rec({ scopeKey: "acme/in", periodStart: daysAgo(10), costCents: 200 }),
+      rec({ scopeKey: "acme/after", periodStart: daysAgo(1), costCents: 300 }),
+    ]);
+
+    const rollup = await getOrgUsageRollup("acme", { start, end });
+    expect(Object.keys(rollup!.perRepo)).toEqual(["acme/in"]);
+  });
+
+  it("an open window (null start/end) does not invent a trailing 35-day bound", async () => {
+    const { prisma } = fakeUsageStore();
+    mockGetPrisma.mockReturnValue(prisma);
+    await recordUsage("acme", [rec({ scopeKey: "acme/old", periodStart: daysAgo(60), costCents: 999 })]);
+    const rollup = await getOrgUsageRollup("acme");
+    expect(Object.keys(rollup!.perRepo)).toEqual(["acme/old"]);
+    expect(prisma.aiUsageRecord.findMany).toHaveBeenCalledWith({ where: { orgId: "org_1" } });
+  });
+});
+
+describe("getOrgUsageRollup — Delivery tab window coupling", () => {
+  it("DeliveryCorePanel passes the same {start,end} as unit/outcomes for 30d and 90d", () => {
+    const root = path.resolve(__dirname, "../../features/bought/delivery");
+    const panel = fs.readFileSync(path.join(root, "DeliveryCorePanel.tsx"), "utf8");
+    const unit = fs.readFileSync(path.join(root, "ai/UnitEconomicsPanel.tsx"), "utf8");
+    const outcomes = fs.readFileSync(path.join(root, "ai/DeliveryOutcomesPanel.tsx"), "utf8");
+    const windowArg = "{ start: period.start, end: period.end }";
+    expect(unit).toContain(`getUnitEconomics(slug, ${windowArg})`);
+    expect(outcomes).toContain(`getDeliveryOutcomes(slug, ${windowArg})`);
+    expect(panel).toContain(`getOrgUsageRollup(slug, ${windowArg})`);
   });
 });
 

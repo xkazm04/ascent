@@ -69,7 +69,7 @@ export type AthenaActionParamValues = Record<string, string | string[]>;
  */
 export interface AthenaActionOutcome {
   ok: boolean;
-  /** Machine-readable. `handed_off` | `ruled` | `refused` | `retired` | `invalid` | `failed`. */
+  /** Machine-readable. `handed_off` | `ruled` | `recorded` | `refused` | `retired` | `invalid` | `failed`. */
   kind: string;
   /** One line the operator reads on the resolved card. */
   detail: string;
@@ -102,9 +102,9 @@ export interface AthenaActionSpec {
 
 // ── the array ────────────────────────────────────────────────────────────────────────────────────
 //
-// Both actions dispatch machinery that already exists. Neither reaches outside Ascent and neither
-// spends money — the two properties that make a companion's Accept button safe to put in front of an
-// operator at all.
+// Every action dispatches machinery that already exists. None of them reach outside Ascent and none
+// of them spend money — the two properties that make a companion's Accept button safe to put in
+// front of an operator at all.
 
 /**
  * The decision modules a ruling may name. Declared here rather than imported so this module stays
@@ -115,6 +115,18 @@ const RULING_MODULES = ["security", "teams", "passports", "contributors", "athen
 
 /** The rulings a proposal may carry. `open` is deliberately absent: reopening is not something she offers. */
 const RULINGS = ["accepted", "dismissed", "snoozed"] as const;
+
+/**
+ * Memory kinds a `record_memory` may name. Declared here so this module stays pure (`org-memory.ts`
+ * pulls in Prisma); `actions.test.ts` asserts every value satisfies `isMemoryKind`.
+ */
+const MEMORY_KIND_VALUES = ["episodic", "semantic", "procedural", "summary"] as const;
+
+/**
+ * Confidence bands a `record_memory` may name. The store keeps a 0..1 float; the catalog teaches the
+ * same three ids the author form offers. `actions.test.ts` pins these against `CONFIDENCE_BANDS`.
+ */
+const CONFIDENCE_VALUES = ["high", "medium", "low"] as const;
 
 const one = (v: string | string[] | undefined): string => (Array.isArray(v) ? (v[0] ?? "") : (v ?? ""));
 const many = (v: string | string[] | undefined): string[] => (Array.isArray(v) ? v : v ? [v] : []);
@@ -201,6 +213,52 @@ export const ATHENA_ACTIONS = [
       const what = one(p.title) || one(p.itemKey);
       const verb = ruling === "accepted" ? "Accept" : ruling === "snoozed" ? "Snooze" : "Dismiss";
       return clip(`${verb} ${what} (${one(p.module)})`);
+    },
+  },
+  {
+    id: "record_memory",
+    doc:
+      "Write a durable note into the organization's memory, so the next scan and the next conversation " +
+      "inherit it. Propose this when the operator has stated a fact, a convention, or a lesson worth " +
+      "keeping — not a one-off observation that will be stale next week. It records the note only; a " +
+      "namespace mirrored from the registry cannot be written here (that change is a pull request).",
+    params: [
+      {
+        name: "content",
+        required: true,
+        doc: "The note, in the operator's words. A paraphrase they have not agreed to is not worth recording.",
+      },
+      {
+        name: "kind",
+        required: true,
+        values: MEMORY_KIND_VALUES,
+        doc: "episodic = what happened. semantic = a durable fact. procedural = what worked. summary = a rollup.",
+      },
+      {
+        name: "namespace",
+        required: false,
+        doc: "In-org grouping tag. Blank is org-wide. A namespace mirrored from the registry cannot be written here.",
+      },
+      {
+        name: "confidence",
+        required: true,
+        values: CONFIDENCE_VALUES,
+        doc: "high = verified / decided. medium = probable, unverified. low = a hunch that still needs checking.",
+      },
+    ],
+    requiredRole: "member",
+    example: {
+      content: "We ship on Fridays; Monday deploys need a named rollback owner.",
+      kind: "semantic",
+      namespace: "platform",
+      confidence: "high",
+    },
+    summary: (p) => {
+      const kind = one(p.kind) || "note";
+      const ns = one(p.namespace);
+      const body = one(p.content);
+      const where = ns ? ` in ${ns}` : "";
+      return clip(`Record a ${kind} memory${where}: ${body}`);
     },
   },
 ] as const satisfies readonly AthenaActionSpec[];

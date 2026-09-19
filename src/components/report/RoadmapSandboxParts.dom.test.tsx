@@ -14,7 +14,11 @@ import type { cheapestPathToNextLevel } from "@/lib/scoring/engine";
 import type { Overrides } from "./RoadmapSandboxParts";
 
 // RoadmapMeta pulls in the scoring engine for its chips; stub it so this targets the simulator wiring.
-vi.mock("@/components/report/roadmapPieces", () => ({ RoadmapMeta: () => null }));
+// RoadmapFirstStep stays real — the Try-it rows must render the same omit-when-blank line as the tracker.
+vi.mock("@/components/report/roadmapPieces", async (orig) => ({
+  ...(await orig<typeof import("@/components/report/roadmapPieces")>()),
+  RoadmapMeta: () => null,
+}));
 
 import { RoadmapSimulators } from "./RoadmapSandboxParts";
 
@@ -79,5 +83,39 @@ describe("RoadmapSimulators — Applied tracks the item, not the dimension (#6)"
 
     fireEvent.click(screen.getByRole("button", { name: "reset-all" }));
     expect(rowButton("Add CI gate").textContent).toContain("Try it");
+  });
+});
+
+function renderSims(items: LlmRoadmapItem[]) {
+  render(
+    <RoadmapSimulators
+      report={{ roadmap: items } as unknown as ScanReport}
+      overrides={{}}
+      path={emptyPath}
+      appliedItems={new Set()}
+      onTry={() => {}}
+    />,
+  );
+}
+
+describe("RoadmapSimulators — firstStep on Try-it rows", () => {
+  it("shows the first-step line on the one row that recorded it", () => {
+    renderSims([
+      { dimension: "D1", title: "Add CI gate", firstStep: "Open a PR adding CODEOWNERS." },
+      { dimension: "D2", title: "Improve docs" },
+      { dimension: "D3", title: "Blank step", firstStep: "   " },
+    ] as unknown as LlmRoadmapItem[]);
+
+    const withStep = screen.getByText("Add CI gate").closest("li")!;
+    expect(within(withStep).getByText("First step:")).toBeInTheDocument();
+    expect(within(withStep).getByText(/Open a PR adding CODEOWNERS\./)).toBeInTheDocument();
+    expect(within(screen.getByText("Improve docs").closest("li")!).queryByText("First step:")).not.toBeInTheDocument();
+    expect(within(screen.getByText("Blank step").closest("li")!).queryByText("First step:")).not.toBeInTheDocument();
+    expect(screen.getAllByText("First step:")).toHaveLength(1);
+  });
+
+  it("renders NOTHING when the scan recorded no first step — no placeholder line", () => {
+    renderSims([{ dimension: "D1", title: "Add CI gate" } as unknown as LlmRoadmapItem]);
+    expect(screen.queryByText("First step:")).not.toBeInTheDocument();
   });
 });

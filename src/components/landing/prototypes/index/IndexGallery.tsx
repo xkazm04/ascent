@@ -158,15 +158,26 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
         </p>
       )}
 
-      {/* Growth loop: convert a register viewer into a scanned repo. */}
+      {/* Growth loop: convert a register viewer into a scanned repo. The landing board is a
+          capped slice (`getPublicScanGallery` recentLimit/topLimit); /leaderboard is the
+          crawlable ranking of the same corpus — a real next/link, not a heading that merely
+          names the register. */}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-4">
-        <span className="type-body-sm text-slate-500">Want your repo on the register?</span>
         <Link
-          href="/?scan=1"
-          className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 type-label tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+          href="/leaderboard"
+          className="focus-ring type-body-sm font-medium text-slate-300 transition hover:text-white"
         >
-          <span aria-hidden>▸</span> Scan your repo
+          The full register <span aria-hidden>→</span>
         </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="type-body-sm text-slate-500">Want your repo on the register?</span>
+          <Link
+            href="/?scan=1"
+            className="focus-ring inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-1.5 type-label tracking-widest text-slate-300 transition hover:border-accent hover:text-white"
+          >
+            <span aria-hidden>▸</span> Scan your repo
+          </Link>
+        </div>
       </div>
     </DeckSection>
   );

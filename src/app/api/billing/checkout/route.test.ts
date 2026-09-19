@@ -1,8 +1,9 @@
 // Pins the money-in checkout guards: a Polar checkout session is an external, billable state change, so
-// this "safe" GET must refuse speculative prefetches (204), cross-origin probes (403), unknown products
-// (400), and unknown orgs (uniform 404, no existence oracle) — and only ever mint a session for a real,
-// priced product owned by a real org, carrying the org in BOTH externalCustomerId + metadata. The Polar
-// SDK / DB / auth boundaries are mocked; the redirect + status codes are what's asserted.
+// this "safe" GET must refuse speculative prefetches (204), cross-origin probes (403), non-owners (the
+// owner gate, before any Polar mint), unknown products (400), and unknown orgs (uniform 404, no existence
+// oracle) — and only ever mint a session for a real, priced product owned by a real org, carrying the org
+// in BOTH externalCustomerId + metadata. The Polar SDK / DB / auth boundaries are mocked; the redirect +
+// status codes are what's asserted.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -37,12 +38,14 @@ vi.mock("@/lib/auth", () => {
     ),
   };
 });
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/site", () => ({ publicBaseUrl: vi.fn(() => "https://ascent.test") }));
 
 import { GET } from "./route";
 import { polarEnabled, getPolar, creditsForProduct, planForProduct } from "@/lib/polar";
 import { getOrgId, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { isSameOrigin } from "@/lib/auth";
+import { requireOrgRole } from "@/lib/authz";
 
 const mockPolarEnabled = vi.mocked(polarEnabled);
 const mockGetPolar = vi.mocked(getPolar);
@@ -52,6 +55,7 @@ const mockGetOrgId = vi.mocked(getOrgId);
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
 const mockIsDbUnavailable = vi.mocked(isDbUnavailableError);
 const mockSameOrigin = vi.mocked(isSameOrigin);
+const mockRequireRole = vi.mocked(requireOrgRole);
 
 const create = vi.fn(async () => ({ url: "https://polar.test/checkout/abc" }));
 
@@ -63,6 +67,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockPolarEnabled.mockReturnValue(true);
   mockSameOrigin.mockReturnValue(true);
+  mockRequireRole.mockResolvedValue(null);
   mockCredits.mockReturnValue(100);
   mockPlan.mockReturnValue(null);
   mockIsDbConfigured.mockReturnValue(true);
@@ -83,6 +88,7 @@ describe("GET /api/billing/checkout — money-in guards", () => {
   it("204 (no session) on a speculative prefetch — never mints a billable session", async () => {
     const res = await GET(req("org=acme&pack=prod_1", { "sec-purpose": "prefetch;prerender" }));
     expect(res.status).toBe(204);
+    expect(mockRequireRole).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -90,6 +96,18 @@ describe("GET /api/billing/checkout — money-in guards", () => {
     mockSameOrigin.mockReturnValue(false);
     const res = await GET(req());
     expect(res.status).toBe(403);
+    expect(mockRequireRole).not.toHaveBeenCalled();
+    expect(mockGetOrgId).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("is owner-gated — a non-owner's denial short-circuits before any Polar mint", async () => {
+    // Minting a Polar session is an external, billable state change; same owner tier as /api/org/plan.
+    const denial = new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 });
+    mockRequireRole.mockResolvedValue(denial as never);
+    const res = await GET(req("org=Acme&pack=prod_1"));
+    expect(res).toBe(denial);
+    expect(mockRequireRole).toHaveBeenCalledWith("acme", "owner");
     expect(mockGetOrgId).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
   });
@@ -142,7 +160,8 @@ describe("GET /api/billing/checkout — money-in guards", () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ products: ["prod_1"], externalCustomerId: "acme", metadata: { org: "acme" } }),
     );
-    // The org is lowercased before the ownership check, too.
+    // The org is lowercased before the owner gate AND the existence check.
+    expect(mockRequireRole).toHaveBeenCalledWith("acme", "owner");
     expect(mockGetOrgId).toHaveBeenCalledWith("acme");
   });
 

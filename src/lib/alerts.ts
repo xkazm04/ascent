@@ -20,7 +20,12 @@
 import type { ScanDiff } from "@/lib/report/compare";
 import { isWithinNoise } from "@/lib/maturity/noise";
 export { emailSinkAddress, resolveAlertWebhook, sinkKindForOrg, isAlertConfigured, validateAlertWebhookUrl, dispatchAlert } from "./alert-delivery";
-import type { AlertSeverity, RegressionVerdict, PromotionVerdict } from "./alerts-detection";
+import {
+  digestHasSignal as digestHasSignalFromDelta,
+  type AlertSeverity,
+  type RegressionVerdict,
+  type PromotionVerdict,
+} from "./alerts-detection";
 
 
 // --- Per-repo regression-alert cooldown (fleet-alerts-digests #4) ----------------------------------
@@ -119,6 +124,52 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : String(n);
 }
 
+/** "1 repository" / "8 repositories" — a delta never travels next to a bare count. */
+function repositories(n: number): string {
+  return `${n} repositor${n === 1 ? "y" : "ies"}`;
+}
+
+/**
+ * A period delta is measurable only over a positive matched cohort. Null/0 is unmeasurable — never
+ * a silent 0, and never a fleet-wide "+N this week" (G4). Tiny n (≥ 1) is still a measurement and
+ * must be qualified with that n, not omitted and not inflated.
+ */
+export function isMeasurableDigestCohort(cohortSize: number | null | undefined): cohortSize is number {
+  return cohortSize != null && cohortSize > 0;
+}
+
+/**
+ * Project `rollup.movement` into the digest's delta pair. Reads movement, not the deprecated
+ * `rollup.deltas` triple (that shape has no denominator). Null/0 cohort → both fields null.
+ */
+export function digestMovementFields(
+  movement: { overall: number; cohortSize: number } | null | undefined,
+): { overallDelta: number | null; cohortSize: number | null } {
+  if (!movement || !isMeasurableDigestCohort(movement.cohortSize)) {
+    return { overallDelta: null, cohortSize: null };
+  }
+  return { overallDelta: movement.overall, cohortSize: movement.cohortSize };
+}
+
+/**
+ * Movement-gate for the weekly fleet digest. Wraps the delta/noise predicate with the cohort rule:
+ * an overall move without a positive `cohortSize` is unmeasurable and is not signal.
+ */
+export function digestHasSignal(s: {
+  overallDelta: number | null;
+  /** Matched-repo n behind `overallDelta`. Null/0/absent → the delta does not count. */
+  cohortSize?: number | null;
+  levelChanges: number;
+  regressions: number;
+  gainersBeyondNoise: number;
+  creditLow: boolean;
+  controlsFailed?: number;
+  standingConcerns?: number;
+}): boolean {
+  const overallDelta = isMeasurableDigestCohort(s.cohortSize) ? s.overallDelta : null;
+  return digestHasSignalFromDelta({ ...s, overallDelta });
+}
+
 /** English ordinal suffix for a non-negative integer (1st, 2nd, 3rd, 4th … 11th/12th/13th, 21st, 22nd).
  *  The digest percentile line hard-coded "th", so corpus percentiles ending in 1/2/3 (except the
  *  11–13 teens) rendered broken ordinals ("21th pctile") in the one artifact leaders read without
@@ -195,9 +246,25 @@ export interface FleetDigestInput {
   scannedCount: number;
   avgOverall: number;
   level: string; // e.g. "L3 · Defined"
-  overallDelta: number | null; // vs the week's start (null = no baseline)
+  overallDelta: number | null; // vs the week's start (null = no baseline / unmeasurable cohort)
+  /**
+   * Matched-repo n `overallDelta` was measured over (`rollup.movement.cohortSize`). Null/0 omits
+   * the numeral — a delta without its denominator is unmeasurable, never a silent 0. A tiny
+   * positive n still prints, qualified, so a 1-repo artifact cannot read as a fleet-wide move.
+   */
+  cohortSize?: number | null;
   gainers: { name: string; delta: number }[];
   regressers: { name: string; delta: number }[];
+  /**
+   * Within-noise period moves (`OrgMovers.held`). Undefined or empty omits the block — never
+   * "0 held", which would claim a measurement the caller did not take (or took and found none).
+   */
+  held?: { name: string; delta: number }[];
+  /**
+   * Mid-window onboarded repos (`OrgMovers.onboarded`). `delta` is the lifetime move, or null when
+   * only one scan exists (never printed as 0). Undefined or empty omits the block.
+   */
+  onboarded?: { name: string; delta: number | null }[];
   topRecommendation: { title: string; repoCount: number } | null;
   /** Corpus percentile (0..100) for the exec digest, or null/undefined when no corpus yet. */
   percentile?: number | null;
@@ -254,23 +321,27 @@ export interface FleetDigestInput {
  * opening the app — the habit loop org-analytics products live on.
  */
 export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
-  const delta =
-    d.overallDelta == null
-      // G4-04: an empty string here silently drops the "this week" number with zero indication why —
-      // indistinguishable from "the fleet held exactly flat" to a reader. A null delta means no baseline
-      // could be computed for the window at all (a freshly-onboarded org, or one whose entire scan
-      // history is younger than the window boundary), which is a DIFFERENT fact than "flat" and must
-      // read as one.
-      ? " (not enough history yet for a week-over-week comparison)"
-      : isWithinNoise(d.overallDelta)
-        ? d.overallDelta === 0
-          ? " (no change this week)"
-          : ` (${signed(d.overallDelta)}, within noise this week)`
-        : ` (${signed(d.overallDelta)} this week)`;
+  // G4: a delta without a positive cohort is unmeasurable — never a silent 0, never an unqualified
+  // "+N this week". Null overallDelta used to be the only "no baseline" path; a number arriving
+  // from deprecated `rollup.deltas` with no n is the same fact and must read as one.
+  const n = d.cohortSize;
+  let delta: string;
+  if (d.overallDelta == null || !isMeasurableDigestCohort(n)) {
+    delta = " (not enough history yet for a week-over-week comparison)";
+  } else {
+    const over = `, measured over ${repositories(n)}`;
+    delta = isWithinNoise(d.overallDelta)
+      ? d.overallDelta === 0
+        ? ` (no change this week${over})`
+        : ` (${signed(d.overallDelta)}, within noise this week${over})`
+      : ` (${signed(d.overallDelta)} this week${over})`;
+  }
   const headline = `📊 Ascent weekly digest: ${d.org}`;
   const pctile = d.percentile != null ? ` · ${ordinal(d.percentile)} pctile` : "";
   const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} · ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
   const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
+  const onboardLine = (m: { name: string; delta: number | null }) =>
+    m.delta == null || m.delta === 0 ? `• ${m.name}` : `• ${m.name} ${signed(m.delta)}`;
 
   // MOONSHOT #1 — the Controls block sits ABOVE the movers, and deliberately: a control that came
   // off a repo outranks every score delta on the page, and a reader who has to scroll past six
@@ -306,6 +377,8 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   if (d.standingConcerns) lines.push("", standingHeading, ...d.standingConcerns.map(standingLine));
   if (d.gainers.length) lines.push("", "Top gainers:", ...d.gainers.map(gain));
   if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
+  if (d.held?.length) lines.push("", "Held within noise:", ...d.held.map(gain));
+  if (d.onboarded?.length) lines.push("", "Onboarded this week:", ...d.onboarded.map(onboardLine));
   if (d.topRecommendation)
     lines.push("", `Highest-leverage gap: ${d.topRecommendation.title} (affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})`);
   if (d.creditsRemaining != null)
@@ -334,6 +407,8 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const mv: string[] = [];
   if (d.gainers.length) mv.push(`*Top gainers:*\n${d.gainers.map(gain).join("\n")}`);
   if (d.regressers.length) mv.push(`*Regressions:*\n${d.regressers.map(gain).join("\n")}`);
+  if (d.held?.length) mv.push(`*Held within noise:*\n${d.held.map(gain).join("\n")}`);
+  if (d.onboarded?.length) mv.push(`*Onboarded this week:*\n${d.onboarded.map(onboardLine).join("\n")}`);
   if (mv.length) blocks.push(mrkdwnSection(mv.join("\n\n")));
   if (d.topRecommendation)
     blocks.push(
@@ -674,7 +749,7 @@ export function buildTestAlertMessage(org: string): AlertMessage {
 export {
   type AlertSeverity, type RegressionReason, type RegressionVerdict, type RegressionThresholds,
   type PromotionReason, type PromotionVerdict, type StandingScanPoint, type StandingConcern,
-  DEFAULT_THRESHOLDS, digestHasSignal, detectRegression, detectPromotion,
+  DEFAULT_THRESHOLDS, detectRegression, detectPromotion,
   STANDING_REGRESSION_DROP, STANDING_REGRESSION_SCANS, STANDING_REGRESSION_LOOKBACK,
   detectStandingRegressions,
 } from "./alerts-detection";

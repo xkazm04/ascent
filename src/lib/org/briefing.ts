@@ -19,7 +19,8 @@ import { hasFleetGrade } from "@/lib/db/org-shared";
 import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { buildPracticeLibrarySummary } from "@/lib/org/practice-library";
 import { getImprovementEvents, type ImprovementEvent } from "@/lib/db/improvement-events";
-import { composeTrajectory, forecastConfidenceNote } from "@/lib/maturity/forecast";
+import { MOCK_ENGINE } from "@/lib/maturity/attribution";
+import { composeGoal, composeTrajectory, forecastConfidenceNote } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
 
@@ -56,6 +57,14 @@ export interface BriefingGoal {
   pctLabel: string;
   pace: string;
   etaDays: number | null;
+  /** Composed goal read ({@link composeGoal}). Optional for fixture compatibility; `buildExecBriefing`
+   *  always sets them. `headline`/`confidence`/`basis` are non-null together when projecting;
+   *  `insufficiency` is the unmeasurable hedge and is the only thing a renderer may say about a
+   *  sub-gate fit. Read them through `briefingGoal(g)` / `briefingGoalLine(g)`. */
+  headline?: string | null;
+  confidence?: number | null;
+  basis?: string | null;
+  insufficiency?: string | null;
 }
 
 export interface ExecBriefing {
@@ -97,7 +106,8 @@ export interface ExecBriefing {
      *  when the prior window scored nothing live, because a delta against a division guard is a
      *  fabricated movement, not a comparison. */
     realScoredCount: number;
-    /** Per-dimension now/prior/delta, biggest movers first (capped). */
+    /** Per-dimension now/prior/delta, biggest movers first (capped). A dimension the prior window
+     *  never scored is omitted — missing prior is null/absent, never a fabricated 0. */
     dims: { dimId: string; label: string; now: number; prior: number; delta: number }[];
   } | null;
   /** The projected trajectory sentence — set ONLY when the fit cleared the shared presentability gate
@@ -123,9 +133,9 @@ export interface ExecBriefing {
   /** Which inference engine(s) produced this period's scores — provenance so a mock-degraded quarter
    *  is auditable in the durable briefing, not just the transient scan stream. */
   engineMix: EngineMixEntry[];
-  /** Fleet adoption rate (0..100) — share of scanned repos at a HIGH-adoption posture (AI-Native or
-   *  Fast & Ungoverned). The "is the standardization landing across the fleet" number a platform lead
-   *  tracks cycle-over-cycle; null when nothing is scanned. */
+  /** Fleet adoption rate (0..100) — share of LIVE-SCORED repos at a HIGH-adoption posture (AI-Native
+   *  or Fast & Ungoverned). Same denominator as {@link ExecBriefing.maturity} / `realScoredCount`;
+   *  mock placeholders are not a posture measurement. Null when nothing is live-scored. */
   adoptionRate: number | null;
   /** Full-fleet movement scale this period (not just the top-3 listed) — how many comparable repos moved
    *  up vs down, so a 200-repo fleet sees the spread, not a capped list. */
@@ -191,6 +201,33 @@ export interface ExecBriefing {
    *  which is grounded strictly in the figures above and degrades to deterministic copy. Null/absent
    *  means "not requested", which every renderer must treat as "render no narrative". */
   narrative?: string | null;
+}
+
+const HIGH_ADOPTION_POSTURE = new Set(["ai-native", "ungoverned"]);
+
+/**
+ * Fleet adoption as a measurement: share of LIVE-SCORED repos at a high-adoption posture
+ * (AI-Native or Fast & Ungoverned), 0..100. Null when nothing is live-scored.
+ *
+ * Direction 1. The briefing's other measurements already stand on `realScoredCount`. This used to
+ * divide by `scannedCount`, so a mixed fleet's "is the standardization landing" number included mock
+ * placeholders the rest of the briefing had excluded — overstating the denominator by exactly
+ * `mockCount`. When repo rows are present, mock engines are excluded from the numerator too
+ * (`postureCounts` is still the scanned-set histogram).
+ */
+export function fleetAdoptionRate(input: {
+  realScoredCount: number;
+  postureCounts: Record<string, number>;
+  repos?: ReadonlyArray<{ latest: { engine?: string | null; posture: string } | null }>;
+}): number | null {
+  if (input.realScoredCount <= 0) return null;
+  const live = (input.repos ?? []).filter((r) => r.latest != null && r.latest.engine !== MOCK_ENGINE);
+  const denom = live.length > 0 ? live.length : input.realScoredCount;
+  const high =
+    live.length > 0
+      ? live.filter((r) => HIGH_ADOPTION_POSTURE.has(r.latest!.posture)).length
+      : (input.postureCounts["ai-native"] ?? 0) + (input.postureCounts["ungoverned"] ?? 0);
+  return Math.round((high / denom) * 100);
 }
 
 const named = (d: { dimId: string; avg: number }): BriefingDim => ({
@@ -304,13 +341,18 @@ export async function buildExecBriefing(
             dRigor: rollup.avgRigor - priorRollup.avgRigor,
             realScoredCount: priorRollup.realScoredCount,
             dims: rollup.dimAverages
-              .map((d) => ({
-                dimId: d.dimId,
-                label: DIMENSION_BY_ID[d.dimId as DimensionId]?.name ?? d.dimId,
-                now: d.avg,
-                prior: priorBy.get(d.dimId) ?? 0,
-                delta: d.avg - (priorBy.get(d.dimId) ?? 0),
-              }))
+              .flatMap((d) => {
+                const prior = priorBy.get(d.dimId);
+                // Missing from the prior window is not a 0: `now - 0` would rank as a fabricated mover.
+                if (prior === undefined) return [];
+                return [{
+                  dimId: d.dimId,
+                  label: DIMENSION_BY_ID[d.dimId as DimensionId]?.name ?? d.dimId,
+                  now: d.avg,
+                  prior,
+                  delta: d.avg - prior,
+                }];
+              })
               .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
               .slice(0, 6),
           };
@@ -351,10 +393,7 @@ export async function buildExecBriefing(
       };
     })(),
     engineMix,
-    adoptionRate:
-      rollup.scannedCount > 0
-        ? Math.round((((rollup.postureCounts["ai-native"] ?? 0) + (rollup.postureCounts["ungoverned"] ?? 0)) / rollup.scannedCount) * 100)
-        : null,
+    adoptionRate: fleetAdoptionRate(rollup),
     movement: {
       up: movers?.gainers.length ?? 0,
       down: movers?.regressers.length ?? 0,
@@ -386,16 +425,31 @@ export async function buildExecBriefing(
     security: security ? named(security) : null,
     topGainers: (movers?.gainers ?? []).slice(0, 3).map(moveRow),
     topRegressions: (movers?.regressers ?? []).slice(0, 3).map(moveRow),
-    goals: (goals ?? []).map((g) => ({
-      label: g.label,
-      current: g.current,
-      target: g.target,
-      pct: g.pct,
-      pctBasis: g.pctBasis,
-      pctLabel: g.pctLabel,
-      pace: g.pace,
-      etaDays: g.etaDays,
-    })),
+    goals: (goals ?? []).map((g) => {
+      // ONE composition, shared with the GoalCard readout: the presentability gate decides whether
+      // this briefing may state a pace/ETA at all, and when it may, the hedge travels WITH the claim.
+      // `etaDays` copies only beside a projection (`confidence` set). No fit, a sub-gate fit, or a
+      // reached target degrades to absence — leftover row ETAs are not a basis (G4).
+      const read = composeGoal(g.forecast ?? null, g, {
+        current: g.current,
+        target: g.target,
+        targetDate: g.targetDate ?? null,
+      });
+      return {
+        label: g.label,
+        current: g.current,
+        target: g.target,
+        pct: g.pct,
+        pctBasis: g.pctBasis,
+        pctLabel: g.pctLabel,
+        pace: g.pace,
+        etaDays: read.confidence != null ? g.etaDays : null,
+        headline: read.headline,
+        confidence: read.confidence,
+        basis: read.basis,
+        insufficiency: read.insufficiency,
+      };
+    }),
     regressionCount: movers?.regressers.length ?? 0,
     recommendations: orgRecs ?? [],
     proof: practices ? buildPracticeLibrarySummary(orgSlug, practices, playbooks ?? [], playbookAdoption).rollout : null,
@@ -424,5 +478,5 @@ export function buildLoopProof(events: readonly ImprovementEvent[]): ExecBriefin
 }
 
 // Preserve the public module entry point while presentation lives separately.
-export { engineMixLabel, engineMixCaveat, briefingTrajectory, briefingTrajectoryNote, valueRealizedLine, valueRealizedHeading, benchmarkCaption, movementLine, briefingHasScore, scoreValue, briefingLevelCaption, noScoreLine, scoreBasisLine, mockDisclosure, coverageLine, briefingLoopProofLine, briefingProofLine, briefingNextMove, nextMoveLine } from './briefing-format';
+export { engineMixLabel, engineMixCaveat, briefingTrajectory, briefingTrajectoryNote, briefingGoal, briefingGoalLine, briefingGoalStats, valueRealizedLine, valueRealizedHeading, benchmarkCaption, movementLine, briefingHasScore, scoreValue, briefingLevelCaption, noScoreLine, scoreBasisLine, mockDisclosure, coverageLine, briefingLoopProofLine, briefingProofLine, briefingNextMove, nextMoveLine } from './briefing-format';
 export { briefingMarkdown } from './briefing-markdown';

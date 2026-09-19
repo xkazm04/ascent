@@ -5,18 +5,42 @@
 // say which open recommendation they are already the natural champion of.
 //
 import { SectionEmpty } from "@/components/org/shared/ui";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { reportPermalink } from "@/lib/ui";
 import { CareLevelMark, CareLinkAction } from "./CareBits";
-import type { DeveloperView } from "@/lib/org/developer-view";
+import type { CareActivityState, DeveloperView } from "@/lib/org/developer-view";
 
-export function CareRepoGaps({ repos }: { repos: DeveloperView["myRepos"] }) {
-  if (repos.length === 0) {
+/** Same withheld/unreadable sentences as DeveloperActivityStrip — empty here is not "go watch repos". */
+function emptyReposCopy(activityState: CareActivityState) {
+  if (activityState === "withheld") {
     return (
-      <SectionEmpty>
-        No repos linked yet. Watch the repositories you commit to and their open gaps show up here — the reason a move
-        can be grounded in more than one machine&apos;s transcripts.
-      </SectionEmpty>
+      <>
+        Withheld: this workspace has fewer than {CHAMPION_MIN_POP} contributors, so the snapshot suppresses{" "}
+        <em>every</em> per-person row — including your own. Your commits exist; they are not being handed to a
+        page that could name one or two people.
+      </>
     );
+  }
+  if (activityState === "unreadable") {
+    return <>The contributor snapshot could not be read just now, so nothing here is a measurement of you.</>;
+  }
+  return (
+    <>
+      No repos linked yet. Watch the repositories you commit to and their open gaps show up here — the reason a move
+      can be grounded in more than one machine&apos;s transcripts.
+    </>
+  );
+}
+
+export function CareRepoGaps({
+  repos,
+  activityState,
+}: {
+  repos: DeveloperView["myRepos"];
+  activityState: CareActivityState;
+}) {
+  if (repos.length === 0) {
+    return <SectionEmpty>{emptyReposCopy(activityState)}</SectionEmpty>;
   }
 
   return (

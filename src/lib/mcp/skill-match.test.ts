@@ -5,7 +5,17 @@
 // the whole product is an argument that collapsing them is the mistake worth preventing.
 
 import { describe, expect, it } from "vitest";
-import { CATEGORY_DIMENSIONS, queryTerms, rankSkills, weakDimensionsFor, type RankableSkill } from "./skill-match";
+import {
+  CATEGORY_DIMENSIONS,
+  INVOKE_WEIGHT,
+  MAX_ADOPTION_BONUS,
+  MAX_INVOKE_BONUS,
+  invokeBonus,
+  queryTerms,
+  rankSkills,
+  weakDimensionsFor,
+  type RankableSkill,
+} from "./skill-match";
 import { SKILL_CATEGORIES } from "@/lib/org/skill-categories";
 import { DIMENSIONS } from "@/lib/maturity/model";
 
@@ -122,6 +132,71 @@ describe("rankSkills", () => {
       weakDims: null,
     });
     expect(ranked[0]).toMatchObject({ registryPath: "skills/release/SKILL.md", registryVersion: "2.1" });
+  });
+
+  it("ranks an invoked skill above an equally matching unused one, and names why", () => {
+    const unused = skill({ id: "unused", name: "release-checklist" });
+    const used = skill({ id: "used", name: "release-runbook", invokes: 4 });
+    const ranked = rankSkills("release", [unused, used], { weakDims: null });
+    expect(ranked.map((r) => r.id)).toEqual(["used", "unused"]);
+    expect(ranked[0]!.invokes).toBe(4);
+    expect(ranked[0]!.why.join(" ")).toMatch(/Invoked 4 times/);
+    expect(ranked[1]!.why.join(" ")).not.toMatch(/Invoked/);
+  });
+
+  it("lets modest observed invokes outrank the adoption cap on an otherwise identical match", () => {
+    // The inequality the weights exist to keep: running a skill is stronger evidence than copying it.
+    expect(invokeBonus(4)).toBeGreaterThan(MAX_ADOPTION_BONUS);
+    const adopted = skill({ id: "adopted", name: "release-a", adoptionCount: 10_000 });
+    const invoked = skill({ id: "invoked", name: "release-b", invokes: 4 });
+    expect(rankSkills("release", [adopted, invoked], { weakDims: null })[0]!.id).toBe("invoked");
+  });
+
+  it("does not let invokes surface a skill that does not match the task", () => {
+    // FAIL-BEFORE: invoke bonus sat on the same score as term overlap, so a popular unrelated skill
+    // scored > 0 and leaked into every result.
+    const popular = skill({
+      id: "pop",
+      name: "onboarding",
+      description: "How we welcome new hires.",
+      invokes: 10_000,
+    });
+    const relevant = skill({ id: "rel", name: "release-checklist" });
+    const ranked = rankSkills("release", [popular, relevant], { weakDims: null });
+    expect(ranked.map((r) => r.id)).toEqual(["rel"]);
+  });
+
+  it("treats absent invokes as no evidence, never as a penalty", () => {
+    const absent = rankSkills("release", [skill({ id: "a" })], { weakDims: null });
+    const zero = rankSkills("release", [skill({ id: "a", invokes: 0 })], { weakDims: null });
+    expect(absent[0]!.score).toBe(zero[0]!.score);
+    expect(absent[0]!.invokes).toBe(0);
+  });
+
+  it("caps invoke evidence so a description-only match cannot outrank a name match", () => {
+    expect(MAX_INVOKE_BONUS).toBeLessThan(3 - 1);
+    const named = skill({ id: "named", name: "release-checklist", description: "how we ship" });
+    const described = skill({
+      id: "described",
+      name: "tidy",
+      description: "run before a release",
+      invokes: 10_000,
+    });
+    expect(rankSkills("release", [named, described], { weakDims: null })[0]!.id).toBe("named");
+  });
+});
+
+describe("invokeBonus", () => {
+  it("is zero for absent, non-positive, or non-finite counts", () => {
+    expect(invokeBonus(undefined)).toBe(0);
+    expect(invokeBonus(0)).toBe(0);
+    expect(invokeBonus(-3)).toBe(0);
+    expect(invokeBonus(Number.NaN)).toBe(0);
+  });
+
+  it("caps at MAX_INVOKE_BONUS", () => {
+    expect(invokeBonus(1_000_000)).toBe(MAX_INVOKE_BONUS);
+    expect(INVOKE_WEIGHT).toBeGreaterThan(0);
   });
 });
 

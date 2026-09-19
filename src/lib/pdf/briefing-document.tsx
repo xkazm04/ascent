@@ -7,7 +7,7 @@
 
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { ColumnHeading, DimLine, MoveLine, SectionHeading } from "./briefing-document-rows";
-import { benchmarkCaption, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingNextMove, briefingProofLine, briefingTrajectoryNote, coverageLine, engineMixCaveat, engineMixLabel, mockDisclosure, movementLine, nextMoveLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
+import { benchmarkCaption, briefingGoalStats, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingNextMove, briefingProofLine, briefingTrajectoryNote, coverageLine, engineMixCaveat, engineMixLabel, mockDisclosure, movementLine, nextMoveLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import type { ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
@@ -225,7 +225,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
               <View key={g.label} style={styles.goalRow} wrap={false}>
                 <Text style={styles.goalLabel}>{latin1Safe(g.label)}</Text>
                 <Text style={baseStyles.muted}>
-                  {g.current}/{g.target} ({g.pct}%, {g.pace}{g.etaDays != null ? `, ETA ~${g.etaDays}d` : ""})
+                  {latin1Safe(briefingGoalStats(g))}
                 </Text>
               </View>
             ))}

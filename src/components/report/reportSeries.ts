@@ -57,13 +57,15 @@ export function computeReportSeries(history: RepositoryHistory | null, report: S
   })();
 
   const overallDelta = baselineScan ? report.overallScore - baselineScan.overallScore : null;
-  const prevDimScores = baselineScan ? new Map(baselineScan.dimensions.map((d) => [d.dimId, d.score])) : null;
+  const baselineDims = baselineScan?.dimensions;
+  const prevDimScores = baselineDims ? new Map(baselineDims.map((d) => [d.dimId, d.score])) : null;
 
   // Baseline scan's posture position, for the quadrant trail. Persisted history doesn't store
   // the archetype, so re-roll the axes under the current lens (a faithful-enough trail).
-  const prevPosture = baselineScan
+  // A skipped dimensions join is unknown, not a zeroed posture.
+  const prevPosture = baselineDims
     ? (() => {
-        const m = new Map(baselineScan.dimensions.map((d) => [d.dimId as DimensionId, d.score]));
+        const m = new Map(baselineDims.map((d) => [d.dimId as DimensionId, d.score]));
         const scoreFor = (id: DimensionId) => m.get(id) ?? 0;
         return {
           adoption: axisScore("adoption", scoreFor, report.archetype),
@@ -81,7 +83,7 @@ export function computeReportSeries(history: RepositoryHistory | null, report: S
       ...scans,
     ]
       .reverse()
-      .map((s) => ({ at: s.scannedAt, engine: s.engineProvider, dimensions: s.dimensions }));
+      .map((s) => ({ at: s.scannedAt, engine: s.engineProvider, dimensions: s.dimensions ?? [] }));
     if (!currentStored) {
       chrono.push({
         at: report.scannedAt,

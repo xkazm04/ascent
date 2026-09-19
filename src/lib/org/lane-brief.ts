@@ -301,8 +301,24 @@ export function buildLaneBrief(input: LaneBriefInput): { text: string; provenanc
   return { text, provenance: { v: 1, bytes: byteLen(text), sections, omitted, housePatternVersion: null } };
 }
 
-/** One line for a human: what went into the brief, and what the org simply did not have. */
-export function briefSummaryLine(p: LaneBriefProvenance): string {
+/** ONE FACT OF THE BRIEF'S PROVENANCE. `kind` is what the fact IS, not how it reads: a section the
+ *  org HAS, a section it does not (the half of this summary that carries the news), or the size. The
+ *  lane log joins them into a line; a surface with room gives each one its own row. */
+export interface BriefSummaryPart {
+  kind: "have" | "none" | "size";
+  text: string;
+}
+
+/**
+ * What went into the brief, and what the org simply did not have — as PARTS rather than as prose.
+ *
+ * The strip in the cockpit used to render `briefSummaryLine` verbatim: five to seven facts glued
+ * with middots, wrapped into a grey paragraph beside the repo name, in which the one fact worth
+ * reading ("no skill") sat in the middle of a sentence. The facts were never a sentence; they are a
+ * list, and a list renders as a list. `briefSummaryLine` stays the join of these, so the lane log and
+ * the strip cannot phrase the same provenance two ways.
+ */
+export function briefSummaryParts(p: LaneBriefProvenance): BriefSummaryPart[] {
   const named: Record<BriefSectionKind, (n: number) => string> = {
     playbook: (n) => `${n} playbook${n === 1 ? "" : "s"}`,
     housePattern: (n) => `house pattern from ${n} practice${n === 1 ? "" : "s"}`,
@@ -310,10 +326,19 @@ export function briefSummaryLine(p: LaneBriefProvenance): string {
     skill: (n) => `${n} skill${n === 1 ? "" : "s"}`,
     evidence: (n) => `evidence for ${n} dimension${n === 1 ? "" : "s"}`,
   };
-  const have = p.sections.map((s) => named[s.kind](s.count));
-  const none = p.omitted.map((o) => {
-    const label = o.kind === "housePattern" ? "house pattern" : o.kind;
-    return o.why === "none" ? `no ${label}` : `${label} omitted (${o.why})`;
-  });
-  return [...have, ...none, `${(p.bytes / 1000).toFixed(1)} KB`].join(" · ");
+  return [
+    ...p.sections.map((s): BriefSummaryPart => ({ kind: "have", text: named[s.kind](s.count) })),
+    ...p.omitted.map((o): BriefSummaryPart => {
+      const label = o.kind === "housePattern" ? "house pattern" : o.kind;
+      return { kind: "none", text: o.why === "none" ? `no ${label}` : `${label} omitted (${o.why})` };
+    }),
+    { kind: "size", text: `${(p.bytes / 1000).toFixed(1)} KB` },
+  ];
+}
+
+/** One line for a human: what went into the brief, and what the org simply did not have. */
+export function briefSummaryLine(p: LaneBriefProvenance): string {
+  return briefSummaryParts(p)
+    .map((part) => part.text)
+    .join(" · ");
 }

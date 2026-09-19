@@ -16,6 +16,8 @@ import { restingLine } from "./restingLine";
 import { proposalSummary, proposalTitle } from "./AthenaProposalCard";
 import { stripFences } from "./AthenaProse";
 
+const EMPTY_SCANNED = { hasScans: true, skillCount: 0, memoryCount: 0 } as const;
+
 describe("restingLine — the checklist's voice, not a second opinion", () => {
   it("names the step the checklist promoted, verbatim", () => {
     const line = restingLine({ title: "Run your first scan", href: "/org/acme?tab=overview", cta: "Open the fleet" });
@@ -29,8 +31,34 @@ describe("restingLine — the checklist's voice, not a second opinion", () => {
     expect(line).toContain("Ask me");
   });
 
+  it("names Skills or Memory when next is null, the fleet has scans, and those libraries are empty", () => {
+    const line = restingLine(null, EMPTY_SCANNED);
+    expect(line).toMatch(/Skills|Memory/);
+    expect(line).toContain("Ask me");
+    expect(line).not.toMatch(/done|complete|finished|all set/i);
+  });
+
+  it("still names the checklist step when a library snapshot is also handed in", () => {
+    const line = restingLine(
+      { title: "Run your first scan", href: "/org/acme?tab=overview", cta: "Open the fleet" },
+      EMPTY_SCANNED,
+    );
+    expect(line).toContain("Run your first scan");
+    expect(line).not.toMatch(/Skills|Memory/);
+  });
+
+  it("does not name those tabs before a scan, even if the counts are zero", () => {
+    const line = restingLine(null, { hasScans: false, skillCount: 0, memoryCount: 0 });
+    expect(line).not.toMatch(/Skills|Memory/);
+    expect(line).toContain("Ask me");
+  });
+
   it("stays one or two sentences, with no heading and no sign-off", () => {
-    for (const line of [restingLine(null), restingLine({ title: "Bring the team in", href: "/x", cta: "Open members" })]) {
+    for (const line of [
+      restingLine(null),
+      restingLine(null, EMPTY_SCANNED),
+      restingLine({ title: "Bring the team in", href: "/x", cta: "Open members" }),
+    ]) {
       expect(line).not.toContain("#");
       expect(line).not.toMatch(/\n/);
       expect(line.split(/[.!?](\s|$)/).filter((s) => s.trim()).length).toBeLessThanOrEqual(3);

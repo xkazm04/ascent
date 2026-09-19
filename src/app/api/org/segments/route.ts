@@ -4,8 +4,9 @@
 // optional segment filter scoping it to a segment's tagged repos. See src/lib/db/segments.ts.
 
 import { NextResponse } from "next/server";
-import { createSegment, getRepoSegmentMap, listSegments, segmentInputError } from "@/lib/db";
+import { createSegment, getRepoSegmentMap, listSegments, recordOrgAudit, segmentInputError } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
+import { resolveViewerLogin } from "@/lib/access";
 import { dbGuard } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
@@ -47,7 +48,16 @@ export async function POST(request: Request) {
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
   try {
     const created = await createSegment(body.org, { name: body.name, color: body.color });
-    return NextResponse.json(created ?? { error: "Failed to create segment." }, { status: created ? 200 : 500 });
+    if (!created) return NextResponse.json({ error: "Failed to create segment." }, { status: 500 });
+    // resolveViewerLogin, not getSession: the live stack is the Supabase wall.
+    const actorLogin = await resolveViewerLogin();
+    await recordOrgAudit(
+      "segment.created",
+      body.org,
+      { segmentId: created.id, name: body.name.trim() },
+      actorLogin ?? undefined,
+    );
+    return NextResponse.json(created);
   } catch (err) {
     if ((err as { code?: string }).code === "P2002") {
       return NextResponse.json({ error: "A segment with that name already exists." }, { status: 409 });

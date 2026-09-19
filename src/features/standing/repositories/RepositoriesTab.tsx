@@ -12,6 +12,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { isPersonalOrg } from "@/lib/db";
 import { orgTabHref, DEFAULT_ORG_TAB } from "@/lib/org/orgTabs";
+import { resolveOrgScope } from "@/lib/org/scope";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { FleetTabs } from "./FleetTabs";
 import { SegmentsSection } from "./SegmentsSection";
@@ -47,6 +48,12 @@ export async function RepositoriesTab({
     );
   }
 
+  // Segment + tech-stack scope (?segment= / ?stack=). Called ONCE and the promise is handed to both
+  // the leaderboard and Context Health (the OverviewTab / DeliveryTab pattern) — awaiting it in two
+  // boundaries costs one lookup, and both panels then read one `getOrgRollupShared` at the same
+  // (segmentId, techGroupId). Deliberately NOT awaited here.
+  const scope = resolveOrgScope(slug, sp);
+
   return (
     <div className="stagger-children space-y-6">
       <FleetTabs slug={slug} active="repositories" />
@@ -60,15 +67,15 @@ export async function RepositoriesTab({
           repos do I have, and where do they stand?"), so it must not be pushed below the fold by a
           derived lens — Context Health used to sit above it and did exactly that. */}
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
-        <RepositoriesLeaderboardPanel slug={slug} sp={sp} />
+        <RepositoriesLeaderboardPanel slug={slug} sp={sp} scope={scope} />
       </Suspense>
       {/* Foundation rollout moved to Shared → Practices (2026-09-15): the shared checklist and its
           measurement live in one place, beside the practice rollout matrix. */}
       {/* Context Health (W4 — real): the quality-over-presence lens on the fleet's agent-context
-          layer. Fed by each scan's persisted contextHealthJson. Takes `sp` so it resolves the SAME
-          ?stack= scope the leaderboard above does — and so both panels share one rollup read. */}
+          layer. Fed by each scan's persisted contextHealthJson. Takes the SAME scope promise the
+          leaderboard above does — so `?segment=` / `?stack=` narrow both panels to one repo set. */}
       <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
-        <ContextHealthPanel slug={slug} sp={sp} />
+        <ContextHealthPanel slug={slug} scope={scope} />
       </Suspense>
     </div>
   );

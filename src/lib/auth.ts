@@ -14,7 +14,7 @@ import { cookies, headers } from "next/headers";
 import { isDbConfigured } from "@/lib/db/client";
 import { bumpSessionVersion, getSessionVersion } from "@/lib/db/sessions";
 import { PUBLIC_ORG } from "@/lib/org-constants";
-import { ghHeaders, githubApiBase } from "@/lib/github/host";
+import { ghHeaders, githubApiBase, githubWebBase } from "@/lib/github/host";
 
 export const SESSION_COOKIE = "ascent_session";
 export const STATE_COOKIE = "ascent_oauth_state";
@@ -517,11 +517,15 @@ export function buildAuthorizeUrl(origin: string, state: string): string {
     scope: "read:user",
     state,
   });
-  return `https://github.com/login/oauth/authorize?${params.toString()}`;
+  // Authorize is a browser redirect on the WEB host (`githubWebBase` / GITHUB_SERVER_URL), not
+  // the REST API — GHES serves /login/oauth/authorize on the server URL; github.com is the default.
+  return `${githubWebBase()}/login/oauth/authorize?${params.toString()}`;
 }
 
 export async function exchangeCodeForToken(code: string, origin: string): Promise<string> {
-  const res = await fetch("https://github.com/login/oauth/access_token", {
+  // Same web host as buildAuthorizeUrl — GHES token exchange is /login/oauth/access_token on
+  // GITHUB_SERVER_URL, not api.github.com.
+  const res = await fetch(`${githubWebBase()}/login/oauth/access_token`, {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({

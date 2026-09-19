@@ -1,5 +1,5 @@
 // GET  /api/org/alerts?org=slug                                  -> { webhookUrl, overallDrop, dimensionDrop }  (admin)
-// GET  /api/org/alerts?org=slug&movement=1                       -> { movement }          (member) what moved since you last looked
+// GET  /api/org/alerts?org=slug&movement=1                       -> { movement }          (member) scan-memory ∪ control-failed AlertEvents since watermark
 // GET  /api/org/alerts?org=slug&history=1                        -> { events }            (member) recent alert dispatches (AlertEvent)
 // POST /api/org/alerts { org, webhookUrl?, overallDrop?, dimensionDrop? } -> { ok, ... }  (admin)  set/clear sink + thresholds
 // POST /api/org/alerts { org, test: true }                       -> { ok, delivered }     (admin)  send a test alert
@@ -53,10 +53,15 @@ function parseThreshold(v: unknown): number | null | false | undefined {
 }
 
 /**
- * "What moved since you last looked" — the Alerts chip's movement count, read from records the scan
- * pipeline ALREADY persists (Shared Org Memory), measured from this viewer's own Membership
- * watermark. Split from the config read on purpose: the config payload carries a channel-posting
- * secret (admin-only, loaded lazily on open), while the count renders on page load for any member.
+ * "What moved since you last looked" — the Alerts chip's movement count, measured from this
+ * viewer's own Membership watermark. Split from the config read on purpose: the config payload
+ * carries a channel-posting secret (admin-only, loaded lazily on open), while the count renders on
+ * page load for any member.
+ *
+ * `getOrgMovementSince` unions scan-fed Shared Org Memory with control-failed AlertEvent rows in
+ * the same window. A control flip is ledger-sourced and never a memory row, so memory-only counting
+ * left the badge silent after branch protection came off. The route does not re-filter: whatever
+ * the reader returns is serialized as-is.
  *
  * Every degraded path answers `{ movement: null }`, which the chip renders exactly as it did before
  * this feature existed: auth-off deployments and the public org (no viewer identity), a viewer with

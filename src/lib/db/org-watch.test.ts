@@ -26,18 +26,26 @@ vi.mock("@/lib/db/client", () => ({
 // org-watch imports segmentScope from org-shared (used by setWatchedSchedule, not the funcs under
 // test). Stub it so the import graph resolves without pulling the real module / a DB client.
 // getOrgBySlug backs getOrgId (used by recordConformance below) — resolve every slug to org_1.
+// normalizeOrgSlug is the real trim+lowercase helper: keep it live so the writer tests below can
+// pin that mixed-case slugs land on the canonical key rather than minting a twin tenant.
 vi.mock("@/lib/db/org-shared", () => ({
   segmentScope: () => ({}),
   getOrgBySlug: vi.fn(async () => ({ id: "org_1" })),
+  normalizeOrgSlug: (s: string) => s.trim().toLowerCase(),
 }));
 
 import {
   advanceToFullCadence,
   claimRescan,
+  listDueProbeCandidates,
   listDueRescans,
   nextSlotFrom,
   recordConformance,
   reconcileListedRepos,
+  seedWatchlist,
+  setRepoMissing,
+  setRepoWatch,
+  setWatchedSchedule,
 } from "./org-watch";
 import { verifyAudit } from "./audit-integrity";
 
@@ -289,6 +297,89 @@ describe("listDueRescans round-robin fairness (no org starves another)", () => {
   it("returns [] (no DB call) when persistence is unconfigured", async () => {
     mockIsDbConfigured.mockReturnValue(false);
     expect(await listDueRescans()).toEqual([]);
+    expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+});
+
+// ── listDueProbeCandidates: cadence seed without a GitHub listing ────────────────────────────
+// App-installed orgs never call listOrgRepos, so reconcileListedRepos cannot stamp missingSince.
+// The probe seeder lists WATCHED repos (no nextScanAt / schedule gate — a paused cadence still
+// needs a presence check) and round-robins across orgs the same way the rescore seeder does.
+
+describe("listDueProbeCandidates — watched repos, no listing required", () => {
+  it("selects watched non-personal repos with NO due-rescan predicate", async () => {
+    const { prisma, getArgs } = fakePrismaWithDue([{ id: "a1", fullName: "acme/api", org: "acme" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await listDueProbeCandidates();
+
+    const where = getArgs()!.where as Record<string, unknown>;
+    expect(where.watched).toBe(true);
+    expect(where.org).toEqual({ kind: { not: "personal" } });
+    // A probe is not a rescan: schedule-off and not-yet-due repos still need missingSince.
+    expect(where).not.toHaveProperty("nextScanAt");
+    expect(where).not.toHaveProperty("scanSchedule");
+    expect(getArgs()!.take).toBeUndefined();
+    expect(getArgs()!.orderBy).toEqual({ fullName: "asc" });
+  });
+
+  it("interleaves across orgs so one large fleet cannot starve the rest of a pass", async () => {
+    const { prisma } = fakePrismaWithDue([
+      { id: "a1", fullName: "orgA/r1", org: "orgA" },
+      { id: "a2", fullName: "orgA/r2", org: "orgA" },
+      { id: "b1", fullName: "orgB/r1", org: "orgB" },
+      { id: "c1", fullName: "orgC/r1", org: "orgC" },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const out = await listDueProbeCandidates(3);
+    expect(out).toHaveLength(3);
+    expect(new Set(out.map((r) => r.orgSlug))).toEqual(new Set(["orgA", "orgB", "orgC"]));
+  });
+
+  it("returns [] (no DB call) when persistence is unconfigured", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await listDueProbeCandidates()).toEqual([]);
+    expect(mockGetPrisma).not.toHaveBeenCalled();
+  });
+});
+
+// ── setRepoMissing: first-sight stamp from a DIRECT observation (the probe 404) ──────────────
+// reconcileListedRepos can only run for orgs we can LIST. The probe stamps the same column from
+// GET /repos/{o}/{r}: first-sight (never overwrite), clear on reappearance, never unwatch.
+
+describe("setRepoMissing — first-sight stamp, never an eviction", () => {
+  it("stamps only a currently-unstamped row (the displayed date stays the first 404)", async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    mockGetPrisma.mockReturnValue({ repository: { updateMany } });
+
+    await setRepoMissing("repo_1", true);
+
+    const arg = updateMany.mock.calls[0]![0] as {
+      where: { id: string; missingSince: null };
+      data: { missingSince: Date };
+    };
+    expect(arg.where).toEqual({ id: "repo_1", missingSince: null });
+    expect(arg.data.missingSince).toBeInstanceOf(Date);
+    expect(arg.data).not.toHaveProperty("watched");
+    expect(arg.data).not.toHaveProperty("scanSchedule");
+  });
+
+  it("clears only a currently-stamped row when the repo is present again", async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    mockGetPrisma.mockReturnValue({ repository: { updateMany } });
+
+    await setRepoMissing("repo_1", false);
+
+    expect(updateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: "repo_1", missingSince: { not: null } },
+      data: { missingSince: null },
+    });
+  });
+
+  it("writes nothing when persistence is off", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    await setRepoMissing("repo_1", true);
     expect(mockGetPrisma).not.toHaveBeenCalled();
   });
 });
@@ -697,5 +788,71 @@ describe("claimRescan — the LEASE must not disturb the anchor", () => {
 
     const data = (updateMany.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
     expect(Object.keys(data)).toEqual(["nextScanAt"]);
+  });
+});
+
+// ── slug canonicalization (parity with import/scan) ─────────────────────────────────────────
+// Org rows are PERSISTED lower-cased (GitHub-App install writes `opts.login.toLowerCase()`).
+// Readers go through getOrgId → normalizeOrgSlug. This module's WRITERS (ensureOrg via
+// setRepoWatch/seedWatchlist, and setWatchedSchedule's private findUnique) used to take the
+// caller's string raw, so a mixed-case watch/schedule did not miss the row — it minted a
+// second tenant (or missed the fleet on the cadence write). Import and scan already
+// canonicalize at the route; these pins hold the db layer so a forgotten caller can't fork.
+
+const SLUG_REPO = { owner: "posthog", name: "web", fullName: "posthog/web", url: "https://github.com/posthog/web" };
+
+function orgWriterPrisma() {
+  const upsert = vi.fn(async () => ({ id: "org_1" }));
+  mockGetPrisma.mockReturnValue({
+    organization: { upsert },
+    repository: { upsert: vi.fn(async () => ({ id: "repo_1" })) },
+  });
+  return upsert;
+}
+
+describe("ensureOrg canonicalizes the slug it writes", () => {
+  it("upserts the org under the CANONICAL slug, never the caller's casing", async () => {
+    const upsert = orgWriterPrisma();
+    await setRepoWatch("  PostHog ", SLUG_REPO, true);
+
+    const args = upsert.mock.calls[0]![0] as { where: { slug: string }; create: { slug: string; name: string } };
+    expect(args.where.slug).toBe("posthog");
+    expect(args.create).toMatchObject({ slug: "posthog", name: "posthog" });
+  });
+
+  it("recognizes the funnel org however it is spelled, so mixed-case cannot mint a metered twin", async () => {
+    const upsert = orgWriterPrisma();
+    await setRepoWatch(" PUBLIC ", SLUG_REPO, true);
+
+    const args = upsert.mock.calls[0]![0] as { where: { slug: string }; create: Record<string, unknown> };
+    expect(args.where.slug).toBe("public");
+    expect(args.create).toMatchObject({ slug: "public", name: "Public Scans", kind: "public" });
+  });
+
+  it("seedWatchlist goes through the same canonical writer", async () => {
+    const upsert = orgWriterPrisma();
+    await seedWatchlist("  AcMe ", [SLUG_REPO]);
+    const args = upsert.mock.calls[0]![0] as { where: { slug: string }; create: { slug: string } };
+    expect(args.where.slug).toBe("acme");
+    expect(args.create.slug).toBe("acme");
+  });
+});
+
+describe("setWatchedSchedule canonicalizes the slug it looks up", () => {
+  it("finds the org under the CANONICAL slug so a mixed-case cadence write cannot miss the fleet", async () => {
+    // Unlike setRepoSchedule (getOrgId → already normalized), this writer had its own findUnique
+    // on the raw slug — authorized mixed-case then scheduled nothing against the canonical row.
+    const findUnique = vi.fn(async () => ({ id: "org_1" }));
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique },
+      repository: {
+        findMany: vi.fn(async () => [{ fullName: "acme/web" }]),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+    });
+
+    await setWatchedSchedule("  AcMe ", "weekly");
+
+    expect(findUnique).toHaveBeenCalledWith({ where: { slug: "acme" }, select: { id: true } });
   });
 });

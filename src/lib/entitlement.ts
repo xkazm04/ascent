@@ -113,3 +113,15 @@ export function paymentRequired(balance: number): NextResponse {
     { status: 402 },
   );
 }
+
+/** 404 for a slug that matched no org row — a typo/deletion, never a paywall. */
+export function orgNotFound(): NextResponse {
+  return NextResponse.json({ error: "Organization not found.", code: "NOT_FOUND" }, { status: 404 });
+}
+
+/** Map a credit-gate refusal: a missing org is 404, a real empty wallet is 402. */
+export function scanCreditRefusal(
+  decision: { reason: "not_found" } | { reason: "payment_required"; balance: number },
+): NextResponse {
+  return decision.reason === "not_found" ? orgNotFound() : paymentRequired(decision.balance);
+}

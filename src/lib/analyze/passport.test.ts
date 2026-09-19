@@ -123,7 +123,8 @@ describe("buildPassport — PRESENT vs ENFORCED honesty cap (tokenless scan)", (
     expect(pp.productionReadiness.ci.level).toBe("checks"); // cannot prove enforcement without a token
     expect(pp.productionReadiness.ci.gates).toEqual([]);
     expect(pp.evidence.source).toContain("no branch-protection visibility");
-    expect(pp.productionReadiness.blockers.some((b) => /not observable/i.test(b))).toBe(true);
+    expect(pp.productionReadiness.findings?.some((f) => f.id === "prod.enforcement-not-observable")).toBe(true);
+    expect(pp.productionReadiness.blockers.some((b) => /not observable/i.test(b))).toBe(false);
   });
 
   it("the SAME repo reaches 'gated' once a token sees branch protection", () => {
@@ -152,6 +153,30 @@ describe("buildPassport — determinism + parse", () => {
     expect(pp.productionReadiness.ci.level).toBe("none");
     expect(pp.productionReadiness.observability.level).toBe("none");
     expect(pp.automationReadiness.selfVerify).toEqual({ build: false, test: false, lint: false, typecheck: false });
+    // Unread package.json: coverage hole (G4), not a measured tests/self-verify gap.
+    expect(pp.productionReadiness.findings?.map((f) => f.id)).toContain("prod.tests-unassessable");
+    expect(pp.automationReadiness.findings?.map((f) => f.id)).toContain("auto.self-verify-unassessable");
+    expect(pp.automationReadiness.findings?.map((f) => f.id)).not.toContain("auto.self-verify-gaps");
+    expect(pp.automationReadiness.blockers.some((b) => /self-verify/i.test(b))).toBe(false);
+  });
+});
+
+describe("buildPassport — unread package.json is unassessable for tests and self-verify", () => {
+  it("does not mint self-verify-gaps at block when package.json was not readable", () => {
+    const pp = buildPassport(report({ governance: null }), snap({ tree: ["main.py"] }));
+    expect(pp.productionReadiness.findings?.map((f) => `${f.id}:${f.severity}`)).toContain("prod.tests-unassessable:info");
+    expect(pp.automationReadiness.findings?.map((f) => `${f.id}:${f.severity}`)).toContain("auto.self-verify-unassessable:info");
+    expect(pp.automationReadiness.findings?.map((f) => f.id)).not.toContain("auto.self-verify-gaps");
+    expect(pp.automationReadiness.blockers.some((b) => /self-verify/i.test(b))).toBe(false);
+  });
+
+  it("keeps none/block when package.json was read and has no tests or scripts", () => {
+    const pp = buildPassport(report({ governance: null }), snap({ tree: ["package.json"], files: { "package.json": "{}" } }));
+    expect(pp.productionReadiness.tests.level).toBe("none");
+    expect(pp.productionReadiness.findings?.map((f) => f.id)).not.toContain("prod.tests-unassessable");
+    expect(pp.automationReadiness.findings?.map((f) => f.id)).toContain("auto.self-verify-gaps");
+    expect(pp.automationReadiness.findings?.map((f) => f.id)).not.toContain("auto.self-verify-unassessable");
+    expect(pp.automationReadiness.blockers.some((b) => /^Agent can't self-verify/.test(b))).toBe(true);
   });
 });
 

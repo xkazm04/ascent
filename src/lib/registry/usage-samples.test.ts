@@ -5,7 +5,16 @@
 import { describe, expect, it } from "vitest";
 import { SKILL_INVOKES_PER_DAY_CEILING, SKILL_INVOKES_PER_WINDOW_CEILING } from "@/lib/mcp/self-report-ceiling";
 import { WRITE_TOOL_POLICY } from "@/lib/mcp/write-gate";
-import { aggregateUsage, boundContribution, sampleEventStats, type UsageSample } from "./usage-samples";
+import { skillUsageMap, unmirroredRegistryUsage, usageSummary } from "@/lib/org/skill-usage";
+import {
+  aggregateUsage,
+  boundContribution,
+  isUnmirroredSkillId,
+  sampleEventStats,
+  unmirroredSkillId,
+  unmirroredSkillName,
+  type UsageSample,
+} from "./usage-samples";
 
 const SKILLS = [
   { id: "s1", name: "deploy-check" },
@@ -56,9 +65,30 @@ describe("sampleEventStats", () => {
     expect(stats).toEqual([{ skillId: "s1", type: "invoke", lastAt: "2026-08-20T00:00:00.000Z", count: 7 }]);
   });
 
-  it("ignores a sample naming a skill this org does not mirror", () => {
-    // A registry may legitimately hold skills an org never adopted; that is not a warning-worthy fault.
-    expect(sampleEventStats([sample({ skillName: "not-mirrored" })], SKILLS)).toEqual([]);
+  it("keeps a sample naming a skill this org does not mirror, keyed by registry name", () => {
+    // Dropping it hid fleet activity for skills the library has not mirrored. A registry may
+    // legitimately hold those; the keep is the reading, not a warning.
+    expect(sampleEventStats([sample({ skillName: "not-mirrored" })], SKILLS)).toEqual([
+      { skillId: unmirroredSkillId("not-mirrored"), type: "invoke", lastAt: "2026-08-20T00:00:00.000Z", count: 3 },
+    ]);
+    expect(unmirroredSkillName(unmirroredSkillId("not-mirrored"))).toBe("not-mirrored");
+    expect(isUnmirroredSkillId("s1")).toBe(false);
+  });
+
+  it("still keys a mirrored skill by OrgSkill id when an unmirrored sample shares the lane", () => {
+    const stats = sampleEventStats(
+      [sample(), sample({ skillName: "not-mirrored", invokes: 2 })],
+      SKILLS,
+    );
+    expect(stats.map((s) => s.skillId).sort()).toEqual(["s1", unmirroredSkillId("not-mirrored")].sort());
+    expect(stats.find((s) => s.skillId === "s1")!.count).toBe(3);
+    expect(stats.find((s) => s.skillId === unmirroredSkillId("not-mirrored"))!.count).toBe(2);
+  });
+
+  it("keeps every sample when the org mirrors nothing", () => {
+    expect(sampleEventStats([sample()], [])).toEqual([
+      { skillId: unmirroredSkillId("deploy-check"), type: "invoke", lastAt: "2026-08-20T00:00:00.000Z", count: 3 },
+    ]);
   });
 
   it("drops an unparseable lastUsed rather than passing it downstream", () => {
@@ -94,6 +124,59 @@ describe("sampleEventStats", () => {
       SKILLS,
     );
     expect(stats[0]!.count).toBe(12 + SKILL_INVOKES_PER_WINDOW_CEILING);
+  });
+
+  it("still bounds a contributor across mirrored and unmirrored samples, and keeps both", () => {
+    const stats = sampleEventStats(
+      [
+        sample({ skillName: "deploy-check", invokes: 10_000, windowDays: 30 }),
+        sample({ skillName: "not-mirrored", invokes: 20_000, windowDays: 30 }),
+      ],
+      SKILLS,
+    );
+    const mirrored = stats.find((s) => s.skillId === "s1")!;
+    const kept = stats.find((s) => s.skillId === unmirroredSkillId("not-mirrored"))!;
+    expect(mirrored.count + kept.count).toBe(SKILL_INVOKES_PER_WINDOW_CEILING);
+    expect(mirrored.count).toBe(5_000);
+    expect(kept.count).toBe(10_000);
+  });
+});
+
+describe("skillUsageMap keeps unmirrored registry samples", () => {
+  const NOW = new Date("2026-08-29T12:00:00.000Z");
+  const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
+  const rows = {
+    skills: [{ id: "s1", name: "deploy-check", createdAt: daysAgo(400) }],
+    events: [] as { skillId: string; type: string; lastAt: string | null; count: number }[],
+    adoptions: [] as { skillId: string; repoFullName: string; adoptedAt: string }[],
+    samples: [
+      {
+        registryId: "r",
+        orgId: "o",
+        contributor: "c",
+        skillName: "somebody-elses",
+        invokes: 6,
+        windowDays: 30,
+        lastUsedAt: daysAgo(2),
+        generatedAt: daysAgo(0),
+      },
+    ],
+  };
+
+  it("folds the unmirrored sample onto the map without flipping the library to unused", () => {
+    const map = skillUsageMap(rows, NOW);
+    expect(map.s1!.state).toBe("unmeasured");
+    expect(map.s1!.invokes).toBe(0);
+    const kept = map[unmirroredSkillId("somebody-elses")];
+    expect(kept).toBeDefined();
+    expect(kept!.invokes).toBe(6);
+    expect(kept!.lastUsedType).toBe("invoke");
+    expect(kept!.lastUsedSource).toBe("registry");
+    expect(kept!.verdict).toBe("active");
+    expect(unmirroredRegistryUsage(map)).toEqual([
+      { name: "somebody-elses", invokes: 6, lastUsedAt: daysAgo(2) },
+    ]);
+    expect(usageSummary(map)).toMatchObject({ total: 1, unmeasured: 1 });
   });
 });
 

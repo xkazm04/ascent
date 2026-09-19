@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { validateAssessment, isAssessmentUsable } from "./provider";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import type { TokenUsage } from "@/lib/types";
+import { ASSESSMENT_JSON_SCHEMA } from "./schema";
 
 // @google/genai mock for the Gemini usage-attribution suite. Mirrors what GeminiProvider reads:
 // response.text + response.usageMetadata (promptTokenCount / candidatesTokenCount = Gemini's NATIVE
@@ -132,9 +133,31 @@ function usageRecorder() {
   return { calls, onUsage };
 }
 
+/** Config object passed on the n-th mocked generateContent call. */
+function capturedConfig(n = 0): {
+  responseMimeType?: string;
+  responseJsonSchema?: unknown;
+  thinkingConfig?: { thinkingLevel?: string };
+} | undefined {
+  const req = genai.generateContent.mock.calls[n]?.[0] as {
+    config?: {
+      responseMimeType?: string;
+      responseJsonSchema?: unknown;
+      thinkingConfig?: { thinkingLevel?: string };
+    };
+  };
+  return req?.config;
+}
+
+/** thinkingConfig passed on the first mocked generateContent call. */
+function capturedThinkingConfig(): { thinkingLevel?: string } | undefined {
+  return capturedConfig(0)?.thinkingConfig;
+}
+
 describe("provider usage attribution", () => {
   beforeEach(() => {
     vi.stubEnv("GEMINI_MODEL", "");
+    vi.stubEnv("GEMINI_THINKING_LEVEL", "");
     vi.stubEnv("OPENAI_MODEL", "");
     vi.stubEnv("OPENAI_BASE_URL", "");
     vi.stubEnv("LLM_TIMEOUT_MS", "60000");
@@ -163,6 +186,10 @@ describe("provider usage attribution", () => {
       // re-keyed onto the metering-basis field shape scan.ts persists on report.usage.
       expect(calls).toHaveLength(1);
       expect(calls[0]).toEqual({ inputTokens: 4096, outputTokens: 512 });
+      // Schema path succeeds: one call, schema kept, no mime-json retry.
+      expect(genai.generateContent).toHaveBeenCalledTimes(1);
+      expect(capturedConfig(0)?.responseMimeType).toBe("application/json");
+      expect(capturedConfig(0)?.responseJsonSchema).toBe(ASSESSMENT_JSON_SCHEMA);
     });
 
     it("does NOT fabricate token counts when the model omits usage metadata", async () => {
@@ -178,14 +205,107 @@ describe("provider usage attribution", () => {
       expect(calls[0]).toEqual({ inputTokens: undefined, outputTokens: undefined });
     });
 
-    it("attributes NO usage when the call produces no result (empty response throws first)", async () => {
+    it("attributes NO usage when the call produces no result (empty schema reply retries once, then throws)", async () => {
       const { GeminiProvider } = await import("./gemini");
+      vi.spyOn(console, "warn").mockImplementation(() => {});
       genai.generateContent.mockResolvedValue({ text: "", usageMetadata: { promptTokenCount: 9 } });
       const provider = new GeminiProvider("test-key");
       const { calls, onUsage } = usageRecorder();
 
-      await expect(provider.assess(usageInput, { onUsage })).rejects.toThrow();
-      // No result produced ⇒ no tokens billed (onUsage fires only after a non-empty response).
+      await expect(provider.assess(usageInput, { onUsage })).rejects.toThrow(/Empty response from Gemini/);
+      // Empty first attempt retries without the schema; both empty ⇒ finalizeAssessment throws,
+      // so no tokens billed (onUsage fires only after a non-empty response).
+      expect(genai.generateContent).toHaveBeenCalledTimes(2);
+      expect(calls).toHaveLength(0);
+    });
+
+    it("pins thinkingConfig.thinkingLevel to low when GEMINI_THINKING_LEVEL is unset", async () => {
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: USABLE_JSON });
+      await new GeminiProvider("test-key").assess(usageInput);
+      expect(capturedThinkingConfig()).toEqual({ thinkingLevel: "LOW" });
+    });
+
+    it("selects high when GEMINI_THINKING_LEVEL=high", async () => {
+      vi.stubEnv("GEMINI_THINKING_LEVEL", "high");
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: USABLE_JSON });
+      await new GeminiProvider("test-key").assess(usageInput);
+      expect(capturedThinkingConfig()).toEqual({ thinkingLevel: "HIGH" });
+    });
+
+    it("selects minimal when GEMINI_THINKING_LEVEL=minimal", async () => {
+      vi.stubEnv("GEMINI_THINKING_LEVEL", "minimal");
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: USABLE_JSON });
+      await new GeminiProvider("test-key").assess(usageInput);
+      expect(capturedThinkingConfig()).toEqual({ thinkingLevel: "MINIMAL" });
+    });
+
+    it("falls back to low on an unrecognized GEMINI_THINKING_LEVEL", async () => {
+      vi.stubEnv("GEMINI_THINKING_LEVEL", "medium");
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockResolvedValue({ text: USABLE_JSON });
+      await new GeminiProvider("test-key").assess(usageInput);
+      expect(capturedThinkingConfig()).toEqual({ thinkingLevel: "LOW" });
+    });
+
+    it("retries once without responseJsonSchema when the schema call returns empty", async () => {
+      const { GeminiProvider } = await import("./gemini");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      genai.generateContent
+        .mockResolvedValueOnce({ text: "", usageMetadata: { promptTokenCount: 11, candidatesTokenCount: 0 } })
+        .mockResolvedValueOnce({
+          text: USABLE_JSON,
+          usageMetadata: { promptTokenCount: 4096, candidatesTokenCount: 512 },
+        });
+      const { calls, onUsage } = usageRecorder();
+
+      const a = await new GeminiProvider("test-key").assess(usageInput, { onUsage });
+
+      expect(genai.generateContent).toHaveBeenCalledTimes(2);
+      expect(capturedConfig(0)?.responseMimeType).toBe("application/json");
+      expect(capturedConfig(0)?.responseJsonSchema).toBe(ASSESSMENT_JSON_SCHEMA);
+      expect(capturedConfig(1)?.responseMimeType).toBe("application/json");
+      expect(capturedConfig(1)).not.toHaveProperty("responseJsonSchema");
+      expect(capturedConfig(0)?.thinkingConfig).toEqual({ thinkingLevel: "LOW" });
+      expect(capturedConfig(1)?.thinkingConfig).toEqual({ thinkingLevel: "LOW" });
+      expect(a.dimensions.length).toBeGreaterThan(0);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual({ inputTokens: 4096, outputTokens: 512 });
+      expect(warn).toHaveBeenCalled();
+    });
+
+    it("retries once without responseJsonSchema when the schema call is rejected", async () => {
+      const { GeminiProvider } = await import("./gemini");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      genai.generateContent
+        .mockRejectedValueOnce(new Error("Invalid JSON schema: responseJsonSchema is not supported."))
+        .mockResolvedValueOnce({ text: USABLE_JSON, usageMetadata: { promptTokenCount: 80, candidatesTokenCount: 20 } });
+      const { calls, onUsage } = usageRecorder();
+
+      const a = await new GeminiProvider("test-key").assess(usageInput, { onUsage });
+
+      expect(genai.generateContent).toHaveBeenCalledTimes(2);
+      expect(capturedConfig(0)?.responseJsonSchema).toBe(ASSESSMENT_JSON_SCHEMA);
+      expect(capturedConfig(1)?.responseMimeType).toBe("application/json");
+      expect(capturedConfig(1)).not.toHaveProperty("responseJsonSchema");
+      expect(a.dimensions.length).toBeGreaterThan(0);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual({ inputTokens: 80, outputTokens: 20 });
+      expect(warn).toHaveBeenCalled();
+    });
+
+    it("does NOT retry an unrelated failure — it stays a loud error", async () => {
+      const { GeminiProvider } = await import("./gemini");
+      genai.generateContent.mockRejectedValue(new Error("PERMISSION_DENIED: API key not valid"));
+      const { calls, onUsage } = usageRecorder();
+
+      await expect(new GeminiProvider("test-key").assess(usageInput, { onUsage })).rejects.toThrow(
+        /API key not valid/,
+      );
+      expect(genai.generateContent).toHaveBeenCalledTimes(1);
+      expect(capturedConfig(0)?.responseJsonSchema).toBe(ASSESSMENT_JSON_SCHEMA);
       expect(calls).toHaveLength(0);
     });
   });

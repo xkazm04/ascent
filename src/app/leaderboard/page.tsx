@@ -52,6 +52,19 @@ export async function generateMetadata({
   };
 }
 
+/** Persistence-off / thrown read: not a ranked corpus, and not a count of 0. */
+function RegisterUnavailable() {
+  return (
+    <div className="mt-12 rounded-2xl border border-divider bg-surface/40 p-10 text-center">
+      <p className="type-lede font-semibold text-white">Register unavailable</p>
+      <p className="mx-auto mt-2 max-w-md type-body text-slate-400">
+        The public register could not be read. Persistence is off, or the read failed. That is not a
+        ranking of every public scan, and it is not a claim that none exist.
+      </p>
+    </div>
+  );
+}
+
 export default async function LeaderboardPage({
   searchParams,
 }: {
@@ -63,6 +76,10 @@ export default async function LeaderboardPage({
   const unranked = register?.unverified ?? [];
   const latest = rows[0]?.scannedAt ?? unranked[0]?.scannedAt;
   const startRank = register ? (register.page - 1) * register.perPage + 1 : 1;
+  // A ranking lede is a claim that a ranked corpus exists. Null (persistence-off / read-failure,
+  // and the data layer's empty collapse) and a readable empty register do not get it. Mock-only
+  // is a non-null register with preview rows and keeps the existing copy.
+  const rankingLede = register != null && (rows.length > 0 || unranked.length > 0);
 
   return (
     <>
@@ -70,24 +87,28 @@ export default async function LeaderboardPage({
       <main id="main" className="mx-auto w-full max-w-6xl px-5 py-12">
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-divider pb-4">
           <div>
-            <Kicker>The index · ranked</Kicker>
+            <Kicker>{rankingLede ? "The index · ranked" : "The index"}</Kicker>
             <h1 className="mt-2 type-display font-bold tracking-tight text-white sm:type-display-lg">
               The AI-native register
             </h1>
-            <p className="mt-3 max-w-2xl type-lede leading-relaxed text-slate-400">
-              Every public repository Ascent has scored, ranked by overall maturity and broken down
-              across all nine dimensions. Every public scan is open. Click any repo to read its full
-              report, or open an owner&apos;s{" "}
-              <span className="text-slate-300">public scorecard</span> from its name.
-            </p>
-            <p className="mt-2 max-w-2xl type-body-sm leading-relaxed text-slate-500">
-              Every score here is computed <span className="text-slate-400">outside-in</span>, from
-              public artifacts alone — a repository whose reviews, CI or tests live outside its
-              public tree reads lower than the project&apos;s reality, and rows where that limit
-              bites carry a qualifier saying so.
-            </p>
+            {rankingLede ? (
+              <>
+                <p className="mt-3 max-w-2xl type-lede leading-relaxed text-slate-400">
+                  Every public repository Ascent has scored, ranked by overall maturity and broken down
+                  across all nine dimensions. Every public scan is open. Click any repo to read its full
+                  report, or open an owner&apos;s{" "}
+                  <span className="text-slate-300">public scorecard</span> from its name.
+                </p>
+                <p className="mt-2 max-w-2xl type-body-sm leading-relaxed text-slate-500">
+                  Every score here is computed <span className="text-slate-400">outside-in</span>, from
+                  public artifacts alone — a repository whose reviews, CI or tests live outside its
+                  public tree reads lower than the project&apos;s reality, and rows where that limit
+                  bites carry a qualifier saying so.
+                </p>
+              </>
+            ) : null}
           </div>
-          {register && (
+          {register && rankingLede && register.totalRepos > 0 && (
             <div className="text-right">
               <span className="block type-label tracking-[0.2em] text-slate-500">
                 {register.totalVerified} ranked · {register.totalRepos} public{" "}
@@ -129,6 +150,8 @@ export default async function LeaderboardPage({
             )}
             <RegisterPager page={register.page} totalPages={register.totalPages} basePath="/leaderboard" />
           </>
+        ) : register == null ? (
+          <RegisterUnavailable />
         ) : (
           <div className="mt-12 rounded-2xl border border-divider bg-surface/40 p-10 text-center">
             <p className="type-lede font-semibold text-white">

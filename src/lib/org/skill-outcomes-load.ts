@@ -6,6 +6,7 @@
 import { getRepositoryHistory, listOrgSkillAdoptionRows, type HistoryPoint } from "@/lib/db";
 import { listSkillInvokeAnchors } from "@/lib/db/org-skills";
 import { recordOutcomes, type OutcomeInput } from "@/lib/db/outcomes";
+import { isCompactedPointId } from "@/lib/db/scans-read";
 import { resolveOrgId } from "@/lib/db/scans-shared";
 import { mapPool } from "@/lib/pool";
 import { skillOutcomesFor, type OutcomeScan, type SkillOutcome } from "@/lib/org/skill-outcomes";
@@ -67,7 +68,11 @@ export async function getOrgSkillOutcomes(orgSlug: string): Promise<Record<strin
   await mapPool(repos, HISTORY_CONCURRENCY, async (fullName) => {
     const [owner, name] = fullName.split("/");
     if (!owner || !name) return;
-    const history = await getRepositoryHistory(owner, name, { orgSlug, limit: HISTORY_LIMIT }).catch(() => null);
+    const history = await getRepositoryHistory(owner, name, {
+      orgSlug,
+      limit: HISTORY_LIMIT,
+      includeCompacted: true,
+    }).catch(() => null);
     scansByRepo.set(fullName, (history?.scans ?? []).map(toOutcomeScan));
   });
   const outcomes = skillOutcomesFor(adoptions, scansByRepo, { invokeAnchors });
@@ -97,6 +102,8 @@ async function mirrorMeasuredOutcomes(
         // Every field below is non-null exactly when the status is `measured` — the pure module
         // guarantees it — so this never has to invent one.
         if (o.status !== "measured" || !o.before || !o.after || o.overallDelta === null || !o.instrument) continue;
+        // digest: bookends are period means, not Scan rows — measure on the page, never in the ledger.
+        if (isCompactedPointId(o.before.id) || isCompactedPointId(o.after.id)) continue;
         const dim = o.dimensionDeltas[0] ?? null;
         inputs.push({
           orgId,

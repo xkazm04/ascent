@@ -132,7 +132,7 @@ function unmappedBase(slug: string, contentsWrite: boolean): RegistryView {
       practices: { state: "not-started", moved: 0, total: 9 },
       memory: { state: "not-started", moved: 0, total: 38 },
     },
-    fleet: { reposTotal: 34, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
+    fleet: { reposTotal: 34, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
     activity: [],
     bundles: [],
     telemetry: { invokes30d: 0, reposReporting: 0, sink: "off" },
@@ -198,6 +198,8 @@ export function fixtureRegistryView(slug: string, demo: string | undefined): Reg
     };
   }
 
+  if (demo === "indexed") return indexedBase(slug);
+
   if (demo === "error") {
     const v = indexedBase(slug);
     return {
@@ -226,7 +228,7 @@ export function fixtureRegistryView(slug: string, demo: string | undefined): Reg
       practices: { state: "n/a", moved: 0, total: 9 },
       memory: { state: "n/a", moved: 0, total: 38 },
     },
-    fleet: { reposTotal: 34, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
+    fleet: { reposTotal: 34, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
     bundles: [],
     telemetry: { invokes30d: 0, reposReporting: 0, sink: "off" },
     activity: ACTIVITY.filter((a) => a.kind === "catalog" || a.kind === "index").slice(0, 3),

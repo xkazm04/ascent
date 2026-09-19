@@ -2,8 +2,9 @@
 // forecast computed on the rollup (forecastTrajectory) and renders where the fleet is now,
 // where it is heading by the horizon, the weekly rate, the promotion/demotion ETA, and how
 // trustworthy the straight-line read is. Server-safe (no client hooks).
+// Headline and confidence come from composeTrajectory so an unpresentable fit cannot print a slope (G4).
 import { Card, Meter, SectionHeader, DIRECTION_TONE } from "@/components/org/shared/ui";
-import { forecastHeadline, humanizeDays, type Forecast } from "@/lib/maturity/forecast";
+import { composeTrajectory, forecastConfidenceNote, humanizeDays, type Forecast } from "@/lib/maturity/forecast";
 import { LEVEL_BY_ID } from "@/lib/maturity/model";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";
 
@@ -24,9 +25,10 @@ function LevelStamp({ score, levelId }: { score: number; levelId: keyof typeof L
 }
 
 export function Trajectory({ forecast }: { forecast: Forecast }) {
+  const read = composeTrajectory(forecast);
   const dir = DIRECTION_TONE[forecast.trajectory];
-  const confidence = Math.round(forecast.fitQuality * 100);
   const rate = `${forecast.perWeek > 0 ? "+" : ""}${forecast.perWeek}/wk`;
+  const confidenceNote = forecastConfidenceNote(read.confidence);
 
   return (
     <Card>
@@ -41,7 +43,7 @@ export function Trajectory({ forecast }: { forecast: Forecast }) {
         }
       />
 
-      <p className="mt-3 type-body text-slate-200">{forecastHeadline(forecast)}</p>
+      {read.headline ? <p className="mt-3 type-body text-slate-200">{read.headline}</p> : null}
 
       {/* Now → projected at the horizon */}
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -83,24 +85,14 @@ export function Trajectory({ forecast }: { forecast: Forecast }) {
             no level change projected within the year
           </span>
         )}
-        {/* On < 3 distinct scan days the R² is mathematically 1 regardless of noise, so a raw
-            "100% confidence" overstates a 2-point blip. Surface a low-data caveat instead of the
-            inflated percentage (forecast-overconfidence #1). */}
-        {forecast.lowData ? (
-          <span
-            className="type-mono-sm text-slate-500"
-            title="Too few distinct scan days to gauge a trend: a straight line through ≤ 2 points always fits perfectly"
-          >
-            trend confidence · low data (n={forecast.points})
-          </span>
-        ) : (
+        {confidenceNote ? (
           <span
             className="type-mono-sm text-slate-500"
             title="R² of the linear fit: how closely the trend follows a straight line"
           >
-            trend confidence {confidence}%{confidence < 50 ? " · noisy" : ""}
+            {confidenceNote}
           </span>
-        )}
+        ) : null}
       </div>
     </Card>
   );

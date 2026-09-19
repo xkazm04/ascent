@@ -8,15 +8,30 @@ import { PassportOverridePin } from "@/components/report/PassportOverridePin";
 import { PassportCardDeclined } from "@/features/standing/passports/PassportCardDeclined";
 import { PassportDeclineControl } from "@/features/standing/passports/PassportDeclineControl";
 import { PassportOwnerControls } from "@/features/standing/passports/PassportOwnerControls";
-import { bandColor, bandLabel, passportStackChips } from "@/lib/org/passport-display";
+import { scoredBlockerTexts } from "@/lib/analyze/passport";
+import {
+  bandColor,
+  bandLabel,
+  passportStackChips,
+  productionRungViews,
+  RUNG_HONESTY_CLASS,
+  RUNG_HONESTY_HINT,
+  type RungHonesty,
+} from "@/lib/org/passport-display";
 import { scoreHex } from "@/lib/ui";
 import type { AppPassport } from "@/lib/types";
 
-function Rung({ label, value, tone }: { label: string; value: string; tone?: "warn" | "ok" }) {
+function Rung({ label, value, honesty }: { label: string; value: string; honesty: RungHonesty }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-slate-800/60 py-1.5 type-body-sm last:border-0">
+    <div
+      className="flex items-center justify-between gap-3 border-b border-slate-800/60 py-1.5 type-body-sm last:border-0"
+      data-testid={`passport-rung-${label.toLowerCase()}`}
+      data-honesty={honesty}
+    >
       <span className="font-mono uppercase tracking-widest text-slate-500">{label}</span>
-      <span className={`font-mono ${tone === "warn" ? "text-orange-300" : tone === "ok" ? "text-emerald-300" : "text-slate-300"}`}>{value}</span>
+      <span className={`font-mono ${RUNG_HONESTY_CLASS[honesty]}`} title={RUNG_HONESTY_HINT[honesty]}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -37,7 +52,11 @@ export function PassportCard({
   const auto = pp.automationReadiness;
   const prod = pp.productionReadiness;
   const chips = passportStackChips(pp);
-  const allBlockers = [...auto.blockers, ...prod.blockers];
+  // Coverage holes stay on findings (rungs name them unassessable) and are not scored blockers (G4).
+  const allBlockers = [
+    ...scoredBlockerTexts(auto.findings, auto.blockers),
+    ...scoredBlockerTexts(prod.findings, prod.blockers),
+  ];
   const blockers = allBlockers.slice(0, 6);
   const hidden = allBlockers.length - blockers.length;
 
@@ -82,11 +101,9 @@ export function PassportCard({
           <Meter className="mt-2" size="sm" value={prod.score} color={bandColor(prod.band)} />
           {prod.overridden ? <PassportOverridePin overridden={prod.overridden} className="mt-2" /> : null}
           <div className="mt-3 space-y-0">
-            <Rung label="CI" value={prod.ci.level} tone={prod.ci.level === "gated" || prod.ci.level === "delivery" || prod.ci.level === "progressive" ? "ok" : "warn"} />
-            <Rung label="Tests" value={prod.tests.level} tone={prod.tests.criticalPathCovered ? "ok" : "warn"} />
-            <Rung label="Security" value={prod.security.level} tone={prod.security.level === "gated" || prod.security.level === "supply-chain" ? "ok" : "warn"} />
-            <Rung label="Observability" value={prod.observability.level} tone={prod.observability.level === "none" ? "warn" : "ok"} />
-            <Rung label="Delivery" value={`migrations: ${prod.delivery.migrations}${prod.delivery.iac ? " · iac" : ""}${prod.delivery.rollback ? " · rollback" : ""}`} />
+            {productionRungViews(prod).map((r) => (
+              <Rung key={r.id} label={r.label} value={r.value} honesty={r.honesty} />
+            ))}
           </div>
         </div>
       </div>

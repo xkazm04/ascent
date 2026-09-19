@@ -141,7 +141,8 @@ export function publicScanWallEnabled(): boolean {
 // (src/lib/scan-credit.ts — the same pair the three fleet paths use) move the credit and fire the
 // low-credit alert. What it adds is the ROUTE shape the two single-repo entry points need and the
 // fleet paths do not: a not-metered/unlimited short-circuit, an entitlement pre-check that can 402
-// before any debit, and a refund closure the route can fire from several unwind points.
+// (or 404 a missing org) before any debit, and a refund closure the route can fire from several
+// unwind points.
 
 /** A reservation held for the duration of one scan, returned by {@link scanCreditGate}. */
 export interface ScanCreditHold {
@@ -165,7 +166,10 @@ const FREE_HOLD: ScanCreditHold = { remaining: null, refund: async () => {} };
 
 export type ScanCreditPass = { ok: true; hold: ScanCreditHold };
 /** Out of credits (and out of monthly allowance). Callers render `paymentRequired(balance)` — a 402. */
-export type ScanCreditRejection = { ok: false; reason: "payment_required"; balance: number };
+export type ScanCreditPaymentRejection = { ok: false; reason: "payment_required"; balance: number };
+/** Slug matched no org row. Callers render `orgNotFound()` — a 404, never INSUFFICIENT_CREDITS. */
+export type ScanCreditNotFoundRejection = { ok: false; reason: "not_found" };
+export type ScanCreditRejection = ScanCreditPaymentRejection | ScanCreditNotFoundRejection;
 
 /**
  * Entitlement check + credit RESERVATION for one single-repo scan. Sequenced last (see the ordering
@@ -200,6 +204,8 @@ export async function scanCreditGate(
   if (!isMeteredScan(orgSlug, opts.mock)) return { ok: true, hold: FREE_HOLD };
 
   const ent = await checkScanEntitlement(orgSlug);
+  // A confirmed-missing org is not an empty wallet — 404, not 402 INSUFFICIENT_CREDITS.
+  if (ent.orgExists === false) return { ok: false, reason: "not_found" };
   if (!ent.allowed) return { ok: false, reason: "payment_required", balance: ent.balance };
   // An unlimited plan is entitled but never debited, so there is no reservation to hold or refund.
   if (ent.unlimited) return { ok: true, hold: FREE_HOLD };
@@ -212,6 +218,9 @@ export async function scanCreditGate(
   // happens before inference, so no Scan row exists to name yet, and a ledger row is written once.
   const actor = (await opts.resolveActor?.()) ?? "system";
   const res = await reserveScanCredit(orgSlug, opts.repoFullName, { actor });
+  // Org vanished between the entitlement read and the atomic decrement, or consumeScanCredit
+  // confirmed the slug is unknown. Same 404 as the pre-check — never a paywall for a ghost tenant.
+  if (res.skip && res.orgExists === false) return { ok: false, reason: "not_found" };
   // The balance moved between the read above and this atomic decrement (another in-flight scan spent
   // the last credit). Report the reservation's own balance where it has one; fall back to the read.
   if (res.skip) return { ok: false, reason: "payment_required", balance: res.balance ?? ent.balance };

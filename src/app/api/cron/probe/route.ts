@@ -1,7 +1,13 @@
-// GET /api/cron/probe — the FREE control lane (moonshot #10). Drains queued `probe` jobs: each one
-// re-reads a repo's deterministic controls straight from the GitHub API and appends what changed to
-// the control ledger. No LLM call, no `Scan` row, no credit — so this runs on every plan, including
-// Free and self-hosted, and is independent of the deployment's `LLM_PROVIDER`.
+// GET /api/cron/probe — the FREE control lane (moonshot #10). Seeder plus worker over queued
+// `probe` jobs: each one re-reads a repo's deterministic controls straight from the GitHub API and
+// appends what changed to the control ledger. No LLM call, no `Scan` row, no credit — so this runs
+// on every plan, including Free and self-hosted, and is independent of the deployment's `LLM_PROVIDER`.
+//
+//   enqueueDueProbes() → drainLane("probe") until the deadline.
+//
+// The seed is what makes App-installed orgs get `missingSince` without a webhook: they never call
+// `listOrgRepos`, so `reconcileListedRepos` cannot see a rename/delete. A cadence probe 404s the
+// repo directly. Idempotent per ISO date, so the hourly cron re-seeds nothing the same UTC day.
 //
 // A SECOND cron route rather than a `?lane=` on /api/cron/rescan, deliberately: cron auth is
 // per-route, the cadences differ (hourly vs daily), and the budgets differ by an order of magnitude
@@ -12,7 +18,7 @@ import { requireCronAuth } from "@/lib/cron-auth";
 import { isDbConfigured } from "@/lib/db";
 // Deep path, not the barrel: `db/index.ts` is Director-owned, and its two `export *` lines for the
 // queue land at merge (see the handoff). Nothing else about this import changes when they do.
-import { queueDepth } from "@/lib/db/scan-jobs";
+import { enqueueDueProbes, queueDepth } from "@/lib/db/scan-jobs";
 import { isAppConfigured } from "@/lib/github/app";
 import { drainLane } from "@/lib/scan-queue-worker";
 import { fleetDeadlineAt, PROBE_CONCURRENCY } from "@/lib/pool";
@@ -31,6 +37,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: "GitHub App + database required." });
   }
 
+  // Seed everything watched. Idempotent per (org, repo, probe, ISO date), so a later hourly pass
+  // the same day — or an overlapping invocation — adds nothing. Must precede the drain so this
+  // pass can pick up the work it just enqueued; without it App-installed orgs only probe on webhook.
+  const seeded = await enqueueDueProbes().catch(() => 0);
+
   const summary = await drainLane("probe", {
     concurrency: PROBE_CONCURRENCY,
     deadlineAt: fleetDeadlineAt(invokedAt, maxDuration),
@@ -41,6 +52,7 @@ export async function GET(request: Request) {
   const depth = await queueDepth().catch(() => null);
   return NextResponse.json({
     lane: "probe",
+    seeded,
     claimed: summary.claimed,
     done: summary.done,
     failed: summary.failed,

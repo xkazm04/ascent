@@ -12,6 +12,11 @@
 // the same test. It did not, which meant a member who could not READ a private memory could still PATCH
 // it — overwrite the content, or set visibility:"shared" and publish it — because updateOrgMemory is
 // keyed on id alone. Read-scoping without write-scoping is not a privacy rule, it is a display rule.
+//
+// AND THE ORIGIN GATE, on writes only. A registry-origin row is a mirror of a file in a repo the
+// customer owns; PATCH or DELETE here would be reverted by the next index pass. The UI already hides
+// archive on those rows; the wire must refuse too (`409 registry-origin`), matching reflect/apply.
+// A write that reports success and does not survive is worse than a refusal.
 
 import { NextResponse } from "next/server";
 import {
@@ -41,8 +46,8 @@ async function gateWrite(id: string, min: OrgRole): Promise<{ org: string } | Ne
   if (!org) return NextResponse.json({ error: "Memory not found." }, { status: 404 });
   const denied = min === "member" ? await requireOrgAccess(org) : await requireOrgRole(org, min);
   if (denied) return denied;
-  const authorGate = await denyForeignPrivate(id);
-  if (authorGate) return authorGate;
+  const rowGate = await denyWriteOnRow(id);
+  if (rowGate) return rowGate;
   const credit = await getCreditState(org).catch(() => null);
   // Team+ orgs, or a personal workspace (free-with-limits — edits/archives don't grow the store).
   if (!(await workspaceAllowsMemory(org, credit?.plan))) {
@@ -52,21 +57,40 @@ async function gateWrite(id: string, min: OrgRole): Promise<{ org: string } | Ne
 }
 
 /**
- * The §4.5 author gate, applied to a WRITE. Another author's private scratch answers 404 — the same
- * response GET gives, deliberately: a caller who is not allowed to know the row exists must not learn
- * it from the write path either, so this is 404 rather than 403.
+ * Per-row write refusals, after the org/role gate and before the plan gate.
  *
- * It runs for `admin` too. An admin can archive any SHARED memory, and an org that needs a compliance
- * erase has /api/org/erase for it; letting the role reach inside a colleague's private notes is not
- * the same power, and nothing in the product asks for it.
+ * THE §4.5 AUTHOR GATE. Another author's private scratch answers 404 — the same response GET gives,
+ * deliberately: a caller who is not allowed to know the row exists must not learn it from the write
+ * path either, so this is 404 rather than 403. It runs for `admin` too. An admin can archive any
+ * SHARED memory, and an org that needs a compliance erase has /api/org/erase for it; letting the
+ * role reach inside a colleague's private notes is not the same power, and nothing in the product
+ * asks for it.
+ *
+ * THE ORIGIN GATE. A registry-origin row is a mirror of a file in a repo the customer owns. PATCH
+ * or DELETE here would be reverted by the next index pass, so the refusal names that (`409
+ * registry-origin`) rather than succeeding and quietly reverting. The author gate runs first: a
+ * private row the caller may not know about still answers 404, not 409.
  */
-async function denyForeignPrivate(id: string): Promise<NextResponse | null> {
+async function denyWriteOnRow(id: string): Promise<NextResponse | null> {
   const memory = await getOrgMemory(id);
   if (!memory) return NextResponse.json({ error: "Memory not found." }, { status: 404 });
-  if (memory.visibility !== "private") return null;
-  const viewer = await resolveViewerLogin();
-  if (viewer && memory.createdBy === viewer) return null;
-  return NextResponse.json({ error: "Memory not found." }, { status: 404 });
+  if (memory.visibility === "private") {
+    const viewer = await resolveViewerLogin();
+    if (!(viewer && memory.createdBy === viewer)) {
+      return NextResponse.json({ error: "Memory not found." }, { status: 404 });
+    }
+  }
+  if (memory.origin === "registry") {
+    return NextResponse.json(
+      {
+        error:
+          "This note is a mirror of a file in your registry. Editing or archiving it here would be reverted by the next index pass — change it with a pull request instead.",
+        code: "registry-origin",
+      },
+      { status: 409 },
+    );
+  }
+  return null;
 }
 
 export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {

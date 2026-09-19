@@ -108,3 +108,34 @@ describe("scopeCounts — the docket's predicate is arithmetic, not a filter", (
     expect(scopeCounts(rows)).toEqual({ repos: 2, placeholderRepos: 2 });
   });
 });
+
+describe("aggregateBlockers — a coverage hole is not a scored blocker", () => {
+  const hole = (code: string, text: string) => ({
+    id: `prod.${code}`,
+    code,
+    text,
+    severity: "info" as const,
+  });
+
+  it("drops unassessable and tokenless caveats from the Pareto, keeping a real gap", () => {
+    const obsHole = hole("observability-unassessable", "Observability could not be assessed.");
+    const ciHole = hole("ci-unassessable", "CI gates could not be assessed.");
+    const tokenless = hole("enforcement-not-observable", "Enforcement (branch protection) not observable on this scan.");
+    const out = aggregateBlockers([
+      row("a", { prodBlockers: [obsHole.text], prodFindings: [obsHole] }),
+      row("b", { prodBlockers: [ciHole.text, obs().text], prodFindings: [ciHole, obs()] }),
+      row("c", { prodBlockers: [tokenless.text], prodFindings: [tokenless] }),
+    ]);
+    expect(out.map((a) => a.code)).toEqual(["zero-observability"]);
+    expect(out[0]!.repos.map((r) => r.name)).toEqual(["b"]);
+  });
+
+  it("drops the tokenless caveat from a pre-0.4.0 prose list too", () => {
+    const out = aggregateBlockers([
+      row("legacy", {
+        prodBlockers: ["Enforcement (branch protection) not observable on this scan. CI/security capped at their present rung."],
+      }),
+    ]);
+    expect(out).toEqual([]);
+  });
+});

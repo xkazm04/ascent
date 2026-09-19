@@ -5,8 +5,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getProvider, providerAvailable, providerByName, resolveProviderChoice } from "./index";
 
-// Every env var the bedrock/gemini availability checks read — stubbed empty so the host
-// machine's real AWS/Gemini config can't leak into the assertions.
+// Every env var the bedrock/gemini/nebius availability checks read — stubbed empty so the
+// host machine's real AWS/Gemini/Nebius config can't leak into the assertions.
 const ENV_VARS = [
   "LLM_PROVIDER",
   "GEMINI_API_KEY",
@@ -20,6 +20,8 @@ const ENV_VARS = [
   "AWS_WEB_IDENTITY_TOKEN_FILE",
   "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
   "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+  "NEBIUS_API_KEY",
+  "NEBIUS_MODEL",
 ] as const;
 
 beforeEach(() => {
@@ -269,6 +271,18 @@ describe("providerByName('bedrock') — failover skip stays env-gated (#1)", () 
   it("returns the real provider with BEDROCK_REGION configured", () => {
     vi.stubEnv("BEDROCK_REGION", "eu-central-1");
     expect(providerByName("bedrock")?.name).toBe("bedrock");
+  });
+});
+
+describe("providerByName('nebius') — LLM_FALLBACK_PROVIDER=nebius stays env-gated", () => {
+  it("returns null when unconfigured (skip the doomed failover attempt)", () => {
+    expect(providerByName("nebius")).toBeNull();
+  });
+
+  it("returns the real provider when NEBIUS_API_KEY and NEBIUS_MODEL are set", () => {
+    vi.stubEnv("NEBIUS_API_KEY", "k");
+    vi.stubEnv("NEBIUS_MODEL", "zai-org/GLM-5.3-Flash");
+    expect(providerByName("nebius")?.name).toBe("nebius");
   });
 });
 

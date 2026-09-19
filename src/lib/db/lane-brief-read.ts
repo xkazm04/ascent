@@ -136,8 +136,8 @@ async function readEvidence(org: string, repo: string, dimIds: readonly string[]
       dimId: d.dimId,
       name: d.name,
       score: d.score,
-      evidence: parseStringArray(d.evidence),
-      gaps: parseStringArray(d.gaps),
+      evidence: parseStringArray(d.evidence) ?? [],
+      gaps: parseStringArray(d.gaps) ?? [],
     }));
   } catch {
     return [];

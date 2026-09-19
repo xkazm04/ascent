@@ -12,7 +12,12 @@ const { mockCreateSupabaseServerClient, mockHeaders } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: mockCreateSupabaseServerClient }));
-vi.mock("next/headers", () => ({ headers: mockHeaders }));
+// cookies is unused here but @/lib/auth (safeNext, loaded lazily from requireViewer) imports it.
+vi.mock("next/headers", () => ({ headers: mockHeaders, cookies: vi.fn() }));
+// Hermetic: requireViewer lazily imports @/lib/auth for the real safeNext open-redirect guard;
+// auth.ts statically pulls the session-revocation store. Stub it so this file never opens Prisma.
+vi.mock("@/lib/db/client", () => ({ isDbConfigured: () => false, getPrisma: vi.fn() }));
+vi.mock("@/lib/db/sessions", () => ({ getSessionVersion: vi.fn(), bumpSessionVersion: vi.fn() }));
 
 /** A Supabase server-client double whose getUser() returns the given user row. */
 function fakeSupabase(user: Record<string, unknown> | null) {
@@ -202,5 +207,59 @@ describe("requireViewer — navigation vs. XHR discrimination (G6-12)", () => {
     // The malformed forwarded host is rejected; falls back to the trusted `host` header.
     expect(res!.status).toBe(303);
     expect(res!.headers.get("location")).toBe("https://app.example.com/onboarding");
+  });
+
+  it("a navigation 303 preserves the requested path as ?next= (x-forwarded-uri / next-url / x-invoke-path)", async () => {
+    const pathHeaders: Record<string, string>[] = [
+      { "x-forwarded-uri": "/org/acme-corp" },
+      { "next-url": "https://app.example.com/org/acme-corp" },
+      { "x-invoke-path": "/org/acme-corp" },
+    ];
+    for (const extra of pathHeaders) {
+      mockRequestHeaders({
+        "sec-fetch-mode": "navigate",
+        host: "app.example.com",
+        "x-forwarded-proto": "https",
+        ...extra,
+      });
+      const requireViewer = await freshRequireViewer();
+      const res = await requireViewer();
+      expect(res!.status).toBe(303);
+      const loc = new URL(res!.headers.get("location")!);
+      expect(loc.origin).toBe("https://app.example.com");
+      expect(loc.pathname).toBe("/onboarding");
+      expect(loc.searchParams.get("next")).toBe("/org/acme-corp");
+    }
+  });
+
+  it("a navigation 303 rejects an open-redirect in the reconstructed path — Location stays on /onboarding", async () => {
+    for (const evil of ["https://evil.example", "//evil.example/phish", "/\\evil.example"]) {
+      mockRequestHeaders({
+        "sec-fetch-mode": "navigate",
+        host: "app.example.com",
+        "x-forwarded-proto": "https",
+        "x-forwarded-uri": evil,
+      });
+      const requireViewer = await freshRequireViewer();
+      const res = await requireViewer();
+      const loc = res!.headers.get("location")!;
+      expect(res!.status).toBe(303);
+      expect(loc).toBe("https://app.example.com/onboarding");
+      expect(loc).not.toMatch(/evil\.example/i);
+      expect(new URL(loc).searchParams.get("next")).toBeNull();
+    }
+  });
+
+  it("a same-origin fetch still gets JSON 401 even when a path header is present", async () => {
+    mockRequestHeaders({
+      "sec-fetch-mode": "cors",
+      host: "app.example.com",
+      "x-forwarded-uri": "/org/acme-corp",
+    });
+    const requireViewer = await freshRequireViewer();
+    const res = await requireViewer();
+    expect(res!.status).toBe(401);
+    expect(res!.headers.get("location")).toBeNull();
+    expect(await res!.json()).toEqual({ error: "Sign in to continue." });
   });
 });

@@ -24,6 +24,7 @@ vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrism
 import {
   avgLlmCostPerActiveOrg,
   firstScanActivationRate,
+  freeToPaidConversion,
   reScanRate,
   roadmapEngagementRate,
   scanOutputBudget,
@@ -302,5 +303,113 @@ describe("avgLlmCostPerActiveOrg", () => {
   it("returns null — not 0 — when nothing consumed inference in the window", async () => {
     fakePrisma({ scan: { findMany: vi.fn(async () => []) }, usageEvent: { groupBy: vi.fn(async () => []) } });
     expect(await avgLlmCostPerActiveOrg()).toBeNull();
+  });
+});
+
+// ── freeToPaidConversion ────────────────────────────────────────────────────────────────────────
+//
+// The conversion event is a Subscription row. Polar fulfilment writes Organization.plan, and
+// nothing writes Subscription, so a fleet of eligible orgs with an empty producer used to land at
+// rate(0, eligible) = 0% — the same rendering as "everyone scanned and nobody paid". Absence of the
+// event is not 0%. The pair below is the same contract as mean-of-nothing: empty producer → null;
+// a real 0% (rows exist, nobody converted inside the window) stays 0.
+
+describe("freeToPaidConversion", () => {
+  it("returns null with no database", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await freeToPaidConversion()).toBeNull();
+  });
+
+  // G4: a 0-row producer is NOT_MEASURABLE even when eligible orgs exist. The paid Organization.plan
+  // on o1 is the trap — Polar already wrote that; using it here would invent conversion.
+  it("returns null when no Subscription row has ever been written, even with eligible orgs", async () => {
+    fakePrisma({
+      subscription: { count: vi.fn(async () => 0) },
+      organization: {
+        findMany: vi.fn(async () => [
+          {
+            id: "o1",
+            plan: "pro",
+            subscription: null,
+            repositories: [{ scans: [{ scannedAt: daysAgo(60) }] }],
+          },
+        ]),
+      },
+    });
+    const m = await freeToPaidConversion(30);
+    expect(m).toBeNull();
+    expect(m?.value).not.toBe(0);
+  });
+
+  it("returns null when the eligible cohort is empty, even if Subscription rows exist", async () => {
+    fakePrisma({
+      subscription: { count: vi.fn(async () => 1) },
+      organization: { findMany: vi.fn(async () => []) },
+    });
+    expect(await freeToPaidConversion()).toBeNull();
+  });
+
+  it("returns null when no org's conversion window has closed yet", async () => {
+    fakePrisma({
+      subscription: { count: vi.fn(async () => 1) },
+      organization: {
+        findMany: vi.fn(async () => [
+          {
+            id: "o1",
+            subscription: { createdAt: daysAgo(1) },
+            repositories: [{ scans: [{ scannedAt: daysAgo(2) }] }],
+          },
+        ]),
+      },
+    });
+    expect(await freeToPaidConversion(30)).toBeNull();
+  });
+
+  it("counts an org that subscribed inside the window once the producer has rows", async () => {
+    const first = daysAgo(90);
+    fakePrisma({
+      subscription: { count: vi.fn(async () => 1) },
+      organization: {
+        findMany: vi.fn(async () => [
+          {
+            id: "o1",
+            subscription: { createdAt: new Date(first.getTime() + 10 * DAY) },
+            repositories: [{ scans: [{ scannedAt: first }] }],
+          },
+          {
+            id: "o2",
+            subscription: null,
+            repositories: [{ scans: [{ scannedAt: first }] }],
+          },
+        ]),
+      },
+    });
+    expect(await freeToPaidConversion(30)).toEqual({ value: 50, numerator: 1, denominator: 2 });
+  });
+
+  // Measured zero, not empty producer: a Subscription row exists, the eligible org did not convert
+  // inside the window, and a paid Organization.plan still does not count as converted.
+  it("returns 0% when Subscription rows exist but no eligible org converted in the window", async () => {
+    const first = daysAgo(90);
+    fakePrisma({
+      subscription: { count: vi.fn(async () => 1) },
+      organization: {
+        findMany: vi.fn(async () => [
+          {
+            id: "writer",
+            plan: "free",
+            subscription: { createdAt: daysAgo(1) },
+            repositories: [],
+          },
+          {
+            id: "o1",
+            plan: "pro",
+            subscription: null,
+            repositories: [{ scans: [{ scannedAt: first }] }],
+          },
+        ]),
+      },
+    });
+    expect(await freeToPaidConversion(30)).toEqual({ value: 0, numerator: 0, denominator: 1 });
   });
 });

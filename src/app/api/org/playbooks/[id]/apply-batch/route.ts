@@ -1,5 +1,6 @@
-// POST /api/org/playbooks/:id/apply-batch  { repos: ["owner/name", ...], base? }
+// POST /api/org/playbooks/:id/apply-batch  { repos: ["owner/name", ...], base?, dryRun?: true }
 //   -> { results: [{ repo, ok, url?, reused?, error? }], attempted, skipped }
+//   -> dryRun { repos, starter, skipped }  (zero GitHub writes)
 // Fleet rollout of an org-authored playbook: open a draft PR seeding it into a whole SEGMENT (or the
 // whole fleet) in one action, instead of stepping a dropdown N times. Mirrors
 // /api/practices/apply-batch verbatim in shape and in every safety property (G7-24).
@@ -15,6 +16,9 @@
 //      repos are reported as `skipped`, never silently dropped — so one click can never become
 //      hundreds of PRs, and a bigger rollout is an explicit, repeated, re-confirmed act.
 //   4. CONCURRENCY. SCAN_CONCURRENCY lanes, so a big fleet doesn't hammer GitHub or trip maxDuration.
+//   5. DRY-RUN. `dryRun: true` returns the exact `playbookStarterFile` bytes + the capped repo list
+//      BEFORE `requirePrWriteContext` / token mint / `applyPlaybookToRepo`. The admin gate still
+//      runs — starter bytes are org-authored, not public. Absent / false keeps the write path.
 // One bad repo never aborts the rest: the per-repo worker owns its errors and the response is a 200
 // whatever the mix.
 
@@ -26,7 +30,9 @@ import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 import { classifyPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
 import { applyPlaybookToRepo } from "@/lib/org/playbook-apply";
+import { playbookApplyBatchDryRun } from "@/lib/org/playbook-brief";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
+import { dimShort } from "@/lib/ui";
 import type { BatchResult } from "@/features/shared/practices/practiceApplyShared";
 
 export const runtime = "nodejs";
@@ -56,7 +62,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   if (gated instanceof Response) return gated;
   const { org } = gated;
 
-  const body = (await request.json().catch(() => ({}))) as { repos?: string[]; base?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    repos?: string[];
+    base?: string;
+    dryRun?: boolean;
+  };
   if (!Array.isArray(body.repos) || body.repos.length === 0) {
     return NextResponse.json({ error: "Provide { repos: ['owner/name', ...] }." }, { status: 400 });
   }
@@ -86,6 +96,19 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 
   const playbook = await getPlaybook(id);
   if (!playbook) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
+
+  // HITL preview: same admin / tenancy / cap as the write, zero GitHub writes. Must run before
+  // requirePrWriteContext so a dry-run cannot mint an installation token.
+  if (body.dryRun === true) {
+    return NextResponse.json(
+      playbookApplyBatchDryRun(
+        playbook,
+        dimShort(playbook.dimId),
+        batch.map((p) => p.fullName),
+        skipped,
+      ),
+    );
+  }
 
   try {
     // Install presence (403) + installation-token mint, single-sourced across the PR-write routes.

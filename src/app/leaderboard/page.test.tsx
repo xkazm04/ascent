@@ -70,6 +70,8 @@ const registry = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+const RANKING_LEDE = /Every public repository Ascent has scored, ranked/;
+
 beforeEach(() => vi.clearAllMocks());
 
 describe("/leaderboard — server-rendered and crawlable", () => {
@@ -87,6 +89,7 @@ describe("/leaderboard — server-rendered and crawlable", () => {
     render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
 
     expect(screen.getByRole("heading", { level: 1, name: /AI-native register/i })).toBeTruthy();
+    expect(screen.getByText(RANKING_LEDE)).toBeTruthy();
     expect(screen.getByText("acme/api")).toBeTruthy();
     expect(screen.getByText("01")).toBeTruthy(); // a real board position
   });
@@ -136,6 +139,10 @@ describe("/leaderboard — nothing private, nothing silently ranked", () => {
     expect(screen.queryByText("01")).toBeNull();
     // …and the empty ranked state says WHY, rather than implying nothing was ever scanned.
     expect(screen.getByText(/Nothing model-scored yet/i)).toBeTruthy();
+    // Mock-only is not an outage: the ranking lede (what the board is) stays.
+    expect(screen.getByText(RANKING_LEDE)).toBeTruthy();
+    expect(screen.getByText("The index · ranked")).toBeTruthy();
+    expect(screen.queryByText("Register unavailable")).toBeNull();
   });
 
   it("labels a repo with no merged PR in window `no PR signal` instead of letting its low score stand bare", async () => {
@@ -217,5 +224,49 @@ describe("/leaderboard — a rank is a claim that the rows share a ruler", () =>
     render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
     // Rank 01, not the em dash a mock row wears.
     expect(screen.getByText("01")).toBeInTheDocument();
+  });
+});
+
+describe("/leaderboard — a miss is not a ranking", () => {
+  it("omits the ranking lede when getPublicRegister is null", async () => {
+    getPublicRegister.mockResolvedValue(null);
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+
+    expect(screen.getByRole("heading", { level: 1, name: /AI-native register/i })).toBeTruthy();
+    expect(screen.queryByText(RANKING_LEDE)).toBeNull();
+    expect(screen.queryByText(/Every public scan is open/i)).toBeNull();
+    expect(screen.queryByText("The index · ranked")).toBeNull();
+    expect(screen.getByText("Register unavailable")).toBeTruthy();
+    expect(screen.getByText(/Persistence is off, or the read failed/i)).toBeTruthy();
+    expect(screen.queryByText(/Nothing model-scored yet/i)).toBeNull();
+    expect(screen.queryByText(/No public scans yet/i)).toBeNull();
+    expect(screen.queryByText(/0 public repos rated/i)).toBeNull();
+    expect(screen.queryByText(/0 ranked/i)).toBeNull();
+  });
+
+  it("names a thrown register read as a read failure, not as an empty ranking", async () => {
+    getPublicRegister.mockRejectedValue(new Error("too many clients"));
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+
+    expect(screen.queryByText(RANKING_LEDE)).toBeNull();
+    expect(screen.getByText("Register unavailable")).toBeTruthy();
+    expect(screen.getByText(/could not be read/i)).toBeTruthy();
+    expect(screen.queryByText(/No public scans yet/i)).toBeNull();
+    expect(screen.queryByText(/0 public repos rated/i)).toBeNull();
+  });
+
+  it("does not treat a readable empty register as an outage, and does not print 0", async () => {
+    getPublicRegister.mockResolvedValue(
+      registry({ entries: [], unverified: [], totalVerified: 0, totalRepos: 0, totalPages: 1 }),
+    );
+    render(await LeaderboardPage({ searchParams: Promise.resolve({}) }));
+
+    expect(screen.queryByText(RANKING_LEDE)).toBeNull();
+    expect(screen.getByText(/No public scans yet/i)).toBeTruthy();
+    expect(screen.queryByText("Register unavailable")).toBeNull();
+    expect(screen.queryByText(/Persistence is off/i)).toBeNull();
+    expect(screen.queryByText(/could not be read/i)).toBeNull();
+    expect(screen.queryByText(/0 public repos rated/i)).toBeNull();
+    expect(screen.queryByText(/0 ranked/i)).toBeNull();
   });
 });

@@ -16,6 +16,7 @@
 import { deltaHex, fmtDelta } from "@/components/ui";
 import { LanePrAction } from "../cockpit/LanePrAction";
 import { CellLive, CellVerdict, cellInFlight } from "./OutcomeCell";
+import { OutcomeCellError } from "./OutcomeCellError";
 import { OutcomeSheetCell } from "./OutcomeSheetCell";
 import { economicsLabel } from "./outcomeEconomics";
 import { cellFootnote } from "./outcomeText";
@@ -113,7 +114,11 @@ export function OutcomeProjectRow({
                 spending $10.19 for 0 verified points. `economicsLabel` decides what may honestly be
                 said — a rate, spend-with-a-zero, spend-not-yet-divisible, or "cost not reported". */}
             {cell && <CellEconomics cell={cell} />}
-            {cell?.error && <p className="type-micro mt-1 text-danger">{cell.error}</p>}
+            {/* A LANE FAILURE IS A MARK HERE AND AN ACCOUNT IN A DIALOG (2026-09-17). The engine's
+                errors are sixty words long by design and were printed inline: one FORCE-FAILED lane
+                took over the column and buried every other repository's verdict. See
+                OutcomeCellError — nothing is summarised away, it is one click away. */}
+            {cell?.error && <OutcomeCellError error={cell.error} repo={project.repo} stage={cell.stage} />}
           </td>
         );
       })}
@@ -127,21 +132,28 @@ export function OutcomeGapSheetRow({
   widthOf,
   canReview,
   onReview,
+  indent = false,
 }: {
   row: SheetGapRow;
   columns: OutcomeColumn[];
   widthOf: (id: string) => number;
   canReview?: boolean;
   onReview?: CellReviewHandler;
+  /** This row sits under an expanded DIMENSION BAND, so its label is stepped in — the band names the
+   *  dimension for the whole group and the indent is what says the row belongs to it. A row with no
+   *  band above it (a band of one) is not indented and reads exactly as it always did. */
+  indent?: boolean;
 }) {
   const labelWidth = widthOf(LABEL_COLUMN);
   return (
     <tr>
-      <th scope="row" className={`${FROZEN} bg-ink px-3 py-1.5 font-normal`}>
+      <th scope="row" className={`${FROZEN} bg-ink py-1.5 pr-3 font-normal ${indent ? "pl-7" : "pl-3"}`}>
         <span className="type-body-sm block truncate text-slate-300" title={row.headline}>
           {row.headline}
         </span>
-        {labelWidth >= REVEAL_DIM_PX && row.dimId && (
+        {/* The band above already names the dimension for every row under it, so an indented row does
+            not repeat it — the same rule the project header follows for the repo name. */}
+        {!indent && labelWidth >= REVEAL_DIM_PX && row.dimId && (
           <span className="type-micro block font-mono tabular-nums text-slate-600">{row.dimId}</span>
         )}
       </th>

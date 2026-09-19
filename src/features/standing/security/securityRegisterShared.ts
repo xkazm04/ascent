@@ -5,12 +5,38 @@
 
 import type { SecurityRegisterRow, SecurityRowCheck } from "@/lib/org/security";
 
-/** Per-repo open-advisory counts (only present when supply-chain scanning is enabled). */
+/** Per-repo open-advisory counts (only present when supply-chain scanning is enabled).
+ *  `medium`/`low` are optional so a caller that never measured them does not mint a 0 (G4). */
 export interface RegisterAdvisories {
   fullName: string;
   critical: number;
   high: number;
+  medium?: number;
+  low?: number;
   total: number;
+}
+
+export interface AdvisoryChip {
+  letter: "C" | "H" | "M" | "L";
+  count: number;
+  className: string;
+}
+
+const ADVISORY_CHIP_META: { key: "critical" | "high" | "medium" | "low"; letter: AdvisoryChip["letter"]; className: string }[] = [
+  { key: "critical", letter: "C", className: "text-red-300" },
+  { key: "high", letter: "H", className: "text-orange-300" },
+  { key: "medium", letter: "M", className: "text-yellow-300" },
+  { key: "low", letter: "L", className: "text-slate-400" },
+];
+
+/** Measured, non-zero severity chips. Omitted fields are skipped, never shown as 0 (G4). */
+export function presentAdvisoryChips(adv: RegisterAdvisories): AdvisoryChip[] {
+  const out: AdvisoryChip[] = [];
+  for (const meta of ADVISORY_CHIP_META) {
+    const n = adv[meta.key];
+    if (typeof n === "number" && n > 0) out.push({ letter: meta.letter, count: n, className: meta.className });
+  }
+  return out;
 }
 
 /** Rows shown before the "Show all" toggle expands the fleet. */

@@ -6,6 +6,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { isZeroCostProvider, priceForModel } from "@/lib/llm/config";
+import { planFeatures, retentionCutoff } from "@/lib/plans";
 import {
   ORG_WIDE_TEAM_LABEL,
   laneTotals,
@@ -260,9 +261,47 @@ export function foldLaneCost(byLane: LaneUsage[]): {
  * the "Last Nd" stat over it — chart/export disagreeing with the headline. Flooring BEFORE the `|| 30`
  * fallback collapses 1.5 → 1; a value < 1 (0.5) falls through to the 30 default. The public funnel is
  * capped tighter (90d) so an anonymous caller can't force the 365-day full-window aggregate.
+ *
+ * When `plan` is passed, the window is also capped at that tier's `retentionDays` (Free 30 · Starter
+ * 180 · Team 365). Custom/unlimited (`retentionDays: null`) and self-host (`retentionCutoff` is null)
+ * stay at the public/365 query cap — they are unbounded as a retention policy, not as a DoS cap.
+ * The public funnel ignores `plan` so its 90-day anonymous cap cannot collapse to Free's 30.
+ * Omit `plan` to keep the legacy 90/365 caps (callers that have not loaded the org yet).
  */
-export function boundUsageDays(raw: string | null | undefined, isPublic: boolean): number {
-  return Math.min(isPublic ? 90 : 365, Math.max(1, Math.floor(Number(raw)) || 30));
+export function boundUsageDays(
+  raw: string | null | undefined,
+  isPublic: boolean,
+  plan?: string | null,
+): number {
+  const requested = Math.max(1, Math.floor(Number(raw)) || 30);
+  const absCap = isPublic ? 90 : 365;
+  if (isPublic || plan == null) return Math.min(absCap, requested);
+  const retentionDays = planFeatures(plan).retentionDays;
+  // Self-host: retentionCutoff is null on every plan (operator's disk). Custom: retentionDays is
+  // null. Either way there is no plan floor — only the query cap above.
+  if (retentionDays == null || retentionCutoff(plan, Date.now()) == null) {
+    return Math.min(absCap, requested);
+  }
+  return Math.min(absCap, retentionDays, requested);
+}
+
+/**
+ * The stored plan string for an org, or `undefined` when the DB is off, the lookup fails, or no
+ * row matches. Used by /usage and GET /api/usage so `boundUsageDays` can apply the tier cap
+ * before the heavy aggregate. Missing is not "free": a failed lookup must not silently shrink a
+ * Team org's window to 30 days.
+ */
+export async function getOrgPlanForUsage(orgSlug: string): Promise<string | undefined> {
+  if (!isDbConfigured()) return undefined;
+  try {
+    const row = await getPrisma().organization.findUnique({
+      where: { slug: orgSlug.trim().toLowerCase() },
+      select: { plan: true },
+    });
+    return row?.plan ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -335,8 +374,12 @@ export async function getUsageSummary(
   const slug = orgSlug.trim().toLowerCase();
 
   // ONE window helper, shared with every other reader of this period (see usageWindow).
+  // `since` is clamped to the plan's retentionCutoff AFTER the org row is loaded — a Free org
+  // asked for 365 days must not query or emit days older than 30 (G4: do not fabricate older
+  // history as measured zeros). The destructure happens after that floor.
   const win = window ?? usageWindow(periodDays);
-  const { since, before } = win;
+  const { before } = win;
+  let since = win.since;
 
   const empty: UsageSummary = {
     org: slug,
@@ -369,10 +412,21 @@ export async function getUsageSummary(
     timezone: "UTC",
   };
 
-  const orgRow = await prisma.organization.findUnique({ where: { slug }, select: { id: true, kind: true } });
+  const orgRow = await prisma.organization.findUnique({
+    where: { slug },
+    select: { id: true, kind: true, plan: true },
+  });
   if (!orgRow) return empty;
   const orgId = orgRow.id;
   const unmeteredFunnel = orgRow.kind === "public";
+  // Plan retention floor — the same non-destructive read floor org insights / delivery trends
+  // already apply. The shared public funnel keeps its 90-day DoS cap and is not a Free tenant,
+  // so it is skipped here (slug or kind). Custom/unlimited and self-host return a null cutoff.
+  const skipRetention = unmeteredFunnel || slug === PUBLIC_ORG_SLUG;
+  if (!skipRetention) {
+    const cutoff = retentionCutoff(orgRow.plan, Date.now());
+    if (cutoff && cutoff > since) since = cutoff;
+  }
 
   // The window is anchored to UTC calendar days (usageWindow). `since` is the START of the oldest day
   // shown on the chart, derived from the SAME UTC-day floor the axis uses (emptyDailySeries) — so
@@ -386,6 +440,12 @@ export async function getUsageSummary(
   // silently idx-missed out of the chart and CSV (`idx.get(row.day)` undefined → row dropped) — the
   // headline and the trend total disagreeing on the org's billing page.
   const todayUtcMs = before.getTime() - 86_400_000;
+  // Shrink the day axis to the clamped window so we do not emit pre-cutoff zeros that look like
+  // measured empty days (G4). `periodDays` stays the caller's request until the return, where
+  // `seriesDays` is what the page labels "Last Nd".
+  const startUtc = utcDayStart(since.getTime());
+  const retainedDays = Math.max(1, Math.round((todayUtcMs - startUtc) / 86_400_000) + 1);
+  const seriesDays = Math.min(periodDays, retainedDays);
   const where = { repo: { orgId } };
   // The billable/free split and provider mix are shown beside the "Last Nd" window, so they
   // must be scoped to the same window as periodScans — otherwise the billable figure reported
@@ -405,7 +465,7 @@ export async function getUsageSummary(
       prisma.scan.aggregate({ where, _min: { scannedAt: true }, _max: { scannedAt: true } }),
       // Per-day series, aggregated in SQL (one row per UTC-day × billable) instead of streaming
       // every period scan row back to bucket in JS — see fetchDailySeries.
-      fetchDailySeries(prisma, orgId, since, before, periodDays, todayUtcMs),
+      fetchDailySeries(prisma, orgId, since, before, seriesDays, todayUtcMs),
       // ONE groupBy, folded THREE ways. This window used to be grouped three times over the same
       // `periodWhere` — (provider, model, byom) for the cost basis, (repoId) for the top-repos
       // attribution, and (repoId, provider, model, byom) for the team split — and the third was a
@@ -555,7 +615,7 @@ export async function getUsageSummary(
   return {
     org: slug,
     unmeteredFunnel,
-    periodDays,
+    periodDays: seriesDays,
     totalScans: total,
     periodScans: period,
     privateScans: billable,

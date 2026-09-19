@@ -21,6 +21,7 @@ export function UsageDashboard({
   billable,
   runwayDays,
   notice,
+  meteredThisMonth,
   maxDays,
 }: {
   org: string;
@@ -31,6 +32,9 @@ export function UsageDashboard({
   billable: number;
   runwayDays: number | null;
   notice: CreditNotice | null;
+  /** Calendar-month metered scans (`countMeteredScansThisMonth`). Null when the read failed or the
+   *  org is the public funnel — hide the allotment meter rather than invent a 0%. */
+  meteredThisMonth: number | null;
   /** The largest window this caller may select, straight from `boundUsageDays` — see TimeframePicker. */
   maxDays: number;
 }) {
@@ -128,10 +132,12 @@ export function UsageDashboard({
         <Stat label="Output tokens" value={usage.outputTokens} sub={`last ${usage.periodDays}d`} />
       </div>
 
-      {/* Burn-vs-allotment: is this org over- or under-provisioned for its tier? Renders only for a
-          metered plan with a monthly allotment (not Free/Enterprise). The 90% line is the top-up nudge
-          BEFORE the hard 402 — the right-sizing signal /usage was missing. */}
-      {credit && <AllotmentPanel plan={credit.plan} billableInPeriod={billable} periodDays={usage.periodDays} />}
+      {/* Burn-vs-allotment: calendar-month metered usage vs the plan's included allotment — the same
+          period the 402 uses, not the selected ?days= billable window. Hidden when the month-to-date
+          read failed; allotmentRead itself returns null for unlimited plans. */}
+      {credit && meteredThisMonth != null && (
+        <AllotmentPanel plan={credit.plan} meteredThisMonth={meteredThisMonth} />
+      )}
 
       {/* Reconciliation (USE-4): metered private scans vs the credit ledger for the same period —
           does what was billed line up with what was debited? Refunds (failed/deduped scans) net it back. */}

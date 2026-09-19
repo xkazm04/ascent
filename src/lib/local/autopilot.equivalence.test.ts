@@ -12,7 +12,9 @@
 //     operator's review habit and any local tooling key off that prefix;
 //   • cycles accumulate commits and closed ids across the run, on ONE branch;
 //   • a cycle with no commits and no closed rows ends the run early;
-//   • stop is cooperative and lands the job in `stopped`.
+//   • stop is cooperative and lands the job in `stopped`;
+//   • a multi-repo loop run is NOT this job — AutopilotJob is a one-repo row, and projecting a
+//     fleet pass onto it would name the first repo and mix every lane's log.
 //
 // The agent and the rescan are fakes; nothing here spawns a process or opens a database.
 
@@ -217,6 +219,16 @@ describe("autopilot shim — the shipped job contract", () => {
     expect((await getAutopilotJob("acme"))!.repo).toBe(REPO);
   });
 
+  it("reconciles stale runs WITH the engine's liveness before reading the job", async () => {
+    // Same contract GET /api/org/loop pins: a run this process drives is not stale.
+    const { markStaleRunsStopped } = await import("@/lib/db/loop-runs");
+    vi.mocked(markStaleRunsStopped).mockClear();
+    await getAutopilotJob("acme");
+    const call = vi.mocked(markStaleRunsStopped).mock.calls.at(-1)!;
+    expect(call[0]).toBe("acme");
+    expect(call[1]).toBe(isLoopRunLive);
+  });
+
   it("keeps the historical cycle cap", () => {
     expect(MAX_CYCLES_CAP).toBe(5);
   });
@@ -234,7 +246,7 @@ describe("toAutopilotJob — the phase projection", () => {
     error: null, startedAt: null, endedAt: null, ...over,
   });
   const project = (r: Partial<Run>, lanes: Partial<Lane>[]) =>
-    toAutopilotJob("acme", run(r) as never, lanes.map((l) => lane(l)) as never).phase;
+    toAutopilotJob("acme", run(r) as never, lanes.map((l) => lane(l)) as never)!.phase;
 
   it("maps a live run through its newest lane", () => {
     expect(project({}, [])).toBe("starting");
@@ -252,5 +264,49 @@ describe("toAutopilotJob — the phase projection", () => {
 
   it("reads the newest cycle's lane, not the first", () => {
     expect(project({ cycle: 2 }, [{ cycle: 1, phase: "done" }, { cycle: 2, phase: "dispatching" }])).toBe("dispatching");
+  });
+
+  it("refuses a multi-repo run — AutopilotJob is a one-repo row", () => {
+    expect(toAutopilotJob("acme", run({ repos: [REPO, "acme/api"] }) as never, [lane()] as never)).toBeNull();
+    expect(toAutopilotJob("acme", run({ repos: [] }) as never, [] as never)).toBeNull();
+  });
+});
+
+describe("getAutopilotJob — only single-repo runs write the job", () => {
+  const seed = (over: Partial<Run> = {}): Run => {
+    const row: Run = {
+      id: `run${++db.seq}`, orgId: "org1", phase: "done", repos: [REPO], concurrency: 1, maxCycles: 3, cycle: 1,
+      curated: false, startedAt: "2026-08-22T10:00:00.000Z", endedAt: "2026-08-22T10:05:00.000Z",
+      error: null, createdAt: "2026-08-22T10:00:00.000Z", createdBy: null, ...over,
+    };
+    db.runs.push(row);
+    return row;
+  };
+
+  it("is null when the only run is multi-repo", async () => {
+    seed({ repos: [REPO, "acme/api"] });
+    expect(await getAutopilotJob("acme")).toBeNull();
+  });
+
+  it("skips a later multi-repo run and keeps the last single-repo job", async () => {
+    seed({ repos: [REPO], phase: "done" });
+    seed({ repos: [REPO, "acme/api"], phase: "done", startedAt: "2026-08-22T11:00:00.000Z" });
+    const job = await getAutopilotJob("acme");
+    expect(job).not.toBeNull();
+    expect(job!.repo).toBe(REPO);
+    expect(job!.phase).toBe("done");
+    expect(job!.startedAt).toBe("2026-08-22T10:00:00.000Z");
+  });
+
+  it("does not project a live multi-repo run onto the job", async () => {
+    seed({ repos: [REPO, "acme/api"], phase: "running", endedAt: null });
+    expect(await getAutopilotJob("acme")).toBeNull();
+  });
+
+  it("requestAutopilotStop is false for a live multi-repo run and does not stop it", async () => {
+    const multi = seed({ repos: [REPO, "acme/api"], phase: "running", endedAt: null });
+    expect(await requestAutopilotStop("acme")).toBe(false);
+    expect(multi.phase).toBe("running");
+    expect(multi.endedAt).toBeNull();
   });
 });

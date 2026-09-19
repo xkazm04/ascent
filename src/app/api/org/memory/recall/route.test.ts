@@ -58,6 +58,8 @@ const row = (over: Partial<Record<string, unknown>> & { id: string; content: str
   supersededBy: null,
   version: 1,
   accessCount: 0,
+  citedCount: 0,
+  notUsefulCount: 0,
   expiresAt: null,
   createdBy: null,
   createdAt: iso(1),
@@ -112,6 +114,19 @@ describe("POST /api/org/memory/recall — what was packed, and what wasn't", () 
 
     // consideredCount counts only the RECALLABLE rows the pass ranked.
     expect(body.consideredCount).toBe(3);
+  });
+
+  it("ranks a cited memory above an equal uncited one — evidence is live on the wire row", async () => {
+    mockLifecycleWorkingSet.mockResolvedValue([
+      // id "a" would win a score tie; citations must be what reverses the order.
+      row({ id: "a", content: "uncited", accessCount: 0, citedCount: 0 }),
+      row({ id: "z", content: "cited", accessCount: 0, citedCount: 4 }),
+    ]);
+    const body = await (await post({ org: "acme" })).json();
+    expect(body.memories.map((m: { id: string }) => m.id)).toEqual(["z", "a"]);
+    expect(body.memories[0].citedCount).toBe(4);
+    expect(body.memories[1].citedCount).toBe(0);
+    expect(body.memories[0].score).toBeGreaterThan(body.memories[1].score);
   });
 
   it("bumps accessCount for the packed rows only — never for a memory that lost the budget race", async () => {

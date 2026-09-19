@@ -64,23 +64,33 @@ export function PriceListPanel({ slug, initial = null }: PriceListPanelProps) {
         </InlineEmpty>
       ) : (
         <ul className={`mt-2 ${TILE_LEDGER}`}>
-          {prices.rows.map((row) => (
-            <li key={`${row.model}:${row.dimId}`} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 bg-ink px-4 py-2">
-              <span className="min-w-0 type-caption text-slate-400">
-                {dimShort(row.dimId)} <span className="text-slate-600">·</span> {row.model}
-              </span>
-              <span className="shrink-0 type-caption tabular-nums text-slate-300">
-                {fmtMicrosPerPoint(row.microsPerPoint)}
-                <span className="text-slate-500">/point</span>
-                <span
-                  className="ml-2 text-slate-600"
-                  title="Contributing lanes. A rate from one lane and a rate from nine are different claims; the price is never shown without it."
-                >
-                  n={row.n}
+          {prices.rows.map((row) => {
+            const rate = fmtMicrosPerPoint(row.microsPerPoint);
+            return (
+              <li key={`${row.model}:${row.dimId}`} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 bg-ink px-4 py-2">
+                <span className="min-w-0 type-caption text-slate-400">
+                  {dimShort(row.dimId)} <span className="text-slate-600">·</span> {row.model}
                 </span>
-              </span>
-            </li>
-          ))}
+                <span
+                  className="shrink-0 type-caption tabular-nums text-slate-300"
+                  title={
+                    rate === "<0.01¢"
+                      ? "Positive cost below a hundredth of a cent per point — not free, not a measured zero."
+                      : undefined
+                  }
+                >
+                  {rate}
+                  <span className="text-slate-500">/point</span>
+                  <span
+                    className="ml-2 text-slate-600"
+                    title="Contributing lanes. A rate from one lane and a rate from nine are different claims; the price is never shown without it."
+                  >
+                    n={row.n}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
       <PriceListFooter prices={prices} />

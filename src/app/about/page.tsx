@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { SiteHeader } from "@/components/Brand";
 import { AboutLanding } from "@/components/about/AboutLanding";
+import { DIMENSION_COUNT, LEVEL_COUNT } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "About Ascent: the maturity index for AI-native engineering",
-  description:
-    "Ascent scores your organization's AI-development maturity and shows the highest-ROI path from manual development to a fully LLM-based, governed engineering org.",
+  // GOLDEN-TRIO: do not lead with ROI. Same three ingredients as siteDescription() (score + ladder +
+  // evidence); counts are derived so the search snippet cannot drift from the model.
+  description: `Ascent scores how AI-native your engineering org is: a ${LEVEL_COUNT}-level maturity ladder across ${DIMENSION_COUNT} dimensions, with evidence and a roadmap to the next level.`,
 };
 
 // The hero's generated backdrop is optional depth. It's a committed public asset, so Next serves and

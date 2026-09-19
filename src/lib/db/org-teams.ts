@@ -17,10 +17,11 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { DIMENSION_BY_ID, postureFor } from "@/lib/maturity/model";
+import { classifyDelta } from "@/lib/maturity/noise";
 import { teamDisplayName } from "@/lib/github/codeowners";
 import type { DimensionId } from "@/lib/types";
 import { GroupedMean, aiShareOf, getOrgBySlug, isBot, pickChampions, roundedMean, upperBound } from "@/lib/db/org-shared";
-import { MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/components/org/shared/champions";
+import { MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/lib/org/champions";
 // The ONE mock-floor predicate, from the producer that defines it (org-rollup.ts): a deterministic
 // placeholder score is not a measurement, so it cannot average into a team maturity figure and
 // cannot be an endpoint of a team mover.
@@ -114,16 +115,24 @@ export interface TeamRollup {
   // selected period); "since last scan" (latest vs previous, cadence-dependent) when no window is
   // given (fleet-rollups-insights 07-16 #2).
   /** Repos with a REAL period baseline (a live-scored scan strictly before the window start) — the
-   *  denominator of improving/declining/avgDelta. Repos ONBOARDED inside the window are counted in
+   *  denominator of improving/declining/held/avgDelta. Repos ONBOARDED inside the window are counted in
    *  `onboardedRepos` instead: their move is a LIFETIME delta since first scan, and folding it in
    *  overstated team momentum for exactly the periods an org is growing (G4-06 — the segregation
    *  getOrgMovers has always applied and this rollup did not). */
   comparedRepos: number;
+  /** Beyond-noise climbs (`classifyDelta === "up"`). A ±1 wobble is not a gainer. */
   improving: number;
+  /** Beyond-noise slides (`classifyDelta === "down"`). */
   declining: number;
-  avgDelta: number; // mean overall delta across comparedRepos
+  /** Compared repos that moved, but only within SCORE_NOISE_BAND — getOrgMovers' `held` bucket.
+   *  Counted in comparedRepos (and in avgDelta's denominator, folded to 0); excluded from
+   *  improving/declining. Exact-0 is neither held nor a mover. */
+  held: number;
+  /** Mean overall delta across comparedRepos. In-band deltas fold to 0 so a wobble cannot pull the
+   *  mean; the denominator still includes every compared repo (held counted, not dropped). */
+  avgDelta: number;
   /** Repos whose first scan landed inside the window, so they have no period baseline — reported
-   *  separately and kept OUT of improving/declining/avgDelta/comparedRepos. 0 in the unwindowed
+   *  separately and kept OUT of improving/declining/held/avgDelta/comparedRepos. 0 in the unwindowed
    *  ("since last scan") mode, where the concept does not apply. */
   onboardedRepos: number;
 }
@@ -194,7 +203,7 @@ export interface TeamRollupRepoInput {
   /** How `windowDelta` was baselined, when one is present. "period" = a real live-scored scan strictly
    *  before the window start. "onboarded" = the repo's first comparable scan landed inside the window,
    *  so the delta is a LIFETIME move — segregated into `TeamRollup.onboardedRepos`, never folded into
-   *  improving/declining/avgDelta/comparedRepos (the same rule getOrgMovers applies). */
+   *  improving/declining/held/avgDelta/comparedRepos (the same rule getOrgMovers applies). */
   windowBaselineKind?: "period" | "onboarded";
 }
 
@@ -401,9 +410,16 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
         champions,
         knowledgeScore,
         comparedRepos: a.deltas.length,
-        improving: a.deltas.filter((d) => d > 0).length,
-        declining: a.deltas.filter((d) => d < 0).length,
-        avgDelta: a.deltas.length ? Math.round(a.deltas.reduce((s, d) => s + d, 0) / a.deltas.length) : 0,
+        // Partition on the NOISE BAND, not on strict sign — the same `classifyDelta` getOrgMovers
+        // uses. A +1 is arithmetically a gain but statistically indistinguishable from two
+        // independent re-scans of an unchanged commit. Sub-band moves go to `held` (nonzero) and
+        // fold to 0 in avgDelta so they cannot pull the mean; they stay in comparedRepos.
+        improving: a.deltas.filter((d) => classifyDelta(d) === "up").length,
+        declining: a.deltas.filter((d) => classifyDelta(d) === "down").length,
+        held: a.deltas.filter((d) => d !== 0 && classifyDelta(d) === "noise").length,
+        avgDelta: a.deltas.length
+          ? Math.round(a.deltas.reduce((s, d) => s + (classifyDelta(d) === "noise" ? 0 : d), 0) / a.deltas.length)
+          : 0,
         onboardedRepos: a.onboarded,
       }];
     })
@@ -492,7 +508,7 @@ export function rollupTeams(orgSlug: string, repos: TeamRollupRepoInput[]): OrgT
  * teams returns a populated shape with `teams: []`.
  *
  * PERIOD SCOPE (fleet-rollups-insights 07-16 #2): pass the dashboard's `window` and the movers
- * (improving/declining/avgDelta) become period-scoped — each repo compares its latest in-window scan
+ * (improving/declining/held/avgDelta) become period-scoped — each repo compares its latest in-window scan
  * against the latest scan STRICTLY before the window start (getOrgMovers' half-open baseline, clamped
  * to the plan's retention window like every sibling aggregate). Without a window (or with "all time")
  * the legacy "since last scan" semantics apply. Snapshot fields (avgOverall, dims, contributors)
@@ -584,7 +600,7 @@ export async function getOrgTeamRollup(
   const withDeltas: TeamRollupRepoInput[] = repos.map((r) => {
     // Mirror getOrgMovers: a repo onboarded mid-period (no pre-start scan) falls back to its earliest
     // in-window scan — it genuinely moved within the window, but that is a LIFETIME delta, so it is
-    // TAGGED "onboarded" and rollupTeams keeps it out of improving/declining/avgDelta/comparedRepos
+    // TAGGED "onboarded" and rollupTeams keeps it out of improving/declining/held/avgDelta/comparedRepos
     // (G4-06). A repo with no in-window scan, or a single in-window scan and no baseline (nothing to
     // compare), has no pair → null (excluded entirely).
     const now = latestIn.get(r.id);

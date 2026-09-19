@@ -8,14 +8,18 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
+const { mockIsDbConfigured, mockGetPrisma, mockSweepExpiredLeases } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetPrisma: vi.fn(),
+  mockSweepExpiredLeases: vi.fn(async () => 0),
 }));
 
 vi.mock("@/lib/db/client", () => ({
   isDbConfigured: mockIsDbConfigured,
   getPrisma: mockGetPrisma,
+}));
+vi.mock("@/lib/db/followup-claims", () => ({
+  sweepExpiredLeases: mockSweepExpiredLeases,
 }));
 
 import { getOrgBacklog } from "./org-insights";
@@ -156,7 +160,9 @@ function mixedFleet() {
 beforeEach(() => {
   mockIsDbConfigured.mockReset();
   mockGetPrisma.mockReset();
+  mockSweepExpiredLeases.mockReset();
   mockIsDbConfigured.mockReturnValue(true);
+  mockSweepExpiredLeases.mockResolvedValue(0);
 });
 
 describe("getOrgBacklog — headline counts", () => {
@@ -362,16 +368,42 @@ describe("getOrgBacklog — empty / boundary", () => {
     for (const v of [b.tracked, b.active, b.open, b.inProgress, b.done, b.dismissed, b.overdue, b.assigned, b.unassigned, b.dueSoon]) {
       expect(Number.isNaN(v)).toBe(false);
     }
+    // An empty fleet is still a ledger read — expired leases elsewhere in the org must go.
+    expect(mockSweepExpiredLeases).toHaveBeenCalledWith("acme", NOW);
   });
 
   it("returns null when persistence is off", async () => {
     mockIsDbConfigured.mockReturnValue(false);
     expect(await getOrgBacklog("acme", null, NOW)).toBeNull();
+    expect(mockSweepExpiredLeases).not.toHaveBeenCalled();
   });
 
   it("returns null when the org does not exist", async () => {
     mockGetPrisma.mockReturnValue(fakePrisma({ repos: [], org: false }));
     expect(await getOrgBacklog("acme", null, NOW)).toBeNull();
+    expect(mockSweepExpiredLeases).not.toHaveBeenCalled();
+  });
+});
+
+describe("getOrgBacklog — expired leases released on read", () => {
+  it("sweeps lapsed claims BEFORE the recommendation read, against the same clock", async () => {
+    const fake = mixedFleet();
+    fake.recommendation.findMany.mockImplementation(async () => {
+      expect(mockSweepExpiredLeases).toHaveBeenCalledWith("acme", NOW);
+      return [];
+    });
+    mockGetPrisma.mockReturnValue(fake);
+    await getOrgBacklog("acme", null, NOW);
+    expect(mockSweepExpiredLeases).toHaveBeenCalledTimes(1);
+    expect(fake.recommendation.findMany).toHaveBeenCalled();
+  });
+
+  it("still returns the ledger when the sweep fails — a sweep blip must not blank the tab", async () => {
+    mockSweepExpiredLeases.mockRejectedValueOnce(new Error("db blip"));
+    mockGetPrisma.mockReturnValue(mixedFleet());
+    const b = (await getOrgBacklog("acme", null, NOW))!;
+    expect(b.tracked).toBe(7);
+    expect(b.inProgress).toBe(2);
   });
 });
 

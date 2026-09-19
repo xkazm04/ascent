@@ -80,6 +80,24 @@ export interface RetentionPolicy {
   batchSize: number;
 }
 
+/** The four Organization override columns owners set from Settings. `null` = inherit the env default. */
+export interface OrgRetentionColumns {
+  retentionMaxScans: number | null;
+  retentionAuditDays: number | null;
+  retentionCompact: boolean | null;
+  retentionDigestMonths: number | null;
+}
+
+/** Stored overrides plus the resolved policy, env defaults, and floors the Settings card renders. */
+export interface OrgRetentionView {
+  stored: OrgRetentionColumns;
+  defaults: RetentionPolicy;
+  effective: RetentionPolicy;
+  compactDefault: boolean;
+  digestMonthsDefault: number;
+  floors: { maxScansPerRepo: number; auditDays: number };
+}
+
 
 /** Parse a non-negative integer env value; null when unset/blank/invalid (→ caller default). */
 function parseNonNegInt(raw: string | undefined): number | null {
@@ -131,8 +149,8 @@ export interface OrgPurgeResult {
   recommendationsDeleted: number;
   recommendationEventsDeleted: number;
   auditDeleted: number;
-  /** InterventionOutcome rows that died with their scan bookends (moonshot #9). Not enumerated in a
-   *  dry run (0), for the same reason dimensions/recommendations aren't. */
+  /** InterventionOutcome rows that died with their scan bookends (moonshot #9). Counted in a dry
+   *  run over the same OR-of-bookends predicate the delete uses. */
   outcomesDeleted: number;
   /** UsageEvent rows aged out on the org's `retentionAuditDays` horizon (moonshot #11). */
   usageEventsDeleted: number;
@@ -198,8 +216,9 @@ export interface PurgeSummary {
   /** Orgs left unprocessed when the run stopped early (0 on a complete run) — the resume tail. */
   orgsRemaining: number;
   /** True when this was a preview run: nothing was deleted and no audit entry was written. Scan
-   *  counts are per-repo would-delete totals; dependent dimension/recommendation(-event) rows are NOT
-   *  enumerated in a dry run (reported as 0) — the scan count is the decision-relevant number. */
+   *  counts are per-repo would-delete totals; dependent dimension/recommendation(-event)/outcome
+   *  rows and conformance findings are counted over the same predicates the delete uses — a 0 is
+   *  measured, not a skipped placeholder (G4). */
   dryRun: boolean;
 }
 
@@ -217,5 +236,116 @@ export interface PurgeOptions {
    *  anything or writing audit entries. Surfaced as `?dryRun=1` on /api/cron/purge. The safety floor
    *  is not enforced in a dry run (previewing a sub-floor policy is exactly what it is for). */
   dryRun?: boolean;
+  /** Restrict to one org (Settings preview). Fleet-wide orphan/queue/quota sweeps are skipped. */
+  onlyOrgSlug?: string;
+  /** Proposed Organization columns, overlaid only when `dryRun` is true (never on a real purge). */
+  proposed?: OrgRetentionColumns;
 }
 export { parseNonNegInt };
+
+/**
+ * Parse a nullable non-negative integer override. `undefined` = key absent; `null` / blank = inherit;
+ * a non-integer or negative value is `false` (invalid). Unlike {@link parseNonNegInt}, floats are
+ * refused rather than floored — a typed `4.9` must not silently become a 4-scan keep-window.
+ */
+export function parseRetentionInt(v: unknown): number | null | undefined | false {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v === "string" && v.trim() === "") return null;
+  if (typeof v !== "number" && typeof v !== "string") return false;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return false;
+  return n;
+}
+
+/** Parse a nullable boolean override. `undefined` = absent; `null` / blank = inherit; `"invalid"` otherwise.
+ *  Cannot use `false` as the bad-sentinel: `false` is a legal "compaction off" write. */
+export function parseRetentionBool(v: unknown): boolean | null | undefined | "invalid" {
+  if (v === undefined) return undefined;
+  if (v === null || v === "") return null;
+  if (typeof v === "boolean") return v;
+  return "invalid";
+}
+
+/**
+ * Floor check on STORED overrides. `null` (inherit) and `0` (keep everything) are never floored;
+ * a configured-but-nonzero window below {@link RETENTION_MIN_SCANS_PER_REPO} / {@link RETENTION_MIN_AUDIT_DAYS}
+ * is the fat-finger the Settings write refuses. Does not lower the floors.
+ */
+export function retentionFloorViolations(
+  stored: Pick<OrgRetentionColumns, "retentionMaxScans" | "retentionAuditDays">,
+): string[] {
+  const out: string[] = [];
+  if (
+    stored.retentionMaxScans != null &&
+    stored.retentionMaxScans > 0 &&
+    stored.retentionMaxScans < RETENTION_MIN_SCANS_PER_REPO
+  ) {
+    out.push(`retentionMaxScans=${stored.retentionMaxScans} < ${RETENTION_MIN_SCANS_PER_REPO}`);
+  }
+  if (
+    stored.retentionAuditDays != null &&
+    stored.retentionAuditDays > 0 &&
+    stored.retentionAuditDays < RETENTION_MIN_AUDIT_DAYS
+  ) {
+    out.push(`retentionAuditDays=${stored.retentionAuditDays} < ${RETENTION_MIN_AUDIT_DAYS}`);
+  }
+  return out;
+}
+
+export type ParseRetentionBody =
+  | { ok: true; stored: OrgRetentionColumns }
+  | { ok: false; error: string; belowFloor?: boolean };
+
+/** Validate the four Settings fields. All four keys are required (full replace, not a patch). */
+export function parseOrgRetentionBody(body: {
+  retentionMaxScans?: unknown;
+  retentionAuditDays?: unknown;
+  retentionCompact?: unknown;
+  retentionDigestMonths?: unknown;
+}): ParseRetentionBody {
+  const retentionMaxScans = parseRetentionInt(body.retentionMaxScans);
+  const retentionAuditDays = parseRetentionInt(body.retentionAuditDays);
+  const retentionCompact = parseRetentionBool(body.retentionCompact);
+  const retentionDigestMonths = parseRetentionInt(body.retentionDigestMonths);
+  if (
+    retentionMaxScans === undefined ||
+    retentionAuditDays === undefined ||
+    retentionCompact === undefined ||
+    retentionDigestMonths === undefined
+  ) {
+    return {
+      ok: false,
+      error: "Provide { org, retentionMaxScans, retentionAuditDays, retentionCompact, retentionDigestMonths }.",
+    };
+  }
+  if (
+    retentionMaxScans === false ||
+    retentionAuditDays === false ||
+    retentionCompact === "invalid" ||
+    retentionDigestMonths === false
+  ) {
+    return {
+      ok: false,
+      error:
+        "Retention fields must be null (inherit), 0 (keep everything), or a non-negative integer; compact must be null or a boolean.",
+    };
+  }
+  const stored: OrgRetentionColumns = {
+    retentionMaxScans,
+    retentionAuditDays,
+    retentionCompact,
+    retentionDigestMonths,
+  };
+  const violations = retentionFloorViolations(stored);
+  if (violations.length) {
+    return {
+      ok: false,
+      belowFloor: true,
+      error:
+        `Refusing a policy below the safety floor (${violations.join(", ")}). Use 0 to keep everything, ` +
+        `or at least ${RETENTION_MIN_SCANS_PER_REPO} scans / ${RETENTION_MIN_AUDIT_DAYS} audit days.`,
+    };
+  }
+  return { ok: true, stored };
+}

@@ -31,6 +31,9 @@ export interface SheetGapCell {
   evidence: string | null;
   dimId: string | null;
   review: "approved" | "dismissed" | null;
+  retired?: true;
+  /** Present only when the rescan adjudicated this close. Absent = unverified. */
+  verified?: true;
 }
 
 /** ONE ROW of the sheet: a gap, across every run column. */
@@ -63,6 +66,8 @@ const toCell = (runId: string, row: GapRow): SheetGapCell => ({
   evidence: row.evidence,
   dimId: row.dimId,
   review: row.review ?? null,
+  retired: row.retired,
+  verified: row.verified,
 });
 
 /**

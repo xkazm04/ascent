@@ -28,15 +28,20 @@ const repositories = (n: number): string => `${n} repositor${n === 1 ? "y" : "ie
 /** The one-line form of a closed/opened follow-up: `- <title> — <repo> (<dimId>)`. */
 const followupLine = (r: DigestFollowupRow): string => `  - ${r.title} — ${r.repo} (${r.dimId})`;
 
-const moverLine = (arrow: string, m: DigestMover): string =>
-  `- ${arrow} ${m.name}: ${sign(m.dOverall)}${m.levelFrom !== m.levelTo ? ` (${m.levelFrom}→${m.levelTo})` : ""}`;
+const moverLine = (arrow: string, m: DigestMover, tag = ""): string => {
+  const delta = m.dOverall == null ? "" : `: ${sign(m.dOverall)}`;
+  const levels = m.levelFrom !== m.levelTo ? ` (${m.levelFrom}→${m.levelTo})` : "";
+  return `- ${arrow} ${m.name}${delta}${levels}${tag}`;
+};
 
 /** The dimension table's "This week" cell — the band's WORD, not a bare number, so a delta inside the
- *  noise band cannot be read as a real move and an unmeasured one cannot be read as zero. */
-function weekCell(delta: number | null, band: string): string {
-  if (band === "unmeasured" || delta == null) return "—";
-  if (band === "flat") return "flat (within noise)";
-  return sign(delta);
+ *  noise band cannot be read as a real move and an unmeasured one cannot be read as zero. The
+ *  paired-repo n prints beside a measured cell and is omitted (with the cell itself) when missing. */
+function weekCell(delta: number | null, band: string, cohortSize: number | null): string {
+  if (band === "unmeasured" || delta == null || cohortSize == null || cohortSize <= 0) return "—";
+  const n = ` over ${repositories(cohortSize)}`;
+  if (band === "flat") return `flat (within noise)${n}`;
+  return `${sign(delta)}${n}`;
 }
 
 /** The closed line's provenance breakdown, e.g. `(3 by rescan, 1 by hand)`.
@@ -92,7 +97,7 @@ export function weeklyDigestMarkdown(d: WeeklyDigest): string {
     out.push("## Score deltas per dimension");
     out.push("| Dimension | Now | This week |");
     out.push("|---|---:|---:|");
-    for (const dim of d.dims) out.push(`| ${dim.dimId} ${dim.label} | ${dim.now} | ${weekCell(dim.delta, dim.band)} |`);
+    for (const dim of d.dims) out.push(`| ${dim.dimId} ${dim.label} | ${dim.now} | ${weekCell(dim.delta, dim.band, dim.cohortSize)} |`);
   }
 
   const f = d.followups;
@@ -127,11 +132,13 @@ export function weeklyDigestMarkdown(d: WeeklyDigest): string {
   }
 
   const mv = d.movement;
-  if (mv && (mv.gainers.length || mv.regressers.length)) {
+  if (mv && (mv.gainers.length || mv.regressers.length || mv.held?.length || mv.onboarded?.length)) {
     out.push("");
     out.push("## Repository movement");
     for (const m of mv.gainers) out.push(moverLine("▲", m));
     for (const m of mv.regressers) out.push(moverLine("▼", m));
+    for (const m of mv.held ?? []) out.push(moverLine("○", m, " (held)"));
+    for (const m of mv.onboarded ?? []) out.push(moverLine("+", m, " (onboarded)"));
     if (mv.compared > 0) out.push(`- ${repositories(mv.compared)} compared`);
   }
 

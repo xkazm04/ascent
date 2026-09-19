@@ -13,7 +13,8 @@ import {
   BriefingMovementCard,
   BriefingTiles,
 } from "@/features/bought/executive/briefingCards";
-import { buildExecBriefing, briefingTrajectoryNote, engineMixCaveat, engineMixLabel, mockDisclosure, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
+import { ExecutiveTrajectoryCard } from "@/features/bought/executive/ExecutiveTrajectoryCard";
+import { buildExecBriefing, engineMixCaveat, engineMixLabel, mockDisclosure, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { briefingFigureDigest, shareIntegrity, verifyBriefingShareToken } from "@/lib/briefing-share";
 import { Notice, ShareFooter, ShareHeader } from "./shareChrome";
 import { inclusiveEnd, resolveWindow } from "@/lib/window";
@@ -210,30 +211,10 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             different sets of scans (see mockDisclosure). */}
         {mockDisclosure(briefing) && <p className="mt-2 type-mono-sm text-warn">⚠ {mockDisclosure(briefing)}</p>}
 
-        {/* G5-11: mirror the internal page's regression caveat here too. `regressionCount` is a plain
-            number already returned on this page's own `briefing` object (no internal-only field, no
-            link) — a board viewer reading a shared link is the LEAST equipped to know a caveat is
-            missing, so gate the whole card on either signal, exactly like executive/page.tsx does. */}
-        {(briefing.forecastHeadline || briefing.forecastInsufficiency || briefing.regressionCount > 0) && (
-          <Card className="mt-6">
-            <SectionHeader size="sm" title="Trajectory" />
-            <p className="mt-2 type-body text-slate-300">
-              {briefing.forecastHeadline ?? briefing.forecastInsufficiency ?? "Not enough history yet to project a trajectory."}
-            </p>
-            {/* MC-B1: the same composed line the owner's page, the board PDF and the markdown get. A
-                board viewer reading a shared link is the least equipped to notice a missing caveat, so
-                the hedge travels with the claim rather than being guarded on a nullable figure. */}
-            {briefing.forecastHeadline && briefingTrajectoryNote(briefing) && (
-              <p className="mt-1 type-mono-sm text-slate-500">{briefingTrajectoryNote(briefing)}</p>
-            )}
-            {briefing.regressionCount > 0 && (
-              <p className="mt-1 type-mono-sm text-orange-300">
-                ⚠ {briefing.regressionCount} repo{briefing.regressionCount > 1 ? "s" : ""} regressed{" "}
-                {start ? "this period" : "since last scan"}.
-              </p>
-            )}
-          </Card>
-        )}
+        {/* G12: the same Trajectory card the Briefing tab mounts — headline, hedge, regression
+            caveat. `periodHasStart` is the frozen window's start (or the live 90d start), so
+            "this period" vs "since last scan" matches the token, not the viewer's clock. */}
+        <ExecutiveTrajectoryCard briefing={briefing} periodHasStart={!!start} className="mt-6" />
 
         {priorPeriod && (
           <Card className="mt-6">

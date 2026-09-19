@@ -10,6 +10,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { HistoryPoint } from "@/lib/db/scans";
 import type { ExemplarOption } from "@/lib/report/exemplar";
 import { Kicker, Surface } from "@/components/ui";
+import { MixedEngineCaveat } from "@/components/report/WhatChangedEngineCaveat";
 import { scanOptionCaptions } from "@/components/report/WhatChangedParts";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -172,6 +173,10 @@ export function ScanComparePicker({
           regression that&apos;s actually a prior improvement. Swap to compare chronologically.
         </p>
       )}
+      <MixedEngineCaveat
+        beforeEngine={beforeScan?.engineProvider}
+        afterEngine={afterScan?.engineProvider}
+      />
     </Surface>
   );
 }

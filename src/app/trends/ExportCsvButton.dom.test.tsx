@@ -79,9 +79,23 @@ describe("ExportCsvButton", () => {
     expect(clicked[0]!.download).toBe("ascent-trends-acme-repo-2026-01-01.csv");
     expect(clicked[0]!.href).toContain("blob:");
     expect(screen.queryByRole("alert")).toBeNull();
-    // The fetch went to the CSV endpoint for this repo.
-    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]![0])).toContain(
-      "/api/history?repo=acme%2Frepo&format=csv",
+    // Same series as the chart: CSV + compacted tail (MOONSHOT #32).
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0]![0])).toBe(
+      "/api/history?repo=acme%2Frepo&format=csv&compacted=1",
     );
+  });
+
+  it("opts into compacted=1 so the spreadsheet matches the chart", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("scannedAt,overall\n", { status: 200, headers: { "content-type": "text/csv" } }),
+    ) as unknown as typeof fetch;
+
+    render(<ExportCsvButton repo="acme/repo" />);
+    fireEvent.click(screen.getByRole("button", { name: /export csv/i }));
+
+    await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(1));
+    const href = String(vi.mocked(globalThis.fetch).mock.calls[0]![0]);
+    expect(href).toContain("format=csv");
+    expect(href).toContain("compacted=1");
   });
 });

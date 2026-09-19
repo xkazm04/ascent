@@ -5,6 +5,9 @@
 // The grant is IDEMPOTENT on the Polar order id and setOrgPlan is naturally idempotent, so an
 // at-least-once webhook can retry without double-fulfilling. Subscription renewals also arrive as
 // `order.paid`, so a recurring product auto-recharges credits / re-asserts the tier each billing cycle.
+// A successful plan grant/revoke also upserts Subscription (status active/inactive; Polar subscription
+// id in stripeId) so free-to-paid conversion is a real metric. Update never touches createdAt —
+// converted-then-cancelled still converted.
 //
 // REVOCATION (the money-OUT trust boundary): a plan tier is NOT a one-way, permanent grant. When a
 // subscription is cancelled/revoked/refunded the org must fall back to `free`, or Ascent keeps serving a
@@ -20,7 +23,15 @@
 
 import { NextResponse } from "next/server";
 import { Webhooks } from "@polar-sh/nextjs";
-import { clawbackOrderRefund, getCreditState, grantCredits, setOrgPlan } from "@/lib/db";
+import {
+  clawbackOrderRefund,
+  getCreditState,
+  getOrgId,
+  getPrisma,
+  grantCredits,
+  isDbConfigured,
+  setOrgPlan,
+} from "@/lib/db";
 import { creditsForProduct, getPolar, planForProduct } from "@/lib/polar";
 import { PLAN_ORDER, type PlanId } from "@/lib/plans";
 
@@ -110,6 +121,27 @@ async function currentSubscription(order: {
 }
 
 /**
+ * Conversion event `freeToPaidConversion` reads. Polar fulfilment already writes Organization.plan;
+ * without this row the table stays empty and the KPI is null (not 0%). `stripeId` holds the Polar
+ * subscription id in the existing column. Update never includes createdAt.
+ */
+async function upsertOrgSubscription(
+  org: string,
+  data: { status: "active" | "inactive"; stripeId: string | null },
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  const orgId = await getOrgId(org);
+  if (!orgId) {
+    throw new Error(`[billing/webhook] cannot record Subscription for "${org}": org id not found, will retry`);
+  }
+  await getPrisma().subscription.upsert({
+    where: { orgId },
+    create: { orgId, status: data.status, stripeId: data.stripeId },
+    update: { status: data.status, stripeId: data.stripeId },
+  });
+}
+
+/**
  * Drop an org bound to a plan subscription back to the free tier. Shared by the revoke / immediate-cancel
  * / full-refund paths. Only acts when the subscription's product is a KNOWN plan product — a revoke for an
  * unrecognised subscription (or a deployment that doesn't sell plans via Polar) must not nuke an org's
@@ -150,6 +182,7 @@ async function downgradeSubscription(
     console.warn(`[billing/webhook] ${cause} for subscription ${sub.id}: org "${org}" not found; downgrade skipped`);
     return;
   }
+  await upsertOrgSubscription(org, { status: "inactive", stripeId: sub.id });
   console.info(`[billing/webhook] ${cause}: "${org}" downgraded to ${FREE_PLAN} (subscription ${sub.id}, was ${plan})`);
 }
 
@@ -204,6 +237,10 @@ export const POST = secret
             if (!ok) {
               throw new Error(`[billing/webhook] order ${order.id}: org "${org}" not found — plan ${plan} not applied, will retry`);
             }
+            await upsertOrgSubscription(org, {
+              status: "active",
+              stripeId: order.subscriptionId ?? null,
+            });
             console.info(`[billing/webhook] order ${order.id}: set "${org}" to plan ${plan}`);
           }
         }

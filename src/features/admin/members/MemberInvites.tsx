@@ -1,16 +1,9 @@
 "use client";
 
-// Owner-only "Invite a teammate" panel, co-located out of MembersPanel to keep that file within the
-// 300-LOC budget. Mints a single-use /invite/[token] link (POST /api/org/invites), lists pending
-// invites with optimistic revoke (the roster itself is InviteList.tsx), and exposes the copy-link
-// affordance only right after creation (the token is the capability, shown once).
-//
-// DELIVERY DISCLOSURE. POST /api/org/invites mails an email-pinned invite and reports the outcome
-// honestly as `emailed` — "sent" | "skipped" (no provider on this deploy) | "failed" | null (a
-// GitHub-login invite, which has no address to send to). That field is the whole reason the route
-// computes it: its own header says the UI should "tell the owner to share the link manually rather
-// than implying a delivery". It had no consumer, so an owner on a deploy with no mail provider
-// created an invite, saw a success, and waited for a mail that was never going to arrive.
+// Owner-only "Invite a teammate" panel. POST /api/org/invites mints or resends a single-use
+// /invite/[token] link; the roster (InviteList) revokes and one-click resends. The token is the
+// capability, shown once on the create/resend response. `emailed` is disclosed so a provider-less
+// deploy is not a silent success.
 
 import { useState } from "react";
 import type { OrgRole } from "@/lib/db/members";
@@ -51,11 +44,17 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  // Outcome of the LAST create's mail, for the invite just minted. Cleared on the next attempt so a
-  // stale "emailed" line can never sit above a different invite.
+  // Outcome of the last create/resend mail. Cleared on the next attempt so a stale line never sits
+  // above a different invite.
   const [delivery, setDelivery] = useState<{ to: string; status: keyof typeof DELIVERY } | null>(null);
 
-  // An invite target is an email if it contains "@", else a GitHub login.
+  function noteDelivery(row: InviteRow, emailed: unknown) {
+    const status = emailed as string | null;
+    if (row.email && status && status in DELIVERY) {
+      setDelivery({ to: row.email, status: status as keyof typeof DELIVERY });
+    }
+  }
+
   async function sendInvite() {
     const target = inviteTarget.trim();
     if (!target || inviteBusy) return;
@@ -73,12 +72,7 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
       if (!res.ok) throw new Error(d.error ?? "Failed to create invite.");
       const row = d.invite as InviteRow;
       setInvites((xs) => [row, ...xs]);
-      // Report what actually happened to the mail. `emailed` is null for a GitHub-login invite (no
-      // address), and only ever concerns the address the owner just typed on this request.
-      const status = d.emailed as string | null;
-      if (row.email && status && status in DELIVERY) {
-        setDelivery({ to: row.email, status: status as keyof typeof DELIVERY });
-      }
+      noteDelivery(row, d.emailed);
       setInviteTarget("");
     } catch (e) {
       setInviteError(e instanceof Error ? e.message : "Failed to create invite.");
@@ -87,12 +81,27 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
     }
   }
 
+  async function resendInvite(id: string) {
+    setInviteError(null);
+    setDelivery(null);
+    try {
+      const res = await fetch("/api/org/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: slug, id, action: "resend" }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error ?? "Failed to resend invite.");
+      const row = d.invite as InviteRow;
+      setInvites((xs) => xs.map((i) => (i.id === id ? { ...i, ...row } : i)));
+      noteDelivery(row, d.emailed);
+    } catch (e) {
+      setInviteError(e instanceof Error ? e.message : "Failed to resend invite.");
+    }
+  }
+
   async function revokeInvite(id: string) {
-    // Remember only THIS row + its position, never a whole-array snapshot: nothing here serializes
-    // two revokes (there is no per-row busy lock), so replaying the array captured at call time
-    // resurrects an invite a concurrent revoke has already deleted on the server — and the owner
-    // then sees a pending invite whose link is dead. Same rule, and the same targeted functional
-    // re-insert, as the roster's useMembersPanel.remove (members-access-control 07-09 #4).
+    // Targeted re-insert only: a whole-array snapshot would resurrect a concurrent revoke.
     const idx = invites.findIndex((i) => i.id === id);
     const removed = idx >= 0 ? invites[idx] : null;
     setInvites((xs) => xs.filter((i) => i.id !== id));
@@ -184,7 +193,7 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
         </p>
       )}
 
-      <InviteList invites={invites} copied={copied} onCopy={copyLink} onRevoke={revokeInvite} />
+      <InviteList invites={invites} copied={copied} onCopy={copyLink} onRevoke={revokeInvite} onResend={resendInvite} />
     </div>
   );
 }

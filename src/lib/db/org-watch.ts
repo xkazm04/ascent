@@ -2,7 +2,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
-import { segmentScope } from "@/lib/db/org-shared";
+import { normalizeOrgSlug, segmentScope } from "@/lib/db/org-shared";
 // The ONE sentinel, from the dependency-free leaf that exists to stop it being re-typed per site.
 import { PUBLIC_ORG } from "@/lib/org-constants";
 import { withAuditSignature } from "@/lib/db/audit-integrity";
@@ -102,6 +102,12 @@ export async function isRepoWatched(orgSlug: string, fullName: string): Promise<
 }
 
 async function ensureOrg(slug: string) {
+  // CANONICALIZE THE SLUG. This is an org-row WRITER, and it took the caller's string raw while
+  // every reader goes through getOrgId → normalizeOrgSlug (trim + lower-case). The asymmetry is
+  // worse on an upsert than on a find: `PostHog` does not miss the `posthog` row, it CREATES a
+  // second tenant that no read in the app can reach. Import and scan already canonicalize at the
+  // route; watch/schedule/seedWatchlist did not, and "every caller remembers" is not a guarantee.
+  const canonical = normalizeOrgSlug(slug);
   // The funnel org carries BOTH halves of its identity, not just the name. `kind: "public"` is the
   // column the LLM usage ledger's skip decision actually reads (usage-events.ts UNMETERED_ORG_KIND,
   // UAT MC-B20: that decision used to be `orgSlug === "public"` as a string, and was moved onto the
@@ -115,15 +121,21 @@ async function ensureOrg(slug: string) {
   // toggle to fix a row the next scan fixes anyway. What this writer owes is not creating the
   // problem — a repo watched under the funnel before anything is scanned used to leave the org
   // flavored "org", and everything until the next scan was ledgered as a tenant's usage.
-  const funnel = slug === PUBLIC_ORG;
+  // Compared AFTER canonicalize so `PUBLIC` / ` Public ` cannot mint a metered twin of the funnel.
+  const funnel = canonical === PUBLIC_ORG;
   return getPrisma().organization.upsert({
-    where: { slug },
+    where: { slug: canonical },
     update: {},
     // Plan is the canonical platform default ("free") — billing owns upgrades. This path used to
     // mint the legacy non-PlanId string "private" (which planFeatures resolved to the free tier
     // anyway); aligned with installations.ts/members.ts so first-touch order can't change the
     // stored plan (github-app-installation-webhooks #1).
-    create: { slug, name: funnel ? "Public Scans" : slug, plan: "free", ...(funnel ? { kind: PUBLIC_ORG } : {}) },
+    create: {
+      slug: canonical,
+      name: funnel ? "Public Scans" : canonical,
+      plan: "free",
+      ...(funnel ? { kind: PUBLIC_ORG } : {}),
+    },
   });
 }
 
@@ -190,7 +202,13 @@ export async function setWatchedSchedule(
 ): Promise<string[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
-  const org = await prisma.organization.findUnique({ where: { slug: orgSlug }, select: { id: true } });
+  // Canonicalize like ensureOrg / getOrgId: this lookup used the raw slug, so a mixed-case
+  // fleet cadence write authorized (the gate normalizes) then matched nothing against the
+  // persisted lower-cased row and reported success with `updated: 0`.
+  const org = await prisma.organization.findUnique({
+    where: { slug: normalizeOrgSlug(orgSlug) },
+    select: { id: true },
+  });
   if (!org) return [];
   const where = { orgId: org.id, watched: true, ...segmentScope(segmentId) };
   // Capture which repos the update targets BEFORE writing (updateMany returns only a count), so the
@@ -327,6 +345,47 @@ export async function listDueRescanCandidates(limit?: number): Promise<DueRescan
   const out: DueRescan[] = [];
   for (let i = 0; out.length < cap && queues.some((q) => q.length > 0); i++) {
     const next = queues[i % queues.length]!.shift(); // safe: i % queues.length is always a valid index
+    if (next) out.push(next);
+  }
+  return out;
+}
+
+export interface DueProbe {
+  orgSlug: string;
+  fullName: string;
+  repoId: string;
+}
+
+/**
+ * The probe lane's SEEDER read: every watched repo that is not in a personal workspace.
+ *
+ * Unlike {@link listDueRescanCandidates} there is no `nextScanAt` / schedule predicate — a probe is
+ * free, and this list is how App-installed orgs ever refresh `missingSince` (`reconcileListedRepos`
+ * never runs for them; they never call `listOrgRepos`). Cadence lives on the job row's ISO-date
+ * idempotency bucket, not a column here: re-seeding the same day is a no-op. Same round-robin
+ * interleave as the rescore seeder so one large fleet cannot starve the rest of a pass.
+ */
+export async function listDueProbeCandidates(limit?: number): Promise<DueProbe[]> {
+  if (!isDbConfigured()) return [];
+  const prisma = getPrisma();
+  const watched = await prisma.repository.findMany({
+    where: { watched: true, org: { kind: { not: "personal" } } },
+    select: { id: true, fullName: true, org: { select: { slug: true } } },
+    orderBy: { fullName: "asc" },
+    ...(limit ? { take: limit * 4 } : {}),
+  });
+  const byOrg = new Map<string, DueProbe[]>();
+  for (const r of watched) {
+    const item: DueProbe = { orgSlug: r.org.slug, fullName: r.fullName, repoId: r.id };
+    const q = byOrg.get(item.orgSlug);
+    if (q) q.push(item);
+    else byOrg.set(item.orgSlug, [item]);
+  }
+  const queues = [...byOrg.values()];
+  const cap = limit ?? watched.length;
+  const out: DueProbe[] = [];
+  for (let i = 0; out.length < cap && queues.some((q) => q.length > 0); i++) {
+    const next = queues[i % queues.length]!.shift();
     if (next) out.push(next);
   }
   return out;

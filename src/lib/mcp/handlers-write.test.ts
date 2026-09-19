@@ -27,6 +27,23 @@ const claimRow = (id: string, repo = "acme/api") => ({
   needsHuman: false,
 });
 
+/** Ledger row as `getOrgBacklog` returns it. `status` is what `openBatch` would filter on. */
+const ledgerItem = (id: string, status: "open" | "in_progress" = "open") => ({
+  id,
+  repo: "acme/api",
+  title: "No dependency review on pull requests",
+  dimId: "D9",
+  dimLabel: "Security",
+  impact: "high",
+  effort: "low",
+  rationale: "Nothing checks a new dependency before it merges.",
+  explore: [] as string[],
+  projectedPoints: 4,
+  status,
+});
+
+const backlogItems: ReturnType<typeof ledgerItem>[] = [];
+
 vi.mock("@/lib/db/followup-claims", () => ({
   claimFollowups: vi.fn(async (input: Record<string, unknown>) => {
     claims.push(input);
@@ -54,6 +71,7 @@ vi.mock("@/lib/db/org-stance", () => ({
   })),
 }));
 vi.mock("@/lib/db/org-admission", () => ({ getRepoAdmission: vi.fn(async () => admission) }));
+vi.mock("@/lib/db/loop-runs-write", () => ({ attachRemoteClaim: vi.fn(async () => false) }));
 // PRIYA-L1-706: the remote brief carries the ORG'S STANDARD, through the very same
 // `loadLaneBriefInput` → `buildLaneBrief` pair the local lane uses. Mocked at the DB read only, so
 // the assembly under test is the real one — a second, "equivalent" assembly is exactly how the local
@@ -61,20 +79,12 @@ vi.mock("@/lib/db/org-admission", () => ({ getRepoAdmission: vi.fn(async () => a
 let briefInput: Parameters<typeof buildLaneBrief>[0] | null = null;
 vi.mock("@/lib/db/lane-brief-read", () => ({ loadLaneBriefInput: vi.fn(async () => briefInput) }));
 vi.mock("@/lib/local/loop-lane", () => ({
-  openBatch: vi.fn(async () => [
-    {
-      id: "rec-1",
-      repo: "acme/api",
-      title: "No dependency review on pull requests",
-      dimId: "D9",
-      dimLabel: "Security",
-      impact: "high",
-      effort: "low",
-      rationale: "Nothing checks a new dependency before it merges.",
-      explore: [],
-      projectedPoints: 4,
-    },
-  ]),
+  // The claim picker: production keeps only `status === "open"`. Returning rec-1 here must NOT be
+  // enough to brief a different held id — that was the suite's blind spot.
+  openBatch: vi.fn(async () => [ledgerItem("rec-1", "open")]),
+}));
+vi.mock("@/lib/db/org-insights", () => ({
+  getOrgBacklog: vi.fn(async () => ({ byOwner: [{ items: backlogItems }] })),
 }));
 
 const { claimFollowupsTool, getFixBriefTool, reportAttemptTool } = await import("@/lib/mcp/work-tools");
@@ -89,6 +99,8 @@ beforeEach(() => {
   claims.length = 0;
   attempts.length = 0;
   heldRows = [{ id: "rec-1", repo: "acme/api" }];
+  backlogItems.length = 0;
+  backlogItems.push(ledgerItem("rec-1", "open"));
   tier = "T3";
   sealedGlobs = [];
   admission = null;
@@ -263,6 +275,41 @@ describe("get_fix_brief — only for rows this caller holds", () => {
     heldRows = [];
     const res = await getFixBriefTool("acme", { ids: ["rec-1"] }, P());
     expect(res.isError).toBe(true);
+  });
+
+  // FAIL-BEFORE: restore itemsFor's openBatch load and this is empty — rec-held is in_progress, so
+  // the open-only picker never returns it, and the mock above still only yields rec-1 anyway.
+  it("briefs an in_progress held id that openBatch's open-only picker would skip", async () => {
+    heldRows = [{ id: "rec-held", repo: "acme/api" }];
+    backlogItems.length = 0;
+    backlogItems.push({
+      ...ledgerItem("rec-held", "in_progress"),
+      title: "CI has no required status checks",
+      dimId: "D3",
+      dimLabel: "CI",
+      rationale: "Merges land without a green required check.",
+      explore: ["Which checks are required on the default branch?"],
+      projectedPoints: 5,
+    });
+    const res = await getFixBriefTool("acme", { ids: ["rec-held"] }, P());
+    const out = res.structuredContent as { briefs: { ids: string[] }[]; refused: unknown[] };
+    expect(out.refused).toEqual([]);
+    expect(out.briefs).toHaveLength(1);
+    expect(out.briefs[0]!.ids).toEqual(["rec-held"]);
+    expect(res.text).toContain("CI has no required status checks");
+    expect(res.text).toContain("Merges land without a green required check.");
+    expect(res.text).toContain("`rec-held`");
+  });
+
+  it("names a held id the ledger no longer lists, rather than skipping it", async () => {
+    heldRows = [{ id: "rec-gone", repo: "acme/api" }];
+    backlogItems.length = 0;
+    const res = await getFixBriefTool("acme", { ids: ["rec-gone"] }, P());
+    const out = res.structuredContent as { briefs: unknown[]; refused: { id: string; reason: string }[] };
+    expect(out.briefs).toHaveLength(0);
+    expect(out.refused).toEqual([
+      { id: "rec-gone", reason: "missing", detail: expect.stringContaining("latest scan") },
+    ]);
   });
 });
 

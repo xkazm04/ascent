@@ -30,9 +30,17 @@ The App authenticates in two hops and caches the result:
 
 `githubAppFetch<T>(path, auth, init)` wraps calls with standard headers and throws
 `AppApiError` (carrying the HTTP status) on non-2xx. `isAppConfigured()` gates the whole
-feature on the env vars being present; `listInstallationRepos(id)` pages through all
-accessible repos; `verifyWebhook(rawBody, signature)` does the HMAC-SHA256 check against
+feature on the env vars being present; `listInstallationReposResult(id)` pages through
+accessible repos and reports `truncated` when the walk hits the 50-page / 5000-repo cap
+before `total_count` is exhausted (`listInstallationRepos` is the thin array wrapper);
+`verifyWebhook(rawBody, signature)` does the HMAC-SHA256 check against
 `GITHUB_APP_WEBHOOK_SECRET`.
+
+`appInstallUrl()` builds the user-facing install link from `githubWebBase()` (`GITHUB_SERVER_URL`,
+default `https://github.com`) and `GITHUB_APP_SLUG`. GitHub.com keeps `/apps/<slug>/installations/new`;
+a GHES web host (hostname not `github.com`) uses `/github-apps/<slug>/installations/new` on that host.
+Returns `null` when the slug is unset. JWT minting and `githubAppFetch` are unchanged — those already
+talk to `githubApiBase()`.
 
 ## Webhook (`src/app/api/app/webhook/route.ts`)
 
@@ -45,7 +53,7 @@ accessible repos; `verifyWebhook(rawBody, signature)` does the HMAC-SHA256 check
 | `installation_repositories` (added / removed) | The user changed *which* repos an installation can see. Deliberately **no payload-trusting fast path**: a deferred `reconcileInstallationRepos` re-lists the installation's live repos from GitHub and unwatches only what GitHub confirms is gone. |
 | `check_run` (rerequested / requested_action `rescan`) | A "Re-run" click or GitHub's native rerequest — re-evaluate the gate for the PR the run is attached to, with no new push. |
 | `push` (default branch moved) | Re-scan **watched** repos (`runPushRescan`, DB-gated, **throttled**, see below) and alert on regressions (see [alerts.md](../fleet/alerts.md)). |
-| `branch_protection_rule`, `repository_ruleset`, `repository` | Enqueue a **free control probe** of that repo (moonshot #10) **and** record a control *attribution* row (moonshot #1, below). |
+| `branch_protection_rule`, `repository_ruleset`, `repository` | Enqueue a **free control probe** of that repo (moonshot #10) **and** record a control *attribution* row (moonshot #1, below). A GitHub-confirmed `repository.deleted` (owner matches the installation) **unwatches that `fullName` only** — the same `reconcileWatchedRepos` drop used when a repo leaves the installation set. A forged owner mismatch does not unwatch. Archived stays watched. |
 | `member`, `team` | Owner-level access moved: enqueue probes across the org's watched repos (capped at 200). Writes no membership or RBAC row — identity-graph modelling is a separate item. |
 | `pull_request_review` (submitted, approved) | Record the approving review as `AiChange` evidence within seconds instead of at the next scan's cadence (moonshot #1, below). |
 | `pull_request` (closed, merged) | Record the merge as `AiChange` evidence, alongside the gate arm above. |
@@ -167,7 +175,7 @@ repo with `scanSchedule: off` can sit up to one window behind until its next pus
 | Route | Method | Role |
 | --- | --- | --- |
 | `/api/app/setup` | `GET` | Post-install redirect: fetch the installation's account login, `upsertInstallation`, bounce to `/onboarding?org=…&installation_id=…`. |
-| `/api/app/repos` | `GET` | List the installation's repos (`?org=` or `?installation_id=`), merged with the DB watch/schedule state. |
+| `/api/app/repos` | `GET` | List the installation's repos (`?org=` or `?installation_id=`), merged with the DB watch/schedule state. Body includes `truncated: true` when GitHub's listing hit the page cap (the `repos` array is incomplete; overflow is not visible to watch/scan). |
 
 ## Installations storage (`src/lib/db/installations.ts`)
 
@@ -284,12 +292,12 @@ for, and failing would strand the id forever). See
 
 | File | Role |
 | --- | --- |
-| `src/lib/github/app.ts` | JWT + installation-token minting, `githubAppFetch`, `listInstallationRepos`, `verifyWebhook`. |
+| `src/lib/github/app.ts` | JWT + installation-token minting, `githubAppFetch`, `listInstallationRepos` / `listInstallationReposResult`, `verifyWebhook`. |
 | `src/lib/github/write.ts` | `openDraftPr`: seed a starter artifact; refuses an existing base file by design. |
 | `src/lib/github/admission-write.ts` | `proposeManagedBlock` (merge-append, dry-run first) + ruleset apply/revert. |
 | `src/app/api/app/webhook/route.ts` | `installation` / `pull_request` / `push` handling. |
 | `src/app/api/app/setup/route.ts` | Post-install redirect + upsert. |
-| `src/app/api/app/repos/route.ts` | List repos for an installation (+ DB watch/schedule). |
+| `src/app/api/app/repos/route.ts` | List repos for an installation (+ DB watch/schedule). Surfaces `listInstallationReposResult.truncated` on the wire. |
 | `src/lib/db/installations.ts` | Installation persistence on `Organization`. |
 | `src/lib/github/governance.ts` | Branch-protection + commit-activity signals. |
 | `src/app/onboarding/page.tsx`, `src/components/onboarding/OnboardingGateStep.tsx` | Install entry (the wizard; the access gate carries the install link). |

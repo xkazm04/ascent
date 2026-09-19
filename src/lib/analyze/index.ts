@@ -280,7 +280,14 @@ const d1: Detector = (idx, snap) => {
   // generated projection) agreeing with its source is a tautology, and paying for it would be
   // presence-summing wearing a different label — the exact thing r11 removed. Copies are dropped
   // here; the copy relationship is already priced by coherence and by `projection_declared`.
-  const copies = new Set(graph.edges.filter((e) => e.kind === "duplicates").map((e) => e.to));
+  // A projection is dropped too, whatever its sync state: a DRIFTED projection still carries every
+  // command it inherited from the generator, and its agreement with its source is inheritance, not a
+  // second author reaching the same answer.
+  const copies = new Set(
+    graph.edges
+      .filter((e) => e.kind === "duplicates" || e.kind === "projects-from")
+      .map((e) => (e.kind === "duplicates" ? e.to : e.from)),
+  );
   const independent = graph.nodes.filter((n) => !copies.has(n.path));
   const agreed = [...new Set(independent.flatMap((n) => n.commands.map((c) => c.key)))].filter(
     (key) => !divergentKeys.has(key) && independent.filter((n) => n.commands.some((c) => c.key === key)).length >= 2,

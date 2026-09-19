@@ -51,7 +51,7 @@ export interface OverviewLedgerData {
   forecast: Forecast | null;
   postureCounts: Record<string, number>;
   dims: { dimId: string; avg: number }[];
-  dimDeltas: { dimId: string; delta: number }[] | null;
+  dimDeltas: { dimId: string; delta: number; cohortSize: number }[] | null;
   deltaLabel: string;
   trajectories: RepoTrajectory[];
   heatmapRows: HeatRow[];

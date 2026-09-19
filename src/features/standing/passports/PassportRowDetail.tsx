@@ -71,7 +71,7 @@ export function PassportRowDetail({
   const sv = d.selfVerify;
   return (
     <div className="grid gap-5 border-l-2 border-accent/40 bg-surface/30 px-4 py-4 md:grid-cols-2">
-      {/* Left: what to fix, per axis — the passport's own follow-up list, now decidable */}
+      {/* Left: what to fix, per axis. DecisionControl only on declinable (seen) findings. */}
       <div className="space-y-4">
         <BlockerList
           title="Automation blockers"

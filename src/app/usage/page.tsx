@@ -4,7 +4,7 @@ import { Shell, Notice } from "./usageShell";
 import { UsageDashboard } from "./usageDashboard";
 import { countMeteredScansThisMonth, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
 import { creditNotice } from "./creditNotice";
-import { boundUsageDays, usageWindow } from "@/lib/db/usage";
+import { boundUsageDays, getOrgPlanForUsage, usageWindow } from "@/lib/db/usage";
 import { getActiveOrg, PUBLIC_ORG } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { canReadOrg } from "@/lib/authz";
@@ -48,22 +48,7 @@ export default async function UsagePage({
     );
   }
 
-  // Bound the window AFTER the org is known, mirroring /api/usage via the shared boundUsageDays: the
-  // UNAUTHENTICATED public org is capped tighter (90d) so an anonymous caller can't force the 365-day
-  // full-window aggregate the API path refuses (this page computes the same summary directly). The
-  // helper FLOORS a fractional ?days= so `since`, the day axis, and the counts share one integer window
-  // (an un-floored 1.5 stepped the axis by half-days and silently dropped today from the chart/CSV).
-  const days = boundUsageDays(daysParam, org.toLowerCase() === PUBLIC_ORG);
-  // ONE window for both reads on this page. The reconciliation panel sits beside the billable-scan
-  // tile under a single "last {days}d" label, and used to be measured over a rolling wall-clock
-  // cutoff while the scans were counted over the UTC-day-anchored half-open window — up to a day of
-  // traffic apart, explained away in the panel's own copy as rows "straddling the window edge".
-  // Resolving the window HERE, once, and handing the same object to both makes them comparable.
-  const win = usageWindow(days);
-  // The picker's ceiling, asked OF `boundUsageDays` rather than restated beside it: the control and
-  // the bound that would clamp its links cannot drift, and the public funnel's tighter 90-day cap
-  // needs no second expression of itself here.
-  const maxDays = boundUsageDays("365", org.toLowerCase() === PUBLIC_ORG);
+  const isPublic = org.toLowerCase() === PUBLIC_ORG;
 
   // Cross-tenant IDOR guard — the canonical read-side tenant gate (the same canReadOrg the sibling
   // /api/usage route and the other org-scoped pages use). It opens PUBLIC_ORG to everyone, requires
@@ -88,6 +73,26 @@ export default async function UsagePage({
     );
   }
 
+  // Bound the window AFTER the org is known, mirroring /api/usage via the shared boundUsageDays: the
+  // UNAUTHENTICATED public org is capped tighter (90d) so an anonymous caller can't force the 365-day
+  // full-window aggregate the API path refuses (this page computes the same summary directly). The
+  // helper FLOORS a fractional ?days= so `since`, the day axis, and the counts share one integer window
+  // (an un-floored 1.5 stepped the axis by half-days and silently dropped today from the chart/CSV).
+  // The plan cap (Free 30 / Starter 180 / Team 365) is applied here so the picker and both period
+  // reads share one window — a Free org cannot select or query older than retentionDays.
+  const plan = isPublic ? undefined : await getOrgPlanForUsage(org);
+  const days = boundUsageDays(daysParam, isPublic, plan);
+  // ONE window for both reads on this page. The reconciliation panel sits beside the billable-scan
+  // tile under a single "last {days}d" label, and used to be measured over a rolling wall-clock
+  // cutoff while the scans were counted over the UTC-day-anchored half-open window — up to a day of
+  // traffic apart, explained away in the panel's own copy as rows "straddling the window edge".
+  // Resolving the window HERE, once, and handing the same object to both makes them comparable.
+  const win = usageWindow(days);
+  // The picker's ceiling, asked OF `boundUsageDays` rather than restated beside it: the control and
+  // the bound that would clamp its links cannot drift. Public ignores `plan` (90-day DoS cap);
+  // a private org's ceiling is the plan's retentionDays.
+  const maxDays = boundUsageDays("365", isPublic, plan);
+
   // getUsageSummary returns null when the DB isn't configured and can throw on a transient
   // blip (deploy, dropped connection, env race) between the isDbConfigured() check above and
   // the query. Either way, degrade to the notice instead of crashing this billing page.
@@ -101,9 +106,11 @@ export default async function UsagePage({
   let recon: CreditReconciliation | null = null;
   // Public-funnel abuse counters (QUOTA-6) — only meaningful on the shared public view; best-effort.
   let quotaEvents: QuotaEventTotals | null = null;
-  // Month-to-date metered scans — the third input the charge resolver needs (UAT DANA-L1-003). The
-  // banner cannot decide "refused" from the balance alone: a scan under the monthly allowance is free
-  // whatever the balance is. Same round-trip, same best-effort posture as the credit read.
+  // Month-to-date metered scans — the allotment numerator AND the third input the charge resolver
+  // needs (UAT DANA-L1-003). The banner cannot decide "refused" from the balance alone: a scan under
+  // the monthly allowance is free whatever the balance is. AllotmentPanel must read this same
+  // calendar-month count, not the page's ?days= billable window. Same round-trip, same best-effort
+  // posture as the credit read.
   let meteredThisMonth: number | null = null;
   try {
     [usage, credit, recon, quotaEvents, meteredThisMonth] = await Promise.all([
@@ -154,8 +161,8 @@ export default async function UsagePage({
   // UAT DANA-L1-003 (recurrence 2) — the banner is resolved by `creditNotice`, which asks
   // `resolveScanCharge` (the resolver BOTH billing gates already share) instead of re-deriving a local
   // predicate that ignored the monthly allowance and was non-monotonic in the balance. Rationale in
-  // ./creditNotice.ts. `meteredThisMonth` is null when the read failed or the org is public/unlimited;
-  // a failed read means no banner, which is the right way to fail on a warning surface.
+  // ./creditNotice.ts. `meteredThisMonth` is null when the read failed or the org is public; a failed
+  // read hides the banner AND the allotment meter (don't invent a 0% against the monthly grant).
   const notice =
     credit && meteredThisMonth != null
       ? creditNotice({
@@ -178,6 +185,7 @@ export default async function UsagePage({
         billable={billable}
         runwayDays={runwayDays}
         notice={notice}
+        meteredThisMonth={meteredThisMonth}
         maxDays={maxDays}
       />
     </Shell>

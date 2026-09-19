@@ -11,6 +11,7 @@ import {
   composeCycleMessage,
   judgeCycleOutcome,
   partitionCycleOutcomes,
+  raisesForAbandonedSkill,
   summarizeCycle,
   type CycleOutcome,
 } from "./cycle-signal";
@@ -55,6 +56,42 @@ describe("the bar", () => {
     // SCORE_NOISE_BAND is 2: a +1 is scan-to-scan wobble, not news.
     expect(judgeCycleOutcome(outcome({ id: "c", delta: 1 }))).toEqual({ report: false, reason: "within_noise" });
     expect(judgeCycleOutcome(outcome({ id: "d", delta: 0 }))).toEqual({ report: false, reason: "within_noise" });
+  });
+
+  it("reports an abandoned skill even when scores are flat, and still absorbs a quiet library", () => {
+    // Named rule: abandonedCount >= 1 is a prune candidate, not "the fleet is stable".
+    expect(raisesForAbandonedSkill({ abandonedCount: 1 })).toBe(true);
+    expect(raisesForAbandonedSkill({ abandonedCount: 0 })).toBe(false);
+    expect(judgeCycleOutcome(outcome({ id: "a", delta: 0, abandonedCount: 1 }))).toEqual({
+      report: true,
+      reason: "skill_abandoned",
+    });
+    expect(judgeCycleOutcome(outcome({ id: "b", delta: 1, abandonedCount: 2 }))).toEqual({
+      report: true,
+      reason: "skill_abandoned",
+    });
+    expect(judgeCycleOutcome(outcome({ id: "c", alreadyVisible: true, abandonedCount: 1 }))).toEqual({
+      report: true,
+      reason: "skill_abandoned",
+    });
+    // A real score move still wins — that is the louder fact.
+    expect(judgeCycleOutcome(outcome({ id: "d", delta: -7, abandonedCount: 1 }))).toEqual({
+      report: true,
+      reason: "standing_moved",
+    });
+    expect(judgeCycleOutcome(outcome({ id: "e", delta: 0, abandonedCount: 0 }))).toEqual({
+      report: false,
+      reason: "within_noise",
+    });
+    // Maintenance stays absolute, and silence is still nothing to say.
+    expect(judgeCycleOutcome(outcome({ id: "f", kind: "consolidation", abandonedCount: 3 }))).toEqual({
+      report: false,
+      reason: "maintenance",
+    });
+    expect(judgeCycleOutcome(outcome({ id: "g", text: "", delta: 0, abandonedCount: 1 }))).toEqual({
+      report: false,
+      reason: "nothing_to_say",
+    });
   });
 
   it("absorbs a restatement of what the dashboard already shows", () => {
@@ -149,6 +186,21 @@ describe("promotion: a raised decision brings the prose that explains it", () =>
   it("does not promote a briefing when nothing else was raised", () => {
     const part = partitionCycleOutcomes([outcome({ id: "briefing", text: "All steady.", delta: 0 })]);
     expect(part.raised).toHaveLength(0);
+  });
+
+  it("raises a flat briefing when a skill was abandoned rather than composing silence", () => {
+    const part = partitionCycleOutcomes([
+      outcome({
+        id: "briefing",
+        text: "old-linter was used, then went quiet.",
+        delta: 0,
+        abandonedCount: 1,
+        alreadyVisible: true,
+      }),
+    ]);
+    expect(part.raised.map((o) => o.id)).toEqual(["briefing"]);
+    expect(part.absorbed).toHaveLength(0);
+    expect(composeCycleMessage(part.raised)).toContain("old-linter");
   });
 });
 

@@ -1,7 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { gitlabGet, gitlabGetSoft, gitlabPaged, projectRef } from "./http";
+import { gitlabGet, gitlabGetSoft, gitlabPaged, gitlabWebBase, projectRef } from "./http";
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("gitlabWebBase", () => {
+  it("uses the configured web host and strips a trailing slash", () => {
+    expect(gitlabWebBase()).toBe("https://gitlab.com");
+    expect(gitlabWebBase({
+      apiBase: "https://gitlab.acme.com/api/v4",
+      webBase: "https://gitlab.acme.com///",
+    })).toBe("https://gitlab.acme.com");
+  });
+});
 
 describe("GitLab transport", () => {
   it.each(["1", "0", "-1", "not-a-page", "9007199254740992"])("stops with an honest partial result for next page %s", async (next) => {

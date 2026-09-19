@@ -19,7 +19,10 @@ interface Quota {
 const res = (data: Quota) => ({ ok: true, json: () => Promise.resolve(data) });
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 describe("QuotaMeter render states", () => {
   it("renders nothing when the monthly gate isn't enforced", async () => {
@@ -57,15 +60,26 @@ describe("QuotaMeter render states", () => {
     expect(document.querySelector("p span.font-semibold")?.textContent).toBe("5"); // meter itself still shows
   });
 
-  it("offers the SIGN-IN CTA first (the report banners' hierarchy) when Supabase auth is wired", async () => {
+  it("does not promise 'Sign in for more scans' when the signed-in limit equals anonymous", async () => {
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://supabase.example");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res({ enforced: true, remaining: 3, limit: 5, resetAt: null, scope: "anon" })));
+    await act(async () => { render(<QuotaMeter />); });
+    await flush();
+    expect(screen.queryByRole("button", { name: "Sign in for more scans" })).toBeNull();
+    // Limits match: the honest lever is a paid plan, not a sign-in.
+    expect(await screen.findByRole("link", { name: "upgrade for more scans" })).toBeInTheDocument();
+  });
+
+  it("offers the SIGN-IN CTA first when signing in actually raises the allowance", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://supabase.example");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key");
+    vi.stubEnv("PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN", "50");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res({ enforced: true, remaining: 3, limit: 5, resetAt: null, scope: "anon" })));
     await act(async () => { render(<QuotaMeter />); });
     expect(await screen.findByRole("button", { name: "Sign in for more scans" })).toBeInTheDocument();
     // The paid link is the FALLBACK, not a sibling — one CTA, matching quotaCta's hierarchy.
     expect(screen.queryByRole("link", { name: "upgrade for more scans" })).toBeNull();
-    vi.unstubAllEnvs();
   });
 });
 

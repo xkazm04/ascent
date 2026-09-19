@@ -4,18 +4,19 @@
 // stored JSON columns. Four PURE, TOTAL guards stand between a malformed / legacy / hand-edited row
 // and a broken (crash / NaN-rendered) public report:
 //
-//   parseStringArray  → string[]            (non-strings dropped; never throws → [])
+//   parseStringArray  → string[] | null     (JSON [] stays []; unread/malformed/non-array → null)
 //   parseJsonObject   → object | null       (array / scalar / bad-JSON → null, never blind-cast)
 //   parseNumberArray  → number[] | null     (non-array → null; non-finite/non-number entries dropped)
-//   parseDiscrepancies→ Discrepancy[]       (drops rows missing dimension/claim; bad-JSON → [])
+//   parseDiscrepancies→ Discrepancy[] | null (JSON [] stays []; unread/malformed/non-array → null)
 //
 // These helpers are module-PRIVATE, so we exercise the REAL code (no copy that can drift, no source
 // change) through the only public seam that reaches them: getScanReportByCommit. We feed crafted
 // stored-JSON column values via a faked Prisma and assert what lands on the reconstructed report.
 //
 // THE RESILIENCE INVARIANT PINNED HERE: every helper is TOTAL — on valid-but-wrong-shape, malformed,
-// null, or undefined stored JSON it returns its documented default ([] / null) and NEVER throws, so a
-// single corrupt scan row can never crash or NaN-render the shareable report page.
+// null, or undefined stored JSON it returns its documented default (null, never a fabricated []) and
+// NEVER throws. Report reconstruction coalesces list fields with `?? []` so a single corrupt scan
+// row can never crash or NaN-render the shareable report page. JSON `[]` stays a measured empty list.
 //
 // Note on JS/JSON semantics (the finding's `[1,"x",NaN,2]→[1,2]` example is wrong): a literal `NaN`
 // token is INVALID JSON, so JSON.parse throws and parseNumberArray returns null (the catch default).
@@ -52,8 +53,8 @@ vi.mock("@/lib/db/client", () => ({
 // getScanReportByCommit routes its roadmap mapping through the canonical toPersistedRec, so it must be
 // real here (not an inert vi.fn) for the roadmap.explore resilience assertions to hold.
 vi.mock("@/lib/db/scans-shared", () => {
-  // The canonical JSON.parse-with-fallback primitive (null/empty/malformed → null). parseStringArray,
-  // toPersistedRec, and scans-read's object/number/discrepancy parsers all build on it.
+  // The canonical JSON.parse-with-fallback primitive (null/empty/malformed → null). parseStringArray
+  // matches json-columns: JSON [] stays []; unread → null. Report/rec callers coalesce with `?? []`.
   const parseJson = <T,>(s: string | null | undefined): T | null => {
     if (!s) return null;
     try {
@@ -62,9 +63,9 @@ vi.mock("@/lib/db/scans-shared", () => {
       return null;
     }
   };
-  const parseStringArray = (s: string | null | undefined): string[] => {
+  const parseStringArray = (s: string | null | undefined): string[] | null => {
     const p = parseJson<unknown>(s);
-    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
+    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : null;
   };
   const toPersistedRec = (r: {
     id: string;
@@ -85,7 +86,7 @@ vi.mock("@/lib/db/scans-shared", () => {
     impact: r.impact,
     effort: r.effort,
     rationale: r.rationale,
-    explore: parseStringArray(r.explore),
+    explore: parseStringArray(r.explore) ?? [],
     levelUnlock: r.levelUnlock ?? undefined,
     status: r.status,
     assigneeLogin: r.assigneeLogin ?? null,
@@ -103,11 +104,13 @@ vi.mock("@/lib/db/scans-shared", () => {
 });
 
 import {
+  DEDUP_KEY_VERSION,
   findScanByDedupKey,
   findScanByScannedAt,
   getLatestRecommendations,
   getRepositoryHistory,
   getScanReportByCommit,
+  isCompactedPointId,
   scanContentKey,
   scanDedupKey,
 } from "./scans-read";
@@ -224,17 +227,22 @@ describe("getScanReportByCommit — parseStringArray resilience", () => {
     expect(r.strengths).toEqual(["a", "b", "c"]);
   });
 
-  it("a stored OBJECT (wrong type, not an array) defaults to [] (never throws)", async () => {
+  it("JSON [] is a measured empty list", async () => {
+    const r = await reportWith({ strengths: "[]" });
+    expect(r.strengths).toEqual([]);
+  });
+
+  it("a stored OBJECT (wrong type) is unread — report coalesces to [] (never throws)", async () => {
     const r = await reportWith({ strengths: '{"not":"an array"}' });
     expect(r.strengths).toEqual([]);
   });
 
-  it("malformed JSON defaults to [] (caught, report still renders)", async () => {
+  it("malformed JSON is unread — report coalesces to [] (never throws)", async () => {
     const r = await reportWith({ risks: '["unterminated' });
     expect(r.risks).toEqual([]);
   });
 
-  it("null and empty-string columns default to []", async () => {
+  it("null and empty-string columns are unread — report coalesces to []", async () => {
     const rNull = await reportWith({ strengths: null });
     expect(rNull.strengths).toEqual([]);
     const rEmpty = await reportWith({ strengths: "" });
@@ -244,7 +252,7 @@ describe("getScanReportByCommit — parseStringArray resilience", () => {
   it("guards nested array fields too: dimension.evidence and roadmap.explore", async () => {
     const r = await reportWith({
       dimEvidence: '["ev", 7, "ev2"]', // non-string dropped
-      recExplore: "{not json", // malformed → []
+      recExplore: "{not json", // malformed → unread → report coalesces to []
     });
     expect(r.dimensions[0].evidence).toEqual(["ev", "ev2"]);
     expect(r.roadmap[0].explore).toEqual([]);
@@ -330,12 +338,16 @@ describe("getScanReportByCommit — parseDiscrepancies resilience", () => {
     expect(r.discrepancies).toEqual([{ dimension: "ci", claim: "tests claimed but absent" }]);
   });
 
-  it("a non-array stored value defaults to [] (never throws)", async () => {
+  it("JSON [] is a measured empty list of discrepancies", async () => {
+    expect((await reportWith({ discrepancies: "[]" })).discrepancies).toEqual([]);
+  });
+
+  it("a non-array stored value is unread — report coalesces to [] (never throws)", async () => {
     const r = await reportWith({ discrepancies: '{"dimension":"ci","claim":"c"}' });
     expect(r.discrepancies).toEqual([]);
   });
 
-  it("malformed JSON and null columns default to [] (report still renders)", async () => {
+  it("malformed JSON and null columns are unread — report coalesces to [] (never throws)", async () => {
     expect((await reportWith({ discrepancies: "[{oops" })).discrepancies).toEqual([]);
     expect((await reportWith({ discrepancies: null })).discrepancies).toEqual([]);
   });
@@ -377,7 +389,7 @@ describe("getScanReportByCommit — corrupt-row resilience (the load-bearing inv
       dimEvidence: "}}}",
       recExplore: "[true,false", // malformed
     });
-    // Each helper fell back to its documented default — nothing crashed the render.
+    // Unread JSON is coalesced at the report boundary so reconstruction stays throw-free.
     expect(r.strengths).toEqual([]);
     expect(r.risks).toEqual([]);
     expect(r.prStats).toBeNull();
@@ -512,11 +524,19 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
     rigorScore: 80,
     engineProvider: "anthropic",
     engineModel: "claude",
+    rubricVersion: "r10",
     dimensions: [
       { dimId: "D2", score: 55 },
       { dimId: "D1", score: 90 },
     ],
   };
+
+  it("pins the v2 key shape (rubricVersion is instrument identity) and forbids the v1 shape", () => {
+    // v2 folds rubricVersion in with the engine; v1 omitted it, so two same-score different-rubric
+    // reports hashed to one identity. The old canonical string must never be produced.
+    expect(scanContentKey(base)).toBe("70|L3|60|80|anthropic|claude|r10|D1:90,D2:55");
+    expect(scanContentKey(base)).not.toBe("70|L3|60|80|anthropic|claude|D1:90,D2:55");
+  });
 
   it("is STABLE across dimension ordering (detector/LLM emission order must not change identity)", () => {
     const reversed = { ...base, dimensions: [...base.dimensions].reverse() };
@@ -536,6 +556,14 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
     expect(scanContentKey({ ...base, engineProvider: "mock" })).not.toBe(scanContentKey(base));
   });
 
+  it("CHANGES when only rubricVersion changes (identical scores, different instrument)", () => {
+    expect(scanContentKey({ ...base, rubricVersion: "r11" })).not.toBe(scanContentKey(base));
+  });
+
+  it("treats a missing rubricVersion as distinct from a stamped one", () => {
+    expect(scanContentKey({ ...base, rubricVersion: null })).not.toBe(scanContentKey(base));
+  });
+
   it("findScanByScannedAt derives the key from the persisted row (same builder, so both sides agree)", async () => {
     const findFirst = vi.fn(async () => ({
       id: "scan_1",
@@ -545,6 +573,7 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
       level: "L3",
       adoptionScore: 60,
       rigorScore: 80,
+      rubricVersion: "r10",
       dimensions: [{ dimId: "D1", score: 90 }, { dimId: "D2", score: 55 }],
     }));
     mockGetPrisma.mockReturnValue({ scan: { findFirst } });
@@ -554,9 +583,10 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
 
     expect(row).toEqual({ id: "scan_1", engineProvider: "anthropic", contentKey: scanContentKey(base) });
     // Still narrowed by (repoId, exact scannedAt) with a deterministic tie-break — the cheap indexed step.
-    const args = findFirst.mock.calls[0][0] as { where: unknown; orderBy: unknown };
+    const args = findFirst.mock.calls[0][0] as { where: unknown; orderBy: unknown; select: { rubricVersion?: boolean } };
     expect(args.where).toEqual({ repoId: "repo_1", scannedAt: at });
     expect(args.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+    expect(args.select.rubricVersion).toBe(true);
   });
 
   it("returns null when no row shares the timestamp, and when persistence is off", async () => {
@@ -577,7 +607,7 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
 // PERSISTED and constrained, so the database itself rejects the second insert.
 describe("scanDedupKey — persisted idempotency identity for sha-less scans", () => {
   const at = new Date("2026-06-18T09:30:00.000Z");
-  const contentKey = "70|L3|60|80|anthropic|claude|D1:90,D2:55";
+  const contentKey = "70|L3|60|80|anthropic|claude|r10|D1:90,D2:55";
 
   it("is DETERMINISTIC: the same (scannedAt, content) always yields the same key", () => {
     expect(scanDedupKey(at, contentKey)).toBe(scanDedupKey(new Date(at.getTime()), contentKey));
@@ -593,35 +623,40 @@ describe("scanDedupKey — persisted idempotency identity for sha-less scans", (
     expect(scanDedupKey(new Date(at.getTime() + 1), contentKey)).not.toBe(scanDedupKey(at, contentKey));
   });
 
-  it("is a bounded, versioned token — it lives in a UNIQUE INDEX, so its length must not grow with the report", () => {
+  it("is a bounded v2 token — v1 keys must not collide, and length must not grow with the report", () => {
+    expect(DEDUP_KEY_VERSION).toBe("v2");
+    expect(DEDUP_KEY_VERSION).not.toBe("v1");
     const short = scanDedupKey(at, "a");
     const long = scanDedupKey(at, "x".repeat(50_000));
-    expect(short).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(short).toMatch(/^v2:[0-9a-f]{64}$/);
+    expect(short.startsWith("v1:")).toBe(false);
     expect(long).toHaveLength(short.length);
+    // Same hash payload under the retired prefix is a different persisted token.
+    expect(`v1:${short.slice("v2:".length)}`).not.toBe(short);
   });
 
   it("never throws on an invalid Date (a malformed scannedAt must not break the persist path)", () => {
     expect(() => scanDedupKey(new Date("nope"), contentKey)).not.toThrow();
-    expect(scanDedupKey(new Date("nope"), contentKey)).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(scanDedupKey(new Date("nope"), contentKey)).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
   it("findScanByDedupKey recovers the race WINNER by (repoId, dedupKey) — the P2002 recovery read", () => {
     const findFirst = vi.fn(async () => ({ id: "scan_winner" }));
     mockGetPrisma.mockReturnValue({ scan: { findFirst } });
 
-    return findScanByDedupKey("repo_1", "v1:abc").then((row) => {
+    return findScanByDedupKey("repo_1", "v2:abc").then((row) => {
       expect(row).toEqual({ id: "scan_winner" });
       const args = findFirst.mock.calls[0][0] as { where: unknown };
-      expect(args.where).toEqual({ repoId: "repo_1", dedupKey: "v1:abc" });
+      expect(args.where).toEqual({ repoId: "repo_1", dedupKey: "v2:abc" });
     });
   });
 
   it("returns null when nothing matches, and when persistence is off", async () => {
     mockGetPrisma.mockReturnValue({ scan: { findFirst: vi.fn(async () => null) } });
-    await expect(findScanByDedupKey("repo_1", "v1:abc")).resolves.toBeNull();
+    await expect(findScanByDedupKey("repo_1", "v2:abc")).resolves.toBeNull();
 
     mockIsDbConfigured.mockReturnValue(false);
-    await expect(findScanByDedupKey("repo_1", "v1:abc")).resolves.toBeNull();
+    await expect(findScanByDedupKey("repo_1", "v2:abc")).resolves.toBeNull();
     mockIsDbConfigured.mockReturnValue(true);
   });
 });
@@ -765,5 +800,142 @@ describe("getRepositoryHistory — includeCompacted", () => {
     expect(history).toBeNull();
     expect(prisma.scanDigest.findMany).not.toHaveBeenCalled();
     expect(prisma.scan.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("isCompactedPointId", () => {
+  it("labels a digest: id and never a real scan id", () => {
+    expect(isCompactedPointId("digest:dg_0")).toBe(true);
+    expect(isCompactedPointId("scan_0")).toBe(false);
+    expect(isCompactedPointId("")).toBe(false);
+  });
+});
+
+// ── getRepositoryHistory — skipped join is not a measured empty set ──────────────────────────────
+// `includeDimensions: false` must OMIT `dimensions` (the ScanDimension join never ran). `[]` is
+// reserved for "the join ran and found none". Serializing skip as `[]` made overall-only callers
+// indistinguishable from a scan that genuinely stored no dimension rows.
+
+describe("getRepositoryHistory — includeDimensions", () => {
+  function prismaWith(dims: { dimId: string; score: number }[] | undefined, digest = false) {
+    const scan = {
+      id: "scan_0",
+      headSha: "sha_0",
+      overallScore: 70,
+      level: "L3",
+      levelName: "Practicing",
+      confidence: 0.9,
+      engineProvider: "bedrock",
+      engineModel: "sonnet",
+      rubricVersion: "r9",
+      scannedAt: new Date("2026-06-20T00:00:00.000Z"),
+      ...(dims !== undefined ? { dimensions: dims } : {}),
+    };
+    return {
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1" })) },
+      repository: {
+        findUnique: vi.fn(async () => ({
+          id: "repo_1",
+          owner: "acme",
+          name: "widget",
+          isPrivate: false,
+        })),
+      },
+      scan: { findMany: vi.fn(async () => [scan]) },
+      scanDigest: {
+        findMany: vi.fn(async () =>
+          digest
+            ? [
+                {
+                  id: "dg_0",
+                  repoId: "repo_1",
+                  period: "2026-03",
+                  rubricVersion: "r8",
+                  engineProvider: "bedrock",
+                  scanCount: 4,
+                  overallSum: 200,
+                  adoptionSum: 180,
+                  rigorSum: 220,
+                  overallMin: 40,
+                  overallMax: 60,
+                  overallLast: 55,
+                  adoptionLast: 45,
+                  rigorLast: 60,
+                  confidenceSum: 2.8,
+                  levelLast: "L2",
+                  levelNameLast: "Emerging",
+                  postureLast: "balanced",
+                  firstScannedAt: new Date(Date.UTC(2026, 2, 1)),
+                  lastScannedAt: new Date(Date.UTC(2026, 2, 28)),
+                  firstHeadSha: "sha_old",
+                  lastHeadSha: "sha_older",
+                  enginesJson: '["sonnet"]',
+                  dimensionsJson: '{"ci":{"sum":200,"n":4,"last":55,"signalSum":0,"llmSum":0}}',
+                  recsOpened: 4,
+                  recsClosed: 2,
+                },
+              ]
+            : [],
+        ),
+      },
+    };
+  }
+
+  it("omits the key when includeDimensions is false (skipped join is not [])", async () => {
+    const prisma = prismaWith(undefined);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", {
+      orgSlug: "acme-corp",
+      includeDimensions: false,
+    });
+
+    expect(history!.scans).toHaveLength(1);
+    expect(history!.scans[0]!.dimensions).toBeUndefined();
+    expect("dimensions" in history!.scans[0]!).toBe(false);
+    expect(JSON.parse(JSON.stringify(history!.scans[0]!))).not.toHaveProperty("dimensions");
+    const args = prisma.scan.findMany.mock.calls[0]![0] as { select: { dimensions?: unknown } };
+    expect(args.select.dimensions).toBeUndefined();
+  });
+
+  it("keeps [] when the join ran and found none", async () => {
+    const prisma = prismaWith([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", {
+      orgSlug: "acme-corp",
+      includeDimensions: true,
+    });
+
+    expect(history!.scans[0]!.dimensions).toEqual([]);
+    expect("dimensions" in history!.scans[0]!).toBe(true);
+    expect(JSON.parse(JSON.stringify(history!.scans[0]!)).dimensions).toEqual([]);
+    const args = prisma.scan.findMany.mock.calls[0]![0] as { select: { dimensions?: unknown } };
+    expect(args.select.dimensions).toEqual({ select: { dimId: true, score: true } });
+  });
+
+  it("returns joined scores when the join ran and found rows", async () => {
+    const prisma = prismaWith([{ dimId: "D1", score: 90 }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", { orgSlug: "acme-corp" });
+
+    expect(history!.scans[0]!.dimensions).toEqual([{ dimId: "D1", score: 90 }]);
+  });
+
+  it("strips digest dimensions when the ScanDimension join was skipped", async () => {
+    const prisma = prismaWith(undefined, true);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", {
+      orgSlug: "acme-corp",
+      includeDimensions: false,
+      includeCompacted: true,
+      limit: 10,
+    });
+
+    expect(history!.scans.length).toBeGreaterThan(1);
+    expect(history!.scans.every((s) => !("dimensions" in s))).toBe(true);
+    expect(history!.scans[1]!.compacted).toBe(true);
   });
 });

@@ -1,12 +1,31 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import type { TrendAnnotation } from "@/app/trends/annotations";
 import { DimLine, type ScanMeta } from "./DimLine";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
+const at = (d: number) => `2026-07-0${d}T09:00:00.000Z`;
+
 const meta = (engines: (string | undefined)[]): ScanMeta[] =>
-  engines.map((engine, i) => ({ at: `2026-07-0${i + 1}T09:00:00.000Z`, engine: engine ?? "claude-cli" }));
+  engines.map((engine, i) => ({ at: at(i + 1), engine: engine ?? "claude-cli" }));
+
+function ann(day: number, label: string, extra: Partial<TrendAnnotation> = {}): TrendAnnotation {
+  return {
+    at: at(day),
+    scanId: extra.scanId ?? `s${day}`,
+    kind: extra.kind ?? "promotion",
+    label,
+    detail: extra.detail ?? `${label} detail`,
+    delta: extra.delta ?? 8,
+    sha: extra.sha ?? null,
+    commitSha: extra.commitSha ?? null,
+    ...extra,
+    at: extra.at ?? at(day),
+    label,
+  };
+}
 
 // --- G5-15: no empty / all-null state ------------------------------------------------------
 describe("DimLine empty state", () => {
@@ -64,5 +83,66 @@ describe("DimLine mock-vs-model point provenance", () => {
       <DimLine values={[70, 72]} meta={meta(["claude-cli", "bedrock"])} name="Testing" />,
     );
     expect(container.querySelectorAll("circle[data-mock]")).toHaveLength(0);
+  });
+});
+
+// G5-18, small-multiples half: the same event markers the overall TrendChart draws, resolved by
+// timestamp identity against this series' `meta.at` (never by array index — the range toggle slices
+// the series while the annotation list is derived from the full history).
+describe("DimLine timeline annotations", () => {
+  it("draws the matching annotation's label and a vertical rule on that scan", () => {
+    const { container } = render(
+      <DimLine
+        values={[60, 68, 70]}
+        meta={meta([undefined, undefined, undefined])}
+        name="Testing"
+        annotations={[ann(2, "L3 → L4")]}
+      />,
+    );
+    expect(screen.getByText("L3 → L4")).toBeInTheDocument();
+    const mark = container.querySelector('g[data-annotation="s2"]');
+    expect(mark).not.toBeNull();
+    expect(mark!.querySelector("line")).not.toBeNull();
+    expect(mark!.querySelector("title")?.textContent).toBe("L3 → L4 detail");
+  });
+
+  it("drops an annotation whose timestamp is not in this series — never clamps it to an edge", () => {
+    const { container } = render(
+      <DimLine
+        values={[60, 68]}
+        meta={meta([undefined, undefined])}
+        name="Testing"
+        annotations={[ann(9, "L3 → L4", { at: "2025-01-01T00:00:00.000Z", scanId: "s-out" })]}
+      />,
+    );
+    expect(screen.queryByText("L3 → L4")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("[data-annotation]")).toHaveLength(0);
+  });
+
+  it("still marks a scan where this dimension is absent — the event is overall, the x is the scan", () => {
+    const { container } = render(
+      <DimLine
+        values={[null, 70]}
+        meta={meta([undefined, undefined])}
+        name="Testing"
+        annotations={[ann(1, "-7", { kind: "regression", delta: -7 })]}
+      />,
+    );
+    expect(screen.getByText("-7")).toBeInTheDocument();
+    expect(container.querySelector('g[data-annotation="s1"]')).not.toBeNull();
+  });
+
+  it("does not draw annotations on the empty-state placeholder", () => {
+    const { container } = render(
+      <DimLine
+        values={[null, null]}
+        meta={meta([undefined, undefined])}
+        name="Testing"
+        annotations={[ann(1, "L3 → L4")]}
+      />,
+    );
+    expect(screen.getByText("No trend data")).toBeInTheDocument();
+    expect(screen.queryByText("L3 → L4")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("[data-annotation]")).toHaveLength(0);
   });
 });

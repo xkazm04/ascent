@@ -16,6 +16,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
 import { notExpired, toRow, visibilityScope, type MemoryRow } from "@/lib/db/org-memory";
 import { normalizeConfidence } from "@/lib/org/memory-kinds";
+import { reflectionScopeKey } from "@/lib/memory/reflection";
 
 /** Hard cap on the working set any lifecycle pass loads. Recall scores it in memory and reflection is
  *  O(n²) pairwise, so this bounds both the CPU and (via the cores' own caps) the prompt. */
@@ -41,7 +42,9 @@ export interface LifecycleFetchOpts {
  * store exceeds it (an old row that the cap drops was the least likely to win recall anyway).
  *
  * `namespace` is an optional filter here, unlike candidateOrgMemories' deliberate `null` default —
- * recall over the whole org is the normal case; narrowing to one project is the option.
+ * recall over the whole org is the normal case; narrowing to one project is the option. This is the
+ * recall door REST `/api/org/memory/recall`, MCP `recall_org_memory`, and Athena's chat prefetch share.
+ * The write-check helper must not be reused as a recall loader: omitted namespace there is IS NULL.
  */
 export async function lifecycleWorkingSet(
   orgSlug: string,
@@ -117,6 +120,14 @@ export class ReflectionMembersNotFoundError extends Error {
   }
 }
 
+/** The members of one rollup do not share one ownership scope (namespace, visibility, private author). */
+export class ReflectionScopeMismatchError extends Error {
+  constructor(scopes: number) {
+    super(`The member memories span ${scopes} scopes; a rollup must stay inside one namespace and visibility.`);
+    this.name = "ReflectionScopeMismatchError";
+  }
+}
+
 /**
  * Apply an accepted summary proposal, in ONE transaction:
  *   1. create the `summary`-kind row (source "reflection", tags ["auto-reflection"] — so an auto rollup
@@ -148,26 +159,46 @@ export async function applyReflection(
   const ns = (input.namespace ?? "").trim().slice(0, 100);
 
   return prisma.$transaction(async (tx) => {
+    // Members are resolved under the applier's own visibility, so another author's private scratch is
+    // "not found" here exactly as it is in every read.
     const members = await tx.orgMemory.findMany({
-      where: { id: { in: memberIds }, orgId, archived: false, supersededBy: null },
-      select: { version: true },
+      where: {
+        id: { in: memberIds },
+        orgId,
+        archived: false,
+        supersededBy: null,
+        AND: [visibilityScope(createdBy)],
+      },
+      select: { version: true, namespace: true, visibility: true, createdBy: true },
     });
     if (members.length !== memberIds.length) {
       throw new ReflectionMembersNotFoundError(members.length, memberIds.length);
     }
+    // The door re-checks what clustering already partitioned: a member list can arrive from a client.
+    const scopes = new Set(
+      members.map((m) =>
+        reflectionScopeKey({ namespace: m.namespace ?? "", visibility: m.visibility, createdBy: m.createdBy }),
+      ),
+    );
+    const memberNs = (members[0]!.namespace ?? "").trim();
+    if (scopes.size !== 1 || (ns !== "" && ns !== memberNs)) {
+      throw new ReflectionScopeMismatchError(scopes.size === 1 ? 2 : scopes.size);
+    }
+    const isPrivate = members[0]!.visibility === "private";
 
     const created = await tx.orgMemory.create({
       data: {
         orgId,
         content: input.summaryContent.trim().slice(0, 20_000),
         kind: "summary",
-        namespace: ns === "" ? null : ns,
-        visibility: "shared",
+        // The rollup inherits its members' scope; it never takes one from the request.
+        namespace: memberNs === "" ? null : memberNs,
+        visibility: isPrivate ? "private" : "shared",
         source: "reflection",
         confidence: normalizeConfidence(input.confidence),
         tags: JSON.stringify(["auto-reflection"]),
         version: Math.max(0, ...members.map((m) => m.version)) + 1,
-        createdBy: createdBy ?? null,
+        createdBy: isPrivate ? members[0]!.createdBy : (createdBy ?? null),
       },
       select: { id: true },
     });

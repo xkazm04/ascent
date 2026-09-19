@@ -1,108 +1,30 @@
 "use client";
 
 /**
- * Presentational chrome for {@link DevInspector} — highlight boxes, the
- * cursor-anchored source label, the breadcrumb HUD, and the nav-mode hint.
+ * Presentational chrome for {@link DevInspector} — the idle Inspect chip,
+ * cursor-anchored source label, breadcrumb HUD, and nav-mode hint.
  * Kept separate so the inspector component stays focused on state + wiring
  * (and so each file stays small). Dev-only; never ships to production.
  */
 
 import { useState, type CSSProperties } from "react";
 
-import { chipLeft, isLibraryPath, type LocEntry } from "./devLocate";
+import { ACCENT, DIM, OK, Z } from "./devInspectorMarks";
+import { formatHudCopy, isLibraryPath, splitLoc, type LocEntry } from "./devLocate";
 
-export const Z = 2147483646;
-const ACCENT = "#38bdf8"; // cyan
-const DIM = "#a855f7"; // purple — secondary (pointed) outline
-const OK = "#34d399"; // green — copy confirmation
-
-/** Split `src/a/b/File.tsx:88` → `{ dir: 'src/a/b/', file: 'File.tsx:88' }`. */
-export function splitLoc(loc: string): { dir: string; file: string } {
-  const slash = loc.lastIndexOf("/");
-  return slash === -1
-    ? { dir: "", file: loc }
-    : { dir: loc.slice(0, slash + 1), file: loc.slice(slash + 1) };
-}
-
-function boxStyle(rect: DOMRect, color: string, dashed: boolean): CSSProperties {
-  return {
-    position: "fixed",
-    left: rect.left,
-    top: rect.top,
-    width: rect.width,
-    height: rect.height,
-    border: `${dashed ? 1 : 2}px ${dashed ? "dashed" : "solid"} ${color}`,
-    borderRadius: 3,
-    background: dashed ? "transparent" : `${color}1f`,
-    pointerEvents: "none",
-    boxSizing: "border-box",
-    zIndex: Z,
-  };
-}
-
-export function HighlightBox({
-  rect,
-  variant,
-}: {
-  rect: DOMRect;
-  variant: "target" | "pointer";
-}) {
-  return (
-    <div style={boxStyle(rect, variant === "target" ? ACCENT : DIM, variant === "pointer")} />
-  );
-}
-
-// Chip layout invariants, named so the placement math and the CSS enforce the SAME numbers.
-// CHIP_H: rendered chip height (11px font × 1.4 line-height + 2×1px padding ≈ 17px, rounded up with
-// margin) — drives the flip-above/below threshold and the vertical offsets. CHIP_MAX_W: the widest
-// the chip may render; maxWidth + ellipsis below ENFORCE it (previously the chip was nowrap with no
-// maxWidth, so a long `SomeVeryLongComponentName.tsx:1234` overflowed the right edge). The `left`
-// clamp uses the chip's ESTIMATED OWN width (chipLeft) rather than this ceiling — clamping a short
-// label against 260px pushed it far from the element it labels near the right edge.
-const CHIP_H = 20;
-const CHIP_MAX_W = 260;
-
-/** A compact `File.tsx:line` chip pinned to the cursor's element. */
-export function SourceLabel({ rect, loc }: { rect: DOMRect; loc: string }) {
-  const { file } = splitLoc(loc);
-  const above = rect.top > CHIP_H + 2; // room for the chip (+2px gap) above the box?
-  const top = above ? rect.top - CHIP_H : Math.min(rect.top + 2, window.innerHeight - (CHIP_H + 2));
-  const left = chipLeft(rect.left, file, window.innerWidth, { maxWidth: CHIP_MAX_W });
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top,
-        left,
-        zIndex: Z,
-        pointerEvents: "none",
-        font: "11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
-        color: "#0b1220",
-        background: ACCENT,
-        borderRadius: 4,
-        padding: "1px 6px",
-        fontWeight: 700,
-        whiteSpace: "nowrap",
-        maxWidth: CHIP_MAX_W,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        boxSizing: "border-box",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.45)",
-      }}
-    >
-      {file}
-    </div>
-  );
-}
+export { HighlightBox, SourceLabel, Z } from "./devInspectorMarks";
 
 function CrumbRow({
   entry,
   isDefault,
+  isSelected,
   skipped,
   onCopy,
 }: {
   entry: LocEntry;
   isDefault: boolean;
+  /** Keyboard cursor (↑/↓). ▶ follows this, not the default loc. */
+  isSelected: boolean;
   /** True when this row sits ABOVE the default target in the chain — i.e. the default right-click
    *  deliberately skipped it as library code. Badged so the redirect is visible, not silent. */
   skipped: boolean;
@@ -113,18 +35,21 @@ function CrumbRow({
   // Hover affordance (inline styles can't carry a :hover): brighten the default row and give the
   // resting rows a faint fill on hover, so a crumb reads as clickable before you click it.
   const [hovered, setHovered] = useState(false);
-  const background = isDefault
-    ? `${ACCENT}${hovered ? "33" : "22"}`
-    : hovered
-      ? "rgba(255,255,255,0.06)"
-      : "transparent";
+  const background = isSelected
+    ? `${ACCENT}${hovered ? "44" : "33"}`
+    : isDefault
+      ? `${ACCENT}${hovered ? "33" : "22"}`
+      : hovered
+        ? "rgba(255,255,255,0.06)"
+        : "transparent";
   return (
     <button
       type="button"
-      onClick={() => onCopy(entry.loc)}
+      onClick={() => onCopy(formatHudCopy(entry.loc))}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       aria-label={`Copy ${entry.loc}`}
+      aria-current={isSelected ? "true" : undefined}
       className="focus-ring"
       style={{
         display: "flex",
@@ -140,7 +65,7 @@ function CrumbRow({
         wordBreak: "break-all",
       }}
     >
-      <span style={{ color: ACCENT, opacity: isDefault ? 1 : 0 }}>▶</span>
+      <span style={{ color: ACCENT, opacity: isSelected ? 1 : 0 }}>▶</span>
       <span style={{ color: "#6b7280" }}>{dir}</span>
       <span style={{ color: lib ? "#9ca3af" : "#f1f5f9", fontWeight: 600 }}>{file}</span>
       {skipped && (
@@ -168,6 +93,25 @@ const PANEL: CSSProperties = {
   backdropFilter: "blur(4px)",
 };
 
+const HUD_BTN: CSSProperties = {
+  background: "transparent",
+  border: `1px solid ${ACCENT}66`,
+  borderRadius: 4,
+  color: ACCENT,
+  cursor: "pointer",
+  font: "inherit",
+  lineHeight: 1,
+  padding: "1px 5px",
+};
+
+function HudBtn({ label, onClick, children }: { label: string; onClick: () => void; children: string }) {
+  return (
+    <button type="button" onClick={onClick} aria-label={label} title={label} className="focus-ring" style={HUD_BTN}>
+      {children}
+    </button>
+  );
+}
+
 export function InspectorHud({
   copied,
   copyOk,
@@ -175,6 +119,7 @@ export function InspectorHud({
   crumbs,
   unstamped,
   defaultLoc,
+  selectedIndex,
   onCopy,
 }: {
   copied: string | null;
@@ -185,6 +130,7 @@ export function InspectorHud({
    *  hasn't moved yet). Two states that both produce an empty crumb list and must NOT look alike. */
   unstamped: boolean;
   defaultLoc: string | null;
+  selectedIndex: number;
   onCopy: (loc: string) => void;
 }) {
   // The fixed panel occludes whatever lives in its corner, and insideHud deliberately ignores events
@@ -213,25 +159,27 @@ export function InspectorHud({
         >
           {copied ? (copyOk ? "Copied ✓" : "Copy failed") : "⌖ DevInspector"}
         </div>
-        <button
-          type="button"
-          onClick={() => setOnRight((r) => !r)}
-          aria-label={`Move panel to the bottom-${onRight ? "left" : "right"} corner`}
-          title={`Move panel to the bottom-${onRight ? "left" : "right"} corner`}
-          className="focus-ring"
-          style={{
-            background: "transparent",
-            border: `1px solid ${ACCENT}66`,
-            borderRadius: 4,
-            color: ACCENT,
-            cursor: "pointer",
-            font: "inherit",
-            lineHeight: 1,
-            padding: "1px 5px",
-          }}
-        >
-          ⇄
-        </button>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {defaultLoc ? (
+            <>
+              <HudBtn label={`Copy ${defaultLoc}`} onClick={() => onCopy(formatHudCopy(defaultLoc, "claude"))}>
+                path:line
+              </HudBtn>
+              <HudBtn
+                label={`Copy editor deep-link code -g ${defaultLoc}`}
+                onClick={() => onCopy(formatHudCopy(defaultLoc, "vscode"))}
+              >
+                code -g
+              </HudBtn>
+            </>
+          ) : null}
+          <HudBtn
+            label={`Move panel to the bottom-${onRight ? "left" : "right"} corner`}
+            onClick={() => setOnRight((r) => !r)}
+          >
+            ⇄
+          </HudBtn>
+        </div>
       </div>
       {copied ? (
         <div style={{ wordBreak: "break-all" }}>{copied}</div>
@@ -250,6 +198,7 @@ export function InspectorHud({
               key={`${c.loc}-${i}`}
               entry={c}
               isDefault={defaultLoc !== null && c.loc === defaultLoc}
+              isSelected={i === selectedIndex}
               skipped={defaultIndex > 0 && i < defaultIndex}
               onCopy={onCopy}
             />
@@ -269,7 +218,7 @@ export function InspectorHud({
         <div style={{ color: "#9ca3af" }}>Hover a component…</div>
       )}
       <div style={{ color: "#6b7280", marginTop: 6, fontSize: 11 }}>
-        right-click: innermost non-library file · Alt+right-click: this element · click a row · Esc: exit
+        Enter/c: copy · ↑↓: crumbs · right-click: path:line · HUD: path:line or code -g · Alt+right-click: this element · click a row · Esc: exit
       </div>
     </div>
   );
@@ -285,5 +234,31 @@ export function NavHint() {
         <b style={{ color: "#f1f5f9" }}>Esc</b> to cancel
       </span>
     </div>
+  );
+}
+
+/** Bottom-right idle/armed control: one-click arm, or the mapping-off hint. */
+export function InspectChip({ mappingOn, onArm }: { mappingOn: boolean; onArm: () => void }) {
+  const style: CSSProperties = {
+    ...PANEL,
+    left: "auto",
+    right: 12,
+    zIndex: Z,
+    pointerEvents: "auto",
+    fontWeight: 700,
+    color: mappingOn ? ACCENT : "#fca5a5",
+    cursor: mappingOn ? "pointer" : "default",
+  };
+  if (!mappingOn) {
+    return (
+      <div data-devinspector role="status" style={style}>
+        mapping off → npm run dev:inspect
+      </div>
+    );
+  }
+  return (
+    <button type="button" data-devinspector onClick={onArm} aria-label="Inspect ; i" className="focus-ring" style={style}>
+      Inspect `; i`
+    </button>
   );
 }

@@ -8,8 +8,9 @@
 //   - The window is the trailing 7 CALENDAR days in the org's canonical zone, half-open
 //     `[start, endExclusive)` (src/lib/window.ts `weekRangeParams` → `resolveWindow`).
 //   - A dimension delta is COHORT-MATCHED (repos scanned on both sides of the window); `null` means
-//     "not measurable", which is not 0. `band` carries the presentation verdict so the page and the
-//     markdown print the same word for the same number.
+//     "not measurable", which is not 0. `cohortSize` is the denominator that delta was measured over
+//     and is null exactly when the delta is. `band` carries the presentation verdict so the page and
+//     the markdown print the same word for the same number.
 //   - "Closed" is a `RecommendationEvent` status change to `done` inside the window; "dismissed" is
 //     counted beside it, never folded in. "Opened" is a derived identity diff (see
 //     src/lib/db/org-followups-week.ts) and can be UNMEASURABLE — `openedMeasurable` says so.
@@ -51,6 +52,8 @@ export interface DigestDimDelta {
   label: string;
   now: number;
   delta: number | null;
+  /** Paired-repo n behind `delta`; null exactly when the delta is unmeasured. */
+  cohortSize: number | null;
   band: DigestBand;
 }
 
@@ -94,7 +97,8 @@ export interface DigestAction {
 export interface DigestMover {
   name: string;
   fullName?: string;
-  dOverall: number;
+  /** Null when the repo has no comparable pair (a single-scan onboard). Never a stand-in 0. */
+  dOverall: number | null;
   levelFrom: string;
   levelTo: string;
 }
@@ -102,6 +106,13 @@ export interface DigestMover {
 export interface DigestMovement {
   gainers: DigestMover[];
   regressers: DigestMover[];
+  /** Within-noise period moves (`OrgMovers.held`). Omit or `[]` rather than printing "0 held". */
+  held?: DigestMover[];
+  /**
+   * Mid-window onboarded repos (`OrgMovers.onboarded`). Lifetime delta, or `dOverall: null` when
+   * only one scan exists. Omit or `[]` rather than printing "0 onboarded".
+   */
+  onboarded?: DigestMover[];
   /** Repos compared on both sides of the window. */
   compared: number;
 }

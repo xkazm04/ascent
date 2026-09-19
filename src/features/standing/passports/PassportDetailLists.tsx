@@ -21,10 +21,12 @@ import { DecisionControl } from "@/components/org/DecisionControl";
 import { blockerKeys } from "@/lib/org/findings";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import type { DeclinedByChoice, PassportFinding } from "@/lib/types";
+import { isDeclinableFinding } from "./passportDeclineOffers";
 
-// Each blocker is a decidable finding: fix it, or record why it doesn't apply here. Both axes share
-// one key space, so a blocker listed on both automation and production is ONE decision, made once,
-// reflected in both lists.
+// A declinable blocker is a decidable finding: fix it, or record why it doesn't apply here. An
+// evidence-limit row (unassessable / enforcement-not-observable) stays informational — same
+// `isDeclinableFinding` skip `declineOffers` uses. Both axes share one key space, so a blocker
+// listed on both automation and production is ONE decision, made once, reflected in both lists.
 //
 // DIRECTION 8 — THE KEY IS THE CAUSE, NOT THE SENTENCE. The key used to hash the blocker's text, on
 // the premise that a blocker is prose with no id. Passport 0.4.0 mints `findings[].id` per cause, and
@@ -60,27 +62,32 @@ export function BlockerList({
       ) : (
         <ul className="mt-1.5 space-y-2.5">
           {items.map((b) => {
-            const [key, ...legacy] = blockerKeys(fullName, b, findings?.find((f) => f.text === b)?.id);
+            const findingId = findings?.find((f) => f.text === b)?.id;
+            const [key, ...legacy] = blockerKeys(fullName, b, findingId);
             // Read the id key first, then any legacy alias — a decision recorded before Direction 8
             // still counts. The WRITE below always uses `key`.
             const decision = decisions[key!] ?? legacy.map((k) => decisions[k]).find(Boolean);
+            // Pre-0.4.0 rows have no minted id to classify, so the control stays on the prose key.
+            const offerDecision = findings === undefined || isDeclinableFinding(findingId);
             return (
               <li key={b} className={`type-body-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
                 <span className="flex gap-2">
                   <span aria-hidden className="mt-0.5 shrink-0 text-orange-400">▸</span>
                   {b}
                 </span>
-                <div className="ml-4 mt-1.5">
-                  <DecisionControl
-                    org={org}
-                    module="passports"
-                    itemKey={key!}
-                    title={b}
-                    status={decision?.status ?? "open"}
-                    rationale={decision?.rationale}
-                    decidedBy={decision?.decidedBy}
-                  />
-                </div>
+                {offerDecision && (
+                  <div className="ml-4 mt-1.5">
+                    <DecisionControl
+                      org={org}
+                      module="passports"
+                      itemKey={key!}
+                      title={b}
+                      status={decision?.status ?? "open"}
+                      rationale={decision?.rationale}
+                      decidedBy={decision?.decidedBy}
+                    />
+                  </div>
+                )}
               </li>
             );
           })}

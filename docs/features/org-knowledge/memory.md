@@ -51,12 +51,18 @@ as a write).
 
 `MemoryTrust` (`src/features/shared/memory/MemoryTrust.tsx`) is the panel's first
 element: a `Distribution` (quartile box) over the **confidence** of the rows
-currently listed. Confidence is the axis recall ranks on and the one no row
-reveals — a store whose median confidence is 0.3 hands agents a very different
-kind of knowledge than one at 1.0, and a bimodal store (verified decisions plus a
-pile of hunches) has a perfectly ordinary mean. It renders nothing at zero rows
-rather than a box parked at 0, which would read as "this org is certain of
-nothing".
+currently listed, and — when any listed row carries citation votes — a
+`BudgetPack` of **citation evidence**. Confidence is the axis recall ranks on and
+the one no row reveals — a store whose median confidence is 0.3 hands agents a
+very different kind of knowledge than one at 1.0, and a bimodal store (verified
+decisions plus a pile of hunches) has a perfectly ordinary mean. Citation votes
+are the other half of that profile: `citedCount` is the pack fill (an agent
+reported using the memory), `notUsefulCount` is a `declared` omission beside it,
+and the two counters are never netted. It renders nothing at zero rows rather
+than a box parked at 0, which would read as "this org is certain of nothing";
+zero citation votes is the same kind of silence (no evidence), not a pack at 0.
+The self-report caveat — a citation is an agent's claim it used a memory, not
+proof it helped — sits on a `WhyChip`.
 
 ### Why these surfaces are drawn rather than described
 
@@ -168,9 +174,19 @@ transaction is rejected and the route returns 400.
 
 ### Archive
 
-An admin can archive a memory (soft-delete: `archived: true`, never a hard
+An admin can archive a **hosted** memory (soft-delete: `archived: true`, never a hard
 delete) via `DELETE /api/org/memory/:id`. The UI removes it optimistically
 and rolls back on failure.
+
+A **registry-origin** row is a mirror of a file in a repo the customer owns. The
+Memory card already replaces archive with **Open in registry**; `PATCH` and
+`DELETE` on `/api/org/memory/:id` refuse those rows too (`409` with
+`code: "registry-origin"`), matching the reflect/apply origin gate. A write
+that reported `{ ok: true }` and was then reverted by the next index pass
+would be a lie on the wire. The author gate still wins: another author's
+private row answers `404`, not `409`, so origin cannot leak existence. The
+honest change path is a pull request (`POST /api/org/memory/reflect` with
+`proposePr`).
 
 ## Write-intelligence: the check verdict
 
@@ -342,12 +358,27 @@ the same `authorizeOrgApi` seam the Skills routes use; minted on the Skills
 tab's API-tokens panel). A token principal carries no GitHub identity, so it
 reads as an anonymous member: **shared memories only**, never anyone's
 private scratch. The route fetches the org's active, visible memories
-(namespace/kind filters allowed, unknown kind values silently dropped) and
-scores each one:
+via `lifecycleWorkingSet` (namespace/kind filters allowed, unknown kind values
+silently dropped) and scores each one. MCP `recall_org_memory` and Athena's
+chat prefetch load through the **same** function. They must not call
+`candidateOrgMemories`: that helper is the write-intelligence check, and an
+omitted namespace there means `namespace IS NULL` (org-wide rows only), which
+would hide every scan-fed, repo-mirrored, and otherwise namespaced note. On
+`lifecycleWorkingSet`, omitted namespace means no filter — a namespaced
+`scan-pipeline` row is in the working set the REST verb already packs.
 
 ```
-score = confidence × 0.5^(ageDays / halfLife(kind)) × min(2, 1 + 0.25·ln(1 + accessCount))
+score = confidence × 0.5^(ageDays / halfLife(kind))
+      × min(2, delivery × evidence)
+
+delivery = min(2,   1 + 0.25·ln(1 + accessCount))
+evidence = min(1.6, 1 + 0.4·ln(1 + citedCount))
 ```
+
+`citedCount` reaches this formula on the wire row: `toRow()` copies it from
+`OrgMemory` onto `MemoryRow`, and REST `/api/org/memory/recall` passes that
+working set straight into `recallMemories`. There is no second citation query
+on this door.
 
 - **Half-life by kind** (days until the decay term halves): `episodic` 30,
   `semantic` 180, `procedural` 365, `summary` 120; an unrecognized kind falls
@@ -355,10 +386,20 @@ score = confidence × 0.5^(ageDays / halfLife(kind)) × min(2, 1 + 0.25·ln(1 + 
 - **Delivery bonus** is sub-linear (natural log) *and capped at ×2*, reached at
   about 54 deliveries. It counts **deliveries, not uses**: a memory packed into
   fifty prompts and ignored scores exactly like one that answered fifty
-  questions, because nothing flows back from the agent to say which happened.
-  The cap exists because the term otherwise feeds its own input — rank high, get
-  delivered, rank higher — and `decay` scores with the same function, so an
-  uncapped bonus is an unbounded stay of execution.
+  questions. The cap exists because the term otherwise feeds its own input —
+  rank high, get delivered, rank higher — and `decay` scores with the same
+  function, so an uncapped bonus is an unbounded stay of execution.
+- **Evidence bonus** is the citation term: `citedCount` is how many agent
+  `cite_memory` votes said this memory was used. Weighted above delivery
+  (0.4 vs 0.25) because a deliberate self-report is stronger than a send, and
+  capped at ×1.6 (~four citations) so self-reports cannot outrank trust and
+  recency. An unset or zero count is a factor of exactly 1 — "no evidence",
+  never "found useless". `notUsefulCount` is deliberately absent from this
+  arithmetic — it belongs to the forget decision (`decay.ts` condition 5),
+  and netting it against citations here would let two agents disagreeing
+  cancel out into "never mentioned". The product of delivery and evidence is itself clamped at ×2,
+  so adding the term cannot inflate scores past what delivery alone used to
+  reach.
 - Age is computed from `updatedAt` against an injected "now" (never read from
   the system clock inside the scoring function itself), clamped to zero so a
   future timestamp can't inflate a score.
@@ -421,9 +462,11 @@ Below the pack:
   derived through the same exported constants the server scored with
   (`halfLifeDays`, `ACCESS_BONUS_WEIGHT`, `MAX_DELIVERY_BONUS`), so it cannot
   drift from the model by being re-typed. Zero deliveries is drawn as a counted
-  zero, not an absence. `citedCount` is deliberately absent from the bar: it is
-  not on the wire row, and drawing a factor from a field we do not have would be
-  a fabricated measurement.
+  zero, not an absence. `citedCount` travels on `MemoryRow` (via `toRow()`), so
+  the packed row's `score` includes the evidence term at this door. `MemoryTrust`
+  draws the listed votes, but the per-row bar has not grown a fourth segment
+  yet — drawing a factor from geometry we have not built would be a fabricated
+  measurement.
 - **"ranked but left out: budget"** and **"not recallable"**, each collapsed
   behind a summary carrying its group's real swatch, with the demoted sentence on
   a `WhyChip` rather than as a paragraph over the group. An ineligible row shows
@@ -438,12 +481,20 @@ running one (an empty state), never a bar drawn at zero.
 ## Decay (forgetting)
 
 `src/lib/memory/decay.ts` reuses the same scoring function as recall. A
-memory is archived only if **all four** hold:
+memory is archived only if **all five** hold:
 
 1. score < 0.15
 2. age > 60 days
 3. confidence ≤ 0.3 (the "low" band only)
 4. kind is not `procedural` (procedural memories are never auto-forgotten)
+5. `notUsefulCount` ≥ 2 (a small floor of explicit "did not help" votes).
+   Silence (`notUsefulCount` = 0) is not a verdict and the row survives.
+   `citedCount` is never subtracted from this number — the two counters stay
+   independent, matching recall's refusal to net them into ranking. A
+   cited-only row (`citedCount` > 0, `notUsefulCount` = 0) is untouched.
+   A high `citedCount` can still spare a row the honest way, by lifting the
+   score above the floor via the evidence term; it cannot veto a not-useful
+   count that has already cleared this floor once the score has fallen.
 
 Because the delivery term is part of the same score, a low-confidence memory
 that is still delivered often stays above the floor for longer — but only for
@@ -665,6 +716,8 @@ guessing an id from another org 404s rather than leaking existence via a
 | `version` | Starts at 1, incremented on edit or supersede. |
 | `archived` | Soft-delete flag; never a hard delete. |
 | `accessCount` | Denormalized recall/copy tally. |
+| `citedCount` | Denormalized count of agent `cite_memory` votes that said the memory was used. Surfaced on `MemoryRow` via `toRow()`, so REST `/api/org/memory/recall` ranks on the evidence term without a second query. Drawn on `MemoryTrust` when any listed row has votes. 0 is no evidence, never "found useless". |
+| `notUsefulCount` | Denormalized count of votes that said the memory did not help. Never netted against `citedCount`. Ranking (`recall.ts`) never reads it; forget (`decay.ts`) requires it to reach a small floor (2) before a row can be auto-archived. |
 | `expiresAt` | Optional TTL for ephemeral memory. |
 | `createdBy` | GitHub login of the author, or `null` for scan-fed rows. |
 
@@ -729,14 +782,12 @@ by hand does not accumulate it by scan either.
 - **A repo removed from an org keeps its mirrored rows.** `onDelete: Cascade`
   covers deleting the whole org; an explicit per-repo delete belongs in
   `src/lib/db/retention.ts`, which this lane does not own.
-- **The per-row `RecallContribution` bar draws three factors, not four.** The
-  scoring core has carried a fourth term since `citedCount` shipped
-  (`min(MAX_COMBINED_BONUS, delivery × evidence)`), but `citedCount` is not a
-  field on `MemoryRow`, so it does not reach the recall response and the bar
-  cannot draw it without inventing a number. Adding it to `MemoryRow` +
-  `toRow()` is the fix; until then the bar draws trust · freshness · delivery
-  and says so, and the row's `score` — which does include the citation term —
-  stays the server's verbatim value.
+- **The per-row `RecallContribution` bar still draws three factors, not four.**
+  `MemoryRow` carries `citedCount` / `notUsefulCount` (via `toRow()`), REST
+  recall ranks on the evidence term, and `MemoryTrust` draws those votes when
+  any listed row has them. The recall bar has not been wired to the new field
+  yet; it still draws trust · freshness · delivery. The packed row's `score`
+  includes the citation term and stays the server's verbatim value.
 
 ## Registry-backed state (UC2, 2026-08-18)
 
@@ -762,7 +813,10 @@ distinguishes the two worlds, and the affordances follow it:
   registry repo (`memory/<kind>/<slug>.md` with `supersedes:` frontmatter, via
   `src/app/api/org/memory/reflect/proposePr.ts` + `src/lib/registry/memory-pr.ts`), tracked as an
   `OrgMemoryProposal` row whose status follows the PR; the merged file supersedes the mirror at the
-  next index pass. Hosted rows keep today's in-DB apply.
+  next index pass. Hosted rows keep today's in-DB apply. The UI hide is not the whole rule:
+  `PATCH` and `DELETE` on `/api/org/memory/[id]` refuse a registry-origin row with `409
+  registry-origin` (same code as reflect/apply), so a client that bypasses the card cannot
+  silently succeed.
 
 Before a registry is mapped the marker is not rendered at all — every row is hosted, and "hosted" is
 only news once the other world exists.
@@ -775,7 +829,7 @@ only news once the other world exists.
 | `src/app/api/org/memory/check/route.ts` | Write-intelligence verdict. |
 | `src/app/api/org/memory/recall/route.ts` | Scored, budget-packed recall. |
 | `src/app/api/org/memory/reflect/route.ts` | Propose/apply consolidation. |
-| `src/app/api/org/memory/[id]/route.ts` | Get/patch/archive one memory. |
+| `src/app/api/org/memory/[id]/route.ts` | Get/patch/archive one memory. PATCH/DELETE refuse `origin: "registry"` with `409 registry-origin`. |
 | `src/app/api/org/memory/[id]/recall/route.ts` | Record a single recall. |
 | `src/lib/memory/recall.ts` | Pure scoring + budget packing core. |
 | `src/lib/memory/decay.ts` | Forget-pass eligibility + selection. |
@@ -783,11 +837,11 @@ only news once the other world exists.
 | `src/lib/memory/reflection.ts` | Cluster detection + proposal hardening. |
 | `src/lib/memory/scan-feed.ts` | Scan-pipeline memory writers. |
 | `src/lib/memory/coverage.ts` | Per-repo memory freshness for the coverage strip. |
-| `src/lib/db/org-memory.ts` | CRUD + supersede transaction, visibility scoping. |
-| `src/lib/db/org-memory-lifecycle.ts` | `applyReflection`, `archiveOrgMemories`. |
+| `src/lib/db/org-memory.ts` | CRUD + supersede transaction, visibility scoping, write-check `candidateOrgMemories` (omitted namespace → IS NULL). |
+| `src/lib/db/org-memory-lifecycle.ts` | `lifecycleWorkingSet` (recall door), `applyReflection`, `archiveOrgMemories`. |
 | `src/lib/org/memory-kinds.ts` | Kind/visibility/confidence-band constants. |
 | `src/features/shared/memory/MemoryPanel.tsx` | Client orchestrator. |
-| `src/features/shared/memory/MemoryTrust.tsx` | Confidence quartiles of the listed rows (`Distribution`). |
+| `src/features/shared/memory/MemoryTrust.tsx` | Confidence quartiles of the listed rows (`Distribution`), plus citation evidence (`BudgetPack`) when any listed row has votes. |
 | `src/features/shared/memory/MemoryRecallPanel.tsx` | Value-ranked recall surface (opens on `BudgetPack`). |
 | `src/features/shared/memory/MemoryRecallControls.tsx` | Budget / namespace / kind / run row. |
 | `src/features/shared/memory/MemoryRecallRows.tsx` | Packed / omitted / ineligible rows. |

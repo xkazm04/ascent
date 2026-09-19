@@ -61,7 +61,7 @@ import { recordOrgAudit } from "@/lib/db";
 import { setOrgAutoRecharge } from "@/lib/db/org-settings";
 import { requireOrgRole } from "@/lib/authz";
 import { isSameOrigin } from "@/lib/auth";
-import { AUTO_RECHARGE_ACTION } from "@/components/org/shared/CreditsControl.autorecharge";
+import { AUTO_RECHARGE_ACTION } from "@/lib/autorecharge";
 
 function getReq(org = "acme") {
   return new Request(`http://localhost/api/billing/autorecharge?org=${org}`);
@@ -94,6 +94,7 @@ describe("GET — before anything is stored", () => {
   it("states plainly that nothing charges automatically", async () => {
     const body = await (await GET(getReq())).json();
     expect(body.chargesAutomatically).toBe(false);
+    expect(body.label).toBe("Low-balance warning");
   });
 
   it("400s without ?org", async () => {

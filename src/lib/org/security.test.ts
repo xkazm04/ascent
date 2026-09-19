@@ -1,9 +1,17 @@
 // The security "Copy for LLM" brief is a product contract — lock its shape: standing, distribution,
 // governance coverage, the risk-register table (score, gate verdict, enabled branch rules per repo),
-// and a trailing remediation ASK.
+// a capped "What to fix" from failing rows' issues/summary, and a trailing remediation ASK.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { buildGateSnippet, securityMarkdown, type SecurityOverview } from "./security";
+import {
+  buildGateSnippet,
+  securityMarkdown,
+  securityWhatToFix,
+  WHAT_TO_FIX_ISSUE_CAP,
+  WHAT_TO_FIX_REPO_CAP,
+  type SecurityOverview,
+  type SecurityRegisterRow,
+} from "./security";
 
 // `buildSecurityOverview` is pure assembly over two @/lib/db reads (rollup + governance). Mock the db
 // boundary so we can drive the band math and the security-gate verdict directly. The real maturity
@@ -22,6 +30,7 @@ const fixture: SecurityOverview = {
   dimLabel: "Supply Chain & Security",
   avgSecurity: 48,
   securityDelta: null,
+  securityCohortSize: null,
   scanned: 10,
   band: { critical: 2, weak: 3, ok: 4, strong: 1 },
   weakest: [
@@ -126,9 +135,176 @@ describe("securityMarkdown", () => {
     expect(md).toContain("legacy-api: Security 22 < 50");
   });
 
+  it("prints D9 movement with its cohort size, and omits the line when n is missing", () => {
+    expect(securityMarkdown({ ...fixture, securityDelta: 6, securityCohortSize: 8 })).toContain(
+      "- Movement: +6 D9 over last 90 days (cohort-matched, 8 repositories)",
+    );
+    expect(securityMarkdown({ ...fixture, securityDelta: -3, securityCohortSize: 1 })).toContain(
+      "- Movement: -3 D9 over last 90 days (cohort-matched, 1 repository)",
+    );
+    // A delta without n (or n=0) is unmeasured — omit, never "over 0 repositories".
+    expect(securityMarkdown({ ...fixture, securityDelta: 6, securityCohortSize: null })).not.toContain("Movement:");
+    expect(securityMarkdown({ ...fixture, securityDelta: 0, securityCohortSize: 0 })).not.toContain("Movement:");
+  });
+
   it("ends with a remediation ASK", () => {
     expect(md).toContain("## Ask");
     expect(md).toMatch(/propose the top remediations/);
+  });
+
+  it("appends What to fix from failing rows' issues and summary", () => {
+    expect(md).toContain("## What to fix");
+    expect(md).toContain("- legacy-api: Weak supply-chain posture.");
+    expect(md).toContain("  - No SAST configuration visible");
+    expect(md).toContain("  - No SBOM generation evidenced");
+    // Passing rows stay off this list even when the table names them.
+    expect(md).not.toMatch(/^- web:/m);
+  });
+});
+
+function fixRow(over: Partial<SecurityRegisterRow> = {}): SecurityRegisterRow {
+  return {
+    name: "legacy-api",
+    fullName: "acme/legacy-api",
+    score: 22,
+    measured: true,
+    gateReason: "Security 22 < 50",
+    rules: null,
+    checks: [],
+    issues: ["No SAST configuration visible"],
+    summary: "Weak supply-chain posture.",
+    ...over,
+  };
+}
+
+describe("securityWhatToFix — failing rows' issues/summary, never a second findings list", () => {
+  it("includes failing rows that carry a summary or issues, and keeps both (G1)", () => {
+    const { items, moreRepos } = securityWhatToFix([
+      fixRow({
+        summary: "Model notes Dependabot is present.",
+        issues: ["No Dependabot alerts configuration visible"],
+      }),
+    ]);
+    expect(moreRepos).toBe(0);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      name: "legacy-api",
+      summary: "Model notes Dependabot is present.",
+      issues: ["No Dependabot alerts configuration visible"],
+    });
+  });
+
+  it("omits passing rows even when they carry issues, and omits failing rows with neither field", () => {
+    const { items } = securityWhatToFix([
+      fixRow({ name: "web", fullName: "acme/web", gateReason: null, issues: ["should not appear"], summary: "Passing summary." }),
+      fixRow({ name: "empty", fullName: "acme/empty", issues: [], summary: "" }),
+      fixRow({ name: "fixme", fullName: "acme/fixme" }),
+    ]);
+    expect(items.map((r) => r.name)).toEqual(["fixme"]);
+  });
+
+  it("does not re-derive issues from checks", () => {
+    const { items } = securityWhatToFix([
+      fixRow({
+        issues: ["Add CodeQL scanning that runs on pull_request."],
+        checks: [
+          {
+            id: "sast",
+            name: "SAST",
+            group: "posture",
+            risk: "medium",
+            score: 0,
+            detail: "INVENTED-FROM-CHECKS",
+          },
+        ],
+      }),
+    ]);
+    expect(items[0]!.issues).toEqual(["Add CodeQL scanning that runs on pull_request."]);
+    expect(JSON.stringify(items)).not.toContain("INVENTED-FROM-CHECKS");
+  });
+
+  it(`caps at ${WHAT_TO_FIX_REPO_CAP} repos and ${WHAT_TO_FIX_ISSUE_CAP} issues per repo`, () => {
+    const manyIssues = Array.from({ length: WHAT_TO_FIX_ISSUE_CAP + 2 }, (_, i) => `issue-${i}`);
+    const manyRepos = Array.from({ length: WHAT_TO_FIX_REPO_CAP + 3 }, (_, i) =>
+      fixRow({ name: `repo-${i}`, fullName: `acme/repo-${i}`, issues: manyIssues, summary: `sum-${i}` }),
+    );
+    const { items, moreRepos } = securityWhatToFix(manyRepos);
+    expect(items).toHaveLength(WHAT_TO_FIX_REPO_CAP);
+    expect(moreRepos).toBe(3);
+    expect(items[0]!.issues).toEqual(manyIssues.slice(0, WHAT_TO_FIX_ISSUE_CAP));
+    expect(items[0]!.moreIssues).toBe(2);
+  });
+});
+
+describe("securityMarkdown — What to fix readers", () => {
+  it("does not list a passing row's issues, and does not invent a findings list from checks", () => {
+    const o: SecurityOverview = {
+      ...fixture,
+      register: [
+        fixRow({
+          checks: [
+            {
+              id: "sast",
+              name: "SAST",
+              group: "posture",
+              risk: "medium",
+              score: 0,
+              detail: "INVENTED-FROM-CHECKS",
+            },
+          ],
+        }),
+        fixRow({
+          name: "web",
+          fullName: "acme/web",
+          score: 51,
+          gateReason: null,
+          issues: ["passing-row-issue"],
+          summary: "Passing summary.",
+        }),
+      ],
+    };
+    const out = securityMarkdown(o);
+    expect(out).toContain("## What to fix");
+    expect(out).toContain("No SAST configuration visible");
+    expect(out).toContain("Weak supply-chain posture.");
+    expect(out).not.toContain("passing-row-issue");
+    expect(out).not.toContain("Passing summary.");
+    expect(out).not.toContain("INVENTED-FROM-CHECKS");
+  });
+
+  it("omits the section when no failing row carries issues or summary", () => {
+    const o: SecurityOverview = {
+      ...fixture,
+      register: fixture.register.map((r) => ({ ...r, issues: [], summary: "" })),
+    };
+    expect(securityMarkdown(o)).not.toContain("## What to fix");
+  });
+
+  it("keeps a disagreeing summary next to the detector issues (G1)", () => {
+    const o: SecurityOverview = {
+      ...fixture,
+      register: [
+        fixRow({
+          summary: "Model notes Dependabot is present.",
+          issues: ["No Dependabot alerts configuration visible"],
+        }),
+      ],
+    };
+    const out = securityMarkdown(o);
+    expect(out).toContain("Model notes Dependabot is present.");
+    expect(out).toContain("No Dependabot alerts configuration visible");
+  });
+
+  it("renders capped issues and a remainder for extra failing repos", () => {
+    const manyIssues = Array.from({ length: WHAT_TO_FIX_ISSUE_CAP + 2 }, (_, i) => `gap-${i}`);
+    const manyRepos = Array.from({ length: WHAT_TO_FIX_REPO_CAP + 1 }, (_, i) =>
+      fixRow({ name: `r-${i}`, fullName: `acme/r-${i}`, issues: manyIssues, summary: "" }),
+    );
+    const out = securityMarkdown({ ...fixture, register: manyRepos });
+    expect(out).toContain("  - gap-0");
+    expect(out).toContain(`  - …and 2 more issues`);
+    expect(out).not.toContain(`gap-${WHAT_TO_FIX_ISSUE_CAP}`);
+    expect(out).toContain("…and 1 more failing repos (see the dashboard's risk register).");
   });
 });
 
@@ -237,6 +413,27 @@ describe("buildSecurityOverview — null / empty fleet", () => {
     mockRollup.mockResolvedValue(rollup([repo("a", 70)], { dimAverages: [{ dimId: "D2", avg: 80 }] }));
     const o = (await buildSecurityOverview("acme"))!;
     expect(o.avgSecurity).toBeNull();
+  });
+
+  it("carries D9 movement with its cohort size, and nulls both when n is missing", async () => {
+    mockRollup.mockResolvedValue(rollup([repo("a", 70)], { dimDeltas: [{ dimId: "D9", delta: 6, cohortSize: 4 }] }));
+    const o = (await buildSecurityOverview("acme"))!;
+    expect(o.securityDelta).toBe(6);
+    expect(o.securityCohortSize).toBe(4);
+
+    mockRollup.mockResolvedValue(
+      rollup([repo("a", 70)], { dimDeltas: [{ dimId: "D9", delta: 6, cohortSize: 0 }] }),
+    );
+    const zeroN = (await buildSecurityOverview("acme"))!;
+    expect(zeroN.securityDelta).toBeNull();
+    expect(zeroN.securityCohortSize).toBeNull();
+
+    mockRollup.mockResolvedValue(
+      rollup([repo("a", 70)], { dimDeltas: [{ dimId: "D9", delta: 6 }] as never }),
+    );
+    const missingN = (await buildSecurityOverview("acme"))!;
+    expect(missingN.securityDelta).toBeNull();
+    expect(missingN.securityCohortSize).toBeNull();
   });
 });
 

@@ -12,7 +12,7 @@ import { exemplarMarkdownSection, reportLlmMarkdown } from "./llm-markdown";
 import { diffAcrossRepos, transferJoin, type ExemplarProfile } from "./exemplar";
 import type { ComparableDimension, ComparableScan } from "@/lib/db/scans";
 import type { MinedPractice } from "@/lib/org/practice-mining";
-import type { ScanReport } from "@/lib/types";
+import type { AiChangeRecord, Discrepancy, Governance, ScanReport, ScoreIntegrity } from "@/lib/types";
 
 function report(): ScanReport {
   return {
@@ -157,5 +157,339 @@ describe("exemplarMarkdownSection", () => {
   it("states an ineligible subject in the basis instead of hiding the mismatch", () => {
     const d = diffAcrossRepos(subject([dim("D2")]), profile([dim("D2")]), { subjectEligible: false });
     expect(exemplarMarkdownSection({ diff: d })).toContain("measured differently");
+  });
+});
+
+// G1: a non-empty discrepancies list is LLM-vs-detector disagreement. The in-app panel already
+// names each flag and its outcome; the briefing a model acts on must too. Empty/absent stays
+// byte-identical to the pre-change fixture (the test above).
+describe("reportLlmMarkdown discrepancies (G1)", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+
+  it("omits the section when discrepancies is empty or absent (byte-stable with PRE_CHANGE)", () => {
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("Flagged for review");
+    const empty = report();
+    (empty as ScanReport).discrepancies = [];
+    expect(reportLlmMarkdown(empty)).not.toContain("Flagged for review");
+  });
+
+  it("emits each flag and its recorded outcome when the list is non-empty", () => {
+    const r = report();
+    r.discrepancies = [
+      flag("D3", "Detector missed CI-inline lint enforced off-GitHub."),
+      flag("D9", "CodeQL runs via default setup; the file scan cannot see it."),
+      flag("D5", "README documents the harness the detector scored as absent."),
+    ];
+    r.scoreIntegrity = integrity({ widenedDims: ["D3"], d9Unmeasurable: true });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed CI-inline lint enforced off-GitHub. · **widened**");
+    expect(md).toContain("**D9**: CodeQL runs via default setup; the file scan cannot see it. · **D9 dropped as unmeasurable**");
+    expect(md).toContain("**D5**: README documents the harness the detector scored as absent. · **structurally ineligible**");
+    expect(md).toContain("Do not treat the blended scores on these dimensions as uncontested");
+    expect(md).toContain("do not present their blended scores as uncontested");
+    // Lands with the score narrative, before the ask a model will execute.
+    expect(md.indexOf("## Flagged for review")).toBeGreaterThan(md.indexOf("## Risks"));
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Ask"));
+  });
+
+  it("says lost to the budget when the audit blew the per-scan cap, and does not claim a widen", () => {
+    const r = report();
+    r.discrepancies = [flag("D3", "missed evidence"), flag("D9", "invisible control")];
+    r.scoreIntegrity = integrity({ widenCapped: true, d9Unmeasurable: true, widenedDims: [] });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("**lost to the budget**");
+    expect(md).not.toContain("**widened**");
+    expect(md).not.toContain("**D9 dropped as unmeasurable**");
+  });
+
+  it("refuses to guess an outcome on a snapshot written before scoreIntegrity existed", () => {
+    const r = report();
+    r.discrepancies = [flag("D2", "A test.js file is present but D2 detected 0 tests.")];
+    r.scoreIntegrity = undefined;
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("**D2**: A test.js file is present but D2 detected 0 tests. · **outcome not recorded**");
+  });
+});
+
+// G2: the additive first move must leave the building with the roadmap a model will act on.
+// Blank/absent stays omitted so the pre-change byte fixture remains stable.
+describe("reportLlmMarkdown firstStep (G2)", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+
+  it("emits the recorded first step above the rationale when present", () => {
+    const r = report();
+    r.roadmap = [
+      {
+        title: "Add a coverage gate",
+        dimension: "D2",
+        impact: "high",
+        effort: "medium",
+        rationale: "Coverage is unmeasured.",
+        firstStep: "Open a PR adding CODEOWNERS.",
+        explore: [],
+      },
+    ];
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("**First step:** Open a PR adding CODEOWNERS.");
+    expect(md.indexOf("**First step:**")).toBeGreaterThan(md.indexOf("**Add a coverage gate**"));
+    expect(md.indexOf("**First step:**")).toBeLessThan(md.indexOf("Coverage is unmeasured."));
+  });
+
+  it("omits the first-step line when the field is absent or blank (byte-stable with PRE_CHANGE)", () => {
+    expect(reportLlmMarkdown(fixtureReport())).toBe(PRE_CHANGE);
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("First step:");
+    const r = report();
+    r.roadmap[0] = { ...r.roadmap[0], firstStep: "   " };
+    expect(reportLlmMarkdown(r)).not.toContain("First step:");
+  });
+
+  it("does not drop discrepancies when a first step is also present", () => {
+    const r = report();
+    r.roadmap[0] = { ...r.roadmap[0], firstStep: "Open a PR adding CODEOWNERS." };
+    r.discrepancies = [flag("D3", "Detector missed CI-inline lint enforced off-GitHub.")];
+    r.scoreIntegrity = integrity({ widenedDims: ["D3"] });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("**First step:** Open a PR adding CODEOWNERS.");
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed CI-inline lint enforced off-GitHub. · **widened**");
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
+  });
+});
+
+// G2: counted evidence lines must leave the briefing as their own bullets. Flattening them into
+// the dimension table (or joining with " · ") would turn "0 of 8 Action references pinned to a
+// SHA" into a catalogue label. Empty/absent stays omitted so PRE_CHANGE remains stable.
+describe("reportLlmMarkdown counted evidence (G2)", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+
+  const COUNTED = [
+    "0 of 8 Action references pinned to a SHA",
+    "56% of merged PRs carry an approving review despite a ruleset requiring one",
+    "Found 138 test files (1.04 test-to-source ratio)",
+  ] as const;
+
+  function withCountedEvidence(): ScanReport {
+    const r = report();
+    r.dimensions = [{ ...r.dimensions[0], evidence: [...COUNTED] }];
+    return r;
+  }
+
+  it("emits each counted line as its own bullet and leaves the catalogue table untouched", () => {
+    const md = reportLlmMarkdown(withCountedEvidence());
+    expect(md).toContain("### Evidence by dimension");
+    expect(md).toContain("**D2 · Testing** (40/100)");
+    for (const line of COUNTED) {
+      expect(md).toContain(`- ${line}`);
+    }
+    // Counts survive — a catalogue rewrite (signalName / a joined cell) would drop or fold them.
+    expect(md).toContain("0 of 8");
+    expect(md).toContain("56%");
+    expect(md).toContain("1.04 test-to-source ratio");
+    const tableRow = md.split("\n").find((l) => l.startsWith("| D2 |"));
+    expect(tableRow).toBe("| D2 | Testing | 40 | 20% | Thin |");
+    expect(tableRow).not.toContain("0 of 8");
+    expect(md).not.toContain(COUNTED.join(" · "));
+    expect(md).not.toContain(COUNTED.join("; "));
+    // Same order as DimensionDetail: evidence, then gaps.
+    expect(md.indexOf("### Evidence by dimension")).toBeGreaterThan(md.indexOf("## Dimensions"));
+    expect(md.indexOf("### Evidence by dimension")).toBeLessThan(md.indexOf("### Gaps by dimension"));
+  });
+
+  it("omits the evidence section when every dimension's list is empty (byte-stable with PRE_CHANGE)", () => {
+    expect(reportLlmMarkdown(fixtureReport())).toBe(PRE_CHANGE);
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("Evidence by dimension");
+    expect(reportLlmMarkdown(report())).not.toContain("Evidence by dimension");
+  });
+
+  it("skips blank evidence strings so a sparse array does not emit empty bullets", () => {
+    const r = report();
+    r.dimensions[0] = {
+      ...r.dimensions[0],
+      evidence: ["  ", "Found 6 test files", ""],
+    };
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("- Found 6 test files");
+    expect(md).not.toMatch(/^- $/m);
+  });
+
+  it("does not drop discrepancies or firstStep when counted evidence is also present", () => {
+    const r = withCountedEvidence();
+    r.roadmap[0] = { ...r.roadmap[0], firstStep: "Open a PR adding CODEOWNERS." };
+    r.discrepancies = [flag("D3", "Detector missed CI-inline lint enforced off-GitHub.")];
+    r.scoreIntegrity = integrity({ widenedDims: ["D3"] });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("- 0 of 8 Action references pinned to a SHA");
+    expect(md).toContain("**First step:** Open a PR adding CODEOWNERS.");
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed CI-inline lint enforced off-GitHub. · **widened**");
+    expect(md.indexOf("### Evidence by dimension")).toBeLessThan(md.indexOf("## Flagged for review"));
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
+  });
+});
+
+// Additive scoreIntegrity / governance / aiChanges sections. Each heading appears when its field
+// is set and is omitted when the field is absent, so PRE_CHANGE stays byte-identical. G1
+// discrepancies stay listed when all three ride along — carrying these must not drop Flagged for review.
+describe("reportLlmMarkdown scoreIntegrity, governance, aiChanges", () => {
+  const flag = (dimension: Discrepancy["dimension"], claim: string): Discrepancy => ({ dimension, claim });
+  const integrity = (over: Partial<ScoreIntegrity> = {}): ScoreIntegrity => ({
+    d9Unmeasurable: false,
+    widenedDims: [],
+    effectiveBlend: 0.6,
+    ...over,
+  });
+  const gov = (over: Partial<Governance> = {}): Governance => ({
+    defaultBranch: "main",
+    protected: true,
+    requiresPullRequest: true,
+    requiredApprovals: 1,
+    requiresCodeOwnerReview: false,
+    requiresStatusChecks: true,
+    requiresSignatures: false,
+    linearHistory: false,
+    ruleCount: 3,
+    readable: true,
+    ...over,
+  });
+  const aiChange = (over: Partial<AiChangeRecord> = {}): AiChangeRecord => ({
+    prNumber: 42,
+    title: "feat: parser",
+    authorLogin: "alice",
+    authorIsBot: false,
+    aiSignal: "marked",
+    aiTools: ["Claude"],
+    state: "MERGED",
+    mergedAt: "2026-01-02T00:00:00Z",
+    approved: true,
+    approverLogin: "dave",
+    approvedAt: "2026-01-01T10:00:00Z",
+    reviewCount: 2,
+    createdAt: "2026-01-01T00:00:00Z",
+    revertedByPr: null,
+    revertedAt: null,
+    mergeCommitSha: "abc123",
+    ...over,
+  });
+
+  function withAllThree(): ScanReport {
+    const r = report();
+    r.scoreIntegrity = integrity({ d9Unmeasurable: true, widenedDims: ["D3"] });
+    r.governance = gov();
+    r.aiChanges = [
+      aiChange(),
+      aiChange({
+        prNumber: 7,
+        title: "feat: agent work",
+        aiSignal: "authored",
+        aiTools: ["Copilot"],
+        approved: false,
+        approverLogin: null,
+        reviewCount: 0,
+      }),
+    ];
+    return r;
+  }
+
+  it("emits all three headings when a fixture sets scoreIntegrity, governance and aiChanges", () => {
+    const md = reportLlmMarkdown(withAllThree());
+    expect(md).toContain("## Score integrity");
+    expect(md).toContain("**D9 renormalized out**");
+    expect(md).toContain("**widened D3**");
+    expect(md).toContain("## Governance");
+    expect(md).toContain("Branch protection (main): protected");
+    expect(md).toContain("required approvals 1");
+    expect(md).toContain("## AI-attributed changes");
+    expect(md).toContain("**#42** feat: parser · AI-marked · Claude · approved by dave");
+    expect(md).toContain("**#7** feat: agent work · agent-authored · Copilot · unreviewed");
+    // Chip-adjacent (qualifies the headline), then process evidence before the roadmap.
+    expect(md.indexOf("## Score integrity")).toBeGreaterThan(md.indexOf("Overall 61/100"));
+    expect(md.indexOf("## Score integrity")).toBeLessThan(md.indexOf("## Dimensions"));
+    expect(md.indexOf("## Governance")).toBeLessThan(md.indexOf("## AI-attributed changes"));
+    expect(md.indexOf("## AI-attributed changes")).toBeLessThan(md.indexOf("## Roadmap"));
+  });
+
+  it("omits each heading when its field is absent (byte-stable with PRE_CHANGE)", () => {
+    expect(reportLlmMarkdown(fixtureReport())).toBe(PRE_CHANGE);
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("## Score integrity");
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("## Governance");
+    expect(reportLlmMarkdown(fixtureReport())).not.toContain("## AI-attributed changes");
+    expect(reportLlmMarkdown(report())).not.toContain("## Score integrity");
+    expect(reportLlmMarkdown(report())).not.toContain("## Governance");
+    expect(reportLlmMarkdown(report())).not.toContain("## AI-attributed changes");
+  });
+
+  it("omits only the missing field's heading when the other two are set", () => {
+    const onlyIntegrity = report();
+    onlyIntegrity.scoreIntegrity = integrity({ widenedDims: ["D3"] });
+    const mdI = reportLlmMarkdown(onlyIntegrity);
+    expect(mdI).toContain("## Score integrity");
+    expect(mdI).not.toContain("## Governance");
+    expect(mdI).not.toContain("## AI-attributed changes");
+
+    const onlyGov = report();
+    onlyGov.governance = gov();
+    const mdG = reportLlmMarkdown(onlyGov);
+    expect(mdG).toContain("## Governance");
+    expect(mdG).not.toContain("## Score integrity");
+    expect(mdG).not.toContain("## AI-attributed changes");
+
+    const onlyAi = report();
+    onlyAi.aiChanges = [aiChange()];
+    const mdA = reportLlmMarkdown(onlyAi);
+    expect(mdA).toContain("## AI-attributed changes");
+    expect(mdA).not.toContain("## Score integrity");
+    expect(mdA).not.toContain("## Governance");
+  });
+
+  it("omits Governance on a null tokenless reading and AI-attributed changes on an empty list", () => {
+    const r = report();
+    r.governance = null;
+    r.aiChanges = [];
+    const md = reportLlmMarkdown(r);
+    expect(md).not.toContain("## Governance");
+    expect(md).not.toContain("## AI-attributed changes");
+    expect(md).not.toMatch(/0 AI-attributed/i);
+  });
+
+  it("names an unreadable governance read instead of fabricating unprotected", () => {
+    const r = report();
+    r.governance = gov({ readable: false, protected: false });
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("## Governance");
+    expect(md).toContain("could not be read (insufficient permission)");
+    expect(md).not.toContain("NOT protected");
+  });
+
+  it("does not drop Flagged for review when all three additive fields are also present (G1)", () => {
+    const r = withAllThree();
+    r.discrepancies = [flag("D3", "Detector missed CI-inline lint enforced off-GitHub.")];
+    const md = reportLlmMarkdown(r);
+    expect(md).toContain("## Score integrity");
+    expect(md).toContain("## Governance");
+    expect(md).toContain("## AI-attributed changes");
+    expect(md).toContain("## Flagged for review");
+    expect(md).toContain("**D3**: Detector missed CI-inline lint enforced off-GitHub. · **widened**");
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Governance"));
+    expect(md.indexOf("## Flagged for review")).toBeLessThan(md.indexOf("## Roadmap"));
   });
 });

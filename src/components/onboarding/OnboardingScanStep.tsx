@@ -8,6 +8,7 @@ import { SkipNotices } from "@/components/onboarding/OnboardingSkipNotices";
 import type { ImportNotice } from "@/components/onboarding/skipReason";
 import { ReconnectedNotice } from "@/components/onboarding/OnboardingReconnected";
 import type { ReattachState } from "@/components/onboarding/useImportReattach";
+import { SkillDownloadList } from "@/components/report/SkillDownload";
 import { SCAN_CONCURRENCY } from "@/lib/pool";
 import { LEVELS } from "@/lib/maturity/model";
 import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
@@ -91,6 +92,9 @@ export function ScanStep({
   const completed = Object.values(rows).filter((r) => r.level || r.error || r.skipped).length;
   const errorCount = Object.values(rows).filter((r) => r.error).length;
   const scanTotal = Object.keys(rows).length;
+  const scoredRepos = Object.values(rows)
+    .filter((r) => r.level && !r.error && !r.skipped)
+    .map((r) => r.repo);
   const pct = scanTotal ? Math.round((completed / scanTotal) * 100) : 0;
   const reattached = Boolean(reattach && reattach.status !== "off");
 
@@ -261,14 +265,11 @@ export function ScanStep({
           {/* moonshot #35: the wizard's one INSTALLABLE handoff. Only repos that actually produced a
               level are offered — a repo that errored or was credit-skipped has no saved scan, so the
               foundation cannot be generated for it and the batch would report it as a failure row. */}
-          {foundationOrg && (
-            <FoundationPanel
-              org={foundationOrg}
-              repos={Object.values(rows)
-                .filter((r) => r.level && !r.error && !r.skipped)
-                .map((r) => r.repo)}
-            />
-          )}
+          {foundationOrg && <FoundationPanel org={foundationOrg} repos={scoredRepos} />}
+
+          {/* Same SkillDownload control as the report header. The foundation PR (App path) also
+              seeds this file; the download is the public-funnel fallback and a skip-safe copy. */}
+          <SkillDownloadList repos={scoredRepos} />
 
           {/* Invite teammates at peak motivation (App path only) — grants viewer access to the
               scanned org via the RBAC backend. No GitHub App install needed for the invitee. */}

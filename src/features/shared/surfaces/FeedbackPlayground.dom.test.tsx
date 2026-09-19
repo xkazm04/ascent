@@ -1,17 +1,31 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { STATE_LABEL, VIZ_STATES } from "@/components/org/viz";
 import { FeedbackPlayground } from "./FeedbackPlayground";
 
 afterEach(() => vi.useRealTimers());
 
 describe("surface feedback studies", () => {
-  it("allows a failed state to recover in the same workspace", () => {
-    render(<FeedbackPlayground slug="async-ui-states" />);
-    fireEvent.click(screen.getByRole("button", { name: "Error" }));
-    expect(screen.getByRole("status").textContent).toContain("couldn’t load");
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(screen.getByRole("status").textContent).toContain("workspace is ready");
+  it("drives async-ui-states from Defer and VIZ_STATES, not invented loading", () => {
+    const { container } = render(<FeedbackPlayground slug="async-ui-states" />);
+    for (const s of VIZ_STATES) {
+      expect(screen.getByRole("button", { name: STATE_LABEL[s] })).toBeTruthy();
+    }
+    expect(screen.getByRole("button", { name: "next-frame" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "idle" }));
+    expect(screen.getByRole("button", { name: "idle" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "visible" }));
+    expect(screen.getByRole("button", { name: "visible" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: "Ready" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Loading" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Empty" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Error" })).toBeNull();
+    expect(container.querySelector("[class*='skeleton']")).toBeNull();
+    expect(screen.getByRole("status").textContent).toMatch(/not a loading state/i);
+    fireEvent.click(screen.getByRole("button", { name: STATE_LABEL.missing }));
+    expect(screen.getByRole("status").textContent).toMatch(/never a zero/i);
+    expect(screen.getByRole("status").textContent).not.toMatch(/\b0\b/);
   });
 
   it("finishes the simulated save before offering undo", () => {
@@ -25,12 +39,11 @@ describe("surface feedback studies", () => {
     expect(screen.getByRole("status").textContent).toContain("Changes undone");
   });
 
-  it("marks a newly changed appearance as unapplied", () => {
+  it("routes design-tokens to the live table, not a Mint/Amber re-theme", () => {
     render(<FeedbackPlayground slug="design-tokens" />);
-    fireEvent.click(screen.getByRole("button", { name: "Apply appearance" }));
-    expect(screen.getByRole("button", { name: /Applied/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Mint" }));
-    expect(screen.getByRole("button", { name: "Apply appearance" })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("Mint");
+    expect(screen.queryByRole("button", { name: "Mint" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Amber" })).toBeNull();
+    expect(screen.getByText("accent")).toBeTruthy();
+    expect(screen.getByText("LEVEL_HEX")).toBeTruthy();
   });
 });

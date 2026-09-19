@@ -36,6 +36,24 @@ export interface ReflectionCandidate {
   kind: string;
   confidence: number;
   namespace?: string;
+  /** "shared" (whole org) or "private" (author-only scratch). Absent reads as shared. */
+  visibility?: string;
+  /** The author; part of the scope only for private rows. */
+  createdBy?: string | null;
+}
+
+/**
+ * The ownership scope a memory belongs to inside its org: its namespace, and for private scratch its
+ * author. Similarity says two memories are ABOUT the same thing; it does not say they belong to the same
+ * place, so a family may only form inside one scope. Without this, notes that share wording across two
+ * projects become one rollup filed under one of them, and a private scratch note is folded into a
+ * shared summary the whole org then reads.
+ */
+export function reflectionScopeKey(
+  m: Pick<ReflectionCandidate, "namespace" | "visibility" | "createdBy">,
+): string {
+  const ns = (m.namespace ?? "").trim();
+  return m.visibility === "private" ? `${ns}\u0000private\u0000${m.createdBy ?? ""}` : `${ns}\u0000shared`;
 }
 
 export interface MemoryCluster {
@@ -150,13 +168,15 @@ export function clusterMemories(
   const sim: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
   // Tokenize each memory once; pairwise comparisons reuse these immutable word sets.
   const tokens = items.map((item) => new Set(tokenize(item.content)));
+  const scopes = items.map(reflectionScopeKey);
   const uf = new UnionFind(n);
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const s = tokenSetJaccard(tokens[i]!, tokens[j]!);
       sim[i]![j] = s;
       sim[j]![i] = s;
-      if (s >= threshold) uf.union(i, j);
+      // Scope before similarity: a pair across two scopes never unions, however alike the text.
+      if (s >= threshold && scopes[i] === scopes[j]) uf.union(i, j);
     }
   }
 

@@ -53,7 +53,7 @@ export type PlanBilling = "free" | "subscription" | "custom";
  *  (the fleet dashboard, autoscans, segments, playbooks — see the "advertises but nothing enforces"
  *  table in docs/features/billing/billing.md), and those stay hand-written `extras` precisely so this
  *  union means "enforced" rather than "mentioned". */
-export type PlanCapability = "whiteLabel" | "skillsLibrary" | "memory" | "byom" | "pdfExport";
+export type PlanCapability = "whiteLabel" | "skillsLibrary" | "memory" | "byom" | "pdfExport" | "hostedLoop";
 
 export interface PlanCapabilityMeta {
   id: PlanCapability;
@@ -65,6 +65,10 @@ export interface PlanCapabilityMeta {
   label: string;
   /** One-line explanation, for the credit-matrix row. */
   detail: string;
+  /** Set (to the reason) when the gate is ENFORCED but the capability must not be SOLD yet: it stays
+   *  off the plan cards, the credit matrix and the self-host diff until the reason stops being true.
+   *  A gate that exists before the thing it gates is fine; a pricing page advertising it is not. */
+  unlisted?: string;
 }
 
 /**
@@ -128,10 +132,29 @@ export const PLAN_CAPABILITIES: Record<PlanCapability, PlanCapabilityMeta> = {
     label: "PDF export",
     detail: "Download any saved report as a PDF.",
   },
+  // ADR-0001 §2. The cloud replacement for `ASCENT_AUTOPILOT=1`: a deployment-wide env var cannot say
+  // "org A opted in, org B did not", and a hosted run dispatches an auto-editing agent into a
+  // customer repository on Ascent's tokens. Team-and-up because that is where the other capabilities
+  // that spend Ascent's inference budget on the customer's behalf already sit, and because a hosted
+  // run is the paid tier's answer to the self-hoster's local loop — the one thing cloud OPERATES that
+  // a `git clone` does not hand you for free. Self-hosted short-circuits to allowed like every other
+  // capability (see the SELF-HOSTED note atop this file): a self-hoster who registers their own
+  // dispatcher is not held back by a tier, and one who does not still sees `available: false`.
+  hostedLoop: {
+    id: "hostedLoop",
+    minPlan: "team",
+    label: "Hosted loop runs",
+    detail: "Dispatch improvement-loop runs from Ascent Cloud — no self-hosting, no agent of your own.",
+    unlisted: "No deployment registers a hosted LaneDispatcher yet (ADR-0001), so a Team buyer would be paying for a run nobody works.",
+  },
 };
 
 /** Render/iteration order for capabilities — the declaration order of the table above. */
 export const PLAN_CAPABILITY_ORDER: PlanCapability[] = Object.keys(PLAN_CAPABILITIES) as PlanCapability[];
+
+/** The capabilities a buyer is SHOWN: PLAN_CAPABILITY_ORDER minus the `unlisted` ones. Every surface
+ *  that sells a tier (cards, credit matrix, self-host diff) reads this; the gate reads the full order. */
+export const PLAN_LISTED_CAPABILITY_ORDER: PlanCapability[] = PLAN_CAPABILITY_ORDER.filter((c) => !PLAN_CAPABILITIES[c].unlisted);
 
 /** Capabilities a tier includes: everything whose `minPlan` is at or below it on PLAN_ORDER. */
 function capabilitiesOf(plan: PlanId): PlanCapability[] {
@@ -142,7 +165,7 @@ function capabilitiesOf(plan: PlanId): PlanCapability[] {
 /** Capabilities a tier is the FIRST to include — what its plan card advertises as new at this step of
  *  the ladder. The cards have always listed what a tier adds rather than restating the tier below. */
 export function newCapabilitiesAt(plan: PlanId): PlanCapability[] {
-  return PLAN_CAPABILITY_ORDER.filter((c) => PLAN_CAPABILITIES[c].minPlan === plan);
+  return PLAN_LISTED_CAPABILITY_ORDER.filter((c) => PLAN_CAPABILITIES[c].minPlan === plan);
 }
 
 export interface PlanFeature {
@@ -506,6 +529,13 @@ export function planAllowsByom(plan: string | null | undefined): boolean {
 /** Plans that may export a saved report as a PDF. */
 export function planAllowsPdfExport(plan: string | null | undefined): boolean {
   return planAllows("pdfExport", plan);
+}
+
+/** Plans that may arm a HOSTED loop run — one Ascent Cloud dispatches, rather than one the customer's
+ *  own agent claims. The entitlement half of ADR-0001's gate table; see src/lib/local/hosted-gate.ts
+ *  for the other three (a worker on the deployment, credit headroom, per-repo admission). */
+export function planAllowsHostedLoop(plan: string | null | undefined): boolean {
+  return planAllows("hostedLoop", plan);
 }
 
 /**

@@ -7,7 +7,7 @@
 // tracker's own save/focus wiring (not the scoring engine those chips pull in).
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { PersistedRecommendation, ScanReport } from "@/lib/types";
 
 // The orphaned-tracking panel does its own fetch on mount and owns its own suite
@@ -176,5 +176,66 @@ describe("RecommendationTracker status <select> (roadmap #2)", () => {
     const h3 = screen.getByRole("heading", { level: 3, name: long });
     expect(h3).toHaveClass("min-w-0");
     expect(h3).toHaveClass("break-words");
+  });
+});
+
+describe("RecommendationTracker assignee + due date", () => {
+  function patchBody(fetchMock: ReturnType<typeof vi.fn>, i = 0) {
+    const calls = fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "PATCH");
+    return JSON.parse(String((calls[i][1] as RequestInit).body)) as Record<string, unknown>;
+  }
+
+  it("renders both fields when a fixture has assignee and due date set", () => {
+    render(
+      <RecommendationTracker
+        items={[item({ assigneeLogin: "octocat", targetDate: "2026-09-01" })]}
+        report={report}
+      />,
+    );
+    expect(screen.getByLabelText("Assignee")).toHaveValue("octocat");
+    expect(screen.getByLabelText("Due date")).toHaveValue("2026-09-01");
+  });
+
+  it("renders nothing for a null assignee or due date (no unassigned / no-due-date copy)", () => {
+    render(<RecommendationTracker items={[item()]} report={report} />);
+    expect(screen.getByLabelText("Assignee")).toHaveValue("");
+    expect(screen.getByLabelText("Due date")).toHaveValue("");
+    expect(screen.queryByText(/unassigned/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no due/i)).not.toBeInTheDocument();
+  });
+
+  it("PATCH round-trip updates the row from the saved recommendation", async () => {
+    let stored = item({ assigneeLogin: "octocat", targetDate: "2026-09-01" });
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        assigneeLogin?: string | null;
+        targetDate?: string | null;
+      };
+      stored = item({
+        assigneeLogin: body.assigneeLogin !== undefined ? body.assigneeLogin : stored.assigneeLogin,
+        targetDate: body.targetDate !== undefined ? body.targetDate : stored.targetDate,
+      });
+      return new Response(JSON.stringify(stored), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RecommendationTracker items={[stored]} report={report} />);
+
+    fireEvent.change(screen.getByLabelText("Assignee"), { target: { value: "hubot" } });
+    fireEvent.blur(screen.getByLabelText("Assignee"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Assignee")).toHaveValue("hubot");
+      expect(screen.getByLabelText("Assignee")).not.toHaveAttribute("aria-busy");
+    });
+    expect(patchBody(fetchMock, 0)).toEqual({ assigneeLogin: "hubot" });
+
+    fireEvent.change(screen.getByLabelText("Due date"), { target: { value: "2026-09-30" } });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Due date")).toHaveValue("2026-09-30");
+    });
+    expect(patchBody(fetchMock, 1)).toEqual({ targetDate: "2026-09-30" });
+    expect(screen.getByLabelText("Assignee")).toHaveValue("hubot");
   });
 });

@@ -76,6 +76,21 @@ inside "Fleet".
 `/about-org`'s public module map (`src/components/about-org/orgModules.ts`) derives from the same
 constant, so it re-grouped itself; only the per-group icons needed remapping.
 
+### Tabs reach each other sparsely, and the count is pinned (2026-09-14)
+
+The rail groups the tabs, but it does not say how to get from one tab to the next. That depends on
+the links each tab's own source writes to its siblings, and
+`src/lib/org/tab-link-graph.test.ts` pins that link graph. On master `3c49b90b`, **9 tabs have no
+inbound link from a sibling** (Digest, Tech Stacks, Passports, Security, Registry, Memory,
+Members, Governance, Audit): the rail is their only way in. **7 link to no sibling** (Security,
+Practices, Skills, Memory, UI surfaces, Members, Audit), not counting Follow-ups, which ends the
+path on purpose as the hand-off to an agent. The graph reads all five ways a tab link is written
+(`orgTabHref`, a local `tabHref`, `buildUrl({ tab })`, a hand-built `?tab=`, a legacy
+`/org/<slug>/<tab>`), with comments stripped. Overview's Fix-first slot links to whichever findings
+module is busiest, so the test lists it as a conditional link rather than a permanent one. Adding or
+removing a sibling link fails the test. To make it pass, update the pinned list, and that edit is
+where the count visibly changes.
+
 ### The transition programme (W1c, 2026-08-14)
 
 The org's **named, dated commitment**: one row per org (`TransitionProgram`, `orgId` unique),
@@ -151,6 +166,13 @@ namespace). A viewer with **no** organization is coherent by construction: the c
 workspace, and the org layout renders a zero-repo personal org's shell: its add-repo form *is* the
 empty state.
 
+**Personal Overview degrades per read.** The individual landing (`PersonalOverview`) used to
+`Promise.all` the watchlist, usage meters and passports, so a throw on any one rejected the page
+and blanked the repo list that had already succeeded. It now uses `Promise.allSettled` the same way
+Delivery, Teams and Contributors do: the watchlist renders when present; passports and usage each
+degrade to an explicit "couldn't load" banner rather than taking the landing down.
+`PersonalOverview.gate.test.ts` pins the rejected-passports case.
+
 **The zero-repo wall fell for members (W6b, 2026-08-12).** The layout's empty-org decision is now the
 pure `resolveOrgShellState` (`src/lib/org/orgShellGate.ts`, pinned by its co-located test):
 a **member's** zero-repo fleet org renders the FULL shell: org header (alerts · credits · scan) +
@@ -187,7 +209,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Group | Tab | Route | Main source dir | What it shows |
 | --- | --- | --- | --- | --- |
 | Standing | Overview | `org/[slug]?tab=overview` | `src/features/standing/overview/` | The **Fix first** band (up to 3 triage-ordered next moves: worst regresser, busiest unresolved findings queue, behind-pace goal; own Suspense boundary, `OverviewFixFirstPanel`), then four sections, top to bottom, **all off one `getOrgRollup` read**: the standing strip (maturity + level band, adoption, rigor, repos scanned, each with its cohort-matched period delta (`OrgRollup.movement` carries that delta **with** its matched-cohort size and the excluded composition change — `deltas` is the deprecated bare triple), plus the maturity trend as an inline sparkline) · the repo × dimension heatmap (**above** the posture card since 2026-09-15) · posture distribution + the **dimension ledger** (per-dimension averages grouped by SDLC phase, each row a status word, a reading and two named affordances — see *The Overview ledger* below) · the Fleet category rollup (repos grouped by Type/Stack/Level; **Level groups are ordered L1→L5**, Type/Stack strongest-first). The heatmap's cells open the per-dimension drill-in (`RepoDimensionModal`, on the brand `Modal` portal, `reading` width; summary rendered as markdown-lite via `MarkdownLite`, gaps as a list; "Next steps" says *nothing owed* for a green-band dimension and *not on record, re-scan* for a below-green one). The whole region is one client component, `OverviewLedger`, fed serialised data by the server `OverviewFleetPanel`. |
-| Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan), then the **Context half-life** panel (W4, see below). **2026-09-15:** the fleet-score `Distribution` above the leaderboard was removed. The **Foundation rollout** and **Guidance coherence** panels moved to Shared → Practices, so the shared checklist and its measurement live in one place. Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
+| Standing | Repositories | `org/[slug]/repositories` | `src/app/org/[slug]/repositories/page.tsx` | The repo **leaderboard** first (level/overall/adoption/rigor/posture/last scan), then the **Context half-life** panel (W4, see below). Both honour the shared `SegmentSelector` (`?segment=`) plus tech-stack (`?stack=`): `RepositoriesTab` resolves `resolveOrgScope` once and hands the promise to `RepositoriesLeaderboardPanel` and `ContextHealthPanel`, which read one `getOrgRollupShared` at that `(segmentId, techGroupId)`. **2026-09-15:** the fleet-score `Distribution` above the leaderboard was removed. The **Foundation rollout** and **Guidance coherence** panels moved to Shared → Practices, so the shared checklist and its measurement live in one place. Also renders **Segments** as its `?tab=segments` view (see below); there is no separate rail item or route for Segments anymore. |
 | Standing | Tech Stacks | `org/[slug]/tech-stacks` | `src/app/org/[slug]/tech-stacks/` | Tech-stack breakdown across the fleet: per-stack maturity profiles and the **dimension analysis** board (see below). |
 | Standing | Passports | `org/[slug]/passports` | `src/features/standing/passports/` | **2026-09-05:** the tab's autonomy tier, blocking conditions and progress all come from the one persisted resolver (`deriveAutonomyForStored`); the prototype five-gate ladder is presentation only, so a T2 repo can no longer list gates T2 never consulted. The context gate reads real `contextHealthJson` freshness and an unmeasured freshness costs nothing (the mock staleness penalty is gone). Passport blocker decisions key on `findings[].id`, with a read-side alias for decisions stored under the old prose key until 2027-03-01, so a blocker whose text changes keeps its decision. Repo passports, as three switcher views: **Baseline** (the automation × production portfolio), **Clearance** (the passport as a per-repo security clearance), and **Capabilities** (the declared-vs-proven capability matrix), and **Controls** (the per-check doctor findings each repo's own CI reported back) — both below. |
 | Standing | Security | `org/[slug]/security` | `src/features/standing/security/` | Security posture across the fleet, in three stacked pieces: the summary-tile ledger (avg D9 · branch protection · repos at risk · gate), whose bottom edge **is** the D9 band spectrum (`SecurityBandSpectrum`, a `col-span-full` ledger cell — see below); the **D9 check battery** (`SecurityRiskRegister`; renamed from "Control matrix" 2026-08-31, MC-B10); and **Findings to decide** (`SecurityFindings`, see below). |
@@ -203,7 +225,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Standing | Governance | `org/[slug]/governance` | `src/features/standing/governance/` | Governance rollups: gate tiles, the editable policy card, fail-reasons, failing repos, the CI snippet, the evidence pack, and the AI stance section. No standfirst under the title, and no "Cheapest path to green" card (both deleted 2026-08-19 — see below). Every panel opens on a shape since the Wave-1 redesign (2026-09-08 — see "Governance, redesigned" below). |
 | In flight | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |
 | Bought | Briefing | `org/[slug]/executive` | `src/app/org/[slug]/executive/` | Executive briefing view. |
-| Bought | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: eleven small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, AI trailers, AI pre-review, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge; count corrected 2026-09-05) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted (`revertRate`, `medianHoursToFirstReview`, `smallPrRate`) into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate`: share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate); and `aiPreReviewedRate`: share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared), refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline (data only so far, no dedicated panel yet); the metric's home surface (the Backlog tab's Debt Ledger) retired 2026-08-17 — `getOrgRework` is currently an orphaned read awaiting a Delivery-tab home. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all`: one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. **2026-09-05:** every PR-rate cell and repo-table row carries the population it was computed over (`rateBasis`, `PrRepoRow.population` — produced since W1a, rendered now); the headline says each rate names its own population; a `SnapshotScopeNotice` states which sections are period-scoped (trend, unit economics, outcomes) and which are latest-scan (PR signals, governance, activity); `derivePriorities` refuses to name a worst reverter under five PRs. Parked: the analyzer-level `revertRate` floor (needs `PrStats.revertRate` widened to `number | null` in `src/lib/types.ts`). **2026-09-08 (/org redesign Wave 1):** the tab was rebuilt on the shared viz kit — unit economics and AI delivery as `FlowRibbon`s whose money stage VOIDS (never zeroes) when no provider reports cost, trend lines that break at unmeasured days, a `ReviewCoverageStrip` above the per-repo table, a `GovernanceGapMatrix` that draws a zero-approval PR rule as `declared`, and DORA as a four-panel small multiple with a bracketed AI-vs-human failure gap. See “Delivery, redesigned” below. |
+| Bought | Delivery | `org/[slug]/delivery` | `src/app/org/[slug]/delivery/page.tsx` | PR signals, branch governance, 12-week fleet commit activity, and (2026-07-28) a **Delivery-over-time** section: eleven small-multiple day-by-day panels (review coverage, AI involvement, AI PRs reviewed, AI trailers, AI pre-review, protected default branch, merge rate, small PRs, revert rate, time to first review, time to merge; count corrected 2026-09-05) plus gated slope reads, scoped by the shared org period selector. **W1a (2026-08-12)** surfaced three metrics every scan already persisted (`revertRate`, `medianHoursToFirstReview`, `smallPrRate`) into the signal band, the per-repo table, the trend, and a **review-latency slope** (`hoursToFirstReview` in `DELIVERY_FIT_METRICS`, hours/week with inverted goodness tone): the review-capacity read behind the Assist→Delegate bottleneck. Because the metrics come from the historical `prStats` blobs, the trend back-filled from existing scans day one; a blob written before the fields existed reads null ("not in these scans"), never a fabricated 0. **W2 (2026-08-12)** added two trailer-era attribution metrics from the extended `PR_QUERY` (merge-commit + PR-commit messages, review-author `__typename`): `aiTrailerRate`: share of merged PRs whose commit messages carry an AI attribution trailer (trailer-GROUNDED attribution, vs the self-declared marker rate); and `aiPreReviewedRate`: share of merged PRs an AI/bot reviewer (CodeRabbit, Copilot code review, Greptile, …) reviewed before the first human review. Both surface in the signal band (now 10 cells), the per-repo table, and two new trend panels; both are null on pre-W2 blobs and under the ≥5 merged-PR floor. The AI-delivery ROI model (`aiDeliveryModel.ts`) prefers trailer-grounded counts as its **allocation weight** where present (a commit trailer is tooling-written evidence; markers are self-declared), refining the "allocated" fidelity tier only, complementing (never replacing) the measured per-repo OTel path. "Fix first" adds two derived priorities: a slow first review (>24h, called out against AI PR share) and a fleet revert rate ≥5%. **W5 (2026-08-12)** added `reworkRate` (share of merged PRs later reverted, from revert linkage) to the delivery-trend point keys on the same null-back-fill discipline (data only so far, no dedicated panel yet); the metric's home surface (the Backlog tab's Debt Ledger) retired 2026-08-17 — `getOrgRework` is currently an orphaned read awaiting a Delivery-tab home. Its five rollup queries (PR signals, governance, activity, AI usage, delivery trend) run via `Promise.allSettled`, not `Promise.all`: one query erroring degrades only its own panel (an explicit "couldn't load" banner, not a silent empty state), instead of blanking the whole tab. The two later windowed panels (unit economics, delivery outcomes) do the same: a thrown query is "couldn't load", never the same absent/onboarding screen as a successful empty fleet. **2026-09-05:** every PR-rate cell and repo-table row carries the population it was computed over (`rateBasis`, `PrRepoRow.population` — produced since W1a, rendered now); the headline says each rate names its own population; a `SnapshotScopeNotice` states which sections are period-scoped (trend, unit economics, outcomes) and which are latest-scan (PR signals, governance, activity); `derivePriorities` refuses to name a worst reverter under five PRs. Parked: the analyzer-level `revertRate` floor (needs `PrStats.revertRate` widened to `number | null` in `src/lib/types.ts`). **2026-09-08 (/org redesign Wave 1):** the tab was rebuilt on the shared viz kit — unit economics and AI delivery as `FlowRibbon`s whose money stage VOIDS (never zeroes) when no provider reports cost, trend lines that break at unmeasured days, a `ReviewCoverageStrip` above the per-repo table, a `GovernanceGapMatrix` that draws a zero-approval PR rule as `declared`, and DORA as a four-panel small multiple with a bracketed AI-vs-human failure gap. See “Delivery, redesigned” below. |
 | Bought | Contributors | `org/[slug]/contributors` | `src/features/bought/contributors/` | AI champions, involvement table (withheld below 3 contributors), **Who to enable next** (`EnablementTargets`, moved here from Adoption 2026-08-19 — see below), an **Org resilience** module (fleet key-person exposure, repo-level only, names nobody), and the per-repo concentration / bus-factor table. **2026-09-05:** the \"You\" strip says attribution is *withheld* below the naming floor instead of \"no commits attributed\"; each section degrades on its own (`allSettled`), so one failed read no longer blanks the tab. **2026-09-08 (redesign Wave 1):** the tab now OPENS on a graphic — an AI-share `Distribution` with the viewer's own position marked — concentration is a `ConcentrationCurve` with the bus-factor knee above the per-repo table, champions are plotted in adoption × volume space, resilience leads with a per-repo top-share quartile strip, the care section leads with a `MatrixGrid` privacy ledger whose per-person column is a column of voids, and a contributor with no commits to take a share OF renders a **void, not a 0% bar**. See [Contributors, redesigned](#contributors-redesigned-the-distribution-is-plotted-wave-1-2026-09-08). |
 | Bought | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. **2026-09-05:** per-section degradation; the Δ footnote derives from the period's `deltaLabel`; the AI% cell carries its contributor population in the row; the provenance stamp says \"captured fleet-wide\" under an active filter; the window goes through `orgWindowBounds`. |
 | Admin | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
@@ -275,9 +297,11 @@ scanned or not (the number `RepoSegmentsPanel`'s tagging chips show). `SegmentSu
 comparison view) counts only the segment's repos in the **fleet-rollup universe** (watched OR
 has-scans), the same restriction `getOrgRollup` already applies everywhere else. A segment with
 tagged-but-unwatched/unscanned repos legitimately shows a smaller number on its rollup card than on
-its tagging chip; that is "tagged" vs "scored," not a bug, and both surfaces carry a tooltip saying
-which one they are. Since 2026-08-19 the two counts sit **on one screen** (chips above, cards
-below), so the labelling matters more, not less.
+its tagging chip; that is "tagged" vs "scored," not a bug. Chips, rollup cards, and compare tiles
+**label the two counts in the copy** (`N tagged` · `M scored`), not only in a tooltip. A slice with
+no average prints no scored count at all: never `0 scored` and never `0/N scanned`. Since 2026-08-19
+the two counts sit **on one screen** (chips above, cards below), so the labelling matters more, not
+less.
 
 ### Context half-life (the Repositories tab's context-layer lens, W4, real)
 
@@ -292,6 +316,9 @@ and its `contextHealthMock` synthesis are deleted; every number now comes from t
   (defensive parse; malformed → null); `contextHealthModel.ts` builds the rows and the fleet summary
   purely, reusing the shared decay math (`decayPotency`/`halfLife`/`guidanceTolerance` from
   `src/lib/analyze/context-health.ts`) so scan-time potency and the panel's projection can't drift.
+  The panel does not resolve URL scope itself: it awaits the `Promise<OrgScope>` `RepositoriesTab`
+  already created for the leaderboard, so `?segment=` and `?stack=` cannot describe a different fleet
+  below the table than the table itself.
 - **Fleet tiles**: context **coverage %** (repos with guidance / assessed repos), median projected
   **half-life** at current commit rates, **past half-life** count (potency < 50), and **dead
   references** (guidance pointing at deleted files). New scans carry the full unresolved-reference
@@ -641,7 +668,7 @@ now on narrow queries.
 | `passports` nav badge (`deriveFindings`, org **shell** → every tab) | full unscoped `getOrgRollup`, read `repos[].passport.*.blockers` | `getOrgPassportBlockers` |
 | `opengraph-image.tsx` (per crawler fetch) | full unscoped `getOrgRollup`, read 5 scalars | `getOrgHeaderSummary` |
 | Practices / Skills repo picker (2026-09-05) | full `getOrgRollup` for `repos[].fullName` (6 queries, two unbounded scan sweeps) | `listOrgRepoNames` (1 query, 1 column) |
-| Repositories tab (2026-09-05) | two full rollups per render (leaderboard scoped, Context Health unscoped, so the lens ignored `?stack=`) | one `getOrgRollupShared` (request-cached on primitive args) feeding both panels with the same scope; 12 → 7 queries |
+| Repositories tab (2026-09-05; segment filter 2026-09-17) | two full rollups per render (leaderboard stack-scoped, Context Health unscoped, so the lens ignored `?stack=` / `?segment=`) | one `resolveOrgScope` in `RepositoriesTab` plus one `getOrgRollupShared` (request-cached on primitive args) feeding both panels at the same `(segmentId, techGroupId)`; the leaderboard renders the shared `SegmentSelector` via `ScopeFilterBar`, not a second filter |
 | `getOrgRollup` itself (2026-09-05) | `include:` at both levels: ~36 Repository + ~39 Scan columns for every scan in history (the nested `take: 1` is applied client-side) | `select:` of the 18 + 11 fields the mapper reads |
 
 - **`getOrgPassportBlockers(slug)`** (`src/lib/db/org-nav-counts.ts`): the passport blob lives on
@@ -963,6 +990,10 @@ latest scan strictly before `start` (a move is a measurement, so both endpoints 
 the period counts in the rollup average and is absent from movers, and the two counts are not expected
 to reconcile. Each reader's file header states its rule.
 
+**2026-09-17:** `ScopeFilterBar` discloses that split when a period window is active (`window.start`
+set, not all-time): "Repos not scanned in-period still count in the fleet average and do not appear
+in movers." Copy matches the `org-rollup.ts` header. The queries are unchanged.
+
 Every calendar-day decision the org dashboard makes (window preset starts, custom-range
 parsing, trend day-keys, due-date bucketing) resolves in **one** reference frame. Before
 this existed each of those picked its own: presets and the custom-range parser used the
@@ -1109,6 +1140,20 @@ Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[sl
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
 same builder against the token's window.
 
+**White-label on the Briefing tab (Team+).** Stored `OrgBranding` — brand name, logo URL, accent
+colour — paints a compact header on the authenticated briefing when the viewer is an owner on a
+white-label plan and at least one field is set. Those are the same three slots the board PDF
+(`BriefingDocument`) and the anonymous share page (`BrandMark`) already use, so an owner can catch a
+bad logo or contrast before handing a client PDF or share link. OrgShell, the nav rail, and other
+tabs stay Ascent chrome; this is the briefing header only. `BrandingSettings` still prefills from
+the same row, and a live PDF-header mock on a light card beside the fields shows the current brand
+name, accent hex and logo URL against the white PDF surface. `accentContrastWarning` checks the
+accent against both that white PDF and the dark share chrome (`#080d1a`), so a navy that reads on
+paper but vanishes on `/share/briefing/[token]` is flagged before save (non-blocking, same as the
+PDF check). The form also has a **Download branded PDF** control (`DownloadButton` →
+`GET /api/org/briefing/pdf?org=`), disabled while a save is in flight so the export cannot race
+the write.
+
 **Two denominators, stated on all four surfaces (2026-09-05).** Coverage (`scanned/total`) answers
 "how much was looked at"; the score basis (`realScoredCount`, carried on `ExecBriefing` from the
 rollup) answers "what the averages are averaged over". Every basis clause that stands on an average
@@ -1148,7 +1193,30 @@ Every renderer reads the line through `briefingTrajectory(b)` / `briefingTraject
 than assembling its own — the Trajectory card, the board PDF, the share page, the markdown and the
 deterministic narrative — so the four artifacts a board might see cannot disagree about one fit.
 Confidence and basis are non-null *by construction* whenever a headline is, so a renderer cannot print
-the claim and drop the caveat.
+the claim and drop the caveat. The two HTML surfaces mount one component,
+`ExecutiveTrajectoryCard` (`src/features/bought/executive/ExecutiveTrajectoryCard.tsx`): the Briefing
+tab and `/share/briefing/[token]` pass the briefing plus `periodHasStart` (the frozen window's start
+on a share link). PDF and markdown still compose the same line in their own renderers because they
+are not HTML.
+
+### The goal line carries the same hedge (`composeGoal`)
+
+Named-goal ETAs used to skip that composer: each briefing renderer assembled `pace` + `etaDays` and
+had no slot for the hedge, so a two-scan-day fit Delivery would refuse still printed
+"behind, ETA ~120d" on the board PDF and the Copy-for-LLM markdown. `composeGoal(forecast, projection, ctx)`
+sits beside `composeTrajectory` and is the only thing a presenter may say about a goal's pace.
+
+| Field | When set | Renders as |
+| --- | --- | --- |
+| `headline` | the fit clears the gate, or the target is already reached | "On pace: reaches 80 in ~3 weeks (2026-02-21)." / "Target met: holding at or above 80." |
+| `confidence` / `basis` | **exactly** when `headline` is a projection | the same hedge `composeTrajectory` attaches |
+| `insufficiency` | a fit exists but is below the gate | `forecastInsufficiency`'s sentence *verbatim* |
+
+A reached target is a standing fact (current vs target), not a projection, so it carries no forecast
+hedge. No fit at all degrades to **absence**. `buildExecBriefing` spreads the read onto each
+`BriefingGoal`; the markdown, the board PDF and the Goals card read it through `briefingGoalLine` /
+`briefingGoalStats` so they cannot print an ETA and drop the caveat. `listGoals` now carries the
+underlying `forecast` on every row so the GoalCard readout can call `composeGoal` too.
 
 This replaced the inverse behavior, found three UAT cycles running (`DANA-L1-001`): on `lowData` the
 briefing **nulled** `forecastConfidence` and each renderer guarded its hedge on that null, so the least
@@ -1170,14 +1238,14 @@ prevent. A repo with no fit at all still renders nothing: absence is not a refus
 `PersonalOverview.gate.test.ts` pins the predicate at the source, since the component is an async
 server component and what must not regress is what it filters on.
 
-**The compaction clause is wired but presently silent on the org path** (`DANA-L1-014`): `getOrgRollup`
-fits over retained `Scan` rows only and never sets `SeriesPoint.compacted`, so `compactedPoints` is 0
-there by construction and ", N of them compacted" cannot yet appear on a briefing. The clause travels
-end-to-end the moment that series carries compacted points (it is covered by tests that feed one in),
-and it is deliberately **not** synthesised from the org-level `getCompactionCoverage`, which counts
-digests across the org rather than the points behind *this* fit — that would be a fabricated basis,
-which G4 forbids more strongly than an absent one. The user-visible consequence on a purged-history
-org remains unverified: no fixture with a compacted tail exists on the test host.
+**The compaction clause reaches the org path** (`DANA-L1-014`): `getOrgRollup` folds `ScanDigest` rows
+into the same series as retained scans and `buildOrgForecastSeries` keeps `SeriesPoint.compacted`, so
+`compactedPoints` is no longer 0 by construction and ", N of them compacted" can appear on a briefing
+when the fit actually rests on digest days. It is deliberately **not** synthesised from the org-level
+`getCompactionCoverage`, which counts digests across the org rather than the points behind *this*
+fit — that would be a fabricated basis, which G4 forbids more strongly than an absent one. The
+user-visible consequence on a purged-history org remains unverified: no fixture with a compacted tail
+exists on the test host.
 
 **Share links are per-grant, and say whether their figures still hold.** Every mint stamps a random
 `jti` (`signBriefingShareToken`, returned by `POST /api/org/briefing/share`), so one leaked link can
@@ -1232,6 +1300,9 @@ small, high-scoring fleet with an empty `risks` list the PDF and the markdown pr
 dimension as "the fleet's weakest dimension" **even when it was the fleet's strongest**, a board
 document naming a strength as the weakness. There is deliberately **no dimension fallback** now: an
 empty list means the section is omitted, never replaced by a second notion of "weakest".
+`POST /api/org/playbooks { fromRec: true }` creates a playbook from that same rank-1 row: title and
+dim from the rec, checklist from `PLAYBOOK_TEMPLATES` for that dim — never invented steps (G4).
+`fromDim` seeds the same template without a rec. See [practices.md](practices.md).
 
 **Window resolution matches the page (G5-10).** The PDF route resolves its window with
 `resolveOrgWindow` (`src/lib/org/period.ts`), the same cookie-aware precedence every org tab uses:
@@ -1326,9 +1397,10 @@ consumed by another model, which gains nothing from prose we generated for it.
 | `/api/org/schedule` | `POST` | Set a repo's autoscan period off/daily/weekly/monthly (`setRepoSchedule`, computes `nextScanAt`). Drives the rescan [cron](../fleet/rescan.md). |
 | `/api/org/repos` | `GET` | List an org's public repos (onboarding picker). |
 | `/api/org/export` | `GET` | `kind=contributors\|delivery\|passports\|teams` as JSON or CSV (`format=csv`), gated by `requireOrgRead` and scoped by `segment`/`stack`. `kind=contributors` returns **403** below the 3-contributor naming floor rather than a header-only CSV: a CSV carries no scope marker once it leaves the app. |
-| `/api/org/segments` | `GET` / `POST` | List an org's segments (with repo counts) / create one (`listSegments` / `createSegment`). |
-| `/api/org/segments/[id]` | `PATCH` / `DELETE` | Rename or recolor / delete a segment and its memberships (`updateSegment` / `deleteSegment`). |
-| `/api/org/segments/[id]/repos` | `POST` | Tag/untag a repo into a segment (`setRepoSegment`, org-scoped). |
+| `/api/org/segments` | `GET` / `POST` | List an org's segments (with repo counts) / create one (`listSegments` / `createSegment`). Create appends `segment.created`. |
+| `/api/org/segments/[id]` | `PATCH` / `DELETE` | Rename or recolor / delete a segment and its memberships (`updateSegment` / `deleteSegment`). Append `segment.updated` / `segment.deleted`. PATCH stays member-gated; DELETE stays admin-gated. |
+| `/api/org/segments/[id]/repos` | `POST` | Tag/untag a repo into a segment (`setRepoSegment`, org-scoped). Not audited; bulk tag is. |
+| `/api/org/segments/[id]/repos/bulk` | `POST` | Bulk tag/untag many repos (`setRepoSegmentsBulk`, org-scoped). Appends `segment.bulk_tag` with counts, never the repo list. Denied or unknown-segment writes record nothing. |
 
 ## Audit log
 
@@ -1338,7 +1410,19 @@ consumed by another model, which gains nothing from prose we generated for it.
 
 Recorded actions include `scan.created`, `recommendation.status_changed`,
 `practice.pr_opened`, `scan.regression`, `retention.purged`, and since 2026-09-05 `claim.released`.
+Segment fleet-slice mutations record `segment.created` / `segment.updated` / `segment.deleted` /
+`segment.bulk_tag`.
 `src/features/admin/audit/AuditLogViewer.tsx` is the searchable, paginated client viewer.
+
+**Details for non-scan rows (2026-09-17).** Scan-linked rows still show the repo, level, SHA and a
+report permalink. Every other row used to render a bare em dash unless the writer had stuffed a
+`status` string into `meta`, so a plan change, a member-role grant, a refused loop PR and a forge
+connect all looked like they carried no payload. The em dash is the product's missing-measurement
+glyph (G4), not a "we did not show this" placeholder. `Details` (`AuditLogCells.tsx`) now prints the
+useful scalar fields from `meta` (`plan`, `login`, `repoFullName`, `reason`, …), keeps `status` as
+the composed sentence writers already send (gate policy, branding, AI stance), never prints `_sig`
+or the redundant `org`, and when nothing displayable was recorded it says **no details recorded** in
+words. The CSV export is unchanged: it still ships the full `meta` JSON.
 
 **The ledger has no delete door (2026-09-05).** The once-per-window claim markers the digest and
 Athena crons write through `claimOrgAuditOnce` used to be hard-deleted by `releaseAuditClaim` when
@@ -1383,21 +1467,30 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   canonicalized, so while `requireOrgRole` normalizes internally (the gate was safe), the raw
   casing reached the reads, the mutations and the `meta.org` of every invite audit row.
 - **Invites**: `GET`/`POST`/`DELETE /api/org/invites` (owner-only, `src/app/api/org/invites/route.ts`)
-  list, create, and revoke single-use invite tokens (role capped at `admin`; `owner` can
+  list, create, **resend**, and revoke single-use invite tokens (role capped at `admin`; `owner` can
   only be conferred by promoting an existing member, not minted as a link). Acceptance is a
   same-origin, signed-in-only `POST /api/org/invites/accept` (`src/app/api/org/invites/accept/route.ts`),
   deliberately not a GET-on-render, since a GET would let link-prefetch/unfurlers burn the
   invite. `src/app/invite/[token]/page.tsx` is the UI that collects the token and fires the
-  accept POST. All three transitions are recorded to the audit log —
-  `org.member.invited` (create), `org.member.invite_accepted` (the grant) and
+  accept POST. Transitions are recorded to the audit log —
+  `org.member.invited` (create), `org.member.invite_accepted` (the grant),
   `org.member.invite_revoked` (withdrawal, added 2026-09-06; the revoke row names the target,
-  not just the invite id, and `revokeInvite` returns `{ revoked, target }` to supply it).
+  not just the invite id, and `revokeInvite` returns `{ revoked, target }` to supply it) and
+  `org.member.invite_resent` (owner resend).
+- **Resend rotates the token in place** (`POST /api/org/invites` with `{ org, id, action: "resend" }`,
+  `resendInvite` in `src/lib/db/invites.ts`). The same pending row gets a new token and a refreshed
+  7-day TTL in one transaction, so two live links cannot both grant: `peekInvite` / `acceptInvite`
+  on the old token fail closed. The pin does not grow a second pending row. `listPendingInvites`
+  still omits the token (it is the capability, shown once on the create/resend response). The
+  Members roster (`InviteList`) is a one-click **resend** — owners who lost the link no longer
+  have to revoke and re-create.
 - **The invite is now delivered** (G7-02): creating an invite with an `email` sends **one**
   transactional message to that address via the shared email transport (`src/lib/email/invite.ts`).
-  *Trigger*: an owner's `POST /api/org/invites` with `email` set. *Recipient*: only that address.
+  *Trigger*: an owner's `POST /api/org/invites` with `email` set, or the same route with
+  `action: "resend"` (another explicit owner click, not a drip). *Recipient*: only that address.
   *Opt-out*: `notify: false` in the same request; deployment-wide, `EMAIL_INVITES=off`, and the whole
-  path is inert with no email provider (`SES_FROM_EMAIL` unset). There is no list and no repeat send,
-  so there is nothing to unsubscribe from; the mail says exactly that.
+  path is inert with no email provider (`SES_FROM_EMAIL` unset). There is no mailing list, so there
+  is nothing to unsubscribe from; a further message is sent only if an owner clicks resend.
   The address is **not verified** (an owner typed it), so the mail discloses only the org slug, the
   role, the inviting login, the link and the expiry (no scores, repos, or member list), and accepting
   still requires the accepter's Supabase-**confirmed** email to match the pin (`acceptInvite`), so a
@@ -1412,12 +1505,13 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
 - **The owner's pending-invite roster** (`src/features/admin/members/InviteList.tsx`, split out of
   `MemberInvites.tsx` under the 200-LOC cap) shows, per invite: the target, the role, **who sent it**
   (`invitedBy`, previously stored on every row and dropped on the way to the panel), the copy-link
-  affordance only for invites minted in this session, and the expiry **as a countdown** —
-  "expires in 3 days", the same sentence the invite mail sends, with the exact moment on the hover
-  title (registry `software-engineering/status-vocabulary` → `timestamp-display`: relative by
-  default, absolute one hover away). The roster has a real empty state, and revoking is a two-step
-  `Revoke? → confirm / cancel`, matching the roster's Remove a row above — re-issuing mints a NEW
-  token, so an accidental revoke costs a re-send rather than an undo.
+  affordance only for invites minted in this session (create or resend), a one-click **resend**,
+  and the expiry **as a countdown** — "expires in 3 days", the same sentence the invite mail sends,
+  with the exact moment on the hover title (registry `software-engineering/status-vocabulary` →
+  `timestamp-display`: relative by default, absolute one hover away). The roster has a real empty
+  state, and revoking is a two-step `Revoke? → confirm / cancel`, matching the roster's Remove a
+  row above. Resend rotates the live token without dropping the row; revoke still asks first
+  because it removes the pending invite.
 
 ### Delivery outcomes — the AI-vs-human failure split (W4, 2026-08-14)
 
@@ -1513,6 +1607,13 @@ card is likewise keyed on the row: a seats-only provider reports **seats and pea
 and never a dollar figure, so a synced Copilot org can no longer read "$0.00 over the last 35
 days". Before this the panel keyed on the literal `claude-code` id, so Copilot showed a green
 "Available" badge with nothing to click while its finished sync route had no caller.
+
+**Available capabilities are stored facts, not a roadmap (2026-09-17).** Claude Code's catalog
+row lists only what Test + OTel metrics persist: per-repo tokens and cost via the
+`git.repository` resource attribute (`parseOtlpMetrics` → `AiUsageRecord` `scope=repo`).
+Per-user sessions, lines, commits and PRs, and Anthropic Admin Usage/Cost totals, are not
+written by this connector and are not listed. The card (`ProviderCard`) renders the registry
+verbatim, so honesty lives in `PROVIDERS[].capabilities`.
 
 | Fidelity | Provider | What it means |
 | --- | --- | --- |
@@ -1850,7 +1951,11 @@ and the interesting part is the case where it refuses:
 
 - a **regression** is a loss on ONE repo, so it is divided by `OrgMovers.comparedRepos` (repos with a
   real baseline on both sides) before it may sit on a fleet scale — a 9-point drop on one repo of 45
-  is 0.2 fleet points, not 9. With no compared population the bar is a **void**, never an undivided 9;
+  is 0.2 fleet points, not 9. With no compared population the bar is a **void**, never an undivided 9.
+  A **failed `getOrgMovers` read** is a different absence: it is not an empty `regressers` list.
+  `OverviewFixFirstPanel` flags `moversFailed` on a throw; `deriveFixFirst` occupies the regression
+  slot with "Couldn't load regressions" copy (link to Repositories) rather than omitting the slot
+  (which would let findings/goals read as the top triage, and a void bar read as "no scoring model");
 - a **behind-pace goal** already names a fleet-wide target on a 0..100 metric, so `target − current` is
   the same unit by construction; the basis names *which* metric;
 - a **findings queue has no scoring model at all.** The honest answer is `missing`, and
@@ -1932,8 +2037,9 @@ Practices, from `src/features/shared/practices/foundation/`.
 
 **The leaderboard was a distribution first.** `RepositoriesLeaderboardPanel` rendered a fleet
 `Distribution` (kit, `@/components/org/viz`) above the sorted table — the min/q1/median/q3/max of the
-overall scores in the ACTIVE posture/stack scope, so the box and the rows can never describe
-different fleets. The table is unchanged and is the drill-down evidence. Repos with no scan are
+overall scores in the ACTIVE posture/segment/stack scope, so the box and the rows can never describe
+different fleets. The table is now filtered by the same `SegmentSelector` the rest of the dashboard
+uses (`ScopeFilterBar` + `?segment=`), not a second local control. The table is unchanged and is the drill-down evidence. Repos with no scan are
 counted beside the box under the `not-judged` hatch; they never enter a quartile, and a fleet with
 fewer than two scored repos draws the `missing` void rather than a zero-width box. The five numbers
 come from `fleetShape.ts` (pure, unit-tested), so the plot and its `sr-only` table are the same
@@ -2378,8 +2484,9 @@ untouched. What was wrong is that the substitute was then *published as a readin
 clickable score cell, a gate verdict reading `Security 0 < 50`, and a line in the "Copy for LLM"
 brief reading `| legacy | 0/100 |` that invited a model to recommend remediation for a measurement
 that does not exist. `SecurityRegisterRow` now carries `measured: boolean`, the gate reason for such
-a repo is `D9 not measured` (still a FAIL), the brief prints `not measured`, and the register's D9
-cell is a void. This is the same defect class as the four in [One rule, four places it was not
+a repo is `D9 not measured` (still a FAIL), the brief prints `not measured`, the register's D9
+cell is a void, and the auditor PDF prints a void in that cell rather than the fail-closed `0`.
+This is the same defect class as the four in [One rule, four places it was not
 applied](#one-rule-four-places-it-was-not-applied-wave-2-postscript-2026-09-08), arrived at from the
 other direction: not an absence rendered as a pass, but an absence rendered as a **finding**.
 
@@ -2440,7 +2547,8 @@ survivor is a unit line: that one, `4 open · 9 settled`, and
 | `src/components/org/viz/` | The shared visual kit (above): `states.ts` (the six-state vocabulary, `VizDefs`, `stateFill`/`stateStroke`), `Legend`/`StateSwatch`/`WhyChip`, and the seven charts. One `.dom.test.tsx` each. |
 | `src/lib/db/org.ts` | Barrel re-exporting the org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies) from the `org-*.ts` sub-modules above. Each fleet aggregate takes an optional `segmentId` to scope it. |
 | `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, `listTaggableRepos` (the tag manager's repo universe), per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
-| `src/components/org/shared/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Overview/Contributors segment filter (its "+ Create a segment →" pointer links to `?tab=segments`) · the Segments-view tag manager · A-vs-B comparison picker. |
+| `src/components/org/shared/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Shared `?segment=` filter (Overview, Contributors, Delivery, **Repositories leaderboard**, Passports, …; its "+ Create a segment →" pointer links to `?tab=segments`) · the Segments-view tag manager · A-vs-B comparison picker. The Repositories leaderboard does not invent a second filter: it spreads `barProps` from `resolveOrgScope` into `ScopeFilterBar`. |
+| `src/components/org/shared/ScopeFilterBar.tsx` | Shared segment + tech-stack filter. When a period window is active, a caption discloses that repos not scanned in-period still count in the fleet average and do not appear in movers (`org-rollup.ts` header; queries unchanged). |
 | `src/features/standing/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on, see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
 | `src/features/standing/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome: class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
 | `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |
@@ -2681,6 +2789,14 @@ bars on one axis with the point gap bracketed between their ends, replacing the 
 sentence; the "human-authored is a residual, contaminated in AI's favour" caveat rides its `WhyChip`,
 reachable from the comparison rather than from a paragraph below it.
 
+**A failed windowed read is not an empty fleet.** `UnitEconomicsPanel` and `DeliveryOutcomesPanel`
+used to catch every error to `null` and render nothing — the same screen as "no agent sessions in
+this period" / "no deployments were recorded". After a connected Claude exporter that looks like
+`session.id` never arrived, not "try refresh". They now `settle()` the query the same way the core
+PR / governance / activity sections do: a rejection renders `SectionEmpty` "couldn't load"; a
+present empty fleet still shows the onboarding card (`session.id` / Integrations, or re-scan the
+fleet); `null` stays reserved for no DB / no org. Pinned by `ai/windowedPanelLoad.dom.test.tsx`.
+
 **Kit alignment, not a second dialect.** `DeliveryTrendPanel` and `DeliveryActivityChart` had their
 own SVG before the kit existed; both now paint from `DEFAULT_BASE` / `--color-accent` instead of the
 hand-written `#3b9eff`/`#7bbcff` (the same two values, read from the tokens), and the trend panel's
@@ -2713,10 +2829,13 @@ with no numeral where `forecastInsufficiency` refuses to state one.
   and cannot draw two boxes. Returning a five-number summary per side would turn `SegmentDumbbell`
   into a real distribution comparison. Not a drawing problem; a shared-query widening, deliberately
   left rather than done from inside a tab.
-- **Two adjacent sentinels of the same shape, deliberately out of scope of `b1042324`.**
-  `SegmentComparison.dimDeltas` still coalesces a dimension a scope is not scored on — that is
+- **One adjacent sentinel of the same shape, deliberately out of scope of `b1042324`.**
+  ~~`SegmentComparison.dimDeltas` still coalesces a dimension a scope is not scored on — that is
   per-dimension *coverage*, a different population from the mean of nothing, and its view-side guard
-  (`value(scanned, v)` in `segmentViz.ts`) is correct today. `OrgBenchmark.corpusAvg*` still returns
+  (`value(scanned, v)` in `segmentViz.ts`) is correct today.~~ **Closed:** `dimDeltas.a` / `b` /
+  `delta` are `number | null`. A dimension a scope is not scored on is `null`, never `0`, and a
+  one-sided delta is withheld — the same subtract-measured rule as the headline averages. The
+  view-side `value(scanned, v)` re-derivation is gone. `OrgBenchmark.corpusAvg*` still returns
   `0` beside `corpusRepos: 0`; honestly guarded at present, but the same shape of defect if the guard
   ever moves.
 - **`permittedModels` is declared and unchecked, and stays that way.** Not an oversight and not a
@@ -2737,7 +2856,9 @@ with no numeral where `forecastInsufficiency` refuses to state one.
   (`getOrgFindings`, already `unstable_cache`d for the rail badges, decisions subtracted fresh),
   and the first behind-pace active goal (`listGoals`). It streams in its own `<Suspense>` boundary
   so the fleet panel is never held, drops `getOrgGapAnalysis` (the expensive read that motivated
-  the deletion), and renders nothing when there is nothing actionable.
+  the deletion), and renders nothing when there is nothing actionable. A `getOrgMovers` throw is
+  flagged `moversFailed` and still occupies the regression slot with couldn't-load copy; it is not
+  substituted as `{ regressers: [], comparedRepos: 0 }`.
 
 - **No per-contributor drill-down page, deliberately**, and no per-person time-series to build one
   from: `RepoContributor` is uniquely keyed `(repoId, login)` and upserted each scan, so it is a

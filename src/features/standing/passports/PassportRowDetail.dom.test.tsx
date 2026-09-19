@@ -10,13 +10,20 @@
 import { describe, it, expect, vi } from "vitest";
 import { createElement, type ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
+import type { PassportFinding } from "@/lib/types";
 import type { PassportDetail } from "./PassportRowDetail";
 
 vi.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: ReactNode }) => createElement("a", { href }, children),
 }));
-// The per-blocker decision widget is fetch-driven and out of scope here.
-vi.mock("@/components/org/DecisionControl", () => ({ DecisionControl: () => null }));
+// Capture which rows the fleet widget is offered on — evidence-limit findings must not get one.
+const seen: string[] = [];
+vi.mock("@/components/org/DecisionControl", () => ({
+  DecisionControl: ({ itemKey }: { itemKey: string }) => {
+    seen.push(itemKey);
+    return null;
+  },
+}));
 
 const { PassportRowDetail } = await import("./PassportRowDetail");
 
@@ -95,5 +102,35 @@ describe("PassportRowDetail — declined gaps (passport 0.4.0)", () => {
   it("renders no declined section when the owner has declined nothing", () => {
     render1(detail({ prodBlockers: ["CI does not gate merges."] }));
     expect(screen.queryByText("Accepted by choice")).toBeNull();
+  });
+});
+
+describe("PassportRowDetail — evidence-limit findings stay informational", () => {
+  it("omits DecisionControl on unassessable and enforcement-not-observable rows", () => {
+    seen.length = 0;
+    const gap: PassportFinding = {
+      id: "prod.ci-not-gating",
+      code: "ci-not-gating",
+      text: "CI does not gate merges.",
+      severity: "block",
+    };
+    const holes: PassportFinding[] = [
+      { id: "prod.ci-unassessable", code: "ci-unassessable", text: "CI gates could not be assessed.", severity: "info" },
+      { id: "prod.security-unassessable", code: "security-unassessable", text: "Scanning could not be assessed.", severity: "info" },
+      { id: "prod.observability-unassessable", code: "observability-unassessable", text: "Observability could not be assessed.", severity: "info" },
+      { id: "prod.tests-unassessable", code: "tests-unassessable", text: "Tests could not be assessed.", severity: "info" },
+      { id: "auto.self-verify-unassessable", code: "self-verify-unassessable", text: "Self-verify could not be assessed.", severity: "info" },
+      { id: "prod.enforcement-not-observable", code: "enforcement-not-observable", text: "Enforcement (branch protection) not observable.", severity: "info" },
+    ];
+    render1(
+      detail({
+        autoBlockers: holes.filter((h) => h.id.startsWith("auto.")).map((h) => h.text),
+        autoFindings: holes.filter((h) => h.id.startsWith("auto.")),
+        prodBlockers: [gap.text, ...holes.filter((h) => h.id.startsWith("prod.")).map((h) => h.text)],
+        prodFindings: [gap, ...holes.filter((h) => h.id.startsWith("prod."))],
+      }),
+    );
+    expect(seen).toEqual(["acme/web::prod.ci-not-gating"]);
+    for (const h of holes) expect(screen.getByText(h.text)).toBeTruthy();
   });
 });

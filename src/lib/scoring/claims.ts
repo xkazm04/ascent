@@ -30,6 +30,7 @@
 // evidence of operation. Pure and dependency-free so all of it is unit-testable without a model.
 
 import type { DimensionId, RepoSnapshot } from "@/lib/types";
+import { parseProjectionHeader, projectionBody } from "@/lib/analyze/guidance-graph";
 
 /** How a facet may be evidenced — decides which citations the verifier will accept. */
 export type FacetKind =
@@ -62,6 +63,13 @@ export interface FacetSpec {
    *  A trail is a trail of something — without a mechanism it is an interpretation, not an
    *  observation. Measured signals (the pulls fold) are exempt; this binds model claims only. */
   requiresAny?: readonly string[];
+  /** A two-citation facet whose claim is that the two files AGREE. Agreement is evidence only between
+   *  independently written documents: when one cited file is a generated projection of the other (it
+   *  carries a generated-from header naming it) or a copy of its body, both quotes resolve and the
+   *  pair proves only that the copy step ran. Such a pair is rejected `derived-citation`. A
+   *  CONTRADICTION between a source and its projection is still real evidence (the copy drifted), so
+   *  this is opt-in per facet rather than a rule for every two-citation facet. */
+  independent?: true;
 }
 
 /**
@@ -178,6 +186,7 @@ export const D1_FACETS: readonly FacetSpec[] = [
     points: 6,
     kind: "judgment",
     citations: 2,
+    independent: true,
     doc:
       "two different guidance files state the SAME build/test/lint command — the agent gets one answer " +
       "whichever file it opened. Cite BOTH files (path/quote and path2/quote2).",
@@ -358,7 +367,10 @@ export type ClaimRejection =
   | "not-guidance-file"
   /** A two-citation facet arrived with one citation, or with both citations naming the same file —
    *  a claim that two documents agree (or disagree) is not evidenced by quoting one of them twice. */
-  | "missing-second-citation";
+  | "missing-second-citation"
+  /** An agreement facet cited a file together with its own generated projection or copy: both
+   *  citations resolve, and neither is independent evidence of the other. */
+  | "derived-citation";
 
 // ---- composition (the engine's rule, pure) -----------------------------------------------------
 
@@ -464,6 +476,19 @@ export function verifyClaims(
   const commitText = snap.commits.map((c) => norm(c.message)).join("\n");
   const allowed = opts?.allowedPaths ? new Set([...opts.allowedPaths].map((p) => p.toLowerCase())) : null;
 
+  /** Is one of these two sampled files derived from the other? A projection names its source in a
+   *  header; a copy with no header is caught by an identical body. */
+  const derivedPair = (a: string, b: string): boolean => {
+    const ka = a.trim().toLowerCase();
+    const kb = b.trim().toLowerCase();
+    const ta = byPath.get(ka);
+    const tb = byPath.get(kb);
+    if (ta == null || tb == null) return false;
+    const sourceOf = (t: string) => parseProjectionHeader(t)?.sourcePath.trim().toLowerCase() ?? null;
+    if (sourceOf(ta) === kb || sourceOf(tb) === ka) return true;
+    return norm(projectionBody(ta)) === norm(projectionBody(tb));
+  };
+
   for (const raw of claims) {
     // The provider coercion guarantees strings, but this verifier is pure and its contract is "never
     // throws" on its own: a null entry or a non-string field is skipped, not dereferenced.
@@ -532,6 +557,10 @@ export function verifyClaims(
       const second = checkCitation(claim.path2, claim.quote2);
       if (second) {
         reject(second);
+        continue;
+      }
+      if (spec.independent && derivedPair(claim.path, claim.path2)) {
+        reject("derived-citation");
         continue;
       }
     }

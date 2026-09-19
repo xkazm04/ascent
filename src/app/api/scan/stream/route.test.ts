@@ -37,6 +37,11 @@ vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: false, balance: 5 })),
   paymentRequired: (balance: number) =>
     new Response(JSON.stringify({ code: "INSUFFICIENT_CREDITS", balance }), { status: 402 }),
+  orgNotFound: () => new Response(JSON.stringify({ code: "NOT_FOUND" }), { status: 404 }),
+  scanCreditRefusal: (decision: { reason: "not_found" } | { reason: "payment_required"; balance: number }) =>
+    decision.reason === "not_found"
+      ? new Response(JSON.stringify({ code: "NOT_FOUND" }), { status: 404 })
+      : new Response(JSON.stringify({ code: "INSUFFICIENT_CREDITS", balance: decision.balance }), { status: 402 }),
 }));
 vi.mock("@/lib/scan-credit", () => ({
   reserveScanCredit: vi.fn(async () => ({ skip: false, reserved: true, balance: 4 })),
@@ -173,6 +178,34 @@ describe("POST /api/scan/stream — credit metering", () => {
     expect(mockScan).not.toHaveBeenCalled();
   });
 
+  it("answers 404 NOT_FOUND — not 402 INSUFFICIENT_CREDITS — when the org does not exist", async () => {
+    mockEnt.mockResolvedValue({
+      allowed: false,
+      unlimited: false,
+      balance: 0,
+      withinAllowance: false,
+      allowanceRemaining: 0,
+      orgExists: false,
+    } as Awaited<ReturnType<typeof checkScanEntitlement>>);
+
+    const res = await post({ url: "o/r" });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ code: "NOT_FOUND" });
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 when the reservation reports orgExists:false (org vanished after the read)", async () => {
+    mockReserve.mockResolvedValue({ skip: true, reserved: false, balance: 0, orgExists: false });
+
+    const res = await post({ url: "o/r" });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ code: "NOT_FOUND" });
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
   it("reserves BEFORE inference and reports the post-reservation balance", async () => {
     const res = await POST(
       new Request("http://localhost/api/scan/stream", {
@@ -240,5 +273,55 @@ describe("POST /api/scan/stream — credit metering", () => {
     expect(mockRefund).not.toHaveBeenCalled();
     // …and no credit header is invented for a scan that never had a balance to report.
     expect(res.headers.get("x-ascent-credits-remaining")).toBeNull();
+  });
+});
+
+describe("POST /api/scan/stream — persisted SSE frame (address-bar rewrite contract)", () => {
+  async function drainText(body: unknown): Promise<string> {
+    const res = await POST(
+      new Request("http://localhost/api/scan/stream", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    return res.text();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAuth.mockResolvedValue({ orgSlug: "public" });
+    mockMetered.mockReturnValue(false);
+    mockLookup.mockResolvedValue(lookup("o/r@sha::llm"));
+    mockScan.mockResolvedValue({
+      ...reportWith("gemini"),
+      confidence: 0.9,
+      repo: { owner: "o", name: "r", headSha: "sha" },
+    } as unknown as ScanReport);
+    mockDbConfigured.mockReturnValue(false);
+  });
+
+  it("emits persisted ok:false when the DB is off, before result", async () => {
+    const text = await drainText({ url: "o/r" });
+    expect(text).toMatch(/event: persisted\ndata: \{"ok":false\}/);
+    expect(text.indexOf("event: persisted")).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf("event: persisted")).toBeLessThan(text.indexOf("event: result"));
+  });
+
+  it("emits persisted ok:true after a durable write", async () => {
+    mockDbConfigured.mockReturnValue(true);
+    // Dedup: the row already exists, so durable is true without firing the new-row alert path
+    // (scan-alerts is unmocked in this file).
+    mockPersist.mockResolvedValue({ deduped: true } as Awaited<ReturnType<typeof persistScanReport>>);
+    const text = await drainText({ url: "o/r" });
+    expect(text).toMatch(/event: persisted\ndata: \{"ok":true\}/);
+    expect(text.indexOf("event: persisted")).toBeLessThan(text.indexOf("event: result"));
+  });
+
+  it("emits persisted ok:false for a degrade-to-mock report (not saved)", async () => {
+    mockDbConfigured.mockReturnValue(true);
+    mockScan.mockResolvedValue(reportWith("mock"));
+    const text = await drainText({ url: "o/r", mock: false });
+    expect(text).toMatch(/event: persisted\ndata: \{"ok":false\}/);
   });
 });

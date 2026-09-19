@@ -11,10 +11,11 @@
 // The test walks the real seam end-to-end at the module boundary — ingest → score-input → warnings —
 // because the bug lived in the JOIN between the phases, not inside any one of them.
 
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { ingestRepository } from "./scan-ingest";
 import { buildScanScoreInput } from "./scan-score-input";
 import { buildScanWarnings } from "./scan-compose";
+import { fetchSecurityExposure } from "@/lib/security/exposure";
 import type { EnrichmentSource, Forge } from "@/lib/forge/types";
 import type { ParsedRepo, RepoSource } from "@/lib/github/source";
 import type { RepoSnapshot, SecurityPosture } from "@/lib/types";
@@ -308,5 +309,84 @@ describe("ingestRepository — the progress frames bracket the GitHub I/O", () =
     expect(pcts).toEqual([52, 62]);
     // 52 sits between the ingest's `files` frame (45) and `analyze` (62).
     expect(frames[1]!.message).toContain("Analyzing signals");
+  });
+});
+
+// G4 — fetchSecurityExposure used to swallow lockfile/OSV read failures into UNKNOWN
+// (`known:false`), the same shape a missing lockfile produces. Ingest then never recorded
+// `securityExposure` as failed, and D9 published "no lockfile / no alert access" for a
+// read that did not run. A throw is what lets the existing sensorFailed path fire.
+
+const LOCKFILE = JSON.stringify({
+  packages: {
+    "": { name: "r", version: "1.0.0" },
+    "node_modules/left-pad": { version: "1.3.0" },
+  },
+});
+
+describe("ingestRepository — OSV/lockfile read failures throw, they are not UNKNOWN", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("a GitHub lockfile 500 is recorded as securityExposure, not as no lockfile", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("boom", { status: 500 })));
+    const failed = await ingest({ securityExposure: fetchSecurityExposure });
+    expect(failed.sensorFailures).toEqual(["securityExposure"]);
+    expect(failed.securityExposure).toBeNull();
+    const check = await securityCheck("known-vulnerabilities", failed);
+    expect(check.score).toBeNull();
+    expect(check.evidence).not.toContain("No known open vulnerabilities");
+    const warnings = buildScanWarnings({
+      detectorWarnings: [],
+      hasToken: true,
+      llmFailed: false,
+      providerName: "gemini",
+      explicitMock: false,
+      snapshotTruncated: false,
+      snapshotCoverage: 1,
+      stackFit: null,
+      prPartial: false,
+      prFetchFailed: false,
+      sensorFailures: failed.sensorFailures,
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("dependency exposure");
+  });
+
+  it("a missing lockfile (404) is UNKNOWN, not a failed sensor", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Not Found", { status: 404 })));
+    const ok = await ingest({ securityExposure: fetchSecurityExposure });
+    expect(ok.sensorFailures).toEqual([]);
+    expect(ok.securityExposure).toEqual({
+      known: false, source: "none", critical: 0, high: 0, medium: 0, low: 0, scanned: 0,
+    });
+  });
+
+  it("an OSV querybatch failure is recorded as securityExposure, not as a clean or empty finding", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("package-lock.json")) return new Response(LOCKFILE, { status: 200 });
+      return new Response("osv down", { status: 503 });
+    }));
+    const failed = await ingest({ securityExposure: fetchSecurityExposure });
+    expect(failed.sensorFailures).toEqual(["securityExposure"]);
+    expect(failed.securityExposure).toBeNull();
+  });
+
+  it("a lockfile that exists and an OSV answer with no vulns is known:true, not a failure", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("package-lock.json")) return new Response(LOCKFILE, { status: 200 });
+      return new Response(JSON.stringify({ results: [{}] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }));
+    const ok = await ingest({ securityExposure: fetchSecurityExposure });
+    expect(ok.sensorFailures).toEqual([]);
+    expect(ok.securityExposure).toEqual({
+      known: true, source: "osv", critical: 0, high: 0, medium: 0, low: 0, scanned: 1,
+    });
   });
 });

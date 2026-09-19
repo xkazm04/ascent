@@ -7,7 +7,8 @@
 //
 // SHE IS THE CHECKLIST'S VOICE, NOT A SECOND OPINION. `restingLine` is handed the step the checklist
 // already promoted; nothing here re-derives doneness. `buildGettingStartedModel` stays the only thing
-// in the product that decides what is left to do.
+// that decides checklist doneness. Empty Skills/Memory counts, when handed in beside a null next, are
+// named as facts — not as a new done-bit.
 //
 // ANNOUNCEMENTS ARE AT THE LEVEL OF "A DECISION IS WAITING", never per beat. The phase strip is
 // `aria-hidden` (see AthenaWaiting) and this one polite region says a single thing per settled turn.
@@ -20,17 +21,20 @@ import type { AthenaProposalRecord } from "@/lib/db/athena-proposals";
 import { AthenaComposer } from "./AthenaComposer";
 import { AthenaTurnView } from "./AthenaTurnView";
 import { AthenaWaiting } from "./AthenaWaiting";
-import { restingLine, type AthenaNextStep } from "./restingLine";
+import { restingLine, type AthenaLibrarySnapshot, type AthenaNextStep } from "./restingLine";
 import { useAthenaThread } from "./useAthenaThread";
 
 export function AthenaPanel({
   slug,
   next,
+  library,
   degradedHref,
 }: {
   slug: string;
   /** The step the CHECKLIST promoted, or null. Read, never re-derived. */
   next: AthenaNextStep | null;
+  /** Scans + library sizes the caller already knows. Omitted snapshot is unknown, not empty. */
+  library?: AthenaLibrarySnapshot | null;
   /** Where the model provider is configured — a limitation with no stated remedy reads as a defect. */
   degradedHref: string;
 }) {
@@ -77,7 +81,7 @@ export function AthenaPanel({
         {s.turns.length === 0 && !s.loading && (
           <div className="border-l-2 border-accent/50 pl-3">
             <Kicker>Athena</Kicker>
-            <p className="mt-1 type-body-sm leading-relaxed text-slate-300">{restingLine(next)}</p>
+            <p className="mt-1 type-body-sm leading-relaxed text-slate-300">{restingLine(next, library)}</p>
             {next && (
               <Link
                 href={next.href}

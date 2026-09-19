@@ -2,7 +2,7 @@
 import type { ExecBriefing, BriefingMove } from './briefing';
 import { trajectoryNote } from '@/lib/maturity/forecast';
 import { briefingHasScore, scoreBasisLine, noScoreLine, coverageLine, mockDisclosure,
-  valueRealizedLine, valueRealizedHeading, benchmarkCaption, briefingTrajectory,
+  valueRealizedLine, valueRealizedHeading, benchmarkCaption, briefingTrajectory, briefingGoalLine,
   engineMixCaveat, engineMixLabel, movementLine, briefingProofLine, briefingLoopProofLine,
   briefingNextMove, nextMoveLine } from './briefing-format';
 
@@ -90,7 +90,7 @@ export function briefingMarkdown(b: ExecBriefing): string {
     out.push("");
     out.push("## Goals");
     for (const g of b.goals) {
-      out.push(`- ${g.label}: ${g.current}/${g.target} (${g.pct}%, ${g.pace}${g.etaDays != null ? `, ETA ~${g.etaDays}d` : ""})`);
+      out.push(`- ${briefingGoalLine(g)}`);
     }
   }
   // Proof before the ask: the rollout numbers are the briefing's evidence that acting on the last

@@ -309,9 +309,9 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   }
 
   // Org step for the GitHub App path: pull an installation's repos (private included) via
-  // /api/app/repos (which calls listInstallationRepos), then feed the SAME select+scan flow as
-  // the public listing. This is the bridge the connect page advertises — onboarding can finally
-  // reach a private repo, the highest-value activation moment.
+  // /api/app/repos (listInstallationReposResult, including `truncated`), then feed the SAME
+  // select+scan flow as the public listing. This is the bridge the connect page advertises —
+  // onboarding can finally reach a private repo, the highest-value activation moment.
   async function loadInstallationRepos(login: string, id: string) {
     setOrg(login);
     setLoading(true);
@@ -345,6 +345,9 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
         .slice(0, MAX_LIST);
       if (list.length === 0) throw new Error("No repositories accessible to this installation.");
       setRepos(list);
+      // Same honesty as the public listing: a page-capped GitHub App list is incomplete, not the
+      // whole installation. GET /api/app/repos now returns `truncated`; the select step discloses it.
+      setListTruncated(Boolean(data.truncated));
       setSelected(topSelection(list));
       // Lowercase the source label: private scans persist under the lowercased owner slug, and
       // the org dashboard resolves the slug exactly — so a mixed-case login (e.g. "Netflix")

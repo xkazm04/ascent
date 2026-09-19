@@ -35,6 +35,53 @@ function renderStep(selected: Set<string>) {
   );
 }
 
+describe("Onboarding select step discloses a truncated listing", () => {
+  const selected = new Set(["acme/api"]);
+
+  it("says 'most recently pushed' on the public path", () => {
+    render(
+      <SelectStep
+        repos={REPOS}
+        selected={selected}
+        loading={false}
+        sourceLabel="acme"
+        sourceInstallId={null}
+        listTruncated
+        credit={null}
+        maxSelect={10}
+        onToggle={noop}
+        onSelectTop={noop}
+        onClear={noop}
+        onScan={noop}
+        onBack={noop}
+      />,
+    );
+    expect(screen.getByText(/Showing the 2 most recently pushed/)).toBeTruthy();
+  });
+
+  it("does not claim recency order on the App path", () => {
+    render(
+      <SelectStep
+        repos={REPOS}
+        selected={selected}
+        loading={false}
+        sourceLabel="acme"
+        sourceInstallId="42"
+        listTruncated
+        credit={null}
+        maxSelect={10}
+        onToggle={noop}
+        onSelectTop={noop}
+        onClear={noop}
+        onScan={noop}
+        onBack={noop}
+      />,
+    );
+    expect(screen.queryByText(/Showing the \d+ most recently pushed/)).toBeNull();
+    expect(screen.getByText(/this installation can see/)).toBeTruthy();
+  });
+});
+
 describe("Onboarding Scan button surfaces its disabled reason", () => {
   it("explains why Scan is disabled when nothing is selected", () => {
     renderStep(new Set());

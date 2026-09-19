@@ -2,7 +2,7 @@
 // convention (<Feature>Types.ts) to keep goalView.tsx under the 200-LOC cap. Re-exported from
 // goalView.tsx so every existing import site is unchanged.
 
-import type { GoalPace, SeriesPoint, Trajectory } from "@/lib/maturity/forecast";
+import type { Forecast, GoalPace, SeriesPoint, Trajectory } from "@/lib/maturity/forecast";
 import type { GoalLaggard, GoalPctBasis } from "@/lib/db/plan";
 
 /** The serializable shape the goal UI renders — mirrors GoalProgress from src/lib/db/plan.ts. */
@@ -36,6 +36,9 @@ export interface GoalProgressView {
   etaDays: number | null;
   etaDate: string | null;
   requiredPerWeek: number | null;
+  /** The OLS fit behind pace/ETA. Presenters call `composeGoal` with this so the hedge cannot be
+   *  dropped. OPTIONAL: older fixtures / the live-wall banner omit it and fall back to local copy. */
+  forecast?: Forecast | null;
   laggards: GoalLaggard[];
   belowCount: number;
   /** The metric's per-day trend the pace was fitted on (display-clamped server-side). OPTIONAL so

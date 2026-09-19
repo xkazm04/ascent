@@ -50,6 +50,11 @@ vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(),
   paymentRequired: (balance: number) =>
     new Response(JSON.stringify({ code: "INSUFFICIENT_CREDITS", balance }), { status: 402 }),
+  orgNotFound: () => new Response(JSON.stringify({ code: "NOT_FOUND" }), { status: 404 }),
+  scanCreditRefusal: (decision: { reason: "not_found" } | { reason: "payment_required"; balance: number }) =>
+    decision.reason === "not_found"
+      ? new Response(JSON.stringify({ code: "NOT_FOUND" }), { status: 404 })
+      : new Response(JSON.stringify({ code: "INSUFFICIENT_CREDITS", balance: decision.balance }), { status: 402 }),
 }));
 
 // Quota + supporting modules — neutral defaults so the existing tests behave exactly as before
@@ -221,6 +226,35 @@ describe("POST /api/scan — credit reserve / 402 / refund flow (money-path)", (
     expect(res.status).toBe(402);
     expect(mockScan).not.toHaveBeenCalled(); // reserve failed → no inference
     expect(mockGrantCredits).not.toHaveBeenCalled(); // nothing was reserved → no refund
+  });
+
+  it("returns 404 NOT_FOUND — not 402 INSUFFICIENT_CREDITS — when the org does not exist", async () => {
+    mockCheckEntitlement.mockResolvedValue({
+      allowed: false,
+      unlimited: false,
+      balance: 0,
+      orgExists: false,
+    } as Awaited<ReturnType<typeof checkScanEntitlement>>);
+    const res = await post({ url: "o/r", mock: false });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ code: "NOT_FOUND" });
+    expect(mockConsumeCredit).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when consumeScanCredit reports orgExists:false", async () => {
+    mockConsumeCredit.mockResolvedValue({
+      ok: false,
+      unlimited: false,
+      balance: 0,
+      charged: false,
+      orgExists: false,
+    } as never);
+    const res = await post({ url: "o/r", mock: false });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ code: "NOT_FOUND" });
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockGrantCredits).not.toHaveBeenCalled();
   });
 
   it("charges the reserve exactly once and does NOT refund a real, newly-scored scan", async () => {

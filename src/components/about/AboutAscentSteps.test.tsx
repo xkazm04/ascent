@@ -61,3 +61,28 @@ describe("AboutAscentSteps mobile stacked variant", () => {
     expect(svg!.getAttribute("class") ?? "").toMatch(/sm:block/);
   });
 });
+
+// Unlock captions used to be a hand-kept UNLOCK map that paraphrased LEVELS.tagline and had
+// already drifted (L5 said "self-governing"). These pin that every rung's caption is the model
+// tagline in both the stacked list and the SVG, so a re-word in the model moves the about page.
+describe("AboutAscentSteps unlock lines are LEVELS.tagline", () => {
+  it("renders every LEVELS[i].tagline in the stacked list and the SVG (5 of 5)", () => {
+    const { container } = render(<AboutAscentSteps />);
+    expect(LEVELS).toHaveLength(5);
+    const listItems = [...container.querySelectorAll("ol li")];
+    expect(listItems).toHaveLength(LEVELS.length);
+    const svgTexts = [...container.querySelectorAll("svg text")].map((n) => n.textContent);
+    for (const [i, l] of LEVELS.entries()) {
+      expect(listItems[i]!.textContent, l.id).toContain(l.tagline);
+      expect(svgTexts, l.id).toContain(l.tagline);
+    }
+  });
+
+  it("does not call L5 self-governing: the model tagline is the unlock line", () => {
+    const { container } = render(<AboutAscentSteps />);
+    expect(container.textContent).not.toMatch(/self-governing/i);
+    const l5 = LEVELS.find((l) => l.id === "L5");
+    expect(l5?.tagline).toBeTruthy();
+    expect(l5!.tagline).not.toMatch(/self-governing/i);
+  });
+});

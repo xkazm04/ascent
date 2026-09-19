@@ -1,16 +1,20 @@
-// Render a ScanReport into the "ultimate onboarding skill" — a single, self-contained SKILL.md the
-// scanned repo drops into .claude/skills/ and runs with its own Claude Code CLI. Unlike the static
-// practice-artifact PRs, this hands the repo an interactive HARNESS its own agent drives: it
-// re-confirms each gap against the real code, adapts the deliverable to this repo, verifies before
-// proposing, and tracks progress. That makes the skill itself a unit of LLM-driven development.
+// Render a ScanReport into the "ultimate onboarding skill" — a self-contained SKILL.md the scanned
+// repo drops into TWO homes and runs with its own agent CLI. Claude Code still lives at
+// `.claude/skills/` (kept); a vendor-neutral copy is emitted beside it at `.agents/skills/` so the
+// path is not a brand. Unlike the static practice-artifact PRs, this hands the repo an interactive
+// HARNESS its own agent drives: it re-confirms each gap against the real code, adapts the deliverable
+// to this repo, verifies before proposing, and tracks progress. That makes the skill itself a unit of
+// LLM-driven development. Instruction files only — no agent runtime.
 //
 // Everything the running agent needs is BAKED IN, because the scanned repo has no access to
 // Ascent's database. Pure string assembly (no LLM, no I/O) — deterministic and testable.
 
 import type { DimensionId, ScanReport } from "@/lib/types";
 import { ARCHETYPE_LABEL } from "@/lib/maturity/model";
-import { buildFoundation, type GeneratedFile } from "@/lib/standard";
+import type { GeneratedFile } from "@/lib/standard/types";
+import { buildStandardFiles } from "@/lib/standard";
 import { publicBaseUrl } from "@/lib/site";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { selectTracks, WEAK_THRESHOLD, type OnboardingTrack, type SelectOpts } from "./tracks";
 
 // The footer's back-link is the deployment's OWN origin or nothing. There is deliberately no
@@ -19,19 +23,58 @@ import { selectTracks, WEAK_THRESHOLD, type OnboardingTrack, type SelectOpts } f
 // ascent.dev — a deployment where they have no account, no scan, and no way to act on the
 // instruction. Same reasoning lib/site gives for SOURCE_REPO_URL: a link to the wrong place damages
 // the claim it supports more than its absence does. Unlinked attribution still names the product.
+// When the origin is set, one extra footer line names the org control matrix (Standing › Passports)
+// after `--json` report-back; omit it when there is no origin, same as the credit link.
 
 export interface GeneratedSkill {
   /** Skill identifier / slash-command name. */
   name: string;
-  /** Repo-relative path the file should live at. */
+  /** Claude Code home — download and foundation PR still write this path. */
   path: string;
-  /** Full SKILL.md body to write. */
+  /** Full SKILL.md body for `path` (Claude's copy, no vendor-neutral header). */
   body: string;
   /** The practice/track ids this skill selected — persisted for the generation history (STD-6). */
   trackIds: string[];
+  /** Both homes: Claude's path first, then the vendor-neutral `.agents/skills/` copy. Same trackIds. */
+  files: GeneratedFile[];
 }
 
 const SKILL_NAME = "ascent-onboard";
+
+/** Repo-relative path the generated skill is written to (download and foundation PR share it). */
+export const ONBOARDING_SKILL_PATH = `.claude/skills/${SKILL_NAME}/SKILL.md`;
+
+/** Vendor-neutral skill home (agents registry), emitted beside the Claude path. */
+export const ONBOARDING_SKILL_AGENTS_PATH = `.agents/skills/${SKILL_NAME}/SKILL.md`;
+
+/** One-line header on the vendor-neutral copy pointing at Claude's path. */
+const CLAUDE_LINK_HEADER = `Also linked from Claude's path: \`${ONBOARDING_SKILL_PATH}\`.`;
+
+/** Keep YAML frontmatter at byte 0 so both copies remain valid SKILL.md. */
+function withClaudeLinkHeader(body: string): string {
+  const open = body.match(/^(---\n[\s\S]*?\n---\n)/);
+  const fm = open?.[1];
+  if (!fm) return `${CLAUDE_LINK_HEADER}\n\n${body}`;
+  return `${fm}\n${CLAUDE_LINK_HEADER}\n${body.slice(fm.length)}`;
+}
+
+function skillFiles(body: string): GeneratedFile[] {
+  return [
+    {
+      path: ONBOARDING_SKILL_PATH,
+      body,
+      purpose:
+        "Personalized onboarding harness the repo's agent runs after merge — same tracks as the SKILL.md download.",
+      lang: "markdown",
+    },
+    {
+      path: ONBOARDING_SKILL_AGENTS_PATH,
+      body: withClaudeLinkHeader(body),
+      purpose: "Vendor-neutral onboarding harness — same tracks, also linked from Claude's path.",
+      lang: "markdown",
+    },
+  ];
+}
 
 /** How many refinement tracks an already-strong repo is offered when it has no weak dimension. */
 const REFINEMENT_COUNT = 3;
@@ -50,8 +93,12 @@ function refinementTargets(report: ScanReport, count: number): DimensionId[] {
  *
  *  When the repo has NO weak dimension and the maintainer picked nothing, this no longer ships an
  *  empty Tracks shell (a download with nothing to do in it) — it offers refinement tracks on the
- *  lowest-scoring dimensions instead, which is exactly what `include` was built for. */
-export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts): GeneratedSkill {
+ *  lowest-scoring dimensions instead, which is exactly what `include` was built for.
+ *
+ *  `embedFiles` overrides Step 0's embedded tree (the fence-escaping test injects a hostile body).
+ *  Production callers omit it. Defaults to `buildStandardFiles` — not `buildFoundation` — so the
+ *  skill cannot embed (or recursively generate) itself. */
+export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts, embedFiles?: readonly GeneratedFile[]): GeneratedSkill {
   const selected = selectTracks(report, opts);
   const isRefinement = selected.length === 0 && !opts?.include?.length;
   const tracks = isRefinement
@@ -67,13 +114,20 @@ export function buildOnboardingSkill(report: ScanReport, opts?: SelectOpts): Gen
     currentState(report, tracks),
     ...(proven ? [proven] : []),
     controlModel(),
-    foundation(report),
+    foundation(embedFiles ?? buildStandardFiles(report)),
     tracksMenu(tracks, isRefinement),
     runProtocol(tracks),
     guardrails(),
     footer(report),
   ].join("\n\n"); // blank line between every section so headings/`---` aren't glued to prose
-  return { name: SKILL_NAME, path: `.claude/skills/${SKILL_NAME}/SKILL.md`, body, trackIds: tracks.map((t) => t.id) };
+  const trackIds = tracks.map((t) => t.id);
+  return { name: SKILL_NAME, path: ONBOARDING_SKILL_PATH, body, trackIds, files: skillFiles(body) };
+}
+
+/** The skill as a `GeneratedFile` so the foundation PR can commit it next to `.ai/` (later-file 409 skip). */
+export function buildOnboardingSkillFile(report: ScanReport, opts?: SelectOpts): GeneratedFile {
+  const skill = buildOnboardingSkill(report, opts);
+  return skill.files.find((f) => f.path === ONBOARDING_SKILL_PATH) ?? skill.files[0]!;
 }
 
 // ---- sections -----------------------------------------------------------------
@@ -216,8 +270,7 @@ ${fence}${f.lang}
 ${f.body}${fence}`;
 }
 
-function foundation(report: ScanReport): string {
-  const files = buildFoundation(report);
+function foundation(files: readonly GeneratedFile[]): string {
   const blocks = files.map(embedFile).join("\n\n");
   const paths = files.map((f) => `\`${f.path}\``).join(", ");
   return `## Step 0 — Lay the foundation (the \`.ai/\` standard)
@@ -384,10 +437,13 @@ function guardrails(): string {
 function footer(report: ScanReport): string {
   const site = publicBaseUrl();
   const credit = site ? `[Ascent](${site})` : "Ascent";
+  const matrix = site
+    ? `\n\nAfter \`--json\` report-back, the org control matrix is ${site}${orgTabHref(report.repo.owner, "passports")}.`
+    : "";
   return `---
 
 _Generated by ${credit}, your AI-native maturity companion, from a scan of
 \`${report.repo.owner}/${report.repo.name}\` on ${report.scannedAt.slice(0, 10)} ` +
     `(${report.level.id} ${report.level.name}, ${report.overallScore}/100, engine: ${report.engine.provider}).
-Re-scan after adopting tracks to confirm the new score._`;
+Re-scan after adopting tracks to confirm the new score._${matrix}`;
 }

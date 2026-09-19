@@ -55,8 +55,9 @@ export interface ScanJobRow {
   claimedBy: string | null;
   leaseUntil: string | null;
   attempts: number;
-  /** True while an overflow credit is held BY THIS ROW. The single record of the reservation — the
-   *  worker reads it to decide a refund, and {@link settleJob} is the only path that clears it. */
+  /** True while an overflow credit is held BY THIS ROW. The single record of the reservation —
+   *  stamped by the queue worker and by `/api/org/import` after reserve, read back on retry so a
+   *  300s kill + reap cannot debit twice, and {@link settleJob} is the only path that clears it. */
   creditCharged: boolean;
   resultJson: string | null;
   error: string | null;
@@ -248,6 +249,31 @@ export async function enqueueDueRescans(limit?: number): Promise<number> {
 }
 
 /**
+ * Seed the probe lane from the watchlist. Analogous to {@link enqueueDueRescans}: every watched
+ * non-personal repo is enqueued, the drain takes what fits, and the ISO-date bucket makes a second
+ * pass the same day a no-op. Without this, `/api/cron/probe` only drains webhook-enqueued jobs and
+ * App-installed orgs never get a `missingSince` stamp for a silent 404.
+ */
+export async function enqueueDueProbes(limit?: number): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  const { listDueProbeCandidates } = await import("@/lib/db/org-watch");
+  const due = await listDueProbeCandidates(limit);
+  let created = 0;
+  for (const r of due) {
+    const res = await enqueueScanJob({
+      orgSlug: r.orgSlug,
+      repoFullName: r.fullName,
+      repoId: r.repoId,
+      lane: "probe",
+      reason: "cadence",
+      priority: JOB_PRIORITY.cadence,
+    }).catch(() => null);
+    if (res?.created) created += 1;
+  }
+  return created;
+}
+
+/**
  * Claim the highest-priority eligible job in a lane, or null when the lane is empty.
  *
  * The claim is a CONDITIONAL `updateMany` on `{ id, state: "queued" }` — the same DB-serialized
@@ -364,8 +390,9 @@ export async function claimRepoWork(
   return claimJobById(enq.id, opts.workerId ?? "inline");
 }
 
-/** Record that this job now HOLDS an overflow credit. Written BEFORE any inference, so a crash leaves
- *  the reservation attributable to a row rather than to a lost variable. */
+/** Record that this job now HOLDS an overflow credit. Written BEFORE any inference (queue worker
+ *  and `/api/org/import`), so a crash leaves the reservation attributable to a row rather than to
+ *  a lost variable — the retry reads it and must not call `reserveScanCredit` again. */
 export async function markJobCredit(id: string, charged: boolean): Promise<void> {
   if (!isDbConfigured()) return;
   await getPrisma().scanJob.update({ where: { id }, data: { creditCharged: charged } }).catch(() => {});
@@ -395,6 +422,9 @@ export async function settleJob(id: string, out: JobOutcome): Promise<void> {
  * Return every job whose lease expired to the queue — the head of every drain, so a process-killed
  * worker self-heals. Past {@link MAX_JOB_ATTEMPTS} the row is settled `failed` instead: nothing
  * retries forever. Returns how many rows were touched.
+ *
+ * Does NOT clear `creditCharged`. A killed import/rescore that already reserved must still hold
+ * that credit when the row is re-claimed, or the retry double-debits.
  */
 export async function reapExpiredLeases(): Promise<number> {
   if (!isDbConfigured()) return 0;
@@ -402,6 +432,7 @@ export async function reapExpiredLeases(): Promise<number> {
   const now = new Date();
   const requeued = await prisma.scanJob.updateMany({
     where: { state: "claimed", leaseUntil: { lt: now }, attempts: { lt: MAX_JOB_ATTEMPTS } },
+    // creditCharged omitted on purpose — settleJob is the only clearer, and only on a refund.
     data: { state: "queued", claimedAt: null, claimedBy: null, leaseUntil: null },
   });
   const exhausted = await prisma.scanJob.updateMany({

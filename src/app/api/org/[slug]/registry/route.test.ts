@@ -37,7 +37,7 @@ vi.mock("@/lib/access", () => ({ resolveViewerLogin: async () => "octocat" }));
 vi.mock("@/lib/org/registry-view", () => ({ getRegistryView: () => getRegistryView() }));
 vi.mock("@/lib/db/org-registry", async (orig) => ({
   ...(await orig<object>()),
-  upsertOrgRegistry: () => upsertOrgRegistry(),
+  upsertOrgRegistry: (...a: unknown[]) => upsertOrgRegistry(...(a as [])),
   getOrgRegistry: () => getOrgRegistry(),
 }));
 vi.mock("@/lib/db/org-registry-write", () => ({
@@ -65,6 +65,8 @@ beforeEach(() => {
   getInstallationToken.mockResolvedValue("tok");
   upsertOrgRegistry.mockResolvedValue({ id: "reg-1", fullName: "acme/ai-registry" });
   getRegistryView.mockResolvedValue({ status: "unmapped" });
+  openScaffoldPr.mockResolvedValue(SCAFFOLD_OK);
+  createRegistryRepo.mockResolvedValue({ kind: "ok" as const, fullName: "acme/ai-registry", defaultBranch: "main" });
 });
 
 describe("GET /api/org/:slug/registry", () => {
@@ -150,6 +152,35 @@ describe("POST /api/org/:slug/registry", () => {
     expect(res.status).toBe(502);
     expect((await res.json()).code).toBe("github-error");
     expect(setRegistryStatus).toHaveBeenCalledWith("reg-1", "error", expect.anything());
+  });
+
+  it("persists the chosen mode and telemetry sink on map", async () => {
+    const res = await POST(post({ fullName: "acme/ai-registry", mode: "hosted_mirror", telemetrySink: "api" }), ctx);
+    expect(res.status).toBe(200);
+    expect(upsertOrgRegistry).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ fullName: "acme/ai-registry", mode: "hosted_mirror", telemetrySink: "api" }),
+    );
+  });
+
+  it("accepts YAML spellings (git-native / hosted-mirror) as the same closed set", async () => {
+    const res = await POST(post({ fullName: "acme/ai-registry", mode: "git-native", telemetrySink: "registry" }), ctx);
+    expect(res.status).toBe(200);
+    expect(upsertOrgRegistry).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ mode: "git_native", telemetrySink: "registry" }),
+    );
+  });
+
+  it("400s an unknown mode or sink without creating, scaffolding or persisting", async () => {
+    for (const body of [{ fullName: "acme/ai-registry", mode: "nope" }, { fullName: "acme/ai-registry", telemetrySink: "jsonl" }]) {
+      const res = await POST(post(body), ctx);
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe("invalid-input");
+    }
+    expect(createRegistryRepo).not.toHaveBeenCalled();
+    expect(openScaffoldPr).not.toHaveBeenCalled();
+    expect(upsertOrgRegistry).not.toHaveBeenCalled();
   });
 });
 

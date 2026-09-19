@@ -31,7 +31,27 @@
 // symbol into the browser bundle. The reads live in skill-usage-load.ts.
 import type { SkillEventStat, SkillUsageRows } from "@/lib/db";
 // Pure module, safe for the client bundle — see its header.
-import { sampleEventStats } from "@/lib/registry/usage-samples";
+import {
+  isUnmirroredSkillId,
+  sampleEventStats,
+  unmirroredSkillName,
+} from "@/lib/registry/usage-samples";
+import { cadenceDaysFromFrontmatter } from "@/lib/org/skill-frontmatter";
+import { normalizeEventSource, type SkillEventSource } from "@/lib/org/skill-event-source";
+
+/** Per-skill extras the fold reads. `SkillUsageRows.skills` is id/name/createdAt; cadence is either
+ *  already parsed (`cadenceDays`) or still sitting in the SKILL.md (`content`). */
+export type SkillUsageSkillRow = SkillUsageRows["skills"][number] & {
+  cadenceDays?: number | null;
+  content?: string | null;
+};
+
+export type SkillUsageMapInput = Omit<SkillUsageRows, "skills"> & { skills: SkillUsageSkillRow[] };
+
+function declaredCadenceDays(s: SkillUsageSkillRow): number | null {
+  if (typeof s.cadenceDays === "number" && s.cadenceDays > 0) return s.cadenceDays;
+  return cadenceDaysFromFrontmatter(s.content ?? "");
+}
 
 /** `new` = arrived recently, never invoked. `active` = used inside the window. `dormant` = past the
  *  window with no use since. The COARSE badge vocabulary — see {@link SkillUsageState} for the state
@@ -125,6 +145,10 @@ export interface SkillUsage {
   /** Which event kind `lastUsedAt` came from. `invoke` and `download` are real uses; a `sync` is only
    *  a background pull and can never make a skill `active`. */
   lastUsedType: "invoke" | "download" | "sync" | null;
+  /** Reporting client of the event `lastUsedAt` came from (`cli | hook | ci | web | registry | mcp`).
+   *  Null when never used, or when the producer supplied no recognized source (unattributed). Registry
+   *  `usage/` samples have no per-event client column and read as `registry`. */
+  lastUsedSource: SkillEventSource | null;
   /** Whole days since `lastUsedAt` (null when never used). */
   daysSinceUse: number | null;
   /** Real uses — invocations plus downloads/copies, web UI and CLI alike; the same writes behind the
@@ -168,16 +192,37 @@ function laterOfNullable(a: string | null, b: string | null): string | null {
   return laterOf(a, b);
 }
 
+type UsedFold = { lastAt: string | null; count: number; source: SkillEventSource | null };
+
+/** Closed-set client, or null. Legacy `cli:diverged` strings normalize on read, matching the writer. */
+function eventSource(raw: string | null | undefined): SkillEventSource | null {
+  return normalizeEventSource(raw).source;
+}
+
+/**
+ * Which client owns the latest timestamped row. A recency-less row (a registry sample with a count
+ * and no `lastUsed`) cannot name the last reporter — that would stamp a known source onto a use
+ * whose instant we do not have. On an exact-instant tie, a known source wins over an unattributed one.
+ */
+function laterSource(prev: UsedFold | undefined, next: Pick<UsedFold, "lastAt" | "source">): SkillEventSource | null {
+  if (!next.lastAt) return prev?.source ?? null;
+  if (!prev?.lastAt) return next.source;
+  const delta = Date.parse(next.lastAt) - Date.parse(prev.lastAt);
+  if (delta > 0) return next.source;
+  if (delta < 0) return prev.source;
+  return prev.source ?? next.source;
+}
+
 export interface SkillUsageInput {
   skillId: string;
   /** When the skill was authored. */
   createdAt: string;
   /** Per-type event rollup for THIS skill (extra skills are ignored by the caller, not here). */
-  events: Pick<SkillEventStat, "type" | "lastAt" | "count">[];
+  events: Pick<SkillEventStat, "type" | "lastAt" | "count" | "source">[];
   /** Adoption timestamps for this skill (only the latest matters). */
   adoptedAt?: string[];
   /** Declared cadence in days ("this is a quarterly checklist"). Overrides the observed cadence in
-   *  {@link dormancyWindowFor}. Absent for every skill until the library carries the field. */
+   *  {@link dormancyWindowFor}. Read from SKILL.md `cadenceDays` by {@link skillUsageMap}. */
   cadenceDays?: number | null;
   /**
    * Has this ORG's skill-event pathway ever emitted anything at all? False ⇒ a zero-event skill is
@@ -207,13 +252,14 @@ export interface SkillUsageInput {
  * stops a skill from being simultaneously "new" (young) and "dormant" (silent).
  */
 export function skillUsage(input: SkillUsageInput, now: Date = new Date()): SkillUsage {
-  const byType = new Map<string, { lastAt: string | null; count: number }>();
+  const byType = new Map<string, UsedFold>();
   for (const e of input.events) {
     const prev = byType.get(e.type);
-    // Defensive fold: the DB rollup is already one row per (skill,type), but a caller-built list may not be.
+    // Defensive fold: the DB rollup is one row per (skill,type,source), so same-type buckets merge here.
     byType.set(e.type, {
       lastAt: laterOfNullable(prev?.lastAt ?? null, e.lastAt),
       count: (prev?.count ?? 0) + e.count,
+      source: laterSource(prev, { lastAt: e.lastAt, source: eventSource(e.source) }),
     });
   }
   const invoke = byType.get("invoke");
@@ -224,11 +270,11 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
   // A real use with an UNKNOWN instant is evidence that it happened, not evidence of when — so it is
   // excluded from the recency ranking while still counting toward `useCount` below. This is what keeps
   // a registry sample that reports `invokes` without a `lastUsed` from claiming the skill is `active`.
-  const real: [SkillUsage["lastUsedType"], { lastAt: string; count: number }][] = [];
-  if (invoke?.lastAt) real.push(["invoke", { lastAt: invoke.lastAt, count: invoke.count }]);
-  if (download?.lastAt) real.push(["download", { lastAt: download.lastAt, count: download.count }]);
+  const real: [SkillUsage["lastUsedType"], { lastAt: string; count: number; source: SkillEventSource | null }][] = [];
+  if (invoke?.lastAt) real.push(["invoke", { lastAt: invoke.lastAt, count: invoke.count, source: invoke.source }]);
+  if (download?.lastAt) real.push(["download", { lastAt: download.lastAt, count: download.count, source: download.source }]);
   const realUse = real.sort((a, b) => Date.parse(b[1].lastAt) - Date.parse(a[1].lastAt))[0];
-  const picked: [SkillUsage["lastUsedType"], { lastAt: string | null; count: number } | undefined] =
+  const picked: [SkillUsage["lastUsedType"], UsedFold | undefined] =
     realUse ?? (sync?.lastAt ? ["sync", sync] : [null, undefined]);
   const lastUsedAt = picked[1]?.lastAt ?? null;
   const daysSinceUse = lastUsedAt ? daysBetween(lastUsedAt, now) : null;
@@ -261,6 +307,7 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
     verdict: verdictOfState(state),
     lastUsedAt,
     lastUsedType: picked[0],
+    lastUsedSource: lastUsedAt ? (picked[1]?.source ?? null) : null,
     daysSinceUse,
     useCount,
     invokes: invoke?.count ?? 0,
@@ -278,8 +325,13 @@ export function skillUsage(input: SkillUsageInput, now: Date = new Date()): Skil
  * `OrgSkillEvent` rows. The samples are a SNAPSHOT re-read on every index pass: materializing them as
  * ledger rows would double-count the second time the same head was indexed, and no de-duplication key
  * exists on the registry side to prevent it. Read-time folding is idempotent by construction.
+ *
+ * Samples for skills this org has not mirrored are kept under `registry:<name>` (see
+ * {@link unmirroredRegistryUsage}) so the Skills tab can still name what the fleet ran. They do not
+ * vote on the library's `unmeasured`/`unused` split: running a different skill is not instrumentation
+ * of an OrgSkill that was never mirrored.
  */
-export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Record<string, SkillUsage> {
+export function skillUsageMap(rows: SkillUsageMapInput, now: Date = new Date()): Record<string, SkillUsage> {
   const sampleStats = sampleEventStats(
     (rows.samples ?? []).map((s) => ({
       contributor: s.contributor,
@@ -290,7 +342,7 @@ export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Rec
       generatedAt: s.generatedAt,
     })),
     rows.skills,
-  );
+  ).map((e) => (e.source != null ? e : { ...e, source: "registry" }));
   const events = new Map<string, SkillEventStat[]>();
   for (const e of [...rows.events, ...sampleStats]) {
     const list = events.get(e.skillId) ?? [];
@@ -303,13 +355,15 @@ export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Rec
     list.push(a.adoptedAt);
     adoptions.set(a.skillId, list);
   }
+  const mirroredIds = new Set(rows.skills.map((s) => s.id));
   // The org-wide instrumentation fact behind `unmeasured` (D24): if not one event of any type exists
   // for the whole library, the pathway is silent and NOTHING is known about any skill's use. One row
   // anywhere proves the pathway works, so a zero-event skill in that org is genuinely `unused`.
-  // A contributed sample proves the pathway reaches this org just as an event does — it is a report
-  // from an installation that ran something. Counting only `rows.events` would leave a registry-only
-  // fleet permanently `unmeasured` while its own usage lane was full.
-  const orgHasTelemetry = rows.events.length > 0 || sampleStats.length > 0;
+  // A contributed sample for a MIRRORED skill proves the pathway reaches this org just as an event
+  // does — it is a report from an installation that ran something. Counting only `rows.events` would
+  // leave a registry-only fleet permanently `unmeasured` while its own usage lane was full. Unmirrored
+  // samples stay out of this bit: they are kept on the map, they do not flip the library.
+  const orgHasTelemetry = rows.events.length > 0 || sampleStats.some((e) => mirroredIds.has(e.skillId));
   const out: Record<string, SkillUsage> = {};
   for (const s of rows.skills) {
     out[s.id] = skillUsage(
@@ -318,12 +372,43 @@ export function skillUsageMap(rows: SkillUsageRows, now: Date = new Date()): Rec
         createdAt: s.createdAt,
         events: events.get(s.id) ?? [],
         adoptedAt: adoptions.get(s.id) ?? [],
+        cadenceDays: declaredCadenceDays(s),
         orgHasTelemetry,
       },
       now,
     );
   }
+  // Unmirrored registry skills have no library birthday. Using `generatedAt` would re-trigger the
+  // age guard on every publish; an unknown arrival must not claim `new`.
+  const unmirroredAnchor = "1970-01-01T00:00:00.000Z";
+  const seenUnmirrored = new Set<string>();
+  for (const e of sampleStats) {
+    if (mirroredIds.has(e.skillId) || seenUnmirrored.has(e.skillId)) continue;
+    seenUnmirrored.add(e.skillId);
+    out[e.skillId] = skillUsage(
+      {
+        skillId: e.skillId,
+        createdAt: unmirroredAnchor,
+        events: events.get(e.skillId) ?? [],
+        orgHasTelemetry: true,
+      },
+      now,
+    );
+  }
   return out;
+}
+
+/** Sink B samples whose skill name is not an OrgSkill in this org, ranked by invoke volume. */
+export function unmirroredRegistryUsage(
+  usage: Record<string, SkillUsage>,
+): { name: string; invokes: number; lastUsedAt: string | null }[] {
+  const rows: { name: string; invokes: number; lastUsedAt: string | null }[] = [];
+  for (const u of Object.values(usage)) {
+    const name = unmirroredSkillName(u.skillId);
+    if (!name) continue;
+    rows.push({ name, invokes: u.invokes, lastUsedAt: u.lastUsedAt });
+  }
+  return rows.sort((a, b) => b.invokes - a.invokes || a.name.localeCompare(b.name));
 }
 
 export interface UsageSummary {
@@ -343,6 +428,9 @@ export interface UsageSummary {
 export function usageSummary(map: Record<string, SkillUsage>): UsageSummary {
   const out: UsageSummary = { total: 0, new: 0, active: 0, dormant: 0, abandoned: 0, unused: 0, unmeasured: 0 };
   for (const u of Object.values(map)) {
+    // Unmirrored registry rows are not in the library; counting them here would inflate "N dormant
+    // of M" with skills the org never mirrored.
+    if (isUnmirroredSkillId(u.skillId)) continue;
     out.total += 1;
     out[u.verdict] += 1;
     if (u.state === "abandoned" || u.state === "unused" || u.state === "unmeasured") out[u.state] += 1;

@@ -20,6 +20,7 @@ import {
   ghHeaders,
   githubApiBase,
   githubRawBase,
+  githubWebBase,
 } from "@/lib/github/host";
 import { MEMORY_ENTRY_RE, capForPath, pickFilesToFetch, planFetchBudget, quarantineMemoryFiles, estimateCoverage } from "@/lib/forge/source-selection";
 import { mapPool } from "@/lib/pool";
@@ -47,8 +48,19 @@ const TIMEOUT_FILE_MS = 15_000; // per-file content fetch (capped at MAX_FILE_BY
 const FILE_CONCURRENCY = 8; // cap parallel file fetches (avoid secondary rate limits)
 
 
+/** Hostname of `githubWebBase()` (`GITHUB_SERVER_URL`, else github.com). Empty if the base isn't a URL. */
+function githubConfiguredWebHost(): string {
+  try {
+    return new URL(githubWebBase()).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 /**
- * Accepts full URLs, `github.com/owner/repo`, or bare `owner/repo`.
+ * Accepts full URLs, `github.com/owner/repo`, or bare `owner/repo`. A GHES clipboard URL
+ * (`https://ghe.example/owner/repo`, `git@ghe.example:owner/repo`) is accepted when its hostname
+ * equals `githubWebBase()` (`GITHUB_SERVER_URL`) — the same configured-host check GitLab's parser uses.
  *
  * DELIBERATELY LENIENT about trailing path segments (github-repo-data-access 07-16 #4): a pasted
  * deep link (`/pull/123`, `/tree/my-branch`, `/blob/main/README.md`, `/releases`, …) still parses to
@@ -63,7 +75,8 @@ const FILE_CONCURRENCY = 8; // cap parallel file fetches (avoid secondary rate l
 export function parseRepoUrl(input: string): ParsedRepo | null {
   if (!input) return null;
   let s = input.trim();
-  s = s.replace(/^git@github\.com:/i, "https://github.com/");
+  // scp-style SSH (`git@host:owner/repo`) — github.com and a configured GHES host both become https.
+  s = s.replace(/^git@([^:]+):/i, "https://$1/");
   s = s.replace(/\.git$/i, "");
 
   let owner: string | undefined;
@@ -73,7 +86,11 @@ export function parseRepoUrl(input: string): ParsedRepo | null {
   const hadScheme = s.includes("://");
   try {
     const url = new URL(hadScheme ? s : `https://${s}`);
-    if (/(^|\.)github\.com$/i.test(url.hostname)) {
+    const host = url.hostname.toLowerCase();
+    const configured = githubConfiguredWebHost();
+    const isGithubCom = /(^|\.)github\.com$/i.test(host);
+    const isConfiguredHost = Boolean(configured) && host === configured;
+    if (isGithubCom || isConfiguredHost) {
       const parts = url.pathname.split("/").filter(Boolean);
       [owner, repo] = parts;
       extra = parts.slice(2);
@@ -376,6 +393,18 @@ interface GhTreeResponse {
   tree: { path: string; type: string; size?: number; sha: string }[];
 }
 
+/** Exact-name paths Contents-API GET'd when GitHub's recursive tree is truncated.
+ *  Capped at this set — never a directory walk of the rest of the monorepo. */
+const TRUNCATED_TREE_EXACT_NAMES = [
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".ai/manifest.yaml",
+  "CODEOWNERS",
+  ".github/CODEOWNERS",
+  "docs/CODEOWNERS",
+  "SECURITY.md",
+] as const;
+
 interface GhCommitResponse {
   sha: string;
   commit: {
@@ -509,6 +538,15 @@ export class GitHubPublicSource implements RepoSource {
       size: t.size,
     }));
 
+    // GitHub's recursive tree drops entries past ~100k / 7 MB (`truncated: true`). High-signal
+    // exact names (CLAUDE.md, AGENTS.md, .ai/manifest.yaml, CODEOWNERS, SECURITY.md) can be
+    // absent from that listing even when they exist; probe only that capped set via Contents API
+    // and merge hits into the blob list + picks. The truncated flag stays true — we did not
+    // complete the tree.
+    if (treeRes.truncated) {
+      tree.push(...(await recoverTruncatedExactBlobs(owner, repo, ref, tree, token, signal)));
+    }
+
     const blobs = tree.filter((t) => t.type === "blob");
     if (blobs.length === 0) {
       throw new GitHubError("EMPTY", "Repository appears to be empty.");
@@ -524,7 +562,8 @@ export class GitHubPublicSource implements RepoSource {
     // Fetch a budgeted set of file contents from the raw host (no API quota cost). `subPath` aims the
     // per-file budget at one package of a monorepo; unset (the default) leaves the pick byte-for-byte
     // as it was.
-    const picks = pickFilesToFetch(blobs, opts.subPath);
+    let picks = pickFilesToFetch(blobs, opts.subPath);
+    if (treeRes.truncated) picks = mergeTruncatedExactPicks(picks, blobs);
     // THE BYTE PLAN IS COMPUTED BEFORE ANY FETCH (see planFetchBudget). The set of files we read is a
     // pure function of (tree, picks, budget) — never of how many of the 8 lanes happened to have
     // reconciled their claim when task N ran. A `?fresh=1` re-scan of the same commit therefore reads
@@ -599,6 +638,71 @@ export class GitHubPublicSource implements RepoSource {
   }
 }
 
+function contentsApiUrl(owner: string, repo: string, branch: string, path: string): string {
+  return `${API}/repos/${owner}/${repo}/contents/${encodePathSegments(path)}?ref=${encodePathSegments(branch)}`;
+}
+
+/** Prepend truncated-tree exact names that sit in `blobs` but missed `pickFilesToFetch` (budget full
+ *  before the late exact-name entries). Already-picked paths keep their original rank. */
+function mergeTruncatedExactPicks(picks: string[], blobs: readonly RepoFile[]): string[] {
+  const pickedLower = new Set(picks.map((p) => p.toLowerCase()));
+  const extra: string[] = [];
+  for (const name of TRUNCATED_TREE_EXACT_NAMES) {
+    const hit = blobs.find((b) => b.path.toLowerCase() === name.toLowerCase());
+    if (hit && !pickedLower.has(hit.path.toLowerCase())) {
+      extra.push(hit.path);
+      pickedLower.add(hit.path.toLowerCase());
+    }
+  }
+  return extra.length ? [...extra, ...picks] : picks;
+}
+
+/** Contents-API GET each missing exact name. 404 / directory listing / network → skip; never walk. */
+async function recoverTruncatedExactBlobs(
+  owner: string,
+  repo: string,
+  ref: string,
+  tree: readonly RepoFile[],
+  token?: string,
+  signal?: AbortSignal,
+): Promise<RepoFile[]> {
+  const present = new Set(tree.map((t) => t.path.toLowerCase()));
+  const missing = TRUNCATED_TREE_EXACT_NAMES.filter((p) => !present.has(p.toLowerCase()));
+  if (missing.length === 0) return [];
+  const found = await Promise.all(
+    missing.map((path) => probeContentsBlob(owner, repo, ref, path, token, signal)),
+  );
+  return found.filter((f): f is RepoFile => f != null);
+}
+
+async function probeContentsBlob(
+  owner: string,
+  repo: string,
+  ref: string,
+  path: string,
+  token?: string,
+  signal?: AbortSignal,
+): Promise<RepoFile | null> {
+  try {
+    const res = await fetchWithTimeout(
+      contentsApiUrl(owner, repo, ref, path),
+      { headers: ghHeaders(token), cache: "no-store" },
+      TIMEOUT_FILE_MS,
+      signal,
+    );
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    // A directory is an array of entries — do not walk it, even when the name matched.
+    if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+    const body = data as { type?: string; size?: number; content?: string };
+    if (body.type && body.type !== "file") return null;
+    if (typeof body.content !== "string" && typeof body.size !== "number") return null;
+    return { path, type: "blob", size: typeof body.size === "number" ? body.size : undefined };
+  } catch {
+    return null;
+  }
+}
+
 /** Authenticated single-file fetch via the Contents API (works for private repos). */
 async function fetchContents(
   owner: string,
@@ -608,10 +712,13 @@ async function fetchContents(
   token: string,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const encoded = encodePathSegments(path);
-  const url = `${API}/repos/${owner}/${repo}/contents/${encoded}?ref=${encodePathSegments(branch)}`;
   try {
-    const res = await fetchWithTimeout(url, { headers: ghHeaders(token), cache: "no-store" }, TIMEOUT_FILE_MS, signal);
+    const res = await fetchWithTimeout(
+      contentsApiUrl(owner, repo, branch, path),
+      { headers: ghHeaders(token), cache: "no-store" },
+      TIMEOUT_FILE_MS,
+      signal,
+    );
     if (!res.ok) return null;
     const data = (await res.json()) as { content?: string; encoding?: string };
     if (!data.content) return null;

@@ -47,6 +47,7 @@ import type {
   AuditLogEntry,
   AuditLogPage,
   ComparableScan,
+  CompactedPoint,
   HistoryPoint,
   MemoryRow,
   OpsState,
@@ -57,6 +58,7 @@ import type {
   PlaybookRow,
   PublicScanGallery,
   RepositoryHistory,
+  ScanDigestRow,
   SegmentSummary,
   SkillAdoption,
   SkillRow,
@@ -67,8 +69,6 @@ import type {
 // audit missed. See the note on WIRE_TYPES.
 import type { OrgBranding } from "@/lib/db/branding";
 import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
-// MOONSHOT #32. Deep-path until the barrel line lands; it reaches a client through `HistoryPoint`.
-import type { CompactedPoint } from "@/lib/db/scan-digest";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import type { ConformanceMapRow, ConformanceRow } from "@/lib/db/org-registry-conformance";
 import type { KnowledgeSubjectRow } from "@/lib/db/org-registry-subjects";
@@ -185,8 +185,10 @@ export const WIRE_TYPES = {
   AuditLogPage: true satisfies WireSafe<AuditLogPage>,
   // MOONSHOT #32: a compacted history point reaches the trend charts through `HistoryPoint`, and
   // its three timestamps come off Prisma `DateTime` columns — so it is exactly the shape this guard
-  // exists for. `toDigestRow` does the `.toISOString()`.
+  // exists for. `toDigestRow` does the `.toISOString()`. The stored digest row is barrel-exported
+  // with it; `firstScannedAt` / `lastScannedAt` are ISO strings on the same mapper.
   CompactedPoint: true satisfies WireSafe<CompactedPoint>,
+  ScanDigestRow: true satisfies WireSafe<ScanDigestRow>,
   ComparableScan: true satisfies WireSafe<ComparableScan>,
   // MOONSHOT #35: the rollout rows render in the Repositories tab; timestamps are ISO strings.
   FoundationRolloutRow: true satisfies WireSafe<FoundationRolloutRow>,

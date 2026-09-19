@@ -28,6 +28,7 @@ describe("parseSkillFrontmatter — happy path", () => {
       description: "Review a PR: correctness, tests, security.",
       category: "workflow",
       tags: ["review", "pull-request"],
+      cadenceDays: null,
     });
     expect(res.body).toBe("# Body\n\nDo the thing.");
   });
@@ -37,6 +38,15 @@ describe("parseSkillFrontmatter — happy path", () => {
     expect(res.ok).toBe(true);
     expect(res.data?.category).toBeNull();
     expect(res.data?.tags).toEqual([]);
+    expect(res.data?.cadenceDays).toBeNull();
+  });
+
+  it("reads cadenceDays as a positive whole number of days", () => {
+    const res = parseSkillFrontmatter(
+      doc("name: release-checklist\ndescription: Quarterly release checklist.\ncadenceDays: 90"),
+    );
+    expect(res.ok).toBe(true);
+    expect(res.data?.cadenceDays).toBe(90);
   });
 
   it("normalizes category case/format into the closed set", () => {
@@ -122,6 +132,14 @@ describe("parseSkillFrontmatter — rejections", () => {
     expect(res.ok).toBe(false);
     expect(res.errors.some((e) => /expected `key: value`/.test(e))).toBe(true);
   });
+
+  it("rejects a non-positive or non-integer cadenceDays", () => {
+    for (const raw of ["0", "-1", "1.5", "quarterly", "90d"]) {
+      const res = parseSkillFrontmatter(doc(`name: a\ndescription: X.\ncadenceDays: ${raw}`));
+      expect(res.ok).toBe(false);
+      expect(res.errors.some((e) => /`cadenceDays`/.test(e))).toBe(true);
+    }
+  });
 });
 
 describe("slugifySkillName / serializeFrontmatter", () => {
@@ -132,11 +150,30 @@ describe("slugifySkillName / serializeFrontmatter", () => {
   });
 
   it("round-trips through the serializer", () => {
-    const fm = { name: "a-skill", description: 'Line one "quoted"', category: "docs" as const, tags: ["x"] };
+    const fm = {
+      name: "a-skill",
+      description: 'Line one "quoted"',
+      category: "docs" as const,
+      tags: ["x"],
+      cadenceDays: null,
+    };
     const out = serializeFrontmatter(fm);
     const parsed = parseSkillFrontmatter(`${out}\n\nbody`);
     expect(parsed.ok).toBe(true);
     expect(parsed.data).toEqual({ ...fm, description: "Line one 'quoted'" });
+  });
+
+  it("round-trips a declared cadenceDays", () => {
+    const fm = {
+      name: "release-checklist",
+      description: "Quarterly release checklist.",
+      category: "workflow" as const,
+      tags: ["release"],
+      cadenceDays: 90,
+    };
+    const parsed = parseSkillFrontmatter(`${serializeFrontmatter(fm)}\n\nbody`);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data).toEqual(fm);
   });
 });
 
@@ -189,6 +226,7 @@ describe("effectiveSkillFrontmatter — read-time backfill", () => {
       description: "Stored in the description column.",
       category: "security",
       tags: ["owasp"],
+      cadenceDays: null,
     });
   });
 

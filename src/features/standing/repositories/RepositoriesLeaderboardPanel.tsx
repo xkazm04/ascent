@@ -5,28 +5,38 @@
 // The segment MANAGER (RepoSegmentsPanel — create/recolor/delete a segment, tag repos into it) used
 // to sit here, above the leaderboard. It now lives on the Segments view (SegmentsSection), which is
 // where a user goes to think about segments and where its absence left an empty state that could only
-// point back here. `listSegments` still runs: the leaderboard's per-row segment chips need it.
+// point back here. Segment membership for the bulk bar rides the shared `resolveOrgScope` promise.
 
 import Link from "next/link";
 import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
 import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
+import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { RepoLeaderboard } from "./RepoLeaderboard";
 import { MissingReposPanel } from "./MissingReposPanel";
-import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
-import { getOrgRollupShared, listMissingRepos, listSegments } from "@/lib/db";
-import { resolveStackScope } from "@/lib/org/scope";
+import { getOrgRollupShared, listMissingRepos } from "@/lib/db";
+import type { OrgScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string; sp: SearchParams }) {
-  // Optional tech-stack scope (Feature 3b): scope the leaderboard to the selected group's repos.
-  const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
+export async function RepositoriesLeaderboardPanel({
+  slug,
+  sp,
+  scope,
+}: {
+  slug: string;
+  sp: SearchParams;
+  /** SHARED promise created once in RepositoriesTab and awaited here and in Context Health. */
+  scope: Promise<OrgScope>;
+}) {
+  // Segment + tech-stack scope: the same SegmentSelector the rest of the dashboard uses. The two
+  // filters compose (segment AND stack); a bogus id/key falls back to the whole fleet.
+  const { barProps, segments, segmentId, techGroupId, activeStack } = await scope;
   // Request-scoped: Context Health below this panel asks for the SAME scoped rollup, and the tab used
   // to run two full ones per render. `getOrgRollupShared` normalizes null/undefined args so the two
   // calls key identically and collapse into one read.
-  const rollup = await getOrgRollupShared(slug, undefined, null, techGroupId);
+  const rollup = await getOrgRollupShared(slug, undefined, segmentId, techGroupId);
   // Same empty-state contract as the overview: don't render a blank panel inside the org shell when
   // there's no fleet data to table — point the user at how to populate it (tabs stay visible).
   if (!rollup) {
@@ -56,21 +66,16 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
   const posture = postureParam && (POSTURE_ORDER as readonly string[]).includes(postureParam) ? postureParam : null;
   const visible = posture ? leaderboard.filter((r) => r.latest?.posture === posture) : leaderboard;
 
-  // Chip-row filter surface: full-fleet counts per posture (counts never change with the active
-  // filter — they ARE the navigation), hrefs preserve an active stack scope.
+  // Chip-row filter surface: counts per posture in the active segment/stack (they ARE the
+  // navigation), hrefs preserve that scope so picking a posture cannot drop ?segment= / ?stack=.
   const postureCounts = new Map<string, number>();
   for (const r of leaderboard) if (r.latest) postureCounts.set(r.latest.posture, (postureCounts.get(r.latest.posture) ?? 0) + 1);
-  const stackQs = activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : "";
+  const scopeQs = `${segmentId ? `&segment=${encodeURIComponent(segmentId)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`;
   const base = orgTabHref(slug, "repositories");
   const chipHref = (p: string | null) => {
     const sep = base.includes("?") ? "&" : "?";
-    return p ? `${base}${sep}posture=${p}${stackQs}` : stackQs ? `${base}${sep}${stackQs.slice(1)}` : base;
+    return p ? `${base}${sep}posture=${p}${scopeQs}` : scopeQs ? `${base}${sep}${scopeQs.slice(1)}` : base;
   };
-
-  // The segments the leaderboard's bulk bar can tag a selection into (POST /api/org/segments/:id/
-  // repos/bulk). Still read here after the segment MANAGER moved to the Segments view: this is a
-  // different affordance — tag what you just filtered, without leaving the table.
-  const segments = (await listSegments(slug)) ?? [];
 
   // Watched repos GitHub's last COMPLETE listing didn't contain (renamed/transferred/deleted/private).
   // Renders nothing when the list is empty, so the tab is unchanged for a healthy fleet.
@@ -90,8 +95,7 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
               : `${rollup.scannedCount}/${rollup.repoCount} scanned · ~4-week activity`
           }
           right={
-            <div className="flex flex-wrap items-center gap-2">
-              <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
+            <ScopeFilterBar {...barProps}>
               {/* The export threads the ACTIVE posture/stack scope through, so "Export CSV" can never
                   contradict the filtered table it sits next to (repositories-segments #3). */}
               <a
@@ -101,11 +105,11 @@ export async function RepositoriesLeaderboardPanel({ slug, sp }: { slug: string;
               >
                 Export CSV
               </a>
-            </div>
+            </ScopeFilterBar>
           }
         />
         {/* Posture filter chips — the on-page surface for the ?posture= scope (also deep-linked from
-            the Overview's posture bar). Full-fleet counts; "All" clears; active chip highlighted. */}
+            the Overview's posture bar). Counts in the active segment/stack; "All" clears posture only. */}
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <Link
             href={chipHref(null)}

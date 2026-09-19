@@ -11,6 +11,7 @@ import {
   isSpendAnomaly,
   spendAnomalyRatio,
 } from "./alerts";
+import { isOrgTabId, orgTabHref } from "./org/orgTabs";
 
 const ENV = { ...process.env };
 afterEach(() => {
@@ -29,11 +30,14 @@ describe("buildGoalAtRiskMessage", () => {
   };
 
   it("names the gap AND the pace shortfall — the two numbers that make it actionable", () => {
-    const msg = buildGoalAtRiskMessage({ org: "acme", url: "https://a.dev/org/acme/plan", goals: [goal] });
+    const url = `https://a.dev${orgTabHref("acme", "executive")}`;
+    const msg = buildGoalAtRiskMessage({ org: "acme", url, goals: [goal] });
     expect(msg.text).toContain("1 goal off pace in acme");
     expect(msg.text).toContain("Avg D9 Security 54/70 by 2026-09-30");
     expect(msg.text).toContain("needs +1.6/wk, running at +0.2/wk");
-    expect(msg.text).toContain("https://a.dev/org/acme/plan");
+    expect(msg.text).toContain(url);
+    expect(msg.text).not.toContain("/plan");
+    expect(isOrgTabId(new URL(url).searchParams.get("tab"))).toBe(true);
     expect(msg.blocks.length).toBe(3);
   });
 

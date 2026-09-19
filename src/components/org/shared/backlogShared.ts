@@ -1,19 +1,6 @@
 import type { RecStatus } from "@/lib/types";
 import type { BacklogItem } from "@/lib/db";
 
-/**
- * Result of a backlog PATCH + its follow-up refresh, returned from BacklogPanel to a row so the row can
- * decide whether to keep or drop its optimistic override. The two flags are distinct because a PATCH can
- * succeed while its refresh is swallowed (503/blip) — in which case the row must KEEP the optimistic
- * value (the server already has it) rather than snap back to the stale pre-edit value (backlog #2).
- */
-export interface PatchOutcome {
-  /** The PATCH write itself succeeded (2xx). */
-  patched: boolean;
-  /** A refresh landed a fresh authoritative snapshot after the write (or a 409 reconcile). */
-  refreshed: boolean;
-}
-
 export const STATUS_LABEL: Record<RecStatus, string> = {
   open: "Open",
   in_progress: "In progress",
@@ -30,11 +17,6 @@ export const STATUS_ACCENT: Record<RecStatus, string> = {
   dismissed: "#475569",
 };
 
-/** STATUS_ACCENT lookup for loosely-typed (string) statuses — falls back to the `open` accent. */
-export function statusAccent(status: string): string {
-  return STATUS_ACCENT[status as RecStatus] ?? STATUS_ACCENT.open;
-}
-
 /**
  * The single "due soon" window (in rolling days) behind the `this_week` due bucket, the "Due ≤ Nd"
  * summary tile, and its backend count — previously three independent literal 7s across two layers,
@@ -50,9 +32,6 @@ export const DUE_SOON_DAYS = 7;
  * as calendar-aligned and mis-bucketed a Jul-29 vs Aug-1 pair on Jul 1. (G4-07)
  */
 export const DUE_MONTH_DAYS = 31;
-
-/** The overdue accent shared by the row's left border, the Overdue tile, and the due chip family. */
-export const OVERDUE_ACCENT = "#f97316";
 
 export const EVENT_LABEL: Record<string, string> = {
   status: "Status",

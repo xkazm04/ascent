@@ -76,6 +76,26 @@ describe("AuditLogViewer — CSV follows the applied filters (#5)", () => {
     expect(String(fetchMock.mock.calls[0]![0])).toContain("actorId=mallory");
     expect(csvLink().getAttribute("href")).toContain("actorId=mallory"); // now — and only now — the CSV follows
   });
+
+  it("a simulated 503 stays on-page instead of navigating onto JSON", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "Audit log requires a database (Phase 2 feature)." }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    render(<AuditLogViewer org="acme" initial={page([entry()])} />);
+    const before = window.location.href;
+    expect(screen.getAllByTitle("Download all matching entries as CSV")).toHaveLength(1);
+    fireEvent.click(csvLink());
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Audit log requires a database (Phase 2 feature).");
+    expect(window.location.href).toBe(before);
+    expect(screen.getByText("octocat")).toBeInTheDocument();
+    expect(String(fetchMock.mock.calls[0]![0])).toContain("format=csv");
+  });
 });
 
 // G2-06: the per-row HMAC was signed on write but nothing ever CHECKED it on read, so a row edited
