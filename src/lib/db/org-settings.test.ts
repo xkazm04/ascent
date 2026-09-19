@@ -41,7 +41,7 @@ import {
   setOrgAutoRecharge,
   setOrgTimeZone,
 } from "./org-settings";
-import { DEFAULT_AUTO_RECHARGE } from "@/components/org/shared/CreditsControl.autorecharge";
+import { DEFAULT_AUTO_RECHARGE } from "@/lib/autorecharge";
 import { __resetOrgTimeZoneCache } from "@/lib/org/timezone";
 
 /** Fake prisma exposing just the organization read/update this module makes. */

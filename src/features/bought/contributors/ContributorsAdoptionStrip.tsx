@@ -11,7 +11,7 @@
 
 import { Kicker } from "@/components/ui";
 import { Distribution, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import type { ContributorInsights } from "@/lib/db";
 import { quantiles } from "./contributorStats";
 import { isViewer } from "./ContributorsYouPointer";
