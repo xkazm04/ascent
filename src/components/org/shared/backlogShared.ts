@@ -17,14 +17,6 @@ export const STATUS_ACCENT: Record<RecStatus, string> = {
   dismissed: "#475569",
 };
 
-/** STATUS_ACCENT lookup for loosely-typed (string) statuses — falls back to the `open` accent. */
-export function statusAccent(status: string): string {
-  return STATUS_ACCENT[status as RecStatus] ?? STATUS_ACCENT.open;
-}
-
-/** The overdue accent shared by the row's left border, the Overdue tile, and the due chip family. */
-export const OVERDUE_ACCENT = "#f97316";
-
 /**
  * The single "due soon" window (in rolling days) behind the `this_week` due bucket, the "Due ≤ Nd"
  * summary tile, and its backend count — previously three independent literal 7s across two layers,
