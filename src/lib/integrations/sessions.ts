@@ -1,3 +1,4 @@
+import { attrMap, dpValue, isCumulativeSum, type OtlpDataPoint, type OtlpResourceMetrics } from "./otlp-wire";
 // OTLP/JSON → per-session ATTEMPT rows (W3a). The session-scoped sibling of otlp.ts's day-bucket
 // mapping, folded out of the SAME export in one pass by the caller.
 //
@@ -33,6 +34,13 @@ export interface AgentSessionInput {
   pullRequests: number;
   linesAdded: number;
   linesRemoved: number;
+  /**
+   * The counters above are RUNNING TOTALS (cumulative temporality) rather than this export's increments
+   * (delta, the exporter default). Decides whether the upsert sets or increments. One exporter applies
+   * one temporality preference to every counter, so a session is never legitimately mixed; if it were,
+   * any delta datapoint makes it delta, because setting a delta discards every earlier interval.
+   */
+  cumulative: boolean;
 }
 
 /**
@@ -47,56 +55,8 @@ const SESSION_METRICS = new Set([
   "claude_code.pull_request.count",
   "claude_code.lines_of_code.count",
 ]);
-
-interface OtlpValue {
-  stringValue?: string;
-  intValue?: string | number;
-  doubleValue?: number;
-  boolValue?: boolean;
-}
-interface OtlpAttr {
-  key?: string;
-  value?: OtlpValue;
-}
-interface OtlpDataPoint {
-  asInt?: string | number;
-  asDouble?: number;
-  timeUnixNano?: string | number;
-  attributes?: OtlpAttr[];
-}
-interface OtlpMetric {
-  name?: string;
-  sum?: { dataPoints?: OtlpDataPoint[] };
-  gauge?: { dataPoints?: OtlpDataPoint[] };
-}
-interface OtlpResourceMetrics {
-  resource?: { attributes?: OtlpAttr[] };
-  scopeMetrics?: { metrics?: OtlpMetric[] }[];
-}
 export interface SessionsBody {
   resourceMetrics?: OtlpResourceMetrics[];
-}
-
-function attrMap(attrs: OtlpAttr[] | undefined): Record<string, string> {
-  const m: Record<string, string> = {};
-  for (const a of attrs ?? []) {
-    if (!a?.key || !a.value) continue;
-    const v = a.value;
-    if (typeof v.stringValue === "string") m[a.key] = v.stringValue;
-    else if (v.intValue != null) m[a.key] = String(v.intValue);
-    else if (v.doubleValue != null) m[a.key] = String(v.doubleValue);
-    else if (v.boolValue != null) m[a.key] = String(v.boolValue);
-  }
-  return m;
-}
-
-function dpValue(dp: OtlpDataPoint): number {
-  if (dp.asInt != null) {
-    const n = Number(dp.asInt);
-    return Number.isFinite(n) ? n : 0;
-  }
-  if (dp.asDouble != null) return Number.isFinite(dp.asDouble) ? dp.asDouble : 0;
-  return 0;
 }
 
 function dpMs(dp: OtlpDataPoint, fallbackMs: number): number {
@@ -104,9 +64,10 @@ function dpMs(dp: OtlpDataPoint, fallbackMs: number): number {
   return Number.isFinite(nano) && nano > 0 ? Math.floor(nano / 1e6) : fallbackMs;
 }
 
-interface Acc extends Omit<AgentSessionInput, "startedAt" | "lastSeenAt"> {
+interface Acc extends Omit<AgentSessionInput, "startedAt" | "lastSeenAt" | "cumulative"> {
   firstMs: number;
   lastMs: number;
+  sawDelta: boolean;
 }
 
 /**
@@ -135,6 +96,7 @@ export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): Agent
     for (const sm of rm.scopeMetrics ?? []) {
       for (const metric of sm.metrics ?? []) {
         if (!SESSION_METRICS.has(metric.name ?? "")) continue;
+        const delta = !isCumulativeSum(metric);
         for (const dp of metric.sum?.dataPoints ?? metric.gauge?.dataPoints ?? []) {
           const ms = dpMs(dp, fallbackMs);
           const e =
@@ -152,7 +114,9 @@ export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): Agent
               linesRemoved: 0,
               firstMs: ms,
               lastMs: ms,
+              sawDelta: false,
             } satisfies Acc);
+          if (delta) e.sawDelta = true;
           e.firstMs = Math.min(e.firstMs, ms);
           e.lastMs = Math.max(e.lastMs, ms);
           const v = dpValue(dp);
@@ -198,5 +162,6 @@ export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): Agent
     pullRequests: Math.round(e.pullRequests),
     linesAdded: Math.round(e.linesAdded),
     linesRemoved: Math.round(e.linesRemoved),
+    cumulative: !e.sawDelta,
   }));
 }

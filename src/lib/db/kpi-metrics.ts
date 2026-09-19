@@ -193,10 +193,21 @@ export async function reScanRate(windowDays = 30): Promise<RatioMetric | null> {
  * cancelled still converted, and Subscription.createdAt preserves that where a current-status check
  * would erase it. The denominator is orgs that actually reached a scan — an org that signed up and
  * never scanned never saw the value being priced, so including it measures the funnel, not the offer.
+ *
+ * Empty producer is not 0%. Polar fulfilment writes Organization.plan (`setOrgPlan`); nothing writes
+ * Subscription. When the table has zero rows, `converted` would stay 0 while `eligible` can be > 0,
+ * and `rate()` would report 0% — the same rendering as "everyone scanned and nobody paid". That is a
+ * lie while the event is unobserved. Return null until at least one Subscription row exists. Do not
+ * substitute Organization.plan: a current paid plan has no conversion timestamp.
  */
 export async function freeToPaidConversion(windowDays = 30): Promise<RatioMetric | null> {
   if (!isDbConfigured()) return null;
-  const orgs = await getPrisma().organization.findMany({
+  const prisma = getPrisma();
+  // `rate()` already returns null when eligible is 0. This gate is the other empty: the conversion
+  // event table has never been written, so a non-empty cohort would otherwise become 0%.
+  if ((await prisma.subscription.count()) === 0) return null;
+
+  const orgs = await prisma.organization.findMany({
     select: {
       id: true,
       subscription: { select: { createdAt: true } },

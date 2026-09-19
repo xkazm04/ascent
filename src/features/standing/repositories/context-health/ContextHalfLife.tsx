@@ -86,7 +86,7 @@ export function ContextHalfLife({ slug, rows }: { slug: string; rows: RepoContex
         />
         <Tile
           label="Dead references"
-          value={s.deadRefsTotal}
+          value={s.deadRefsLowerBound ? `at least ${s.deadRefsTotal}` : s.deadRefsTotal}
           sub={
             s.deadRefsTotal > 0
               ? `guidance pointing at deleted files, in ${s.deadRefRepos} repo${s.deadRefRepos === 1 ? "" : "s"}`

@@ -156,6 +156,49 @@ describe("parseRepoUrl — SSRF / injection vectors are rejected (return null)",
   }
 });
 
+describe("parseRepoUrl — GHES clipboard URLs parse when GITHUB_SERVER_URL matches", () => {
+  // Mirror parseGitlabUrl's isConfiguredHost check: a pasted GHES URL is a GitHub repo when its
+  // hostname equals githubWebBase() (GITHUB_SERVER_URL). charset/traversal guards stay in force.
+  // SSRF contract: evil.com / github.com.evil.com remain null even with a GHES host configured.
+  afterEach(() => vi.unstubAllEnvs());
+
+  const ghes = "https://ghe.acme.com";
+
+  it("accepts https GHES owner/repo", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    const out = parseRepoUrl("https://ghe.acme.com/acme/api");
+    expect(out).toEqual({ owner: "acme", repo: "api" });
+    assertSafe(out);
+  });
+
+  it("accepts git@ GHES scp-style SSH", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    const out = parseRepoUrl("git@ghe.acme.com:acme/api");
+    expect(out).toEqual({ owner: "acme", repo: "api" });
+    assertSafe(out);
+  });
+
+  it("accepts trailing .git on a GHES URL", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    const out = parseRepoUrl("https://ghe.acme.com/acme/api.git");
+    expect(out).toEqual({ owner: "acme", repo: "api" });
+    assertSafe(out);
+  });
+
+  it("accepts /tree/ref on a GHES URL and surfaces the ref", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    const out = parseRepoUrl("https://ghe.acme.com/acme/api/tree/main");
+    expect(out).toEqual({ owner: "acme", repo: "api", ref: "main" });
+    assertSafe(out);
+  });
+
+  it("still rejects evil.com and github.com.evil.com when a GHES host is configured", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", ghes);
+    expect(parseRepoUrl("https://evil.com/a/b")).toBeNull();
+    expect(parseRepoUrl("https://github.com.evil.com/a/b")).toBeNull();
+  });
+});
+
 describe("parseRepoUrl — CURRENT-BEHAVIOR pins (documented quirks; safe because coords stay clean)", () => {
   // These inputs do NOT return null today, but the security invariant still holds: the owner/repo
   // that comes out is always charset-clean, so no traversal/credential/query material reaches the
@@ -227,6 +270,7 @@ describe("parseRepoUrl — CURRENT-BEHAVIOR pins (documented quirks; safe becaus
 //   api.github.com/repos/o/r            -> repo metadata (size kept small => totalBlobs <= MAX_FILES)
 //   api.github.com/repos/o/r/git/trees  -> the tree (controls totalBlobs, picks, and `truncated`)
 //   api.github.com/repos/o/r/commits    -> [] (irrelevant to coverage)
+//   api.github.com/repos/o/r/contents/  -> truncated-tree exact-name probe (404 unless a test overrides)
 //   raw.githubusercontent.com/...        -> per-file content: 200 = a successful pick, non-2xx OR a
 //                                          thrown network error = a transient blip (file dropped)
 
@@ -274,6 +318,12 @@ function treeBody(paths: string[], truncated: boolean) {
   };
 }
 
+function contentsPathFromUrl(url: string): string | null {
+  const prefix = `${API}/repos/o/r/contents/`;
+  if (!url.startsWith(prefix)) return null;
+  return decodeURIComponent(url.slice(prefix.length).split("?")[0] ?? "");
+}
+
 /**
  * Build a fetch mock for a fixed tree. `rawOutcome(path)` decides each raw-host file fetch:
  *   "ok"    -> 200 with content (a successful pick → counts toward `fetched`)
@@ -285,6 +335,7 @@ function makeFetch(paths: string[], truncated: boolean, rawOutcome: (path: strin
     if (url.startsWith(`${API}/repos/o/r/git/trees/`)) return res(treeBody(paths, truncated));
     if (url.startsWith(`${API}/repos/o/r/commits`)) return res([]);
     if (url === `${API}/repos/o/r`) return res(repoMetaBody);
+    if (contentsPathFromUrl(url) != null) return res({ message: "Not Found" }, { status: 404 });
     if (url.startsWith(`${RAW}/o/r/`)) {
       // The raw URL is `${RAW}/o/r/<ref>/<encoded path>`; recover the path tail for the outcome map.
       const tail = decodeURIComponent(url.slice(`${RAW}/o/r/main/`.length));
@@ -313,11 +364,26 @@ const EIGHT_PICKS = [
 afterEach(() => vi.unstubAllGlobals());
 
 describe("estimateCoverage (via GitHubPublicSource.fetchSnapshot) — transient blip must not poison the cache", () => {
+  it("uses a UTF-8 byte cap for fetched Unicode content", async () => {
+    const content = "x".repeat(13_999) + "😀tail";
+    const baseFetch = makeFetch(["readme.md"], false, () => "ok");
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      url.startsWith(`${RAW}/`) ? res(null, { text: content }) : baseFetch(url),
+    ));
+    const snapshot = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snapshot.files[0]!.content).toBe("x".repeat(13_999));
+    expect(snapshot.files[0]!.bytes).toBe(Buffer.byteLength(content, "utf8"));
+  });
+
   it("(a) small repo, ALL picks succeed → 0.95 (full confidence)", async () => {
-    vi.stubGlobal("fetch", makeFetch(EIGHT_PICKS, false, () => "ok"));
+    const fetchMock = makeFetch(EIGHT_PICKS, false, () => "ok");
+    vi.stubGlobal("fetch", fetchMock);
     const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
     expect(snap.files).toHaveLength(8); // fetched === attempted
     expect(snap.coverage).toBe(0.95);
+    expect(snap.truncated).toBe(false);
+    // Non-truncated trees must not Contents-GET high-signal names the listing omitted.
+    expect(fetchMock.mock.calls.filter(([u]) => contentsPathFromUrl(String(u)) != null)).toHaveLength(0);
   });
 
   it("(b) small repo, HALF the picks blip out (fetched=4/attempted=8) → coverage scaled DOWN, below the cache-pin threshold (NOT a false 0.95)", async () => {
@@ -346,6 +412,7 @@ describe("estimateCoverage (via GitHubPublicSource.fetchSnapshot) — transient 
     vi.stubGlobal("fetch", makeFetch(EIGHT_PICKS, true, () => "ok"));
     const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
     expect(snap.truncated).toBe(true);
+    expect(snap.files).toHaveLength(8); // Contents probes 404 — picks unchanged
     expect(snap.coverage).toBeLessThanOrEqual(0.6);
     expect(snap.coverage).toBe(0.6); // min(0.95, 0.6)
   });
@@ -388,6 +455,188 @@ describe("estimateCoverage (via GitHubPublicSource.fetchSnapshot) — transient 
     expect(snap.files).toHaveLength(0); // fetched=0
     // 0.85 * 0 = 0 — a total-failure snapshot, far below any cache-pin threshold (never a false 0.9).
     expect(snap.coverage).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Truncated recursive tree — Contents-API GET missing high-signal exact names (github-repo-data-access)
+// ---------------------------------------------------------------------------------------------------
+// GitHub's recursive tree can omit entries past ~100k / 7 MB. pickFilesToFetch only sees the blob
+// list, so a missing CLAUDE.md / .ai/manifest.yaml used to never be fetched — truncated only lowered
+// coverage. When truncated, Contents-API GET the capped exact-name set and merge hits into picks.
+// Directory listings are not walked. The truncated flag stays true.
+
+const HIGH_SIGNAL_EXACT_NAMES = [
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".ai/manifest.yaml",
+  "CODEOWNERS",
+  "SECURITY.md",
+] as const;
+
+/** Canonical Contents-API probe set: the five high-signal names plus CODEOWNERS' other GitHub locations. */
+const TRUNCATED_PROBE_PATHS = [
+  ...HIGH_SIGNAL_EXACT_NAMES,
+  ".github/CODEOWNERS",
+  "docs/CODEOWNERS",
+] as const;
+
+function contentsFileBody(path: string) {
+  return { type: "file" as const, path, size: 32, content: Buffer.from(`# ${path}\n`).toString("base64"), encoding: "base64" };
+}
+
+function makeTruncatedFetch(opts: {
+  treePaths: string[];
+  truncated: boolean;
+  contents: Record<string, "file" | "missing" | "dir">;
+}) {
+  const { treePaths, truncated, contents } = opts;
+  return vi.fn(async (url: string) => {
+    if (url.startsWith(`${API}/repos/o/r/git/trees/`)) return res(treeBody(treePaths, truncated));
+    if (url.startsWith(`${API}/repos/o/r/commits`)) return res([]);
+    if (url === `${API}/repos/o/r`) return res(repoMetaBody);
+    const cPath = contentsPathFromUrl(url);
+    if (cPath != null) {
+      const outcome = contents[cPath] ?? "missing";
+      if (outcome === "file") return res(contentsFileBody(cPath));
+      if (outcome === "dir") {
+        return res([{ type: "file", path: `${cPath}/nested.md`, name: "nested.md", size: 4 }]);
+      }
+      return res({ message: "Not Found" }, { status: 404 });
+    }
+    if (url.startsWith(`${RAW}/o/r/`)) {
+      const tail = decodeURIComponent(url.slice(`${RAW}/o/r/main/`.length));
+      return res(null, { text: `// content of ${tail}\n` });
+    }
+    throw new Error(`unexpected fetch in test: ${url}`);
+  });
+}
+
+function contentsCalls(fetchMock: { mock: { calls: unknown[][] } }): string[] {
+  return fetchMock.mock.calls
+    .map(([u]) => contentsPathFromUrl(String(u)))
+    .filter((p): p is string => p != null);
+}
+
+describe("truncated recursive tree — Contents-API GET missing high-signal exact names", () => {
+  for (const path of HIGH_SIGNAL_EXACT_NAMES) {
+    it(`truncated tree fetches missing ${path} via Contents API and merges it into picks`, async () => {
+      const fetchMock = makeTruncatedFetch({
+        treePaths: ["readme.md", "package.json"],
+        truncated: true,
+        contents: { [path]: "file" },
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+
+      expect(snap.truncated).toBe(true);
+      expect(snap.files.map((f) => f.path)).toContain(path);
+      expect(snap.tree.some((t) => t.path === path && t.type === "blob")).toBe(true);
+      expect(contentsCalls(fetchMock)).toContain(path);
+      expect(contentsCalls(fetchMock).every((p) => (TRUNCATED_PROBE_PATHS as readonly string[]).includes(p))).toBe(
+        true,
+      );
+    });
+  }
+
+  it("N of N missing high-signal paths are fetched on a truncated tree, and truncated stays true", async () => {
+    const contents: Record<string, "file" | "missing" | "dir"> = {};
+    for (const p of HIGH_SIGNAL_EXACT_NAMES) contents[p] = "file";
+    const fetchMock = makeTruncatedFetch({
+      treePaths: ["readme.md", "package.json"],
+      truncated: true,
+      contents,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+
+    expect(snap.truncated).toBe(true);
+    expect(snap.coverage).toBeLessThanOrEqual(0.6);
+    for (const path of HIGH_SIGNAL_EXACT_NAMES) {
+      expect(snap.files.map((f) => f.path)).toContain(path);
+      expect(snap.tree.some((t) => t.path === path)).toBe(true);
+    }
+    expect(new Set(contentsCalls(fetchMock))).toEqual(new Set(TRUNCATED_PROBE_PATHS));
+  });
+
+  it("truncated tree fetches .github/CODEOWNERS when root CODEOWNERS is missing from the blob list", async () => {
+    const fetchMock = makeTruncatedFetch({
+      treePaths: ["readme.md"],
+      truncated: true,
+      contents: { ".github/CODEOWNERS": "file" },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.truncated).toBe(true);
+    expect(snap.files.map((f) => f.path)).toContain(".github/CODEOWNERS");
+  });
+
+  it("does not Contents-GET high-signal paths already in the truncated blob list", async () => {
+    const present = [...TRUNCATED_PROBE_PATHS];
+    const fetchMock = makeTruncatedFetch({
+      treePaths: ["readme.md", ...present],
+      truncated: true,
+      contents: {},
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.truncated).toBe(true);
+    expect(contentsCalls(fetchMock)).toEqual([]);
+    for (const path of HIGH_SIGNAL_EXACT_NAMES) {
+      expect(snap.files.map((f) => f.path)).toContain(path);
+    }
+  });
+
+  it("does not Contents-GET when the tree is not truncated, even if those paths are absent", async () => {
+    const fetchMock = makeTruncatedFetch({
+      treePaths: ["readme.md", "package.json"],
+      truncated: false,
+      contents: Object.fromEntries(HIGH_SIGNAL_EXACT_NAMES.map((p) => [p, "file"])),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.truncated).toBe(false);
+    expect(contentsCalls(fetchMock)).toEqual([]);
+    for (const path of HIGH_SIGNAL_EXACT_NAMES) {
+      expect(snap.files.map((f) => f.path)).not.toContain(path);
+      expect(snap.tree.some((t) => t.path === path)).toBe(false);
+    }
+    expect(snap.files.map((f) => f.path).sort()).toEqual(["package.json", "readme.md"]);
+  });
+
+  it("does not walk a Contents-API directory listing — nested children are not fetched", async () => {
+    const fetchMock = makeTruncatedFetch({
+      treePaths: ["readme.md"],
+      truncated: true,
+      contents: { "CLAUDE.md": "dir", "AGENTS.md": "dir", ".ai/manifest.yaml": "dir" },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.files.map((f) => f.path)).not.toContain("CLAUDE.md");
+    expect(snap.files.map((f) => f.path)).not.toContain("CLAUDE.md/nested.md");
+    const probed = contentsCalls(fetchMock);
+    expect(probed.every((p) => (TRUNCATED_PROBE_PATHS as readonly string[]).includes(p))).toBe(true);
+    expect(probed).not.toContain("CLAUDE.md/nested.md");
+    const rawTails = fetchMock.mock.calls
+      .map(([u]) => String(u))
+      .filter((u) => u.startsWith(`${RAW}/`))
+      .map((u) => decodeURIComponent(u.slice(`${RAW}/o/r/main/`.length)));
+    expect(rawTails).not.toContain("CLAUDE.md/nested.md");
+  });
+
+  it("a 404 Contents probe does not add the path; truncated stays true", async () => {
+    const fetchMock = makeTruncatedFetch({
+      treePaths: ["readme.md", "package.json"],
+      truncated: true,
+      contents: {},
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const snap = await new GitHubPublicSource().fetchSnapshot({ owner: "o", repo: "r" });
+    expect(snap.truncated).toBe(true);
+    for (const path of HIGH_SIGNAL_EXACT_NAMES) {
+      expect(snap.files.map((f) => f.path)).not.toContain(path);
+    }
+    expect(new Set(contentsCalls(fetchMock))).toEqual(new Set(TRUNCATED_PROBE_PATHS));
   });
 });
 

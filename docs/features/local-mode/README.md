@@ -1,9 +1,11 @@
 # Local mode (self-hosted)
 
 _Status: **implemented** (2026-08-19, three phases in one wave): repo↔folder pairing, scan-from-disk
-ingestion with instant follow-up close, and the war-room autopilot. Everything here exists only on a
-**self-hosted** deployment (`selfHosted()`, `src/lib/env.ts`) — the routes answer 404 on managed
-cloud, and the rail hides the Pairing tab there._
+ingestion with instant follow-up close, and the war-room autopilot. Pairing, local rescan, drive, and
+the local-spawn writes exist only on a **self-hosted** deployment (`selfHosted()`, `src/lib/env.ts`)
+— those routes answer 404 on managed cloud, and the rail hides the Pairing tab there. The autopilot
+status read (`GET /api/org/local/autopilot`) is the exception: it is served on cloud the same way
+`GET /api/org/loop` is, with `enabled: false`._
 
 The premise: a self-hosted Ascent runs on the same machine as the code it scores, so the scan loop
 does not have to lead against GitHub. A paired repo scans from disk; an `Ascent-Resolves:` trailer
@@ -87,6 +89,41 @@ not be able to erase it.
   Admin group. Feature behavior (gates, routes, the tab's own guard) stays on `selfHosted()`, so a
   deliberate deep link on an implicit self-host still works. A cloud deep link gets an explanation,
   not a 404.
+
+## The registry, paired locally (2026-09-16)
+
+Pairing's **first** step is the org's REGISTRY, not a fleet repo, and it needs no GitHub App — which is
+the point: a self-hosted install usually has none, and until this every registry read went through an
+installation token, so Skills / Practices / Memory / Knowledge sat behind a wall the operator could not
+open. The checkout is normally the same one the operator edits and links skills from, so reading GitHub
+would also mean lagging them by a push.
+
+- `OrgRegistry.localPath` (nullable, migration `20260916120000_add_registry_local_path`) is the pairing.
+  `localRegistryDir(row)` returns it only when `selfHosted()`, so the column is inert on cloud.
+- `POST /api/org/:slug/registry/local` — **owner**-gated, 404 off self-host, path from the body (or, with
+  none, `registry.local` in the app's own `.ai/manifest.yaml`). `{ verifyOnly: true }` checks,
+  `{ path: null }` unpairs, re-pairing the same path IS the local re-index. Verification adds one rule to
+  `verifyLocalPath`'s: at least one registry lane (`skills/ practices/ memory/ knowledge/`) at HEAD.
+- `localSource(dir)` (`src/lib/registry/local-source.ts`) is a `RegistrySource` over `git ls-tree` /
+  `git cat-file` at the **committed** tree of the checkout's branch — an uncommitted edit in a sibling
+  session is not indexed as if it had been adopted, the same "merging is adopting" rule the hosted path
+  keeps.
+- **Local first, everywhere a registry is read.** `resolveRegistrySource` (`src/lib/registry/api.ts`)
+  returns `{ kind: "local", dir }` for a paired registry and mints nothing; only an unpaired one falls
+  through to `guardRegistryWrite`. Index, skill trace (`git log` over the skill's path) and the fleet
+  conformance sweep all take it, and a local dispatch ends at a committed branch in the paired checkout
+  instead of a pull request.
+- The fleet sweep reads each repo's PAIRED WORKING TREE (`conformance-read-local.ts`) — deliberately not
+  HEAD, because `.ai/consults.jsonl` is gitignored in consuming repos. `mapSha` is git's own blob id, so
+  a repo swept locally and later through GitHub does not re-ingest an unchanged map. An **unpaired** repo
+  is skipped and counted in one warning; its standing verdicts are never cleared.
+- **No webhook, so a render is the trigger.** `refreshLocalRegistryIfStale` (called from
+  `getRegistryView` and `getRegistrySync`) compares the checkout's HEAD to `lastIndexSha` and starts one
+  background pass when they differ — one in flight per registry, at most one probe per 30s.
+- GitHub becomes the optional second step (`RegistryGithubStep`): pull requests (scaffold, migration,
+  dispatch, signals) and a registry that is not on this machine. Measured 2026-09-16 on org `kiro` with
+  no App configured at all: pair + index 8s (33 skills, 8 practices, 6 notes, 219 lessons, 9 bundles),
+  fleet sweep 462 pairs from paired checkouts.
 
 ## Scan from disk (`src/lib/local/source.ts`)
 
@@ -185,12 +222,16 @@ Guardrails, each load-bearing:
   per lane by the engine, so in a multi-repo run one stalled repo no longer ends the pass).
 - **One run per org**, enforced against the database, not a process `Map`. Phase, branch, log and
   outcome ids are durable; a `running` row left behind by a restart is reconciled to `stopped`
-  (`markStaleRunsStopped`) rather than being trusted or resumed.
+  (`markStaleRunsStopped`, on the band's GET the same way `GET /api/org/loop` does it) rather than
+  being trusted or resumed.
 
 UI: `AutopilotBand` (+ `AutopilotBandParts`) in `src/features/inflight/live/` — picker, cycle
 count, start/stop, live log; polls the job every 4s only while one runs, and refreshes the wall once
-per finished run. Routes: `GET/POST /api/org/local/autopilot` (start/stop owner-gated — same blast
-radius as pairing).
+per finished run. Routes: `GET/POST /api/org/local/autopilot`. GET is member-gated and served on
+managed cloud (`{ enabled: false, job }`, `job` null unless a remote single-repo run exists) so a
+cloud org is not 404'd out of its own rows. POST start/stop stay owner-gated and self-hosted — same
+blast radius as pairing; a start without `ASCENT_AUTOPILOT=1` is an honest 409, never a local spawn
+on cloud.
 
 ## Drive to green (`/api/org/local/drive`, 2026-08-26; reachable from the cockpit 2026-08-28)
 
@@ -238,7 +279,8 @@ into its worktree before it exits:
 - **Skips are asked for as first-class answers.** A skip with a reason stops the item being
   re-dispatched next cycle; an unexplained attempt does not. The verdict is the agent's *account*, not
   the ruling — a row still closes only when the rescan stops raising the gap and the dimension moved.
-- **The file is never committed.** It is added to the worktree's `.git/info/exclude`, not to a
+- **The report is excluded from ordinary staging.** Its pattern is added to the effective
+  `info/exclude` path resolved by Git (shared by linked worktrees), not to a
   `.gitignore` (which would itself be a change to the repository, landing in every branch the lane
   produces). The contract also tells the session not to commit it; the exclude is the second belt.
 - **The parser never throws.** No file, `"{"`, a megabyte blob, an id outside the dispatched batch —
@@ -269,5 +311,7 @@ session. The lane log says `cost unknown` in that case, and the cockpit does the
   message rather than retrying without it.
 - A run interrupted by a restart is **reconciled, not resumed**: the row is marked `stopped` and its
   in-flight lanes `error`. The branch and its commits survive; nothing picks the cycle back up.
+- A locally paired registry cannot open pull requests, so migration, scaffold, signals contribution and
+  a dispatch's PR stay behind the optional GitHub App; the steps say so rather than failing on click.
 - The dirty-tree sha-less scan can't dedup against itself — two identical dirty scans persist two
   rows (bounded by the content-key `dedupKey`, which catches byte-identical reports).

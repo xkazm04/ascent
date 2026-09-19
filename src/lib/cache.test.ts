@@ -27,6 +27,28 @@ function deferred<T>() {
 }
 
 describe("coalesceScan — in-flight scan de-duplication (scan-pipeline #1)", () => {
+  it("replaces an aborted run before it settles, retaining the replacement for later joiners", async () => {
+    const old = deferred<ScanReport>();
+    const replacement = deferred<ScanReport>();
+    const controller = new AbortController();
+    const first = coalesceScan("aborted-replacement", () => old.promise, controller.signal);
+    controller.abort();
+    const onJoin = vi.fn();
+    const factory = vi.fn(() => replacement.promise);
+    const second = coalesceScan("aborted-replacement", factory, undefined, onJoin);
+    old.resolve(fakeReport("old"));
+    await first;
+    const lateFactory = vi.fn(async () => fakeReport("unexpected"));
+    const third = coalesceScan("aborted-replacement", lateFactory);
+    replacement.resolve(fakeReport("replacement"));
+    const reports = await Promise.all([second, third]);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(lateFactory).not.toHaveBeenCalled();
+    expect(reports).toEqual([fakeReport("replacement"), fakeReport("replacement")]);
+    expect(inflightScanCount()).toBe(0);
+  });
+
   it("runs the factory once for concurrent same-key calls and shares the result", async () => {
     const d = deferred<ScanReport>();
     const factory = vi.fn(() => d.promise);

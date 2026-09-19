@@ -3,9 +3,10 @@
 // "What moved since you last looked" — the unread half of the org Alerts chip.
 //
 // The chip was a static config popover with no count: a lead returning to the dashboard saw current
-// numbers with no marker of movement since their last visit. This adds the marker, reading records the
-// scan pipeline already persists (GET /api/org/alerts?movement=1 → Shared Org Memory since the
-// viewer's Membership watermark) and stamping the watermark when they look (POST { seen: true }).
+// numbers with no marker of movement since their last visit. This adds the marker, reading the union
+// GET /api/org/alerts?movement=1 already returns (scan-fed Shared Org Memory AND control-failed
+// AlertEvents since the viewer's Membership watermark) and stamping the watermark when they look
+// (POST { seen: true }).
 //
 // Everything degrades to the old chip: `movement: null` (auth-off, public org, no membership, any read
 // failure) renders no badge and no section, exactly as before.
@@ -32,11 +33,12 @@ export function movementBadgeLabel(count: number, capped: boolean): string {
   return capped ? `${count}+` : String(count);
 }
 
-/** Human label for a scan-pipeline event tag; an unknown/unparsable tag falls back to "moved". */
+/** Human label for a movement event tag; an unknown/unparsable tag falls back to "moved". */
 export function movementEventLabel(event: string): string {
   if (event === "regression") return "regressed";
   if (event === "level-change") return "level change";
   if (event === "recommendation-closed") return "gap closed";
+  if (event === "control-failed") return "control failed";
   return "moved";
 }
 

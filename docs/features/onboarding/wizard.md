@@ -10,7 +10,9 @@ sign-in).
 `/onboarding` is the ONE first-run destination — every "scan your org" CTA (landing hero and fleet
 section, `/about`, `/about-org`, the org-shell walls, the fleet-map empty state, the report
 conversion CTA, the header sign-in `next`, `safeNext()`'s fallback, `/me` and `/launch` bounces)
-lands here. The retired `/connect` page's jobs live here too (see
+lands here, and the PWA Web App Manifest `start_url` (`src/app/manifest.ts`) is `/onboarding` so
+an installed app opens this door rather than the marketing root. The route stays indexable
+(sitemap, not robots-disallowed). The retired `/connect` page's jobs live here too (see
 [github-app.md](../github/github-app.md#install-entry-the-connect-page-is-retired-2026-08-29)):
 `OnboardingErrorBanner` renders every `?error=` / `?resynced=` / `?revoked=` code the auth and App
 routes emit, `SessionControls` carries the dormant session's re-sync / revoke-others controls,
@@ -42,10 +44,10 @@ the co-located `useOnboardingFlow` hook (the component is the view layer).
 
 | Phase | What happens |
 | --- | --- |
-| **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). A `?org=<handle>` query param (the `/api/app/setup` post-install bounce, and any deep link that already knows the account) starts the public path immediately. |
-| **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed and discloses when it was cut short (`truncated`); the App listing is ordered by stars → recent activity. Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
+| **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). The handle form's **try:** chips lead with `DEMO_ORG_SLUG` (`lib/site.ts`, env-overridable) then two well-known public orgs when those slugs are distinct, so the shortcut matches the landing and the "See an example org report" link. A `?org=<handle>` query param (the `/api/app/setup` post-install bounce, and any deep link that already knows the account) starts the public path immediately. |
+| **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed; the App listing is ordered by stars → recent activity. Both disclose when the listing was cut short (`truncated` from `/api/org/repos` or `/api/app/repos`). Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
 | **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **360s stall timeout** (`STALL_MS`, sized above one real LLM assessment — see below). |
-| **done** | A **short dashboard handoff** + the **foundation install panel** and the invite panel (both App path only) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued: open the dashboard and it starts automatically"). |
+| **done** | A **short dashboard handoff** + the **SKILL.md download** (`SkillDownload` / `SkillDownloadList`, every repo that scored) + the **foundation install panel** and the invite panel (both App path only) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued: open the dashboard and it starts automatically"). |
 
 **Real vs. preview scans.** `resolveScanMode` (`scanMode.ts`) settles this before any POST, and it
 now has **two** real paths:
@@ -135,6 +137,11 @@ fabricated level), and shows the done screen once nothing is pending. Rows the r
 resolve to "not scanned". If the follow itself is refused (no database, no access) the notice says
 the run may still be going and points at the dashboard rather than claiming it finished. A
 `beforeunload` guard is armed while scanning.
+Reads are spaced 15 seconds after the previous read completes, so slow responses cannot overlap.
+Completion or refusal stops polling; transient network failures retry, and leaving the view aborts
+its pending read.
+An unreadable queue snapshot also makes following unavailable: missing or invalid counters never
+mean "finished", and malformed rows never replace the last known results.
 
 **Retry carries the same consent as the batch (2026-09-05).** The per-row Retry used to post only
 `{ org, repos, installationId, mock }`, so `watch` defaulted to true on the App path and re-enrolled
@@ -165,13 +172,27 @@ deleted the wizard-state-derived 5–6 step list (`buildChecklistSteps`, gone wi
 duplicated the dashboard. What replaced it is narrower and does real work: `FoundationPanel`
 (`OnboardingFoundationPanel.tsx`) offers **one click that opens a draft PR in every repo that just
 scanned successfully**, seeding the `.ai/` foundation Ascent generated from each scan
-(`POST /api/report/foundation/pr-batch`). It renders on the App path only (`foundationOrg`, gated the
+(`POST /api/report/foundation/pr-batch`) **and** the personalized
+`.claude/skills/ascent-onboard/SKILL.md` (same tracks as `GET /api/report/skill`; Claude's path is
+kept). The generator also emits a vendor-neutral copy at `.agents/skills/ascent-onboard/SKILL.md`
+(same body, one-line header that it is also linked from Claude's path). Default skill download is
+still the Claude file; `GET /api/report/skill?format=json` returns both. A pre-existing
+skill file is skipped (409), not overwritten.
+The panel renders on the App path only (`foundationOrg`, gated the
 same way as the invite panel: an installation id means a real org with a token behind it), offers a
 no-op **Skip**, and discloses before sending — that the PR is a draft nobody merges for you, and that
 report-back (the two Actions secrets and the `Secrets: write` permission they need) is *described*
-here but performed on the Repositories tab, behind a typed confirmation and the owner role. A repo
+here but performed on the Repositories tab, behind a typed confirmation and the owner role. After
+the batch succeeds, each ok row with a `url` (and `number` when present) is listed as a link; the
+first per-repo error is kept so a mixed result still says why a repo failed. A repo
 that errored or was credit-skipped is excluded: it has no saved scan, so no foundation can be
-generated for it. Everything else on the done screen still hands off to the dashboard.
+generated for it.
+
+**The done screen always offers the SKILL.md download for each scored repo.** It reuses the report
+header's `SkillDownload` control (`GET /api/report/skill?repo=owner/name`, no leaked `?dims=` on the
+default pill) via `SkillDownloadList`. That is the public-funnel / no-App fallback, and it stays on
+screen if the App-path user skips the foundation PR. A skipped or errored row is omitted: the route
+404s without a saved scan. Everything else on the done screen still hands off to the dashboard.
 `OnboardingChecklist` itself stays: the
 [connect page](../github/github-app.md) still renders it over its own three-step funnel progress
 (install → pick → first scan), with a progress bar, the first incomplete step highlighted as the
@@ -199,6 +220,12 @@ third is an explicit choice layered over them (`resolveDrawerPosture`):
 | Entry | the drawer **opens itself** | collapsed pull tab, discoverable (today's behaviour exactly) | never opens itself — an explicit switch |
 | Body | ONE promoted next task (primary CTA + "Show me") over the full task rail | task rail + the "Learn the dashboard" teach rail | the conversation surface ([companion](../companion/README.md)) |
 | Footer | "Skip setup" (stamps) | — | the composer |
+
+**A failed getting-started fetch is not teaching.** `useGettingStarted` keeps the last good payload
+when a later poll misses. With no last-good snapshot, `decidePosture` returns `unavailable`: the
+drawer does not auto-open, does not show the teach rail, and does not render "nothing to derive"
+(a miss is not an empty checklist). The one-shot restore is not consumed by the failure, so the next
+successful poll can still auto-open the companion for an unstamped member.
 
 **`companion` is not Athena, and the name predates her.** It means "the onboarding drawer opened
 itself", and it is load-bearing in `TourChecklist`, `TourNextTask`, `useGettingStarted` and
@@ -300,7 +327,16 @@ checklist in a later lane) ships as two primitives, both deliberately server-own
 ## Launch / fleet map (`src/app/launch/page.tsx`, `src/components/launch/FleetMap.tsx`)
 
 `/launch?next=<safe-url>` is the post-OAuth entrance (the callback redirects here on first
-sign-in). It renders `FleetMap` when signed in, else a `SignInNotice`.
+sign-in). It renders `FleetMap` when signed in, else a `SignInNotice` (whose `next` keeps
+any triage already on the URL, so `/launch?levels=L1` survives the auth bounce). Signed in
+with no installations still redirects to `/onboarding` (the map has nothing to chart).
+robots.txt already disallows `/launch`.
+
+The map's primary CTA, **Enter mission control**, is the handoff into the org dashboard.
+OAuth lands on `/launch` with no `?next=`. When `next` is missing or the `/onboarding`
+default and the viewer has installations, the CTA goes to `/org/{first installation login}`
+(the org landing URL; the dashboard picks the tab). An explicit safe `?next=` still wins
+(`safeNext`).
 
 `FleetMap` draws the user's App installations as animated **constellations**, each org a
 cluster, each repo a star:
@@ -312,9 +348,17 @@ cluster, each repo a star:
 - Each constellation hydrates independently via
   `fetch(/api/app/repos?org=<login>&installation_id=<id>)`, mapping the response to
   `RepoStar[]`; skeleton stars animate while loading, with per-constellation
-  loading/done/error status.
+  loading/done/error status. An unreachable org keeps the ~90s auto-refresh (with
+  per-org backoff, up to 15 min) and also offers **Retry**, which immediately
+  re-fetches that installation (clears backoff, shows the loading skeleton, then
+  done or a new error message). Scan stays hidden until the org is `done`.
 - A live fleet-wide tally (orgs / repos / scanned / avg maturity) updates as each org
   streams in.
+- Fleet triage (Find a repo, level bands, watched-only, org sort) lives in the URL:
+  `q`, `levels`, `watched`, `sort`. The address is the source of truth, so a refresh,
+  a share, or `/launch?levels=L1` restores the L1 band. Find-a-repo writes `q` through
+  a short debounce and `router.replace` (no history spam); the other controls write
+  immediately. `?next=` is preserved. Defaults are omitted (`sort=name`, empty filters).
 
 ## Key files
 
@@ -349,6 +393,22 @@ cluster, each repo a star:
 | `src/app/api/org/getting-started/route.ts` | `GET` the derived checklist + the caller's stamp (polling-safe). |
 | `src/app/launch/page.tsx` | Post-OAuth cinematic entrance. |
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
+| `src/components/report/SkillDownload.tsx` | Report-header SKILL.md pill + `SkillDownloadList` for the wizard done step (one pill per scored repo). |
+| `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`GET /api/report/skill` and the foundation PR). Emits two instruction files with the same trackIds: `.claude/skills/ascent-onboard/SKILL.md` (Claude Code, kept; default download) and `.agents/skills/ascent-onboard/SKILL.md` (vendor-neutral, plus a one-line "also linked from Claude's path" header). `?format=json` returns both. Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |
+
+## Generated onboarding skill footer (control matrix)
+
+`buildOnboardingSkill` (`src/lib/onboarding/skill.ts`) is the SKILL.md the scanned repo downloads and
+runs locally. It returns `files[]` with **two instruction files and the same `trackIds`**: Claude
+Code's home (`.claude/skills/ascent-onboard/SKILL.md`, also `path`/`body` for the default download)
+and a vendor-neutral copy at `.agents/skills/ascent-onboard/SKILL.md` whose body is the same plus a
+one-line header that it is also linked from Claude's path. No agent runtime is generated — these are
+instruction files only. The adopt loop ends with `node .ai/doctor.mjs --json` posting findings to
+`/api/report/conformance`, which Standing › Passports already renders as the fleet control matrix
+(`GET /api/report/conformance/matrix`). When `publicBaseUrl()` is set, the skill footer names that
+in-product matrix as `{origin}{orgTabHref(owner, "passports")}` so the agent's last step is
+observable in Ascent rather than stopping in CI logs. When no public origin is configured, that line
+is omitted, the same rule as the existing Ascent credit link.
 
 ## The stall watchdog and why it is 360s
 

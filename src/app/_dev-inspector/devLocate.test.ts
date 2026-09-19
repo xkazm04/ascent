@@ -8,7 +8,18 @@ import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, it, expect } from "vitest";
-import { chipLeft, isLibraryPath, LIBRARY_ROOTS, pickDefaultIndex, type LocEntry } from "./devLocate";
+import {
+  chipLeft,
+  defaultCrumbIndex,
+  formatHudCopy,
+  HUD_COPY_FORMATS,
+  isLibraryPath,
+  LIBRARY_ROOTS,
+  pickDefaultIndex,
+  splitLoc,
+  stepCrumbIndex,
+  type LocEntry,
+} from "./devLocate";
 
 const entry = (path: string, line = 1): LocEntry =>
   ({ el: null as unknown as Element, path, line, loc: `${path}:${line}` });
@@ -37,6 +48,34 @@ describe("isLibraryPath — anchored shared roots", () => {
   it("tolerates './'-prefixed stamps", () => {
     expect(isLibraryPath("./src/lib/ui.ts")).toBe(true);
     expect(isLibraryPath("./src/components/landing/hooks/useHero.ts")).toBe(false);
+  });
+});
+
+describe("formatHudCopy — two clipboard formats from the HUD", () => {
+  const loc = "src/app/_dev-inspector/DevInspector.tsx:88";
+
+  it("keeps Claude path:line as the default payload", () => {
+    expect(formatHudCopy(loc)).toBe(loc);
+    expect(formatHudCopy(loc, "claude")).toBe("src/app/_dev-inspector/DevInspector.tsx:88");
+  });
+
+  it("formats the VS Code CLI deep-link as code -g path:line", () => {
+    expect(formatHudCopy(loc, "vscode")).toBe("code -g src/app/_dev-inspector/DevInspector.tsx:88");
+  });
+
+  it("exposes exactly two formats the HUD can copy", () => {
+    expect(HUD_COPY_FORMATS).toHaveLength(2);
+    expect([...HUD_COPY_FORMATS]).toEqual(["claude", "vscode"]);
+  });
+});
+
+describe("splitLoc — chip / crumb label split", () => {
+  it("splits a nested path at the last slash", () => {
+    expect(splitLoc("src/a/b/File.tsx:88")).toEqual({ dir: "src/a/b/", file: "File.tsx:88" });
+  });
+
+  it("treats a slash-less loc as the file", () => {
+    expect(splitLoc("File.tsx:9")).toEqual({ dir: "", file: "File.tsx:9" });
   });
 });
 
@@ -111,5 +150,33 @@ describe("chipLeft — the right-edge clamp uses the chip's own width", () => {
 
   it("never goes past the left margin", () => {
     expect(chipLeft(-50, "Hero.tsx:9", 320, MAX)).toBe(4);
+  });
+});
+
+describe("stepCrumbIndex — HUD ↑/↓ wrap", () => {
+  it("steps down and wraps from the last row to the first", () => {
+    expect(stepCrumbIndex(0, 1, 3)).toBe(1);
+    expect(stepCrumbIndex(2, 1, 3)).toBe(0);
+  });
+
+  it("steps up and wraps from the first row to the last", () => {
+    expect(stepCrumbIndex(0, -1, 3)).toBe(2);
+    expect(stepCrumbIndex(1, -1, 3)).toBe(0);
+  });
+
+  it("is a no-op on an empty list", () => {
+    expect(stepCrumbIndex(0, 1, 0)).toBe(0);
+  });
+});
+
+describe("defaultCrumbIndex — keyboard selection starts on the default loc", () => {
+  it("points at the call-site crumb when library rows sit above it", () => {
+    const crumbs = [entry("src/components/ui/Modal.tsx"), entry("src/app/page.tsx")];
+    expect(defaultCrumbIndex(crumbs, "src/app/page.tsx:1")).toBe(1);
+  });
+
+  it("falls back to 0 when the default loc is missing", () => {
+    expect(defaultCrumbIndex([entry("src/app/page.tsx")], null)).toBe(0);
+    expect(defaultCrumbIndex([], "src/app/page.tsx:1")).toBe(0);
   });
 });

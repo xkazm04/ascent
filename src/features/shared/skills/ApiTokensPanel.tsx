@@ -1,18 +1,23 @@
 "use client";
 
-// Org API tokens (Feature 2 sync) — mint/list/revoke the `askl_` tokens a repo / CLI / CI uses to reach
-// the Skills Library without a browser session. The raw token is returned ONCE by the create call and
+// Org API tokens — mint/list/revoke the `askl_` tokens a machine caller uses to reach THIS org without a
+// browser session: the MCP agent door, org-memory recall, and per-repo skill telemetry (sink A).
+//
+// NOT needed for skills themselves or their counters (2026-09-17). Skills come from the linked registry
+// checkout, and each project writes its own use counts into the registry's `usage/` lane with
+// `ascent-skills report --to-registry` — a file in a git repo, no token, summed here at index time. The raw token is returned ONCE by the create call and
 // shown here exactly once (a dismissible reveal); after that only the prefix + metadata are listable.
 // Sibling of SkillsPanel; members only (the page gates rendering).
 
 import { useState } from "react";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import type { ApiTokenSummary, SkillTokenScope } from "@/lib/db";
+import { DEFAULT_PICKED_SCOPES } from "./apiTokenDefaults";
 
 const SCOPE_LABEL: Record<SkillTokenScope, string> = {
-  "skills:read": "Read / download skills",
-  "skills:write": "Register / update skills",
-  "telemetry:write": "Report usage",
+  "skills:read": "Read / download hosted skills (a registry-linked org needs no token for this)",
+  "skills:write": "Push / update a hosted skill from a CLI",
+  "telemetry:write": "Report per-repo usage (sink A); registry counters need no token",
   "memory:read": "Recall org memory",
   "mcp:read": "Agent door (MCP): read org standing",
   "followups:write": "Agent door (MCP): claim follow-ups and report attempts",
@@ -29,7 +34,7 @@ export function ApiTokensPanel({
 }) {
   const [tokens, setTokens] = useState<ApiTokenSummary[]>(initial);
   const [name, setName] = useState("");
-  const [picked, setPicked] = useState<Set<SkillTokenScope>>(new Set(["skills:read"]));
+  const [picked, setPicked] = useState<Set<SkillTokenScope>>(new Set<SkillTokenScope>(DEFAULT_PICKED_SCOPES));
   const [revealed, setRevealed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +63,7 @@ export function ApiTokensPanel({
       setRevealed(json.token);
       setTokens((t) => [json.summary, ...t]);
       setName("");
-      setPicked(new Set(["skills:read"]));
+      setPicked(new Set<SkillTokenScope>(DEFAULT_PICKED_SCOPES));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed.");
     } finally {
@@ -82,7 +87,7 @@ export function ApiTokensPanel({
       <SectionHeader
         size="sm"
         title="API tokens"
-        description="Give a repo, the sync CLI, or CI machine access to this library, no browser session needed. A token is shown once; store it as ASCENT_TOKEN."
+        description="For machine callers that need this org itself: the MCP agent door, memory recall, per-repo telemetry. Skills and their use counters travel through the registry checkout and need no token. A token is shown once; store it as ASCENT_TOKEN."
       />
 
       {revealed && (
@@ -110,7 +115,7 @@ export function ApiTokensPanel({
 
       <div className="mt-4">
         {tokens.length === 0 ? (
-          <p className="type-body-sm text-slate-500">No tokens yet. Mint one below to connect a repo or CI.</p>
+          <p className="type-body-sm text-slate-500">No tokens. None is needed for skills or their counters; mint one only for the MCP door, memory recall or per-repo telemetry.</p>
         ) : (
           <ul className="divide-y divide-slate-800 rounded border border-slate-800">
             {tokens.map((t) => (

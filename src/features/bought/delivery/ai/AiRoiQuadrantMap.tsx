@@ -81,7 +81,7 @@ export function AiRoiQuadrantMap({
             className="pointer-events-none select-none fill-slate-600"
             opacity={0.5}
           >
-            sample spend
+            no cost source
           </text>
         )}
         {/* points */}
@@ -102,7 +102,7 @@ export function AiRoiQuadrantMap({
               onMouseEnter={() => setHover(r)}
               onMouseLeave={() => setHover(null)}
             >
-              <title>{noCostSource ? `${r.name}: AI reach ${r.aiInvolvedRate}% · ${VERDICT_META[r.verdict].label} (spend is a sample)` : `${r.name}: AI reach ${r.aiInvolvedRate}%, ${fmtMoney(r.monthlySpend)}/mo, ${r.seats} seats · ${VERDICT_META[r.verdict].label}`}</title>
+              <title>{noCostSource ? `${r.name}: AI reach ${r.aiInvolvedRate}% · ${VERDICT_META[r.verdict].label} (no cost source)` : `${r.name}: AI reach ${r.aiInvolvedRate}%, ${fmtMoney(r.monthlySpend)}/mo, ${r.seats} seats · ${VERDICT_META[r.verdict].label}`}</title>
             </circle>
           );
         })}
@@ -115,7 +115,7 @@ export function AiRoiQuadrantMap({
         >
           <div className="whitespace-nowrap type-mono-sm font-bold text-white">{hover.name}</div>
           <div className="whitespace-nowrap type-caption text-slate-400">
-            {hover.aiInvolvedRate}% AI{noCostSource ? " · sample spend" : ` · ${fmtMoney(hover.monthlySpend)}/mo · ${hover.seats} seats`}
+            {hover.aiInvolvedRate}% AI{noCostSource ? " · no cost source" : ` · ${fmtMoney(hover.monthlySpend)}/mo · ${hover.seats} seats`}
           </div>
         </div>
       )}

@@ -25,6 +25,8 @@ const WHERE: Record<ProviderName, string> = {
   "claude-cli": "a local Claude CLI under your own subscription: your code stays on this machine.",
   "codex-cli":
     "a local Codex CLI under your own ChatGPT plan: the sampled files are sent to OpenAI for inference.",
+  gateway:
+    "the local LightTrack gateway on this machine, which forwards to the seat it routes to — a Claude CLI (Anthropic) or a Codex CLI (OpenAI) under your own subscriptions — so the sampled files reach that vendor for inference.",
   gemini: "the Google Gemini API to produce the score.",
   openai: "your configured OpenAI-compatible endpoint to produce the score.",
   openrouter: "the OpenRouter API, which routes the request to your selected model's upstream provider.",

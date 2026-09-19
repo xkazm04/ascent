@@ -38,7 +38,7 @@ import {
 import { autopilotEnabled } from "@/lib/local/agent";
 import type { RegistryDispatchMode, RegistryDispatchStage } from "@/lib/org/knowledge-shape";
 import { getKnowledgeView } from "@/lib/org/knowledge-view";
-import { guardRegistryRead, guardRegistryRole, guardRegistryWrite, registryError } from "@/lib/registry/api";
+import { guardRegistryRead, guardRegistryRole, registryError, resolveRegistrySource } from "@/lib/registry/api";
 import { MAX_CONFORM_SUBJECTS, briefDigest, briefInputsFromView, buildRegistryBrief } from "@/lib/registry/dispatch-brief";
 import { defaultDispatchDeps, detectDefaultBranch, runLocalDispatch } from "@/lib/registry/dispatch-local";
 
@@ -123,9 +123,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   let token: string | null = null;
   if (mode === "local") {
     if (!localPath) return localRefusal("not-paired", `${repo.fullName} is not paired with a local path — pair it on Admin → Pairing.`);
-    const gate = await guardRegistryWrite(slug, { minRole: "owner" });
+    // Local first: a registry paired to a checkout needs no App — the run ends at a local branch
+    // instead of a pull request (see `runLocalDispatch`).
+    const gate = await resolveRegistrySource(slug, { minRole: "owner" });
     if (gate instanceof NextResponse) return gate;
-    token = gate.token;
+    token = gate.kind === "github" ? gate.token : null;
   }
 
   // ── the artifact, then the row ───────────────────────────────────────────────────────────────
@@ -173,7 +175,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
     stage,
     repo: { repositoryId, fullName: repo.fullName, defaultBranch, localPath: localPath! },
     brief,
-    token: token!,
+    token,
   }).catch(() => null);
   return NextResponse.json({ dispatch }, { status: 202 });
 }

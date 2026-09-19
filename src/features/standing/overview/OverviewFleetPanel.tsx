@@ -12,6 +12,7 @@
 
 import { OrgEmpty } from "@/components/org/shared/ui";
 import { OverviewLedger } from "./OverviewLedger";
+import { isOverviewScopedEmpty, OVERVIEW_SCOPED_EMPTY } from "./overviewEmpty";
 import { buildScoreBadges, buildTrendPoints } from "./overviewStanding";
 import { buildTrajectories } from "./repoTrajectory";
 import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
@@ -57,15 +58,17 @@ export async function OverviewFleetPanel({
     getOrgRepoHistories(slug, win, segmentId, techGroupId),
   ]);
 
-  // Reaching here with a null rollup means this view's scoped query (period + segment) found nothing
-  // where the layout's did — render a page-scale empty state with a way out, not a blank panel.
-  if (!rollup) {
+  // Null AND a zero-repo rollup are the same miss: this view's scoped query (period + segment/stack)
+  // found nothing where the layout's unscoped summary did. `getOrgRollup` returns a real object with
+  // `repos: []` when the org exists, so `!rollup` never fired for a scoped miss and OverviewLedger
+  // printed a fake 0 fleet. Same copy either way — a way out, not a blank panel or a 0/0 strip.
+  if (isOverviewScopedEmpty(rollup)) {
     return (
       <OrgEmpty
-        title="No data for this view"
-        body="No scans match the selected period or segment yet. Widen the time range, clear the segment filter, or scan some repositories to populate the dashboard."
+        title={OVERVIEW_SCOPED_EMPTY.title}
+        body={OVERVIEW_SCOPED_EMPTY.body}
         href={orgTabHref(slug, "repositories")}
-        cta="View repositories"
+        cta={OVERVIEW_SCOPED_EMPTY.cta}
       />
     );
   }

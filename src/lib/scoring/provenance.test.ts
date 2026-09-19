@@ -6,7 +6,9 @@ import {
   SIGNAL_ONLY_DIMENSIONS,
   blendWeightLabel,
   blendWeightPercent,
+  radarHoverTicks,
   scoreProvenance,
+  scoreProvenanceMark,
 } from "@/lib/scoring/provenance";
 import { integrityNotes } from "@/lib/maturity/attribution";
 import type { ScoreIntegrity } from "@/lib/types";
@@ -57,6 +59,26 @@ describe("scoreProvenance", () => {
   });
 });
 
+describe("scoreProvenanceMark — itemization tags, G5 unlabeled clean blend", () => {
+  it("marks a widened blended dimension and leaves its neighbour unlabeled", () => {
+    const si: ScoreIntegrity = { ...CLEAN, widenedDims: ["D2"] };
+    expect(scoreProvenanceMark({ id: "D2", signalScore: 50, score: 56 }, si)).toBe("widened");
+    expect(scoreProvenanceMark({ id: "D3", signalScore: 50, score: 53 }, si)).toBeNull();
+  });
+
+  it("returns null on a clean blended dimension — nothing to disclose", () => {
+    expect(scoreProvenanceMark({ id: "D2", signalScore: 50, score: 52 }, CLEAN)).toBeNull();
+    expect(scoreProvenanceMark({ id: "D2", signalScore: 50, score: 52 }, undefined)).toBeNull();
+  });
+
+  it("labels unmeasured before claim-scored, and names signal-only / claim-scored", () => {
+    const si: ScoreIntegrity = { ...CLEAN, unmeasuredDims: ["D4"] };
+    expect(scoreProvenanceMark({ id: "D4", signalScore: 40, score: 47 }, si)).toBe("unmeasured");
+    expect(scoreProvenanceMark({ id: "D1", signalScore: 40, score: 47 }, CLEAN)).toBe("claim-scored");
+    expect(scoreProvenanceMark({ id: "D9", signalScore: 30, score: 30 }, CLEAN)).toBe("signal-only");
+  });
+});
+
 describe("SIGNAL_ONLY_DIMENSIONS", () => {
   it("lists every dimension the score input actually flags `deterministic`", () => {
     // Structural pin, not a restatement: the producer is `scan-score-input.ts`, which rewrites a
@@ -97,5 +119,37 @@ describe("blend weight — one unit for both surfaces", () => {
     const p = scoreProvenance({ id: "D2", signalScore: 50, score: 52 }, si);
     if (p.kind !== "blended" || p.blend === null) throw new Error("unreachable");
     expect(note?.label).toContain(`${blendWeightPercent(p.blend)}%`);
+  });
+});
+
+// RadarChart plots the blend. Hover/SR must still name both witnesses when they disagree with it
+// (G1: never collapse LLM-vs-detector disagreement into the headline). Equal values stay one number.
+describe("radarHoverTicks", () => {
+  it("returns null when signal, LLM, and blend are the same number", () => {
+    expect(radarHoverTicks({ score: 72, signalScore: 72, llmScore: 72 })).toBeNull();
+  });
+
+  it("names BOTH ticks when the blend sits off the signal (the radar hover case)", () => {
+    expect(radarHoverTicks({ score: 78, signalScore: 70, llmScore: 90 })).toEqual({
+      signal: 70,
+      llm: 90,
+      line: "signal 70 · LLM 90",
+    });
+  });
+
+  it("still names the signal when it equals the blend but the LLM disagrees (G1)", () => {
+    expect(radarHoverTicks({ score: 70, signalScore: 70, llmScore: 90 })).toEqual({
+      signal: 70,
+      llm: 90,
+      line: "signal 70 · LLM 90",
+    });
+  });
+
+  it("still names the LLM when it equals the blend but the signal disagrees (G1)", () => {
+    expect(radarHoverTicks({ score: 90, signalScore: 70, llmScore: 90 })).toEqual({
+      signal: 70,
+      llm: 90,
+      line: "signal 70 · LLM 90",
+    });
   });
 });

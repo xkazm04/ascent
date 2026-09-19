@@ -23,10 +23,18 @@ export function RowSpinner() {
   );
 }
 
+/** Assignee / due-date slice of PATCH /api/recommendations/:id — null clears the field. */
+export type RecPlanningPatch = {
+  assigneeLogin?: string | null;
+  targetDate?: string | null;
+};
+
 /** A per-row save failure: the change the user attempted, and whether it's recoverable. */
 export interface RowError {
-  /** The status change that failed — re-applied by the Retry button. */
-  status: RecStatus;
+  /** The status change that failed — re-applied by the Retry button. Absent on a planning-only patch. */
+  status?: RecStatus;
+  /** Assignee / due-date patch that failed — Retry resubmits these instead of a status. */
+  planning?: RecPlanningPatch;
   /** "config" = persistence not available (503, retry won't help); "stale" = this page's scan has
    *  been superseded by a newer one (retry would 409 forever — reload instead); "transient" = retryable. */
   kind: "config" | "stale" | "transient";
@@ -176,6 +184,72 @@ export function DismissReasonPrompt({
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+const PLANNING_INPUT =
+  "rounded-md border border-slate-700 bg-slate-950 px-2 py-1 type-body-sm text-slate-200 outline-none focus:border-accent";
+
+/**
+ * Owner + due date on a tracker row. PATCH already accepted these; the row now shows them and
+ * writes through that same route. A null field is an empty control, never "unassigned" / "no due
+ * date" copy (G4: absence is not a value).
+ */
+export function RowPlanningFields({
+  assigneeLogin,
+  targetDate,
+  saving,
+  onPatch,
+}: {
+  assigneeLogin: string | null;
+  targetDate: string | null;
+  saving: boolean;
+  onPatch: (patch: RecPlanningPatch) => void;
+}) {
+  function commitLogin(raw: string) {
+    const next = raw.trim().replace(/^@+/, "") || null;
+    if (next === (assigneeLogin || null)) return;
+    onPatch({ assigneeLogin: next });
+  }
+
+  function commitDate(value: string) {
+    const next = value || null;
+    if (next === (targetDate || null)) return;
+    onPatch({ targetDate: next });
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-3">
+      <label className="inline-flex items-center gap-1.5 type-body-sm text-slate-400">
+        <span className="type-caption text-slate-500">owner</span>
+        <input
+          key={assigneeLogin ?? ""}
+          type="text"
+          defaultValue={assigneeLogin ?? ""}
+          maxLength={39}
+          autoComplete="off"
+          spellCheck={false}
+          aria-busy={saving || undefined}
+          aria-label="Assignee"
+          onBlur={(e) => commitLogin(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          className={`${PLANNING_INPUT} w-36`}
+        />
+      </label>
+      <label className="inline-flex items-center gap-1.5 type-body-sm text-slate-400">
+        <span className="type-caption text-slate-500">due</span>
+        <input
+          type="date"
+          value={targetDate ?? ""}
+          aria-busy={saving || undefined}
+          aria-label="Due date"
+          onChange={(e) => commitDate(e.target.value)}
+          className={PLANNING_INPUT}
+        />
+      </label>
     </div>
   );
 }

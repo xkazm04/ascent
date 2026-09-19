@@ -110,6 +110,10 @@ export function GovernanceEvidence() {
           ))}
         </ul>
       </div>
+      {/* Same Illustrative chrome as RoiSimulator: invented sheet, labelled where it renders. */}
+      <p className="mt-3 text-center type-label tracking-[0.22em] text-slate-600">
+        Illustrative · {FLEET} sample repos, not customer data
+      </p>
     </div>
   );
 }

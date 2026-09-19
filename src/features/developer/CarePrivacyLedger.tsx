@@ -68,7 +68,7 @@ export function CarePrivacyLedger({ setup }: { setup: DeveloperView["setup"] }) 
         {setup.sharing.length} fields · {never} with no switch at all
       </Kicker>
       <MatrixGrid
-        className="mt-2 max-w-md"
+        className="mt-2"
         title="What the mentor on your machine may send"
         axes={CARE_LEDGER_AXES}
         rows={rows}

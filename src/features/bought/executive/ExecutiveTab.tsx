@@ -17,10 +17,12 @@ import { buildExecBriefing, briefingMarkdown, valueRealizedHeading, valueRealize
 import { Card, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { PriorPeriodGrid } from "./briefingShared";
 import {
+  BriefingBrandHeader,
   BriefingDimensionCards,
   BriefingGoalsCard,
   BriefingMovementCard,
   BriefingTiles,
+  hasBriefingBrand,
 } from "./briefingCards";
 import { BriefingProofBanner } from "./BriefingProofBanner";
 import { ExecutiveTabActions } from "./ExecutiveTabActions";
@@ -68,24 +70,12 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
 
   const md = briefingMarkdown(briefing);
   const { maturity, benchmark } = briefing;
-  // EXEC-6/EXEC-5: owner-gated sharing + (enterprise) white-label. One ownership check feeds both.
-  // White-label boundary (recorded 2026-07-16): branding applies to the CLIENT-FACING deliverables —
-  // the briefing PDF and the anonymous /share/briefing/[token] page — but NOT to this in-app view.
-  // This tab lives inside the Ascent dashboard shell (OrgHeader, nav, credits) where the operator is
-  // the audience, so it intentionally keeps Ascent chrome; `getOrgBranding` is loaded here only to
-  // prefill the settings form below.
-  // W1d — the Impact Ledger: what the improvement loop actually bought over the SAME period the rest
-  // of this briefing is scoped to. Its own read (ImprovementPr rows), deliberately not folded into
-  // buildExecBriefing: the briefing is the narrative artifact that also renders on the public share
-  // page and in the board PDF, and this ledger is an authenticated in-app panel. Degrades to null
-  // (panel omitted) rather than failing the tab — it is evidence, not chrome the page needs.
-  // The transition programme (W1c) — relocated here from the deleted Plan tab: this is the leadership
-  // surface, and the programme is the named, dated commitment leadership reads the briefing against.
-  //
-  // Direction 3 — these three were awaited one after another, each blocking the next although none
-  // reads the others' result: three independent round trips serialized into the tab's critical path
-  // for no reason but statement order. They join one `Promise.all`; the ownership answer still gates
-  // the branding/credit pair below, which genuinely depends on it.
+  // EXEC-6/EXEC-5: owner-gated sharing + (Team+) white-label. One ownership check feeds both.
+  // White-label paints this tab's compact briefing header (logo, name, accent kicker) plus the PDF
+  // and /share/briefing/[token]; OrgShell/nav stay Ascent chrome. `getOrgBranding` also prefills
+  // BrandingSettings. W1d Impact Ledger is an authenticated panel (not on share/PDF). W1c programme
+  // lives here as the named commitment leadership reads the briefing against.
+  // Direction 3 — independent reads in one Promise.all; ownership still gates branding/credit below.
   const [impact, program, isOwner] = await Promise.all([
     getOrgImpactLedger(slug, orgWindowBounds(period)).catch(() => null),
     getOrgProgram(slug).catch(() => null),
@@ -99,6 +89,7 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
 
   return (
     <div className="space-y-6">
+      {canBrand && hasBriefingBrand(branding) && <BriefingBrandHeader branding={branding} />}
       <div className="flex flex-wrap items-start justify-between gap-3">
         {/* A header is a noun phrase (docs/ORG-UX-REDESIGN.md §2.3). What the briefing contains is
             what the reader can see below it; the window is the only thing the tiles cannot state, so

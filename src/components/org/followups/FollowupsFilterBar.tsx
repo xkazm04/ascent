@@ -15,8 +15,13 @@ export function FollowupsFilterBar({
   onChange,
   shown,
   orgWideDims = 0,
+  children,
 }: {
-  rows: FollowUpRow[];
+  /** Option source. Structural, so a ledger mixing follow-ups with other row kinds (Proposals) can
+   *  pass its whole row set; a row with no dimension simply contributes no Dimension option. */
+  rows: readonly (Pick<FollowUpRow, "repo"> & { dimId: string | null })[];
+  /** Extra filter controls, rendered after the Status menu (Proposals adds its Source menu). */
+  children?: React.ReactNode;
   filters: FollowUpFilters;
   onChange: (f: FollowUpFilters) => void;
   /** Rows currently shown, for the "N of M" readout. */
@@ -26,7 +31,7 @@ export function FollowupsFilterBar({
 }) {
   const uniq = (xs: string[]) => [...new Set(xs)];
   const repoOpts: FilterOption[] = uniq(rows.map((r) => r.repo)).map((v) => ({ value: v, label: v }));
-  const dimOpts: FilterOption[] = uniq(rows.map((r) => r.dimId))
+  const dimOpts: FilterOption[] = uniq(rows.flatMap((r) => (r.dimId ? [r.dimId] : [])))
     .sort()
     .map((v) => ({ value: v, label: `${v} ${DIMENSION_SHORT[v as DimensionId] ?? ""}`.trim() }));
   const impactOpts: FilterOption[] = ["high", "medium", "low"].map((v) => ({ value: v, label: v }));
@@ -48,6 +53,7 @@ export function FollowupsFilterBar({
       <FilterMenu label="Dimension" options={dimOpts} selected={filters.dims} onToggle={(v) => toggle("dims", v)} onClear={() => clear("dims")} />
       <FilterMenu label="Impact" options={impactOpts} selected={filters.impacts} onToggle={(v) => toggle("impacts", v)} onClear={() => clear("impacts")} />
       <FilterMenu label="Status" options={statusOpts} selected={filters.statuses} onToggle={(v) => toggle("statuses", v)} onClear={() => clear("statuses")} />
+      {children}
       <input
         type="search"
         value={filters.query}

@@ -53,7 +53,7 @@ export async function GET(request: Request) {
   // that carry the dim (a legacy scan predating it simply doesn't plot), take prevScore from the point
   // BEFORE the latest (the "since last scan" delta), and reverse to oldest→newest for the sparkline.
   const points = (history?.scans ?? [])
-    .map((s) => ({ at: s.scannedAt, score: s.dimensions.find((x) => x.dimId === dim)?.score }))
+    .map((s) => ({ at: s.scannedAt, score: s.dimensions?.find((x) => x.dimId === dim)?.score }))
     .filter((p): p is { at: string; score: number } => p.score != null);
   const prevScore = points.length >= 2 ? points[1]!.score : undefined;
   const series = points.slice().reverse();

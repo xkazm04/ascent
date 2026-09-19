@@ -1,11 +1,11 @@
 "use client";
 
 // Map view — "efficiency quadrant" (the PassportScatter idiom): one point per repo, x = how much AI
-// actually reaches the work (aiInvolvedRate), y = noCostSource $/mo spent, size = seats, color = the ROI
-// verdict. The four regions answer "is the spend working?" at a glance — money with no AI reaching PRs
-// floats top-left (idle/waste), high-AI-low-cost sits bottom-right (lean). A verdict legend filters the
-// cloud, and a side rail turns the concern cohorts (ungoverned / idle / shadow) into an action list
-// with report links. Client (hover + filter state).
+// actually reaches the work (aiInvolvedRate), y = $/mo spent (empty with no cost source), size = seats,
+// color = the ROI verdict. The four regions answer "is the spend working?" at a glance — money with no
+// AI reaching PRs floats top-left (idle/waste), high-AI-low-cost sits bottom-right (lean). A verdict
+// legend filters the cloud, and a side rail turns the concern cohorts (ungoverned / idle / shadow)
+// into an action list with report links. Client (hover + filter state).
 //
 // The scatter (AiRoiQuadrantMap) and the action rail (AiRoiQuadrantActions) are extracted siblings —
 // this file owns the shared hover/filter state and the pure scale math, and stays under the 200-LOC
@@ -46,7 +46,7 @@ export function AiRoiQuadrant({ model, slug }: { model: AiDeliveryModel; slug: s
     <div className="space-y-3">
       {noCostSource && (
         <p className="type-note text-slate-500">
-          Spend (Y-axis) and seat sizes are a deterministic sample: only AI reach (X-axis) is real (git).{" "}
+          Spend (Y-axis) and seat sizes have no cost source: only AI reach (X-axis) is real (git).{" "}
           <Link href={`/org/${slug}/integrations`} className="text-accent transition hover:underline">
             Connect a provider
           </Link>{" "}

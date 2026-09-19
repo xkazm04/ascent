@@ -51,13 +51,14 @@ export const norm = (p) => p.replace(/\\/g, "/");
  * `tracked` is the list of git-tracked paths; `map` is the parsed context-map.
  */
 export function analyze(map, tracked) {
+  const trackedPaths = new Set(tracked);
   const mapped = new Map(); // file -> [context names]
   const dead = [];
   for (const g of map.groups ?? []) {
     for (const c of g.contexts ?? []) {
       for (const f of c.filePaths ?? []) {
         const p = norm(f);
-        if (!tracked.includes(p)) dead.push({ context: c.name, file: p });
+        if (!trackedPaths.has(p)) dead.push({ context: c.name, file: p });
         mapped.set(p, [...(mapped.get(p) ?? []), c.name]);
       }
     }
@@ -67,13 +68,13 @@ export function analyze(map, tracked) {
   // — so it is REPORTED, never failed on. Silence about it is what lets a taxonomy blur.
   const shared = [...mapped.entries()].filter(([, ctxs]) => ctxs.length > 1);
 
-  const routeDirs = tracked
+  const routeDirs = new Set(tracked
     .filter((p) => /^src\/app\/api\/.*\/route\.ts$/.test(p))
-    .map((p) => p.replace(/^src\/app/, "").replace(/\/route\.ts$/, ""));
+    .map((p) => p.replace(/^src\/app/, "").replace(/\/route\.ts$/, "")));
   const deadRoutes = [];
   for (const g of map.groups ?? [])
     for (const c of g.contexts ?? [])
-      for (const r of c.apiRoutes ?? []) if (!routeDirs.includes(r)) deadRoutes.push({ context: c.name, route: r });
+      for (const r of c.apiRoutes ?? []) if (!routeDirs.has(r)) deadRoutes.push({ context: c.name, route: r });
 
   const mappable = tracked.filter(isMappable);
   const unmapped = mappable.filter((p) => !mapped.has(p));
@@ -91,7 +92,9 @@ export function analyze(map, tracked) {
     contexts: (map.groups ?? []).reduce((n, g) => n + (g.contexts?.length ?? 0), 0),
     groups: (map.groups ?? []).length,
     mappable: mappable.length,
-    mapped: mapped.size,
+    // Coverage counts the same eligible population on both sides; docs and dead entries
+    // may belong to the taxonomy but cannot inflate its source-coverage numerator.
+    mapped: mappable.length - unmapped.length,
     unmapped,
     unmappedPct: mappable.length ? (unmapped.length / mappable.length) * 100 : 0,
     dead,

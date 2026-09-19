@@ -39,6 +39,7 @@ export function scanEstimateMs(provider?: ProviderName): number {
   switch (provider) {
     case "claude-cli":
     case "codex-cli": // same shape: a full local CLI session per call — reuse the measured CLI median
+    case "gateway": // fronts those same CLI sessions (docs/LLM_ROUTES.md has the measured p50 per seat)
       return CLAUDE_CLI_ESTIMATE_MS;
     case "mock":
       return MOCK_ESTIMATE_MS;

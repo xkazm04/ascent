@@ -1,9 +1,11 @@
 // GET /api/quota — the read-only quota peek must be rate-limited like every other public surface
 // (quotas-rate-limiting 07-16 #2): before this, each anonymous request ran auth resolution plus a
 // per-request DB read with `no-store`, making the free funnel's cheapest endpoint an unauthenticated
-// amplification lever. Uses the REAL shared limiter (module-global windows) with distinct per-test
-// IPs so tests don't share buckets.
+// amplification lever. Uses the REAL `rateLimitRequestShared` (no store configured → in-memory
+// windows, same as the sync path) with distinct per-test IPs so tests don't share buckets.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("next/server", () => ({
@@ -30,6 +32,15 @@ beforeEach(() => {
 });
 
 describe("GET /api/quota — rate limit on the public peek", () => {
+  it("charges rateLimitRequestShared, not the in-process limiter", () => {
+    // The in-process entry (`rateLimitRequest`) and the shared entry share in-memory windows when
+    // no store is configured, so a 61-hit trip would still go green after a regression to the
+    // sync path. The call site is the thing that actually changed: fleet-wide global ceiling.
+    const src = readFileSync(join(process.cwd(), "src/app/api/quota/route.ts"), "utf8");
+    expect(src).toMatch(/await rateLimitRequestShared\(\s*request,\s*QUOTA_PEEK_RATE_LIMIT\s*\)/);
+    expect(src).not.toMatch(/\brateLimitRequest\(/);
+  });
+
   it("serves the quota payload (no-store) under the limit", async () => {
     const res = await GET(req("10.0.0.1"));
     expect(res.status).toBe(200);

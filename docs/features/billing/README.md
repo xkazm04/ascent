@@ -13,7 +13,7 @@ Context-map group: **Billing, Credits & Metering** (`feature`).
 ## Implementation roots
 
 - `src/lib/plans.ts`: `PLAN_FEATURES`, `resolveScanCharge`/`decideScanCharge`
-- `src/lib/polar.ts`, `src/app/api/billing/{checkout,webhook}`: Polar integration
+- `src/lib/polar.ts`, `src/app/api/billing/{checkout,portal,webhook}`: Polar integration
 - `src/lib/db/credits.ts`, `src/lib/entitlement.ts`, `src/lib/credit-estimate.ts`
 - `src/lib/rate-limit.ts`, `src/lib/public-scan-quota.ts`
 - `src/lib/db/usage.ts`, `src/app/api/usage`, `src/app/usage`

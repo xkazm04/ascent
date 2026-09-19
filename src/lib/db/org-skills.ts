@@ -357,13 +357,20 @@ export interface SkillEventStat {
    */
   lastAt: string | null;
   count: number;
+  /**
+   * Reporting client for this (skill, type, source) bucket, as stored (`cli | hook | ci | web |
+   * registry | mcp`, or a legacy `cli:diverged` string). Null = unattributed. Optional so a registry
+   * sample — which has no per-event client column — can omit it; the usage fold tags those `registry`.
+   * The fold normalizes on read (`normalizeEventSource`); this field is the raw column.
+   */
+  source?: string | null;
 }
 
 /** The raw material of the dormancy verdict (src/lib/org/skill-usage.ts): every live skill's birthday,
  *  its event rollup, and its adoptions. Kept as a pure ROW read so the verdict itself stays a pure,
  *  unit-testable function over data instead of a query. Null when persistence is off. */
 export interface SkillUsageRows {
-  skills: { id: string; name: string; createdAt: string }[];
+  skills: { id: string; name: string; createdAt: string; content?: string }[];
   events: SkillEventStat[];
   adoptions: SkillAdoptionRow[];
   /** The registry `usage/` lane's snapshot rows (sink B), folded read-time into `invoke` stats. Empty
@@ -381,13 +388,16 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
   const skills = await prisma.orgSkill.findMany({
     where: { orgId, archived: false },
     orderBy: { name: "asc" },
-    select: { id: true, name: true, createdAt: true },
+    select: { id: true, name: true, createdAt: true, content: true },
   });
   if (!skills.length) return empty;
   const ids = skills.map((s) => s.id);
   const [grouped, adoptions, samples] = await Promise.all([
     prisma.orgSkillEvent.groupBy({
-      by: ["skillId", "type"],
+      // `source` is in the key so the card can name the last reporting client without shipping the
+      // ledger. Counts still fold back to (skill, type) in skillUsage; this grain only preserves
+      // which client owned the latest instant.
+      by: ["skillId", "type", "source"],
       where: { orgId, skillId: { in: ids } },
       _max: { createdAt: true },
       _count: { _all: true },
@@ -398,10 +408,21 @@ export async function getOrgSkillUsageRows(orgSlug: string): Promise<SkillUsageR
     listOrgSkillUsageSamples(orgId).catch(() => []),
   ]);
   return {
-    skills: skills.map((s) => ({ id: s.id, name: s.name, createdAt: s.createdAt.toISOString() })),
+    skills: skills.map((s) => ({
+      id: s.id,
+      name: s.name,
+      createdAt: s.createdAt.toISOString(),
+      content: s.content,
+    })),
     events: grouped
       .filter((g) => g._max.createdAt)
-      .map((g) => ({ skillId: g.skillId, type: g.type, lastAt: g._max.createdAt!.toISOString(), count: g._count._all })),
+      .map((g) => ({
+        skillId: g.skillId,
+        type: g.type,
+        source: g.source,
+        lastAt: g._max.createdAt!.toISOString(),
+        count: g._count._all,
+      })),
     adoptions: adoptions.filter((a) => ids.includes(a.skillId)),
     samples,
   };

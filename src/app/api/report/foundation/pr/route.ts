@@ -1,9 +1,11 @@
 // POST /api/report/foundation/pr { repo: "owner/name", base? }  ->  { url, number, reused, committed, skipped }
 //
 // Open a DRAFT PR that installs the generated `.ai/` FOUNDATION (manifest spine, doctor, CI backstop,
-// maintain, memory seed, CONTEXT scaffold) into the scanned repo — one click instead of the adopting
-// repo's agent hand-transcribing the same files out of the downloaded SKILL.md. The SKILL.md download
-// (/api/report/skill) is unchanged and remains the fallback for repos without the App installed.
+// maintain, memory seed, CONTEXT scaffold) AND the personalized onboarding skill
+// (`.claude/skills/ascent-onboard/SKILL.md`, same tracks as the download) into the scanned repo — one
+// click instead of the adopting repo's agent hand-transcribing the same files out of a downloaded
+// SKILL.md. The SKILL.md download (/api/report/skill) is unchanged and remains the fallback for repos
+// without the App installed; a pre-existing skill file 409-skips rather than being overwritten.
 //
 // Sibling of /api/report/passport/pr and deliberately identical in its gate chain (db + App configured,
 // same-origin, signed-in, org-owned, org ADMIN, installation token) — it is the same customer-repo
@@ -79,9 +81,12 @@ export async function POST(request: Request) {
       prBody:
         `Seeds the \`.ai/\` foundation Ascent generated from this repo's latest scan: the agent-facing ` +
         `contract (\`.ai/manifest.yaml\`), the executable conformance check (\`.ai/doctor.mjs\`) and its CI ` +
-        `backstop, the upkeep script, the durable memory store, and the CONTEXT graph seed.\n\n` +
+        `backstop, the upkeep script, the durable memory store, the CONTEXT graph seed, and the ` +
+        `personalized onboarding skill (\`.claude/skills/ascent-onboard/SKILL.md\`) so the repo's own ` +
+        `agent can \`/ascent-onboard\` after merge.\n\n` +
         `Next: adapt every \`TODO\` to this repo, wire \`node .ai/doctor.mjs\` into your existing pre-push ` +
-        `hook, then run it for a conformance baseline. Sibling to the descriptive \`.ai/passport.json\`.`,
+        `hook, then run it for a conformance baseline. Sibling to the descriptive \`.ai/passport.json\`. ` +
+        `A pre-existing skill file is skipped, not overwritten.`,
     });
     await recordOrgAudit(
       "foundation.pr_opened",

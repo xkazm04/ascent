@@ -1,16 +1,30 @@
-// POST /api/org/branding { org, brandName?, brandColor?, logoUrl? } -> { ok }   (owner · Team+)
+// POST /api/org/branding { org, brandName?, brandColor?, logoUrl? } -> { ok, branding, rejected, logoUnreachable }   (owner · Team+)
 // Set white-label branding for the executive-briefing PDF (EXEC-5). Owner-gated + same-origin, and
 // gated to the Team-and-up entitlement tier. Values are validated/normalized in setOrgBranding
-// (hex colour + https logo, else stored null) so a bad input can't break PDF rendering.
+// (hex colour + https logo, else stored null) so a bad input can't break PDF rendering. A successful
+// write is audited as `org.branding.updated` with the normalized values that actually landed.
 
 import { NextResponse } from "next/server";
-import { getCreditState, isDbConfigured, setOrgBranding } from "@/lib/db";
+import { getCreditState, isDbConfigured, recordOrgAudit, setOrgBranding } from "@/lib/db";
+import { resolveViewerLogin } from "@/lib/access";
 import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Compact line the audit viewer renders in `meta.status` for a branding write. */
+function brandingAuditStatus(
+  branding: { brandName: string | null; brandColor: string | null; logoUrl: string | null },
+  rejected: string[],
+): string {
+  const bits = [branding.brandName, branding.brandColor, branding.logoUrl ? "logo" : null].filter(
+    (b): b is string => Boolean(b),
+  );
+  const core = bits.join(" · ") || "cleared";
+  return rejected.length ? `${core} (dropped ${rejected.join(", ")})` : core;
+}
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Branding requires a database." }, { status: 503 });
@@ -42,6 +56,23 @@ export async function POST(request: Request) {
     logoUrl: body.logoUrl ?? null,
   });
   if (!stored) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
+  // After the write: a denied/failed POST must not leave a trail row. resolveViewerLogin (not the
+  // dormant custom-OAuth session) is the live actor under the Supabase wall. recordOrgAudit swallows
+  // its own failures; the extra catch keeps an audit hiccup from withholding the save.
+  const actorLogin = await resolveViewerLogin();
+  await recordOrgAudit(
+    "org.branding.updated",
+    org,
+    {
+      org,
+      status: brandingAuditStatus(stored.branding, stored.rejected),
+      brandName: stored.branding.brandName,
+      brandColor: stored.branding.brandColor,
+      logoUrl: stored.branding.logoUrl,
+      rejected: stored.rejected,
+    },
+    actorLogin ?? undefined,
+  ).catch(() => {});
   // org-branding #4: probe the stored logo ONCE at save time with the exact fetch the PDF render uses
   // (resolveSafeLogoDataUri: DNS-pinned, image-only, size-capped). Validation only proved the URL is
   // SAFE, not that it serves an image — a typo'd path / HTML page / hotlink-protected asset previously

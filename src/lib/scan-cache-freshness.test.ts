@@ -10,6 +10,18 @@ afterEach(() => {
 });
 
 describe("scanMaxCacheAgeMs", () => {
+  it.each(["", "   ", "\t\n", "1e308"])("uses the default for an unusable override %j", (value) => {
+    process.env.SCAN_MAX_CACHE_AGE_DAYS = value;
+    expect(scanMaxCacheAgeMs()).toBe(7 * DAY);
+    expect(isPersistedScanFresh(new Date(0).toISOString(), 8 * DAY)).toBe(false);
+  });
+
+  it("accepts fractional days and whitespace around an explicit zero", () => {
+    process.env.SCAN_MAX_CACHE_AGE_DAYS = "0.5";
+    expect(scanMaxCacheAgeMs()).toBe(DAY / 2);
+    process.env.SCAN_MAX_CACHE_AGE_DAYS = " 0 ";
+    expect(scanMaxCacheAgeMs()).toBe(0);
+  });
   it("defaults to 7 days", () => {
     delete process.env.SCAN_MAX_CACHE_AGE_DAYS;
     expect(scanMaxCacheAgeMs()).toBe(7 * DAY);

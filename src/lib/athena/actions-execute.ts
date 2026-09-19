@@ -5,13 +5,17 @@
 // id the catalog no longer carries does not compile either. `actions.test.ts` asserts the same set
 // equality at runtime, so the pair cannot drift even through an `any`.
 //
-// EVERY EXECUTOR DISPATCHES MACHINERY THAT ALREADY EXISTS, and neither of them reaches outside Ascent
-// or spends money. That is not a coincidence — it is the bar for an action being in the catalog at all.
+// EVERY EXECUTOR DISPATCHES MACHINERY THAT ALREADY EXISTS, and none of them reach outside Ascent
+// or spend money. That is not a coincidence — it is the bar for an action being in the catalog at all.
 //
 //   handoff_followups → the semantics of POST /api/org/followups/handoff, whole-request refusal on a
 //                       foreign id included, so ids cannot be enumerated through this door either.
 //   rule_on_finding   → `decide()` (org-decisions.ts), which upserts sparsely, writes through to
 //                       OrgMemory and audits itself. There is no second decision store.
+//   record_memory     → `createOrgMemory` after `workspaceAllowsMemory`. Provenance is `source:
+//                       "athena"`. A registry-origin namespace is refused (the honest path is
+//                       reflect `proposePr`); this executor never opens a PR and never spends an
+//                       LLM call.
 //
 // AN EXECUTOR NEVER THROWS FOR A REFUSAL. "These items are already done", "that finding is not in this
 // tenant", "a snooze needs a future date" are all ANSWERS — they come back as an outcome with
@@ -22,6 +26,11 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getRecommendationOrgSlug, updateRecommendation } from "@/lib/db/scans-recommendations";
 import { decide, isDecisionModule, type DecisionModule, type DecisionStatus } from "@/lib/db/org-decisions";
+import { createOrgMemory } from "@/lib/db/org-memory";
+import { PERSONAL_MEMORY_LIMIT, personalMemoryCapReached, workspaceAllowsMemory } from "@/lib/db/personal";
+import { getCreditState } from "@/lib/db/credits";
+import { ATHENA_MEMORY_SOURCE } from "@/lib/db/athena-episodes";
+import { CONFIDENCE_BANDS, isMemoryKind } from "@/lib/org/memory-kinds";
 import {
   ATHENA_ACTION_MAX_IDS,
   type AthenaAction,
@@ -180,6 +189,85 @@ const ruleOnFinding: AthenaActionExecutor = async (params, ctx) => {
   };
 };
 
+// ── record_memory ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Write one Shared Org Memory row through the same door the memory route uses.
+ *
+ * THE PLAN GATE RUNS BEFORE THE WRITE. Routing around `workspaceAllowsMemory` because the writer is
+ * Athena would be a back door; the operator's click does not mint an entitlement the org does not
+ * have. The personal cap is the same door's volume bound, not a second policy.
+ *
+ * A NAMESPACE THAT ALREADY HOLDS REGISTRY-ORIGIN NOTES CANNOT BE WRITTEN HERE. Those files live in
+ * the customer's repo; a hosted row would be a lie the next index pass reverts. The honest path is
+ * `POST /api/org/memory/reflect` with `proposePr` — this executor points at that door and does not
+ * open the PR itself (no agent runtime, no GitHub call).
+ *
+ * Provenance is `ATHENA_MEMORY_SOURCE` so eraseOrgAthena still sweeps what she wrote. `createdBy` is
+ * the human who clicked Accept — this is an offered note they agreed to, not an episode she inferred.
+ */
+const recordMemory: AthenaActionExecutor = async (params, ctx) => {
+  if (!isDbConfigured()) return refuse("Shared Org Memory requires a database.");
+
+  const credit = await getCreditState(ctx.org).catch(() => null);
+  if (!(await workspaceAllowsMemory(ctx.org, credit?.plan))) {
+    return refuse("Shared Org Memory is a Team-plan feature.");
+  }
+  if (await personalMemoryCapReached(ctx.org, credit?.plan)) {
+    return refuse(
+      `Personal memory is capped at ${PERSONAL_MEMORY_LIMIT} live entries. Archive or supersede one to add another.`,
+    );
+  }
+
+  const content = one(params.content);
+  const kind = one(params.kind);
+  const confidenceId = one(params.confidence);
+  const namespace = one(params.namespace).trim();
+
+  if (!content) return refuse("A memory with no content is not worth recording.");
+  // The store is the authority on what a kind is, not the catalog's declared value set. The two are
+  // pinned together by a test; this is the check that holds if one of them is ever edited alone.
+  if (!isMemoryKind(kind)) return refuse(`"${kind}" is not a memory kind in this build.`);
+  const band = CONFIDENCE_BANDS.find((b) => b.id === confidenceId);
+  if (!band) return refuse("Confidence must be one of high, medium, or low.");
+
+  const mirrored = await getPrisma().orgMemory.findFirst({
+    where: {
+      orgId: ctx.orgId,
+      origin: "registry",
+      archived: false,
+      supersededBy: null,
+      namespace: namespace ? namespace : null,
+    },
+    select: { id: true },
+  });
+  if (mirrored) {
+    return refuse(
+      "That namespace is mirrored from your registry. Recording it here would be reverted by the next index pass. Propose a pull request via POST /api/org/memory/reflect with proposePr instead.",
+    );
+  }
+
+  const created = await createOrgMemory(
+    ctx.org,
+    {
+      content,
+      kind,
+      ...(namespace ? { namespace } : {}),
+      source: ATHENA_MEMORY_SOURCE,
+      confidence: band.value,
+    },
+    ctx.actor,
+  );
+  if (!created) return refuse("The note could not be recorded for this organization.");
+
+  return {
+    ok: true,
+    kind: "recorded",
+    detail: `Recorded a ${kind} memory${namespace ? ` in ${namespace}` : ""}.`,
+    data: { memoryId: created.id, kind, namespace: namespace || "", source: ATHENA_MEMORY_SOURCE },
+  };
+};
+
 // ── the binding ─────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -189,6 +277,7 @@ const ruleOnFinding: AthenaActionExecutor = async (params, ctx) => {
 export const ATHENA_ACTION_EXECUTORS: Record<AthenaActionId, AthenaActionExecutor> = {
   handoff_followups: handoffFollowups,
   rule_on_finding: ruleOnFinding,
+  record_memory: recordMemory,
 };
 
 /**

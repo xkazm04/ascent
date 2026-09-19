@@ -4,12 +4,12 @@
 // layout's canReadOrg gate. Filename PINNED as SkillsTab.tsx; it takes `slug` as a prop, because it is
 // no longer a route and cannot await route params itself.
 //
-// `isMember` is resolved ONCE and the PROMISE handed to both regions (the catalog's Promise.all needs it
-// to decide whether to fetch tokens inline for the old behavior's parity, and the tokens region needs it
-// to gate its own read) — same shared-promise pattern as OverviewTab's `resolveOrgScope`.
+// `isMember` gates only the tokens region. The catalog has had no member-only control since the author
+// form went (2026-09-17): a skill enters the library from the linked registry or a CLI push, never from
+// this page, so the catalog reads the same for every viewer who can read the org.
 //
 // Two independent data sources, two <Suspense> boundaries: the catalog (skills/adoption/usage/outcomes/
-// rollup/credit) is the tab's one real cost; the tokens list is cheap but member-gated and irrelevant to
+// rollup) is the tab's one real cost; the tokens list is cheap but member-gated and irrelevant to
 // most viewers, so it also code-splits via SkillsTabChunks + <Defer> rather than shipping in the initial
 // client bundle.
 
@@ -19,13 +19,11 @@ import { SkillsPanel } from "@/features/shared/skills/SkillsPanel";
 import { ApiTokensPanelChunk } from "@/features/shared/skills/SkillsTabChunks";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import {
-  getCreditState,
   getOrgSkillAdoption,
   listOrgApiTokens,
   listOrgRepoNames,
   listOrgSkills,
   SKILL_TOKEN_SCOPES,
-  workspaceAllowsSkills,
 } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { SKILL_CATEGORIES } from "@/lib/org/skill-categories";
@@ -39,24 +37,20 @@ async function SkillsRegistryStrip({ slug, sync }: { slug: string; sync: Promise
   return <RegistrySyncStrip sync={await sync} slug={slug} artifact="skills" />;
 }
 
-async function SkillsLibraryData({ slug, isMember, sync }: { slug: string; isMember: Promise<boolean>; sync: Promise<RegistrySync> }) {
+async function SkillsLibraryData({ slug, sync }: { slug: string; sync: Promise<RegistrySync> }) {
   // usage/outcomes are the drift-loop half: is each skill still used (dormancy), and did adopting it
   // move the adopting repo's score. Both degrade to {} rather than failing the catalog render.
-  const [skills, adoption, usage, outcomes, repoOptions, credit, member, isAdmin] = await Promise.all([
+  const [skills, adoption, usage, outcomes, repoOptions, isAdmin] = await Promise.all([
     listOrgSkills(slug),
     getOrgSkillAdoption(slug),
     getOrgSkillUsage(slug).catch(() => ({})),
     getOrgSkillOutcomes(slug).catch(() => ({})),
     // One column, one query — the catalog reads repo NAMES, not a fleet rollup (see listOrgRepoNames).
     listOrgRepoNames(slug),
-    getCreditState(slug).catch(() => null),
-    isMember,
     hasOrgRole(slug, "admin"),
   ]);
-  // Awaiting the SHARED promise a second time does not re-query (same pattern as `isMember`).
+  // Awaiting the SHARED promise a second time does not re-query (same pattern as `isMember` below).
   const registryBase = registryBlobBase(await sync);
-  // Team+ orgs, or a personal workspace (individual tier: free-with-limits authoring).
-  const planAllowed = await workspaceAllowsSkills(slug, credit?.plan);
 
   return (
     <SkillsPanel
@@ -67,9 +61,7 @@ async function SkillsLibraryData({ slug, isMember, sync }: { slug: string; isMem
       usage={usage}
       outcomes={outcomes}
       repoOptions={repoOptions}
-      canAuthor={member && planAllowed}
       isAdmin={isAdmin}
-      planAllowed={planAllowed}
       registryBase={registryBase}
     />
   );
@@ -98,7 +90,7 @@ export async function SkillsTab({ slug }: { slug: string }) {
         <SkillsRegistryStrip slug={slug} sync={sync} />
       </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
-        <SkillsLibraryData slug={slug} isMember={isMember} sync={sync} />
+        <SkillsLibraryData slug={slug} sync={sync} />
       </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[14rem]" />}>
         <SkillsApiTokensData slug={slug} isMember={isMember} />

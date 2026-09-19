@@ -9,32 +9,24 @@
 // SERVER component: it owns the data fetch and hands plain props to the client-free Half-life
 // renderer. It reads the rollup through `getOrgRollupShared` at the SAME scope its sibling
 // leaderboard uses, for two reasons: the tab ran two full rollups per render, and this panel's was
-// UNSCOPED — so `?stack=` narrowed the table above while the context lens below kept describing the
-// whole fleet. Two panels on one screen must not describe different repo sets.
+// UNSCOPED — so `?stack=` / `?segment=` narrowed the table above while the context lens below kept
+// describing the whole fleet. Two panels on one screen must not describe different repo sets.
+// Scope is the SHARED promise RepositoriesTab created once; awaiting it here does not re-run it.
 
 import { getOrgRollupShared } from "@/lib/db";
-import { resolveStackScope } from "@/lib/org/scope";
+import type { OrgScope } from "@/lib/org/scope";
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { buildContextRows } from "./contextHealthModel";
 import { ContextHalfLife } from "./ContextHalfLife";
-import { buildCoherenceRows } from "./guidanceCoherenceModel";
-import { GuidanceCoherenceCard } from "./GuidanceCoherenceCard";
 
-type SearchParams = { [key: string]: string | string[] | undefined };
-
-export async function ContextHealthPanel({ slug, sp }: { slug: string; sp: SearchParams }) {
-  const { techGroupId } = await resolveStackScope(slug, sp);
-  const rollup = await getOrgRollupShared(slug, undefined, null, techGroupId);
+export async function ContextHealthPanel({ slug, scope }: { slug: string; scope: Promise<OrgScope> }) {
+  const { segmentId, techGroupId } = await scope;
+  const rollup = await getOrgRollupShared(slug, undefined, segmentId, techGroupId);
   if (!rollup || rollup.repos.length === 0) {
     return <SectionEmpty>No repositories to read a context layer from yet.</SectionEmpty>;
   }
   const rows = buildContextRows(rollup.repos);
-  return (
-    <div className="space-y-8">
-      <ContextHalfLife slug={slug} rows={rows} />
-      {/* #15 — half-life answers "when did this stop being true?"; coherence answers "is it true in
-          more than one place at once?". Same context layer, same fetch, two orthogonal questions. */}
-      <GuidanceCoherenceCard rows={buildCoherenceRows(rollup.repos)} />
-    </div>
-  );
+  // Guidance coherence (#15) moved to Shared → Practices (2026-09-15), beside the foundation rollout:
+  // the shared checklist and its measurement are read in one place.
+  return <ContextHalfLife slug={slug} rows={rows} />;
 }

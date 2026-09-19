@@ -110,7 +110,7 @@ function indexedBase(slug: string): RegistryView {
     activity: ACTIVITY,
     bundles: [{ name: "software-engineering", subjects: 105, techniques: 624, applications: 236, laws: 9, categories: ["ui-surfaces"], useWhenCoverage: "0/624" }],
     telemetry: { invokes30d: 1_284, reposReporting: 19, sink: "api" },
-    howTo: registryHowTo(fullName),
+    howTo: registryHowTo(fullName, slug),
     capabilities: CAPABLE,
     permission: { contentsWrite: true },
     candidates: [],
@@ -132,11 +132,11 @@ function unmappedBase(slug: string, contentsWrite: boolean): RegistryView {
       practices: { state: "not-started", moved: 0, total: 9 },
       memory: { state: "not-started", moved: 0, total: 38 },
     },
-    fleet: { reposTotal: 34, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
+    fleet: { reposTotal: 34, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
     activity: [],
     bundles: [],
     telemetry: { invokes30d: 0, reposReporting: 0, sink: "off" },
-    howTo: registryHowTo(fullName),
+    howTo: registryHowTo(fullName, slug),
     capabilities: contentsWrite ? CAPABLE : NOT_PERMITTED,
     permission: contentsWrite ? { contentsWrite: true } : { contentsWrite: false, installUrl: "https://github.com/apps/ascent/installations/new" },
     candidates: CANDIDATES,
@@ -198,6 +198,8 @@ export function fixtureRegistryView(slug: string, demo: string | undefined): Reg
     };
   }
 
+  if (demo === "indexed") return indexedBase(slug);
+
   if (demo === "error") {
     const v = indexedBase(slug);
     return {
@@ -226,7 +228,7 @@ export function fixtureRegistryView(slug: string, demo: string | undefined): Reg
       practices: { state: "n/a", moved: 0, total: 9 },
       memory: { state: "n/a", moved: 0, total: 38 },
     },
-    fleet: { reposTotal: 34, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
+    fleet: { reposTotal: 34, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 12 } },
     bundles: [],
     telemetry: { invokes30d: 0, reposReporting: 0, sink: "off" },
     activity: ACTIVITY.filter((a) => a.kind === "catalog" || a.kind === "index").slice(0, 3),

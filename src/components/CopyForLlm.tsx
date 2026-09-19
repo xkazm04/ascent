@@ -49,6 +49,14 @@ export function CopyForLlm({
   // Track the pending auto-reset so a fresh attempt cancels the previous one — otherwise an earlier
   // timer flips the button back to idle 500ms after a later successful copy.
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+    };
+  }, []);
 
   // G5-27: an empty/whitespace-only payload can never be a success — `attemptCopy` refuses it, and
   // the button must say so rather than flashing "Copied". Derived from the current `text` (no extra
@@ -61,6 +69,7 @@ export function CopyForLlm({
     inFlight.current = true;
     try {
       const ok = await attemptCopy(text, navigator.clipboard, legacyCopy);
+      if (!mounted.current) return;
       const { next, resetMs } = nextCopyState(ok);
       if (resetTimer.current) clearTimeout(resetTimer.current);
       if (next === "copied") {
@@ -140,18 +149,21 @@ export function CopyForLlm({
 
 /** Fallback for contexts where navigator.clipboard is unavailable (http, older browsers). */
 function legacyCopy(text: string): boolean {
+  const opener = document.activeElement as HTMLElement | null;
+  let ta: HTMLTextAreaElement | null = null;
   try {
-    const ta = document.createElement("textarea");
+    ta = document.createElement("textarea");
     ta.value = text;
     ta.style.position = "fixed";
     ta.style.opacity = "0";
     document.body.appendChild(ta);
     ta.focus();
     ta.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
+    return document.execCommand("copy");
   } catch {
     return false;
+  } finally {
+    ta?.remove();
+    opener?.focus?.();
   }
 }

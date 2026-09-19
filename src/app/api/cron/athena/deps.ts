@@ -15,7 +15,7 @@
 
 import { athenaActionSummary, type AthenaActionParamValues } from "@/lib/athena/actions";
 import { ATHENA_CYCLE_BUDGET_MS, type OrgCycleDeps } from "@/lib/athena/cycle";
-import type { CycleOpenProposal, CycleStanding } from "@/lib/athena/cycle-prompt";
+import { cycleStandingExtras, type CycleOpenProposal, type CycleStanding } from "@/lib/athena/cycle-prompt";
 import {
   appendAthenaTurn,
   createAthenaThread,
@@ -24,9 +24,12 @@ import {
   listOpenAthenaProposals,
   writeAthenaEpisode,
 } from "@/lib/db/athena";
-import { getOrgMovers, getOrgRollup } from "@/lib/db";
+import { getOrgMovers, getOrgRollup, getOrgSkillUsageRows } from "@/lib/db";
 import { hasFleetGrade } from "@/lib/db/org-shared";
+import { getMemoryCoverage } from "@/lib/memory/coverage";
 import { levelForScore } from "@/lib/maturity/model";
+import { skillUsageMap } from "@/lib/org/skill-usage";
+import { isUnmirroredSkillId } from "@/lib/registry/usage-samples";
 import { runToolLoop } from "@/lib/llm/tool-loop";
 import { resolveWindow, weekRangeParams } from "@/lib/window";
 
@@ -63,8 +66,22 @@ export function buildOrgCycleDeps(ctx: { org: string; orgId: string; signal?: Ab
       // but has no grade, and Athena would have briefed "the org sits at 0/100, Emerging" off the old
       // guard. No grade, no standing to report — which report-or-absorb already handles as null.
       if (!rollup || !hasFleetGrade(rollup)) return null;
-      const movers = await getOrgMovers(org, { start: window.start, endExclusive: window.endExclusive }).catch(() => null);
+      const [movers, coverage, skillRows] = await Promise.all([
+        getOrgMovers(org, { start: window.start, endExclusive: window.endExclusive }).catch(() => null),
+        // Same instruments the Memory and Skills tabs already compute — prefetched so this call
+        // keeps `tools: []`. A failed extra must not drop the scored standing.
+        getMemoryCoverage(org).catch(() => null),
+        getOrgSkillUsageRows(org).catch(() => null),
+      ]);
       const both = [...(movers?.gainers ?? []).slice(0, MOVER_LIMIT), ...(movers?.regressers ?? []).slice(0, MOVER_LIMIT)];
+      const usage = skillRows ? skillUsageMap(skillRows) : {};
+      const nameById = new Map((skillRows?.skills ?? []).map((s) => [s.id, s.name]));
+      const extras = cycleStandingExtras(
+        coverage,
+        Object.values(usage)
+          .filter((u) => u.state === "abandoned" && !isUnmirroredSkillId(u.skillId))
+          .map((u) => ({ name: nameById.get(u.skillId) ?? u.skillId, daysSinceUse: u.daysSinceUse })),
+      );
       return {
         repoCount: rollup.repoCount,
         scannedCount: rollup.scannedCount,
@@ -73,6 +90,8 @@ export function buildOrgCycleDeps(ctx: { org: string; orgId: string; signal?: Ab
         overallDelta: rollup.deltas?.overall ?? null,
         cohortSize: rollup.movement?.cohortSize ?? null,
         movers: both.map((m) => ({ name: m.name, delta: m.dOverall })),
+        coverage: extras.coverage,
+        abandoned: extras.abandoned,
       };
     },
 

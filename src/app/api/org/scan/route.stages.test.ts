@@ -44,6 +44,7 @@ vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null), requi
 vi.mock("@/lib/entitlement", () => ({
   checkScanEntitlement: vi.fn(async () => ({ allowed: true, unlimited: true, balance: 99, allowanceRemaining: 99 })),
   paymentRequired: vi.fn(),
+  orgNotFound: vi.fn(),
 }));
 
 import { POST } from "./route";

@@ -4,9 +4,10 @@
 // pattern) — no mocks needed.
 //
 // The contract these tests LOCK so a merge/refactor can't silently break it:
-//  - robots ALWAYS disallows the machine API + the private per-user funnels (/api/,
-//    /launch). Dropping any entry = an indexable private route = a test failure here. /onboarding
-//    left the disallow list deliberately (it is the public guided entry funnel, now in the sitemap).
+//  - robots ALWAYS disallows the machine API, the private per-user funnel, and the session-gated
+//    dashboards (/api/, /launch, /org/, /me). Dropping any entry = an indexable private route = a
+//    test failure here. /onboarding left the disallow list deliberately (it is the public guided
+//    entry funnel, now in the sitemap).
 //  - robots allows the public marketing/report surface at "/".
 //  - robots only emits the absolute sitemap/host lines when a base URL is configured (they require an
 //    absolute origin); with no base it omits them rather than shipping a relative/broken value.
@@ -15,6 +16,8 @@
 //    indexable routes — no /api/, no per-tenant /org/ path ever leaks in.
 //  - robots' local baseUrl() and lib/site publicBaseUrl() resolve identically for the same env (they
 //    duplicate the trailing-slash-strip logic and would otherwise drift).
+//  - the PWA Web App Manifest start_url is /onboarding (the documented first-run door), not the
+//    marketing root. Installing the app must land on that funnel; /onboarding stays indexable.
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -22,6 +25,7 @@ import { resolve } from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import robots from "./robots";
 import sitemap from "./sitemap";
+import manifest from "./manifest";
 import { publicBaseUrl } from "@/lib/site";
 
 const ENV_KEYS = ["ASCENT_PUBLIC_URL", "NEXT_PUBLIC_APP_URL", "VERCEL_PROJECT_PRODUCTION_URL"] as const;
@@ -42,7 +46,10 @@ afterEach(() => {
 // The exact set the disallow list must always cover. Pinned so removing an entry fails the suite.
 // /onboarding was deliberately removed from this set: it is the public guided entry funnel and is
 // enumerated in the sitemap instead (the disjointness test below would fail if it were re-added here).
-const REQUIRED_DISALLOW = ["/api/", "/launch"];
+// /org/ (trailing slash) and /me are session-gated dashboards; crawlers that follow header links
+// would otherwise index sign-in walls. Keep /org/ as a prefix so /org/acme is blocked without
+// matching an unrelated /organic-style path.
+const REQUIRED_DISALLOW = ["/api/", "/launch", "/org/", "/me"];
 
 describe("robots.ts — private/funnel routes stay out of the index", () => {
   it("disallows the machine API + every private funnel route (exact pinned set)", () => {
@@ -98,12 +105,13 @@ describe("sitemap.ts — only public, indexable routes, gated off an absolute ba
     }
   });
 
-  it("never leaks a private/authenticated path (no /api/, no per-tenant /org/, no funnel-only /launch)", () => {
+  it("never leaks a private/authenticated path (no /api/, no per-tenant /org/, no /me, no funnel-only /launch)", () => {
     process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
     const paths = sitemap().map((e) => new URL(e.url).pathname);
     for (const p of paths) {
       expect(p.startsWith("/api/")).toBe(false);
       expect(p.startsWith("/org")).toBe(false);
+      expect(p === "/me" || p.startsWith("/me/")).toBe(false);
       expect(p).not.toBe("/launch");
     }
     // The legitimate public surface IS present (a positive control so the test can't pass vacuously).
@@ -185,7 +193,7 @@ describe("SEO #1: the sitemap and robots-disallow contracts are disjoint", () =>
     process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
     const paths = sitemap().map((e) => new URL(e.url).pathname);
     expect(paths).not.toContain("/launch");
-    expect(paths).not.toContain("/launch");
+    expect(paths).not.toContain("/me");
     // /onboarding is no longer robots-blocked, so it belongs in the sitemap (both sides moved together
     // by design — the disjointness test above would catch a one-sided move).
     expect(paths).toContain("/onboarding");
@@ -227,6 +235,22 @@ describe("the SEO route lists are pinned to the real app tree", () => {
         : !existsSync(routeFileFor(d)),
     );
     expect(missing).toEqual([]);
+  });
+});
+
+describe("PWA manifest start_url is the documented first-run door", () => {
+  it("points start_url at /onboarding, not the marketing root", () => {
+    expect(manifest().start_url).toBe("/onboarding");
+  });
+
+  it("keeps /onboarding indexable (sitemap + not robots-disallowed)", () => {
+    process.env.ASCENT_PUBLIC_URL = "https://ascent.dev";
+    const rules = robots().rules;
+    const single = Array.isArray(rules) ? rules[0] : rules;
+    const disallow = single.disallow;
+    const list = Array.isArray(disallow) ? disallow : [disallow];
+    expect(list).not.toContain("/onboarding");
+    expect(sitemap().map((e) => new URL(e.url).pathname)).toContain("/onboarding");
   });
 });
 

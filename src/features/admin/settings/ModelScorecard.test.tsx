@@ -94,12 +94,15 @@ describe("ModelScorecard — measured rows", () => {
     }
   });
 
-  it("truncates only the matrix gutter label, never the slug in the index", () => {
-    const long = real.find((m) => short(m.model).length > matrixLabel(m.model).length);
-    expect(long).toBeDefined();
+  // The matrix used to clip model names to 13 characters for a 104-unit SVG gutter; its subject track
+  // now wraps in CSS, so every real model reads whole in the matrix AND as the full slug in the index.
+  it("labels every model whole in the matrix, and keeps the full slug in the index", () => {
     render(<ModelScorecard now={fresh} />);
-    expect(screen.getAllByText(matrixLabel(long!.model)).length).toBeGreaterThan(0);
-    expect(rowFor(long!.model).textContent).toContain(long!.model);
+    for (const m of real) {
+      expect(matrixLabel(m.model)).toBe(short(m.model));
+      expect(screen.getAllByText(matrixLabel(m.model)).length).toBeGreaterThan(0);
+      expect(rowFor(m.model).textContent).toContain(m.model);
+    }
   });
 });
 

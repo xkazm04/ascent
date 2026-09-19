@@ -40,10 +40,10 @@ export const SCORE_AXIS_HINT: Record<ScoreAxis, string> = {
     "The share of benchmark repositories where the model returned a usable assessment at all, rather than erroring or covering less than half the rubric. A hatched cell means the harness never got a verdict out of this model, so none of the three axes was judged — never read that as a zero.",
 };
 
-/** Row labels are drawn into MatrixGrid's 104-unit gutter at 10px mono-uppercase with 0.18em
- *  tracking — about 13 characters before they run into the first cell. The full slug stays in the
- *  ranked list below, where it is what an owner copies. */
-export const MODEL_LABEL_MAX = 13;
+/** A safety bound for MatrixGrid's subject track, which wraps to two lines in CSS. (Was 13 — the
+ *  retired SVG renderer's 104-unit gutter.) The full slug stays in the ranked list below, where it
+ *  is what an owner copies. */
+export const MODEL_LABEL_MAX = 40;
 
 /** "google/gemini-3.5-flash" → "gemini-3.5-flash". The vendor prefix is the same for a whole column. */
 export function shortModel(slug: string): string {

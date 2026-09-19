@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { Legend, WhyChip, type VizState } from "@/components/org/viz";
+import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { FixFirstImpactBar } from "./FixFirstImpactBar";
 import { IMPACT_UNIT, impactScaleMax } from "./fixFirstImpact";
 import type { FixFirstItem } from "@/features/standing/overview/fixFirst";
@@ -19,10 +20,19 @@ import type { FixFirstItem } from "@/features/standing/overview/fixFirst";
 // do not: the numeral is TRIAGE precedence (a live regression outranks a queue awaiting a decision
 // outranks a slipping goal) and it is deliberately unchanged, because a candidate with no scoring
 // model has no bar at all and must not therefore sort last. The numeral's own title says so.
+//
+// Pending is not empty. `items=[]` still returns null (resolved: nothing to fix). The wait is
+// OverviewFixFirstGap — a reserved-height OrgTabGap — so a still-streaming band does not read as
+// "no priorities" and the fleet panel below does not jump into the hole.
 
 // Kit order, filtered to the states this band actually contains — a legend teaching an encoding
 // nothing on screen uses is the prose problem in another costume (Legend.tsx's own rule).
 const KIT_ORDER: VizState[] = ["measured", "missing"];
+
+/** Quiet reserved height while the punch-list streams. Compact band, not the fleet panel. */
+export function OverviewFixFirstGap() {
+  return <OrgTabGap minH="min-h-[8rem]" />;
+}
 
 export function OverviewFixFirst({ items }: { items: FixFirstItem[] }) {
   if (items.length === 0) return null;

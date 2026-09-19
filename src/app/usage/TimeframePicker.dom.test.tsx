@@ -3,16 +3,17 @@
 // Direction 10 — /usage honoured `?days=` from the day it shipped and rendered no control for it, so
 // every reader got the 30-day default and the trend chart's weekly-bucket path (120+ days) could not
 // be reached from the product at all. These pin the two things a picker must not get wrong: the
-// options must be the ones `boundUsageDays` will actually honour, and the public funnel's tighter cap
-// must be visible as a withheld option rather than as a shorter menu.
+// options must be the ones `boundUsageDays` will actually honour, and windows above the plan's
+// retentionDays (or the public funnel's 90-day cap) must be dropped, not offered as a lie.
 
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { boundUsageDays } from "@/lib/db/usage";
 import { TIMEFRAME_OPTIONS, TimeframePicker } from "./TimeframePicker";
 
-const priv = () => boundUsageDays("365", false); // 365
+const priv = () => boundUsageDays("365", false); // 365 (no plan: query cap)
 const pub = () => boundUsageDays("365", true); // 90
+const free = () => boundUsageDays("365", false, "free"); // 30
 
 describe("the /usage timeframe picker", () => {
   it("offers every window and links each to its own ?days=, keeping the org", () => {
@@ -37,16 +38,32 @@ describe("the /usage timeframe picker", () => {
     for (const n of TIMEFRAME_OPTIONS.filter((n) => n <= pub())) {
       expect(boundUsageDays(String(n), true)).toBe(n);
     }
+    // Free: only the windows at or under 30 days survive the plan cap.
+    for (const n of TIMEFRAME_OPTIONS.filter((n) => n <= free())) {
+      expect(boundUsageDays(String(n), false, "free")).toBe(n);
+    }
+    expect(boundUsageDays("90", false, "free")).toBe(30);
+    expect(boundUsageDays("365", false, "free")).toBe(30);
   });
 
-  it("disables — rather than hides — the year on the shared public funnel, and says why", () => {
+  it("does not offer the year on the shared public funnel", () => {
     render(<TimeframePicker org="public" days={30} maxDays={pub()} />);
-    const year = screen.getByText("1y");
-    expect(year.getAttribute("aria-disabled")).toBe("true");
-    expect(year.getAttribute("href")).toBeNull(); // not a link: it would be clamped to 90 anyway
-    expect(year.getAttribute("title")).toContain("90 days");
-    // The three it CAN reach are still real links.
+    expect(screen.queryByText("1y")).toBeNull();
     expect(screen.getByText("90d").getAttribute("href")).toBe("/usage?org=public&days=90");
+  });
+
+  it("drops windows above Free's 30-day retention so they cannot be selected", () => {
+    render(<TimeframePicker org="acme" days={30} maxDays={free()} />);
+    expect(screen.getByText("7d").getAttribute("href")).toBe("/usage?org=acme&days=7");
+    expect(screen.getByText("30d").getAttribute("href")).toBe("/usage?org=acme&days=30");
+    expect(screen.queryByText("90d")).toBeNull();
+    expect(screen.queryByText("1y")).toBeNull();
+  });
+
+  it("drops the year on Starter (180-day retention) but still offers 90d", () => {
+    render(<TimeframePicker org="acme" days={30} maxDays={boundUsageDays("365", false, "pro")} />);
+    expect(screen.getByText("90d").getAttribute("href")).toBe("/usage?org=acme&days=90");
+    expect(screen.queryByText("1y")).toBeNull();
   });
 
   it("escapes the org slug into the href rather than concatenating it raw", () => {

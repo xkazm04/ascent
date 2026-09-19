@@ -1,0 +1,40 @@
+{
+  "_notes": [
+    "Adopted 2026-09-14 (native-copy 1.0.0). Operator decisions recorded 2026-09-14: US English fleet-wide; em dash banned in product copy; the gate blocks NEW errors only (existing findings live in .ai/copy-baseline.json).",
+    "--init count 2026-09-14 over the wider first-pass scope (436 strings, 78 files): US forms 48 (organization x29, prioritized x5, authorized x3, color x3); UK forms 2 (cancelled x1, cancelling x1) = migration debt.",
+    "dashes at first pass: em 34, en 4 (spaced 0), hyphen-as-dash 0. The em dashes are debt under the ban; see the final counts below.",
+    "quotes: straight double 42 vs curly 8 -> straight. ellipsis: character 2, three dots 0 -> char.",
+    "case: 0 of 41 judgeable heading-class strings are Title Case (0%) -> sentence. No declared title-case element class.",
+    "Out of scope: runtime model-generated report prose (governed by the prompt rule and the deEmDash fallback in src/lib/llm/prose.ts, not by this contract); code comments; the standalone no-data placeholder glyph; operator-facing mail (alert-sink, plan-enquiry) and mail transports.",
+    "Final counts at adoption: see docs/i18n/style-en.md 'Adoption counts'."
+  ],
+  "variant": "US",
+  "sources": [
+    { "path": "src/components/landing/**/*.tsx", "kind": "jsx" },
+    { "path": "src/components/about/**/*.tsx", "kind": "jsx" },
+    { "path": "src/components/about/**/*.ts", "kind": "ts-module" },
+    { "path": "src/components/pricing/**/*.tsx", "kind": "jsx" },
+    { "path": "src/components/pricing/**/*.ts", "kind": "ts-module" },
+    { "path": "src/app/page.tsx", "kind": "jsx" },
+    { "path": "src/app/layout.tsx", "kind": "jsx" },
+    { "path": "src/app/about/page.tsx", "kind": "jsx" },
+    { "path": "src/app/about-org/page.tsx", "kind": "jsx" },
+    { "path": "src/app/pricing/*.tsx", "kind": "jsx" },
+    { "path": "src/app/pricing/*.ts", "kind": "ts-module" },
+    { "path": "src/app/privacy/page.tsx", "kind": "jsx" },
+    { "path": "src/app/terms/page.tsx", "kind": "jsx" },
+    { "path": "src/lib/site.ts", "kind": "ts-module" },
+    { "path": "src/lib/email/{index,invite,render,unsubscribe}.ts", "kind": "ts-module" }
+  ],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx"],
+  "dash": { "emDash": "ban" },
+  "quotes": "straight",
+  "ellipsis": "char",
+  "case": { "style": "sentence" },
+  "terms": {
+    "accept": ["Ascent"],
+    "reject": []
+  },
+  "rules": {},
+  "baseline": ".ai/copy-baseline.json"
+}

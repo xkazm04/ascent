@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { peekPublicScanQuota } from "@/lib/public-scan-quota";
 import { getViewer } from "@/lib/access";
-import { QUOTA_PEEK_RATE_LIMIT, rateLimitRequest, tooManyRequests } from "@/lib/rate-limit";
+import { QUOTA_PEEK_RATE_LIMIT, rateLimitRequestShared, tooManyRequests } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +17,11 @@ export async function GET(request: Request) {
   // read per request with no CDN absorption (no-store) — an unauthenticated amplification lever
   // without this. Generous budget (see QUOTA_PEEK_RATE_LIMIT); the QuotaMeter tolerates a non-OK
   // response (keeps its last state), so a 429 is safe client-side.
-  const rl = rateLimitRequest(request, QUOTA_PEEK_RATE_LIMIT);
+  //
+  // Shared, not in-process: the in-process limiter's global ceiling is `instances × 600`, which
+  // rises with autoscaling — the exact hole `rateLimitRequestShared` exists to close. Per-IP burst
+  // stays local; the global window charges the shared store when one is configured.
+  const rl = await rateLimitRequestShared(request, QUOTA_PEEK_RATE_LIMIT);
   // Pass the whole result, not just `retryAfterSec`: the refusal then names its own scope
   // (`ip` = your budget, slow down / `global` = the fleet budget, slowing down may not help /
   // `unavailable` = nothing was counted), which is the one fact that changes what the caller

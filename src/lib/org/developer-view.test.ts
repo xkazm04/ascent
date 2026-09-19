@@ -12,6 +12,9 @@ import {
   careMovesByState,
   careShapeValue,
   emptyDeveloperView,
+  emptyOrgView,
+  careBandFromSharers,
+  CARE_BAND_MIN_SHARERS,
   SHARING_LEDGER_OFF,
   type CareBand,
   type CareMove,
@@ -172,5 +175,55 @@ describe("emptyDeveloperView", () => {
     // records the aliasing so a future "just push a row" is caught here rather than in the UI.
     expect(emptyDeveloperView().setup.sharing).toBe(SHARING_LEDGER_OFF);
     expect(emptyDeveloperView("octocat").setup.sharing).toBe(emptyDeveloperView().setup.sharing);
+  });
+});
+
+// T6 (study 2026-09-15): can a sharer who knows their own value read the others out of the band?
+describe("T6 band recoverability: three sharers [10, 40, 90]", () => {
+  const values = [10, 40, 90];
+  const own = 10;
+  // Linear interpolation between order statistics (type 7), the quartile C4 intends for shapeBands.
+  const quartile = (xs: number[], p: number) => {
+    const s = [...xs].sort((a, b) => a - b);
+    const h = (s.length - 1) * p;
+    const lo = Math.floor(h);
+    return s[lo] + (h - lo) * (s[Math.min(lo + 1, s.length - 1)] - s[lo]);
+  };
+  // With n = 3 visible (adoption.sharing), type 7 gives p50 = x2, p25 = (x1 + x2) / 2, p75 = (x2 + x3) / 2.
+  const invert = (b: CareBand) => [2 * b.p25 - b.p50, b.p50, 2 * b.p75 - b.p50];
+  const othersRecovered = (b: CareBand | null) => {
+    if (!b) return [];
+    const rest = [...values];
+    rest.splice(rest.indexOf(own), 1);
+    return invert(b).filter((v) => v !== own && rest.includes(v));
+  };
+
+  it("arm A: the population floor (3) shows the band, and both other values fall out exactly", () => {
+    const org = emptyOrgView(values.length);
+    const band: CareBand | null = org.belowFloor
+      ? null
+      : { p25: quartile(values, 0.25), p50: quartile(values, 0.5), p75: quartile(values, 0.75) };
+    const recovered = othersRecovered(band);
+    console.log(`[T6] arm A floor=population>=${org.floor} population=3 sharers=3 band=${JSON.stringify(band)} own=${own} recovered=${JSON.stringify(recovered)} exact=${recovered.length}/2`);
+    expect(band).toEqual({ p25: 25, p50: 40, p75: 65 });
+    expect(recovered).toEqual([40, 90]);
+  });
+
+  it("arm B: the sharer floor (5) suppresses the band with a typed reason, so nothing falls out", () => {
+    const result = careBandFromSharers(values);
+    const recovered = othersRecovered(result.band);
+    const reason = result.band ? null : result.reason;
+    console.log(`[T6] arm B floor=sharers>=${CARE_BAND_MIN_SHARERS} population=3 sharers=3 band=${JSON.stringify(result.band)} reason=${reason} own=${own} recovered=${JSON.stringify(recovered)} exact=${recovered.length}/2`);
+    expect(result).toEqual({ band: null, reason: "below-sharer-floor" });
+    expect(recovered).toEqual([]);
+  });
+
+  it("keys the floor on sharers: 4 suppress, 5 compute the same quartiles arm A used, 0 is its own reason", () => {
+    expect(careBandFromSharers([1, 2, 3, 4])).toEqual({ band: null, reason: "below-sharer-floor" });
+    expect(careBandFromSharers([])).toEqual({ band: null, reason: "no-sharers" });
+    const five = [90, 10, 40, 70, 20];
+    expect(careBandFromSharers(five)).toEqual({ band: { p25: quartile(five, 0.25), p50: quartile(five, 0.5), p75: quartile(five, 0.75) } });
+    // At the floor the quartiles ARE the 2nd, 3rd and 4th values; the extremes are never shown.
+    expect(careBandFromSharers(five)).toEqual({ band: { p25: 20, p50: 40, p75: 70 } });
   });
 });

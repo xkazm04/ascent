@@ -25,7 +25,9 @@ import { CockpitSetup, type CockpitSetupState } from "./CockpitSetup";
 import type { StartDriveInput } from "./driveClient";
 import type { DriveStatus } from "./driveTypes";
 import type { StartLoopInput } from "./loopClient";
-import type { CockpitMode, LoopProposal, LoopRunDetail } from "./loopTypes";
+import type { CockpitMode, LoopRunDetail } from "./loopTypes";
+import type { ProposalBatch } from "./useProposalBatch";
+import type { RunDials } from "./useRunDials";
 
 export interface CockpitRailProps {
   slug: string;
@@ -38,12 +40,11 @@ export interface CockpitRailProps {
   interruptedDrive: DriveStatus | null;
   runDetail: LoopRunDetail | null;
   runLive: boolean;
-  selected: ReadonlySet<string>;
-  paired: ReadonlySet<string>;
-  propose: (repos: readonly string[]) => Promise<LoopProposal[] | null>;
+  /** The selection's proposals and pruning (`useCockpit`) — the inspector's CTA dispatches from it. */
+  batch: ProposalBatch;
+  /** The armed run configuration, written by the setup dialog behind the masthead's gear. */
+  dials: RunDials;
   canRun: boolean;
-  /** Whether a PR can be opened on this deployment at all — passed straight to the delivery dial. */
-  prAvailable?: boolean;
   busy: boolean;
   /** The copy the SETUP card should render, when it is not the route's own last error — today only
    *  the hosted gate's `reason`, which is the one refusal the browser cannot re-derive (plan, credit
@@ -100,13 +101,11 @@ export function CockpitRail(props: CockpitRailProps) {
         />
       )}
       <CockpitInspector
-        selected={props.selected}
-        paired={props.paired}
-        propose={props.propose}
+        batch={props.batch}
+        dials={props.dials}
         onRun={props.onRun}
         onDrive={props.onDrive}
         canRun={props.canRun}
-        prAvailable={props.prAvailable}
         busy={props.busy}
         // The interrupted banner already owns the drive error; showing it twice would read as two
         // failures.

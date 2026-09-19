@@ -35,14 +35,14 @@ describe("ScanForm validation error accessibility", () => {
   it("has no alert before the user submits — nothing is announced until there is an error", () => {
     render(<ScanForm showExamples={false} />);
     expect(screen.queryByRole("alert")).toBeNull();
-    const input = screen.getByRole("textbox", { name: /github repository/i });
+    const input = screen.getByRole("textbox", { name: /repository/i });
     expect(input).not.toHaveAttribute("aria-invalid");
     expect(input).not.toHaveAttribute("aria-describedby");
   });
 
   it("announces an un-coercible repo as a live alert AND links it to the input, without navigating", () => {
     render(<ScanForm showExamples={false} />);
-    const input = screen.getByRole("textbox", { name: /github repository/i });
+    const input = screen.getByRole("textbox", { name: /repository/i });
 
     // A single bare word can't be coerced to owner/repo → validation fails.
     fireEvent.change(input, { target: { value: "not-a-repo" } });
@@ -62,7 +62,7 @@ describe("ScanForm validation error accessibility", () => {
 
   it("clears the alert and the invalid state once the field is edited again", () => {
     render(<ScanForm showExamples={false} />);
-    const input = screen.getByRole("textbox", { name: /github repository/i });
+    const input = screen.getByRole("textbox", { name: /repository/i });
 
     fireEvent.change(input, { target: { value: "not-a-repo" } });
     fireEvent.click(screen.getByRole("button", { name: /scan/i }));
@@ -72,5 +72,69 @@ describe("ScanForm validation error accessibility", () => {
     fireEvent.change(input, { target: { value: "facebook/react" } });
     expect(screen.queryByRole("alert")).toBeNull();
     expect(input).not.toHaveAttribute("aria-invalid");
+  });
+});
+
+describe("ScanForm GitLab paste: same coordinate scanRepository already routes", () => {
+  it("navigates a gitlab.com URL to gitlab:group/project, not a mangled GitHub owner/repo", () => {
+    render(<ScanForm showExamples={false} />);
+    const input = screen.getByRole("textbox", { name: /repository/i });
+    fireEvent.change(input, { target: { value: "https://gitlab.com/group/project" } });
+    fireEvent.click(screen.getByRole("button", { name: /scan/i }));
+    expect(push).toHaveBeenCalledWith("/report?repo=gitlab%3Agroup%2Fproject");
+  });
+
+  it("keeps a GitLab subgroup path whole", () => {
+    render(<ScanForm showExamples={false} />);
+    const input = screen.getByRole("textbox", { name: /repository/i });
+    fireEvent.change(input, { target: { value: "https://gitlab.com/group/sub/project" } });
+    fireEvent.click(screen.getByRole("button", { name: /scan/i }));
+    expect(push).toHaveBeenCalledWith("/report?repo=gitlab%3Agroup%2Fsub%2Fproject");
+  });
+
+  it("collapses a pasted GitLab URL in place instead of GitHub-mangling it to gitlab.com/group", () => {
+    render(<ScanForm showExamples={false} />);
+    const input = screen.getByRole("textbox", { name: /repository/i });
+    fireEvent.paste(input, {
+      clipboardData: { getData: () => "https://gitlab.com/group/project" },
+    });
+    expect(input).toHaveValue("gitlab:group/project");
+    fireEvent.click(screen.getByRole("button", { name: /scan/i }));
+    expect(push).toHaveBeenCalledWith("/report?repo=gitlab%3Agroup%2Fproject");
+  });
+
+  it("prefills the branch from a pasted GitLab /-/tree/<ref> deep link", () => {
+    render(<ScanForm showExamples={false} />);
+    const input = screen.getByRole("textbox", { name: /repository/i });
+    fireEvent.paste(input, {
+      clipboardData: { getData: () => "https://gitlab.com/group/project/-/tree/release-1" },
+    });
+    expect(input).toHaveValue("gitlab:group/project");
+    fireEvent.click(screen.getByRole("button", { name: /scan/i }));
+    expect(push).toHaveBeenCalledWith("/report?repo=gitlab%3Agroup%2Fproject&ref=release-1");
+  });
+
+  it("navigates a git@gitlab.com SSH URL", () => {
+    render(<ScanForm showExamples={false} />);
+    const input = screen.getByRole("textbox", { name: /repository/i });
+    fireEvent.change(input, { target: { value: "git@gitlab.com:group/project.git" } });
+    fireEvent.click(screen.getByRole("button", { name: /scan/i }));
+    expect(push).toHaveBeenCalledWith("/report?repo=gitlab%3Agroup%2Fproject");
+  });
+
+  it("navigates an explicit gitlab: prefix", () => {
+    render(<ScanForm showExamples={false} />);
+    const input = screen.getByRole("textbox", { name: /repository/i });
+    fireEvent.change(input, { target: { value: "gitlab:group/sub/project" } });
+    fireEvent.click(screen.getByRole("button", { name: /scan/i }));
+    expect(push).toHaveBeenCalledWith("/report?repo=gitlab%3Agroup%2Fsub%2Fproject");
+  });
+
+  it("still navigates a GitHub URL to owner/repo", () => {
+    render(<ScanForm showExamples={false} />);
+    const input = screen.getByRole("textbox", { name: /repository/i });
+    fireEvent.change(input, { target: { value: "https://github.com/facebook/react" } });
+    fireEvent.click(screen.getByRole("button", { name: /scan/i }));
+    expect(push).toHaveBeenCalledWith("/report?repo=facebook%2Freact");
   });
 });

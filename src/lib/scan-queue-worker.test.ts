@@ -294,4 +294,29 @@ describe("a requeued job does not buy its credit twice", () => {
     expect(h.reserveScanCredit).toHaveBeenCalledTimes(1);
     expect(h.markJobCredit).toHaveBeenCalledWith("job_1", true);
   });
+
+  it("an import-shaped row is the same guard — reap after reserve does not buy a second credit", async () => {
+    // claimRepoWork writes reason:"import" on a rescore row. A 300s kill + reapExpiredLeases
+    // returns it queued with creditCharged still true; the worker must carry, not re-reserve.
+    h.reapExpiredLeases.mockResolvedValueOnce(1);
+    h.claimJobById.mockResolvedValueOnce(job({ reason: "import", creditCharged: true, attempts: 2 }));
+
+    const out = await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
+
+    expect(h.reapExpiredLeases.mock.invocationCallOrder[0]!).toBeLessThan(h.claimJobById.mock.invocationCallOrder[0]!);
+    expect(out.done).toBe(1);
+    expect(h.reserveScanCredit).not.toHaveBeenCalled();
+    expect(h.markJobCredit).not.toHaveBeenCalled();
+    expect(h.scanRepository).toHaveBeenCalledTimes(1);
+  });
+
+  it("still refunds a carried import credit when the retry fails BEFORE inference", async () => {
+    h.claimJobById.mockResolvedValueOnce(job({ reason: "import", creditCharged: true }));
+    h.scanRepository.mockRejectedValueOnce(new Error("github 502"));
+
+    await drainLane("rescore", opts({ jobs: [{ id: "job_1", repo: "acme/api" }] }));
+
+    expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true, { actor: "queue:import", repoFullName: "acme/api" });
+    expect(h.settleJob).toHaveBeenCalledWith("job_1", expect.objectContaining({ state: "failed", creditRefunded: true }));
+  });
 });

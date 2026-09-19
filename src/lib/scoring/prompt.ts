@@ -8,7 +8,7 @@ import { formatSignal } from "@/lib/types";
 import { DIMENSIONS, FOLLOW_UP_BELOW, LEVELS } from "@/lib/maturity/model";
 import { GREEN_MIN_SCORE } from "@/lib/maturity/green";
 import { MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
-import { allFacetContracts } from "@/lib/scoring/claims";
+import { allFacetContracts, COMMIT_LINE_PREFIX } from "@/lib/scoring/claims";
 import { CRAFT_AXES, CRAFT_AXIS_BRIEF } from "@/lib/scoring/craft";
 import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
 import {
@@ -423,7 +423,7 @@ export function buildAssessmentPrompt(input: LlmScoreInput): {
 
   const commitBlock = commitSample.length
     ? commitSample
-        .map((m) => `- ${neutralize(m.replace(/\n/g, " ")).slice(0, COMMIT_SUBJECT_CHARS)}`)
+        .map((m) => `${COMMIT_LINE_PREFIX}${neutralize(m.replace(/\n/g, " ")).slice(0, COMMIT_SUBJECT_CHARS)}`)
         .join("\n")
     : "(no commit history available)";
 

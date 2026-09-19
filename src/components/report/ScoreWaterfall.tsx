@@ -1,7 +1,9 @@
 "use client";
 
 import type { ScanReport } from "@/lib/types";
-import { contributions } from "@/lib/scoring/engine";
+import { integrityNotes } from "@/lib/maturity/attribution";
+import { contributions } from "@/lib/scoring/projections";
+import { scoreProvenanceMark } from "@/lib/scoring/provenance";
 import { DIMENSION_SHORT, fmtPts, scoreHex } from "@/lib/ui";
 import { fillBarStyle, useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { ScoreBarTrack } from "@/components/report/FillBar";
@@ -11,6 +13,13 @@ import {
   waterfallHeadroom,
   waterfallSegments,
 } from "@/components/report/scoreWaterfallSegments";
+import {
+  MOCK_HOLLOW_FILL,
+  MOCK_SNAPSHOT_NOTE,
+  MOCK_SR_SUFFIX,
+  isMockEngine,
+  mockHollowInset,
+} from "@/components/report/chartEngine";
 import { Kicker, Surface } from "@/components/ui";
 
 /**
@@ -25,11 +34,21 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
   const { dimensions, overallScore, total } = contributions(report);
   const mounted = useMounted();
   const reduced = usePrefersReducedMotion();
+  // Mock is the report's engine, not a per-dimension fact. D9 is signal-only on a live scan and
+  // stays a solid fill; only a mock-scored report paints the whole track hollow.
+  const mock = isMockEngine(report.engine?.provider);
+  // Same wording as the header chip. G5: disclose what already fired; a clean run stays unlabeled.
+  const notes = integrityNotes(report.scoreIntegrity);
+  const noteLine = notes.length ? notes.map((n) => n.label).join(" · ") : "";
+  const byId = new Map(report.dimensions.map((d) => [d.id, d]));
   // Biggest contributors first — the natural "what's driving my score" reading. Stable tiebreak
   // on dimension id so equal contributors don't reshuffle between renders.
-  const ranked = [...dimensions].sort(
-    (a, b) => b.points - a.points || a.dimension.localeCompare(b.dimension),
-  );
+  const ranked = [...dimensions]
+    .sort((a, b) => b.points - a.points || a.dimension.localeCompare(b.dimension))
+    .map((c) => {
+      const d = byId.get(c.dimension);
+      return { ...c, mark: d ? scoreProvenanceMark(d, report.scoreIntegrity) : null };
+    });
   // Segment widths are the contributions' TRUE shares — no pixel floor (see scoreWaterfallSegments):
   // floors summed past the track and squeezed the headroom tail to zero. Sub-1.5pt contributions are
   // rolled into one neutral sliver instead of being either overstated or hidden.
@@ -58,16 +77,24 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
       <ScoreBarTrack
         className="mt-4 flex h-4 w-full overflow-hidden rounded-full bg-slate-800"
         role="img"
-        aria-label={`Overall score ${overallScore} of 100, composed of ${ranked.length} weighted dimension contributions`}
+        aria-label={`Overall score ${overallScore} of 100, composed of ${ranked.length} weighted dimension contributions${noteLine ? `. Integrity: ${noteLine}` : ""}${mock ? MOCK_SR_SUFFIX : ""}`}
       >
         {segments.map((s, i) => {
           const { width, transition } = fillBarStyle({ pct: s.points, index: i, mounted, reduced, stagger: 50, cap: 400 });
+          const ink = s.score === null ? AGGREGATE_HEX : scoreHex(s.score);
           return (
             <div
               key={s.key}
               data-segment={s.key}
+              data-mock={mock || undefined}
+              data-integrity={s.mark || undefined}
               className="h-full shrink-0 border-r border-slate-950/40 last:border-r-0"
-              style={{ width, backgroundColor: s.score === null ? AGGREGATE_HEX : scoreHex(s.score), transition }}
+              style={{
+                width,
+                backgroundColor: mock ? MOCK_HOLLOW_FILL : ink,
+                boxShadow: mock ? mockHollowInset(ink) : undefined,
+                transition,
+              }}
               title={s.title}
             />
           );
@@ -90,6 +117,25 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
         </p>
       )}
 
+      {noteLine ? (
+        <p
+          className="mt-2 type-body-sm text-amber-300/80"
+          title={notes.map((n) => n.hint).join(" ")}
+          data-testid="score-waterfall-integrity"
+        >
+          {noteLine}
+        </p>
+      ) : null}
+
+      {mock && (
+        <p className="mt-2 flex items-start gap-2 type-body-sm text-slate-500">
+          <svg aria-hidden viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0">
+            <rect x={2} y={3} width={8} height={6} fill={MOCK_HOLLOW_FILL} stroke="currentColor" strokeWidth={1.5} />
+          </svg>
+          <span>{MOCK_SNAPSHOT_NOTE}</span>
+        </p>
+      )}
+
       {/* Itemized contributions — biggest first; ▲ lifts the overall, ▼ drags it below the mean. */}
       <ul className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2">
         {ranked.map((c) => {
@@ -99,9 +145,29 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
           const liftColor =
             lift === "up" ? "text-emerald-400" : lift === "down" ? "text-red-400" : "text-slate-400";
           return (
-            <li key={c.dimension} className="flex items-center gap-3 type-body">
-              <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: scoreHex(c.score) }} />
+            <li key={c.dimension} className="flex items-center gap-3 type-body" data-dimension={c.dimension}>
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                style={
+                  mock
+                    ? { backgroundColor: MOCK_HOLLOW_FILL, boxShadow: mockHollowInset(scoreHex(c.score)) }
+                    : { backgroundColor: scoreHex(c.score) }
+                }
+              />
               <span className="w-20 shrink-0 truncate text-slate-300">{DIMENSION_SHORT[c.dimension]}</span>
+              {c.mark ? (
+                <span
+                  data-integrity={c.mark}
+                  className={
+                    c.mark === "widened" || c.mark === "unmeasured"
+                      ? "shrink-0 rounded-sm bg-amber-500/10 px-1.5 type-mono-sm text-amber-300"
+                      : "shrink-0 type-mono-sm text-slate-500"
+                  }
+                >
+                  {c.mark}
+                </span>
+              ) : null}
               <span className="flex-1 type-mono-sm text-slate-400">
                 {c.score} × {Math.round(c.normalizedWeight * 100)}%
               </span>

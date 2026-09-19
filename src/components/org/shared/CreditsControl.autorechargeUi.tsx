@@ -5,17 +5,19 @@
 //
 // The copy here is deliberately conservative. Nothing in Ascent can charge an org off-session (see
 // CreditsControl.autorecharge.ts), so this never promises an automatic purchase — it promises a WARNING
-// and gives a one-click way to act on it. `AUTO_RECHARGE_CHARGES_AUTOMATICALLY` is the single switch
-// that would let the stronger copy appear.
+// and gives a one-click way to act on it. `lowBalanceHelpCopy` is the single switch that would let
+// the stronger copy appear.
 
 import { useEffect, useState } from "react";
 import type { CreditPack } from "@/lib/polar";
 import {
-  AUTO_RECHARGE_CHARGES_AUTOMATICALLY,
   DEFAULT_AUTO_RECHARGE,
+  LOW_BALANCE_WARNING_LABEL,
+  LOW_BALANCE_WARNING_TOGGLE,
+  lowBalanceHelpCopy,
   normalizeAutoRecharge,
   type AutoRechargePref,
-} from "./CreditsControl.autorecharge";
+} from "@/lib/autorecharge";
 
 /**
  * The preference's client lifecycle: lazy GET the first time the popover opens, PUT on save.
@@ -130,14 +132,15 @@ export function AutoRechargeSection({
 
   return (
     <div className="mt-3 border-t border-slate-800 pt-2">
-      <label className="flex items-center gap-2 type-body-sm text-slate-300">
+      <div className="type-body-sm font-medium text-slate-300">{LOW_BALANCE_WARNING_LABEL}</div>
+      <label className="mt-1.5 flex items-center gap-2 type-body-sm text-slate-300">
         <input
           type="checkbox"
           checked={enabled}
           onChange={(e) => setEnabled(e.target.checked)}
           className="focus-ring h-3.5 w-3.5 accent-current"
         />
-        Warn me before I run out
+        {LOW_BALANCE_WARNING_TOGGLE}
       </label>
       {enabled && (
         <div className="mt-1.5 flex items-center gap-2">
@@ -156,12 +159,7 @@ export function AutoRechargeSection({
           <span className="type-body-sm text-slate-400">credits left</span>
         </div>
       )}
-      <p className="mt-1.5 type-body-sm text-slate-500">
-        {AUTO_RECHARGE_CHARGES_AUTOMATICALLY
-          ? "Credits are topped up automatically at this balance."
-          : // Say the quiet part out loud: no card is on file and nothing buys credits by itself.
-            "Ascent can't charge a saved card, so this warns you and offers a one-click top-up; it doesn't buy credits for you."}
-      </p>
+      <p className="mt-1.5 type-body-sm text-slate-500">{lowBalanceHelpCopy()}</p>
       <button
         type="button"
         disabled={saving || !dirty || (enabled && !valid)}

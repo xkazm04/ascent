@@ -5,6 +5,12 @@ and (if a webhook sink is configured) posts an alert. Detection is a pure, unit-
 function over a scan diff; delivery is a separate integration layer that never lets an
 alerting failure break the scan.
 
+Delivery skips work already cancelled by the scan caller, including cancellation while the
+email transport loads. A send already handed to the email provider cannot be recalled.
+
+Scan and conformance alerts carry the owning organization into email delivery, so their
+explanation, settings destination and signed unsubscribe link refer to that organization.
+
 ## Detection (`src/lib/alerts.ts`)
 
 `detectRegression(diff, thresholds)` → `RegressionVerdict { regressed, severity, reasons[] }`
@@ -238,19 +244,22 @@ cooldown claim, so an interactive rescan can't double-alert with the cron.
 
 ## What moved since you last looked (in-app unread state)
 
-The dashboard's Alerts chip carries a movement count. It is a **read** over records the scan
-pipeline already persists (Shared Org Memory: regressions, level changes, closed gaps), not a
-new event system:
+The dashboard's Alerts chip carries a movement count. It is a **read** over records that already
+exist — not a new event system or a write path that could fail a scan. Two sources, same window:
 
 - **Watermark:** `Membership.alertsSeenAt` (nullable, per-user-per-org). Never opened it? The
   window falls back to the member's join date. Advanced by `POST /api/org/alerts { seen: true }`
   when the popover opens.
-- **Count:** `getOrgMovementSince(orgSlug, since)` (`src/lib/db/org-movement.ts`): ONE bounded
-  `OrgMemory` query with `take: MOVEMENT_CAP + 1`, so ">9" costs no second query. Hidden at zero.
+- **Count:** `getOrgMovementSince(orgSlug, since)` (`src/lib/db/org-movement.ts`) unions two
+  bounded reads (`take: MOVEMENT_CAP + 1` each, so ">9" costs no count query), merged newest-first:
+  scan-pipeline `OrgMemory` (regressions, level changes, closed gaps) **and** control-failed
+  `AlertEvent` rows (`kind: "control"`, `severity: "critical"`). A control flip is ledger-sourced
+  and never a memory row — counting only scan-memory left the badge silent after branch protection
+  came off. Hidden at zero.
 - **Rows:** repo + event label + age, and under each, the persisted one-line summary the memory
-  record carries (2026-09-04). Without it every row read "acme/api regressed 1h ago", identical for a
-  3-point wobble and a two-band demotion, while the sentence that separates them was already on the
-  client.
+  record (or the AlertEvent title) carries (2026-09-04). Without it every row read "acme/api
+  regressed 1h ago", identical for a 3-point wobble and a two-band demotion, while the sentence that
+  separates them was already on the client. A `control-failed` row labels as "control failed".
 - **Degrades:** auth-off deployments, the public org, a viewer with no membership, or any read
   failure answer `{ movement: null }` and the chip renders exactly as it did before.
 
@@ -270,10 +279,13 @@ periodic push**: a leader relies on it instead of opening the app, so a flat wee
 silent rather than training the inbox filter.
 
 - **What it summarizes:** for each org with watched repos: the past-week fleet rollup
-  (`getOrgRollup(org, win)`: avg overall, level, scanned/repo counts, overall delta vs the
-  week's start), the **top movers** (`getOrgMovers`, up to 3 gainers + 3 regressers,
+  (`getOrgRollup(org, win)`: avg overall, level, scanned/repo counts, **cohort-matched
+  `rollup.movement`** — overall delta plus the `cohortSize` it was measured over; the
+  deprecated `rollup.deltas` triple is not read), the **top movers** (`getOrgMovers`, up to 3 gainers + 3 regressers,
   noise-filtered via `isWithinNoise` so within-jitter moves never appear under
-  "Regressions:"), the **highest-leverage gap** (`getOrgRecommendations(org, 1)`'s top
+  "Regressions:", plus the `held` and `onboarded` buckets on the same movement axis:
+  held sit inside the noise band; onboarded are named lifetime deltas, with a
+  single-scan onboard carrying **no numeral** rather than a fabricated 0), the **highest-leverage gap** (`getOrgRecommendations(org, 1)`'s top
   result: title + affected repo count), the corpus percentile (`getOrgBenchmark`), a
   one-line forecast trajectory (`trajectoryLine` — see "The trajectory line is gated and
   hedged" below), and, for metered, non-public orgs
@@ -286,8 +298,11 @@ silent rather than training the inbox filter.
   `?range=custom&from=&to=` because that page's window is selectable.
 - **Movement gate:** `digestHasSignal()` (`src/lib/alerts.ts`) decides whether the week is
   worth sending at all: a level change, a beyond-noise regression, a beyond-noise gainer, a
-  non-zero overall delta, a low credit balance, a control that failed (`controlsFailed > 0`),
-  **or a standing concern** (`standingConcerns > 0`, which counts unestablished baselines too). An org with none of those is skipped
+  beyond-noise overall delta **over a positive `movement.cohortSize`**, a low credit balance, a control that failed (`controlsFailed > 0`),
+  **or a standing concern** (`standingConcerns > 0`, which counts unestablished baselines too). A null or empty cohort is unmeasurable
+  (G4): it is never a silent 0 and never fleet signal — the same rule the in-app digest already
+  keeps. Both cron readers (this gate and `buildFleetDigestMessage`) project `rollup.movement`
+  through `digestMovementFields`; neither reads `rollup.deltas`. An org with none of those is skipped
   (`skippedFlat`). A standing concern is re-stated every period it persists — on the same reasoning
   as the low-credit line: the reader needs to know it is *still* true, not only that it once
   happened. Every other condition is a movement, which is precisely why a decline that stopped
@@ -376,13 +391,17 @@ silent rather than training the inbox filter.
   pure) builds the same `AlertMessage { text, blocks }` shape as the regression/promotion
   builders: a headline (`📊 Ascent weekly digest: <org>`), a summary line (fleet maturity,
   level, delta, scanned/repo counts, percentile), an optional trajectory line, a "Top
-  gainers"/"Regressions" block, a "Highest-leverage gap" block, an optional "Credits
-  remaining" line, and a link to the org's executive briefing (carrying the same
-  `?range=custom&from=&to=` window). A `null` `overallDelta` (no baseline exists for the
-  window at all, whether a freshly-onboarded org or a fleet whose entire scan history is younger
-  than the window boundary) renders as an explicit "not enough history yet for a
-  week-over-week comparison" clause, never a silently-dropped delta: an empty string there
-  used to be indistinguishable from "the fleet held exactly flat."
+  gainers"/"Regressions" block, optional "Held within noise" and "Onboarded this week"
+  blocks (omitted when the bucket was not measured or is empty — never "0 held" /
+  "0 onboarded"; an unmeasured onboarded delta prints the name without a 0), a "Highest-leverage gap" block, an optional "Credits
+  remaining" line, and a link to the org's Weekly digest tab. The headline delta is
+  **qualified with its cohort**: `+6 this week, measured over 8 repositories`. A `null`
+  `overallDelta` **or** a null/0 `cohortSize` (no baseline, no overlap — unmeasurable,
+  never a silent 0) renders as an explicit "not enough history yet for a week-over-week
+  comparison" clause, never a silently-dropped delta and never an unqualified `+N this
+  week` from deprecated `rollup.deltas`. A one-repo cohort still prints, singular
+  (`measured over 1 repository`), so a 1-repo artifact cannot read as a fleet-wide move.
+  An empty string there used to be indistinguishable from "the fleet held exactly flat."
 - **Shares webhook resolution with interactive alerts:** the digest resolves its sink
   through the exact same path as regression/promotion delivery: `getOrgAlertWebhook(org)` →
   the org's own `Organization.alertWebhookUrl` → falls back to the global
@@ -479,6 +498,8 @@ with no sink gets no extra work and no extra push.
 | --- | --- | --- | --- |
 | **Goal at risk** (`buildGoalAtRiskMessage`) | Any goal `listGoals` already marks `pace: "behind"` and not achieved. | The org's alert sink. | At most once per weekly window (`org.alert.goal-at-risk` claim). |
 | **Spend anomaly** (`buildSpendAnomalyMessage`) | This week's billable scans ≥ `SPEND_ANOMALY_RATIO` × the trailing 3-week per-week average, with a floor of 10 scans so small fleets can't trip it. A spend *drop* never fires. | The org's alert sink. | At most once per weekly window (`org.alert.spend-anomaly` claim). |
+
+**The goal-at-risk CTA is a live org tab.** It is built with `orgTabHref(org, "executive")` plus the digest window (`range`/`from`/`to`). The Plan tab retired 2026-08-17 and is not an `OrgTabId`; `/org/<slug>/plan` only exists as a redirect to proposals, which does not list goals. Spend-anomaly still links `/usage`.
 
 **The spend figure is the ALL-LANE total.** Detection is still scan VOLUME (this week's billable
 scans vs the trailing average — that is what `daily` carries), but the dollar line in the message

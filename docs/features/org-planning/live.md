@@ -357,6 +357,12 @@ Three rules now hold, and they are the vocabulary the whole loop answers to:
    | A LANE's count of the rescan's adjudicated set | *N verified closed* | `LaneRail`, `AutopilotBandParts`, the lane log |
    | `diff.closedGapCount`, a scan-diff quantity | *N gaps no longer raised* | `OutcomeSection`, `takeaway()` |
 
+   The outcome sheet's gap cells had the same split still to make: `KIND_META.closed` labelled every
+   close *Closed*, including an agent claim the rescan had not named. Unverified closed rows now
+   read *Claimed* (muted italic, no tick); a close whose id is in `closedFollowUpIds` keeps
+   *Closed* / ✓; a `retired` row stays *Retired*. The word *Closed* on a gap cell is earned the
+   same way *closed by the rescan* is.
+
    *"closed by the rescan"* is now **reserved for the per-item verdict** and appears nowhere else.
    `cockpitVocabulary.test.ts` pins all four, positively and negatively — the scan-diff line is
    asserted not to contain the word "closed" at all.
@@ -486,13 +492,15 @@ construction, a restart casualty — a lie, not a resumable job. `markStaleRunsS
 runs `stopped` with `"Interrupted — the server restarted while this run was in flight."` and flips
 their non-terminal lanes to `error`.
 
-It runs at **three** moments: at **boot**, from `register()` in `src/instrumentation.ts` via
+It runs at **four** moments: at **boot**, from `register()` in `src/instrumentation.ts` via
 `sweepInterruptedWork()` (so a crashed run stops reading as `running`, and its lanes' backlog claims
 are released, whether or not anybody opens the tab); on `GET /api/org/loop` (so the cockpit never
-renders a job nobody is driving); and inside `startLoopRun`, *before* the one-run-per-org check —
-otherwise a single crash would bar the org from ever starting another run.
+renders a job nobody is driving); on `GET /api/org/local/autopilot` (the war-room band polls the same
+rows, and `getAutopilotJob` runs the same sweep so a direct lib read is not a second truth); and
+inside `startLoopRun`, *before* the one-run-per-org check — otherwise a single crash would bar the
+org from ever starting another run.
 
-The `isLive(id)` predicate is what separates the three. The two request-path callers pass
+The `isLive(id)` predicate is what separates the call sites. The request-path callers pass
 `isLoopRunLive`, because without it a poll during a run stops the run it is rendering (2026-08-26).
 The boot sweep passes nothing, and that default — "nothing is live" — is true there and only there.
 
@@ -619,12 +627,13 @@ observation, with no direction, no delta, and the evidence line dropped unless t
 attributable — the verdict gate below is not routed around. A lane that did **nothing** still derives
 nothing; totality is not a licence to invent a row.
 
-**Left for the UI owner** (`outcomeDeliverables.ts` is outside this change's write set): `KIND_META`
-has no label for a `retired` row (it renders as *"Closed"*, with the honest headline beside it) and
-`DELIVERABLE_KIND_ORDER` has no separate slot for one. A `retired` badge — or a `retired` branch on
-the `closed` label plus its own order slot — is a one-line follow-up there. Unknown kinds already
-degrade safely: `parseDeliverables` floors any unrecognised `kind` to `noted`, and
-`DELIVERABLE_KIND_ORDER.indexOf` returns `-1`, which sorts such a row first rather than dropping it.
+**The sheet now says which one it is.** `rowMeta` (`outcomeDeliverables.ts`) special-cases the two
+flags: `retired` → *Retired*; unverified `closed` → *Claimed* (muted italic, no tick); verified
+`closed` → *Closed* / ✓. `buildGapRows` stamps `verified` only when the lane's `closedFollowUpIds`
+(the adjudicated set) names the covered id, and a missing `verified` is unverified — the same
+under-claim CockpitVerdicts takes. Unknown kinds already degrade safely: `parseDeliverables` floors
+any unrecognised `kind` to `noted`, and `DELIVERABLE_KIND_ORDER.indexOf` returns `-1`, which sorts
+such a row first rather than dropping it.
 
 `deriveLaneDeliverables` (`src/lib/local/lane-deliverables.ts`, pure) builds the list from four
 sources, in order: the agent's own `RESOLVED: <id> - <what changed>` lines (the clause **is** the
@@ -670,6 +679,24 @@ Each row carries a **state**, derived in the pure fold `buildGapRows`
 | `committed` | lane `commits > 0` AND (verdict attributable, the claim id in `closedIds`, or the lane's own deterministic install) | success |
 | `uncommitted` | the agent claimed RESOLVED but the lane recorded no commits — the lost-deliverable case | warn |
 | `proposed` | a batch item the run armed but did not resolve (`batchIds` minus closed claims — synthesized as a row titled from the follow-up itself, so **all** gaps get rows), or a `noted` deliverable | accent |
+
+**A proposal never renders as a uuid (2026-09-17).** The synthesized row was titled by looking its id
+up in the lane's own `before`/`after` scans — and the lanes that most need a row have neither: a
+FORCE-FAILED or still-queued lane never got as far as a rescan, so every item it was handed printed its
+raw id, in the sheet's frozen column *and* again in the Proposals ledger. `buildGapRows` now asks four
+sources in order: the pair's recommendations, `diff.recsMovedToDone`, the lane's own persisted
+deliverables (a headline whose `covers` names the id), and **`LoopRunDetail.batchTitles`** — the
+server-side resolution against the `Recommendation` table itself (`batchTitlesFor`, one `IN` query per
+detail in `loop-runs-read.ts`), which is the only source that does not depend on this lane surviving.
+An id nothing can title is a `Recommendation` row that is gone; it still earns a row, and the last
+resort is `untitledBatchItem` — *"Armed item · 4f2c0b18"* — which says what it is and stays addressable
+(the review POST keys on the id in `covers`). `batchTitles` is optional on the wire: a payload from an
+older server simply carries none, and every consumer keeps its own fallbacks.
+
+**Measured on the `kiro` fleet, 2026-09-17** (the 12 runs the Live tab reads): of **157**
+armed-and-unresolved batch ids, **50** could not be titled from their own lane's scans — every one of
+them was rendering as a raw uuid, in the sheet and in the Proposals ledger. All 50 resolve through
+`batchTitles`; none reached the placeholder.
 
 **Quick approval** (`OutcomeSheetCell.tsx`): an owner rules on each (gap × run) cell with one click — ✓ / ✕,
 keyboard-operable, `aria-label`ed. An approved row keeps its tint and gains a ✓; a dismissed row
@@ -851,10 +878,17 @@ surface, not a control surface: the tab seeds every repo's latest standing from 
 (`getOrgRollup`, optionally scoped to a tech stack via `TechStackSelector`), then `LiveWarRoom`
 subscribes to the `/api/org/scan` SSE stream and animates as results land —
 
+Progress counters retain their last valid value when a frame supplies null, booleans, blank strings
+or containers. Explicit numeric zero and numeric strings remain valid counter updates.
+
 - **Headline strip** (`LiveWarRoomStat`): fleet score, adoption, rigor, with campaign deltas "since
   kickoff" when a goal exists.
 - **Goal banner** (`LiveWarRoomGoalBanner`): the first not-yet-achieved goal, its target meter, pace
-  and deadline countdown; its `createdAt` is the campaign baseline.
+  chip, and deadline countdown; its `createdAt` is the campaign baseline. The chip is gated on the
+  same `composeTrajectory` presentability rule as the briefing trajectory (G4): a presentable fit
+  prints the pace verdict; a real-but-thin fit **hatches** the slot and prints no pace number; no
+  fit at all **hides** the chip (absence, not a fabricated "Tracking"). TV standing (`TvStanding`,
+  `WallPaceChip`) uses the same gate so the wall never contradicts the briefing one click away.
 - **Fleet timetable** (`LiveWarRoomTimetable`, `buildFleetTimetable`): the repos × scan-days grid of
   overall score — the main wall's centerpiece.
 - **Leaderboard**, **movers ticker**, **posture mix**, **needs-attention strip** (watched repos whose
@@ -880,17 +914,28 @@ snapshot, pairings) and adds, **only when `selfHosted()`**, `getActiveLoopRun(sl
 histories, pairedRepos, activeRun, runs, loopEnabled, selfHosted, isOwner, wallHref` — `wallHref`
 rebuilds the current query string with `view=wall` so scope params survive the toggle.
 
-Layout: header (`Kicker` "Observatory", LIVE dot while a run is live, `N lanes · cycle c/m`, **Wall**
-link, **Stop**) · the Observatory field (dominant) with the fleet list as a collapsible section below
-it · a right rail whose mode is **derived from the run lifecycle**, not a tab bar: `inspect` (no run)
-⇄ `run` (active run) ⇄ `drive` (a drive pulling) ⇄ `outcome` (a finished run, a finished drive, or a
-history pick) · the run-history strip. One primary CTA at a time: **Run (N repos)** / **Drive to
-green** / **Stop after in-flight** / **Stop drive** / **Replay run**.
+Layout: header (`Kicker` "Observatory", LIVE dot while a run is live, `N lanes · cycle c/m`, a
+**gear** opening the run-setup dialog, the **Wall** link, **Stop**) · the Observatory field (dominant)
+with the fleet list as a collapsible section below it · a right rail whose mode is **derived from the
+run lifecycle**, not a tab bar: `inspect` (no run) ⇄ `run` (active run) ⇄ `drive` (a drive pulling) ⇄
+`outcome` (a finished run, a finished drive, or a history pick) · **the proposed-batch ledger**
+full-width under the grid · the outcome sheet. One primary CTA at a time: **Run (N repos)** / **Drive
+to green** / **Stop after in-flight** / **Stop drive** / **Replay run**.
 
 The rail's choice is one ordered list in `CockpitRail.tsx`, and the order is the doctrine: a **live
 drive outranks everything**, because while it pulls, "is debt falling and how much rope is left" is
 the only question and its own runs come and go underneath it. `LiveCockpit.tsx` is layout only; the
 state machine is `useCockpit.ts`, which composes `useLoopRun` + `useDrive` and owns the mode.
+
+**The cockpit's decision queues are their own tabs (2026-09-15).** Two rail items now sit under
+Live in In flight, both drawn by the shared `DecisionTable`:
+- **Proposals** (`src/features/inflight/proposals/`) lists the outcome sheet's pending `proposed`
+  rows beside the scan follow-ups, decidable in bulk. The sheet keeps its per-cell ✓/✕ and links
+  there with its pending count.
+- **Lessons** (`src/features/inflight/lessons/`) replaced the `CockpitLessons` list that sat under
+  the price list.
+
+The cockpit itself no longer renders lessons.
 
 ### The Observatory (sky chart)
 
@@ -915,13 +960,68 @@ crossing) is the only new tween and renders its end state under `prefers-reduced
 
 Drag on empty field = rectangle lasso (the meaningful regions are the 50/50 rectangles; the hit-test
 takes any polygon); shift extends; click toggles a body. Selection is cockpit state, seeded from the
-last run's repos. The **Inspector** shows the selection as chips, the **shared-dimension bars** (per
-dimension, how many selected repos have an open follow-up; ≥ half → the org-wide call line "D2 open in
-7 of 12"), and the **proposed batch per repo** from `GET /api/org/loop/propose` — each row a title,
-`ImpactEffort`/`Points` chips and a prune checkbox; a dimension-focus select narrows every repo's
-proposals to one dimension. Concurrency (1–4, default 2) and cycles (1–5) use the `Field` kit.
-**Unpaired repos are skipped, not blocking:** flagged "not paired · skipped" and dropped from the
-batch; the CTA counts paired repos only and disables at zero.
+last run's repos. The **Inspector** (the rail) shows the selection as chips, the **shared-dimension
+bars** (per dimension, how many selected repos have an open follow-up; ≥ half → the org-wide call line
+"D2 open in 7 of 12"), the **brief strip**, and the CTA. **Unpaired repos are skipped, not blocking:**
+flagged "not paired · skipped" and dropped from the batch; the CTA counts paired repos only and
+disables at zero.
+
+**The brief strip is a list, because its content is a list (2026-09-17).** `briefSummaryLine` glues
+five to seven provenance facts with middots, which is right for the lane log and wrong for a rail: the
+one fact worth reading (*no skill*) sat mid-sentence in a grey paragraph. `briefSummaryParts`
+(`src/lib/org/lane-brief.ts`) is the shared fold both render from — the log joins it, `BriefStrip`
+gives each part its own bullet row under a **white** project name, tones a missing section `warn` and
+the byte figure muted, and puts the "what is a brief assembled from" paragraph in an `InfoTip`.
+
+#### The proposed batch is a ledger in the main column (2026-09-17)
+
+`GET /api/org/loop/propose` used to render in the rail as one bordered card per repo with a checkbox
+list inside. Three repos of five items made the 18rem column a scroll, every title wrapped to three
+lines, and the question the panel exists to answer — *is this the right work?* — needs a comparison
+across repos that nested cards cannot give.
+
+It is now `CockpitBatchLedger`, full width under the observatory grid, in the **Proposals ledger's own
+shape**: one flat row per item — repo · dimension · proposal · `ImpactEffort` · `Points` — ticked to
+keep, with a select-all, a pruned row struck through rather than removed, and the arithmetic of what
+will dispatch in the header (`N items · M repos · +P projected · K pruned · U unpaired`). The
+vocabulary is literally shared (`OrgTable`, `FollowupChips`), so a gap looks the same wherever Ascent
+shows it. Two rows are not items and say so: an **install lane** (`foundation` / `practice` / `craft`)
+carries its reason and "no rows to curate — this lane installs files", and an **unpaired repo** is
+flagged and excluded.
+
+It is deliberately *not* `DecisionTable`: that component's selection means "rows this batch action
+will act on" and settles from a sticky bar, whereas a tick here means "keep this in the run" — the
+inverse polarity — and the action is the rail's own Run/Drive CTA.
+
+The fold is pure (`cockpitBatchRows.ts`: `batchRows`, `batchTotals`) and the state is
+`useProposalBatch.ts`, lifted out of `CockpitInspector` so the ledger and the CTA read **one** batch —
+what the table draws is what the button dispatches.
+
+#### The dials are a dialog behind the masthead gear (2026-09-17)
+
+Ten `<select>`s and five standing paragraphs lived in the same 18rem rail (`CockpitRunControls`,
+`CockpitThroughputControls` — both retired). Every dial was a dropdown regardless of what it held, so
+"2 lanes or 3" and "which of ninety minutes" were the same interaction, and the panel read as an essay
+with controls hidden in it.
+
+`RunSetupModal` is the brand `Modal` at `xl`, two columns, five groups — **the work** (focus, items per
+lane, lanes at once), **how long** (cycles, session limit, drive runs), **the agent** (model, effort),
+**before each commit** (the guard, its budget) and **when a lane finishes** (delivery). The control
+vocabulary is `RunSetupControls.tsx`: `Segmented` for a short closed list (every option on screen, a
+disabled one keeps its seat and states its reason), `NumberRow` for 1..cap — the caps are 4, 5, 8 and
+12, and they are still the **server's own constants** — and `ChoiceList` for a band too long to lay
+flat (the minute steps).
+
+**What went into a tooltip and what did not.** The mechanism of a dial is an `InfoTip` on its label
+(`src/components/ui/InfoTip.tsx`). The **consequence of the current choice** stays on the page: "nothing
+will check the agent's work before it is committed" in `warn` when the guard is off, and the delivery
+hint for the mode selected. An explanation nobody has asked for yet is what made the rail an essay; a
+consequence the operator must read *before* they act is not an explanation.
+
+Nothing about the armed run changed: the same `RunDials` object, the same defaults, the same caps. The
+dials moved to `useCockpit` because two surfaces now read them (the dialog writes, the CTA composes),
+and the gear's `title` carries `dialsSummary(dials)` so what the dialog holds is legible without
+opening it. The gear is drawn only where a run could actually be started.
 
 ### Run: lanes with stage travel
 
@@ -950,8 +1050,8 @@ done, and by which run?*
 | axis | what it is |
 | --- | --- |
 | columns | one per run, chronological, latest emphasised, a live run marked. The header is a button: clicking a run opens it and drifts the field (this absorbed the history strip). |
-| rows | a **project header row** (`th scope="colgroup"`: the repo named once, its lane's PR link or the guarded *open a PR* action, its cumulative attributable lift, `bg-surface/60`), then **one row per gap** (`th scope="row"`) — the project name never repeated. |
-| cells | that run's state for that gap: the tinted block (`committed` `bg-success/10` / `uncommitted` `bg-warn/10` / `proposed` `bg-accent/5`), a kind marker, the run's own headline, the dimension short label, and the owner's ✓/✕. **A blank cell is normal** and is the point. |
+| rows | a **project header row** (`th scope="colgroup"`: the repo named once, its lane's PR link or the guarded *open a PR* action, its cumulative attributable lift, `bg-surface/60`), then a **dimension band** per group of gaps (collapsed; see below), then **one row per gap** (`th scope="row"`) — the project name never repeated. |
+| cells | that run's state for that gap: the tinted block (`committed` `bg-success/10` / `uncommitted` `bg-warn/10` / `proposed` `bg-accent/5`), a kind marker (*Closed* / ✓ only when the rescan verified the close; an unverified close reads *Claimed* in muted italic; *Retired* for a rescan-dropped row), the run's own headline, the dimension short label, and the owner's ✓/✕. **A blank cell is normal** and is the point. |
 
 A gap is identified **across runs** by its review key (`gapKey`, outcomeGapRows.ts: the first covered
 follow-up id, else `kind|dimId|headline`), so a gap worked in run 3 and revisited in run 7 is **one
@@ -962,6 +1062,48 @@ earlier run keeps its own wording in its own cell.
 
 It is a real `<table>` with a frozen (`sticky left-0`) label column, so a screen reader reads a cell as
 repo → gap → run → state. There is **no "details" toggle** — it made a mess of a sheet this wide.
+
+#### The dimension band: the sheet's third axis (2026-09-17)
+
+The row axis was project → gap with **every gap always expanded**. Three repositories over eight runs
+is a hundred-odd full-height rows, and the sheet's whole claim needs the *columns* to be comparable —
+which they stop being the moment the reader has to scroll to hold two rows in their head. There was no
+level of detail between "one line per gap" and nothing.
+
+Between a project and its gaps there is now a **dimension band** (`outcomeSheetGroups.ts`), collapsed
+on arrival: the frozen column names the dimension once with the band's gap count, and **every run
+column carries a COUNT** of that band's gaps the run touched, with its state breakdown under it
+(`3 · 2 done · 1 open`) and, when the owner has ruled, `all reviewed` / `N reviewed`. That is the
+trade: the reader gives up the individual headlines and is owed numbers that compare across columns
+at a glance. Clicking a band opens that band only; its rows render indented and stop repeating the
+dimension the band already names. Open bands are **component state, not persisted** — widths are a
+layout preference worth remembering, but which bands you opened is a question about the run you are
+reading right now.
+
+**A band of one is not a band**: a lone gap renders as its own row, unbanded, exactly as before
+(`isBand`). And a run that touched nothing in a band gets an **empty cell, never a zero** — the same
+rule the gap cells follow.
+
+*Why dimension and not a topic.* `dimId` is already on the row, it is the vocabulary the whole product
+scores, ranks, filters and alerts in (the Proposals ledger groups by it; the Focus dial arms by it),
+and it is closed — nine values, stable, no clustering and no model at render time. Grouping by *kind*
+would repeat the glyph each row already carries; grouping by *topic* would need a similarity heuristic
+nobody could predict, and a grouping that moves between renders is worse than none.
+
+#### A lane failure is a mark, and the account is a dialog (2026-09-17)
+
+The engine's errors are written to be read in full — *"Cycle 1 was FORCE-FAILED: it exceeded its
+90 min deadline while no stage in particular was in flight, so the lane was cut loose rather than left
+holding the run. Whatever that call was doing is orphaned; nothing it may still produce is committed,
+rescanned or delivered."* — and the project row printed that inline, in a 168px column. One
+FORCE-FAILED lane buried every other repository's verdict.
+
+`OutcomeCellError` keeps the **signal** in the cell (a danger-toned triangle plus the word `failed`)
+and the **account** in a `reading`-size dialog, verbatim and unclipped. Nothing is summarised away:
+`errorHeadline` (outcomeText.ts) only picks which clause titles the dialog and names the button — the
+lead clause up to the first colon, else the first sentence — so a screen reader hears *what* failed on
+this repo before deciding whether to open it. The dialog's footer restates what a failed lane means:
+nothing it produced is committed, rescanned or delivered.
 
 **Dynamic column width (drag or keyboard).** Every column, the frozen label column included, carries a
 handle on its right edge (`ColumnResizer.tsx`): pointer events with `setPointerCapture` so a drag that
@@ -1033,9 +1175,9 @@ The agent was pinned to the deployment's `CLAUDE_MODEL` (default `sonnet`) with 
 so the most expensive variable in the system was the one an operator could not vary without a
 redeploy, and the outcome ledger compared lifts across runs whose configuration it did not record.
 
-Two selects sit with the other dials in the inspector (`CockpitRunControls`, state in `useRunDials`):
-**Agent model** (`AGENT_MODELS` — haiku · sonnet · opus) and **Effort** (`AGENT_EFFORTS` — low ·
-medium · high), both defaulting to *Deployment default*. They ride `POST {action:"start"}` on the
+Two dials sit with the others in the run-setup dialog (`RunSetupSections` *the agent*, state in
+`useRunDials`): **Model** (`AGENT_MODELS` — haiku · sonnet · opus) and **Effort** (`AGENT_EFFORTS` —
+low · medium · high), both segmented and both defaulting to *Deployment default*. They ride `POST {action:"start"}` on the
 loop route and on the drive route, and a drive hands the same pair to **every** run it dispatches, so
 a multi-run drive stays one experiment. A resume inherits it for the same reason.
 
@@ -1310,7 +1452,10 @@ fold, two full iterations, the blocked states), and an honest **L2 not yet run**
 | Boot sweep | `src/lib/local/boot-sweep.ts`, called from `src/instrumentation.ts` |
 | Drive route | `src/app/api/org/local/drive/route.ts` |
 | Drive UI | `cockpit/{CockpitDrivePanel,CockpitDriveResume,driveModel,driveClient,driveTypes,useDrive}.ts(x)` |
-| Agent model/effort | `src/lib/local/agent-options.ts`, `agent.ts`, `cockpit/{CockpitRunControls,useRunDials}.ts(x)` |
+| Agent model/effort | `src/lib/local/agent-options.ts`, `agent.ts`, `cockpit/useRunDials.ts` |
+| Run setup dialog | `cockpit/{RunSetupModal,RunSetupSections,RunSetupSafety,RunSetupControls}.tsx` |
+| Proposed-batch ledger | `cockpit/{CockpitBatchLedger,CockpitBatchLedgerRow,cockpitBatchRows,useProposalBatch}.ts(x)` |
+| Outcome bands + error dialog | `outcome/{outcomeSheetGroups,OutcomeGroupRow,OutcomeCellError}.ts(x)` |
 | Lane kinds — the rule | `src/lib/local/lane-kind.ts` |
 | Lane kinds — the install | `src/lib/local/lane-install.ts`, `src/lib/local/install-files.ts` |
 | Shared practice generation | `src/lib/practices/artifact.ts` (used by `practices/apply.ts` and the lane) |
@@ -1523,8 +1668,8 @@ Two causes, both now fixed:
 - **The stale-run reconcile consulted no liveness.** `markStaleRunsStopped` marked *every*
   `running` row stopped, and `GET /api/org/loop` calls it on every request — so any page load or
   poll during a run stopped the run it was rendering. It now takes an `isLive(id)` predicate
-  (defaulting to "nothing is live", which is right only for the boot sweep); the engine and the
-  loop route pass `isLoopRunLive`.
+  (defaulting to "nothing is live", which is right only for the boot sweep); the engine, the
+  loop route, and the autopilot GET / job read pass `isLoopRunLive`.
 - **The engine's `live` registry was per module instance, not per process.** Next bundles each
   API route into its own server chunk, so a module-level `Map` is instantiated once *per chunk*: a
   run started by the drive route was invisible to the loop route. Both registries (`live`, and
@@ -1636,11 +1781,12 @@ absent verbs directly.
 
 ### Where the dial lives
 
-`CockpitRunControls` / `useRunDials`, beside model and effort, and remembered the same way — the run
-and the drive read the **same** dials, which is the property that matters: they are two ways of arming
-one experiment. Labelled for what each mode does to the operator's machine rather than for its
-internal name, with a standing one-line hint under the picker (not a modal — a sentence you can read
-*before* you commit to the choice beats a dialog you dismiss after).
+`RunSetupSafety` (*when a lane finishes*) / `useRunDials`, beside model and effort, and remembered the
+same way — the run and the drive read the **same** dials, which is the property that matters: they are
+two ways of arming one experiment. Labelled for what each mode does to the operator's machine rather
+than for its internal name, and its hint stays **on the page** rather than moving into the dial's
+tooltip with the rest of the dialog's prose: a sentence you can read *before* you commit to the choice
+beats one you would have to go looking for.
 
 ## From lane branch to reviewed PR (2026-08-30, moonshot #26)
 
@@ -1734,8 +1880,13 @@ will POST when #3 lands, so that lane extends this contract rather than forking 
 (`src/lib/local/lane-report.ts`) never throws: a missing file, `"{"`, a megabyte blob and an array
 where an object belongs all return `parsed: false` or drop the entry. **The batch is the report's
 authorization boundary** — an id the lane never dispatched is dropped, because an agent cannot
-adjudicate rows it was not given. The file is added to the worktree's `.git/info/exclude` so it never
-lands on the deliverable branch.
+adjudicate rows it was not given. The report pattern is added to Git's effective `info/exclude`
+path, including the shared location for linked worktrees, to keep it out of ordinary staging.
+Lessons and item reasons are **redacted at parse** (`src/lib/security/redact.ts`): a token the agent
+pasted while debugging reaches the candidate row, the reviewer and every later prompt as
+`[REDACTED]`. Independently, every prompt that quotes agent-written text (lane brief, Athena recall
+and memory tool results, consolidation, reflection, lane-summary headlines) passes it through
+`sanitizeAgentText` in `src/lib/llm/untrusted.ts`, so memory stored through another door is masked too.
 
 **Per-item verdicts** (`LaneItemOutcome`, `src/lib/db/lane-outcomes.ts`). One row per dispatched id,
 in this precedence: the rescan closed it → `resolved` (**the verifier outranks the claim, always**);
@@ -1759,8 +1910,12 @@ verified close is not evidence.
 **Lessons are candidates, never memory.** `report.lessons` become `OrgMemoryCandidate` rows with
 `status: "pending"`, `source: "loop-lesson"`. **The loop never writes `OrgMemory`** — the companion,
 the brief above and every consolidation pass read memory as truth, so an unattended process editing
-it would let one bad session teach the whole organization something nobody agreed to. The cockpit's
-lesson inbox says so in as many words, and `keep` promotes through the same `createOrgMemory` door a
+it would let one bad session teach the whole organization something nobody agreed to. The inbox says
+so in as many words. Since 2026-09-15 it is In flight → **Lessons** (`?tab=lessons`,
+`LessonsTab` → `LessonsWorklist`, previously the cockpit's `CockpitLessons`): a ledger over every
+candidate (`listLoopLessons(slug, undefined, 200)`) with namespace/kind filters, a settled archive,
+per-row Keep/Discard and bulk Keep N / Discard N (one POST per candidate; a refusal leaves its row
+queued and says why). `keep` promotes through the same `createOrgMemory` door a
 person's own write uses (which is where the duplicate check lives). `discard` is **soft**: a proposal
 that was rejected is worth as much on the record as one that was kept.
 
@@ -2268,9 +2423,8 @@ Pinned by [`src/lib/local/loop-engine.cadence.test.ts`](../../../src/lib/local/l
   cadence a finished run used — so the ledger cannot yet answer "was this run's pair a per-cycle or a
   per-run reading" except by the lane logs.
 - **The A/B model policy has no picker.** `modelPolicy: "ab"` is accepted, validated and driven end
-  to end by `POST /api/org/loop`, but the cockpit's run controls still offer only one model — arming
-  an A/B run today means calling the route. The dials live in `CockpitRunControls`/`useRunDials`,
-  outside the write set of the change that added the policy.
+  to end by `POST /api/org/loop`, but the run-setup dialog still offers only one model — arming an A/B
+  run today means calling the route. The dials live in `RunSetupSections`/`useRunDials`.
 - **Retry builds a fresh worktree and branch.** Deliberate (the original worktree is gone by then),
   but it means a retried lane's commits land on a different branch from its siblings' — two branches
   to review for one repo.
@@ -2288,7 +2442,7 @@ Pinned by [`src/lib/local/loop-engine.cadence.test.ts`](../../../src/lib/local/l
   A repo that is merely out of *gaps* proposes a `craft` lane, and a repo with neither an open gap nor
   an unbuilt craft rung no longer dead-ends: the lane refreshes that repository's reading from the
   paired checkout so the next run has a roadmap. What remains is a **proposal-side** gap only — the
-  curation panel still offers an agent lane for an empty batch instead of saying the reading is stale,
+  batch ledger still offers an agent lane for an empty batch instead of saying the reading is stale,
   and `proposeLaneKind` has no guard either way.
 - **The `Resume drive` button is live before hydration** (L2-C-01). It is server-rendered and
   enabled, so a click landing before React attaches its handler is swallowed with no request and no
@@ -3027,7 +3181,7 @@ not chrome for it. What replaced it is unit and window: `org-wide scan · overal
 - **`CockpitSetup`'s four paragraphs** (`hosted`, `no-repos`, `autopilot-off`, `not-owner`). Every
   branch of that component *is* a degraded/empty state, which is the redesign's own designated home
   (O) for exactly this copy. Live's densest prose was already sitting where the law wants it.
-- **`CockpitThroughputControls`' verify-mode copy and `AutopilotBand`'s dispatch line.** These
+- **The verify-mode copy (now `RunSetupSafety`) and `AutopilotBand`'s dispatch line.** These
   explain what a control the operator is about to flip will *do* — execute the repository's own check
   inside a worktree, record lanes as UNVERIFIED, dispatch an editing agent into a real working copy.
   A live operational surface legitimately says that, and shortening it would remove a consequence

@@ -2,8 +2,8 @@
 // (Claude Code, a CI sync, the library UI) can decide *when* to use a skill without reading the body.
 //
 // Deliberately NOT a YAML dependency: the contract is a handful of flat scalars (`name`, `description`,
-// `category`, `tags`), so a small line parser is both sufficient and safer than accepting arbitrary YAML
-// from a user-authored document. Anything richer is intentionally out of contract.
+// `category`, `tags`, `cadenceDays`), so a small line parser is both sufficient and safer than accepting
+// arbitrary YAML from a user-authored document. Anything richer is intentionally out of contract.
 //
 // Three entry points:
 //   - parseSkillFrontmatter(content) — read + validate a document's block ({ ok, data, errors }).
@@ -20,12 +20,17 @@ import {
   type SkillCategory,
 } from "@/lib/org/skill-categories";
 
-/** The validated contract. `category` is optional in the document; null when undeclared. */
+/** The validated contract. `category` and `cadenceDays` are optional in the document; null when undeclared. */
 export interface SkillFrontmatter {
   name: string;
   description: string;
   category: SkillCategory | null;
   tags: string[];
+  /**
+   * Declared use-rhythm in whole days (`90` = quarterly). The dormancy fold reads this so a skill
+   * used as intended is not branded dormant after 30 idle days. Null when the author omitted it.
+   */
+  cadenceDays: number | null;
 }
 
 export interface ParsedSkillFrontmatter {
@@ -51,6 +56,26 @@ const MAX_TAGS = 20;
 const MAX_TAG_LEN = 40;
 
 const VALID_CATEGORIES = SKILL_CATEGORIES.join(", ");
+
+/** Positive whole days, 1..9999. Null when the value is absent or not a cadence. */
+export function parseCadenceDays(raw: string | undefined | null): number | null {
+  if (raw == null) return null;
+  const s = raw.trim();
+  if (!s) return null;
+  if (!/^[1-9]\d{0,3}$/.test(s)) return null;
+  return Number(s);
+}
+
+/**
+ * Read-time cadence from a SKILL.md. Honours a well-formed `cadenceDays` even when another field
+ * made the block invalid, so a quarterly skill with a typo in tags is not branded dormant.
+ */
+export function cadenceDaysFromFrontmatter(content: string): number | null {
+  if (!content) return null;
+  const parsed = parseSkillFrontmatter(content);
+  if (parsed.data?.cadenceDays && parsed.data.cadenceDays > 0) return parsed.data.cadenceDays;
+  return parseCadenceDays(parsed.raw.cadencedays);
+}
 
 /** Coerce any human name ("PR Review Checklist") into the contract's kebab-case slug. */
 export function slugifySkillName(input: string): string {
@@ -172,10 +197,11 @@ export function parseSkillFrontmatter(content: string): ParsedSkillFrontmatter {
   const name = raw.name ?? "";
   const description = raw.description ?? "";
   const category = raw.category ? normalizeFrontmatterCategory(raw.category) : null;
+  const cadenceDays = parseCadenceDays(raw.cadencedays);
   const ok = errors.length === 0;
   return {
     ok,
-    data: ok ? { name, description, category, tags: parseTagList(raw.tags ?? "") } : null,
+    data: ok ? { name, description, category, tags: parseTagList(raw.tags ?? ""), cadenceDays } : null,
     errors,
     present: true,
     body,
@@ -216,6 +242,19 @@ function validateFields(raw: Record<string, string>): string[] {
       errors.push(`Frontmatter \`category\` must be one of: ${VALID_CATEGORIES}. Got "${cat}".`);
     }
   }
+
+  if (raw.cadencedays !== undefined) {
+    const rawCadence = raw.cadencedays.trim();
+    if (!rawCadence) {
+      errors.push(
+        "Frontmatter `cadenceDays` is empty. Use a positive whole number of days (e.g. `90` for quarterly), or drop the field.",
+      );
+    } else if (parseCadenceDays(rawCadence) === null) {
+      errors.push(
+        `Frontmatter \`cadenceDays\` must be a positive whole number of days (e.g. 90 for quarterly). Got "${raw.cadencedays}".`,
+      );
+    }
+  }
   return errors;
 }
 
@@ -224,6 +263,7 @@ export interface FrontmatterDefaults {
   description: string;
   category?: string | null;
   tags?: string[];
+  cadenceDays?: number | null;
 }
 
 /** Resolve the contract a document effectively declares: each valid declared field wins, else the default. */
@@ -236,7 +276,11 @@ function resolve(parsed: ParsedSkillFrontmatter, defaults: FrontmatterDefaults):
   const category = declaredCat ?? (defaults.category ? normalizeFrontmatterCategory(String(defaults.category)) : null);
   const declaredTags = parseTagList(parsed.raw.tags ?? "");
   const tags = declaredTags.length ? declaredTags : (defaults.tags ?? []).slice(0, MAX_TAGS);
-  return { name, description: description.slice(0, MAX_DESCRIPTION), category, tags };
+  const declaredCadence = parseCadenceDays(parsed.raw.cadencedays);
+  const defaultCadence =
+    defaults.cadenceDays && defaults.cadenceDays > 0 ? Math.floor(defaults.cadenceDays) : null;
+  const cadenceDays = declaredCadence ?? defaultCadence;
+  return { name, description: description.slice(0, MAX_DESCRIPTION), category, tags, cadenceDays };
 }
 
 /** Serialize a contract back into a `---` block (description always a quoted single line). */
@@ -245,6 +289,7 @@ export function serializeFrontmatter(fm: SkillFrontmatter): string {
   const lines = [`name: ${fm.name}`, `description: "${safeDesc}"`];
   if (fm.category) lines.push(`category: ${fm.category}`);
   if (fm.tags.length) lines.push(`tags: ${fm.tags.join(", ")}`);
+  if (fm.cadenceDays && fm.cadenceDays > 0) lines.push(`cadenceDays: ${fm.cadenceDays}`);
   return `---\n${lines.join("\n")}\n---`;
 }
 

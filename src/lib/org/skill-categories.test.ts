@@ -33,6 +33,13 @@ describe("normalizeSkillCategory", () => {
 });
 
 describe("skillCategoryLabel", () => {
+  it.each([
+    ["constructor", "Constructor"],
+    ["toString", "ToString"],
+    ["__proto__", " Proto "],
+  ])("humanizes unknown category %s without returning inherited members", (category, label) => {
+    expect(skillCategoryLabel(category)).toBe(label);
+  });
   it("uses the curated label for a known id", () => {
     expect(skillCategoryLabel("ci-cd")).toBe("CI / CD");
     expect(skillCategoryLabel("ai-native")).toBe("AI-Native");

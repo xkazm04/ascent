@@ -71,7 +71,7 @@ import {
   isLowCreditsCrossing,
 } from "@/lib/alerts";
 import { getOrgAlertThresholds, getOrgAlertWebhook, recordAlertEvent, recordAudit, getAuditLog } from "@/lib/db";
-import { AUTO_RECHARGE_ACTION } from "@/components/org/shared/CreditsControl.autorecharge";
+import { AUTO_RECHARGE_ACTION } from "@/lib/autorecharge";
 
 const mockDiff = vi.mocked(diffReports);
 const mockDetect = vi.mocked(detectRegression);
@@ -158,6 +158,12 @@ describe("checkAndAlertRegression — the ruler changing is not the repo moving"
 });
 
 describe("checkAndAlertRegression — gate correctness", () => {
+  it("carries the org into email delivery for its explanation and unsubscribe link", async () => {
+    mockDetect.mockReturnValue(REGRESSED);
+    mockWebhook.mockResolvedValue("mailto:ops@acme.test");
+    await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
+    expect(mockDispatch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ org: "acme" }));
+  });
   it("no prev (first scan) is a clean no-op: no diff, no audit, no dispatch", async () => {
     const out = await checkAndAlertRegression(null, report(), { orgSlug: "acme" });
     expect(out).toEqual({ regressed: false, verdict: null, dispatched: false });
@@ -229,7 +235,7 @@ describe("checkAndAlertRegression — promotions", () => {
       PROMOTED,
     );
     expect(mockBuildMsg).not.toHaveBeenCalled();
-    expect(mockDispatch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ webhookUrl: "https://hooks.example/acme" }));
+    expect(mockDispatch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ webhookUrl: "https://hooks.example/acme", org: "acme" }));
     // `scan.regression` is the regression trail: a promotion must never be filed into it.
     expect(mockAudit).not.toHaveBeenCalled();
   });
@@ -488,6 +494,7 @@ describe("maybeAlertLowCredits — fires exactly once on the threshold crossing"
     const descent: [number, number][] = [[9, 8], [8, 7], [7, 6], [6, 5], [5, 4], [4, 3]];
     const results: boolean[] = [];
     for (const [before, after] of descent) results.push(await maybeAlertLowCredits("acme", before, after));
+    expect(mockDispatch).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ org: "acme" }));
 
     expect(results).toEqual([false, false, false, true, false, false]);
     // The dispatch fired exactly once across the whole descent — no spam on the sub-threshold scans.
@@ -637,6 +644,7 @@ describe("checkAndAlertRegression — the security push (D9 crossed its line, no
       expect.objectContaining({ items: [expect.objectContaining({ kind: "gate", repo: "acme/api" })] }),
     );
     expect(mockDispatch).toHaveBeenCalledTimes(2); // generic regression + security
+    for (const [, opts] of mockDispatch.mock.calls) expect(opts?.org).toBe("acme");
     expect(mockRecordEvent).toHaveBeenCalledWith(
       "acme",
       expect.objectContaining({ kind: "security", severity: "critical", delivered: true }),

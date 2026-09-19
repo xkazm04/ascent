@@ -420,7 +420,10 @@ export function resolveCompaction(org: {
 /** `d` moved back `months` whole months, in UTC — the digest-retention cutoff. */
 export function monthsBefore(d: Date, months: number): Date {
   const out = new Date(d.getTime());
-  out.setUTCMonth(out.getUTCMonth() - months);
+  // Find the target month's last day first: setting March 31 directly to February
+  // overflows into March and would shorten the retention window before a purge.
+  out.setUTCMonth(out.getUTCMonth() - months + 1, 0);
+  out.setUTCDate(Math.min(d.getUTCDate(), out.getUTCDate()));
   return out;
 }
 

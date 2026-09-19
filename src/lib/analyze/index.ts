@@ -13,10 +13,13 @@ import type {
   RepoSnapshot,
   Signal,
 } from "@/lib/types";
+import { guidanceQuality } from "./guidance-quality";
+export { guidanceQuality } from "./guidance-quality";
 import { clamp } from "@/lib/maturity/model";
 import { facetPoints } from "@/lib/scoring/claims";
 import { AI_TRAILER_SOURCE } from "./ai-tools";
 import { readManifestYaml } from "@/lib/standard/read";
+import { MEMORY_ENTRY_RE } from "@/lib/standard/memory-entry";
 import { gradedGuidanceNode, guidanceGraphFor } from "@/lib/analyze/guidance-graph";
 
 // ---------------------------------------------------------------------------
@@ -151,38 +154,7 @@ class Scorer {
 // ---------------------------------------------------------------------------
 // D1 — AI Tooling & Conventions
 // ---------------------------------------------------------------------------
-/**
- * Grade the *quality* of agent guidance (CLAUDE.md / AGENTS.md content), not just its
- * presence — this is where advanced AI-native technique shows up. Returns scored signals.
- *
- * Exported for Context Health (src/lib/analyze/context-health.ts — W4), which reuses these exact
- * graded signals as its display-only quality half so the two surfaces can never disagree about
- * what "good guidance" means. Its use THERE never feeds the score — only the D1 detector below does.
- */
-export function guidanceQuality(text: string): { points: number; label: string }[] {
-  const t = text.toLowerCase();
-  const out: { points: number; label: string }[] = [];
-  if (text.length >= 4000) out.push({ points: 8, label: "Detailed agent guidance (4k+ chars)" });
-  else if (text.length >= 1200) out.push({ points: 5, label: "Substantial agent guidance" });
-  if (
-    /(npm|pnpm|yarn|bun)\s+(run\s+)?(test|build|dev|lint)|\bmake\s|pytest|go test|cargo (test|build)|##\s*(commands|build|test|scripts|development|getting started)/.test(t)
-  )
-    out.push({ points: 8, label: "Documents build/test/run commands" });
-  if (/architect|directory structure|project structure|##\s*(overview|structure|layout)|how it works/.test(t))
-    out.push({ points: 6, label: "Describes architecture / project structure" });
-  if (/run (the )?tests?|after (making )?changes|before committing|verify your|definition of done|always test|make sure .* pass/.test(t))
-    out.push({ points: 8, label: "Encodes test/verify-after-change discipline" });
-  if (/\b(do not|don't|never|always|must not|avoid)\b|important:/.test(t))
-    out.push({ points: 6, label: "Defines explicit constraints / rules" });
-  if (/\bsubagent|sub-agent|\bmcp\b|model context protocol|\bhooks?\b|slash command|\bskills?\b|agents?\.md|\.cursor\b/.test(t))
-    out.push({ points: 8, label: "References advanced agent tooling (MCP / hooks / subagents)" });
-  if (/allowed[- ]?tools|disallowed|permission[- ]?mode|tool restriction/.test(t))
-    out.push({ points: 4, label: "Specifies tool / permission policy" });
-  if (/```|for example|e\.g\.|example:/.test(t)) out.push({ points: 4, label: "Includes concrete examples" });
-  if (/@[a-z0-9_./-]+\.(md|ts|tsx|js|jsx|py)|@import|see \[[^\]]+\]\(/.test(t))
-    out.push({ points: 4, label: "Uses file references / imports" });
-  return out;
-}
+
 
 /**
  * Score adoption of the `.ai/` standard — and score it by EVIDENCE OF USE, not mere presence, so a
@@ -226,8 +198,7 @@ function aiStandard(idx: RepoIndex): {
         : { points: 2, label: ".ai/doctor.mjs present (not yet wired into CI/hook)", detail: doctorPath },
     );
   }
-  const MEMORY_PATH = /^\.ai\/memory\/\d{4}-.*\.md$/;
-  const memPaths = idx.lowerPaths.filter((p) => MEMORY_PATH.test(p));
+  const memPaths = idx.lowerPaths.filter((p) => MEMORY_ENTRY_RE.test(p));
   const mem = memPaths.length;
   if (mem >= 2) d8.push({ points: 6, label: `Structured memory in use (.ai/memory, ${mem} entries)`, detail: namedList(memPaths) });
   else if (mem === 1) d8.push({ points: 1, label: ".ai/memory seeded (not yet used)", detail: memPaths[0] });
@@ -309,7 +280,14 @@ const d1: Detector = (idx, snap) => {
   // generated projection) agreeing with its source is a tautology, and paying for it would be
   // presence-summing wearing a different label — the exact thing r11 removed. Copies are dropped
   // here; the copy relationship is already priced by coherence and by `projection_declared`.
-  const copies = new Set(graph.edges.filter((e) => e.kind === "duplicates").map((e) => e.to));
+  // A projection is dropped too, whatever its sync state: a DRIFTED projection still carries every
+  // command it inherited from the generator, and its agreement with its source is inheritance, not a
+  // second author reaching the same answer.
+  const copies = new Set(
+    graph.edges
+      .filter((e) => e.kind === "duplicates" || e.kind === "projects-from")
+      .map((e) => (e.kind === "duplicates" ? e.to : e.from)),
+  );
   const independent = graph.nodes.filter((n) => !copies.has(n.path));
   const agreed = [...new Set(independent.flatMap((n) => n.commands.map((c) => c.key)))].filter(
     (key) => !divergentKeys.has(key) && independent.filter((n) => n.commands.some((c) => c.key === key)).length >= 2,

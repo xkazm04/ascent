@@ -1,214 +1,120 @@
 "use client";
 
-// A declared × observed × enforced heat matrix.
+// A declared × observed × enforced heat matrix — set as a LEDGER.
 //
 // Practices, passports and settings all ask the same question of every subject: is this thing
-// claimed, is it actually there, and is it enforced? Three columns, one cell each, and — the part a
-// table of ticks cannot do — a cell that is HATCHED because nobody judged it, distinct from a cell
-// that is EMPTY because there was no measurement, distinct from a cell that is OUTLINED because it
-// was declared and never observed being enforced. A hatched cell prints no number, ever.
+// claimed, is it actually there, and is it enforced? One column per axis, one cell each, and — the
+// part a table of ticks cannot do — a cell that is HATCHED because nobody judged it, distinct from a
+// cell that is EMPTY because there was no measurement, distinct from a cell that is OUTLINED because
+// it was declared and never observed being enforced. A hatched cell prints no number, ever.
+//
+// THE LEDGER (won the /prototype round 2026-09-15 over the shipped SVG renderer and a "Strata"
+// band layout). Nothing here is drawn in viewBox units: the grid is CSS, so every glyph is set in the
+// semantic `type-*` scale at the size it was designed at, whatever width the panel gives it. The SVG
+// renderer's 9/10/11-unit text scaled with the container — tiny in a narrow column, huge in a wide
+// one — and squeezed every subject into a 104-unit gutter, which is why its consumers pre-truncated
+// labels to 13–18 characters. Here the subject column is a real text track (12–22rem) that WRAPS to
+// two lines before it clips, and every track has a maximum, so the grid sizes itself: a consumer no
+// longer needs a `max-w-*` cap to keep it from ballooning.
+//
+// The cell keeps the SVG encoding (matrixMark.tsx): the ONE hatch, the dash array, the accent ring.
+// A hatched or void cell never prints a numeral — `rendersValue` gates the <span>, structurally.
 
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { scoreHex } from "@/lib/ui";
-import { fmtNum, isNum, r2 } from "@/components/org/viz/vizNum";
-import { AXIS_SVG_CLASS, axisHeaderHeight, wrapAxisLabel } from "@/components/org/viz/matrixAxis";
-import {
-  KICKER_SVG_CLASS,
-  STATE_LABEL,
-  VizDefs,
-  isStruck,
-  isVoid,
-  rendersValue,
-  stateDash,
-  stateFill,
-  stateFillOpacity,
-  stateStroke,
-  stateStrokeWidth,
-  stateTitle,
-  type VizState,
-} from "@/components/org/viz/states";
+import { fmtNum, isNum } from "@/components/org/viz/vizNum";
+import { isStruck, rendersValue, stateTitle } from "@/components/org/viz/states";
+import { MatrixHatchDefs, MatrixMark, cellInk } from "@/components/org/viz/matrixMark";
+import { MatrixEmpty, MatrixSrTable, cellAt, matrixAriaLabel, type MatrixGridProps } from "@/components/org/viz/matrixShared";
 
-const LABEL_W = 104;
-const CELL_W = 46;
-const CELL_H = 26;
-/** Line box for a wrapped axis header line; the band's total height comes from `axisHeaderHeight`. */
-const AXIS_LINE_H = 10;
+export type { MatrixCell, MatrixRow } from "@/components/org/viz/matrixShared";
 
-export type MatrixCell = {
-  state: VizState;
-  /** 0..100. Printed only where the state permits a value — never on a hatch or a void. */
-  score?: number | null;
-};
+/** Fill tint under a printed value — a measurement reads as a colour field, the ink stays legible. */
+const FILL_ALPHA = 0.55;
 
-export type MatrixRow = {
-  id: string;
-  label: string;
-  /** One cell per axis, in axis order. A short row is padded with `missing` (void) cells. */
-  cells: MatrixCell[];
-};
+/** The subject track flexes between a comfortable minimum and a reading maximum; each axis track
+ *  holds a three-digit mono figure with air around it. One template for the head and every row. */
+const template = (axes: number) => `minmax(12rem, 22rem) repeat(${axes}, minmax(3.5rem, 5.5rem))`;
 
-const VOID_CELL: MatrixCell = { state: "missing" };
-
-export function MatrixGrid({
-  axes,
-  rows,
-  title = "Matrix",
-  className = "",
-}: {
-  /** Column names, e.g. ["Declared", "Observed", "Enforced"]. */
-  axes: string[];
-  rows: MatrixRow[];
-  title?: string;
-  className?: string;
-}) {
+export function MatrixGrid({ axes, rows, title = "Matrix", className = "" }: MatrixGridProps) {
   const reduced = usePrefersReducedMotion();
   const mounted = useMounted();
   const animate = mounted || reduced;
 
-  if (axes.length === 0 || rows.length === 0) {
-    return (
-      <div role="img" aria-label={`${title}: no matrix data`} className={`type-body-sm text-slate-500 ${className}`}>
-        No matrix data
-      </div>
-    );
-  }
+  if (axes.length === 0 || rows.length === 0) return <MatrixEmpty title={title} className={className} />;
 
-  // Axis headers wrap rather than overhang their column (see matrixAxis.ts), so the header band's
-  // height is a function of the tallest label — not a constant.
-  const axisLines = axes.map((a) => wrapAxisLabel(a));
-  const headerH = axisHeaderHeight(axisLines, AXIS_LINE_H);
-  const W = LABEL_W + axes.length * CELL_W;
-  const H = headerH + rows.length * CELL_H;
-  const cellAt = (row: MatrixRow, i: number): MatrixCell => row.cells[i] ?? VOID_CELL;
-
-  const ariaLabel =
-    `${title}: ${rows.length} ${rows.length === 1 ? "subject" : "subjects"} across ${axes.join(", ")}. ` +
-    rows
-      .map(
-        (r) =>
-          `${r.label} — ` +
-          axes
-            .map((a, i) => {
-              const c = cellAt(r, i);
-              return `${a}: ${STATE_LABEL[c.state].toLowerCase()}${rendersValue(c.state) && isNum(c.score) ? ` ${c.score}` : ""}`;
-            })
-            .join(", "),
-      )
-      .join("; ") +
-    ". A hatched cell was not judged; an empty cell has no measurement and is not a zero.";
+  const columns = template(axes.length);
 
   return (
     <div className={className}>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={ariaLabel}>
-        <title>{ariaLabel}</title>
-        <VizDefs />
-
-        {axes.map((a, i) => {
-          const lines = axisLines[i] ?? [a];
-          // Bottom-aligned against the rule, so a one-line header sits where it always did and a
-          // two-line one grows upward instead of shunting the grid.
-          const firstY = headerH - 6 - (lines.length - 1) * AXIS_LINE_H;
-          return (
-            <text key={a} x={LABEL_W + i * CELL_W + CELL_W / 2} y={r2(firstY)} textAnchor="middle" fontSize={9} className={AXIS_SVG_CLASS}>
-              {/* The full name always survives in the aria-label, the <title> and the sr-only table,
-                  so an ellipsized header costs a sighted reader precision, never a reader using AT. */}
-              <title>{a}</title>
-              {lines.map((ln, li) => (
-                <tspan key={ln + li} x={LABEL_W + i * CELL_W + CELL_W / 2} dy={li === 0 ? 0 : AXIS_LINE_H}>
-                  {ln}
-                </tspan>
-              ))}
-            </text>
-          );
-        })}
-
-        {rows.map((row, ri) => {
-          const y = headerH + ri * CELL_H;
-          return (
-            <g
-              key={row.id}
-              style={{
-                opacity: animate ? 1 : 0,
-                transition: reduced ? undefined : `opacity 0.4s ease-out ${Math.min(ri * 45, 360)}ms`,
-              }}
+      {/* One accessible name for the drawing, built from the cells it paints. The sr-only table sits
+          OUTSIDE this element: an `img` role makes its children presentational. */}
+      <div role="img" aria-label={matrixAriaLabel(title, axes, rows)} className="relative">
+        <MatrixHatchDefs />
+        <div className="grid" style={{ gridTemplateColumns: columns }}>
+          <div className="type-micro self-end border-b border-divider pb-1.5 font-mono uppercase tracking-[0.18em] text-slate-600">
+            subject
+          </div>
+          {axes.map((a) => (
+            <div
+              key={a}
+              title={a}
+              className="type-label self-end border-b border-divider px-1 pb-1.5 text-center leading-tight tracking-[0.08em] text-slate-400 [overflow-wrap:anywhere]"
             >
-              <text x={0} y={y + CELL_H / 2 + 3} fontSize={10} className={KICKER_SVG_CLASS}>
-                {row.label}
-              </text>
-              {axes.map((a, ci) => {
-                const cell = cellAt(row, ci);
-                const x = LABEL_W + ci * CELL_W;
-                const base = isNum(cell.score) ? scoreHex(cell.score) : undefined;
-                const cx = x + CELL_W / 2;
-                const cy = y + CELL_H / 2;
-                return (
-                  <g key={`${row.id}-${a}`} data-cell={`${row.id}:${a}`} data-state={cell.state}>
-                    {/* the cell frame — always drawn so a void is a locatable EMPTY cell, not a hole */}
-                    <rect x={x + 2} y={y + 2} width={CELL_W - 4} height={CELL_H - 4} rx={3} fill="none" stroke="var(--color-divider)" strokeWidth={1} strokeOpacity={0.5} />
-                    {!isVoid(cell.state) && (
-                      <rect
-                        data-mark
-                        x={x + 2}
-                        y={y + 2}
-                        width={CELL_W - 4}
-                        height={CELL_H - 4}
-                        rx={3}
-                        fill={stateFill(cell.state, base)}
-                        fillOpacity={stateFillOpacity(cell.state) * 0.4}
-                        stroke={stateStroke(cell.state, base)}
-                        strokeWidth={stateStrokeWidth(cell.state)}
-                        strokeDasharray={stateDash(cell.state)}
-                      />
-                    )}
-                    {rendersValue(cell.state) && isNum(cell.score) && (
-                      <text data-score x={cx} y={cy + 4} textAnchor="middle" fontSize={11} className="fill-slate-200 font-mono tabular-nums">
-                        {fmtNum(cell.score, 0)}
-                      </text>
-                    )}
-                    {isStruck(cell.state) && (
-                      <line data-strike x1={x + 6} y1={cy} x2={x + CELL_W - 6} y2={cy} stroke="var(--color-divider)" strokeWidth={1.5} />
-                    )}
-                    <title>{stateTitle(cell.state, `${row.label} · ${a}`)}</title>
-                  </g>
-                );
-              })}
-            </g>
-          );
-        })}
-        {/* header underrule — the one hairline, at 2dp so server and client serialise identically */}
-        <line x1={0} y1={r2(headerH - 2)} x2={W} y2={r2(headerH - 2)} stroke="var(--color-divider)" strokeWidth={1} />
-      </svg>
-
-      <table className="sr-only">
-        <caption>{`${title} — state by subject and axis`}</caption>
-        <thead>
-          <tr>
-            <th scope="col">Subject</th>
-            {axes.map((a) => (
-              <th key={a} scope="col">
-                {a}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id}>
-              <th scope="row">{row.label}</th>
-              {axes.map((a, i) => {
-                const c = cellAt(row, i);
-                return (
-                  <td key={a}>
-                    {rendersValue(c.state) && isNum(c.score)
-                      ? `${STATE_LABEL[c.state]} — ${fmtNum(c.score, 0)}`
-                      : STATE_LABEL[c.state]}
-                  </td>
-                );
-              })}
-            </tr>
+              {a}
+            </div>
           ))}
-        </tbody>
-      </table>
+        </div>
+
+        {rows.map((row, ri) => (
+          <div
+            key={row.id}
+            data-row={row.id}
+            className="grid border-b border-divider/50 last:border-b-0"
+            style={{
+              gridTemplateColumns: columns,
+              opacity: animate ? 1 : 0,
+              transition: reduced ? undefined : `opacity 0.4s ease-out ${Math.min(ri * 45, 360)}ms`,
+            }}
+          >
+            <div
+              title={row.label}
+              className="type-label line-clamp-2 min-w-0 self-center py-1.5 pr-3 leading-snug tracking-[0.06em] text-slate-300 [overflow-wrap:anywhere]"
+            >
+              {row.label}
+            </div>
+            {axes.map((a, ci) => {
+              const cell = cellAt(row, ci);
+              const base = isNum(cell.score) ? scoreHex(cell.score) : undefined;
+              const printed = rendersValue(cell.state) && isNum(cell.score);
+              const ink = cellInk(cell, FILL_ALPHA);
+              return (
+                <div
+                  key={`${row.id}-${a}`}
+                  data-cell={`${row.id}:${a}`}
+                  data-state={cell.state}
+                  title={stateTitle(cell.state, `${row.label} · ${a}`)}
+                  className="relative h-10"
+                >
+                  <MatrixMark state={cell.state} base={base} alpha={FILL_ALPHA} />
+                  {printed && (
+                    <span
+                      data-score
+                      className={`absolute inset-0 grid place-items-center font-mono type-mono-sm font-medium tabular-nums${ink ? "" : " text-slate-200"}`}
+                      style={ink ? { color: ink } : undefined}
+                    >
+                      {fmtNum(cell.score, 0)}
+                    </span>
+                  )}
+                  {isStruck(cell.state) && <span data-strike className="absolute inset-x-4 top-1/2 h-px bg-divider" />}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      <MatrixSrTable title={title} axes={axes} rows={rows} />
     </div>
   );
 }

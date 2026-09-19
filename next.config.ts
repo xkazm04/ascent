@@ -58,7 +58,15 @@ const nextConfig: NextConfig = {
   // README links and a GitHub App whose Setup URL still names it alive; Next forwards the query
   // string, so `/connect?org=…&installation_id=…` lands on the wizard with its preset intact.
   async redirects() {
-    return [{ source: "/connect", destination: "/onboarding", permanent: false }];
+    return [
+      { source: "/connect", destination: "/onboarding", permanent: false },
+      {
+        source: "/org/:slug",
+        has: [{ type: "query", key: "tab", value: "knowledge-v2" }],
+        destination: "/org/:slug?tab=surfaces",
+        permanent: true,
+      },
+    ];
   },
   // This project lives inside a larger monorepo-style workspace. Pin the Turbopack
   // root to this directory so Next doesn't infer the parent dir from sibling lockfiles.

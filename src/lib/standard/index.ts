@@ -13,6 +13,7 @@ import { buildConformanceWiring } from "./wiring";
 import { buildMaintain } from "./maintain";
 import { buildMemorySeed } from "./memory";
 import { buildContextScaffold } from "./context";
+import { buildOnboardingSkillFile } from "@/lib/onboarding/skill";
 
 export { buildManifestData, serializeManifestYaml } from "./manifest";
 // The READ-BACK half (#13): what the scan sees in a repo's own declared contract. Display-only.
@@ -29,14 +30,12 @@ export { buildContextScaffold } from "./context";
 export type { GeneratedFile } from "./types";
 
 /**
- * All foundation artifacts for a repo, in scaffold order: the manifest spine first (a collision on
- * it is what "already installed" looks like to the PR installer), then the spec it points at, the
- * doctor (so the maintainer can immediately get a conformance baseline), its guardrails and CI
- * backstop, then the memory and CONTEXT scaffolds. Everything the manifest points at is generated
- * here — the foundation must pass its own doctor on a fresh install. The onboarding skill writes
- * these before any dimension track; /api/report/foundation/pr commits them directly.
+ * The `.ai/` tree only — what the onboarding skill embeds as Step 0, and what the doctor must pass
+ * on a fresh install. Collision on files[0] (`.ai/manifest.yaml`) is what "already installed" looks
+ * like to the PR installer. Split from `buildFoundation` so the skill can embed these without
+ * embedding (or recursively generating) itself.
  */
-export function buildFoundation(report: ScanReport): GeneratedFile[] {
+export function buildStandardFiles(report: ScanReport): GeneratedFile[] {
   return [
     buildManifest(report),
     buildSpec(),
@@ -47,4 +46,14 @@ export function buildFoundation(report: ScanReport): GeneratedFile[] {
     ...buildMemorySeed(report),
     ...buildContextScaffold(report),
   ];
+}
+
+/**
+ * Everything the foundation PR / local install lane commits: the `.ai/` standard plus the
+ * personalized onboarding skill (same scan, same tracks as `GET /api/report/skill`). The skill is a
+ * LATER file so a pre-existing `.claude/skills/ascent-onboard/SKILL.md` 409-skips instead of aborting
+ * the install. Spine collision on files[0] still means "already installed".
+ */
+export function buildFoundation(report: ScanReport): GeneratedFile[] {
+  return [...buildStandardFiles(report), buildOnboardingSkillFile(report)];
 }

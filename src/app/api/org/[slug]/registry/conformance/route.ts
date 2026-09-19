@@ -16,9 +16,9 @@
 
 import { NextResponse } from "next/server";
 import { getOrgId } from "@/lib/db/org-rollup";
-import { guardRegistryRead, guardRegistryWrite, registryError } from "@/lib/registry/api";
+import { guardRegistryRead, registryError, resolveRegistrySource } from "@/lib/registry/api";
 import { listConformance, listConformanceMaps } from "@/lib/db/org-registry-conformance";
-import { sweepConformance } from "@/lib/registry/conformance-sweep";
+import { localStandardsReader, sweepConformance } from "@/lib/registry/conformance-sweep";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,7 +43,8 @@ export async function GET(_request: Request, ctx: { params: Promise<{ slug: stri
 
 export async function POST(request: Request, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
-  const gate = await guardRegistryWrite(slug);
+  // Local first: a self-hosted org with a paired registry sweeps each repo's paired checkout.
+  const gate = await resolveRegistrySource(slug);
   if (gate instanceof NextResponse) return gate;
 
   const body = (await request.json().catch(() => ({}))) as { repositoryIds?: unknown; repositoryId?: unknown };
@@ -56,7 +57,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   const repositoryId = typeof body.repositoryId === "string" && body.repositoryId.length > 0 ? body.repositoryId : undefined;
 
   try {
-    const result = await sweepConformance(slug, gate.token, {
+    const result = await sweepConformance(slug, gate.kind === "local" ? localStandardsReader() : gate.token, {
       ...(repositoryIds ? { repositoryIds } : {}),
       ...(repositoryId ? { repositoryId } : {}),
     });

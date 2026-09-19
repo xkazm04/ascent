@@ -18,6 +18,7 @@ import {
   decideScanCharge,
   decideCharge,
   resolveLaneCharge,
+  isUnlimitedPlan,
   PLAN_FEATURES,
   PLAN_ORDER,
   UNLIMITED_PLAN_LABEL,
@@ -139,11 +140,17 @@ describe("decideCharge — lane-aware, and deliberately a no-op today", () => {
     for (const c of CASES) expect(decideCharge("scan", c)).toBe(decideScanCharge(c));
   });
 
-  it("answers 'unlimited' for every non-scan lane on every tier under today's empty allowances", () => {
+  it("charges nothing for any non-scan lane on any tier under today's empty allowances", () => {
     for (const plan of PLAN_ORDER) {
       expect(PLAN_FEATURES[plan].laneAllowances).toEqual({}); // no tier prices a lane — yet
       for (const lane of ["athena", "memory", "briefing", "local"] as const) {
-        expect(resolveLaneCharge(lane, { plan, usageThisMonth: 9_999, balance: 0 })).toBe("unlimited");
+        const charge = resolveLaneCharge(lane, { plan, usageThisMonth: 9_999, balance: 0 });
+        // Free either way, and the reason differs: an unlimited plan INCLUDES the lane, every other
+        // tier does not price it at all. Both are free at the call; only one belongs in a usage
+        // statement. Asserting the free-ness and the reason separately is what keeps the no-op claim
+        // checkable without also asserting that the two reasons are the same word.
+        expect(charge).toBe(isUnlimitedPlan(plan) ? "unlimited" : "unmetered");
+        expect(["unlimited", "unmetered"]).toContain(charge); // nothing is billed on any lane but scan
       }
     }
   });
@@ -154,6 +161,25 @@ describe("decideCharge — lane-aware, and deliberately a no-op today", () => {
     expect(decideCharge("athena", { ...opted, usageThisMonth: 1 })).toBe("allowance");
     // An explicit null is "included, unlimited" — different from absent, which is "not metered".
     expect(decideCharge("athena", { ...opted, laneAllowances: { athena: null } })).toBe("unlimited");
+  });
+
+  // The two empties are two facts and the field's own doc says so: ABSENT = "this lane is not metered
+  // on this plan", explicit `null` = "metered, and this plan includes it without limit". The line above
+  // asserts the null case and states the distinction in a comment — which is the one place a distinction
+  // cannot be checked. This is the assertion that can actually observe it.
+  it("distinguishes a lane that is not metered from one that is metered and unlimited", () => {
+    const base = { unlimited: false, allowance: 10, usageThisMonth: 5, balance: 0 };
+    const notMetered = decideCharge("athena", { ...base, laneAllowances: {} });
+    const meteredUnlimited = decideCharge("athena", { ...base, laneAllowances: { athena: null } });
+    expect(notMetered).not.toBe(meteredUnlimited);
+  });
+
+  it("keeps an unlimited PLAN answering 'unlimited' for a lane it does not price", () => {
+    // The plan-level exemption is not the lane-level one: on an unlimited plan every lane is included,
+    // which is "metered, unlimited", not "unmetered".
+    expect(decideCharge("athena", { unlimited: true, allowance: null, usageThisMonth: 9999, balance: 0 })).toBe(
+      "unlimited",
+    );
   });
 });
 

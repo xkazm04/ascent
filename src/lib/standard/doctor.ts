@@ -7,6 +7,7 @@
 // The script is authored with NO backticks or ${...} so it embeds verbatim in this template literal
 // and in the onboarding SKILL.md without escaping.
 
+import { GUIDANCE_PARSER_SOURCE } from "./guidance-parser-source";
 import type { GeneratedFile } from "./types";
 
 const DOCTOR = `#!/usr/bin/env node
@@ -34,6 +35,8 @@ const DOCTOR = `#!/usr/bin/env node
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+
+${GUIDANCE_PARSER_SOURCE}
 
 const ROOT = process.cwd();
 const RUN = process.argv.includes('--run');
@@ -67,6 +70,19 @@ function wired(hookText, alias) {
   }
 }
 
+function blockLines(text, key) {
+  const lines = text.split('\\n');
+  const start = lines.findIndex((line) => line.trimEnd() === key + ':');
+  if (start < 0) return { lines, start: -1, end: -1 };
+  let end = start + 1;
+  while (end < lines.length && !/^[^\\s#]/.test(lines[end])) end++;
+  return { lines, start, end };
+}
+function block(text, key) {
+  const { lines, start, end } = blockLines(text, key);
+  if (start < 0) return '';
+  return lines.slice(start + 1, end).map((line) => line.replace(/\\r$/, '')).join('\\n');
+}
 function kv(text, key) {
   const m = text.match(new RegExp('^' + key + ':\\\\s*(.+)$', 'm'));
   return m ? m[1].trim().replace(/^"|"$/g, '') : null;
@@ -80,10 +96,10 @@ function flow(text, key) {
   return m ? m[1].split(',').map(s => s.trim().replace(/^"|"$/g, '')).filter(Boolean) : [];
 }
 function capabilities(text) {
-  const block = text.split(/\\ncapabilities:\\n/)[1];
-  if (!block) return {};
+  const content = block(text, 'capabilities');
+  if (!content) return {};
   const caps = {};
-  for (const line of block.split('\\n')) {
+  for (const line of content.split('\\n')) {
     // command is JSON.stringify'd by the serializer, so the value can contain backslash-escaped
     // quotes (\\") and other JSON escapes. Match the full quoted string (escapes allowed) and JSON-
     // parse it back so a command containing a " round-trips exactly, instead of truncating at \\".
@@ -92,6 +108,30 @@ function capabilities(text) {
     else if (/^[^\\s#]/.test(line)) break;
   }
   return caps;
+}
+
+// Only the direct flow-map field is owned. Skip quoted text and nested extension maps.
+function setVerified(line, passed) {
+  let depth = 0, quote = '', escaped = false, fieldStart = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === '\\\\' && quote === '"') escaped = true;
+      else if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; continue; }
+    if (depth === 1 && (ch === ',' || ch === '}')) {
+      const field = line.slice(fieldStart, i);
+      if (/^\\s*verified:\\s*(true|false)\\s*$/.test(field))
+        return line.slice(0, fieldStart) + field.replace(/true|false/, String(passed)) + line.slice(i);
+      fieldStart = i + 1;
+    }
+    if (ch === '{' || ch === '[') { depth++; if (depth === 1) fieldStart = i + 1; }
+    else if (ch === '}' || ch === ']') depth--;
+  }
+  return line;
 }
 
 // The schemaVersion the manifest CLAIMS, hoisted so the report-back body can say which contract this
@@ -113,7 +153,7 @@ if (!existsSync(path)) {
 
   // 2. pointers resolve - scope to the paths: block so a like-named capability (e.g. an "evals"
   // capability) can't shadow paths.evals via a naive first-match.
-  const pathsBlock = (text.split(/\\npaths:\\n/)[1] || '').split(/\\n[a-z]/i)[0];
+  const pathsBlock = block(text, 'paths');
   const ctxIndex = sub(pathsBlock, 'contextIndex') || '.ai/context-index.json';
   check('pointer.contextindex', existsSync(ctxIndex), 'context index ' + ctxIndex, 'warn');
   check('pointer.memory', existsSync(sub(pathsBlock, 'memory') || '.ai/memory/'), 'memory store', 'warn');
@@ -173,13 +213,12 @@ if (!existsSync(path)) {
   // The serializer's one-line-per-capability format makes the targeted rewrite safe; placeholder
   // capabilities are never touched. Without this the manifest promised a flip that never happened.
   if (RUN && Object.keys(runResults).length) {
-    let updated = text;
-    for (const n of Object.keys(runResults)) {
-      updated = updated.replace(
-        new RegExp('^(\\\\s{2}' + n + ':\\\\s*\\\\{[^\\\\n]*verified:\\\\s*)(true|false)', 'm'),
-        function (m, p1) { return p1 + runResults[n]; },
-      );
+    const { lines, start, end } = blockLines(text, 'capabilities');
+    for (let i = start + 1; start >= 0 && i < end; i++) {
+      const name = lines[i].match(/^ {2}([\\w-]+):/);
+      if (name && Object.hasOwn(runResults, name[1])) lines[i] = setVerified(lines[i], runResults[name[1]]);
     }
+    const updated = lines.join('\\n');
     if (updated !== text) {
       try { writeFileSync(path, updated); add('manifest.write-back', 'pass', 'manifest updated: ' + Object.keys(runResults).map(function (n) { return n + ' verified=' + runResults[n]; }).join(', ')); }
       catch (e) { add('manifest.write-back', 'warn', 'could not write verified flags back to ' + path + ': ' + (e && e.message)); }
@@ -272,13 +311,12 @@ if (!existsSync(path)) {
   //
   // A repo with no 'guidance' block is NOT failing this check - it has not adopted it. That is
   // reported as 'unchecked', which is a result rather than a silence.
-  const gblock = text.split(/\\nguidance:\\n/)[1];
-  if (!gblock) {
+  const guidance = parseGuidance(text);
+  if (!guidance) {
     add('guidance.unchecked', 'unchecked', 'no guidance block in the manifest - projection drift NOT checked (declare guidance.canonical + projections to enable it)');
   } else {
     const sha12 = (t) => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 12);
-    const cm = gblock.match(/^\\s+canonical:\\s*(.+)$/m);
-    const canonical = cm ? cm[1].trim().replace(/^"|"$/g, '') : '';
+    const { canonical } = guidance;
     const canonicalOk = canonical && existsSync(canonical);
     if (!canonicalOk) {
       add('guidance.canonical', 'fail', 'guidance.canonical does not resolve: ' + (canonical || '(not declared)'));
@@ -286,12 +324,7 @@ if (!existsSync(path)) {
       add('guidance.canonical', 'pass', 'canonical guidance is ' + canonical);
     }
     const srcHash = canonicalOk ? sha12(readFileSync(canonical, 'utf8')) : null;
-    const declared = [];
-    for (const line of gblock.split('\\n')) {
-      const m = line.match(/^\\s+-\\s*\\{\\s*agent:\\s*([^,]+),\\s*path:\\s*([^,]+),/);
-      if (m) declared.push(m[2].trim().replace(/^"|"$/g, ''));
-      else if (/^[^\\s#]/.test(line)) break;
-    }
+    const declared = guidance.rows.map((row) => row.path);
     // The header this reads is the one .ai/maintain.mjs project writes. Keep the two in step.
     const HEADER = /<!--\\s*generated-from:\\s*(\\S+)\\s+sha256:([0-9a-f]{12})\\s*\\u00b7\\s*body:\\s*sha256:([0-9a-f]{12})[^>]*-->/;
     const bodyOf = (t) => {

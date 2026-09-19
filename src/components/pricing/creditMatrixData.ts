@@ -3,9 +3,11 @@
 // breakdown, mirroring how the dimension matrix reads shared `matrixData`. Sourced from the credit /
 // plan model: credits are consumed by exactly ONE kind of operation — a metered PRIVATE scan, and only
 // beyond the monthly allowance (see src/lib/entitlement.ts, src/lib/db/credits.ts, src/lib/plans.ts).
-// Public scans, cached re-scans, and every capability below are never metered.
+// Public scans are capped at publicScanAllowance() and never draw a credit; cached re-scans and
+// every capability below are never metered.
 
 import { PLAN_CAPABILITIES, PLAN_LISTED_CAPABILITY_ORDER, PLAN_FEATURES, PLAN_ORDER, type PlanId } from "@/lib/plans";
+import { PUBLIC_SCAN_WINDOW_DAYS, publicScanAllowance } from "@/lib/public-scan-limit";
 
 export type { PlanId };
 
@@ -93,6 +95,9 @@ const allowanceCells = (): Record<PlanId, Cell> =>
     }),
   ) as Record<PlanId, Cell>;
 
+/** Public-scan volume as the visitor reads it — the same phrase the quota gate and the Free card use. */
+const PUBLIC_ALLOWANCE = publicScanAllowance();
+
 /** Same value in every column (a universally-available or universally-free row). */
 const all = (v: Cell): Record<PlanId, Cell> => ({ free: v, pro: v, team: v, enterprise: v });
 
@@ -117,17 +122,15 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
   {
     key: "scanning",
     title: "Scanning",
-    // CORRECTED. This read "Every scan, public or private, draws on one monthly allowance" — which the
-    // file's own header (line 4-6), `plans.ts:144-146` and `db/credits.ts:3` all contradict: an
-    // anonymous PUBLIC scan is never metered and never touches the allowance. The intro was
-    // contradicting the table three lines below it.
-    intro: "Private scans draw on your monthly allowance; only private scans past it cost a credit. Public scans are always free and never metered.",
+    // Volume is publicScanAllowance(), not "Unlimited" / "never metered". Those were credit-currency
+    // claims wearing a volume word; QuotaMeter counts the same visitor down from this number (G8).
+    intro: `Private scans draw on your monthly allowance; only private scans past it cost a credit. Public scans are ${PUBLIC_ALLOWANCE.label} on a rolling ${PUBLIC_SCAN_WINDOW_DAYS}-day window and never draw on credits.`,
     rows: [
       {
         label: "Public repository scan",
         detail: "Any public repo, by anyone: the full report, radar and roadmap. Never metered on any plan — rate-limited and monthly-capped instead.",
         tag: "free",
-        cells: all("Unlimited"),
+        cells: all(PUBLIC_ALLOWANCE.label),
       },
       {
         label: "Private repository scan",

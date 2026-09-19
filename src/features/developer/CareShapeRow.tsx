@@ -12,6 +12,9 @@
 //                                                    say" are not the same fact about you.
 //   band              → the quartile strip, with your own value marked.
 //
+// The void itself names its reason (care-shape-contract.ts): nothing shared yet, left out, too few
+// sessions (a hatch: a sample exists and was not judged), or not measured by your tools.
+//
 // The last case is why the section stopped needing its sentence: there is no name in a box plot, so
 // "quartiles across everyone who opted in — never a person" is not a promise here, it is the shape
 // of the thing on screen.
@@ -25,6 +28,7 @@ import {
   type CareBand,
   type CareShapeField,
 } from "@/lib/org/developer-view";
+import { CARE_SHAPE_REASON_COPY, type CareShapeEmptyReason } from "@/lib/org/care-shape-contract";
 
 /** Why a row has no distribution to draw. */
 export type CareBandGap = "comparison-off" | "no-band";
@@ -48,23 +52,29 @@ export function CareShapeRow({
   shared,
   band,
   gap,
+  reason,
 }: {
   field: CareShapeField;
   value: number | null;
   shared: boolean;
   band?: CareBand;
   gap: CareBandGap;
+  /** Why the value is empty. Defaults to the only reason the two flags alone can tell. */
+  reason?: CareShapeEmptyReason | null;
 }) {
   const label = CARE_SHAPE_LABEL[field];
   const unit = CARE_SHAPE_PCT.has(field) ? "%" : "";
 
   if (!shared || value == null) {
+    const why = CARE_SHAPE_REASON_COPY[reason ?? (shared ? "not-collected" : "not-shared")];
+    // Too few sessions is a sample that exists and was not judged; the other three are voids.
+    const swatch = reason === "below-sample" ? "not-judged" : "missing";
     return (
       <div>
         <Kicker tone="muted">{label}</Kicker>
-        <div className="mt-1.5 flex items-center gap-2" title="You did not share this count. Nothing was measured and nothing is stored — this is not a zero.">
-          <StateSwatch state="missing" />
-          <span className="type-body-sm text-slate-500">not shared</span>
+        <div className="mt-1.5 flex items-center gap-2" title={why.title}>
+          <StateSwatch state={swatch} />
+          <span className="type-body-sm text-slate-500">{why.label}</span>
         </div>
       </div>
     );

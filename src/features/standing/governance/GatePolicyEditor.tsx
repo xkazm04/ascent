@@ -10,7 +10,9 @@
 import type { GatePolicy } from "@/lib/scoring/gate";
 import type { LevelId } from "@/lib/types";
 import { appliesWhen, useGatePolicyEditor } from "./useGatePolicyEditor";
+import { AiGovernedRateRow } from "./AiGovernedRateRow";
 import { DimensionFloorRows } from "./DimensionFloorRows";
+import { RequireChecksRows } from "./RequireChecksRows";
 
 export { appliesWhen };
 
@@ -93,6 +95,13 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
         </label>
       </div>
       <DimensionFloorRows floors={f.otherFloors} onChange={f.setDimFloor} />
+      <AiGovernedRateRow
+        enabled={f.aiGoverned}
+        rate={f.aiGovernedRate}
+        onEnabled={f.setAiGoverned}
+        onRate={f.setAiGovernedRate}
+      />
+      <RequireChecksRows checks={f.requireChecks} onAdd={f.addRequireCheck} onRemove={f.removeRequireCheck} />
       <div className="mt-3 flex flex-wrap items-center gap-2" aria-busy={f.busy !== null}>
         <button
           onClick={() => f.save()}

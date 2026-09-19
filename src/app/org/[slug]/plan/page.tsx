@@ -12,5 +12,5 @@ export default async function OrgPlanRedirect({ params }: { params: Promise<{ sl
   const { slug } = await params;
   // The Plan tab itself was retired 2026-08-17; its programme control moved to the Briefing, and its
   // gaps became the Follow-ups ledger. Old links land on the ledger.
-  redirect(orgTabHref(slug, "followups"));
+  redirect(orgTabHref(slug, "proposals"));
 }

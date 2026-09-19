@@ -72,8 +72,8 @@ const rollup = (over: Partial<OrgRollup> = {}): OrgRollup =>
     deltas: null,
     movement: { overall: 4, adoption: 3, rigor: 5, cohortSize: 8, onboarded: 1, departed: 0 },
     dimDeltas: [
-      { dimId: "D1", delta: 6 },
-      { dimId: "D9", delta: 1 },
+      { dimId: "D1", delta: 6, cohortSize: 8 },
+      { dimId: "D9", delta: 1, cohortSize: 8 },
     ],
     ...over,
   }) as OrgRollup;
@@ -174,16 +174,36 @@ describe("buildWeeklyDigest — happy path", () => {
 
   it("sorts dimensions by id and classifies each delta into a band", async () => {
     const d = (await buildWeeklyDigest("acme", NOW))!;
-    expect(d.dims.map((x) => [x.dimId, x.delta, x.band])).toEqual([
-      // A real climb.
-      ["D1", 6, "up"],
+    expect(d.dims.map((x) => [x.dimId, x.delta, x.cohortSize, x.band])).toEqual([
+      // A real climb, measured over the same 8-repo cohort the headlines use.
+      ["D1", 6, 8, "up"],
       // No entry in dimDeltas → not measurable. NOT zero: "unmeasured" and "flat" are different facts.
-      ["D3", null, "unmeasured"],
+      ["D3", null, null, "unmeasured"],
       // +1 is inside the canonical noise band (SCORE_NOISE_BAND = 2) — it must not wear an arrow.
-      ["D9", 1, "flat"],
+      ["D9", 1, 8, "flat"],
     ]);
     expect(d.dims[0]!.label).not.toBe("D1"); // resolved from the rubric
     expect(d.dims[0]!.now).toBe(52);
+  });
+
+  it("treats a dimDelta with missing n as unmeasured, never as a zero", async () => {
+    // The old {dimId, delta} pair, and a 0-size cohort, must not print as a measured 0 / a climb.
+    mockGetOrgRollup.mockResolvedValue(
+      rollup({
+        dimDeltas: [
+          { dimId: "D1", delta: 6 },
+          { dimId: "D3", delta: 0, cohortSize: 0 },
+          { dimId: "D9", delta: 1, cohortSize: 8 },
+        ] as unknown as OrgRollup["dimDeltas"],
+      }),
+    );
+    const d = (await buildWeeklyDigest("acme", NOW))!;
+    expect(d.dims.map((x) => [x.dimId, x.delta, x.cohortSize, x.band])).toEqual([
+      ["D1", null, null, "unmeasured"],
+      ["D3", null, null, "unmeasured"],
+      ["D9", 1, 8, "flat"],
+    ]);
+    expect(d.dims.every((x) => x.delta !== 0)).toBe(true);
   });
 
   it("ranks three actions, with the shared next-move sentence at rank 1", async () => {
@@ -204,6 +224,34 @@ describe("buildWeeklyDigest — happy path", () => {
     expect(d.movement!.gainers.map((m) => m.name)).toEqual(["api", "web", "cli"]);
     expect(d.movement!.regressers.map((m) => m.name)).toEqual(["legacy"]);
     expect(d.movement!.compared).toBe(8);
+    expect(d.movement!.held).toEqual([]);
+    expect(d.movement!.onboarded).toEqual([]);
+  });
+
+  it("carries held and onboarded names, and nulls an unmeasured onboarded delta rather than printing 0", async () => {
+    mockGetOrgMovers.mockResolvedValue(
+      movers({
+        held: [
+          { name: "core", fullName: "acme/core", dOverall: 1, levelFrom: "L2", levelTo: "L2" },
+          { name: "lib", fullName: "acme/lib", dOverall: -1, levelFrom: "L2", levelTo: "L2" },
+          { name: "sdk", fullName: "acme/sdk", dOverall: 2, levelFrom: "L3", levelTo: "L3" },
+          { name: "extra", fullName: "acme/extra", dOverall: 1, levelFrom: "L1", levelTo: "L1" },
+        ],
+        onboarded: [
+          { name: "grown", fullName: "acme/grown", dOverall: 12, levelFrom: "L1", levelTo: "L2" },
+          { name: "fresh", fullName: "acme/fresh", dOverall: 0, levelFrom: "L1", levelTo: "L1" },
+          { name: "svc", fullName: "acme/svc", dOverall: 4, levelFrom: "L1", levelTo: "L1" },
+          { name: "drop", fullName: "acme/drop", dOverall: 3, levelFrom: "L1", levelTo: "L1" },
+        ],
+      }),
+    );
+    const d = (await buildWeeklyDigest("acme", NOW))!;
+    expect(d.movement!.held!.map((m) => m.name)).toEqual(["core", "lib", "sdk"]);
+    expect(d.movement!.onboarded!.map((m) => [m.name, m.dOverall])).toEqual([
+      ["grown", 12],
+      ["fresh", null],
+      ["svc", 4],
+    ]);
   });
 
   it("composes the two follow-up reads without merging them", async () => {
@@ -294,6 +342,6 @@ describe("buildWeeklyDigest — degradation", () => {
     mockGetOrgRollup.mockResolvedValue(rollup({ movement: null, dimDeltas: null }));
     const d = (await buildWeeklyDigest("acme", NOW))!;
     expect(d.headline).toMatchObject({ dOverall: null, dAdoption: null, dRigor: null, cohortSize: null, onboarded: 0, departed: 0 });
-    expect(d.dims.every((x) => x.band === "unmeasured" && x.delta === null)).toBe(true);
+    expect(d.dims.every((x) => x.band === "unmeasured" && x.delta === null && x.cohortSize === null)).toBe(true);
   });
 });

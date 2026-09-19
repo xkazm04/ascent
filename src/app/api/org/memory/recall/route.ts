@@ -21,7 +21,9 @@
 //
 // THIN ADAPTER over src/lib/memory/recall.ts: resolve caller → fetch the bounded working set → call the
 // pure core with an injected `now` → bump the counters of what was actually RETURNED. All judgment (the
-// value model, the packing) lives in the core, so the future MCP `memory_recall` tool reuses it whole.
+// value model, the packing) lives in the core. MCP `recall_org_memory` and Athena's chat prefetch load
+// the same working set (`lifecycleWorkingSet`) — never the write-check helper `candidateOrgMemories`,
+// whose omitted namespace means IS NULL and would hide every namespaced scan-pipeline row.
 
 import { NextResponse } from "next/server";
 import { bumpMemoryAccessCounts, isDbConfigured, lifecycleWorkingSet } from "@/lib/db";

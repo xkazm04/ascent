@@ -293,13 +293,115 @@ describe("GET /api/usage?view=showback", () => {
   });
 });
 
+// ===========================================================================
+// The showback MATRIX export: one row per byLaneTeam cell the on-page panel allocates on.
+// A SEPARATE view so the existing showback file (lane totals, then team totals) stays the shape
+// downstream sheets already key on (G19). Empty cost cells stay empty, never `0`.
+
+describe("GET /api/usage?view=showback-matrix", () => {
+  const byLaneTeam = [
+    { lane: "scan", teamKey: "@acme/platform", calls: 12, estimatedCostUsd: 1.5, unpricedCalls: 0 },
+    { lane: "athena", teamKey: "@acme/platform", calls: 4, estimatedCostUsd: null, unpricedCalls: 4 },
+    { lane: "scan", teamKey: null, calls: 2, estimatedCostUsd: 0.25, unpricedCalls: 0 },
+  ];
+  const MATRIX = {
+    daily: [],
+    byLane: [
+      { lane: "scan", calls: 14, inputTokens: 10, outputTokens: 2, estimatedCostUsd: 1.75, unpricedCalls: 0 },
+      { lane: "athena", calls: 4, inputTokens: null, outputTokens: null, estimatedCostUsd: null, unpricedCalls: 4 },
+    ],
+    byTeam: [
+      { teamKey: "@acme/platform", label: "@acme/platform", calls: 16, estimatedCostUsd: 1.5 },
+      { teamKey: null, label: "Org-wide (no repo)", calls: 2, estimatedCostUsd: 0.25 },
+    ],
+    byLaneTeam,
+  } as unknown as Awaited<ReturnType<typeof getUsageSummary>>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockRequireOrgRead.mockResolvedValue(null);
+    mockGetUsageSummary.mockResolvedValue(MATRIX);
+  });
+
+  it("emits one scope=cell row per byLaneTeam cell, with both lane and team filled", async () => {
+    const res = await get("?org=acme&view=showback-matrix");
+    const text = await res.text();
+    const [header, ...rows] = text.trim().split("\n");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/text\/csv/);
+    expect(res.headers.get("content-disposition")).toMatch(
+      /^attachment; filename="ascent-showback-matrix-acme-\d{4}-\d{2}-\d{2}\.csv"$/,
+    );
+    expect(header).toBe("scope,lane,team,calls,estimatedCostUsd,unpricedCalls");
+    expect(rows).toHaveLength(byLaneTeam.length);
+    // CODEOWNERS teams are `@org/name`; csvField formula-guards a leading `@` so a sheet
+    // cannot treat the cell as a formula. The quote-and-prefix is the export, not a bug.
+    expect(rows[0]).toBe(`cell,scan,"'@acme/platform",12,1.500000,0`);
+    // Unpriced cost is EMPTY, never 0 — a 0 in a finance export is a claim about money not spent.
+    expect(rows[1]).toBe(`cell,athena,"'@acme/platform",4,,4`);
+    expect(rows[2]).toBe("cell,scan,Org-wide (no repo),2,0.250000,0");
+    expect(rows.every((r) => r.startsWith("cell,"))).toBe(true);
+  });
+
+  it("does not invent a 0 row for a (lane, team) pair the panel would render as blank", async () => {
+    // athena × org-wide has no byLaneTeam cell; the HTML matrix draws an em dash, never $0 / 0 calls.
+    const csv = await (await get("?org=acme&view=showback-matrix")).text();
+    const rows = csv.trim().split("\n").slice(1);
+    expect(rows).toHaveLength(byLaneTeam.length);
+    expect(csv).not.toMatch(/^cell,athena,Org-wide/m);
+    expect(csv).not.toContain(",0.000000,");
+  });
+
+  it("leaves the existing showback CSV's two flat sections as they are (G19)", async () => {
+    const csv = await (await get("?org=acme&view=showback")).text();
+    const [header, ...rows] = csv.trim().split("\n");
+    expect(header).toBe("scope,lane,team,calls,estimatedCostUsd,unpricedCalls");
+    expect(rows.every((r) => r.startsWith("lane,") || r.startsWith("team,"))).toBe(true);
+    expect(csv).not.toMatch(/^cell,/m);
+  });
+
+  it("does not bolt matrix columns onto the per-day CSV (G19)", async () => {
+    const csv = await (await get("?org=acme&format=csv")).text();
+    expect(csv.split("\n")[0]!.trim()).toBe("date,billable,free,total");
+    expect(csv).not.toContain("scope");
+    expect(csv).not.toContain("@acme/platform");
+  });
+
+  it("wins over ?format=csv so the day-series file shape is not overloaded", async () => {
+    const csv = await (await get("?org=acme&format=csv&view=showback-matrix")).text();
+    expect(csv.split("\n")[0]!.trim()).toBe("scope,lane,team,calls,estimatedCostUsd,unpricedCalls");
+    expect(csv).toMatch(/^cell,/m);
+  });
+
+  it("omits the team column and every cell row for the public funnel", async () => {
+    const res = await get("?view=showback-matrix");
+    const text = await res.text();
+    const [header, ...rows] = text.trim().split("\n");
+
+    expect(header).toBe("scope,lane,calls,estimatedCostUsd,unpricedCalls");
+    expect(header).not.toContain("team");
+    expect(rows).toHaveLength(0);
+    expect(text).not.toContain("@acme/platform");
+  });
+
+  it("is behind the SAME IDOR gate as every other view", async () => {
+    mockRequireOrgRead.mockResolvedValue(deny(403));
+    const res = await get("?org=acme&view=showback-matrix");
+    expect(res.status).toBe(403);
+    expect(mockGetUsageSummary).not.toHaveBeenCalled();
+  });
+});
+
 // ── The per-repo cost rides the JSON body, and ONLY the JSON body (G19) ─────────────────────────
 //
 // `byRepo` gained a dollar figure per repository. It is additive on the JSON response — a consumer
 // that reads scans and tokens sees exactly what it read before — and it deliberately does NOT enter
-// either CSV: the per-day export's `date,billable,free,total` shape and the showback export's two
+// any CSV: the per-day export's `date,billable,free,total` shape and the showback export's two
 // flat `lane` / `team` sections are reconciliation artifacts downstream sheets key on, and G19 keeps
-// them as they are. A third scope or a sixth column would be a file-shape change, not a side effect.
+// them as they are. The matrix join is a third VIEW (`?view=showback-matrix`), not a third scope
+// block on the showback file or a sixth column on the day series.
 describe("GET /api/usage — per-repo spend is additive on the JSON, and the CSVs are untouched", () => {
   const withRepos = {
     daily: [{ date: "2026-09-01", billable: 2, free: 1 }],

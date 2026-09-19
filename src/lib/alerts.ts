@@ -18,353 +18,15 @@
 // the sink (see src/lib/email/alert-sink.ts + /api/email/unsubscribe).
 
 import type { ScanDiff } from "@/lib/report/compare";
-import { isWithinNoise, postureTransition } from "@/lib/maturity/noise";
-// The mock sentinel comes from the attribution module rather than being restated here: a `mock` end is
-// a different ruler on BOTH surfaces, and two copies of that name would eventually disagree.
-import { MOCK_ENGINE } from "@/lib/maturity/attribution";
-import { isPrivateOrInternalHost } from "@/lib/net/ssrf";
+import { isWithinNoise } from "@/lib/maturity/noise";
+export { emailSinkAddress, resolveAlertWebhook, sinkKindForOrg, isAlertConfigured, validateAlertWebhookUrl, dispatchAlert } from "./alert-delivery";
+import {
+  digestHasSignal as digestHasSignalFromDelta,
+  type AlertSeverity,
+  type RegressionVerdict,
+  type PromotionVerdict,
+} from "./alerts-detection";
 
-/**
- * How loud the alert is — drives whether/how prominently it's surfaced (SEV_EMOJI, the digest, the
- * audit payload). `celebration` is the one NON-alarm band: an upward level change. It exists as a
- * severity rather than a separate axis so every renderer that already switches on severity gets the
- * celebratory chrome for free instead of borrowing 🔻/⚠️ for good news.
- */
-export type AlertSeverity = "critical" | "warning" | "celebration";
-
-export interface RegressionReason {
-  severity: AlertSeverity;
-  /** Short, human-readable explanation (e.g. "Maturity dropped L4 → L3"). */
-  message: string;
-  /** Machine code for routing/testing. */
-  code: "level-demotion" | "posture-ungoverned" | "overall-drop" | "dimension-drop";
-}
-
-export interface RegressionVerdict {
-  regressed: boolean;
-  severity: AlertSeverity | null;
-  reasons: RegressionReason[];
-}
-
-export interface RegressionThresholds {
-  /** Overall-score drop (points) that counts as a regression. */
-  overallDrop: number;
-  /** Single-dimension drop (points) that counts as a regression. */
-  dimensionDrop: number;
-}
-
-// The overall-drop threshold (5) sits comfortably ABOVE the scan-to-scan noise band (±2 — two identical-
-// commit re-scans moved 0/±1; see @/lib/maturity/noise), so a regression alert never fires on model
-// jitter. The dimension threshold (15) is well clear of the ±25 LLM guardband on a single dimension.
-export const DEFAULT_THRESHOLDS: RegressionThresholds = { overallDrop: 5, dimensionDrop: 15 };
-
-/**
- * Movement-gate for the weekly fleet digest — whether this period is worth a push at all. A leader who
- * relies on the digest *instead of* opening the app filters it out fast if it cries "no change this
- * week" every Monday, so a flat period should stay silent. Sends only on real signal: a level change, a
- * regression, an overall move beyond the scan-to-scan noise band, a genuine gainer, or a depleting
- * credit balance (always worth the heads-up). Pure — the cron passes the period's already-computed
- * aggregates. This is an adaptive cadence (notify on news); a fixed per-org cadence would need a stored
- * preference + last-sent timestamp.
- */
-export function digestHasSignal(s: {
-  overallDelta: number | null;
-  levelChanges: number;
-  regressions: number;
-  gainersBeyondNoise: number;
-  creditLow: boolean;
-  /** MOONSHOT #1 — controls observed flipping to `fail` in the period. Optional so every existing
-   *  caller keeps compiling and keeps its exact behaviour; absent means "not counted", not zero. */
-  controlsFailed?: number;
-  /** Dimensions holding materially below an earlier reading (`detectStandingRegressions`). Optional
-   *  on the same terms as `controlsFailed`: absent means "not computed", not zero. */
-  standingConcerns?: number;
-}): boolean {
-  if (s.creditLow) return true;
-  // A STANDING CONCERN IS ALWAYS SIGNAL, AND KEEPS BEING SIGNAL. Every other condition here is a
-  // MOVEMENT, so a decline that has stopped moving stops being news — which is precisely how a repo
-  // sat twenty-one points down for eighteen scans with nothing said. A shortfall that persists is
-  // re-stated every period it persists, on the same reasoning as `creditLow` above: the reader needs
-  // to know it is STILL true, not only that it once happened.
-  if ((s.standingConcerns ?? 0) > 0) return true;
-  // A FAILED CONTROL IS ALWAYS SIGNAL. A week in which branch protection came off a repo and the
-  // scores happened not to move is precisely the week the digest exists for — filtering it out on a
-  // flat score would be the digest silently withholding its most consequential fact.
-  if ((s.controlsFailed ?? 0) > 0) return true;
-  if (s.levelChanges > 0 || s.regressions > 0 || s.gainersBeyondNoise > 0) return true;
-  return s.overallDelta != null && !isWithinNoise(s.overallDelta);
-}
-
-/**
- * Decide whether a scan-to-scan diff is a regression worth alerting on. `diff` reads as
- * `after − before`, so negative deltas are slides. Reasons are returned strongest-first; the
- * overall severity is the max of the individual reasons (a level demotion or a slide into
- * "ungoverned" is critical; score/dimension slides are warnings).
- */
-export function detectRegression(
-  diff: ScanDiff,
-  thresholds: RegressionThresholds = DEFAULT_THRESHOLDS,
-): RegressionVerdict {
-  const reasons: RegressionReason[] = [];
-
-  if (diff.level.changed && !diff.level.up) {
-    reasons.push({
-      severity: "critical",
-      code: "level-demotion",
-      message: `Maturity dropped ${diff.level.before.id} → ${diff.level.after.id} (${diff.level.after.name})`,
-    });
-  }
-
-  // Sliding INTO "ungoverned" (heavy AI, light guardrails) is the posture we most want to catch.
-  // Gated on postureTransition, not on `changed` alone: the quadrant cuts at exactly 50 per axis, so a
-  // repo hovering at 49/51 flips its label on a re-scan of an unchanged commit and fires this CRITICAL
-  // alert on pure wobble. The corridor test (enter ≥52 / leave <48) keeps the classification untouched
-  // and only asks whether the crossing is far enough from the cut to be evidence rather than noise.
-  const postureNews = postureTransition(diff.posture.before.id, diff.posture.after.id, {
-    adoption: diff.adoption.after,
-    rigor: diff.rigor.after,
-  });
-  if (postureNews !== "held" && diff.posture.after.id === "ungoverned" && diff.posture.before.id !== "ungoverned") {
-    reasons.push({
-      severity: "critical",
-      code: "posture-ungoverned",
-      message: `Posture slid to "${diff.posture.after.label}": AI velocity outran the guardrails`,
-    });
-  }
-
-  if (diff.overall.delta <= -thresholds.overallDrop) {
-    reasons.push({
-      severity: "warning",
-      code: "overall-drop",
-      message: `Overall score fell ${diff.overall.delta} (${diff.overall.before} → ${diff.overall.after})`,
-    });
-  }
-
-  const worstDim = diff.dimensions
-    .filter((d) => typeof d.delta === "number" && (d.delta as number) <= -thresholds.dimensionDrop)
-    .sort((a, b) => (a.delta as number) - (b.delta as number))[0];
-  if (worstDim) {
-    reasons.push({
-      severity: "warning",
-      code: "dimension-drop",
-      message: `${worstDim.id} ${worstDim.name} fell ${worstDim.delta} (${worstDim.before} → ${worstDim.after})`,
-    });
-  }
-
-  const regressed = reasons.length > 0;
-  const severity: AlertSeverity | null = !regressed
-    ? null
-    : reasons.some((r) => r.severity === "critical")
-      ? "critical"
-      : "warning";
-  return { regressed, severity, reasons };
-}
-
-// --- Promotion (the one push that isn't bad news) --------------------------------------------------
-
-export interface PromotionReason {
-  severity: "celebration";
-  /** Short, human-readable explanation (e.g. "Maturity climbed L3 → L4 (Integrated)"). */
-  message: string;
-  code: "level-promotion";
-}
-
-export interface PromotionVerdict {
-  promoted: boolean;
-  severity: "celebration" | null;
-  reasons: PromotionReason[];
-}
-
-/**
- * The counterpart condition to detectRegression, over the SAME ScanDiff and living beside it so the
- * detection layer stays one module: did this scan cross a maturity band UPWARD? Every other condition
- * in this file fires on a slide (`diff.level.up` only ever SUPPRESSED an alert), so the L3→L4 moment a
- * team would happily paste into Slack was the one durable event the layer stayed silent about.
- *
- * Why it is a sibling function rather than another `reasons` entry inside detectRegression: that
- * verdict's `regressed` flag is load-bearing downstream — it gates the `scan.regression` audit row and
- * the regression memory in src/lib/memory/scan-feed.ts. A celebration that flipped `regressed` (or that
- * rode along in `reasons` on a mixed scan) would file a promotion as a regression in the org's audit
- * trail and its memory store. Same module, same diff, same message-builder family; separate verdict.
- *
- * Pure — no env, no Date, no I/O.
- */
-export function detectPromotion(diff: ScanDiff): PromotionVerdict {
-  if (!diff.level.changed || !diff.level.up) return { promoted: false, severity: null, reasons: [] };
-  return {
-    promoted: true,
-    severity: "celebration",
-    reasons: [
-      {
-        severity: "celebration",
-        code: "level-promotion",
-        message: `Maturity climbed ${diff.level.before.id} → ${diff.level.after.id} (${diff.level.after.name})`,
-      },
-    ],
-  };
-}
-
-// --- Standing regressions: the decline nobody was told about ---------------------------------------
-//
-// WHY THIS EXISTS. In a 21-run campaign, `kp`'s D9 (Supply Chain & Security) went 93 → 96 → 75 at run
-// 3 and sat at 75 for eighteen further runs. Twenty-one points, permanent, and every surface stayed
-// quiet. The likeliest cause is mechanical: that run added two large new workflows, and D9's checks
-// are RATIOS ("N/M workflows set an explicit permissions: scope"), so adding surface diluted them.
-//
-// Two independent silences produced that outcome, and this detector answers both:
-//
-//   1. EVERY EXISTING SIGNAL IS AN EVENT, NOT A STATE. `detectRegression` compares ONE adjacent pair,
-//      and `getOrgMovers` compares a period's ends. Both were right to say nothing on runs 4–21: the
-//      adjacent delta was zero every time. But "nothing changed this week" and "this repo has been
-//      twenty-one points down for a month" are different facts, and only the first was reachable.
-//   2. ATTRIBUTION REFUSES WHAT IT CANNOT EXPLAIN. `src/lib/maturity/attribution.ts` declines to CLAIM
-//      a delta across a mock floor, inside the noise band, on an uncommitted lane or across a
-//      platform-fold mismatch. That is correct, and it is the guard that stops the loop inventing
-//      lifts — but the same guard silences a true decline. A guard against false CLAIMS must not
-//      become a guard against true REGRESSIONS, so nothing below consults it: this detector makes no
-//      claim about cause, only about the readings.
-//
-// It is computed from PERSISTED SCANS ALONE. A regression caused by a human commit deserves the same
-// alarm as one caused by a lane, so the loop is not an input.
-
-/**
- * How far below an earlier reading a dimension must sit before the shortfall is worth standing up.
- * Deliberately several times `SCORE_NOISE_BAND` (2, the measured overall model wobble — see
- * attribution.ts, which also records that the band is CONSERVATIVE per-dimension because a single
- * dimension's guardband is wider). 10 keeps this clear of that widened per-dimension wobble while
- * staying well below the per-scan `dimensionDrop` alarm (15) — a standing concern is allowed to be
- * quieter than a page, because it is earned by persistence rather than by size.
- */
-export const STANDING_REGRESSION_DROP = 10;
-
-/**
- * How many CONSECUTIVE scans the shortfall must hold before it is a standing concern. One scan below
- * the line is the event `detectRegression` already owns, and a single-scan dip that recovers is
- * exactly the flap the cooldown exists to mute — so a concern is only raised once the repo has been
- * re-measured at the depressed level three times over.
- */
-export const STANDING_REGRESSION_SCANS = 3;
-
-/** How far back a standing-regression read walks per repo. Bounds the query; a shortfall older than
- *  this many scans is still reported, just measured against the oldest reading in reach. */
-export const STANDING_REGRESSION_LOOKBACK = 20;
-
-/** One persisted scan, reduced to what the standing detector reads. `HistoryPoint` satisfies it
- *  structurally, and so does a raw `{ scannedAt, engineProvider, dimensions }` row select. */
-export interface StandingScanPoint {
-  /** Scan id, when the caller has one — carried through so a surface can link the two readings. */
-  id?: string;
-  /** ISO timestamp. */
-  scannedAt: string;
-  /** Engine that produced this reading. A `mock` end is a DIFFERENT RULER (attribution.ts's first
-   *  refusal) and is dropped from the series rather than compared against — including it would
-   *  manufacture concerns out of an engine swap. Undefined = unknown, which is treated as real. */
-  engineProvider?: string;
-  dimensions: { dimId: string; score: number }[];
-}
-
-/**
- * A dimension that has held materially below an earlier reading. Every field is an OBSERVATION: two
- * readings, their dates, and how long the shortfall has persisted. Nothing here asserts a cause.
- */
-export interface StandingConcern {
-  dimId: string;
-  /** The most recent reading. */
-  current: number;
-  currentAt: string;
-  currentScanId?: string;
-  /** The reading the shortfall is measured against — the most recent scan that sat `drop` or more
-   *  ABOVE every scan since. */
-  baseline: number;
-  baselineAt: string;
-  baselineScanId?: string;
-  /** `baseline - current`, always ≥ `STANDING_REGRESSION_DROP` at the time it is raised. */
-  drop: number;
-  /** How many scans have been taken at the depressed level (≥ `STANDING_REGRESSION_SCANS`). */
-  scansHeld: number;
-  /** ISO timestamp of the FIRST scan at the depressed level — when the shortfall began. */
-  since: string;
-  /** Signals that appeared/disappeared between the two named scans, when the caller supplied the
-   *  evidence to derive them (see `getOrgStandingConcerns`). Never a cause claim — a list. */
-  evidence?: string[];
-  /** The one-line, cause-free rendering. */
-  observation: string;
-}
-
-/** `2026-08-14T09:02:00.000Z` → `2026-08-14`. Dates, not timestamps: a standing concern is measured
- *  in scans and days, and a wall-clock time implies a precision the observation does not have. */
-function dayOf(iso: string): string {
-  return iso.slice(0, 10);
-}
-
-/**
- * Every dimension of `points[0]` that has held ≥ `drop` below an earlier reading for ≥ `scans`
- * consecutive readings. `points` is NEWEST-FIRST (the order every history reader already returns).
- *
- * The walk, per dimension: keep a running maximum of the readings seen so far (newest outward) and
- * step back until one is `drop` or more ABOVE that maximum. Finding it means *every* scan since that
- * reading has sat at least `drop` below it — which is the precise sense of "fell and stayed down",
- * and is why a plateau eighteen scans long is still measured against the reading before the fall
- * rather than against a three-scan-ago reading that is itself part of the plateau. The FIRST such
- * reading wins (the nearest baseline, so the claim is the smallest one the evidence supports), and if
- * it is fewer than `scans` back the dimension is skipped: a fresh drop is an event, not yet a state.
- *
- * Pure — no env, no Date, no I/O. `mock`-engine points are dropped first, and a dimension missing
- * from a point is skipped for that point rather than read as zero.
- */
-export function detectStandingRegressions(
-  points: readonly StandingScanPoint[],
-  opts: { drop?: number; scans?: number } = {},
-): StandingConcern[] {
-  const drop = opts.drop ?? STANDING_REGRESSION_DROP;
-  const hold = opts.scans ?? STANDING_REGRESSION_SCANS;
-  const real = points.filter((p) => p.engineProvider !== MOCK_ENGINE);
-  if (real.length < hold + 1) return [];
-
-  const dimIds = (real[0]?.dimensions ?? []).map((d) => d.dimId);
-  const out: StandingConcern[] = [];
-
-  for (const dimId of dimIds) {
-    const series: { score: number; scannedAt: string; id?: string }[] = [];
-    for (const p of real) {
-      const hit = p.dimensions.find((d) => d.dimId === dimId);
-      if (hit) series.push({ score: hit.score, scannedAt: p.scannedAt, ...(p.id ? { id: p.id } : {}) });
-    }
-    const current = series[0];
-    if (!current || series.length < hold + 1) continue;
-
-    let depressedMax = current.score;
-    for (let i = 1; i < series.length; i++) {
-      const candidate = series[i];
-      const fell = series[i - 1];
-      if (!candidate || !fell) break;
-      if (candidate.score - depressedMax >= drop) {
-        if (i >= hold) {
-          const gap = candidate.score - current.score;
-          out.push({
-            dimId,
-            current: current.score,
-            currentAt: current.scannedAt,
-            ...(current.id ? { currentScanId: current.id } : {}),
-            baseline: candidate.score,
-            baselineAt: candidate.scannedAt,
-            ...(candidate.id ? { baselineScanId: candidate.id } : {}),
-            drop: gap,
-            scansHeld: i,
-            since: fell.scannedAt,
-            observation:
-              `${dimId} has held ${gap} points below its ${dayOf(candidate.scannedAt)} ` +
-              `reading (${candidate.score} → ${current.score}) across ${i} scan${i === 1 ? "" : "s"} since ${dayOf(fell.scannedAt)}`,
-          });
-        }
-        break; // nearest qualifying baseline decides, in both directions
-      }
-      depressedMax = Math.max(depressedMax, candidate.score);
-    }
-  }
-
-  return out.sort((a, b) => b.drop - a.drop || a.dimId.localeCompare(b.dimId));
-}
 
 // --- Per-repo regression-alert cooldown (fleet-alerts-digests #4) ----------------------------------
 // A repo whose overall score oscillates ACROSS the regression threshold (a flapping test, a noisy LLM
@@ -462,6 +124,52 @@ function signed(n: number): string {
   return n >= 0 ? `+${n}` : String(n);
 }
 
+/** "1 repository" / "8 repositories" — a delta never travels next to a bare count. */
+function repositories(n: number): string {
+  return `${n} repositor${n === 1 ? "y" : "ies"}`;
+}
+
+/**
+ * A period delta is measurable only over a positive matched cohort. Null/0 is unmeasurable — never
+ * a silent 0, and never a fleet-wide "+N this week" (G4). Tiny n (≥ 1) is still a measurement and
+ * must be qualified with that n, not omitted and not inflated.
+ */
+export function isMeasurableDigestCohort(cohortSize: number | null | undefined): cohortSize is number {
+  return cohortSize != null && cohortSize > 0;
+}
+
+/**
+ * Project `rollup.movement` into the digest's delta pair. Reads movement, not the deprecated
+ * `rollup.deltas` triple (that shape has no denominator). Null/0 cohort → both fields null.
+ */
+export function digestMovementFields(
+  movement: { overall: number; cohortSize: number } | null | undefined,
+): { overallDelta: number | null; cohortSize: number | null } {
+  if (!movement || !isMeasurableDigestCohort(movement.cohortSize)) {
+    return { overallDelta: null, cohortSize: null };
+  }
+  return { overallDelta: movement.overall, cohortSize: movement.cohortSize };
+}
+
+/**
+ * Movement-gate for the weekly fleet digest. Wraps the delta/noise predicate with the cohort rule:
+ * an overall move without a positive `cohortSize` is unmeasurable and is not signal.
+ */
+export function digestHasSignal(s: {
+  overallDelta: number | null;
+  /** Matched-repo n behind `overallDelta`. Null/0/absent → the delta does not count. */
+  cohortSize?: number | null;
+  levelChanges: number;
+  regressions: number;
+  gainersBeyondNoise: number;
+  creditLow: boolean;
+  controlsFailed?: number;
+  standingConcerns?: number;
+}): boolean {
+  const overallDelta = isMeasurableDigestCohort(s.cohortSize) ? s.overallDelta : null;
+  return digestHasSignalFromDelta({ ...s, overallDelta });
+}
+
 /** English ordinal suffix for a non-negative integer (1st, 2nd, 3rd, 4th … 11th/12th/13th, 21st, 22nd).
  *  The digest percentile line hard-coded "th", so corpus percentiles ending in 1/2/3 (except the
  *  11–13 teens) rendered broken ordinals ("21th pctile") in the one artifact leaders read without
@@ -538,9 +246,25 @@ export interface FleetDigestInput {
   scannedCount: number;
   avgOverall: number;
   level: string; // e.g. "L3 · Defined"
-  overallDelta: number | null; // vs the week's start (null = no baseline)
+  overallDelta: number | null; // vs the week's start (null = no baseline / unmeasurable cohort)
+  /**
+   * Matched-repo n `overallDelta` was measured over (`rollup.movement.cohortSize`). Null/0 omits
+   * the numeral — a delta without its denominator is unmeasurable, never a silent 0. A tiny
+   * positive n still prints, qualified, so a 1-repo artifact cannot read as a fleet-wide move.
+   */
+  cohortSize?: number | null;
   gainers: { name: string; delta: number }[];
   regressers: { name: string; delta: number }[];
+  /**
+   * Within-noise period moves (`OrgMovers.held`). Undefined or empty omits the block — never
+   * "0 held", which would claim a measurement the caller did not take (or took and found none).
+   */
+  held?: { name: string; delta: number }[];
+  /**
+   * Mid-window onboarded repos (`OrgMovers.onboarded`). `delta` is the lifetime move, or null when
+   * only one scan exists (never printed as 0). Undefined or empty omits the block.
+   */
+  onboarded?: { name: string; delta: number | null }[];
   topRecommendation: { title: string; repoCount: number } | null;
   /** Corpus percentile (0..100) for the exec digest, or null/undefined when no corpus yet. */
   percentile?: number | null;
@@ -597,23 +321,27 @@ export interface FleetDigestInput {
  * opening the app — the habit loop org-analytics products live on.
  */
 export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
-  const delta =
-    d.overallDelta == null
-      // G4-04: an empty string here silently drops the "this week" number with zero indication why —
-      // indistinguishable from "the fleet held exactly flat" to a reader. A null delta means no baseline
-      // could be computed for the window at all (a freshly-onboarded org, or one whose entire scan
-      // history is younger than the window boundary), which is a DIFFERENT fact than "flat" and must
-      // read as one.
-      ? " (not enough history yet for a week-over-week comparison)"
-      : isWithinNoise(d.overallDelta)
-        ? d.overallDelta === 0
-          ? " (no change this week)"
-          : ` (${signed(d.overallDelta)}, within noise this week)`
-        : ` (${signed(d.overallDelta)} this week)`;
+  // G4: a delta without a positive cohort is unmeasurable — never a silent 0, never an unqualified
+  // "+N this week". Null overallDelta used to be the only "no baseline" path; a number arriving
+  // from deprecated `rollup.deltas` with no n is the same fact and must read as one.
+  const n = d.cohortSize;
+  let delta: string;
+  if (d.overallDelta == null || !isMeasurableDigestCohort(n)) {
+    delta = " (not enough history yet for a week-over-week comparison)";
+  } else {
+    const over = `, measured over ${repositories(n)}`;
+    delta = isWithinNoise(d.overallDelta)
+      ? d.overallDelta === 0
+        ? ` (no change this week${over})`
+        : ` (${signed(d.overallDelta)}, within noise this week${over})`
+      : ` (${signed(d.overallDelta)} this week${over})`;
+  }
   const headline = `📊 Ascent weekly digest: ${d.org}`;
   const pctile = d.percentile != null ? ` · ${ordinal(d.percentile)} pctile` : "";
   const summary = `Fleet maturity *${d.avgOverall}/100* · ${d.level}${delta} · ${d.scannedCount}/${d.repoCount} repos scanned${pctile}`;
   const gain = (m: { name: string; delta: number }) => `• ${m.name} ${signed(m.delta)}`;
+  const onboardLine = (m: { name: string; delta: number | null }) =>
+    m.delta == null || m.delta === 0 ? `• ${m.name}` : `• ${m.name} ${signed(m.delta)}`;
 
   // MOONSHOT #1 — the Controls block sits ABOVE the movers, and deliberately: a control that came
   // off a repo outranks every score delta on the page, and a reader who has to scroll past six
@@ -649,6 +377,8 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   if (d.standingConcerns) lines.push("", standingHeading, ...d.standingConcerns.map(standingLine));
   if (d.gainers.length) lines.push("", "Top gainers:", ...d.gainers.map(gain));
   if (d.regressers.length) lines.push("", "Regressions:", ...d.regressers.map(gain));
+  if (d.held?.length) lines.push("", "Held within noise:", ...d.held.map(gain));
+  if (d.onboarded?.length) lines.push("", "Onboarded this week:", ...d.onboarded.map(onboardLine));
   if (d.topRecommendation)
     lines.push("", `Highest-leverage gap: ${d.topRecommendation.title} (affects ${d.topRecommendation.repoCount} repo${d.topRecommendation.repoCount === 1 ? "" : "s"})`);
   if (d.creditsRemaining != null)
@@ -677,6 +407,8 @@ export function buildFleetDigestMessage(d: FleetDigestInput): AlertMessage {
   const mv: string[] = [];
   if (d.gainers.length) mv.push(`*Top gainers:*\n${d.gainers.map(gain).join("\n")}`);
   if (d.regressers.length) mv.push(`*Regressions:*\n${d.regressers.map(gain).join("\n")}`);
+  if (d.held?.length) mv.push(`*Held within noise:*\n${d.held.map(gain).join("\n")}`);
+  if (d.onboarded?.length) mv.push(`*Onboarded this week:*\n${d.onboarded.map(onboardLine).join("\n")}`);
   if (mv.length) blocks.push(mrkdwnSection(mv.join("\n\n")));
   if (d.topRecommendation)
     blocks.push(
@@ -1014,155 +746,10 @@ export function buildTestAlertMessage(org: string): AlertMessage {
   };
 }
 
-/** Minimal email shape for a `mailto:` sink — one @, no whitespace, a dotted domain. Same rule as
- *  isValidEmail in @/lib/email (restated here to keep this module free of a server-only import). */
-const SINK_EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/**
- * The address a sink points at when it is an EMAIL sink (`mailto:you@example.com`), else null. Pure.
- * G7-01: the alert sink accepts an address alongside an https webhook so an org whose leadership
- * doesn't live in Slack can still receive regression alerts, the weekly digest and the credit/goal/
- * spend pushes. Kept here (not only in the email module) so `dispatchAlert` can branch without a
- * server-only import, and so the shape is pinned by this module's unit tests.
- */
-export function emailSinkAddress(sink: string | null | undefined): string | null {
-  const raw = sink?.trim();
-  if (!raw || !/^mailto:/i.test(raw)) return null;
-  const addr = (raw.slice("mailto:".length).split("?")[0] ?? "").trim();
-  return SINK_EMAIL_SHAPE.test(addr) && addr.length <= 254 ? addr : null;
-}
-
-/**
- * Resolve the sink an alert should POST to: the org's own webhook when set (multi-tenant routing —
- * each tenant gets its own fleet intelligence), else the global ALERT_WEBHOOK_URL (single-tenant /
- * operator deployments), else null (no-op). Pure given its argument — the env read is the only
- * ambient input, matching the layer's existing convention.
- */
-export function resolveAlertWebhook(orgWebhookUrl?: string | null): string | null {
-  const org = orgWebhookUrl?.trim();
-  if (org) return org;
-  const global = process.env.ALERT_WEBHOOK_URL?.trim();
-  return global || null;
-}
-
-/**
- * What KIND of sink an alert actually left by — for the AlertEvent history row, not for routing.
- *
- * Takes the ORG's sink field and RESOLVES it first (org → the global ALERT_WEBHOOK_URL → none), because
- * the row must describe the channel the message travelled on, not the column the caller happened to
- * read. Classifying the unresolved field gets two things wrong on a tenant riding the global fallback:
- * it reports `webhook` for a global `mailto:` sink (the mail went out; the record says otherwise), and
- * it reports `webhook` where the org had no sink at all instead of the honest `null`.
- *
- * `src/lib/scan-alerts.ts` and `src/lib/standard/conformance-alerts.ts` already classified a RESOLVED
- * url; this is the same rule, exported so a caller holding only the org's field cannot restate it
- * against the wrong input.
- */
-export function sinkKindForOrg(orgWebhookUrl: string | null | undefined): "webhook" | "email" | null {
-  const resolved = resolveAlertWebhook(orgWebhookUrl);
-  if (!resolved) return null;
-  return emailSinkAddress(resolved) ? "email" : "webhook";
-}
-
-/** Whether an alert sink is configured (so callers can skip the work entirely when it isn't).
- *  Pass the org's webhook (when known) so a tenant with its own sink counts even with no global. */
-export function isAlertConfigured(orgWebhookUrl?: string | null): boolean {
-  return resolveAlertWebhook(orgWebhookUrl) !== null;
-}
-
-/**
- * Validate a caller-supplied org webhook URL before storing it. Pure (unit-tested). The server
- * POSTs org data to this URL, so it must parse, be https, carry no inline credentials, and not
- * target a private/internal host — the established "validate outbound URLs built from caller input"
- * rule. The private/internal host check is the SHARED isPrivateOrInternalHost guard (same one the
- * branding logo-URL guard uses), so this now also rejects CGNAT 100.64/10, IPv6 unique-local
- * (fc00::/7) and link-local (fe80::), multicast/reserved, and internal hostnames (*.local/*.internal/
- * cloud metadata) the old hand-rolled list missed. DNS-rebinding is out of scope here.
- */
-export function validateAlertWebhookUrl(raw: string): { ok: true; url: string } | { ok: false; error: string } {
-  const trimmed = raw.trim();
-  if (trimmed.length > 1000) return { ok: false, error: "Webhook URL is too long (max 1000 chars)." };
-  // G7-01: an EMAIL sink (`mailto:you@example.com`) is a first-class sink value. Storing it is the
-  // org's explicit opt-in to alert mail — an admin-authenticated act, on the same field and with the
-  // same blast radius as pointing the sink at a Slack channel. Validated on shape only (no SSRF
-  // surface: nothing is fetched), and normalized to a lowercase scheme so the dispatcher's check and
-  // the stored value can't drift.
-  if (/^mailto:/i.test(trimmed)) {
-    const addr = emailSinkAddress(trimmed);
-    if (!addr) return { ok: false, error: "mailto: sink must be a single valid email address." };
-    return { ok: true, url: `mailto:${addr}` };
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return { ok: false, error: "Not a valid URL." };
-  }
-  if (parsed.protocol !== "https:") return { ok: false, error: "Webhook must be an https:// URL." };
-  if (parsed.username || parsed.password) return { ok: false, error: "Credentials in the URL are not allowed." };
-  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, ""); // strip IPv6 [..] brackets
-  if (isPrivateOrInternalHost(host)) return { ok: false, error: "Webhook host must be publicly reachable." };
-  return { ok: true, url: parsed.toString() };
-}
-
-/** Per-POST deadline for an alert dispatch. A hung sink (a black-holed webhook, a Slack incident, a
- *  sink behind a firewall that never RSTs) must not block the caller indefinitely — this is critical
- *  for the weekly-digest loop, which dispatches to many orgs' sinks in one run and would otherwise let
- *  one slow tenant starve the rest until the socket dies. */
-const DISPATCH_TIMEOUT_MS = 8000;
-
-/**
- * POST an alert to its sink (Slack incoming-webhook compatible): `opts.webhookUrl` (the org's own
- * sink) when set, falling back to the global ALERT_WEBHOOK_URL. Returns true on a 2xx, false on any
- * failure or when no sink is configured — never throws, so a flaky webhook can't fail the scan that
- * produced the alert. The POST is bounded by DISPATCH_TIMEOUT_MS so a hung sink aborts (→ false)
- * rather than blocking; `signal` lets a caller abort with the surrounding work, composed with the
- * timeout so whichever fires first wins.
- */
-export async function dispatchAlert(
-  message: AlertMessage,
-  opts: { signal?: AbortSignal; webhookUrl?: string | null; org?: string | null } = {},
-): Promise<boolean> {
-  const url = resolveAlertWebhook(opts.webhookUrl);
-  if (!url) return false;
-  // EMAIL SINK (G7-01). Branch before the POST, and reach the mail transport through a DYNAMIC import:
-  // src/lib/email pulls in the provider factory (and, lazily, the AWS SDK), and this module is reachable
-  // from a client bundle via @/lib/alerts' pure exports (DEFAULT_THRESHOLDS in /trends). A static import
-  // would drag server-only code across that boundary — the failure mode that passes tsc and unit tests
-  // and only breaks `next build`. Returns FALSE when nothing was actually sent (no provider configured),
-  // which is what lets the digest release its once-per-window claim and retry.
-  if (/^mailto:/i.test(url.trim())) {
-    const to = emailSinkAddress(url);
-    // A malformed mailto: sink must DEAD-END here. Falling through would hand `fetch` a mailto: URL
-    // (a throw at best, an unpredictable request at worst) for a value the org clearly meant as mail.
-    if (!to) {
-      console.error("[alerts] sink is a malformed mailto: — nothing dispatched");
-      return false;
-    }
-    try {
-      const { dispatchAlertEmail } = await import("./email/alert-sink");
-      return await dispatchAlertEmail(to, message, { org: opts.org ?? null });
-    } catch (err) {
-      console.error("[alerts] email dispatch error", err instanceof Error ? err.message : err);
-      return false;
-    }
-  }
-  const timeout = AbortSignal.timeout(DISPATCH_TIMEOUT_MS);
-  const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: message.text, blocks: message.blocks }),
-      signal,
-    });
-    if (!res.ok) {
-      console.error("[alerts] dispatch failed", { status: res.status });
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error("[alerts] dispatch error", err instanceof Error ? err.message : err);
-    return false;
-  }
-}
+export {
+  type AlertSeverity, type RegressionReason, type RegressionVerdict, type RegressionThresholds,
+  type PromotionReason, type PromotionVerdict, type StandingScanPoint, type StandingConcern,
+  DEFAULT_THRESHOLDS, detectRegression, detectPromotion,
+  STANDING_REGRESSION_DROP, STANDING_REGRESSION_SCANS, STANDING_REGRESSION_LOOKBACK,
+  detectStandingRegressions,
+} from "./alerts-detection";

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { beforeAll, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { DimensionId, DimensionResult, ScanReport } from "@/lib/types";
+import type { DimensionId, DimensionResult, ScanReport, ScoreIntegrity } from "@/lib/types";
+import { LEVELS, SCORE_BLEND } from "@/lib/maturity/model";
+import { ScoreRing } from "./ScoreRing";
 import { ScoreWaterfall } from "./ScoreWaterfall";
 
 // usePrefersReducedMotion reads window.matchMedia, which jsdom does not implement. Answer "reduce":
@@ -20,16 +22,25 @@ beforeAll(() => {
 });
 
 const IDS: DimensionId[] = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"];
+const LIVE = [90, 80, 70, 60, 50, 40, 30, 20, 10];
+const L3 = LEVELS.find((l) => l.id === "L3")!;
+const CLEAN_SI: ScoreIntegrity = { d9Unmeasurable: false, widenedDims: [], effectiveBlend: SCORE_BLEND };
+const WIDENED_D2: ScoreIntegrity = { ...CLEAN_SI, widenedDims: ["D2"] };
 
 function dim(id: DimensionId, score: number, weight: number): DimensionResult {
   return { id, name: `${id} name`, score, weight, signalScore: score, llmScore: score, summary: "", evidence: [], strengths: [], gaps: [] };
 }
 
-/** ScoreWaterfall reads only `dimensions` + `overallScore` (via `contributions`). */
-function report(scores: number[]): ScanReport {
+/** ScoreWaterfall reads `dimensions` + `overallScore` (via `contributions`) and `engine.provider`. */
+function report(scores: number[], engine?: string, integrity?: ScoreIntegrity): ScanReport {
   const dimensions = scores.map((s, i) => dim(IDS[i]!, s, 1));
   const overallScore = Math.round(scores.reduce((a, s) => a + s, 0) / scores.length);
-  return { dimensions, overallScore } as unknown as ScanReport;
+  return {
+    dimensions,
+    overallScore,
+    ...(engine ? { engine: { provider: engine, model: "m" } } : {}),
+    ...(integrity ? { scoreIntegrity: integrity } : {}),
+  } as unknown as ScanReport;
 }
 
 /** The rendered track segments, in order, with their inline widths. */
@@ -114,5 +125,68 @@ describe("ScoreWaterfall track — degenerate score sets", () => {
     const { container } = render(<ScoreWaterfall report={{ dimensions: [], overallScore: 0 } as unknown as ScanReport} />);
     expect(segments(container)).toHaveLength(0);
     expect(headroom(container).getAttribute("title")).toBe("100 pts of headroom to 100");
+  });
+});
+
+describe("ScoreWaterfall mock-scored hollow segments (engine honesty)", () => {
+  it("a live-scored report keeps every segment solid, including D9 — mock is not signal-only", () => {
+    // D9 is the last id in IDS. Its score is a real measurement on a live scan; hollowing it
+    // because the dimension is deterministic would fold mock into D9.
+    const { container } = render(<ScoreWaterfall report={report(LIVE, "claude-cli")} />);
+    expect(segments(container).map((s) => s.dataset.segment)).toEqual(IDS);
+    for (const s of segments(container)) {
+      expect(s.getAttribute("data-mock")).toBeNull();
+      expect(s.style.backgroundColor).not.toBe("var(--color-surface-strong)");
+      expect(s.style.boxShadow).toBe("");
+    }
+    expect(screen.queryByText(/hollow marks are a demo scan/i)).not.toBeInTheDocument();
+  });
+
+  it("a mock-scored report draws every segment hollow, including D9", () => {
+    const { container } = render(<ScoreWaterfall report={report(LIVE, "mock")} />);
+    expect(segments(container).find((s) => s.dataset.segment === "D9")).toBeTruthy();
+    for (const s of segments(container)) {
+      expect(s.getAttribute("data-mock")).not.toBeNull();
+      expect(s.style.backgroundColor).toBe("var(--color-surface-strong)");
+      expect(s.style.boxShadow).toMatch(/inset/);
+    }
+    expect(screen.getByText(/hollow marks are a demo scan/i)).toBeInTheDocument();
+  });
+});
+
+describe("scoreIntegrity encoding on the ring and waterfall (G5: disclose, never widen)", () => {
+  it("ScoreRing aria-desc and caption include integrityNotes for widened D2", () => {
+    const { container } = render(<ScoreRing score={72} level={L3} integrity={WIDENED_D2} />);
+    expect(container.querySelector("desc")?.textContent).toMatch(/widened D2/);
+    expect(screen.getByTestId("score-ring-integrity")).toHaveTextContent("widened D2");
+  });
+
+  it("ScoreWaterfall aria and itemization mark encode widened D2", () => {
+    const { container } = render(<ScoreWaterfall report={report(LIVE, "claude-cli", WIDENED_D2)} />);
+    expect(screen.getByRole("img").getAttribute("aria-label")).toMatch(/widened D2/);
+    expect(screen.getByTestId("score-waterfall-integrity")).toHaveTextContent("widened D2");
+    expect(container.querySelector('[data-dimension="D2"] [data-integrity="widened"]')).toHaveTextContent("widened");
+    expect(container.querySelector('[data-segment="D2"]')?.getAttribute("data-integrity")).toBe("widened");
+  });
+
+  it("a clean run stays unlabeled — no caption, no widened mark", () => {
+    const ring = render(<ScoreRing score={72} level={L3} integrity={CLEAN_SI} />);
+    expect(ring.container.querySelector("[data-testid=score-ring-integrity]")).toBeNull();
+    expect(ring.container.querySelector("desc")?.textContent).not.toMatch(/Integrity:/);
+    ring.unmount();
+    const { container } = render(<ScoreWaterfall report={report(LIVE, "claude-cli", CLEAN_SI)} />);
+    expect(container.querySelector("[data-testid=score-waterfall-integrity]")).toBeNull();
+    expect(container.querySelector("[data-integrity=widened]")).toBeNull();
+    expect(screen.getByRole("img").getAttribute("aria-label")).not.toMatch(/Integrity:/);
+  });
+
+  it("itemizes signal-only, claim-scored, and unmeasured from scoreProvenance", () => {
+    const si: ScoreIntegrity = { ...CLEAN_SI, unmeasuredDims: ["D3"] };
+    const { container } = render(<ScoreWaterfall report={report(LIVE, "claude-cli", si)} />);
+    expect(container.querySelector('[data-dimension="D9"] [data-integrity="signal-only"]')).toHaveTextContent("signal-only");
+    expect(container.querySelector('[data-dimension="D1"] [data-integrity="claim-scored"]')).toHaveTextContent("claim-scored");
+    expect(container.querySelector('[data-dimension="D4"] [data-integrity="claim-scored"]')).toHaveTextContent("claim-scored");
+    expect(container.querySelector('[data-dimension="D3"] [data-integrity="unmeasured"]')).toHaveTextContent("unmeasured");
+    expect(screen.getByTestId("score-waterfall-integrity")).toHaveTextContent("D3 not measured");
   });
 });

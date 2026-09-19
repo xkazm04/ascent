@@ -61,6 +61,45 @@ describe("buildAttemptRollup", () => {
   });
 });
 
+// T2 (study 2026-09-15, point 36). Lines and tokens are producer-defined units: Claude Code reports
+// the vendor's own lines metric, and a tool that re-serialises whole files counts the unchanged body
+// again. Two providers' 100 lines are not 200 of anything, so a repo row must never mix sources.
+describe("T2: rollup source mixing", () => {
+  const input = [
+    row({ source: "claude-code", linesAdded: 100, costCents: 300 }),
+    row({ source: "synthetic-second", linesAdded: 100, costCents: 200, userKey: "b@x.io" }),
+  ];
+  const r = buildAttemptRollup(input);
+  // Instrument, arm-agnostic: an output row mixes sources when the inputs it can have folded span more
+  // than one source (a row without a source key folds every input for its repo).
+  const mixed = r.repos.filter((o) => {
+    const k = o as { repoFullName: string; source?: string };
+    const from = input.filter((i) => i.repoFullName === k.repoFullName && (k.source === undefined || i.source === k.source));
+    return new Set(from.map((i) => i.source)).size > 1;
+  }).length;
+  console.log(`[T2] repos[0].linesAdded=${r.repos[0]?.linesAdded} repoRows=${r.repos.length} mixedSourceRows=${mixed}`);
+
+  it("keeps each source in its own row and never sums lines across them", () => {
+    expect(mixed).toBe(0);
+    expect(r.repos.map((x) => [x.source, x.linesAdded])).toEqual([
+      ["claude-code", 100],
+      ["synthetic-second", 100],
+    ]);
+  });
+
+  it("totals carry only commensurable figures: cents sum, lines and tokens do not exist", () => {
+    expect(r.totals).toMatchObject({ sessions: 2, costCents: 500 });
+    expect(r.totals).not.toHaveProperty("linesAdded");
+    expect(r.totals).not.toHaveProperty("tokens");
+  });
+
+  it("unit economics folds the sources back to one repo row: cost summed, the denominator applied once", () => {
+    const rows = buildUnitEconomics(r, new Map([["acme/web", 5]]));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ sessions: 2, costCents: 500, costPerMergedAiChange: 100, sources: ["claude-code", "synthetic-second"] });
+  });
+});
+
 describe("buildUnitEconomics", () => {
   const rollup = buildAttemptRollup([
     row({ costCents: 400, commits: 1 }),

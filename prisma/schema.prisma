@@ -75,7 +75,7 @@ model Organization {
   timezone              String?
   // Low-balance ("auto-recharge") preference as JSON in a TEXT column — the schema's no-jsonb
   // DSQL-safety contract, mirroring `gatePolicy`. Shape: AutoRechargePref
-  // { enabled, threshold, packProductId } (src/components/org/shared/CreditsControl.autorecharge.ts).
+  // { enabled, threshold, packProductId } (src/lib/autorecharge.ts).
   // null = never set → DEFAULT_AUTO_RECHARGE (feature OFF). Previously the preference lived as the most
   // recent `billing.autorecharge` AuditLog row, which cost a findMany per read and put a user SETTING
   // inside the audit trail, where any retention/purge policy could silently erase it (G1-39). The audit
@@ -1649,6 +1649,10 @@ model OrgRegistry {
   id                 String    @id @default(uuid())
   orgId              String
   repositoryId       String? // Repository row of the registry repo (role = "registry"), when one exists
+  // SELF-HOSTED: absolute path of the registry's working copy on the server (Admin -> Pairing). When
+  // set on a self-hosted deployment it is the registry's read source - index, trace and the fleet
+  // conformance sweep read the checkout, and no GitHub App token is needed. Null = read via GitHub.
+  localPath          String?
   fullName           String // "owner/name"
   defaultBranch      String    @default("main")
   canonical          Boolean   @default(true)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { explainTeamStandings } from "@/lib/org/teamStandings";
-import type { TeamRepoScore, TeamRollup } from "@/lib/db/org-teams";
+import { rollupTeams, type TeamRepoScore, type TeamRollup, type TeamRollupRepoInput } from "@/lib/db/org-teams";
 
 // Pure decomposition of the team standings: rank by avgOverall, then attribute each extreme's
 // distance from the fleet mean to the dimensions driving it. No DB — mirrors teamRollup.test's
@@ -61,6 +61,7 @@ function team(slug: string, over: Partial<TeamRollup> & { dims?: { dimId: string
     comparedRepos: 0,
     improving: 0,
     declining: 0,
+    held: 0,
     avgDelta: 0,
     onboardedRepos: 0,
     ...rest,
@@ -340,5 +341,62 @@ describe("explainTeamStandings — a null-share team", () => {
     // mean would have dragged the baseline to 10 and reported @acme/big as +10 above the fleet.
     expect(big.aiShareDelta).toBe(0);
     expect(big.aiCommitShare! - big.aiShareDelta!).toBe(20);
+  });
+});
+
+// ── Momentum buckets are classifyDelta, not raw sign ─────────────────────────────────────────────
+// Standings copy the producer's improving/declining/held/avgDelta. They must not revive a raw-sign
+// split (avgDelta > 0 ⇒ improving) for a team whose compared repos only wobbled ±1.
+describe("explainTeamStandings — momentum buckets stay on classifyDelta", () => {
+  const owned = (fullName: string, slug: string, overall: number, windowDelta: number): TeamRollupRepoInput => ({
+    fullName,
+    name: fullName.split("/")[1] ?? fullName,
+    teams: [{ slug, ownedPaths: 1, isDefaultOwner: true }],
+    scans: [
+      {
+        overallScore: overall,
+        adoptionScore: overall,
+        rigorScore: overall,
+        level: "L3",
+        posture: "manual",
+        engineProvider: "anthropic",
+        dimensions: [{ dimId: "D1", score: overall }],
+      },
+    ],
+    contributors: [],
+    windowDelta,
+    windowBaselineKind: "period",
+  });
+
+  it("carries held through rather than re-deriving improving from a signed avgDelta", () => {
+    const out = explainTeamStandings([
+      team("@acme/frontend", { avgOverall: 80, comparedRepos: 2, improving: 0, declining: 0, held: 2, avgDelta: 0 }),
+      team("@acme/data", { avgOverall: 36, comparedRepos: 1, improving: 0, declining: 0, held: 1, avgDelta: 0 }),
+    ])!;
+    expect(out.leader.improving).toBe(0);
+    expect(out.leader.declining).toBe(0);
+    expect(out.leader.held).toBe(2);
+    expect(out.leader.avgDelta).toBe(0);
+    expect(out.laggard.held).toBe(1);
+    expect(out.leader.improving).not.toBe(out.leader.comparedRepos); // raw sign would count both wobbles
+  });
+
+  it("a ±1 rollup wobble stays held on the leader/laggard, not improving/declining", () => {
+    const rolled = rollupTeams("acme", [
+      owned("acme/web", "@acme/frontend", 80, 1),
+      owned("acme/api", "@acme/data", 36, -1),
+    ]);
+    const out = explainTeamStandings(rolled.teams)!;
+    expect(out.leader.slug).toBe("@acme/frontend");
+    expect(out.leader.comparedRepos).toBe(1);
+    expect(out.leader.improving).toBe(0);
+    expect(out.leader.declining).toBe(0);
+    expect(out.leader.held).toBe(1);
+    expect(out.leader.avgDelta).toBe(0);
+    expect(out.leader.improving).not.toBe(1); // raw sign
+    expect(out.laggard.declining).toBe(0);
+    expect(out.laggard.held).toBe(1);
+    expect(out.laggard.avgDelta).toBe(0);
+    expect(out.laggard.declining).not.toBe(1);
   });
 });

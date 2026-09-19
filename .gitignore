@@ -86,6 +86,8 @@ docs/harness/
 /.claude/skills/conform
 /.claude/skills/consult
 /.claude/skills/explorer
+/.claude/skills/maintain
+/.claude/skills/native-copy
 /.claude/skills/onboarding
 /.claude/skills/perfect
 /.claude/skills/project-populate
@@ -96,6 +98,7 @@ docs/harness/
 /.claude/skills/uat
 /.claude/rules/ai-registry-access.md
 /.claude/rules/ai-registry-software-engineering.md
+/.claude/rules/ai-registry-localization.md
 # END ai-registry linked skills
 
 # detached dev-server log (see docs/features/local-mode)

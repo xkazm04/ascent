@@ -1,57 +1,14 @@
-// THE LANE'S SIDE LEDGERS — the two write-backs that are not the work itself: what the session COST
-// (moonshot #27) and where its report is kept out of the deliverable (moonshot #25).
-//
-// Extracted from loop-lane.ts so that module stays the cycle orchestrator it reads as. Pure
-// relocation: every function, comment and call is what it was, and loop-lane.ts imports them back.
+// Records the lane's reported cost and mirrors it to the usage ledger.
+// The report exclusion helper keeps its compatibility export below.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { isAbsolute, join as pathJoin } from "node:path";
-import { runGit } from "@/lib/local/git";
 import { meter } from "@/lib/llm/meter";
 import { appendLaneLog, updateLane } from "@/lib/db/loop-runs";
 // Deep path, not the `@/lib/db` barrel: this module already imports its siblings that way.
 import { defaultOwnerTeamForRepo } from "@/lib/db/usage-events";
 import { LANE_COST_SOURCE } from "@/lib/db/loop-runs-types";
-import { LANE_REPORT_PATH } from "@/lib/local/lane-report";
 import type { AgentRunResult } from "@/lib/local/agent";
 
-/**
- * Keep `.ascent/lane-report.json` out of the deliverable.
- *
- * The report is a channel between the session and Ascent, not an artifact of the work, and the branch
- * IS the deliverable a human reviews. `.git/info/exclude` rather than `.gitignore`: a `.gitignore`
- * edit is itself a change to the repository, and the lane would then be committing a file the
- * operator never asked for into every branch it produces. `info/exclude` is local to the checkout and
- * dies with the worktree.
- *
- * Best-effort: a failure here means the file might be committed if the agent runs `git add -A`, which
- * `--permission-mode acceptEdits` does not let it do anyway. It is the belt, not the braces.
- */
-export async function excludeLaneReport(dir: string): Promise<void> {
-  try {
-    const res = await runGit(dir, ["rev-parse", "--absolute-git-dir"]);
-    const gitDir = res.stdout.trim();
-    // ABSOLUTE OR NOTHING. `--absolute-git-dir` returns one; anything else means git did not answer
-    // the question we asked (a stub, a shim, an older git), and joining a relative fragment onto the
-    // process's cwd would create `./<fragment>/info/exclude` somewhere nobody asked for a directory.
-    // Found by this repo's own suite: mocked git stdout produced stray `sha/`, `headsha/` folders at
-    // the worktree root.
-    if (!res.ok || !gitDir || !isAbsolute(gitDir)) return;
-    const info = pathJoin(gitDir, "info");
-    await mkdir(info, { recursive: true });
-    const file = pathJoin(info, "exclude");
-    let existing = "";
-    try {
-      existing = await readFile(file, "utf8");
-    } catch {
-      existing = "";
-    }
-    if (existing.includes(LANE_REPORT_PATH)) return;
-    await writeFile(file, `${existing}${existing.endsWith("\n") || existing === "" ? "" : "\n"}${LANE_REPORT_PATH}\n`, "utf8");
-  } catch {
-    /* the report contract also tells the agent not to commit it; this is the second belt */
-  }
-}
+export { excludeLaneReport } from "./lane-report-exclude";
 
 /** A cost for the lane log. `null` prints "cost unknown" — never `$0.00`, which is a claim. */
 function fmtCostMicros(micros: number | null): string {

@@ -83,3 +83,23 @@ describe("onboarding import — recurring autoscan enrolment is opt-in", () => {
     expect(getAutoWatchOptIn()).toBe(false);
   });
 });
+
+describe("onboarding App listing — truncation from GET /api/app/repos", () => {
+  it("sets listTruncated when the installation listing was page-capped", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/app/repos")) {
+          return { ok: true, json: async () => ({ repos: REPOS, truncated: true }) };
+        }
+        return { ok: true, json: async () => ({}) };
+      }),
+    );
+    const { result } = renderHook(() => useOnboardingFlow());
+    await act(async () => {
+      await result.current.loadInstallationRepos("acme", "42");
+    });
+    expect(result.current.listTruncated).toBe(true);
+  });
+});

@@ -7,9 +7,10 @@
 // surface — today just "preview as", tomorrow section focus and board filters — lives in `useState`
 // here; the server hands down ONE real view model and never reads a demo param.
 //
-// The preview control is a dev/preview affordance and appears ONLY while the real view has nothing to
-// render (no attributed activity, nothing shared). The moment a developer's own data exists, the
-// control disappears rather than offering to overwrite what they are looking at.
+// The preview control is a dev/preview affordance and appears ONLY on a true empty view (`absent` or
+// `signed-out`, plus nothing shared / no moves / no repos). Withheld and unreadable still have
+// `activity: null` but they are not invitations: the strip already names those states, and Preview-as
+// must not overwrite them with "nothing of yours has landed here yet".
 //
 // The fixtures themselves are loaded with a dynamic `import()` at the moment one is chosen. They are
 // sample data for an affordance most viewers never touch; a static import shipped all of it to every
@@ -21,8 +22,9 @@ import { CarePreviewBanner } from "./CarePreviewBanner";
 import { DeveloperCompanion } from "./DeveloperCompanion";
 import { DEVELOPER_PREVIEW_STATES, type DeveloperView } from "@/lib/org/developer-view";
 
-/** True when the REAL view has nothing of the developer's own in it — the invitation state. */
+/** True empty invitation: absent or signed-out, and nothing of the developer's own in the care half. */
 function isBlank(view: DeveloperView): boolean {
+  if (view.activityState !== "absent" && view.activityState !== "signed-out") return false;
   return !view.activity && !view.profile.sharedAt && view.moves.length === 0 && view.myRepos.length === 0;
 }
 

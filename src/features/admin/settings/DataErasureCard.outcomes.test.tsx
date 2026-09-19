@@ -119,4 +119,68 @@ describe("DataErasureCard — degraded outcomes", () => {
     expect(alert.textContent).toMatch(/Erasure requires a database/i);
     expect(screen.getByText(/Erased, permanently/i)).toBeTruthy(); // still armed, nothing claimed erased
   });
+
+  it("prints leftover ledgers on the receipt and accumulates them across resumes", async () => {
+    const fetchMock = await runWith(207, {
+      ...OK,
+      scansDeleted: 40,
+      loopRunsDeleted: 10,
+      llmConfigsDeleted: 1,
+      stoppedEarly: true,
+      complete: false,
+      resumable: true,
+    });
+    await screen.findByRole("button", { name: /continue erasing/i });
+    expect(screen.getByText("Loop runs")).toBeTruthy();
+    expect(screen.getByText("10")).toBeTruthy();
+
+    mockPost(200, { ...OK, scansDeleted: 80, loopRunsDeleted: 7, llmConfigsDeleted: 1 });
+    fireEvent.click(screen.getByRole("button", { name: /continue erasing/i }));
+    await screen.findByText(/Erased every scan in acme/i);
+    expect(screen.getByText("120")).toBeTruthy();
+    expect(screen.getByText("17")).toBeTruthy(); // 10 + 7 loop runs
+    expect(screen.getByText("2")).toBeTruthy(); // 1 + 1 BYOM configs
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DataErasureCard — full blast radius", () => {
+  it("shows scan-graph dependents already in the preview, and the rest of the erase picture", () => {
+    expect(screen.getByText("Dimension rows")).toBeTruthy();
+    expect(screen.getByText("1,080")).toBeTruthy();
+    expect(screen.getByText("Recommendations")).toBeTruthy();
+    expect(document.querySelector("[data-row='loop']")).toBeTruthy();
+    expect(document.querySelector("[data-row='athena']")).toBeTruthy();
+    expect(document.querySelector("[data-row='registry']")).toBeTruthy();
+    expect(document.querySelector("[data-row='secrets']")).toBeTruthy();
+    // Kit preview omitted these families — a missing field is omitted, never a fabricated 0.
+    expect(screen.queryByText("Loop runs")).toBeNull();
+    expect(screen.queryByText("BYOM configs")).toBeNull();
+    expect(screen.queryByText("Registry ledger")).toBeNull();
+  });
+
+  it("lists every family the preview actually counted, not only scans+repos+audit", async () => {
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+    mockPost(200, {
+      ...PREVIEW,
+      loopRunsDeleted: 17,
+      registryLedgerDeleted: 23,
+      llmConfigsDeleted: 2,
+      apiTokensDeleted: 8,
+      orgMemoriesDeleted: 11,
+      alertEventsDeleted: 14,
+      digestsDeleted: 6,
+      athenaThreadsDeleted: 5,
+    });
+    fireEvent.click(eraseButton());
+    await screen.findByText("Loop runs");
+    expect(screen.getByText("17")).toBeTruthy();
+    expect(screen.getByText("Registry ledger")).toBeTruthy();
+    expect(screen.getByText("23")).toBeTruthy();
+    expect(screen.getByText("BYOM configs")).toBeTruthy();
+    expect(screen.getByText("Athena threads")).toBeTruthy();
+    expect(screen.getByText("Compacted digests")).toBeTruthy();
+    expect(screen.getByText("Other memories")).toBeTruthy();
+    expect(screen.getByText("Alert events")).toBeTruthy();
+  });
 });

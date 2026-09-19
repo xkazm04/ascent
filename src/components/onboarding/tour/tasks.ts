@@ -185,7 +185,9 @@ export function buildDrawerItems(
   { includeTeach }: { includeTeach: boolean },
 ): DrawerItem[] {
   const tasks = (payload?.steps ?? []).map(taskItem);
-  const teach = includeTeach ? ORG_TOUR_STEPS.filter((s) => !CLAIMED_TEACH.has(s.id)).map(teachItem) : [];
+  // No payload is a miss, not an empty teach rail — callers that asked for teach still get nothing.
+  const teach =
+    includeTeach && payload ? ORG_TOUR_STEPS.filter((s) => !CLAIMED_TEACH.has(s.id)).map(teachItem) : [];
   return [...tasks, ...teach];
 }
 
@@ -206,9 +208,12 @@ export function nextTask(items: DrawerItem[]): DrawerItem | null {
  *
  *  - `companion` — a member of this org whose onboarding is UNSTAMPED and unfinished. The drawer opens
  *    itself, promotes one next task, and offers "Skip setup".
- *  - `teaching`  — everyone else: stamped (completed or skipped), already `allDone`, the demo org, or
- *    anyone with no membership row (`onboarding: null` — a non-member, or an auth-off box). Today's
- *    behaviour exactly: a collapsed, discoverable pull tab over the teach rail.
+ *  - `teaching`  — stamped (completed or skipped), already `allDone`, the demo org, or anyone with no
+ *    membership row (`onboarding: null` — a non-member, or an auth-off box). A collapsed, discoverable
+ *    pull tab over the teach rail. Not a failed read.
+ *  - `unavailable` — the getting-started read FAILED and there is no last-good payload. A miss is not
+ *    teaching (we do not know the stamp) and not an empty checklist (we do not know the steps). Never
+ *    auto-opens. The next successful poll replaces it.
  *  - `athena`    — the operator switched the drawer to the resident companion. NOT derived from the
  *    payload: it is an explicit choice, so `decidePosture` never returns it and `resolveDrawerPosture`
  *    layers it over whatever the payload decided.
@@ -218,7 +223,7 @@ export function nextTask(items: DrawerItem[]): DrawerItem | null {
  * `TourNextTask`, `useGettingStarted` and `useTourEngine`, so Athena got a distinct value beside it
  * rather than a rename that would have silently re-aimed all four.
  */
-export type DrawerPosture = "companion" | "teaching" | "athena";
+export type DrawerPosture = "companion" | "teaching" | "athena" | "unavailable";
 
 /**
  * The posture actually rendered. The operator's explicit switch wins over the derived one, and the
@@ -232,8 +237,10 @@ export function resolveDrawerPosture(derived: DrawerPosture, athenaOn: boolean):
 
 export function decidePosture(
   payload: GettingStartedPayload | null,
-  { isDemoOrg }: { isDemoOrg: boolean },
+  { isDemoOrg, failed = false }: { isDemoOrg: boolean; failed?: boolean },
 ): DrawerPosture {
+  // A failed read is not teaching and not an empty checklist — even on the demo org.
+  if (failed && !payload) return "unavailable";
   if (!payload || isDemoOrg) return "teaching";
   const stamp = payload.onboarding;
   // No membership row ⇒ no stamp to write and no onboarding to own. Never auto-open.

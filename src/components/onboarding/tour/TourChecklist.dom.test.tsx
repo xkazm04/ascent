@@ -20,7 +20,7 @@ import { TourChecklist } from "./TourChecklist";
 
 const TAB: Record<GettingStartedStepId, GettingStartedStep["tab"]> = {
   "first-scan": "overview",
-  "gap-engaged": "followups",
+  "gap-engaged": "proposals",
   registry: "skills",
   loop: "repositories",
   team: "members",
@@ -164,7 +164,7 @@ describe("TourChecklist — the task list", () => {
     render(<TourChecklist slug="acme" />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Show me" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Show me" }));
-    expect(nav.push).toHaveBeenCalledWith("/org/acme?tab=followups");
+    expect(nav.push).toHaveBeenCalledWith("/org/acme?tab=proposals");
     expect(screen.getByRole("button", { name: "Got it" })).toBeTruthy();
   });
 });
@@ -200,5 +200,76 @@ describe("TourChecklist — the stamp writes", () => {
     render(<TourChecklist slug="acme" />);
     await waitFor(() => expect(screen.getByText("Learn this dashboard")).toBeTruthy());
     expect(posts).toEqual([]);
+  });
+});
+
+/** Queue of getting-started snapshots; `"fail"` is an HTTP miss, `"throw"` a network miss. */
+function serveQueue(...snaps: Array<GettingStartedPayload | "fail" | "throw">) {
+  let n = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith("/api/org/onboarding")) {
+        return { ok: true, json: async () => ({ ok: true, stamped: true }) } as Response;
+      }
+      const snap = snaps[Math.min(n++, snaps.length - 1)]!;
+      if (snap === "throw") throw new Error("offline");
+      if (snap === "fail") return { ok: false, status: 503, json: async () => ({ error: "no" }) } as Response;
+      return { ok: true, json: async () => snap } as Response;
+    }),
+  );
+}
+
+describe("TourChecklist — a failed getting-started read is not teaching", () => {
+  it("does not treat a fetch failure as teaching or as an empty checklist", async () => {
+    for (const miss of ["fail", "throw"] as const) {
+      serveQueue(miss);
+      const view = render(<TourChecklist slug="acme" />);
+      await waitFor(() => expect(screen.getByText("Setup unavailable")).toBeTruthy());
+      expect(isOpen()).toBe(false);
+      expect(screen.queryByText("Learn this dashboard")).toBeNull();
+      expect(screen.queryByText("Learn the dashboard")).toBeNull();
+      expect(screen.queryByText(/Nothing to guide here yet/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Skip setup" })).toBeNull();
+      view.unmount();
+      sessionStorage.clear();
+    }
+  });
+
+  it("treats a successful empty step list as teaching, not as a failed read", async () => {
+    serve(payload({ steps: [] }));
+    render(<TourChecklist slug="acme" />);
+    await waitFor(() => expect(screen.getByText("Learn this dashboard")).toBeTruthy());
+    expect(screen.getByText("Learn the dashboard")).toBeTruthy();
+    expect(screen.queryByText("Setup unavailable")).toBeNull();
+  });
+
+  it("keeps the last good snapshot when a later poll fails", async () => {
+    vi.useFakeTimers();
+    serveQueue(payload(), "fail");
+    render(<TourChecklist slug="acme" />);
+    await act(async () => {});
+    expect(isOpen()).toBe(true);
+    expect(screen.getByText("Set up your dashboard")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GETTING_STARTED_POLL_MS + 10);
+    });
+    expect(screen.getByText("Set up your dashboard")).toBeTruthy();
+    expect(screen.queryByText("Setup unavailable")).toBeNull();
+    expect(screen.queryByText("Learn this dashboard")).toBeNull();
+  });
+
+  it("does not consume the one-shot restore on a failed read, so a later success can still auto-open", async () => {
+    vi.useFakeTimers();
+    serveQueue("fail", payload());
+    render(<TourChecklist slug="acme" />);
+    await act(async () => {});
+    expect(screen.getByText("Setup unavailable")).toBeTruthy();
+    expect(isOpen()).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GETTING_STARTED_POLL_MS + 10);
+    });
+    expect(screen.getByText("Set up your dashboard")).toBeTruthy();
+    expect(isOpen()).toBe(true);
   });
 });

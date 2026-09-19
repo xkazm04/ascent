@@ -29,6 +29,15 @@ function pt(daysAgo: number, overallScore: number): HistoryPoint {
 }
 
 describe("TrajectoryPanel", () => {
+  it("discloses summarized days and does not call compacted history rows individual scans", () => {
+    const scans = [pt(0, 62), pt(20, 56), { ...pt(40, 52), compacted: true as const, scanCount: 100 }];
+    render(<TrajectoryPanel forecast={fitTrendForecast(scans, NOW)} scanCount={scans.length} />);
+    const basis = screen.getByText(/does not follow the 5d \/ 30d \/ 90d range toggle/i);
+    expect(basis.textContent).toContain("all 3 history points");
+    expect(basis.textContent).toContain("1 of them compacted");
+    expect(basis.textContent).not.toContain("all 3 scans");
+  });
+
   it("labels the forecast as all-time and says it does not follow the range toggle", () => {
     const scans = [pt(0, 62), pt(20, 56), pt(40, 52), pt(60, 48)];
     const forecast = fitTrendForecast(scans, NOW);

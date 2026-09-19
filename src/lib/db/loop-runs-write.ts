@@ -3,6 +3,7 @@
 //
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
+import { parseStringArray } from "./json-columns";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import {
@@ -423,14 +424,7 @@ export async function markStaleRunsStopped(
     });
     const recIds = [
       ...new Set(
-        lanes.flatMap((l) => {
-          try {
-            const parsed: unknown = JSON.parse(l.batchIdsJson || "[]");
-            return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
-          } catch {
-            return [];
-          }
-        }),
+        lanes.flatMap((l) => parseStringArray(l.batchIdsJson) ?? []),
       ),
     ];
     if (recIds.length > 0) {

@@ -24,6 +24,7 @@ import {
 export function ConstellationField({
   c,
   onScan,
+  onRetry,
   scanning = false,
   scanDisabled = false,
   scanError,
@@ -33,6 +34,8 @@ export function ConstellationField({
   c: Constellation;
   /** Scan this org's watched repos from the map (MAP-2); omitted = no scan affordance. */
   onScan?: () => void;
+  /** Re-fetch this org's `/api/app/repos` after an error; omitted = no Retry. */
+  onRetry?: (installationId: number) => void;
   scanning?: boolean;
   scanDisabled?: boolean;
   /** A manual-scan failure (quota/permission/server/network) for this org — shown inline so a blocked
@@ -256,7 +259,20 @@ export function ConstellationField({
 
       <div className="mt-3 flex items-center justify-between gap-2 type-body-sm">
         {c.status === "error" ? (
-          <span className="text-amber-400/80">{c.message}</span>
+          <span className="flex min-w-0 items-center gap-2 text-amber-400/80">
+            <span className="min-w-0 truncate">{c.message}</span>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={() => onRetry(c.id)}
+                title={`Retry loading ${c.login}'s repositories`}
+                aria-label={`Retry ${c.login}`}
+                className="shrink-0 rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 type-mono-sm font-medium text-white transition hover:bg-accent/20"
+              >
+                Retry
+              </button>
+            )}
+          </span>
         ) : scanError ? (
           <span role="alert" className="text-amber-400/80">{scanError}</span>
         ) : (

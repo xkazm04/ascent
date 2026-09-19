@@ -2,9 +2,10 @@
 //
 // The registry is a CUSTOMER-OWNED repo (`<org>/ai-registry`); ascent onboards it, indexes it and
 // tracks how the fleet syncs against it. This loader reads the `OrgRegistry` row and the indexed
-// mirror counts, falling back to an honest `unmapped` view. Anything the indexer cannot yet observe
-// (fleet pointers, sync recency, invoke telemetry) is reported as ZERO rather than guessed.
-// `capabilities` is what the UI gates GitHub actions on (§0b.5) — see @/lib/registry/capabilities.
+// mirror counts, falling back to an honest `unmapped` view. Fleet pointers and 30d-sync are omitted
+// until the adoption pass (R5) exists — unmeasured is not zero. Invoke telemetry degrades per-sink
+// (a failed read is "not measured", never a zero). `capabilities` is what the UI gates GitHub
+// actions on (§0b.5) — see @/lib/registry/capabilities.
 //
 // THIS MODULE IS SERVER-ONLY and returns ONLY real data. The shaped example states live in
 // `registry-view.fixture.ts` and are selected in REACT STATE by the tab's preview shell — never by a
@@ -23,9 +24,12 @@ import { listRecentLessons, type SkillLessonRow } from "@/lib/db/org-skill-lesso
 import { summarizeSignals, type SignalSummary } from "@/lib/registry/signals";
 import { getRegistryCapabilities, type RegistryCapabilities } from "@/lib/registry/capabilities";
 import { DEFAULT_REGISTRY_NAME } from "@/lib/registry/layout";
-import { registryHowTo } from "./registry-howto";
+import { localRegistryDir, refreshLocalRegistryIfStale } from "@/lib/registry/local-registry";
+import { selfHosted } from "@/lib/env";
+import { registryHowTo, type RegistryHowToCommands } from "./registry-howto";
 
 export { DEFAULT_REGISTRY_NAME, registryHowTo };
+export type { RegistryHowToCommands };
 export type { ConformanceMapRow, ConformanceRow, SignalSummary };
 
 /**
@@ -83,6 +87,8 @@ export type RegistryView = {
     lastIndexSha: string | null;
     catalogSha: string | null;
     webhookHealthy: boolean;
+    /** Self-hosted: the paired working copy the registry is read from (Admin -> Pairing). Absent = GitHub. */
+    localPath?: string | null;
   };
   counts: {
     skills: { registry: number; hostedOnly: number };
@@ -93,8 +99,12 @@ export type RegistryView = {
   migration: Record<RegistryArtifact, MigrationStep>;
   fleet: {
     reposTotal: number;
-    reposPointing: number;
-    reposSynced30d: number;
+    /**
+     * Present only after the adoption pass (R5) hashes each repo against the catalog.
+     * Absent is unmeasured, never a zero fleet. 0 is "we looked and nobody points".
+     */
+    reposPointing?: number;
+    reposSynced30d?: number;
     adoption: { inSync: number; stale: number; diverged: number; localOnly: number };
   };
   /** Last 20, newest first. */
@@ -123,7 +133,7 @@ export type RegistryView = {
   /** The knowledge/ lane, one entry per Reference Knowledge Bundle, as that
    *  bundle's own generated index states it. Empty until a pass reads the lane. */
   bundles: OrgRegistryRow["bundles"];
-  howTo: { syncCmd: string; hooksCmd: string; pointer: string };
+  howTo: RegistryHowToCommands;
 
   /** What ascent can ACTUALLY do for this viewer: render a GitHub action only when its flag is true
    *  — `canWrite` for scaffold / re-index / migrate, `canCreateRepo` for "create the repo". */
@@ -190,6 +200,7 @@ const registryOf = (row: OrgRegistryRow): NonNullable<RegistryView["registry"]> 
   lastIndexSha: row.lastIndexSha,
   catalogSha: row.catalogSha,
   webhookHealthy: row.webhookHealthy,
+  localPath: localRegistryDir(row),
 });
 
 /**
@@ -234,6 +245,14 @@ function activityOf(row: OrgRegistryRow | null, lessons: SkillLessonRow[] = []):
 }
 
 /**
+ * Fleet sync until R5. `reposTotal` is the rollup size (a real count). Pointing and 30d-sync are
+ * omitted: a 0 would mean "we looked and nobody points", which this pass cannot attest.
+ */
+export function unmeasuredFleet(reposTotal: number): RegistryView["fleet"] {
+  return { reposTotal, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 } };
+}
+
+/**
  * The tab's loader. The view is assembled from the `OrgRegistry` row + mirror counts + fleet size and
  * degrades to an honest `unmapped` when no registry is mapped. Never throws: a persistence-off
  * workspace degrades to zeroes and `capabilities.reason = "persistence-off"`, not an error panel.
@@ -245,9 +264,13 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     getOrgRollup(slug).catch(() => null),
     getOrgId(slug).catch(() => null),
   ]);
-  const caps: RegistryCapabilities = capabilities ?? {
+  const baseCaps: RegistryCapabilities = capabilities ?? {
     appConfigured: false, installed: false, canWrite: false, canCreateRepo: false, reason: "app-not-configured", installUrl: null,
   };
+  // Local first (self-hosted): a paired checkout is a complete read source on its own, and a render is
+  // the one moment a checkout that moved since the last pass is noticed (there is no webhook).
+  const caps: RegistryCapabilities = { ...baseCaps, localAvailable: selfHosted(), localPaired: localRegistryDir(row) !== null };
+  refreshLocalRegistryIfStale(row);
   const zeroes = () => ({ skills: { registry: 0, hostedOnly: 0 }, practices: { registry: 0, hostedOnly: 0 }, memory: { registry: 0, hostedOnly: 0 } });
   const counts = orgId ? await countRegistryMirrors(orgId).catch(zeroes) : zeroes();
   // Both sinks, read side by side so the panel can say which one is silent (#19). Each degrades on
@@ -285,8 +308,8 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     counts: { ...counts, lessons: row?.counts.lessons ?? 0 },
     migration: migrationOf(row, totals),
     // Fleet sync is not observable until the adoption pass (R5) hashes each repo's skills against
-    // the catalog; reported as zero rather than estimated.
-    fleet: { reposTotal: rollup?.repos?.length ?? 0, reposPointing: 0, reposSynced30d: 0, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 } },
+    // the catalog; pointing/synced are omitted, never a fabricated 0.
+    fleet: unmeasuredFleet(rollup?.repos?.length ?? 0),
     activity: activityOf(row, recentLessons),
     // Read from the registry's own `usage/` lane at index time, not counted here.
     // `reposReporting` is how many installations CONTRIBUTED a file — a zero with
@@ -316,7 +339,7 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     ...(signalRows.length
       ? { signals: { contributors: new Set(signalRows.map((r) => r.contributor)).size, subjects: summarizeSignals(signalRows) } }
       : {}),
-    howTo: registryHowTo(fullName),
+    howTo: registryHowTo(fullName, slug),
     capabilities: caps,
     permission: { contentsWrite: caps.canWrite, ...(caps.installUrl ? { installUrl: caps.installUrl } : {}) },
     ...(row?.scaffoldPrUrl ? { scaffoldPrUrl: row.scaffoldPrUrl } : {}),

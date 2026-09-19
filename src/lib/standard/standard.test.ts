@@ -15,10 +15,11 @@ import {
   buildConformanceWiring,
   buildMaintain,
   buildFoundation,
+  buildStandardFiles,
 } from "./index";
 import { readManifestYaml } from "./read";
 import { isKnownCheckId, isValidCheckId, slugSubject } from "./check-ids";
-import { buildOnboardingSkill } from "@/lib/onboarding/skill";
+import { buildOnboardingSkill, ONBOARDING_SKILL_PATH } from "@/lib/onboarding/skill";
 import type { GeneratedFile } from "./types";
 import { levelForScore } from "@/lib/maturity/model";
 import type { ScanReport } from "@/lib/types";
@@ -27,16 +28,6 @@ import type { ScanReport } from "@/lib/types";
 // nature — green in isolation, but past the 5s default when the full suite saturates the CPU. Raised
 // file-locally rather than globally, so a genuine slowdown elsewhere still fails loudly.
 vi.setConfig({ testTimeout: 30_000 });
-
-// The onboarding skill imports `buildFoundation` from this same barrel (`@/lib/standard`). To pin the
-// code-fence escaping invariant we need to feed `embedFile` (private to skill.ts) a hostile file body,
-// so we mock the barrel BUT default every export to the real implementation — the 30+ tests above that
-// import from "./index" (the same resolved module) keep their real behaviour; only the fence test
-// below swaps `buildFoundation` for ONE call via `mockImplementationOnce`.
-vi.mock("@/lib/standard", async () => {
-  const actual = await vi.importActual<typeof import("./index")>("./index");
-  return { ...actual, buildFoundation: vi.fn(actual.buildFoundation) };
-});
 
 function makeReport(lang = "TypeScript"): ScanReport {
   return {
@@ -321,14 +312,14 @@ describe("maintain (self-maintaining upkeep)", () => {
     expect(body).toContain("process.stdin.isTTY");
     expect(body).toContain("parsePushLines");
     // Diffs a RANGE (remoteSha..localSha via rangeFor, or base..HEAD), not just the working tree.
-    expect(body).toContain("diff --name-only ' + rangeFor(r)");
+    expect(body).toContain("diff --name-only -z ' + rangeFor(r), true");
     expect(body).toContain("@{push}");
     expect(body).toContain("@{upstream}");
     expect(body).toContain("'..HEAD'");
     // Detects pre-commit / manual (a dirty tree) rather than guessing, so those placements still work.
     expect(body).toContain("status --porcelain");
     // The worktree + index diff survives ONLY as the manual/pre-commit fallback.
-    expect(body).toContain("diff --name-only --cached");
+    expect(body).toContain("diff --name-only -z --cached");
   });
 
   it("parsePushLines turns git's pre-push stdin into ranges, dropping deletions and junk", () => {
@@ -375,6 +366,30 @@ describe("foundation", () => {
     expect(paths).toContain(".ai/memory/README.md");
     expect(paths).toContain(".ai/context-index.json");
     for (const f of files) expect(f.body.length, f.path).toBeGreaterThan(0);
+  });
+
+  it("commits the onboarding SKILL.md as a later file (same tracks as the download; 409 would skip)", () => {
+    const report = makeReport();
+    const files = buildFoundation(report);
+    const skill = buildOnboardingSkill(report);
+    const paths = files.map((f) => f.path);
+    expect(paths[0]).toBe(".ai/manifest.yaml");
+    expect(paths).toContain(ONBOARDING_SKILL_PATH);
+    // Later than the spine: a pre-existing skill 409-skips instead of aborting the install.
+    expect(paths.indexOf(ONBOARDING_SKILL_PATH)).toBeGreaterThan(0);
+    expect(paths.at(-1)).toBe(ONBOARDING_SKILL_PATH);
+    const shipped = files.find((f) => f.path === ONBOARDING_SKILL_PATH)!;
+    expect(shipped.body).toBe(skill.body);
+    expect(shipped.lang).toBe("markdown");
+    expect(buildStandardFiles(report).some((f) => f.path === ONBOARDING_SKILL_PATH)).toBe(false);
+  });
+
+  it("the skill embeds exactly buildStandardFiles — not the skill path itself", () => {
+    const report = makeReport();
+    const skill = buildOnboardingSkill(report);
+    const embedded = [...skill.body.matchAll(/#### `([^`]+)`/g)].map((m) => m[1]);
+    expect(embedded).toEqual(buildStandardFiles(report).map((f) => f.path));
+    expect(embedded).not.toContain(ONBOARDING_SKILL_PATH);
   });
 
   it("SHIPS every path the manifest points at — no pointer without an artifact", () => {
@@ -446,7 +461,7 @@ describe("guardrails (the invariants half — real, not a dangling pointer)", ()
  * instead cut from each function's declaration to the next top-level declaration. The functions are
  * emitted contiguously (kv, sub, flow, capabilities) ahead of `const path = '.ai/manifest.yaml';`.
  */
-const FN_ORDER = ["kv", "sub", "flow", "capabilities"] as const;
+const FN_ORDER = ["blockLines", "block", "kv", "sub", "flow", "capabilities"] as const;
 function extractFn(source: string, name: string): string {
   const start = source.indexOf("function " + name + "(");
   if (start < 0) throw new Error("doctor parser not found: " + name);
@@ -1172,8 +1187,8 @@ describe("onboarding skill — frontmatter-injection + code-fence escaping invar
     expect(inner).toContain("name: pwned"); // present, but as quoted prose, not a YAML key
   });
 
-  it("(b) a generated file body containing a 4-backtick fence cannot break out of its markdown code block", async () => {
-    // Inject a hostile GeneratedFile via the mocked buildFoundation for ONE buildOnboardingSkill call.
+  it("(b) a generated file body containing a 4-backtick fence cannot break out of its markdown code block", () => {
+    // Inject a hostile GeneratedFile as Step 0's embed list for ONE buildOnboardingSkill call.
     // Its body carries a four-backtick run AND a fake closing fence + leak marker on its own line — the
     // exact shape that would terminate a naive 3/4-backtick wrapper and spill the rest as live markdown.
     const FENCE4 = "`".repeat(4);
@@ -1184,15 +1199,12 @@ describe("onboarding skill — frontmatter-injection + code-fence escaping invar
       purpose: "adversarial body with an inner code fence",
       body: `const a = 1;\n${FENCE4}\n${LEAK}\nmore body after the inner fence`,
     };
-    const { buildFoundation: mockedBuildFoundation } = await import("@/lib/standard");
-    (mockedBuildFoundation as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => [hostile]);
-
-    const skill = buildOnboardingSkill(makeReport());
+    const skill = buildOnboardingSkill(makeReport(), undefined, [hostile]);
 
     // Locate the embed wrapper for our hostile file by its path heading.
     const heading = "#### `.ai/evil.mjs`";
     const at = skill.body.indexOf(heading);
-    expect(at, "hostile embed block not found — mock did not apply").toBeGreaterThanOrEqual(0);
+    expect(at, "hostile embed block not found — embedFiles override did not apply").toBeGreaterThanOrEqual(0);
 
     // Isolate this embed: from its heading up to the next blank-line-separated section (the embed is
     // the LAST section of the skill body, so the remainder is the whole block).
@@ -1274,7 +1286,7 @@ function loadMaintainNoteLogic(): {
   const body = buildMaintain().body;
 
   // The id derivation: the `.map(...).filter(...)` over a filename list, then the `max+1`/pad string.
-  const idMapFilter = "files.map((f) => parseInt((f.match(/^(\\d{4})-/) || [])[1], 10)).filter((n) => !isNaN(n))";
+  const idMapFilter = "files.map((f) => parseInt((f.match(/^(\\d{4}|[1-9]\\d{4,})-/) || [])[1], 10)).filter((n) => !isNaN(n))";
   const idNext = "String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0')";
   // The slug pipeline, verbatim from the source (the only difference from maintain.ts is `text` is our
   // parameter rather than the CLI-derived local — the transform chain is byte-identical).
@@ -1282,7 +1294,7 @@ function loadMaintainNoteLogic(): {
 
   // Sanity: the SHIPPED source still contains these exact fragments. If a refactor renames/reshapes
   // them, this extraction is stale and the test must fail rather than silently testing a stand-in.
-  expect(body).toContain(".map((f) => parseInt((f.match(/^(\\d{4})-/) || [])[1], 10)).filter((n) => !isNaN(n))");
+  expect(body).toContain(".map((f) => parseInt((f.match(/^(\\d{4}|[1-9]\\d{4,})-/) || [])[1], 10)).filter((n) => !isNaN(n))");
   expect(body).toContain("String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0')");
   expect(body).toContain("text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'note'");
 
@@ -1336,8 +1348,8 @@ describe("maintain — memory-entry numbering + slug invariants (append-only led
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("a malformed 3-digit or 5-digit prefix does not match ^(\\d{4})- and is ignored", () => {
-    // Only EXACTLY-4-digit prefixes count; `999-` (3) and `00001-` (5) must not pollute the max.
+  it("a malformed 3-digit or leading-zero 5-digit prefix does not match ^(\\d{4}|[1-9]\\d{4,})- and is ignored", () => {
+    // Four-digit or canonical longer prefixes count; `999-` (3) and `00001-` (5) must not pollute the max.
     expect(nextId(["0005-real.md", "999-short.md", "00001-long.md"])).toBe("0006");
     // If NONE are valid 4-digit, fall back to 0001 (no NaN id from an unparsable prefix).
     expect(nextId(["999-short.md", "abc-nope.md"])).toBe("0001");

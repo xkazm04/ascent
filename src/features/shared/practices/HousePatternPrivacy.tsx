@@ -29,7 +29,7 @@ export function HousePatternPrivacy({ reposWithShape }: { reposWithShape: number
         <span className="type-mono-sm text-slate-500">{shapeScopeLine(reposWithShape)}</span>
       </div>
 
-      <div className="mt-3 max-w-xs">
+      <div className="mt-3">
         <MatrixGrid
           axes={[...SHAPE_AXES]}
           rows={SHAPE_PRIVACY_ROWS}

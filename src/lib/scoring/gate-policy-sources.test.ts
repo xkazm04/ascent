@@ -228,6 +228,27 @@ describe("requireChecks — the control bar", () => {
     expect(merged.requireChecks).toEqual(["a.one", "b.two"]);
   });
 
+  it("cannot turn a failing required control into a pass when the union exceeds one input's cap", () => {
+    const base = sanitizeGatePolicy({ requireChecks: Array.from({ length: 100 }, (_, i) => `z.check${i}`) })!;
+    const overlay = sanitizeGatePolicy({ requireChecks: ["a.extra"] })!;
+    const inputs: GateInputs = { checkStates: { "z.check99": "fail" } };
+    expect(evaluateGate(report(), base, inputs).pass).toBe(false);
+    const merged = tightenGatePolicy(base, overlay);
+    expect(evaluateGate(report(), merged, inputs).pass).toBe(false);
+    expect(merged.requireChecks).toHaveLength(101);
+    expect(tightenGatePolicy(overlay, base)).toEqual(merged);
+  });
+
+  it("keeps the untrusted per-input cap while preserving all accepted layers", () => {
+    const raw = { requireChecks: Array.from({ length: 120 }, (_, i) => `a.check${i}`) };
+    const a = sanitizeGatePolicy(raw)!;
+    const b = sanitizeGatePolicy({ requireChecks: Array.from({ length: 100 }, (_, i) => `b.check${i}`) })!;
+    expect(a.requireChecks).toHaveLength(100);
+    const merged = tightenGatePolicy(a, b);
+    expect(merged.requireChecks).toHaveLength(200);
+    expect(tightenGatePolicy(merged, a)).toEqual(merged);
+  });
+
   it("drops malformed ids but keeps unknown well-formed ones (spec principle 3)", () => {
     expect(sanitizeGatePolicy({ requireChecks: ["Not A Check", "", 7, "vendor.future.check"] })).toEqual({
       requireChecks: ["vendor.future.check"],

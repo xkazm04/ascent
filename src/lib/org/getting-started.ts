@@ -128,9 +128,9 @@ export function buildGettingStartedModel(facts: GettingStartedFacts, role: OrgRo
       phase: "resolve",
       done: facts.gapEngaged,
       // Assigning/closing a rec or opening an apply-PR is a member-level write; a personal
-      // workspace engages through its private overlay, rendered by the same Follow-ups tab.
+      // workspace engages through its private overlay, rendered by the Proposals tab (formerly Follow-ups).
       available: can(role, "member"),
-      tab: "followups",
+      tab: "proposals",
       anchor: GETTING_STARTED_ANCHORS["gap-engaged"],
     },
     {
@@ -153,7 +153,9 @@ export function buildGettingStartedModel(facts: GettingStartedFacts, role: OrgRo
       // Fleet-only and a customer-repo WRITE: the batch route is admin-gated, and a personal
       // workspace has no installation token and no fleet to roll out to.
       available: !personal && can(role, "admin"),
-      tab: "repositories",
+      // Practices, not Repositories (2026-09-15): the foundation rollout lives in the Practice
+      // Library now, beside the practice rollout matrix — one place for the shared checklist.
+      tab: "practices",
       anchor: GETTING_STARTED_ANCHORS.foundation,
     },
     {
@@ -163,7 +165,7 @@ export function buildGettingStartedModel(facts: GettingStartedFacts, role: OrgRo
       // Same reach as `foundation`: provisioning report-back is owner-gated, but an ADMIN can
       // complete this step honestly by wiring the two secrets by hand, so admin is the right bar.
       available: !personal && can(role, "admin"),
-      tab: "repositories",
+      tab: "practices",
       anchor: GETTING_STARTED_ANCHORS.conformance,
     },
     {

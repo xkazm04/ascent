@@ -1,12 +1,22 @@
 // The Briefing tab's "Trajectory" card — forecast headline + confidence note + regression callout.
 // Pulled out of ExecutiveTab.tsx to stay under the 200-LOC cap (docs/ORG-TABS-REFACTOR.md). Server
-// component, no state.
+// component, no state. The public share page mounts this same card (G12) so the two HTML surfaces
+// cannot drift.
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { briefingTrajectory, briefingTrajectoryNote } from "@/lib/org/briefing";
 import type { ExecBriefing } from "@/lib/org/briefing";
 
-export function ExecutiveTrajectoryCard({ briefing, periodHasStart }: { briefing: ExecBriefing; periodHasStart: boolean }) {
+export function ExecutiveTrajectoryCard({
+  briefing,
+  periodHasStart,
+  className = "",
+}: {
+  briefing: ExecBriefing;
+  periodHasStart: boolean;
+  /** Share-page spacing (`mt-6`); the Briefing tab's `space-y-6` parent leaves this empty. */
+  className?: string;
+}) {
   // MC-B1 — one composed read for every briefing surface. A headline only ever arrives here having
   // cleared the shared presentability gate, and it arrives WITH its hedge; when the fit was real but
   // too thin, `insufficiency` carries Delivery's own refusal sentence instead of a bare slope.
@@ -14,7 +24,7 @@ export function ExecutiveTrajectoryCard({ briefing, periodHasStart }: { briefing
   const note = briefingTrajectoryNote(briefing);
   if (!traj.headline && !traj.insufficiency && briefing.regressionCount === 0) return null;
   return (
-    <Card>
+    <Card className={className}>
       <SectionHeader size="sm" title="Trajectory" />
       <p className="mt-2 type-body text-slate-300">
         {traj.headline ?? traj.insufficiency ?? "Not enough history yet to project a trajectory."}

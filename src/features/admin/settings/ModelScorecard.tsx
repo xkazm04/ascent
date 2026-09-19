@@ -50,7 +50,7 @@ export function ModelScorecard({ now }: { now?: number } = {}) {
     <Card>
       <SectionHeader size="sm" title="Measured model quality" description={scorecardScopeLine(MATRIX_SCORES)} />
 
-      <div className="mt-4 max-w-sm">
+      <div className="mt-4">
         <MatrixGrid
           axes={[...SCORE_AXES]}
           rows={rows}

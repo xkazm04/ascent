@@ -5,6 +5,16 @@
   "note": "Declared LLM call sites. This project already mirrors calls to LightTrack (src/lib/llm/tracklight.ts) but its LlmCallTrack carries no use-case name, so every event it emits is currently unattributed — this declaration is the set those events should be attributable to.",
   "use_cases": [
     {
+      "key": "assess",
+      "name": "Repo maturity assessment (gateway route)",
+      "description": "The same call site as scan.calibrate (LLMProvider.assess) when LLM_PROVIDER=gateway: the LightTrack gateway serves it under this key, the route name in gateway.toml, and records every attempt itself — the app's own mirror is suppressed for this path (src/lib/scan-assess.ts). Route and scorecard: docs/LLM_ROUTES.md.",
+      "kind": "extraction",
+      "status": "active",
+      "component": "src/lib/llm/gateway.ts (GatewayProvider.assess) -> lt-gateway [routes.assess]",
+      "expected_models": [],
+      "owner": "ascent"
+    },
+    {
       "key": "scan.calibrate",
       "name": "Scan calibration and explanation",
       "description": "Nine deterministic analyzers produce the evidence for a repo scan; the model calibrates the maturity scores against it and explains them, guardbanded to the signals so it never invents a score.",

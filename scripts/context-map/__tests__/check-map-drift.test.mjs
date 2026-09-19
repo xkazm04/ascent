@@ -84,6 +84,16 @@ test("an empty map is 100% unmapped rather than a crash", () => {
   assert.equal(r.contexts, 0);
 });
 
+test("mapped and unmapped partition the same tracked source population", () => {
+  const tracked = ["src/lib/a.ts", "src/lib/b.ts", "docs/guide.md", "src/generated/client.ts"];
+  const r = analyze(mapOf([ctx("C", [
+    "src/lib/a.ts", "docs/guide.md", "src/generated/client.ts", "src/lib/deleted.ts",
+  ])]), tracked);
+  assert.equal(r.mapped, 1);
+  assert.equal(r.mapped + r.unmapped.length, r.mappable);
+  assert.deepEqual(r.dead, [{ context: "C", file: "src/lib/deleted.ts" }]);
+});
+
 test("no mappable files is 0%, not NaN", () => {
   const r = analyze(mapOf([]), ["docs/a.md"]);
   assert.equal(r.unmappedPct, 0);

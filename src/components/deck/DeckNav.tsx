@@ -1,10 +1,9 @@
 "use client";
 
 // Section nav for a scroll-snap deck: tracks which full-viewport section is centered and jumps to any
-// of them. Right-edge dots on desktop; a compact bottom bar (chapter label + progress + prev/next) on
-// tablet/mobile, so small screens keep a jump/overview affordance. Pass a STABLE `sections` array
-// (module-level const) so the observer isn't torn down every render. Each control is an anchor →
-// clicking smooth-scrolls + snaps.
+// of them. Right-edge dots on desktop; a compact bottom bar (chapter label + jump list + progress +
+// prev/next) on tablet/mobile. Pass a STABLE `sections` array (module-level const) so the observer
+// isn't torn down every render. Each control is an anchor → clicking smooth-scrolls + snaps.
 
 import { useEffect, useState } from "react";
 
@@ -24,6 +23,8 @@ export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
 
   useEffect(() => {
     const ids = sectionKey ? sectionKey.split("|") : [];
+    // jsdom / very old browsers: keep the first section active rather than throwing on observe.
+    if (typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       (entries) => {
         // A snap transition can report several intersecting entries in one batch, and IO does not order
@@ -67,13 +68,11 @@ export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
         })}
       </nav>
 
-      {/* Below lg the right-edge dots are hidden, leaving mandatory snap-scrolling with no overview.
-          A compact bottom bar reuses the same `sections` array: current chapter + a progress strip +
-          prev/next jumps (anchors, so they smooth-scroll + snap exactly like the dots).
-          The bar is a fixed overlay, so the deck's bottom rhythm must compensate: DeckSection (and
-          the hand-rolled landing sections + the AboutCTA footer) reserve `pb-24 lg:pb-10` beneath it,
-          and the bottom padding grows into `env(safe-area-inset-bottom)` so the prev/next targets sit
-          above the iOS home-indicator zone instead of inside it. */}
+      {/* Below lg the right-edge dots are hidden. The bottom bar reuses the same `sections` array:
+          current chapter as a native <details> jump list (every #id, not only ±1) + a visual progress
+          strip + prev/next anchors. DeckSection (and the hand-rolled landing sections + AboutCTA)
+          reserve `pb-24 lg:pb-10` beneath the overlay; padding grows into env(safe-area-inset-bottom)
+          so the controls sit above the iOS home-indicator zone instead of inside it. */}
       <nav
         aria-label="Section navigation"
         className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-divider bg-surface-strong/90 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-sm lg:hidden"
@@ -89,7 +88,7 @@ export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
         )}
 
         <div className="min-w-0 flex-1 text-center">
-          <div className="truncate type-label tracking-wider text-accent">{sections[activeIndex]?.label}</div>
+          <DeckJumpList sections={sections} active={active} />
           <div className="mt-1 flex justify-center gap-1" aria-hidden>
             {sections.map((s, i) => (
               <span key={s.id} className={`h-1 w-4 rounded-full transition ${i === activeIndex ? "bg-accent" : "bg-slate-700"}`} />
@@ -111,10 +110,44 @@ export function DeckNav({ sections }: { sections: DeckSectionRef[] }) {
   );
 }
 
-/** Chevron for the mobile prev/next jumps — the deck flows vertically, so up = previous, down = next. */
-function DeckArrow({ dir }: { dir: "up" | "down" }) {
+/** Native overview of every section: same `#id` anchors as the desktop rail, opens upward. */
+function DeckJumpList({ sections, active }: { sections: DeckSectionRef[]; active: string }) {
+  const current = sections.find((s) => s.id === active)?.label ?? sections[0]?.label ?? "Section";
   return (
-    <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+    <details className="group relative min-w-0">
+      <summary className="focus-ring mx-auto flex max-w-full cursor-pointer list-none items-center justify-center gap-1 rounded-md px-1 py-0.5 [&::-webkit-details-marker]:hidden">
+        <span className="sr-only">Jump to section, </span>
+        <span className="truncate type-label tracking-wider text-accent">{current}</span>
+        <DeckArrow dir="down" className="h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+      </summary>
+      <ul className="absolute inset-x-0 bottom-full z-10 mb-2 max-h-64 overflow-y-auto rounded-lg border border-divider bg-surface-strong/95 py-1 shadow-lg backdrop-blur-sm">
+        {sections.map((s) => {
+          const on = active === s.id;
+          return (
+            <li key={s.id}>
+              <a
+                href={`#${s.id}`}
+                aria-current={on ? "true" : undefined}
+                className={`focus-ring block truncate px-3 py-2.5 text-left type-label tracking-wider ${on ? "bg-accent/10 text-accent" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+                onClick={(e) => {
+                  const root = e.currentTarget.closest("details");
+                  if (root instanceof HTMLDetailsElement) root.open = false;
+                }}
+              >
+                {s.label}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </details>
+  );
+}
+
+/** Chevron for the mobile prev/next jumps — the deck flows vertically, so up = previous, down = next. */
+function DeckArrow({ dir, className = "h-5 w-5" }: { dir: "up" | "down"; className?: string }) {
+  return (
+    <svg viewBox="0 0 20 20" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
       <path d={dir === "up" ? "M6 12l4-4 4 4" : "M6 8l4 4 4-4"} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );

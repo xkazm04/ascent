@@ -14,8 +14,50 @@
 /** What an erase did (or would do) to the audit trail. Mirrors AuditDisposition in db/retention.ts. */
 export type AuditDisposition = "keep" | "redact" | "delete";
 
+/**
+ * Per-family counters POST /api/org/erase already returns (EraseResult). Optional on the wire so an
+ * older deploy still previews; the UI never invents a 0 for a field the body omitted. Scan-graph
+ * totals stay required on {@link EraseResponse} — they have always been on the envelope.
+ */
+export const ERASE_LEDGER_KEYS = [
+  "digestsDeleted",
+  "loopRunsDeleted",
+  "loopLanesDeleted",
+  "laneOutcomesDeleted",
+  "athenaThreadsDeleted",
+  "athenaTurnsDeleted",
+  "athenaProposalsDeleted",
+  "athenaIdentityDeleted",
+  "athenaMemoriesDeleted",
+  "outcomesDeleted",
+  "usageEventsDeleted",
+  "memoryMirrorsDeleted",
+  "conformanceReportsDeleted",
+  "conformanceFindingsDeleted",
+  "skillLessonsDeleted",
+  "skillTracesDeleted",
+  "memoryProposalsDeleted",
+  "registryLedgerDeleted",
+  "memoryCandidatesDeleted",
+  "memoryCitationsDeleted",
+  "practiceAdoptionsDeleted",
+  "housePatternsDeleted",
+  "scanJobsDeleted",
+  "controlObservationsDeleted",
+  "controlSealsDeleted",
+  "repoAdmissionsDeleted",
+  "installationsDeleted",
+  "orgMemoriesDeleted",
+  "llmConfigsDeleted",
+  "apiTokensDeleted",
+  "alertEventsDeleted",
+] as const;
+
+export type EraseLedgerKey = (typeof ERASE_LEDGER_KEYS)[number];
+export type EraseLedgers = Partial<Record<EraseLedgerKey, number>>;
+
 /** The JSON shape POST /api/org/erase returns (EraseResult, plus the 207-only `resumable`/`error`). */
-export interface EraseResponse {
+export interface EraseResponse extends EraseLedgers {
   orgSlug: string;
   scope: "org" | "repo";
   repoFullName?: string;
@@ -40,7 +82,7 @@ export interface EraseResponse {
 }
 
 /** Running totals across every pass of a resumed erase — one pass's counts alone would under-report. */
-export interface EraseTotals {
+export interface EraseTotals extends EraseLedgers {
   passes: number;
   reposProcessed: number;
   scansDeleted: number;
@@ -63,7 +105,8 @@ export const ZERO_TOTALS: EraseTotals = {
 };
 
 export function addPass(totals: EraseTotals, r: EraseResponse): EraseTotals {
-  return {
+  const next: EraseTotals = {
+    ...totals,
     passes: totals.passes + 1,
     // Repos are re-walked on a resumed pass, so the max is the honest count of repos touched.
     reposProcessed: Math.max(totals.reposProcessed, r.reposProcessed),
@@ -74,6 +117,11 @@ export function addPass(totals: EraseTotals, r: EraseResponse): EraseTotals {
     auditDeleted: totals.auditDeleted + r.auditDeleted,
     auditRedacted: totals.auditRedacted + (r.auditRedacted ?? 0),
   };
+  for (const key of ERASE_LEDGER_KEYS) {
+    const v = r[key];
+    if (typeof v === "number") next[key] = (totals[key] ?? 0) + v;
+  }
+  return next;
 }
 
 /**

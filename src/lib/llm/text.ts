@@ -238,6 +238,12 @@ export async function resolveLegRunner(opts: TextRunnerOptions): Promise<Resolve
       // "no engine" under LLM_PROVIDER=codex-cli rather than silently substituting a provider the
       // operator never chose — the same rule the header states for an unavailable explicit choice.
       return null;
+    case "gateway":
+      // Same rule: the gateway carries ONE measured route (`assess`, src/lib/llm/gateway.ts). The
+      // text surfaces have no route of their own yet, and a literal `provider/model` request here
+      // would run unmeasured under the app's seat limits — so they report "no engine" until a route
+      // for them is onboarded (docs/LLM_ROUTES.md).
+      return null;
     default:
       // "mock" — see the header: there is no honest deterministic text for a judgment call.
       return null;

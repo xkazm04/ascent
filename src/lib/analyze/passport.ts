@@ -6,8 +6,9 @@
 //
 // PRESENT vs ENFORCED is the design's core distinction and the token boundary: the "gated" rungs of CI
 // and Security require branch protection (report.governance), which is null on a tokenless scan. When
-// governance is absent we HONESTLY CAP ci/security at the present rung and say so in evidence/blockers —
-// never claim an enforcement we couldn't observe. See docs/archive/2026-concepts/2026-06-22-app-passport-scan-integration.md.
+// governance is absent we HONESTLY CAP ci/security at the present rung and say so on findings + rungs —
+// never claim an enforcement we couldn't observe, and never score the coverage hole as a blocker (G4).
+// See docs/archive/2026-concepts/2026-06-22-app-passport-scan-integration.md.
 //
 // This file is the BUILDER + the barrel. The themed pieces live beside it and are re-exported here so no
 // caller's import path changes: passport-grades.ts (the 0.2.0 memory/skills ladders), passport-score.ts
@@ -82,17 +83,28 @@ function probes(snap: Snap) {
   }
   const hasDep = (n: string) => deps.includes(n);
   const hasDepPrefix = (p: string) => deps.some((d) => d === p || d.startsWith(p));
-  const workflowText = snap.files
-    .filter((f) => /^\.github\/workflows\/.+\.ya?ml$/i.test(f.path))
+  const fetchedWorkflows = snap.files.filter((f) => /^\.github\/workflows\/.+\.ya?ml$/i.test(f.path));
+  const workflowText = fetchedWorkflows
     .map((f) => f.content)
     .join("\n")
     .toLowerCase();
+  // HOW MUCH OF THE WORKFLOW EVIDENCE THIS SCAN ACTUALLY READ. The tree listing is complete; the
+  // CONTENT arrives through a bounded fetch — a reserved workflow quota, a per-file byte cap, and a
+  // byte plan that displaces picks (forge/source-selection.ts). So `workflowText` can be short of
+  // what the repository holds, and the detectors below cannot tell that from a repo that wires
+  // nothing. Counted here, once, because the shortfall is a coverage fact and every consumer of it
+  // has to read the same one (the dependency list's equivalent is `depsObservable`).
+  const listedWorkflows = lowerPaths.filter((x) => /^\.github\/workflows\/.+\.ya?ml$/.test(x)).length;
+  const truncatedWorkflow = fetchedWorkflows.some((f) => typeof f.bytes === "number" && f.bytes > Buffer.byteLength(f.content, "utf8"));
+  // Unread, not absent: fewer files read than listed, or one of them cut at its cap. Zero listed is
+  // NOT unread — that is an observed absence, and it must keep its blocker.
+  const workflowsUnread = listedWorkflows > 0 && (listedWorkflows > fetchedWorkflows.length || truncatedWorkflow);
   const scripts = (pkg?.scripts && typeof pkg.scripts === "object" ? (pkg.scripts as Record<string, string>) : {}) ?? {};
-  // The two evidence sources a named field can be classified FROM. When one is missing the detectors
-  // below must say `unknown`, not `null` — see UNKNOWN_CAPABILITY.
+  // The evidence source a package.json-derived field can be classified FROM. When it is missing the
+  // detectors below must say unknown/unassessable, not a measured none — see UNKNOWN_CAPABILITY.
   const depsObservable = pkg !== null;
   const treeObservable = lowerPaths.length > 0;
-  return { get, hasPath, lowerPaths, pkg, deps, hasDep, hasDepPrefix, workflowText, scripts, depsObservable, treeObservable };
+  return { get, hasPath, lowerPaths, pkg, deps, hasDep, hasDepPrefix, workflowText, scripts, depsObservable, treeObservable, workflowsUnread };
 }
 
 /** The third value of every NAMED capability field (0.4.0). `null` means "the scan looked and this app
@@ -313,6 +325,8 @@ function detectHooks(p: ReturnType<typeof probes>): boolean {
 const dimScore = (report: ScanReport, id: string): number => report.dimensions.find((d) => d.id === id)?.score ?? 0;
 
 function detectSelfVerify(p: ReturnType<typeof probes>): AppPassport["automationReadiness"]["selfVerify"] {
+  // Same probe as monitoring: unread package.json cannot support a "missing scripts" verdict.
+  if (!p.depsObservable) return { build: false, test: false, lint: false, typecheck: false };
   const s = p.scripts;
   const has = (...keys: string[]) => keys.some((k) => typeof s[k] === "string" && s[k].trim().length > 0);
   return {
@@ -357,6 +371,9 @@ function detectCi(p: ReturnType<typeof probes>, gov: Governance | null | undefin
 }
 
 function detectTests(report: ScanReport, p: ReturnType<typeof probes>): AppPassport["productionReadiness"]["tests"] {
+  // Same probe as monitoring: empty frameworks from an unread package.json is unread, not "no tests".
+  // Callers mint tests-unassessable (G4) instead of treating this none as a looked-and-found-none gap.
+  if (!p.depsObservable) return { level: "none", coveragePct: null, frameworks: [], criticalPathCovered: false };
   const frameworks = (["vitest", "jest", "playwright", "cypress", "mocha", "@playwright/test", "pytest"] as string[])
     .filter((f) => p.hasDep(f))
     .map((f) => f.replace("@playwright/test", "playwright"));
@@ -425,6 +442,31 @@ const mint = (axis: "auto" | "prod", code: string, severity: PassportFinding["se
   severity,
 });
 
+/** A finding that names a SCAN coverage hole, not an app gap. `*-unassessable` (prod and auto) and
+ *  the tokenless `enforcement-not-observable` caveat stay on `findings[]` so a rung can still be
+ *  classified unassessable; they are not scored blockers (G4). Ranked under Blockers they would make
+ *  "we could not look" look like the org's most common problem. */
+export function isCoverageHoleFinding(f: Pick<PassportFinding, "code" | "id">): boolean {
+  const code = f.code || (f.id.includes(".") ? f.id.slice(f.id.indexOf(".") + 1) : f.id);
+  return code === "enforcement-not-observable" || code.endsWith("-unassessable");
+}
+
+/** Pre-0.4.0 fallback: the tokenless caveat was the only coverage hole in the prose list.
+ *  `*-unassessable` findings did not exist before minted ids. */
+export function isCoverageHoleText(text: string): boolean {
+  return /could not be assessed|enforcement \(branch protection\) not observable/i.test(text);
+}
+
+/** Scored-blocker sentences for a list. Prefers `findings` when present (coverage holes dropped);
+ *  otherwise filters the legacy prose list. */
+export function scoredBlockerTexts(
+  findings: readonly PassportFinding[] | null | undefined,
+  blockers: readonly string[],
+): string[] {
+  if (findings) return findings.filter((f) => !isCoverageHoleFinding(f)).map((f) => f.text);
+  return blockers.filter((t) => !isCoverageHoleText(t));
+}
+
 /**
  * Build the App Readiness Passport for a finished scan. Pure + deterministic over (report, snapshot).
  */
@@ -446,9 +488,14 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   if (artifacts.memory === "none") auto("no-memory", "warn", "No agent memory (.ai/memory): decisions and gotchas aren't carried between sessions.");
   if (artifacts.skills === "none") auto("no-skills", "info", "No reusable agent skills library (.claude/skills), so repeated work is re-prompted each time.");
   if (!aiInWorkflow) auto("no-ai-in-workflow", "info", "No evidence AI is actually used (no AI co-author trailers / agent PRs).");
-  const selfVerifyGaps = (Object.entries(selfVerify) as [string, boolean][]).filter(([, v]) => !v).map(([k]) => k);
-  // block, not warn: without a self-check an agent cannot tell a working change from a broken one.
-  if (selfVerifyGaps.length) auto("self-verify-gaps", "block", `Agent can't self-verify: missing ${selfVerifyGaps.join(", ")} script(s).`);
+  // Unread package.json: missing scripts were never inspected. Do not mint self-verify-gaps at block (G4).
+  if (!p.depsObservable) {
+    auto("self-verify-unassessable", "info", "Self-verify scripts could not be assessed: no readable package.json on this scan, so package scripts were never inspected.");
+  } else {
+    const selfVerifyGaps = (Object.entries(selfVerify) as [string, boolean][]).filter(([, v]) => !v).map(([k]) => k);
+    // block, not warn: without a self-check an agent cannot tell a working change from a broken one.
+    if (selfVerifyGaps.length) auto("self-verify-gaps", "block", `Agent can't self-verify: missing ${selfVerifyGaps.join(", ")} script(s).`);
+  }
 
   const ci = detectCi(p, gov);
   const tests = detectTests(report, p);
@@ -466,8 +513,28 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   } else if (observability.level === "none") {
     prod("zero-observability", "block", "Zero observability: no error tracking, structured logs, metrics, or tracing.");
   }
-  if (ci.level === "checks" || ci.level === "build" || ci.level === "none") prod("ci-not-gating", "block", "CI does not gate merges (no enforced required checks).");
-  if (security.level === "none" || security.level === "policy") prod("no-security-scanning", "block", "No dependency/secret/SAST scanning wired in.");
+  // Same depsObservable miss as monitoring: empty frameworks is unread, not "the app has no tests".
+  if (!p.depsObservable) {
+    prod("tests-unassessable", "info", "Tests could not be assessed: no readable package.json on this scan, so test frameworks were never inspected.");
+  }
+  // The same rule one field over, for the evidence that arrives through a BOUNDED read. `hasPath`
+  // sees every workflow the repository lists; `workflowText` carries only the ones this scan's byte
+  // plan and caps let through. When those disagree, "no gates" and "no scanning" are claims about
+  // content nobody read, and they are minted at `block` — the severity a fleet rollup counts and an
+  // owner has to decline. The shortfall gets the info-level finding instead, and the blockers stay
+  // for the case the scan really did look: zero workflows listed, or every listed one read whole.
+  if (p.workflowsUnread) {
+    prod("ci-unassessable", "info", "CI gates could not be assessed: this scan read fewer workflow files than the repository lists (or read one only up to its byte cap), so their contents were never inspected.");
+  } else if (ci.level === "checks" || ci.level === "build" || ci.level === "none") {
+    prod("ci-not-gating", "block", "CI does not gate merges (no enforced required checks).");
+  }
+  if (security.level === "none" || security.level === "policy") {
+    if (p.workflowsUnread) {
+      prod("security-unassessable", "info", "Dependency/secret/SAST scanning could not be assessed: the scanning evidence lives in workflow files this scan did not read in full.");
+    } else {
+      prod("no-security-scanning", "block", "No dependency/secret/SAST scanning wired in.");
+    }
+  }
   if (tokenless) prod("enforcement-not-observable", "info", "Enforcement (branch protection) not observable on this scan. CI/security capped at their present rung.");
 
   const pp: AppPassport = {
@@ -493,9 +560,9 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
       artifacts,
       selfVerify,
       aiInWorkflow,
-      // `blockers` stays the rendered projection so every pre-0.4.0 reader is untouched; `findings`
-      // is the machine list, and it is what a decline or a rollup bucket must key on.
-      blockers: autoFindings.map((f) => f.text),
+      // `blockers` is the scored-blocker projection of `findings` (coverage holes stay on findings
+      // only — G4). A decline or a rollup bucket keys on the minted id, never the sentence.
+      blockers: scoredBlockerTexts(autoFindings, []),
       findings: autoFindings,
     },
     productionReadiness: {
@@ -506,7 +573,7 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
       security,
       observability,
       delivery,
-      blockers: prodFindings.map((f) => f.text),
+      blockers: scoredBlockerTexts(prodFindings, []),
       findings: prodFindings,
     },
     links: {

@@ -150,6 +150,10 @@ export function FleetGrid() {
           />
         ))}
       </div>
+      {/* Same Illustrative chrome as RoiSimulator: invented cells, labelled where they render. */}
+      <p className="mt-3 text-center type-label tracking-[0.22em] text-slate-600">
+        Illustrative · {REPOS.length} sample repos, not customer data
+      </p>
     </div>
   );
 }

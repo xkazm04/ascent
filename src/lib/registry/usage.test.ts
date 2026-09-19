@@ -93,7 +93,7 @@ describe("aggregateUsage", () => {
     // The distinction the UI depends on: an empty lane means no witness, which
     // is a different fact from a fleet that runs nothing.
     const usage = aggregateUsage([], []);
-    expect(usage).toEqual({ invokes30d: 0, contributors: 0, bySkill: {}, samples: [], contributorNames: [] });
+    expect(usage).toEqual({ invokes30d: 0, contributors: 0, bySkill: {}, clampedContributors: 0, samples: [], contributorNames: [] });
   });
 
   it("degrades ONE malformed contribution, never the pass", () => {

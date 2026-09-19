@@ -167,3 +167,76 @@ describe("OnboardingScanStep time expectation + in-flight rows (Direction 9)", (
     expect(bar).toHaveAttribute("aria-label", "Scan progress: 0 of 6 repositories");
   });
 });
+
+// The generated SKILL.md used to live only on the per-repo report header. The done step is peak
+// motivation and the documented no-App fallback (the foundation PR is App-path only), so each repo
+// that actually scored must offer the existing SkillDownload control: GET /api/report/skill with a
+// bare `?repo=` (no leaked `?dims=`).
+describe("OnboardingScanStep SKILL.md download on done", () => {
+  const base = {
+    phase: "done" as const,
+    error: null,
+    announce: "",
+    onCancel: noop,
+    onViewDashboard: noop,
+    onScanAnother: noop,
+  };
+
+  it("offers SkillDownload for each scored repo, linking GET /api/report/skill without dims", () => {
+    render(
+      <ScanStep
+        {...base}
+        rows={{
+          "acme/api": { repo: "acme/api", level: "L3", overall: 60 },
+          "acme/web": { repo: "acme/web", level: "L2", overall: 40 },
+        }}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Download SKILL.md" })).toBeInTheDocument();
+    const api = screen.getByRole("link", { name: /Onboarding skill for acme\/api/ });
+    const web = screen.getByRole("link", { name: /Onboarding skill for acme\/web/ });
+    expect(api).toHaveAttribute("href", "/api/report/skill?repo=acme%2Fapi");
+    expect(web).toHaveAttribute("href", "/api/report/skill?repo=acme%2Fweb");
+    expect(api.getAttribute("href")).not.toContain("dims");
+    expect(web.getAttribute("href")).not.toContain("dims");
+  });
+
+  it("does not offer a download for skipped, errored, or unsettled rows", () => {
+    render(
+      <ScanStep
+        {...base}
+        rows={{
+          "acme/skip": { repo: "acme/skip", skipped: "insufficient_credits" },
+          "acme/err": { repo: "acme/err", error: "boom" },
+          "acme/wait": { repo: "acme/wait" },
+          "acme/ok": { repo: "acme/ok", level: "L3", overall: 70 },
+        }}
+      />,
+    );
+    expect(screen.getAllByRole("link", { name: /Onboarding skill/ })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /Onboarding skill for acme\/ok/ })).toHaveAttribute(
+      "href",
+      "/api/report/skill?repo=acme%2Fok",
+    );
+    expect(screen.queryByRole("link", { name: /acme\/skip/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /acme\/err/ })).toBeNull();
+  });
+
+  it("hides the download while scanning, even if a row already has a level", () => {
+    render(
+      <ScanStep
+        {...base}
+        phase="scanning"
+        rows={{ "acme/ok": { repo: "acme/ok", level: "L3", overall: 70 } }}
+      />,
+    );
+    expect(screen.queryByRole("link", { name: /Onboarding skill/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Download SKILL.md" })).toBeNull();
+  });
+
+  it("renders no download panel when no repo scored", () => {
+    render(<ScanStep {...base} rows={{}} />);
+    expect(screen.queryByRole("link", { name: /Onboarding skill/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Download SKILL.md" })).toBeNull();
+  });
+});

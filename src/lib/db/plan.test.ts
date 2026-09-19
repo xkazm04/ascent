@@ -4,16 +4,8 @@
 // that guards `achievedAt` from being re-stamped (and the recorded achievement date corrupted) on
 // every subsequent page load is the `g.status === "active"` idempotency guard — pinned here, plus
 // the below-target "no write" case and the progress / laggard derivation math.
-//
-// ALSO pins the *what-if simulator orchestration* (test-mastery-2026-06-18 finding #2, High): the
-// DB-glue functions `simulateOrgFixes`, `rankOrgInvestments`, and `goalImpactsForScenario` read the
-// fleet snapshot / active goals from Prisma and feed the PURE simulator math (orgsim.ts) + goal
-// projector (forecast.ts). The pure leaves are covered in orgsim.test.ts / forecast.test.ts; here we
-// mock the readers and let the real math run, pinning the glue: archetype defaulting, empty-scope →
-// all-scanned-repos resolution, the documented null-on-no-data path (so the route 404s), the
-// projected fleet delta, the by-value investment ranking, and the per-scenario goal-impact mapping.
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
@@ -398,55 +390,6 @@ describe("listGoals pct — progress from a stored baseline, attainment (labelle
   });
 });
 
-// ── What-if simulator orchestration (finding #2, High) ───────────────────────
-// simulateOrgFixes / rankOrgInvestments read fleetSnapshot from Prisma then run the PURE
-// simulateFleet / rankFleetInvestments. We mock the readers (resolveOrgId + repository.findMany)
-// and let the real math run, pinning the GLUE: scope resolution, archetype defaulting, the
-// null-on-no-data contract, and the exact projected delta / ranking the real pure layer produces.
-
-const ALL_DIMS = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"] as const;
-
-/** A repo seed with every dimension at one flat score — under the "org" lens recompute === flat. */
-function flatRepoSeed(fullName: string, score: number, archetype = "org"): SimRepoSeed {
-  const dims: Record<string, number> = {};
-  for (const d of ALL_DIMS) dims[d] = score;
-  return { fullName, name: fullName.split("/")[1] ?? fullName, overall: score, archetype, dims };
-}
-
-interface SimRepoSeed {
-  fullName: string;
-  name: string;
-  overall: number;
-  /** null models a scan that never persisted an archetype → must default to "org". */
-  archetype?: string | null;
-  dims: Record<string, number>;
-}
-
-/**
- * Fake prisma for the simulator orchestration: covers `resolveOrgId` (organization.findUnique) and
- * `fleetSnapshot` (repository.findMany). `orgId: null` models an unknown org (resolveOrgId → null).
- */
-function fakeSimPrisma(opts: { repos: SimRepoSeed[]; orgId?: string | null }) {
-  const orgId = opts.orgId === undefined ? ORG_ID : opts.orgId;
-  const repoRows = opts.repos.map((r) => ({
-    fullName: r.fullName,
-    name: r.name,
-    scans: [
-      {
-        overallScore: r.overall,
-        adoptionScore: r.overall,
-        rigorScore: r.overall,
-        archetype: r.archetype === undefined ? "org" : r.archetype,
-        dimensions: Object.entries(r.dims).map(([dimId, score]) => ({ dimId, score })),
-      },
-    ],
-  }));
-  return {
-    organization: { findUnique: vi.fn(async () => (orgId ? { id: orgId } : null)) },
-    repository: { findMany: vi.fn(async () => repoRows) },
-  };
-}
-
 describe("isGoalMetric — accepts exactly {overall, adoption, rigor, D1..D9}, rejects the rest", () => {
   const VALID = ["overall", "adoption", "rigor", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"];
 
@@ -651,13 +594,17 @@ describe("dailyAvg (via listGoals trend) — collapses same-day points to a per-
   });
 
   it("a clear rising day-over-day mean yields a positive trend (perWeek > 0, an ETA exists)", async () => {
-    // Day 1 mean ≈ 50, then a strictly rising mean each day for two weeks → positive slope.
-    const scans = Array.from({ length: 14 }, (_, d) => ({
-      at: `2026-05-${String(d + 1).padStart(2, "0")}T06:00:00.000Z`,
+    // Day 1 mean ≈ 50, then a strictly rising mean each day across the presentability span
+    // (MIN_FORECAST_SPAN_DAYS = 14) so projectGoal may emit an ETA. Anchor the series on now so
+    // the nowMs-corrected projector does not null a past crossing (Wave 5 goal-ETA gate).
+    const dayMs = 86_400_000;
+    const origin = Date.now() - 14 * dayMs;
+    const scans = Array.from({ length: 15 }, (_, d) => ({
+      at: new Date(origin + d * dayMs).toISOString(),
       overall: 50 + d * 2, // rises 2/day across distinct days
     }));
     // add a same-day duplicate on day 1 that must be averaged in (50 and 54 → mean 52, still rising)
-    scans.push({ at: "2026-05-01T20:00:00.000Z", overall: 54 });
+    scans.push({ at: new Date(origin + 14 * 3600_000).toISOString(), overall: 54 });
     const prisma = fakeTrendPrisma(scans);
     (prisma.goal as { update?: unknown }).update = vi.fn(async () => ({ id: "g1" }));
     mockGetPrisma.mockReturnValue(prisma);

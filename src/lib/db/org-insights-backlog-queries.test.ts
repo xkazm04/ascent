@@ -25,6 +25,11 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrisma: mockGetPrisma }));
+// The lazy lease sweep is a separate write path (pinned in org-insights-backlog.test.ts). Mocked
+// here so the query-plan counts stay the six-flat-query shape this file exists to protect.
+vi.mock("@/lib/db/followup-claims", () => ({
+  sweepExpiredLeases: vi.fn(async () => 0),
+}));
 
 import { getOrgBacklog } from "./org-insights";
 

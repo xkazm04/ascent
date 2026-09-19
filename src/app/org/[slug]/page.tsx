@@ -5,7 +5,7 @@ import { countInFlightPrs, getOrgHeaderSummary } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { resolveLandingTab } from "@/lib/org/landing";
-import { isMigratedOrgTab, isOrgTabId, legacyOrgTabPath } from "@/lib/org/orgTabs";
+import { buildUrl, isMigratedOrgTab, isOrgTabId, legacyOrgTabPath } from "@/lib/org/orgTabs";
 
 // Kept from the layout's contract: the tenant gate must never be cached.
 export const dynamic = "force-dynamic";
@@ -71,6 +71,16 @@ export default async function OrgDashboardPage({
   const [summary, inFlightPrs] = await Promise.all([getOrgHeaderSummary(slug), countInFlightPrs(slug)]);
   const landing = resolveLandingTab({ scannedCount: summary?.scannedCount ?? 0, inFlightPrs });
   const tab = isOrgTabId(raw) ? raw : landing;
+
+  // `followups` is the Proposals tab's former id (merged 2026-09-15). Redirect rather than render, so
+  // the rail lights the item the page shows and the URL a reader copies is the current one. Every
+  // other param (period, scope, `?dim=`) rides along.
+  if (tab === "followups") {
+    const qs = new URLSearchParams(
+      Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : Array.isArray(v) ? v.map((x) => [k, x]) : [])),
+    );
+    redirect(buildUrl(slug, { tab: "proposals" }, qs.toString()));
+  }
 
   // MIGRATION SEAM (delete with MIGRATED_ORG_TAB_IDS): a valid id whose panel isn't registered in
   // OrgTabChunks yet still has a working route of its own — send the deep link there rather than

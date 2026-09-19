@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { BAND_EDGES, CHART_INK, levelBandRects, vScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { MOCK_SR_SUFFIX, isMockEngine } from "@/components/report/chartEngine";
+import type { TrendAnnotation } from "@/app/trends/annotations";
 import { scoreHex } from "@/lib/ui";
 
 /** Per-scan metadata aligned 1:1 with a DimLine's values array (for hover tooltips + deep links). */
@@ -54,11 +55,14 @@ export function DimLine({
   meta,
   name,
   current,
+  annotations = [],
 }: {
   values: (number | null)[];
   meta: ScanMeta[];
   name?: string;
   current?: number;
+  /** G5-18 event markers. Matched to this series by `meta.at` identity — same contract as TrendChart. */
+  annotations?: TrendAnnotation[];
 }) {
   const W = 320;
   const H = 90;
@@ -88,6 +92,13 @@ export function DimLine({
 
   const lastReal = [...values].reverse().find((v): v is number => v !== null) ?? 0;
   const drawnCount = present.length;
+  // Resolve each annotation to a visible index by timestamp identity; drop those whose scan isn't
+  // in this slice. NEVER by array index — the range toggle slices `meta` while the annotation list
+  // is derived from the full history. An unmatched marker is omitted, never clamped to an edge.
+  const indexByAt = new Map(meta.map((m, i) => [m.at, i]));
+  const annotationMarks = annotations
+    .map((ann) => ({ ann, i: indexByAt.get(ann.at) }))
+    .filter((m): m is { ann: TrendAnnotation; i: number } => m.i !== undefined);
   // `a` is kept in-bounds by useChartHover (reset on resize); still, index defensively — a stale
   // index yields `undefined` (rendered as nothing) rather than a thrown assertion.
   const act = a !== null ? present[a] : undefined;
@@ -171,6 +182,23 @@ export function DimLine({
         <text x={3} y={y(65) - 2} fontSize={8} className="fill-slate-600">
           65
         </text>
+        {annotationMarks.map(({ ann, i }) => (
+          <g key={ann.scanId} data-annotation={ann.scanId}>
+            <line
+              x1={x(i)}
+              x2={x(i)}
+              y1={0}
+              y2={H}
+              stroke="var(--color-divider)"
+              strokeWidth={1}
+              strokeDasharray="2 4"
+            />
+            <text x={x(i)} y={8} textAnchor="middle" fontSize={8} className="fill-slate-500">
+              {ann.label}
+              <title>{ann.detail}</title>
+            </text>
+          </g>
+        ))}
         {act && <line x1={x(act.i)} x2={x(act.i)} y1={0} y2={H} stroke={CHART_INK.crosshair} strokeWidth={1} strokeDasharray="3 3" />}
         {drawnCount > 1 && <path d={path.trim()} fill="none" stroke={scoreHex(lastReal)} strokeWidth={2.25} />}
         {values.map((v, i) => {

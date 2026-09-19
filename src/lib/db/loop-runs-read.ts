@@ -310,7 +310,36 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
   for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug, laneKindOf(run.targets, lane)));
   // The economics ride ALONGSIDE the outcomes, folded from the very same pair — so the ledger's
   // ¢/point and its before → after can never come from two different readings of one lane.
-  return { run, lanes, outcomes, economics: outcomes.map(laneEconomics), itemOutcomes: await listRunOutcomes(id) };
+  return {
+    run,
+    lanes,
+    outcomes,
+    economics: outcomes.map(laneEconomics),
+    itemOutcomes: await listRunOutcomes(id),
+    batchTitles: await batchTitlesFor(lanes),
+  };
+}
+
+/**
+ * THE TITLE OF EVERY ITEM THIS RUN DISPATCHED, by id.
+ *
+ * WHY IT IS A SEPARATE READ. The sheet titles an armed-but-unresolved item from the lane's own
+ * before/after scans, and a lane that FAILED has neither — so the fallback printed the raw id. The
+ * title is on the `Recommendation` row the whole time; nothing but the absence of a query stood
+ * between the ledger and it. One `IN` over the run's whole batch, never one per row.
+ *
+ * NOT TENANT-GATED HERE, deliberately: the ids come from this run's own lanes, `getLoopRunDetail` is
+ * already behind the run's org gate, and an id a lane dispatched is by construction an id that org
+ * owned. A row that has since been deleted simply resolves to nothing, which the client renders as
+ * the last-resort label rather than as a uuid.
+ */
+async function batchTitlesFor(lanes: readonly LoopLaneRecord[]): Promise<Record<string, { title: string; dimId: string | null }>> {
+  const ids = [...new Set(lanes.flatMap((l) => l.batchIds))];
+  if (ids.length === 0) return {};
+  const rows = await getPrisma()
+    .recommendation.findMany({ where: { id: { in: ids } }, select: { id: true, title: true, dimId: true } })
+    .catch(() => []);
+  return Object.fromEntries(rows.map((r) => [r.id, { title: r.title, dimId: r.dimId }]));
 }
 
 /**

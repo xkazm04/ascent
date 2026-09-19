@@ -3,7 +3,10 @@
 // the sign-in prompt never rendered. And when a page did render it, SignInNotice's default provider was
 // the dormant custom-OAuth button, which dead-ends at /connect?error=not_configured.
 //
-// The first two cases below both fail against the old predicate. Keep them that way.
+// A later regression: custom-OAuth-only env (GITHUB_OAUTH_* set, Supabase wall off) still offered
+// provider github, but GET /api/auth/login now redirects auth_stack_retired unless Supabase is also
+// configured — a button that cannot sign anyone in. The first two cases fail against the old
+// predicate; the custom-only case fails against the pre-retire github prompt. Keep them that way.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -58,20 +61,23 @@ describe("resolveSignInState", () => {
     mockGetViewer.mockResolvedValue(null);
     mockGetSessionState.mockResolvedValue({ session: { login: "stale" }, status: "active" });
 
-    // A stray custom-OAuth cookie must not let someone past the Supabase wall.
-    expect((await resolveSignInState()).needsSignIn).toBe(true);
+    // A stray custom-OAuth cookie must not let someone past the Supabase wall,
+    // and the retired github button must not be the prompt.
+    const s = await resolveSignInState();
+    expect(s.needsSignIn).toBe(true);
+    expect(s.provider).toBe("supabase");
   });
 
-  it("dev box with only the legacy OAuth configured: prompts, and distinguishes an expired session", async () => {
+  it("custom-only env: /api/auth/login would retire the stack, so do not prompt and do not offer github", async () => {
     mockAuthGateEnabled.mockReturnValue(false);
-    mockIsAuthConfigured.mockReturnValue(true);
+    mockIsAuthConfigured.mockReturnValue(true); // GITHUB_OAUTH_* set; login bounces auth_stack_retired
     mockGetSessionState.mockResolvedValue({ session: null, status: "expired" });
 
     const s = await resolveSignInState();
 
-    expect(s.needsSignIn).toBe(true);
-    expect(s.provider).toBe("github");
-    expect(s.expired).toBe(true);
+    expect(s.needsSignIn).toBe(false);
+    expect(s.provider).not.toBe("github");
+    expect(s.expired).toBe(false);
     expect(mockGetViewer).not.toHaveBeenCalled();
   });
 
@@ -82,6 +88,7 @@ describe("resolveSignInState", () => {
     const s = await resolveSignInState();
 
     expect(s.needsSignIn).toBe(false);
+    expect(s.provider).not.toBe("github");
     expect(mockGetViewer).not.toHaveBeenCalled();
   });
 });

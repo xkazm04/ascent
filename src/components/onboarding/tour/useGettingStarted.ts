@@ -18,17 +18,24 @@ export interface GettingStartedFeed {
   payload: GettingStartedPayload | null;
   /** True once the first response (or its failure) has settled — the posture decision waits for it. */
   loaded: boolean;
+  /**
+   * True when the latest read failed. A failed read with no last-good payload is not teaching and
+   * not an empty checklist: we do not know the stamp.
+   */
+  failed: boolean;
   refresh: () => void;
 }
 
 /**
- * Fetch + poll the checklist for `slug`. A failed read leaves the last good payload in place and
- * degrades to the teaching posture rather than blanking the drawer: guidance chrome must never be the
- * thing that breaks a dashboard.
+ * Fetch + poll the checklist for `slug`. A failed read leaves the last good payload in place.
+ * With nothing good to show, the drawer is `unavailable` (not teaching, not an empty checklist):
+ * a miss is not evidence that setup is done or that there is nothing to do. An aborted in-flight
+ * read is neither a miss nor a success, so it does not flip `loaded`/`failed`.
  */
 export function useGettingStarted(slug: string): GettingStartedFeed {
   const [payload, setPayload] = useState<GettingStartedPayload | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
   const alive = useRef(true);
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((t) => t + 1), []);
@@ -50,11 +57,15 @@ export function useGettingStarted(slug: string): GettingStartedFeed {
         });
         if (!res.ok) throw new Error(String(res.status));
         const data = (await res.json()) as GettingStartedPayload;
-        if (alive.current) setPayload(data);
+        if (!alive.current) return;
+        setPayload(data);
+        setFailed(false);
       } catch {
-        /* keep the last good payload — see the degrade note above */
+        // Keep the last good payload. An abort is a cancelled attempt, not a miss.
+        if (controller.signal.aborted || !alive.current) return;
+        setFailed(true);
       } finally {
-        if (alive.current) setLoaded(true);
+        if (alive.current && !controller.signal.aborted) setLoaded(true);
       }
     })();
     return () => controller.abort();
@@ -69,7 +80,7 @@ export function useGettingStarted(slug: string): GettingStartedFeed {
     return () => window.clearInterval(id);
   }, [refresh]);
 
-  return { payload, loaded, refresh };
+  return { payload, loaded, failed, refresh };
 }
 
 /**

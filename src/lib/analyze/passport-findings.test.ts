@@ -14,6 +14,7 @@ import {
   UNKNOWN_CAPABILITY,
   applyPassportOverrides,
   buildPassport,
+  isCoverageHoleFinding,
   parseDeclined,
   parsePassportJson,
 } from "@/lib/analyze/passport";
@@ -82,10 +83,13 @@ describe("named capability fields are three-valued (absent vs could-not-classify
     const blind = buildPassport(report(), uninspected()).productionReadiness;
     expect(blind.findings?.map((f) => f.id)).toContain("prod.observability-unassessable");
     expect(blind.findings?.map((f) => f.id)).not.toContain("prod.zero-observability");
+    // G4: a coverage hole is not a scored blocker — the rung names it; Blockers does not.
+    expect(blind.blockers.some((b) => /could not be assessed/i.test(b))).toBe(false);
 
     const seen = buildPassport(report(), inspected()).productionReadiness;
     expect(seen.findings?.map((f) => f.id)).toContain("prod.zero-observability");
     expect(seen.findings?.map((f) => f.id)).not.toContain("prod.observability-unassessable");
+    expect(seen.blockers.some((b) => /^Zero observability/.test(b))).toBe(true);
   });
 });
 
@@ -124,9 +128,12 @@ describe("evidence.fields — per-field detection strength", () => {
 describe("blockers carry a minted id that survives a rewording", () => {
   const base = buildPassport(report(), inspected());
 
-  it("mints the CAUSE, not the wording — blockers[] stays the rendered projection of findings[]", () => {
-    expect(base.productionReadiness.blockers).toEqual(base.productionReadiness.findings!.map((f) => f.text));
+  it("mints the CAUSE, not the wording — blockers[] is the scored projection of findings[]", () => {
+    const scored = base.productionReadiness.findings!.filter((f) => !isCoverageHoleFinding(f)).map((f) => f.text);
+    expect(base.productionReadiness.blockers).toEqual(scored);
     expect(base.automationReadiness.findings!.map((f) => f.id)).toContain("auto.no-memory");
+    expect(base.productionReadiness.findings!.map((f) => f.id)).toContain("prod.enforcement-not-observable");
+    expect(base.productionReadiness.blockers.some((b) => /not observable/i.test(b))).toBe(false);
   });
 
   it("a REWORDED blocker keeps its decline — the join is on the id, not the sentence", () => {
@@ -146,7 +153,9 @@ describe("blockers carry a minted id that survives a rewording", () => {
   it("retires the line from findings[] and blockers[] together, so they never drift", () => {
     const pp = applyPassportOverrides(base, { declined: { "productionReadiness.ci": {} } });
     expect(pp.productionReadiness.findings!.map((f) => f.id)).not.toContain("prod.ci-not-gating");
-    expect(pp.productionReadiness.blockers).toEqual(pp.productionReadiness.findings!.map((f) => f.text));
+    expect(pp.productionReadiness.blockers).toEqual(
+      pp.productionReadiness.findings!.filter((f) => !isCoverageHoleFinding(f)).map((f) => f.text),
+    );
   });
 
   it("back-fills ids for a stored pre-0.4.0 row so an existing decline is not orphaned by the fix", () => {
@@ -232,5 +241,140 @@ describe("a decline is re-confirmed when the repo it was made about changes", ()
     expect(ok?.["productionReadiness.ci"]).toEqual({ at: "2026-01-02", code: "ci-not-gating", severity: "block" });
     const bad = parseDeclined({ "productionReadiness.ci": { code: "Not A Code!", severity: "catastrophic" } });
     expect(bad?.["productionReadiness.ci"]).toEqual({});
+  });
+});
+
+// ── the fourth conflation: "we read no CI gates" vs "we never read the workflows" ─────────────────
+//
+// Workflow CONTENT reaches `probes()` through a BOUNDED fetch — a reserved 24-file quota, a per-file
+// byte cap, and a byte plan that displaces picks (see forge/source-selection.ts) — while the tree
+// listing is complete. When the two disagree, `workflowText` is short of what the repository has, and
+// the CI/Security detectors read that shortfall as an absence. The same conflation UNKNOWN_CAPABILITY
+// un-picks for the dependency list, one field over.
+describe("bounded workflow reads are a coverage fact, not an absence", () => {
+  const wf = ".github/workflows/ci.yml";
+  const CLEAN_WF = "name: ci\njobs:\n  test:\n    steps:\n      - run: npm test\n";
+  const SAST_WF = "name: ci\njobs:\n  codeql:\n    steps:\n      - uses: github/codeql-action/analyze\n";
+  type F = { path: string; content: string; bytes: number };
+  const snapWf = (tree: string[], files: F[]): Snap => ({
+    meta: meta(),
+    tree: tree.map((p) => ({ path: p, type: "blob" as const })),
+    files,
+    commits: [],
+    coverage: 1,
+  });
+  const ids = (s: Snap) => (buildPassport(report(), s).productionReadiness.findings ?? []).map((f) => `${f.id}:${f.severity}`);
+
+  it("case 1 observed-real-gap: content read, nothing scanning — the blocks stand", () => {
+    const got = ids(snapWf(["package.json", wf], [{ path: wf, content: CLEAN_WF, bytes: CLEAN_WF.length }]));
+    expect(got).toContain("prod.ci-not-gating:block");
+    expect(got).toContain("prod.no-security-scanning:block");
+  });
+
+  it("case 2 unread: the tree lists a workflow the snapshot does not carry", () => {
+    const s = snapWf(["package.json", wf], []);
+    const got = ids(s);
+    expect(got).toContain("prod.ci-unassessable:info");
+    expect(got).toContain("prod.security-unassessable:info");
+    expect(got).not.toContain("prod.ci-not-gating:block");
+    expect(got).not.toContain("prod.no-security-scanning:block");
+    expect(buildPassport(report(), s).productionReadiness.blockers.some((b) => /could not be assessed/i.test(b))).toBe(false);
+  });
+
+  it("case 3 partial: three workflows listed, one read", () => {
+    const got = ids(
+      snapWf(["package.json", wf, ".github/workflows/release.yml", ".github/workflows/audit.yml"], [
+        { path: wf, content: CLEAN_WF, bytes: CLEAN_WF.length },
+      ]),
+    );
+    expect(got).toContain("prod.ci-unassessable:info");
+    expect(got).not.toContain("prod.no-security-scanning:block");
+  });
+
+  it("case 4 truncated: the one workflow read was cut at the per-file cap", () => {
+    const got = ids(snapWf(["package.json", wf], [{ path: wf, content: CLEAN_WF, bytes: CLEAN_WF.length + 4096 }]));
+    expect(got).toContain("prod.ci-unassessable:info");
+    expect(got).not.toContain("prod.ci-not-gating:block");
+  });
+
+  it("case 5 no-workflows: an OBSERVED absence still blocks (the rule must not swallow real gaps)", () => {
+    const got = ids(snapWf(["package.json", "main.py"], []));
+    expect(got).toContain("prod.ci-not-gating:block");
+    expect(got).toContain("prod.no-security-scanning:block");
+    expect(got).not.toContain("prod.ci-unassessable:info");
+  });
+
+  it("case 6 observed-clean: scanning found in read content — no security block either way", () => {
+    const got = ids(snapWf(["package.json", wf], [{ path: wf, content: SAST_WF, bytes: SAST_WF.length }]));
+    expect(got).not.toContain("prod.no-security-scanning:block");
+    expect(got).not.toContain("prod.security-unassessable:info");
+  });
+});
+
+// ── the fifth conflation: "we read no tests/scripts" vs "we never read package.json" ───────────────
+//
+// detectTests forces level none when frameworks.length===0; detectSelfVerify treats missing scripts
+// as false and mints auto.self-verify-gaps at block. Both read package.json. When the same
+// depsObservable probe monitoring uses is false, empty is unread, not absence (G4).
+describe("unread package.json is unassessable for tests and self-verify", () => {
+  const autoIds = (s: Snap, over: Partial<ScanReport> = {}) =>
+    (buildPassport(report(over), s).automationReadiness.findings ?? []).map((f) => `${f.id}:${f.severity}`);
+  const prodIds = (s: Snap, over: Partial<ScanReport> = {}) =>
+    (buildPassport(report(over), s).productionReadiness.findings ?? []).map((f) => `${f.id}:${f.severity}`);
+
+  it("2 of 2 detectors honor depsObservable: no package.json is unassessable, not none/block", () => {
+    const s = uninspected();
+    const highD2 = { dimensions: [{ id: "D2", score: 75 }] as unknown as ScanReport["dimensions"] };
+    const auto = autoIds(s);
+    const prod = prodIds(s, highD2);
+    expect(prod).toContain("prod.tests-unassessable:info");
+    expect(auto).toContain("auto.self-verify-unassessable:info");
+    expect(auto).not.toContain("auto.self-verify-gaps:block");
+    const pp = buildPassport(report(highD2), s);
+    expect(pp.productionReadiness.tests.frameworks).toEqual([]);
+    expect(pp.productionReadiness.blockers.some((b) => /could not be assessed/i.test(b))).toBe(false);
+    expect(pp.automationReadiness.blockers.some((b) => /self-verify/i.test(b))).toBe(false);
+    expect(isCoverageHoleFinding({ id: "prod.tests-unassessable", code: "tests-unassessable" })).toBe(true);
+    expect(isCoverageHoleFinding({ id: "auto.self-verify-unassessable", code: "self-verify-unassessable" })).toBe(true);
+  });
+
+  it("listed-but-unread package.json (tree has it, files do not) is the same coverage hole", () => {
+    const s = snap({ tree: ["package.json", "src/index.ts"] });
+    expect(prodIds(s)).toContain("prod.tests-unassessable:info");
+    expect(autoIds(s)).toContain("auto.self-verify-unassessable:info");
+    expect(autoIds(s)).not.toContain("auto.self-verify-gaps:block");
+  });
+
+  it("malformed package.json is unread, not an empty manifest", () => {
+    const s = snap({ tree: ["package.json"], files: { "package.json": "{not json" } });
+    expect(prodIds(s)).toContain("prod.tests-unassessable:info");
+    expect(autoIds(s)).not.toContain("auto.self-verify-gaps:block");
+  });
+
+  it("when package.json WAS read and truly has no tests/scripts, keep today's none/block", () => {
+    const s = inspected();
+    const highD2 = { dimensions: [{ id: "D2", score: 75 }] as unknown as ScanReport["dimensions"] };
+    const pp = buildPassport(report(highD2), s);
+    expect(pp.productionReadiness.tests.level).toBe("none");
+    expect(prodIds(s, highD2)).not.toContain("prod.tests-unassessable:info");
+    expect(autoIds(s)).toContain("auto.self-verify-gaps:block");
+    expect(autoIds(s)).not.toContain("auto.self-verify-unassessable:info");
+    expect(pp.automationReadiness.blockers.some((b) => /^Agent can't self-verify/.test(b))).toBe(true);
+  });
+
+  it("a readable package.json with frameworks and scripts keeps the measured level, not a hole", () => {
+    const s = inspected(
+      JSON.stringify({
+        scripts: { build: "next build", test: "vitest run", lint: "eslint .", typecheck: "tsc --noEmit" },
+        devDependencies: { vitest: "4" },
+      }),
+    );
+    const highD2 = { dimensions: [{ id: "D2", score: 75 }] as unknown as ScanReport["dimensions"] };
+    const pp = buildPassport(report(highD2), s);
+    expect(pp.productionReadiness.tests.level).toBe("substantial");
+    expect(pp.productionReadiness.tests.frameworks).toContain("vitest");
+    expect(prodIds(s, highD2)).not.toContain("prod.tests-unassessable:info");
+    expect(autoIds(s)).not.toContain("auto.self-verify-gaps:block");
+    expect(autoIds(s)).not.toContain("auto.self-verify-unassessable:info");
   });
 });

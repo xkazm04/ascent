@@ -24,7 +24,7 @@ vi.mock("@/lib/db/client", () => ({
   dbReadSafe: mockDbReadSafe,
 }));
 
-import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole, listOrgsForLogin, ensureOwnerMembership } from "./members";
+import { isOrgRole, roleAtLeast, setMembershipRole, removeMembership, getMembershipRole, listOrgsForLogin, ensureOwnerMembership, listOrgMembers } from "./members";
 import { createInvite, listPendingInvites } from "./invites";
 
 describe("roleAtLeast", () => {
@@ -718,5 +718,62 @@ describe("canonical slug normalization is shared + consistent across members and
 
     // Both invite paths reach getOrgId with the identical lowercased slug members resolves to — no drift.
     expect(orgSlugLookups).toEqual(["acme-corp", "acme-corp"]);
+  });
+});
+
+// --- listOrgMembers: GET /api/org/members ships ISO createdAt, never a Date ----------------------
+// Prisma hands back Date; NextResponse.json would stringify it, but OrgMember declared Date so a
+// client `createdAt.getTime()` type-checked and threw. toRow maps `.toISOString()` before the row
+// leaves this module.
+
+function fakeMembersPrisma(
+  rows: Array<{ role: string; createdAt: Date; githubLogin: string | null; name: string | null }> | null,
+) {
+  return {
+    organization: { findUnique: vi.fn(async () => (rows === null ? null : { id: "org_1" })) },
+    membership: {
+      findMany: vi.fn(async () =>
+        (rows ?? []).map((r) => ({
+          role: r.role,
+          createdAt: r.createdAt,
+          user: { githubLogin: r.githubLogin, name: r.name },
+        })),
+      ),
+    },
+  };
+}
+
+describe("listOrgMembers maps createdAt to an ISO string", () => {
+  it("returns [] when the DB is off or the org is unknown", async () => {
+    mockIsDbConfigured.mockReturnValueOnce(false);
+    expect(await listOrgMembers("acme")).toEqual([]);
+
+    mockGetPrisma.mockReturnValue(fakeMembersPrisma(null));
+    expect(await listOrgMembers("ghost")).toEqual([]);
+  });
+
+  it("maps Prisma Date createdAt to ISO so GET /api/org/members never ships a Date", async () => {
+    const at = new Date("2026-01-15T12:34:56.000Z");
+    mockGetPrisma.mockReturnValue(
+      fakeMembersPrisma([{ role: "owner", createdAt: at, githubLogin: "alice", name: "Alice" }]),
+    );
+
+    const members = await listOrgMembers("acme");
+
+    expect(members).toEqual([
+      { login: "alice", name: "Alice", role: "owner", createdAt: "2026-01-15T12:34:56.000Z" },
+    ]);
+    expect(typeof members[0]!.createdAt).toBe("string");
+    expect(members[0]!.createdAt).toBe(at.toISOString());
+  });
+
+  it("coerces an unreadable stored role to the floor and substitutes a missing login", async () => {
+    const at = new Date("2026-03-01T00:00:00.000Z");
+    mockGetPrisma.mockReturnValue(
+      fakeMembersPrisma([{ role: "superuser", createdAt: at, githubLogin: null, name: null }]),
+    );
+    expect(await listOrgMembers("acme")).toEqual([
+      { login: "(unknown)", name: null, role: "viewer", createdAt: "2026-03-01T00:00:00.000Z" },
+    ]);
   });
 });

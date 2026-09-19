@@ -5,6 +5,8 @@
 //
 // Authored with NO backticks or ${...} so it embeds verbatim in the template literal / SKILL.md.
 
+import { GUIDANCE_PARSER_SOURCE } from "./guidance-parser-source";
+import { MEMORY_ENTRY_RE, MEMORY_FILENAME_RE } from "./memory-entry";
 import type { GeneratedFile } from "./types";
 
 const MAINTAIN = `#!/usr/bin/env node
@@ -20,12 +22,25 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+${GUIDANCE_PARSER_SOURCE}
+
 const cmd = process.argv[2] || 'check';
 const MEM = '.ai/memory';
 const INDEX = '.ai/context-index.json';
-const git = (a) => { try { return execSync('git ' + a, { encoding: 'utf8' }).trim(); } catch { return ''; } };
+const git = (a, raw = false) => { try { const out = execSync('git ' + a, { encoding: 'utf8' }); return raw ? out : out.trim(); } catch { return ''; } };
 const dirOf = (p) => { const i = p.lastIndexOf('/'); return i < 0 ? '.' : p.slice(0, i); };
-const loadIndex = () => { try { return JSON.parse(readFileSync(INDEX, 'utf8')); } catch { return { modules: [] }; } };
+const loadIndex = () => {
+  if (!existsSync(INDEX)) return { modules: [] };
+  try {
+    const idx = JSON.parse(readFileSync(INDEX, 'utf8'));
+    if (!idx || typeof idx !== 'object' || Array.isArray(idx) || (idx.modules !== undefined && !Array.isArray(idx.modules)))
+      throw new Error('expected an object with a modules array');
+    return idx;
+  } catch (e) {
+    console.error('Cannot read ' + INDEX + ': ' + e.message + '. Repair the index before continuing; it has not been changed.');
+    process.exit(1);
+  }
+};
 const readStdin = () => { try { return readFileSync(0, 'utf8'); } catch { return ''; } };
 
 // The set of files 'check' should police depends on WHERE it runs. It is documented for a pre-push hook,
@@ -57,20 +72,21 @@ function rangeFor(r) {
 
 function changed() {
   const files = new Set();
-  const add = (out) => { for (const f of out.split('\\n')) { const t = f.trim(); if (t) files.add(t); } };
+  // NUL records preserve Git's actual paths: no C-style quoting or whitespace trimming.
+  const add = (out) => { for (const f of out.split('\\0')) { if (f) files.add(f); } };
   // 1) PRE-PUSH: git pipes the pushed refs on stdin as "<localRef> <localSha> <remoteRef> <remoteSha>".
   //    Diff each pushed range - the commits about to leave this machine. A TTY stdin means there is no
   //    pushed-ref payload (an interactive run), so we never block trying to read it.
   const refs = process.stdin.isTTY ? [] : parsePushLines(readStdin());
-  if (refs.length) { for (const r of refs) add(git('diff --name-only ' + rangeFor(r))); return [...files]; }
+  if (refs.length) { for (const r of refs) add(git('diff --name-only -z ' + rangeFor(r), true)); return [...files]; }
   // 2) PRE-PUSH under a hook runner that did NOT forward stdin: if HEAD is committed ahead of its push/
   //    upstream ref AND the worktree is otherwise clean, diff those unpushed commits (a clean worktree
   //    diffs to nothing - the whole bug). A dirty tree falls through to (3), so pre-commit/manual survive.
   const base = git('rev-parse --verify --quiet @{push}') || git('rev-parse --verify --quiet @{upstream}');
-  if (base && !git('status --porcelain')) { add(git('diff --name-only ' + base + '..HEAD')); return [...files]; }
+  if (base && !git('status --porcelain')) { add(git('diff --name-only -z ' + base + '..HEAD', true)); return [...files]; }
   // 3) MANUAL run or a PRE-COMMIT placement: the uncommitted working tree + staged index (what it can see).
-  add(git('diff --name-only HEAD'));
-  add(git('diff --name-only --cached'));
+  add(git('diff --name-only -z HEAD', true));
+  add(git('diff --name-only -z --cached', true));
   return [...files];
 }
 
@@ -93,7 +109,7 @@ if (cmd === 'check') {
   }
   for (const w of warnings) console.log('[WARN] ' + w);
   if (!warnings.length) console.log('[OK  ] CONTEXT graph current for changed modules.');
-  const memNew = files.some((f) => f.startsWith(MEM + '/') && /\\d{4}-/.test(f));
+  const memNew = files.some((f) => ${MEMORY_ENTRY_RE}.test(f));
   const codeChanged = files.some((f) => !f.startsWith('.ai/') && !f.endsWith('CONTEXT.md'));
   if (codeChanged && !memNew) console.log('[INFO] Learned something durable? Log it: node .ai/maintain.mjs note <kind> "<one fact>"');
   process.exit(process.argv.includes('--strict') && warnings.length ? 1 : 0);
@@ -112,7 +128,7 @@ if (cmd === 'note') {
   // loss in the append-only ledger this standard sells to multi-agent workflows. On EEXIST (same id
   // AND same slug) the loser re-lists - the winner's file now raises the max - and retries.
   for (let attempt = 0; attempt < 20; attempt++) {
-    const ids = readdirSync(MEM).map((f) => parseInt((f.match(/^(\\d{4})-/) || [])[1], 10)).filter((n) => !isNaN(n));
+    const ids = readdirSync(MEM).map((f) => parseInt((f.match(${MEMORY_FILENAME_RE}) || [])[1], 10)).filter((n) => !isNaN(n));
     const next = String((ids.length ? Math.max(...ids) : 0) + 1).padStart(4, '0');
     const file = MEM + '/' + next + '-' + slug + '.md';
     const fm = '---\\nid: ' + next + '\\nkind: ' + kind + '\\nscope: repo\\ndate: ' + new Date().toISOString().slice(0, 10) + '\\nsupersedes: null\\nrefs: []\\n---\\n\\n';
@@ -154,19 +170,13 @@ if (cmd === 'project') {
   const MPATH = '.ai/manifest.yaml';
   if (!existsSync(MPATH)) { console.error('no ' + MPATH + ' - nothing to project from'); process.exit(2); }
   const mtext = readFileSync(MPATH, 'utf8');
-  const gblock = mtext.split(/\\nguidance:\\n/)[1];
-  if (!gblock) { console.log('[INFO] no guidance block in ' + MPATH + ' - nothing to project. Add: guidance: { canonical, projections }'); process.exit(0); }
-  const cm = gblock.match(/^\\s+canonical:\\s*(.+)$/m);
-  const canonical = cm ? cm[1].trim().replace(/^"|"$/g, '') : '';
+  const guidance = parseGuidance(mtext);
+  if (!guidance) { console.log('[INFO] no guidance block in ' + MPATH + ' - nothing to project. Add: guidance: { canonical, projections }'); process.exit(0); }
+  const { lines, canonical, rows } = guidance;
   if (!canonical || !existsSync(canonical)) { console.error('guidance.canonical is missing or does not resolve: ' + canonical); process.exit(1); }
   const sourceBody = readFileSync(canonical, 'utf8');
   const sha12 = (t) => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 12);
-  const rows = [];
-  for (const line of gblock.split('\\n')) {
-    const m = line.match(/^\\s+-\\s*\\{\\s*agent:\\s*([^,]+),\\s*path:\\s*([^,]+),/);
-    if (m) rows.push({ agent: m[1].trim().replace(/^"|"$/g, ''), path: m[2].trim().replace(/^"|"$/g, '') });
-    else if (/^[^\\s#]/.test(line)) break;
-  }
+  const projectionRows = new Set(rows.map((row) => row.line));
   if (!rows.length) { console.log('[INFO] guidance.projections is empty - declare the vendor files to generate, then re-run.'); process.exit(0); }
   // Cursor .mdc files need their own front matter FIRST; it is not part of the projected body and so
   // is deliberately outside the body hash (it is vendor transport, not the repo's guidance).
@@ -189,8 +199,8 @@ if (cmd === 'project') {
   }
   // Write the source hash back into the manifest's projection rows, so the declared hash and the
   // generated files agree. A row whose hash is already current is left byte-identical.
-  const updated = mtext.split('\\n').map((line) => {
-    if (!/^\\s+-\\s*\\{\\s*agent:/.test(line)) return line;
+  const updated = lines.map((line, i) => {
+    if (!projectionRows.has(i)) return line;
     return line.replace(/hash:\\s*("(?:[^"\\\\]|\\\\.)*"|[^},]*)/, 'hash: "' + srcHash + '"');
   }).join('\\n');
   if (updated !== mtext) writeFileSync(MPATH, updated, 'utf8');

@@ -1,5 +1,7 @@
 // GET /api/gate/:owner/:repo  ->  JSON gate result, with an HTTP status CI can branch on:
-//   200 when the repo passes the maturity gate, 422 when it fails (so `curl --fail` exits non-zero).
+//   200 when the repo passes, 422 when it fails, 503 when the grade could not run (degraded LLM
+//   fallback, or an explicitly requested skippable bar this token-less scan could not measure) so
+//   `curl --fail` exits non-zero. Org-policy-only skips stay 200 + skipped[] — App check enforces those.
 // Policy query params:
 //   ?min_level=L3&min_overall=60&min_dimension=40&no_ungoverned=1
 // Runs a fast deterministic (mock) scan by default; pass ?mock=0 to score with the configured LLM.
@@ -11,7 +13,7 @@ import { GitHubError } from "@/lib/github/source";
 import { forgeFullName, resolveForge } from "@/lib/forge/registry";
 import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
-import { defaultGatePolicy, evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
+import { defaultGatePolicy, evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy, type GateSkip } from "@/lib/scoring/gate";
 import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { orgSlugForRepo } from "@/lib/db/org-tenancy";
@@ -21,6 +23,24 @@ import { rateLimitRequest, rateLimitRequestShared, tooManyRequests, SCAN_RATE_LI
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
+
+/** Skip codes a query param can name. Org/admission-only skips (no matching explicit field) stay 200. */
+function skipCodesFromExplicit(explicit: GatePolicy): Set<GateSkip["code"]> {
+  const codes = new Set<GateSkip["code"]>();
+  if (explicit.requireProtectedBranch) codes.add("governance");
+  if (typeof explicit.minAiGovernedRate === "number") codes.add("provenance");
+  // No query params today; listed so a future explicit field cannot silently 200.
+  if (explicit.forbidAiAuthorship) codes.add("admission");
+  if (explicit.requireChecks?.length) codes.add("control");
+  return codes;
+}
+
+/** True when the caller NAMED a skippable bar that this run could not test. */
+function explicitBarsUnmeasured(explicit: GatePolicy, skipped: GateSkip[] | undefined): boolean {
+  if (!skipped?.length) return false;
+  const requested = skipCodesFromExplicit(explicit);
+  return requested.size > 0 && skipped.some((s) => requested.has(s.code));
+}
 
 export async function GET(
   req: Request,
@@ -263,8 +283,9 @@ export async function GET(
     // With NO persisted org policy the params keep their historical archetype-padding behaviour
     // (policyFromParams), so a repo with no admission row and no org bar produces a BYTE-IDENTICAL
     // response to today's — the done-criterion this whole layer is held to.
+    const explicit = explicitPolicyFromParams(searchParams);
     const policy = orgPolicy
-      ? tightenGatePolicy(withAdmission, explicitPolicyFromParams(searchParams))
+      ? tightenGatePolicy(withAdmission, explicit)
       : tightenGatePolicy(policyFromParams(searchParams, report.archetype), admissionLayer.overlay);
     // #16 — `requireChecks` is judged against the repo's OWN latest conformance report. Read only
     // when the effective policy actually names a check, so the common gate call pays no extra query;
@@ -290,7 +311,7 @@ export async function GET(
       // verdict logged as "params", and the field's stated purpose (telling "nobody is gated" apart from
       // "nobody fails") was defeated by its own most common caller. Keyed on the parsed policy instead, which
       // is the same function the fold uses, so the log cannot disagree with the bar.
-      policySource: orgPolicy ? "org" : Object.keys(explicitPolicyFromParams(searchParams)).length > 0 ? "params" : "archetype",
+      policySource: orgPolicy ? "org" : Object.keys(explicit).length > 0 ? "params" : "archetype",
       degraded: degradedToMock(report),
       admission: admissionLayer.admission,
     });
@@ -310,19 +331,29 @@ export async function GET(
     // (?mock omitted → mock=true) is the DOCUMENTED deterministic rubric, not a degradation: !mock is
     // false there, so it keeps the exact 200-pass / 422-fail contract CI keys on.
     const degraded = degradedToMock(report);
-    // Fail closed on degradation: force a non-2xx status (503 — the requested authoritative grade could
-    // not be produced) so `curl --fail` trips and CI cannot merge on a floor score, even when the gate
-    // math would "pass". Healthy scans (a real provider, or an explicit ?mock request) are untouched.
-    // We still return the FULL verdict + an explicit `degraded: true` so a consumer that reads the body
-    // knows why (and can retry), and always surface engine/confidence/warnings so any score — healthy or
-    // degraded — is read in context (mirrors the web report's ReportNotices, which the machine path lacked).
-    const status = degraded ? 503 : gate.pass ? 200 : 422;
+    // EXPLICIT SKIP ⇒ 503. evaluateGate records a skip (and pass:true) when a bar cannot be tested —
+    // correct for the evaluator. Mapping that to HTTP 200 on THIS endpoint is not: the scan is
+    // token-less, so require_protection / min_ai_governed never run, and `curl --fail` would merge on
+    // a bar nobody measured. Limit the 503 to bars the QUERY NAMED (explicitPolicyFromParams). An org
+    // that stores requireProtectedBranch must not 503 every default Action call that sends no params —
+    // those skips stay 200+skipped; the App check is the enforcing surface.
+    const unmeasured = explicitBarsUnmeasured(explicit, gate.skipped);
+    // Fail closed on degradation OR an explicit unmeasured skip: force a non-2xx status (503 — the
+    // requested authoritative grade could not be produced) so `curl --fail` trips and CI cannot merge
+    // on a floor score or an untested bar, even when the gate math would "pass". Healthy scans (a real
+    // provider, or an explicit ?mock request, with every named skippable bar actually tested) are
+    // untouched. We still return the FULL verdict + `degraded` / `unmeasured` so a consumer that reads
+    // the body knows why (and can retry), and always surface engine/confidence/warnings so any score —
+    // healthy or degraded — is read in context (mirrors the web report's ReportNotices, which the
+    // machine path lacked).
+    const status = degraded || unmeasured ? 503 : gate.pass ? 200 : 422;
     return NextResponse.json(
       {
         repo: coordinate,
         ref: ref ?? null,
         pass: gate.pass,
         degraded,
+        unmeasured,
         level: report.level.id,
         overallScore: report.overallScore,
         posture: report.posture.id,
@@ -363,7 +394,12 @@ export async function GET(
               error:
                 "The AI grade could not be produced (the LLM provider was unavailable, so the scan fell back to the deterministic floor). This verdict is NOT authoritative. Retry the gate.",
             }
-          : {}),
+          : unmeasured
+            ? {
+                error:
+                  "This request asked for a bar this unauthenticated gate could not measure (require_protection / min_ai_governed need a GitHub token this endpoint never has). This verdict is NOT authoritative. Drop those query parameters to follow org policy alone, or enforce the bar via the GitHub App check run.",
+              }
+            : {}),
       },
       { status },
     );

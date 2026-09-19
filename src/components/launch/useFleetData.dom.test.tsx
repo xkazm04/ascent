@@ -10,7 +10,9 @@
 // scheduling in the way of the timing assertions.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { render, renderHook, screen, act } from "@testing-library/react";
+import { useRef, useState } from "react";
+import { ConstellationField } from "./ConstellationField";
 import { useFleetData } from "./useFleetData";
 import { POLL_INTERVAL_MS, SCAN_SETTLE_MS } from "./FleetMap.constants";
 import type { Constellation } from "./fleetMapStars";
@@ -27,16 +29,19 @@ const repoRow = (fullName: string, overall: number | null) => ({
 
 let respond: Responder;
 let calls: string[];
+let urls: string[];
 let maxInFlight: number;
 
 function stubFetch() {
   calls = [];
+  urls = [];
   maxInFlight = 0;
   let inFlight = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      urls.push(url);
       const org = new URL(url, "https://x.test").searchParams.get("org")!;
       calls.push(org);
       inFlight += 1;
@@ -224,5 +229,64 @@ describe("useFleetData — a live scan owns the stars", () => {
     expect(calls).toHaveLength(2);
     expect(recentScan.current.has("acme")).toBe(false);
     expect(SCAN_SETTLE_MS).toBeGreaterThan(POLL_INTERVAL_MS); // the deferral must outlast one tick
+  });
+});
+
+const RETRY_INSTALL = [{ id: 7, login: "acme" }];
+function RetryCard() {
+  const [constellations, setConstellations] = useState<Constellation[]>([
+    { id: 7, login: "acme", status: "loading" as const },
+  ]);
+  const scanCtrl = useRef<AbortController | null>(null);
+  const scanGen = useRef(0);
+  const recentScan = useRef(new Map<string, number>());
+  const { onRetry } = useFleetData(RETRY_INSTALL, setConstellations, scanCtrl, scanGen, recentScan);
+  const c = constellations[0]!;
+  return <ConstellationField c={c} onRetry={onRetry} onScan={() => {}} />;
+}
+
+describe("useFleetData — Retry on an unreachable constellation", () => {
+  it("error card Retry re-fetches /api/app/repos for that installation_id", async () => {
+    respond = () => ({ ok: false, status: 502, body: { error: "Failed (502)" } });
+    render(<RetryCard />);
+    await tick();
+    await tick(POLL_INTERVAL_MS);
+    await tick(POLL_INTERVAL_MS);
+    await tick(POLL_INTERVAL_MS); // parked backoff — auto-refresh would skip
+    const before = urls.length;
+    expect(screen.getByText("Failed (502)")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /scan/i })).toBeNull();
+
+    let release!: () => void;
+    respond = () =>
+      new Promise((resolve) => {
+        release = () => resolve({ ok: true, body: { repos: [repoRow("acme/web", 40)] } });
+      });
+    act(() => {
+      screen.getByRole("button", { name: /retry acme/i }).click();
+    });
+    expect(screen.getByText(/charting/i)).toBeTruthy();
+    expect(urls).toHaveLength(before + 1);
+    expect(urls.at(-1)).toContain("/api/app/repos");
+    expect(urls.at(-1)).toContain("installation_id=7");
+
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByText(/1\/1 scanned/)).toBeTruthy();
+  });
+
+  it("a failed Retry lands a new error message", async () => {
+    respond = () => ({ ok: false, status: 502, body: { error: "Failed (502)" } });
+    render(<RetryCard />);
+    await tick();
+    respond = () => ({ ok: false, status: 503, body: { error: "GitHub is down" } });
+    act(() => {
+      screen.getByRole("button", { name: /retry acme/i }).click();
+    });
+    await tick();
+    expect(screen.getByText("GitHub is down")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /retry acme/i })).toBeTruthy();
   });
 });

@@ -12,31 +12,23 @@
 //   - a gap with no engine-true projection draws a dashed VOID, never a short bar. A short bar would
 //     be a claim ("small gain"); the void is the truth ("nothing measured this").
 //
+// Layout is HTML in the `type-*` scale (the Ledger direction): the title takes its own line and wraps
+// instead of being cut at a character count, and the readout sits in a mono column as wide as the
+// widest readout. Only the bar, its segment dividers, the rung tick and the void are SVG — with no
+// viewBox, in percentages of the track — so the type never scales with the panel.
+//
 // Server-safe: no hooks, no handlers, no motion — nothing here needs a client boundary.
 
-import {
-  HATCH_ID,
-  KICKER_SVG_CLASS,
-  VOID_DASH,
-  VizDefs,
-  stateFill,
-  stateFillOpacity,
-  stateStroke,
-  stateTitle,
-} from "@/components/org/viz";
+import { HATCH_ID, VizDefs, r2, stateFill, stateFillOpacity, stateStroke, stateTitle } from "@/components/org/viz";
+import { MarkSvg, VoidRule, pctLen } from "../barRowMarks";
 import { SEGMENT_CAP, leverageMax, leverageReadout, type LeverageBar } from "./leverageMoves";
 
-const W = 320;
-const ROW_H = 30;
-const PAD_B = 4;
-const BAR_H = 9;
-const BAR_DY = 15;
-const TITLE_CHARS = 44;
-
-/** SVG text cannot ellipsize; the full title rides in the mark's `<title>` and the sr-only table. */
-function short(s: string): string {
-  return s.length > TITLE_CHARS ? `${s.slice(0, TITLE_CHARS - 1).trimEnd()}…` : s;
-}
+/** Bar geometry inside the 16px track, in CSS pixels (no viewBox, so they cannot stretch). */
+const BAR_Y = 3;
+const BAR_H = 10;
+const TRACK_H = 16;
+/** The shortest drawn bar, as a share of the track — a projected gain never collapses to nothing. */
+const MIN_BAR_PCT = 0.625;
 
 export function LeverageBars({ bars, className = "" }: { bars: LeverageBar[]; className?: string }) {
   if (bars.length === 0) {
@@ -48,10 +40,12 @@ export function LeverageBars({ bars, className = "" }: { bars: LeverageBar[]; cl
   }
 
   const max = leverageMax(bars);
-  const H = bars.length * ROW_H + PAD_B;
   // A fleet with no projection anywhere has no domain to scale against: every row is a void, which
   // is exactly what `max === 0` should produce rather than a divide-by-zero full-width bar.
-  const width = (v: number) => (max > 0 ? Math.max(2, Math.round((v / max) * W * 100) / 100) : 0);
+  const width = (v: number) => (max > 0 ? Math.max(MIN_BAR_PCT, r2((v / max) * 100)) : 0);
+  // One readout column for every row, as wide (in the row's own mono `ch`) as the widest readout,
+  // so each track is the same length and the bars stay on one shared scale.
+  const readCh = Math.max(...bars.map((b) => leverageReadout(b).length));
 
   const ariaLabel =
     `Widest shared gaps across the fleet, ${bars.length} ranked by leverage. Bar length is the fleet-wide maturity points on the table. ` +
@@ -66,101 +60,16 @@ export function LeverageBars({ bars, className = "" }: { bars: LeverageBar[]; cl
 
   return (
     <div className={className}>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={ariaLabel}>
-        <title>{ariaLabel}</title>
-        <VizDefs />
-        {bars.map((b, i) => {
-          const top = i * ROW_H;
-          const y = top + BAR_DY;
-          const barW = b.fleetPoints === null ? 0 : width(b.fleetPoints);
-          const readout = leverageReadout(b);
-          const outside = barW < W - 96;
-          return (
-            <g key={b.id} data-bar={b.id} data-state={b.state}>
-              <text x={0} y={top + 9} fontSize={10} className="fill-slate-300">
-                {short(b.title)}
-              </text>
-              <text x={W} y={top + 9} fontSize={8} textAnchor="end" className={KICKER_SVG_CLASS}>
-                {b.dimLabel}
-              </text>
-
-              {b.fleetPoints === null ? (
-                // The void: a dashed rule where a bar would be. It marks the row without asserting a
-                // magnitude for it, and `rendersValue(missing)` is why no numeral sits beside it.
-                <line
-                  data-void={b.id}
-                  x1={0}
-                  y1={y + BAR_H / 2}
-                  x2={W}
-                  y2={y + BAR_H / 2}
-                  stroke="var(--color-divider)"
-                  strokeWidth={1}
-                  strokeDasharray={VOID_DASH}
-                >
-                  <title>{stateTitle(b.state, b.title)}</title>
-                </line>
-              ) : (
-                <>
-                  <rect
-                    x={0}
-                    y={y}
-                    width={barW}
-                    height={BAR_H}
-                    rx={2}
-                    fill={stateFill(b.state)}
-                    fillOpacity={stateFillOpacity(b.state) * 0.7}
-                    stroke={stateStroke(b.state)}
-                    strokeWidth={1}
-                  >
-                    <title>{`${b.title} — ${b.fleetPoints} fleet maturity points (+${b.perRepo} on each of ${b.repoCount}). ${b.reach}. Leverage ${b.leverage}.`}</title>
-                  </rect>
-                  {/* One divider per affected repository: the reach is a property of the bar, not a
-                      sentence beside it. Past the cap the rules would be sub-pixel, so they stop. */}
-                  {b.repoCount > 1 &&
-                    b.repoCount <= SEGMENT_CAP &&
-                    Array.from({ length: b.repoCount - 1 }, (_, k) => (
-                      <line
-                        key={`s-${k}`}
-                        x1={((k + 1) / b.repoCount) * barW}
-                        y1={y}
-                        x2={((k + 1) / b.repoCount) * barW}
-                        y2={y + BAR_H}
-                        stroke="var(--color-divider)"
-                        strokeWidth={0.5}
-                      />
-                    ))}
-                  {/* The rung tick — where the repos that would cross a maturity level end. */}
-                  {b.liftsRepos > 0 && (
-                    <line
-                      data-rung={b.id}
-                      x1={(b.liftsRepos / b.repoCount) * barW}
-                      y1={y - 3}
-                      x2={(b.liftsRepos / b.repoCount) * barW}
-                      y2={y + BAR_H + 3}
-                      stroke="var(--color-accent)"
-                      strokeWidth={2}
-                    >
-                      <title>{`${b.liftsRepos} of ${b.repoCount} would advance to the next maturity level`}</title>
-                    </line>
-                  )}
-                </>
-              )}
-
-              <text
-                x={outside ? barW + 5 : W}
-                y={y + BAR_H - 1}
-                fontSize={9}
-                textAnchor={outside ? "start" : "end"}
-                className="fill-slate-500 font-mono tabular-nums"
-              >
-                {readout}
-              </text>
-            </g>
-          );
-        })}
+      <div role="img" aria-label={ariaLabel} className="relative">
         {/* Referenced so the hatch id stays live for a future not-judged row without a second defs. */}
-        <rect width={0} height={0} fill={`url(#${HATCH_ID})`} />
-      </svg>
+        <svg aria-hidden focusable="false" width={0} height={0} className="absolute">
+          <VizDefs />
+          <rect width={0} height={0} fill={`url(#${HATCH_ID})`} />
+        </svg>
+        {bars.map((b) => (
+          <LeverageRow key={b.id} bar={b} barW={b.fleetPoints === null ? 0 : width(b.fleetPoints)} readCh={readCh} />
+        ))}
+      </div>
 
       <table className="sr-only">
         <caption>Widest shared gaps, ranked by leverage</caption>
@@ -187,6 +96,80 @@ export function LeverageBars({ bars, className = "" }: { bars: LeverageBar[]; cl
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function LeverageRow({ bar: b, barW, readCh }: { bar: LeverageBar; barW: number; readCh: number }) {
+  const tip =
+    b.fleetPoints === null
+      ? stateTitle(b.state, b.title)
+      : `${b.title} — ${b.fleetPoints} fleet maturity points (+${b.perRepo} on each of ${b.repoCount}). ${b.reach}. Leverage ${b.leverage}.`;
+
+  return (
+    <div data-bar={b.id} data-state={b.state} className="border-b border-divider/50 py-2 last:border-b-0">
+      <div className="flex items-baseline justify-between gap-3">
+        <span title={b.title} className="type-body-sm line-clamp-2 min-w-0 text-slate-300 [overflow-wrap:anywhere]">
+          {b.title}
+        </span>
+        <span className="type-label shrink-0 tracking-[0.18em] text-slate-500">{b.dimLabel}</span>
+      </div>
+
+      <div
+        className="mt-1 grid items-center gap-x-3 font-mono type-caption"
+        style={{ gridTemplateColumns: `minmax(0, 1fr) ${readCh}ch` }}
+      >
+        <div title={tip}>
+          <MarkSvg className="h-4">
+            {b.fleetPoints === null ? (
+              // The void: a dashed rule where a bar would be. It marks the row without asserting a
+              // magnitude for it, and `rendersValue(missing)` is why no numeral sits beside it.
+              <VoidRule id={b.id} />
+            ) : (
+              <>
+                <rect
+                  x={0}
+                  y={BAR_Y}
+                  width={pctLen(barW)}
+                  height={BAR_H}
+                  rx={2}
+                  fill={stateFill(b.state)}
+                  fillOpacity={stateFillOpacity(b.state) * 0.7}
+                  stroke={stateStroke(b.state)}
+                  strokeWidth={1}
+                />
+                {/* One divider per affected repository: the reach is a property of the bar, not a
+                    sentence beside it. Past the cap the rules would be sub-pixel, so they stop. */}
+                {b.repoCount > 1 &&
+                  b.repoCount <= SEGMENT_CAP &&
+                  Array.from({ length: b.repoCount - 1 }, (_, k) => {
+                    const x = pctLen(((k + 1) / b.repoCount) * barW);
+                    return (
+                      <line key={`s-${k}`} x1={x} y1={BAR_Y} x2={x} y2={BAR_Y + BAR_H} stroke="var(--color-divider)" strokeWidth={0.5} />
+                    );
+                  })}
+                {/* The rung tick — where the repos that would cross a maturity level end. */}
+                {b.liftsRepos > 0 && (
+                  <line
+                    data-rung={b.id}
+                    x1={pctLen((b.liftsRepos / b.repoCount) * barW)}
+                    y1={0}
+                    x2={pctLen((b.liftsRepos / b.repoCount) * barW)}
+                    y2={TRACK_H}
+                    stroke="var(--color-accent)"
+                    strokeWidth={2}
+                  >
+                    <title>{`${b.liftsRepos} of ${b.repoCount} would advance to the next maturity level`}</title>
+                  </line>
+                )}
+              </>
+            )}
+          </MarkSvg>
+        </div>
+        <span data-readout className="text-right tabular-nums text-slate-500">
+          {leverageReadout(b)}
+        </span>
+      </div>
     </div>
   );
 }

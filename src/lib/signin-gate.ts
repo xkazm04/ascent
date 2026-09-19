@@ -8,14 +8,15 @@
 // the Supabase wall dead-ends at /connect?error=not_configured. So the prompt, when shown, was broken.
 //
 // `src/app/org/[slug]/layout.tsx` already had this right: check the ACTIVE Supabase wall first (offering
-// the supabase button), then fall back to the dormant session check. This lifts that shape out of it so
-// the other pages stop re-deriving it — and getting it wrong.
+// the supabase button). This lifts that shape out of it so the other pages stop re-deriving it — and
+// getting it wrong.
 //
-// Auth-off (local/demo) deployments configure neither stack, so `needsSignIn` is false and every page
-// stays open, exactly as before.
+// Auth-off (local/demo) deployments, and custom-OAuth-only env (GITHUB_OAUTH_* set but no Supabase
+// wall), leave `needsSignIn` false: GET /api/auth/login redirects auth_stack_retired unless Supabase
+// is also configured, so offering the github button cannot sign anyone in.
 
 import { getViewer } from "@/lib/access";
-import { getSessionState, isAuthConfigured, type Session } from "@/lib/auth";
+import { getSessionState, type Session } from "@/lib/auth";
 import { authGateEnabled } from "@/lib/env";
 
 export interface SignInState {
@@ -46,12 +47,11 @@ export async function resolveSignInState(): Promise<SignInState> {
     return { needsSignIn: true, provider: "supabase", expired: false, session: null };
   }
 
-  // Dormant custom OAuth, configured (dev boxes that set the legacy env).
-  const { session, status } = await getSessionState();
-  if (isAuthConfigured()) {
-    return { needsSignIn: !session, provider: "github", expired: status === "expired", session };
-  }
-
-  // No auth stack live at all: local / demo. Nothing to prompt for.
-  return { needsSignIn: false, provider: "github", expired: false, session };
+  // Custom GitHub OAuth is RETIRED as a sign-in path. GET /api/auth/login redirects
+  // auth_stack_retired unless Supabase is also configured, and even then completing the
+  // flow mints a cookie that authz refuses. Offering provider github here would paint a
+  // button that cannot sign anyone in. Custom-only env is auth-off / demo, same as neither
+  // stack. When both stacks are configured the branch above already offered supabase.
+  const { session } = await getSessionState();
+  return { needsSignIn: false, provider: "supabase", expired: false, session };
 }

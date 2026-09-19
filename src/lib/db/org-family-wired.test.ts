@@ -28,6 +28,7 @@ const SRC = path.resolve(process.cwd(), "src");
 const FAMILY = [
   "lib/db/org-rollup.ts",
   "lib/db/org-insights.ts",
+  "lib/db/org-benchmark.ts",
   "lib/db/org-signals.ts",
   "lib/db/org-teams.ts",
   "lib/db/org-contributors.ts",

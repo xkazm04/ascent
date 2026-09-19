@@ -110,6 +110,10 @@ export function KnowledgeLedger() {
           ))}
         </ul>
       </div>
+      {/* Same Illustrative chrome as RoiSimulator: invented recall, labelled where it renders. */}
+      <p className="mt-3 text-center type-label tracking-[0.22em] text-slate-600">
+        Illustrative · {RECALL.length} sample memories, not customer data
+      </p>
     </div>
   );
 }

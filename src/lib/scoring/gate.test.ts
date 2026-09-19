@@ -13,7 +13,7 @@ import {
   describeGatePolicy,
   DEFAULT_SECURITY_MIN,
 } from "./gate";
-import type { GatePolicy } from "./gate";
+import type { GatePolicy, GateSnapshot } from "./gate";
 import type { DimensionResult, ScanReport } from "@/lib/types";
 
 function report(o: { d9: number; posture?: string; level?: string; overall?: number }): ScanReport {
@@ -503,6 +503,63 @@ describe("evaluateGate — incomplete scan fails closed (G3-10)", () => {
 
   it("leaves a report with at least one scored dimension on the normal path", () => {
     const res = evaluateGate(report({ d9: 80 }));
+    expect(res.failures.every((f) => f.code !== "incomplete")).toBe(true);
+  });
+});
+
+// An incomplete LITE snapshot used to pass by absence: empty `dims` vacuously satisfies every
+// dimension floor (the sweep iterates present rows), so a high overall/level with no dimensions
+// certified a repo nobody measured. Fail closed — same `incomplete` code evaluateGate uses.
+describe("evaluateGateLite — incomplete snapshot fails closed (absence is not a pass)", () => {
+  const healthyPolicy: GatePolicy = { minLevel: "L3", minOverall: 40, minDimension: 40 };
+
+  it("fails closed on empty dims even when every numeric bar would otherwise pass", () => {
+    const res = evaluateGateLite(
+      { level: "L4", overall: 90, posture: "ai-native", dims: [] },
+      healthyPolicy,
+    );
+    expect(res.pass).toBe(false);
+    expect(res.failures).toHaveLength(1);
+    expect(res.failures[0]!.code).toBe("incomplete");
+    expect(res.failures[0]!.message).toMatch(/INCOMPLETE/);
+  });
+
+  it("fails closed on an empty policy — missing dimensions cannot certify a pass", () => {
+    const res = evaluateGateLite({ level: "L4", overall: 90, posture: "ai-native", dims: [] }, {});
+    expect(res.pass).toBe(false);
+    expect(res.failures.map((f) => f.code)).toEqual(["incomplete"]);
+  });
+
+  it("fails closed when the snapshot is flagged incomplete even if leftover dims would clear the bar", () => {
+    const res = evaluateGateLite(
+      { level: "L4", overall: 90, posture: "ai-native", dims: [{ dimId: "D1", score: 80 }], incomplete: true },
+      {},
+    );
+    expect(res.pass).toBe(false);
+    expect(res.failures.map((f) => f.code)).toEqual(["incomplete"]);
+  });
+
+  it("treats a snapshot with missing dims as incomplete (not a full scan)", () => {
+    const snap = { level: "L4", overall: 90, posture: "ai-native" } as GateSnapshot;
+    const res = evaluateGateLite(snap, healthyPolicy);
+    expect(res.pass).toBe(false);
+    expect(res.failures.map((f) => f.code)).toEqual(["incomplete"]);
+  });
+
+  it("does not emit per-dimension noise that would read as findings about the repo", () => {
+    const res = evaluateGateLite(
+      { level: "L1", overall: 0, posture: "manual", dims: [] },
+      { minOverall: 50, minDimension: 40, minLevel: "L3" },
+    );
+    expect(res.failures.map((f) => f.code)).toEqual(["incomplete"]);
+  });
+
+  it("leaves a snapshot with at least one scored dimension on the normal path", () => {
+    const res = evaluateGateLite(
+      { level: "L4", overall: 90, posture: "ai-native", dims: [{ dimId: "D1", score: 80 }] },
+      { minOverall: 40 },
+    );
+    expect(res.pass).toBe(true);
     expect(res.failures.every((f) => f.code !== "incomplete")).toBe(true);
   });
 });

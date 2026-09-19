@@ -52,14 +52,14 @@ describe("RepoSegmentsPanel — auto-add reconciles the count with the server (D
     bulkTagRepos.mockResolvedValue(4);
     renderPanel();
 
-    expect(within(chip()).getByText("0")).toBeInTheDocument(); // starts at 0
+    expect(within(chip()).getByText("0 tagged")).toBeInTheDocument(); // starts at 0 tagged
 
     fireEvent.change(screen.getByLabelText("Auto-add language"), { target: { value: "TypeScript" } });
     fireEvent.change(screen.getByLabelText("Auto-add target segment"), { target: { value: "seg1" } });
     fireEvent.click(screen.getByRole("button", { name: "Add all" }));
 
-    await waitFor(() => expect(within(chip()).getByText("4")).toBeInTheDocument());
-    expect(within(chip()).queryByText("5")).toBeNull(); // NOT the over-optimistic client guess
+    await waitFor(() => expect(within(chip()).getByText("4 tagged")).toBeInTheDocument());
+    expect(within(chip()).queryByText("5 tagged")).toBeNull(); // NOT the over-optimistic client guess
     expect(bulkTagRepos).toHaveBeenCalledWith("seg1", {
       org: "acme",
       fullNames: REPOS.map((r) => r.fullName),
@@ -75,6 +75,6 @@ describe("RepoSegmentsPanel — auto-add reconciles the count with the server (D
     fireEvent.change(screen.getByLabelText("Auto-add target segment"), { target: { value: "seg1" } });
     fireEvent.click(screen.getByRole("button", { name: "Add all" }));
 
-    await waitFor(() => expect(within(chip()).getByText("5")).toBeInTheDocument());
+    await waitFor(() => expect(within(chip()).getByText("5 tagged")).toBeInTheDocument());
   });
 });

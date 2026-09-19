@@ -78,6 +78,15 @@ discrepancy budget below was blown, so *nothing* widened), and `effectiveBlend` 
 prose, so anything anchoring a number must be able to attribute a move rather than report it as
 repository change.
 
+**Forecast presentability.** `forecastTrajectory` in `src/lib/maturity/forecast.ts` will fit a line
+through two scans a day apart; the *claim* is not presentable. `projectGoal` consults `isProjectable`
+before emitting a pace or ETA: a sub-gate fit is the neutral `tracking` with no date; a reached
+target is still a standing fact. Presenters must go through `composeTrajectory` (fleet path) or
+`composeGoal` (named-goal ETA) so the unmeasurable hedge (`forecastInsufficiency`, at least 3
+distinct scan days spanning 14 calendar days) travels with the line and cannot be dropped. A reached
+goal needs no hedge; no fit degrades to absence, never a fabricated basis (G4). See
+[org-intelligence.md](../org-dashboard/org-intelligence.md).
+
 **Untrusted repo content + the discrepancy budget.** Repo file excerpts, file paths and commit
 messages are authored by the repository being scored, and the score gates PR merges, so they are
 quoted inside a named `<untrusted_repo_data>` block whose contents the SYSTEM role explicitly denies
@@ -138,6 +147,7 @@ pointers, nominates a canonical source, and computes a deterministic `coherence`
 - **Guidance quality** is graded on the **canonical** document (or, when the canonical is a pointer
   file, on what it points at) — not on whichever file matched first. Ascent's own `CLAUDE.md` is the
   single line `@AGENTS.md`; the old detector awarded 22 for that file and then graded that one line.
+  Since `r18` no quality rule pays for length: size alone earns nothing, only what the document says.
 - The `.ai/manifest.yaml` awards (+2 present, +4 declares capabilities + control placement) are
   unchanged.
 
@@ -308,6 +318,12 @@ Scout) when containerized; SBOM (Syft, CycloneDX, SPDX); artifact signing + prov
 signing/protection folds in from the governance API.
 *LLM assessment:* do these run automatically and gate merges/releases, or just sit in
 the repo? This is the shift-left guardrail against vulnerable or secret-leaking AI output.
+**The D9 score field is ignored** (`dimensionScore(D9) = signalScore(D9)`). Growing the
+assessment prompt — the r14/r15 `firstStep` contract, a `TECH_STACK_PROMPT` DETECTED TECH
+STACK block — gives the model more to write, not a new way to move the number. A lying
+assessment that scores D9 at 100 against a battery of 40 still lands at 40 even when
+`firstStep` and `discrepancies` are populated (`engine.test.ts`). G5: the answer is not a
+wider guardband; D9 never enters the blend.
 
 *Platform (token-gated, additive, r7):* the battery also reads the **installed-App inventory**
 from the scored commit's check suites (`src/lib/github/check-suites.ts`): a code-scanning App
@@ -362,6 +378,8 @@ For each dimension D:
 
   # Exception — D9 (Supply Chain & Security) is fully deterministic: its check battery IS the
   # score. The LLM narrates it but never moves the number. dimensionScore(D9) = signalScore(D9).
+  # Prompt growth (TECH_STACK block, firstStep on the roadmap) is not a blend input: a lying
+  # llmScore(D9)=100 against signalScore(D9)=40 still yields 40. G5: do not widen the guardband.
 
 # Overall: a RENORMALIZED, archetype-lens-weighted MEAN over the dimensions actually present.
 # A dimension whose detector failed (or that a partial scan dropped) is EXCLUDED and the
@@ -391,7 +409,9 @@ Design principles:
   actually scored (lens weights renormalized), so a failed detector or partial scan
   can't silently deflate the headline. Deterministic D9 anchors security to the check
   battery alone; the LLM narrates but never re-scores it. Its only escape is the
-  *visibility blind-spot* path, which marks D9 `n/a` rather than raising it.
+  *visibility blind-spot* path, which marks D9 `n/a` rather than raising it. Extra prompt
+  text (`firstStep`, `TECH_STACK_PROMPT`) does not pull D9 into the blend — G5 forbids
+  answering a small LLM move with a wider band.
 - **Missing lens weight vs. a genuine zero:** `lensWeight(D)` for a dimension with no
   entry in the active archetype's lens (rubric drift: a dimension added to the base
   rubric without updating every `ARCHETYPE_WEIGHTS` lens) both fall back to 0 in the
@@ -427,13 +447,26 @@ Design principles:
   "strengths": ["…"], "risks": ["…"],
   "roadmap": [                   // prioritized next steps to climb a level
     { "title": "Wire tests into a CI gate", "dimension": "D3",
-      "impact": "high", "effort": "low", "rationale": "…", "levelUnlock": "L3→L4" }
+      "impact": "high", "effort": "low",
+      "firstStep": "A GitHub Actions workflow that runs the test command on every pull request would put a gate in front of main.",
+      "rationale": "…", "levelUnlock": "L3→L4" }
   ],
   "confidence": 0.0,            // 0..1
   "scannedAt": "ISO-8601",
   "engine": { "provider": "gemini|bedrock|mock", "model": "…" }
 }
 ```
+
+**`firstStep` on catalog, fallback, and guaranteed follow-up rows (G2).** The live prompt asks
+for a `firstStep` on every roadmap entry (r14/r15). The deterministic catalog that feeds the
+keyless mock, the empty-LLM fallback (`buildFallbackRoadmap`), and the follow-up guarantee
+(`buildDimensionFollowUps`) now carries one too — a hand-reviewed sentence per dimension,
+stated as what the move IS, never an order. Those builders copy it onto the rows they emit.
+A model-written row that omitted the field stays omitted (never fabricated). Additive beside
+the invitational voice: titles stay observations, `explore` stays questions. Display only; no
+weight, band, blend or guardband moved. Extra `firstStep` text is not a blend input: a lying
+D9=100 against a battery of 40 still lands at 40 (`engine.test.ts`). G5: do not widen the
+guardband.
 
 ## 4b. "Green" — the termination condition for a drive-to-target loop (`green.ts`, 2026-08-26)
 
@@ -613,7 +646,7 @@ is not built.
 
 Every scan records the rubric version that produced it (`Scan.rubricVersion`, stamped via
 `src/lib/cache.ts`). It is one short monotonic token, defined in exactly one place:
-`src/lib/maturity/model.ts`. **Current: `r17`.**
+`src/lib/maturity/model.ts`. **Current: `r18`.**
 
 It exists so a cached score always carries the rubric that produced it. A score computed under an
 older rubric is not wrong, it is *not comparable* — so cache reuse, the org corpus, and cross-repo
@@ -636,6 +669,7 @@ genuinely display-only change, but the reasoning belongs in the diff.
 
 | Version | Change |
 | --- | --- |
+| `r18` (2026-09-15) | **D1 stops paying for guidance length.** `guidanceQuality` paid 5 points past 1200 characters and 8 past 4000, beside eight content rules. Two characters of padding across 4000 bought 3 D1 points, and a 4001-character file of filler naming each trigger once reached the grader maximum. Both tiers are removed; the Context Health quality normalizer drops from 56 to 48. D1 falls by up to 8 on repos whose graded document passed 1200 characters. Mock replay of the ten captured bench fixtures: exact level agreement 7/10 to 8/10, within one level 10/10 unchanged. No weight, band, blend or guardband moved. Evidence: [SCORING-VALIDITY.md section 4c](../../SCORING-VALIDITY.md). |
 | `r17` (2026-09-05) | **The ingested file set is a pure function of the tree.** The byte budget used to be spent inside the concurrent fetch pool with an optimistic claim reconciled after each await, so a budget-bound repo read a timing-dependent file set (34–41 files, 4–6 distinct sets on a measured fixture). `planFetchBudget` now plans admission from listed blob sizes before any fetch (44–46 files, one set). No constant moved and nothing was priced, but the deterministic detectors now see more content on budget-bound repos, so scores can move on rescan; the bump keeps r16 rows labelled as the instrument that produced them. |
 | `r16` (2026-09-01) | **A seventh craft axis, `code-health`.** The craft rules require at least one rung under it for any dimension at or above the green floor; nothing priced. The bump exists because the system prompt asks a different question. |
 | `r15` (2026-08-31) | **The first step is asked for, not just leaked into the skeleton.** RC2-N1: r14's `firstStep` existed only as an empty key in the JSON shape and the model returned it on 0 of 9 items on the first live scan. The ROADMAP COVERAGE mandate now requests it explicitly — one sentence, stated as what the move IS (invitational voice preserved), omitted when no single concrete move exists. Prompt-only; no weight, band, blend or guardband moved. |

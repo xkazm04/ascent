@@ -234,4 +234,19 @@ describe("POST /api/org/erase — preview (data-retention 07-16 #20)", () => {
     mockErase.mockResolvedValue({ ...PREVIEW, audited: true });
     expect((await POST(req({ org: "acme", preview: true }))).status).toBe(200);
   });
+
+  it("forwards leftover-ledger counts so the preview an owner reads matches the delete", async () => {
+    mockErase.mockResolvedValue({
+      ...PREVIEW,
+      orgMemoriesDeleted: 2,
+      llmConfigsDeleted: 1,
+      apiTokensDeleted: 2,
+      alertEventsDeleted: 3,
+    });
+    const json = await (await POST(req({ org: "acme", preview: true }))).json();
+    expect(json.orgMemoriesDeleted).toBe(2);
+    expect(json.llmConfigsDeleted).toBe(1);
+    expect(json.apiTokensDeleted).toBe(2);
+    expect(json.alertEventsDeleted).toBe(3);
+  });
 });

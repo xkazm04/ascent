@@ -28,6 +28,6 @@ import type { HistoryPoint } from "@/lib/db/scans";
  * @param nowMs  the caller's "present" for anchoring the ETA (injected in tests).
  */
 export function fitTrendForecast(scans: readonly HistoryPoint[], nowMs?: number): Forecast | null {
-  const series = scans.map((s) => ({ date: s.scannedAt, value: s.overallScore }));
+  const series = scans.map((s) => ({ date: s.scannedAt, value: s.overallScore, compacted: s.compacted }));
   return nowMs === undefined ? forecastTrajectory(series) : forecastTrajectory(series, 90, nowMs);
 }

@@ -34,11 +34,12 @@
 // missing backfill, it IS the backfill: nothing adjudicated those closes and no migration can invent
 // an adjudication that never happened. NULL IS NEVER VERIFIED, on every path.
 
+import { parseStringArray } from "./json-columns";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 // The SAME identity `decideInProgress` / `isRestated` / the craft ledger carry status across a rescan
 // with. A deferral that keys on anything else is a deferral the next rescan silently drops.
-import { normalizeRecTitle } from "@/lib/report/compare";
+import { normalizeRecTitle } from "@/lib/report/recommendation-identity";
 import type { LaneReport, LaneVerdict } from "@/lib/local/lane-report";
 
 /** How many cycles a skip holds before the loop is willing to try again. */
@@ -157,13 +158,7 @@ function toRow(row: OutcomeRow): LaneOutcomeRow {
   // migration — all three are "nothing adjudicated this", which is the safe direction for a trust
   // flag. The `verdict` guard keeps the pair coherent even if a stamp ever outlived its verdict.
   const verifiedAt = row.verifiedAt ?? null;
-  let files: string[] = [];
-  try {
-    const v: unknown = JSON.parse(row.filesJson || "[]");
-    files = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    files = [];
-  }
+  const files = parseStringArray(row.filesJson) ?? [];
   return {
     id: row.id,
     runId: row.runId,

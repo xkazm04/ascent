@@ -25,16 +25,16 @@
 // produce byte-identical briefs — a brief that reshuffles between runs makes every A/B comparison of
 // two lanes a comparison of two prompts.
 
-import { neutralize } from "@/lib/llm/untrusted";
-import type { SkillCategory } from "@/lib/org/skill-categories";
+import { sanitizeAgentText } from "@/lib/llm/untrusted";
+import { normalizeSkillCategory, type SkillCategory } from "@/lib/org/skill-categories";
 
 export type BriefSectionKind = "playbook" | "housePattern" | "memory" | "skill" | "evidence";
 
 /** Whole-brief ceiling. A brief past this is a wall of text the session skims rather than follows. */
 export const BRIEF_MAX_BYTES = 12_000;
 
-/** Per-section ceilings, in the order the brief renders them. They sum below BRIEF_MAX_BYTES on
- *  purpose: the headings, the absence lines and the report contract need room too. */
+/** Per-section ceilings, in rendering order. The combined output is also bounded below,
+ *  including headings and omission notices; these are not additive allowances. */
 export const SECTION_MAX_BYTES: Record<BriefSectionKind, number> = {
   playbook: 4_000,
   housePattern: 3_000,
@@ -97,8 +97,9 @@ export interface LaneBriefProvenance {
 const byteLen = (s: string): number => Buffer.byteLength(s, "utf8");
 
 /** Clean one piece of untrusted text: memory content and mined lines are written by an org's members
- *  and by its agents, so they reach a prompt through the same neutralizer repo excerpts do. */
-const clean = (s: string, max: number): string => neutralize(s).replace(/\s+/g, " ").trim().slice(0, max);
+ *  and by its agents, so they reach a prompt through the agent-text egress (credential shapes redacted,
+ *  then neutralized). */
+const clean = (s: string, max: number): string => sanitizeAgentText(s).replace(/\s+/g, " ").trim().slice(0, max);
 
 /**
  * Take entries until the section's byte cap, then stop and say how many were dropped.
@@ -124,7 +125,7 @@ interface Rendered {
   heading: string;
   lines: string[];
   refs: string[];
-  dimIds: string[];
+  entryDimIds: string[][];
   dropped: number;
 }
 
@@ -144,7 +145,7 @@ function renderPlaybooks(input: LaneBriefInput): Rendered {
     heading: "ACTIVE PLAYBOOKS — this organization's own steps for these dimensions",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((p) => `${p.id}@${p.version}`),
-    dimIds: [...new Set(rows.map((p) => p.dimId))],
+    entryDimIds: rows.slice(0, cap.kept.length).map((p) => [p.dimId]),
     dropped: cap.dropped,
   };
 }
@@ -168,7 +169,7 @@ function renderHousePattern(input: LaneBriefInput): Rendered {
     heading: "HOUSE PATTERN — how this organization already does it, mined from its own repositories",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((h) => h.practiceId),
-    dimIds: [...new Set(rows.map((h) => h.dimId))],
+    entryDimIds: rows.slice(0, cap.kept.length).map((h) => [h.dimId]),
     dropped: cap.dropped,
   };
 }
@@ -185,14 +186,14 @@ function renderMemories(input: LaneBriefInput): Rendered {
     heading: "ORG MEMORY — decisions and procedures this organization has already recorded",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((m) => m.id),
-    dimIds: [],
+    entryDimIds: [],
     dropped: cap.dropped,
   };
 }
 
 function renderSkills(input: LaneBriefInput): Rendered {
   const rows = input.skills
-    .filter((s) => (SKILL_CATEGORY_DIMS[s.category as SkillCategory] ?? []).some((d) => input.dimIds.includes(d)))
+    .filter((s) => (SKILL_CATEGORY_DIMS[normalizeSkillCategory(s.category)]).some((d) => input.dimIds.includes(d)))
     .sort((a, b) => a.category.localeCompare(b.category) || a.id.localeCompare(b.id));
   const lines = rows.map((s) => `- ${s.name} (${s.category}) — ${clean(s.summary, 200)}`);
   const cap = capped(lines, SECTION_MAX_BYTES.skill);
@@ -201,7 +202,7 @@ function renderSkills(input: LaneBriefInput): Rendered {
     heading: "REGISTRY SKILLS this organization maintains for this work",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((s) => s.id),
-    dimIds: [...new Set(rows.flatMap((s) => SKILL_CATEGORY_DIMS[s.category as SkillCategory] ?? []))],
+    entryDimIds: rows.slice(0, cap.kept.length).map((s) => SKILL_CATEGORY_DIMS[normalizeSkillCategory(s.category)]),
     dropped: cap.dropped,
   };
 }
@@ -220,7 +221,7 @@ function renderEvidence(input: LaneBriefInput): Rendered {
     heading: "WHAT THE LAST SCAN ACTUALLY SAW in this repository",
     lines: cap.kept,
     refs: rows.slice(0, cap.kept.length).map((e) => e.dimId),
-    dimIds: rows.map((e) => e.dimId),
+    entryDimIds: rows.slice(0, cap.kept.length).map((e) => [e.dimId]),
     dropped: cap.dropped,
   };
 }
@@ -234,13 +235,24 @@ const ABSENCE: Record<BriefSectionKind, (dims: string) => string> = {
   evidence: (d) => `No stored scan evidence for ${d} — the last scan did not record what it saw for these dimensions.`,
 };
 
+function sectionText(r: Rendered, dimLabel: string): string {
+  const body = r.lines.length === 0
+    ? r.dropped > 0
+      ? `${r.dropped} matching entr${r.dropped === 1 ? "y" : "ies"} omitted by the byte budget. Content exists but was not included.`
+      : ABSENCE[r.kind](dimLabel)
+    : r.lines.join("\n") + (r.dropped > 0 ? `\n… (${r.dropped} more, trimmed)` : "");
+  return `${r.heading}\n${body}`;
+}
+
 /**
  * Assemble the brief. Pure and total: every input shape degrades to an honest absence line, so there
  * is no input for which this returns a brief that overstates what the organization has.
  */
 export function buildLaneBrief(input: LaneBriefInput): { text: string; provenance: LaneBriefProvenance } {
   const dims = [...new Set(input.dimIds)].sort();
-  const dimLabel = dims.length > 0 ? dims.join(", ") : "these dimensions";
+  const dimText = dims.join(", ") || "these dimensions";
+  // Unknown dimension labels must not let absence notices alone exceed the whole budget.
+  const dimLabel = dimText.length > 200 ? `${Array.from(dimText).slice(0, 200).join("")}… (list trimmed)` : dimText;
   const rendered = [
     renderPlaybooks(input),
     renderHousePattern(input),
@@ -249,23 +261,35 @@ export function buildLaneBrief(input: LaneBriefInput): { text: string; provenanc
     renderEvidence({ ...input, dimIds: dims }),
   ];
 
+  // Drop complete trailing entries, preserving the section priority and character boundaries.
+  // Adjust the retained rows first so provenance cannot describe content removed by the budget.
+  let bytes = byteLen(rendered.map((r) => sectionText(r, dimLabel)).join("\n\n"));
+  for (let i = rendered.length - 1; i >= 0 && bytes > BRIEF_MAX_BYTES; i--) {
+    const r = rendered[i]!;
+    while (r.lines.length && bytes > BRIEF_MAX_BYTES) {
+      const before = byteLen(sectionText(r, dimLabel));
+      r.lines.pop();
+      r.refs.pop();
+      r.entryDimIds.pop();
+      r.dropped++;
+      bytes += byteLen(sectionText(r, dimLabel)) - before;
+    }
+  }
+
   const parts: string[] = [];
   const sections: BriefSectionProvenance[] = [];
   const omitted: { kind: BriefSectionKind; why: string }[] = [];
 
   for (const r of rendered) {
+    const block = sectionText(r, dimLabel);
+    parts.push(block);
     if (r.lines.length === 0) {
-      // "none" rather than a silent gap — the brief SAYS the standard is absent, in words.
-      omitted.push({ kind: r.kind, why: "none" });
-      parts.push(`${r.heading}\n${ABSENCE[r.kind](dimLabel)}`);
+      omitted.push({ kind: r.kind, why: r.dropped > 0 ? "byte budget" : "none" });
       continue;
     }
-    const body = r.dropped > 0 ? `${r.lines.join("\n")}\n… (${r.dropped} more, trimmed)` : r.lines.join("\n");
-    const block = `${r.heading}\n${body}`;
-    parts.push(block);
     sections.push({
       kind: r.kind,
-      dimIds: r.dimIds,
+      dimIds: [...new Set(r.entryDimIds.flat())],
       count: r.lines.length,
       bytes: byteLen(block),
       refs: r.refs,
@@ -273,17 +297,28 @@ export function buildLaneBrief(input: LaneBriefInput): { text: string; provenanc
     });
   }
 
-  let text = parts.join("\n\n");
-  if (byteLen(text) > BRIEF_MAX_BYTES) {
-    // A whole-brief overflow can only happen when several sections each sit just under their own cap.
-    // Cutting says so rather than ending mid-sentence and reading as a complete standard.
-    text = `${text.slice(0, BRIEF_MAX_BYTES)}\n… (brief trimmed to ${BRIEF_MAX_BYTES} bytes)`;
-  }
+  const text = parts.join("\n\n");
   return { text, provenance: { v: 1, bytes: byteLen(text), sections, omitted, housePatternVersion: null } };
 }
 
-/** One line for a human: what went into the brief, and what the org simply did not have. */
-export function briefSummaryLine(p: LaneBriefProvenance): string {
+/** ONE FACT OF THE BRIEF'S PROVENANCE. `kind` is what the fact IS, not how it reads: a section the
+ *  org HAS, a section it does not (the half of this summary that carries the news), or the size. The
+ *  lane log joins them into a line; a surface with room gives each one its own row. */
+export interface BriefSummaryPart {
+  kind: "have" | "none" | "size";
+  text: string;
+}
+
+/**
+ * What went into the brief, and what the org simply did not have — as PARTS rather than as prose.
+ *
+ * The strip in the cockpit used to render `briefSummaryLine` verbatim: five to seven facts glued
+ * with middots, wrapped into a grey paragraph beside the repo name, in which the one fact worth
+ * reading ("no skill") sat in the middle of a sentence. The facts were never a sentence; they are a
+ * list, and a list renders as a list. `briefSummaryLine` stays the join of these, so the lane log and
+ * the strip cannot phrase the same provenance two ways.
+ */
+export function briefSummaryParts(p: LaneBriefProvenance): BriefSummaryPart[] {
   const named: Record<BriefSectionKind, (n: number) => string> = {
     playbook: (n) => `${n} playbook${n === 1 ? "" : "s"}`,
     housePattern: (n) => `house pattern from ${n} practice${n === 1 ? "" : "s"}`,
@@ -291,7 +326,19 @@ export function briefSummaryLine(p: LaneBriefProvenance): string {
     skill: (n) => `${n} skill${n === 1 ? "" : "s"}`,
     evidence: (n) => `evidence for ${n} dimension${n === 1 ? "" : "s"}`,
   };
-  const have = p.sections.map((s) => named[s.kind](s.count));
-  const none = p.omitted.map((o) => `no ${o.kind === "housePattern" ? "house pattern" : o.kind}`);
-  return [...have, ...none, `${(p.bytes / 1000).toFixed(1)} KB`].join(" · ");
+  return [
+    ...p.sections.map((s): BriefSummaryPart => ({ kind: "have", text: named[s.kind](s.count) })),
+    ...p.omitted.map((o): BriefSummaryPart => {
+      const label = o.kind === "housePattern" ? "house pattern" : o.kind;
+      return { kind: "none", text: o.why === "none" ? `no ${label}` : `${label} omitted (${o.why})` };
+    }),
+    { kind: "size", text: `${(p.bytes / 1000).toFixed(1)} KB` },
+  ];
+}
+
+/** One line for a human: what went into the brief, and what the org simply did not have. */
+export function briefSummaryLine(p: LaneBriefProvenance): string {
+  return briefSummaryParts(p)
+    .map((part) => part.text)
+    .join(" · ");
 }

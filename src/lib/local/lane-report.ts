@@ -16,6 +16,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { redactSecrets } from "@/lib/security/redact";
 
 export const LANE_REPORT_PATH = ".ascent/lane-report.json";
 
@@ -96,7 +97,7 @@ export function parseLaneReport(raw: string | null, batchIds: readonly string[])
     items.push({
       recommendationId: id,
       verdict: asVerdict(e.verdict),
-      reason: asString(e.reason, REASON_MAX),
+      reason: redactSecrets(asString(e.reason, REASON_MAX * 2)).slice(0, REASON_MAX),
       files: (Array.isArray(e.files) ? e.files : [])
         .filter((f): f is string => typeof f === "string")
         .slice(0, FILES_MAX)
@@ -109,7 +110,11 @@ export function parseLaneReport(raw: string | null, batchIds: readonly string[])
     .map((l) => l.trim())
     .filter(Boolean)
     .slice(0, LESSONS_MAX)
-    .map((l) => l.slice(0, LESSON_MAX));
+    // Redacted HERE, where a lesson becomes a memory candidate (`recordLoopLessons`): a token the agent
+    // pasted while debugging must not be stored, shown to a reviewer, and quoted into the next prompt.
+    // Redact BEFORE the cap, so a secret straddling it is masked whole rather than cut into a head too
+    // short for its pattern. The pre-cut at twice the cap only bounds the regex work on a huge string.
+    .map((l) => redactSecrets(l.slice(0, LESSON_MAX * 2)).slice(0, LESSON_MAX));
 
   // A document that parsed as JSON but carried neither items nor lessons is still `parsed: true`: the
   // agent wrote a well-formed report saying nothing, which is a claim, unlike a missing file.

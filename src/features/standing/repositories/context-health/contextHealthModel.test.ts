@@ -118,7 +118,7 @@ describe("buildContextRows", () => {
         }),
       }),
     ]);
-    expect(row!.verdict).toBe("References 2 files that no longer exist");
+    expect(row!.verdict).toBe("at least 2 unresolved file references");
   });
 
   it("absent context on a moving repo names the unguided rate", () => {
@@ -152,6 +152,7 @@ describe("fleetContextSummary + orderByUrgency", () => {
       medianStalenessCommits: 90, // median over [2, 90] → upper-middle by floor(len/2)
       deadRefRepos: 0,
       deadRefsTotal: 0,
+      deadRefsLowerBound: false,
     });
   });
 

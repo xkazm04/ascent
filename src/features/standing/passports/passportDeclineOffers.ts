@@ -33,6 +33,14 @@ export interface DeclineOffer {
 
 const RANK: Record<FindingSeverity, number> = { critical: 0, block: 1, warn: 2, info: 3 };
 
+/** True when this minted finding id is a gap the scan SAW and the overlay allows an owner to accept.
+ *  Shared by `declineOffers` and the fleet `BlockerList` DecisionControl gate — one allow-list, never
+ *  a second copy in the UI. Evidence-limit ids (`*-unassessable`, `enforcement-not-observable`) are
+ *  not declinable: "we could not see this" is not a decision. */
+export function isDeclinableFinding(id: string | undefined): boolean {
+  return typeof id === "string" && Object.hasOwn(DECLINABLE_BY_FINDING, id);
+}
+
 /** The declinable findings open on `pp`, worst first. Empty when the scan raised nothing declinable. */
 export function declineOffers(pp: AppPassport): DeclineOffer[] {
   const findings = [...(pp.automationReadiness?.findings ?? []), ...(pp.productionReadiness?.findings ?? [])];
@@ -40,8 +48,9 @@ export function declineOffers(pp: AppPassport): DeclineOffer[] {
   const out: DeclineOffer[] = [];
   const seen = new Set<string>();
   for (const f of findings) {
+    if (!isDeclinableFinding(f.id)) continue; // caveat / unclassified / evidence-limit — not a trade-off
     const path = DECLINABLE_BY_FINDING[f.id];
-    if (!path || seen.has(path)) continue; // not declinable (a caveat / an unclassified id), or already offered
+    if (!path || seen.has(path)) continue; // already offered for this path
     seen.add(path);
     const existing = declined.get(path);
     out.push({

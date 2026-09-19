@@ -5,8 +5,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getProvider, providerAvailable, providerByName, resolveProviderChoice } from "./index";
 
-// Every env var the bedrock/gemini availability checks read — stubbed empty so the host
-// machine's real AWS/Gemini config can't leak into the assertions.
+// Every env var the bedrock/gemini/nebius availability checks read — stubbed empty so the
+// host machine's real AWS/Gemini/Nebius config can't leak into the assertions.
 const ENV_VARS = [
   "LLM_PROVIDER",
   "GEMINI_API_KEY",
@@ -20,6 +20,8 @@ const ENV_VARS = [
   "AWS_WEB_IDENTITY_TOKEN_FILE",
   "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
   "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+  "NEBIUS_API_KEY",
+  "NEBIUS_MODEL",
 ] as const;
 
 beforeEach(() => {
@@ -233,6 +235,34 @@ describe("codex-cli — first-class explicit provider on the SAME CLI gate as cl
   });
 });
 
+describe("gateway — the LightTrack gateway as an explicit, keyless provider", () => {
+  // The gateway is a loopback endpoint carrying a MEASURED route for `assess` (gateway.toml,
+  // docs/LLM_ROUTES.md). Like the CLI providers it is explicit-only: the auto ladder must never pick
+  // an endpoint that may not be running. Unlike them it has no env prerequisite, so it is always
+  // "available" — a dead gateway fails loudly inside assess() instead of being pre-degraded to mock.
+  it("resolveProviderChoice accepts LLM_PROVIDER=gateway", () => {
+    vi.stubEnv("LLM_PROVIDER", "gateway");
+    expect(resolveProviderChoice()).toBe("gateway");
+  });
+
+  it("getProvider returns the gateway provider whose model is the ROUTE name", () => {
+    vi.stubEnv("LLM_PROVIDER", "gateway");
+    const p = getProvider();
+    expect(p.name).toBe("gateway");
+    expect(p.model).toBe("assess");
+  });
+
+  it("the auto ladder never selects the gateway", () => {
+    vi.stubEnv("LLM_PROVIDER", "auto");
+    expect(getProvider().name).toBe("mock");
+  });
+
+  it("is available with no env at all (a loopback endpoint has no key to sniff)", () => {
+    expect(providerAvailable("gateway")).toBe(true);
+    expect(providerByName("gateway")?.name).toBe("gateway");
+  });
+});
+
 describe("providerByName('bedrock') — failover skip stays env-gated (#1)", () => {
   it("returns null with no AWS signal (skip the doomed failover attempt)", () => {
     expect(providerByName("bedrock")).toBeNull();
@@ -241,6 +271,18 @@ describe("providerByName('bedrock') — failover skip stays env-gated (#1)", () 
   it("returns the real provider with BEDROCK_REGION configured", () => {
     vi.stubEnv("BEDROCK_REGION", "eu-central-1");
     expect(providerByName("bedrock")?.name).toBe("bedrock");
+  });
+});
+
+describe("providerByName('nebius') — LLM_FALLBACK_PROVIDER=nebius stays env-gated", () => {
+  it("returns null when unconfigured (skip the doomed failover attempt)", () => {
+    expect(providerByName("nebius")).toBeNull();
+  });
+
+  it("returns the real provider when NEBIUS_API_KEY and NEBIUS_MODEL are set", () => {
+    vi.stubEnv("NEBIUS_API_KEY", "k");
+    vi.stubEnv("NEBIUS_MODEL", "zai-org/GLM-5.3-Flash");
+    expect(providerByName("nebius")?.name).toBe("nebius");
   });
 });
 

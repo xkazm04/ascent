@@ -1327,6 +1327,63 @@ describe("assembleReport — D9 visibility escape hatch (Direction 1)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// assembleReport — D9 stays out of the LLM blend when prompt text grows
+//
+// r14/r15 added `firstStep` to every roadmap row; TECH_STACK_PROMPT injects a DETECTED TECH STACK
+// block into the user message. Both grow the words the model writes against. They are not a
+// scoring lever: a lying D9=100 against a battery of 40 must still land at 40, even when the
+// assessment carries populated firstStep and discrepancies. The blended contrast (D5 40/100 → 44)
+// is the number D9 would become if it entered the ±6 blend; 47 is the number if a D9 discrepancy
+// also doubled the band. G5 forbids answering this with a wider guardband.
+// ---------------------------------------------------------------------------
+
+describe("assembleReport — D9 stays out of the LLM blend when TECH_STACK / firstStep prompt text grows", () => {
+  it("pins SCORE_BLEND and LLM_GUARDBAND so G5 cannot silently widen the band", () => {
+    expect(SCORE_BLEND).toBe(0.6);
+    expect(LLM_GUARDBAND).toBe(6);
+  });
+
+  it("lying LLM D9=100 against signal 40 stays 40 even with firstStep and discrepancies populated", () => {
+    const signals: DimensionSignals[] = [
+      ...signalsWith({ D5: { signalScore: 40 } }),
+      { id: "D9", signalScore: 40, signals: [{ label: "D9 battery" }], deterministic: true, gaps: [] },
+    ];
+    const firstStep =
+      "A Dependabot config plus a CodeQL workflow would give the battery two more checks to grade — DETECTED TECH STACK (TypeScript, Next.js) does not change that the D9 number is the check battery.";
+    const assessment: LlmAssessment = {
+      ...assessmentWith({ D5: 100, D9: 100 }),
+      roadmap: [
+        {
+          title: "Security controls sit in CI config only",
+          dimension: "D9",
+          impact: "high",
+          effort: "medium",
+          rationale: "The battery scored 40; the model would rather call it 100.",
+          firstStep,
+        },
+      ],
+      discrepancies: [
+        { dimension: "D9", claim: "D9 looks low given the stack; the model would score this 100." },
+      ],
+    };
+
+    const report = assembleReport(snapWithCoverage(1), signals, assessment, eng, AT, "org");
+    const d9 = report.dimensions.find((d) => d.id === "D9")!;
+
+    expect(d9.score).toBe(40);
+    expect(d9.signalScore).toBe(40);
+    expect(d9.llmScore).toBe(100);
+    // If D9 entered the ordinary ±6 blend it would be 44; if a D9 discrepancy also doubled the
+    // band it would be 47. Neither is allowed. D5 on the same 40/100 pair proves the blend is
+    // still the calibrated ±6 path — G5: we did not widen the guardband to "fix" D9.
+    expect(scoreOf(report, "D5")).toBe(44);
+    expect(report.scoreIntegrity!.widenedDims).not.toContain("D9");
+    expect(report.scoreIntegrity!.d9Unmeasurable).toBe(false);
+    expect(report.roadmap.some((r) => r.dimension === "D9" && r.firstStep === firstStep)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // assembleReport — prStats threads into aiUsage (Direction 2b, P0-5)
 //
 // detectAiUsage's AUTHORITATIVE AI signal is PR-level involvement with tool attribution, not the

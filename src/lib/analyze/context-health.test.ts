@@ -124,16 +124,16 @@ describe("detectRefDrift — dead @file refs vs the tree", () => {
 
   it("splits live vs dead refs, de-duplicated", () => {
     const text = "See @src/lib/scan.ts and @docs/setup.md, but also @docs/gone.md and again @docs/gone.md.";
-    expect(detectRefDrift(text, "CLAUDE.md", treePaths)).toEqual({ refsTotal: 3, deadRefs: ["docs/gone.md"] });
+    expect(detectRefDrift(text, "CLAUDE.md", treePaths)).toEqual({ refsTotal: 3, deadRefsTotal: 1, deadRefs: ["docs/gone.md"] });
   });
 
   it("resolves refs relative to the guidance file's own directory", () => {
     const text = "Read @setup.md first."; // lives at docs/setup.md relative to docs/CLAUDE.md
-    expect(detectRefDrift(text, "docs/CLAUDE.md", treePaths)).toEqual({ refsTotal: 1, deadRefs: [] });
+    expect(detectRefDrift(text, "docs/CLAUDE.md", treePaths)).toEqual({ refsTotal: 1, deadRefsTotal: 0, deadRefs: [] });
   });
 
   it("no refs → zero drift surface", () => {
-    expect(detectRefDrift("no references here", "CLAUDE.md", treePaths)).toEqual({ refsTotal: 0, deadRefs: [] });
+    expect(detectRefDrift("no references here", "CLAUDE.md", treePaths)).toEqual({ refsTotal: 0, deadRefsTotal: 0, deadRefs: [] });
   });
 });
 
@@ -203,7 +203,7 @@ describe("deriveContextHealth", () => {
   it("no guidance files → present:false, score 0, empty files (the honest 'absent')", () => {
     const ch = deriveContextHealth({ snapshot: snap(), freshness: [], commitActivity: [1, 2], now: NOW });
     expect(ch).toMatchObject({ present: false, score: 0, files: [] });
-    expect(ch.drift).toEqual({ score: 100, refsTotal: 0, deadRefs: [] });
+    expect(ch.drift).toEqual({ score: 100, refsTotal: 0, deadRefsTotal: 0, deadRefs: [] });
   });
 
   it("guidance detected but content NOT in the ingest sample → quality 0, no crash", () => {

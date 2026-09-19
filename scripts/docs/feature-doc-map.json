@@ -142,7 +142,11 @@
       "doc": "docs/features/data/retention.md",
       "sourceGlobs": [
         "src/app/api/cron/purge/**",
+        "src/app/api/org/retention/**",
         "src/lib/db/retention.ts",
+        "src/lib/db/retention-policy*.ts",
+        "src/lib/db/retention-org.test.ts",
+        "src/features/admin/settings/RetentionCard*",
         "src/lib/db/scan-digest*.ts"
       ]
     },
@@ -205,6 +209,7 @@
       "sourceGlobs": [
         "src/lib/org/followups.ts",
         "src/components/org/followups/**",
+        "src/features/inflight/proposals/**",
         "src/app/api/org/followups/**",
         "src/app/api/org/backlog/**",
         "src/lib/db/followup-claims.ts",
@@ -265,6 +270,7 @@
       "doc": "docs/features/org-planning/live.md",
       "sourceGlobs": [
         "src/features/inflight/live/**",
+        "src/features/inflight/lessons/**",
         "src/app/api/org/loop/**",
         "src/lib/local/loop-engine.ts",
         "src/lib/local/loop-lane.ts",
@@ -354,6 +360,7 @@
       "doc": "docs/features/billing/billing.md",
       "sourceGlobs": [
         "src/lib/plans.ts",
+        "src/lib/site-jsonld.ts",
         "src/lib/polar.ts",
         "src/lib/env.ts",
         "src/lib/entitlement.ts",
@@ -376,8 +383,11 @@
         "src/app/usage/**",
         "src/components/usage/**",
         "src/lib/rate-limit*.ts",
+        "src/app/api/quota/**",
         "src/lib/public-scan-quota.ts",
+        "src/lib/public-scan-limit.ts",
         "src/components/QuotaMeter.tsx",
+        "src/components/report/QuotaNotice.tsx",
         "src/lib/db/usage*.ts",
         "src/lib/llm/meter.ts"
       ]

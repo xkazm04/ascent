@@ -14,7 +14,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { meanPerDayKey, projectGoal, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
+import { meanPerDayKey, projectGoal, type Forecast, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 
 export type GoalMetric = "overall" | "adoption" | "rigor" | DimensionId;
@@ -270,6 +270,9 @@ export interface GoalProgress {
   etaDate: string | null;
   /** Weekly gain still needed to hit the target by the deadline, or null. */
   requiredPerWeek: number | null;
+  /** The OLS fit behind pace/ETA. Presenters MUST run it through `composeGoal` so the
+   *  unmeasurable hedge cannot be dropped (G4). Null when fewer than two distinct days. */
+  forecast: Forecast | null;
   /** Repos below the target on this metric (worst first), capped for payload size. */
   laggards: GoalLaggard[];
   /** Total repos below the target (laggards may be truncated). */
@@ -439,6 +442,7 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
       etaDays: proj.etaDays,
       etaDate: proj.etaDate,
       requiredPerWeek: proj.requiredPerWeek,
+      forecast: proj.forecast,
       laggards: below.slice(0, 12),
       belowCount: below.length,
       series: displaySeries(g.metric),

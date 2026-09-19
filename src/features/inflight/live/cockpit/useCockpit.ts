@@ -19,6 +19,8 @@ import { driftFor, scanningRepos, type CockpitDrift } from "./cockpitDrift";
 import { lastDriveRunId } from "./driveModel";
 import { useDrive } from "./useDrive";
 import { useLoopRun } from "./useLoopRun";
+import { useProposalBatch } from "./useProposalBatch";
+import { useRunDials } from "./useRunDials";
 import type { StartDriveInput } from "./driveClient";
 import type { DriveStatus } from "./driveTypes";
 import type { StartLoopInput } from "./loopClient";
@@ -102,6 +104,12 @@ export function useCockpit(input: UseCockpitInput) {
   // is not harmless now: clearing the rail for a hosted org would otherwise have offered it a drive
   // that could never start.
   const drive = useDrive({ slug, enabled: canDriveLocally(gate), onSettled: driveSettled });
+  // THE DIALS AND THE BATCH LIVE HERE, not in the inspector, because they are each read by two
+  // surfaces that are no longer in the same column: the setup dialog (opened from the masthead) writes
+  // the dials, the CTA in the rail composes a request from them, and the batch ledger under the sky
+  // draws and curates what the CTA will dispatch.
+  const { dials, set: setDial } = useRunDials();
+  const batch = useProposalBatch({ selected, paired, propose: loop.propose, dimFocus: dials.dimFocus });
   useEffect(() => {
     driveLive.current = drive.live;
   }, [drive.live]);
@@ -169,6 +177,9 @@ export function useCockpit(input: UseCockpitInput) {
     // `dispatchMode`, so asking ASCENT_AUTOPILOT about it would disable the very button ADR-0001
     // exists to enable. Ownership stays, unchanged and for both modes: the route enforces it anyway.
     canRun: isOwner && dispatchMode != null,
+    dials,
+    setDial,
+    batch,
     bodies,
     paired,
     selected,

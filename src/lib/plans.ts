@@ -386,6 +386,20 @@ export function scanAllowance(plan: string | null | undefined): number | null {
 export type ScanCharge = "unlimited" | "allowance" | "credit" | "denied";
 
 /**
+ * How a call on ANY usage lane is billed. The scan lane can only ever answer a `ScanCharge`; the
+ * lane-aware decision adds exactly one outcome the scan lane has no use for.
+ *
+ * `"unmetered"` and `"unlimited"` are two different facts and `PlanFeature.laneAllowances` documents
+ * them as such: a lane ABSENT from that map is not part of this plan's billing model at all, while an
+ * explicit `null` means the lane IS metered and this plan includes it without limit. Both are free at
+ * the point of the call, which is why collapsing them is so easy and so tempting — and the ledger the
+ * allowances field exists to feed is exactly the consumer that needs them apart, because a lane that
+ * is not priced on a plan does not belong in that plan's usage statement, whereas a lane that is
+ * priced and included does, carrying its unlimited marker.
+ */
+export type LaneCharge = ScanCharge | "unmetered";
+
+/**
  * Decide how the NEXT metered scan is billed: free on the unlimited plan, free while under the monthly
  * allowance, then 1 prepaid credit, else denied (allowance spent + no credits → the 402/upgrade moment).
  * Pure — the caller supplies the org's plan-derived allowance, its month-to-date metered usage, and its
@@ -436,12 +450,19 @@ export function decideCharge(
     balance: number;
     laneAllowances?: PlanFeature["laneAllowances"];
   },
-): ScanCharge {
+): LaneCharge {
   if (lane === "scan") return decideScanCharge(opts);
+  // The PLAN-level exemption, which is not the lane-level one: an unlimited plan includes every lane,
+  // so each one is metered-and-included rather than outside the billing model.
   if (opts.unlimited) return "unlimited";
   const allowance = opts.laneAllowances?.[lane];
-  // Absent = this lane is not metered on this plan. `null` = metered but included without limit.
-  if (allowance === undefined || allowance === null) return "unlimited";
+  // Absent = this lane is not metered on this plan. `null` = metered but included without limit. These
+  // answer the caller's question differently even though neither costs anything today, so they get
+  // different values: returning "unlimited" for an absent lane asserts the plan includes something it
+  // does not actually price. The distinction is free to keep now and unrecoverable once a caller has
+  // been written against the collapsed answer.
+  if (allowance === undefined) return "unmetered";
+  if (allowance === null) return "unlimited";
   if (opts.usageThisMonth < allowance) return "allowance";
   return opts.balance > 0 ? "credit" : "denied";
 }
@@ -451,7 +472,7 @@ export function decideCharge(
 export function resolveLaneCharge(
   lane: UsageLane,
   opts: { plan: string | null | undefined; usageThisMonth: number; balance: number },
-): ScanCharge {
+): LaneCharge {
   return decideCharge(lane, {
     unlimited: isUnlimitedPlan(opts.plan),
     allowance: scanAllowance(opts.plan),

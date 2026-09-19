@@ -3,6 +3,12 @@
 // The cockpit masthead: what you are looking at, whether anything is running, and the ONE primary
 // action available right now. The wall toggle is a plain link (not a mode toggle in state) so the
 // view the operator chose survives a reload and can be bookmarked — `?view=wall` is the wall.
+//
+// THE GEAR IS THE RUN'S SETUP, and it is here rather than in the rail because setup is a property of
+// the DEPLOYMENT'S NEXT RUN, not of the current selection: it survives every lasso, it is read by both
+// Run and Drive, and an operator touches it once a session. Its title carries the armed configuration,
+// so what the dialog holds is legible without opening it. It is offered only to someone who could
+// actually dispatch — a dialog that arms a run a viewer may not start is a dialog that lies.
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
@@ -19,6 +25,10 @@ export interface CockpitHeaderProps {
   driveCaption?: string | null;
   /** `?view=wall` with the tab's other params preserved. */
   wallHref: string;
+  /** Open the run-setup dialog. Absent for a viewer who cannot dispatch — the gear is then not drawn. */
+  onOpenSetup?: () => void;
+  /** The armed configuration, one line, for the gear's tooltip (`dialsSummary`). */
+  setupSummary?: string;
   onStop?: () => void;
   /** A request is in flight, or a stop has been asked for and has not landed. Both disable the
    *  button; only the second one gets a caption, because only the second one lasts. */
@@ -32,6 +42,21 @@ export interface CockpitHeaderProps {
   stopHorizonMs?: number | null;
 }
 
+/** The gear, drawn rather than imported: the app carries no icon set, and one 20px glyph is not a
+ *  reason to take one on. Decorative — the button above it holds the accessible name. */
+function GearIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6">
+      <circle cx="12" cy="12" r="3.2" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19.4 14.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.56-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.56V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1.03Z"
+      />
+    </svg>
+  );
+}
+
 export function CockpitHeader({
   fleetCount,
   active,
@@ -39,6 +64,8 @@ export function CockpitHeader({
   live,
   driveCaption = null,
   wallHref,
+  onOpenSetup,
+  setupSummary,
   onStop,
   stopping = false,
   stopRequested = false,
@@ -74,6 +101,18 @@ export function CockpitHeader({
         {live && stopRequested && <p className="mt-1 type-caption text-warn">{stoppingCaption(stopHorizonMs)}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {onOpenSetup && (
+          <button
+            type="button"
+            onClick={onOpenSetup}
+            data-testid="cockpit-setup-gear"
+            aria-label="Run setup"
+            title={setupSummary ? `Run setup — ${setupSummary}` : "Run setup"}
+            className="focus-ring rounded-md border border-divider p-1.5 text-slate-400 transition hover:border-accent hover:text-white"
+          >
+            <GearIcon />
+          </button>
+        )}
         <Link
           href={wallHref}
           className="focus-ring rounded-md border border-divider px-3 py-1.5 type-label tracking-[0.18em] text-slate-400 transition hover:border-accent hover:text-white"

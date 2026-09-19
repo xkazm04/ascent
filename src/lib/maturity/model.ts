@@ -199,7 +199,18 @@ import type {
 // workflow content than the concurrent path actually did, so scores on existing corpora can move on
 // rescan - toward the volume the rubric was calibrated against, but a move. The bump keeps r16 rows
 // labelled as the instrument that produced them and lets the caches re-derive.
-export const SCORING_RUBRIC_VERSION = "r17";
+// r18 (2026-09-15): D1 STOPS PAYING FOR GUIDANCE LENGTH. guidanceQuality (src/lib/analyze/
+// guidance-quality.ts) awarded 5 points at 1200 characters and 8 at 4000, on top of eight content rules
+// that already pay for what a long file says. Two characters of padding across 4000 bought 3 D1 points
+// (test T4 on this repo's AGENTS.md: 71 -> 74), and a 4001-character file of filler naming each trigger
+// once reached the grader maximum (census T3: 56 against a real median of 34). Always-on guidance is
+// re-sent with every agent request, so its size is a cost, not a credit. Both tiers are removed and the
+// Context Health normalizer drops 56 -> 48. PRICED: D1 falls by up to 8 on every repo whose graded
+// document passed 1200 characters. Mock bench replay over the ten captured fixtures: exact level
+// agreement 7/10 -> 8/10, within-1 10/10 -> 10/10, MAE 0.3 -> 0.2 (denoland/deno L4 -> L3, its label).
+// No weight, band, blend or guardband moved. Evidence and the saturated-rule decision:
+// docs/SCORING-VALIDITY.md section 4c.
+export const SCORING_RUBRIC_VERSION = "r18";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

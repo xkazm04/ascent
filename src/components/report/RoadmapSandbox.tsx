@@ -10,7 +10,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import type { DimensionId, PersistedRecommendation, ScanReport } from "@/lib/types";
 import { LEVEL_BY_ID, clamp } from "@/lib/maturity/model";
-import { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/engine";
+import { cheapestPathToNextLevel, projectSandbox } from "@/lib/scoring/projections";
 import { scoreHex } from "@/lib/ui";
 import { PostureQuadrant, RadarChart, ScoreRing } from "@/components/report/Charts";
 import { DeltaPill } from "@/components/report/deltas";
@@ -147,7 +147,7 @@ export function RoadmapSandbox({
           {/* Live hero + the sliders that drive it. */}
           <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
             <div className="flex flex-col items-center justify-start gap-3">
-              <ScoreRing score={proj.overall.overallScore} level={projectedLevel} size={180} />
+              <ScoreRing score={proj.overall.overallScore} level={projectedLevel} size={180} engine={report.engine.provider} />
               <LevelTransition fromId={report.level.id} toId={proj.overall.level} levelUp={proj.overall.levelUp} />
               <DeltaPill delta={proj.overall.deltaScore} suffix="vs now" />
               <NextLevelBanner report={report} proj={proj} path={path} onSimulate={setOverrides} />
@@ -207,6 +207,7 @@ export function RoadmapSandbox({
                   posture={proj.posture}
                   prev={baseline}
                   size={280}
+                  engine={report.engine.provider}
                 />
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3">
@@ -218,7 +219,7 @@ export function RoadmapSandbox({
               <Kicker tone="muted" className="self-start">
                 Projected radar
               </Kicker>
-              <RadarChart dimensions={proj.dimensions} size={320} />
+              <RadarChart dimensions={proj.dimensions} size={320} engine={report.engine.provider} />
             </div>
           </div>
 

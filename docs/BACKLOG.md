@@ -290,3 +290,69 @@ signature failure class and outranks first-raised items of equal impact.
 | MC-M5 | **An org whose slug equals its repos' owner namespace** (seed `xkazm04`, not `kiro`), one repo at a derived tier ≥ T1 *or* `repoGate` taught to consult `listOrgAdmissions`, plus a claude-cli quota window. Closes `PRIYA-L1-701`'s remote half. A **cloud-shaped** deployment (`selfHosted()` false) with an org-owner session additionally closes `PRIYA-L1-703`. | arm C closing fixture, stated in full on the finding | open |
 | MC-M6 | **Overlay corrections applied in this drain** (recorded so the next `/uat update` knows what was and was not re-derived): Victor's character sheet repriced 500 → **150** credits/mo; `uat/env.md`'s "no seeded org can produce a forecast" gap **closed** (org `public` + `?range=custom` is the zero-write low-data fixture); `uat/env.md` §Grounding Surface A **marked stale, deliberately not re-derived** — the denominator is a scored instrument and `/uat update` owns it; a new §Arm construction rule pinning the anonymous-arm recipe. `uat/README.md` gained the missing `## Drain homes` section. | analysis doc §3 | done (2026-08-31) |
 | MC-M7 | **Overlay corrections applied in the FOLLOW-UP drain** (recertify passes 1+2), recorded so the next `/uat update` knows what was and was not changed: `drive-armB-gatepolicy.mjs` and `drive-armA-dimloop.mjs` now take their shot stem from `SHOT_PREFIX` (env) or a positional argument, **defaulting to the old names** — both had hard-coded stems and destroyed the arm they were reused from, twice, irrecoverably (`RC-M2`, `RC2-M2`); `uat/env.md` §Arm construction gained five standing rules — `rm -rf .next-empty` before an empty-database arm plus the one-instance constraint (`RC2-M1`, a near-miss false pass on `MC-B8d`), *move the source to certify a single-source claim* (`RC2-M3b`), the zero-residue gate probe with its same-origin note (`RC2-M3a`), the @react-pdf text-extraction recipe (`RC-M1`), and the reusable-driver stem rule. **Grounding denominators deliberately untouched** — `§Surface A` keeps its ⚠ STALE banner; re-deriving a scored instrument outside `/uat update` invalidates the cross-run trend. | analysis doc §Follow-up drain §3 | done (2026-08-31) |
+
+## scan-sweep `--develop` all-lenses (2026-09-17)
+
+Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). Deep tier: feature-scout, innovation-catalyst, ux-reviewer, onboarding-designer, integration-planner, business-strategist, growth-hacker, monetization-advisor; remaining 20 lenses as a light pass. Full bodies live in `.personas/scan-sweep-20260917/findings/` (gitignored). Wave 1 built 11 disjoint S/M items (one per context-map group) on `docs/org-path-of-use-adr-20260914`.
+
+### Wave 1 shipped
+
+| Context | Item | SHA |
+| --- | --- | --- |
+| GitHub Repo Data Access | Honor GITHUB_SERVER_URL in parseRepoUrl so GHES pastes scan | `bb597822` |
+| CI Gate & Status Checks | Treat explicitly requested untestable gate bars as could-not-run, not pass | `bb9759f1` |
+| Fleet Alerts & Digests | Relink goal-at-risk digest pushes off the retired /plan URL | `437608ca` |
+| Org Branding & White-label | Apply stored brand name, logo and accent on the in-app briefing tab | `267d2a14` |
+| Org Memory | Stop agent recall from using the write-check namespace=NULL helper | `194a3cfc` |
+| Checkout & Plans (Polar) | Derive public-scan matrix cells from publicScanAllowance, not 'Unlimited' | `f67450df` |
+| Landing Page Prototypes | Retire the ROI-ranked plan card and its /plan href | `435da864` |
+| Follow-ups Ledger | Build get_fix_brief from held rows, not from openBatch's open-only picker | `893469c7` |
+| AI-Native Standard & Onboarding Skill | Commit the onboarding SKILL.md in the foundation PR | `80880225` |
+| PDF & LLM Export | Keep LLM-vs-detector discrepancies in PDF and markdown (G1) | `2b466e41` |
+| Data Retention & Purge | Reset every scan-derived Repository cache and evidence table on erase | `55a58aba` |
+
+### Wave 2 shipped
+
+11 disjoint S/M items, one per context-map group. Catalog.json write-back after index was skipped (no GitHub contents helper — would be L); swapped for default MCP token scopes.
+
+| Context | Item | SHA |
+| --- | --- | --- |
+| LLM Provider Abstraction | Honor LLM_FALLBACK_PROVIDER=nebius in providerByName | `4440a630` |
+| GitHub App Installation & Webhooks | Build App install URLs from githubWebBase for GHES | `efcc02f4` |
+| Launch Fleet Map | Send Enter mission control to the first org dashboard | `48e5a214` |
+| Org Import, Scan & Watchlist | Stamp creditCharged on import reservations so a killed import cannot double-debit | `463a88f4` |
+| Developer home (UC3 individual care) | Do not offer Preview-as when activity is withheld or unreadable | `83738312` |
+| Follow-ups Ledger | Carry claimActor, leaseUntil and needsHuman across scan persist | `50974709` |
+| Skills Registry & API Tokens | Default minted tokens to the MCP door scopes, not leftover skills:read | `b0f08386` |
+| Portfolio & Public Leaderboard | Stop 404ing a public scorecard when the register read fails | `bdaff48e` |
+| Landing Page Prototypes | Add a numeric, anonymous pricing snap section on the Index deck | `63f77947` |
+| Usage Metering | Return null from freeToPaidConversion when no Subscription row has ever been written | `82949da0` |
+| Data Retention & Purge | Erase remaining tenant ledgers: OrgMemory, BYOM creds, API tokens, alerts | `8f8edee1` |
+
+### Wave 3 shipped (lowest-risk 100)
+
+100 S-sized auto-buildable cards, risk 1–2, dispatched in 7 isolated-worktree batches then cherry-picked onto `docs/org-path-of-use-adr-20260914`. Plus one follow-up pin on the D9 PDF test walker (`4e1eeefa`). Range: `145d5487`..`3b085e47` (101 `fix(` commits). Full titles in `git log --oneline 0d976ffd..3b085e47`.
+
+### Wave 4 shipped (lowest-risk 50)
+
+50 auto-buildable cards (37 S / 13 M, risk 2–3), dispatched in isolated-worktree batches then cherry-picked onto `master`. Range: `304bddc0`..`faeaaa34` (50 `fix(` commits). Full titles in `git log --oneline f4e63fc6..faeaaa34`. ScoreRing's `context-map.json` edit was dropped at pick (hot-file).
+
+### Wave 5 shipped (lowest-risk 50)
+
+50 auto-buildable cards (all risk 3; packed 20 S / 30 M), dispatched in isolated-worktree batches then cherry-picked onto `master`. Range: `c7782518`..`95d54c59` (50 `fix(` commits). Full titles in `git log --oneline 7c7e113d..95d54c59`. One packed item was skipped as policy-loosen (roster GET widened from owner-only to viewer) and replaced with Polar customer-portal self-serve cancel. Launch triage tests were split under the 300-LOC `.tsx` cap after pick.
+
+### Escalated (human / architecture / irreversible / hot-file)
+
+| Context | Item | Size | Gate | Why |
+| --- | --- | --- | --- | --- |
+| Developer home (UC3 individual care) | Land C3 mentor-share so the care loop is not permanently an empty preview | L | architecture | architecture |
+| Scan Pipeline & Ingestion | Persist sensorFailures so cached and fleet gates keep scan honesty | M | contract | hot-file |
+| Checkout & Plans (Polar) | Add planAllows('seats') and enforce PlanFeature.seats on membership writes | M | irreversible | irreversible |
+| Database Client & Schema | Add @@unique([scanId, dimId]) on ScanDimension | S | contract | hot-file |
+| Maturity Model & Scoring Engine | Score D6 CI enforcement from gitlab-ci, Jenkinsfile, and lefthook, not only Actions | S | none | hot-file |
+| Provider Integrations | Ship the planned OpenAI Codex admin-pull connector behind the existing allocated tier | L | architecture | architecture |
+| First-Run Onboarding Wizard | Re-judge wizard-flows: mid-scan resume now re-attaches | S | contract | contract |
+| Live War Room | Surface drive/run outcome on the shared kiosk instead of standing-only LiveWarRoom | M | none | none |
+| Members & Access Control | Let viewers read the org roster; keep role writes owner-only | M | policy-loosen | catalog said policy-tighten; GET `/api/org/members` currently owner-only — widening it is a human call |
+
+Remaining auto-buildable cards (37) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.

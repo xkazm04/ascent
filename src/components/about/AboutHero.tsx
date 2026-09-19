@@ -9,8 +9,10 @@ import { LEVELS, DIMENSIONS } from "@/lib/maturity/model";
 import { useCountUp } from "@/components/landing/prototypes/shared/useCountUp";
 import { AboutCtaButtons } from "./AboutCtaButtons";
 
-const INTRO =
-  "Ascent turns your organization's scattered AI adoption into one comparable index, then shows the highest-ROI path from manual development to a fully LLM-based, governed engineering org.";
+// GOLDEN-TRIO: do not lead with ROI. The lede is the first sentence a visitor reads; it names the
+// score, the ladder and the evidence — the same three ingredients as siteDescription() — not a
+// payoff ranking. Counts are derived from the model so a rubric change cannot leave this stale.
+const INTRO = `Ascent turns your organization's scattered AI adoption into one comparable index: a score on a ${LEVELS.length}-level maturity ladder across ${DIMENSIONS.length} dimensions, with evidence and a roadmap to the next level.`;
 
 /** A masthead ledger cell whose number counts up on reveal — the brand Stat in its inverted `figure`
  *  form, with the count-up span passed as the value so useCountUp's ref lands on the digits. */

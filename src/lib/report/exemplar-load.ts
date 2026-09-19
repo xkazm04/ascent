@@ -72,8 +72,8 @@ function toDimensions(rows: { dimId: string; name: string; score: number; signal
     name: d.name,
     score: d.score,
     signalScore: d.signalScore,
-    evidence: parseStringArray(d.evidence),
-    gaps: parseStringArray(d.gaps),
+    evidence: parseStringArray(d.evidence) ?? [],
+    gaps: parseStringArray(d.gaps) ?? [],
   }));
 }
 

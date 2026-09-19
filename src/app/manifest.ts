@@ -3,8 +3,10 @@ import { BRAND_INK, siteDescriptionShort, SITE_TAGLINE } from "@/lib/site";
 
 // SHELL-3: Web App Manifest so Ascent is an installable PWA shell (Add to Home Screen / desktop
 // install) with brand chrome on the splash + task switcher. No service worker — installability only
-// needs name + start_url + display + icons. Colors are the single-sourced brand ink (BRAND_INK in
-// lib/site.ts — same value as the viewport themeColor + CSS --color-ink). Icons reuse
+// needs name + start_url + display + icons. start_url is /onboarding (the documented first-run
+// door), not the marketing root — installing the app should land on that funnel. Colors are the
+// single-sourced brand ink (BRAND_INK in lib/site.ts — same value as the viewport themeColor + CSS
+// --color-ink). Icons reuse
 // the existing brand marks: the transparent mark for normal display, the filled mark (has a backing
 // plate) for the maskable slot so Android's safe-zone mask doesn't clip a bare glyph. Both marks are
 // 512×512, so we declare an explicit `sizes:"512x512"` (not `"any"`): Chromium/Lighthouse only treat
@@ -16,7 +18,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: `Ascent: ${SITE_TAGLINE}`,
     short_name: "Ascent",
     description: siteDescriptionShort(),
-    start_url: "/",
+    start_url: "/onboarding",
     display: "standalone",
     background_color: BRAND_INK,
     theme_color: BRAND_INK,

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildGuidanceGraph, declaredCanonical } from "@/lib/analyze/guidance-graph";
+import { buildGuidanceGraph, declaredCanonical, parsePointers } from "@/lib/analyze/guidance-graph";
 import { renderProjection } from "@/lib/analyze/guidance-projection";
 import type { RepoSnapshot } from "@/lib/types";
 
@@ -27,12 +27,15 @@ const CANON = `# o/r agent guidance
 - Never commit generated files.
 `;
 
-// STRUCTURAL GUARD. `scoring/engine.ts` imports this module's `isGuidancePath` and `analyze/index.ts`
-// imports the graph itself — and BOTH are pulled into the client bundle by `RoadmapSandbox.tsx` /
-// `ScoreWaterfall.tsx`, which import `contributions`/`projectSandbox` from the engine. A `node:*`
-// import anywhere on that path fails `next build` and NOTHING else: `tsc --noEmit` stays green, and so
-// does this entire suite, because vitest runs in Node. That is the failure mode this file pins — the
-// hashing half lives in `guidance-projection.ts`, which the graph must never import.
+it("resolves ambiguous references in tree order, deduplicates aliases and keeps snapshot caches separate", () => {
+  const text = "@GUIDE.md [again](./guide.md) [remote](https://example.com/guide.md) @missing.md";
+  expect(parsePointers(text, new Set(["nested/guide.md", "GUIDE.md"]))).toEqual(["nested/guide.md"]);
+  expect(parsePointers(text, new Set(["GUIDE.md", "nested/guide.md"]))).toEqual(["GUIDE.md"]);
+  expect(parsePointers(text, new Set())).toEqual([]);
+});
+
+// These pure analysis helpers remain safe to reuse across server and client boundaries.
+// Hashing stays in guidance-projection.ts; adding a Node built-in here would break that contract.
 describe("the scanner path carries no Node built-ins", () => {
   it.each(["src/lib/analyze/guidance-graph.ts", "src/lib/analyze/context-health.ts"])(
     "%s imports nothing from node:",

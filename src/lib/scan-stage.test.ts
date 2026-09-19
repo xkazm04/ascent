@@ -21,6 +21,17 @@ describe("isSubstageFrame", () => {
 });
 
 describe("foldProgressFrame", () => {
+  it.each([null, false, true, "", "   ", [], [1], {}])("preserves counters for nonnumeric payload %j", (value) => {
+    const prev: ScanProgressState = { done: 2, total: 5, current: "acme/web", stage: "tree" };
+    expect(foldProgressFrame(prev, { index: value, total: value })).toMatchObject({ done: 2, total: 5 });
+  });
+
+  it("still accepts explicit zero and numeric strings from the stream", () => {
+    const prev: ScanProgressState = { done: 2, total: 5, current: "acme/web", stage: null };
+    expect(foldProgressFrame(prev, { index: 0, total: "3" })).toMatchObject({ done: 0, total: 3 });
+    expect(foldProgressFrame(prev, { index: "1", total: 4 })).toMatchObject({ done: 1, total: 4 });
+  });
+
   it("a repo boundary sets the repo and clears the sub-stage", () => {
     const s = foldProgressFrame(start, { stage: "scan", repo: "acme/web", index: 0, total: 3 });
     expect(s).toEqual({ done: 0, total: 3, current: "acme/web", stage: null });

@@ -137,6 +137,14 @@ describe("POST /api/org/members — CSRF / same-origin guard", () => {
     expect(mockSet).not.toHaveBeenCalled();
   });
 
+  it("rejects an invalid GitHub-login shape with 400 (before the gate's side effects)", async () => {
+    const res = await POST(postReq({ org: "acme", login: "not a login", role: "admin" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "login must be a valid GitHub login." });
+    expect(mockGate).not.toHaveBeenCalled();
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
   it("maps a last_owner outcome to 409", async () => {
     mockSet.mockResolvedValue("last_owner");
     const res = await POST(postReq({ org: "acme", login: "alice", role: "member" }));
@@ -175,6 +183,15 @@ describe("DELETE /api/org/members — owner gate + CSRF block the removal", () =
     expect(mockGate).toHaveBeenCalledWith("acme", "owner"); // canonical org, owner min
     expect(mockRemove).toHaveBeenCalledTimes(1);
     expect(mockAudit).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an invalid GitHub-login shape with 400 like POST (before the gate's side effects)", async () => {
+    const res = await DELETE(deleteReq("acme", "not a login"));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "login must be a valid GitHub login." });
+    expect(mockGate).not.toHaveBeenCalled();
+    expect(mockRemove).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   it("maps a not_found outcome to 404 (no audit)", async () => {

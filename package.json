@@ -26,6 +26,8 @@
     "test:e2e:loop": "playwright test --config playwright.loop.config.ts",
     "bench": "node scripts/benchmark.mjs",
     "doctor": "node scripts/doctor.mjs",
+    "check:contracts": "node scripts/check-contract-duplication.mjs",
+    "copy:check": "node .claude/skills/native-copy/scripts/copy-check.mjs",
     "gate": "node scripts/maturity-gate.mjs",
     "postinstall": "prisma generate",
     "prepare": "git config core.hooksPath .githooks || exit 0",

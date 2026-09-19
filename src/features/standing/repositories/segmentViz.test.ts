@@ -105,6 +105,26 @@ describe("paired rows", () => {
     ]);
   });
 
+  it("passes a missing dimension through as null even when both sides are scanned", () => {
+    // The old `value(scannedCount, v)` only voided a row when a whole side had zero scans, so a
+    // scanned slice that simply never scored D9 still plotted as 0. The producer now emits null
+    // per-dimension; this module must not re-coalesce it.
+    const rows = dimensionPairs(
+      comparison(summary({ name: "a", scannedCount: 5 }), summary({ name: "b", scannedCount: 5 }), [
+        { dimId: "D9", a: 80, b: null, delta: null },
+        { dimId: "D2", a: null, b: 30, delta: null },
+        { dimId: "D1", a: 0, b: 0, delta: 0 },
+      ]),
+      (id) => id,
+    );
+    expect(rows).toEqual([
+      { id: "D9", label: "D9", a: 80, b: null, delta: null },
+      { id: "D2", label: "D2", a: null, b: 30, delta: null },
+      { id: "D1", label: "D1", a: 0, b: 0, delta: 0 },
+    ]);
+    expect(pairedStates(rows)).toEqual(["measured", "missing"]);
+  });
+
   it("reports the states a set of rows contains", () => {
     const both = headlinePairs(comparison(summary({ name: "a" }), summary({ name: "b" })));
     expect(pairedStates(both)).toEqual(["measured"]);

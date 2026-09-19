@@ -61,3 +61,25 @@ describe("FreshnessControl Re-test — the scan slot isn't spent until confirmed
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
+
+describe("FreshnessControl Re-test — permalink stays on the durable path", () => {
+  it("links to /report/{owner}/{repo}?fresh=1, not /report?repo=", () => {
+    render(<FreshnessControl report={report} />);
+
+    const link = screen.getByRole("link", { name: "Re-test" });
+    expect(link).toHaveAttribute("href", "/report/acme/web?fresh=1");
+    expect(link.getAttribute("href")).not.toMatch(/[?&]repo=/);
+  });
+
+  it("keeps a pinned commit on the durable path (fresh query only)", () => {
+    const pinned = {
+      scannedAt: report.scannedAt,
+      repo: { owner: "acme", name: "web", headSha: "abc123def" },
+    } as unknown as ScanReport;
+    render(<FreshnessControl report={pinned} />);
+
+    const link = screen.getByRole("link", { name: "Re-test" });
+    expect(link).toHaveAttribute("href", "/report/acme/web@abc123def?fresh=1");
+    expect(link.getAttribute("href")).not.toMatch(/[?&]repo=/);
+  });
+});

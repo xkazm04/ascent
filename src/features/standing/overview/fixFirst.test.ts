@@ -2,6 +2,8 @@
 // goal), the busiest-findings-module pick, the cap at 3, and the href contracts each cell deep-links
 // to (report permalink / module tab / follow-ups tab), including scope carry.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { deriveFixFirst, type FixFirstInputs } from "@/features/standing/overview/fixFirst";
 
@@ -46,7 +48,7 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
     // behind-pace goal used to point at the Plan tab; that tab retired 2026-08-17 and the goal's
     // work now lives in the Follow-ups ledger.)
     expect(items[1]!.href).toBe("/org/acme?tab=security");
-    expect(items[2]!.href).toBe("/org/acme?tab=followups");
+    expect(items[2]!.href).toBe("/org/acme?tab=proposals");
   });
 
   it("picks the busiest findings module and pluralizes the title", () => {
@@ -113,6 +115,42 @@ describe("deriveFixFirst — triage order, cap, and link contracts", () => {
     const items = deriveFixFirst("acme", FULL, "stack=react");
     expect(items[0]!.href).toBe("/report/acme/api");
     expect(items[1]!.href).toBe("/org/acme?tab=security&stack=react");
-    expect(items[2]!.href).toBe("/org/acme?tab=followups&stack=react");
+    expect(items[2]!.href).toBe("/org/acme?tab=proposals&stack=react");
+  });
+});
+
+describe("deriveFixFirst — a failed movers read is not 'no regressions'", () => {
+  // Gate: a movers-reject fixture with findings still occupying the top triage slot. Omitting
+  // that slot lets the findings queue read as #1 and a void bar read as "no scoring model".
+  it("occupies the regression slot with couldn't-load copy when movers rejected and findings exist", () => {
+    const items = deriveFixFirst("acme", { ...EMPTY, moversFailed: true, findings: FULL.findings });
+    expect(items.map((i) => i.key)).toEqual(["regression", "finding"]);
+    expect(items[0]!.title).toMatch(/couldn't load/i);
+    expect(items[0]!.detail).toMatch(/could not be read/i);
+    expect(items[0]!.href).toBe("/org/acme?tab=repositories");
+    expect(items[0]!.impact.state).toBe("missing");
+    expect(items[0]!.impact.gain).toBeNull();
+    expect(items[0]!.impact.basis).toMatch(/could not be read/i);
+    expect(items[0]!.impact.basis.toLowerCase()).not.toMatch(/no scoring model/);
+  });
+
+  it("carries scope into the repositories link the failed slot uses", () => {
+    const items = deriveFixFirst("acme", { ...EMPTY, moversFailed: true, findings: FULL.findings }, "stack=react");
+    expect(items[0]!.href).toBe("/org/acme?tab=repositories&stack=react");
+  });
+
+  it("does not invent that slot when movers succeeded with no regressers", () => {
+    const items = deriveFixFirst("acme", { ...EMPTY, findings: FULL.findings });
+    expect(items.map((i) => i.key)).toEqual(["finding"]);
+    expect(items[0]!.title).not.toMatch(/couldn't load/i);
+  });
+});
+
+describe("OverviewFixFirstPanel — a movers throw is flagged, not emptied", () => {
+  const panel = readFileSync(join(process.cwd(), "src/features/standing/overview/OverviewFixFirstPanel.tsx"), "utf8");
+
+  it("passes moversFailed from a rejected getOrgMovers, never catch-to-empty-regressers", () => {
+    expect(panel).toMatch(/moversFailed:\s*moversRead\.failed/);
+    expect(panel).not.toMatch(/getOrgMovers\([^)]*\)\.catch\(\(\) => null\)/);
   });
 });

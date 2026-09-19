@@ -12,7 +12,8 @@
 // test in context-health.test.ts. Folding it into D1 later is a deliberate, versioned rubric event.
 
 import type { ContextHealth, ContextHealthFile, GuidanceFreshness, RepoFile, RepoSnapshot } from "@/lib/types";
-import { guidanceQuality } from "@/lib/analyze";
+import { guidanceQuality } from "./guidance-quality";
+export { parseContextHealthJson } from "./context-health-read";
 
 /** Shape version persisted inside contextHealthJson, for read-time tolerance. */
 export const CONTEXT_HEALTH_VERSION = "1";
@@ -72,8 +73,10 @@ export function pickGuidanceFiles(tree: RepoFile[]): RepoFile[] {
     .slice(0, MAX_GUIDANCE_FILES);
 }
 
-/** guidanceQuality's maximum attainable points (the sum of every rule) — the 0..100 normalizer. */
-const GUIDANCE_QUALITY_MAX = 56;
+/** guidanceQuality's maximum attainable points (the sum of every rule) — the 0..100 normalizer.
+ *  48 since r18 dropped the two length tiers (was 56); scripts/guidance-signal-census.mjs pins that a
+ *  file firing every rule reaches exactly this number. */
+const GUIDANCE_QUALITY_MAX = 48;
 
 /**
  * APPROXIMATE commits landed since `sinceIso`, read off the scan's weekly commit-activity buckets
@@ -135,19 +138,23 @@ export function detectRefDrift(
   guidanceText: string,
   guidancePath: string,
   treePaths: ReadonlySet<string>,
-): { refsTotal: number; deadRefs: string[] } {
+): { refsTotal: number; deadRefsTotal: number; deadRefs: string[] } {
   const dir = guidancePath.includes("/") ? guidancePath.slice(0, guidancePath.lastIndexOf("/") + 1) : "";
   const seen = new Set<string>();
   const dead: string[] = [];
+  let deadRefsTotal = 0;
   for (const m of guidanceText.matchAll(FILE_REF_RE)) {
     const ref = m[1]!;
     if (seen.has(ref)) continue;
     seen.add(ref);
     const rel = (dir + ref).toLowerCase().replace(/\/\.\//g, "/");
     const alive = treePaths.has(ref.toLowerCase()) || treePaths.has(rel);
-    if (!alive && dead.length < MAX_DEAD_REFS) dead.push(ref);
+    if (!alive) {
+      deadRefsTotal += 1;
+      if (dead.length < MAX_DEAD_REFS) dead.push(ref);
+    }
   }
-  return { refsTotal: seen.size, deadRefs: dead };
+  return { refsTotal: seen.size, deadRefsTotal, deadRefs: dead };
 }
 
 export interface DeriveContextHealthInput {
@@ -230,17 +237,20 @@ export function deriveContextHealth(input: DeriveContextHealthInput): ContextHea
   // Drift — dead `@file` refs across ALL measured guidance files vs the tree index (free).
   const treePaths = new Set(snapshot.tree.filter((t) => t.type === "blob").map((t) => t.path.toLowerCase()));
   let refsTotal = 0;
+  let deadRefsTotal = 0;
   const deadRefs: string[] = [];
   for (const f of files) {
     const text = contentByPath.get(f.path.toLowerCase());
     if (!text) continue;
     const d = detectRefDrift(text, f.path, treePaths);
     refsTotal += d.refsTotal;
+    deadRefsTotal += d.deadRefsTotal;
     for (const r of d.deadRefs) if (deadRefs.length < MAX_DEAD_REFS) deadRefs.push(r);
   }
   const drift = {
-    score: refsTotal === 0 ? 100 : Math.round(100 * ((refsTotal - deadRefs.length) / refsTotal)),
+    score: refsTotal === 0 ? 100 : Math.round(100 * ((refsTotal - deadRefsTotal) / refsTotal)),
     refsTotal,
+    deadRefsTotal,
     deadRefs,
   };
 
@@ -260,27 +270,3 @@ export function deriveContextHealth(input: DeriveContextHealthInput): ContextHea
   return { version: CONTEXT_HEALTH_VERSION, present, files, freshness, quality, drift, score };
 }
 
-/** Defensive parse of a persisted contextHealthJson blob — null on malformed/legacy content, so a
- *  bad row degrades to "not assessed" instead of crashing a fleet page. Mirrors parsePassportJson. */
-export function parseContextHealthJson(raw: string | null | undefined): ContextHealth | null {
-  if (!raw) return null;
-  try {
-    const ch = JSON.parse(raw) as ContextHealth;
-    if (
-      !ch ||
-      typeof ch !== "object" ||
-      typeof ch.version !== "string" ||
-      typeof ch.present !== "boolean" ||
-      !Array.isArray(ch.files) ||
-      typeof ch.score !== "number" ||
-      !ch.freshness ||
-      !ch.quality ||
-      !ch.drift
-    ) {
-      return null;
-    }
-    return ch;
-  } catch {
-    return null;
-  }
-}

@@ -10,6 +10,19 @@ Context-map group: **Marketing Site & Design System** (`feature`).
 
 ## Implementation roots
 
+The shared `Modal` moves focus inside after its portal mounts, preserving explicit
+child autofocus such as confirmation dialogs' Cancel button. Tab and Shift+Tab stay
+within the panel, including dialogs with no enabled controls; closing restores the
+captured opener. These keyboard paths have DOM regression coverage, not a full
+screen-reader or browser accessibility certification.
+When dialogs overlap, only the top mounted layer handles Escape and Tab. A locked
+confirmation also blocks Escape from reaching its parent. The body scroll lock lasts
+until the final layer closes, including when a lower layer closes first.
+
+`Defer` schedules a subtree's first appearance. Once shown, the same subtree stays
+mounted when reduced-motion or immediate-render settings change, preserving local
+input state. A newly mounted `Defer` instance still applies its own arrival policy.
+
 | Surface | Route(s) | Source |
 | --- | --- | --- |
 | Design System: UI Primitives & Deck | — | `src/components/ui/**`, `src/components/deck/**`, `src/components/ConfirmAction.tsx` |
@@ -21,8 +34,24 @@ Context-map group: **Marketing Site & Design System** (`feature`).
 
 `IndexLanding` renders the production landing as a scroll-snap deck. Section
 roster (also the right-edge `DeckNav`): **hero · org · fleet · local · gallery
-(when the register has data) · levels · dimensions**, each a `DeckSection` under
-`src/components/landing/prototypes/index/`.
+(when the register has data) · pricing · levels · dimensions**, each a
+`DeckSection` under `src/components/landing/prototypes/index/`.
+
+**Org edition (`IndexOrg`, deck id `org`)**: six use-case cards into the curated
+demo org. Copy names shipped tabs, not a retired Plan. The last card is
+Follow-ups & Proposals (`orgTabHref(DEMO_ORG_SLUG, "proposals")`) — scan
+follow-ups and loop proposals in one in-flight ledger, waiting on a decision —
+never an ROI-ranked backlog and never `/org/{demo}/plan` (Plan tab retired
+2026-08-17 in favour of that ledger; GOLDEN-TRIO: do not lead with ROI;
+`getOrgBacklog` sorts by due/impact/recency and projected points are display-only).
+
+**Fleet (`IndexFleet`, deck id `fleet`)**: the Mission Control constellation made
+public. The picture is data-free `PublicConstellation` (deterministic phyllotaxis,
+no fetch, no session, no fleet data). The three notes decode the metaphor — a
+cluster per org, a star per repo, the sky as a glance at the estate — and never
+claim the vignette is live-scanning. The stamp under the picture stays
+`Illustrative fleet`. Sign-in copy points at the real Mission Control; the
+picture itself is the metaphor.
 
 **The register's counter is suppressed at zero** (`IndexGallery`). A count is a
 claim, and zero is not one worth making: on a configured-but-empty database this
@@ -57,6 +86,12 @@ rating taken on an earlier instrument, unlike a mock score, which is not a ratin
 at all; dropping every pre-bump row would empty the register on the day of each
 bump and publish something less true.
 
+**The register footer links the capped landing board to `/leaderboard`.** The deck
+gallery is a slice (`getPublicScanGallery` `recentLimit`/`topLimit`); the crawlable,
+paginated ranking of the same corpus lives on `/leaderboard`. That path is a real
+`next/link` in the register footer, not a heading that merely names the register.
+The growth-loop scan CTA (`/?scan=1`) stays beside it.
+
 Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
 `SelfHostBand` so the copy can't drift apart in spirit:
 
@@ -84,13 +119,22 @@ Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
   that it is bounded and that a rescan, not the agent, decides whether anything
   landed — printing the numbers is what makes that checkable.
 
+**Pricing (`IndexPricing`, deck id `pricing`, after the register when present)**:
+a numeric, anonymous snap of the hosted plans (G8/G11). Amounts and cadences
+come from `planPriceLabel()` / `PLAN_FEATURES` — never typed dollar literals. A
+compact self-host band sits **above** the `HairlineGrid` and reuses
+`IndexLocal`'s `/pricing#self-host` anchor. Free / Starter / Team are one-click
+(`/` or `/onboarding`); Custom is `Flexible` plus `PlanEnquiryCta`. No "talk to
+sales" on Starter/Team.
+
 **Numbers in landing copy are imported, never typed.** The hero and
-`DimensionMatrix` already read `LEVELS` / `DIMENSIONS`; the scan dialog's duration
-now reads `scanDurationClaim()` (`src/components/report/scanEstimate.ts`), the same
-constants the live-scan progress bar and its abort backstop run on. The dialog
-promised "in about a minute" for a year — true of no provider the scanner has ever
-run on (~100 s hosted, a measured ~6 min median on a local CLI), and already
-retired in `ColdScanGate`'s copy while the hero went on printing it.
+`DimensionMatrix` already read `LEVELS` / `DIMENSIONS`; `IndexPricing` reads
+`planPriceLabel()`; the scan dialog's duration now reads `scanDurationClaim()`
+(`src/components/report/scanEstimate.ts`), the same constants the live-scan
+progress bar and its abort backstop run on. The dialog promised "in about a
+minute" for a year — true of no provider the scanner has ever run on (~100 s
+hosted, a measured ~6 min median on a local CLI), and already retired in
+`ColdScanGate`'s copy while the hero went on printing it.
 
 **The levels chart's dashed line marks a boundary that exists on its own axis.**
 `TrajectoryChart` drew it at `POSTURE_THRESHOLD` (50) labelled "AI-NATIVE" and
@@ -116,6 +160,35 @@ raw `text-xs…text-4xl` and `text-[10px]`-style sizes; `text-5xl`/`text-6xl` re
 hero/kiosk surfaces. The table in `src/components/ui/BRAND.md` is the reference; `type-label`
 deliberately sets no letter-spacing (Tailwind v4 emits `tracking-*` before multi-declaration
 custom utilities, so a fixed tracking would beat the explicit one on the element).
+
+## Design-tokens study (`AppearanceStudy`)
+
+The surface-library design-tokens study (`src/features/shared/surfaces/AppearanceStudy.tsx`)
+renders the live token table — **accent, ink, surface, divider, danger, warn, success**,
+and `LEVEL_HEX` from `@/lib/ui` — not a picker of Ascent / Mint / Amber appearances.
+[BRAND.md](../../../src/components/ui/BRAND.md) is one azure on cold ink. Mint and amber
+are not peer accents; `warn` / `success` are status, and `LEVEL_HEX` is the score ramp only.
+
+## Data-viz study (`DataCharts`)
+
+The surface-library data-viz study (`src/features/shared/surfaces/DataCharts.tsx`)
+renders the org viz kit — `Distribution` and `BandLadder` from `@/components/org/viz`,
+with `STATE_LABEL` and `scoreHex` (`@/lib/ui`) — not CSS `<i>` bars of hardcoded
+readiness. Scores in the playground are labelled as a study series, not live org
+or marketing figures. Empty level bands stay `missing` (`STATE_LABEL.missing`,
+"No measurement"), never a zero.
+
+## Async UI states study (`FeedbackPlayground`)
+
+The surface-library async-ui-states study (`src/features/shared/surfaces/FeedbackPlayground.tsx`)
+is driven from `Defer` (`@/components/ui/Defer`) and `VIZ_STATES` / `STATE_LABEL`
+(`@/components/org/viz`). It is not invented Ready / Loading / Empty / Error, and it
+does not teach a spinner or skeleton as the house async contract. `Defer` schedules a
+subtree's first appearance (strategies `next-frame`, `idle`, `visible`); once shown,
+the subtree stays mounted. That is not a loading state: children are ready, and the
+placeholder is a quiet gap (`.reveal-quiet`), never a fake page. Epistemic marks use
+the six `VIZ_STATES`; `missing` stays `STATE_LABEL.missing` ("No measurement"), never
+a zero.
 
 ## The deck reading scale (large-screen typography & measure)
 
@@ -162,6 +235,11 @@ Rules that make this safe to extend:
   `animation-timeline: scroll(root block)` behind an `@supports` guard: no scroll
   listener, no rAF, no per-frame React work. Rendered by all three deck
   orchestrators.
+- **`DeckNav`** (`src/components/deck/DeckNav.tsx`): labelled `#id` anchors for every
+  deck section. Desktop is a right-edge rail; below `lg` the same `sections` array
+  feeds a bottom bar with prev/next plus a native `<details>` jump list so a phone
+  reader can open any mid-deck chapter (Pricing, ROI, CTA) without paging through
+  every snap. Progress pills stay visual-only (`aria-hidden`).
 - **The canvas wash moved off `body`'s own background** into a fixed `body::before`.
   `background-attachment: fixed` forced a main-thread repaint of a 70rem radial
   gradient on every scroll frame and blocked compositor promotion.
@@ -177,20 +255,32 @@ Rules that make this safe to extend:
 
 ## `/about`: invented data is labelled where it renders
 
+**The masthead does not lead with ROI.** GOLDEN-TRIO: do not lead with ROI. `AboutHero`
+INTRO and the page `metadata.description` name the score, the maturity ladder, and the
+evidence — the same three ingredients as `siteDescription()` in `lib/site.ts` — never
+"the highest-ROI path". Counts are derived from the model. The ROI simulator stays later
+on the deck, labelled illustrative.
+
 The marketing deck's four diagrams (`FleetGrid`, `RoiSimulator`, `ChampionNetwork`,
 `RiskRadar`) are demonstrations, not customer results. The **ROI simulator** is the
 one a prospective buyer reads as proof — it computes over eight invented repos at a
 `W = 0.16` weighting its own source calls "deliberately NOT the production
 weighting" — and until 2026-08-31 both facts lived only in comments, i.e. only for
-people reading the repository (UAT `MC-B6` / `TOMAS-L1-04`, recurrence 2).
+people reading the repository (UAT `MC-B6` / `TOMAS-L1-04`, recurrence 2). The other
+three diagrams were the same omission: invented cells, contributors and alerts,
+labelled only in source.
 
-**The rule: a provenance caveat renders, or it does not exist.** `RoiSimulator` now
-closes with `Illustrative · N sample repos, demo weighting — not customer data`, in
-the same `type-label tracking-[0.22em] text-slate-600` chrome `AboutOrgHero`
-("Illustrative fleet · 48 repos") and `AboutOrgLoop` ("Illustrative cycle") already
-use — so the disclosure is one recognizable house form across both decks rather than
-three phrasings. The count comes from `REPOS.length`, so editing the fleet cannot
-leave the caption lying; `RoiSimulator.dom.test.tsx` pins both halves.
+**The rule: a provenance caveat renders, or it does not exist.** Every invented
+diagram on `/about` now closes with the same `type-label tracking-[0.22em]
+text-slate-600` chrome `AboutOrgHero` ("Illustrative fleet · 48 repos") and
+`AboutOrgLoop` ("Illustrative cycle") already use — so the disclosure is one
+recognizable house form across both decks rather than a per-diagram phrasing.
+`RoiSimulator` still names the sample-repo count from `REPOS.length` and the demo
+weighting; `FleetGrid` names `REPOS.length`; `ChampionNetwork` names the sample
+contributor count from `NODES`; `RiskRadar` names the sample alert count from
+`BLIPS`. Counts come from the arrays they render, so editing a vignette cannot
+leave the caption lying. `RoiSimulator.dom.test.tsx` and `FleetGrid.dom.test.tsx`
+pin the rendered labels.
 
 The simulator was kept rather than deleted in favour of the landing register of real
 scanned repos: the register is server-fetched on `/` (and absent entirely when no DB
@@ -198,6 +288,19 @@ is configured), while this deck is a client orchestrator whose `roi` section cop
 `features.ts` describes the what-if simulator specifically. Promoting the register
 here is a structural move, not a caption fix — and a labelled demo beside a real
 register elsewhere is honest, whereas an unlabelled one is not.
+
+The paired `roi` money line in `features.ts` names those same live tiles
+(promotions, average gain, repos in scope). It must not carry a dated N-of-M
+forecast the sliders never compute (no calendar quarter, no "6 of 8" count).
+GOLDEN-TRIO: do not lead with ROI. `features.test.ts` pins the contract.
+
+**The transition pane does not sell settable goals or forecast ETAs as climb
+controls.** `AboutTransition`'s intro names the `LEVELS`-derived ladder and the
+measurable path between rungs. The Plan tab that hosted visitor-settable goals
+retired 2026-08-17; goals are read-only, and `etaDays` prints on the Briefing PDF
+(`src/lib/pdf/briefing-document.tsx`), not as a control the visitor operates on
+this deck. `AboutTransition.test.ts` pins that zero intro clauses restore the old
+"goals and forecast ETAs so the climb stays on pace" pitch.
 
 ## `/about-org`: the organization edition deck
 
@@ -228,6 +331,14 @@ the rail has, and that a non-rail tab yields `null` rather than a wrong trail.
 same 25 repos/call `POST /api/practices/apply-batch` enforces; `KnowledgeLedger`
 renders `MEMORY_KIND_LABEL` and `usageVerdictLabel` / `DORMANCY_WINDOW_DAYS` from
 the product's own modules rather than invented vocabulary.
+
+**And every invented number is labelled where it renders.** The practice fan, the
+recall list and the governance sheet are demonstrations: a sample fleet, sample
+memories, sample pass counts and a sample trail. They close with the same
+`Illustrative · …, not customer data` chrome as `/about`, counting from `FLEET` /
+`RECALL.length` so the caption cannot outlive the vignette. The real constraints
+above stay in the picture; the stamp is what stops a visitor reading those
+constraints as a customer result. `FleetGrid.dom.test.tsx` pins the three stamps.
 
 **The loop section borrows the live theater's vocabulary, not a metaphor for it.**
 It is the cockpit's `LaneRail` shape (`src/features/inflight/live/cockpit/`): one
@@ -276,8 +387,32 @@ is identical.
 
 Adopted by `PlanEnquiryFields` (the `/pricing` Custom-plan dialog) and
 `CreateIssueModal`, the file the kit was extracted from, migrated in the same
-change so the standard didn't ship with exactly one user. The remaining hand-rolled
-inputs are unmigrated; move them as you touch them.
+change so the standard didn't ship with exactly one user. `ConfirmAction` skins its
+Cancel control with `CONTROL_CLASS` rather than a hand-rolled `border-slate-700`
+outline, so a one-off dialog button lands on the same tokens as Field. The remaining
+hand-rolled inputs are unmigrated; move them as you touch them.
+
+## `InfoTip` (`src/components/ui/InfoTip.tsx`, 2026-09-17)
+
+A small circled **i** beside a label that opens a one-paragraph explanation on click.
+
+**What it is for.** Several control surfaces carry a standing explanation under the control — what
+the loop's verification dial executes, what a lane brief is assembled from, what "land in my current
+branch" does to a working copy. Each paragraph is true and worth having; rendered inline, five of them
+turn a setup panel into an essay whose controls you have to hunt for (the Live tab's run dials were
+exactly that before they became `RunSetupModal`). The sentence keeps its place in the product and
+loses its place on the page.
+
+**What it is not for.** Never the alarm. A consequence the operator must read *before* they act — a
+mode that writes into their checkout, a guard they have just switched off — stays on the page as a
+visible line. Use `InfoTip` for the explanation, never for the warning.
+
+**Why a button and not `title`.** The native attribute is invisible to touch, unreadable to most
+screen readers as prose, and unstyleable. This is a real toggle: `aria-expanded`, a keyboard-reachable
+trigger, Escape and blur to dismiss (a click inside the panel keeps it open — `relatedTarget` is
+checked against the wrapper), and a `role="tooltip"` panel wired through `aria-describedby`, so the
+sentence is announced rather than merely drawn. `align="right"` pins the panel to the right edge for a
+trigger near the edge of its container.
 
 ## What a doc here should still cover
 

@@ -1,9 +1,13 @@
 // The "Copy for LLM" payload is a product contract — a dev pastes it into Claude Code. Lock its
 // shape: standing headline, benchmark, strengths/weaknesses, movement, and a trailing actionable ASK.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { benchmarkCaption, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type ExecBriefing } from "./briefing";
-import { forecastTrajectory } from "@/lib/maturity/forecast";
+import { benchmarkCaption, briefingGoalLine, briefingGoalStats, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, fleetAdoptionRate, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type BriefingGoal, type ExecBriefing } from "./briefing";
+import { composeGoal, forecastTrajectory, isProjectable, projectGoal } from "@/lib/maturity/forecast";
+import { GOAL_PCT_LABEL } from "@/lib/db/plan";
+import { briefing as pdfBriefing, text as pdfText } from "../pdf/briefing-document.test-helpers";
 
 // `buildExecBriefing` is pure assembly over five @/lib/db reads (rollup/benchmark/movers/goals +
 // a prior-window rollup it derives itself). Mock the db boundary so we can drive the assembly math
@@ -70,7 +74,16 @@ const fixture: ExecBriefing = {
   security: { dimId: "D9", label: "Security", avg: 41 },
   topGainers: [{ name: "api", dOverall: 9, levelFrom: "L2", levelTo: "L3" }],
   topRegressions: [{ name: "legacy", dOverall: -5, levelFrom: "L3", levelTo: "L3" }],
-  goals: [{ label: "Lift security", current: 41, target: 70, pct: 22, pace: "behind", etaDays: 120 }],
+  goals: [{
+    label: "Lift security",
+    current: 41,
+    target: 70,
+    pct: 22,
+    pctBasis: "progress",
+    pctLabel: GOAL_PCT_LABEL.progress,
+    pace: "behind",
+    etaDays: 120,
+  }],
   regressionCount: 1,
   recommendations: [
     {
@@ -231,6 +244,67 @@ describe("scoreBasisLine / noScoreLine / coverageLine — two denominators, stat
   });
 });
 
+// Direction 1 — fleet adoption is a MEASUREMENT, so it stands on the live-scored set the rest of
+// the briefing already claims. Dividing by scannedCount overstated the denominator by mockCount.
+describe("fleetAdoptionRate — live-scored denominator, mock engines out of both sides", () => {
+  const row = (engine: string, posture: string) => ({ latest: { engine, posture } });
+
+  it("is null when nothing is live-scored — a mock-inclusive 0% is not a measurement", () => {
+    expect(
+      fleetAdoptionRate({
+        realScoredCount: 0,
+        postureCounts: { early: 8 },
+        repos: Array.from({ length: 8 }, () => row("mock", "early")),
+      }),
+    ).toBeNull();
+  });
+
+  it("divides high-adoption posture by the live-scored set, not the mock-inclusive scanned set", () => {
+    // 3 live high-adoption + 3 live early + 2 mock high-adoption.
+    // scanned ratio 5/8 = 63%; live-numerator / scanned-denom 3/8 = 38%; live ratio 3/6 = 50%.
+    expect(
+      fleetAdoptionRate({
+        realScoredCount: 6,
+        postureCounts: { "ai-native": 4, ungoverned: 1, early: 3 },
+        repos: [
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "early"),
+          row("claude-cli", "early"),
+          row("claude-cli", "early"),
+          row("mock", "ai-native"),
+          row("mock", "ungoverned"),
+        ],
+      }),
+    ).toBe(50);
+  });
+
+  it("falls back to postureCounts / realScoredCount when repo rows are absent", () => {
+    expect(
+      fleetAdoptionRate({
+        realScoredCount: 6,
+        postureCounts: { "ai-native": 3, early: 5 },
+      }),
+    ).toBe(50); // 3/6 — not 3/8 of a mock-inclusive scanned set
+  });
+
+  it("on a clean all-live fleet equals the high-adoption share of scanned (the two sets coincide)", () => {
+    expect(
+      fleetAdoptionRate({
+        realScoredCount: 4,
+        postureCounts: { "ai-native": 3, manual: 1 },
+        repos: [
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "ai-native"),
+          row("claude-cli", "manual"),
+        ],
+      }),
+    ).toBe(75);
+  });
+});
+
 describe("mockDisclosure — the exclusion engineMixCaveat cannot cover", () => {
   it("names the count excluded from every average, and singularizes", () => {
     expect(mockDisclosure({ mockCount: 2 })).toBe("2 mock placeholders excluded from every average");
@@ -310,8 +384,10 @@ describe("briefingMarkdown", () => {
     expect(md).toMatch(/▼ legacy: -5(?!\s*\()/); // no level transition shown when from === to
   });
 
-  it("renders goals with progress + ETA", () => {
-    expect(md).toContain("Lift security: 41/70 (22%, behind, ETA ~120d)");
+  it("renders goals with labelled pct, not an ungated ETA", () => {
+    expect(md).toContain(`Lift security: 41/70 (22% · ${GOAL_PCT_LABEL.progress})`);
+    expect(md).not.toMatch(/ETA ~/);
+    expect(md).not.toMatch(/behind, ETA/);
   });
 
   it("records the scoring provenance and flags a mock-degraded period (engine mix in the durable artifact)", () => {
@@ -514,10 +590,41 @@ describe("buildExecBriefing — the rollup's denominator travels onto the briefi
     expect(scoreValue(b, b.maturity.overall)).toBe("—");
     expect(briefingLevelCaption(b)).toBeNull();
     expect(mockDisclosure(b)).toBe("8 mock placeholders excluded from every average");
+    // Adoption is a measurement too — an all-mock 0% over the scanned set would be a grade.
+    expect(b.adoptionRate).toBeNull();
     // The dimension lists come out empty because getOrgRollup's dimAverages iterate the live-scored
     // set too — so there is no 0/100 dimension row to print either.
     expect(b.strengths).toEqual([]);
     expect(b.risks).toEqual([]);
+  });
+
+  it("computes fleet adoption over the live-scored set, not the mock-inclusive scanned set", async () => {
+    const scored = (engine: string, posture: string) =>
+      ({ latest: { engine, posture } }) as Rollup["repos"][number];
+    mockRollup.mockResolvedValue(
+      rollup({
+        scannedCount: 8,
+        realScoredCount: 6,
+        mockCount: 2,
+        postureCounts: { "ai-native": 4, ungoverned: 1, early: 3 },
+        repos: [
+          scored("claude-cli", "ai-native"),
+          scored("claude-cli", "ai-native"),
+          scored("claude-cli", "ai-native"),
+          scored("claude-cli", "early"),
+          scored("claude-cli", "early"),
+          scored("claude-cli", "early"),
+          scored("mock", "ai-native"),
+          scored("mock", "ungoverned"),
+        ],
+      }),
+    );
+    const b = (await buildExecBriefing("acme"))!;
+    // 3 of 6 live-scored — not 5/8 (scanned, mocks in the numerator) and not 3/8 (live numerator,
+    // scanned denominator). Coverage still names the scanned eight.
+    expect(b.coverage.scanned).toBe(8);
+    expect(b.realScoredCount).toBe(6);
+    expect(b.adoptionRate).toBe(50);
   });
 
   it("refuses a prior-period comparison against an all-mock prior window", async () => {
@@ -640,17 +747,43 @@ describe("buildExecBriefing — priorPeriod (vs previous equal-length window)", 
     expect(p.dims.map((d) => d.dimId)).toEqual(["D1", "D9", "D2"]);
   });
 
-  it("falls back to prior=0 for a dimension absent in the prior window (no NaN delta)", async () => {
+  it("omits a dimension the prior window never scored rather than fabricating prior=0", async () => {
+    const window: OrgWindow = { start: new Date("2026-06-01"), end: new Date("2026-06-15") };
+    mockRollup
+      .mockResolvedValueOnce(rollup({ dimAverages: [{ dimId: "D1", avg: 50 }, { dimId: "D2", avg: 40 }] }))
+      .mockResolvedValueOnce(rollup({ scannedCount: 4, dimAverages: [{ dimId: "D2", avg: 38 }] })); // prior has D2, never scored D1
+
+    const p = (await buildExecBriefing("acme", window))!.priorPeriod!;
+    const d1 = p.dims.find((d) => d.dimId === "D1");
+    // G4 — missing prior is omitted, not a fabricated 0 that would print as +50 movement.
+    expect(d1).toBeUndefined();
+    expect(p.dims.find((d) => d.dimId === "D2")).toMatchObject({ now: 40, prior: 38, delta: 2 });
+    expect(p.dims.every((d) => d.prior != null)).toBe(true);
+  });
+
+  it("keeps a measured prior of 0 — a scored floor is not a missing prior", async () => {
     const window: OrgWindow = { start: new Date("2026-06-01"), end: new Date("2026-06-15") };
     mockRollup
       .mockResolvedValueOnce(rollup({ dimAverages: [{ dimId: "D1", avg: 50 }] }))
-      .mockResolvedValueOnce(rollup({ scannedCount: 4, dimAverages: [] })); // prior has no D1
+      .mockResolvedValueOnce(rollup({ scannedCount: 4, dimAverages: [{ dimId: "D1", avg: 0 }] }));
 
     const p = (await buildExecBriefing("acme", window))!.priorPeriod!;
     const d1 = p.dims.find((d) => d.dimId === "D1")!;
     expect(d1.prior).toBe(0);
-    expect(d1.delta).toBe(50); // 50 - 0, not NaN
+    expect(d1.delta).toBe(50);
     expect(Number.isNaN(d1.delta)).toBe(false);
+  });
+
+  it("does not let an uncompared dimension steal a mover slot off a fabricated 0", async () => {
+    const window: OrgWindow = { start: new Date("2026-06-01"), end: new Date("2026-06-15") };
+    // D1 is new this window (no prior). D2 moved +1. The old `?? 0` ranked D1 as +50 and hid D2.
+    mockRollup
+      .mockResolvedValueOnce(rollup({ dimAverages: [{ dimId: "D1", avg: 50 }, { dimId: "D2", avg: 41 }] }))
+      .mockResolvedValueOnce(rollup({ scannedCount: 4, dimAverages: [{ dimId: "D2", avg: 40 }] }));
+
+    const p = (await buildExecBriefing("acme", window))!.priorPeriod!;
+    expect(p.dims.map((d) => d.dimId)).toEqual(["D2"]);
+    expect(p.dims[0]).toMatchObject({ now: 41, prior: 40, delta: 1 });
   });
 
   it("caps priorPeriod.dims at 6, biggest absolute mover first", async () => {
@@ -865,11 +998,100 @@ describe("buildExecBriefing — benchmark / movers / goals pass-through", () => 
       { label: "Lift security", metric: "D9", current: 41, target: 70, pct: 22, pace: "behind", etaDays: 120 } as never,
     ]);
     let b = (await buildExecBriefing("acme"))!;
-    expect(b.goals).toEqual([{ label: "Lift security", current: 41, target: 70, pct: 22, pace: "behind", etaDays: 120 }]);
+    expect(b.goals).toEqual([
+      expect.objectContaining({
+        label: "Lift security",
+        current: 41,
+        target: 70,
+        pct: 22,
+        pace: "behind",
+        etaDays: null,
+        headline: null,
+        confidence: null,
+        basis: null,
+        insufficiency: null,
+      }),
+    ]);
 
     mockGoals.mockResolvedValue(null);
     b = (await buildExecBriefing("acme"))!;
     expect(b.goals).toEqual([]);
+  });
+
+  it("composeGoal refuses a sub-gate fit: the board line carries the hedge, never a bare ETA (G4)", async () => {
+    const thin = forecastTrajectory([
+      { date: "2026-08-21", value: 60 },
+      { date: "2026-08-22", value: 65 },
+    ]);
+    mockGoals.mockResolvedValue([
+      {
+        label: "Lift security",
+        current: 41,
+        target: 70,
+        pct: 22,
+        pctBasis: "progress",
+        pctLabel: GOAL_PCT_LABEL.progress,
+        pace: "behind",
+        perWeek: 35,
+        etaDays: 120,
+        etaDate: "2026-12-01",
+        requiredPerWeek: 15,
+        targetDate: "2026-09-01",
+        forecast: thin,
+      } as never,
+    ]);
+    const b = (await buildExecBriefing("acme"))!;
+    const g = b.goals[0]!;
+    expect(g.etaDays).toBeNull();
+    expect(g.headline).toBeNull();
+    expect(g.insufficiency).toContain("Not enough history to project");
+    expect(g.insufficiency).toContain("2 distinct scan days");
+    const line = briefingGoalLine(g);
+    expect(line).toContain("Not enough history to project");
+    expect(line).toContain(GOAL_PCT_LABEL.progress);
+    expect(line).not.toMatch(/ETA/);
+    expect(line).not.toMatch(/behind/i);
+    expect(briefingMarkdown(b)).toContain("Not enough history to project");
+    expect(briefingMarkdown(b)).not.toMatch(/ETA ~/);
+  });
+
+  it("a presentable goal line carries both halves of the hedge, never the ETA alone", async () => {
+    const DAY = 86_400_000;
+    const pts = Array.from({ length: 20 }, (_, i) => ({
+      date: new Date(Date.parse("2026-01-01") + i * DAY).toISOString().slice(0, 10),
+      value: 50 + 0.3 * i,
+    }));
+    const fit = forecastTrajectory(pts)!;
+    mockGoals.mockResolvedValue([
+      {
+        label: "Lift security",
+        current: 60,
+        target: 80,
+        pct: 50,
+        pctBasis: "progress",
+        pctLabel: GOAL_PCT_LABEL.progress,
+        pace: "tracking",
+        perWeek: fit.perWeek,
+        etaDays: 20,
+        etaDate: "2026-02-21",
+        requiredPerWeek: null,
+        targetDate: null,
+        forecast: fit,
+      } as never,
+    ]);
+    const b = (await buildExecBriefing("acme"))!;
+    const g = b.goals[0]!;
+    expect(g.headline).toBeTruthy();
+    expect(g.confidence).not.toBeNull();
+    expect(g.basis).toContain("fit over 20 scan days across 19 days");
+    expect(g.insufficiency).toBeNull();
+    expect(g.etaDays).toBe(20);
+    const line = briefingGoalLine(g);
+    expect(line).toContain("ETA ~20d");
+    expect(line).toContain(GOAL_PCT_LABEL.progress);
+    expect(line).toContain("50%");
+    expect(line).toContain("trend confidence");
+    expect(line).toContain("fit over 20 scan days across 19 days");
   });
 });
 
@@ -1041,11 +1263,21 @@ describe("briefingMarkdown — partially-populated briefing renders only present
   it("renders a goal without an ETA clause when etaDays is null", () => {
     const md = briefingMarkdown({
       ...emptyBriefing,
-      goals: [{ label: "Raise rigor", current: 30, target: 60, pct: 50, pace: "on track", etaDays: null }],
+      goals: [{
+        label: "Raise rigor",
+        current: 30,
+        target: 60,
+        pct: 50,
+        pctBasis: "progress",
+        pctLabel: GOAL_PCT_LABEL.progress,
+        pace: "on track",
+        etaDays: null,
+      }],
     });
     expect(md).toContain("## Goals");
-    expect(md).toContain("Raise rigor: 30/60 (50%, on track)");
+    expect(md).toContain(`Raise rigor: 30/60 (50% · ${GOAL_PCT_LABEL.progress})`);
     expect(md).not.toMatch(/ETA/);
+    expect(md).not.toMatch(/on track/);
     expect(md).not.toMatch(/undefined|null|NaN/);
   });
 
@@ -1283,5 +1515,121 @@ describe("buildExecBriefing — the trajectory consults the shared presentabilit
     mockRollup.mockResolvedValue(rollup({ forecast: forecastTrajectory(pts) }));
     const b = (await buildExecBriefing("acme"))!;
     expect(b.forecastBasis).toContain("4 of them compacted");
+  });
+});
+
+// Gate: one composer for the three board surfaces. A 2-day / leftover-ETA fixture must not print
+// on-pace + ETA; a 14-day fit may; an attainment-only goal must label pct and invent no progress/ETA.
+const DAY_MS = 86_400_000;
+function dailySeries(points: number, step = 1, startVal = 50) {
+  return Array.from({ length: points }, (_, i) => ({
+    date: new Date(Date.parse("2026-01-01") + i * DAY_MS).toISOString().slice(0, 10),
+    value: startVal + step * i,
+  }));
+}
+function fitGoal(points: number, over: Partial<BriefingGoal> = {}): BriefingGoal {
+  const series = dailySeries(points);
+  const current = series[series.length - 1]!.value;
+  const target = 80;
+  const nowMs = Date.parse(series[series.length - 1]!.date);
+  const p = projectGoal({ series, current, target, targetDate: null, nowMs });
+  const read = composeGoal(p.forecast, p, { current, target, targetDate: null });
+  return {
+    label: "Lift security",
+    current,
+    target,
+    pct: 50,
+    pctBasis: "progress",
+    pctLabel: GOAL_PCT_LABEL.progress,
+    pace: p.pace,
+    etaDays: read.confidence != null ? p.etaDays : null,
+    headline: read.headline,
+    confidence: read.confidence,
+    basis: read.basis,
+    insufficiency: read.insufficiency,
+    ...over,
+  };
+}
+function assertPctLabelWheneverPct(text: string, g: BriefingGoal) {
+  if (text.includes(`${g.pct}%`)) expect(text).toContain(g.pctLabel);
+}
+
+describe("briefingGoalLine — 2-day fit, 14-day fit, attainment-only (G4/G12)", () => {
+  const twoDay = fitGoal(2, { pace: "on-pace", etaDays: 40 });
+  const fourteenDay = fitGoal(15);
+  const attainment: BriefingGoal = {
+    label: "Fleet to 70",
+    current: 63,
+    target: 70,
+    pct: 90,
+    pctBasis: "attainment",
+    pctLabel: GOAL_PCT_LABEL.attainment,
+    pace: "on-pace",
+    etaDays: 12,
+  };
+
+  it("a 2-day fit is not projectable: leftover on-pace + ETA are dropped, insufficiency is the line", () => {
+    expect(isProjectable(forecastTrajectory(dailySeries(2)))).toBe(false);
+    expect(twoDay.insufficiency).toContain("2 distinct scan days");
+    const line = briefingGoalLine(twoDay);
+    expect(line).toContain("Not enough history to project");
+    expect(line).not.toMatch(/ETA/);
+    expect(line).not.toMatch(/on-pace/i);
+    assertPctLabelWheneverPct(line, twoDay);
+    const md = briefingMarkdown({ ...emptyBriefing, goals: [twoDay] });
+    expect(md).toContain(line);
+    expect(md).not.toMatch(/ETA ~/);
+    const pdf = pdfText(pdfBriefing({ goals: [twoDay] }));
+    expect(pdf).toContain("Not enough history to project");
+    expect(pdf).toContain(GOAL_PCT_LABEL.progress);
+    expect(pdf).not.toMatch(/ETA ~/);
+  });
+
+  it("a 14-day fit is projectable: pace + ETA ride with the hedge and labelled pct", () => {
+    expect(isProjectable(forecastTrajectory(dailySeries(15)))).toBe(true);
+    expect(fourteenDay.headline).toBeTruthy();
+    expect(fourteenDay.etaDays).not.toBeNull();
+    const line = briefingGoalLine(fourteenDay);
+    expect(line).toMatch(/ETA ~/);
+    expect(line).toContain(fourteenDay.pace);
+    expect(line).toContain("trend confidence");
+    expect(line).toContain("fit over 15 scan days across 14 days");
+    assertPctLabelWheneverPct(line, fourteenDay);
+    expect(briefingMarkdown({ ...emptyBriefing, goals: [fourteenDay] })).toContain(line);
+    const pdf = pdfText(pdfBriefing({ goals: [fourteenDay] }));
+    expect(pdf).toMatch(/ETA ~/);
+    expect(pdf).toContain(GOAL_PCT_LABEL.progress);
+    expect(pdf).toContain("fit over 15 scan days across 14 days");
+  });
+
+  it("an attainment-only goal labels pct and invents no progress or ETA (no fit → absence)", () => {
+    const line = briefingGoalLine(attainment);
+    expect(line).toContain(`${attainment.pct}%`);
+    expect(line).toContain(GOAL_PCT_LABEL.attainment);
+    expect(line).toMatch(/not progress/i);
+    expect(line).not.toMatch(/ETA/);
+    expect(line).not.toMatch(/on-pace/i);
+    expect(line).not.toMatch(/Progress since this goal was set/);
+    assertPctLabelWheneverPct(line, attainment);
+    expect(briefingMarkdown({ ...emptyBriefing, goals: [attainment] })).toContain(line);
+    const pdf = pdfText(pdfBriefing({ goals: [attainment] }));
+    expect(pdf).toContain(GOAL_PCT_LABEL.attainment);
+    expect(pdf).toContain("90%");
+    expect(pdf).not.toMatch(/ETA ~/);
+  });
+
+  it("markdown, PDF and the Goals card all read briefingGoalLine/Stats — none inline g.etaDays", () => {
+    const root = process.cwd();
+    const card = readFileSync(join(root, "src/features/bought/executive/briefingCardsMovement.tsx"), "utf8");
+    const mdSrc = readFileSync(join(root, "src/lib/org/briefing-markdown.ts"), "utf8");
+    const pdf = readFileSync(join(root, "src/lib/pdf/briefing-document.tsx"), "utf8");
+    expect(card).toMatch(/briefingGoalStats\(/);
+    expect(card).toMatch(/briefingGoalLine\(/);
+    expect(card).not.toMatch(/g\.etaDays/);
+    expect(mdSrc).toMatch(/briefingGoalLine\(/);
+    expect(pdf).toMatch(/briefingGoalStats\(/);
+    expect(briefingGoalStats(twoDay)).not.toMatch(/ETA/);
+    expect(briefingGoalStats(fourteenDay)).toMatch(/ETA ~/);
+    expect(briefingGoalStats(attainment)).not.toMatch(/ETA/);
   });
 });

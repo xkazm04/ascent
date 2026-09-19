@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type { ScanReport } from "@/lib/types";
 import { ARCHETYPE_HINT, ARCHETYPE_LABEL } from "@/lib/maturity/model";
 import { timeAgo } from "@/lib/ui";
@@ -11,8 +12,8 @@ import { FoundationPrButton } from "@/components/report/FoundationPrButton";
 import { ScoreIntegrityChip } from "@/components/report/ScoreIntegrityChip";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { ReportPermalinkShare, levelLine } from "@/components/report/ReportPermalinkShare";
+import { liveScanCopyPermalink } from "@/components/report/liveScanPermalink";
 import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
-import { reportPermalink } from "@/lib/ui";
 
 // Chip hints: `title=` fires only on pointer hover, so every hinted chip ALSO carries the hint as
 // sr-only text — screen-reader users hear the explanation inline, and hover users get the tooltip.
@@ -57,6 +58,13 @@ export function ReportHeader({
   installFoundation?: boolean;
 }) {
   const { repo } = report;
+  const params = useSearchParams();
+  // Scoped live scans (`?ref=` / `?path=`) are a different subject than the durable permalink.
+  const share = liveScanCopyPermalink({
+    fullName: `${repo.owner}/${repo.name}`,
+    search: params.toString(),
+    headSha: repo.headSha,
+  });
 
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -152,12 +160,14 @@ export function ReportHeader({
               because it is the cheapest thing to hand over and the one the pricing page already sells
               (UAT SAM-L1-04, recurrence 3). Carries the level line, which is what the retired README
               badge used to state (SAM-L1-12, option b). */}
-          <ReportPermalinkShare
-            fullName={`${repo.owner}/${repo.name}`}
-            path={reportPermalink(`${repo.owner}/${repo.name}`)}
-            pinnedPath={repo.headSha ? reportPermalink(`${repo.owner}/${repo.name}`, repo.headSha) : undefined}
-            level={levelLine(report.level.id, report.level.name, report.overallScore)}
-          />
+          {share && (
+            <ReportPermalinkShare
+              fullName={`${repo.owner}/${repo.name}`}
+              path={share.path}
+              pinnedPath={share.pinnedPath}
+              level={levelLine(report.level.id, report.level.name, report.overallScore)}
+            />
+          )}
           {/* Fetch-and-download buttons (not bare anchors): the PDF render can take up to a minute and
               any error branch returns JSON — a plain <a> gave no pending feedback and navigated the
               user onto a raw JSON page on failure (pdf-llm-export #1). */}

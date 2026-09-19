@@ -3,6 +3,9 @@
 // writes the refreshed cookies back onto the response. Without this, a user whose access token
 // lapsed mid-session would be silently signed out on the next navigation.
 //
+// Cookie-free inbound APIs (GitHub/Polar webhooks, Vercel cron, anonymous badge) skip this — they
+// have no session to refresh. Document navigations, including /org/*, still refresh.
+//
 // This must use the request/response cookie adapter (NOT next/headers), so it can't reuse
 // src/lib/access.ts (server-only). It shares access.ts's PURE env predicates via @/lib/env (which is
 // next/headers-free), so the bypass/configured rules have one definition: when Supabase isn't
@@ -19,8 +22,25 @@ function gateInactive(): boolean {
   return !authGateEnabled();
 }
 
+// Cookie-free inbound paths: no browser session, so getUser() is wasted auth-server traffic
+// (and used to be a 500 on every GitHub delivery if the auth server blipped). Prefix match so
+// /api/cron/purge and /api/badge/owner/repo are covered. /org/* must never match.
+const COOKIE_FREE_API_PREFIXES = [
+  "/api/app/webhook",
+  "/api/billing/webhook",
+  "/api/badge",
+  "/api/cron",
+] as const;
+
+/** True when this path has no Supabase session cookie to refresh. */
+export function skipCookieRefresh(pathname: string): boolean {
+  const path = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  return COOKIE_FREE_API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
 export async function proxy(request: NextRequest) {
   if (gateInactive()) return NextResponse.next({ request });
+  if (skipCookieRefresh(request.nextUrl.pathname)) return NextResponse.next({ request });
 
   let response = NextResponse.next({ request });
   const supabase = createServerClient(
@@ -44,9 +64,9 @@ export async function proxy(request: NextRequest) {
 
   // Touch the session so an expiring token is refreshed and the new cookies ride `response`.
   // Do not gate routing here — authorization happens at the data sources (gate + Route Handlers).
-  // This best-effort cookie refresh must NOT be request-fatal. The proxy runs on a superset of
-  // requests (the broad matcher below, incl. unauthenticated/public paths), so an un-guarded
-  // getUser() would turn a transient Supabase auth-server hiccup into a 500 on the ENTIRE surface.
+  // This best-effort cookie refresh must NOT be request-fatal. The proxy still runs on a superset
+  // of browser routes (document navigations and session-bearing APIs), so an un-guarded getUser()
+  // would turn a transient Supabase auth-server hiccup into a 500 on the ENTIRE surface.
   // Mirror getViewer()'s tolerance (access.ts): treat a thrown/error result as "no user, cookie not
   // refreshed this request" and let the request proceed.
   try {
@@ -58,7 +78,11 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Run on everything except Next's static assets and common image files — auth cookies should be
-  // refreshed on real navigations and API calls, not on static fetches.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  // Run on everything except Next's static assets, common image files, and cookie-free inbound
+  // APIs (webhooks, cron, badge). Keep the skip list in sync with skipCookieRefresh() — Next
+  // requires this matcher to be a string literal, so it cannot be derived from the prefixes.
+  // /org/* document navigations must keep matching so cookies still refresh there.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|api/app/webhook(?:/|$)|api/billing/webhook(?:/|$)|api/badge(?:/|$)|api/cron(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+  ],
 };

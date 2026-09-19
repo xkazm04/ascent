@@ -185,6 +185,7 @@ export function techStackPromptEnabled(): boolean {
 export const PROVIDER_LABEL: Record<ProviderName, string> & Record<string, string> = {
   "claude-cli": "Claude CLI",
   "codex-cli": "Codex CLI",
+  gateway: "LightTrack gateway",
   claude: "Claude",
   gemini: "Gemini",
   bedrock: "AWS Bedrock",
@@ -310,9 +311,9 @@ export const MODEL_PRICES: ModelPrice[] = [
   { prefix: "gemini-3.7-flash", inPerMTok: 0.75, outPerMTok: 3.75 },
   // gemini-3.8-flash (default since 2026-09-02) ships at the SAME introductory rate as 3.7 and
   // reverts on the SAME date, so both rows are covered by the one dated test in config.test.ts.
-  // Same per-token price is NOT the same cost per scan: the vendor states 3.8 "works harder" —
-  // more reasoning steps and iterative tool calls, at thinking_level's default of `high` — so the
-  // output-token count per scan rises even though this row does not. Watch /usage, not this table.
+  // Same per-token price is NOT the same cost per scan: the vendor states 3.8 "works harder" at
+  // thinking_level `high`. assess() pins GEMINI_THINKING_LEVEL to `low` (high still selectable) so
+  // that extra reasoning is not the silent default. Watch /usage, not this table.
   { prefix: "gemini-3.8-flash", inPerMTok: 0.75, outPerMTok: 3.75 },
   // Claude via Bedrock (BEDROCK_MODEL_ID), geo prefix stripped. Family prefixes (…-4) cover the
   // 4.x point releases, which share a list price per tier.
@@ -377,6 +378,25 @@ export function billableInputTokens(usage: {
 export function thinkingBudgetTokens(): number {
   const n = envNumber("LLM_THINKING_BUDGET", 0);
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+
+/** Env vocabulary for `GEMINI_THINKING_LEVEL` (Gemini scoring JSON). */
+export const GEMINI_THINKING_LEVELS = ["low", "minimal", "high"] as const;
+export type GeminiThinkingLevel = (typeof GEMINI_THINKING_LEVELS)[number];
+
+/**
+ * Gemini `thinking_level` for the structured `assess()` call. Default **`low`**.
+ *
+ * Gemini 3.8-flash's vendor default is `high` ("works harder": extra reasoning tokens billed as
+ * output). Scoring is constrained JSON, not a deep-reasoning task, so leaving that default in
+ * place silently inflates per-scan cost at an unchanged MODEL_PRICES row. Unset / blank /
+ * unrecognized → `low`. `high` remains selectable. Read at call time so tests can stub the env.
+ */
+export function geminiThinkingLevel(): GeminiThinkingLevel {
+  const raw = (process.env.GEMINI_THINKING_LEVEL ?? "").trim().toLowerCase();
+  return (GEMINI_THINKING_LEVELS as readonly string[]).includes(raw)
+    ? (raw as GeminiThinkingLevel)
+    : "low";
 }
 
 /** Bedrock cross-region inference geo prefixes — routing metadata, not part of the model id. */

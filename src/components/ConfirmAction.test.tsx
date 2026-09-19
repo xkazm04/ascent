@@ -1,7 +1,6 @@
 // The confirm dialog's VALUE is its copy: a prompt that says "Are you sure?" tells the user nothing they
 // didn't already know, and they click through it. The bar is that it states WHAT happens and HOW MANY
-// things it affects. The copy builders are pure so that bar is testable in this repo's node-only vitest
-// environment (there is no jsdom / testing-library here — see the note in ConfirmAction.tsx).
+// things it affects. The copy builders run without importing React or a DOM environment.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -10,7 +9,7 @@ import {
   batchPrConfirm,
   retestConfirm,
   goalDeleteConfirm,
-} from "./ConfirmAction";
+} from "./confirmCopy";
 
 describe("segmentDeleteConfirm — states scope, not 'Are you sure?'", () => {
   it("names the segment and counts the tags that go with it", () => {

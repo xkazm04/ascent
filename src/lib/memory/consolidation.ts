@@ -20,7 +20,7 @@
 // src/lib/memory/consolidation-engine.ts is the adapter that resolves the Claude CLI one.
 
 import { parseJsonLoose } from "@/lib/llm/json";
-import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
+import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, sanitizeAgentText, wrapUntrusted } from "@/lib/llm/untrusted";
 import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
 import type { ProviderName } from "@/lib/types";
 
@@ -122,8 +122,10 @@ export function tokenize(text: string): string[] {
  * either side has no meaningful tokens.
  */
 export function overlapScore(a: string, b: string): number {
-  const A = new Set(tokenize(a));
-  const B = new Set(tokenize(b));
+  return tokenSetOverlap(new Set(tokenize(a)), new Set(tokenize(b)));
+}
+
+function tokenSetOverlap(A: ReadonlySet<string>, B: ReadonlySet<string>): number {
   if (A.size === 0 || B.size === 0) return 0;
   let hits = 0;
   for (const t of A) if (B.has(t)) hits++;
@@ -135,10 +137,11 @@ export function overlapScore(a: string, b: string): number {
  * is what bounds the LLM prompt — and, when no LLM is reachable, it IS the answer. Pure.
  */
 export function shortlist(content: string, candidates: MemoryCandidate[]): DuplicateMatch[] {
+  const proposedTokens = new Set(tokenize(content));
   return candidates
     .map((c) => ({
       id: c.id,
-      similarity: Number(overlapScore(content, c.content).toFixed(3)),
+      similarity: Number(tokenSetOverlap(proposedTokens, new Set(tokenize(c.content))).toFixed(3)),
       relation: "unrelated" as MemoryRelation,
       reason: "Token overlap with an existing memory.",
     }))
@@ -183,7 +186,7 @@ export function buildConsolidationPrompt(input: AnalyzeInput, matches: Duplicate
       // attacker-chosen text — in a pass whose verdict names the ids that get superseded. Cutting
       // after neutralization is what makes the budget a budget. `clipped` is decided on the
       // neutralized length because that is the string being cut.
-      const safe = neutralize(c.content);
+      const safe = sanitizeAgentText(c.content);
       const excerpt = safe.slice(0, CANDIDATE_EXCERPT);
       const clipped = safe.length > CANDIDATE_EXCERPT ? " …[truncated]" : "";
       return `[${i + 1}] id=${c.id} kind=${neutralize(c.kind)} confidence=${c.confidence}\n${excerpt}${clipped}`;
@@ -194,7 +197,7 @@ export function buildConsolidationPrompt(input: AnalyzeInput, matches: Duplicate
 kind: ${neutralize(input.kind)}
 namespace: ${input.namespace ? neutralize(input.namespace) : "(org-wide)"}
 content:
-${neutralize(input.content).slice(0, PROPOSED_EXCERPT)}
+${sanitizeAgentText(input.content).slice(0, PROPOSED_EXCERPT)}
 
 EXISTING MEMORIES (the only ids you may reference)
 ${candidateBlock || "(none)"}`);

@@ -622,3 +622,11 @@ describe("D4 as facets (r9, scoring/claims.ts)", () => {
     expect(out.signalScore).toBe(0);
   });
 });
+
+
+it("counts canonical memory entries after ID 9999 without reading their bodies", () => {
+  const s = snap({});
+  s.tree = [".ai/memory/10000-one.md", ".ai/memory/10001-two.md"].map((path) => ({ path, type: "blob" as const }));
+  const d8 = analyzeSignals(s, "2026-09-10T00:00:00Z").find((d) => d.id === "D8")!;
+  expect(d8.signals).toContainEqual(expect.objectContaining({ label: "Structured memory in use (.ai/memory, 2 entries)" }));
+});

@@ -36,9 +36,12 @@ export function ExportCsvButton({ repo }: { repo: string }) {
     setState("working");
     let url: string | null = null;
     try {
-      const res = await fetch(`/api/history?repo=${encodeURIComponent(repo)}&format=csv`, {
-        headers: { accept: "text/csv" },
-      });
+      // compacted=1 is what the /trends chart requests (includeCompacted: true). Without it the
+      // spreadsheet is retained-scans-only and disagrees with the labelled tail on screen.
+      const res = await fetch(
+        `/api/history?repo=${encodeURIComponent(repo)}&format=csv&compacted=1`,
+        { headers: { accept: "text/csv" } },
+      );
       if (res.status === 401 || res.status === 403) {
         setState("expired");
         return;
