@@ -6,6 +6,7 @@ import type { Posture } from "@/lib/types";
 import { POSTURE_META, POSTURE_THRESHOLD } from "@/lib/maturity/model";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { CHART_INK, linScale } from "@/components/report/chartScale";
+import { MOCK_HOLLOW_FILL, MOCK_SR_SUFFIX, isMockEngine } from "@/components/report/chartEngine";
 import { LEVEL_HEX } from "@/lib/ui";
 
 // Posture tints, sourced from the chart system's tokens instead of re-typed hex. Three postures
@@ -40,15 +41,19 @@ export function PostureQuadrant({
   posture,
   prev,
   size = 320,
+  engine,
 }: {
   adoption: number;
   rigor: number;
   posture: Posture;
   prev?: { adoption: number; rigor: number } | null;
   size?: number;
+  /** Scan engine provider. A mock-scored report draws the repo mark hollow. */
+  engine?: string | null;
 }) {
   const reduced = usePrefersReducedMotion();
   const mounted = useMounted();
+  const mock = isMockEngine(engine);
   const animate = mounted || reduced; // reduced-motion → start at final position, no transition
   const transition = reduced ? undefined : "transform 0.8s ease, opacity 0.8s ease";
 
@@ -90,7 +95,7 @@ export function PostureQuadrant({
       width="100%"
       viewBox={`0 0 ${size} ${size}`}
       role="img"
-      aria-label={`Posture: ${posture.label}. AI adoption ${adoption} of 100, engineering rigor ${rigor} of 100.`}
+      aria-label={`Posture: ${posture.label}. AI adoption ${adoption} of 100, engineering rigor ${rigor} of 100.${mock ? MOCK_SR_SUFFIX : ""}`}
       className="max-w-[360px]"
     >
       {/* quadrant tints */}
@@ -165,8 +170,14 @@ export function PostureQuadrant({
           transition,
         }}
       >
-        <circle r={13} fill={color} opacity={0.18} />
-        <circle r={6} fill={color} stroke={CHART_INK.canvas} strokeWidth={1.5} />
+        <circle r={13} fill={mock ? "none" : color} stroke={mock ? color : undefined} opacity={0.18} />
+        <circle
+          r={6}
+          fill={mock ? MOCK_HOLLOW_FILL : color}
+          stroke={mock ? color : CHART_INK.canvas}
+          strokeWidth={mock ? 2 : 1.5}
+          data-mock={mock || undefined}
+        />
       </g>
     </svg>
   );

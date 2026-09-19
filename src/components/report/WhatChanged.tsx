@@ -8,6 +8,7 @@ import type { ScanDiff } from "@/lib/report/compare";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import { DeltaPill } from "@/components/report/deltas";
 import { Kicker, Surface } from "@/components/ui";
+import { MixedEngineCaveat } from "@/components/report/WhatChangedEngineCaveat";
 import {
   AxisDeltaRow,
   DimensionDiffCard,
@@ -42,6 +43,8 @@ export function WhatChanged({
           </div>
           <DeltaPill delta={diff.overall.delta} suffix="overall" />
         </div>
+
+        <MixedEngineCaveat beforeEngine={before.engineProvider} afterEngine={after.engineProvider} />
 
         {sameScan ? (
           <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 type-body text-slate-400">

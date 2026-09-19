@@ -28,6 +28,24 @@ if [ "$ASCENT_SKIP_GATE" = "1" ]; then
   exit 0
 fi
 
+# Windows / Git-for-Windows / Grok's bundled git inherit a Windows PATH. The unix `npm`
+# shim (`#!/usr/bin/env bash`) then execs `C:\WINDOWS\system32\bash` (WSL), which cannot
+# see `C:/nvm4w/nodejs/npm` and dies with ENOENT. The cmd shim works. POSIX `command -v`
+# will not list `*.cmd`, so walk PATH for the file itself. Linux/macOS have no npm.cmd.
+npm_cmd=
+old_ifs=$IFS
+IFS=:
+for d in $PATH; do
+  if [ -n "$d" ] && [ -f "$d/npm.cmd" ]; then
+    npm_cmd="$d/npm.cmd"
+    break
+  fi
+done
+IFS=$old_ifs
+if [ -n "$npm_cmd" ]; then
+  npm() { "$npm_cmd" "$@"; }
+fi
+
 echo "pre-push: push targets master — running the gate: npm run verify (lint, typecheck, tests+coverage, build)..." >&2
 
 npm run verify || {
@@ -35,6 +53,18 @@ npm run verify || {
   echo "pre-push: fix the failure, or in a genuine emergency: ASCENT_SKIP_GATE=1 git push (record why)." >&2
   exit 1
 }
+
+# English copy gate (docs/i18n/style-en.md): new error-level copy findings block; the baseline holds
+# existing debt. The checker is a gitignored registry link, absent in fresh clones - skip LOUDLY.
+if [ -f .claude/skills/native-copy/scripts/copy-check.mjs ]; then
+  echo "pre-push: running the copy gate: npm run copy:check..." >&2
+  npm run copy:check || {
+    echo "pre-push: copy:check found new copy errors — push to master blocked (see docs/i18n/style-en.md)." >&2
+    exit 1
+  }
+else
+  echo "pre-push: native-copy checker not installed - copy gate SKIPPED (run ai-registry/scripts/link-registry.mjs)" >&2
+fi
 
 echo "pre-push: gate green — pushing." >&2
 exit 0

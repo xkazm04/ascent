@@ -6,7 +6,7 @@
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { EmptyState } from "@/components/EmptyState";
 import { canReadOrg } from "@/lib/authz";
-import { buildPortfolio } from "@/lib/org/portfolio";
+import { buildPortfolio, PORTFOLIO_EMPTY_COPY, portfolioEmptyKind, summarizePortfolio } from "@/lib/org/portfolio";
 import { PortfolioTable } from "./PortfolioTable";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +29,17 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
   const readable = (await Promise.all(dedup.map(async (o) => ((await canReadOrg(o)) ? o : null)))).filter(
     (o): o is string => o !== null,
   );
-  const portfolio = readable.length ? await buildPortfolio(readable) : null;
+  const read = readable.length
+    ? await buildPortfolio(readable)
+    : { portfolio: summarizePortfolio([]), empty: [] as string[], unavailable: [] as string[] };
   const hidden = dedup.length - readable.length;
+  const emptyKind = portfolioEmptyKind({
+    requested: dedup.length,
+    readable: readable.length,
+    companies: read.portfolio.companies.length,
+    empty: read.empty.length,
+    unavailable: read.unavailable.length,
+  });
 
   return (
     <>
@@ -68,18 +77,10 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
         )}
 
         <div className="mt-8">
-          {!portfolio || portfolio.companies.length === 0 ? (
-            <EmptyState
-              icon="🗂️"
-              title={dedup.length ? "No readable organizations with scans" : "Add organizations to compare"}
-              body={
-                dedup.length
-                  ? "None of the requested organizations are readable by you, or none have scanned repositories yet."
-                  : "Enter a few organization slugs above (e.g. vercel, prisma) to roll up their engineering maturity side by side."
-              }
-            />
+          {emptyKind ? (
+            <EmptyState icon="🗂️" title={PORTFOLIO_EMPTY_COPY[emptyKind].title} body={PORTFOLIO_EMPTY_COPY[emptyKind].body} />
           ) : (
-            <PortfolioTable portfolio={portfolio} />
+            <PortfolioTable portfolio={read.portfolio} />
           )}
         </div>
       </main>

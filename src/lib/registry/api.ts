@@ -12,6 +12,8 @@ import { getInstallationIdForOwner } from "@/lib/db/installations";
 import { isDbConfigured } from "@/lib/db/client";
 import { requireOrgRead, requireOrgRole } from "@/lib/authz";
 import { getRegistryCapabilities, type RegistryCapabilities } from "./capabilities";
+import { getOrgRegistry, type OrgRegistryRow } from "@/lib/db/org-registry";
+import { localRegistryDir } from "./local-registry";
 
 export type RegistryErrorCode =
   | "persistence-off"
@@ -99,4 +101,30 @@ export async function guardRegistryWrite(
   } catch (err) {
     return githubErrorResponse(err);
   }
+}
+
+export type RegistryReadSource =
+  | { kind: "local"; row: OrgRegistryRow; dir: string }
+  | { kind: "github"; row: OrgRegistryRow | null; token: string };
+
+/**
+ * READ-SOURCE gate for routes that re-read the registry (index, trace, conformance sweep): LOCAL FIRST.
+ * A self-hosted org whose registry is paired to a checkout (Admin -> Pairing) needs only the role
+ * floor — nothing is minted, because nothing reaches GitHub. Otherwise the App path, exactly as
+ * `guardRegistryWrite`. Routes that WRITE to GitHub (map/scaffold, migrate, signals PRs) keep
+ * `guardRegistryWrite`: a local checkout cannot open a pull request.
+ */
+export async function resolveRegistrySource(
+  slug: string,
+  opts: { minRole?: "owner" | "admin" | "member" } = {},
+): Promise<RegistryReadSource | NextResponse> {
+  const minRole = opts.minRole ?? "admin";
+  const row = await getOrgRegistry(slug).catch(() => null);
+  const dir = localRegistryDir(row);
+  if (row && dir) {
+    const denied = await guardRegistryRole(slug, minRole);
+    return denied ?? { kind: "local", row, dir };
+  }
+  const gate = await guardRegistryWrite(slug, { minRole });
+  return gate instanceof NextResponse ? gate : { kind: "github", row, token: gate.token };
 }

@@ -12,6 +12,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Kicker } from "./Kicker";
 import { MODAL_ROOT_ID } from "./ModalRoot";
+import { acquireModalLayer } from "./modalLayer";
 
 export type ModalSize = "md" | "lg" | "reading" | "xl";
 // `reading` (50rem ≈ 800px) is the long-prose size: ~20% wider than `lg`, sized to a comfortable
@@ -44,6 +45,7 @@ export function Modal({
 }) {
   const [mounted, setMounted] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const layerRef = useRef<ReturnType<typeof acquireModalLayer> | null>(null);
   // Latest close/locked in a ref so the open-effect binds its listeners once per open.
   const stateRef = useRef({ onClose, locked });
   // Keep the latest close/locked in the ref (synced post-commit, not during render) so the open-effect
@@ -52,42 +54,61 @@ export function Modal({
     stateRef.current = { onClose, locked };
   });
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot client-mount gate for the portal
-  useEffect(() => setMounted(true), []);
+  // Stage each opening so the effect below captures the invoker before child autofocus runs.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- client portal gate also resets between openings
+  useEffect(() => setMounted(open), [open]);
 
   // While open: trap Tab inside the panel, close on Escape (unless locked), lock body scroll, and
   // hand focus back to the opener on close.
   useEffect(() => {
     if (!open) return;
     const opener = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
+      if (!layerRef.current?.isTop()) return;
       if (e.key === "Escape") {
         if (!stateRef.current.locked) stateRef.current.onClose();
         return;
       }
       if (e.key !== "Tab" || !panelRef.current) return;
       const focusables = panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE);
-      if (focusables.length === 0) return;
+      if (focusables.length === 0) {
+        e.preventDefault();
+        panelRef.current.focus();
+        return;
+      }
       const first = focusables[0]!;
       const last = focusables[focusables.length - 1]!;
-      if (e.shiftKey && document.activeElement === first) {
+      const atPanel = document.activeElement === panelRef.current || !panelRef.current.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || atPanel)) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
+      } else if (!e.shiftKey && (document.activeElement === last || atPanel)) {
         e.preventDefault();
         first.focus();
       }
     };
     document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-      opener?.focus?.();
+      if (layerRef.current?.isTop()) opener?.focus?.();
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !mounted) return;
+    const layer = acquireModalLayer();
+    layerRef.current = layer;
+    return () => {
+      layer.release();
+      layerRef.current = null;
+    };
+  }, [open, mounted]);
+
+  // The portal appears after the mount gate. Preserve a child's intentional autofocus (e.g. Cancel).
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (open && mounted && layerRef.current?.isTop() && panel && !panel.contains(document.activeElement)) panel.focus();
+  }, [open, mounted]);
 
   if (!open || !mounted) return null;
   const host = document.getElementById(MODAL_ROOT_ID) ?? document.body;

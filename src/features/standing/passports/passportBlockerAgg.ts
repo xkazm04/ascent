@@ -18,7 +18,13 @@
 //    beside the open one. Ranking uses the TOTAL (open + declined); the two lists stay separate so a
 //    surface can show "12 blocked, 4 accepted" and never present a team's own decision back to them
 //    as an open finding.
+//
+// 3. A COVERAGE HOLE IS NOT A SCORED BLOCKER (G4). `prod.*-unassessable` and the tokenless
+//    `enforcement-not-observable` caveat name a limit of THIS scan, not a gap in the app. Ranking
+//    them would make "we could not look" look like the org's most common problem. They stay on
+//    `findings[]` so a rung can still be classified unassessable; they are dropped here.
 
+import { isCoverageHoleFinding, isCoverageHoleText } from "@/lib/analyze/passport";
 import type { DeclinedByChoice, PassportFinding } from "@/lib/types";
 
 export interface BlockedRepo {
@@ -86,9 +92,15 @@ export function aggregateBlockers(rows: BlockerAggRow[]): Agg[] {
     ];
     for (const { axis, texts, findings } of axes) {
       if (findings) {
-        for (const f of findings) bucket(f.code, f.text, axis).repos.push(repo);
+        for (const f of findings) {
+          if (isCoverageHoleFinding(f)) continue;
+          bucket(f.code, f.text, axis).repos.push(repo);
+        }
       } else {
-        for (const t of texts) bucket(legacyKey(t), legacyKey(t), axis).repos.push(repo);
+        for (const t of texts) {
+          if (isCoverageHoleText(t)) continue;
+          bucket(legacyKey(t), legacyKey(t), axis).repos.push(repo);
+        }
       }
     }
 
@@ -97,6 +109,7 @@ export function aggregateBlockers(rows: BlockerAggRow[]): Agg[] {
     // alternative (matching its `blocker` prose) is the exact join this change removed.
     for (const d of r.detail.declined ?? []) {
       if (!d.findingId) continue;
+      if (isCoverageHoleFinding({ id: d.findingId, code: codeOf(d.findingId) })) continue;
       const axis: Agg["axis"] = d.findingId.startsWith("auto.") ? "automation" : "production";
       const agg = bucket(codeOf(d.findingId), d.blocker ?? d.label, axis);
       // A re-surfaced decline is ALSO an open blocker (the overlay left it in the list), so it is

@@ -22,6 +22,7 @@ import { getActiveOrgStance, getStanceRepoFacts } from "@/lib/db/org-stance";
 import { getRepoAdmission } from "@/lib/db/org-admission";
 import type { AdmissionMode } from "@/lib/org/admission";
 import { attachRemoteClaim } from "@/lib/db/loop-runs-write";
+import { getOrgBacklog, type BacklogItem } from "@/lib/db/org-insights";
 import { repoGlobMatches } from "@/lib/org/stance";
 import { openBatch } from "@/lib/local/loop-lane";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
@@ -34,8 +35,8 @@ import {
   isAttemptVerdict,
   type FollowUpItem,
 } from "@/lib/org/followups";
-import { fail, str, type Args } from "@/lib/mcp/registry-reads";
-import type { McpPrincipal, ToolResult } from "@/lib/mcp/handlers";
+import { fail, str, type Args, type ToolResult } from "./tool-result";
+import type { McpPrincipal } from "@/lib/mcp/handlers";
 import { MAX_CLAIM_COUNT } from "@/lib/mcp/tools";
 import type { AutonomyTierId } from "@/lib/types";
 
@@ -181,16 +182,37 @@ export async function claimFollowupsTool(org: string, args: Args, principal: Mcp
   };
 }
 
+/** Prompt fields from a ledger row — never from `openBatch`, whose picker drops `in_progress`. */
+function asFollowUp(it: BacklogItem): FollowUpItem {
+  return {
+    id: it.id,
+    repo: it.repo,
+    title: it.title,
+    dimId: it.dimId,
+    dimLabel: it.dimLabel,
+    impact: it.impact,
+    effort: it.effort,
+    rationale: it.rationale,
+    explore: it.explore,
+    projectedPoints: it.projectedPoints,
+  };
+}
+
 /** The rows a brief is built from, read fresh so the prompt states the gap as the scan states it. */
 async function itemsFor(org: string, held: readonly FollowupClaimRow[]): Promise<Map<string, FollowUpItem>> {
-  const byRepo = new Map<string, FollowupClaimRow[]>();
-  for (const h of held) byRepo.set(h.repo, [...(byRepo.get(h.repo) ?? []), h]);
+  const wanted = new Set(held.map((h) => h.id));
   const out = new Map<string, FollowUpItem>();
-  for (const [repo] of byRepo) {
-    // `includeDeferred` because these rows are CLAIMED: a deferral is advisory to the picker, and a
-    // row the caller already holds must never be missing from its own brief.
-    const batch = await openBatch(org, repo, 500, { includeDeferred: true }).catch(() => [] as FollowUpItem[]);
-    for (const it of batch) out.set(it.id, it);
+  if (wanted.size === 0) return out;
+  // CLAIMED ROWS ARE `in_progress`. `openBatch` is the dispatch picker and keeps only `status ===
+  // "open"`, so a brief that loaded through it missed every id the caller had just leased. The
+  // ledger's working set still carries those rows and the scan's own words; `openBatch` stays the
+  // claim picker only.
+  const backlog = await getOrgBacklog(org).catch(() => null);
+  if (!backlog) return out;
+  for (const g of backlog.byOwner) {
+    for (const it of g.items) {
+      if (wanted.has(it.id)) out.set(it.id, asFollowUp(it));
+    }
   }
   return out;
 }
@@ -247,7 +269,18 @@ export async function getFixBriefTool(org: string, args: Args, principal: McpPri
       for (const r of rows) refused.push({ id: r.id, reason: "repo-closed", detail: claimRefusalText(verdict.reason, repo) });
       continue;
     }
-    const picked = rows.map((r) => items.get(r.id)).filter((x): x is FollowUpItem => Boolean(x));
+    const picked: FollowUpItem[] = [];
+    for (const r of rows) {
+      const it = items.get(r.id);
+      if (it) picked.push(it);
+      else {
+        refused.push({
+          id: r.id,
+          reason: "missing",
+          detail: "The latest scan no longer lists this follow-up, so there is no brief to build.",
+        });
+      }
+    }
     if (picked.length === 0) continue;
     // THE ORG'S STANDARD TRAVELS WITH THE REMOTE BRIEF TOO (`PRIYA-L1-706`). The local lane has
     // assembled it since moonshot #25 and this door did not, so the same organization briefed a
@@ -287,8 +320,9 @@ export async function getFixBriefTool(org: string, args: Args, principal: McpPri
       org,
       briefs,
       // Named, never silently dropped — see the doc comment. `not-held` is a lease you lost;
-      // `repo-closed` is a repository that no longer admits agent work, and it carries the org's own
-      // sentence so the agent stops rather than retries.
+      // `repo-closed` is a repository that no longer admits agent work; `missing` is a held row
+      // the latest scan no longer lists. The last two carry a sentence so the agent stops rather
+      // than retries.
       refused,
     },
     // The brief is the payload a model actually reads, so it is the text channel too, joined rather

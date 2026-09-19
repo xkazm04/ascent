@@ -42,6 +42,10 @@ export interface MemoryRow {
   supersededBy: string | null;
   version: number;
   accessCount: number;
+  /** Times an agent reported USING this memory (`cite_memory`). 0 = no evidence, never "found useless". */
+  citedCount: number;
+  /** Times an agent reported this memory did NOT help. Never netted against `citedCount`. */
+  notUsefulCount: number;
   expiresAt: string | null;
   /** WHERE THIS NOTE LIVES (UC2 registry mirror) — see `SkillRow.origin`. `"registry"` rows are
    *  a mirror of `memory/<kind>/<slug>.md` and are changed by pull request, not in ascent. */
@@ -140,6 +144,11 @@ export function toRow(m: OrgMemory): MemoryRow {
     supersededBy: m.supersededBy,
     version: m.version,
     accessCount: m.accessCount,
+    // Already stored on OrgMemory — listOrgMemories and lifecycleWorkingSet share this mapper, so
+    // REST `/api/org/memory/recall` ranks on the evidence term without a second query. A partial
+    // mock that omits the column scores as 0 ("no evidence"), never as a missing field.
+    citedCount: m.citedCount ?? 0,
+    notUsefulCount: m.notUsefulCount ?? 0,
     expiresAt: m.expiresAt ? m.expiresAt.toISOString() : null,
     origin: m.origin === "registry" ? "registry" : "hosted",
     registryPath: m.registryPath ?? null,
@@ -384,6 +393,11 @@ export async function archiveOrgMemory(id: string): Promise<void> {
  * SAME namespace (where a duplicate would live), most-recent first and hard-capped — so the prompt the
  * consolidation core builds can never grow with the store. Pure data access: the ranking/judgment lives
  * in src/lib/memory/consolidation.ts, which is what keeps that core framework-agnostic.
+ *
+ * NOT THE AGENT RECALL DOOR. Omitted namespace means `namespace IS NULL` (org-wide rows only).
+ * Scan-fed, repo-mirrored, and every other namespaced note would be invisible. REST recall, MCP
+ * `recall_org_memory`, and Athena's chat prefetch load via `lifecycleWorkingSet`, whose omitted
+ * namespace is "no filter".
  */
 export async function candidateOrgMemories(
   orgSlug: string,

@@ -89,15 +89,17 @@ export function registryVerdict(v: RegistryView): string {
   if (v.status === "error") return v.error?.message ?? "The last index attempt failed.";
   if (v.registry?.mode === "hosted_mirror") return "Hosted mirror — ascent stays the writer; the repo is a read-only copy.";
   const { moved, total } = migratedTotals(v);
+  const pointing = v.fleet.reposPointing;
+  if (typeof pointing !== "number") return `${moved}/${total} artifacts in the registry · fleet pointing not measured yet`;
   const behind = v.fleet.adoption.stale + v.fleet.adoption.diverged;
   const tail = behind > 0 ? ` · ${behind} repo${behind === 1 ? "" : "s"} behind the catalog` : " · every pointing repo in sync";
-  return `${moved}/${total} artifacts in the registry · ${v.fleet.reposPointing}/${v.fleet.reposTotal} repos pointing${tail}`;
+  return `${moved}/${total} artifacts in the registry · ${pointing}/${v.fleet.reposTotal} repos pointing${tail}`;
 }
 
 /**
  * The six onboarding steps, resolved against the view. Resumable by construction: each step reads its
  * own evidence, so a reload lands on the same place and a step that is already satisfied reads `done`
- * whatever order it happened in.
+ * whatever order it happened in. Terminal counterpart: `.claude/skills/registry-onboarding` (same ids).
  */
 export function registrySteps(v: RegistryView): RegistryStep[] {
   const mapped = v.status !== "unmapped";
@@ -106,8 +108,13 @@ export function registrySteps(v: RegistryView): RegistryStep[] {
   const { moved, total } = migratedTotals(v);
   const migrateDone = total > 0 && moved >= total;
   const migrateOpen = ARTIFACTS.some((a) => v.migration[a].state === "pr-open");
-  const pointing = v.fleet.reposPointing > 0;
-  const verified = indexed && !!v.registry?.catalogSha && v.fleet.reposSynced30d > 0 && v.telemetry.invokes30d > 0;
+  const pointingN = v.fleet.reposPointing;
+  const syncedN = v.fleet.reposSynced30d;
+  const pointing = typeof pointingN === "number" && pointingN > 0;
+  const verified = indexed && !!v.registry?.catalogSha && typeof syncedN === "number" && syncedN > 0 && v.telemetry.invokes30d > 0;
+  // Self-hosted pairing: the checkout is the read source, so the App steps are OPTIONAL, not blocking.
+  const local = v.registry?.localPath ?? null;
+  const appOptional = !!local && !v.permission.contentsWrite;
 
   const step = (
     id: RegistryStep["id"],
@@ -123,17 +130,17 @@ export function registrySteps(v: RegistryView): RegistryStep[] {
       "choose",
       1,
       "Choose the registry",
-      "Create a new repo, map one you already have, or stay hosted. All three are real answers.",
+      "Pair a local checkout, create a new repo, map one you already have, or stay hosted. All are real answers.",
       mapped ? "done" : "active",
-      v.registry ? `${v.registry.fullName} · ${v.registry.canonical ? "canonical" : "secondary"} · ${MODE_LABEL[v.registry.mode]}` : `${v.candidates.length} installed repo${v.candidates.length === 1 ? "" : "s"} available to map`,
+      local ? `${v.registry!.fullName} · paired locally at ${local}` : v.registry ? `${v.registry.fullName} · ${v.registry.canonical ? "canonical" : "secondary"} · ${MODE_LABEL[v.registry.mode]}` : `${v.candidates.length} installed repo${v.candidates.length === 1 ? "" : "s"} available to map`,
     ),
     step(
       "permissions",
       2,
       "Grant contents:write",
       "Ascent opens pull requests against the registry; it never pushes to your fleet.",
-      v.permission.contentsWrite ? "done" : mapped ? "blocked" : "pending",
-      v.permission.contentsWrite ? "GitHub App holds contents:write" : "The App cannot write to this repo yet",
+      v.permission.contentsWrite ? "done" : appOptional ? "skipped" : mapped ? "blocked" : "pending",
+      v.permission.contentsWrite ? "GitHub App holds contents:write" : appOptional ? "Optional — the local checkout needs no GitHub App; connect one only for pull requests" : "The App cannot write to this repo yet",
     ),
     step(
       "scaffold",
@@ -152,16 +159,16 @@ export function registrySteps(v: RegistryView): RegistryStep[] {
       4,
       "Move Skills, Practices, Memory",
       "One PR per artifact type, so review stays readable. Nothing is deleted from ascent until it merges.",
-      hosted ? "skipped" : migrateDone ? "done" : migrateOpen ? "active" : indexed ? "active" : "pending",
-      hosted ? "Not applicable in hosted mirror mode" : `${moved}/${total} moved`,
+      hosted ? "skipped" : migrateDone || (appOptional && total === 0) ? "done" : appOptional ? "skipped" : migrateOpen || indexed ? "active" : "pending",
+      hosted ? "Not applicable in hosted mirror mode" : appOptional && total > moved ? `${moved}/${total} moved · the rest opens PRs, which needs the optional GitHub App` : `${moved}/${total} moved`,
     ),
     step(
       "point",
       5,
       "Point the fleet",
       "Each repo names its registry in .ai/manifest.yaml — or a developer just runs the sync command.",
-      pointing && v.fleet.reposPointing >= v.fleet.reposTotal ? "done" : pointing ? "active" : indexed ? "active" : "pending",
-      `${v.fleet.reposPointing}/${v.fleet.reposTotal} repos carry the pointer`,
+      pointing && typeof pointingN === "number" && pointingN >= v.fleet.reposTotal ? "done" : pointing ? "active" : indexed ? "active" : "pending",
+      typeof pointingN === "number" ? `${pointingN}/${v.fleet.reposTotal} repos carry the pointer` : "Not measured yet — the adoption pass has not run",
     ),
     step(
       "verify",
@@ -170,7 +177,7 @@ export function registrySteps(v: RegistryView): RegistryStep[] {
       "First catalog.json written, first repo synced, first invoke recorded. Then it runs itself.",
       verified ? "done" : indexed ? "active" : "pending",
       indexed
-        ? `catalog ${v.registry?.catalogSha ? "written" : "pending"} · ${v.fleet.reposSynced30d} synced · ${v.telemetry.invokes30d.toLocaleString()} invokes`
+        ? `catalog ${v.registry?.catalogSha ? "written" : "pending"} · ${typeof syncedN === "number" ? `${syncedN} synced` : "sync unmeasured"} · ${v.telemetry.invokes30d.toLocaleString()} invokes`
         : "Nothing to verify yet",
     ),
   ];
@@ -180,19 +187,5 @@ export function shortSha(sha: string | null | undefined): string {
   return sha ? sha.slice(0, 7) : "—";
 }
 
-/** The registry repo rendered as a file map — the identified panel's spine. */
-export type TreeNode = { path: string; kind: "dir" | "file"; count?: number; note: string; generated?: boolean };
-
-export function registryTree(v: RegistryView): TreeNode[] {
-  const c = v.counts;
-  return [
-    { path: ".ascent/registry.yaml", kind: "file", note: v.registry ? `${MODE_LABEL[v.registry.mode]} · telemetry ${SINK_LABEL[v.registry.telemetrySink]}` : "mode + policies" },
-    { path: "catalog.json", kind: "file", count: inRegistryTotal(v), note: v.registry?.catalogSha ? `sha ${shortSha(v.registry.catalogSha)}` : "not written yet", generated: true },
-    { path: "skills/", kind: "dir", count: c.skills.registry, note: c.skills.hostedOnly > 0 ? `${c.skills.hostedOnly} still hosted` : "SKILL.md + LESSONS.md" },
-    { path: "practices/", kind: "dir", count: c.practices.registry, note: c.practices.hostedOnly > 0 ? `${c.practices.hostedOnly} still hosted` : "PRACTICE.md + starter/" },
-    { path: "memory/", kind: "dir", count: c.memory.registry, note: c.memory.hostedOnly > 0 ? `${c.memory.hostedOnly} still hosted` : "notes + _index.md" },
-    { path: "telemetry/", kind: "dir", count: v.telemetry.reposReporting, note: v.telemetry.sink === "registry" ? "counts committed here" : `sink is ${SINK_LABEL[v.telemetry.sink]}` },
-    { path: "CODEOWNERS", kind: "file", note: "merging = adopting" },
-  ];
-}
-
+// The repo-as-file-map derivation moved to ./registryTree (200-LOC cap); re-exported so callers are unchanged.
+export { registryTree, type TreeNode } from "./registryTree";

@@ -46,6 +46,24 @@ function mkScan(p: Partial<ComparableScan> & { id: string }): ComparableScan {
 }
 
 describe("diffScans", () => {
+  it.each(["adoptionScore", "rigorScore"] as const)("recognizes %s movement within the same posture", (axis) => {
+    const before = mkScan({ id: "a", adoptionScore: 60, rigorScore: 60 });
+    const after = mkScan({ ...before, id: "b", [axis]: 65 });
+    const diff = diffScans(before, after);
+    expect(diff.posture.changed).toBe(false);
+    expect(diff.overall.delta).toBe(0);
+    expect(diff.unchanged).toBe(false);
+  });
+
+  it("recognizes signal-score movement when the blended score and named evidence stay flat", () => {
+    const before = mkScan({ id: "a" });
+    const after = mkScan({ id: "b", dimensions: dims({ D2: { signalScore: 60 } }) });
+    const diff = diffScans(before, after);
+    expect(diff.unchanged).toBe(false);
+    expect(diff.dimensions.find(d => d.id === "D2")?.signalDelta).toBe(10);
+    expect(diff.movements).toEqual(["D2 0 · signal score +10 with no change in named evidence"]);
+  });
+
   it("computes deltas, transitions, gap movement, and recs moved to done", () => {
     const before = mkScan({
       id: "a",

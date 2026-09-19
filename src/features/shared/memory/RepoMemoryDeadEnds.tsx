@@ -22,8 +22,9 @@ import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
 /** Longest excerpt shown inline. The full entry travels with "Copy", so nothing is lost, only folded. */
 const EXCERPT = 320;
 
-/** Row-label budget for the matrix's label gutter; the full name is on the group heading below. */
-const LABEL_MAX = 18;
+/** A safety bound for the matrix's subject track, which wraps in CSS; the full name is on the group
+ *  heading below. (Was 18, sized for the retired 104-unit SVG gutter.) */
+const LABEL_MAX = 56;
 
 const shortRepo = (full: string) =>
   full.length > LABEL_MAX ? `…${full.slice(full.length - LABEL_MAX + 1)}` : full;
@@ -64,7 +65,7 @@ export function RepoMemoryDeadEnds({ rows }: { rows: RepoMemoryEntryRow[] }) {
           facts" was a sentence a reader had to hold in their head while reading confident prose;
           it is now the shape of every row in the panel. */}
       <MatrixGrid
-        className="mt-3 max-w-xs"
+        className="mt-3"
         title="Dead-end claims by repository"
         axes={["Claimed", "Verified"]}
         rows={groups.map<MatrixRow>((g) => ({

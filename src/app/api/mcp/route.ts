@@ -57,7 +57,7 @@ import {
   validateHeaders,
   type JsonRpcRequest,
 } from "@/lib/mcp/protocol";
-import { MCP_TOOLS, TOOLS_CACHE_SCOPE, TOOLS_TTL_MS, toolsForScopes, toWireTool } from "@/lib/mcp/tools";
+import { MCP_TOOLS, toolsForScopes, toolsListEnvelope } from "@/lib/mcp/tools";
 import { countTokenWritesToday, gateOpen, planRefusal, resolveMcpGates } from "@/app/api/mcp/gates";
 import { rateLimitKeyed, rateLimitRequest, tooManyRequests, GATE_RATE_LIMIT, MCP_RATE_LIMIT } from "@/lib/rate-limit";
 import { readCappedBody } from "@/lib/integrations/ingest-guard";
@@ -192,17 +192,10 @@ export async function POST(req: Request) {
       );
 
     case "tools/list":
-      return rpc(
-        ok(id, {
-          tools: allowed.map(toWireTool),
-          // REQUIRED on list results in this revision. `private` because the list varies by the
-          // caller's scopes — a shared cache serving one org's list to another would leak which
-          // tools that token reaches.
-          ttlMs: TOOLS_TTL_MS,
-          cacheScope: TOOLS_CACHE_SCOPE,
-        }),
-        200,
-      );
+      // Catalog-level `_meta` / serverInfo copy names which scopes unlock recall, skills, and
+      // writes. The tools array is still filtered: a door-only token is not shown those tools.
+      // `tools/call` refusals stay opaque (`Unknown tool`) — this copy is the list's job.
+      return rpc(toolsListEnvelope(id, allowed), 200);
 
     case "tools/call": {
       const name = typeof body.params?.name === "string" ? body.params.name : "";

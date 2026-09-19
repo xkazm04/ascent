@@ -1,25 +1,35 @@
 // Context Health reads the SAME fleet its sibling leaderboard does.
 //
-// The panel used to call `getOrgRollup(slug)` with no scope at all while RepositoriesLeaderboardPanel
-// two elements above it called `getOrgRollup(slug, undefined, null, techGroupId)` — so selecting a
-// tech stack narrowed the table and left the context lens below it describing the whole fleet, with
-// nothing on screen saying the two panels disagreed. It also meant the tab ran TWO full rollups per
-// render.
+// RepositoriesTab resolves org scope once and hands the promise to both panels. This lens used to
+// call `getOrgRollup(slug)` with no scope at all, then later honoured `?stack=` while still ignoring
+// `?segment=` — so selecting a segment narrowed the table and left the context lens describing a
+// different fleet. It also meant the tab ran TWO full rollups per render.
 //
 // No DOM: the component is a server function, and the assertion is about which fleet it asks for, so
 // these tests call it directly and read the recorded arguments.
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { OrgScope } from "@/lib/org/scope";
 
-const { mockRollup, mockResolveStackScope } = vi.hoisted(() => ({
-  mockRollup: vi.fn(),
-  mockResolveStackScope: vi.fn(),
-}));
+const { mockRollup } = vi.hoisted(() => ({ mockRollup: vi.fn() }));
 
 vi.mock("@/lib/db", () => ({ getOrgRollupShared: mockRollup }));
-vi.mock("@/lib/org/scope", () => ({ resolveStackScope: mockResolveStackScope }));
 
 import { ContextHealthPanel } from "./ContextHealthPanel";
+
+function scope(over: Partial<Pick<OrgScope, "segmentId" | "techGroupId">> = {}): Promise<OrgScope> {
+  const segmentId = over.segmentId ?? null;
+  const techGroupId = over.techGroupId ?? null;
+  return Promise.resolve({
+    segments: [],
+    activeSegment: null,
+    segmentId,
+    techGroups: [],
+    activeStack: null,
+    techGroupId,
+    barProps: { segments: [], segmentId, techGroups: [], activeStack: null },
+  });
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -29,29 +39,22 @@ beforeEach(() => {
 });
 
 describe("ContextHealthPanel — fleet scope", () => {
-  it("threads the resolved ?stack= group into the rollup it reads", async () => {
-    mockResolveStackScope.mockResolvedValue({ techGroups: [], activeStack: { key: "node", id: "tg_1" }, techGroupId: "tg_1" });
+  it("threads the tab's resolved ?segment= and ?stack= into the rollup it reads", async () => {
+    await ContextHealthPanel({ slug: "acme", scope: scope({ segmentId: "s1", techGroupId: "tg_1" }) });
 
-    await ContextHealthPanel({ slug: "acme", sp: { stack: "node" } });
-
-    expect(mockResolveStackScope).toHaveBeenCalledWith("acme", { stack: "node" });
     // Same four arguments the leaderboard passes — so the two panels describe one repo set, and the
     // request-scoped reader collapses them into a single read.
-    expect(mockRollup).toHaveBeenCalledWith("acme", undefined, null, "tg_1");
+    expect(mockRollup).toHaveBeenCalledWith("acme", undefined, "s1", "tg_1");
   });
 
-  it("reads the whole fleet when no stack is selected", async () => {
-    mockResolveStackScope.mockResolvedValue({ techGroups: [], activeStack: null, techGroupId: null });
-
-    await ContextHealthPanel({ slug: "acme", sp: {} });
+  it("reads the whole fleet when no segment or stack is selected", async () => {
+    await ContextHealthPanel({ slug: "acme", scope: scope() });
 
     expect(mockRollup).toHaveBeenCalledWith("acme", undefined, null, null);
   });
 
   it("asks for the fleet exactly ONCE per render", async () => {
-    mockResolveStackScope.mockResolvedValue({ techGroups: [], activeStack: null, techGroupId: null });
-
-    await ContextHealthPanel({ slug: "acme", sp: {} });
+    await ContextHealthPanel({ slug: "acme", scope: scope({ segmentId: "s1" }) });
 
     expect(mockRollup).toHaveBeenCalledTimes(1);
   });

@@ -68,6 +68,25 @@ describe("UnionFind", () => {
 });
 
 describe("clusterMemories", () => {
+  it("preserves set-based cohesion for repeated words, punctuation and Unicode", () => {
+    const items = [
+      mem("a", "Žluťoučký kůň, KŮŇ!"),
+      mem("b", "žluťoučký kůň běží"),
+      mem("c", "kůň běží běží"),
+      mem("empty", "the and of"),
+    ];
+    expect(clusterMemories(items)).toEqual([
+      { memberIds: ["a", "b", "c"], cohesion: 0.556 },
+    ]);
+  });
+
+  it("uses current content on each call without retaining stale token sets", () => {
+    const items = [mem("a", "alpha beta"), mem("b", "alpha beta"), mem("c", "alpha beta")];
+    expect(clusterMemories(items)).toEqual([{ memberIds: ["a", "b", "c"], cohesion: 1 }]);
+    items[2]!.content = "gamma delta";
+    expect(clusterMemories(items)).toEqual([]);
+  });
+
   it("finds a family of three and reports its cohesion", () => {
     const clusters = clusterMemories(cluster3);
     expect(clusters).toHaveLength(1);

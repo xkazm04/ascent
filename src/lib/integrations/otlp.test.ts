@@ -12,6 +12,19 @@ const recordsOf = (body: OtlpMetricsBody, fallback: number) => parseOtlpMetrics(
 const FALLBACK = Date.UTC(2026, 6, 5); // 2026-07-05
 
 describe("repoFromGitAttr", () => {
+  it.each([
+    "https://notgithub.com/acme/api",
+    "https://example.test/github.com/acme/api",
+    "acme/..",
+    ".hidden/api",
+  ])("does not attribute unsupported or invalid remote %s to GitHub", (remote) => {
+    expect(repoFromGitAttr(remote)).toBeNull();
+  });
+
+  it("uses the scanner's trailing-slash normalization", () => {
+    expect(repoFromGitAttr("https://github.com/acme/api/")).toBe("acme/api");
+  });
+
   it("extracts owner/name from https, ssh, .git, and bare forms", () => {
     expect(repoFromGitAttr("https://github.com/vercel/next.js.git")).toBe("vercel/next.js");
     expect(repoFromGitAttr("git@github.com:vercel/next.js.git")).toBe("vercel/next.js");
@@ -153,9 +166,27 @@ describe("parseOtlpMetrics — skip reporting", () => {
   it("reports zero skips for a clean export", () => {
     const r = parseOtlpMetrics({ resourceMetrics: [resource("vercel/next.js", [{ name: "claude_code.token.usage", count: 3 }])] }, FALLBACK);
     expect(r.received).toBe(3);
-    expect(r.skipped).toEqual({ "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0 });
+    expect(r.skipped).toEqual({ "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0, "cumulative-temporality": 0 });
     expect(r.unsupportedHosts).toEqual([]);
     expect(r.records).toHaveLength(1);
+  });
+
+  it("does not manufacture measured usage from an export containing only unknown metrics", () => {
+    const r = parseOtlpMetrics({ resourceMetrics: [resource("acme/api", [{ name: "unknown.counter", count: 3 }])] }, FALLBACK);
+    expect(r.received).toBe(3);
+    expect(r.skipped["unknown-metric"]).toBe(3);
+    expect(r.records).toEqual([]);
+  });
+
+  it("does not count users whose only datapoints were skipped", () => {
+    const unknown = resource("acme/api", [{ name: "unknown.counter", count: 1 }]);
+    const known = resource("acme/api", [{ name: "claude_code.token.usage", count: 1 }]);
+    unknown.resource.attributes.push({ key: "user.email", value: { stringValue: "alice@example.test" } });
+    known.resource.attributes.push({ key: "user.email", value: { stringValue: "bob@example.test" } });
+    const r = parseOtlpMetrics({ resourceMetrics: [unknown, known] }, FALLBACK);
+    expect(r.received).toBe(2);
+    expect(r.skipped["unknown-metric"]).toBe(1);
+    expect(r.records[0]!.seats).toBe(1);
   });
 
   it("counts datapoints of metrics outside the allowlist (reported, still not stored)", () => {

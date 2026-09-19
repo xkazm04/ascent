@@ -39,6 +39,8 @@ export interface OrgRegistryRow {
   id: string;
   orgId: string;
   repositoryId: string | null;
+  /** Self-hosted pairing: the registry's working copy on the server, or null (read via GitHub). */
+  localPath: string | null;
   fullName: string;
   defaultBranch: string;
   canonical: boolean;
@@ -92,6 +94,7 @@ export interface UpsertOrgRegistryInput {
   status?: RegistryStatusValue;
   scaffoldPrUrl?: string | null;
   repositoryId?: string | null;
+  localPath?: string | null;
   createdBy?: string | null;
 }
 
@@ -131,6 +134,7 @@ function toRow(r: any): OrgRegistryRow {
     id: r.id,
     orgId: r.orgId,
     repositoryId: r.repositoryId ?? null,
+    localPath: r.localPath ?? null,
     fullName: r.fullName,
     defaultBranch: r.defaultBranch || "main",
     canonical: Boolean(r.canonical),
@@ -215,6 +219,7 @@ export async function upsertOrgRegistry(slug: string, input: UpsertOrgRegistryIn
     ...(input.status ? { status: input.status } : {}),
     ...(input.scaffoldPrUrl !== undefined ? { scaffoldPrUrl: input.scaffoldPrUrl } : {}),
     ...(input.repositoryId !== undefined ? { repositoryId: input.repositoryId } : {}),
+    ...(input.localPath !== undefined ? { localPath: input.localPath } : {}),
   };
 
   const row = await prisma.orgRegistry.upsert({

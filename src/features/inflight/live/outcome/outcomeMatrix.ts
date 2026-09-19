@@ -44,7 +44,7 @@ export function buildOutcomeMatrix(details: readonly LoopRunDetail[]): OutcomeMa
     for (const o of d.outcomes) byRepo.set(o.lane.repoFullName, [...(byRepo.get(o.lane.repoFullName) ?? []), o]);
     let gaps = 0;
     for (const [repo, lanes] of byRepo) {
-      const cell = foldCell(d.run.id, repo, lanes, d.economics ?? []);
+      const cell = foldCell(d.run.id, repo, lanes, d.economics ?? [], d.batchTitles);
       gaps += cell.gaps;
       cellsByRepo.set(repo, { ...(cellsByRepo.get(repo) ?? {}), [d.run.id]: cell });
     }

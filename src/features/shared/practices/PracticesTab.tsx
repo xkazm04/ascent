@@ -9,7 +9,11 @@
 // OrgTabChunks call site: the tech-stack scope must resolve before getOrgPractices can be scoped by
 // it, so the reads are sequential/coupled rather than independent sources.
 
-import { getOrgPractices, getPlaybookAdoption, listOrgRepoNames, listPlaybooks } from "@/lib/db";
+import { getOrgPractices, getOrgRollupShared, getPlaybookAdoption, listOrgRepoNames, listPlaybooks } from "@/lib/db";
+import { getFoundationRollout } from "@/lib/db/org-foundation";
+import { FoundationRolloutPanel } from "./foundation/FoundationRolloutPanel";
+import { GuidanceCoherenceCard } from "./foundation/GuidanceCoherenceCard";
+import { buildCoherenceRows } from "./foundation/guidanceCoherenceModel";
 import { resolveStackScope } from "@/lib/org/scope";
 import { buildPracticeLibrarySummary, practiceLibraryMarkdown } from "@/lib/org/practice-library";
 import { getOrgPracticeShapes, listOrgPracticeShapeRows } from "@/lib/db/org-practice-shapes";
@@ -42,7 +46,7 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
   // clear it (docs/harness/biz-bug-scan-2026-06-29). The selector now renders, same as every sibling
   // tab. No segment selector here: getOrgPractices' segment scope isn't wired on this surface yet.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const [playbooks, adoption, repoOptions, practices, shapes, sync, shapeRows] = await Promise.all([
+  const [playbooks, adoption, repoOptions, practices, shapes, sync, shapeRows, foundationRows, rollup] = await Promise.all([
     listPlaybooks(slug),
     getPlaybookAdoption(slug),
     // One column, one query. This used to be a full unscoped `getOrgRollup` whose ONLY consumed field
@@ -57,6 +61,11 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
     // read-only mirrors. Both degrade to "nothing mapped" rather than failing the tab.
     getRegistrySync(slug),
     listOrgPracticeShapeRows(slug).catch(() => []),
+    // The fleet foundation rollout (moonshot #35) and the guidance-coherence measure (#15), moved here
+    // from the Repositories tab on 2026-09-15: the shared checklist and its measurement in one place.
+    // The rollup is request-cached and scoped the same way the Repositories tab reads it.
+    getFoundationRollout(slug),
+    getOrgRollupShared(slug, undefined, null, techGroupId).catch(() => null),
   ]);
   // MOONSHOT #33 — version the org's mined patterns from the read that already mined them, then read
   // the adoption ledger. `syncHousePatternVersions` writes only when the pattern's hash MOVED, so this
@@ -130,6 +139,12 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
         adoption={adoption}
         dimOptions={dimOptions}
         repoOptions={repoOptions}
+        rolloutSlot={
+          <>
+            <FoundationRolloutPanel slug={slug} rows={foundationRows} />
+            {rollup && rollup.repos.length > 0 && <GuidanceCoherenceCard rows={buildCoherenceRows(rollup.repos)} />}
+          </>
+        }
       />
     </div>
   );

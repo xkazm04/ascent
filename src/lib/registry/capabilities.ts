@@ -37,6 +37,11 @@ export interface RegistryCapabilities {
   reason: RegistryCapabilityReason | null;
   /** Where to send the user to install/configure the App — only set when it would help. */
   installUrl: string | null;
+  /** Self-hosted deployment: the registry can be paired to a local checkout (Admin -> Pairing), so the
+   *  App is an OPTIONAL second step rather than the only way in. Set by the view, not probed here. */
+  localAvailable?: boolean;
+  /** The registry IS paired to a readable local checkout — index/trace/sweep need no token. */
+  localPaired?: boolean;
 }
 
 const DENIED = (reason: RegistryCapabilityReason, partial: Partial<RegistryCapabilities> = {}): RegistryCapabilities => ({

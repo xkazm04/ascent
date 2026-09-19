@@ -15,7 +15,7 @@ import { DeliveryGovernanceSection } from "./DeliveryGovernanceSection";
 import { AiDeliveryModuleChunk, DeliveryActivityChartChunk } from "./DeliveryTabChunks";
 import { buildAiDeliveryModel } from "./ai/aiDeliveryModel";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } from "@/lib/db";
-import { deliveryEmptyMessage, settle } from "./deliveryLoad";
+import { aiRoiSpendKind, aiRoiUnavailableMessage, deliveryEmptyMessage, settle } from "./deliveryLoad";
 import type { OrgScope } from "@/lib/org/scope";
 import type { ResolvedWindow } from "@/lib/window";
 
@@ -24,10 +24,8 @@ export async function DeliveryCorePanel({
   scope,
   // Passed down from DeliveryTab (which already resolved it for the trend) rather than re-resolved
   // here: this panel has no `sp`, so a local resolve would silently drop an explicit `?range=` and
-  // name the cookie's period on a shared link. Used ONLY to name the window in the notice below —
-  // DeliveryTab's header has documented since G7-09 that the trend is the tab's one windowed read
-  // while everything in this panel comes off each repo's LATEST scan, and nothing on screen said so,
-  // under a period control sitting right above.
+  // name the cookie's period on a shared link. The usage rollup takes the same `{start,end}` as
+  // unit/outcomes so 30d/90d spend bounds match; PR/governance/activity stay latest-scan snapshots.
   period,
 }: {
   slug: string;
@@ -49,7 +47,7 @@ export async function DeliveryCorePanel({
     // Finding A: getOrgUsageRollup is WHOLE-ORG and takes no scope arg. Its measured layer is per-repo
     // (so buildAiDeliveryModel's per-repo lookups already honor the filtered set), but its ALLOCATED
     // layer is a single org-level total with no per-repo breakdown — it genuinely cannot be filtered.
-    getOrgUsageRollup(slug),
+    getOrgUsageRollup(slug, { start: period.start, end: period.end }),
   ]);
   const { value: pr, failed: prFailed } = settle(prSettled);
   const { value: gov, failed: govFailed } = settle(govSettled);
@@ -66,10 +64,11 @@ export async function DeliveryCorePanel({
     if (r.status === "rejected") console.error(`[delivery/${slug}] ${label} failed:`, r.reason);
   }
 
-  // AI delivery intelligence: join the real per-repo AI signals above with connected-provider usage
-  // (measured/allocated), falling back to a simulated placeholder when nothing is connected. Computed
-  // server-side; the client module toggles between the Table and Map views over this one model.
-  const aiModel = buildAiDeliveryModel(pr, usage);
+  // Query failure ≠ no cost source: a rejected usage rollup must not be passed to
+  // buildAiDeliveryModel as `null` (that is the "none"/no-cost-source input). Withhold the model
+  // and let the panel name the load as unavailable.
+  const spendKind = aiRoiSpendKind(usage, usageFailed);
+  const aiModel = spendKind === "unavailable" ? null : buildAiDeliveryModel(pr, usage);
 
   // Finding A (money misattribution): in "allocated" fidelity buildAiDeliveryModel distributes the
   // WHOLE-ORG spend total across only the repos in `pr` (the filtered set) — weightSum shrinks with the
@@ -111,8 +110,9 @@ export async function DeliveryCorePanel({
         scope="partial"
         detail={
           <>
-            The <span className="text-slate-200">trend</span>, unit economics and outcomes are period-scoped.
-            Everything below this line is a <span className="text-slate-200">scan-time snapshot</span>.{" "}
+            The <span className="text-slate-200">trend</span>, unit economics, outcomes and AI spend are period-scoped.
+            Pull request signals, branch governance and commit activity below this line are a{" "}
+            <span className="text-slate-200">scan-time snapshot</span>.{" "}
             <WhyChip
               hint="Pull request signals, branch governance and commit activity are read off each repo's most recent scan. Scan.prStats is a pre-computed aggregate with no dated PR population to re-cut, so no range can re-scope it — read these as 'the fleet as of its most recent scans'."
               label="why this half is not period-scoped"
@@ -131,11 +131,8 @@ export async function DeliveryCorePanel({
       {prFailed && <SectionEmpty>Pull request signals couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>}
       {govFailed && <SectionEmpty>Branch governance couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>}
       {activityFailed && <SectionEmpty>Commit activity couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>}
-      {usageFailed && pr && (
-        <SectionEmpty>
-          AI usage/spend data couldn&apos;t load right now. The AI delivery figures below (if shown) may be
-          missing spend context. Try refreshing this page.
-        </SectionEmpty>
+      {spendKind === "unavailable" && pr && (
+        <SectionEmpty>{aiRoiUnavailableMessage()}</SectionEmpty>
       )}
 
       {/* AI delivery intelligence — spend × AI output × governance, as a Table and a Map view. Below

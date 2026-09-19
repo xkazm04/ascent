@@ -146,13 +146,14 @@ runtime (`actions.test.ts`, "the wire catalog and the executors carry the EXACT 
 
 ### What this build carries
 
-Both actions dispatch machinery that already exists. **Neither reaches outside Ascent and neither
-spends money** — that is the bar for being in the catalog at all.
+Every action dispatches machinery that already exists. **None of them reach outside Ascent and none
+of them spend money** — that is the bar for being in the catalog at all.
 
 | Action | Required role | What accepting it does |
 | --- | --- | --- |
 | `handoff_followups` | `member` | Claims follow-up items: `open → in_progress`, with a timeline note. Reuses the semantics of `POST /api/org/followups/handoff` — per-id tenancy re-check with a **whole-action refusal** on any foreign id (so ids cannot be enumerated), idempotent, and `done` / `dismissed` are never reopened. It records the claim and nothing else: the fix is a prompt a human runs, and the boundary ends at a string. |
 | `rule_on_finding` | `member` | Records the team's ruling on one finding — accept, dismiss, or snooze until a date — carrying the rationale. Reuses `decide()` (`src/lib/db/org-decisions.ts`): a sparse upsert on `(orgId, module, itemKey)`, write-through to Shared Org Memory, already audited. Athena's own findings use the `athena` decision module, added the way `roadmap` was — **one constant, no second store**. |
+| `record_memory` | `member` | Writes one Shared Org Memory row through `createOrgMemory` after `workspaceAllowsMemory`. Params: content, kind, optional namespace, confidence band. Provenance is `source: "athena"`. A namespace that already holds **registry-origin** notes is refused — those files live in the customer's repo, and the honest path is `POST /api/org/memory/reflect` with `proposePr`. No agent runtime: the click records the note; it does not open the PR. |
 
 ### How this list stays true
 
@@ -269,10 +270,24 @@ permanently unrun.
 
 ## Grounding: the MCP tools, in-process, behind a stricter gate
 
+The shared tool validator reports wrong-type object arguments by type, without
+coercing their contents. Even an object with a `toString` data property receives
+the normal argument-correction response through both tool entry points.
+
 `src/lib/athena/grounding.ts` builds her tool list from `MCP_TOOLS` (`src/lib/mcp/tools.ts`) and
-dispatches through `runTool` (`src/lib/mcp/handlers.ts`). One catalog, one set of handlers, one
-serializer - an agent asking the MCP endpoint and Athena answering from the dashboard cannot disagree
-about the fleet, because neither owns a copy.
+dispatches through `runTool` (`src/lib/mcp/handlers.ts`). One catalog, one serializer - an agent
+asking the MCP endpoint and Athena answering from the dashboard cannot disagree about the fleet,
+because neither owns a copy.
+
+**`recall_org_memory` is the exception.** Prefetch already packs with `recallMemories`
+(`src/lib/memory/recall.ts`) over `lifecycleWorkingSet`. The MCP handler still filters by term
+overlap and slices `scoreMemories` by `limit`, so a tool-calling turn that borrowed it could
+disagree with the Memory tab about which note matters. Until that handler uses the value model,
+Athena executes this one tool locally: same working set (every namespace, never the write-check
+helper), same packer, then the shared `toolResultText` serializer. She still **offers** the tool;
+she will not borrow a ranking that is not the org's. Deliveries are not bumped on this path -
+counting a companion side-read would feed the Memory tab's ranking from chat, and she cannot
+`cite_memory` to distinguish use from delivery.
 
 **`runTool` performs no tenancy check.** Its own comment says scope enforcement happens in the route,
 and `org` goes straight into `getOrgRollup(org)` / `getActiveOrgStance(org)` /
@@ -550,7 +565,7 @@ terms: *does this change what the operator would do, or is it maintenance she is
 quietly?* The rule lives in `src/lib/athena/cycle-signal.ts` — **pure, no database import**, so the
 most consequential rule in the cycle (when a machine may interrupt a person) is testable without one.
 
-Five ordered rules, each a property someone could check by hand:
+Six ordered rules, each a property someone could check by hand:
 
 1. **No prose is nothing to say.** An empty outcome cannot be news even if it moved a number.
 2. **Maintenance is absolute.** A consolidation or a housekeeping pass never initiates contact,
@@ -560,7 +575,11 @@ Five ordered rules, each a property someone could check by hand:
 4. **Movement beyond the org's noise band clears it.** The band is the org's own
    (`SCORE_NOISE_BAND` = 2 points, `src/lib/maturity/noise.ts`): inside it a `+1` is scan-to-scan
    wobble wearing a green arrow.
-5. **Everything else is absorbed**, and the reason distinguishes "she is repeating the dashboard"
+5. **An abandoned skill (tried, then quiet) clears it even when scores are flat.**
+   `abandonedCount >= 1` (`raisesForAbandonedSkill` in `cycle-signal.ts`) — the same prune-candidate
+   fold the Skills tab already shows. Staying quiet about a prune candidate is dropping the work on
+   the floor, the same as a waiting decision.
+6. **Everything else is absorbed**, and the reason distinguishes "she is repeating the dashboard"
    (`already_visible`) from "she had nothing" (`nothing_to_say`).
 
 **Absorbed outcomes still exist** — counted by reason, recorded on her own episode, carried in the
@@ -609,7 +628,9 @@ before a billable completion exists:
 Then **one metered call** — `runToolLoop` with `maxLegs: 1`, no tools, `legKind: "athena_cycle"`, so
 this spend is separable from her interactive turns in `/usage` and in the tracklight mirror. The
 standing (the trailing-week window the weekly digest resolves, so the two cannot disagree about where
-the week started) and her still-open asks are prefetched into the prompt.
+the week started, plus the Memory tab's `getMemoryCoverage` and the Skills tab's `skillUsageMap`
+abandoned fold) and her still-open asks are prefetched into the prompt. She does not call tools on
+this path: those facts are already in the standing.
 
 The briefing prompt (`src/lib/athena/cycle-prompt.ts`) reuses the identity and all three contracts
 *verbatim* — she is the same companion at 07:30 with nobody watching as she is mid-conversation. What

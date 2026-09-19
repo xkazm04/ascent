@@ -10,8 +10,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 
-import { FleetScoreShape } from "./FleetScoreShape";
-import { fleetScoreShape } from "./fleetShape";
 import { SegmentDumbbell } from "./SegmentDumbbell";
 import { SegmentMaturityGrid } from "./SegmentMaturityGrid";
 import { headlinePairs, segmentMatrixRows } from "./segmentViz";
@@ -55,24 +53,6 @@ const ctxRow = (over: Partial<RepoContextRow> & { fullName: string }): RepoConte
   band: "aging",
   verdict: "",
   ...over,
-});
-
-describe("FleetScoreShape", () => {
-  it("draws the fleet's spread and names its own numbers", () => {
-    render(<FleetScoreShape shape={fleetScoreShape([repo(20), repo(50), repo(90), repo(null)])} />);
-    const plot = screen.getByRole("img", { name: /Fleet overall score/ });
-    expect(plot.querySelector("[data-median]")).toBeTruthy();
-    expect(plot.getAttribute("aria-label")).toMatch(/median 50/);
-    // The unscanned repo is counted beside the plot, never inside it.
-    expect(screen.getByText(/unscanned/)).toBeTruthy();
-    expect(plot.getAttribute("aria-label")).toMatch(/minimum 20/);
-  });
-
-  it("refuses to draw a spread over a single observation", () => {
-    render(<FleetScoreShape shape={fleetScoreShape([repo(70), repo(null)])} />);
-    expect(screen.queryByRole("img", { name: /Fleet overall score/ })).toBeNull();
-    expect(screen.getByText(/spread needs at least two/)).toBeTruthy();
-  });
 });
 
 describe("FleetDecayScatter", () => {

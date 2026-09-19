@@ -2,7 +2,7 @@
 
 // Extracted render sections for CreditsControl (see CreditsControl.tsx) — pure relocation to keep
 // the orchestrator file under the 300-LOC limit. State stays in CreditsControl; these pieces render
-// from props only.
+// from props only. ManageBillingLink is the Polar customer-portal control (owner-gated at the GET).
 
 import type { CreditPack } from "@/lib/polar";
 import { UNLIMITED_PLAN_LABEL } from "@/lib/plans";
@@ -31,6 +31,21 @@ export function UnlimitedChip() {
   );
 }
 
+/** Owner-facing Polar portal control. The GET is owner-gated; parents omit this when Polar is off
+ *  (free / self-host). Cancel and payment-method updates happen in Polar — Ascent does not invent a
+ *  refund ticket. */
+export function ManageBillingLink({ org }: { org: string }) {
+  return (
+    <a
+      href={`/api/billing/portal?org=${encodeURIComponent(org)}`}
+      className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
+    >
+      Manage billing
+      <span aria-hidden>→</span>
+    </a>
+  );
+}
+
 export function PacksSection({ org, packs }: { org: string; packs: CreditPack[] }) {
   return (
     <div className="mt-3">
@@ -46,6 +61,9 @@ export function PacksSection({ org, packs }: { org: string; packs: CreditPack[] 
             <span aria-hidden>→</span>
           </a>
         ))}
+      </div>
+      <div className="mt-1.5">
+        <ManageBillingLink org={org} />
       </div>
     </div>
   );

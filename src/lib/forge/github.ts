@@ -22,7 +22,7 @@ import { fetchAppInventory } from "@/lib/github/check-suites";
 import { fetchCiHealth } from "@/lib/github/actions-health";
 import { fetchSecurityExposure } from "@/lib/security/exposure";
 import { githubWebBase } from "@/lib/github/host";
-import type { EnrichmentSource, Forge, ForgeCapabilities, ParsedRepo, RepoSource } from "@/lib/forge/types";
+import type { EnrichmentSource, Forge, ForgeCapabilities, ForgeHost, ParsedRepo, RepoSource } from "@/lib/forge/types";
 
 /**
  * What GitHub can be asked. Every one of these is `true` because every one of them has a real reader
@@ -62,12 +62,14 @@ export const GITHUB_ENRICHMENTS: EnrichmentSource = Object.freeze({
 });
 
 /**
- * `host` is accepted and deliberately IGNORED for GitHub. GHES is already resolved — and has been
- * since long before this lane — by the `GITHUB_API_URL` / `GITHUB_GRAPHQL_URL` / `GITHUB_RAW_URL` env
- * vars in `src/lib/github/host.ts`, read at module scope by `source.ts`. Threading a per-call host
- * through GitHub's readers would be a behaviour change to the one path this lane must prove
- * byte-identical, so the env resolution stays the single source and still wins. A self-hosted GitLab
- * uses the `host` override; a GHES deployment keeps the env vars it already has.
+ * `host` is accepted and deliberately IGNORED for GitHub **readers** (`source` / `enrich`). GHES is
+ * already resolved — and has been since long before this lane — by the `GITHUB_API_URL` /
+ * `GITHUB_GRAPHQL_URL` / `GITHUB_RAW_URL` env vars in `src/lib/github/host.ts`, read at module scope
+ * by `source.ts`. Threading a per-call host through GitHub's readers would be a behaviour change to
+ * the one path this lane must prove byte-identical, so the env resolution stays the single source
+ * and still wins. Permalinks are the exception: `githubWebBase({ host })` overlays `host.webBase` on
+ * `GITHUB_SERVER_URL`, and unset is byte-identical to the env default. A self-hosted GitLab uses the
+ * `host` override for both reads and permalinks; a GHES deployment keeps the env vars it already has.
  */
 export const githubForge: Forge = {
   id: "github",
@@ -82,8 +84,9 @@ export const githubForge: Forge = {
   enrich(): EnrichmentSource {
     return GITHUB_ENRICHMENTS;
   },
-  permalink(repo: ParsedRepo, sha?: string): string {
-    const base = `${githubWebBase()}/${repo.owner}/${repo.repo}`;
+  permalink(repo: ParsedRepo, sha?: string, host?: ForgeHost): string {
+    // `githubWebBase` overlays `host.webBase` on `GITHUB_SERVER_URL`; unset is the env default.
+    const base = `${githubWebBase({ host })}/${repo.owner}/${repo.repo}`;
     return sha ? `${base}/tree/${sha}` : base;
   },
 };

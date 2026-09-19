@@ -3,8 +3,11 @@
 // the signal-layer behavior that the live benchmark (docs/features/scanning/calibration.md) validated against
 // real repos, so a detector regex change can't silently drift the scores. Pure + offline.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { analyzeSignals } from "./index";
+import { analyzeSignals, guidanceQuality } from "./index";
+import { deriveContextHealth } from "./context-health";
 import type { DimensionSignals, RepoSnapshot } from "@/lib/types";
 
 function snap(paths: string[], files: Record<string, string> = {}): RepoSnapshot {
@@ -109,5 +112,39 @@ describe("rubric calibration — extended D2 / D3 signals", () => {
     const labels = analyzeSignals(s).find((d) => d.id === "D3")!.signals.map((x) => x.label).join(" | ");
     expect(labels).toMatch(/migration/i);
     expect(labels).toMatch(/policy-as-code/i);
+  });
+});
+
+describe("rubric calibration: D1 guidance length (study 2026-09-15, test T4)", () => {
+  // This repo's own AGENTS.md at 3999 chars, as-is, and at 4001 (the same 3999 plus neutral prose),
+  // so the two boundary arms differ by length alone. The coach's instruction-bloat rule flips to
+  // "bloat" past 4000 bytes on the same text; ascent used to pay 3 more D1 points for it.
+  const agents = readFileSync(join(process.cwd(), "AGENTS.md"), "utf8");
+  const under = agents.slice(0, 3999);
+  const over = `${under} The quick brown fox jumps over the lazy dog.`.slice(0, 4001);
+  const arms = { "3999": under, "as-is": agents, "4001": over };
+  const read = (text: string) => {
+    const s = snap(["AGENTS.md"], { "AGENTS.md": text });
+    const bytes = Buffer.byteLength(text);
+    const points = guidanceQuality(text).reduce((a, g) => a + g.points, 0);
+    const health = deriveContextHealth({ snapshot: s, freshness: [], commitActivity: null, now: "2026-09-15T00:00:00.000Z" });
+    return { chars: text.length, points, d1: score(analyzeSignals(s), "D1"), sections: health.quality.score, bytes, bloat: bytes > 4000 };
+  };
+
+  it("pays nothing for crossing 4000 characters", () => {
+    const r = Object.fromEntries(Object.entries(arms).map(([k, t]) => [k, read(t)]));
+    console.log(`[T4] ${Object.entries(r).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(" | ")}`);
+    // The coach counts BYTES and this file carries multi-byte characters, so its verdict is already
+    // "bloat" at 3999 characters: the two tools disagree on the unit before they disagree on the sign.
+    expect(r["4001"]!.bloat).toBe(true);
+    expect(r["4001"]!.points - r["3999"]!.points).toBe(0);
+    expect(r["4001"]!.d1 - r["3999"]!.d1).toBe(0);
+    expect(r["4001"]!.sections - r["3999"]!.sections).toBe(0);
+  });
+
+  it("pays nothing for size at all: the same content signals score the same at any length", () => {
+    const short = "Run pytest before committing. Never edit generated files.";
+    const long = `${short}\n${"The quick brown fox jumps over the lazy dog. ".repeat(200)}`;
+    expect(guidanceQuality(long)).toEqual(guidanceQuality(short));
   });
 });

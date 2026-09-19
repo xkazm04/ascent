@@ -34,10 +34,10 @@ export function digestFixture(overrides: Partial<WeeklyDigest> = {}): WeeklyDige
     },
     dims: [
       // A real move, a within-noise hold, and a dimension with no scan on one side of the window.
-      { dimId: "D1", label: "Testing", now: 74, delta: 5, band: "up" },
-      { dimId: "D2", label: "Documentation", now: 41, delta: -6, band: "down" },
-      { dimId: "D3", label: "Context Engineering", now: 58, delta: 1, band: "flat" },
-      { dimId: "D4", label: "Security Posture", now: 66, delta: null, band: "unmeasured" },
+      { dimId: "D1", label: "Testing", now: 74, delta: 5, cohortSize: 8, band: "up" },
+      { dimId: "D2", label: "Documentation", now: 41, delta: -6, cohortSize: 8, band: "down" },
+      { dimId: "D3", label: "Context Engineering", now: 58, delta: 1, cohortSize: 8, band: "flat" },
+      { dimId: "D4", label: "Security Posture", now: 66, delta: null, cohortSize: null, band: "unmeasured" },
     ],
     followups: {
       closed: 5,

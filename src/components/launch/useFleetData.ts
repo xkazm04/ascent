@@ -54,6 +54,31 @@ async function parseReposBody(r: Response): Promise<ReposBody> {
   return (await r.json().catch(() => null)) as ReposBody;
 }
 
+/** Mount/retry pull: settle one org via settleInitialFetch (done, or a new error message). Shared by
+ *  the initial fan-out and the user-facing Retry path so both commit the same way. */
+async function pullInitial(
+  inst: Installation,
+  setConstellations: Dispatch<SetStateAction<Constellation[]>>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) return;
+  try {
+    const r = await fetchOrgRepos(inst, signal);
+    const data = await parseReposBody(r);
+    if (signal?.aborted) return;
+    setConstellations((cur) =>
+      cur.map((c) => (c.id !== inst.id ? c : settleInitialFetch(inst, r.ok, r.status, data))),
+    );
+  } catch {
+    if (signal?.aborted) return;
+    setConstellations((cur) =>
+      cur.map((c) =>
+        c.id === inst.id ? { id: inst.id, login: inst.login, status: "error", message: "Network error" } : c,
+      ),
+    );
+  }
+}
+
 /** Run `fn` over `items` with at most `limit` in flight. Identical to `Promise.all(items.map(fn))`
  *  when `items.length <= limit` — the whole point: capped fleets keep the exact prior behavior (same
  *  parallel burst, same cadence), and only a fleet BIGGER than the cap is metered out. `fn` must not
@@ -104,34 +129,37 @@ export function useFleetData(
   scanCtrl: MutableRefObject<AbortController | null>,
   scanGen: MutableRefObject<number>,
   recentScan: MutableRefObject<Map<string, number>>,
-) {
+): { onRetry: (installationId: number) => void } {
   // Consecutive-failure state per org login, driving the poll backoff. A ref (not state) so recording a
   // failure never re-renders the map, and so the schedule survives the effect re-running.
   const backoff = useRef<Map<string, BackoffEntry>>(new Map());
+  // In-flight user retries abort on unmount so a departed map never commits.
+  const retryAbort = useRef(new AbortController());
+  useEffect(() => () => retryAbort.current.abort(), []);
 
   useEffect(() => {
     const controller = new AbortController();
     // Bounded fan-out (see POLL_ORG_CAP): a 20-org fleet no longer opens 20 sockets the instant the map
     // mounts. At or below the cap this is the previous unbounded parallel burst, unchanged.
     void runBounded(installations, POLL_ORG_CAP, async (inst) => {
-      if (controller.signal.aborted) return;
-      try {
-        const r = await fetchOrgRepos(inst, controller.signal);
-        const data = await parseReposBody(r);
-        setConstellations((cur) =>
-          cur.map((c) => (c.id !== inst.id ? c : settleInitialFetch(inst, r.ok, r.status, data))),
-        );
-      } catch {
-        if (controller.signal.aborted) return;
-        setConstellations((cur) =>
-          cur.map((c) =>
-            c.id === inst.id ? { id: inst.id, login: inst.login, status: "error", message: "Network error" } : c,
-          ),
-        );
-      }
+      await pullInitial(inst, setConstellations, controller.signal);
     });
     return () => controller.abort();
   }, [installations, setConstellations]);
+
+  // Immediate Retry for one unreachable org: clears its poll backoff and re-runs `/api/app/repos`.
+  // The 90s auto-refresh keeps running; this is an extra path so a parked backoff is not the only way out.
+  function onRetry(installationId: number) {
+    const inst = installations.find((i) => i.id === installationId);
+    if (!inst) return;
+    backoff.current.delete(inst.login);
+    setConstellations((cur) =>
+      cur.map((c) =>
+        c.id !== inst.id ? c : { id: inst.id, login: inst.login, status: "loading" as const },
+      ),
+    );
+    void pullInitial(inst, setConstellations, retryAbort.current.signal);
+  }
 
   // MAP-6: keep the constellation live — re-pull each org every ~90s while the tab is VISIBLE, patching
   // changed stars in place (unchanged stars keep their identity via mergeStars, so they don't re-animate).
@@ -228,4 +256,6 @@ export function useFleetData(
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs are stable; matches FleetMap's original [installations] dep
   }, [installations]);
+
+  return { onRetry };
 }

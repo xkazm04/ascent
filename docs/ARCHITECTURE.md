@@ -1,5 +1,9 @@
 # Ascent: Architecture
 
+Decisions that constrain future code live in [`docs/adr/`](adr/README.md) — one file
+per decision, append-only once accepted. This document describes the system; an ADR
+records why a boundary is where it is.
+
 ## 1. Principles
 
 - **Ship the MVP without a database.** Phase 1 is pure Next.js route handlers + an LLM

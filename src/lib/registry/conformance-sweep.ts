@@ -26,6 +26,7 @@ import { countConsults, parseConformanceMap, parseContextMapRevision, type Confo
 import { EMPTY_SCOPE, parseDirectionsLedger, parseManifestFoundation } from "./conformance-foundation";
 import { readRepoStandardsFiles, type RepoStandardsFiles } from "./conformance-read";
 import { parseFullName } from "./layout";
+import { readLocalContextMapRevision, readLocalStandardsFiles } from "./conformance-read-local";
 
 /** The consult window every ingested `consults30d` is counted over. */
 export const CONSULT_WINDOW_DAYS = 30;
@@ -95,6 +96,34 @@ export async function readContextMapRevision(token: string, owner: string, repo:
   }
 }
 
+/** A swept repo as the reader sees it. */
+export type SweepRepo = { id: string; fullName: string; localPath: string | null };
+
+/**
+ * WHERE a sweep reads each repo's standards files from. `files` returning null means "this reader
+ * cannot reach that repo" (a local sweep over an unpaired repo) — a skip that changes nothing, the
+ * same weight as a transport failure and never the same as "the repo has no map".
+ */
+export interface StandardsReader {
+  files(repo: SweepRepo, ref: { owner: string; repo: string }): Promise<RepoStandardsFiles | null>;
+  contextMapRevision(repo: SweepRepo, ref: { owner: string; repo: string }): Promise<string | null>;
+}
+
+export function githubStandardsReader(token: string): StandardsReader {
+  return {
+    files: (_repo, ref) => readRepoStandardsFiles(token, ref.owner, ref.repo),
+    contextMapRevision: (_repo, ref) => readContextMapRevision(token, ref.owner, ref.repo),
+  };
+}
+
+/** Self-hosted: each repo's PAIRED working copy (Admin -> Pairing). No token is involved. */
+export function localStandardsReader(): StandardsReader {
+  return {
+    files: (repo) => (repo.localPath ? readLocalStandardsFiles(repo.localPath) : Promise.resolve(null)),
+    contextMapRevision: (repo) => (repo.localPath ? readLocalContextMapRevision(repo.localPath) : Promise.resolve(null)),
+  };
+}
+
 /**
  * Sweep an org's repositories. `org` is the slug (routes) or `{ orgId }` (the indexer, chaining
  * after a pass). `opts.repositoryIds` narrows it and `opts.repositoryId` is the one-repo form (a
@@ -103,9 +132,10 @@ export async function readContextMapRevision(token: string, owner: string, repo:
  */
 export async function sweepConformance(
   org: string | { orgId: string },
-  token: string,
+  source: string | StandardsReader,
   opts: { repositoryIds?: string[]; repositoryId?: string; now?: Date } = {},
 ): Promise<SweepResult> {
+  const reader = typeof source === "string" ? githubStandardsReader(source) : source;
   const empty: SweepResult = { scanned: 0, withMap: 0, withoutMap: 0, pairs: 0, warnings: [] };
   const ids = opts.repositoryId ? [opts.repositoryId, ...(opts.repositoryIds ?? [])] : opts.repositoryIds;
   const targets = await listSweepTargets(org, ids);
@@ -116,6 +146,7 @@ export async function sweepConformance(
   let withMap = 0;
   let withoutMap = 0;
   let pairs = 0;
+  let unreachable = 0;
 
   await mapPool(repos, SWEEP_CONCURRENCY, async (repo) => {
     // mapPool's fn must never throw or it rejects the whole pool (src/lib/pool.ts) — hence the
@@ -126,12 +157,16 @@ export async function sweepConformance(
         warnings.push(`${repo.fullName}: not a well-formed owner/name — skipped`);
         return;
       }
-      const files = await readRepoStandardsFiles(token, ref.owner, ref.repo);
+      const files = await reader.files(repo, ref);
+      if (files === null) {
+        unreachable += 1;
+        return;
+      }
       const foundation = foundationOf(files);
       const repoWarnings = files.warnings ?? [];
       // The context map's revision is read only when the root listing saw the file: a repo at stage
       // `populate` has none, and a request for it would be a request for a known 404.
-      const repoContextMapRevision = foundation.hasContextMap ? await readContextMapRevision(token, ref.owner, ref.repo) : null;
+      const repoContextMapRevision = foundation.hasContextMap ? await reader.contextMapRevision(repo, ref) : null;
       if (files.map === null) {
         withoutMap += 1;
         // The map went away (or never was): the repo is no longer claiming any of those verdicts,
@@ -167,7 +202,8 @@ export async function sweepConformance(
     }
   });
 
-  return { scanned: repos.length, withMap, withoutMap, pairs, warnings: warnings.slice(0, 50) };
+  if (unreachable) warnings.unshift(`${unreachable} repo${unreachable === 1 ? "" : "s"} not reachable by this sweep (not paired to a local folder) — previous conformance kept`);
+  return { scanned: repos.length - unreachable, withMap, withoutMap, pairs, warnings: warnings.slice(0, 50) };
 }
 
 /**

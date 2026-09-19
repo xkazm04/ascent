@@ -468,12 +468,13 @@ const g = globalThis as unknown as {
 /**
  * Why the embedded local PGlite failed to boot, or null when it booted (or was never asked to).
  *
- * WORTH KNOWING: when the boot throws, no driver adapter is installed, so `newClient()` below falls
+ * WORTH KNOWING: when the boot throws, no driver adapter is installed. `newClient()` used to fall
  * through to the datasource URL — which in local dev is a DUMMY (`postgresql://pglite@127.0.0.1:5432`)
- * that nothing is listening on. The developer therefore sees `P1001 Can't reach database server`,
- * which points at a server that was never supposed to exist and says nothing about the real cause
- * (typically column drift: a migration added a column, and an index over it aborts the boot's
- * init.sql exec). Surfacing this string is what turns that into a diagnosis.
+ * that nothing is listening on — so the developer saw `P1001 Can't reach database server`, which
+ * points at a server that was never supposed to exist and says nothing about the real cause
+ * (typically column drift: a NOT-NULL-without-default column missing from the data dir). It now
+ * throws this recorded string instead, so the first DB call fails with the diagnosis rather than a
+ * later INSERT 500 against an incomplete schema (or a dummy-URL P1001).
  */
 export function pgliteBootError(): string | null {
   return g.__ascentPgliteBootError ?? null;
@@ -499,6 +500,13 @@ function newClient(url?: string): PrismaClient {
   // Prisma driver adapter — the datasource URL is ignored. No socket, nothing to drop during a long scan.
   if (g.__ascentPgliteAdapter) {
     return new PrismaClient({ adapter: g.__ascentPgliteAdapter as never, log: [...log] });
+  }
+  // Failed PGlite boot (typically NOT-NULL-without-default column drift): do NOT fall through to the
+  // dummy DATABASE_URL (P1001 against 127.0.0.1) and do not serve an adapter against an incomplete
+  // schema (INSERT 500). Throw the recorded cause instead. DSQL / real Postgres never set this flag
+  // (pglite-boot is not imported in production).
+  if (g.__ascentPgliteBootError) {
+    throw new Error(`[pglite] embedded DB init FAILED: ${g.__ascentPgliteBootError}`);
   }
   // Real Postgres / DSQL (Postgres wire protocol): use the pg driver adapter. This selects Prisma's
   // Rust-free query path, which is mandatory on Windows-ARM64 (no native windows-arm64 query engine)

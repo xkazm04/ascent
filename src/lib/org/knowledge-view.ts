@@ -60,7 +60,7 @@ async function capabilitiesOf(slug: string, canWrite: boolean): Promise<Knowledg
     const { autopilotEnabled } = await import("@/lib/local/agent");
     canRunLocal = autopilotEnabled();
   }
-  return { canSweep: canWrite, canBrief: admin, canRunLocal };
+  return { canSweep: canWrite && admin, canBrief: admin, canRunLocal };
 }
 
 export async function getKnowledgeView(slug: string): Promise<KnowledgeView> {
@@ -144,6 +144,7 @@ export async function getKnowledgeView(slug: string): Promise<KnowledgeView> {
     signals: registry.signals?.subjects ?? [],
     dispatches,
     sweep: { lastAt: lastSweepAt(maps), warnings: sweepWarnings(maps), truncated },
-    capabilities: await capabilitiesOf(slug, registry.capabilities.canWrite),
+    // A locally paired registry sweeps paired checkouts with no token, so the admin floor is enough.
+    capabilities: await capabilitiesOf(slug, registry.capabilities.canWrite || Boolean(registry.capabilities.localPaired)),
   };
 }

@@ -5,13 +5,17 @@
 // the generator's long-dormant maintainer multiselect (`?dims=`), so a session can be scoped to one
 // dimension — or ask for a REFINEMENT on a dimension the repo is already strong on.
 //
+// The picker opens with that auto-picked weak set already checked, and Reset restores it — never an
+// empty box that silently means "Ascent picks". The picker's download still encodes `?dims=` from the
+// current selection, including when the selection is the auto set.
+//
 // Index chrome: a hairline-ruled dimension ledger inside the brand Modal, mono tabular-nums scores,
 // score color only ever from scoreHex. No hand-rolled overlay — Modal owns focus trap/Escape/scroll.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { DimensionId, DimensionResult } from "@/lib/types";
 import { scoreHex } from "@/lib/ui";
-import { Kicker, Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui";
+import { Kicker, Modal, ModalBody, ModalFooter, ModalHeader, signedDelta } from "@/components/ui";
 import { pillClass } from "@/components/report/pill";
 
 /** Mirrors WEAK_THRESHOLD in @/lib/onboarding/tracks — the score at/above which a dimension is a
@@ -25,6 +29,45 @@ function skillHref(repoParam: string, dims?: DimensionId[]): string {
   return `/api/report/skill?${q.toString()}`;
 }
 
+export type SkillLastRun = { verifiedDelta: number | null; trackIds: string[] };
+
+/** G4: null verifiedDelta is an em-dash, never a fabricated 0. A measured 0 stays "0". */
+export function lastRunLine(last: SkillLastRun): string {
+  const delta = last.verifiedDelta == null ? "—" : signedDelta(last.verifiedDelta);
+  const tracks = last.trackIds.length > 0 ? last.trackIds.join(", ") : "none";
+  return `last run: ${delta} overall after tracks ${tracks}`;
+}
+
+function useLastSkillRun(repoParam: string): SkillLastRun | null {
+  const [last, setLast] = useState<SkillLastRun | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/report/skill?repo=${encodeURIComponent(repoParam)}&view=outcomes`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { last?: SkillLastRun | null } | null) => {
+        const next = data?.last ?? null;
+        if (!live || !next || !Array.isArray(next.trackIds)) return;
+        setLast({
+          verifiedDelta:
+            typeof next.verifiedDelta === "number" && Number.isFinite(next.verifiedDelta)
+              ? next.verifiedDelta
+              : null,
+          trackIds: next.trackIds.filter((t): t is string => typeof t === "string"),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [repoParam]);
+  return last;
+}
+
+/** Dimensions Ascent would pick on its own (blended score below the strength line). */
+function autoPicked(dims: DimensionResult[]): DimensionId[] {
+  return dims.filter((d) => d.score < WEAK_THRESHOLD).map((d) => d.id);
+}
+
 export function SkillDownload({
   repoParam,
   dimensions,
@@ -36,15 +79,19 @@ export function SkillDownload({
   dimensions?: DimensionResult[];
 }) {
   const [open, setOpen] = useState(false);
-  const [picked, setPicked] = useState<DimensionId[]>([]);
+  const lastRun = useLastSkillRun(repoParam);
   const dims = useMemo(() => dimensions ?? [], [dimensions]);
-
-  // The default set Ascent would choose on its own — shown as the "auto" marker so a maintainer can
-  // see what they are overriding before they override it.
-  const auto = useMemo(() => new Set(dims.filter((d) => d.score < WEAK_THRESHOLD).map((d) => d.id)), [dims]);
+  const autoIds = useMemo(() => autoPicked(dims), [dims]);
+  const auto = useMemo(() => new Set(autoIds), [autoIds]);
+  const [picked, setPicked] = useState<DimensionId[]>(() => autoPicked(dimensions ?? []));
 
   const toggle = (id: DimensionId) =>
     setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const openChooser = () => {
+    setPicked(autoIds);
+    setOpen(true);
+  };
 
   return (
     <>
@@ -52,13 +99,19 @@ export function SkillDownload({
         href={skillHref(repoParam)}
         className={pillClass({ accent: true, focusRing: true, textSm: true })}
         title="Download a personalized Claude Code onboarding skill (drop it in .claude/skills/ and run it to act on this report)"
+        aria-label={`Onboarding skill for ${repoParam}`}
       >
         <span aria-hidden>✦</span> Onboarding skill
       </a>
+      {lastRun && (
+        <span className="type-mono-sm text-slate-500" data-testid="skill-last-run">
+          {lastRunLine(lastRun)}
+        </span>
+      )}
       {dims.length > 0 && (
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={openChooser}
           className={pillClass({ focusRing: true, textSm: true })}
           title="Choose which dimensions the onboarding skill should cover"
         >
@@ -114,7 +167,7 @@ export function SkillDownload({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setPicked([])}
+              onClick={() => setPicked(autoIds)}
               className={pillClass({ focusRing: true, textSm: true })}
             >
               Reset
@@ -123,6 +176,7 @@ export function SkillDownload({
               href={skillHref(repoParam, picked)}
               onClick={() => setOpen(false)}
               className={pillClass({ accent: true, focusRing: true, textSm: true })}
+              aria-label={`Download SKILL.md for ${repoParam}`}
             >
               <span aria-hidden>↓</span> Download SKILL.md
             </a>
@@ -130,5 +184,29 @@ export function SkillDownload({
         </ModalFooter>
       </Modal>
     </>
+  );
+}
+
+/** Wizard done-step offer: one SkillDownload pill per repo that actually scored. Empty list is a
+ *  no-op so the scan step can pass the same scored-repo set the foundation panel uses. */
+export function SkillDownloadList({ repos }: { repos: string[] }) {
+  if (repos.length === 0) return null;
+  return (
+    <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+      <h2 className="type-body font-semibold text-white">Download SKILL.md</h2>
+      <p className="mt-1 type-body-sm text-slate-400">
+        Personalized onboarding skill for each repo that scored. Drop it in{" "}
+        <span className="font-mono text-slate-300">.claude/skills/</span> and run it to act on this
+        report.
+      </p>
+      <ul className="mt-3 space-y-2">
+        {repos.map((repo) => (
+          <li key={repo} className="flex flex-wrap items-center gap-2">
+            <span className="min-w-0 flex-1 truncate font-mono type-body-sm text-slate-300">{repo}</span>
+            <SkillDownload repoParam={repo} />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

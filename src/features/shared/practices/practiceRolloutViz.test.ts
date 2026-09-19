@@ -171,10 +171,10 @@ describe("shape, labels and legend", () => {
     expect(rows.map((r) => r.id)).toEqual(["authored:pb1", "mined:ci-gates"]);
   });
 
-  it("truncates a label that would run into the first cell", () => {
+  it("keeps a real practice name whole and bounds only a pathological one", () => {
     expect(truncateLabel("CI")).toBe("CI");
-    expect(truncateLabel("Agent guidance (CLAUDE.md / AGENTS.md)").length).toBeLessThanOrEqual(LABEL_MAX);
-    expect(truncateLabel("Agent guidance (CLAUDE.md / AGENTS.md)").endsWith("…")).toBe(true);
+    expect(truncateLabel("Agent guidance (CLAUDE.md / AGENTS.md)")).toBe("Agent guidance (CLAUDE.md / AGENTS.md)");
+    expect(truncateLabel("x".repeat(90))).toMatch(new RegExp(`^x{${LABEL_MAX - 1}}…$`));
   });
 
   it("reports only the states present, in kit order", () => {

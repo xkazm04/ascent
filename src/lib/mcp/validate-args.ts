@@ -58,7 +58,13 @@ function typeOk(value: unknown, type: string | undefined): boolean {
   }
 }
 
-const shown = (v: unknown): string => (typeof v === "string" ? JSON.stringify(v) : Array.isArray(v) ? "an array" : String(v));
+function shown(value: unknown): string {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value)) return "an array";
+  // JSON objects can shadow toString/valueOf with data; reporting a type must never invoke them.
+  if (value !== null && typeof value === "object") return "an object";
+  return String(value);
+}
 
 /** One property against its node. Returns the sentence, or null when it holds. */
 function checkValue(path: string, value: unknown, node: SchemaNode): string | null {

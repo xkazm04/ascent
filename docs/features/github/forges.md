@@ -5,6 +5,9 @@ third "forge" (self-hosted mode). Bitbucket and Azure DevOps are contract-ready 
 
 Source: `src/lib/forge/**`. Prisma: `Repository.forge` / `Repository.externalId`, `Installation`.
 
+GitLab upstream failures use fixed user-facing messages with the HTTP status; configured API hosts
+and request paths are not included in those messages. Rate-limit errors retain their retry delay.
+
 ---
 
 ## Why this exists
@@ -24,7 +27,7 @@ capability manifest:
 | The contract (`Forge`, `ForgeCapabilities`, `EnrichmentSource`, `ParsedRepo`, `RepoSource`) | `src/lib/forge/types.ts` |
 | Resolution + the URL router (`resolveForge`, `parseForgeUrl`, `forgeFullName`) | `src/lib/forge/registry.ts` |
 | GitHub — **pointers only** | `src/lib/forge/github.ts` |
-| GitLab — the one real second adapter | `src/lib/forge/gitlab/{source,merge-requests,governance,pipelines,deployments,http}.ts` |
+| GitLab — the one real second adapter | `src/lib/forge/gitlab/{source,parse,merge-requests,governance,pipelines,deployments,http}.ts` |
 | Local working copy | `src/lib/forge/local.ts` |
 
 ### GitHub is wired by reference, and that is enforced
@@ -115,7 +118,8 @@ cross-forge percentile is published.
 | Surface | How the forge is named |
 | --- | --- |
 | `POST /api/scan` | a `gitlab:group/project` coordinate, or a `https://gitlab.com/...` URL |
-| `POST /api/org/import` | forge-prefixed entries in `repos[]` |
+| Landing `ScanForm` | a pasted gitlab.com URL or `git@gitlab.com:…` SSH link collapses to `gitlab:group/project` via `parseGitlabUrl` (the same parser `parseForgeUrl` / `scanRepository` already use). A bare `owner/repo` stays GitHub. |
+| `POST /api/org/import` | forge-prefixed entries in `repos[]`. A stored self-managed `Installation.host` is threaded into `parseForgeUrl` and `gitlabForge.permalink`, so the persisted web url is that instance, not gitlab.com. |
 | `GET /api/gate/:owner/:repo` | `?forge=gitlab`. The **path stays two segments** — CI callers, the check-run path and every doc use it, and adding a segment would churn a public contract for no gain |
 | OTLP `git.repository` | a gitlab.com remote resolves to `gitlab:group/project`, the same identity the persist layer writes |
 
@@ -137,7 +141,11 @@ ciphertext and read only server-side through `src/lib/db/forge-installations.ts`
 - A deployment without `ENCRYPTION_KEY` **refuses** to store a credential rather than persisting one
   in the clear.
 - Self-managed GitLab is a `host` override on the same row (https only). The GHES env vars in
-  `src/lib/github/host.ts` are unchanged and still win for GitHub.
+  `src/lib/github/host.ts` are unchanged and still win for GitHub **reads**. Permalinks
+  (`Forge.permalink(repo, sha?, host?)`) take the same optional `ForgeHost`: GitLab builds them from
+  `gitlabWebBase(host)` (`webBase`, trailing slash stripped), so a self-managed instance never emits
+  a gitlab.com link; unset ⇒ `https://gitlab.com`. GitHub permalinks overlay `host.webBase` on
+  `GITHUB_SERVER_URL` through `githubWebBase({ host })`; unset is the env default.
 
 CRUD: `GET|POST|DELETE /api/org/forge/installation`, `requireOrgRole("admin")`, same-origin. No `[id]`
 route is added — the row is addressed by `(org, forge, externalId)`, all supplied together — so
@@ -187,6 +195,8 @@ and forge-agnostic.
 | File | Guards |
 | --- | --- |
 | `src/lib/forge/github-parity.test.ts` | every declared capability is bound **by reference** to its `src/lib/github` export; the routed path builds the same `GitHubPublicSource`; the `.ai/memory` quarantine survives the routed path |
-| `src/lib/forge/registry.test.ts` | github-first resolution order, the `<forge>:` prefix, subgroup paths, identity round-trip |
+| `src/lib/forge/registry.test.ts` | github-first resolution order, the `<forge>:` prefix, subgroup paths, identity round-trip, permalinks on a configured GitLab web host |
+| `src/lib/forge/gitlab/http.test.ts` | transport + `gitlabWebBase(host)` (self-managed web root, trailing-slash strip, gitlab.com default) |
+| `src/app/api/org/import/route.test.ts` | import persists GitLab permalinks on the stored `Installation.host` |
 | `src/lib/forge/gitlab/mappers.test.ts` | fixture-driven mappers — an unmapped `Governance` field is `false`, "no sample" is null not 0%, an unjoinable deployment is dropped |
 | `scripts/forge/equality.mts` | the byte-identity release gate |

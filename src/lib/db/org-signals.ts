@@ -5,7 +5,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { dayKeyInZone, daysBetweenDayKeys, resolveOrgTimeZone } from "@/lib/org/timezone";
-import { parseStringArray } from "@/lib/db/scans-shared";
+import { parseStringArray } from "@/lib/db/json-columns";
 import type { PrStats } from "@/lib/types";
 
 /**
@@ -409,7 +409,7 @@ export async function getOrgDimensionGaps(
   for (const r of repos) {
     const dim = r.scans[0]?.dimensions[0];
     if (!dim) continue;
-    out.set(r.fullName, { fullName: r.fullName, gaps: parseStringArray(dim.gaps), evidence: parseStringArray(dim.evidence), summary: dim.summary ?? "" });
+    out.set(r.fullName, { fullName: r.fullName, gaps: parseStringArray(dim.gaps) ?? [], evidence: parseStringArray(dim.evidence) ?? [], summary: dim.summary ?? "" });
   }
   return out;
 }

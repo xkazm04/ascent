@@ -44,11 +44,12 @@ export function OutcomeSheetCell({
   if (!cell) return <td className="border-b border-l border-divider bg-ink" />;
   const dismissed = cell.review === "dismissed";
   const down = cell.kind === "regressed";
-  const tone = dismissed ? "text-slate-600" : down ? "text-warn" : "text-slate-200";
   const evidence = cell.evidence && cell.evidence !== cell.headline ? cell.evidence : null;
-  // A retired row says so in its own words: the rescan stopped raising it, nobody claimed it.
+  // Retired / Claimed / Closed are resolved here: the rescan stopped raising it, the agent claimed
+  // it, or the rescan verified it. Unverified closed must not wear the Closed tick.
   const meta = rowMeta(cell);
-  const title = [meta.label, STATE_TITLE[cell.state], cell.headline, evidence].filter(Boolean).join(" — ");
+  const tone = dismissed ? "text-slate-600" : down ? "text-warn" : (meta.tone ?? "text-slate-200");
+  const title = [meta.label, meta.note, STATE_TITLE[cell.state], cell.headline, evidence].filter(Boolean).join(" — ");
 
   return (
     <td className={`border-b border-l border-divider align-top ${dismissed ? "bg-ink" : STATE_TINT[cell.state]}`} title={title}>

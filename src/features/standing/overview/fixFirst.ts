@@ -23,6 +23,8 @@ export interface FixFirstInputs {
   /** `OrgMovers.comparedRepos` — the population a repo's regression is divided across to reach the
    *  fleet scale. Absent (or 0) makes the regression bar a void rather than an undivided overclaim. */
   comparedRepos?: number;
+  /** True when `getOrgMovers` threw. Distinct from an empty `regressers` list (nothing moved). */
+  moversFailed?: boolean;
 }
 
 export interface FixFirstItem {
@@ -64,20 +66,38 @@ function withScope(path: string, scope?: string): string {
 export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: string): FixFirstItem[] {
   const items: FixFirstItem[] = [];
 
-  const worst = inp.regressers[0];
-  if (worst) {
+  // A throw is not "no regressers": occupy the slot so findings/goals cannot silently become #1
+  // and the bar cannot read as "no scoring model".
+  if (inp.moversFailed) {
     items.push({
       key: "regression",
-      title: `Triage ${worst.name}`,
-      // Name the endpoints. "this period" is used by TWO cells on this page that measure different
-      // things: this one is latest-in-window vs the repo's last scan BEFORE the window (getOrgMovers,
-      // baselineKind "period"), while the cohort card's row delta is first-to-last WITHIN the window.
-      // Two identical labels over two different subtractions is worse than no label at all.
-      detail: `regressed ${Math.abs(worst.dOverall)} pts vs its last scan before this period`,
-      href: `/report/${worst.fullName}`,
-      cta: "open report →",
-      impact: regressionImpact(worst.name, worst.dOverall, inp.comparedRepos ?? 0),
+      title: "Couldn't load regressions",
+      detail: "Repository movement could not be read this period",
+      href: withScope(orgTabHref(slug, "repositories"), scopeQuery),
+      cta: "open repositories →",
+      impact: {
+        gain: null,
+        state: "missing",
+        basis:
+          "Repository movement could not be read this period, so this bar has no length rather than a length of zero. A failed movers read is not an empty regressers list.",
+      },
     });
+  } else {
+    const worst = inp.regressers[0];
+    if (worst) {
+      items.push({
+        key: "regression",
+        title: `Triage ${worst.name}`,
+        // Name the endpoints. "this period" is used by TWO cells on this page that measure different
+        // things: this one is latest-in-window vs the repo's last scan BEFORE the window (getOrgMovers,
+        // baselineKind "period"), while the cohort card's row delta is first-to-last WITHIN the window.
+        // Two identical labels over two different subtractions is worse than no label at all.
+        detail: `regressed ${Math.abs(worst.dOverall)} pts vs its last scan before this period`,
+        href: `/report/${worst.fullName}`,
+        cta: "open report →",
+        impact: regressionImpact(worst.name, worst.dOverall, inp.comparedRepos ?? 0),
+      });
+    }
   }
 
   // The busiest findings module wins the slot; ties resolve in FINDING_MODULES order (security
@@ -114,7 +134,7 @@ export function deriveFixFirst(slug: string, inp: FixFirstInputs, scopeQuery?: s
       key: "goal",
       title: `Rescue “${behind.label}”`,
       detail: "behind the pace its deadline needs",
-      href: withScope(orgTabHref(slug, "followups"), scopeQuery),
+      href: withScope(orgTabHref(slug, "proposals"), scopeQuery),
       cta: "work the follow-ups →",
       impact: goalImpact(behind),
     });

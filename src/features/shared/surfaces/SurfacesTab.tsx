@@ -1,44 +1,169 @@
-// Org dashboard "UI surfaces" tab — the registry's ui-surfaces subjects as composed, interactive
-// scenes (spark ui-surfaces-showcase, 2026-09-06). A showcase is a repo-shipped artifact in a typed
-// catalog (src/lib/org/surface-catalog.ts); this tab joins it at render to the org's registry index
-// mirror for a digest-freshness badge, and the Knowledge subject reader deep-links in.
-//
-// SERVER component, filename PINNED as SurfacesTab.tsx — same shell contract as KnowledgeTab. One
-// data read (`getSurfaceFreshness`, which degrades to `{}`), so the single <Suspense> at the
-// OrgTabChunks call site is enough.
-//
-// Reads TWO deep-link params from `sp`: `?subject=` (which scene) and `?technique=` (which drawer).
-// Both are in `TAB_SCOPED_PARAM_KEYS`, so a tab switch clears them. A `subject` that names no
-// showcase lands on the GALLERY with that subject's absence card ringed — a link to an unauthored
-// scene must arrive somewhere that says so, never on a blank canvas.
+"use client";
 
-import { surfaceRecord } from "@/lib/org/surface-catalog";
-import { getSurfaceFreshness } from "@/lib/org/surface-freshness";
-import { SurfaceScene } from "./SurfaceScene";
-import { SurfacesGallery } from "./SurfacesGallery";
-import { freshnessOf } from "./SurfaceFreshnessBadge";
+import { useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import { buildUrl, clearedTabScopedParams } from "@/lib/org/orgTabs";
+import { categories, descriptions, subjects } from "./catalog";
+import { SurfacePreview } from "./SurfacePreview";
+import styles from "./library.module.css";
 
-type SearchParams = { [key: string]: string | string[] | undefined };
+const Playground = dynamic(() => import("./Playground").then((m) => m.Playground), {
+  // These local-only forms must not submit as native GETs before their handlers hydrate.
+  ssr: false,
+  loading: () => (
+    <p role="status" className={styles.empty}>
+      Opening playground…
+    </p>
+  ),
+});
 
-const one = (sp: SearchParams, key: string): string | null => {
-  const v = sp[key];
-  return typeof v === "string" && v ? v : null;
-};
-
-export async function SurfacesTab({ slug, sp = {} }: { slug: string; sp?: SearchParams }) {
-  const freshness = await getSurfaceFreshness(slug);
-  const subject = one(sp, "subject");
-  const record = subject ? surfaceRecord(subject) : null;
-
-  if (!record) return <SurfacesGallery slug={slug} freshness={freshness} focusedSlug={subject} />;
+export function SurfacesTab({ slug }: { slug: string }) {
+  const sp = useSearchParams();
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("all");
+  const [reference, setReference] = useState(false);
+  const selected = subjects.find((s) => s.slug === sp.get("subject"));
+  const href = (subject: string | null) =>
+    buildUrl(
+      slug,
+      {
+        ...clearedTabScopedParams(),
+        tab: "surfaces",
+        subject,
+      },
+      sp.toString(),
+    );
+  const filtered = subjects.filter(
+    (s) =>
+      (reference || s.interactive) &&
+      (category === "all" || s.subcategory === category) &&
+      `${s.title} ${descriptions[s.slug] ?? ""} ${s.record?.techniqueSlugs.join(" ") ?? ""}`
+        .toLowerCase()
+        .includes(query.trim().toLowerCase()),
+  );
 
   return (
-    <SurfaceScene
-      key={record.slug}
-      slug={slug}
-      record={record}
-      freshness={freshnessOf(record.authoredAgainst.digest, freshness[record.slug])}
-      initialTechnique={one(sp, "technique")}
-    />
+    <div className={styles.library}>
+      <div className={styles.topline}>
+        <Link href={href(null)} className={styles.wordmark}>
+          ◈ <span>Knowledge library</span>
+        </Link>
+        <span className={styles.edition}>UI SURFACES</span>
+      </div>
+      {selected ? (
+        <Playground
+          key={`${selected.slug}:${sp.get("technique") ?? ""}`}
+          subject={selected}
+          org={slug}
+          backHref={href(null)}
+          subjectHref={href}
+        />
+      ) : (
+        <>
+          <header className={styles.hero}>
+            <div className={styles.eyebrow}>THE INTERFACE COLLECTION</div>
+            <h2>
+              Good interfaces.
+              <br />
+              <span>Made tangible.</span>
+            </h2>
+            <p>Explore the patterns. Play with the details. Find your next idea.</p>
+            <div className={styles.heroMeta}>
+              <span>
+                <i /> {subjects.filter((s) => s.interactive).length} interactive studies
+              </span>
+              <span>{subjects.length} surfaces to explore</span>
+            </div>
+            <div className={styles.heroArt} aria-hidden="true">
+              <div>⌘</div>
+              <div>◈</div>
+              <div>↗</div>
+            </div>
+          </header>
+          <div className={styles.toolbar}>
+            <nav aria-label="Surface categories" className={styles.filters}>
+              {categories.map((c) => (
+                <button key={c.id} type="button" aria-pressed={category === c.id} onClick={() => setCategory(c.id)}>
+                  {c.title}
+                </button>
+              ))}
+            </nav>
+            <label className={styles.search}>
+              <span aria-hidden="true">⌕</span>
+              <input
+                type="search"
+                aria-label="Search surfaces"
+                placeholder="Find a surface…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className={styles.resultbar}>
+            <span role="status">
+              {filtered.length} {filtered.length === 1 ? "surface" : "surfaces"}
+              {category === "all" && !query ? " · Pick one to explore" : ""}
+            </span>
+            <label>
+              <input type="checkbox" checked={reference} onChange={(e) => setReference(e.target.checked)} /> Include
+              reference-only
+            </label>
+          </div>
+          {sp.get("subject") && !selected && (
+            <p role="status">This surface is not in the collection. Choose one below.</p>
+          )}
+          <div className={styles.grid}>
+            {filtered.map((s, i) => (
+              <Link href={href(s.slug)} key={s.slug} className={styles.card} aria-label={`Explore ${s.title}`}>
+                <div className={styles.cardVisual}>
+                  <SurfacePreview slug={s.slug} />
+                  <span className={styles.openArrow}>↗</span>
+                </div>
+                <div className={styles.cardTitle}>
+                  <h3>{s.title}</h3>
+                  <span>{String(i + 1).padStart(2, "0")}</span>
+                </div>
+                <p>{descriptions[s.slug] ?? categories.find((c) => c.id === s.subcategory)?.title}</p>
+                <div className={styles.cardMeta}>
+                  {s.interactive && s.record ? (
+                    <>
+                      <i /> Playground <span>{s.record.techniqueSlugs.length} techniques</span>
+                    </>
+                  ) : (
+                    <>
+                      Reference only <span>No playground yet</span>
+                    </>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+          {filtered.length === 0 && (
+            <div className={styles.empty}>
+              <h3>{query ? "No matching surfaces" : "The reference is here. The playgrounds are next."}</h3>
+              <p>
+                {query
+                  ? "Try a different name or technique."
+                  : "Show reference-only surfaces to explore this part of the collection."}
+              </p>
+              <button
+                onClick={() => {
+                  setQuery("");
+                  setReference(true);
+                }}
+              >
+                Show all in this category
+              </button>
+            </div>
+          )}
+          <footer className={styles.footer}>
+            <span>Built to be explored.</span>
+            <span>UI surfaces / Software engineering</span>
+          </footer>
+        </>
+      )}
+    </div>
   );
 }

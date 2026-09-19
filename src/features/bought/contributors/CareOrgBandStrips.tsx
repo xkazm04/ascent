@@ -13,6 +13,7 @@ import { SectionEmpty } from "@/components/org/shared/ui";
 import { Kicker } from "@/components/ui";
 import { Distribution, WhyChip } from "@/components/org/viz";
 import {
+  CARE_BAND_MIN_SHARERS,
   CARE_SHAPE_LABEL,
   CARE_SHAPE_ORDER,
   CARE_SHAPE_PCT,
@@ -26,6 +27,15 @@ const BAND_HINT =
 
 export function CareOrgBands({ org }: { org: CareOrgView }) {
   const fields = CARE_SHAPE_ORDER.filter((f) => org.shapeBands[f]);
+  // Shared by someone, but by fewer people than a band needs: said by name, never drawn as a thin band.
+  const withheld = CARE_SHAPE_ORDER.filter((f) => org.bandGaps[f] === "below-sharer-floor");
+  const withheldNote = withheld.length > 0 && (
+    <p className="mt-3 type-body-sm text-slate-500" data-band-withheld>
+      No band for {withheld.map((f) => CARE_SHAPE_LABEL[f]).join(", ")}: fewer than {CARE_BAND_MIN_SHARERS} people
+      shared {withheld.length === 1 ? "this count" : "these counts"}, and a band that small could point at a person.
+    </p>
+  );
+  if (fields.length === 0 && withheldNote) return withheldNote;
   if (fields.length === 0) {
     return <SectionEmpty>No shape distribution yet — nobody has shared these counts.</SectionEmpty>;
   }
@@ -63,6 +73,7 @@ export function CareOrgBands({ org }: { org: CareOrgView }) {
           );
         })}
       </div>
+      {withheldNote}
     </div>
   );
 }

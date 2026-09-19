@@ -20,24 +20,18 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { FetchOptions, ParsedRepo, RepoSource } from "@/lib/github/source";
+import { GitHubError, type FetchOptions, type ParsedRepo, type RepoSource } from "@/lib/forge/types";
 import {
-  GitHubError,
   MAX_FILES,
   estimateCoverage,
   pickFilesToFetch,
   quarantineMemoryFiles,
-} from "@/lib/github/source";
+} from "@/lib/forge/source-selection";
 import { runGit } from "@/lib/local/git";
+import { boundedFetchedFile } from "@/lib/forge/fetched-file";
+import { MAX_FILE_BYTES, MAX_CODEOWNERS_BYTES, MAX_TOTAL_BYTES, COMMIT_COUNT } from "@/lib/forge/ingestion-limits";
 import type { CommitInfo, FetchedFile, RepoFile, RepoMeta, RepoSnapshot } from "@/lib/types";
 
-// Content budgets — mirror GitHubPublicSource's private caps (src/lib/github/source.ts) so a local
-// scan feeds the model the same volume as a GitHub scan of the same repo; a drift here would move
-// calibrated scores between the two ingestion paths for no real reason.
-const MAX_FILE_BYTES = 14_000;
-const MAX_CODEOWNERS_BYTES = 60_000;
-const MAX_TOTAL_BYTES = 280_000;
-const COMMIT_COUNT = 30;
 const CODEOWNERS_RE = /(^|\/)codeowners$/i;
 
 // git output separators: NUL between fields, RS (0x1e) between records — characters that cannot
@@ -98,9 +92,9 @@ export async function readPicksWithReserve(
     const content = await read(path);
     if (content == null) continue; // deleted-but-tracked, unreadable, or binary-invalid — degrade coverage
     const cap = CODEOWNERS_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
-    const truncated = content.slice(0, cap);
-    if (!exempt) totalBytes += truncated.length;
-    files.push({ path, content: truncated, bytes: content.length });
+    const file = boundedFetchedFile(path, content, cap);
+    if (!exempt) totalBytes += Buffer.byteLength(file.content, "utf8");
+    files.push(file);
   }
   return files.sort((a, b) => (order.get(a.path) ?? 0) - (order.get(b.path) ?? 0));
 }

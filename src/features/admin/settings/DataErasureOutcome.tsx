@@ -18,43 +18,19 @@
 //
 // The same refusal to flatten governs the AUDIT line: what happened to the trail is read from the
 // response's own `auditDisposition` and reported in those words — kept, redacted to identifier-only,
-// or destroyed — using the identical phrasing DataErasurePreview showed BEFORE the confirmation. The
+// or destroyed — using the identical phrasing DataErasurePreview showed BEFORE the confirmation.
+// Counts reuse EraseBlastList so leftover ledgers shown on the way in are shown on the way out. The
 // types and that arithmetic live in ./eraseTotals; its header says why there are three audit fields.
 
 import { ModalBody, ModalFooter, ModalHeader } from "@/components/ui";
+import { EraseBlastList } from "./ErasePreviewPanel";
 import {
-  auditAffectedTotal,
   auditDispositionHint,
   auditDispositionOf,
   auditDispositionSummary,
   type EraseResponse,
   type EraseTotals,
 } from "./eraseTotals";
-
-const num = (n: number) => n.toLocaleString("en-US");
-
-function Counts({ totals, auditHint }: { totals: EraseTotals; auditHint: string }) {
-  const rows: [string, number][] = [
-    ["Scans", totals.scansDeleted],
-    ["Dimension rows", totals.dimensionsDeleted],
-    ["Recommendations", totals.recommendationsDeleted],
-    ["Recommendation events", totals.recommendationEventsDeleted],
-    ["Repositories cleared", totals.reposProcessed],
-    // Deleted + redacted, never `auditDeleted` alone: the checkbox path REDACTS, so reading only the
-    // delete counter reported 0 rows touched after the whole trail had been rewritten.
-    [`Audit rows ${auditHint}`, auditAffectedTotal(totals)],
-  ];
-  return (
-    <dl className="grid grid-cols-2 gap-x-6 gap-y-1 type-mono-sm sm:grid-cols-3">
-      {rows.map(([label, value]) => (
-        <div key={label} className="flex items-baseline justify-between gap-2 border-b border-divider py-1">
-          <dt className="text-slate-500">{label}</dt>
-          <dd className="text-slate-200">{num(value)}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
 
 export function DataErasureOutcome({
   slug,
@@ -112,7 +88,11 @@ export function DataErasureOutcome({
             its repositories, its members and your configuration are untouched.
           </p>
         )}
-        <Counts totals={totals} auditHint={auditDispositionHint(disposition)} />
+        <EraseBlastList
+          counts={totals}
+          reposLabel="Repositories cleared"
+          auditHint={auditDispositionHint(disposition)}
+        />
         <p className="type-caption text-slate-500">
           {totals.passes === 1 ? "One pass" : `${totals.passes} passes`}
           {` · ${auditDispositionSummary(disposition)}`}

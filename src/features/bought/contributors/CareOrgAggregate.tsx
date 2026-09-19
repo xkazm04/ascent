@@ -17,11 +17,13 @@ import { CareAction, CareCategoryChip } from "@/features/developer/CareBits";
 import { type CareOrgView } from "@/lib/org/developer-view";
 
 export function CareOrgSuppressed({ org }: { org: CareOrgView }) {
+  // `population` is the git contributor snapshot (`totalContributors`), the same naming-floor
+  // denominator the rest of this tab uses. Committing is not consent; sharing is `adoption.sharing`.
   return (
     <SectionEmpty>
       {org.population === 0
-        ? `No developer has shared anything yet. Care aggregates appear once at least ${org.floor} have opted in — the same floor the Contributors tab uses.`
-        : `${org.population} developer${org.population === 1 ? "" : "s"} opted in — below the floor of ${org.floor}, so every aggregate stays suppressed. With this few participants an "aggregate" would identify individuals.`}
+        ? `No contributors in this workspace yet. Care aggregates appear once at least ${org.floor} are in the git snapshot, the same floor the Contributors tab uses.`
+        : `${org.population} contributor${org.population === 1 ? "" : "s"} in the git snapshot, below the floor of ${org.floor}, so every aggregate stays suppressed. With this few people an "aggregate" would identify individuals.`}
     </SectionEmpty>
   );
 }
@@ -30,7 +32,7 @@ export function CareOrgAdoptionTiles({ org }: { org: CareOrgView }) {
   const pct = (n: number) => (org.population ? Math.round((n / org.population) * 100) : 0);
   return (
     <div className={`${TILE_LEDGER} mt-3 sm:grid-cols-2 lg:grid-cols-4`}>
-      <Tile label="Developers" value={org.population} sub="could opt in" />
+      <Tile label="Developers" value={org.population} sub="in the git snapshot" />
       <Tile label="Mentor set up" value={org.adoption.setUp} sub={`${pct(org.adoption.setUp)}% of the workspace`} />
       <Tile label="Sharing an aggregate" value={org.adoption.sharing} sub={`${pct(org.adoption.sharing)}% — always their choice`} />
       <Tile label="Moves kept fleet-wide" value={org.topKeptMoves.reduce((a, m) => a + m.keptBy, 0)} sub="counts only" />

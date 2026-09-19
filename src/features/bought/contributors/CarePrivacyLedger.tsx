@@ -61,7 +61,7 @@ export function CarePrivacyLedger({ org }: { org: CareOrgView }) {
         </span>
       </div>
       <MatrixGrid
-        className="mt-2 max-w-sm"
+        className="mt-2"
         title="What this workspace's care aggregate holds"
         axes={["Counted here", "Per-person row"]}
         rows={rows}

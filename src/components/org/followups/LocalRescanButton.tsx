@@ -4,13 +4,15 @@
 // paired repo; the server tab omits this button everywhere else). Rescans every paired repo from its
 // working copy on disk, sequentially (each scan is an LLM call; parallel local scans would race the
 // provider and the git worktree for no wall-clock win a human would notice at this N), then reports
-// how many follow-ups the trailers closed and refreshes the ledger.
+// how many follow-ups persist closed and refreshes the ledger.
 //
 // This is the moment local mode exists for: commit with `Ascent-Resolves: <id>`, click this, watch
-// the row close — no push, no GitHub round trip, no waiting on a schedule.
+// the row close — no push, no GitHub round trip, no waiting on a schedule. The trailer is a claim;
+// the count is `persistScanReport`'s adjudicated set (`closedFollowUps`), never the trailer list.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { persistClosedCaption, persistClosedFollowUps } from "./localRescanClosed";
 
 export function LocalRescanButton({ org, repos }: { org: string; repos: string[] }) {
   const router = useRouter();
@@ -28,9 +30,9 @@ export function LocalRescanButton({ org, repos }: { org: string; repos: string[]
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ org, fullName: repo }),
         });
-        const d = (await r.json().catch(() => ({}))) as { resolvedFollowUps?: string[]; error?: string };
+        const d = (await r.json().catch(() => ({}))) as { closedFollowUps?: string[]; error?: string };
         if (!r.ok) errors.push(`${repo}: ${d.error ?? r.status}`);
-        else closed += d.resolvedFollowUps?.length ?? 0;
+        else closed += persistClosedFollowUps(d).length;
       } catch {
         errors.push(`${repo}: network error`);
       }
@@ -55,9 +57,9 @@ export function LocalRescanButton({ org, repos }: { org: string; repos: string[]
       {state && !busy && (
         <span className="type-caption text-slate-400">
           {state.closed > 0 ? (
-            <span className="text-success-soft">{state.closed} follow-up{state.closed === 1 ? "" : "s"} closed ✓</span>
+            <span className="text-success-soft">{persistClosedCaption(state.closed)}</span>
           ) : (
-            "no trailers found — commit with Ascent-Resolves: <id> first"
+            persistClosedCaption(0)
           )}
           {state.errors.length > 0 && <span className="text-danger"> · {state.errors.join(" · ")}</span>}
         </span>

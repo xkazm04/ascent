@@ -14,9 +14,10 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: "*",
         allow: "/",
         // APIs are machine endpoints; /launch is a per-user funnel with no indexable
-        // content. /onboarding is deliberately NOT here: it is the public guided entry point with
-        // real explanatory content, indexable and enumerated in sitemap.ts.
-        disallow: ["/api/", "/launch"],
+        // content. /org/* and /me are session-gated dashboards (sitemap already omits
+        // per-tenant /org/ paths). /onboarding is deliberately NOT here: it is the public guided
+        // entry point with real explanatory content, indexable and enumerated in sitemap.ts.
+        disallow: ["/api/", "/launch", "/org/", "/me"],
       },
     ],
     ...(base ? { sitemap: `${base}/sitemap.xml`, host: base } : {}),

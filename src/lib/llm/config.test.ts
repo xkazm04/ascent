@@ -216,7 +216,7 @@ describe("providerLabel (provenance vocabulary — /usage bars + briefing 'Score
   it("has a polished (non-raw-id) label for EVERY ProviderName member", () => {
     // openai/openrouter were missing, so their raw lowercase ids rendered next to "AWS Bedrock" on
     // the two provenance surfaces executives read. (llm-provider-abstraction #4)
-    const all: ProviderName[] = ["gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli", "codex-cli"];
+    const all: ProviderName[] = ["gemini", "bedrock", "openai", "openrouter", "local", "mock", "claude-cli", "codex-cli", "gateway"];
     for (const id of all) {
       const label = providerLabel(id);
       expect(label, `PROVIDER_LABEL is missing "${id}"`).not.toBe(id);

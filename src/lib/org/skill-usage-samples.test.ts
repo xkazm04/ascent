@@ -8,7 +8,8 @@
 // registry rewrites on every publish, and every skill in the library would read `active` forever.
 
 import { describe, expect, it } from "vitest";
-import { skillUsageMap } from "./skill-usage";
+import { skillUsageMap, unmirroredRegistryUsage } from "./skill-usage";
+import { unmirroredSkillId } from "@/lib/registry/usage-samples";
 import type { SkillUsageRows } from "@/lib/db";
 
 const NOW = new Date("2026-08-29T12:00:00.000Z");
@@ -65,10 +66,14 @@ describe("skillUsageMap with registry usage samples", () => {
     expect(skillUsageMap(rows(), NOW).s1!.state).toBe("unmeasured");
   });
 
-  it("ignores a sample naming a skill the org does not mirror", () => {
+  it("keeps a sample naming a skill the org does not mirror, without flipping the library", () => {
     const map = skillUsageMap(rows({ samples: [sampleRow({ skillName: "somebody-elses" })] }), NOW);
     expect(map.s1!.state).toBe("unmeasured");
     expect(map.s1!.invokes).toBe(0);
+    const kept = map[unmirroredSkillId("somebody-elses")];
+    expect(kept!.invokes).toBe(6);
+    expect(kept!.lastUsedSource).toBe("registry");
+    expect(unmirroredRegistryUsage(map).map((r) => r.name)).toEqual(["somebody-elses"]);
   });
 
   it("merges the two sinks: an events-API invoke and a registry sample land on the same skill", () => {

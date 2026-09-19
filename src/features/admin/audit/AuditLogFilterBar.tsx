@@ -3,6 +3,7 @@
 // Filter form + CSV export + count for the audit-trail viewer. Extracted from AuditLogViewer.tsx
 // (JSX region split, per docs/ORG-TABS-REFACTOR.md) to keep the viewer under the 200-LOC cap.
 
+import { DownloadButton } from "@/components/report/DownloadButton";
 import { ACTION_FILTERS } from "./AuditLogCells";
 
 export function AuditLogFilterBar({
@@ -71,9 +72,11 @@ export function AuditLogFilterBar({
         </button>
       </form>
       <div className="flex items-center gap-3">
-        <a href={csvHref} className="type-mono-sm text-accent transition hover:text-white" title="Download all matching entries as CSV">
+        {/* DownloadButton, not a bare <a>: /api/audit?format=csv 503s JSON when the DB is off, and a
+            plain href would navigate the examiner onto that JSON (same failure as pdf-llm-export #1). */}
+        <DownloadButton href={csvHref} className="type-mono-sm text-accent transition hover:text-white" title="Download all matching entries as CSV">
           Download CSV ↓
-        </a>
+        </DownloadButton>
         <span className="type-mono-sm text-slate-500">{entriesShown} shown</span>
       </div>
     </div>

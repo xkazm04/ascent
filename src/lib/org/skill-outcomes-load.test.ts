@@ -22,6 +22,9 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/db/outcomes", () => ({ recordOutcomes: mockRecordOutcomes }));
 vi.mock("@/lib/db/scans-shared", () => ({ resolveOrgId: mockResolveOrgId }));
+vi.mock("@/lib/db/scans-read", () => ({
+  isCompactedPointId: (id: string) => id.startsWith("digest:"),
+}));
 
 import { getOrgSkillOutcomes, HISTORY_CONCURRENCY } from "./skill-outcomes-load";
 
@@ -277,5 +280,90 @@ describe("getOrgSkillOutcomes — ledger mirror", () => {
     const out = await getOrgSkillOutcomes("acme");
     await settle();
     expect(out.s1![0]!.overallDelta).toBe(15);
+  });
+});
+
+// ── Compacted tail (MOONSHOT #32) ────────────────────────────────────────────────────────────────
+// Retention can fold the pre-adoption scans into a digest. The loader opts into that tail so a
+// retained-after vs compacted-before pair can still measure when the instruments match; the
+// `digest:` id stays labelled and is never mirrored as a Scan bookend.
+
+describe("getOrgSkillOutcomes — compacted tail", () => {
+  it("passes includeCompacted: true on the history read", async () => {
+    mockAdoptions.mockResolvedValue([adoption("s1", "acme/api", T("2026-06-15T00:00:00Z"))]);
+    trackingHistory();
+
+    await getOrgSkillOutcomes("acme");
+
+    expect(mockHistory).toHaveBeenCalledWith(
+      "acme",
+      "api",
+      expect.objectContaining({ includeCompacted: true, orgSlug: "acme" }),
+    );
+  });
+
+  it("a digest: point is eligible as before when rubric and engine match", async () => {
+    mockAdoptions.mockResolvedValue([adoption("s1", "acme/api", T("2026-06-15T00:00:00Z"))]);
+    mockHistory.mockResolvedValue({
+      repo: { owner: "acme", name: "api", fullName: "acme/api" },
+      scans: [
+        {
+          id: "a2",
+          scannedAt: T("2026-07-01T00:00:00Z"),
+          overallScore: 55,
+          dimensions: [{ dimId: "D2", score: 44 }],
+          ...INSTRUMENT,
+        },
+        {
+          id: "digest:dg_0",
+          scannedAt: T("2026-06-01T00:00:00Z"),
+          overallScore: 40,
+          dimensions: [{ dimId: "D2", score: 30 }],
+          compacted: true,
+          headSha: null,
+          scanCount: 4,
+          ...INSTRUMENT,
+        },
+      ],
+    });
+
+    const out = await getOrgSkillOutcomes("acme");
+    await settle();
+    const row = out.s1![0]!;
+
+    expect(row.status).toBe("measured");
+    expect(row.overallDelta).toBe(15);
+    expect(row.before!.id).toBe("digest:dg_0");
+    expect(row.after!.id).toBe("a2");
+    // A period mean is labelled, never posted to the ledger as a Scan bookend.
+    expect(mirrored()).toHaveLength(0);
+  });
+
+  it("still refuses a digest: before whose instrument does not match the after", async () => {
+    mockAdoptions.mockResolvedValue([adoption("s1", "acme/api", T("2026-06-15T00:00:00Z"))]);
+    mockHistory.mockResolvedValue({
+      repo: { owner: "acme", name: "api", fullName: "acme/api" },
+      scans: [
+        {
+          id: "a2",
+          scannedAt: T("2026-07-01T00:00:00Z"),
+          overallScore: 55,
+          rubricVersion: "r6",
+          engineProvider: "anthropic",
+        },
+        {
+          id: "digest:dg_0",
+          scannedAt: T("2026-06-01T00:00:00Z"),
+          overallScore: 40,
+          compacted: true,
+          rubricVersion: "r5",
+          engineProvider: "anthropic",
+        },
+      ],
+    });
+
+    const out = await getOrgSkillOutcomes("acme");
+    expect(out.s1![0]!.status).toBe("instrument-mismatch");
+    expect(out.s1![0]!.overallDelta).toBeNull();
   });
 });

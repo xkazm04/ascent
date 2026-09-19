@@ -97,6 +97,12 @@ guidance:
   format needs it — and writes the source hash back into the block. It is idempotent: a second run
   over an unchanged canonical writes byte-identical files.
 
+The projection command accepts LF and CRLF manifests, including a `guidance` block at the
+start of the document. Canonical document bytes remain unchanged when projecting and hashing.
+Only declared `guidance.projections` rows are generated and have their hashes updated;
+agent-shaped rows in other sections or extension fields remain untouched. The generated doctor
+uses the same parser, so it checks precisely those declared projections with either line ending.
+
 The header each projection carries records **two** hashes, and the pair is what makes drift
 diagnosable rather than merely visible:
 
@@ -117,6 +123,25 @@ it has not adopted the block, which is a different statement from having adopted
 **Nothing here is a penalty.** A contradiction between two guidance files is reported as evidence and
 never fails a build, fires an alert, or subtracts from a score. Coherence WITHHOLDS credit; it does
 not take any away.
+
+## Context freshness
+
+The reference doctor reads top-level `paths` and `capabilities` blocks with LF or
+CRLF line endings, including when either block is the first key in the manifest.
+With `--run`, verification write-back changes only the direct `verified` field of
+executed rows in `capabilities`. Same-named extension rows, quoted text, nested
+extension fields, and the manifest's line endings are preserved.
+
+The upkeep freshness check reads raw, NUL-delimited Git paths. Unicode names and leading
+spaces participate in module matching in both working-tree and pre-push ranges.
+An existing context index must parse as an object with a `modules` array when that
+field is present. `check` and `touch` fail visibly on an invalid index and leave it
+unchanged. `touch` can initialize a missing index and preserves unknown fields.
+
+## Memory note IDs
+
+Memory note IDs use at least four digits: `9999` is followed by `10000`, then `10001`.
+The upkeep script reads these longer IDs back before allocating the next note.
 
 ## `guardrails.yaml`: the invariants half
 

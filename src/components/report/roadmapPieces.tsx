@@ -1,6 +1,6 @@
 import type { DimensionId, LlmRoadmapItem, ScanReport } from "@/lib/types";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { projectDimensionClose } from "@/lib/scoring/engine";
+import { projectDimensionClose } from "@/lib/scoring/projections";
 import {
   isQuickWin,
   QuickWinBadge,

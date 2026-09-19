@@ -52,6 +52,9 @@ export interface RepoContextRow {
   quality: number;
   refsTotal: number;
   deadRefs: string[];
+  /** Full count when available; examples alone are a lower bound on older scans. */
+  deadRefsTotal?: number;
+  deadRefsLowerBound?: boolean;
   /** 0..100 composite from the scan. */
   score: number;
   commitsPerWeek: number;
@@ -83,8 +86,9 @@ function verdictFor(r: Omit<RepoContextRow, "verdict">): string {
   if (r.band === "stale") {
     return `≈${r.commitsSinceEdit}${r.windowCapped ? "+" : ""} commits since last edit: the map no longer matches`;
   }
-  if (r.deadRefs.length > 0) {
-    return `References ${r.deadRefs.length} file${r.deadRefs.length === 1 ? "" : "s"} that no longer exist`;
+  const dead = r.deadRefsTotal ?? r.deadRefs.length;
+  if (dead > 0) {
+    return `${r.deadRefsLowerBound ? "at least " : ""}${dead} unresolved file reference${dead === 1 ? "" : "s"}`;
   }
   if (r.potency == null) return "Freshness unknown: history lookup degraded; quality and drift still measured";
   if (r.quality < 40) return "Thin guidance: little command / architecture / verify-discipline signal";
@@ -129,6 +133,8 @@ export function buildContextRows(repos: OrgRepoRow[]): RepoContextRow[] {
       quality: ch?.quality.score ?? 0,
       refsTotal: ch?.drift.refsTotal ?? 0,
       deadRefs: ch?.drift.deadRefs ?? [],
+      deadRefsTotal: ch?.drift.deadRefsTotal ?? ch?.drift.deadRefs.length ?? 0,
+      deadRefsLowerBound: ch?.drift.deadRefsTotal == null && Boolean(ch?.drift.deadRefs.length),
       score: ch?.score ?? 0,
       commitsPerWeek,
       band: assessed ? bandFor(present, potency) : null,

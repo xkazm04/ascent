@@ -58,10 +58,11 @@ describe("guarantee 2 — the mirror feeds no score", () => {
   const analyze = readFileSync("src/lib/analyze/index.ts", "utf8");
 
   it("aiStandard() still counts `.ai/memory` from the TREE and never reads a memory body", () => {
-    // The count is a tree read (idx.count over the path pattern). If a future edit reaches for
+    // The count is a tree read (idx.lowerPaths over the path pattern). If a future edit reaches for
     // `memoryFiles` — or for a memory path's CONTENT — inside the analyzers, this goes red and the
     // person making that edit has to justify feeding untrusted prose to a scorer.
-    expect(analyze).toContain("/^\\.ai\\/memory\\/\\d{4}-.*\\.md$/");
+    expect(analyze).toContain('import { MEMORY_ENTRY_RE } from "@/lib/standard/memory-entry"');
+    expect(analyze).toContain("idx.lowerPaths.filter((p) => MEMORY_ENTRY_RE.test(p))");
     expect(analyze).not.toContain("memoryFiles");
   });
 

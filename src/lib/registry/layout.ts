@@ -92,14 +92,14 @@ git clone https://github.com/${slug}/${DEFAULT_REGISTRY_NAME}
 git switch -c my-change && git commit -am "skills: sharpen the review checklist" && git push
 \`\`\`
 
-Open a pull request. A CODEOWNER merging it **is** the act of adopting the change. \`npx ascent skills
-sync\` is a convenience over \`git pull\` — it is never required.
+Open a pull request. A CODEOWNER merging it **is** the act of adopting the change. \`node scripts/ascent-skills.mjs
+sync\` (a single file copied from ascent's \`scripts/\`) is a convenience over \`git pull\` — it is never required.
 
 Point a repo at this registry from its \`.ai/manifest.yaml\`:
 
 \`\`\`yaml
-skills:
-  registry: github:${slug}/${DEFAULT_REGISTRY_NAME}
+registry:
+  remote: github:${slug}/${DEFAULT_REGISTRY_NAME}
 \`\`\`
 `;
 

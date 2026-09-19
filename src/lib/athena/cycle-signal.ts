@@ -64,11 +64,16 @@ export interface CycleOutcome {
   decision?: string | null;
   /** Cohort-matched movement in the org's standing that this outcome reports, in score points. */
   delta?: number | null;
+  /**
+   * Skills-tab prune candidates this outcome reports (`skillUsageMap` state `abandoned`).
+   * `>= 1` with flat scores still clears the bar — see rule 5.
+   */
+  abandonedCount?: number | null;
   /** True when the operator can already read this off a dashboard without her saying it. */
   alreadyVisible?: boolean;
 }
 
-export type RaiseReason = "decision_waiting" | "standing_moved" | "explains_a_decision";
+export type RaiseReason = "decision_waiting" | "standing_moved" | "skill_abandoned" | "explains_a_decision";
 export type AbsorbReason = "maintenance" | "within_noise" | "already_visible" | "nothing_to_say";
 
 export type CycleVerdict =
@@ -88,7 +93,16 @@ export interface AbsorbedOutcome {
 }
 
 /**
- * The bar, as five ordered rules. Each one is a property of the outcome someone could check by hand.
+ * Named rule: an abandoned skill (tried, then quiet) is a prune candidate even when scores are flat.
+ * Staying silent about it is dropping the work on the floor, the same as a waiting decision.
+ */
+export function raisesForAbandonedSkill(outcome: Pick<CycleOutcome, "abandonedCount">): boolean {
+  const n = outcome.abandonedCount;
+  return typeof n === "number" && Number.isFinite(n) && n >= 1;
+}
+
+/**
+ * The bar, as six ordered rules. Each one is a property of the outcome someone could check by hand.
  *
  *   1. No prose is nothing to say. (An empty outcome cannot be news even if it moved a number.)
  *   2. Maintenance is ABSOLUTE. A consolidation never initiates contact, whatever else is true of it.
@@ -98,7 +112,9 @@ export interface AbsorbedOutcome {
  *      staying quiet about it is not restraint, it is dropping the thing on the floor.
  *   4. Movement in the standing beyond the noise band clears it. The band is the org's own
  *      (`SCORE_NOISE_BAND` = 2 points): inside it, a "+1" is scan-to-scan wobble wearing a green arrow.
- *   5. Everything else is absorbed — and the reason distinguishes "she is repeating the dashboard"
+ *   5. An abandoned skill (tried, then quiet) clears it even when scores are flat.
+ *      {@link raisesForAbandonedSkill}: `abandonedCount >= 1`.
+ *   6. Everything else is absorbed — and the reason distinguishes "she is repeating the dashboard"
  *      from "she had nothing".
  */
 export function judgeCycleOutcome(outcome: CycleOutcome): CycleVerdict {
@@ -107,8 +123,11 @@ export function judgeCycleOutcome(outcome: CycleOutcome): CycleVerdict {
   const decision = typeof outcome.decision === "string" ? outcome.decision.trim() : "";
   if (decision) return { report: true, reason: "decision_waiting" };
   const delta = outcome.delta;
+  if (typeof delta === "number" && Number.isFinite(delta) && !isWithinNoise(delta)) {
+    return { report: true, reason: "standing_moved" };
+  }
+  if (raisesForAbandonedSkill(outcome)) return { report: true, reason: "skill_abandoned" };
   if (typeof delta === "number" && Number.isFinite(delta)) {
-    if (!isWithinNoise(delta)) return { report: true, reason: "standing_moved" };
     return { report: false, reason: "within_noise" };
   }
   if (outcome.alreadyVisible) return { report: false, reason: "already_visible" };

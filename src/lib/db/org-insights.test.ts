@@ -17,7 +17,7 @@ vi.mock("@/lib/db/client", () => ({
   withRetry: (fn: () => unknown) => fn(),
 }));
 
-import { percentileOf, getOrgMovers, getOrgBenchmark, getOrgRecommendations, getOrgPractices, summarizePracticePrs } from "@/lib/db/org-insights";
+import { percentileOf, getOrgMovers, readOnboardedRepos, getOrgBenchmark, getOrgRecommendations, getOrgPractices, summarizePracticePrs } from "@/lib/db/org-insights";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { getOrgRollup } from "@/lib/db/org-rollup";
 import { IMPACT_WEIGHT } from "@/lib/db/org-shared";
@@ -71,6 +71,8 @@ interface FakeScan {
   /** Scan provenance. Defaults to a live engine; "mock" is the deterministic floor. */
   engineProvider?: string;
 }
+
+const scanIdOf = (s: FakeScan): string => `${s.repoId}@${s.scannedAt.toISOString()}`;
 interface FakeRepo {
   id: string;
   fullName: string;
@@ -111,11 +113,19 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
       // NOT retention-clamped; the retention-floor tests pass "free" explicitly.
       findUnique: vi.fn(async () => ({ id: orgId, slug: "acme", plan })),
     },
-    // The rollup's baseline path fetches the baseline scans' dimension rows (dimDeltas). These
-    // movers-vs-rollup tests only assert the overall/adoption/rigor deltas, so an empty dim set
-    // (dimDeltas: []) is the honest minimal stub.
+    // Baseline dim rows for computeDimDeltas. Tests that don't pass `dimensions` still get an empty
+    // set (honest: no paired readings). Tests that do get real dimDeltas, including per-dim n.
     scanDimension: {
-      findMany: vi.fn(async () => []),
+      findMany: vi.fn(async (args: { where?: { scanId?: { in?: string[] } } } = {}) => {
+        const ids = new Set(args.where?.scanId?.in ?? []);
+        const out: { scanId: string; dimId: string; score: number }[] = [];
+        for (const s of scans) {
+          const scanId = scanIdOf(s);
+          if (!ids.has(scanId)) continue;
+          for (const d of s.dimensions ?? []) out.push({ scanId, dimId: d.dimId, score: d.score });
+        }
+        return out;
+      }),
     },
     scan: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma query-arg shape on a test double
@@ -129,6 +139,7 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
         return rows.map((s) => {
           const repo = repoById.get(s.repoId)!;
           return {
+            id: scanIdOf(s),
             repoId: s.repoId,
             overallScore: s.overallScore,
             adoptionScore: s.adoptionScore,
@@ -284,6 +295,10 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     expect(movers!.comparedRepos).toBe(0);
     expect(movers!.gainers).toHaveLength(0);
     expect(movers!.regressers).toHaveLength(0);
+    // Named in onboarded (G4: a count without names is not a fleet), but dOverall 0 is not a move.
+    expect(readOnboardedRepos(movers!)).toEqual([
+      { fullName: "acme/alpha", name: "alpha", overall: 60, dOverall: 0, sinceDays: 0 },
+    ]);
     expect(rollup!.deltas).toBeNull();
   });
 
@@ -345,6 +360,30 @@ describe("getOrgMovers vs getOrgRollup — period-window baseline pick", () => {
     expect(rollup!.baseline!.repos).toBe(1);
     expect(rollup!.baseline!.avgOverall).toBe(50); // alpha's pre-start baseline only
     expect(rollup!.deltas).toEqual({ overall: 10, adoption: 10, rigor: 10 });
+  });
+});
+
+describe("getOrgRollup — dimDeltas carry per-dimension cohortSize", () => {
+  it("measures only paired repos per dim and ships n beside the delta", async () => {
+    const repos = [repo("r1", "acme/alpha"), repo("r2", "acme/bravo"), repo("r3", "acme/charlie")];
+    const scans = [
+      // alpha: D1 + D9 on both sides. bravo: D9 on both sides, D1 current-only. charlie: onboarded.
+      scan("r1", "2026-03-01T00:00:00.000Z", 50, { dimensions: [{ dimId: "D1", score: 40 }, { dimId: "D9", score: 20 }] }),
+      scan("r1", "2026-05-01T00:00:00.000Z", 60, { dimensions: [{ dimId: "D1", score: 50 }, { dimId: "D9", score: 40 }] }),
+      scan("r2", "2026-03-01T00:00:00.000Z", 50, { dimensions: [{ dimId: "D9", score: 30 }] }),
+      scan("r2", "2026-05-01T00:00:00.000Z", 60, { dimensions: [{ dimId: "D1", score: 90 }, { dimId: "D9", score: 50 }] }),
+      scan("r3", "2026-05-01T00:00:00.000Z", 10, { dimensions: [{ dimId: "D1", score: 5 }, { dimId: "D9", score: 5 }] }),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const rollup = await getOrgRollup("acme", WINDOW);
+
+    // D1: only alpha is paired (40→50); bravo has no baseline D1; charlie is after-only. n=1, +10.
+    // D9: alpha 20→40 and bravo 30→50; charlie after-only. n=2, avg 45-25 = +20.
+    expect(rollup!.dimDeltas).toEqual([
+      { dimId: "D1", delta: 10, cohortSize: 1 },
+      { dimId: "D9", delta: 20, cohortSize: 2 },
+    ]);
+    expect(rollup!.dimDeltas![0]).not.toEqual({ dimId: "D1", delta: 10 });
   });
 });
 
@@ -560,9 +599,10 @@ describe("getOrgMovers — buildMove sign, level delta, sinceDays, and bucketing
     expect(movers!.comparedRepos).toBe(1);
   });
 
-  it("a repo with a SINGLE in-window scan and no baseline (prev === now) is SKIPPED — no phantom mover", async () => {
-    // Only one in-window scan, nothing at-or-before start ⇒ fallback resolves to that same row ⇒
-    // prev === now ⇒ the repo is dropped, not reported as a 0-move.
+  it("a repo with a SINGLE in-window scan and no baseline is NAMED in onboarded, not reported as a phantom mover", async () => {
+    // Only one in-window scan, nothing before start ⇒ fallback resolves to that same row ⇒ prev === now.
+    // That is not a period move (gainers/comparedRepos stay empty) — but dropping the name left
+    // production with a composition COUNT and no fleet. The production reader names it.
     const repos = [repo("r1", "acme/charlie")];
     const scans = [scan("r1", "2026-05-01T00:00:00.000Z", 55)];
     mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
@@ -572,6 +612,9 @@ describe("getOrgMovers — buildMove sign, level delta, sinceDays, and bucketing
     expect(movers!.gainers).toHaveLength(0);
     expect(movers!.regressers).toHaveLength(0);
     expect(movers!.levelChanges).toHaveLength(0);
+    expect(readOnboardedRepos(movers!)).toEqual([
+      { fullName: "acme/charlie", name: "charlie", overall: 55, dOverall: 0, sinceDays: 0 },
+    ]);
   });
 
   it("a mixed fleet partitions strictly by dOverall sign and sorts each bucket by magnitude", async () => {
@@ -597,6 +640,62 @@ describe("getOrgMovers — buildMove sign, level delta, sinceDays, and bucketing
     // delta (0) appears in neither bucket.
     const named = [...movers!.gainers, ...movers!.regressers].map((m) => m.name);
     expect(named).not.toContain("delta");
+  });
+});
+
+// ── Production reader of OrgMovers.onboarded: named repos, not a count (G4) ──────────────────────
+// CohortMovement.onboarded / DigestHeadline.onboarded are composition COUNTS. A count without names
+// is not a fleet of onboarded repos: production must quote who joined. `readOnboardedRepos` is that
+// reader — it projects fullName/name off getOrgMovers, including a single-scan join that is not a
+// period move.
+
+describe("readOnboardedRepos — production names the onboarded fleet", () => {
+  it("names every onboarded repo (fullName), including a single-scan join, and never a count", async () => {
+    const repos = [repo("r1", "acme/existing"), repo("r2", "acme/climber"), repo("r3", "acme/fresh")];
+    const scans = [
+      // existing: period baseline — not onboarded
+      scan("r1", "2026-03-01T00:00:00.000Z", 50),
+      scan("r1", "2026-05-01T00:00:00.000Z", 60),
+      // climber: onboarded mid-window, lifetime +60 — largest climb first
+      scan("r2", "2026-04-10T00:00:00.000Z", 30),
+      scan("r2", "2026-06-01T00:00:00.000Z", 90),
+      // fresh: one in-window scan — named, dOverall 0, not a phantom gainer
+      scan("r3", "2026-05-01T00:00:00.000Z", 40),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+
+    expect(movers!.comparedRepos).toBe(1);
+    expect(movers!.gainers.map((m) => m.name)).toEqual(["existing"]);
+    const named = readOnboardedRepos(movers!);
+    expect(named.map((r) => r.fullName)).toEqual(["acme/climber", "acme/fresh"]);
+    expect(named).toEqual([
+      { fullName: "acme/climber", name: "climber", overall: 90, dOverall: 60, sinceDays: 52 },
+      { fullName: "acme/fresh", name: "fresh", overall: 40, dOverall: 0, sinceDays: 0 },
+    ]);
+    // The production shape is a list of named repos, not a number and not `{ count }`.
+    expect(named.every((r) => r.fullName.includes("/"))).toBe(true);
+    expect(named).not.toHaveProperty("count");
+  });
+
+  it("an empty onboarded fleet is [] — never 0", async () => {
+    const repos = [repo("r1", "acme/alpha")];
+    const scans = [
+      scan("r1", "2026-03-01T00:00:00.000Z", 50),
+      scan("r1", "2026-05-01T00:00:00.000Z", 70),
+    ];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+    expect(readOnboardedRepos(movers!)).toEqual([]);
+    expect(movers!.gainers.map((m) => m.fullName)).toEqual(["acme/alpha"]);
+  });
+
+  it("a mock single-scan join is not named — an engine floor is not an onboarded measurement", async () => {
+    const repos = [repo("r1", "acme/placeholder")];
+    const scans = [scan("r1", "2026-05-01T00:00:00.000Z", 10, { engineProvider: "mock" })];
+    mockGetPrisma.mockReturnValue(fakeOrgPrisma(repos, scans) as never);
+    const movers = await getOrgMovers("acme", WINDOW);
+    expect(readOnboardedRepos(movers!)).toEqual([]);
   });
 });
 

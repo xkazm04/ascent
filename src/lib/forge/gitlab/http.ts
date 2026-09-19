@@ -49,7 +49,7 @@ export function gitlabHeaders(token?: string): Record<string, string> {
  *  upstream (routes, the scan orchestrator, the gate) keeps its existing error handling unchanged.
  *  `GitHubError` is a misnomer inherited from the pre-forge tree; it is the pipeline's ingestion error
  *  type, and renaming it would churn ~40 call sites for no behaviour change. */
-export function gitlabError(status: number, url: string, retryAfter?: string | null): GitHubError {
+export function gitlabError(status: number, retryAfter?: string | null): GitHubError {
   if (status === 404 || status === 403) {
     return new GitHubError("NOT_FOUND", "Repository not found, or the token cannot read it.", status);
   }
@@ -57,7 +57,8 @@ export function gitlabError(status: number, url: string, retryAfter?: string | n
     const sec = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : undefined;
     return new GitHubError("RATE_LIMITED", "GitLab rate limit reached. Try again shortly.", status, sec);
   }
-  return new GitHubError("UPSTREAM", `GitLab ${status} on ${url}`, status);
+  // Scan routes relay this message verbatim: configured API hosts and request paths stay private.
+  return new GitHubError("UPSTREAM", `GitLab returned ${status}. Please try again.`, status);
 }
 
 export interface GitlabFetchOpts {
@@ -79,7 +80,7 @@ export async function gitlabGet<T>(
     opts.timeoutMs ?? GITLAB_TIMEOUT_API_MS,
     opts.signal,
   );
-  if (!res.ok) throw gitlabError(res.status, url, res.headers.get("retry-after"));
+  if (!res.ok) throw gitlabError(res.status, res.headers.get("retry-after"));
   return { body: (await res.json()) as T, headers: res.headers };
 }
 
@@ -112,8 +113,12 @@ export async function gitlabPaged<T>(
     if (!Array.isArray(body)) break;
     items.push(...body);
     const next = headers.get("x-next-page");
-    if (!next || !/^\d+$/.test(next)) return { items, truncated: false };
-    page = Number(next);
+    if (!next) return { items, truncated: false };
+    const nextPage = Number(next);
+    // An unusable continuation is not the end of the collection. Stop before a repeated
+    // or backward page can inflate the tree and disclose that the retained prefix is partial.
+    if (!/^\d+$/.test(next) || !Number.isSafeInteger(nextPage) || nextPage <= page) break;
+    page = nextPage;
   }
   return { items, truncated: true };
 }

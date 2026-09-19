@@ -39,8 +39,7 @@ export function normalizeSkillCategory(v: string | null | undefined): SkillCateg
 /** Label lookup with a safe humanized fallback for an unknown/legacy id (never a blank badge). */
 export function skillCategoryLabel(v: string | null | undefined): string {
   if (!v) return "—";
-  return (
-    SKILL_CATEGORY_LABEL[v as SkillCategory] ??
-    v.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-  );
+  return isSkillCategory(v)
+    ? SKILL_CATEGORY_LABEL[v]
+    : v.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

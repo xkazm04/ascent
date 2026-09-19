@@ -27,7 +27,7 @@ import { isValidCheckId, type CheckLevel } from "@/lib/standard/check-ids";
 const SECURITY_DIM: DimensionId = "D9";
 export const DEFAULT_SECURITY_MIN = 50;
 
-/** Ceiling on `requireChecks`. A policy is untrusted input (a DB column, an admission fragment); a
+/** Per-input ceiling on `requireChecks`. A policy is untrusted input (a DB column, an admission fragment); a
  *  10k-entry list would turn every gate evaluation into a scan of it. */
 export const MAX_REQUIRE_CHECKS = 100;
 
@@ -117,6 +117,14 @@ export interface GateFailure {
  */
 export function isIncompleteReport(report: Pick<ScanReport, "incomplete" | "dimensions">): boolean {
   return report.incomplete === true || report.dimensions.length === 0;
+}
+
+/**
+ * Fleet/MCP snapshot counterpart of {@link isIncompleteReport}. A missing `dims` array is the same
+ * as an empty one: not a full scan. Fail-closed — absence of dimensions is not a pass.
+ */
+export function isIncompleteSnapshot(snap: Pick<GateSnapshot, "incomplete" | "dims">): boolean {
+  return snap.incomplete === true || (snap.dims?.length ?? 0) === 0;
 }
 
 const INCOMPLETE_MESSAGE =
@@ -780,6 +788,12 @@ export interface GateSnapshot {
   overall: number;
   posture: string; // posture id, e.g. "ungoverned"
   dims: { dimId: string; score: number }[];
+  /**
+   * This snapshot is not a full scan — no dimension could be scored, so `overall`/`level` are the
+   * renormalized floor rather than a measurement. Same meaning as {@link ScanReport.incomplete}.
+   * `evaluateGateLite` fails closed on the flag **or** on empty/missing `dims` (legacy rollup rows).
+   */
+  incomplete?: boolean;
   /** Default-branch protection, when the rollup carries it. `requireProtectedBranch` is enforced here
    *  only when `govReadable` is true (parity with evaluateGate's readable-gated check); absent → skipped. */
   protected?: boolean;
@@ -796,6 +810,12 @@ export interface GateSnapshot {
  * dashboard's fleet status and the CI gate agree. Used to compute org-wide gate analytics cheaply.
  */
 export function evaluateGateLite(snap: GateSnapshot, policy: GatePolicy): GateResult {
+  // Incomplete snapshot (missing dims / not a full scan): fail closed. Empty dims vacuously pass
+  // every dimension-floor sweep in evaluateNormalized — absence is not a pass. Same short-circuit
+  // evaluateGate uses, so fleet/MCP cannot certify a repo nobody measured.
+  if (isIncompleteSnapshot(snap)) {
+    return { pass: false, policy, failures: [{ code: "incomplete", message: INCOMPLETE_MESSAGE }], skipped: [], caveats: [] };
+  }
   const dimName = (id: string) => DIMENSION_BY_ID[id as DimensionId]?.name ?? id;
   const { failures, skipped } = evaluateNormalized(
     {
@@ -951,6 +971,8 @@ export function tightenGatePolicy(a: GatePolicy, b: GatePolicy): GatePolicy {
   if (a.forbidAiAuthorship || b.forbidAiAuthorship) pol.forbidAiAuthorship = true;
   // #16: UNION, like forbidPostures — a layer adds required controls, never removes them.
   const checks = [...new Set([...(a.requireChecks ?? []), ...(b.requireChecks ?? [])])].sort();
-  if (checks.length) pol.requireChecks = checks.slice(0, MAX_REQUIRE_CHECKS);
+  // Inputs are capped when sanitized. Re-capping the union would drop accepted requirements
+  // whenever a later layer adds lexicographically earlier ids, weakening the effective policy.
+  if (checks.length) pol.requireChecks = checks;
   return pol;
 }

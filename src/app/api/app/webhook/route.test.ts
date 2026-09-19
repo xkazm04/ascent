@@ -1290,6 +1290,58 @@ describe("POST /api/app/webhook — control-probe fan-in", () => {
   });
 });
 
+// repository.deleted is GitHub confirming the named repo is gone. After installationMatchesOwner,
+// unwatch that fullName only via reconcileWatchedRepos (the same drop as an installation-set
+// removal). A forged owner pairing must not unwatch; archived stays watched.
+describe("POST /api/app/webhook — repository.deleted unwatch", () => {
+  const repoPayload = (action: string, owner = "acme") => ({
+    action,
+    installation: { id: 42 },
+    repository: { full_name: `${owner}/api`, name: "api", owner: { login: owner } },
+  });
+
+  it("unwatches only the deleted fullName after the owner matches the installation", async () => {
+    mockIdForOwner.mockResolvedValue("42");
+    mockListWatched.mockResolvedValue([
+      { fullName: "acme/api" },
+      { fullName: "acme/web" },
+    ] as Awaited<ReturnType<typeof listWatchedRepos>>);
+
+    await post("repository", "repo-del-unwatch", repoPayload("deleted"));
+    await runDeferred();
+
+    expect(mockReconcile).toHaveBeenCalledTimes(1);
+    expect(mockReconcile).toHaveBeenCalledWith(42, ["acme/web"]);
+    expect(mockEnqueueProbe).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT unwatch when a forged owner pairing fails installationMatchesOwner", async () => {
+    mockIdForOwner.mockResolvedValue("999");
+    mockListWatched.mockResolvedValue([{ fullName: "acme/api" }] as Awaited<ReturnType<typeof listWatchedRepos>>);
+
+    await post("repository", "repo-del-forged", repoPayload("deleted"));
+    await runDeferred();
+
+    expect(mockReconcile).not.toHaveBeenCalled();
+    expect(mockListWatched).not.toHaveBeenCalled();
+    expect(mockEnqueueProbe).not.toHaveBeenCalled();
+  });
+
+  it("does NOT unwatch an archived repo — archived stays watched", async () => {
+    mockIdForOwner.mockResolvedValue("42");
+    mockListWatched.mockResolvedValue([
+      { fullName: "acme/api" },
+      { fullName: "acme/web" },
+    ] as Awaited<ReturnType<typeof listWatchedRepos>>);
+
+    await post("repository", "repo-del-archived", repoPayload("archived"));
+    await runDeferred();
+
+    expect(mockReconcile).not.toHaveBeenCalled();
+    expect(mockEnqueueProbe).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ── MONEY: the push rescan pays for itself (Direction 2) ─────────────────────────────────────────
 // `runPushRescan` runs real LLM inference on a private org repo. Until this landed it reserved NO
 // credit — the file header and the degrade comment both narrated a charge that was never made, so a

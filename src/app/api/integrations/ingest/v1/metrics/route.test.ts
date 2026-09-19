@@ -21,6 +21,7 @@ vi.mock("@/lib/integrations/ingest-token", () => ({
 }));
 vi.mock("@/lib/integrations/otlp", () => ({ parseOtlpMetrics: vi.fn() }));
 vi.mock("@/lib/db", () => ({ recordUsage: vi.fn(async () => ({ ok: true, stored: 1 })) }));
+vi.mock("@/lib/db/integrations", () => ({ getIngestTokenEpoch: vi.fn(async () => 0) }));
 
 import { POST } from "./route";
 import { MAX_BODY } from "@/lib/integrations/ingest-guard";
@@ -81,6 +82,31 @@ describe("POST /api/integrations/ingest/v1/metrics — wire-format guard", () =>
     expect(await res.json()).toMatchObject({ accepted: true, persisted: false });
     expect(mockRecord).not.toHaveBeenCalled();
   });
+
+  it.each([
+    null,
+    [],
+    { resourceMetrics: {} },
+    { resourceMetrics: [null] },
+    { resourceMetrics: [{ scopeMetrics: {} }] },
+    { resourceMetrics: [{ scopeMetrics: [{ metrics: [null] }] }] },
+    { resourceMetrics: [{ resource: { attributes: {} } }] },
+    { resourceMetrics: [{ scopeMetrics: [{ metrics: [{ sum: { dataPoints: {} } }] }] }] },
+    { resourceMetrics: [{ scopeMetrics: [{ metrics: [{ gauge: { dataPoints: [null] } }] }] }] },
+  ])("rejects malformed OTLP structure before parsing or storage: %j", async (body) => {
+    const res = await POST(mkReq({ body: JSON.stringify(body), contentType: "application/json" }));
+    expect(res.status).toBe(400);
+    expect(mockOtlp).not.toHaveBeenCalled();
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it.each([{}, { resourceMetrics: null }, { resourceMetrics: [{ scopeMetrics: [], futureField: {} }] }])(
+    "accepts empty exports and unknown fields: %j", async (body) => {
+      const res = await POST(mkReq({ body: JSON.stringify(body), contentType: "application/json" }));
+      expect(res.status).toBe(202);
+      expect(mockOtlp).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("returns 400 on malformed JSON", async () => {
     const res = await POST(mkReq({ body: "{not json", contentType: "application/json" }));

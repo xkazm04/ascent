@@ -27,12 +27,25 @@ const h = vi.hoisted(() => ({
   lessons: vi.fn(),
   commits: vi.fn(),
   fileAt: vi.fn(),
+  localCommits: vi.fn(),
+  localFileAt: vi.fn(),
+  local: { dir: null as string | null },
 }));
 
 vi.mock("@/lib/registry/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/registry/api")>();
-  return { ...actual, guardRegistryRead: h.read, guardRegistryWrite: h.write };
+  return {
+    ...actual,
+    guardRegistryRead: h.read,
+    guardRegistryWrite: h.write,
+    resolveRegistrySource: async (slug: string) => {
+      if (h.local.dir) return { kind: "local", row: { id: "reg-1" }, dir: h.local.dir };
+      const gate = await h.write(slug);
+      return gate && typeof gate === "object" && "token" in gate ? { kind: "github", row: null, token: gate.token } : gate;
+    },
+  };
 });
+vi.mock("@/lib/registry/local-source", () => ({ listLocalPathCommits: h.localCommits, readLocalFileAtRef: h.localFileAt }));
 vi.mock("@/lib/db/org-rollup", () => ({ getOrgId: h.orgId }));
 vi.mock("@/lib/db/org-registry", () => ({ getOrgRegistry: h.registry }));
 vi.mock("@/lib/db/org-skill-trace", () => ({ getSkillTrace: h.getTrace, putSkillTrace: h.putTrace }));
@@ -49,6 +62,7 @@ const SKILL_MD = `---\nname: forge\ndescription: d\ncategory: workflow\nversion:
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.local.dir = null;
   h.read.mockResolvedValue(null);
   h.write.mockResolvedValue({ token: "tok", capabilities: {} });
   h.orgId.mockResolvedValue("org-1");
@@ -92,6 +106,19 @@ describe("cache", () => {
       ["c2", "2.1.0"],
       ["c1", null],
     ]);
+  });
+});
+
+describe("local registry", () => {
+  it("reads history from the paired checkout with git, never minting a token", async () => {
+    h.local.dir = "C:/registry";
+    h.localCommits.mockResolvedValue({ commits: [{ sha: "c9", authoredAt: "2026-09-16T00:00:00.000Z", authorLogin: null, message: "bump" }], truncated: false });
+    h.localFileAt.mockResolvedValue(SKILL_MD);
+    const body = await (await GET(req(), ctx)).json();
+    expect(h.localCommits).toHaveBeenCalledWith("C:/registry", "skills/forge/SKILL.md", "head-1", expect.any(Number));
+    expect(body.entries[0]).toMatchObject({ sha: "c9", version: "2.1.0" });
+    expect(h.write).not.toHaveBeenCalled();
+    expect(h.commits).not.toHaveBeenCalled();
   });
 });
 

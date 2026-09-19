@@ -2,14 +2,15 @@
 //
 // THE GAP THIS CLOSES: the fleet dashboard had no unread state anywhere. A lead who returns on Monday
 // sees current numbers with no marker of what changed since their last visit — the exact question
-// fleet intelligence exists to answer. The movement data was ALREADY persisted: the scan pipeline
-// feeds every regression, maturity band change and closed recommendation into Shared Org Memory
-// (src/lib/memory/scan-feed.ts). So this is a READ over records that already exist — deliberately NOT
-// a new event system, a new table, or a write path that could fail a scan.
+// fleet intelligence exists to answer. Scan-pipeline regressions, band changes and closed gaps already
+// land in Shared Org Memory (src/lib/memory/scan-feed.ts). Control-ledger flips do not: they are
+// recorded as AlertEvent (`kind: "control"`) because a control can change between scans, and a memory
+// row never appears. Counting only OrgMemory left the Alerts badge silent after a control-failed.
 //
-// ONE BOUNDED QUERY: a single OrgMemory findMany with `take: CAP + 1`, filtered to the scan-pipeline
-// source and `createdAt > since`. No per-repo fan-out (the chip renders on every org page), and the
-// +1 row is what tells the UI to render the capped "9+" instead of needing a second count query.
+// TWO BOUNDED READS, not a per-repo fan-out (the chip renders on every org page): OrgMemory (scan
+// pipeline, createdAt > since) UNION control-failed AlertEvents (kind control + severity critical,
+// same window). Each `take: CAP + 1`; the extra row is the "9+" probe so the capped display costs no
+// count query. Merged newest-first, then sliced to the cap.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
@@ -18,10 +19,13 @@ import { SCAN_PIPELINE_SOURCE } from "@/lib/org/memory-kinds";
 /** How many movements the popover lists — and the display cap: more than this renders as "9+". */
 export const MOVEMENT_CAP = 9;
 
+/** Event tag written for a control-failed AlertEvent folded into the movement list. */
+export const CONTROL_FAILED_EVENT = "control-failed";
+
 export interface OrgMovementItem {
   /** Repo full name the movement is about (the memory's namespace), or null for an org-wide record. */
   repo: string | null;
-  /** Event kind from the memory's tags: regression | level-change | recommendation-closed. */
+  /** Event kind: regression | level-change | recommendation-closed | control-failed. */
   event: string;
   /** The persisted one-line description (machine-written, already human-readable). */
   summary: string;
@@ -48,6 +52,10 @@ function eventTag(raw: string | null | undefined): string {
   }
 }
 
+function byNewest(a: OrgMovementItem, b: OrgMovementItem): number {
+  return b.at.getTime() - a.at.getTime();
+}
+
 /**
  * Movements recorded for `orgSlug` strictly AFTER `since`. Returns an empty (count 0) movement rather
  * than null when nothing moved, and null only when there's nothing to read from (persistence off or
@@ -65,26 +73,50 @@ export async function getOrgMovementSince(
   if (!isDbConfigured()) return null;
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
-  const rows = await getPrisma().orgMemory.findMany({
-    where: {
-      orgId,
-      source: SCAN_PIPELINE_SOURCE,
-      archived: false,
-      supersededBy: null,
-      createdAt: { gt: since },
-    },
-    orderBy: { createdAt: "desc" },
-    // cap + 1: the extra row is the "there are more than we show" probe, so the capped display costs
-    // no second query.
-    take: cap + 1,
-    select: { namespace: true, tags: true, content: true, createdAt: true },
-  });
-  const capped = rows.length > cap;
-  const items = rows.slice(0, cap).map((r) => ({
-    repo: r.namespace ?? null,
-    event: eventTag(r.tags),
-    summary: r.content,
-    at: r.createdAt,
-  }));
+  const prisma = getPrisma();
+  const take = cap + 1;
+  // Independent tables, same window. control-failed is severity critical (controlAlertSeverity);
+  // restorations/unmeasurable are history, not unread movement on the chip.
+  const [memoryRows, controlRows] = await Promise.all([
+    prisma.orgMemory.findMany({
+      where: {
+        orgId,
+        source: SCAN_PIPELINE_SOURCE,
+        archived: false,
+        supersededBy: null,
+        createdAt: { gt: since },
+      },
+      orderBy: { createdAt: "desc" },
+      take,
+      select: { namespace: true, tags: true, content: true, createdAt: true },
+    }),
+    prisma.alertEvent.findMany({
+      where: {
+        orgId,
+        kind: "control",
+        severity: "critical",
+        createdAt: { gt: since },
+      },
+      orderBy: { createdAt: "desc" },
+      take,
+      select: { repoFullName: true, title: true, createdAt: true },
+    }),
+  ]);
+  const merged: OrgMovementItem[] = [
+    ...memoryRows.map((r) => ({
+      repo: r.namespace ?? null,
+      event: eventTag(r.tags),
+      summary: r.content,
+      at: r.createdAt,
+    })),
+    ...controlRows.map((r) => ({
+      repo: r.repoFullName ?? null,
+      event: CONTROL_FAILED_EVENT,
+      summary: r.title,
+      at: r.createdAt,
+    })),
+  ].sort(byNewest);
+  const capped = merged.length > cap;
+  const items = merged.slice(0, cap);
   return { since, items, count: items.length, capped };
 }

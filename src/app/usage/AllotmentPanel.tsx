@@ -1,9 +1,9 @@
-// Burn-vs-allotment utilization for /usage — turns "credits burned" into "X of your monthly allotment",
-// the right-sizing signal the pricing-20 UAT panel asked for: Victor couldn't tell if Team was over- or
-// under-provisioned, and Gabriel learned the tier ceiling only by hitting a 402. Normalizes the observed
-// burn to a monthly rate so the percentage is comparable to the per-month allotment regardless of the
-// selected window, then nudges toward a fit (downgrade when idle, upgrade/top-up before scans pause).
-// Server-safe (no hooks). Renders nothing for unlimited (Enterprise) or allotment-less (Free) plans.
+// Burn-vs-allotment utilization for /usage — "X of your monthly allotment this calendar month".
+// The numerator is calendar-month metered usage (the same countMeteredScansThisMonth the charge
+// resolver uses), not the page's selected ?days= billable-scan window and not a 30-day projection of
+// that window. The allotment resets at 00:00 UTC on the 1st; a rolling 7/90/365-day rate is a
+// different period and would move the meter when the timeframe picker moved. Server-safe (no hooks).
+// Renders nothing for unlimited (Custom) plans, which have no finite allotment to size against.
 
 import { planFeatures } from "@/lib/plans";
 import { Meter } from "@/components/org/shared/ui";
@@ -15,26 +15,25 @@ export type AllotmentFit = "under" | "ok" | "over";
 export interface AllotmentRead {
   label: string;
   included: number;
-  /** Observed burn normalized to a per-month rate, so it's comparable to the monthly allotment. */
-  monthlyBurn: number;
-  /** monthlyBurn as a percentage of the included monthly allotment. */
+  /** Calendar-month-to-date metered scans — the same count the charge resolver compares to includedCredits. */
+  usedThisMonth: number;
+  /** usedThisMonth as a percentage of the included monthly allotment. */
   pct: number;
   fit: AllotmentFit;
 }
 
 /**
- * Pure right-sizing read: normalize the period's billable burn to a monthly rate and compare it to the
- * plan's included monthly allotment. Returns null for plans with no finite allotment (Free buys packs;
- * Enterprise is unlimited) — neither has a "% of allotment" to size against.
+ * Pure right-sizing read: compare this calendar month's metered usage to the plan's included
+ * monthly allotment. Returns null for plans with no finite allotment (Custom is unlimited).
  */
-export function allotmentRead(plan: string, billableInPeriod: number, periodDays: number): AllotmentRead | null {
+export function allotmentRead(plan: string, meteredThisMonth: number): AllotmentRead | null {
   const p = planFeatures(plan);
   if (p.unlimited || !p.includedCredits) return null;
   const included = p.includedCredits;
-  const monthlyBurn = periodDays > 0 ? Math.round((billableInPeriod / periodDays) * 30) : 0;
-  const pct = included > 0 ? Math.round((monthlyBurn / included) * 100) : 0;
-  const fit: AllotmentFit = pct > 90 ? "over" : monthlyBurn > 0 && pct < 25 ? "under" : "ok";
-  return { label: p.label, included, monthlyBurn, pct, fit };
+  const usedThisMonth = meteredThisMonth;
+  const pct = included > 0 ? Math.round((usedThisMonth / included) * 100) : 0;
+  const fit: AllotmentFit = pct > 90 ? "over" : usedThisMonth > 0 && pct < 25 ? "under" : "ok";
+  return { label: p.label, included, usedThisMonth, pct, fit };
 }
 
 /**
@@ -65,16 +64,15 @@ const FIT_COLOR: Record<AllotmentFit, string> = {
 
 export function AllotmentPanel({
   plan,
-  billableInPeriod,
-  periodDays,
+  meteredThisMonth,
 }: {
   plan: string;
-  billableInPeriod: number;
-  periodDays: number;
+  /** Calendar-month metered scans from `countMeteredScansThisMonth` — not the ?days= billable tile. */
+  meteredThisMonth: number;
 }) {
-  const read = allotmentRead(plan, billableInPeriod, periodDays);
+  const read = allotmentRead(plan, meteredThisMonth);
   if (!read) return null;
-  const { label, included, monthlyBurn, pct, fit } = read;
+  const { label, included, usedThisMonth, pct, fit } = read;
   const color = FIT_COLOR[fit];
   const msg =
     fit === "over"
@@ -90,8 +88,8 @@ export function AllotmentPanel({
         <span className="font-normal text-slate-500">· {label} plan · {included.toLocaleString()} credits / mo</span>
       </h2>
       <p className="mt-2 type-mono-sm text-slate-300">
-        ≈ <span className="font-bold text-white">{monthlyBurn.toLocaleString()}</span> credits / mo at this pace ·{" "}
-        <span style={{ color }}>{pct}%</span> of your {included.toLocaleString()} / mo allotment
+        <span className="font-bold text-white">{usedThisMonth.toLocaleString()}</span> metered this calendar month
+        (UTC) · <span style={{ color }}>{pct}%</span> of your {included.toLocaleString()} / mo allotment
       </p>
       <Meter className="mt-3" value={Math.min(100, pct)} color={color} threshold={90} />
       <p className="mt-3 type-body-sm" style={{ color }}>

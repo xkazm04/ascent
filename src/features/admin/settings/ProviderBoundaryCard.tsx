@@ -32,7 +32,7 @@ export function ProviderBoundaryCard({
     <Card>
       <SectionHeader size="sm" title="Provider boundary" description={providerScopeLine(config)} />
 
-      <div className="mt-4 max-w-sm">
+      <div className="mt-4">
         <MatrixGrid
           axes={[...PROVIDER_AXES]}
           rows={rows}

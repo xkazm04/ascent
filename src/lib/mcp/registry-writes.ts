@@ -12,8 +12,9 @@
 
 import { recordSkillEvents } from "@/lib/db";
 import { recordMemoryCitation } from "@/lib/db/org-memory-citations";
-import { fail, findSkillByName, str, type Args } from "@/lib/mcp/registry-reads";
-import type { ToolResult } from "@/lib/mcp/handlers";
+import { findSkillByName } from "@/lib/mcp/registry-reads";
+import { fail, str, type Args, type ToolResult } from "./tool-result";
+
 
 /**
  * Timestamp quantization for a reported invoke, and the reason it exists.

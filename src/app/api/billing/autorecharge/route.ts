@@ -1,8 +1,10 @@
-// GET  /api/billing/autorecharge?org=<slug> -> { pref, chargesAutomatically, source }
+// GET  /api/billing/autorecharge?org=<slug> -> { pref, chargesAutomatically, label, source }
 // PUT  /api/billing/autorecharge { org, enabled, threshold, packProductId } -> { ok, pref, ... }
 //
-// The org's opt-in LOW-BALANCE preference: "warn me (and offer a one-click top-up) once my prepaid
-// private-scan balance drops to N credits". Read-gated on GET, owner-gated on PUT.
+// The org's opt-in LOW-BALANCE WARNING: "warn me (and offer a one-click top-up) once my prepaid
+// private-scan balance drops to N credits". Read-gated on GET, owner-gated on PUT. The URL stays
+// `/api/billing/autorecharge` so existing clients keep working; the human-readable label on the
+// wire is "Low-balance warning".
 //
 // SCOPE, STATED PLAINLY: this does NOT charge anybody. Ascent's Polar integration is a hosted checkout
 // redirect plus a signed fulfilment webhook (src/lib/polar.ts, ../checkout, ../webhook) — no stored
@@ -32,6 +34,7 @@ import {
   AUTO_RECHARGE_ACTION,
   AUTO_RECHARGE_CHARGES_AUTOMATICALLY,
   DEFAULT_AUTO_RECHARGE,
+  LOW_BALANCE_WARNING_LABEL,
   MAX_LOW_BALANCE_THRESHOLD,
   normalizeAutoRecharge,
 } from "@/lib/autorecharge";
@@ -48,6 +51,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       pref: DEFAULT_AUTO_RECHARGE,
       chargesAutomatically: AUTO_RECHARGE_CHARGES_AUTOMATICALLY,
+      label: LOW_BALANCE_WARNING_LABEL,
       source: "default",
     });
   }
@@ -59,6 +63,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     pref,
     chargesAutomatically: AUTO_RECHARGE_CHARGES_AUTOMATICALLY,
+    label: LOW_BALANCE_WARNING_LABEL,
     // The wire contract stays stored-vs-default (the popover's only distinction); "column" and "audit"
     // are a storage detail the client has never needed and must not start depending on.
     source: source === "default" ? "default" : "stored",
@@ -110,6 +115,7 @@ export async function PUT(request: Request) {
     ok: true,
     pref,
     chargesAutomatically: AUTO_RECHARGE_CHARGES_AUTOMATICALLY,
+    label: LOW_BALANCE_WARNING_LABEL,
     source: "stored",
   });
 }

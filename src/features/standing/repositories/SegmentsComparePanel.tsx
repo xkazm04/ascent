@@ -20,6 +20,7 @@ import { Card, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta } from "@/comp
 import { Legend, WhyChip } from "@/components/org/viz";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import type { SegmentComparison } from "@/lib/db";
+import { compareCountSub } from "./segmentCounts";
 
 const SENTINEL_HINT =
   "A segment with no scanned repository has no score at all: there is nothing to average, so the average does not exist rather than being 0. That side is drawn as a gap and its delta withheld, because a difference against a missing number is comparison theatre.";
@@ -31,11 +32,14 @@ export function SegmentsComparePanel({
   aId,
   bId,
   comparison,
+  taggedById = {},
 }: {
   options: { id: string; name: string }[];
   aId: string;
   bId: string | null;
   comparison: SegmentComparison | null;
+  /** listSegments tagged counts, keyed by segment id. Fleet (id null) has no tag universe. */
+  taggedById?: Record<string, number>;
 }) {
   if (!comparison) {
     return (
@@ -57,6 +61,14 @@ export function SegmentsComparePanel({
   const dims = dimensionPairs(comparison, shortDim);
   const aName = comparison.a.name;
   const bName = comparison.b.name;
+  const taggedOf = (id: string | null) => (id != null && taggedById[id] != null ? taggedById[id]! : null);
+  const tileSub = (s: typeof comparison.a, score: number | null) =>
+    compareCountSub({
+      score,
+      scannedCount: s.scannedCount,
+      tagged: taggedOf(s.id),
+      postureLine: postureText(s.posture),
+    });
 
   return (
     <div>
@@ -77,13 +89,13 @@ export function SegmentsComparePanel({
         <Tile
           label={aName}
           value={aScore === null ? "—" : aScore}
-          sub={aScore === null ? `no scans yet · 0/${comparison.a.repoCount} scanned` : `${postureText(comparison.a.posture)} · ${comparison.a.scannedCount}/${comparison.a.repoCount} scanned`}
+          sub={tileSub(comparison.a, aScore)}
           color={aScore === null ? undefined : scoreHex(aScore)}
         />
         <Tile
           label={bName}
           value={bScore === null ? "—" : bScore}
-          sub={bScore === null ? `no scans yet · 0/${comparison.b.repoCount} scanned` : `${postureText(comparison.b.posture)} · ${comparison.b.scannedCount}/${comparison.b.repoCount} scanned`}
+          sub={tileSub(comparison.b, bScore)}
           color={bScore === null ? undefined : scoreHex(bScore)}
         />
         <Tile

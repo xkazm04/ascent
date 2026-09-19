@@ -36,7 +36,8 @@ export default async function Image({ params }: { params: Promise<{ owner: strin
   // Drawn at 60px with no wrapping — cap it so a long handle can't overflow the fixed 1200x630 card.
   const displayOwner = owner.length > 28 ? owner.slice(0, 27) + "…" : owner;
 
-  const card = await getPublicOrgScorecard(owner).catch(() => null);
+  const read = await getPublicOrgScorecard(owner).catch(() => null);
+  const card = read?.kind === "ok" ? read.card : null;
 
   if (card && card.verifiedCount > 0) {
     const levelId = card.level as LevelId;

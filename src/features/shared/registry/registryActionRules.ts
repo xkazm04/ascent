@@ -23,7 +23,9 @@ export type RegistryActionId =
   /** Plain link to the mapped repo on GitHub. */
   | "open-repo"
   /** The one link offered when the App is missing — install/configure it. */
-  | "install-app";
+  | "install-app"
+  /** Self-hosted: pair the registry's local checkout on Admin -> Pairing (no App needed). */
+  | "pair-local";
 
 /**
  * The actions the panel may render for this viewer.
@@ -32,6 +34,15 @@ export type RegistryActionId =
  * @param opts.mapped  whether an `OrgRegistry` row exists (`view.status !== "unmapped"`).
  */
 export function visibleActions(caps: RegistryCapabilities, opts: { mapped: boolean }): RegistryActionId[] {
+  // LOCAL FIRST (self-hosted). A paired checkout re-indexes with no App; the GitHub-writing actions
+  // appear beside it only when the App can actually act. Unpaired, pairing is offered ahead of whatever
+  // the App path would offer — the App becomes the optional second step, not the gate.
+  if (caps.localPaired && opts.mapped) return caps.canWrite ? ["reindex", "migrate", "open-repo"] : ["reindex"];
+  const hosted = hostedActions(caps, opts);
+  return caps.localAvailable ? ["pair-local", ...hosted] : hosted;
+}
+
+function hostedActions(caps: RegistryCapabilities, opts: { mapped: boolean }): RegistryActionId[] {
   // Nothing to act THROUGH: no App on this deployment, or none installed on this org. The only
   // honest affordance is the install link, and only when there is one to give.
   if (!caps.appConfigured || !caps.installed) return caps.installUrl ? ["install-app"] : [];
@@ -52,12 +63,14 @@ export function canRender(actions: readonly RegistryActionId[], id: RegistryActi
  */
 export function capabilityNotice(caps: RegistryCapabilities, slug: string): string | null {
   const reason: RegistryCapabilityReason | null = caps.reason;
-  if (!reason) return null;
+  if (!reason || caps.localPaired) return null;
   switch (reason) {
     case "persistence-off":
       return "This workspace is running without a database, so a registry cannot be mapped or read here.";
     case "app-not-configured":
-      return "Ascent's GitHub App is not configured on this deployment, so there is nothing to connect a registry through.";
+      return caps.localAvailable
+        ? "Pair the registry's local checkout — no GitHub App is needed on a self-hosted install. Connecting GitHub is optional."
+        : "Ascent's GitHub App is not configured on this deployment, so there is nothing to connect a registry through.";
     case "not-installed":
       return `Ascent's GitHub App is not installed on ${slug}. Install it and the registry actions appear here.`;
     case "insufficient-role":
@@ -65,6 +78,40 @@ export function capabilityNotice(caps: RegistryCapabilities, slug: string): stri
     case "token-not-mintable":
       return "Ascent cannot currently act on this organization's behalf, so the registry actions are withheld rather than shown and failed.";
   }
+}
+
+/** Column values `POST /api/org/:slug/registry` persists. YAML aliases (`git-native`) are the route's job. */
+export const SETUP_MODES = ["git_native", "hosted_mirror"] as const;
+export const SETUP_SINKS = ["api", "registry", "off"] as const;
+export type SetupMode = (typeof SETUP_MODES)[number];
+export type SetupSink = (typeof SETUP_SINKS)[number];
+
+/** git-native: content enters by PR. A fresh registry reports nothing until the owner opts in. */
+export const DEFAULT_SETUP_MODE: SetupMode = "git_native";
+export const DEFAULT_SETUP_SINK: SetupSink = "off";
+
+export const SETUP_MODE_OPTIONS: readonly { value: SetupMode; label: string; title: string }[] = [
+  { value: "git_native", label: "git-native", title: "Content enters by pull request; ascent only reads. The default." },
+  { value: "hosted_mirror", label: "hosted-mirror", title: "Content is authored in ascent and mirrored into the repo." },
+];
+
+export const SETUP_SINK_OPTIONS: readonly { value: SetupSink; label: string; title: string }[] = [
+  { value: "off", label: "off", title: "No invocation counts until you opt in. The default." },
+  { value: "api", label: "api", title: "Sink A: POST /api/org/skills/events. Token; the only sink that may name a repo." },
+  { value: "registry", label: "registry", title: "Sink B: usage/<contributor>.json in this repo. Counts only; no token." },
+];
+
+export const isSetupMode = (v: unknown): v is SetupMode =>
+  typeof v === "string" && (SETUP_MODES as readonly string[]).includes(v);
+export const isSetupSink = (v: unknown): v is SetupSink =>
+  typeof v === "string" && (SETUP_SINKS as readonly string[]).includes(v);
+
+/** Create and map send the same keys so the two POSTs cannot drift on mode or sink. */
+export function registryMapPayload(
+  base: { create: true; name: string } | { fullName: string },
+  choice: { mode: SetupMode; telemetrySink: SetupSink },
+): Record<string, unknown> {
+  return { ...base, mode: choice.mode, telemetrySink: choice.telemetrySink };
 }
 
 /** `{ error, code }` bodies, as sentences. The server's `error` is preferred; this is the fallback. */

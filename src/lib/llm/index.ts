@@ -12,6 +12,11 @@
 //   LLM_PROVIDER=codex-cli  -> the local `codex` CLI under your ChatGPT plan. Same gate and same
 //                              deployments as claude-cli (see LazyCodexCliProvider). Explicit-only,
 //                              like claude-cli: the auto ladder never selects a CLI provider.
+//   LLM_PROVIDER=gateway    -> the local LightTrack gateway (`lt-gateway`, src/lib/llm/gateway.ts): one
+//                              OpenAI-compatible endpoint that routes the `assess` use case to a
+//                              MEASURED seat (claude -p / codex exec) with the other seat as the
+//                              usage-limit fallback — see gateway.toml + docs/LLM_ROUTES.md. Explicit
+//                              only, like the CLI providers; needs no key.
 //   LLM_PROVIDER=mock       -> deterministic, keyless.
 //   LLM_PROVIDER=auto       -> (default) Gemini if a key is present, else a configured LOCAL server,
 //                              else mock. Never silently selects Bedrock — that's opt-in via the flag.
@@ -25,6 +30,7 @@ import { GeminiProvider } from "@/lib/llm/gemini";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import { OpenAiProvider } from "@/lib/llm/openai";
 import { OpenRouterProvider } from "@/lib/llm/openrouter";
+import { GatewayProvider } from "@/lib/llm/gateway";
 import { MockProvider } from "@/lib/llm/mock";
 import { LocalProvider, localLlmConfigured } from "@/lib/llm/local";
 import { NebiusProvider, nebiusConfigured } from "@/lib/llm/nebius";
@@ -100,7 +106,7 @@ export function hasLlmKey(): boolean {
   return Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
 }
 
-const PROVIDER_CHOICES = ["auto", "gemini", "bedrock", "openai", "openrouter", "local", "nebius", "mock", "claude-cli", "codex-cli"] as const;
+const PROVIDER_CHOICES = ["auto", "gemini", "bedrock", "openai", "openrouter", "local", "nebius", "mock", "claude-cli", "codex-cli", "gateway"] as const;
 
 export function resolveProviderChoice(): ProviderChoice {
   const raw = (process.env.LLM_PROVIDER ?? "").trim();
@@ -193,6 +199,11 @@ export function providerAvailable(name: ProviderName): boolean {
       // provider's own refusal can never disagree and put a guaranteed-throw step in the failover.
       // (Both CLIs share one gate: "is a local agent CLI usable on this deployment?")
       return cliProviderAllowed();
+    case "gateway":
+      // A loopback endpoint with no key: there is no env prerequisite to sniff, and a gateway that
+      // is not running fails fast (connection refused) inside assess() with a loud error rather
+      // than hanging. The seats behind it are the gateway's concern, not this process's.
+      return true;
     case "mock":
       return true;
     default:
@@ -213,6 +224,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
     case "nebius":
     case "claude-cli":
     case "codex-cli":
+    case "gateway":
       // Trust the operator's EXPLICIT LLM_PROVIDER selection. Pre-degrading a selected-but-unavailable
       // real provider to mock HERE set intendedProvider="mock" downstream, which suppressed the
       // llmFailed warning + the fallback SSE event entirely — so a misconfigured (or merely
@@ -226,6 +238,7 @@ export function getProvider(opts: { forceMock?: boolean } = {}): LLMProvider {
       if (choice === "local") return new LocalProvider();
       if (choice === "nebius") return new NebiusProvider();
       if (choice === "codex-cli") return new LazyCodexCliProvider();
+      if (choice === "gateway") return new GatewayProvider();
       return new LazyClaudeCliProvider();
     case "gemini":
       // EXPLICIT gemini selection: construct the REAL provider unconditionally, mirroring the
@@ -268,10 +281,14 @@ export function providerByName(name: string | undefined | null): LLMProvider | n
       return providerAvailable("openrouter") ? new OpenRouterProvider() : null;
     case "local":
       return providerAvailable("local") ? new LocalProvider() : null;
+    case "nebius":
+      return providerAvailable("nebius") ? new NebiusProvider() : null;
     case "claude-cli":
       return providerAvailable("claude-cli") ? new LazyClaudeCliProvider() : null;
     case "codex-cli":
       return providerAvailable("codex-cli") ? new LazyCodexCliProvider() : null;
+    case "gateway":
+      return new GatewayProvider();
     default:
       return null;
   }

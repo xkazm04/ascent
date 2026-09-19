@@ -16,17 +16,22 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   setRepoSegmentsBulk: vi.fn(async () => 0),
+  recordOrgAudit: vi.fn(async () => true),
 }));
 vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => null),
 }));
+vi.mock("@/lib/access", () => ({
+  resolveViewerLogin: vi.fn(async () => "alice"),
+}));
 
 import { POST } from "./route";
-import { setRepoSegmentsBulk } from "@/lib/db";
+import { setRepoSegmentsBulk, recordOrgAudit } from "@/lib/db";
 import { requireOrgAccess } from "@/lib/authz";
 
 const mockBulk = vi.mocked(setRepoSegmentsBulk);
 const mockAccess = vi.mocked(requireOrgAccess);
+const mockAudit = vi.mocked(recordOrgAudit);
 
 function post(id: string, body: Record<string, unknown>) {
   return POST(
@@ -52,6 +57,7 @@ describe("POST /api/org/segments/:id/repos/bulk — auth + per-row tenant resolu
     const res = await post("seg-B", { org: "A", fullNames: ["victim/repo"], member: true });
     expect(res.status).toBe(403);
     expect(mockBulk).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   it("400s when fullNames isn't an array — before gate or write", async () => {
@@ -59,6 +65,7 @@ describe("POST /api/org/segments/:id/repos/bulk — auth + per-row tenant resolu
     expect(res.status).toBe(400);
     expect(mockAccess).not.toHaveBeenCalled();
     expect(mockBulk).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   it("a body-smuggled org can't bulk-tag another tenant's segment — bulk returns -1 ⇒ 404", async () => {
@@ -68,6 +75,7 @@ describe("POST /api/org/segments/:id/repos/bulk — auth + per-row tenant resolu
     // The org reaching the db fn is the gated body.org; the { id, orgId } filter rejected the segment.
     expect(mockBulk.mock.calls[0][0]).toBe("A");
     expect(mockBulk.mock.calls[0][1]).toBe("seg-B");
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 
   it("authorized in-org bulk tag returns the exact changed count (default member=true)", async () => {
@@ -79,8 +87,20 @@ describe("POST /api/org/segments/:id/repos/bulk — auth + per-row tenant resolu
     expect(mockBulk).toHaveBeenCalledWith("acme", "seg-1", ["acme/a", "acme/b", "acme/c"], true);
   });
 
+  it("audits `segment.bulk_tag` on success with counts, not the repo list", async () => {
+    mockBulk.mockResolvedValue(3);
+    const res = await post("seg-1", { org: "acme", fullNames: ["acme/a", "acme/b", "acme/c"] });
+    expect(res.status).toBe(200);
+    expect(mockAudit).toHaveBeenCalledTimes(1);
+    expect(mockAudit.mock.calls[0][0]).toBe("segment.bulk_tag");
+    expect(mockAudit.mock.calls[0][1]).toBe("acme");
+    expect(mockAudit.mock.calls[0][2]).toEqual({ segmentId: "seg-1", member: true, requested: 3, changed: 3 });
+    expect(mockAudit.mock.calls[0][3]).toBe("alice");
+  });
+
   it("filters non-string fullNames and caps the batch before handing to the db fn", async () => {
     await post("seg-1", { org: "acme", fullNames: ["acme/a", 42, null, "acme/b"], member: false });
     expect(mockBulk).toHaveBeenCalledWith("acme", "seg-1", ["acme/a", "acme/b"], false);
+    expect(mockAudit.mock.calls[0][2]).toMatchObject({ member: false, requested: 2 });
   });
 });

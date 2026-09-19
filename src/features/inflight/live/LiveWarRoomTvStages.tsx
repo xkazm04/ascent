@@ -10,8 +10,9 @@ import { EFFORT_CLASS, IMPACT_CLASS, reportPermalink } from "@/lib/ui";
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
 import { stateTitle } from "@/components/org/viz";
 import { Meter } from "@/components/org/shared/ui";
-import { PaceChip, goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
+import { goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
 import { goalMeterColor } from "@/features/inflight/live/LiveWarRoomGoalBanner";
+import { WallPaceChip } from "@/features/inflight/live/WallPaceChip";
 import { Leaderboard } from "@/features/inflight/live/LiveWarRoomLeaderboard";
 import { MoversTicker } from "@/features/inflight/live/LiveWarRoomPanels";
 import { HeadlineStrip } from "@/features/inflight/live/LiveWarRoomStat";
@@ -63,7 +64,7 @@ export function TvStanding({ data }: { data: TvStageData }) {
           <div className="rounded-2xl border border-divider bg-surface-strong/30 p-5">
             <div className="flex items-center justify-between gap-2">
               <Kicker tone="muted">Goal</Kicker>
-              <PaceChip pace={goal.pace} />
+              <WallPaceChip goal={goal} />
             </div>
             <p className="mt-1 type-lede font-medium text-white">{goal.label}</p>
             <div className="mt-2 font-mono type-display-lg font-bold tabular-nums" style={{ color: goalMeterColor(goal) }}>

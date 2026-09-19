@@ -1,14 +1,19 @@
-// POST /api/practices/generate  { repo: "owner/name", practiceId }  ->  { artifact }
+// POST /api/practices/generate  { repo: "owner/name", practiceId }  ->  { artifact, shape }
 // Preview the concrete, leak-free starter artifact a practice would seed into a repo — the
 // "what would land" step before opening a PR. Read-only: one cheap metadata call to tailor the
 // artifact (commands, CI matrix) to the repo's language. Works with a GITHUB_TOKEN for private
 // repos; public repos need no auth.
+//
+// `shape` is `{ kind: "house", exemplars }` or `{ kind: "generic" }` — the preview kicker's
+// source of truth. Generation goes through `buildPracticeArtifact` so a caller with standing
+// reviews the same house-or-generic body apply will commit. Without standing, orgSlug is
+// omitted: a generic starter, and mined structure stays inside the org.
 
 import { NextResponse } from "next/server";
 import { fetchRepoContext, GitHubError, parseRepoUrl } from "@/lib/github/source";
 import { githubErrorHeaders, githubErrorStatus } from "@/lib/api/github-status";
 import { respondError } from "@/lib/api/respond";
-import { buildArtifact } from "@/lib/practice-artifact";
+import { buildPracticeArtifact } from "@/lib/practices/artifact";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { canMintInstallationToken } from "@/lib/authz";
@@ -48,9 +53,21 @@ export async function POST(request: Request) {
       }
     }
     const ctx = await fetchRepoContext(parsed, token);
-    const artifact = buildArtifact(body.practiceId, ctx);
+    // Same (practiceId, ctx, orgSlug) `applyPracticeToRepo` uses, so the preview body is the
+    // commit body and the fingerprint drift-guard can pass. Standing callers resolve this org's
+    // mined pattern; anonymous callers omit orgSlug — a generic starter, mined structure stays
+    // inside the org.
+    const orgSlug = callerHasStanding ? parsed.owner.toLowerCase() : undefined;
+    const { artifact, house } = await buildPracticeArtifact(
+      body.practiceId,
+      ctx,
+      orgSlug ? { orgSlug } : {},
+    );
     if (!artifact) return NextResponse.json({ error: `Unknown practice "${body.practiceId}".` }, { status: 404 });
-    return NextResponse.json({ artifact });
+    const shape = house
+      ? { kind: "house" as const, exemplars: house.exemplars.length }
+      : { kind: "generic" as const };
+    return NextResponse.json({ artifact, shape });
   } catch (err) {
     if (err instanceof GitHubError) {
       // Was `err.status ?? 502` — GitHub's own status, populated at only some throw sites, which made

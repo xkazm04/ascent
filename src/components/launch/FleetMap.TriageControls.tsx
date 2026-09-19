@@ -1,7 +1,15 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { type MatchCount, type SortKey } from "./fleetMapDerive";
 import { LEVEL_BANDS, SORTS } from "./FleetMap.constants";
+
+/** True when `/` must stay a typed character rather than a search shortcut. */
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+}
 
 // Triage controls for the fleet map (see showTriageControls for when they render).
 export function TriageControls({
@@ -30,13 +38,31 @@ export function TriageControls({
   matchCount: MatchCount;
   onClear: () => void;
 }) {
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // `/` focuses Find a repo, matching the rest of the app. Mounted only while triage is shown.
+  // Ignore when the keystroke is already going into a field — a slash in search or sort must stay a slash.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-800 bg-slate-950/40 px-4 py-3">
       <input
+        ref={searchRef}
+        type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Find a repo…"
         aria-label="Filter repositories by name"
+        aria-keyshortcuts="/"
         className="w-40 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 type-body-sm text-slate-200 placeholder:text-slate-600"
       />
       <div className="flex items-center gap-1">

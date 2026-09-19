@@ -255,3 +255,44 @@ describe("BriefingDocument — the score's denominator", () => {
     expect(t).toMatch(/Overall\s+—/);
   });
 });
+
+describe("BriefingDocument — one goal composer (2-day / 14-day / attainment-only)", () => {
+  it("drops leftover ETA when the fit is unpresentable or absent; labels pct whenever it prints pct", () => {
+    const two = text(briefing({
+      goals: [{
+        label: "Lift security", current: 51, target: 80, pct: 50,
+        pctBasis: "progress", pctLabel: "Progress since this goal was set",
+        pace: "on-pace", etaDays: 40, headline: null,
+        insufficiency: "Not enough history to project: 2 distinct scan days",
+      }],
+    }));
+    expect(two).toContain("Not enough history to project");
+    expect(two).toContain("Progress since this goal was set");
+    expect(two).toContain("50%");
+    expect(two).not.toMatch(/ETA ~/);
+
+    const att = text(briefing({
+      goals: [{
+        label: "Fleet to 70", current: 63, target: 70, pct: 90,
+        pctBasis: "attainment",
+        pctLabel: "Current standing vs target (set before baselines were recorded — not progress)",
+        pace: "on-pace", etaDays: 12,
+      }],
+    }));
+    expect(att).toContain("not progress");
+    expect(att).toContain("90%");
+    expect(att).not.toMatch(/ETA ~/);
+
+    const ok = text(briefing({
+      goals: [{
+        label: "Lift security", current: 64, target: 80, pct: 50,
+        pctBasis: "progress", pctLabel: "Progress since this goal was set",
+        pace: "tracking", etaDays: 16,
+        headline: "On track", confidence: 100, basis: "fit over 15 scan days across 14 days",
+      }],
+    }));
+    expect(ok).toContain("ETA ~16d");
+    expect(ok).toContain("Progress since this goal was set");
+    expect(ok).toContain("fit over 15 scan days across 14 days");
+  });
+});

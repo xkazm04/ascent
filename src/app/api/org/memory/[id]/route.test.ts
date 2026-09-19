@@ -1,4 +1,5 @@
-// Route test for /api/org/memory/[id] — the AUTHOR gate on writes (design doc §4.5).
+// Route test for /api/org/memory/[id] — the AUTHOR gate on writes (design doc §4.5) and the
+// ORIGIN gate on PATCH/DELETE of a registry mirror.
 //
 // REGRESSION (explorer, 2026-08-29): GET enforced "another author's private scratch is not readable
 // just because its id was guessed" and every db read composed visibilityScope(viewer) — but the write
@@ -9,6 +10,12 @@
 //
 // The gate answers 404, not 403, on purpose: a caller who is not allowed to know the row exists must
 // not learn that it does from the write path either.
+//
+// REGRESSION (scan-sweep, 2026-09-17): the Memory card already hid archive on `origin: "registry"`
+// (a write that the next index pass would revert), but PATCH/DELETE still reported `{ ok: true }`.
+// A write that reports success and does not survive is worse than a refusal. The wire now answers
+// `409 registry-origin`, matching reflect/apply. The author gate still wins: a private registry
+// row the caller may not know about answers 404, not 409.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -80,8 +87,16 @@ const patch = (body: unknown) =>
     body: JSON.stringify(body),
   });
 
-const SHARED = { id: "mem_1", visibility: "shared", createdBy: "bob", content: "x" };
-const BOBS_PRIVATE = { id: "mem_1", visibility: "private", createdBy: "bob", content: "x" };
+const SHARED = { id: "mem_1", visibility: "shared", createdBy: "bob", content: "x", origin: "hosted" };
+const BOBS_PRIVATE = { id: "mem_1", visibility: "private", createdBy: "bob", content: "x", origin: "hosted" };
+const REGISTRY = { id: "mem_1", visibility: "shared", createdBy: "bob", content: "x", origin: "registry" };
+const BOBS_PRIVATE_REGISTRY = {
+  id: "mem_1",
+  visibility: "private",
+  createdBy: "bob",
+  content: "x",
+  origin: "registry",
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -153,5 +168,73 @@ describe("GET /api/org/memory/[id] — unchanged, and the reference the writes n
     mockGetOrgMemory.mockResolvedValue(SHARED);
     const res = await GET(new Request("http://localhost/x"), ctx);
     expect(res.status).toBe(200);
+  });
+
+  it("still returns a registry-origin row — the origin gate is writes only", async () => {
+    mockGetOrgMemory.mockResolvedValue(REGISTRY);
+    const res = await GET(new Request("http://localhost/x"), ctx);
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("PATCH /api/org/memory/[id] — the registry-origin refusal", () => {
+  it("REFUSES a content patch on a registry mirror, and writes nothing", async () => {
+    mockGetOrgMemory.mockResolvedValue(REGISTRY);
+    const res = await PATCH(patch({ content: "rewritten in ascent" }), ctx);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("registry-origin");
+    expect(body.error).toContain("pull request instead");
+    expect(mockUpdateOrgMemory).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES the archive-via-PATCH toggle the UI no longer offers", async () => {
+    mockGetOrgMemory.mockResolvedValue(REGISTRY);
+    const res = await PATCH(patch({ archived: true }), ctx);
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("registry-origin");
+    expect(mockUpdateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("still 404s another author's PRIVATE registry row — origin must not leak existence", async () => {
+    mockGetOrgMemory.mockResolvedValue(BOBS_PRIVATE_REGISTRY);
+    const res = await PATCH(patch({ content: "rewritten" }), ctx);
+    expect(res.status).toBe(404);
+    expect(mockUpdateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("is byte-identical to before for a hosted row", async () => {
+    mockGetOrgMemory.mockResolvedValue(SHARED);
+    const res = await PATCH(patch({ content: "collaborative" }), ctx);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mockUpdateOrgMemory).toHaveBeenCalled();
+  });
+});
+
+describe("DELETE /api/org/memory/[id] — the registry-origin refusal", () => {
+  it("REFUSES to archive a registry mirror, and writes nothing", async () => {
+    mockGetOrgMemory.mockResolvedValue(REGISTRY);
+    const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), ctx);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("registry-origin");
+    expect(mockArchiveOrgMemory).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("still 404s another author's PRIVATE registry row — origin must not leak existence", async () => {
+    mockGetOrgMemory.mockResolvedValue(BOBS_PRIVATE_REGISTRY);
+    const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), ctx);
+    expect(res.status).toBe(404);
+    expect(mockArchiveOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("still archives a hosted shared memory for an admin", async () => {
+    mockGetOrgMemory.mockResolvedValue(SHARED);
+    const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), ctx);
+    expect(res.status).toBe(200);
+    expect(mockArchiveOrgMemory).toHaveBeenCalledWith("mem_1");
   });
 });

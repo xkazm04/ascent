@@ -57,7 +57,7 @@ export function TeamsSignals({
           {leader ? (
             <>
               <MatrixGrid
-                className="mt-3 max-w-xs"
+                className="mt-3"
                 axes={["AI commits", "Adoption"]}
                 rows={[
                   {

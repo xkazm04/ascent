@@ -24,8 +24,14 @@ export function DataErasureManifest({ includeAudit }: { includeAudit: boolean })
         </>,
         <>
           <strong className="font-semibold text-white">Every repository&apos;s scan-derived cache</strong>: the
-          detected tech stack, the passport, the pinned head commit (SHA and ETag), and the last-scan time,
-          status and error.
+          detected tech stack, the passport, context health, the manifest readout, the guidance graph,
+          AI-standard conformance, the pinned head commit (SHA and ETag), and the last-scan time, status
+          and error.
+        </>,
+        <>
+          <strong className="font-semibold text-white">Latest-scan evidence on every repository</strong>:
+          AI-attributed pull requests, contributor snapshots, CODEOWNERS teams, and deployments a scan
+          observed.
         </>,
         ...(includeAudit
           ? [

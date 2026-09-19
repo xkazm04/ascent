@@ -169,3 +169,15 @@ describe("quarantineMemoryFiles — the boundary (#14)", () => {
     expect(memoryFiles).toHaveLength(0);
   });
 });
+
+
+it("selects and quarantines canonical memory IDs beyond four digits", () => {
+  const paths = [".ai/memory/9999-old.md", ".ai/memory/10000-next.md", ".ai/memory/10001-latest.md"];
+  expect(memoryPicks([...paths, ".ai/memory/00001-invalid.md"])).toEqual([...paths].reverse());
+  const picks = ["README.md", ...paths];
+  const result = quarantineMemoryFiles(picks.map((p) => fetched(p, p === "README.md" ? "readme" : "private memory")), picks);
+  expect(result.memoryFiles.map((f) => f.path)).toEqual(paths);
+  expect(result.files.map((f) => f.path)).toEqual(["README.md"]);
+  expect(result.nonMemoryAttempted).toBe(1);
+  expect(JSON.stringify(result.files)).not.toContain("private memory");
+});

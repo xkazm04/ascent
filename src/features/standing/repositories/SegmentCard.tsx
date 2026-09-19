@@ -7,6 +7,7 @@ import { POSTURE_LABEL } from "@/components/org/shared/ui";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 import type { SegmentSummary } from "@/lib/db";
+import { SCORED_COUNT_HINT, taggedScoredLabel } from "./segmentCounts";
 
 // Human posture label with a raw-id fallback. Deliberately the lookup-then-`?? raw` form (NOT the
 // shared postureLabel(), which title-cases an unknown id) so the existing rendering is preserved
@@ -49,12 +50,8 @@ export function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary;
           </div>
         </>
       )}
-      {/* G4-08: repoCount here is the watched-or-scanned rollup universe, NOT every repo tagged into
-          the segment (that count is the one on the "Create & tag" chips directly above this strip) —
-          the title disambiguates so the two numbers are never read as contradicting each other. They
-          now sit on ONE screen, so the disambiguation matters more, not less. */}
-      <div className="mt-1 type-mono-sm text-slate-600" title="Repos in this segment that are watched or have a scan (may be fewer than the total tagged into the segment)">
-        {s.scannedCount}/{s.repoCount} scanned
+      <div className="mt-1 type-mono-sm text-slate-600" title={SCORED_COUNT_HINT}>
+        {taggedScoredLabel(taggedCount, score === null ? null : s.scannedCount)}
       </div>
       {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} taggedCount={taggedCount} />}
     </div>

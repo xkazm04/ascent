@@ -13,6 +13,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { guardIngest, payloadTooLarge, readCappedBody } from "@/lib/integrations/ingest-guard";
 import { parseOtlpMetrics, type OtlpMetricsBody } from "@/lib/integrations/otlp";
 import { parseOtlpSessions } from "@/lib/integrations/sessions";
+import { hasOtlpMetricStructure } from "@/lib/integrations/otlp-wire";
 import { recordUsage } from "@/lib/db";
 import { recordAgentSessions } from "@/lib/db/agent-sessions";
 
@@ -52,6 +53,9 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid OTLP JSON." }, { status: 400 });
   }
+  if (!hasOtlpMetricStructure(body)) {
+    return NextResponse.json({ error: "Invalid OTLP metrics structure." }, { status: 400 });
+  }
 
   // An export that lands nothing must SAY so. `received` counts every datapoint in the payload and
   // `skipped` says, by reason, which of them had no home — an allowlisted metric name, a resource with
@@ -87,9 +91,11 @@ export async function POST(req: NextRequest) {
       ...(droppedTotal > 0
         ? {
             note:
-              parsed.skipped["unsupported-host"] > 0
-                ? `${droppedTotal} datapoint(s) were not stored. Ascent attributes usage to GitHub repositories; set OTEL_RESOURCE_ATTRIBUTES=git.repository to a GitHub remote for the repos you want measured.`
-                : `${droppedTotal} datapoint(s) were not stored. See the skipped counts.`,
+              parsed.skipped["cumulative-temporality"] > 0
+                ? `${droppedTotal} datapoint(s) were not stored. Daily usage is recorded from increments; set OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta (the exporter default) instead of cumulative.`
+                : parsed.skipped["unsupported-host"] > 0
+                  ? `${droppedTotal} datapoint(s) were not stored. Ascent attributes usage to GitHub repositories; set OTEL_RESOURCE_ATTRIBUTES=git.repository to a GitHub remote for the repos you want measured.`
+                  : `${droppedTotal} datapoint(s) were not stored. See the skipped counts.`,
           }
         : {}),
     },

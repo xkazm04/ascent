@@ -17,7 +17,8 @@
 import { NextResponse } from "next/server";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { getOrgRegistry } from "@/lib/db/org-registry";
-import { guardRegistryRead, guardRegistryWrite, registryError } from "@/lib/registry/api";
+import { guardRegistryRead, registryError, resolveRegistrySource } from "@/lib/registry/api";
+import { listLocalPathCommits, readLocalFileAtRef } from "@/lib/registry/local-source";
 import { getSkillTrace, putSkillTrace } from "@/lib/db/org-skill-trace";
 import { listSkillLessons } from "@/lib/db/org-skill-lessons";
 import { listPathCommits, readFileAtRef } from "@/lib/registry/read";
@@ -51,7 +52,8 @@ export async function GET(request: Request, ctx: { params: Promise<{ slug: strin
     return NextResponse.json({ skill, path, headSha, entries: cached.entries, truncated: cached.truncated, lessons, cached: true });
   }
 
-  const gate = await guardRegistryWrite(slug, { minRole: "member" });
+  // Local first: a paired registry's history is `git log` on the checkout, no token involved.
+  const gate = await resolveRegistrySource(slug, { minRole: "member" });
   if (gate instanceof NextResponse) {
     // The viewer may read the tab but ascent cannot reach GitHub for them. Serve the STALE cache
     // when there is one, labelled as such — an older timeline is worth more than an empty one.
@@ -61,17 +63,23 @@ export async function GET(request: Request, ctx: { params: Promise<{ slug: strin
     return NextResponse.json({ skill, path, headSha, entries: [], truncated: false, lessons, cached: false, error: "History is unavailable — Ascent cannot read this registry right now." });
   }
 
-  const ref = parseFullName(registry.fullName);
-  if (!ref) return registryError("invalid-input", `"${registry.fullName}" is not a valid repository name.`, 400);
+  const ref = gate.kind === "github" ? parseFullName(registry.fullName) : null;
+  if (gate.kind === "github" && !ref) return registryError("invalid-input", `"${registry.fullName}" is not a valid repository name.`, 400);
+  const commitsOf = () =>
+    gate.kind === "local"
+      ? listLocalPathCommits(gate.dir, path, headSha, TRACE_COMMITS)
+      : listPathCommits(gate.token, ref!.owner, ref!.repo, path, headSha, TRACE_COMMITS);
+  const textAt = (sha: string) =>
+    gate.kind === "local" ? readLocalFileAtRef(gate.dir, path, sha) : readFileAtRef(gate.token, ref!.owner, ref!.repo, path, sha);
 
   let entries: SkillTraceEntry[];
   let truncated = false;
   try {
-    const log = await listPathCommits(gate.token, ref.owner, ref.repo, path, headSha, TRACE_COMMITS);
+    const log = await commitsOf();
     truncated = log.truncated;
     const versions = new Map<string, string>();
     for (const c of log.commits.slice(0, TRACE_VERSION_READS)) {
-      const text = await readFileAtRef(gate.token, ref.owner, ref.repo, path, c.sha);
+      const text = await textAt(c.sha);
       if (!text) continue;
       const parsed = parseRegistrySkill(path, text);
       if (parsed.ok && parsed.value.version) versions.set(c.sha, parsed.value.version);

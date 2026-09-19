@@ -37,6 +37,8 @@ export interface ContextFleetSummary {
   unguidedCommits: number;
   deadRefRepos: number;
   deadRefsTotal: number;
+  /** True when any contributing count came from legacy sampled examples. */
+  deadRefsLowerBound: boolean;
 }
 
 export function fleetContextSummary(rows: RepoContextRow[]): ContextFleetSummary {
@@ -60,7 +62,8 @@ export function fleetContextSummary(rows: RepoContextRow[]): ContextFleetSummary
     pastHalfLife: known.filter((r) => (r.potency ?? 100) < 50).length,
     freshnessKnown: known.length,
     unguidedCommits: known.reduce((a, r) => a + (r.commitsSinceEdit ?? 0), 0),
-    deadRefRepos: withContext.filter((r) => r.deadRefs.length > 0).length,
-    deadRefsTotal: withContext.reduce((a, r) => a + r.deadRefs.length, 0),
+    deadRefRepos: withContext.filter((r) => (r.deadRefsTotal ?? r.deadRefs.length) > 0).length,
+    deadRefsTotal: withContext.reduce((a, r) => a + (r.deadRefsTotal ?? r.deadRefs.length), 0),
+    deadRefsLowerBound: withContext.some((r) => r.deadRefsLowerBound ?? (r.deadRefsTotal == null && r.deadRefs.length > 0)),
   };
 }

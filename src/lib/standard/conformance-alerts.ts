@@ -83,7 +83,7 @@ export async function alertConformanceRegressions(
     if (claimed.length > 0) {
       const message = buildControlAlertMessage({ org: orgSlug, items: claimed });
       text = message.text;
-      dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl });
+      dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl, org: orgSlug });
     }
 
     // Rule 3: the row is written over EVERY regression, not just the dispatched ones — the history

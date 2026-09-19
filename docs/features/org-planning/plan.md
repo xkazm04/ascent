@@ -13,6 +13,13 @@ control (W1c) moved to the Briefing tab.
 
 Everything below is what still exists in this area and what it is for.
 
+## Maturity forecasts
+
+Forecasts average observations within each UTC calendar day before fitting the trend.
+Scan timestamps on adjacent UTC dates count as distinct days even when less than 24 hours apart;
+multiple scans on one date contribute one daily mean. The projection remains anchored at the
+latest actual observation, and the existing point-count and span requirements still apply.
+
 ## Goals
 
 A goal is a fleet-level target. Its progress is **live**: recomputed from the latest scan
@@ -58,6 +65,15 @@ band ("behind the pace its deadline needs" now sends the reader to the Follow-up
 digest alerts. Goals duplicate the transition programme's single named commitment and are the next
 retirement candidate; when that happens those four readers lose a branch each, nothing else.
 
+**A goal ETA is gated the same way a trajectory is.** `listGoals` carries the OLS `forecast` next to
+pace/ETA; presenters must run it through `composeGoal` (`src/lib/maturity/forecast.ts`) so an
+unmeasurable fit cannot print a bare "behind, ETA ~120d". The briefing markdown, board PDF and Goals
+card all read one composed line (`briefingGoalLine` / `briefingGoalStats`): current/target, `pct` only
+with its `pctLabel`, pace only when that read is presentable, and ETA omitted when the fit fails
+`isProjectable` or there is no fit (absence, never a leftover `etaDays`). A sub-gate fit renders
+`forecastInsufficiency` verbatim. A reached target is a standing fact and needs no hedge. See
+[org-intelligence.md](../org-dashboard/org-intelligence.md).
+
 ## Transition programme
 
 Documented in [org-intelligence.md](../org-dashboard/org-intelligence.md) (W1c). Its control panel
@@ -71,6 +87,15 @@ Unchanged by the retirement and documented where they live: the briefing and its
 [org-intelligence.md](../org-dashboard/org-intelligence.md); playbooks in
 [practices.md](../org-dashboard/practices.md); the live wall — and the loop cockpit that now fronts
 it at `?tab=live` — in [live.md](live.md).
+
+The committed starter (`playbookStarterFile` in `src/lib/org/playbook-brief.ts`) pins the playbook's
+`version` in the opening blockquote as `v{n}`. `playbookMarkdown` (PR body / Copy-for-LLM) names the
+same `v{n}` so the two artifacts stay in lockstep; callers pass `PlaybookRow.version`. Fleet
+apply-batch (`POST /api/org/playbooks/[id]/apply-batch`) accepts `dryRun: true` and returns those
+exact starter bytes plus the capped unique repo list (`{ repos, starter, skipped }`) without
+minting an installation token or opening PRs; the admin gate still runs so the starter does not
+leak. Create also accepts `fromDim` / `fromRec` to prefill from the dimension template (the
+briefing's ranked next move when `fromRec` is set); see [practices.md](../org-dashboard/practices.md).
 
 ## Weekly digest (`?tab=digest`, Bought)
 
@@ -236,6 +261,7 @@ law](../../ORG-UX-REDESIGN.md) §2 was applied here in full. `SectionHeader desc
 | Impact ledger | Tiles + a by-dimension chip row + a field-notes paragraph | A `FlowRibbon` funnel (merged → re-scanned → repos moved) beside `ImpactMovement`, a diverging per-dimension bar on one symmetric axis; then the tiles; then the receipt table |
 | Transition programme | A header sentence asserting the baseline is frozen | `ProgramBaseline` — the frozen origin as an accent **ring** (the kit's `decided` encoding: a person froze it) on the 0-100 maturity ramp, the movement to today's standing, and the target rung as a dashed edge |
 | vs previous period | A header sentence naming the comparison window | `PeriodDumbbell` in each of the three cells: hollow origin dot at the prior window's end, filled dot at now, on one track. Rendered by `PriorPeriodGrid`, so the public `/share/briefing/[token]` page gets the same mark |
+| Trajectory | Headline / hedge / regression caveat inlined on the share page | One `ExecutiveTrajectoryCard` mounted by the Briefing tab and `/share/briefing/[token]` (G12) |
 
 **The pure view-models** — `leverageMoves.ts` and `impactView.ts` decide every state and every scale,
 so the panel's refusals are unit-testable without a DOM (`leverageMoves.test.ts`,
@@ -365,3 +391,9 @@ contract.
 - **Goals have no management UI.** Deliberate half-state, see above.
 - (Closed 2026-08-14.) ~~Goal metrics are point-in-time.~~ Every `GoalProgress` row carries
   `series`, drawn by `GoalCard` (`src/components/org/shared/GoalTrend.tsx`).
+- (Closed 2026-09-17.) ~~Executive briefing fleet adoption used the mock-inclusive scanned set as
+  its denominator.~~ `adoptionRate` is the share of **live-scored** repositories at a high-adoption
+  posture (`realScoredCount`), matching the briefing's other measurements; mock-engine rows are
+  excluded from both sides of the ratio when repo rows are present. Markdown/PDF still say "of
+  scanned repos" (`briefing-markdown.ts`, `briefing-document.tsx`) — presentation, outside this
+  write set.

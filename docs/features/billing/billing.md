@@ -2,7 +2,8 @@
 
 _Status: **implemented end-to-end**: four plan tiers (`src/lib/plans.ts`), a monthly-allowance-then-credit
 hybrid charge model, a Polar purchase flow for both credit packs and plan-tier upgrades (checkout route +
-a signature-verified, idempotent fulfilment webhook), and a refund/clawback flow that reverses credits and
+a signature-verified, idempotent fulfilment webhook), an owner-gated Polar customer portal so owners can
+cancel or update billing without a refund ticket, and a refund/clawback flow that reverses credits and
 downgrades a plan on a full refund. The accounting layer stays provider-agnostic: anything that calls
 `grantCredits`/`setOrgPlan` moves the org's entitlement, and the scan code never imports the billing SDK._
 
@@ -46,7 +47,10 @@ org row plus a coordinated env edit on every deployment for no user-visible gain
 Every surface that shows a tier's name or price derives it from the model rather than re-typing it:
 `PlanControl` (the org plan switcher), the "Credits · Unlimited" chips (via the exported
 `UNLIMITED_PLAN_LABEL`), the `/pricing` cards, the credit matrix (`MATRIX_PLANS` is now *built from*
-`PLAN_FEATURES`, not a second copy of it), the `/pricing` SEO description and the landing FAQ.
+`PLAN_FEATURES`, not a second copy of it), the `/pricing` SEO description, the landing FAQ, and the
+site-wide SoftwareApplication JSON-LD (`src/lib/site-jsonld.ts`: paid `planPriceLabel()` amounts as
+an AggregateOffer; Free's `$0` and Custom's `Flexible` are omitted so a rich result cannot declare
+the product free).
 `src/lib/plans.test.ts` pins the id↔label split so a rename can't quietly become a data migration, and
 `price-drift.test.ts` derives its fixtures from `monthlyPrice` so a repricing can't break the drift
 tests. The 2026-08-14 repricing found the last two prose copies (the landing FAQ and the `/pricing`
@@ -112,6 +116,9 @@ Notes, all read directly from the model:
 - `planPriceLabel("enterprise")` is `{ amount: "Flexible", cadence: "scoped with you" }`. It used to be
   `"Custom" / "contact us"`: once the tier is *named* Custom, repeating the word as its price says nothing.
   `src/lib/price-drift.ts` still exempts the tier: `monthlyPrice` is null, so no number exists to drift.
+- Site-wide JSON-LD (`src/app/layout.tsx` via `siteStructuredData()`) emits an AggregateOffer of the
+  paid numeric `planPriceLabel()` amounts (G8). It omits Free's `$0` and Custom's `Flexible` so a rich
+  result cannot declare the product free.
 
 ## The hybrid charge model
 
@@ -151,14 +158,22 @@ entitlement **before** paid inference and debits/records **after**, so a cache/d
 degrade-to-mock run is never charged.
 
 - **Public scans**: never touch the plan allowance or credits — they cost the visitor nothing. They
-  are separately capped at a free monthly allowance (`publicScanMonthlyLimit()`,
-  `src/lib/public-scan-limit.ts`; default **5** per rolling 30-day window, per anonymous IP or
-  per signed-in user), enforced by `src/lib/public-scan-quota.ts` and shown live by the scan
-  dialog's `QuotaMeter`. **Never describe them as "unlimited" or "unmetered"** — a meter is
-  rendered on the same screen. Every surface that states the number derives it from that one
-  function: the Free card and blurb (`PLAN_SPECS.free`), `/pricing`'s metadata and footnote, the
-  landing FAQ's JSON-LD, and the 429 body. `plans.test.ts` fails any plan copy that re-claims
-  "unlimited"/"unmetered" public scans.
+  are separately capped at a free monthly allowance (`publicScanAllowance()` /
+  `publicScanMonthlyLimit()`, `src/lib/public-scan-limit.ts`; default **5** per rolling 30-day
+  window, per anonymous IP or per signed-in user), enforced by `src/lib/public-scan-quota.ts` and
+  shown live by the scan dialog's `QuotaMeter`. This gate applies to **every anonymous public
+  scan**, on every plan — it is not `PLAN_FEATURES.free.includedCredits` (the hosted Free tier's
+  private-scan allotment). **Never describe them as "unlimited" or "unmetered"** — a meter is
+  rendered on the same screen. Signing in does **not** raise that number unless
+  `PUBLIC_SCAN_MONTHLY_LIMIT_SIGNED_IN` is set above the anonymous cap
+  (`signInRaisesPublicScanLimit()` in the same module). The default pair is equal (both 5);
+  `QuotaMeter` and the report quota banners therefore never say "Sign in for more scans" unless
+  signing in actually grants more — the lever for more volume is a paid plan. Every surface that
+  states the number derives it from that one function: the Free card and blurb (`PLAN_SPECS.free`),
+  `/pricing`'s metadata and footnote, the landing FAQ's JSON-LD, the 429 body, and the
+  credit-matrix public-scan row (`creditMatrixData.ts`: all four tier cells plus the Scanning
+  intro). `plans.test.ts` fails any plan copy that re-claims "unlimited"/"unmetered" public scans;
+  `creditMatrixData.test.ts` pins the matrix cells to `publicScanAllowance().label`.
 - **Custom**: `unlimited: true`; never debited regardless of usage.
 
 ## Credit packs vs. plan products (Polar catalogs)
@@ -295,12 +310,40 @@ It replaces a CTA that was a `mailto:` when `ASCENT_CONTACT_EMAIL` happened to b
    session must never fire from a link prefetcher, crawler, or cross-origin probe.
 2. Validates `pack` against **both** catalogs (`creditsForProduct(pack) > 0` or `planForProduct(pack)`); an
    unknown/forged product id → 400.
-3. If a DB is configured, resolves the org and 404s an unknown slug with a uniform message (doesn't echo
+3. Owner-gates (`requireOrgRole(org, "owner")`) **before** minting a Polar session and before the
+   org-existence read, so a member, signed-in stranger, or unauthenticated same-origin GET cannot create a
+   hosted checkout (and a non-owner does not get a 404-vs-303 existence oracle). Auth-off deployments stay
+   open, matching the other owner gates. Same tier as `POST /api/org/plan` and credit grants.
+4. If a DB is configured, resolves the org and 404s an unknown slug with a uniform message (doesn't echo
    the slug back, so the response can't be used as an org-existence oracle); a DB-unavailable read is a
    retryable 503, not a misleading 404.
-4. Creates a hosted Polar checkout (`polar.checkouts.create`) carrying the org in **both**
+5. Creates a hosted Polar checkout (`polar.checkouts.create`) carrying the org in **both**
    `externalCustomerId` and `metadata.org`, and 303-redirects the browser to it. No credits or plan change
    happen here: the trust boundary for the actual grant is the webhook signature.
+
+## Customer portal (`GET /api/billing/portal?org=<slug>`)
+
+Owners cancel, update a payment method, or download invoices in Polar's hosted customer portal — one
+click, no refund ticket, no "talk to sales". G8 still holds: `/pricing` stays numeric, anonymous, and
+one-click; this link lives **inside** the org dashboard, owner-gated, and is omitted on free/self-host
+(`polarEnabled()` false). The control is `ManageBillingLink` (`CreditsControl.sections`) beside "Buy
+credits" and on the Settings plan chip (`PlanControl`).
+
+1. Same outer guards as checkout: billing unconfigured → 503, speculative prefetch → 204, cross-origin
+   → 403, missing org → 400. Owner-gated (`requireOrgRole(org, "owner")`) **before** any Polar call and
+   before the org-existence read. Auth-off deployments stay open, matching checkout.
+2. If a DB is configured, unknown slugs 404 with a uniform message (no slug echo). A DB-unavailable read
+   is a retryable 503.
+3. `polarCustomerPortalUrl(org)` (`src/lib/polar.ts`) mints a Polar customer session
+   (`polar.customerSessions.create` with the same `externalCustomerId` checkout stamps) and 303s to
+   `customerPortalUrl`. The Organization Access Token needs the `customer_sessions:write` scope.
+4. If this Polar SDK build has no session API, or the org has no Polar customer yet, it falls back to
+   Polar's documented hosted page `https://polar.sh/<POLAR_ORGANIZATION_SLUG>/portal` (sandbox host when
+   `POLAR_SERVER` is not production). Unset slug and no session → 503, not a dead button.
+
+Ascent does not invent a refund path here: Polar's portal is where the customer cancels; existing
+`order.refunded` / `subscription.canceled` / `subscription.revoked` webhooks still reconcile the
+entitlement.
 
 ## Webhook (`POST /api/billing/webhook`)
 
@@ -369,22 +412,25 @@ state.
     refused with 403 + `{ granted, cap }`; debits/corrections are never blocked. Deliberately a code
     constant, not an env var: a cap the leaked environment could raise would be no cap at all.
 
-## Low-balance warning (the opt-in "auto-recharge" preference)
+## Low-balance warning
 
 A paying org whose prepaid balance hits 0 used to discover it only from the `paused` chip (or the next
 402); autoscans stall mid-week and nobody is told until someone looks. The counter-measure is an
-**opt-in low-balance warning** with a one-click top-up, armed per org.
+**opt-in low-balance warning** with a one-click top-up, armed per org. Owner-facing chrome (the credits
+popover heading and the audit-trail badge) reads **Low-balance warning**. The machine ids
+(`/api/billing/autorecharge`, `billing.autorecharge`, `Organization.autoRechargeJson`) stay so existing
+clients and rows do not break.
 
-**What it is NOT.** Ascent cannot auto-recharge in the literal sense. The Polar integration is a *hosted
-checkout redirect* plus a *signed fulfilment webhook*; nothing stores a payment method or a Polar
+**What it is NOT.** Ascent cannot charge a saved card when the balance drops. The Polar integration is a
+*hosted checkout redirect* plus a *signed fulfilment webhook*; nothing stores a payment method or a Polar
 customer session, and no off-session charge API is used. Buying credits therefore always requires a
 present human. The constant `AUTO_RECHARGE_CHARGES_AUTOMATICALLY`
 (`src/lib/autorecharge.ts`) is hard-wired `false`, every "we top up for
-you" string in the UI is gated on it, and the endpoint returns it as `chargesAutomatically`, so the
-product cannot drift into promising a purchase that would silently never happen. **The one genuinely
-recurring top-up that exists is a Polar *subscription* whose product is also a credit pack: its renewal
-`order.paid` grants credits every cycle (see the webhook above). That is calendar-driven, not
-balance-driven.**
+you" string in the UI is gated on it via `lowBalanceHelpCopy()`, and the endpoint returns it as
+`chargesAutomatically` plus `label: "Low-balance warning"`, so the product cannot drift into promising a
+purchase that would silently never happen. **The one genuinely recurring top-up that exists is a Polar
+*subscription* whose product is also a credit pack: its renewal `order.paid` grants credits every cycle
+(see the webhook above). That is calendar-driven, not balance-driven.**
 
 - **The preference**: `{ enabled, threshold, packProductId }`. `enabled` is the switch (default
   **off**); `threshold` is the balance at which to warn (1…10,000, default **5**, matching
@@ -402,9 +448,10 @@ balance-driven.**
   which is a feature in its own right. **No backfill was run**: `getOrgAutoRecharge` falls back to the
   legacy audit row while the column is NULL, so an org that configured a threshold before the migration
   keeps it, and the next save moves it into the column.
-- **`GET /api/billing/autorecharge?org=`**: read-gated; returns `{ pref, chargesAutomatically, source }`
-  where `source` is `"stored"` or `"default"`. A missing/unreadable preference degrades to the default,
-  which is **off**: failing to read a warning setting must never invent a warning.
+- **`GET /api/billing/autorecharge?org=`**: read-gated; returns
+  `{ pref, chargesAutomatically, label, source }` where `label` is `"Low-balance warning"` and `source`
+  is `"stored"` or `"default"`. A missing/unreadable preference degrades to the default, which is
+  **off**: failing to read a warning setting must never invent a warning.
 - **`PUT /api/billing/autorecharge`**: owner-gated + same-origin. An out-of-range `threshold` is a 400
   (not a silent clamp); a failed **column** write is a **503, never `ok: true`**. A failed *audit* write
   is logged but no longer fails the save: the customer's setting is already durably persisted, so
@@ -414,9 +461,10 @@ balance-driven.**
   `low` (balance still **positive** and `<= threshold`) · `ok`. `low` is the only state the preference
   can produce and it requires `enabled`, so an org that never opts in sees byte-identical behaviour to
   before the feature existed. At 0 the harder `paused`/`covered` states win: they say more.
-- **In the UI**: `CreditsControl`'s popover renders the amber "Running low: N credits left (your alert is
-  set at the threshold). Private scans pause at 0." notice with a direct `/api/billing/checkout` link for
-  the chosen pack, plus the opt-in toggle itself.
+- **In the UI**: `CreditsControl`'s popover renders a **Low-balance warning** heading, the amber
+  "Running low: N credits left (your alert is set at the threshold). Private scans pause at 0." notice
+  with a direct `/api/billing/checkout` link for the chosen pack, and the opt-in "Warn me before I run
+  out" toggle. Help copy says this warns and offers a one-click top-up; it does not buy credits.
 
 ## Ledger & consumption safety (`src/lib/db/credits.ts`)
 
@@ -450,11 +498,12 @@ balance-driven.**
 ## Env vars
 
 ```
-POLAR_ACCESS_TOKEN=          # server-side Polar Organization Access Token
+POLAR_ACCESS_TOKEN=          # server-side Polar Organization Access Token (portal needs customer_sessions:write)
 POLAR_WEBHOOK_SECRET=        # verifies POST /api/billing/webhook signatures; unset → webhook fails closed (503)
 POLAR_SERVER=sandbox         # sandbox (default) | production
 POLAR_CREDIT_PACKS=prod_abc=100,prod_def=500,prod_ghi=2000
 POLAR_PLAN_PRODUCTS=prod_pro=pro,prod_team=team,prod_ent=enterprise
+POLAR_ORGANIZATION_SLUG=     # optional Polar org slug for the documented hosted portal fallback (`https://polar.sh/<slug>/portal`)
 ASCENT_ALLOW_CREDIT_GRANTS=  # enables POST /api/org/credits/grant (owner-gated manual top-up); IGNORED under NODE_ENV=production
 ASCENT_ALLOW_PLAN_CHANGES=   # enables POST /api/org/plan to set a paid/unlimited tier directly (bypassing checkout)
 ASCENT_SALES_EMAIL=          # where Custom-plan enquiries are mailed; defaults to the operator address in src/lib/email/plan-enquiry.ts
@@ -536,6 +585,15 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
   *private* allowance only, naming the public funnel's rolling 30-day window separately.
   `.env.example` documented the gate as `PUBLIC_SCAN_WEEKLY_LIMIT` (7 days, default 3);
   no such variable is read anywhere — the names now match the code.
+
+  **…and the matrix still said Unlimited (fixed 2026-09-17).** MC-B5's write set stopped at the
+  Free card, metadata, FAQ and 429. The Scanning group on the same `/pricing` page kept
+  `cells: all("Unlimited")` and an intro that called public scans "always free and never metered"
+  — a volume claim wearing a credit-currency word, pinned by `creditMatrixData.test.ts`. All four
+  tier cells and the intro now derive from `publicScanAllowance()`, the same phrase the quota
+  gate and the Free card use (G8: the number a visitor reads is the number the gate charges).
+  Credit-currency copy ("never metered on any plan") stays on the row's detail, under a cell
+  that now states the allowance.
 
   Two claims were **corrected rather than logged**, because they asserted capabilities that don't exist at
   all: the matrix's "SSO · RBAC · audit logs ✓" (roles and the audit trail ship; **SAML/OIDC sign-in does

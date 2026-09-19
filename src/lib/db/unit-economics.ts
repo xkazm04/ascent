@@ -76,6 +76,9 @@ export async function getUnitEconomics(
   const [rollup, merged] = await Promise.all([getAgentAttempts(orgSlug, window), mergedAiChangesByRepo(org.id, window)]);
   if (!rollup) return null;
 
+  // `rollup.repos` is repo × source; `rows` is folded back to repo so each merged change is counted
+  // once. The fleet figures below read only sessions, produced code and cents, the units every source
+  // shares (`AttemptTotals` has no lines or tokens to re-sum).
   const rows = buildUnitEconomics(rollup, merged);
   const withDenominator = rows.filter((r) => r.mergedAiChanges > 0);
   const costWithDenominator = withDenominator.reduce((n, r) => n + r.costCents, 0);

@@ -42,7 +42,11 @@ export function costHeadline(usage: {
   // the reader to go configure a rate, and no rate will ever price a BYOM scan. Naming the BYOM share
   // is the difference between a gap the operator can close and one that is closed by design.
   const byom = usage.byomScans ?? 0;
-  const byomNote = byom > 0 ? ` · ${byom.toLocaleString()} BYOM scan${byom === 1 ? "" : "s"}, unpriced` : "";
+  const byomLabel = byom > 0 ? `${byom.toLocaleString()} BYOM scan${byom === 1 ? "" : "s"}, unpriced` : "";
+  const byomNote = byomLabel ? ` · ${byomLabel}` : "";
+  // Env rates price Ascent's account. Hint at them only when some unpriced volume is not BYOM —
+  // LLM_*_COST_PER_MTOK cannot close a gap that is BYOM by design.
+  const envHint = allLanesUnpricedCalls > byom;
   // One lane in the period means "all lanes" would be a distinction without a difference — name the
   // lane instead, so the caption is never vaguer than the page's own itemization.
   const scope =
@@ -53,7 +57,11 @@ export function costHeadline(usage: {
         : `all ${usage.byLane.length} lanes`;
 
   if (allLanesCostUsd == null) {
-    // Nothing could be priced. Say how much went unpriced rather than printing "—" over real volume.
+    // Nothing could be priced. G19: an em dash, never $0.00. When every unpriced call is BYOM the
+    // caption is the BYOM note alone — setting a rate cannot price those scans.
+    if (allLanesUnpricedCalls > 0 && !envHint) {
+      return { value: "—", sub: byomLabel };
+    }
     return {
       value: "—",
       sub:

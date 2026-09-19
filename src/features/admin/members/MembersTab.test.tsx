@@ -16,7 +16,7 @@ vi.mock("@/lib/authz", () => ({ hasOrgRole: vi.fn(async () => true) }));
 vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   listOrgMembers: vi.fn(async () => [
-    { login: "alice", name: "Alice", role: "owner", createdAt: new Date("2026-01-01") },
+    { login: "alice", name: "Alice", role: "owner", createdAt: "2026-01-01T00:00:00.000Z" },
   ]),
   listPendingInvites: vi.fn(async () => [
     {

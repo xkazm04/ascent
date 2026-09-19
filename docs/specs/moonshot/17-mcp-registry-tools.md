@@ -185,12 +185,13 @@ Adding a write tool is one policy row plus one handler — that is the extension
   source: "mcp", repo }`, deduped per (skill, session) in the handler. `version` is recorded only when
   it matches the mirror row's `registryVersion`; a mismatch is reported back to the agent as a stale
   local copy rather than silently accepted.
-- `find_skills` (`rankSkills`, pure): plain term overlap over name/description/tags (the same
-  discipline `recallMemory` states — no second, divergent relevance model), plus a category-affinity
-  boost when the named repo's latest scan has sub-band dimensions, via a **declared** map
-  `CATEGORY_DIMENSIONS` (`security → D9`, `ci-cd → D8`, `testing → D6`, `ai-native → D1/D2`, …). Every
-  result carries `why: string[]` and the response carries `dimensionBasis`, which is **null with a
-  sentence** when the repo is unscanned or absent — never a zeroed dimension list. `registryPath` and
+- `find_skills` (`rankSkills`, pure): term overlap over name/description/tags is the **filter** (the
+  same discipline `recallMemory` states — no second, divergent relevance model). Among matches,
+  ranking uses **observed invokes** (`SkillUsage.invokes`, not `CatalogSkillEntry.invokes30d`), plus a
+  category-affinity boost when the named repo's latest scan has sub-band dimensions, via a **declared**
+  map `CATEGORY_DIMENSIONS` (`security → D9`, `ci-cd → D8`, `testing → D6`, `ai-native → D1/D2`, …).
+  Every result carries `why: string[]` and the response carries `dimensionBasis`, which is **null with
+  a sentence** when the repo is unscanned or absent — never a zeroed dimension list. `registryPath` and
   `registryVersion` ride along so the agent can open the source of truth.
 - `get_governing_subject{ path?, topic? }` resolves through the mirrored `file` column — **never by
   building a path from a slug** (the registry access contract). No registry mapped → explicit refusal

@@ -18,12 +18,12 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
-import { parseStringArray } from "@/lib/db/scans-shared";
+import { parseStringArray } from "@/lib/db/json-columns";
 import { DIMENSION_BY_ID, isDimensionId } from "@/lib/maturity/model";
 import { asCraftAxis, emptyAxisTally, type CraftAxis } from "@/lib/scoring/craft";
 import type { CraftBuiltEntry } from "@/lib/llm/provider";
 import type { FollowUpItem } from "@/lib/org/followups";
-import { normalizeRecTitle } from "@/lib/report/compare";
+import { normalizeRecTitle } from "@/lib/report/recommendation-identity";
 
 /** How many craft rungs the prompt's CRAFT ALREADY BUILT block is fed. Newest first. */
 const CRAFT_BUILT_LIMIT = 12;
@@ -102,7 +102,7 @@ export async function getCraftItems(
     impact: r.impact,
     effort: r.effort,
     rationale: r.rationale,
-    explore: parseStringArray(r.explore),
+    explore: parseStringArray(r.explore) ?? [],
     projectedPoints: null,
     kind: "craft" as const,
     craftAxis: asCraftAxis(r.craftAxis),

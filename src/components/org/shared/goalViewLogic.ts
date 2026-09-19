@@ -3,7 +3,7 @@
 // goalView.tsx under the 200-LOC cap. Re-exported from goalView.tsx so every existing import site
 // is unchanged.
 
-import { humanizeDays, type GoalPace } from "@/lib/maturity/forecast";
+import { goalLine, humanizeDays, type GoalPace } from "@/lib/maturity/forecast";
 import type { GoalProgressView } from "./GoalViewTypes";
 
 /** The canonical pace-verdict palette + labels, keyed on GoalPace. Exported as the single source for
@@ -48,6 +48,16 @@ export function goalMeterAriaLabel(
 
 /** One-line, leader-facing read of a goal's pace — the detail under the progress meter. */
 export function readout(g: GoalProgressView): string {
+  // When the payload carries the fit, composeGoal is the only thing this surface may print: the
+  // unmeasurable hedge travels with the line, and a sub-gate fit cannot state a pace/ETA (G4).
+  if ("forecast" in g) {
+    const line = goalLine(g.forecast ?? null, g, {
+      current: g.current,
+      target: g.target,
+      targetDate: g.targetDate,
+    });
+    if (line) return line;
+  }
   if (g.pace === "reached") return `Target met: holding at or above ${g.target}.`;
 
   const eta = g.etaDate ? `reaches ${g.target} ${humanizeDays(g.etaDays ?? 0)} (${g.etaDate})` : null;

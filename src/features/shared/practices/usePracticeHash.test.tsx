@@ -69,7 +69,7 @@ describe("practiceIdFromHash", () => {
   });
 });
 
-describe("PracticeLedger — `#practice-<id>` deep link", () => {
+describe("Practice library rows — `#practice-<id>` deep link", () => {
   it("gives every mined row the anchor the call sites route to", () => {
     view("");
     expect(document.getElementById("practice-test-discipline")).not.toBeNull();

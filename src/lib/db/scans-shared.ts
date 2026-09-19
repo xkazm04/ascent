@@ -1,7 +1,9 @@
 // Shared internals for the scans.* sub-modules (persist/read/recommendations/audit). These helpers
 // and the org-id resolution layer are used by MORE THAN ONE group, so they live here to avoid a
-// cross-group import cycle. INTERNAL: not re-exported from `@/lib/db` — only the scans-*.ts modules
-// import from here.
+// cross-group import cycle. Shared by scan operations and repository read projections.
+
+import { parseStringArray } from "./json-columns";
+export { parseStringArray } from "./json-columns";
 
 import type {
   DimensionId,
@@ -211,25 +213,12 @@ export const resolveOrgId = cache(async (orgSlug: string): Promise<string | null
   return org?.id ?? null;
 });
 
-/**
- * Parse a persisted string-array JSON column (`explore`, `evidence`, `gaps`, …): malformed JSON,
- * null/empty, or a non-array all yield `[]`, and non-string entries are dropped. The single canonical
- * parser for stored `string[]` columns — lives here (the dependency sink) so both scans-shared and
- * scans-read use one implementation instead of two that drift in edge handling.
- */
-export function parseStringArray(s: string | null | undefined): string[] {
-  if (!s) return [];
-  try {
-    const p = JSON.parse(s);
-    return Array.isArray(p) ? p.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
 /**
  * Map a persisted Recommendation row to the API-facing PersistedRecommendation shape — parsing the
- * stored `explore` JSON (dropping non-string entries) and normalizing nullable fields. Shared by the
+ * stored `explore` JSON (dropping non-string entries) and normalizing nullable fields. Unread
+ * explore JSON coalesces to [] here because `PersistedRecommendation.explore` is a list; the
+ * decoder itself returns null so other callers can tell corrupt from measured-empty. Shared by the
  * read path (getLatestRecommendations) and the mutation path (updateRecommendation).
  */
 export function toPersistedRec(r: {
@@ -254,7 +243,7 @@ export function toPersistedRec(r: {
     effort: r.effort as Effort,
     rationale: r.rationale,
     ...(r.firstStep ? { firstStep: r.firstStep } : {}),
-    explore: parseStringArray(r.explore),
+    explore: parseStringArray(r.explore) ?? [],
     levelUnlock: r.levelUnlock ?? undefined,
     status: r.status as RecStatus,
     assigneeLogin: r.assigneeLogin ?? null,

@@ -98,7 +98,9 @@ export function parseScanReport(data: unknown): ParseResult {
     }
   }
 
-  if (!Array.isArray(r.discrepancies)) return fail("The report's discrepancies are malformed.");
+  if (!Array.isArray(r.discrepancies) || !r.discrepancies.every(d => isObj(d) && isStr(d.dimension) && isStr(d.claim))) {
+    return fail("The report's discrepancies are malformed.");
+  }
 
   return { ok: true, report: data as unknown as ScanReport };
 }

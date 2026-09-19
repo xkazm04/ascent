@@ -131,6 +131,10 @@ export function PracticeCascade() {
         </span>
         <span className="uppercase tracking-[0.2em] text-slate-500">{BATCH_CAP}/run cap</span>
       </div>
+      {/* Same Illustrative chrome as RoiSimulator: invented fleet, labelled where it renders. */}
+      <p className="mt-3 text-center type-label tracking-[0.22em] text-slate-600">
+        Illustrative · {FLEET} sample repos, not customer data
+      </p>
     </div>
   );
 }

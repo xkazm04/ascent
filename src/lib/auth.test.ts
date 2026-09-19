@@ -23,9 +23,11 @@ vi.mock("@/lib/db/sessions", () => ({
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 
 import {
+  buildAuthorizeUrl,
   buildSession,
   encodeSession,
   decodeSession,
+  exchangeCodeForToken,
   publicOriginForRequest,
   safeNext,
   getSessionState,
@@ -827,5 +829,64 @@ describe("session signing requires a real AUTH_SECRET", () => {
   it("round-trips normally with a secret configured (the real path is untouched)", () => {
     const s = victimSession() as Parameters<typeof encodeSession>[0];
     expect(decodeSession(encodeSession(s))?.login).toBe("victim");
+  });
+});
+
+// Dormant-stack OAuth authorize + token exchange are browser/web-host routes, not REST. They must
+// follow githubWebBase() (GITHUB_SERVER_URL) the same way appInstallUrl already does, or a GHES
+// deployment still sends the operator to github.com. parseRepoUrl / appInstallUrl are untouched.
+describe("buildAuthorizeUrl — github.com default vs GHES GITHUB_SERVER_URL", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("points authorize at github.com when GITHUB_SERVER_URL is unset", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", "");
+    const url = new URL(buildAuthorizeUrl("https://app.example", "abc"));
+    expect(url.origin).toBe("https://github.com");
+    expect(url.pathname).toBe("/login/oauth/authorize");
+    expect(url.searchParams.get("client_id")).toBe("test-client-id");
+    expect(url.searchParams.get("redirect_uri")).toBe("https://app.example/api/auth/callback");
+    expect(url.searchParams.get("scope")).toBe("read:user");
+    expect(url.searchParams.get("state")).toBe("abc");
+  });
+
+  it("points authorize at githubWebBase on a GHES GITHUB_SERVER_URL host", () => {
+    vi.stubEnv("GITHUB_SERVER_URL", "https://ghe.acme.com");
+    const url = new URL(buildAuthorizeUrl("https://app.example", "abc"));
+    expect(url.origin).toBe("https://ghe.acme.com");
+    expect(url.pathname).toBe("/login/oauth/authorize");
+  });
+});
+
+describe("exchangeCodeForToken — github.com default vs GHES GITHUB_SERVER_URL", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  function stubTokenFetch() {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ access_token: "tok" }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("POSTs the token exchange to github.com when GITHUB_SERVER_URL is unset", async () => {
+    vi.stubEnv("GITHUB_SERVER_URL", "");
+    const fetchMock = stubTokenFetch();
+    await expect(exchangeCodeForToken("code-1", "https://app.example")).resolves.toBe("tok");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe("https://github.com/login/oauth/access_token");
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
+  });
+
+  it("POSTs the token exchange to githubWebBase on a GHES GITHUB_SERVER_URL host", async () => {
+    vi.stubEnv("GITHUB_SERVER_URL", "https://ghe.acme.com");
+    const fetchMock = stubTokenFetch();
+    await exchangeCodeForToken("code-1", "https://app.example");
+    expect(fetchMock.mock.calls[0][0]).toBe("https://ghe.acme.com/login/oauth/access_token");
   });
 });

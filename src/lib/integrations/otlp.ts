@@ -1,3 +1,4 @@
+import { attrMap, dpValue, isCumulativeSum, type OtlpDataPoint, type OtlpResourceMetrics } from "./otlp-wire";
 // OTLP/JSON metrics → AiUsageRecord mapping for the Claude Code telemetry push path. Claude Code's
 // OpenTelemetry exporter POSTs an ExportMetricsServiceRequest to <endpoint>/v1/metrics; the
 // `git.repository` resource attribute (set via OTEL_RESOURCE_ATTRIBUTES in the connect snippet) carries
@@ -7,53 +8,13 @@
 
 import type { UsageRecordInput } from "@/lib/db";
 import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
-
-interface OtlpValue {
-  stringValue?: string;
-  intValue?: string | number;
-  doubleValue?: number;
-  boolValue?: boolean;
-}
-interface OtlpAttr {
-  key?: string;
-  value?: OtlpValue;
-}
-interface OtlpDataPoint {
-  asInt?: string | number;
-  asDouble?: number;
-  timeUnixNano?: string | number;
-  attributes?: OtlpAttr[];
-}
-interface OtlpMetric {
-  name?: string;
-  sum?: { dataPoints?: OtlpDataPoint[] };
-  gauge?: { dataPoints?: OtlpDataPoint[] };
-}
-interface OtlpResourceMetrics {
-  resource?: { attributes?: OtlpAttr[] };
-  scopeMetrics?: { metrics?: OtlpMetric[] }[];
-}
 export interface OtlpMetricsBody {
   resourceMetrics?: OtlpResourceMetrics[];
 }
 
-/** Flatten OTLP attribute list into a plain string map. */
-function attrMap(attrs: OtlpAttr[] | undefined): Record<string, string> {
-  const m: Record<string, string> = {};
-  for (const a of attrs ?? []) {
-    if (!a?.key || !a.value) continue;
-    const v = a.value;
-    if (typeof v.stringValue === "string") m[a.key] = v.stringValue;
-    else if (v.intValue != null) m[a.key] = String(v.intValue);
-    else if (v.doubleValue != null) m[a.key] = String(v.doubleValue);
-    else if (v.boolValue != null) m[a.key] = String(v.boolValue);
-  }
-  return m;
-}
-
 /** Why a datapoint could not be turned into a usage record. Reported back to the caller so an
  *  integration that receives forty datapoints and stores zero never LOOKS like one that is working. */
-export type SkipReason = "unknown-metric" | "no-repo-attr" | "unsupported-host";
+export type SkipReason = "unknown-metric" | "no-repo-attr" | "unsupported-host" | "cumulative-temporality";
 
 /** Resolve the `git.repository` resource attribute to a repo, or say why it can't be. Ascent's repo
  *  identity is `owner/name` for GitHub and a forge-prefixed `gitlab:group/project` elsewhere
@@ -63,15 +24,11 @@ export type SkipReason = "unknown-metric" | "no-repo-attr" | "unsupported-host";
 export function resolveGitRepo(raw: string | undefined): { repo: string } | { reason: SkipReason; host: string } {
   if (!raw || !raw.trim()) return { reason: "no-repo-attr", host: "" };
   const s = raw.trim().replace(/\.git$/i, "");
-  const gh = s.match(/github\.com[:/]([^/\s]+\/[^/\s]+)$/i);
-  if (gh) return { repo: gh[1]! };
-  const bare = s.match(/^([\w.-]+\/[\w.-]+)$/);
-  if (bare) return { repo: bare[1]! };
-  // #4 — the ONE line this lane changes here. The router owns "is this a forge we read", so a remote
+  // The router owns "is this a forge we read", so every remote
   // resolves through exactly the parser the scanner would use; the identity it produces is the same
   // `forgeFullName` the persist layer writes, which is what makes the join actually land on a row.
   const routed = parseForgeUrl(s);
-  if (routed && routed.forge !== "github") return { repo: forgeFullName(routed.forge, routed.owner, routed.repo) };
+  if (routed) return { repo: forgeFullName(routed.forge, routed.owner, routed.repo) };
   // Name the host so the report is actionable ("12 datapoints from gitlab.com") rather than a bare
   // count. Falls back to a truncated raw value when the attribute isn't remote-URL-shaped at all.
   const host = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[^@\s/]+@)?([^\s/:]+)[:/]/i.exec(s)?.[1] ?? s.slice(0, 40);
@@ -83,15 +40,6 @@ export function resolveGitRepo(raw: string | undefined): { repo: string } | { re
 export function repoFromGitAttr(raw: string | undefined): string | null {
   const r = resolveGitRepo(raw);
   return "repo" in r ? r.repo : null;
-}
-
-function dpValue(dp: OtlpDataPoint): number {
-  if (dp.asInt != null) {
-    const n = Number(dp.asInt);
-    return Number.isFinite(n) ? n : 0;
-  }
-  if (dp.asDouble != null) return Number.isFinite(dp.asDouble) ? dp.asDouble : 0;
-  return 0;
 }
 
 function dpDayMs(dp: OtlpDataPoint, fallbackMs: number): number {
@@ -141,7 +89,7 @@ const MAX_REPORTED_HOSTS = 5;
  */
 export function parseOtlpMetrics(body: OtlpMetricsBody, fallbackMs: number): OtlpParseResult {
   const buckets = new Map<string, Bucket>();
-  const skipped: Record<SkipReason, number> = { "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0 };
+  const skipped: Record<SkipReason, number> = { "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0, "cumulative-temporality": 0 };
   const hosts = new Set<string>();
   let received = 0;
 
@@ -171,9 +119,20 @@ export function parseOtlpMetrics(body: OtlpMetricsBody, fallbackMs: number): Otl
       for (const metric of sm.metrics ?? []) {
         const dps = metric.sum?.dataPoints ?? metric.gauge?.dataPoints ?? [];
         const known = KNOWN_METRICS.has(metric.name ?? "");
+        // The day bucket is stored with increments (`recordUsage` mode "add"). A running total has no
+        // honest increment without the series' previous point, which a stateless parse does not hold,
+        // so it is counted and reported rather than summed into a number that grows with export count.
+        const cumulative = isCumulativeSum(metric);
         for (const dp of dps) {
           received++;
-          if (!known) skipped["unknown-metric"]++;
+          if (!known) {
+            skipped["unknown-metric"]++;
+            continue;
+          }
+          if (cumulative) {
+            skipped["cumulative-temporality"]++;
+            continue;
+          }
           const day = dpDayMs(dp, fallbackMs);
           const key = `${repo} ${day}`;
           const b = buckets.get(key) ?? { repo, day, tokens: 0, costCents: 0, sessions: 0, users: new Set<string>() };

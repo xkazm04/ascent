@@ -1,8 +1,9 @@
-import type { ScanReport } from "@/lib/types";
+import type { AiChangeRecord, ScanReport } from "@/lib/types";
 import {
   FAST_APPROVAL_MAX_MINUTES,
   RATE_BASIS,
   rateReading,
+  REVIEW_INTEGRITY_MIN_SAMPLE,
   REVERT_RATE_ELEVATED,
   SMALL_PR_MAX_LINES,
   type PrRateBook,
@@ -51,6 +52,24 @@ function read(rates: PrRateBook | undefined, id: RateBasisId, hint: string, fall
   };
 }
 
+/**
+ * Merge rate is still a scalar (decided = merged + closed-unmerged). Until it joins the rate book,
+ * apply the same ≥5 floor as reviewedRate so a 1-of-1 100% cannot publish as a mature process.
+ */
+function mergeReading(stats: { merged: number; closedUnmerged: number; mergeRate: number }): Reading {
+  const decided = stats.merged + stats.closedUnmerged;
+  const floor = REVIEW_INTEGRITY_MIN_SAMPLE;
+  if (decided < floor) {
+    return {
+      value: "n/a",
+      percent: null,
+      hint: `${stats.merged} of ${decided} · below the ${floor}-sample floor`,
+      basis: `${stats.merged} of ${decided} decided pull requests (merged + closed unmerged), below the ${floor}-sample floor, so no percentage is published.`,
+    };
+  }
+  return { value: `${stats.mergeRate}%`, percent: stats.mergeRate, hint: "vs closed unmerged" };
+}
+
 function PrMetric({
   label,
   value,
@@ -93,9 +112,28 @@ function PrMetric({
   );
 }
 
-export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prStats"]> }) {
+const AI_SIGNAL_LABEL: Record<AiChangeRecord["aiSignal"], string> = {
+  authored: "agent-authored",
+  marked: "AI-marked",
+  trailer: "trailer",
+};
+
+function approvalPhrase(c: AiChangeRecord): string {
+  if (c.approved) return c.approverLogin ? `approved by ${c.approverLogin}` : "approved";
+  return c.reviewCount > 0 ? "unapproved" : "unreviewed";
+}
+
+export function PrSignalsPanel({
+  stats,
+  aiChanges,
+}: {
+  stats: NonNullable<ScanReport["prStats"]>;
+  /** Evidence rows behind the AI rates. Undefined/empty = omit (never a fabricated 0). */
+  aiChanges?: ScanReport["aiChanges"];
+}) {
   const rates = stats.rates;
   const reviewed = read(rates, "reviewed", "human PRs reviewed", stats.reviewedRate);
+  const merge = mergeReading(stats);
   const smallPr = read(rates, "smallPr", `≤${SMALL_PR_MAX_LINES} lines`, stats.smallPrRate);
   const revert = read(rates, "revert", "reverted PRs", stats.revertRate);
   const aiInvolved = read(rates, "aiInvolved", "AI-involved", stats.aiInvolvedRate);
@@ -138,8 +176,14 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
         />
         {/* Merge rate has no qualified counterpart: its denominator is the DECIDED PRs
             (merged + closed-unmerged), not the analyzed window, and the analyzer publishes it only
-            as a scalar. It renders from the scalar with its static hint until it joins the book. */}
-        <PrMetric label="Merge rate" value={`${stats.mergeRate}%`} color={scoreHex(stats.mergeRate)} hint="vs closed unmerged" />
+            as a scalar. Until it joins the book, mergeReading still applies the same ≥5 floor. */}
+        <PrMetric
+          label="Merge rate"
+          value={merge.value}
+          color={merge.percent == null ? undefined : scoreHex(merge.percent)}
+          hint={merge.hint}
+          basis={merge.basis}
+        />
         <PrMetric
           label="Small PRs"
           value={smallPr.value}
@@ -205,6 +249,28 @@ export function PrSignalsPanel({ stats }: { stats: NonNullable<ScanReport["prSta
           </span>
         )}
       </div>
+      {aiChanges && aiChanges.length > 0 && (
+        <div className="mt-4">
+          <Kicker tone="muted">AI-attributed changes</Kicker>
+          <p className="mt-1 type-body-sm text-slate-500">
+            The PRs behind the AI-involved rate, and who approved each one. A rate cannot name them.
+          </p>
+          <ul className="mt-2 space-y-1.5" aria-label="AI-attributed pull requests">
+            {aiChanges.map((c) => (
+              <li key={c.prNumber} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 type-body-sm">
+                <span className="font-mono tabular-nums text-slate-400">#{c.prNumber}</span>
+                <span className="text-slate-200">{c.title}</span>
+                <span className="type-mono-sm text-slate-500">
+                  {AI_SIGNAL_LABEL[c.aiSignal]}
+                  {c.aiTools.length > 0 ? ` · ${c.aiTools.join(", ")}` : ""}
+                  {` · ${approvalPhrase(c)}`}
+                  {c.revertedByPr != null ? ` · reverted by #${c.revertedByPr}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Surface>
   );
 }

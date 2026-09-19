@@ -57,9 +57,10 @@ describe("matrixRows", () => {
     expect(r!.cells.every((c) => c.score === null)).toBe(true);
   });
 
-  it("truncates a long repo name so it cannot run under the grid", () => {
+  it("keeps a real repo name whole and bounds only a pathological one", () => {
     expect(shortLabel("short")).toBe("short");
-    expect(shortLabel("a-very-long-repository-name")).toHaveLength(16);
+    expect(shortLabel("a-very-long-repository-name")).toBe("a-very-long-repository-name");
+    expect(shortLabel("x".repeat(80))).toHaveLength(56);
   });
 });
 

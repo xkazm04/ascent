@@ -1,9 +1,25 @@
 # Org Skills Library
 
-A curated, versioned library of `SKILL.md` entries an org's members author,
-adopt against repos, and sync with CLI/CI tooling, plus the org API tokens
-that let non-browser callers (CLIs, agents, CI jobs) read and write it
+A curated, versioned library of `SKILL.md` entries an org shares through its
+registry, adopts against repos, and syncs with CLI/CI tooling, plus the org
+API tokens that let non-browser callers (agents, CI jobs) reach the org
 without a cookie session.
+
+**No skill is authored in the dashboard (2026-09-17).** The author form and
+its starter templates are gone. A skill enters the library from the org's
+linked ai-registry checkout (its `skills/` lane, mirrored on each index pass)
+or from `POST /api/org/skills/push` under a token; the tab is a view over
+what the fleet actually shares, never a second place a skill can be born.
+
+**Use counters need no token.** Each project counts its own invocations
+locally (the `Skill` PreToolUse hook), writes them into the registry's
+`usage/<contributor>.json` with `ascent-skills report --to-registry`, and
+Ascent sums the lane at index time into the table's **Uses** column and the
+status badge. The token path (sink A) exists only for the per-repo breakdown
+the public registry lane forbids. The Registry tab how-to
+(`RegistryHowTo` / `registryHowTo`) shows that command with no token, and
+names `ASCENT_TOKEN` only for sink A and the MCP door. See *Usage telemetry*
+below.
 
 ## UI entry point
 
@@ -12,17 +28,30 @@ without a cookie session.
 data, per-skill dormancy/usage data (degrades to `{}` on failure), per-skill
 outcome data (degrades to `{}` on failure), the org's repo list (for the
 adopt-picker), plan/credit state, and membership/admin role. It renders
-`SkillsPanel` with `canAuthor = isMember && planAllowed`, then, only for
-members, `ApiTokensPanel`.
+`SkillsPanel` (the same for every reader of the org; admins additionally get
+archive), then, only for members, `ApiTokensPanel`.
 
 `SkillsPanel` (`src/features/shared/skills/SkillsPanel.tsx`, client) debounces
 (250ms) a server-side refetch of `GET /api/org/skills` on search/category/sort
 changes — the debounce covers the timer and an `AbortController` covers the
 request it starts, so a superseded read cannot land its rows after a newer one —
-opens on `SkillsLifecycle` (below), then renders a filter bar and a table (Name /
+opens on `SkillsLifecycle` (below), then a ranked list of **registry usage not
+in this library** when sink B names skills this org has not mirrored (kept,
+not dropped; they never become table rows and they do not vote on the
+library's `unmeasured`/`unused` split), then a filter bar and a table (Name /
 Category / Status / Adoptions / Uses), and expands a `SkillCard` beneath a
-clicked row. The header carries scope only (`N skills · M repos`); the value
-claim for authoring a skill lives in the table's **empty state**, and the two
+clicked row. **Uses** is `SkillUsage.useCount`, the same fold the status badge
+reads (web copies/downloads, hook-reported invokes and the registry `usage/`
+samples); it falls back to the denormalized `downloadCount` only for a row with
+no computed verdict, so the column and the badge cannot disagree. The column
+**names both sinks and its window**: sink A (the events API) is an all-time
+groupBy with no window; sink B is each registry contributor's declared
+`windowDays`. That is a volume. It is never labelled a 30d rate — those
+windowed claims live on the neighbouring Registry tab (`invokes30d` for
+sink B, normalized; `invokesDirect30d` for sink A, last 30 days). The header
+carries scope only (`N skills · M repos`); the **empty state** says skills
+arrive from the linked registry and that each project reports its own use
+counts into the registry's `usage/` lane, and the two
 instructions that used to sit above the table ("copy a skill into Claude Code",
 "download it as a SKILL.md") are `title`s on the Copy and Download controls
 themselves (`SkillCardActions`).
@@ -71,6 +100,7 @@ name: pr-review-checklist
 description: "One sentence telling an agent when to use this skill."
 category: workflow
 tags: review, pull-request
+cadenceDays: 90
 ---
 ```
 
@@ -80,6 +110,7 @@ tags: review, pull-request
 | `description` | yes | single line, max 1000 chars. |
 | `category` | no | must normalize to one of the closed set below; if declared but unrecognized, it's an error. Omitted entirely → `null`. |
 | `tags` | no | comma list, bracket list, or YAML block-sequence; max 20 tags, 40 chars each. |
+| `cadenceDays` | no | positive whole number of days (1-9999), e.g. `90` for quarterly. Omitted → `null`. The dormancy fold reads this so a correctly-used quarterly skill is not branded dormant after 30 idle days. |
 
 Categories (`src/lib/org/skill-categories.ts`): `ci-cd`, `testing`,
 `security`, `ai-native`, `docs`, `workflow`, `other`.
@@ -104,15 +135,14 @@ Three ways this contract is applied:
 
 ## Primary user flows
 
-### Author a skill
+### Get a skill into the library
 
-The author form (`SkillsPanel.AuthorForm.tsx`) offers a template picker
-(`SKILL_TEMPLATES`, `src/lib/org/skill-templates.ts`) that prefills the form,
-then posts `{ org, name, category, content, description?, tags? }` to `POST
-/api/org/skills`. If `!canAuthor`, the form renders only an upsell line when
-the plan doesn't allow it ("Authoring the Skills Library is a Team-plan
-feature. Members can browse, copy and download existing skills."); nothing
-renders if the plan allows it but the viewer just isn't a member.
+There is no author form. The two producers are the registry mirror (a skill
+under `skills/<name>/SKILL.md` in the linked registry appears on the next
+index pass, tagged with its origin) and the CLI/CI push route below. `POST
+/api/org/skills` (`{ org, name, category, content, description?, tags? }`)
+still exists for token-bearing callers and tests, but nothing in the UI calls
+it; the removed form's Team-plan upsell line went with it.
 
 ### Promote a repo's generated onboarding skill into the library
 
@@ -188,6 +218,11 @@ Two routes exist specifically for a non-interactive client:
   rather than the personal-workspace-inclusive `workspaceAllowsSkills`; the
   CLI/CI push path does not extend the personal-workspace free tier.
 
+Those two routes are the hosted library path and they need an `askl_` token.
+Git-native usage does not use them: `ascent-skills report --to-registry`
+writes `usage/<contributor>.json` in a registry checkout with no token
+(sink B below).
+
 ### Usage telemetry — one event contract, two sinks, one repo rule
 
 The event is `{ skill, version?, event: "invoke" | "download" | "sync", ts,
@@ -219,6 +254,48 @@ contribute to both, and adding them would count it twice. `telemetry/<repo>/<yyy
 (sketched in `docs/GOLDEN-USE-CASES.md`) is deliberately **not built**: it is
 repo-dimensioned data in a repo whose privacy the operator does not control, and
 sink A already serves that need.
+
+**Setup chooses the sink (and the mode).** Step 1 of the Registry tab
+(`RegistrySetup`) is where an admin picks **git-native** vs **hosted-mirror**
+and the telemetry sink (`off` / `api` / `registry`) before create or map.
+`POST /api/org/:slug/registry` persists those on `OrgRegistry.mode` /
+`telemetrySink` (closed sets; YAML aliases `git-native` / `hosted-mirror` are
+accepted, anything else is 400). Defaults are git-native and `off`: a fresh
+registry reports nothing until the owner opts in. git-native is the recommended
+path (content enters by PR; usage is `report --to-registry`, sink B).
+hosted-mirror keeps ascent as the writer (hosted push / sink A). The choice is
+independent of "stay hosted" (no registry mapped at all).
+
+The Registry tab's instrument column ranks sink B per skill name
+(`telemetry.invokesBySkill`) next to the 30d registry readout
+(`RegistryInstrumentPanel` / `RegistryInvokesBySkill`). The keys are registry
+skill names: a registry-only skill has no `OrgSkill` id, so the list never
+tries to resolve one. That ranked list is **not** added to `invokesDirect30d`.
+The ranked counts are each sample's declared `invokes` over its own
+`windowDays` (the persisted snapshot, not the 30d-normalized lane total), so
+they are not a 30d rate even though they sit next to one. Skills **Uses**
+names that distinction on the neighbouring tab: all-time sink A plus sink B
+as reported, never the Registry `invokes30d` / `invokesDirect30d` rates.
+When no index pass has read the `usage/` lane (`registry.lastIndexedAt` is
+absent) the list is hatched (`not-judged`) and prints no number, rather than a
+row of zeros.
+
+The Skills tab used to drop sink B samples whose name was not an `OrgSkill`
+in this org, which hid fleet activity for skills the library has not
+mirrored. `sampleEventStats` now keeps those samples under a synthetic
+`registry:<name>` id (a cuid `OrgSkill.id` cannot collide). `skillUsageMap`
+folds them onto the usage map so `SkillsPanel` can list them; they do **not**
+flip a silent library skill from `unmeasured` to `unused`, and
+`usageSummary` does not count them in the library totals. A recency-less
+unmirrored sample still cannot borrow `generatedAt` as a birthday.
+
+The Registry tab's fleet-sync meters (`RegistryFleetSync`) hatch pointing and
+30d-sync the same way until the adoption pass (R5) hashes each repo's
+`.claude/skills` against the catalog. `getRegistryView` omits
+`fleet.reposPointing` and `fleet.reposSynced30d` until that pass exists; a
+zero would mean "we looked and nobody points", which is not a fact anyone has
+measured. Reporting (the usage-lane contributor count) stays a real readout.
+Shaped preview states that pretend R5 already ran still carry the counts.
 
 **`invoke` is back (2026-08-29).** It was retired on 2026-07-29 for having no
 producer: nothing in the app, the CLI or the hooks emitted it, so `active` was
@@ -294,13 +371,14 @@ no event identity, so an append-shaped mirror would inflate on the second pass.
 `dormant`:
 
 1. A real use — `invoke` (the skill RAN) or `download` (a copy or download from
-   the web UI or a CLI), but never a `sync` — within the last 30 days
-   (`DORMANCY_WINDOW_DAYS`) → **active**. Where both exist, the **more recent**
+   the web UI or a CLI), but never a `sync` — within the skill's dormancy window
+   → **active**. The window is `DORMANCY_WINDOW_DAYS` (30) unless the skill
+   declares or observes a longer cadence (below). Where both exist, the **more recent**
    decides `lastUsedType`; `invoke` outranks `download` only on an exact tie,
    because running a skill is stronger evidence than reading it while a later
    download is still the last thing that happened.
-2. Otherwise, if the skill has never been used and is younger than 30 days
-   (measured from creation, or from its most recent adoption if that's
+2. Otherwise, if the skill has never been used and is younger than that same
+   window (measured from creation, or from its most recent adoption if that's
    later, since re-adopting an old skill into a new repo restarts its chance to
    prove itself) → **new**, so a brand-new skill isn't punished for having
    no uses yet.
@@ -316,16 +394,20 @@ no event identity, so an append-shaped mirror would inflate on the second pass.
    problem whose remedy is surfacing the skill, not removing it.
    `usageSummary` reports the three counts beside `dormant`.
 
-The 30-day window is now a **floor, not a constant** (2026-08-20): a skill's
-own cadence derives its window (`dormancyWindowFor`) — a declared
-`cadenceDays` if the skill has one, else its observed rhythm
+The 30-day window is a **floor, not a constant** (2026-08-20): a skill's own
+cadence derives its window (`dormancyWindowFor`) — a declared `cadenceDays` on
+the SKILL.md frontmatter if the skill has one, else its observed rhythm
 (`ageDays / useCount`, needing at least two uses) — times two, clamped to
-`[DORMANCY_WINDOW_DAYS, DORMANCY_WINDOW_MAX_DAYS]` (30…120). A
-release-checklist skill used correctly once a quarter used to read `dormant`
-for two months of every three and become a prune candidate for being used
-exactly as intended. Both halves of the rule (the silence threshold and the
-"still new" age guard) read the same derived `windowDays`, so a skill can
-never be `new` and `dormant` at once.
+`[DORMANCY_WINDOW_DAYS, DORMANCY_WINDOW_MAX_DAYS]` (30…120). `skillUsageMap`
+threads that field from the stored document (and `getOrgSkillUsage` also reads
+the list row's resolved frontmatter), so a quarterly skill (`cadenceDays: 90`)
+idle 40 days with a single use is **active**, not dormant: one use cannot
+derive an observed cadence, and without honouring the declaration it fell
+through to the 30-day floor. A release-checklist skill used correctly once a
+quarter used to read `dormant` for two months of every three and become a prune
+candidate for being used exactly as intended. Both halves of the rule (the
+silence threshold and the "still new" age guard) read the same derived
+`windowDays`, so a skill can never be `new` and `dormant` at once.
 
 `SkillDormancyBadge` renders the **state**, not the coarse verdict (2026-09-08).
 Until then it showed `verdict`, so `abandoned`, `unused` and `unmeasured` all came
@@ -354,9 +436,24 @@ a registry sample. The badge says "invoked", "used" or "synced" for the three
 kinds rather than collapsing them.
 
 `SkillInvokeChip` shows how often a skill actually **ran**, beside how often it
-was read. It is deliberately not labelled "30d": the rollup has no window and
-each registry contributor counts over one it chose for itself, so it is a volume,
-not a rate — the windowed claim lives in the badge next to it.
+was read, and the **reporting client** of the last recorded event. It names both
+sinks and the window: sink A is all-time (the DB rollup has no window) and sink
+B is each contributor's declared window, so it is a volume, not a rate, and it
+is deliberately not labelled "30d". The windowed 30d claim lives on the
+neighbouring Registry tab (`invokes30d` / `invokesDirect30d`) and recency lives
+in the dormancy badge beside the chip.
+
+The source chip is the UI consumer of `skillEventSourceLabel`
+(`src/lib/org/skill-event-source.ts`). `SkillUsage.lastUsedSource` is the
+closed-set client (`cli | hook | ci | web | registry | mcp`) of the event that
+`lastUsedAt` came from; `getOrgSkillUsageRows` groups `OrgSkillEvent` by
+`(skill, type, source)` so the fold can name that client without shipping the
+ledger. Legacy `cli:diverged` strings normalize on read. An unrecognized or
+absent source renders as **Unattributed** — a reporting gap, not a guess about
+who reported. Registry `usage/` samples have no per-event client column and
+read as `registry`. A last-use source still renders when the skill has never
+*run* (a web copy is a use with a client and no invocation). `SkillCard`
+exposes the same value as `data-last-used-source` on the usage row.
 
 ### Outcome tracking (score movement since adoption)
 
@@ -433,13 +530,24 @@ skill spread.
 
 ## Org API tokens
 
+**What a token is for, and what it is not.** A token is machine access to
+the org itself: the MCP agent door (`mcp:read`, `followups:write`), org-memory
+recall (`memory:read`), and sink-A telemetry with a repo dimension
+(`telemetry:write`). It is **not** how skills or their counters move: a
+registry-linked org reads skills from its checkout, and every project reports
+its use counts into the registry's `usage/` lane with no token at all. The
+panel's copy says so, and its empty state no longer asks the reader to mint
+one "to connect a repo".
+
 Minted via `POST /api/org/tokens` (session-only, member-gated; no token can
 mint another token). The raw value (`askl_` + 24 random bytes, base64url) is
 returned exactly once; only its SHA-256 hash and a 12-character display
 prefix are stored. Scopes: `skills:read`, `skills:write`,
 `telemetry:write`, `memory:read` (org-memory recall, see
-[memory.md](./memory.md)); an empty/invalid scope list defaults to
-`["skills:read"]` (never a zero-scope token). `DELETE
+[memory.md](./memory.md)), `mcp:read`, `followups:write`. The mint form
+pre-checks `mcp:read` (the MCP door). An empty/invalid scope list defaults
+to `["mcp:read"]` (never a zero-scope token). `skills:read` is an explicit
+opt-in and is not implied by `mcp:read`. `DELETE
 /api/org/tokens/:id` soft-revokes it (`revokedAt` set; the row survives for
 audit). `GET /api/org/tokens` lists summaries only, never the raw value or
 hash.
@@ -490,6 +598,9 @@ role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
 
 `OrgSkillEvent.source` is a validated closed set — `cli | hook | ci | web |
 registry | mcp` — normalized in `recordSkillEvents` (see *Usage telemetry*).
+The skill card surfaces the last event's source through `SkillUsage.lastUsedSource`
+and `SkillInvokeChip` (`skillEventSourceLabel`); the helper is not documentation
+alone.
 
 ## Tier gating
 
@@ -502,12 +613,20 @@ isPersonalOrg(slug)`. A personal workspace can author/edit/promote/archive
 regardless of plan, capped at 10 non-archived skills
 (`PERSONAL_SKILL_LIMIT`); exceeding it returns 402 ("Personal skills are
 capped at 10. Archive one to author another."). A Team+ org has no such cap.
+With the dashboard form gone, the routes these gates guard are reached only
+by token-bearing callers.
 
 The **push** route is the one exception: it gates directly on
 `planAllowsSkillsLibrary`, not `workspaceAllowsSkills`: a personal workspace
-cannot use the CLI/CI push path even though it can author through the UI.
+cannot use the CLI/CI push path.
 
 ## The agent door — MCP server (W5, 2026-08-14)
+
+Skill ranking applies dimension affinity only to declared categories. Unknown category
+strings receive no affinity bonus. Results tied on relevance, adoption, downloads,
+and name use skill ID as the final tie-breaker, so input order cannot shuffle them.
+Category badges also validate before looking up curated labels: unknown or legacy
+strings are humanized as text, including names that match JavaScript object members.
 
 `POST /api/mcp` is an MCP server implementing revision **2026-07-28**. It exists because ascent
 already ships the org's standard as *files in a PR* (the `.ai/` foundation, practice starters,
@@ -586,6 +705,15 @@ their families *on top*. So granting an agent the door does not silently grant i
 its curated skills. `tools/list` filters to what the token holds, which the revision explicitly
 permits, since credentials are per-request input rather than connection state, so an agent is never
 shown a tool it would then be refused.
+
+`tools/list` also states the scope model on `_meta`: `io.modelcontextprotocol/serverInfo.description`
+and `ascent.dev/scopeModel` both carry the catalog-level copy (`TOOLS_LIST_SCOPE_COPY` in
+`src/lib/mcp/tools.ts`). An `mcp:read`-only agent can therefore see that `memory:read` unlocks
+`recall_org_memory`, `skills:read` unlocks `find_skills` (and `get_skill` / `get_skill_lessons` /
+`get_governing_subject`), and writes need `telemetry:write` plus the resource they write about. The
+copy is the same on every list; it is not a per-token leak of which tools this credential is
+missing. `tools/call` refusals stay the opaque `Unknown tool`. The list is where the model is named;
+a call is not an oracle for what this org has that this token cannot reach.
 
 ### Two authorizations: scopes and the plan
 
@@ -694,13 +822,16 @@ day granularity can observe.
 
 ### What `find_skills` actually ranks on
 
-Persisted fields only — name, description, tags, category, adoption and download counts — plus one
-**declared** map, `CATEGORY_DIMENSIONS`, from the closed skill-category set to the maturity
-dimensions a skill in that category plausibly moves. (`CatalogSkillEntry.applicability` / `adopters`
-/ `invokes30d` are interface fields with no producer anywhere; ranking on them would have ranked on
-`undefined`.) Every result carries a `why`, and the response carries `dimensionBasis`, which is
-**`null` with a sentence** when the repo is unscanned or not in the fleet — never a zeroed dimension
-list a model would read as a clean bill of health.
+Term overlap over name, description and tags is the **relevance filter** — the same discipline
+`recall_org_memory` states — not the ranking. Among matches, ranking uses **observed invokes** (the
+same `skillUsageMap` fold the Skills tab shows: MCP / CLI events plus the registry `usage/` lane),
+then a **declared** `CATEGORY_DIMENSIONS` nudge when the named repo has sub-band dimensions, then
+adoption as a weaker term (running a skill outranks copying it). (`CatalogSkillEntry.applicability`
+/ `adopters` / `invokes30d` remain interface fields with no producer; ranking does not read them.)
+An unmatched skill never appears, however often it has been invoked. Every result carries a `why`,
+and the response carries `dimensionBasis`, which is **`null` with a sentence** when the repo is
+unscanned or not in the fleet — never a zeroed dimension list a model would read as a clean bill of
+health.
 
 `get_governing_subject` resolves through the `file` column the registry index mirrored, **never** by
 building a path from a slug — the registry access contract. No registry mapped is an explicit
@@ -767,7 +898,7 @@ Practices — so the three tabs cannot drift in what they claim.
 
 | Registry | What the tab shows |
 | --- | --- |
-| Not mapped | A pointer strip: "Nothing is backed by a registry yet — … lives only in ascent," linking to the Registry tab. It is a pointer, **not a gate**: hosted rows and the author form render below exactly as before, and nothing on screen names a repo that may not exist. |
+| Not mapped | A pointer strip: "Nothing is backed by a registry yet — … lives only in ascent," linking to the Registry tab. It is a pointer, **not a gate**: hosted rows render below exactly as before, and nothing on screen names a repo that may not exist. |
 | Mapped | The strip becomes the live status — the repo (linked), `indexed <relative time>` (or "mapped, not indexed yet" before the first pass), and the counts the last index pass read out of the repo. |
 
 Per row, once a registry is mapped, an origin marker (`src/features/shared/registry/RegistryOriginTag.tsx`)
@@ -781,6 +912,13 @@ distinguishes the two worlds, and the affordances follow it:
 
 Before a registry is mapped the marker is not rendered at all — every row is hosted, and "hosted" is
 only news once the other world exists.
+
+**Mode vs stay hosted.** Mapping a registry in **hosted-mirror** mode is not the
+same as never mapping one. Stay hosted is the unmapped org: skills live only in
+ascent's tables. Hosted-mirror maps a repo and keeps ascent as the writer, with
+the repo a read-only copy. git-native (the Setup default) makes the repo the
+source of truth. Setup's two radios write that distinction at create/map time;
+the Skills tab then follows `origin` as above.
 
 ### Trace — a registry skill's own history (2026-08-30)
 
@@ -839,11 +977,15 @@ as Trace.
 | `src/app/api/org/tokens/route.ts`, `.../[id]/route.ts` | Mint/list/revoke org API tokens. |
 | `src/lib/org/skill-frontmatter.ts` | Frontmatter parse/backfill/reconcile contract. |
 | `src/lib/org/skill-promote.ts` | Promotion naming/description/tag derivation. |
-| `src/lib/org/skill-usage.ts` / `skill-usage-load.ts` | Dormancy classification (pure logic / Prisma read split). |
+| `src/lib/org/skill-usage.ts` / `skill-usage-load.ts` | Dormancy classification (pure logic / Prisma read split). Unmirrored sink B samples stay on the map via `unmirroredRegistryUsage`. |
 | `src/lib/org/skill-event-source.ts` | The closed `source` vocabulary + prefix normalizer. |
-| `src/lib/registry/usage-samples.ts` | Registry `usage/` samples → per-skill `invoke` stats (pure). |
+| `src/lib/registry/usage-samples.ts` | Registry `usage/` samples → per-skill `invoke` stats (pure). Unmirrored names are kept as `registry:<name>`, not dropped. |
 | `src/lib/db/org-skill-usage-samples.ts` | `OrgSkillUsageSample` snapshot read/upsert/purge. |
 | `scripts/ascent-skills.mjs` | The distributable: sync/push/list/status + `hooks` and `report`. |
+| `src/lib/org/registry-howto.ts` | Registry tab how-to lines: `report --to-registry` (no token) vs hosted push/events (token). |
+| `src/features/shared/registry/RegistryHowTo.tsx` | Renders that split; `ASCENT_TOKEN` is named only for sink A / MCP. |
+| `src/features/shared/registry/RegistrySetup.tsx` | Step 1: create/map, plus git-native vs hosted-mirror and the telemetry sink. |
+| `src/features/shared/registry/registryActionRules.ts` | Which actions render, and the setup mode/sink closed sets. |
 | `src/lib/org/skill-outcomes.ts` / `skill-outcomes-load.ts` | Before/after adoption score deltas. |
 | `src/lib/org/skill-categories.ts` | Closed category set. |
 | `src/lib/mcp/tools.ts` | The tool catalog: scopes, plan gates, the `mutates` marker. |
@@ -854,11 +996,10 @@ as Trace.
 | `src/lib/mcp/exemplar-tool.ts` | `compare_against_exemplar` — the door's projection of the #34 diff. |
 | `src/app/api/mcp/gates.ts` | Per-request plan gates + the per-token write ceiling. |
 | `src/lib/db/org-memory-citations.ts` | `OrgMemoryCitation` writes/reads + counter bumps. |
-| `src/lib/org/skill-templates.ts` | Author-form starter templates. |
 | `src/lib/db/org-skills.ts` | CRUD, `toRow()` read-time frontmatter resolution. |
 | `src/lib/db/org-api-tokens.ts` | Token mint/verify/revoke, hashing. |
 | `src/lib/api-token-auth.ts` | `authorizeOrgApi()`: token-or-session gate for skills routes. |
-| `src/features/shared/skills/SkillsPanel.tsx` | Client orchestrator. |
+| `src/features/shared/skills/SkillsPanel.tsx` | Client orchestrator. Lists sink B usage for skills this org has not mirrored. |
 | `src/features/shared/skills/SkillsLifecycle.tsx` | The tab's first sight: the reuse matrix + the use-over-time track. |
 | `src/features/shared/skills/skillLifecycleViz.ts` | Pure view model: usage state → `VizState`, badge word, evidence line, reuse rows, outcome states. |
 | `src/features/shared/skills/skillDormancyTrack.ts` | Pure view model: the use-over-time lanes and the derived observation instant. |
@@ -866,7 +1007,8 @@ as Trace.
 | `src/features/shared/skills/SkillCard.tsx` | Per-skill detail, adopt actions. |
 | `src/features/shared/skills/SkillCardActions.tsx` | Copy / Download / Open-in-registry / archive — and the two CTA instructions. |
 | `src/features/shared/skills/SkillDormancyBadge.tsx` | Dormancy status chip, painted from `SkillUsage.state`. |
-| `src/features/shared/skills/SkillInvokeChip.tsx` | "N ran" — the invocation half of the use count. |
+| `src/features/shared/skills/SkillInvokeChip.tsx` | "N ran" plus the last-use source chip (`skillEventSourceLabel`); all-time volume, not a 30d rate. |
+| `src/features/shared/skills/SkillsLibraryTable.tsx` | Catalog table. **Uses** names sink A / sink B and the all-time window, distinct from Registry 30d. |
 | `src/features/shared/skills/SkillOutcomes.tsx` | Score-movement-since-adoption display. |
 | `src/features/shared/skills/ApiTokensPanel.tsx` | Token mint/list/revoke UI. |
 | `src/app/org/[slug]/skills/page.tsx` | Page composition. |

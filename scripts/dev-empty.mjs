@@ -17,7 +17,7 @@
 //   distDir   .next-empty           (next.config.ts switches on ASCENT_EMPTY=1, so the build cache
 //                                    never collides with the normal server's .next)
 //   env       ASCENT_EMPTY=1        (seed gate — src/lib/dev/empty-gate.ts `emptyTenantEnabled()`;
-//                                    any future automatic dev seeding must consult it)
+//                                    /api/dev/seed-* refuses via seedRequestAuthorized)
 //             PGLITE_DATA_DIR=.pglite/ascent-empty
 //                                   (set as REAL process env, which Next's .env loading never
 //                                    overrides — .env.local's .pglite/ascent stays inert here)

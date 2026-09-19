@@ -19,6 +19,23 @@
 
 import { useState } from "react";
 
+/** One row from POST /api/report/foundation/pr-batch (`FoundationBatchItem` on the wire). */
+type BatchRow = { ok: boolean; url?: string; number?: number; error?: string };
+type OpenedPr = { url: string; number?: number };
+
+function openedPrs(rows: BatchRow[]): OpenedPr[] {
+  const out: OpenedPr[] = [];
+  for (const r of rows) {
+    const url = typeof r.url === "string" ? r.url.trim() : "";
+    if (!r.ok || !url) continue;
+    out.push({
+      url,
+      number: typeof r.number === "number" && Number.isFinite(r.number) ? r.number : undefined,
+    });
+  }
+  return out;
+}
+
 export function FoundationPanel({
   org,
   repos,
@@ -33,6 +50,7 @@ export function FoundationPanel({
 }) {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [prs, setPrs] = useState<OpenedPr[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [skipped, setSkipped] = useState(false);
 
@@ -50,19 +68,27 @@ export function FoundationPanel({
       });
       const d = (await res.json().catch(() => ({}))) as {
         error?: string;
-        results?: Array<{ ok: boolean; error?: string }>;
+        results?: BatchRow[];
       };
       if (!res.ok) throw new Error(d.error ?? "Couldn't open the foundation PRs.");
-      const opened = (d.results ?? []).filter((r) => r.ok).length;
-      const failed = (d.results ?? []).length - opened;
+      const rows = d.results ?? [];
+      const opened = rows.filter((r) => r.ok).length;
+      const failed = rows.length - opened;
+      // Keep the first per-repo error: all-failed becomes the alert, mixed stays on the summary so
+      // a count-only readout cannot drop why a repo failed.
+      const firstError = rows.find((r) => !r.ok)?.error;
       if (opened === 0) {
         // Every repo failed. Say so, and say why for the first one — reporting "0 PRs opened" as a
         // success is exactly the kind of quiet non-event this panel exists to avoid.
-        throw new Error(d.results?.find((r) => !r.ok)?.error ?? "No PRs could be opened.");
+        throw new Error(firstError ?? "No PRs could be opened.");
       }
+      setPrs(openedPrs(rows));
       setDone(
         `Opened ${opened} draft PR${opened === 1 ? "" : "s"}` +
-          (failed ? ` · ${failed} repo${failed === 1 ? "" : "s"} couldn't be installed` : ""),
+          (failed
+            ? ` · ${failed} repo${failed === 1 ? "" : "s"} couldn't be installed` +
+              (firstError ? `: ${firstError}` : "")
+            : ""),
       );
       onInstalled?.(opened);
     } catch (e) {
@@ -110,9 +136,27 @@ export function FoundationPanel({
       </div>
 
       {done && (
-        <p className="mt-2 type-mono-sm text-emerald-300">
-          {done} · review them on GitHub, then merge when you&apos;re ready.
-        </p>
+        <div className="mt-2">
+          <p className="type-mono-sm text-emerald-300">
+            {done} · review them on GitHub, then merge when you&apos;re ready.
+          </p>
+          {prs.length > 0 && (
+            <ul className="mt-1 space-y-1">
+              {prs.map((pr, i) => (
+                <li key={`${pr.url}-${i}`}>
+                  <a
+                    href={pr.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="type-mono-sm text-emerald-300 underline hover:text-white"
+                  >
+                    {typeof pr.number === "number" ? `PR #${pr.number}` : pr.url}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       {error && (
         <p role="alert" className="mt-2 type-mono-sm text-danger-soft">

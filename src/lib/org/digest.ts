@@ -82,8 +82,15 @@ function toAction(rec: OrgRec, rank: 1 | 2 | 3, scanned: number): DigestAction {
   };
 }
 
-function toMover(m: RepoMove): DigestMover {
-  return { name: m.name, fullName: m.fullName, dOverall: m.dOverall, levelFrom: m.levelFrom, levelTo: m.levelTo };
+function toMover(m: RepoMove, lifetime = false): DigestMover {
+  // A single-scan onboard compares the scan to itself: dOverall is 0 by arithmetic, not measurement.
+  return {
+    name: m.name,
+    fullName: m.fullName,
+    dOverall: lifetime && m.dOverall === 0 ? null : m.dOverall,
+    levelFrom: m.levelFrom,
+    levelTo: m.levelTo,
+  };
 }
 
 /** Assemble the weekly digest for an org. Null when nothing has been scanned. */
@@ -126,12 +133,25 @@ export async function buildWeeklyDigest(orgSlug: string, now: Date = new Date())
   const level = levelForScore(rollup.avgOverall);
   const movement = rollup.movement;
 
-  const deltaByDim = new Map((rollup.dimDeltas ?? []).map((d) => [d.dimId, d.delta] as const));
+  const recByDim = new Map((rollup.dimDeltas ?? []).map((d) => [d.dimId, d] as const));
   const dims: DigestDimDelta[] = [...rollup.dimAverages]
     .sort((a, b) => a.dimId.localeCompare(b.dimId))
     .map((d) => {
-      const delta = deltaByDim.has(d.dimId) ? (deltaByDim.get(d.dimId) as number) : null;
-      return { dimId: d.dimId, label: dimLabel(d.dimId), now: d.avg, delta, band: bandFor(delta) };
+      // Missing n is unmeasured. A delta without its denominator is not a measurement, and a
+      // 0-size cohort is the empty-intersection case computeDimDeltas already returns as
+      // null/omitted — never as "0 repos, delta 0".
+      const rec = recByDim.get(d.dimId);
+      const n = rec?.cohortSize;
+      const delta = rec != null && n != null && n > 0 ? rec.delta : null;
+      const cohortSize = rec != null && n != null && n > 0 ? n : null;
+      return {
+        dimId: d.dimId,
+        label: dimLabel(d.dimId),
+        now: d.avg,
+        delta,
+        cohortSize,
+        band: bandFor(delta),
+      };
     });
 
   const followups = buildFollowups(closed, opened, scanned, notes);
@@ -206,13 +226,15 @@ function buildFollowups(
   };
 }
 
-/** Top 3 climbers and top 3 sliders, with the count of repositories that had a real comparison.
+/** Top 3 climbers, sliders, held-within-noise, and onboarded names, plus the comparison count.
  *  `comparedRepos` deliberately excludes repos onboarded mid-window (G4-06) — their move is a lifetime
- *  delta, not a week's. */
+ *  delta, not a week's — but those names still travel on `onboarded` so the axis can render them. */
 function buildMovement(movers: OrgMovers): DigestMovement {
   return {
-    gainers: movers.gainers.slice(0, 3).map(toMover),
-    regressers: movers.regressers.slice(0, 3).map(toMover),
+    gainers: movers.gainers.slice(0, 3).map((m) => toMover(m)),
+    regressers: movers.regressers.slice(0, 3).map((m) => toMover(m)),
+    held: movers.held.slice(0, 3).map((m) => toMover(m)),
+    onboarded: movers.onboarded.slice(0, 3).map((m) => toMover(m, true)),
     compared: movers.comparedRepos,
   };
 }

@@ -1,6 +1,8 @@
 // Gemini provider (MVP / public repos). Uses @google/genai structured output
 // (responseJsonSchema) so the model is constrained to the assessment contract,
-// with defensive parsing as a safety net. Model is env-configurable via GEMINI_MODEL.
+// with a one-shot application/json retry when the schema call is rejected or empty
+// (the same fallback OpenAI uses for json_object), and defensive parsing as a
+// safety net. Model is env-configurable via GEMINI_MODEL.
 //
 // 2026-08-14: the default moved off `gemini-3-flash-preview` to the GA **gemini-3.7-flash**.
 // The preview default was the open engine-credibility item in `tiger/` (P2-6): the PUBLIC tier — the
@@ -15,23 +17,31 @@
 //
 // 2026-09-02: the default moved to **gemini-3.8-flash** (GA, same introductory per-token price as
 // 3.7 and the same 2027-01-01 reversion). Two consequences the price row cannot express:
-//   1. Same rate, MORE tokens. The vendor states 3.8 "works harder" — extra reasoning steps and
-//      iterative tool calls, at thinking_level's default of `high`. Cost per SCAN rises even though
-//      cost per token does not; if /usage climbs after this change, that is the expected mechanism,
-//      not a metering bug. The efficiency-first alternative the vendor names is staying on 3.7.
+//   1. Same rate, MORE tokens if thinking_level stays at the vendor default of `high`. The vendor
+//      states 3.8 "works harder" — extra reasoning tokens billed as output. assess() pins
+//      GEMINI_THINKING_LEVEL to `low` so that inflation is opt-in (`high` remains selectable).
 //   2. This invalidates the score cache (keyed on model), so the first run after deploy re-scores
-//      every repo at the new, higher per-scan token count. Budget for one expensive sweep.
+//      every repo. Budget for one sweep; with thinking_level low the per-scan token count should
+//      not match the unpinned `high` path.
 // P2-6 is still open: the benchmark run has not been repeated against 3.8.
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type ThinkingLevel } from "@google/genai";
 import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provider";
 import { finalizeAssessment } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
-import { llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
+import { geminiThinkingLevel, llmTemperature, llmTimeoutMs, withLlmTimeout } from "@/lib/llm/config";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
+
+/** Does this error look like "I don't support responseJsonSchema"? Mirrors isResponseFormatRejection. */
+function isGeminiSchemaRejection(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /responseJsonSchema|response_schema|response_json_schema|json schema|structured output|responseMimeType/i.test(
+    msg,
+  );
+}
 
 export class GeminiProvider implements LLMProvider {
   readonly name = "gemini" as const;
@@ -66,21 +76,44 @@ export class GeminiProvider implements LLMProvider {
       llmTimeoutMs(),
       "Gemini request timed out.",
     );
-    let response;
-    try {
-      response = await client.models.generateContent({
+    // Constrain decoding to the assessment contract first (the same JSON Schema Bedrock forces as a
+    // tool). Some Gemini models/versions reject responseJsonSchema or return an empty candidate;
+    // retry ONCE without the schema, still asking for application/json — OpenAI's json_object
+    // fallback. First call always keeps the schema. finalizeAssessment remains the terminal step.
+    const generate = (withSchema: boolean) =>
+      client.models.generateContent({
         model: this.model,
         contents: user,
         config: {
           systemInstruction: system,
           temperature: llmTemperature(),
           responseMimeType: "application/json",
-          // Constrain decoding to the assessment contract (the same JSON Schema Bedrock forces as a
-          // tool); parseJsonLoose + validateAssessment below remain the safety net.
-          responseJsonSchema: ASSESSMENT_JSON_SCHEMA,
+          ...(withSchema ? { responseJsonSchema: ASSESSMENT_JSON_SCHEMA } : {}),
+          // Pin thinking_level so gemini-3.8-flash does not silently use the vendor default `high`
+          // (extra reasoning tokens billed as output). GEMINI_THINKING_LEVEL; unset → low.
+          thinkingConfig: {
+            thinkingLevel: geminiThinkingLevel().toUpperCase() as ThinkingLevel,
+          },
           abortSignal,
         },
       });
+    let response!: Awaited<ReturnType<typeof generate>>;
+    try {
+      let retry = false;
+      try {
+        response = await generate(true);
+        retry = !response.text;
+      } catch (err) {
+        if (abortSignal.aborted || !isGeminiSchemaRejection(err)) throw err;
+        retry = true;
+      }
+      if (retry) {
+        console.warn(
+          `[llm/gemini] model "${this.model}" failed schema-constrained decoding; ` +
+            "retrying with application/json only (shape is then prompt-enforced only).",
+        );
+        response = await generate(false);
+      }
     } finally {
       clear();
     }

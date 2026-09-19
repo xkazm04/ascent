@@ -264,6 +264,9 @@ export function coalesceScan(
   onProgress?: (p: ScanProgress) => void,
 ): Promise<ScanReport> {
   let entry = inflightScans.get(key);
+  // All prior waiters left: cancellation is irreversible even if the old promise
+  // is still unwinding. A new caller needs a live computation, not that doomed run.
+  if (entry?.controller.signal.aborted) entry = undefined;
   const joined = Boolean(entry);
   if (!entry) {
     const controller = new AbortController();

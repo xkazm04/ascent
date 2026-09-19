@@ -20,15 +20,20 @@ export function maskIngestToken(token: string): string {
 /**
  * The exporter configuration. `token` is substituted verbatim, so callers pass the real token to
  * build the copyable snippet and {@link maskIngestToken}'s output to build the rendered one.
+ *
+ * Metrics only. `/v1/logs` authenticates and 202-accepts without persisting, so this snippet does
+ * not set `OTEL_LOGS_EXPORTER=otlp` — Claude Code leaves logs off unless that variable is set.
+ * Do not add it back until a persist path exists. Operators who enable logs themselves still hit
+ * the accept-and-discard route so the exporter does not error-loop.
  */
 export function buildEnvSnippet(endpoint: string, token: string): string {
+  const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
   return [
     "export CLAUDE_CODE_ENABLE_TELEMETRY=1",
     "export OTEL_METRICS_EXPORTER=otlp",
-    "export OTEL_LOGS_EXPORTER=otlp",
     "export OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
-    `export OTEL_EXPORTER_OTLP_ENDPOINT=${endpoint}`,
-    `export OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer ${token}`,
+    `export OTEL_EXPORTER_OTLP_ENDPOINT=${quote(endpoint)}`,
+    `export OTEL_EXPORTER_OTLP_HEADERS=${quote(`Authorization=Bearer ${token}`)}`,
     "export OTEL_RESOURCE_ATTRIBUTES=git.repository=$(git remote get-url origin)",
   ].join("\n");
 }

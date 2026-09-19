@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ScanReport } from "@/lib/types";
-import { freshness } from "@/lib/ui";
+import { freshness, reportPermalink } from "@/lib/ui";
 import { ConfirmAction, retestConfirm } from "@/components/ConfirmAction";
 import { pillClass } from "./pill";
 
@@ -11,7 +11,8 @@ import { pillClass } from "./pill";
  * ticker (no reload). Re-test re-runs the scan — cheap when the repo is unchanged (a conditional
  * request returns a free 304 and the persisted scan is served), a full re-score when it moved.
  * In the live scan view `onRetest` re-triggers the in-page SSE run; on a server-rendered pinned
- * permalink (no callback) it links to the live scanner with `fresh=1` to force a re-check.
+ * permalink (no callback) it stays on `/report/{owner}/{repo}` with `fresh=1` so Re-test does not
+ * bounce to the `/report?repo=` job URL.
  */
 export function FreshnessControl({
   report,
@@ -36,13 +37,10 @@ export function FreshnessControl({
   // scanner, which owns its own flow.)
   const [confirming, setConfirming] = useState(false);
 
-  // Build the re-test target from the canonical `owner/name[@headSha]` ref (matching the PDF/skill
-  // links in ReportHeader) rather than the full repo.url. The full-URL form relied on `?repo=`
-  // URL-normalization AND silently dropped the pinned commit, so "Re-test" on a pinned permalink
-  // abandoned the historical sha the user was viewing and rescanned HEAD. Preserving `@headSha` keeps
-  // the re-test pinned to the same commit (with `fresh=1` forcing a re-check of that exact sha).
-  const repoRef = `${report.repo.owner}/${report.repo.name}${report.repo.headSha ? `@${report.repo.headSha}` : ""}`;
-  const retestHref = `/report?repo=${encodeURIComponent(repoRef)}&fresh=1`;
+  // Stay on the durable permalink (`/report/{owner}/{repo}[@{sha}]`) and add `fresh=1` only.
+  // Bouncing to `/report?repo=` dropped the shareable URL; omitting `@headSha` used to abandon
+  // a pinned commit and rescan HEAD. `fresh=1` still forces a re-check of that exact sha.
+  const retestHref = `${reportPermalink(`${report.repo.owner}/${report.repo.name}`, report.repo.headSha)}?fresh=1`;
   const retestClass = pillClass();
   const refreshIcon = (
     <svg aria-hidden viewBox="0 0 16 16" className="h-3 w-3 shrink-0" fill="none">

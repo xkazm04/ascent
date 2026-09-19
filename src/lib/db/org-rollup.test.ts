@@ -21,6 +21,9 @@ const { mockGetPrisma, mockIsDbConfigured } = vi.hoisted(() => ({
 vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
 
 import {
+  buildOrgForecastSeries,
+  buildOrgMaturityTrend,
+  collectOrgTrendSamples,
   computeCohortMovement,
   computeWindowDeltas,
   computeDimDeltas,
@@ -31,6 +34,7 @@ import {
   type RepoScoreSnap,
   type RepoDimSnap,
 } from "@/lib/db/org-rollup";
+import { forecastBasis, forecastTrajectory } from "@/lib/maturity/forecast";
 import { retentionCutoff } from "@/lib/plans";
 import { __resetOrgTimeZoneCache } from "@/lib/org/timezone";
 
@@ -151,14 +155,22 @@ function dsnap(repoId: string, ...dims: [string, number][]): RepoDimSnap {
 }
 
 describe("computeDimDeltas — cohort matching per dimension", () => {
+  it.each([
+    { current: [dsnap("A", ["D9", 20]), dsnap("B", ["D9", 100])], baseline: [dsnap("A", ["D9", 20]), dsnap("B")], expected: [{ dimId: "D9", delta: 0, cohortSize: 1 }] },
+    { current: [dsnap("A", ["D9", 20]), dsnap("B")], baseline: [dsnap("A", ["D9", 20]), dsnap("B", ["D9", 100])], expected: [{ dimId: "D9", delta: 0, cohortSize: 1 }] },
+    { current: [dsnap("A", ["D9", 20]), dsnap("B")], baseline: [dsnap("A"), dsnap("B", ["D9", 100])], expected: [] },
+  ])("does not turn changing dimension coverage into movement: %j", ({ current, baseline, expected }) => {
+    expect(computeDimDeltas(current, baseline)).toEqual(expected);
+  });
+
   it("measures only repos present in BOTH windows, per dimId", () => {
     // Cohort A,B: D1 moves avg(80,90)=85 - avg(70,80)=75 = +10; D9 moves avg(40,60)=50 - avg(20,40)=30 = +20.
-    // C is after-only and must not vote.
+    // C is after-only and must not vote. Both dims are paired on the same two repos, so n=2.
     const current = [dsnap("A", ["D1", 80], ["D9", 40]), dsnap("B", ["D1", 90], ["D9", 60]), dsnap("C", ["D1", 10], ["D9", 5])];
     const baseline = [dsnap("A", ["D1", 70], ["D9", 20]), dsnap("B", ["D1", 80], ["D9", 40])];
     expect(computeDimDeltas(current, baseline)).toEqual([
-      { dimId: "D1", delta: 10 },
-      { dimId: "D9", delta: 20 },
+      { dimId: "D1", delta: 10, cohortSize: 2 },
+      { dimId: "D9", delta: 20, cohortSize: 2 },
     ]);
   });
 
@@ -166,7 +178,7 @@ describe("computeDimDeltas — cohort matching per dimension", () => {
     // D9 was added to the rubric after the baseline scans — no before-side, so no movement claim.
     const current = [dsnap("A", ["D1", 80], ["D9", 50])];
     const baseline = [dsnap("A", ["D1", 70])];
-    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D1", delta: 10 }]);
+    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D1", delta: 10, cohortSize: 1 }]);
   });
 
   it("a cohort repo missing a dim doesn't vote on it (no zero-fill drag)", () => {
@@ -174,8 +186,8 @@ describe("computeDimDeltas — cohort matching per dimension", () => {
     const current = [dsnap("A", ["D9", 60]), dsnap("B", ["D1", 80])];
     const baseline = [dsnap("A", ["D9", 20]), dsnap("B", ["D1", 80])];
     expect(computeDimDeltas(current, baseline)).toEqual([
-      { dimId: "D1", delta: 0 },
-      { dimId: "D9", delta: 40 },
+      { dimId: "D1", delta: 0, cohortSize: 1 },
+      { dimId: "D9", delta: 40, cohortSize: 1 },
     ]);
   });
 
@@ -189,7 +201,34 @@ describe("computeDimDeltas — cohort matching per dimension", () => {
     // now avg(70,71)=70.5->71 ; before avg(70,70)=70 ; delta +1.
     const current = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 71])];
     const baseline = [dsnap("A", ["D9", 70]), dsnap("B", ["D9", 70])];
-    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D9", delta: 1 }]);
+    expect(computeDimDeltas(current, baseline)).toEqual([{ dimId: "D9", delta: 1, cohortSize: 2 }]);
+  });
+
+  it("carries the per-dimension paired-repo n, and refuses the old {dimId, delta} shape", () => {
+    // D1 is paired on A and B (n=2); D9 is paired on A only (B has no baseline D9), so n=1.
+    // The two denominators are different facts — collapsing them into the headline cohortSize
+    // would make D9 look as widely measured as D1.
+    const current = [dsnap("A", ["D1", 80], ["D9", 40]), dsnap("B", ["D1", 90], ["D9", 60])];
+    const baseline = [dsnap("A", ["D1", 70], ["D9", 20]), dsnap("B", ["D1", 80])];
+    const out = computeDimDeltas(current, baseline);
+    expect(out).toEqual([
+      { dimId: "D1", delta: 10, cohortSize: 2 },
+      { dimId: "D9", delta: 20, cohortSize: 1 },
+    ]);
+    for (const row of out!) {
+      expect(Object.keys(row).sort()).toEqual(["cohortSize", "delta", "dimId"]);
+      expect(row.cohortSize).toBeGreaterThan(0);
+      // Exact equality, not toMatchObject: the old pair must not satisfy the contract.
+      expect(row).not.toEqual({ dimId: row.dimId, delta: row.delta });
+    }
+    // Type-level: the new shape is required, the old pair is not assignable.
+    type Row = NonNullable<ReturnType<typeof computeDimDeltas>>[number];
+    type HasN = Row extends { dimId: string; delta: number; cohortSize: number } ? true : false;
+    const hasN: HasN = true;
+    type OldFits = { dimId: string; delta: number } extends Row ? true : false;
+    const oldFits: OldFits = false;
+    expect(hasN).toBe(true);
+    expect(oldFits).toBe(false);
   });
 });
 
@@ -228,19 +267,24 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
   }
 
   /** scan.findMany is called twice (trend, then the distinct baseline); branch on the `distinct` arg. */
-  function fakePrisma(trendScans: { scannedAt: Date; overallScore: number }[]) {
+  function fakePrisma(
+    trendScans: { scannedAt: Date; overallScore: number; repoId?: string }[],
+    digests: { repoId: string; lastScannedAt: Date; overallSum: number; scanCount: number }[] = [],
+  ) {
     const scanFindMany = vi.fn(async (args: { distinct?: unknown } = {}) =>
       args.distinct
         ? [{ id: "s_base", repoId: "r1", overallScore: 50, adoptionScore: 50, rigorScore: 50 }]
         : trendScans,
     );
+    const digestFindMany = vi.fn(async () => digests);
     const prisma = {
       organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
       repository: { findMany: vi.fn(async () => [repoRow("r1", new Date("2026-05-12T12:00:00Z"))]) },
       scan: { findMany: scanFindMany },
+      scanDigest: { findMany: digestFindMany },
       scanDimension: { findMany: vi.fn(async () => []) },
     };
-    return { prisma, scanFindMany };
+    return { prisma, scanFindMany, digestFindMany };
   }
 
   it("issues the pre-window baseline query with distinct:['repoId'] — one row per repo at the DB (fleet-rollups-insights #1)", async () => {
@@ -318,6 +362,19 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     // One repo (r1) on both sides: baseline 50 -> current 70.
     expect(res!.movement).toEqual({ overall: 20, adoption: 10, rigor: 30, cohortSize: 1, onboarded: 0, departed: 0 });
     expect(res!.deltas).toEqual({ overall: 20, adoption: 10, rigor: 30 });
+  });
+
+  it("surfaces dimDeltas with the per-dimension cohort size (never the old {dimId, delta} pair)", async () => {
+    // Current repoRow is D1=70; baseline scan is s_base at overall 50. Pairing D1 at 50→70 gives
+    // +20 over n=1 — the same single-repo cohort the movement test above pins on the headlines.
+    const { prisma } = fakePrisma([{ scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70 }]);
+    prisma.scanDimension.findMany = vi.fn(async () => [{ scanId: "s_base", dimId: "D1", score: 50 }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme", { start: new Date("2026-05-01T00:00:00Z") });
+
+    expect(res!.dimDeltas).toEqual([{ dimId: "D1", delta: 20, cohortSize: 1 }]);
+    expect(res!.dimDeltas![0]).not.toEqual({ dimId: "D1", delta: 20 });
   });
 
   it("excludes the deterministic mock floor from the fleet averages, and carries the count it excluded", async () => {
@@ -458,6 +515,48 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     // A repo with real dimension rows is never flagged — the bucket must not swallow measured repos.
     expect(res!.repos.find((r) => r.fullName === "acme/ok")!.latest!.incomplete).toBe(false);
   });
+
+  it("fits the forecast over compacted digest days and keeps compactedPoints (DANA-L1-014)", async () => {
+    const scans = [
+      { scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70, repoId: "r1" },
+      { scannedAt: new Date("2026-05-20T12:00:00Z"), overallScore: 80, repoId: "r1" },
+    ];
+    const digests = [
+      { repoId: "r1", lastScannedAt: new Date("2026-03-28T00:00:00Z"), overallSum: 200, scanCount: 4 },
+    ];
+    const { prisma, digestFindMany } = fakePrisma(scans, digests);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.trend).toEqual([
+      { date: "2026-03-28", avg: 50, compacted: true },
+      { date: "2026-05-12", avg: 70 },
+      { date: "2026-05-20", avg: 80 },
+    ]);
+    expect(res!.forecast).toMatchObject({ points: 3, compactedPoints: 1 });
+    expect(forecastBasis(res!.forecast!)).toContain("1 of them compacted");
+    const digestCall = digestFindMany.mock.calls[0]![0] as { where: { engineProvider?: unknown; lastScannedAt?: unknown } };
+    expect(digestCall.where.engineProvider).toEqual({ not: "mock" });
+  });
+
+  it("does not double-count a digest whose period still has retained scans", async () => {
+    const scans = [
+      { scannedAt: new Date("2026-05-10T12:00:00Z"), overallScore: 60, repoId: "r1" },
+      { scannedAt: new Date("2026-05-20T12:00:00Z"), overallScore: 80, repoId: "r1" },
+    ];
+    // lastScannedAt is AFTER the oldest retained scan for r1 — the period still has live rows.
+    const digests = [
+      { repoId: "r1", lastScannedAt: new Date("2026-05-12T00:00:00Z"), overallSum: 200, scanCount: 4 },
+    ];
+    const { prisma } = fakePrisma(scans, digests);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.trend.every((t) => t.compacted !== true)).toBe(true);
+    expect(res!.forecast?.compactedPoints ?? 0).toBe(0);
+  });
 });
 
 // ── computeCohortMovement — the delta travels WITH its denominator (cohort-size-not-returned) ─────
@@ -548,6 +647,7 @@ describe("getOrgRollup — the mock floor leaves dimAverages and the trend", () 
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
         repository: { findMany: vi.fn(async () => repoRows) },
         scan: { findMany: scanFindMany },
+        scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
       },
     };
@@ -595,6 +695,75 @@ describe("getOrgRollup — the mock floor leaves dimAverages and the trend", () 
       | undefined;
     expect(trendCall, "the trend scan.findMany should have run").toBeDefined();
     expect(trendCall!.where.engineProvider).toEqual({ not: "mock" });
+  });
+});
+
+// ── Compacted flags survive the org-rollup forecast series (DANA-L1-014) ──────────────────────────
+// `forecastTrajectory` only counts compactedPoints when SeriesPoint.compacted is set. The rollup
+// used to map `{ date, avg }` and drop the flag, so every org forecast reported 0 compacted days
+// even after the digest tail was in the trend. These pin the mapping and the overlap rule without
+// Prisma.
+describe("org rollup forecast series — compacted flags", () => {
+  const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+
+  it("preserves compacted flags when building the forecast series", () => {
+    const series = buildOrgForecastSeries([
+      { date: "2026-03-01", avg: 50, compacted: true },
+      { date: "2026-04-01", avg: 55 },
+      { date: "2026-05-01", avg: 60 },
+    ]);
+    expect(series).toEqual([
+      { date: "2026-03-01", value: 50, compacted: true },
+      { date: "2026-04-01", value: 55 },
+      { date: "2026-05-01", value: 60 },
+    ]);
+    expect(forecastTrajectory(series)).toMatchObject({ points: 3, compactedPoints: 1 });
+    expect(forecastBasis(forecastTrajectory(series)!)).toBe(
+      "fit over 3 scan days across 61 days, 1 of them compacted",
+    );
+  });
+
+  it("does not stamp compacted:false on a retained-only series", () => {
+    const series = buildOrgForecastSeries([
+      { date: "2026-05-01", avg: 70 },
+      { date: "2026-05-02", avg: 72 },
+    ]);
+    expect(series.every((p) => p.compacted === undefined)).toBe(true);
+    expect(forecastTrajectory(series)!.compactedPoints).toBe(0);
+  });
+
+  it("marks a mixed day compacted so the day's mean is not a straight measurement", () => {
+    const trend = buildOrgMaturityTrend(
+      [
+        { scannedAt: new Date("2026-05-10T11:00:00Z"), overallScore: 60 },
+        { scannedAt: new Date("2026-05-10T13:00:00Z"), overallScore: 80, compacted: true },
+        { scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 90 },
+      ],
+      dayKey,
+    );
+    expect(trend).toEqual([
+      { date: "2026-05-10", avg: 70, compacted: true },
+      { date: "2026-05-12", avg: 90 },
+    ]);
+    expect(buildOrgForecastSeries(trend)[0]).toEqual({ date: "2026-05-10", value: 70, compacted: true });
+  });
+
+  it("drops a digest that overlaps that repo's retained scans, and keeps one that does not", () => {
+    const samples = collectOrgTrendSamples(
+      [
+        { scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70, repoId: "r1" },
+        { scannedAt: new Date("2026-05-20T12:00:00Z"), overallScore: 80, repoId: "r1" },
+      ],
+      [
+        { repoId: "r1", lastScannedAt: new Date("2026-05-15T00:00:00Z"), overallSum: 200, scanCount: 4 },
+        { repoId: "r1", lastScannedAt: new Date("2026-03-28T00:00:00Z"), overallSum: 200, scanCount: 4 },
+        { repoId: "r2", lastScannedAt: new Date("2026-04-15T00:00:00Z"), overallSum: 90, scanCount: 2 },
+      ],
+    );
+    expect(samples.filter((s) => s.compacted).map((s) => s.scannedAt.toISOString().slice(0, 10))).toEqual([
+      "2026-03-28",
+      "2026-04-15",
+    ]);
   });
 });
 
@@ -686,6 +855,7 @@ describe("getOrgRollup — the repository query selects only what the mapper rea
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
         repository: { findMany: repoFindMany },
         scan: { findMany: vi.fn(async () => []) },
+        scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
       },
     };
@@ -764,6 +934,7 @@ describe("getOrgRollupShared — argument normalization", () => {
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
         repository: { findMany: repoFindMany },
         scan: { findMany: vi.fn(async () => []) },
+        scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
       },
     };
@@ -788,5 +959,133 @@ describe("getOrgRollupShared — argument normalization", () => {
 
     const where = (repoFindMany.mock.calls[0]![0] as { where: Record<string, unknown> }).where;
     expect(JSON.stringify(where)).toContain("tg_1");
+  });
+});
+
+// ── freshness.queued splits rescore vs probe (fleet-rollups-insights) ─────────────────────────────
+// Two-speed freshness already stamps scoredAt / controlsAt independently; the queued tag did not.
+// `ScanJob.lane` is `rescore | probe` on the existing row (no schema change). Lumping them into one
+// boolean made a free control probe render identically to a paid rescore, so the UI could not say
+// which work was owed. `queued` stays the OR so existing lumped tags keep working.
+describe("getOrgRollup — freshness.queued splits rescore vs probe", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+  });
+
+  function repoRow(id: string) {
+    return {
+      id,
+      fullName: `acme/${id}`,
+      owner: "acme",
+      name: id,
+      isPrivate: false,
+      watched: true,
+      primaryLanguage: "TypeScript",
+      techStackJson: null,
+      passportJson: null,
+      passportOverridesJson: null,
+      scanSchedule: "manual",
+      lastScanAt: null,
+      lastScanStatus: "ok",
+      lastScanError: null,
+      aiConformance: null,
+      scans: [
+        {
+          level: "L3",
+          overallScore: 70,
+          adoptionScore: 60,
+          rigorScore: 80,
+          posture: "ai-native",
+          scannedAt: new Date("2026-05-12T12:00:00Z"),
+          engineProvider: "anthropic",
+          governance: null,
+          commitActivity: null,
+          prStats: null,
+          dimensions: [{ dimId: "D1", score: 70 }],
+        },
+      ],
+    };
+  }
+
+  function prismaWithJobs(jobs: { repoFullName: string; lane: string }[], repoIds: string[] = ["web", "api"]) {
+    const scanJobFindMany = vi.fn(async () => jobs);
+    return {
+      scanJobFindMany,
+      prisma: {
+        organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
+        repository: { findMany: vi.fn(async () => repoIds.map(repoRow)) },
+        scan: { findMany: vi.fn(async () => []) },
+        scanDigest: { findMany: vi.fn(async () => []) },
+        scanDimension: { findMany: vi.fn(async () => []) },
+        scanJob: { findMany: scanJobFindMany },
+      },
+    };
+  }
+
+  it("a rescore job flags queuedRescore, not queuedProbe", async () => {
+    const { prisma } = prismaWithJobs([{ repoFullName: "acme/web", lane: "rescore" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+    const web = res!.repos.find((r) => r.fullName === "acme/web")!.freshness;
+    const api = res!.repos.find((r) => r.fullName === "acme/api")!.freshness;
+
+    expect(web).toMatchObject({ queuedRescore: true, queuedProbe: false, queued: true });
+    expect(api).toMatchObject({ queuedRescore: false, queuedProbe: false, queued: false });
+  });
+
+  it("a probe job flags queuedProbe, not queuedRescore — the lumped boolean used to hide this", async () => {
+    const { prisma } = prismaWithJobs([{ repoFullName: "acme/api", lane: "probe" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+    const api = res!.repos.find((r) => r.fullName === "acme/api")!.freshness;
+
+    expect(api.queuedProbe).toBe(true);
+    expect(api.queuedRescore).toBe(false);
+    expect(api.queued).toBe(true);
+  });
+
+  it("a repo with both lanes queued flags both, and queued remains the OR", async () => {
+    const { prisma } = prismaWithJobs([
+      { repoFullName: "acme/web", lane: "rescore" },
+      { repoFullName: "acme/web", lane: "probe" },
+    ]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+    const web = res!.repos.find((r) => r.fullName === "acme/web")!.freshness;
+
+    expect(web.queuedRescore).toBe(true);
+    expect(web.queuedProbe).toBe(true);
+    expect(web.queued).toBe(true);
+    expect(web.queued).toBe(web.queuedRescore || web.queuedProbe);
+  });
+
+  it("selects ScanJob.lane and only unsettled states — the split is derived, not a new column", async () => {
+    const { prisma, scanJobFindMany } = prismaWithJobs([]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getOrgRollup("acme");
+
+    const args = scanJobFindMany.mock.calls[0]![0] as {
+      where: { state: unknown };
+      select: Record<string, unknown>;
+    };
+    expect(args.where.state).toEqual({ in: ["queued", "claimed"] });
+    expect(args.select).toEqual({ repoFullName: true, lane: true });
+  });
+
+  it("an unreadable queue degrades to all-false, never throws", async () => {
+    const { prisma } = prismaWithJobs([]);
+    delete (prisma as { scanJob?: unknown }).scanJob;
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await getOrgRollup("acme");
+    expect(res).toBeTruthy();
+    for (const r of res!.repos) {
+      expect(r.freshness).toMatchObject({ queuedRescore: false, queuedProbe: false, queued: false });
+    }
   });
 });

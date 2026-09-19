@@ -54,6 +54,17 @@ function clone<T>(v: T): T {
 // ---------------------------------------------------------------------------
 
 describe("parseScanReport — valid", () => {
+  it("accepts a valid discrepancy entry", () => {
+    const r = validReport();
+    r.discrepancies = [{ dimension: "D3", claim: "Guidance is generated elsewhere." }];
+    expect(parseScanReport(r).ok).toBe(true);
+  });
+
+  it.each([null, 7, "claim", {}, { dimension: "D3", claim: {} }, { dimension: {}, claim: "text" }])("rejects malformed discrepancy %j before rendering", (entry) => {
+    const r = validReport();
+    r.discrepancies = [entry];
+    expect(parseScanReport(r)).toEqual({ ok: false, error: "The report's discrepancies are malformed." });
+  });
   it("parses a well-formed report to { ok: true } with the value intact", () => {
     const input = validReport();
     const result = parseScanReport(input);

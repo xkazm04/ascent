@@ -6,8 +6,11 @@
 
 import type { OrgBranding } from "@/lib/db/branding";
 import { DEFAULT_BRAND_ACCENT, HEX_COLOR_RE } from "@/lib/branding/color";
+import { DownloadButton } from "@/components/report/DownloadButton";
+import { chipButtonClass } from "@/components/ui";
+import { BrandingPreview } from "./BrandingPreview";
 import { useBrandingSettings } from "./useBrandingSettings";
-export { accentContrastOnWhite, accentContrastWarning, MIN_ACCENT_CONTRAST } from "./brandingContrast";
+export { accentContrastOnWhite, accentContrastOnDark, accentContrastWarning, MIN_ACCENT_CONTRAST } from "./brandingContrast";
 import { accentContrastWarning } from "./brandingContrast";
 
 export function BrandingSettings({ slug, initial }: { slug: string; initial: OrgBranding }) {
@@ -22,7 +25,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
   } = useBrandingSettings(slug, initial);
 
   const field = "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600";
-  // Live, non-blocking contrast advisory for the accent against the white PDF (org-branding #1).
+  // Live, non-blocking contrast advisory for the accent against the white PDF and the dark share chrome (org-branding #1).
   const contrastWarning = accentContrastWarning(brandColor);
 
   return (
@@ -39,7 +42,8 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         briefing links show your name and logo instead of Ascent&apos;s (the accent colours the PDF). This
         in-app dashboard keeps Ascent&apos;s look.
       </p>
-      <div className="mt-4 flex flex-wrap items-end gap-3">
+      <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 type-mono-sm text-slate-500">
           Brand name
           <input value={brandName} onChange={(e) => setBrandName(e.target.value)} maxLength={80} placeholder="Acme Inc." className={`${field} w-44`} />
@@ -113,10 +117,20 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
           {state === "saving" ? "Saving…" : "Save"}
         </button>
+        {/* Disabled while saving so the PDF export cannot race the branding write. */}
+        <DownloadButton
+          href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}`}
+          className={chipButtonClass("idle", state === "saving" ? "pointer-events-none opacity-50" : "")}
+          title="Download the branded briefing PDF"
+        >
+          <span aria-hidden>↓</span> Download branded PDF
+        </DownloadButton>
+        </div>
+        <BrandingPreview brandName={brandName} brandColor={brandColor} logoUrl={logoUrl} />
       </div>
-      {/* org-branding #1: WARN (never block) when the accent would be near-invisible on the white PDF.
-          Associated to the colour input via aria-describedby; not a live region, so dragging the
-          picker doesn't spam a screen reader. */}
+      {/* org-branding #1: WARN (never block) when the accent would be near-invisible on the white PDF
+          or the dark share chrome. Associated to the colour input via aria-describedby; not a live
+          region, so dragging the picker doesn't spam a screen reader. */}
       {contrastWarning && (
         <p id="brand-accent-warning" className="mt-2 flex items-start gap-1.5 type-mono-sm text-amber-300">
           <span aria-hidden>⚠</span>

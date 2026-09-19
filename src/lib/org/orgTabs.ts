@@ -14,7 +14,8 @@
 export const ORG_TAB_IDS = [
   // Overview
   "overview",
-  // The follow-ups ledger: every open gap across the fleet, pick a batch, hand it to a local agent.
+  // The former Follow-ups ledger's id. Since 2026-09-15 it is an ALIAS, not a rail item: the org page
+  // redirects `?tab=followups` to `?tab=proposals`, because links already sitting in inboxes use it.
   "followups",
   "executive",
   // The weekly digest — trailing 7 days, fixed window, a leadership-update page.
@@ -29,6 +30,11 @@ export const ORG_TAB_IDS = [
   "tech-stacks",
   "passports",
   "live",
+  // In flight, split out of the Live cockpit (2026-09-15): every proposed change awaiting a decision —
+  // scan follow-ups AND the loop's pending proposals — in one ledger; and the loop agents' lesson
+  // candidates as their own review ledger.
+  "proposals",
+  "lessons",
   // Intelligence
   "security",
   "adoption",
@@ -49,9 +55,7 @@ export const ORG_TAB_IDS = [
   // is redirected by /org/[slug]/page.tsx to `/org/<slug>/<id>` — a route this tab never had, so
   // leaving it out 404s the rail link and blanks `?tab=knowledge`.
   "knowledge",
-  // The registry's ui-surfaces subjects as composed, interactive scenes (spark ui-surfaces-showcase,
-  // 2026-09-06). Repo-shipped showcases in a typed catalog, joined at render to the org's index
-  // mirror for a digest-freshness badge. Reads `?subject=` and `?technique=` (both tab-scoped).
+  // Visual UI surface library: interactive studies and knowledge references.
   "surfaces",
   // UC3 "individual care". A first-class id (label / a11y / href contract), but NEITHER a `?tab=`
   // panel NOR a rail item: it is the personalized route `/org/developer`, which every signed-in
@@ -144,9 +148,8 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
     label: "Standing",
     items: [
       { id: "overview", label: "Overview" },
-      // The action surface of Standing: what the scans left open, as a ledger you can hand off from.
-      // Sits right under Overview because the ledger's rows ARE the Overview's "owe a follow-up".
-      { id: "followups", label: "Follow-ups", countKey: "followups" },
+      // Follow-ups LEFT Standing on 2026-09-15: its ledger is In flight → Proposals now, merged with the
+      // loop's pending proposals. Standing answers "where are we"; deciding what to do next is in flight.
       // Segments is merged into Repositories as its "?tab=segments" view — no separate rail item.
       { id: "repositories", label: "Repositories" },
       { id: "tech-stacks", label: "Tech Stacks" },
@@ -187,6 +190,10 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
     label: "In flight",
     items: [
       { id: "live", label: "Live" },
+      // The decision queues the loop feeds, split out of the cockpit. Proposals carries the former
+      // Follow-ups badge (open follow-ups awaiting a decision).
+      { id: "proposals", label: "Proposals", countKey: "followups" },
+      { id: "lessons", label: "Lessons" },
     ],
   },
   {
@@ -224,6 +231,8 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
  */
 export const ORG_TABS_NOT_IN_NAV: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "segments",
+  // The former Follow-ups id — an alias the org page redirects to `proposals` (2026-09-15).
+  "followups",
   // `developer` left the rail: the personalized route is reached from the HEADER identity menu (your
   // own name, on every page, signed in or not in an org), which is the one place a personal surface
   // belongs — it is not an org-scoped view and never was. Still a full id: label, href contract and
@@ -241,6 +250,8 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "overview",
   "security",
   "followups",
+  // A personal workspace's follow-ups overlay renders on Proposals, exactly as it rendered on Follow-ups.
+  "proposals",
   "registry",
   "skills",
   "memory",
@@ -261,6 +272,7 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
 const LABELS: ReadonlyMap<OrgTabId, string> = new Map<OrgTabId, string>([
   ...ORG_NAV_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i.label] as [OrgTabId, string])),
   ["segments", "Segments"],
+  ["followups", "Proposals"],
   ["developer", "Developer"],
 ]);
 
@@ -457,6 +469,9 @@ export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "digest",
   // Born migrated (2026-09-06): a `?tab=` panel only, same as knowledge/digest.
   "surfaces",
+  // Born migrated (2026-09-15): `?tab=` panels only, split out of the Live cockpit.
+  "proposals",
+  "lessons",
 ]);
 
 export function isMigratedOrgTab(id: OrgTabId): boolean {

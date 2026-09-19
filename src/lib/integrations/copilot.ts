@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 import type { UsageRecordInput } from "@/lib/db";
+import { DEFAULT_GET_TIMEOUT_MS, fetchWithTimeout } from "@/lib/github/host";
 
 /** The slice of `GET /orgs/{org}/copilot/billing/seats` this reads. */
 export interface CopilotSeatsResponse {
@@ -105,14 +106,14 @@ const GH = "https://api.github.com";
  *  unreachable) so callers degrade with the reason in hand instead of guessing from emptiness. */
 async function ghJson<T>(path: string, token: string): Promise<{ data: T | null; failure: GhFailureReason | null }> {
   try {
-    const res = await fetch(`${GH}${path}`, {
+    const res = await fetchWithTimeout(`${GH}${path}`, {
       headers: {
         authorization: `Bearer ${token}`,
         accept: "application/vnd.github+json",
         "x-github-api-version": "2022-11-28",
       },
       cache: "no-store",
-    });
+    }, DEFAULT_GET_TIMEOUT_MS);
     if (!res.ok) {
       const failure: GhFailureReason =
         res.status === 401 || res.status === 403 ? "denied" : res.status === 404 ? "absent" : "unreachable";

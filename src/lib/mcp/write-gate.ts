@@ -29,6 +29,7 @@
 
 import type { SkillTokenScope } from "@/lib/db";
 import type { McpGates, McpPlanGate } from "@/app/api/mcp/gates";
+import { SKILL_INVOKES_PER_DAY_CEILING } from "./self-report-ceiling";
 
 export interface WriteToolPolicy {
   /** The resource scope this write needs BEYOND `mcp:read` + `telemetry:write`. */
@@ -132,12 +133,13 @@ export const WRITE_TOOL_POLICY: Record<string, WriteToolPolicy> = {
   },
   // An invoke report is the agent's own claim that it ran a skill. It feeds the dormancy verdict and
   // the use tally, so the same inflation argument applies; the ceiling is higher because a single
-  // long session legitimately invokes many skills many times.
+  // long session legitimately invokes many skills many times. The number is SHARED with the registry
+  // usage lane, which clamps each contributor file at the same rate, so no door is the loose one.
   report_skill_invoke: {
     resourceScope: "skills:read",
     planGate: "skills",
     auditAction: "mcp.write.report_skill_invoke",
-    perTokenDailyMax: 500,
+    perTokenDailyMax: SKILL_INVOKES_PER_DAY_CEILING,
     idempotencyKey: (org, args) => {
       const skill = argStr(args, "skill");
       const session = argStr(args, "session");

@@ -208,11 +208,31 @@ const POINTER_RE = /@([\w./-]+\.[a-z0-9]{1,5})|\]\(([^)\s#]+)\)/gi;
 /** `@ref` and markdown-link targets, kept only when they RESOLVE against the real tree — an unresolved
  *  reference is drift (context-health's job), not a pointer that could nominate a canonical source. */
 export function parsePointers(text: string, treePaths: ReadonlySet<string>): string[] {
+  return resolvedPointers(text, pointerResolver(treePaths));
+}
+
+/** Cache only within one snapshot. Preserve first tree-order match, including suffix ambiguity. */
+function pointerResolver(treePaths: ReadonlySet<string>): (raw: string) => string | undefined {
+  let paths: { path: string; lower: string }[] | undefined;
+  const resolved = new Map<string, string | undefined>();
+  return (raw) => {
+    const key = raw.toLowerCase();
+    if (!resolved.has(key)) {
+      // Most snapshots need no pointer lookups; do not normalize their tree eagerly.
+      paths ??= [...treePaths].map((path) => ({ path, lower: path.toLowerCase() }));
+      const suffix = "/" + key;
+      resolved.set(key, paths.find((p) => p.lower === key || p.lower.endsWith(suffix))?.path);
+    }
+    return resolved.get(key);
+  };
+}
+
+function resolvedPointers(text: string, resolve: (raw: string) => string | undefined): string[] {
   const out: string[] = [];
   for (const m of text.matchAll(POINTER_RE)) {
     const raw = (m[1] ?? m[2] ?? "").replace(/^\.\//, "").trim();
     if (!raw || /^[a-z]+:/i.test(raw)) continue;
-    const hit = [...treePaths].find((p) => p.toLowerCase() === raw.toLowerCase() || p.toLowerCase().endsWith("/" + raw.toLowerCase()));
+    const hit = resolve(raw);
     if (hit && !out.includes(hit)) out.push(hit);
   }
   return out;
@@ -271,6 +291,7 @@ export function declaredCanonical(manifestYaml: string | null | undefined): stri
  */
 export function buildGuidanceGraph(snap: RepoSnapshot, opts: BuildGuidanceGraphOptions = {}): GuidanceGraph {
   const treePaths = new Set(snap.tree.filter((t) => t.type === "blob").map((t) => t.path));
+  const resolvePointer = pointerResolver(treePaths);
   const contentByPath = new Map(snap.files.map((f) => [f.path.toLowerCase(), f.content]));
   const sizeByPath = new Map(snap.tree.map((t) => [t.path, t.size]));
 
@@ -279,7 +300,7 @@ export function buildGuidanceGraph(snap: RepoSnapshot, opts: BuildGuidanceGraphO
   const nodes: GuidanceNode[] = paths.map((path) => {
     const content = contentByPath.get(path.toLowerCase());
     const sampled = content != null;
-    const pointers = sampled ? parsePointers(content, treePaths).filter((p) => p !== path) : [];
+    const pointers = sampled ? resolvedPointers(content, resolvePointer).filter((p) => p !== path) : [];
     return {
       path,
       agent: guidanceAgentOf(path),

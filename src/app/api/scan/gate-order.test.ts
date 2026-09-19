@@ -49,6 +49,11 @@ vi.mock("@/lib/entitlement", () => ({
   isMeteredScan: vi.fn(() => false),
   checkScanEntitlement: vi.fn(),
   paymentRequired: (balance: number) => new Response(JSON.stringify({ balance }), { status: 402 }),
+  orgNotFound: () => new Response(JSON.stringify({ code: "NOT_FOUND" }), { status: 404 }),
+  scanCreditRefusal: (decision: { reason: "not_found" } | { reason: "payment_required"; balance: number }) =>
+    decision.reason === "not_found"
+      ? new Response(JSON.stringify({ code: "NOT_FOUND" }), { status: 404 })
+      : new Response(JSON.stringify({ balance: decision.balance }), { status: 402 }),
 }));
 vi.mock("@/lib/public-scan-quota", () => ({
   consumePublicScanQuota: vi.fn(async () => ({

@@ -19,9 +19,13 @@ vi.mock("@/lib/db/org-skill-lessons", () => ({ listSkillLessons: vi.fn(async () 
 vi.mock("@/lib/db/org-memory-citations", () => ({
   recordMemoryCitation: vi.fn(async () => ({ outcome: "created", counts: { citedCount: 1, notUsefulCount: 0 } })),
 }));
+vi.mock("@/lib/org/skill-usage-load", () => ({
+  getOrgSkillUsage: vi.fn(async () => ({})),
+}));
 
 import { getOrgRollup, listOrgSkills, recordSkillEvents } from "@/lib/db";
 import { listOrgKnowledgeSubjects } from "@/lib/db/org-registry-subjects";
+import { getOrgSkillUsage } from "@/lib/org/skill-usage-load";
 import { findSkills, getGoverningSubject, getSkill, getSkillLessons } from "./registry-reads";
 import { citeMemory, invokeEventTs, reportSkillInvoke } from "./registry-writes";
 
@@ -29,6 +33,7 @@ const mockRollup = vi.mocked(getOrgRollup);
 const mockSkills = vi.mocked(listOrgSkills);
 const mockSubjects = vi.mocked(listOrgKnowledgeSubjects);
 const mockEvents = vi.mocked(recordSkillEvents);
+const mockUsage = vi.mocked(getOrgSkillUsage);
 
 const aSkill = (over: Record<string, unknown> = {}) => ({
   id: "s1",
@@ -54,6 +59,7 @@ beforeEach(() => {
   mockSkills.mockResolvedValue([aSkill()] as never);
   mockSubjects.mockResolvedValue([]);
   mockEvents.mockResolvedValue({ recorded: 1 });
+  mockUsage.mockResolvedValue({});
 });
 
 describe("find_skills — the dimension basis", () => {
@@ -93,6 +99,27 @@ describe("find_skills — the dimension basis", () => {
     const res = await findSkills("acme", { task: "anything" });
     expect(res.isError).toBe(true);
     expect(res.text).toMatch(/absence, not permission/);
+  });
+
+  it("loads observed invokes for every library skill BEFORE ranking, so a used skill can win a tight slice", async () => {
+    mockSkills.mockResolvedValue([
+      aSkill({ id: "unused", name: "release-checklist" }),
+      aSkill({ id: "used", name: "release-runbook" }),
+    ] as never);
+    mockUsage.mockResolvedValue({
+      used: { invokes: 4 },
+      unused: { invokes: 0 },
+    } as never);
+
+    const res = await findSkills("acme", { task: "cut a release", limit: 1 });
+    const sc = res.structuredContent as { skills: { name: string; invokes: number }[] };
+
+    // FAIL-BEFORE: ranking ran on term overlap alone, then sliced, so "release-checklist" won the
+    // name-order tie and `used` never entered the pack. Four invokes outrank that tie.
+    expect(mockUsage.mock.calls[0]?.[0]).toBe("acme");
+    expect(sc.skills).toHaveLength(1);
+    expect(sc.skills[0]!.name).toBe("release-runbook");
+    expect(sc.skills[0]!.invokes).toBe(4);
   });
 });
 

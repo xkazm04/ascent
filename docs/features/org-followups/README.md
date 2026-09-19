@@ -45,27 +45,72 @@ all; if the scan does not say it again, the claim is honoured as resolved.
 ### Where resolution is written
 
 `persistScanReport` (`src/lib/db/scans-persist.ts`): resolved in-progress rows are copied onto
-the **new** scan as `done`, with a system `RecommendationEvent` (`fromValue in_progress →
-toValue done`, note naming the mechanism and the commit). So the archive reads off each repo's
-latest scan like every other rollup — no cross-scan query. The un-restated new item is a fresh
-`open` row (never inherits the claim).
+the **new** scan as `done` (claim fields nulled), with a system `RecommendationEvent` (`fromValue
+in_progress → toValue done`, note naming the mechanism, the commit, and the previous row id). So
+the archive reads off each repo's latest scan like every other rollup — no cross-scan query. The
+un-restated new item is a fresh `open` row (never inherits the claim).
 
 **Only default-branch scans persist.** A scoped scan (`ref`/`subPath`) is deliberately not
 written as the repo's standing (see [scan.md](../scanning/scan.md)), so resolution happens when
 the fix *lands* — the honest semantics: resolved = merged and rescanned. The prompt says so.
 
-## The tab (`?tab=followups`, Standing)
+### Local Rescan counts persist closures, not trailer claims (2026-09-17)
 
-`FollowupsTab` (server) makes **one** read — `getOrgBacklog(slug, segment, now, stack,
-{ includeClosed: true })` — flattens it (`rowsFromBacklog`, pure) and hands the rows to the client
-view. The resolved archive is the same rows filtered, never a second round-trip. Header:
-`N open · M handed off · +P pts on the table` (projected points = engine-true gain if the gap
-closes, from the backlog read).
+`POST /api/org/local/rescan` used to return `report.resolvedFollowUpIds` — the ids `Ascent-Resolves:`
+trailers named in the local `git log`. `LocalRescanButton` totaled that array as *"N follow-ups
+closed"*. The trailer is a **claim**; `persistScanReport` is the verdict (the same split
+`rescanWorktree` already makes for the loop: `closedIds` vs `claimedIds`). A local rescan that
+restated the gap, or whose dimension did not move, still printed a close.
 
-The header intro is **one line** — *"Every gap the scans left open, in one ledger."* (shortened
-2026-08-19). It used to spell out the whole hand-off contract, `Ascent-Resolves: <id>` included, in
-a paragraph every visit had to scroll past to reach the table. That contract now appears where it is
-acted on: inside `FollowupsPromptModal`, on the prompt you are about to paste into an agent.
+The route now returns:
+
+| Field | Source | Meaning |
+| --- | --- | --- |
+| `closedFollowUps` | `persistScanReport`'s `closedFollowUpIds` | What `decideInProgress` ruled `done` after restatement, movement, and engine attribution |
+| `claimedFollowUps` | `report.resolvedFollowUpIds` | Trailer claims. Never a close count |
+| `resolvedFollowUps` | the same array as `closedFollowUps` | The field the button used to count as trailers; kept as the **verdict** so a stale client cannot print a claim as a close |
+
+`LocalRescanButton` totals `closedFollowUps`. Zero means the rescan confirmed nothing, not "no
+trailers found". Claim carry (`claimActor` / `claimExecutor` / `leaseUntil` / `needsHuman` onto the
+new in-progress row), the lazy lease sweep at claim and at the Proposals read, and `get_fix_brief`'s
+held-row gate are unchanged.
+
+## The tab (`?tab=proposals`, In flight — formerly `?tab=followups`, Standing)
+
+**2026-09-15: the Follow-ups tab became In flight → Proposals.** It left Standing and merged with
+the loop's pending proposals into one decision ledger. `followups` stays a real tab id, but only as
+an alias: it is in `ORG_TABS_NOT_IN_NAV`, and `src/app/org/[slug]/page.tsx` redirects
+`?tab=followups` to `?tab=proposals` with every other param kept. The legacy `/backlog` and `/plan`
+routes, the Overview "Fix first" band, the digest and the getting-started step all link to
+`proposals` now.
+
+`ProposalsTab` (server, `src/features/inflight/proposals/`) makes the scan read it always made —
+`getOrgBacklog(slug, segment, now, stack, { includeClosed: true })`, flattened by `rowsFromBacklog` —
+and adds the loop read the Live tab makes: the details of the 12 newest of 20 listed runs. It then
+folds those runs into `pendingLoopProposals` (`proposalsModel.ts`, pure, tested). The rows that
+qualify are the outcome sheet's `proposed` gap rows (armed by a run, not resolved) that carry no
+owner review. A gap counts at its latest run only, so the same gap proposed in run 3 and run 7 is
+one row, and a ruling on run 7 settles it. Loop proposals list first, then the scan ledger in its
+value order. Header: `N open · M handed off · L from the loop · +P pts on the table`.
+
+**A loop proposal is never titled with a uuid (2026-09-17).** These rows come from the same
+`buildGapRows` the outcome sheet folds, and its title lookup used to be the lane's own before/after
+scans — which a FORCE-FAILED or still-queued lane does not have, so its armed items arrived in this
+ledger as raw ids. `pendingLoopProposals` now passes the run's `batchTitles` (resolved server-side
+against the `Recommendation` table in `getLoopRunDetail`) into the fold, and an id nothing can title
+falls back to *"Armed item · 4f2c0b18"* rather than to the id itself. Measured on the `kiro` fleet
+(2026-09-17): 50 of 157 armed items were uuid-titled before the fix, 0 after. See
+[live.md](../org-planning/live.md#gap-states-and-the-review-gate-wave-2b-2026-08-30).
+
+A loop proposal has no impact/effort rating, no projected points and no fleet spread, so those
+cells print a dash, and an Impact or org-wide filter excludes the row rather than guessing. Being
+pending by construction, it is in the working set and never in the resolved archive. A **Source**
+filter (loop proposals · scan follow-ups) sits beside the ledger's own. The Live tab's outcome sheet
+keeps its per-cell ✓/✕ and links here with its pending count.
+
+The header intro is **one line**: *"Every proposed change waiting on a decision, in one ledger."*
+The hand-off contract (`Ascent-Resolves: <id>`) appears where it is acted on: inside
+`FollowupsPromptModal`, on the prompt you are about to paste into an agent.
 
 Shared client model (`followupsModel.ts`, pure, `followupsModel.test.ts`): sort by value (points
 desc, then impact highest-first, then effort **cheapest**-first), filters (Repo · Dimension · Impact
@@ -74,12 +119,22 @@ desc, then impact highest-first, then effort **cheapest**-first), filters (Repo 
 rows a batch may act on (the working set; a closed row is never batchable, from either the row
 checkbox or select-all).
 
-**The view** (`FollowupsWorklist`): item-first — one ranked table of every follow-up in the fleet
-(biggest projected gain first), tick across any repos, a sticky bulk bar totals the batch
-(`N selected · R repos · +P pts`) and offers its three actions: **Generate fix prompt →**,
-**Resolve N**, **Dismiss N** (counts on every button). A row expands in place for the rationale,
-the explore questions, per-row resolve/dismiss/reopen, and its timeline. `?dim=Dn` deep-links seed
-the Dimension filter (the Delivery ROI quadrant and Tech-stack playbook surfaces emit them).
+**The view** (`ProposalsWorklist`, drawn by the shared `DecisionTable` in
+`src/components/org/shared/DecisionTable.tsx`, which also draws the Lessons tab): item-first. It is
+one table across the fleet; you tick rows across any repos, and a sticky bulk bar totals the batch
+(`N selected · R repos · L from the loop · +P pts`). The bar offers only the actions the selection
+holds rows for, with a count on every button:
+- **Dismiss N** works on either source (a follow-up PATCH, or the loop review's `dismissed`).
+- **Resolve N** applies to scan rows only.
+- **Approve N** applies to loop rows only (the loop review's `approved`).
+- **Generate fix prompt →** applies to scan rows only.
+
+A scan row expands in place for the rationale, the explore questions, per-row
+resolve/dismiss/reopen and its timeline. A loop row expands for its evidence, a one-row
+approve/dismiss and a link to the run on Live. Loop rows are tickable only by an owner (the review
+gate the route enforces). `?dim=Dn` deep-links seed the Dimension filter (the Delivery ROI quadrant
+and Tech-stack playbook surfaces emit them). `FollowupsWorklist` and `FollowupsTab` were deleted in
+the merge.
 
 ### Ported from the retired tabs
 
@@ -142,9 +197,21 @@ not take, instead of stealing rows and having two workers write into the same ga
 *accountable*, over a sprint — and an agent holding a row for forty minutes is a different fact.
 Collapsing the two would let a lease expiry silently un-assign a person.
 
-Leases expire **lazily**: `sweepExpiredLeases` runs at the top of a claim, the same precedent
-`markStaleRunsStopped` sets on `GET /api/org/loop`. No cron entry is needed, and a claim path that
+A rescan copies all four onto the **new** in-progress row (the restated roadmap match and an
+unpaired keep). `Recommendation.id` is a global unique PK and previous-scan rows stay, so the
+carried row is a new id — the previous id is recorded on the status-event note so a trailer that
+named it can still be mapped. A resolved-to-done copy nulls the claim fields (the work is closed).
+There is no mapping table: a second place to ask "who holds this" is the race the claim path exists
+to prevent. Dropping the claim at persist made a machine-held lease read as a human take
+(`in_progress` + `leaseUntil: null`) on the new row.
+
+Leases expire **lazily**: `sweepExpiredLeases` runs at the top of a claim **and at the Proposals
+ledger read** (`getOrgBacklog`), the same precedent `markStaleRunsStopped` sets on
+`GET /api/org/loop`. Without the read-side pass a crashed agent's rows stay "handed off" on every
+tab load until something else happens to claim. No cron entry is needed, and a claim path that
 required a scheduler to be correct would be wrong on any deployment whose scheduler was down.
+A rescan still **carries** `claimActor` / `claimExecutor` / `leaseUntil` / `needsHuman` onto the
+new in-progress row — the sweep releases what has expired; it does not drop a live claim at persist.
 
 ### Who may claim
 
@@ -195,13 +262,17 @@ is exactly as much of a claim as the trailer it also wrote — and every claim a
 | --- | --- |
 | `src/lib/org/followups.ts` (+ `.test.ts`, `followups-lease.test.ts`) | Trailer, resolve rule, prompt builder, and the pure lease/`claimability` layer + `buildAgentBrief`. |
 | `src/lib/db/followup-claims.ts` (+ `.test.ts`) | **The one claim path**: compare-and-set claim, release, lazy sweep, attempt. |
+| `src/lib/db/org-insights.ts` (`getOrgBacklog`) | The Proposals ledger read. Sweeps expired leases before assembling rows so a lapsed claim reads as open. |
 | `src/lib/mcp/work-tools.ts` (+ `handlers-write.test.ts`) | `claim_followups` / `get_fix_brief` / `report_attempt`. |
 | `scripts/ascent-work.mjs` · `examples/ascent-work.action.yml` | The zero-dep client and a reference Action (outside `.github/`, so it never runs here). |
 | `src/lib/scoring/engine.ts` | Collects `resolvedFollowUpIds` from the commit sample. |
-| `src/lib/db/scans-persist.ts` (+ `.test.ts`, "follow-up feedback") | Applies the rule at carry-forward; writes resolved rows + events. |
+| `src/lib/db/scans-persist.ts` (+ `.test.ts`, "follow-up feedback") | Applies the rule at carry-forward; writes resolved rows + events. Returns `closedFollowUpIds` — the adjudicated set, not the trailer claims. |
+| `src/app/api/org/local/rescan/route.ts` (+ `route.test.ts`) | Local Rescan. `closedFollowUps` is persist's adjudicated set; `claimedFollowUps` is the trailer set. |
 | `src/app/api/org/followups/handoff/route.ts` | The hand-off write. |
-| `src/components/org/followups/` | `FollowupsTab` (server; renders `PersonalBacklog` for a personal workspace) · `FollowupsWorklist` · `FollowupsPromptModal` · `FollowupsFilterBar` · `FollowupChips` · `FollowupHistory` · `followupsModel.ts`. |
-| `src/app/api/org/backlog/route.ts` | The ledger's read API (`getOrgBacklog`), kept from the retired tab for automation. |
+| `src/features/inflight/proposals/` | `ProposalsTab` (server; renders `PersonalBacklog` for a personal workspace) · `ProposalsWorklist` · `ProposalColumns` · `ProposalDetail` · `proposalsModel.ts` (+ `.test.ts`: the loop fold and the cross-source filters). |
+| `src/components/org/followups/` | The row vocabulary Proposals reuses: `FollowupsPromptModal` · `FollowupsFilterBar` (takes a `children` slot for extra menus) · `FollowupChips` · `FollowupHistory` · `followupsModel.ts` · `LocalRescanButton` (counts persist-closed rows, not trailer claims). |
+| `src/components/org/shared/DecisionTable.tsx` | The shared decision-ledger shape (selection, in-place expander, source-aware bulk bar) behind Proposals and Lessons. |
+| `src/app/api/org/backlog/route.ts` | The ledger's read API (`getOrgBacklog`), kept from the retired tab for automation. `?format=csv` flattens one row per item and includes `rationale` and `explore` (questions joined with `"; "`; an empty value stays an empty cell, never `0`) so a downloaded batch can rebuild `buildFixPrompt` without re-fetching JSON. |
 
 ## The resolve rule, tightened (2026-08-26)
 

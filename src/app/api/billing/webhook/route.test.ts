@@ -15,6 +15,7 @@ const cap = vi.hoisted(() => ({
     onSubscriptionRevoked: (p: unknown) => Promise<void>;
     onSubscriptionCanceled: (p: unknown) => Promise<void>;
   },
+  upsert: vi.fn(async () => ({ id: "subrow" })),
 }));
 
 vi.mock("@polar-sh/nextjs", () => ({
@@ -31,6 +32,9 @@ vi.mock("@/lib/db", () => ({
   getCreditState: vi.fn(async () => ({ balance: 0, plan: "pro", unlimited: false, orgExists: true })),
   grantCredits: vi.fn(async () => 10),
   setOrgPlan: vi.fn(async () => true),
+  isDbConfigured: vi.fn(() => true),
+  getOrgId: vi.fn(async (): Promise<string | null> => "org_acme"),
+  getPrisma: vi.fn(() => ({ subscription: { upsert: cap.upsert } })),
 }));
 vi.mock("@/lib/polar", () => ({
   creditsForProduct: vi.fn(() => 0),
@@ -40,13 +44,15 @@ vi.mock("@/lib/polar", () => ({
   getPolar: vi.fn(() => null),
 }));
 
-import { clawbackOrderRefund, getCreditState, grantCredits, setOrgPlan } from "@/lib/db";
+import { clawbackOrderRefund, getCreditState, getOrgId, grantCredits, setOrgPlan } from "@/lib/db";
 import { creditsForProduct, planForProduct } from "@/lib/polar";
 
 const mockClawback = vi.mocked(clawbackOrderRefund);
 const mockCreditState = vi.mocked(getCreditState);
 const mockGrant = vi.mocked(grantCredits);
+const mockGetOrgId = vi.mocked(getOrgId);
 const mockSetPlan = vi.mocked(setOrgPlan);
+const mockUpsert = cap.upsert;
 const mockCredits = vi.mocked(creditsForProduct);
 const mockPlan = vi.mocked(planForProduct);
 
@@ -66,9 +72,10 @@ type Order = {
   totalAmount: number;
   refundedAmount: number;
   subscription: OrderSub | null;
+  subscriptionId: string | null;
 };
 function order(over: Partial<Order> = {}): Order {
-  return { id: "ord1", productId: "prod_1", customer: { externalId: "acme" }, metadata: null, netAmount: 1000, totalAmount: 1000, refundedAmount: 0, subscription: null, ...over };
+  return { id: "ord1", productId: "prod_1", customer: { externalId: "acme" }, metadata: null, netAmount: 1000, totalAmount: 1000, refundedAmount: 0, subscription: null, subscriptionId: null, ...over };
 }
 
 // A Subscription webhook payload's `data` (only the fields the downgrade handlers read).
@@ -100,6 +107,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGrant.mockResolvedValue(10);
   mockSetPlan.mockResolvedValue(true);
+  mockGetOrgId.mockResolvedValue("org_acme");
+  mockUpsert.mockResolvedValue({ id: "subrow" });
   mockClawback.mockResolvedValue(0);
   mockCredits.mockReturnValue(0);
   mockPlan.mockReturnValue(null);
@@ -343,6 +352,106 @@ describe("onOrderRefunded — full refund of a plan order revokes the tier", () 
     await onOrderRefunded({ data: order({ netAmount: 1000, refundedAmount: 1000 }) });
     expect(mockClawback).toHaveBeenCalledWith("acme", "ord1", 100, { eventKey: "1000", actor: "polar" });
     expect(mockSetPlan).not.toHaveBeenCalled();
+  });
+});
+
+describe("Subscription upsert — conversion event for freeToPaidConversion", () => {
+  function expectUpsert(status: "active" | "inactive", stripeId: string | null) {
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+    const args = mockUpsert.mock.calls[0]![0] as {
+      where: { orgId: string };
+      create: { orgId: string; status: string; stripeId: string | null };
+      update: { status: string; stripeId: string | null; createdAt?: Date };
+    };
+    expect(args.where).toEqual({ orgId: "org_acme" });
+    expect(args.create).toEqual({ orgId: "org_acme", status, stripeId });
+    expect(args.update).toEqual({ status, stripeId });
+    expect(args.update).not.toHaveProperty("createdAt");
+  }
+
+  it("order.paid entitling a plan upserts one active row with the Polar subscription id in stripeId", async () => {
+    mockPlan.mockReturnValue("pro");
+    await onOrderPaid({ data: order({ subscriptionId: "sub1", subscription: { status: "active", endedAt: null } }) });
+    expect(mockSetPlan).toHaveBeenCalledWith("acme", "pro");
+    expectUpsert("active", "sub1");
+  });
+
+  it("one-time plan order (no Polar subscription) still upserts active with stripeId null", async () => {
+    mockPlan.mockReturnValue("pro");
+    await onOrderPaid({ data: order({ subscriptionId: null, subscription: null }) });
+    expectUpsert("active", null);
+  });
+
+  it("does not upsert for a credit-pack order that never entitled a plan", async () => {
+    mockCredits.mockReturnValue(100);
+    await onOrderPaid({ data: order() });
+    expect(mockSetPlan).not.toHaveBeenCalled();
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("does not upsert when a stale paid event is fenced off (subscription not entitling)", async () => {
+    mockPlan.mockReturnValue("pro");
+    await onOrderPaid({ data: order({ subscription: { status: "canceled", endedAt: null } }) });
+    expect(mockSetPlan).not.toHaveBeenCalled();
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("does not upsert when setOrgPlan cannot find the org (throws to retry)", async () => {
+    mockPlan.mockReturnValue("pro");
+    mockSetPlan.mockResolvedValue(false);
+    await expect(onOrderPaid({ data: order({ subscriptionId: "sub1" }) })).rejects.toThrow();
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("THROWS (Polar retries) when the org id cannot be resolved after the plan is applied", async () => {
+    mockPlan.mockReturnValue("pro");
+    mockGetOrgId.mockResolvedValue(null);
+    await expect(onOrderPaid({ data: order({ subscriptionId: "sub1" }) })).rejects.toThrow(/cannot record Subscription/);
+  });
+
+  it("downgradeSubscription success upserts one inactive row and does not send createdAt", async () => {
+    mockPlan.mockReturnValue("pro");
+    await onSubscriptionRevoked({ data: sub() });
+    expect(mockSetPlan).toHaveBeenCalledWith("acme", "free");
+    expectUpsert("inactive", "sub1");
+  });
+
+  it("immediate cancel upserts inactive (same writer as revoke)", async () => {
+    mockPlan.mockReturnValue("pro");
+    await onSubscriptionCanceled({ data: sub({ cancelAtPeriodEnd: false }) });
+    expectUpsert("inactive", "sub1");
+  });
+
+  it("cancel-at-period-end does not upsert (access retained; no downgrade yet)", async () => {
+    mockPlan.mockReturnValue("pro");
+    await onSubscriptionCanceled({ data: sub({ cancelAtPeriodEnd: true }) });
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("does not upsert when a higher manual override skips the downgrade", async () => {
+    mockPlan.mockReturnValue("pro");
+    mockCreditState.mockResolvedValue({ balance: 0, plan: "enterprise", unlimited: true, orgExists: true });
+    await onSubscriptionRevoked({ data: sub() });
+    expect(mockSetPlan).not.toHaveBeenCalled();
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("does not upsert for a revoke on a non-plan subscription", async () => {
+    mockPlan.mockReturnValue(null);
+    await onSubscriptionRevoked({ data: sub() });
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it("revoke replay upserts twice, never resetting createdAt", async () => {
+    mockPlan.mockReturnValue("pro");
+    await onSubscriptionRevoked({ data: sub() });
+    await onSubscriptionRevoked({ data: sub() });
+    expect(mockUpsert).toHaveBeenCalledTimes(2);
+    for (const call of mockUpsert.mock.calls) {
+      const update = (call[0] as { update: { status: string; createdAt?: Date } }).update;
+      expect(update.status).toBe("inactive");
+      expect(update).not.toHaveProperty("createdAt");
+    }
   });
 });
 

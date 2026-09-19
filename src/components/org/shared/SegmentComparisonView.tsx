@@ -41,6 +41,12 @@ function MetricRow({ label, a, b }: { label: string; a: number | null; b: number
   );
 }
 
+/** Empty track when a side has no measurement — never a 0-width bar in `scoreHex(0)` red. */
+function ScoreMeter({ value }: { value: number | null }) {
+  if (value === null) return <div className="h-1.5 flex-1 rounded-full bg-slate-800" aria-hidden />;
+  return <Meter className="flex-1" size="sm" value={value} color={scoreHex(value)} />;
+}
+
 /**
  * The side-by-side A-vs-B comparison surface shared by the org Segments and Tech-stacks pages: a
  * 4-Tile headline grid (A / B / Overall Δ / Adopt-Rigor Δ), a "Headline metrics" card with three
@@ -93,11 +99,13 @@ export function SegmentComparisonView({
             {comparison.dimDeltas.map((d) => (
               <div key={d.dimId} className="flex items-center gap-2 type-body-sm">
                 <span className="w-16 shrink-0 text-slate-400">{dimShort(d.dimId)}</span>
-                <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreHex(d.a) }}>{d.a}</span>
-                <Meter className="flex-1" size="sm" value={d.a} color={scoreHex(d.a)} />
-                <Meter className="flex-1" size="sm" value={d.b} color={scoreHex(d.b)} />
-                <span className="w-7 text-left font-mono tabular-nums" style={{ color: scoreHex(d.b) }}>{d.b}</span>
-                <span className="w-9 text-right font-mono" style={{ color: deltaHex(d.delta) }}>{fmtDelta(d.delta)}</span>
+                <span className="w-7 text-right font-mono tabular-nums" style={{ color: scoreInk(d.a) }}>{d.a ?? NO_MEASURE}</span>
+                <ScoreMeter value={d.a} />
+                <ScoreMeter value={d.b} />
+                <span className="w-7 text-left font-mono tabular-nums" style={{ color: scoreInk(d.b) }}>{d.b ?? NO_MEASURE}</span>
+                <span className="w-9 text-right font-mono" style={{ color: d.delta === null ? undefined : deltaHex(d.delta) }}>
+                  {deltaText(d.delta)}
+                </span>
               </div>
             ))}
             {comparison.dimDeltas.length === 0 && <p className="type-body-sm text-slate-500">Neither {noun} has a scanned repo yet.</p>}

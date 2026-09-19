@@ -6,7 +6,7 @@
 
 import type { LevelId, ScanReport } from "@/lib/types";
 import { LEVELS } from "@/lib/maturity/model";
-import { cheapestPathToNextLevel } from "@/lib/scoring/engine";
+import { cheapestPathToNextLevel } from "@/lib/scoring/projections";
 import { fastestPathNames, LEVEL_GLYPH, LEVEL_HEX, scoreHex } from "@/lib/ui";
 import { Kicker, Surface } from "@/components/ui";
 

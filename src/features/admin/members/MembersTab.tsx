@@ -36,7 +36,7 @@ export async function MembersTab({ slug }: { slug: string }) {
     login: m.login,
     name: m.name,
     role: m.role,
-    createdAt: m.createdAt.toISOString(),
+    createdAt: m.createdAt,
   }));
   // NB: listPendingInvites no longer returns the raw token (it's the capability — shown once at
   // creation), so the tab bundle / RSC payload no longer carries live acceptance tokens.

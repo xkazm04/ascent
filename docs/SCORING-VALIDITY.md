@@ -227,6 +227,44 @@ Also corrected: `isContested` no longer applies to a claim-scored dimension. Its
 number nothing acts on, so a gap there is noise, and it was flagging kp's D4 as gamed on exactly
 that noise.
 
+## 4c. D1 guidance length stopped scoring (rubric r18, 2026-09-15)
+
+`guidanceQuality` paid 5 points for a guidance file past 1200 characters and 8 past 4000, beside eight
+content rules. The peer study (`.ai/directions/2026-09-15-ai-engineering-coach-comparison.md`, points
+15 and 29) found a peer tool flagging the same 4000 threshold as a cost: always-on guidance is re-sent
+with every agent request. Two measurements settled it:
+
+- **T4, the boundary** (`calibration.test.ts`, this repo's `AGENTS.md`). r17: 3999 characters scored
+  31 guidance points and D1 71; the same text plus two characters of filler scored 34 and D1 74. r18:
+  26 and 66 on both sides, and the as-is file (17,345 characters) scores 40 and D1 80, all of it
+  content. The peer rule counts bytes, and this file has multi-byte characters, so it calls even the
+  3999-character arm bloated: the two tools disagreed on the unit before they disagreed on the sign.
+- **T3, the stuffed control** (`scripts/guidance-signal-census.mjs`). A 4001-character file of filler
+  naming each trigger phrase once scored 56, the grader maximum, against a real median of 34 (40 on
+  the largest file per repo). The best real file scored 48. At r18 it scores 48, the new maximum,
+  against 26 (32).
+
+**Bench.** A mock-mode replay of the ten captured fixtures (`bench/matrix-inputs`) through
+`analyzeSignals`, the mock provider and `assembleReport`, scored against `bench/repos.json` labels:
+exact level 7/10 at r17, 8/10 at r18; within one level 10/10 both; MAE 0.3 to 0.2. The one move is
+`denoland/deno` L4 to L3, its label. On the 119 stored reference reports (no labels, so churn only),
+35 carried a length label, losing 7.1 D1 points on average, and 4 cross a level boundary downward by
+one overall point. `npm run bench` itself was not run: it needs a running server and a GitHub token,
+and the replay reads the same labels through the same engine.
+
+**What was decided about the saturated rules: keep them.** The census reads three layers. On the 55
+stored reports that graded a document, no rule fires above 69% (commands); nothing crosses the 85%
+zero-information bar. On the nine unique files in the fixtures, constraints and examples reach 78%.
+Only the per-repo graded layer, five files, shows constraints, examples and test discipline at 5/5,
+and five files cannot carry a decision that moves every repo's D1. Dropping them would also not close
+the hole the stuffed control shows: keyword rules are gameable at any fire rate, and the fix that
+worked for D4 was verified citations, not fewer regexes. That is open, not done.
+
+**Not done: size as a cost signal.** The peer treats large always-on guidance as a finding. Here that
+would be a deduction, and D1's rule since r11 is that points are withheld, never subtracted. Paying
+nothing for size is the part that fits the rubric; a display-only notice is the candidate if the cost
+side is wanted.
+
 ## 5. What this document does not claim
 
 The rubric is not sloppy. The reference audit found 213 discrepancies and fixed the structural

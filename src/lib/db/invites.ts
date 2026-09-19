@@ -53,8 +53,8 @@ export type PendingInviteSummary = Omit<PendingInvite, "token">;
 /**
  * Pending (un-accepted, un-revoked, un-expired) invites for an org — owner view. The raw `token` is
  * deliberately OMITTED: it is the capability that protects the accept flow, so it must be shown once
- * (the POST create response) and never re-broadcast on every owner page load / RSC payload / proxy
- * log. Owners copy the link at creation; to re-share, revoke and re-issue.
+ * (the POST create / resend response) and never re-broadcast on every owner page load / RSC payload /
+ * proxy log. Owners copy the link at creation; to re-share, resend (rotates the token in place).
  */
 export async function listPendingInvites(orgSlug: string): Promise<PendingInviteSummary[]> {
   if (!isDbConfigured()) return [];
@@ -98,6 +98,31 @@ export async function peekInvite(token: string): Promise<InvitePeek> {
     // not only via the GitHub-login `pinnedLogin` mismatch. A login-pinned invite has no email pin.
     pinnedEmail: invite.githubLogin ? null : invite.email,
   };
+}
+
+/**
+ * Owner resend: rotate the capability on the SAME pending row, in one transaction, and refresh TTL.
+ * Overwriting `token` means two live links can never both grant — peekInvite/acceptInvite key on the
+ * token, so the previous link fails closed (`not_found`) the moment this commit lands. Returns the
+ * updated row (new token, for the one-shot mail/copy path) or null when the invite is missing,
+ * expired, already consumed, or belongs to another org. Never inserts a second pending row.
+ */
+export async function resendInvite(orgSlug: string, id: string): Promise<PendingInvite | null> {
+  if (!isDbConfigured()) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const prisma = getPrisma();
+  const token = randomBytes(24).toString("base64url");
+  const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+  return prisma.$transaction(async (tx) => {
+    const res = await tx.invite.updateMany({
+      where: { id, orgId, status: "pending", expiresAt: { gt: new Date() } },
+      data: { token, expiresAt },
+    });
+    if (res.count !== 1) return null;
+    const row = await tx.invite.findFirst({ where: { id, orgId, status: "pending" } });
+    return row ? toPending(row) : null;
+  });
 }
 
 /**

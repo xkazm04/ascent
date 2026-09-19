@@ -10,6 +10,7 @@ import { Kicker, Surface } from "@/components/ui";
 import { timeAgo } from "@/lib/ui";
 import type { RegistryView } from "@/lib/org/registry-view";
 import { MODE_LABEL, SINK_LABEL, shortSha } from "./registryModel";
+import { RegistryInvokesBySkill } from "./RegistryInvokesBySkill";
 
 function Readout({ label, value, tone = "plain" }: { label: string; value: string; tone?: "plain" | "ok" | "warn" | "off" }) {
   const color =
@@ -58,6 +59,8 @@ export function RegistryInstrumentPanel({ view }: { view: RegistryView }) {
           value={laneRead ? view.telemetry.invokes30d.toLocaleString() : "—"}
           tone={laneRead && view.telemetry.invokes30d > 0 ? "plain" : "off"}
         />
+        {/* Sink B per skill name, ranked, never folded into the direct 30d readout. */}
+        <RegistryInvokesBySkill view={view} />
         <Readout
           label="invokes 30d · direct"
           value={typeof direct === "number" ? direct.toLocaleString() : "—"}

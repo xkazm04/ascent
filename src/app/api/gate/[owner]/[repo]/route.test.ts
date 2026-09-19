@@ -729,8 +729,9 @@ describe("GET /api/gate/[owner]/[repo] — the 429 names the scope that refused"
 // This endpoint is the worst case for a silent skip, and not by accident: it scans with
 // `noAmbientToken`, and `scan-ingest` gates branch governance and pull-request statistics behind a
 // token — so `?require_protection=1`, `?min_ai_governed=N` and `?no_ungoverned_ai=1` have NOTHING to
-// evaluate here, on every call, forever. The old body answered `200 pass` with
-// `policy.requireProtectedBranch: true` and no way for a caller to tell that nothing had looked.
+// evaluate here, on every call, forever. Mapping that skip to HTTP 200 let `curl --fail` merge on a
+// bar nobody tested. Explicit query-param skips are now 503 `unmeasured`; org-policy-only skips stay
+// 200+skipped (App check is the enforcing surface).
 //
 // The REAL evaluator runs in this block (the rest of the file mocks it to drive status codes): the
 // claim under test is what the evaluator does with a token-less report, so stubbing it would assert
@@ -758,12 +759,15 @@ describe("GET /api/gate — conditions the run could not measure", () => {
     mockEvaluateGate.mockImplementation(await realGate());
   });
 
-  it("PASSES (200) but names requireProtectedBranch in skipped[] — governance was never read", async () => {
+  it("explicit ?require_protection skip is 503 unmeasured, not a 200 pass — governance was never read", async () => {
     const res = await get("?require_protection=1");
     const body = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(body.pass).toBe(true);
+    expect(res.status).toBe(503); // curl --fail trips — could-not-run, not pass
+    expect(body.pass).toBe(true); // evaluator still passed; HTTP says the named bar was not tested
+    expect(body.unmeasured).toBe(true);
+    expect(body.degraded).toBe(false);
+    expect(body.error).toMatch(/could not measure|NOT authoritative/i);
     // The bar is still echoed — it IS configured — and the skip is what makes the echo honest.
     expect(body.policy.requireProtectedBranch).toBe(true);
     expect(body.skipped).toHaveLength(1);
@@ -771,9 +775,34 @@ describe("GET /api/gate — conditions the run could not measure", () => {
     expect(body.skipped[0].why).toMatch(/NOT READ|token/);
   });
 
+  it("explicit ?min_ai_governed skip is 503 unmeasured — provenance was never read", async () => {
+    mockPolicyFromParams.mockReturnValue({ minAiGovernedRate: 100 } as never);
+    const res = await get("?min_ai_governed=100");
+    const body = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(body.unmeasured).toBe(true);
+    expect(body.degraded).toBe(false);
+    expect(body.skipped.some((s: { code: string }) => s.code === "provenance")).toBe(true);
+  });
+
+  it("ORG-POLICY-ONLY skip stays 200 + skipped[] — App check is the enforcing surface", async () => {
+    mockGetOrgGatePolicy.mockResolvedValue({ requireProtectedBranch: true } as never);
+    const res = await get(); // no query params — the org stored the bar, the caller did not name it
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pass).toBe(true);
+    expect(body.unmeasured).toBe(false);
+    expect(body.skipped[0].code).toBe("governance");
+  });
+
   it("carries an EMPTY skipped[] when every configured bar was evaluated", async () => {
     mockPolicyFromParams.mockReturnValue({ minLevel: "L2" } as never);
-    const body = await (await get("?min_level=L2")).json();
+    const res = await get("?min_level=L2");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.unmeasured).toBe(false);
     expect(body.skipped).toEqual([]);
   });
 });

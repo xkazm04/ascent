@@ -60,7 +60,8 @@ export interface OrgMember {
   login: string;
   name: string | null;
   role: OrgRole;
-  createdAt: Date;
+  /** ISO-8601 instant. Prisma `DateTime` mapped in `toRow` — never a `Date` on the wire. */
+  createdAt: string;
 }
 
 export function normalizeLogin(login: string): string {
@@ -382,6 +383,20 @@ export async function listOrgsForLogin(login: string): Promise<ViewerOrg[]> {
   }, [] as ViewerOrg[]);
 }
 
+/** Prisma membership row → client-facing member. `createdAt` is ISO, not Date. */
+function toRow(r: {
+  role: string;
+  createdAt: Date;
+  user: { githubLogin: string | null; name: string | null };
+}): OrgMember {
+  return {
+    login: r.user.githubLogin ?? "(unknown)",
+    name: r.user.name ?? null,
+    role: coerceStoredRole(r.role, "listOrgMembers"),
+    createdAt: r.createdAt.toISOString(),
+  };
+}
+
 /** All members of an org (owner-gated view). */
 export async function listOrgMembers(orgSlug: string): Promise<OrgMember[]> {
   if (!isDbConfigured()) return [];
@@ -393,10 +408,5 @@ export async function listOrgMembers(orgSlug: string): Promise<OrgMember[]> {
     select: { role: true, createdAt: true, user: { select: { githubLogin: true, name: true } } },
     orderBy: { createdAt: "asc" },
   });
-  return rows.map((r) => ({
-    login: r.user.githubLogin ?? "(unknown)",
-    name: r.user.name ?? null,
-    role: coerceStoredRole(r.role, "listOrgMembers"),
-    createdAt: r.createdAt,
-  }));
+  return rows.map(toRow);
 }

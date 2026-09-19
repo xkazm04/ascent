@@ -175,7 +175,7 @@ export async function checkAndAlertRegression(
       let message: AlertMessage | null = null;
       if (claimed) {
         message = buildPromotionMessage({ fullName, url: reportUrl(fullName, fresh.repo.headSha) }, diff, promotion);
-        dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl });
+        dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl, org: opts.orgSlug ?? null });
       }
       await recordScanAlertEvent(opts, {
         kind: "promotion",
@@ -218,7 +218,7 @@ export async function checkAndAlertRegression(
     let message: AlertMessage | null = null;
     if (claimed) {
       message = buildRegressionMessage({ fullName, url: reportUrl(fullName, fresh.repo.headSha) }, diff, verdict);
-      dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl });
+      dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl, org: opts.orgSlug ?? null });
     }
     await recordScanAlertEvent(opts, {
       kind: "regression",
@@ -252,7 +252,7 @@ export async function checkAndAlertRegression(
           url: reportUrl(fullName, fresh.repo.headSha),
           items: [{ repo: fullName, detail, kind: "gate" }],
         });
-        secDispatched = await dispatchAlert(secMessage, { signal: opts.signal, webhookUrl });
+        secDispatched = await dispatchAlert(secMessage, { signal: opts.signal, webhookUrl, org: opts.orgSlug ?? null });
       }
       await recordScanAlertEvent(opts, {
         kind: "security",
@@ -300,7 +300,7 @@ export async function maybeAlertLowCredits(
       threshold,
       url: base ? `${base}/org/${encodeURIComponent(orgSlug)}` : undefined,
     });
-    const dispatched = resolved !== null && (await dispatchAlert(message, { signal: opts.signal, webhookUrl }));
+    const dispatched = resolved !== null && (await dispatchAlert(message, { signal: opts.signal, webhookUrl, org: orgSlug }));
     // History row even with no sink — depletion silently vanishing was exactly the gap.
     await recordAlertEvent(orgSlug, {
       kind: "low-credits",
@@ -390,7 +390,7 @@ export async function alertControlTransitions(
       url: reportUrl(fullName, fresh.repo.headSha),
       items: claimed,
     });
-    dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl });
+    dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl, org: orgSlug });
   }
 
   // Rule 3. Severity is computed over EVERY item, not just the dispatched ones — the history has to

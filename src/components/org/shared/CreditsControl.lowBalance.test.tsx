@@ -68,6 +68,8 @@ describe("CreditsControl low-balance warning (G1-07)", () => {
     // find resolved with can already be detached by assertion time.
     await screen.findByText(/doesn't buy credits for you/);
     await waitFor(() => expect(screen.getByText(/doesn't buy credits for you/)).toBeInTheDocument());
+    expect(screen.getByText("Low-balance warning")).toBeInTheDocument();
+    expect(screen.queryByText(/auto-recharge/i)).toBeNull();
   });
 
   it("PUTs the edited preference and adopts what the server echoes back", async () => {

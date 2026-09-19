@@ -11,6 +11,11 @@
 // So the fallback line claims nothing about setup and simply offers what she can do. A companion that
 // says "setup is done" while the checklist is still loading has lied on her first line.
 //
+// EMPTY SKILLS / MEMORY IS A FACT, NOT DONENESS. When the checklist promoted nothing, a handed
+// snapshot may still show scans with an empty Skills or Memory tab — UC2's next place to look. Naming
+// those tabs is a read of counts the caller already has. Unknown counts are absent, never treated as
+// zero, so a payload still in flight cannot invent an empty library.
+//
 // Pure. No React, no fetch — the whole voice rule is unit-testable.
 
 /** The promoted step, narrowed to what a sentence needs. Deliberately NOT `DrawerItem`: her voice does
@@ -23,13 +28,36 @@ export interface AthenaNextStep {
   cta: string;
 }
 
+/** Library sizes the caller already knows. Absent means unknown, not empty. */
+export interface AthenaLibrarySnapshot {
+  hasScans: boolean;
+  skillCount: number;
+  memoryCount: number;
+}
+
 const OPEN_OFFER = "Ask me about this org — the fleet, what's in its memory, or what moved since the last scan.";
+
+function emptyLibraryLine(library: AthenaLibrarySnapshot): string {
+  const tabs = [
+    library.skillCount === 0 ? "Skills" : null,
+    library.memoryCount === 0 ? "Memory" : null,
+  ].filter((t): t is string => t != null);
+  if (tabs.length === 0) return OPEN_OFFER;
+  const named = tabs.length === 2 ? "The Skills and Memory tabs are" : `The ${tabs[0]} tab is`;
+  const those = tabs.length === 2 ? "them" : "it";
+  return `${named} empty on this org. Ask me about this org, or open ${those}.`;
+}
 
 /**
  * One or two sentences, leading with the answer, no heading and no sign-off — the same tone contract
  * the prompt holds her to, applied to the one line she writes without a model.
  */
-export function restingLine(next: AthenaNextStep | null): string {
-  if (!next) return OPEN_OFFER;
-  return `The next thing waiting on you here is “${next.title}”. Ask me about it, or about anything else in this org.`;
+export function restingLine(next: AthenaNextStep | null, library?: AthenaLibrarySnapshot | null): string {
+  if (next) {
+    return `The next thing waiting on you here is “${next.title}”. Ask me about it, or about anything else in this org.`;
+  }
+  if (library?.hasScans && (library.skillCount === 0 || library.memoryCount === 0)) {
+    return emptyLibraryLine(library);
+  }
+  return OPEN_OFFER;
 }

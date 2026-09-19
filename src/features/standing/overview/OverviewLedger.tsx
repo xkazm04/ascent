@@ -8,11 +8,11 @@
 // right, and every line item says what it is, what it means, and where it leads. In reading order:
 //   1. the standing strip (four numbers + the maturity trend sparkline), and beside it the fleet
 //      trajectory card (where the trend is heading) when the fit is presentable,
-//   2. posture composition (one bar of true shares, each segment a filtered deep link),
-//   3. the dimensions as a LEDGER grouped by SDLC phase (LedgerDimensionRows) — status word,
+//   2. the repo × dimension heatmap (moved above the posture card 2026-09-15),
+//   3. posture composition (one bar of true shares, each segment a filtered deep link),
+//   4. the dimensions as a LEDGER grouped by SDLC phase (LedgerDimensionRows) — status word,
 //      one-line reading, and two NAMED affordances per row,
-//   4. the fleet cohort rollup (Type / Stack / Level, level-ordered),
-//   5. the repo × dimension heatmap.
+//   5. the fleet cohort rollup (Type / Stack / Level, level-ordered).
 //
 // Client component because the fleet rollup and heatmap hold interaction state; every prop is
 // serialisable and derived ONCE on the server in OverviewFleetPanel — nothing here awaits.
@@ -51,7 +51,7 @@ export interface OverviewLedgerData {
   forecast: Forecast | null;
   postureCounts: Record<string, number>;
   dims: { dimId: string; avg: number }[];
-  dimDeltas: { dimId: string; delta: number }[] | null;
+  dimDeltas: { dimId: string; delta: number; cohortSize: number }[] | null;
   deltaLabel: string;
   trajectories: RepoTrajectory[];
   heatmapRows: HeatRow[];
@@ -70,6 +70,15 @@ export function OverviewLedger(d: OverviewLedgerData) {
       {/* Where the fleet is HEADING, beside where it stands. Self-gating: renders nothing when the
           fit is not presentable, so the strip closes up on a thin-history org. */}
       <OverviewTrajectoryCard forecast={d.forecast} />
+
+      {/* Cells open the per-dimension modal. The `#heatmap` anchor is the target of every ledger
+          row's ▦ affordance below. Sits ABOVE the posture distribution: who is strong/weak,
+          cell-by-cell, is the first reading after the headline. */}
+      {d.heatmapRows.length > 0 && (
+        <div id="heatmap" className="scroll-mt-24">
+          <RepoDimensionHeatmap org={d.slug} dims={DIMS} rows={d.heatmapRows} initialSortDim={d.sortDim} />
+        </div>
+      )}
 
       <Card>
         <SectionHeader
@@ -99,14 +108,6 @@ export function OverviewLedger(d: OverviewLedgerData) {
       <div data-tour="results-view">
         <RepoCategoryRollup trajectories={d.trajectories} periodTitle={d.periodTitle} orgSlug={d.slug} />
       </div>
-
-      {/* Cells open the per-dimension modal. The `#heatmap` anchor is the target of every ledger
-          row's ▦ affordance above. */}
-      {d.heatmapRows.length > 0 && (
-        <div id="heatmap" className="scroll-mt-24">
-          <RepoDimensionHeatmap org={d.slug} dims={DIMS} rows={d.heatmapRows} initialSortDim={d.sortDim} />
-        </div>
-      )}
     </div>
   );
 }

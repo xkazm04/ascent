@@ -29,8 +29,9 @@ const rec = (over: Partial<OrgRec> = {}): OrgRec => ({
 });
 
 const draw = (recs: OrgRec[]) => render(<LeverageBars bars={leverageBars(recs)} />);
-const barWidth = (id: string) =>
-  Number(document.querySelector(`[data-bar="${id}"] rect`)?.getAttribute("width") ?? "0");
+// Marks are percentage-sized inside their HTML track (no viewBox), so a width reads as "37.5%".
+const pctAttr = (el: Element | null | undefined, attr: string) => parseFloat(el?.getAttribute(attr) ?? "0");
+const barWidth = (id: string) => pctAttr(document.querySelector(`[data-bar="${id}"] rect`), "width");
 
 describe("LeverageBars", () => {
   it("gives the widest-reaching gap the longest bar, on one shared scale", () => {
@@ -50,14 +51,14 @@ describe("LeverageBars", () => {
     expect(row.querySelector("rect")).toBeNull();
     expect(row.querySelector("line[stroke-dasharray]")).toBeTruthy();
     // rendersValue(missing) is false; the readout is an em dash, never a number.
-    expect(row.querySelector("text:last-of-type")?.textContent).toBe("—");
+    expect(row.querySelector("[data-readout]")?.textContent).toBe("—");
   });
 
   it("marks how far into a bar the repos that would cross a maturity level reach", () => {
     draw([rec({ repoCount: 4, liftsRepos: 1, projectedPoints: 4 })]);
     const rung = document.querySelector('[data-rung="D1-0"]');
     expect(rung).toBeTruthy();
-    expect(Number(rung!.getAttribute("x1"))).toBeCloseTo(barWidth("D1-0") / 4, 1);
+    expect(pctAttr(rung, "x1")).toBeCloseTo(barWidth("D1-0") / 4, 1);
   });
 
   it("segments a bar per affected repository, so reach is a property of the shape", () => {
@@ -68,11 +69,21 @@ describe("LeverageBars", () => {
 
   it("is reachable without sight: a generated title and a table equivalent from the same numbers", () => {
     draw([rec({ projectedPoints: 4, repoCount: 3 })]);
-    const svg = screen.getByRole("img", { name: /Widest shared gaps across the fleet/i });
-    expect(svg.querySelector("title")?.textContent).toMatch(/12 points across 3 repositories/);
+    const chart = screen.getByRole("img", { name: /Widest shared gaps across the fleet/i });
+    expect(chart.getAttribute("aria-label")).toMatch(/12 points across 3 repositories/);
     const table = screen.getByRole("table", { name: /Widest shared gaps, ranked by leverage/i });
     expect(table.className).toContain("sr-only");
     expect(table.textContent).toContain("shared by 3 repos: a, b, c");
+    // role=img hides its subtree from assistive tech, so the table must sit beside it, not inside.
+    expect(chart.contains(table)).toBe(false);
+  });
+
+  it("sets every glyph in HTML: no viewBox text to scale, no title cut to a character count", () => {
+    const long = "Adopt a repository-wide agent instruction file naming the build, test and release commands";
+    draw([rec({ title: long }), rec({ dimId: "D9", projectedPoints: null })]);
+    expect(document.querySelector("svg text")).toBeNull();
+    expect(document.querySelector("svg[viewBox]")).toBeNull();
+    expect(document.querySelector('[data-bar="D1-0"]')?.textContent).toContain(long);
   });
 
   it("degrades to a labelled placeholder rather than plotting an empty domain", () => {

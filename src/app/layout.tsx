@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { BRAND_INK, jsonLdScript, publicBaseUrl, siteDescription, SITE_TAGLINE } from "@/lib/site";
+import { siteStructuredData } from "@/lib/site-jsonld";
 import { ModalRoot } from "@/components/ui/ModalRoot";
 import { DevInspector } from "./_dev-inspector/DevInspector";
 import "./globals.css";
@@ -39,27 +40,9 @@ export const viewport: Viewport = {
 };
 
 // SHELL-4: site-wide structured data (Organization + the app itself) so search engines can render a
-// richer result + knowledge panel. Built from the rubric so the dimension/level counts can't drift.
-const STRUCTURED_DATA = {
-  "@context": "https://schema.org",
-  "@graph": [
-    {
-      "@type": "Organization",
-      name: "Ascent",
-      description: "The maturity index for AI-native engineering.",
-      ...(BASE_URL ? { url: BASE_URL, logo: `${BASE_URL}/brand/logo-mark.png` } : {}),
-    },
-    {
-      "@type": "SoftwareApplication",
-      name: "Ascent",
-      applicationCategory: "DeveloperApplication",
-      operatingSystem: "Web",
-      description: SITE_DESCRIPTION,
-      ...(BASE_URL ? { url: BASE_URL } : {}),
-      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-    },
-  ],
-};
+// richer result + knowledge panel. Rubric-derived description; paid offers from planPriceLabel()
+// (G8 numeric, anonymous) — never a product-level zero price.
+const STRUCTURED_DATA = siteStructuredData(BASE_URL);
 
 export default function RootLayout({
   children,

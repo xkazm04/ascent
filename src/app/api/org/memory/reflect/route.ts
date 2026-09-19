@@ -155,6 +155,10 @@ export async function POST(request: Request) {
       if (err instanceof ReflectionMembersNotFoundError) {
         return NextResponse.json({ error: err.message }, { status: 400 });
       }
+      // Members from two namespaces, or shared beside private scratch: refused before any write.
+      if (err instanceof Error && err.name === "ReflectionScopeMismatchError") {
+        return NextResponse.json({ error: err.message, code: "scope-mismatch" }, { status: 400 });
+      }
       return NextResponse.json({ error: "Failed to write the summary." }, { status: 500 });
     }
   }
@@ -171,6 +175,8 @@ export async function POST(request: Request) {
       kind: m.kind,
       confidence: m.confidence,
       namespace: m.namespace,
+      visibility: m.visibility,
+      createdBy: m.createdBy,
     })),
     runner?.run ?? null,
     // Navigating away aborts the in-flight call (or kills the spawned CLI) rather than leaving it running.

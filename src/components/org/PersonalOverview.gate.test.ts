@@ -10,6 +10,10 @@
 // component is an async server component that reads the database, and what must not regress is the
 // PREDICATE it filters on — a `forecast !== null` filter reappearing there is the defect, whatever
 // it renders.
+//
+// G4-10 (personal): the landing also used to Promise.all the watchlist with usage and passports, so
+// a throw on any one rejected the page. The rejected-passports case below pins the allSettled shape
+// that keeps the repo list on the page.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -56,5 +60,34 @@ describe("the gate the component now defers to", () => {
     const read = composeTrajectory(null);
     expect(read.headline).toBeNull();
     expect(read.insufficiency).toBeNull();
+  });
+});
+
+describe("PersonalOverview degrades per read", () => {
+  it("settles watchlist, usage, and passports instead of rejecting the landing on one blip", () => {
+    expect(SRC).toMatch(/Promise\.allSettled/);
+    expect(SRC).not.toMatch(/await Promise\.all\(/);
+    expect(SRC).toMatch(/import \{ settle \} from "@\/features\/bought\/delivery\/deliveryLoad"/);
+    // `\r?\n`, not `\n`: this assertion reads SOURCE TEXT, so a bare `\n` is a checkout-line-ending
+    // flake (CI Linux LF vs Windows CRLF) rather than a code check.
+    expect(SRC).toMatch(
+      /getPersonalWatchlist\(slug\),\r?\n\s*getPersonalUsage\(slug\),\r?\n\s*getPersonalPassports\(slug\)/,
+    );
+  });
+
+  it("renders the watchlist when passports reject, rather than blanking the landing", () => {
+    // The defect: Promise.all of the three reads rejected the page when passports threw, so 0 of 1
+    // rejected-passports cases showed the repo list. passportsFailed only gates the passport
+    // section (plus its own "couldn't load" banner); the watchlist is still mapped.
+    expect(SRC).toContain("Your repositories");
+    expect(SRC).toMatch(/repos\.map\(\(r\) =>/);
+    expect(SRC).toMatch(/passportsFailed/);
+    expect(SRC).toMatch(/App Readiness Passports couldn&apos;t load/);
+    expect(SRC).not.toMatch(/if \(passportsFailed\)[\s\S]{0,120}return/);
+  });
+
+  it("degrades usage independently rather than taking the repo list down with the meters", () => {
+    expect(SRC).toMatch(/usageFailed/);
+    expect(SRC).toMatch(/Usage meters couldn&apos;t load/);
   });
 });

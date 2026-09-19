@@ -2,7 +2,7 @@
 //
 // INGESTION VOLUME IS THE CALIBRATION CONTRACT. This source reuses `pickFilesToFetch`, `MAX_FILES`,
 // the per-file / total byte caps, `quarantineMemoryFiles` and `estimateCoverage` from
-// `src/lib/github/source.ts` EXACTLY as `LocalFsSource` already does. That is not code-sharing for
+// `src/lib/forge/source-selection.ts` EXACTLY as `LocalFsSource` already does. That is not code-sharing for
 // tidiness: the rubric was calibrated against a specific ingestion volume, so a GitLab source that
 // read a different number of files, or ranked them differently, would score the same repository
 // differently for reasons that have nothing to do with the repository. Sharing the budget functions is
@@ -19,7 +19,7 @@ import {
   estimateCoverage,
   pickFilesToFetch,
   quarantineMemoryFiles,
-} from "@/lib/github/source";
+} from "@/lib/forge/source-selection";
 import { GitHubError } from "@/lib/forge/types";
 import type {
   EnrichmentSource,
@@ -31,6 +31,8 @@ import type {
   RepoSource,
 } from "@/lib/forge/types";
 import type { CommitInfo, FetchedFile, RepoFile, RepoMeta, RepoSnapshot } from "@/lib/types";
+import { boundedFetchedFile } from "@/lib/forge/fetched-file";
+import { MAX_FILE_BYTES, MAX_CODEOWNERS_BYTES, MAX_TOTAL_BYTES, COMMIT_COUNT } from "@/lib/forge/ingestion-limits";
 import {
   GITLAB_TIMEOUT_FILE_MS,
   gitlabApiBase,
@@ -41,17 +43,18 @@ import {
   projectRef,
   type GitlabFetchOpts,
 } from "@/lib/forge/gitlab/http";
+import { parseGitlabUrl } from "@/lib/forge/gitlab/parse";
 import { fetchWithTimeout } from "@/lib/github/host";
 import { fetchGitlabPrStats } from "@/lib/forge/gitlab/merge-requests";
 import { fetchGitlabGovernance } from "@/lib/forge/gitlab/governance";
 import { fetchGitlabCiHealth } from "@/lib/forge/gitlab/pipelines";
 import { fetchGitlabDeployments } from "@/lib/forge/gitlab/deployments";
 
-// Mirrors the GitHub source's private caps — see the header. A drift here moves scores.
-const MAX_FILE_BYTES = 14_000;
-const MAX_CODEOWNERS_BYTES = 60_000;
-const MAX_TOTAL_BYTES = 280_000;
-const COMMIT_COUNT = 30;
+// Same function gitlabForge.parseUrl binds (including deep-link `ref` / `prNumber`). Client
+// surfaces import from `./parse` so this HTTP stack stays out of the browser bundle.
+export { parseGitlabUrl };
+
+// Adapter-specific path recognition; numeric calibration limits are shared across sources.
 const CODEOWNERS_RE = /(^|\/)codeowners$/i;
 /** Recursive tree pages (100 entries each) before the read reports itself TRUNCATED. */
 const MAX_TREE_PAGES = 30;
@@ -85,77 +88,6 @@ interface GlCommit {
   author_name?: string;
   committed_date?: string;
   created_at?: string;
-}
-
-/**
- * A GitLab coordinate. `owner` is the project's NAMESPACE PATH and `repo` its last segment, so
- * `owner/repo` reconstitutes the full path GitLab's API addresses — including subgroups
- * (`group/sub/project` → owner `group/sub`, repo `project`).
- *
- * The spec wrote "owner = top-level group", which is the same thing for the common single-level case
- * and loses the path for a nested one; a lost subgroup is a 404 on every read, so the namespace path
- * is what is carried. The persisted identity is `gitlab:group/sub/project` either way
- * (`forgeFullName`), which is why the live `@@unique([orgId, fullName])` needs no migration.
- */
-export function parseGitlabUrl(input: string, host?: ForgeHost): ParsedRepo | null {
-  if (!input) return null;
-  let s = input.trim();
-  s = s.replace(/^git@([^:]+):/i, "https://$1/");
-  s = s.replace(/\.git$/i, "");
-
-  const webHost = safeHostname(gitlabWebBase(host));
-  let path: string | null = null;
-
-  if (s.includes("://")) {
-    try {
-      const url = new URL(s);
-      const isGitlabCom = /(^|\.)gitlab\.com$/i.test(url.hostname);
-      const isConfiguredHost = Boolean(webHost) && url.hostname.toLowerCase() === webHost;
-      if (!isGitlabCom && !isConfiguredHost) return null;
-      path = url.pathname;
-    } catch {
-      return null;
-    }
-  } else {
-    // Scheme-less, two accepted shapes:
-    //  - a HOST-qualified path (`gitlab.com/group/project`), which GitHub's parser rejects because its
-    //    first segment contains a dot — so this branch is the only thing that can claim it;
-    //  - a BARE path (`group/sub/project`), which only ever reaches here through an explicit
-    //    `gitlab:` prefix, because the registry offers an unprefixed bare path to GitHub FIRST and
-    //    GitHub accepts every one of them. A first segment carrying a dot that ISN'T a gitlab host is
-    //    refused rather than guessed at: an unknown self-hosted host is not this adapter's to claim.
-    const hostQualified = /^([^/\s]+)\/(.+)$/.exec(s);
-    const first = hostQualified?.[1] ?? "";
-    if (first.includes(".")) {
-      const isGitlabish = /(^|\.)gitlab\./i.test(first) || (Boolean(webHost) && first.toLowerCase() === webHost);
-      if (!isGitlabish) return null;
-      path = `/${hostQualified![2]}`;
-    } else {
-      path = `/${s}`;
-    }
-  }
-
-  // Strip GitLab's `/-/` route separator and everything after it (`/-/tree/main`, `/-/merge_requests`),
-  // then the trailing segments a pasted deep link carries.
-  const cut = path.split("/-/")[0] ?? path;
-  const segments = cut.split("/").filter(Boolean);
-  if (segments.length < 2) return null;
-
-  const ok = /^[A-Za-z0-9_.-]{1,100}$/;
-  for (const seg of segments) {
-    if (!ok.test(seg) || seg.startsWith(".") || seg.includes("..")) return null;
-  }
-  const repo = segments[segments.length - 1]!;
-  const owner = segments.slice(0, -1).join("/");
-  return { owner, repo };
-}
-
-function safeHostname(base: string): string {
-  try {
-    return new URL(base).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
 }
 
 /** `owner/repo` reassembled — the value GitLab's API takes URL-encoded in a path position. */
@@ -311,9 +243,9 @@ export class GitLabSource implements RepoSource {
       if (content == null) continue;
       const path = picks[i]!;
       const cap = CODEOWNERS_RE.test(path) ? MAX_CODEOWNERS_BYTES : MAX_FILE_BYTES;
-      const truncated = content.slice(0, cap);
-      totalBytes += truncated.length;
-      out.push({ path, content: truncated, bytes: content.length });
+      const file = boundedFetchedFile(path, content, cap);
+      totalBytes += Buffer.byteLength(file.content, "utf8");
+      out.push(file);
     }
     // Reads already issued for displaced picks are awaited (never abandoned unhandled) and discarded.
     await Promise.allSettled([...inflight.values()]);
@@ -377,8 +309,8 @@ export const gitlabForge: Forge = {
       deployments: (owner, repo, token) => fetchGitlabDeployments(`${owner}/${repo}`, { token, host }),
     };
   },
-  permalink(repo: ParsedRepo, sha?: string): string {
-    const base = `${gitlabWebBase()}/${gitlabFullPath(repo)}`;
+  permalink(repo: ParsedRepo, sha?: string, host?: ForgeHost): string {
+    const base = `${gitlabWebBase(host)}/${gitlabFullPath(repo)}`;
     return sha ? `${base}/-/tree/${sha}` : base;
   },
 };

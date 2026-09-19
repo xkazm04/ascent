@@ -5,12 +5,22 @@ import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types
 import { RoadmapSortToggle, TrackerProgress } from "@/components/report/roadmapPieces";
 import { roadmapLiftKey, sortRoadmap, type RoadmapLifts, type RoadmapSortMode } from "@/components/report/roadmapPriority";
 import { expectedLiftClause } from "@/lib/outcomes/expected-lift";
-import { applyOptimisticStatus, rollbackRowStatus } from "@/components/report/recommendationRowState";
 import { STATUS_LABEL } from "@/components/org/shared/backlogShared";
 import { useSavingIds } from "@/components/org/shared/recStatusUi";
 import { RecommendationRow } from "@/components/report/RecommendationRow";
-import type { RowError } from "@/components/report/recommendationRowUi";
+import type { RecPlanningPatch, RowError } from "@/components/report/recommendationRowUi";
 import { OrphanedTracking } from "@/components/report/OrphanedTracking";
+
+type RecPatch = RecPlanningPatch & { status?: RecStatus; note?: string };
+
+function mergeRecPatch(item: PersistedRecommendation, patch: RecPatch): PersistedRecommendation {
+  return {
+    ...item,
+    ...(patch.status !== undefined ? { status: patch.status } : null),
+    ...(patch.assigneeLogin !== undefined ? { assigneeLogin: patch.assigneeLogin } : null),
+    ...(patch.targetDate !== undefined ? { targetDate: patch.targetDate } : null),
+  };
+}
 
 export function RecommendationTracker({
   items: initial,
@@ -39,6 +49,9 @@ export function RecommendationTracker({
   // Each row now owns its own role="status" region so overlapping saves are announced independently.
   const [announcements, setAnnouncements] = useState<Record<string, string>>({});
   const announce = (id: string, msg: string) => setAnnouncements((a) => ({ ...a, [id]: msg }));
+  // Per-row epoch the trail watches. Bumped only AFTER a successful PATCH so an in-flight optimistic
+  // status change cannot refetch the timeline before the event exists.
+  const [trailEpoch, setTrailEpoch] = useState<Record<string, number>>({});
   // The row whose "dismissed" pick is waiting on a reason. A dismissal is the one moment a team
   // volunteers the context the next scan lacks, so the PATCH is deferred until they answer (or
   // explicitly skip) — see recommendationRowUi.DismissReasonPrompt.
@@ -92,7 +105,7 @@ export function RecommendationTracker({
       if (!data?.items) return "failed";
       const fresh = data.items.find((i) => i.id === id);
       if (!fresh?.status) return "missing";
-      setItems((cur) => applyOptimisticStatus(cur, id, fresh.status));
+      setItems((cur) => cur.map((i) => (i.id === id ? { ...i, ...fresh } : i)));
       return "refreshed";
     } catch {
       // Network error while refreshing — leave the rolled-back row as-is; the transient error offers Retry.
@@ -112,7 +125,24 @@ export function RecommendationTracker({
     void setStatus(id, status);
   }
 
-  async function setStatus(id: string, status: RecStatus, reason?: string) {
+  function setStatus(id: string, status: RecStatus, reason?: string) {
+    void savePatch(id, reason ? { status, note: reason } : { status });
+  }
+
+  function rowError(patch: RecPatch, kind: RowError["kind"], message: string): RowError {
+    return {
+      status: patch.status,
+      reason: patch.note,
+      planning:
+        patch.assigneeLogin !== undefined || patch.targetDate !== undefined
+          ? { assigneeLogin: patch.assigneeLogin, targetDate: patch.targetDate }
+          : undefined,
+      kind,
+      message,
+    };
+  }
+
+  async function savePatch(id: string, patch: RecPatch) {
     // Re-entrancy guard: ignore a change fired while this row's save is still in flight. The status
     // <select> is no longer `disabled` during a save (disabling the focused control blurred it, dropping
     // keyboard/SR focus to <body> — roadmap-recommendation-tracking #2), so this guard is now what
@@ -120,22 +150,25 @@ export function RecommendationTracker({
     if (savingIds.has(id)) return;
     const row = items.find((i) => i.id === id);
     const title = row?.title ?? "Recommendation";
-    // Capture ONLY this row's prior status for a targeted rollback. Reverting to a whole-list
+    // Capture ONLY this row's prior planning/status for a targeted rollback. Reverting to a whole-list
     // snapshot (the old `setItems(prev)`) would clobber other rows' concurrent optimistic or
     // already-confirmed changes when several updates overlap.
-    const priorStatus = row?.status;
-    const rollback = () => setItems((cur) => rollbackRowStatus(cur, id, priorStatus));
+    const prior = row
+      ? { status: row.status, assigneeLogin: row.assigneeLogin, targetDate: row.targetDate }
+      : undefined;
+    const rollback = () =>
+      setItems((cur) => cur.map((i) => (i.id === id && prior ? { ...i, ...prior } : i)));
 
     setSaving(id, true);
     clearError(id);
-    setItems((cur) => applyOptimisticStatus(cur, id, status)); // optimistic, this row only
+    setItems((cur) => cur.map((i) => (i.id === id ? mergeRecPatch(i, patch) : i)));
     try {
       const res = await fetch(`/api/recommendations/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        // The dismissal reason rides the existing `note` contract — the API turns it into a standing
-        // decision the next scan's prompt reads. Absent/empty ⇒ no note, and no suppression.
-        body: JSON.stringify(reason ? { status, note: reason } : { status }),
+        // Dismissal reason rides the existing `note` contract. Assignee / due date PATCH the same
+        // route — no new endpoint. Absent/empty note ⇒ no suppression.
+        body: JSON.stringify(patch),
       });
       if (!res.ok) {
         // Distinguish "tracking simply isn't available" (503 — no DB) from a transient failure,
@@ -156,23 +189,28 @@ export function RecommendationTracker({
         if (res.status === 409 && (await refreshRow(id)) === "missing") {
           const staleMessage =
             "A newer scan has replaced this report. Reload the page to pick up the latest recommendations.";
-          setError(id, { status, kind: "stale", message: staleMessage, reason });
+          setError(id, rowError(patch, "stale", staleMessage));
           announce(id, `Couldn’t update “${title}”: ${staleMessage}`);
           return;
         }
-        setError(id, { status, kind, message, reason });
+        setError(id, rowError(patch, kind, message));
         announce(id, `Couldn’t update “${title}”: ${message}`);
         return;
       }
-      // Reconcile from the authoritative server row so the displayed status + the done/total count
-      // track what was actually stored (a server normalization or a concurrent change), not just what
-      // we optimistically sent. Was: keep the optimistic value + discard the response.
+      // Reconcile from the authoritative server row so status, assignee, due date, and the
+      // done/total count track what was actually stored, not just what we optimistically sent.
       const saved = (await res.json().catch(() => null)) as PersistedRecommendation | null;
-      if (saved?.status) setItems((cur) => applyOptimisticStatus(cur, id, saved.status));
-      announce(id, `“${title}” marked ${STATUS_LABEL[status]}.`);
+      if (saved) setItems((cur) => cur.map((i) => (i.id === id ? { ...i, ...saved } : i)));
+      announce(
+        id,
+        patch.status
+          ? `“${title}” marked ${STATUS_LABEL[patch.status]}.`
+          : `“${title}” updated.`,
+      );
+      setTrailEpoch((e) => ({ ...e, [id]: (e[id] ?? 0) + 1 }));
     } catch {
       rollback();
-      setError(id, { status, kind: "transient", message: "Couldn’t save that change. Check your connection and retry.", reason });
+      setError(id, rowError(patch, "transient", "Couldn’t save that change. Check your connection and retry."));
       announce(id, `Couldn’t update “${title}”: network error.`);
     } finally {
       setSaving(id, false);
@@ -210,6 +248,7 @@ export function RecommendationTracker({
           err={errors[item.id]}
           announcement={announcements[item.id] ?? ""}
           dismissing={pendingDismiss === item.id}
+          trailEpoch={trailEpoch[item.id] ?? 0}
           onPickStatus={(status) => pickStatus(item.id, status)}
           onBusySwallowed={() =>
             announce(item.id, "Still saving the previous change. Pick the status again in a moment.")
@@ -221,9 +260,12 @@ export function RecommendationTracker({
           onCancelDismiss={() => setPendingDismiss(null)}
           onRetry={() => {
             const err = errors[item.id];
-            if (err) void setStatus(item.id, err.status, err.reason);
+            if (!err) return;
+            if (err.planning) void savePatch(item.id, err.planning);
+            else if (err.status) void setStatus(item.id, err.status, err.reason);
           }}
           onDismissError={() => clearError(item.id)}
+          onPatchPlanning={(patch) => void savePatch(item.id, patch)}
         />
       ))}
     </div>

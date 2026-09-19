@@ -21,6 +21,9 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
   dbReadSafe: async <T>(fn: () => Promise<T>, fallback: T) => fn().catch(() => fallback),
 }));
+vi.mock("@/lib/db/followup-claims", () => ({
+  sweepExpiredLeases: vi.fn(async () => 0),
+}));
 
 import { getCraftBuilt, getCraftItems, getCraftLedger } from "./org-insights-craft";
 import { getOrgBacklog } from "./org-insights";

@@ -27,7 +27,7 @@ import { rateLimitRequest, tooManyRequests, PEEK_RATE_LIMIT } from "@/lib/rate-l
 import { scanAuthGate, scanCreditGate, scanRateLimitGate } from "@/lib/scan-gates";
 import type { QuotaScope } from "@/lib/public-scan-quota";
 import { cacheAndPersistScan, classifyScanResult, consumeScanQuota } from "@/lib/scan-finalize";
-import { paymentRequired } from "@/lib/entitlement";
+import { scanCreditRefusal } from "@/lib/entitlement";
 import { authGateEnabled, getViewer } from "@/lib/access";
 
 export const runtime = "nodejs";
@@ -323,7 +323,7 @@ async function runScan(
     // resolve off the public funnel, and getViewer is request-cached so it costs nothing here.
     resolveActor: async () => (await getViewer())?.login ?? null,
   });
-  if (!credit.ok) return paymentRequired(credit.balance);
+  if (!credit.ok) return scanCreditRefusal(credit);
   // Refund the reservation when nothing billable was produced (degrade-to-mock / dedup / throw). It
   // updates its own `remaining`, so the response header below stays accurate, and it is idempotent.
   const hold = credit.hold;

@@ -18,7 +18,7 @@
 // (createElement, isValidElement, Children) is preserved by spreading the real module. The component
 // source is untouched.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 
 vi.mock("react", async () => {
@@ -34,8 +34,13 @@ vi.mock("react", async () => {
 const mockRefresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mockRefresh }) }));
 
+// global-error.tsx imports Sentry only for the useEffect breadcrumb (already a no-op via the
+// useEffect mock). Stub the package so importing the last-resort boundary does not pull the SDK.
+vi.mock("@sentry/nextjs", () => ({ captureException: () => {} }));
+
 // Import AFTER the mock is registered so the component closes over the no-op useEffect.
 const { default: AppError } = await import("./error");
+const { default: GlobalError } = await import("./global-error");
 
 // ── React element-tree walker (pure; mirrors report-document.test.ts) ───────────────────────────────
 type El = ReactElement<{ style?: unknown; children?: ReactNode; onClick?: () => void; href?: string }>;
@@ -166,5 +171,49 @@ describe("AppError — no raw error leak", () => {
     expect(text).toContain("SAFE_DIGEST");
     expect(text).not.toContain("leak-me");
     expect(text).not.toContain("stack-leak");
+  });
+});
+
+// global-error.tsx replaces the document and has no Next router, so it cannot call router.refresh().
+// "Try again" used to call reset() only — the same dead-button failure RouteError had. The fix hard-
+// reloads first (the refresh analogue), then resets. Walk the returned tree the same way as AppError.
+describe("GlobalError — Try again refresh (RouteError equivalent)", () => {
+  let reset: ReturnType<typeof vi.fn>;
+  let reload: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    reset = vi.fn();
+    reload = vi.fn();
+    vi.stubGlobal("window", { location: { reload } });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function globalTree(error: Error & { digest?: string }, resetFn: () => void = () => {}): El[] {
+    return flatten(GlobalError({ error, reset: resetFn }) as El);
+  }
+
+  function tryAgainButton(els: El[]): El | undefined {
+    return els.find((el) => el.type === "button" && textOf(el).trim() === "Try again");
+  }
+
+  it("wires the 'Try again' button's onClick to reload THEN reset", () => {
+    const btn = tryAgainButton(globalTree(makeError(), reset));
+    expect(btn).toBeDefined();
+    expect(reset).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+    btn!.props.onClick?.();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(reload.mock.invocationCallOrder[0]).toBeLessThan(reset.mock.invocationCallOrder[0]);
+  });
+
+  it("the only reset-invoking control is the Try again button (not the home link)", () => {
+    const els = globalTree(makeError(), reset);
+    for (const el of els) el.props.onClick?.();
+    expect(reset).toHaveBeenCalledTimes(1);
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });

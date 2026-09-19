@@ -24,6 +24,7 @@ export const CREDIT_REASON = {
   GRANT: "grant",
   ADJUSTMENT: "adjustment",
   REFUND: "refund",
+  POLAR: "polar",
   POLAR_REFUND: "polar-refund",
 } as const;
 
@@ -32,6 +33,22 @@ export const CREDIT_REASON = {
  *  lands in the reconciliation's `refunded` bucket and a non-refund reason can never leak into it. */
 export function isRefundReason(reason: string | null | undefined): boolean {
   return (reason ?? "").trim().toLowerCase() === CREDIT_REASON.REFUND;
+}
+
+/** True iff a ledger reason marks a Polar pack clawback — an EXACT match on CREDIT_REASON.POLAR_REFUND
+ *  (trim/case-tolerant), not a `/refund/i` substring, so only a genuine clawback is excluded from
+ *  reconciliation `debited` and a look-alike reason can never be mis-bucketed as a billing reversal. */
+export function isPolarRefundReason(reason: string | null | undefined): boolean {
+  return (reason ?? "").trim().toLowerCase() === CREDIT_REASON.POLAR_REFUND;
+}
+
+/** Polar pack top-ups (`polar:<orderId>` webhook key, or reason "polar") stamp CREDIT_REASON.POLAR. */
+function grantLedgerReason(opts: { reason?: string; externalId?: string }, delta: number): string {
+  const polarTopup =
+    Boolean(opts.externalId?.startsWith("polar:")) ||
+    (opts.reason ?? "").trim().toLowerCase() === CREDIT_REASON.POLAR;
+  if (polarTopup) return CREDIT_REASON.POLAR;
+  return opts.reason ?? (delta > 0 ? CREDIT_REASON.GRANT : CREDIT_REASON.ADJUSTMENT);
 }
 
 export interface CreditState {
@@ -168,7 +185,7 @@ export async function grantCredits(
             orgId: org.id,
             delta: appliedDelta,
             balanceAfter,
-            reason: opts.reason ?? (delta > 0 ? CREDIT_REASON.GRANT : CREDIT_REASON.ADJUSTMENT),
+            reason: grantLedgerReason(opts, delta),
             actor: opts.actor ?? null,
             // SPEND ATTRIBUTION. A per-scan REFUND is a grant, so it used to be written with no repo
             // and no scan on it at all — leaving every `reason:"refund"` row unjoinable to the
@@ -312,8 +329,10 @@ export async function countMeteredScansThisMonth(orgSlug: string): Promise<numbe
 /**
  * Consume the budget for one metered scan under the hybrid model: FREE on the unlimited plan, FREE
  * while the org is under its monthly allowance, then ONE prepaid credit (atomic, balance-clamped), else
- * denied. Returns { ok, balance, unlimited, charged } — `charged` is true ONLY when a credit was
- * actually debited, so the caller refunds (on dedup/degrade) exactly that and nothing else.
+ * denied. Returns { ok, balance, unlimited, charged, orgExists } — `charged` is true ONLY when a
+ * credit was actually debited, so the caller refunds (on dedup/degrade) exactly that and nothing else.
+ * `orgExists: false` is a missing org (typo / deletion), NOT an out-of-credits paywall: callers
+ * (`reserveScanCredit` → `scanCreditGate`) must 404 that, never 402 `INSUFFICIENT_CREDITS`.
  *
  * The allowance pre-check is a SOFT, non-atomic read: usageThisMonth counts persisted Scan rows, which
  * land only AFTER a lane reserves, so concurrent lanes at the allowance boundary all read the same stale
@@ -415,9 +434,9 @@ export async function consumeScanCredit(
 /**
  * NET credits an org has ever minted through the MANUAL (self-serve, owner-gated) grant endpoint —
  * the persisted basis for its lifetime grant cap (`/api/org/credits/grant`). Sums the ledger rows the
- * manual path writes (`grant` / `adjustment`) and nothing else: Polar top-ups (`polar`), scan debits
- * (`scan`), scan refunds (`refund`) and Polar clawbacks (`polar-refund`) are all deliberately excluded,
- * so a paying org's purchases never consume its manual-grant headroom.
+ * manual path writes (`grant` / `adjustment`) and nothing else: Polar top-ups (`CREDIT_REASON.POLAR`),
+ * scan debits (`scan`), scan refunds (`refund`) and Polar clawbacks (`polar-refund`) are all
+ * deliberately excluded, so a paying org's purchases never consume its manual-grant headroom.
  *
  * NET, not gross: a negative `adjustment` is a genuine reversal of a manual grant (it can only remove
  * credits the org still holds — `grantCredits` clamps a debit to the balance), so it restores exactly
@@ -490,7 +509,7 @@ export async function sumRefundClawback(orgSlug: string, orderId: string): Promi
   const rows = await prisma.creditLedger.findMany({
     where: {
       orgId: org.id,
-      reason: "polar-refund",
+      reason: CREDIT_REASON.POLAR_REFUND,
       OR: [{ externalId: `polar-refund:${orderId}` }, { externalId: { startsWith: `polar-refund:${orderId}:` } }],
     },
     select: { delta: true },
@@ -534,16 +553,14 @@ export async function getCreditReconciliation(
   });
   const sum = (pred: (e: { delta: number; reason: string }) => boolean, abs = false) =>
     rows.filter(pred).reduce((a, e) => a + (abs ? Math.abs(e.delta) : e.delta), 0);
-  // Bucket by REASON before sign: a Polar refund-clawback is a NEGATIVE delta with reason `polar-refund`
-  // (a /refund/i match). The old `debited: delta < 0` counted that reversal as scan spend, so the /usage
-  // panel reported a billing refund as extra "credits debited". Exclude /refund/i-reason rows from the
-  // scan-spend bucket; the clawback still nets correctly in `net`.
-  const isReversal = (e: { reason: string }) => /refund/i.test(e.reason);
+  // Bucket by REASON before sign: a Polar pack clawback is a NEGATIVE delta stamped
+  // CREDIT_REASON.POLAR_REFUND. The old `debited: delta < 0` counted that reversal as scan spend, so
+  // the /usage panel reported a billing refund as extra "credits debited". Classify on the shared
+  // POLAR_REFUND constant (see isPolarRefundReason), NOT a `/refund/i` substring — a look-alike
+  // reason must never be excluded from scan-spend, and a genuine clawback never lands in `debited`.
+  // The clawback still nets correctly in `net`.
   return {
-    // Exclude reversal-reason rows from scan-spend: a Polar refund-clawback is a NEGATIVE delta with
-    // reason `polar-refund` (an /refund/i match), and counting it as debited would overstate scan spend
-    // on the /usage panel (see the isReversal note above). The clawback still nets correctly in `net`.
-    debited: sum((e) => e.delta < 0 && !isReversal(e), true),
+    debited: sum((e) => e.delta < 0 && !isPolarRefundReason(e.reason), true),
     // Classify positives on the shared CREDIT_REASON.REFUND constant (see isRefundReason), NOT a
     // free-text substring, so a refund stamped with any other reason can't silently land in `granted`.
     refunded: sum((e) => e.delta > 0 && isRefundReason(e.reason)),

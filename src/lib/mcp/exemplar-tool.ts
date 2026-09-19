@@ -32,8 +32,8 @@ import { getOrgRollup, getScanComparison } from "@/lib/db";
 import { DEFAULT_ORG_SLUG } from "@/lib/db/scans-shared";
 import { diffAcrossRepos, exemplarRefLabel, parseExemplarRef, transferJoin } from "@/lib/report/exemplar";
 import { isScanEligible, listExemplarOptions, loadSubjectFacets, resolveExemplar } from "@/lib/report/exemplar-load";
-import { fail, str, type Args } from "@/lib/mcp/registry-reads";
-import type { ToolResult } from "@/lib/mcp/handlers";
+import { fail, str, type Args, type ToolResult } from "./tool-result";
+
 
 /** The accepted `against` grammar, quoted back on an unparseable ref rather than guessed at. */
 const REF_FORMS =

@@ -46,7 +46,7 @@ their source of truth from it once it is mapped.
 - **Unmapped — the onboarding stepper.** Six resumable steps, each reading its own evidence rather than
   a stored cursor: *choose* (create · map an existing repo · stay hosted), *permissions*
   (`contents:write`), *scaffold* (one PR adds the v1 layout), *migrate* (one PR per artifact type),
-  *point the fleet* (`.ai/manifest.yaml → skills.registry`), *verify* (first `catalog.json`, first sync,
+  *point the fleet* (`.ai/manifest.yaml → registry.remote`), *verify* (first `catalog.json`, first sync,
   first invoke). The **artifact ledger is not rendered here**: its three Stat cards read
   "n in the registry / +m hosted only", which against an unmapped org is three zeroes and a migrate
   action whose only answer is "map a registry first".
@@ -85,6 +85,18 @@ switcher were cut).
   still open ("Contents · wiring the registry" — migrate → point the fleet → verify; satisfied entries
   drop out, a `skipped` entry stays because it states why the step will never run), then fleet sync,
   telemetry, activity and the developer how-to.
+
+### The developer how-to (2026-09-16)
+
+`registryHowTo(fullName, orgSlug)` (`src/lib/org/registry-howto.ts`) produces three lines, and each one
+names something that exists: `node scripts/ascent-skills.mjs sync --org <slug>` and
+`node scripts/ascent-skills.mjs hooks install` (a single zero-dependency file a repo copies in from
+ascent's `scripts/`; sync needs an `askl_` token from the Skills tab), and the pointer
+`registry.remote: github:<owner>/<repo>` under `registry:` in `.ai/manifest.yaml`. The scaffold
+README (`src/lib/registry/layout.ts`) uses the same pointer shape. Earlier copy showed
+`npx ascent skills sync` / `npx ascent hooks install` and a `skills.registry` pointer, none of which
+existed (no npm package or bin ships, and `skills:` in a real manifest is the list of linked skills).
+The local, terminal counterpart of the six steps is the `.claude/skills/registry-onboarding` skill.
 
 ### The preview switcher (development only)
 
@@ -128,12 +140,30 @@ user account). Every probe fails closed.
 | `GET /api/org/:slug/registry` | read | `{ view: RegistryView }` (`?demo=` selects a fixture) |
 | `POST /api/org/:slug/registry` | admin | map `fullName`, or `create: true` to create `<org>/ai-registry`; then open the scaffold PR |
 | `POST .../registry/index` | member | re-read HEAD and rebuild the mirror rows |
+| `POST .../registry/local` | owner · **self-hosted only** (404 otherwise) | pair / verify / unpair the registry checkout on this machine, and index it — see below |
 | `POST .../registry/migrate?type=skills,practices,memory` | admin | export the still-hosted rows of one type as one draft PR; a type with zero rows is a **no-op**, never an empty PR |
 | `POST .../registry/conformance` (`{ repositoryIds?, repositoryId? }`) | admin | sweep the fleet, a list, or one repo — see the conformance ledger |
 | `GET` / `POST .../registry/dispatch` | member / admin (brief) · owner + self-host + autopilot (local) | the hand-off ledger and the two dispatch modes — see below |
 
 Every failure is `{ error, code }` with a real status — `persistence-off` (503), `invalid-input` (400),
 `not-permitted` (403), `not-mapped` (409), `github-error` (502) — never a bare 500.
+
+### Pairing a local checkout (self-hosted, 2026-09-16)
+
+A self-hosted install usually has no GitHub App, and every registry read went through an installation
+token. Admin → **Pairing** now pairs the registry to a checkout on the server (`OrgRegistry.localPath`)
+as its FIRST step, and GitHub is the optional second. `resolveRegistrySource` (`src/lib/registry/api.ts`)
+resolves local first for every re-read route — index, trace, the conformance sweep, a local dispatch —
+and mints a token only for an unpaired registry. `visibleActions` follows the same order: `pair-local`
+ahead of the App's actions, `reindex` on a paired registry whatever the App can do, and the steps read
+the App's permission and migration entries as **optional** rather than blocked. Full mechanics —
+verification, the committed-tree source, the working-tree fleet reader, the render-triggered refresh —
+in [`docs/features/local-mode/README.md`](../local-mode/README.md#the-registry-paired-locally-2026-09-16).
+The terminal `registry-onboarding` skill drives the same route as its step 7.
+
+**Known gap.** A local checkout cannot open pull requests, so scaffold, migration, signals contribution
+and a dispatch's PR still need the App. The Surfaces tab is unaffected either way: it is a static mirror
+of the ui-surfaces taxonomy (`src/lib/org/surface-catalog.ts`).
 
 ## The indexer
 
@@ -147,6 +177,12 @@ Reads the tree at HEAD through the installation token, then per artifact:
   `starter/**` paths are attached to the catalog entry but never mirrored into a row.
 - **`memory/<kind>/<slug>.md`** — `kind` (frontmatter, else the directory) mapped onto `OrgMemory.kind`,
   `confidence` clamped to 0-1; `_index.md` and `_`-prefixed files are ignored.
+- **`usage/<contributor>.json`** (`src/lib/registry/usage-samples.ts`): each skill count is re-expressed
+  as a 30-day rate from the file's declared `windowDays`, so `invokes30d` means 30 days. A file with no
+  valid window is skipped with a warning, never assumed to be 30. One contributor's normalized total is
+  clamped at 500 invokes a day (15,000 per 30 days), the same constant the MCP `report_skill_invoke`
+  door enforces (`src/lib/mcp/self-report-ceiling.ts`). A clamp is counted (`clampedContributors`) and
+  warned. Samples persist the declared numbers, and the dormancy fold bounds them again at read time.
 
 An empty document, a body-less note, an oversized blob or a failed mirror write **skips that file with a
 recorded warning**; the pass commits everything else and never throws. A total failure (no access,
@@ -457,11 +493,13 @@ requiring admin to *propose* would lock out the people who write the memory.
 
 ## Known gaps
 
-- **Fleet SYNC adoption is not measured.** `fleet.reposPointing`, `reposSynced30d` and the adoption
-  breakdown are reported as **zero**, not estimated (R5) — the pass that hashes each repo's
-  `.claude/skills` against the catalog does not exist yet. *(Narrowed 2026-08-30: `telemetry.invokes30d`
-  is now real, from the registry's `usage/` lane and this org's own events API, and CONFORMANCE
-  adoption is measured — see the conformance ledger above.)*
+- **Fleet SYNC adoption is not measured.** `fleet.reposPointing` and `reposSynced30d` are **omitted**
+  until R5, and `RegistryFleetSync` hatches those meters (`not-judged`) rather than painting 0%. The
+  adoption breakdown still arrives as zeros and reads as "No adoption measured yet". The pass that
+  hashes each repo's `.claude/skills` against the catalog does not exist yet. *(Narrowed 2026-09-17:
+  pointing/synced are no longer reported as a measured zero. 2026-08-30: `telemetry.invokes30d` is
+  real, from the registry's `usage/` lane and this org's own events API, and CONFORMANCE adoption is
+  measured — see the conformance ledger above.)*
 - **Lessons do not reach Memory yet.** The mapping (`lesson-memory.ts`: the skill as namespace,
   `procedural`, confidence 0.6, ten newest per pass) is written and tested, but the insert goes
   through the one ingest door in `src/lib/memory/scan-feed.ts` and that door's generalized form

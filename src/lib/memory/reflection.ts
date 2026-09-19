@@ -23,7 +23,7 @@
 // injects `RunPrompt` from consolidation-engine.ts.
 
 import { parseJsonLoose } from "@/lib/llm/json";
-import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
+import { MEMORY_UNTRUSTED_BOUNDARY, neutralize, sanitizeAgentText, wrapUntrusted } from "@/lib/llm/untrusted";
 import type { RunPrompt } from "@/lib/memory/consolidation";
 import { tokenize } from "@/lib/memory/consolidation";
 import { PROSE_STYLE_RULE } from "@/lib/llm/prose";
@@ -36,6 +36,24 @@ export interface ReflectionCandidate {
   kind: string;
   confidence: number;
   namespace?: string;
+  /** "shared" (whole org) or "private" (author-only scratch). Absent reads as shared. */
+  visibility?: string;
+  /** The author; part of the scope only for private rows. */
+  createdBy?: string | null;
+}
+
+/**
+ * The ownership scope a memory belongs to inside its org: its namespace, and for private scratch its
+ * author. Similarity says two memories are ABOUT the same thing; it does not say they belong to the same
+ * place, so a family may only form inside one scope. Without this, notes that share wording across two
+ * projects become one rollup filed under one of them, and a private scratch note is folded into a
+ * shared summary the whole org then reads.
+ */
+export function reflectionScopeKey(
+  m: Pick<ReflectionCandidate, "namespace" | "visibility" | "createdBy">,
+): string {
+  const ns = (m.namespace ?? "").trim();
+  return m.visibility === "private" ? `${ns}\u0000private\u0000${m.createdBy ?? ""}` : `${ns}\u0000shared`;
 }
 
 export interface MemoryCluster {
@@ -94,8 +112,10 @@ const MAX_SUMMARY_CHARS = 2000;
  * Returns 0 when either side has no meaningful tokens.
  */
 export function jaccard(a: string, b: string): number {
-  const A = new Set(tokenize(a));
-  const B = new Set(tokenize(b));
+  return tokenSetJaccard(new Set(tokenize(a)), new Set(tokenize(b)));
+}
+
+function tokenSetJaccard(A: ReadonlySet<string>, B: ReadonlySet<string>): number {
   if (A.size === 0 || B.size === 0) return 0;
   let inter = 0;
   for (const t of A) if (B.has(t)) inter++;
@@ -146,13 +166,17 @@ export function clusterMemories(
   if (n < minSize) return [];
 
   const sim: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
+  // Tokenize each memory once; pairwise comparisons reuse these immutable word sets.
+  const tokens = items.map((item) => new Set(tokenize(item.content)));
+  const scopes = items.map(reflectionScopeKey);
   const uf = new UnionFind(n);
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
-      const s = jaccard(items[i]!.content, items[j]!.content);
+      const s = tokenSetJaccard(tokens[i]!, tokens[j]!);
       sim[i]![j] = s;
       sim[j]![i] = s;
-      if (s >= threshold) uf.union(i, j);
+      // Scope before similarity: a pair across two scopes never unions, however alike the text.
+      if (s >= threshold && scopes[i] === scopes[j]) uf.union(i, j);
     }
   }
 
@@ -217,7 +241,7 @@ export function buildReflectionPrompt(
           // loop. Capping after neutralization is what makes MEMBER_EXCERPT the real cap on what
           // reaches the model. The `clipped` marker is likewise decided on the neutralized length,
           // because that is the string actually being cut.
-          const safe = neutralize(m.content);
+          const safe = sanitizeAgentText(m.content);
           const excerpt = safe.slice(0, MEMBER_EXCERPT);
           const clipped = safe.length > MEMBER_EXCERPT ? " …[truncated]" : "";
           return `  - id=${id} kind=${neutralize(m.kind)} confidence=${m.confidence}\n    ${excerpt}${clipped}`;

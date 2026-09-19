@@ -27,7 +27,7 @@ export function SegmentMaturityGrid({ summaries, className = "" }: { summaries: 
         <Kicker tone="muted">segments on three axes</Kicker>
         <WhyChip hint={SENTINEL_HINT} label="why a segment can be hatched" align="end" />
       </div>
-      <MatrixGrid className="mt-2 max-w-lg" axes={[...SEGMENT_AXES]} rows={rows} title="Segment maturity" />
+      <MatrixGrid className="mt-2" axes={[...SEGMENT_AXES]} rows={rows} title="Segment maturity" />
       <Legend states={segmentMatrixStates(rows)} className="mt-3" />
     </div>
   );

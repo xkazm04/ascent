@@ -12,8 +12,9 @@
 // to reduce to `avgOverall: 0` — a sentinel, not a score (repositories-segments #4) — and this module
 // recovered the absence by testing `scannedCount === 0`, a DIFFERENT field than the one it draws. The
 // producer says it now (`SegmentSummary.avgOverall: number | null`, 2026-09-08), so the headline marks
-// read their own nullness and the re-derivation is gone. `value()` survives for the per-dimension
-// rows only, where `SegmentComparison.dimDeltas` still carries a `?? 0` of its own.
+// read their own nullness and the re-derivation is gone. Per-dimension rows used to re-derive the
+// same void from `scannedCount` because `dimDeltas` coalesced an unscored dimension to 0; the
+// producer now emits `number | null` there too, so those rows pass the values through.
 //
 // Pure: no React, no fetch. The kit types are `import type`.
 
@@ -22,7 +23,7 @@ import type { SegmentComparison, SegmentSummary } from "@/lib/db";
 
 export const SEGMENT_AXES = ["Overall", "Adopt", "Rigor"] as const;
 
-/** One metric, on both sides. `null` = that side has no scanned repo, so it has no value at all. */
+/** One metric, on both sides. `null` = that side has no measurement for this metric. */
 export interface PairedRow {
   id: string;
   label: string;
@@ -31,10 +32,6 @@ export interface PairedRow {
   /** Null whenever either side is null: a delta against a sentinel is comparison theatre. */
   delta: number | null;
 }
-
-/** Per-DIMENSION only: `dimDeltas` coalesces an unscored dimension to 0 in the producer, so the
- *  segment's scan count is still the only signal that the row is a void rather than a zero. */
-const value = (scanned: number, v: number): number | null => (scanned === 0 ? null : v);
 
 /** The maturity strip's first sight: one row per segment, three measured axes or three hatches. */
 export function segmentMatrixRows(summaries: readonly SegmentSummary[]): MatrixRow[] {
@@ -71,11 +68,10 @@ export function headlinePairs(c: SegmentComparison): PairedRow[] {
   ];
 }
 
-/** One paired row per dimension, in the order `compareSegments` returned them. */
+/** One paired row per dimension, in the order `compareSegments` returned them. A side the
+ *  producer never scored on that dimension arrives as `null` and stays a gap, never a zero. */
 export function dimensionPairs(c: SegmentComparison, shortLabel: (dimId: string) => string): PairedRow[] {
-  return c.dimDeltas.map((d) =>
-    paired(d.dimId, shortLabel(d.dimId), value(c.a.scannedCount, d.a), value(c.b.scannedCount, d.b), d.delta),
-  );
+  return c.dimDeltas.map((d) => paired(d.dimId, shortLabel(d.dimId), d.a, d.b, d.delta));
 }
 
 /** The states a set of paired rows actually contains — measured marks, plus voids where a side has none. */

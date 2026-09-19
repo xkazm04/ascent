@@ -23,6 +23,8 @@ const world = vi.hoisted(() => ({
   provider: {} as Record<string, { status: string; endedAt: Date | null; cancelAtPeriodEnd: boolean }>,
   fetchFails: false,
   fetches: 0,
+  orgId: "org_acme",
+  subs: {} as Record<string, { orgId: string; status: string; stripeId: string | null; createdAt: Date }>,
 }));
 
 vi.mock("@polar-sh/nextjs", () => ({
@@ -42,6 +44,32 @@ vi.mock("@/lib/db", () => ({
     world.plans[org] = plan;
     return true;
   }),
+  isDbConfigured: vi.fn(() => true),
+  getOrgId: vi.fn(async (slug: string) => (slug === "acme" ? world.orgId : null)),
+  getPrisma: vi.fn(() => ({
+    subscription: {
+      upsert: async (args: {
+        where: { orgId: string };
+        create: { orgId: string; status: string; stripeId: string | null };
+        update: { status: string; stripeId?: string | null; createdAt?: Date };
+      }) => {
+        const cur = world.subs[args.where.orgId];
+        if (!cur) {
+          const row = {
+            orgId: args.create.orgId,
+            status: args.create.status,
+            stripeId: args.create.stripeId,
+            createdAt: new Date(),
+          };
+          world.subs[args.where.orgId] = row;
+          return row;
+        }
+        cur.status = args.update.status;
+        if (args.update.stripeId !== undefined) cur.stripeId = args.update.stripeId;
+        return cur;
+      },
+    },
+  })),
 }));
 vi.mock("@/lib/polar", () => ({
   creditsForProduct: vi.fn(() => 0),
@@ -78,6 +106,7 @@ beforeEach(() => {
   world.provider = { sub1: { status: "active", endedAt: null, cancelAtPeriodEnd: false } };
   world.fetchFails = false;
   world.fetches = 0;
+  world.subs = {};
 });
 
 const ENDED = new Date("2026-08-15T00:00:00Z");
@@ -133,6 +162,7 @@ describe("lifecycle replay — the tier follows the provider's CURRENT state, no
       world.plans = { acme: "free" };
       world.provider = { sub1: { status: "active", endedAt: null, cancelAtPeriodEnd: false } };
       world.fetchFails = false;
+      world.subs = {};
       await s.run();
       if (world.plans.acme !== s.owed) wrong.push(`${s.name}: got ${world.plans.acme}, owed ${s.owed}`);
     }
@@ -155,5 +185,43 @@ describe("lifecycle replay — the tier follows the provider's CURRENT state, no
     world.fetchFails = true;
     await expect(paid(ACTIVE)).rejects.toThrow(/could not read subscription/);
     expect(world.plans.acme).toBe("free");
+  });
+});
+
+describe("lifecycle replay — Subscription conversion row", () => {
+  it("order.paid upserts one active row (Polar subscription id in stripeId)", async () => {
+    await paid(ACTIVE);
+    const rows = Object.values(world.subs);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!).toMatchObject({ orgId: "org_acme", status: "active", stripeId: "sub1" });
+  });
+
+  it("downgradeSubscription upserts the same row inactive and keeps createdAt", async () => {
+    await paid(ACTIVE);
+    const createdAt = world.subs.org_acme!.createdAt;
+    await revoke();
+    const rows = Object.values(world.subs);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!).toMatchObject({ orgId: "org_acme", status: "inactive", stripeId: "sub1" });
+    expect(rows[0]!.createdAt).toBe(createdAt);
+  });
+
+  it("a stale paid redelivery after revoke does not resurrect the conversion row as active", async () => {
+    await paid(ACTIVE);
+    await revoke();
+    await paid(ACTIVE);
+    const rows = Object.values(world.subs);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("inactive");
+  });
+
+  it("paid redelivery while still entitling stays one active row", async () => {
+    await paid(ACTIVE);
+    const createdAt = world.subs.org_acme!.createdAt;
+    await paid(ACTIVE);
+    const rows = Object.values(world.subs);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!).toMatchObject({ status: "active", stripeId: "sub1" });
+    expect(rows[0]!.createdAt).toBe(createdAt);
   });
 });

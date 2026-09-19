@@ -1649,6 +1649,10 @@ model OrgRegistry {
   id                 String    @id @default(uuid())
   orgId              String
   repositoryId       String? // Repository row of the registry repo (role = "registry"), when one exists
+  // SELF-HOSTED: absolute path of the registry's working copy on the server (Admin -> Pairing). When
+  // set on a self-hosted deployment it is the registry's read source - index, trace and the fleet
+  // conformance sweep read the checkout, and no GitHub App token is needed. Null = read via GitHub.
+  localPath          String?
   fullName           String // "owner/name"
   defaultBranch      String    @default("main")
   canonical          Boolean   @default(true)
