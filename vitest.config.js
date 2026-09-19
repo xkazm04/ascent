@@ -4,6 +4,25 @@
 // modules that use `@/...` imports.
 import { resolve } from "node:path";
 
+// Git exports GIT_DIR (and, from a worktree, GIT_WORK_TREE and friends) to hooks, and `git -C <dir>`
+// or a `cwd` does NOT override them. When the pre-push hook runs this suite, every fixture that
+// spawns git on a scratch repo would act on the REAL repository instead: since 2026-09-03 that wrote
+// fixture identities into .git/config (471 master commits authored "Ascent Loop", more as "Deps Test",
+// "Land Test", "Worktree Test"), overwrote .git/info/exclude, and on 2026-09-19 set core.worktree to
+// a deleted path. This file runs in the main process before any worker forks, so deleting them here
+// scrubs every worker and every child process a test spawns. Pinned by src/lib/local/git-env-scrub.test.ts.
+for (const k of [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_COMMON_DIR",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_PREFIX",
+]) {
+  delete process.env[k];
+}
+
 const config = {
   test: {
     include: ["src/**/*.test.{ts,tsx}"],
