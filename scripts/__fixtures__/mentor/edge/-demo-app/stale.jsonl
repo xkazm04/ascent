@@ -1,2 +1,0 @@
-{"type":"user","entrypoint":"cli","sessionId":"edge-stale","timestamp":"2026-07-01T08:00:00Z","permissionMode":"plan","promptSource":"typed","origin":{"kind":"human"},"message":{"role":"user","content":"A session whose every turn predates the window"}}
-{"type":"assistant","entrypoint":"cli","sessionId":"edge-stale","timestamp":"2026-07-01T08:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}

@@ -1,2 +1,0 @@
-{"type":"user","sessionId":"edge-legacy","timestamp":"2026-09-13T08:00:00Z","cwd":"/demo","version":"1.0.0","message":{"role":"user","content":"An older log with no entrypoint field"}}
-{"type":"assistant","sessionId":"edge-legacy","timestamp":"2026-09-13T08:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}
