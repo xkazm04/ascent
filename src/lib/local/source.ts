@@ -27,6 +27,7 @@ import {
   pickFilesToFetch,
   quarantineMemoryFiles,
 } from "@/lib/forge/source-selection";
+import { fileWindowCoverage } from "@/lib/scoring/prompt";
 import { runGit } from "@/lib/local/git";
 import { boundedFetchedFile } from "@/lib/forge/fetched-file";
 import { MAX_FILE_BYTES, MAX_CODEOWNERS_BYTES, MAX_TOTAL_BYTES, COMMIT_COUNT } from "@/lib/forge/ingestion-limits";
@@ -170,6 +171,8 @@ export class LocalFsSource implements RepoSource {
         promptFiles.length,
         Math.min(nonMemoryAttempted, MAX_FILES),
         false,
+        0,
+        fileWindowCoverage(promptFiles).omitted,
       ),
       memoryFiles,
     };

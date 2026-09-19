@@ -49,6 +49,7 @@ import { fetchGitlabPrStats } from "@/lib/forge/gitlab/merge-requests";
 import { fetchGitlabGovernance } from "@/lib/forge/gitlab/governance";
 import { fetchGitlabCiHealth } from "@/lib/forge/gitlab/pipelines";
 import { fetchGitlabDeployments } from "@/lib/forge/gitlab/deployments";
+import { fileWindowCoverage } from "@/lib/scoring/prompt";
 
 // Same function gitlabForge.parseUrl binds (including deep-link `ref` / `prNumber`). Client
 // surfaces import from `./parse` so this HTTP stack stays out of the browser bundle.
@@ -178,6 +179,7 @@ export class GitLabSource implements RepoSource {
         Math.min(nonMemoryAttempted, MAX_FILES),
         treeRes.truncated,
         displacedNonMemory,
+        fileWindowCoverage(files).omitted,
       ),
       memoryFiles,
     };
