@@ -21,6 +21,9 @@ export interface OutcomeSheetHeaderProps {
   setWidth: (id: string, px: number) => void;
   onOpen: (id: string) => void;
   latestRef: (el: HTMLTableCellElement | null) => void;
+  /** The instant every column's age is measured from — the page's own, so the server render and the
+   *  hydrated one print the same words. */
+  nowMs?: number;
 }
 
 export function OutcomeSheetHeader(p: OutcomeSheetHeaderProps) {
@@ -55,7 +58,7 @@ export function OutcomeSheetHeader(p: OutcomeSheetHeaderProps) {
                     Run {i + 1}
                     {col.live && <span aria-hidden className="live-dot ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-accent align-middle" />}
                   </Kicker>
-                  <span className="type-caption text-slate-500">{timeAgo(col.startedAt)}</span>
+                  <span className="type-caption text-slate-500">{timeAgo(col.startedAt, p.nowMs)}</span>
                 </span>
                 <span className="type-figure mt-0.5 block tabular-nums" style={{ color: deltaHex(col.lift ?? 0) }}>
                   {col.lift == null ? "—" : fmtDelta(col.lift)}

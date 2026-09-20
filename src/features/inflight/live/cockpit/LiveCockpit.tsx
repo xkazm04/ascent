@@ -55,6 +55,8 @@ export interface LiveCockpitProps {
   runs: LoopRunSummary[];
   /** The details of the listed runs (bounded), for the outcome matrix. Empty on managed cloud. */
   runDetails?: LoopRunDetail[];
+  /** The server's render instant, so relative ages survive hydration unchanged. */
+  nowMs?: number;
   /** `autopilotEnabled()` at render time — the ASCENT_AUTOPILOT gate. */
   loopEnabled: boolean;
   selfHosted: boolean;
@@ -176,6 +178,7 @@ export function LiveCockpit(props: LiveCockpitProps) {
         driveOutcome={c.driveOutcome}
         onOpen={(id) => void c.openRun(id)}
         onDismissDrive={c.backToInspect}
+        nowMs={props.nowMs}
       />
       {/* What a verified maturity point has cost, per model, per dimension — the standing summary
           the strip's individual runs add up to. */}

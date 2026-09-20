@@ -35,6 +35,9 @@ export interface OutcomeSectionProps {
   canReview: boolean;
   onOpen: (id: string) => void;
   onDismissDrive: () => void;
+  /** The page's own instant (the server's render time), so a column's age does not differ between
+   *  the server render and the hydrated one. */
+  nowMs?: number;
 }
 
 export function OutcomeSection(p: OutcomeSectionProps) {
@@ -103,6 +106,7 @@ export function OutcomeSection(p: OutcomeSectionProps) {
           onOpen={p.onOpen}
           canReview={p.canReview}
           onReview={onReview}
+          nowMs={p.nowMs}
         />
       )}
       {itemOutcomes.length > 0 && <CockpitVerdicts outcomes={itemOutcomes} titles={onScreen?.batchTitles} />}

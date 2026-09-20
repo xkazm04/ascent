@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { cell, emptyFixture, fixture } from "./outcome.fixture";
 import { buildSheetProjects, prCell } from "./outcomeSheetModel";
 import type { OutcomeMatrix } from "./outcomeMatrix";
+import { timeAgo } from "@/lib/ui";
 
 const projects = buildSheetProjects(fixture);
 const payments = projects.find((p) => p.repo === "acme/payments-api")!;
@@ -64,5 +65,25 @@ describe("buildSheetProjects — one row per gap, across runs", () => {
 
   it("folds an empty matrix to no projects rather than to an empty row axis", () => {
     expect(buildSheetProjects(emptyFixture)).toEqual([]);
+  });
+});
+
+// A column's age is measured from an instant the CALLER owns. The cockpit renders on the server and
+// hydrates in the browser; with `Date.now()` on both sides a run started 18.5 days ago printed "19d
+// ago" server-side and "18d ago" after hydration, and React threw a mismatch (measured 2026-09-20).
+describe("timeAgo against a fixed instant", () => {
+  const start = "2026-09-02T00:00:00Z";
+  const now = Date.parse("2026-09-20T12:00:00Z");
+
+  it("reads the same whenever it is called, given the same instant", () => {
+    expect(timeAgo(start, now)).toBe("18d ago");
+    expect(timeAgo(start, now + 12 * 3_600_000)).toBe("19d ago");
+    // The same call twice, an hour of wall clock apart, cannot drift: the instant is the argument.
+    expect(timeAgo(start, now)).toBe(timeAgo(start, now));
+  });
+
+  it("still falls back to the wall clock for a caller that renders in one place only", () => {
+    expect(timeAgo(new Date(Date.now() - 2 * 86_400_000).toISOString())).toBe("2d ago");
+    expect(timeAgo(undefined, now)).toBe("unknown");
   });
 });

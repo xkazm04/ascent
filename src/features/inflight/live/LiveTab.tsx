@@ -165,6 +165,7 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
         activeRun={activeRun}
         runs={runs}
         runDetails={runDetails}
+        nowMs={Date.now()}
         loopEnabled={autopilotEnabled()}
         selfHosted={local}
         isOwner={isOwner}
