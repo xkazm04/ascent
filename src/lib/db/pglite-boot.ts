@@ -60,6 +60,7 @@ export async function bootPglite(dataDir: string): Promise<void> {
         ? "[pglite] schema bootstrapped from prisma/init.sql"
         : "[pglite] schema ensured from prisma/init.sql (idempotent; new tables/indexes applied)",
     );
+    if (!firstBoot) await backfillRunNumbers(pglite);
 
     g.__ascentPgliteAdapter = new PrismaPGlite(pglite);
     g.__ascentPgliteBootError = undefined; // a prior failed boot (if any) is now healed
@@ -161,5 +162,41 @@ export async function reconcileColumnDrift(
         `under prisma/migrations/ to ${dir} yourself, or wipe the data dir and re-seed. Until then the ` +
         `driver adapter is not installed — a silent install used to 500 on INSERT against the missing column.`,
     );
+  }
+}
+
+/**
+ * The DATA half of a migration, for the one environment that never runs migrations.
+ *
+ * `reconcileColumnDrift` above adds a migration's new COLUMNS to an existing data dir, and the
+ * idempotent re-exec adds its new TABLES — but a migration's `UPDATE` steps reach neither, because
+ * init.sql is a schema file. `LoopRun.seq` (the ledger's stable run number, 2026-09-18) is the first
+ * column where that gap is visible to a user: `prisma/migrations/20260918120000_add_standing_runner`
+ * numbers every existing run within its org, and on a dev data dir the column arrived empty instead —
+ * so a history of forty runs rendered with no numbers and the chronicle could not page it.
+ *
+ * Numbering CONTINUES after the org's current maximum rather than restarting at 1, so a dir that was
+ * partly numbered (migrated, then drifted) cannot collide, and it touches only `seq IS NULL` rows, so
+ * a boot with nothing to do writes nothing. Never fatal: an unnumbered run still renders (dated
+ * instead of numbered), which is worth less than a booting database.
+ */
+export async function backfillRunNumbers(pglite: { query: (sql: string) => Promise<{ rows: unknown[] }> }): Promise<void> {
+  try {
+    const pending = await pglite.query(`SELECT COUNT(*)::int AS n FROM "LoopRun" WHERE "seq" IS NULL`);
+    const n = Number((pending.rows?.[0] as { n?: unknown } | undefined)?.n ?? 0);
+    if (!Number.isFinite(n) || n <= 0) return;
+    await pglite.query(
+      `UPDATE "LoopRun" AS r SET "seq" = n."rn" FROM (
+         SELECT l."id",
+                COALESCE(m."top", 0) + ROW_NUMBER() OVER (PARTITION BY l."orgId" ORDER BY l."createdAt", l."id") AS "rn"
+         FROM "LoopRun" l
+         LEFT JOIN (SELECT "orgId", MAX("seq") AS "top" FROM "LoopRun" GROUP BY "orgId") m ON m."orgId" = l."orgId"
+         WHERE l."seq" IS NULL
+       ) AS n WHERE r."id" = n."id"`,
+    );
+    console.warn(`[pglite] numbered ${n} run(s) that predate LoopRun.seq (the ledger's chronicle pages by it).`);
+  } catch (err) {
+    // A data dir without the table yet (or any probe failure) is not a reason to fail the boot.
+    console.warn("[pglite] run-number backfill skipped (non-fatal):", err instanceof Error ? err.message : String(err));
   }
 }
