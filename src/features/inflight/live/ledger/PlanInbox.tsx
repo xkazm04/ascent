@@ -76,7 +76,7 @@ export function PlanInbox({ plans, now, isOwner, onDecided }: PlanInboxProps) {
       isSelectable={never}
       actions={[]}
       minWidth={820}
-      empty={<InlineEmpty>No plan waits for you. The runner asks only when a plan would move architecture.</InlineEmpty>}
+      empty={<InlineEmpty>No plan waits for you.</InlineEmpty>}
       renderDetail={(p) => (
         <div className="space-y-3">
           <PlanReview plan={p} />

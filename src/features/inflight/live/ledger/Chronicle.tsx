@@ -5,7 +5,8 @@
 // strictly below the smallest number on screen, so no run is repeated or skipped while you read.
 
 import { useState } from "react";
-import { InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { InlineEmpty } from "@/components/org/shared/ui";
+import { LedgerSectionHeader } from "./LedgerSectionHeader";
 import { ChronicleRow } from "./ChronicleRow";
 import { CHRONICLE_PAGE, appendPage, oldestSeq } from "./chronicleModel";
 import { fetchRunsPage } from "./ledgerClient";
@@ -51,16 +52,20 @@ export function Chronicle({
 
   return (
     <section id={LEDGER_ANCHOR.chronicle} aria-labelledby="ledger-chronicle-h" className="scroll-mt-24 space-y-3">
-      <SectionHeader
-        title={<span id="ledger-chronicle-h">Chronicle</span>}
-        description="Every run, by its stable number. Open one for its lanes: what was offered, what was armed, what the rescan verified."
+      <LedgerSectionHeader
+        id="ledger-chronicle-h"
+        title="Chronicle"
+        // The count is what is SHOWN, and says so when there is more behind it — a bare "58 runs"
+        // over a page of 20 would be a number the list does not account for.
+        count={runs.length > 0 ? `${runs.length}${hasMore ? "+" : ""} ${runs.length === 1 && !hasMore ? "run" : "runs"}` : null}
+        about="Every run, by its stable number. Open one for its lanes: what was offered, what was armed, what the rescan verified."
       />
       {initial == null ? (
         <p role="alert" className="type-body-sm text-warn">
           Could not read the runs.
         </p>
       ) : runs.length === 0 ? (
-        <InlineEmpty>No run yet. The first one — the runner&apos;s or yours from the Cockpit — starts the chronicle.</InlineEmpty>
+        <InlineEmpty>No run yet — the runner&apos;s or yours from the Cockpit starts the chronicle.</InlineEmpty>
       ) : (
         <>
           <ul className="divide-y divide-divider rounded-2xl border border-divider">

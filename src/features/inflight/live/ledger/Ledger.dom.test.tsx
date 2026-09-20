@@ -37,7 +37,7 @@ describe("Ledger", () => {
     expect(screen.queryByTestId("ledger-briefing")).not.toBeInTheDocument();
     expect(screen.queryByTestId("ledger-briefing-error")).not.toBeInTheDocument();
     expect(screen.getByText(/No plan waits for you/)).toBeInTheDocument();
-    expect(screen.getByText(/No direction has been approved yet/)).toBeInTheDocument();
+    expect(screen.getByText(/None yet — approving a plan/)).toBeInTheDocument();
     expect(screen.getByText(/No run yet/)).toBeInTheDocument();
     expect(screen.getByText(/The runner has kept no lessons yet/)).toBeInTheDocument();
   });
@@ -56,7 +56,8 @@ describe("Ledger", () => {
     expect(document.getElementById("ledger-needs-you")).not.toBeNull();
     expect(document.getElementById("ledger-chronicle")).not.toBeNull();
 
-    fireEvent.click(screen.getAllByRole("button", { expanded: false })[0]!);
+    // Named, because every section title now carries an InfoTip trigger that is also collapsed.
+    fireEvent.click(screen.getAllByRole("button", { expanded: false, name: /Split scoring/ })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Reject…" }));
     fireEvent.change(screen.getByLabelText("Why reject (required)"), { target: { value: "not now" } });
     fireEvent.click(screen.getByRole("button", { name: "Reject the plan" }));

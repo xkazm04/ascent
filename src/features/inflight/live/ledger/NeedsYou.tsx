@@ -1,7 +1,7 @@
 // "Needs you" — the approval inbox and every pause only a person lifts, in one section. The briefing's
 // "waits for your approval" and "paused now" lines both anchor here.
 
-import { SectionHeader } from "@/components/org/shared/ui";
+import { LedgerSectionHeader } from "./LedgerSectionHeader";
 import { LEDGER_ANCHOR } from "./ledgerModel";
 import { PausedRepos } from "./PausedRepos";
 import { PlanInbox } from "./PlanInbox";
@@ -27,9 +27,11 @@ export function NeedsYou({
 }) {
   return (
     <section id={LEDGER_ANCHOR.needsYou} aria-labelledby="ledger-needs-you-h" className="scroll-mt-24 space-y-3">
-      <SectionHeader
-        title={<span id="ledger-needs-you-h">Needs you</span>}
-        description={
+      <LedgerSectionHeader
+        id="ledger-needs-you-h"
+        title="Needs you"
+        count={pending && pending.length > 0 ? `${pending.length} waiting` : null}
+        about={
           isOwner
             ? "Plans that would move architecture wait here for a verdict; everything else the runner decides for itself."
             : "Plans that would move architecture wait here for an owner's verdict. You can read every one."

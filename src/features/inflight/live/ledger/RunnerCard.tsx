@@ -8,7 +8,8 @@
 // still the operator's to merge.
 
 import Link from "next/link";
-import { SectionHeader, SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/org/shared/ui";
+import { LedgerSectionHeader } from "./LedgerSectionHeader";
 import { fmtIn, plural, shortRepo, shortSha } from "./ledgerFormat";
 import { LEDGER_ANCHOR, REPO_PAUSE_WORDS, RUNNER_BRANCH } from "./ledgerModel";
 import { RunnerMerge } from "./RunnerMerge";
@@ -30,11 +31,17 @@ export function RunnerCard({ slug, runner, live, ahead, now, isOwner, selfHosted
   const repos = runner?.repoState ?? [];
   return (
     <section id={LEDGER_ANCHOR.runner} aria-labelledby="ledger-runner-h" className="scroll-mt-24 space-y-3">
-      <SectionHeader
-        title={<span id="ledger-runner-h">Runner branch</span>}
-        description={`Verified work accumulates on ${RUNNER_BRANCH} in each repository and reaches your branch only when you merge it.${
-          runner && !live ? " This runner has stopped; its branches keep what it landed." : ""
-        }`}
+      <LedgerSectionHeader
+        id="ledger-runner-h"
+        title="Runner branch"
+        count={repos.length > 0 ? `${repos.length} ${repos.length === 1 ? "repo" : "repos"}` : null}
+        about={`Verified work accumulates on ${RUNNER_BRANCH} in each repository and reaches your branch only when you merge it.`}
+        // A stopped runner is a STATE, not a description: it stays on the page, beside the title.
+        right={
+          runner && !live ? (
+            <span className="type-body-sm text-slate-500">Stopped — its branches keep what it landed</span>
+          ) : undefined
+        }
       />
       {repos.length === 0 ? (
         <SectionEmpty>

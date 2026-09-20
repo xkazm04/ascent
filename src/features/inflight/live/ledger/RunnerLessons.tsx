@@ -6,7 +6,8 @@
 // from the next lane on — and records who revoked it. Owner-only: it overrules a delegation the owner made.
 
 import { useState } from "react";
-import { InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { InlineEmpty } from "@/components/org/shared/ui";
+import { LedgerSectionHeader } from "./LedgerSectionHeader";
 import { fmtAgo, shortRepo } from "./ledgerFormat";
 import { revokeLesson } from "./ledgerClient";
 import { LEDGER_ANCHOR } from "./ledgerModel";
@@ -48,9 +49,11 @@ export function RunnerLessons({
 
   return (
     <section id={LEDGER_ANCHOR.lessons} aria-labelledby="ledger-lessons-h" className="scroll-mt-24 space-y-3">
-      <SectionHeader
-        title={<span id="ledger-lessons-h">Lessons kept by the runner</span>}
-        description={`A lane whose work was verified keeps its own lessons in Org Memory, marked as probable and unverified. ${
+      <LedgerSectionHeader
+        id="ledger-lessons-h"
+        title="Lessons kept by the runner"
+        count={lessons && lessons.length > 0 ? `${lessons.filter((l) => l.state === "kept").length} in memory of ${lessons.length}` : null}
+        about={`A lane whose work was verified keeps its own lessons in Org Memory, marked as probable and unverified. ${
           isOwner ? "Revoke any you disagree with." : "An owner can revoke any of them."
         }`}
       />

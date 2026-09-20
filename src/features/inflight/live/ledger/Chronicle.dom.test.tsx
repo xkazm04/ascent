@@ -39,7 +39,7 @@ describe("Chronicle", () => {
   it("reads a run's detail once, however often it is opened", async () => {
     vi.mocked(fetchRunDetail).mockResolvedValue(runDetail([lane("l1")]));
     render(<Chronicle slug="acme" initial={[chronicleRun(7)]} initialHasMore={false} modes={modes} plans={[]} now={NOW} />);
-    const toggle = screen.getByRole("button", { expanded: false });
+    const toggle = screen.getByRole("button", { expanded: false, name: /#7/ });
     fireEvent.click(toggle);
     expect(await screen.findByTestId("chronicle-lane")).toBeInTheDocument();
     fireEvent.click(toggle);
@@ -52,7 +52,7 @@ describe("Chronicle", () => {
   it("draws proposed → armed → delivered from the lane, and names what was passed over", async () => {
     vi.mocked(fetchRunDetail).mockResolvedValue(runDetail([lane("l1")]));
     render(<Chronicle slug="acme" initial={[chronicleRun(7)]} initialHasMore={false} modes={modes} plans={[plan("plan-1", { status: "landed", directionId: "d1" })]} now={NOW} />);
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { expanded: false, name: /#7/ }));
     const row = await screen.findByTestId("chronicle-lane");
     const flow = within(row).getByTestId("lane-flow");
     // 3 offered, 2 armed, 1 verified closed — and landed, so the last stage says so.
@@ -72,7 +72,7 @@ describe("Chronicle", () => {
   it("draws an unrecorded proposal as a break, never as zero", async () => {
     vi.mocked(fetchRunDetail).mockResolvedValue(runDetail([lane("l1", { proposed: null, landedAt: null })]));
     render(<Chronicle slug="acme" initial={[chronicleRun(7)]} initialHasMore={false} modes={modes} plans={[]} now={NOW} />);
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { expanded: false, name: /#7/ }));
     const flow = within(await screen.findByTestId("chronicle-lane")).getByTestId("lane-flow");
     expect(flow.querySelector('[data-stage="proposed"]')?.getAttribute("data-state")).toBe("missing");
     expect([...flow.querySelectorAll("tbody tr")].map((tr) => tr.textContent)[2]).toBe("DeliveredMeasured1");

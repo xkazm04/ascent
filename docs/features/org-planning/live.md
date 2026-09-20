@@ -2837,6 +2837,19 @@ The Live tab is three views over one standing runner, and the Ledger is the one 
 comes BACK: what the runner did while they were away, what waits for them, what sits on the runner
 branch, the directions they granted, every run, and the lessons the runner kept.
 
+**Every section's explanation lives on its title (2026-09-20).** Each of the six sections shipped with
+a two-line paragraph under its heading, and on an org whose runner had not run yet those paragraphs
+were five-sixths of the screen: the operator read the same description on every visit and the runs —
+the thing they came for — started below the fold. The sentences now sit in an `InfoTip` on the title
+they describe (`LedgerSectionHeader`), which is where the brand already puts a standing explanation,
+and the freed header row carries the section's own figure instead: *Needs you · 2 waiting*,
+*Chronicle · 20+ runs* (the count is what is SHOWN, with `+` when a page is bounded), *Directions ·
+1 active of 4*, *Lessons · 3 in memory of 5*. Three classes of text were **not** eligible and stayed on
+the page: a warning or a consequence to read before acting, a failed read (*"could not read the
+directions"* — an empty list and an unreadable one must never look alike), and an empty state that
+names the next action. The empty states that merely restated the description were cut to the action
+(*"No plan waits for you."*, *"None yet — approving a plan in Needs you creates one."*).
+
 #### Three views, and which one opens
 
 | View | Where | For |

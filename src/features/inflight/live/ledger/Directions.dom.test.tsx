@@ -69,7 +69,7 @@ describe("Directions", () => {
 
   it("designs the empty state and says when the read failed", () => {
     const { unmount } = render(<Directions directions={[]} plans={[]} now={NOW} isOwner onSettled={vi.fn()} />);
-    expect(screen.getByText(/No direction has been approved yet/)).toBeInTheDocument();
+    expect(screen.getByText(/None yet — approving a plan in Needs you creates one/)).toBeInTheDocument();
     unmount();
     render(<Directions directions={null} plans={[]} now={NOW} isOwner onSettled={vi.fn()} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Could not read the directions.");
