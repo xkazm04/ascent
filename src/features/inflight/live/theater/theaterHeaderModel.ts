@@ -24,6 +24,8 @@ export interface HeaderAnswer {
 }
 
 export interface HeaderModel {
+  /** Nothing is true yet: the four answers render as empty blocks and the hero says it once. */
+  quiet: boolean;
   running: HeaderAnswer & { live: boolean };
   now: HeaderAnswer & { path: string | null };
   today: { verified: string; landed: string; spend: string; ceiling: string | null; ratio: number | null; asOf: string | null };
@@ -139,18 +141,47 @@ function needsAnswer(p: LoopPulse | null, href: string | null): HeaderModel["nee
   return { headline: headline[0]!.toUpperCase() + headline.slice(1), sub: null, tone: "warn", count, amber: true, href };
 }
 
+/**
+ * NOTHING TO REPORT — an org whose runner has never run, and whose day is still empty.
+ *
+ * Every block of this page is written to answer its own question honestly, and with no runner they
+ * all answer the SAME thing: "no runner", "nothing running", "0 · 0 · $0.00", "nothing waiting",
+ * "no runner is reporting", "nothing yet today" — six ways of saying one sentence, on a screen whose
+ * whole job is that a glance lands on one. So when this predicate holds the page says it ONCE, in the
+ * hero, with the way to fix it; the four answers keep their questions and show an empty block, and
+ * the rail stands down. The moment anything is true — a run, a lane, a waiting plan, a figure on the
+ * day — every block has its own answer again and all of them come back.
+ */
+export function nothingToReport(p: LoopPulse | null): boolean {
+  if (!p) return false;
+  const quietToday = p.today.verifiedCloses === 0 && p.today.landed === 0 && p.today.spendMicros === 0;
+  const nobodyWaiting = p.needsYou.plans === 0 && p.needsYou.pausedRepos === 0 && !p.needsYou.runnerPaused;
+  return !p.runner && !p.run && p.lanes.length === 0 && p.waiting.length === 0 && p.latest.length === 0 && quietToday && nobodyWaiting;
+}
+
 export function headerModel(input: HeaderInput): HeaderModel {
   const { pulse, loaded, stale, clock, heardAgoMs, error, ledgerHref } = input;
   const heard = heardAgoMs != null ? `Last heard ${fmtDuration(heardAgoMs)} ago` : null;
   if (!loaded) {
     const dash = { headline: "—", sub: null, tone: "muted" as const };
     return {
+      quiet: false,
       running: stale
         ? { headline: "Reconnecting…", sub: error ?? "No answer from the server yet", tone: "warn", live: false }
         : { headline: "Connecting…", sub: null, tone: "muted", live: false },
       now: { ...dash, path: null },
       today: { verified: "—", landed: "—", spend: "—", ceiling: null, ratio: null, asOf: null },
       needs: { ...dash, count: 0, amber: false, href: null },
+    };
+  }
+  if (!stale && nothingToReport(pulse)) {
+    const blank = { headline: "", sub: null, tone: "muted" as const };
+    return {
+      quiet: true,
+      running: { ...blank, live: false },
+      now: { ...blank, path: null },
+      today: { verified: "", landed: "", spend: "", ceiling: null, ratio: null, asOf: null },
+      needs: { ...blank, count: 0, amber: false, href: null },
     };
   }
   const running = runningAnswer(pulse, clock);
@@ -166,8 +197,9 @@ export function headerModel(input: HeaderInput): HeaderModel {
     asOf: stale && heardAgoMs != null ? `as of ${fmtDuration(heardAgoMs)} ago` : null,
   };
   const needs = needsAnswer(pulse, ledgerHref);
-  if (!stale) return { running, now, today, needs };
+  if (!stale) return { quiet: false, running, now, today, needs };
   return {
+    quiet: false,
     running: { headline: "Reconnecting…", sub: [heard, `was ${running.headline}`].filter(Boolean).join(" · "), tone: "warn", live: false },
     now: { headline: heard ?? "Last heard: unknown", sub: `was ${now.headline}`, path: null, tone: "muted" },
     today,

@@ -49,6 +49,20 @@ function Sub({ children }: { children: React.ReactNode }) {
 
 export function TheaterHeader({ model }: { model: HeaderModel }) {
   const { running, now, today, needs } = model;
+  // NOTHING TO REPORT: the four questions keep their kickers and answer with an empty block, because
+  // with no runner every one of them would say the same thing the hero is already saying once. The
+  // blocks hold their height so the page does not reflow the moment the first pulse has news.
+  if (model.quiet) {
+    return (
+      <header aria-label="Runner status" data-quiet className="grid gap-px border-b border-divider bg-divider md:grid-cols-2 xl:grid-cols-4">
+        {["Running?", "Now", "Today", "Needs you"].map((label) => (
+          <Block key={label} label={label}>
+            <div aria-hidden className="min-h-[3.5rem]" />
+          </Block>
+        ))}
+      </header>
+    );
+  }
   return (
     <header aria-label="Runner status" className="grid gap-px border-b border-divider bg-divider md:grid-cols-2 xl:grid-cols-4">
       <Block label="Running?">

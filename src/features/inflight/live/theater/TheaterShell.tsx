@@ -12,14 +12,15 @@
 // last contact when the pulse is stale, so nothing on the page pretends to move.
 
 import { useReducedMotion } from "@/components/ui/useReducedMotion";
-import { ledgerHref } from "@/lib/org/runner-needs-you";
+import { cockpitHref, ledgerHref } from "@/lib/org/runner-needs-you";
 import type { PulseEvent } from "@/lib/local/runner-types";
 import { TheaterCueCards } from "./TheaterCueCards";
+import { TheaterEmpty } from "./TheaterEmpty";
 import { TheaterHeader } from "./TheaterHeader";
 import { TheaterLatestRail } from "./TheaterLatestRail";
 import { TheaterTopBar, type TheaterMode } from "./TheaterTopBar";
 import type { DemoScenario } from "./theaterFixture";
-import { headerModel } from "./theaterHeaderModel";
+import { headerModel, nothingToReport } from "./theaterHeaderModel";
 import { renderHero } from "./theaterHeroSlot";
 import type { TheaterCue } from "./theaterCues";
 import { useTheaterCues } from "./useTheaterCues";
@@ -70,6 +71,9 @@ interface StageProps {
 export function TheaterStage({ feed, source, sound, onToggleSound, cards, reducedMotion, heroId }: StageProps) {
   const stale = feedStale(feed);
   const clock = stale && feed.receivedAt != null ? feed.receivedAt : feed.now;
+  // With nothing true yet, ONE component answers (TheaterEmpty) and the others stand down — see its
+  // note. `nothingToReport` is the same predicate the header's quiet mode uses, so they cannot differ.
+  const quiet = !stale && feed.loaded && nothingToReport(feed.pulse);
   const model = headerModel({
     pulse: feed.pulse,
     loaded: feed.loaded,
@@ -85,7 +89,9 @@ export function TheaterStage({ feed, source, sound, onToggleSound, cards, reduce
       <TheaterTopBar slug={source.slug} mode={mode} note={note(source)} sound={sound} onToggleSound={onToggleSound} />
       <TheaterHeader model={model} />
       <main id="main" className="flex min-h-0 flex-1 flex-col">
-        {feed.pulse ? (
+        {quiet ? (
+          <TheaterEmpty slug={source.slug} href={source.kind === "org" ? cockpitHref(source.slug) : null} />
+        ) : feed.pulse ? (
           renderHero(heroId, { pulse: feed.pulse, now: clock, reducedMotion })
         ) : (
           <p className="px-6 py-6 type-title text-slate-400">
@@ -93,7 +99,7 @@ export function TheaterStage({ feed, source, sound, onToggleSound, cards, reduce
           </p>
         )}
       </main>
-      <TheaterLatestRail events={feed.pulse?.latest ?? []} arrivedKeys={feed.arrivedKeys} reducedMotion={reducedMotion} />
+      {quiet ? null : <TheaterLatestRail events={feed.pulse?.latest ?? []} arrivedKeys={feed.arrivedKeys} reducedMotion={reducedMotion} />}
       <TheaterCueCards cards={cards} reducedMotion={reducedMotion} />
     </div>
   );

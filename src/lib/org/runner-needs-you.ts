@@ -23,6 +23,9 @@ export interface NeedsYouResponse extends NeedsYou {
 /** The Ledger — where every needs-you surface sends the operator. */
 export const ledgerHref = (slug: string): string => `/org/${encodeURIComponent(slug)}?tab=live&view=ledger`;
 
+/** The Cockpit — where a runner is STARTED, which is what an org with no runner needs instead. */
+export const cockpitHref = (slug: string): string => `/org/${encodeURIComponent(slug)}?tab=live&view=cockpit`;
+
 const TITLE_MAX = 120;
 
 /** A plan's one-line title: its intent, else its first item's title (as it read when the plan was

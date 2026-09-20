@@ -2683,6 +2683,26 @@ them. Mission's own admitted limits: it has never been rendered with more than t
 or more shrink the type), and *"for 37 s"* is time in the **stage**, not in the sub-phase, so a long
 agent stretch can overstate how long it has been editing.
 
+#### Nothing to report: one answer, not six (2026-09-20)
+
+Every part of this page answers its own question, which is right while something is happening and
+wrong when nothing is. On an org with no runner the page said the same thing six times — *No runner* ·
+*Nothing running* · *0 verified, 0 landed, $0.00* · *Nothing waiting* · *No runner is reporting* ·
+*Nothing yet today* — on a screen whose whole purpose is that a glance lands on one thing.
+
+`nothingToReport(pulse)` (`theaterHeaderModel.ts`, the same predicate the header and the shell both
+read, so they cannot disagree) is true only when **everything** is false: no runner, no run, no lane,
+nothing waiting for a slot, no event in the last 24 h, nothing needing a person, and a day with no
+closes, no landings and no spend. Then the four header answers keep their kickers and render an empty
+block (`HeaderModel.quiet`, `data-quiet` on the header), the latest rail stands down, and
+`TheaterEmpty` says it once in the middle — with a **link to the Live tab's cockpit**, because a
+third-monitor screen is usually not the operator's own browser and "start it from the Live tab" is a
+sentence, not a way there. The kiosk gets the statement without the link: its token may authenticate
+nobody who can open the org. The moment anything is true, every block has its own answer again.
+
+A **stale** feed is never quiet: a lost connection is not an empty org, so the reconnecting labels
+take precedence and every last-known value stays, marked *as of*.
+
 #### Transport and staleness honesty
 
 `useTheaterPulse` polls every `THEATER_PULSE_MS` (2 s) through a **non-overlapping `setTimeout` chain**:
@@ -3313,6 +3333,16 @@ batchSize)`), and a moved dial refetches.
 **Why.** The route always proposed five while the engine sized a lane by the dial, so an operator who
 armed a batch of twelve could only ever see — and therefore curate — five, and a curated cycle-1 batch
 was capped at five whatever the dial said.
+
+#### A column's age is measured from one instant (2026-09-20)
+
+The cockpit renders on the server and hydrates in the browser, and the outcome sheet's column header
+read its ages from `Date.now()` in both passes. A run started 18½ days ago therefore printed *19d ago*
+server-side and *18d ago* after hydration, and React threw a hydration mismatch naming
+`OutcomeSheetHeader` — logged on every cockpit render, and the kind of error that trains a reader to
+ignore the console. `timeAgo` now takes the instant to measure from, `LiveTab` passes its own render
+time (`nowMs`) down through `OutcomeSection` → `OutcomeSheet` → `OutcomeSheetHeader`, and the two
+renders agree by construction. It is the rule the Ledger already followed, applied to the cockpit.
 
 #### Verdicts name their items
 

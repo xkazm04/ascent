@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { DEMO_EPOCH, fixtureLane, fixturePulse, fixturePulseAt, fixtureRunner } from "./theaterFixture";
-import { busiestLane, headerModel, lastTouched, type HeaderInput } from "./theaterHeaderModel";
+import { busiestLane, headerModel, lastTouched, nothingToReport, type HeaderInput } from "./theaterHeaderModel";
 import { fmtClock } from "./theaterFormat";
 import { lanePhaseLabel } from "@/lib/local/lane-phase";
 
@@ -125,5 +125,45 @@ describe("staleness honesty", () => {
     expect(headerModel(base({ loaded: false, pulse: null })).running.headline).toBe("Connecting…");
     const m = headerModel(base({ loaded: false, pulse: null, stale: true, error: "No access to this organization" }));
     expect(m.running).toMatchObject({ headline: "Reconnecting…", sub: "No access to this organization", live: false });
+  });
+});
+
+// NOTHING TO REPORT. With no runner every block answered the same thing, so the header stands down
+// and one component says it. The predicate is deliberately strict: anything true anywhere — a run, a
+// lane, a waiting plan, a figure on the day, an event in the last 24 h — brings all four back.
+describe("nothing to report", () => {
+  const blank = fixturePulse({
+    runner: null,
+    run: null,
+    lanes: [],
+    waiting: [],
+    latest: [],
+    needsYou: { plans: 0, pausedRepos: 0, runnerPaused: false },
+    today: { verifiedCloses: 0, landed: 0, liftPoints: null, spendMicros: 0 },
+  });
+
+  it("is true only when nothing at all is true", () => {
+    expect(nothingToReport(blank)).toBe(true);
+    expect(nothingToReport(null)).toBe(false);
+    expect(nothingToReport({ ...blank, runner: fixtureRunner() })).toBe(false);
+    expect(nothingToReport({ ...blank, lanes: [fixtureLane()] })).toBe(false);
+    expect(nothingToReport({ ...blank, waiting: ["acme/web"] })).toBe(false);
+    expect(nothingToReport({ ...blank, latest: fixturePulse().latest })).toBe(false);
+    expect(nothingToReport({ ...blank, needsYou: { plans: 1, pausedRepos: 0, runnerPaused: false } })).toBe(false);
+    expect(nothingToReport({ ...blank, today: { ...blank.today, landed: 1 } })).toBe(false);
+  });
+
+  it("empties the four answers rather than repeating one sentence in each", () => {
+    const m = headerModel(base({ pulse: blank }));
+    expect(m.quiet).toBe(true);
+    expect([m.running.headline, m.now.headline, m.needs.headline]).toEqual(["", "", ""]);
+    expect([m.today.verified, m.today.landed, m.today.spend]).toEqual(["", "", ""]);
+    expect(m.running.live).toBe(false);
+  });
+
+  it("keeps every answer while the feed is stale — a lost connection is not an empty org", () => {
+    const m = headerModel(base({ pulse: blank, stale: true, heardAgoMs: 42_000 }));
+    expect(m.quiet).toBe(false);
+    expect(m.running.headline).toBe("Reconnecting…");
   });
 });

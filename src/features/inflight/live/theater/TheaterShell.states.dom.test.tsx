@@ -113,6 +113,52 @@ describe("TheaterShell — states", () => {
     expect(screen.getByRole("button", { name: "Share to a kiosk" })).toBeInTheDocument();
   });
 
+  // NOTHING TO REPORT: six components used to answer the same thing. One answers now, and it routes.
+  it("no runner: says it once, in the middle, with the way to start one — and the rest stand down", async () => {
+    const blank = fixturePulse({
+      runner: null,
+      run: null,
+      lanes: [],
+      waiting: [],
+      latest: [],
+      needsYou: { plans: 0, pausedRepos: 0, runnerPaused: false },
+      today: { verifiedCloses: 0, landed: 0, liftPoints: null, spendMicros: 0 },
+    });
+    replies = [{ status: 200, body: blank }];
+    render(<TheaterShell source={{ kind: "org", slug: "acme" }} />);
+    await advance(0);
+    expect(screen.getByText("No runner is reporting")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Start one from the Live tab" })).toHaveAttribute(
+      "href",
+      "/org/acme?tab=live&view=cockpit",
+    );
+    // The four questions keep their kickers and answer with nothing; the rail stands down.
+    expect(document.querySelector("header[data-quiet]")).not.toBeNull();
+    expect(screen.getByLabelText("Running?")).toBeInTheDocument();
+    expect(screen.queryByText("No runner")).toBeNull();
+    expect(screen.queryByText("Nothing running")).toBeNull();
+    expect(screen.queryByText("Nothing waiting")).toBeNull();
+    expect(screen.queryByText("Nothing yet today.")).toBeNull();
+    expect(screen.queryByText(/verified/)).toBeNull();
+  });
+
+  it("no runner on a kiosk: the same statement without a link its viewer cannot open", async () => {
+    const blank = fixturePulse({
+      runner: null,
+      run: null,
+      lanes: [],
+      waiting: [],
+      latest: [],
+      needsYou: { plans: 0, pausedRepos: 0, runnerPaused: false },
+      today: { verifiedCloses: 0, landed: 0, liftPoints: null, spendMicros: 0 },
+    });
+    replies = [{ status: 200, body: blank }];
+    render(<TheaterShell source={{ kind: "kiosk", slug: "acme", token: "tok.sig" }} />);
+    await advance(0);
+    expect(screen.getByText("No runner is reporting")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Live tab/ })).toBeNull();
+  });
+
   it("'Enter theater mode' fullscreens the page and holds a screen wake lock", async () => {
     replies = [{ status: 200, body: fixturePulse() }];
     const requestFullscreen = vi.fn(async () => {});
