@@ -7,6 +7,7 @@
 // NOT parse (an HTML error page, a string) is a FAILED read — distinct from a valid "nothing running",
 // because the page says "Reconnecting…" for one and "No runner" for the other.
 
+import { normalizeArm } from "@/lib/local/arm";
 import type { LanePulse, LoopPulse, PulseEvent, RunnerPulse } from "@/lib/local/runner-types";
 
 export type ParsedPulse = { ok: true; pulse: LoopPulse | null } | { ok: false };
@@ -115,6 +116,10 @@ function toLane(l: Obj): LanePulse | null {
     turns: num(l.turns),
     costMicros: num(l.costMicros),
     tail: arr(l.tail).filter(isObj) as unknown as LanePulse["tail"],
+    // The arm through `arm.ts`'s ONE validator — the same function the route's own body check calls.
+    // Anything that does not normalize is an UNKNOWN arm, which renders nothing; a server a release
+    // behind simply omits the field and lands in the same place, which is the honest answer for it.
+    arm: normalizeArm(l.arm),
   };
 }
 

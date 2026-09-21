@@ -49,8 +49,12 @@ function Sub({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * WHAT THE RUN IS ARMED WITH — shown on EVERY run, single-arm ones included, because "which model did
- * this" is the question the theater could not answer at all before arms existed.
+ * WHAT THE WORK ON SCREEN IS ARMED WITH — shown on EVERY run, single-arm ones included, because
+ * "which model did this" is the question the theater could not answer at all before arms existed.
+ *
+ * The caller passes the arm of the lane the header is reporting on (`theaterArm.ts`): on a `single`
+ * run that is the run's one arm, and on a `compare` run it is the arm of the work the NOW block is
+ * describing — which is the only honest answer, since a race between four arms has no single one.
  *
  * Quiet by construction: a mono caption under the running answer, never a headline. A null label
  * renders NOTHING rather than "default" — a lane recorded before arms existed has a genuinely unknown

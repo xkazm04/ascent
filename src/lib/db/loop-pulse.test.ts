@@ -62,8 +62,15 @@ const lane = (o: Record<string, unknown>) => ({
   costMicros: null,
   planId: null,
   commits: 0,
+  armId: null,
   ...o,
 });
+
+// The run's arms as stored: TEXT, never jsonb (DSQL has none). Two, so the join has to pick.
+const ARMS_JSON = JSON.stringify([
+  { id: "claude-1", label: "Claude", transport: "claude", model: "sonnet" },
+  { id: "local-2", label: "claude:sonnet plan → pi:qwen3.8:27b", transport: "pi", model: "qwen3.8:27b", plan: { transport: "claude", model: "sonnet" } },
+]);
 
 beforeEach(() => {
   db.calls = {};
@@ -75,6 +82,7 @@ beforeEach(() => {
     maxCycles: 3,
     startedAt: ago(90),
     reposJson: JSON.stringify(["acme/api", "acme/web", "acme/cli", "acme/docs"]),
+    armsJson: null,
     lanes: [
       lane({ id: "l-api-1", cycle: 1, phase: "done", commits: 2 }),
       lane({ id: "l-web-1", repoFullName: "acme/web", cycle: 1, phase: "done", commits: 1 }),
@@ -125,10 +133,15 @@ describe("getLoopPulse — the read", () => {
   it("selects the lanes' LIVE columns only — never the log, the scans, the brief or the report", async () => {
     await getLoopPulse("acme", NOW);
     const select = (db.calls.run![0] as { select: { lanes: { select: Record<string, boolean> } } }).select.lanes.select;
-    for (const col of ["phase", "stage", "stageAt", "heartbeatAt", "deadlineAt", "activityJson", "diffStatJson", "turns", "costMicros"]) {
+    for (const col of ["phase", "stage", "stageAt", "heartbeatAt", "deadlineAt", "activityJson", "diffStatJson", "turns", "costMicros", "armId"]) {
       expect(select[col]).toBe(true);
     }
     for (const col of ["log", "beforeScanId", "afterScanId", "briefJson", "reportJson"]) expect(select).not.toHaveProperty(col);
+    // THE OTHER HALF OF THE JOIN. A selected-but-unpopulated field is a field that does not exist,
+    // however carefully the wire type declares it — which is exactly how the theater's arm label
+    // rendered nothing for a day. Both columns are pinned here because one without the other is a
+    // lane that knows its arm's id and can never name it.
+    expect((db.calls.run![0] as { select: Record<string, unknown> }).select.armsJson).toBe(true);
     expect(db.calls.drive![0]).toMatchObject({ where: { orgId: "org-acme", mode: "continuous", endedAt: null } });
     expect(orgLaneSpendSince).toHaveBeenCalledWith("acme", startOfLocalDay(NOW));
   });
@@ -195,6 +208,23 @@ describe("getLoopPulse — what a passive screen gets", () => {
     db.held = [{ laneId: "l-api-2" }];
     const p = (await getLoopPulse("acme", NOW))!;
     expect(p.lanes[0]!.phase).toBe("held");
+  });
+
+  it("joins each lane to the ARM it is a sample of, and reports an unjoinable one as unknown", async () => {
+    db.run!.armsJson = ARMS_JSON;
+    (db.run!.lanes as Record<string, unknown>[])[4]!.armId = "local-2";
+    (db.run!.lanes as Record<string, unknown>[])[5]!.armId = "gone-9";
+    const p = (await getLoopPulse("acme", NOW))!;
+    expect(p.lanes[0]!.arm).toMatchObject({ id: "local-2", label: "claude:sonnet plan → pi:qwen3.8:27b", transport: "pi", model: "qwen3.8:27b" });
+    // An armId naming no arm of this run is NULL, never a guess and never the first arm.
+    expect(p.lanes[1]!.arm).toBeNull();
+  });
+
+  it("reports a PRE-ARMS run's lanes as unknown — never as one default arm", async () => {
+    (db.run!.lanes as Record<string, unknown>[])[4]!.armId = "claude-1";
+    const p = (await getLoopPulse("acme", NOW))!;
+    expect(db.run!.armsJson).toBeNull();
+    expect(p.lanes.every((l) => l.arm === null)).toBe(true);
   });
 
   it("reports no run, no lanes and nobody waiting when nothing is armed", async () => {

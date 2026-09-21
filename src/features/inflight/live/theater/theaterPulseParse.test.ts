@@ -18,6 +18,15 @@ describe("parsePulseResponse", () => {
     expect(parsePulseResponse({ pulse: p })).toEqual({ ok: true, pulse: p });
   });
 
+  it("keeps a valid arm and drops a malformed one — an unknown arm renders nothing, never 'default'", () => {
+    const lane = (arm: unknown) => ({ org: "acme", at: "2026-09-18T12:00:00Z", lanes: [{ laneId: "l1", repo: "acme/kp", arm }] });
+    const good = parsePulseResponse(lane({ id: "local-2", label: "Local", transport: "pi", model: "qwen3.8:27b" }));
+    expect(good.ok && good.pulse!.lanes[0]!.arm).toMatchObject({ id: "local-2", label: "Local" });
+    // An unknown transport is not a transport this build can spawn, so the arm is not an arm.
+    const bad = parsePulseResponse(lane({ id: "x-1", label: "X", transport: "gpt", model: "o9" }));
+    expect(bad.ok && bad.pulse!.lanes[0]!.arm).toBeNull();
+  });
+
   it("an error body, a string or an array is a FAILED read, not 'nothing running'", () => {
     expect(parsePulseResponse({ error: "boom" })).toEqual({ ok: false });
     expect(parsePulseResponse("<html>")).toEqual({ ok: false });
@@ -33,6 +42,8 @@ describe("parsePulseResponse", () => {
     expect(r.pulse.run).toBeNull();
     expect(r.pulse.lanes).toHaveLength(1);
     expect(r.pulse.lanes[0]).toMatchObject({ phase: "queued", tail: [], filesRead: [], filesEdited: [], diffStat: null, planStep: null });
+    // A lane whose arm the server never sent is an UNKNOWN arm, which renders nothing at all.
+    expect(r.pulse.lanes[0]!.arm).toBeNull();
     expect(r.pulse.latest).toEqual([]); // an unknown kind is dropped, never rendered as something it is not
     expect(r.pulse.needsYou).toEqual({ plans: 0, pausedRepos: 0, runnerPaused: false });
     expect(r.pulse.today).toEqual({ verifiedCloses: 0, landed: 0, liftPoints: null, spendMicros: 0 });

@@ -7,6 +7,7 @@
 // and every other cycle a plan lands in the approval inbox — so the rail, the celebrations and the
 // needs-you cue all have something real to react to within the first three minutes.
 
+import type { Arm } from "@/lib/local/arm";
 import type { LanePhase, LanePulse, LoopPulse, PulseEvent, RunnerPulse } from "@/lib/local/runner-types";
 import { MICROS_PER_USD } from "./theaterFormat";
 import { scriptedActivity } from "./theaterFixtureScript";
@@ -25,6 +26,21 @@ export function demoScenario(raw: string | null | undefined): DemoScenario {
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const usd = (n: number) => Math.round(n * MICROS_PER_USD);
+
+/**
+ * The arm the demo's lanes run on — the SPLIT arm, because it is the configuration this whole
+ * feature exists to test and the one whose label a screenshot most needs to prove renders.
+ *
+ * A fixture lane carries one so the demo is representative; `fixtureLane({ arm: null })` is the
+ * pre-arms lane, which renders nothing at all.
+ */
+export const FIXTURE_ARM: Arm = {
+  id: "claude-sonnet-plan-pi-qwen3-8-27b-1",
+  label: "claude:sonnet plan → pi:qwen3.8:27b",
+  transport: "pi",
+  model: "qwen3.8:27b",
+  plan: { transport: "claude", model: "sonnet" },
+};
 
 export function fixtureLane(o: Partial<LanePulse> = {}): LanePulse {
   return {
@@ -46,6 +62,7 @@ export function fixtureLane(o: Partial<LanePulse> = {}): LanePulse {
       { at: iso(DEMO_EPOCH - 30_000), kind: "read", path: "src/scoring/engine.ts", tool: "Read", note: null },
       { at: iso(DEMO_EPOCH - 4_000), kind: "edit", path: "src/scoring/claims.ts", tool: "Edit", note: "Tighten the claim table" },
     ],
+    arm: FIXTURE_ARM,
     ...o,
   };
 }

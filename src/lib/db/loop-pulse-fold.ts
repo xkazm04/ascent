@@ -3,6 +3,7 @@
 // so every rule below is a table test (`loop-pulse.test.ts`).
 
 import { firstLine } from "@/lib/local/agent-stream";
+import { parseArms, type Arm } from "@/lib/local/arm";
 import { deriveLanePhase } from "@/lib/local/lane-phase";
 import { driveRunsDone, type DriveRunRecord } from "@/lib/local/drive-types";
 import {
@@ -42,6 +43,9 @@ export interface PulseLaneRow {
   costMicros: number | null;
   planId: string | null;
   commits: number;
+  /** The run arm this lane is a sample of, or null for a lane written before arms existed. It is only
+   *  ever a JOIN KEY here — the label comes from the run's `armsJson`, never from the id. */
+  armId: string | null;
 }
 
 export interface PulseRunRow {
@@ -52,6 +56,10 @@ export interface PulseRunRow {
   maxCycles: number;
   startedAt: Date;
   reposJson: string;
+  /** The run's `Arm[]` as stored (TEXT — DSQL has no jsonb). Null = a pre-arms run, which is the one
+   *  thing this column must never be read as "one default arm": `parseArms` yields [] and every lane
+   *  of the run reports an unknown arm. */
+  armsJson: string | null;
   lanes: PulseLaneRow[];
 }
 
@@ -121,7 +129,12 @@ export function recentPaths(tail: readonly LaneActivity[], kinds: readonly LaneA
   return out;
 }
 
-export function toLanePulse(row: PulseLaneRow, held: boolean, now: Date): LanePulse {
+/** The run's arms by id — the only thing a lane's `armId` may be turned into a label through. */
+export function armsById(armsJson: string | null | undefined): Map<string, Arm> {
+  return new Map(parseArms(armsJson).map((a) => [a.id, a]));
+}
+
+export function toLanePulse(row: PulseLaneRow, held: boolean, now: Date, arms?: ReadonlyMap<string, Arm>): LanePulse {
   const tail = parseActivityColumn(row.activityJson);
   const phase = deriveLanePhase(
     {
@@ -152,6 +165,10 @@ export function toLanePulse(row: PulseLaneRow, held: boolean, now: Date): LanePu
     turns: row.turns ?? null,
     costMicros: row.costMicros ?? null,
     tail: tail.slice(-PULSE_TAIL),
+    // An `armId` that names no arm of this run resolves to null rather than to a guess: the row says
+    // which arm it was, the run says what that arm is, and with the second half missing the honest
+    // answer is "unknown".
+    arm: (row.armId ? arms?.get(row.armId) : null) ?? null,
   };
 }
 
@@ -271,6 +288,7 @@ export function foldLoopPulse(input: PulseInputs): LoopPulse {
   const runner = input.drive ? toRunnerPulse(input.drive, input.spendTodayMicros) : null;
   // The lanes a passive screen shows: the current cycle's, plus any still in flight from an earlier one.
   const live = run ? run.lanes.filter((l) => l.cycle === run.cycle || l.phase === "queued" || l.phase === "dispatching" || l.phase === "rescanning") : [];
+  const arms = armsById(run?.armsJson);
   const endedToday = input.recentLanes.filter((l) => l.endedAt != null && l.endedAt.getTime() >= today);
   return {
     org: input.org,
@@ -279,7 +297,7 @@ export function foldLoopPulse(input: PulseInputs): LoopPulse {
     run: run
       ? { id: run.id, seq: run.seq ?? null, phase: run.phase, cycle: run.cycle, maxCycles: run.maxCycles, startedAt: run.startedAt.toISOString() }
       : null,
-    lanes: live.map((l) => toLanePulse(l, input.heldLaneIds.has(l.id), now)),
+    lanes: live.map((l) => toLanePulse(l, input.heldLaneIds.has(l.id), now, arms)),
     waiting: run ? waitingRepos(run) : [],
     needsYou: {
       plans: input.pendingPlanCount,

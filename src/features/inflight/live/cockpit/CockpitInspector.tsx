@@ -25,10 +25,10 @@
 import { Kicker } from "@/components/ui";
 import { BriefStrip, InspectorEmpty } from "./BriefStrip";
 import { SharedDimensionBars } from "./CockpitBatch";
-import { CockpitInspectorCta, RunnerCta } from "./CockpitInspectorCta";
+import { ArmBlockNote, CockpitInspectorCta, RunnerCta } from "./CockpitInspectorCta";
 import type { StartDriveInput } from "./driveClient";
 import type { StartLoopInput } from "./loopClient";
-import { driveStartInput, runStartInput } from "./startInputs";
+import { armStartBlock, driveStartInput, runStartInput } from "./startInputs";
 import type { ProposalBatch } from "./useProposalBatch";
 import type { RunDials } from "./useRunDials";
 
@@ -58,12 +58,17 @@ export function CockpitInspector(props: CockpitInspectorProps) {
   const { repos, unpaired, runnable, proposals, shares } = batch;
   // The runner is an owner's action like Run and Drive; a blocked or viewer rail offers none of them.
   const onRunner = canRun && canDrive && !blockedReason ? props.onOpenRunner : undefined;
+  // WHY NOTHING MAY DEPART on the armed configuration, if anything. Derived here rather than held in
+  // state: it is a function of the dials, and a second copy of it is a copy that goes stale the first
+  // time the operator edits an arm.
+  const armBlock = armStartBlock(dials);
 
   if (repos.length === 0) {
     return (
       <>
         <InspectorEmpty />
-        {onRunner && <RunnerCta onClick={onRunner} busy={busy} />}
+        {onRunner && <RunnerCta onClick={onRunner} busy={busy} armBlock={armBlock} />}
+        {onRunner && armBlock && <ArmBlockNote reason={armBlock} />}
       </>
     );
   }
@@ -102,6 +107,7 @@ export function CockpitInspector(props: CockpitInspectorProps) {
         canRun={canRun}
         canDrive={canDrive}
         blockedReason={blockedReason}
+        armBlock={armBlock}
         busy={busy}
         error={error}
       />

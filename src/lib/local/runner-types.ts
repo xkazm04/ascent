@@ -279,6 +279,20 @@ export interface LanePulse {
   costMicros: number | null;
   /** The newest few activity events, newest last. */
   tail: LaneActivity[];
+  /**
+   * WHAT THIS LANE WAS ARMED WITH — the run's arm this lane is a sample of, resolved by joining the
+   * lane's `armId` to the run's `armsJson` (`loop-pulse-fold.ts`).
+   *
+   * The whole `Arm` rather than the id, because every reader of this field wants to LABEL it, and an
+   * id is not a label: a reader handed `claude-sonnet-1` would have to invent words for it, which is
+   * exactly the fabrication `armLabel` exists to refuse. The join happens once, where the run's arms
+   * are already in hand.
+   *
+   * NULL for a lane recorded before arms existed, and for one whose `armId` names no arm of its run.
+   * Such a lane renders NOTHING — never "default": its configuration is genuinely unknown, and
+   * "default" would be a claim about it.
+   */
+  arm: Arm | null;
 }
 
 /** A headline the theater's "latest" rail and the notifier can show. */

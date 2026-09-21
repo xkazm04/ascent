@@ -2,6 +2,7 @@
 // server's own message. Kept apart from useLoopRun so the hook is state machine and nothing else,
 // and so a test can drive either half (a fetch stub here, or these functions mocked) on its own.
 
+import type { ArmPolicy } from "@/lib/local/arm";
 import type { LoopDelivery } from "@/lib/local/delivery-options";
 import type { VerifyMode } from "@/lib/local/run-limits";
 import type { LoopLessonRow, LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload, RemediationPriceList } from "./loopTypes";
@@ -115,6 +116,11 @@ export interface StartLoopInput {
   verifyTimeoutMs?: number;
   /** When the run rescans: after every cycle, or once per run. Omitted = `cycle`. */
   rescanCadence?: "cycle" | "run";
+  /** WHAT THIS RUN IS ARMED WITH — plain wire data, validated on the route by
+   *  `normalizeArmSet(arms, armPolicy)`, the same function the cockpit's arm builder validates
+   *  against. Omitted = the pre-arms behaviour: one Claude lane on `model`/`effort` above. */
+  armPolicy?: ArmPolicy;
+  arms?: Record<string, unknown>[];
 }
 
 export const startLoop = (slug: string, input: StartLoopInput): Promise<{ run: LoopRunRecord }> =>

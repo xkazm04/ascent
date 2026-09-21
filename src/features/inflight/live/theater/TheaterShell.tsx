@@ -20,6 +20,7 @@ import { TheaterHeader } from "./TheaterHeader";
 import { TheaterLatestRail } from "./TheaterLatestRail";
 import { TheaterTopBar, type TheaterMode } from "./TheaterTopBar";
 import type { DemoScenario } from "./theaterFixture";
+import { theaterArm } from "./theaterArm";
 import { headerModel, nothingToReport } from "./theaterHeaderModel";
 import { renderHero } from "./theaterHeroSlot";
 import type { TheaterCue } from "./theaterCues";
@@ -87,7 +88,10 @@ export function TheaterStage({ feed, source, sound, onToggleSound, cards, reduce
   return (
     <div className="flex min-h-screen flex-col bg-ink text-slate-200" data-theater={mode} data-stale={stale || undefined}>
       <TheaterTopBar slug={source.slug} mode={mode} note={note(source)} sound={sound} onToggleSound={onToggleSound} />
-      <TheaterHeader model={model} />
+      {/* The arm comes from the lane the header is already reporting on (`theaterArm`), so the label
+          and the NOW sentence describe the same piece of work — and a compare run's label changes
+          with the lane rather than claiming one arm for a race between four. */}
+      <TheaterHeader model={model} arm={theaterArm(feed.pulse)} />
       <main id="main" className="flex min-h-0 flex-1 flex-col">
         {quiet ? (
           <TheaterEmpty slug={source.slug} href={source.kind === "org" ? cockpitHref(source.slug) : null} />

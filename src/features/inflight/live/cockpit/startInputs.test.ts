@@ -3,11 +3,14 @@
 //   - a manual run's body is EXACTLY what the inspector sent before the composition moved here;
 //   - a bounded drive now carries the dials (until 2026-09-18 it sent none, so every drive run used the
 //     deployment defaults whatever the dialog said);
+//   - all three now carry the ARMS the builder composed, and none of them departs on a configuration
+//     the preflight probe refused;
 //   - the standing runner forces its two settings — no delivery, verify on — whatever the dials hold,
 //     omits `repos` for the default scope, and refuses an empty ceiling rather than read it as "none".
 
 import { describe, expect, it } from "vitest";
-import { driveStartInput, parseCeilingUsd, runStartInput, runnerStartInput } from "./startInputs";
+import { armStartBlock, driveStartInput, parseCeilingUsd, runStartInput, runnerStartInput } from "./startInputs";
+import { newArmDraft } from "./arms/armDraft";
 import { dialsSummary } from "./setupSummary";
 import { INITIAL_DIALS, type RunDials } from "./useRunDials";
 
@@ -30,6 +33,10 @@ describe("runStartInput", () => {
       verifyTimeoutMs: 600_000,
       // Since 2026-09-18 a manual run carries the rescan cadence too — the dial is offered in every mode.
       rescanCadence: "cycle",
+      // Since 2026-09-21 it carries the ARMS as well: the Model control is gone, and the default
+      // dials are one Claude arm on the deployment default — the pre-arms run, written down.
+      armPolicy: "single",
+      arms: [{ id: "claude-sonnet-1", label: "", transport: "claude", model: "sonnet", plan: null }],
     });
     expect(runStartInput(dials(), { runnable: ["acme/a"], batches: {} }).batches).toBeUndefined();
   });
@@ -43,6 +50,40 @@ describe("driveStartInput", () => {
     expect(body.delivery).toBe("branch");
     expect(body.mode).toBeUndefined();
     expect(body.spendCeilingUsd).toBeUndefined();
+    expect(body.armPolicy).toBe("single");
+    expect(body.arms).toHaveLength(1);
+  });
+});
+
+describe("armStartBlock — nothing departs on a configuration nothing has cleared", () => {
+  it("lets an unprobed, armable configuration go — the probe is a deliberate press, not a toll", () => {
+    expect(armStartBlock(dials())).toBeNull();
+    expect(armStartBlock(dials({ armProbe: "armable" }))).toBeNull();
+  });
+
+  it("refuses a REFUSED probe, and says where to read what it found", () => {
+    const why = armStartBlock(dials({ armProbe: "blocked" }));
+    expect(why).toMatch(/probe refused/i);
+    expect(why).toMatch(/gear/i);
+  });
+
+  it("refuses while the probe is still running", () => {
+    expect(armStartBlock(dials({ armProbe: "probing" }))).toMatch(/still running/i);
+  });
+
+  it("refuses a half-typed arm, and sends no half configuration when it somehow departs", () => {
+    const halfTyped = dials({ arms: [{ ...newArmDraft("pi"), model: "" }] });
+    expect(armStartBlock(halfTyped)).toMatch(/not armable/i);
+    // The second line of the same refusal: a body is composed with NO arms rather than with half a set.
+    const body = runStartInput(halfTyped, { runnable: ["acme/a"], batches: {} });
+    expect(body.arms).toBeUndefined();
+    expect(body.armPolicy).toBeUndefined();
+  });
+
+  it("refuses a below-floor arm whose opt-in was never ticked", () => {
+    const local = { ...newArmDraft("pi"), model: "qwen3.8:27b", floorAck: false };
+    expect(armStartBlock(dials({ arms: [local] }))).toMatch(/below-floor/i);
+    expect(armStartBlock(dials({ arms: [{ ...local, floorAck: true }] }))).toBeNull();
   });
 });
 
@@ -59,6 +100,8 @@ describe("runnerStartInput", () => {
       effort: null,
       spendCeilingUsd: 40,
       dials: { batchSize: 5, agentTimeoutMs: 1_200_000, verifyMode: "on", verifyTimeoutMs: 600_000, rescanCadence: "cycle" },
+      armPolicy: "single",
+      arms: [{ id: "claude-sonnet-1", label: "", transport: "claude", model: "sonnet", plan: null }],
     });
     // Neither delivery nor a rope reaches the wire.
     expect("delivery" in built.input).toBe(false);

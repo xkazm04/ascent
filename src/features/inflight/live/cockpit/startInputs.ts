@@ -14,10 +14,47 @@
 // the runner lands only verified work.
 
 import type { DriveDials } from "@/lib/local/runner-types";
+import { armRequestFields } from "./arms/armDraft";
 import type { StartDriveInput } from "./driveClient";
 import type { StartLoopInput } from "./loopClient";
 import type { ProposalBatch } from "./useProposalBatch";
 import type { RunDials } from "./useRunDials";
+import type { ArmPolicy } from "@/lib/local/arm";
+
+/**
+ * THE ARMS, as the three bodies carry them — or nothing at all.
+ *
+ * `armRequestFields` returns null when the builder's rows are not armable, and that null is NOT
+ * turned into a partial body here: half a configuration on the wire is a run recorded under a
+ * configuration nobody chose. `armStartBlock` below is what keeps a caller from reaching this case
+ * with a press; this is the second line of the same refusal.
+ */
+function armFieldsOf(d: RunDials): { armPolicy: ArmPolicy; arms: Record<string, unknown>[] } | Record<string, never> {
+  return armRequestFields(d.arms, d.armPolicy) ?? {};
+}
+
+/**
+ * WHY THIS CONFIGURATION MAY NOT BE STARTED — one sentence, or null for "it may".
+ *
+ * Both cases are the same failure with different timing: a run that departs on a configuration
+ * nothing has cleared spends HOURS of wall clock before it produces a wrong ANSWER rather than an
+ * error (`transport/probe.ts`), and a wrong answer with a number on it is worse than no answer. So
+ * the CTA refuses, and it says which of the two it is — a disabled button with no sentence is the
+ * silently dead button this gate exists not to be.
+ *
+ * `idle` does NOT block: the probe fires from a deliberate press, and requiring one before every run
+ * would make an unchanged, already-proven configuration un-runnable.
+ */
+export function armStartBlock(d: RunDials): string | null {
+  if (armRequestFields(d.arms, d.armPolicy) == null) {
+    return "This configuration is not armable yet — open the gear and give every arm a transport, a model, and its below-floor opt-in where one is needed.";
+  }
+  if (d.armProbe === "probing") return "The preflight probe is still running — it finishes in a few seconds.";
+  if (d.armProbe === "blocked") {
+    return "The preflight probe refused this configuration — open the gear to read what it found, fix it, and probe again.";
+  }
+  return null;
+}
 
 /** The run dials every run a drive dispatches is armed with. */
 export function driveDialsOf(d: RunDials): DriveDials {
@@ -49,6 +86,10 @@ export function runStartInput(d: RunDials, batch: Pick<ProposalBatch, "runnable"
     verifyMode: d.verifyMode,
     verifyTimeoutMs: d.verifyMinutes * 60_000,
     rescanCadence: d.rescanCadence,
+    // WHAT THIS RUN IS ARMED WITH. The route validates it with `normalizeArmSet` — the same function
+    // the builder validated against — and stores `armsJson`/`armPolicy` on the run, which is what
+    // joins every lane back to the arm that produced it.
+    ...armFieldsOf(d),
   };
 }
 
@@ -67,6 +108,7 @@ export function driveStartInput(d: RunDials, repos: string[]): StartDriveInput {
     effort: d.effort,
     delivery: d.delivery,
     dials: driveDialsOf(d),
+    ...armFieldsOf(d),
   };
 }
 
@@ -102,6 +144,7 @@ export function runnerStartInput(d: RunDials, selection: readonly string[]): Run
       effort: d.effort,
       spendCeilingUsd: ceiling.usd,
       dials: { ...driveDialsOf(d), verifyMode: "on" },
+      ...armFieldsOf(d),
     },
   };
 }
