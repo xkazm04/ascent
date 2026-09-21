@@ -27,29 +27,6 @@ import {
  */
 export const FLOOR_TRANSPORT: TransportId = "claude";
 
-/**
- * Display names for the transport picker.
- *
- * STILL LOCAL, and the reason has CHANGED (verified 2026-09-21). `allTransportProfiles()` is no longer
- * a stub — it returns both rows — but it is not reachable from a browser component:
- * `transport/profile.ts:22` imports `piProfile` from `transport/pi.ts`, which imports
- * `node:child_process`, `node:fs`, `node:os`, `node:path` and `node:string_decoder` at module scope
- * (`transport/pi.ts:27-31`) plus `@/lib/local/agent`. Importing the registry here would pull the spawn
- * side into the client bundle and break `npm run build` — a boundary break `tsc` and the unit suite
- * both pass straight through.
- *
- * THE FIX IS ONE FILE, AND IT IS NOT THIS PACKAGE'S: lift the two `TransportProfile` CONSTANTS into
- * pure siblings (`transport/claude-profile.ts`, `transport/pi-profile.ts`) that `profile.ts` and the
- * two adapters both import — `claude.ts` is already dependency-free, so only `pi.ts` splits. Both
- * files are on the committed wire contract, so the swap belongs to whoever owns that contract. Until
- * then this map stays, and it stays SMALL: two display names, and the picker's only other source of
- * truth (`TRANSPORT_IDS`) is already `arm.ts`'s.
- *
- * Note `claudeProfile.label` reads "Claude Code" and this map reads "Claude" — the picker names the
- * vendor beside a model field, the capability matrix names the binary. The swap should keep the
- * picker's word.
- */
-export const TRANSPORT_LABELS: Record<TransportId, string> = { claude: "Claude", pi: "Pi" };
 
 /** The model token a freshly added row starts on. Pi's is empty: a local roster is whatever the
  *  operator pulled, and a pre-filled guess would be a model name this repo invented. */

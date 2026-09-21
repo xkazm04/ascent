@@ -11,9 +11,13 @@
 
 import { TextInput } from "@/components/ui";
 import { AGENT_MODELS } from "@/lib/local/agent-options";
-import { MODEL_TOKEN, TRANSPORT_IDS, type TransportId } from "@/lib/local/arm";
+import { MODEL_TOKEN, type TransportId } from "@/lib/local/arm";
+// THE REGISTRY, not a second list of display names. `transport/profile.ts` and everything it
+// imports are dependency-free, which is why this import does not drag the spawn side into the
+// client bundle — `npm run build` is what proves that, and it is run whenever this import moves.
+import { allTransportProfiles } from "@/lib/local/transport/profile";
 import { Segmented } from "../RunSetupControls";
-import { DEFAULT_MODEL, TRANSPORT_LABELS } from "./armDraft";
+import { DEFAULT_MODEL } from "./armDraft";
 
 export interface ArmHalfProps {
   /** Prefixes every accessible name, so two halves in one row are distinguishable to AT. */
@@ -36,7 +40,10 @@ export function ArmHalfFields({ what, transport, model, onChange, testId }: ArmH
         // a Claude alias is meaningless to a local server and vice versa, so the field resets rather
         // than presenting a model that will fail at the spawn door.
         onChange={(t) => onChange({ transport: t, model: DEFAULT_MODEL[t] })}
-        options={TRANSPORT_IDS.map((t) => ({ value: t, label: TRANSPORT_LABELS[t] }))}
+        // The picker names the BINARY, because that is what a transport is: `Claude Code` and
+        // `Pi` are the two things this machine can spawn, and the model field beside it names
+        // what they are pointed at.
+        options={allTransportProfiles().map((p) => ({ value: p.id, label: p.label }))}
       />
       {transport === "claude" ? (
         <Segmented

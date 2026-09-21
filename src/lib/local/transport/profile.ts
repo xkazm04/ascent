@@ -19,7 +19,7 @@
 
 import type { TransportId } from "@/lib/local/arm";
 import { claudeLocalTiming, claudeProfile } from "@/lib/local/transport/claude";
-import { piProfile } from "@/lib/local/transport/pi";
+import { piProfile } from "@/lib/local/transport/pi-profile";
 
 /** How a capability was established, weakest last. A live run proves behaviour; help text proves a
  *  flag exists, not what it does; vendor docs describe the version the vendor wishes you had. */
