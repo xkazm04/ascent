@@ -167,6 +167,18 @@ type Body = {
   /** `cycle` | `run` — rescan after every cycle (default) or once after the last cycle a repo
    *  progressed in. Opt-in: intermediate cycles then settle at the run's end, not their own. */
   rescanCadence?: unknown;
+  /**
+   * `on` — run the read-only PLANNING session before the editing one. Omitted = off, which is what
+   * every manual run before this field did.
+   *
+   * IT IS LOAD-BEARING FOR A SPLIT ARM AND IT WAS MISSING. An arm may name a different transport and
+   * model for its planning half, and that half is only ever spawned by the planning session — so
+   * with plan mode off, a "Claude plans, a local model executes" arm silently ran the local model for
+   * BOTH halves and recorded `planModel: null`. The configuration the arms feature exists for was
+   * unreachable from this door; only the standing runner, which sets `planMode` itself, could produce
+   * it. Found by running one (2026-09-21) and reading the lane row rather than the intent.
+   */
+  planMode?: unknown;
   /** #3 — `local` (the default, and what every caller before it meant) or `remote-agent`. */
   executor?: unknown;
 };
@@ -328,6 +340,14 @@ export async function POST(request: Request) {
   }
   // Same discipline as the other dials: an unrecognised value that the caller actually SENT is a 400,
   // an omitted one is the engine's default. Never guessed, never silently coerced.
+  // `on` or absent. A sent-but-invalid value is a 400 rather than a silent "off", because off is a
+  // DIFFERENT RUN for a split arm — it collapses both halves onto the executing transport — and a
+  // caller that asked for planning must not be given a run that quietly did not plan.
+  const planMode = body.planMode === "on" ? ("on" as const) : null;
+  if (body.planMode !== undefined && body.planMode !== "on" && body.planMode !== "off") {
+    return NextResponse.json({ error: "planMode must be 'on' or 'off'." }, { status: 400 });
+  }
+
   const rescanCadence =
     body.rescanCadence === "run" || body.rescanCadence === "cycle" ? (body.rescanCadence as "run" | "cycle") : null;
   if (body.rescanCadence !== undefined && rescanCadence === null) {
@@ -361,6 +381,9 @@ export async function POST(request: Request) {
       verifyMode,
       verifyTimeoutMs,
       rescanCadence,
+      // Null, not omitted-and-defaulted: `startLoopRun` persists `planMode` on the row so a retry
+      // plans exactly as the original did, and a split arm's two halves depend on it.
+      planMode,
       // The two vocabularies, never merged: `arms` is what a run armed today carries, `models` is the
       // pre-arms Claude pair. A body that sends arms takes the arm path; anything else replays.
       ...(armed ? { arms: armed.arms, armPolicy: armed.armPolicy } : models ? { modelPolicy: "ab" as const, models } : {}),

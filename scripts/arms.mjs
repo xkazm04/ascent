@@ -57,6 +57,11 @@ const CFG = {
   maxCycles: flag("max-cycles", "1"),
   delivery: flag("delivery", null),
   verifyMode: flag("verify", null),
+  // `on` runs the read-only PLANNING session before the editing one. It is REQUIRED for a split
+  // arm to mean anything: the planning half is only ever spawned by that session, so with plan
+  // mode off a "Claude plans, local executes" arm runs the local model for both halves and
+  // records planModel: null. Measured the hard way on 2026-09-21.
+  planMode: flag("plan-mode", null),
   agentTimeoutMin: flag("agent-timeout-min", null),
   runTimeoutMs: Number(flag("run-timeout-min", "180")) * 60_000,
   pollMs: Number(flag("poll-sec", "20")) * 1000,
@@ -198,8 +203,18 @@ async function cmdRun(arms) {
     ...(CFG.batchSize ? { batchSize: Number(CFG.batchSize) } : {}),
     ...(CFG.delivery ? { delivery: CFG.delivery } : {}),
     ...(CFG.verifyMode ? { verifyMode: CFG.verifyMode } : {}),
+    ...(CFG.planMode ? { planMode: CFG.planMode } : {}),
     ...(CFG.agentTimeoutMin ? { agentTimeoutMs: Number(CFG.agentTimeoutMin) * 60_000 } : {}),
   };
+
+  const split = arms.filter((a) => a.plan);
+  if (split.length && CFG.planMode !== "on") {
+    throw new Error(
+      `These arms name a separate planning half (${split.map((a) => a.id).join(", ")}), but plan mode is off — ` +
+        "the planning session is the only thing that spawns that half, so the run would use the executing " +
+        "transport for both and record no plan model. Add --plan-mode on, or drop the `plan>` half.",
+    );
+  }
 
   console.log(`arms (${policy}, concurrency ${concurrency}, ${arms.length * concurrency} lanes in flight):`);
   for (const a of arms) {
@@ -307,7 +322,8 @@ const USAGE = `usage:
   node scripts/arms.mjs probe   --org <slug> --arms "<spec>[,<spec>...]"
   node scripts/arms.mjs propose --org <slug> --repos <owner/name,...> [--batch-size n]
   node scripts/arms.mjs run     --org <slug> --repos <owner/name,...> --arms "<spec>,..." [--batch-size n]
-                                [--max-cycles 1] [--delivery branch|land|pr] [--verify on|off] [--plan]
+                                [--max-cycles 1] [--delivery branch|land|pr] [--verify on|off]
+                                [--plan-mode on] [--plan]
   node scripts/arms.mjs report  --org <slug> --id <runId>
   node scripts/arms.mjs watch   --org <slug> [--poll-sec 20]
 
