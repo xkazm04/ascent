@@ -165,6 +165,11 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
         activeRun={activeRun}
         runs={runs}
         runDetails={runDetails}
+        // SERVER component (see this file's header): this runs once per request on the server, where
+        // there is no React render-purity contract to violate, and the rule does not model that. The
+        // value's hydration hazard is real and already handled downstream — bf53f1d1 made the outcome
+        // sheet's column ages survive hydration rather than recomputing them against a client clock.
+        // eslint-disable-next-line react-hooks/purity
         nowMs={Date.now()}
         loopEnabled={autopilotEnabled()}
         selfHosted={local}
