@@ -7,6 +7,8 @@ import { appendLaneLog, updateLane } from "@/lib/db/loop-runs";
 import { defaultOwnerTeamForRepo } from "@/lib/db/usage-events";
 import { LANE_COST_SOURCE } from "@/lib/db/loop-runs-types";
 import type { AgentRunResult } from "@/lib/local/agent";
+import type { TransportId } from "@/lib/local/arm";
+import { transportProfile } from "@/lib/local/transport/profile";
 
 export { excludeLaneReport } from "./lane-report-exclude";
 
@@ -30,6 +32,13 @@ function fmtCostMicros(micros: number | null): string {
  * carries the caller-owned idempotency key `loop-lane:<laneId>` so a retried write cannot double
  * count, and hands over the cost rather than letting the meter re-price it: for a subscription-auth
  * CLI session the envelope is authoritative and a token-times-rate estimate is not.
+ *
+ * THE PLANNING SESSION (WP9), when the lane ran one. `result` is the EXECUTING session and every
+ * column it writes keeps its exact meaning; the planner's envelope goes to the `plan*` columns
+ * beside them, in this same patch, so a lane that dies afterwards still carries both halves. It used
+ * to be read past and dropped, which reported a split arm — Claude plans, a local model executes —
+ * as having spent ZERO Claude tokens, on the one metric this whole feature optimizes. A lane that
+ * did not plan passes nothing and the five columns stay NULL: absent, never a free planning session.
  */
 export async function recordAgentCost(
   laneId: string,
@@ -39,6 +48,10 @@ export async function recordAgentCost(
   // A STRUCTURAL slice of `LaneRunInput` rather than the type itself: importing it would make this
   // module and loop-lane.ts a cycle, and the two fields below are all this function reads.
   input: { agent?: { model?: string | null }; abPairKey?: string | null },
+  /** The planning session that opened this lane, or null/absent when it opened without one. Its
+   *  dollar figure is NOT read here: `costMicros` is the lane's one declared source and summing a
+   *  second envelope into it is the double-count the one-source rule exists to forbid. */
+  planResult?: AgentRunResult | null,
 ): Promise<void> {
   const model = result.model ?? input.agent?.model ?? null;
   const costMicros = result.costMicros ?? null;
@@ -46,6 +59,9 @@ export async function recordAgentCost(
     model,
     costSource: LANE_COST_SOURCE,
     costMicros,
+    // The planner's half. `tokensOf(..., true)` would discard a cost this call never reads anyway;
+    // the `local` flag is passed false because only the token counts are taken from it.
+    ...planTokenColumns(planResult ? tokensOf(planResult, false) : null),
     inputTokens: result.inputTokens ?? null,
     outputTokens: result.outputTokens ?? null,
     cacheReadTokens: result.cacheReadTokens ?? null,
@@ -115,3 +131,276 @@ function meterLane(
   });
 }
 
+
+// ── HONEST COST FOR A TRANSPORT-ARMED LANE ───────────────────────────────────────────────────────
+//
+// TWO THINGS THE PAIR ABOVE CANNOT DO, both of which would silently corrupt the one metric this
+// feature exists to move (Claude tokens per verified point):
+//
+//   1. A FABRICATED PRICE. Measured 2026-09-21: `claude -p` pointed at a local Ollama endpoint
+//      returned `total_cost_usd: 0.084` with `costBasis: "unknown"` — a price computed from a rate
+//      card for a model that was never called. `parseAgentEnvelope` faithfully turns that into
+//      `costMicros`, and `recordAgentCost` would bank it in the same column as real Claude spend. A
+//      step whose transport is zero-cost therefore has its dollar figure DISCARDED, and the lane
+//      records `costSource: "none"` with `costMicros: null` — never 0, because a display that
+//      divides would report an infinite lift-per-cent.
+//   2. A POOLED TOKEN RECORD. A split arm spends CLAUDE tokens planning and LOCAL tokens executing.
+//      A row that sums them cannot answer the question the comparison was run to answer, and no
+//      later read can unpool them. The split is derived from the transport that ran each step.
+//
+// WHAT IS DELIBERATELY NOT HERE: a column. `LoopRunLane` has one set of token columns and this
+// package may not add another (see the WP4 report) — so the split is computed, logged and RETURNED,
+// and the two halves reach the usage ledger as two separate metered events, one per provider. When
+// the row gains plan-side columns, `laneArmPatch` is the one place that has to learn about them.
+
+/** One half of an arm's work: the planning session or the executing session, and what ran it. */
+export interface ArmStep {
+  step: "plan" | "execute";
+  transport: TransportId;
+  /** The model this step actually ran. */
+  model: string | null;
+  /** The local endpoint it ran against, when it was a local one. Absent = the transport's own auth. */
+  endpoint?: { model: string } | null;
+  result: AgentRunResult;
+}
+
+/** One side's token record. Every field is null when the tool reported nothing — never 0. */
+export interface StepTokens {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  turns: number | null;
+  durationMs: number | null;
+  /** MICRO-CENTS, and `null` on the local side ALWAYS — see the discard above. */
+  costMicros: number | null;
+}
+
+/** The lane's tokens, split by who spent them. A side that did not run is `null`, not a row of zeroes. */
+export interface LaneTokenSplit {
+  claude: StepTokens | null;
+  local: StepTokens | null;
+}
+
+/** The value `costSource` takes when every step's price was fabricated and discarded. */
+export const LANE_COST_SOURCE_NONE = "none";
+
+/** The profile's `zeroCost`, or null when this build has no profile for the transport yet. */
+function profileZeroCost(transport: TransportId): boolean | null {
+  try {
+    return transportProfile(transport).zeroCost;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is this step's spend LOCAL — that is, is its reported dollar figure meaningless?
+ *
+ * Two independent witnesses, either of which is sufficient. An explicit endpoint is the stronger one
+ * and is checked first: the `claude` transport is NOT a zero-cost profile, but `claude -p` pointed at
+ * a local server spends no Anthropic tokens at all while still printing a price. A transport with no
+ * profile in this build falls back to "not local", which keeps a real Claude figure rather than
+ * discarding one.
+ */
+export function stepIsLocal(step: ArmStep): boolean {
+  if (step.endpoint) return true;
+  return profileZeroCost(step.transport) === true;
+}
+
+function tokensOf(result: AgentRunResult, local: boolean): StepTokens {
+  return {
+    inputTokens: result.inputTokens ?? null,
+    outputTokens: result.outputTokens ?? null,
+    cacheReadTokens: result.cacheReadTokens ?? null,
+    turns: result.turns ?? null,
+    durationMs: result.durationMs ?? null,
+    // THE DISCARD. Not `?? null` on a local step — the figure is PRESENT and wrong.
+    costMicros: local ? null : (result.costMicros ?? null),
+  };
+}
+
+/** Sum two nullable counts keeping null different from 0: two unknowns stay unknown, one known stands alone. */
+function addNullable(a: number | null, b: number | null): number | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return a + b;
+}
+
+function mergeTokens(a: StepTokens | null, b: StepTokens): StepTokens {
+  if (!a) return b;
+  return {
+    inputTokens: addNullable(a.inputTokens, b.inputTokens),
+    outputTokens: addNullable(a.outputTokens, b.outputTokens),
+    cacheReadTokens: addNullable(a.cacheReadTokens, b.cacheReadTokens),
+    turns: addNullable(a.turns, b.turns),
+    durationMs: addNullable(a.durationMs, b.durationMs),
+    costMicros: addNullable(a.costMicros, b.costMicros),
+  };
+}
+
+/** Split an arm's steps by who spent the tokens. Pure — the whole of it is a table test. */
+export function splitLaneTokens(steps: ArmStep[]): LaneTokenSplit {
+  const split: LaneTokenSplit = { claude: null, local: null };
+  for (const step of steps) {
+    const local = stepIsLocal(step);
+    const tokens = tokensOf(step.result, local);
+    if (local) split.local = mergeTokens(split.local, tokens);
+    else split.claude = mergeTokens(split.claude, tokens);
+  }
+  return split;
+}
+
+/** The five columns that record the PLANNING session. Null on every field the session did not
+ *  report, and the WHOLE shape is absent when no planning session ran — see `planTokenColumns`. */
+export interface PlanTokenColumns {
+  planInputTokens: number | null;
+  planOutputTokens: number | null;
+  planCacheReadTokens: number | null;
+  planTurns: number | null;
+  planDurationMs: number | null;
+}
+
+/**
+ * The planning session's half, as the row's columns.
+ *
+ * A lane that never planned gets `null` in every field rather than 0: the planning cost of a lane
+ * that had no planning session is ABSENT, and a 0 would be averaged as a free planning session by
+ * exactly the metric these columns exist to feed. The cost figure is deliberately NOT among them —
+ * `costMicros` is one declared source for the whole lane and a second money column here would invite
+ * the sum this module refuses.
+ */
+export function planTokenColumns(plan: StepTokens | null): PlanTokenColumns {
+  return {
+    planInputTokens: plan?.inputTokens ?? null,
+    planOutputTokens: plan?.outputTokens ?? null,
+    planCacheReadTokens: plan?.cacheReadTokens ?? null,
+    planTurns: plan?.turns ?? null,
+    planDurationMs: plan?.durationMs ?? null,
+  };
+}
+
+/** What `laneArmPatch` hands the lane row — the existing columns, the plan-side ones, and nothing
+ *  invented. */
+export interface LaneArmPatch extends PlanTokenColumns {
+  model: string | null;
+  costSource: string;
+  costMicros: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  turns: number | null;
+  agentDurationMs: number | null;
+  agentSessionId: string | null;
+}
+
+/**
+ * The lane patch for an arm's steps, and the split it was derived from.
+ *
+ * `costSource` is `"none"` when NOTHING real was spent — every step was local — and `"envelope"`
+ * when a Claude-side step ran, in which case `costMicros` carries that side's figure ALONE. A split
+ * arm therefore records what its plan actually cost, and never the local executor's invented price.
+ *
+ * The unprefixed token columns carry the EXECUTING session, byte-identical to what every lane before
+ * transports recorded. The planning session is no longer read past and dropped: it lands in the
+ * `plan*` columns beside them (WP9), because the optimized metric is CLAUDE TOKENS per verified point
+ * and a split arm spends every one of them in the planning session. Pooling the two halves into one
+ * set of columns reported that arm as costing zero Claude tokens, and no later read can unpool them.
+ */
+export function laneArmPatch(steps: ArmStep[]): { patch: LaneArmPatch; split: LaneTokenSplit } {
+  const split = splitLaneTokens(steps);
+  const exec = steps.find((s) => s.step === "execute") ?? steps[steps.length - 1] ?? null;
+  const execTokens = exec ? tokensOf(exec.result, stepIsLocal(exec)) : null;
+  // The PLAN step by name, never "the other one": an arm with a single step planned nothing, and
+  // inferring a planning session from a lane that had none is the fabrication these columns refuse.
+  const planStep = steps.find((s) => s.step === "plan") ?? null;
+  const planTokens = planStep ? tokensOf(planStep.result, stepIsLocal(planStep)) : null;
+  return {
+    split,
+    patch: {
+      ...planTokenColumns(planTokens),
+      model: exec?.result.model ?? exec?.model ?? null,
+      costSource: split.claude ? LANE_COST_SOURCE : LANE_COST_SOURCE_NONE,
+      costMicros: split.claude?.costMicros ?? null,
+      inputTokens: execTokens?.inputTokens ?? null,
+      outputTokens: execTokens?.outputTokens ?? null,
+      cacheReadTokens: execTokens?.cacheReadTokens ?? null,
+      turns: execTokens?.turns ?? null,
+      agentDurationMs: execTokens?.durationMs ?? null,
+      agentSessionId: exec?.result.sessionId ?? null,
+    },
+  };
+}
+
+/** The one line the lane log prints for a transport-armed lane — both sides, each with its own unit. */
+export function laneSplitLine(split: LaneTokenSplit): string {
+  const side = (label: string, t: StepTokens | null) => {
+    if (!t) return null;
+    const tok = addNullable(t.inputTokens, t.outputTokens);
+    return `${label}: ${tok == null ? "tokens unknown" : `${tok} tokens`} · ${fmtCostMicros(t.costMicros)}`;
+  };
+  const parts = [side("Claude", split.claude), side("Local", split.local)].filter((s): s is string => s !== null);
+  return parts.length ? parts.join(" · ") : "No session reported any tokens.";
+}
+
+/**
+ * Stamp a transport-armed lane's cost and token split, then mirror BOTH halves to the usage ledger.
+ *
+ * Two metered events rather than one, because they are two providers: the local half posts under
+ * `local` (a zero-cost provider the meter already knows) with an EXPLICIT `costMicros: null`, which
+ * the meter honours as "unknowable" instead of re-pricing the tokens from a rate card. The execute
+ * step keeps the existing `loop-lane:<laneId>` idempotency key so a row written by the older path is
+ * not double-counted; the plan step gets its own suffixed key.
+ */
+export async function recordArmCost(
+  laneId: string,
+  orgSlug: string,
+  repo: string,
+  steps: ArmStep[],
+  input: { abPairKey?: string | null } = {},
+): Promise<LaneTokenSplit> {
+  const { patch, split } = laneArmPatch(steps);
+  await updateLane(laneId, {
+    ...patch,
+    ...(input.abPairKey ? { abPairKey: input.abPairKey } : {}),
+  }).catch(() => null);
+  await appendLaneLog(laneId, `Arm: ${laneSplitLine(split)}`);
+  const teamKey = await defaultOwnerTeamForRepo(orgSlug, repo).catch(() => null);
+  for (const step of steps) {
+    try {
+      meterArmStep(laneId, orgSlug, repo, step, teamKey);
+    } catch (err) {
+      await appendLaneLog(laneId, `Usage meter declined this lane: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return split;
+}
+
+/** The meter half of one step's record, split out so the try/catch above wraps one thing. */
+function meterArmStep(laneId: string, orgSlug: string, repo: string, step: ArmStep, teamKey: string | null): void {
+  const local = stepIsLocal(step);
+  const usd = local ? null : step.result.costMicros;
+  meter({
+    lane: "local",
+    orgSlug,
+    refId: laneId,
+    idemKey: step.step === "execute" ? `loop-lane:${laneId}` : `loop-lane:${laneId}:${step.step}`,
+    provider: local ? "local" : "claude-cli",
+    model: step.result.model ?? step.model ?? "unknown",
+    repoFullName: repo,
+    teamKey,
+    status: step.result.ok ? "success" : "error",
+    latencyMs: step.result.durationMs ?? undefined,
+    // EXPLICIT NULL on the local side — an ABSENT key would mean "price it from the tokens", which
+    // is the fabrication this whole section exists to refuse.
+    costMicros: usd == null ? null : Math.round(usd / 100),
+    ...(step.result.inputTokens != null || step.result.outputTokens != null || step.result.cacheReadTokens != null
+      ? {
+          usage: {
+            inputTokens: step.result.inputTokens ?? undefined,
+            outputTokens: step.result.outputTokens ?? undefined,
+            cacheReadTokens: step.result.cacheReadTokens ?? undefined,
+          },
+        }
+      : {}),
+  });
+}

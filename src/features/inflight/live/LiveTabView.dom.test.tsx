@@ -36,6 +36,9 @@ vi.mock("@/features/inflight/live/LiveWarRoom", () => ({
 }));
 vi.mock("./cockpit", () => ({ LiveCockpit: (p: { wallHref: string }) => <div data-testid="cockpit">{p.wallHref}</div> }));
 vi.mock("./AutopilotBand", () => ({ AutopilotBand: () => <div data-testid="autopilot-band" /> }));
+// No standing runner, so the default view is the cockpit (the Ledger's own routing is pinned in
+// ledger/ledgerView.dom.test.tsx).
+vi.mock("./ledger/ledgerLoad", () => ({ hasStandingRunner: async () => false }));
 
 const { LiveTab } = await import("./LiveTab");
 const { default: SharedLivePage } = await import("@/app/live/shared/[token]/page");

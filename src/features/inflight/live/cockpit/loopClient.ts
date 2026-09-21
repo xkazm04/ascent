@@ -2,6 +2,7 @@
 // server's own message. Kept apart from useLoopRun so the hook is state machine and nothing else,
 // and so a test can drive either half (a fetch stub here, or these functions mocked) on its own.
 
+import type { ArmPolicy } from "@/lib/local/arm";
 import type { LoopDelivery } from "@/lib/local/delivery-options";
 import type { VerifyMode } from "@/lib/local/run-limits";
 import type { LoopLessonRow, LoopProposal, LoopRunDetail, LoopRunRecord, LoopStatusPayload, RemediationPriceList } from "./loopTypes";
@@ -35,9 +36,11 @@ export async function fetchLoopDetail(slug: string, id: string): Promise<LoopRun
   return json<LoopRunDetail>(res, "Could not read that run");
 }
 
-export async function fetchLoopProposals(slug: string, repos: readonly string[]): Promise<LoopProposal[]> {
+/** `batchSize` is the run-setup dial; omitted = the engine's default, exactly as the run route reads it. */
+export async function fetchLoopProposals(slug: string, repos: readonly string[], batchSize?: number): Promise<LoopProposal[]> {
   if (repos.length === 0) return [];
-  const q = `org=${encodeURIComponent(slug)}&repos=${encodeURIComponent(repos.join(","))}`;
+  const size = batchSize != null ? `&batchSize=${encodeURIComponent(String(batchSize))}` : "";
+  const q = `org=${encodeURIComponent(slug)}&repos=${encodeURIComponent(repos.join(","))}${size}`;
   const res = await fetch(`/api/org/loop/propose?${q}`, { cache: "no-store" });
   const body = await json<{ proposals?: LoopProposal[] }>(res, "Could not propose a batch");
   return body.proposals ?? [];
@@ -111,6 +114,13 @@ export interface StartLoopInput {
   verifyMode?: VerifyMode;
   /** Budget for ONE run of the repository's own check, MILLISECONDS. Omitted = 10 minutes. */
   verifyTimeoutMs?: number;
+  /** When the run rescans: after every cycle, or once per run. Omitted = `cycle`. */
+  rescanCadence?: "cycle" | "run";
+  /** WHAT THIS RUN IS ARMED WITH — plain wire data, validated on the route by
+   *  `normalizeArmSet(arms, armPolicy)`, the same function the cockpit's arm builder validates
+   *  against. Omitted = the pre-arms behaviour: one Claude lane on `model`/`effort` above. */
+  armPolicy?: ArmPolicy;
+  arms?: Record<string, unknown>[];
   /** WHO WORKS THE LANES (ADR-0001). Omitted/`local` is what every caller before it meant: this
    *  server spawns `claude -p` in a paired checkout. `hosted` arms a run Ascent Cloud dispatches —
    *  no worktree here, no process here — and the route answers it with its own gate table (plan,

@@ -22,15 +22,28 @@
 // so a restart no longer erases the drive itself. What a restart still does NOT do is resume: the
 // boot sweep reconciles the orphaned row to `interrupted`, and re-arming an agent that spends money
 // is a human decision. `resumeDrive` is that decision, and it continues the chain's run count.
+//
+// THE STANDING RUNNER (spark theater-upgrade, 2026-09-18). `mode: "continuous"` arms the other shape —
+// a drive with no rope that never stops on green or dry and pauses on named breakers. `startDrive` is
+// still its one door (same gates, same single-flight); the driver is `runner.ts`, its wiring
+// `runner-control.ts`. A bounded drive is untouched by it, except that it now hands every run it
+// dispatches the operator's DIALS (`drive-dials.ts`) — before, five of them were silently dropped.
 
 import { selfHosted } from "@/lib/env";
 import { autopilotEnabled, resolveAgentConfig } from "@/lib/local/agent";
 import { startLoopRun, stopLoopRun } from "@/lib/local/loop-engine";
 import { getLoopRun, getOrgPriceList } from "@/lib/db/loop-runs-read";
 import { driveModelBasis, pickDriveModel } from "@/lib/local/lane-economics";
-import { createDriveRow, getDriveRow, listDriveRows, markStaleDrivesInterrupted, saveDriveRow } from "@/lib/db/drives";
+import {
+  SPEND_CEILING_STORABLE_MAX_MICROS,
+  createDriveRow,
+  getDriveRow,
+  listDriveRows,
+  markStaleDrivesInterrupted,
+  saveDriveRow,
+} from "@/lib/db/drives";
 import { getOrgRollup, listLocalPairings } from "@/lib/db";
-import { fleetGreenness, repoGreenness } from "@/lib/maturity/green";
+import { repoGreenness } from "@/lib/maturity/green";
 import {
   DRIVE_DEFAULT_MAX_RUNS,
   DRIVE_MAX_RUNS_CAP,
@@ -42,6 +55,15 @@ import {
   type DriveRunRecord,
   type DriveStatus,
 } from "@/lib/local/drive-types";
+import { drives, isDriveLiveHere } from "@/lib/local/drive-registry";
+import { measureDrive } from "@/lib/local/drive-measure";
+import { dialRunInput } from "@/lib/local/drive-dials";
+import { spendCeilingMicrosFrom } from "@/lib/local/runner-breakers";
+import { freshRepoState } from "@/lib/local/runner-policy";
+import { launchRunner } from "@/lib/local/runner-control";
+
+export { getDrive, isDriveLiveHere } from "@/lib/local/drive-registry";
+export { measureDrive } from "@/lib/local/drive-measure";
 
 export type {
   DriveInput,
@@ -73,60 +95,13 @@ export function nextDriveStep(m: DriveMeasurement, prev: DriveMeasurement | null
   return { action: "run", repos: m.remaining };
 }
 
-/** Score the fleet for a set of repos from their LATEST persisted scans — the same read the
- *  projects door and the fleet colours use, restricted to the drive's scope. */
-export async function measureDrive(orgSlug: string, repos: readonly string[]): Promise<DriveMeasurement> {
-  const rollup = await getOrgRollup(orgSlug);
-  const dimsByRepo = new Map<string, { dimId: string; score: number; signalScore?: number; llmScore?: number }[]>();
-  // Dimensions the repo's LATEST reading could not measure — D2/D3/D4 when that reading was a local
-  // scan with no GitHub-side fold to carry. Demanding L5 on them would set the drive an impossible
-  // target and spend its whole rope proving it, which is the failure `dry`/`ceiling` exist to avoid.
-  const unmeasurableByRepo = new Map<string, string[]>();
-  for (const r of rollup?.repos ?? []) {
-    if (!r.latest) continue;
-    dimsByRepo.set(r.fullName, r.latest.dims);
-    if (r.latest.unmeasurableDims?.length) unmeasurableByRepo.set(r.fullName, r.latest.unmeasurableDims);
-  }
-  const perRepo = repos.map((name) => repoGreenness(name, dimsByRepo.get(name) ?? [], unmeasurableByRepo.get(name) ?? []));
-  const fleet = fleetGreenness(perRepo);
-  return {
-    debt: fleet.totalDebt,
-    green: fleet.green,
-    greenCount: fleet.greenCount,
-    inScope: perRepo.length,
-    remaining: fleet.remaining.filter((r) => !r.unscanned).map((r) => r.fullName),
-    unscanned: perRepo.filter((r) => r.unscanned).map((r) => r.fullName),
-    // Carried so the cockpit can SAY which dimensions the verdict was reached without. A green light
-    // standing on six dimensions is a different claim from one standing on nine, and a drive that
-    // stops without disclosing the difference is the same silence this whole change removes.
-    notMeasurable: perRepo
-      .filter((r) => r.unmeasurable.length > 0)
-      .map((r) => ({ repo: r.fullName, dims: r.unmeasurable })),
-  };
-}
-
 // ── the registry ─────────────────────────────────────────────────────────────────────────────────
 
-// On globalThis for the same reason loop-engine's `live` is: one registry per process, not per
-// route chunk, so a status read from any route sees the drive another route started.
-const DRIVES_KEY = "__ascentDrives" as const;
-const drives: Map<string, DriveStatus> = ((globalThis as unknown as Record<string, unknown>)[DRIVES_KEY] ??=
-  new Map<string, DriveStatus>()) as Map<string, DriveStatus>;
+// The registry itself lives in `drive-registry.ts` (one process-wide Map on globalThis), shared with
+// the standing runner's control surface; `getDrive` and `isDriveLiveHere` are re-exported above.
 
 const nowIso = () => new Date().toISOString();
 const driveId = () => `drive_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-
-/** Is THIS process pulling that drive? The predicate the stale-drive sweep needs, and the reason a
- *  reconcile from a request path cannot end the drive that request is rendering. */
-export function isDriveLiveHere(id: string): boolean {
-  const d = drives.get(id);
-  return d != null && d.endedAt == null && d.phase === "running";
-}
-
-/** The in-memory drive, when this process owns it. Synchronous, for the stop path. */
-export function getDrive(id: string): DriveStatus | null {
-  return drives.get(id) ?? null;
-}
 
 /** The drive, wherever it lives: this process first (it is the fresher copy while pulling), else the
  *  row a previous process left behind. */
@@ -181,6 +156,7 @@ export async function startDrive(input: DriveInput): Promise<DriveStatus> {
   // a drive that changed model between runs would make its own debt-before/after ledger a comparison
   // of two setups rather than of two states of the fleet.
   const agent = resolveAgentConfig({ model: input.model, effort: input.effort });
+  if (input.mode === "continuous") return startRunner(input, org, scope, agent);
   const maxRuns = Math.min(DRIVE_MAX_RUNS_CAP, Math.max(1, input.maxRuns ?? DRIVE_DEFAULT_MAX_RUNS));
   const runsBefore = Math.max(0, Math.trunc(input.runsBefore ?? 0));
   if (runsBefore >= maxRuns) throw new Error("This drive's run budget is already spent — raise it to drive again.");
@@ -206,6 +182,8 @@ export async function startDrive(input: DriveInput): Promise<DriveStatus> {
     endedAt: null,
     error: null,
     stopRequested: false,
+    // Present only when the operator set dials, so a drive without them is the object it always was.
+    ...(input.dials ? { dials: input.dials } : {}),
   };
   drives.set(status.id, status);
   await createDriveRow(status, input.actor ?? null);
@@ -215,6 +193,55 @@ export async function startDrive(input: DriveInput): Promise<DriveStatus> {
     status.endedAt = nowIso();
     await saveDriveRow(status);
   });
+  return status;
+}
+
+/**
+ * Arm the STANDING RUNNER — a continuous drive. No rope (`maxRuns` is stored as 0 = no cap), one
+ * delivery (`runner`), a daily spend ceiling, and a fresh per-repo state. The driver is `runner.ts`.
+ */
+async function startRunner(
+  input: DriveInput,
+  org: string,
+  scope: string[],
+  agent: { model: string | null; effort: string | null },
+): Promise<DriveStatus> {
+  const spendCeilingMicros = spendCeilingMicrosFrom(input.spendCeilingUsd);
+  // Checked here as well as at the route: a sanity bound (the column is a BIGINT), so a typo with
+  // three extra zeros is refused rather than silently read as "no ceiling worth the name".
+  if (spendCeilingMicros != null && spendCeilingMicros > SPEND_CEILING_STORABLE_MAX_MICROS) {
+    throw new Error("That daily spend ceiling is larger than the $1,000,000 sanity bound.");
+  }
+  const status: DriveStatus = {
+    id: driveId(),
+    org,
+    phase: "running",
+    repos: scope,
+    maxRuns: 0,
+    maxCycles: input.maxCycles ?? 3,
+    concurrency: input.concurrency ?? 2,
+    runs: [],
+    measurement: null,
+    runsBefore: 0,
+    resumedFrom: input.resumedFrom ?? null,
+    model: agent.model,
+    effort: agent.effort,
+    delivery: "runner",
+    startedAt: nowIso(),
+    endedAt: null,
+    error: null,
+    stopRequested: false,
+    mode: "continuous",
+    pausedReason: null,
+    pausedUntil: null,
+    spendCeilingMicros,
+    repoState: scope.map((repo) => freshRepoState(repo)),
+    dials: input.dials ?? null,
+    lastBeatAt: null,
+  };
+  drives.set(status.id, status);
+  await createDriveRow(status, input.actor ?? null);
+  launchRunner(status, input.actor ?? null);
   return status;
 }
 
@@ -324,6 +351,10 @@ async function drive(st: DriveStatus, actor: string | null): Promise<void> {
       model: picked.model ?? st.model,
       effort: st.effort,
       delivery: st.delivery ?? null,
+      // THE DIALS the operator armed the drive with — batch, session ceiling, guard, its timeout,
+      // cadence, model policy. Only the ones set are spread, so a drive without dials arms each run
+      // with exactly the input it always did.
+      ...dialRunInput(st.dials),
       actor,
     });
     // THE SWITCH SHOWS ITS EVIDENCE (`PRIYA-L1-705`). Until this the substitution reached the

@@ -8,8 +8,16 @@
 // to sit above both of them. The fetch, the debounce, the stale-response guard and the pruning are
 // unchanged; only their address moved.
 //
-// KEYED BY THE SELECTION THEY WERE FETCHED FOR, so a stale response can never be read against a
-// selection it does not describe (and an emptied selection needs no state write at all).
+// KEYED BY WHAT THEY WERE FETCHED FOR — the selection, the batch-size dial and the run EPOCH — so a
+// stale response can never be read against a request it does not describe (and an emptied selection
+// needs no state write at all).
+//
+// THE RUN EPOCH (2026-09-18). The batch used to be fetched only when the selection changed, so once a
+// run started the ledger kept offering the items that run had just CLAIMED (now `in_progress`) as
+// tickable, and after it settled it kept offering ids the rescan had re-minted. The epoch changes when
+// a run starts and when it settles; each change refetches and drops the pruning, which named items of
+// a batch that no longer exists. A plain selection change keeps the pruning: the ids of the repos
+// still selected are the same ids.
 
 import { useEffect, useMemo, useState } from "react";
 import { proposalDimensions, sharedDimensions, type SharedDimensions } from "./cockpitDimensions";
@@ -17,6 +25,7 @@ import type { LoopProposal } from "./loopTypes";
 
 /** A lasso drags through dozens of intermediate selections; only the one it settles on is queried. */
 const PROPOSE_DEBOUNCE_MS = 350;
+const NONE: ReadonlySet<string> = new Set();
 
 export interface ProposalBatch {
   /** The selection, sorted — the repos the proposals were fetched for. */
@@ -40,17 +49,23 @@ export interface ProposalBatch {
 export function useProposalBatch(input: {
   selected: ReadonlySet<string>;
   paired: ReadonlySet<string>;
-  propose: (repos: readonly string[]) => Promise<LoopProposal[] | null>;
+  propose: (repos: readonly string[], batchSize?: number) => Promise<LoopProposal[] | null>;
   /** Work only follow-ups on this dimension; null = all of them. */
   dimFocus: string | null;
+  /** The run-setup dial: the batch is sized exactly as the engine will size the lane. */
+  batchSize?: number;
+  /** Changes when a run starts or settles (see the header). */
+  epoch?: string;
 }): ProposalBatch {
-  const { selected, paired, propose, dimFocus } = input;
+  const { selected, paired, propose, dimFocus, batchSize, epoch = "" } = input;
   const [fetched, setFetched] = useState<{ key: string; proposals: LoopProposal[] }>({ key: "", proposals: [] });
   const [loading, setLoading] = useState(false);
-  const [pruned, setPruned] = useState<ReadonlySet<string>>(() => new Set());
+  // Pruning is keyed by the epoch it was made in — a new epoch reads as none, with no effect to reset it.
+  const [pruning, setPruning] = useState<{ epoch: string; ids: ReadonlySet<string> }>({ epoch: "", ids: NONE });
+  const pruned = pruning.epoch === epoch ? pruning.ids : NONE;
 
   const repos = useMemo(() => [...selected].sort(), [selected]);
-  const key = repos.join(",");
+  const key = `${repos.join(",")}#${batchSize ?? ""}#${epoch}`;
   const proposals = useMemo(() => (fetched.key === key ? fetched.proposals : []), [fetched, key]);
 
   useEffect(() => {
@@ -58,7 +73,7 @@ export function useProposalBatch(input: {
     let alive = true;
     const t = setTimeout(() => {
       setLoading(true);
-      void propose(repos).then((res) => {
+      void propose(repos, batchSize).then((res) => {
         if (!alive) return;
         setFetched({ key, proposals: res ?? [] });
         setLoading(false);
@@ -68,7 +83,8 @@ export function useProposalBatch(input: {
       alive = false;
       clearTimeout(t);
     };
-    // `key` is the stable identity of the selection; `repos` is a fresh array every render.
+    // `key` is the stable identity of the request (selection · dial · epoch); `repos` is a fresh
+    // array every render and `batchSize` is already inside `key`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, propose]);
 
@@ -93,11 +109,11 @@ export function useProposalBatch(input: {
     loading,
     pruned,
     togglePrune: (id) =>
-      setPruned((prev) => {
-        const next = new Set(prev);
+      setPruning((prev) => {
+        const next = new Set(prev.epoch === epoch ? prev.ids : NONE);
         if (next.has(id)) next.delete(id);
         else next.add(id);
-        return next;
+        return { epoch, ids: next };
       }),
     unpaired,
     runnable,

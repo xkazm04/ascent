@@ -5,12 +5,14 @@
 // nested ternary buried in a layout; the order IS the doctrine:
 //
 //   1. a live DRIVE outranks everything — while it pulls, "is debt falling and how much rope is left"
-//      is the only question, and its own runs come and go underneath it;
+//      is the only question, and its own runs come and go underneath it. A live STANDING RUNNER is a
+//      drive too (a `continuous` one), and `CockpitDrivePanel` hands it to the runner panel;
 //   2. a live single run;
 //   3. a setup block naming the one thing missing before anything can be dispatched;
 //   4. otherwise the inspector — with an INTERRUPTED drive's resume offer as a banner above it, not
 //      in place of it: a drive a restart orphaned is a standing offer, and the operator is equally
-//      entitled to ignore it and select a different scope.
+//      entitled to ignore it and select a different scope. An interrupted RUNNER gets its own banner,
+//      because the drive banner's words are about rope and a runner has none.
 //
 // THERE IS NO OUTCOME PANEL (wave-2). A settled run's outcome is the full-width SHEET under the grid
 // (`OutcomeSection`), and a settled DRIVE's verdict banner rides above it there. The rail keeps the
@@ -20,12 +22,14 @@
 import { CockpitDrivePanel } from "./CockpitDrivePanel";
 import { CockpitDriveResume } from "./CockpitDriveResume";
 import { CockpitInspector } from "./CockpitInspector";
+import { CockpitRunnerResume } from "./CockpitRunnerResume";
 import { CockpitRunPanel } from "./CockpitRunPanel";
 import { CockpitSetup, type CockpitSetupState } from "./CockpitSetup";
 import type { StartDriveInput } from "./driveClient";
 import type { DriveStatus } from "./driveTypes";
 import type { StartLoopInput } from "./loopClient";
 import type { CockpitMode, LoopRunDetail } from "./loopTypes";
+import { isRunner } from "./runnerModel";
 import type { ProposalBatch } from "./useProposalBatch";
 import type { RunDials } from "./useRunDials";
 
@@ -55,15 +59,19 @@ export interface CockpitRailProps {
   driveError: string | null;
   onRun: (input: StartLoopInput) => void;
   onDrive: (input: StartDriveInput) => void;
+  /** Open the setup dialog in standing-runner mode (the inspector's third CTA). */
+  onOpenRunner?: () => void;
   onStopRun: () => void;
   onStopDrive: () => void;
   onResumeDrive: () => void;
   onDismissDrive: () => void;
   onRetryLane: (laneId: string) => void;
+  /** Lift one repo's pause on the live runner. */
+  onResumeRepo?: (repo: string) => void;
 }
 
 export function CockpitRail(props: CockpitRailProps) {
-  const { mode, setup, liveDrive, runDetail, runLive } = props;
+  const { mode, setup, liveDrive, runDetail, runLive, interruptedDrive } = props;
 
   if (liveDrive) {
     return (
@@ -71,6 +79,7 @@ export function CockpitRail(props: CockpitRailProps) {
         drive={liveDrive}
         runDetail={runDetail}
         onStop={props.onStopDrive}
+        onResumeRepo={props.onResumeRepo}
         busy={props.busy}
         error={props.driveError}
       />
@@ -89,11 +98,12 @@ export function CockpitRail(props: CockpitRailProps) {
     );
   }
   if (setup) return <CockpitSetup state={setup} slug={props.slug} message={props.setupMessage ?? props.loopError} />;
+  const Banner = isRunner(interruptedDrive) ? CockpitRunnerResume : CockpitDriveResume;
   return (
     <>
-      {props.interruptedDrive && (
-        <CockpitDriveResume
-          drive={props.interruptedDrive}
+      {interruptedDrive && (
+        <Banner
+          drive={interruptedDrive}
           onResume={props.onResumeDrive}
           onDismiss={props.onDismissDrive}
           busy={props.busy}
@@ -105,11 +115,12 @@ export function CockpitRail(props: CockpitRailProps) {
         dials={props.dials}
         onRun={props.onRun}
         onDrive={props.onDrive}
+        onOpenRunner={props.onOpenRunner}
         canRun={props.canRun}
         busy={props.busy}
         // The interrupted banner already owns the drive error; showing it twice would read as two
         // failures.
-        error={props.interruptedDrive ? null : props.driveError}
+        error={interruptedDrive ? null : props.driveError}
       />
     </>
   );

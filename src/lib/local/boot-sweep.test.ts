@@ -32,6 +32,10 @@ vi.mock("@/lib/db/drives", () => ({
     calls.push("drives");
     return 1;
   }),
+  // No standing runner to re-attach in these fixtures — that path has its own file
+  // (boot-sweep.runner.test.ts).
+  listRunnerDrivesToResume: vi.fn(async () => []),
+  markDriveInterrupted: vi.fn(async () => true),
 }));
 vi.mock("@/lib/db/org-local", () => ({ getRepoLocalPath: vi.fn(async () => "/paired/acme/api") }));
 vi.mock("@/lib/local/loop-worktree", () => ({
@@ -58,7 +62,7 @@ describe("sweepInterruptedWork", () => {
     // The ORDER is the contract. `markStaleRunsStopped` is what makes these runs stopped, so reading
     // their lanes afterwards would find nothing distinguishing them from a run that errored last week.
     expect(calls).toEqual(["lanes", "runs", "drives", "worktrees"]);
-    expect(r).toEqual({ skipped: false, runs: 2, drives: 1, worktrees: 1 });
+    expect(r).toEqual({ skipped: false, runs: 2, drives: 1, worktrees: 1, resumed: 0 });
   });
 
   it("hands the filesystem sweep exactly the lanes whose runs it just stopped", async () => {
@@ -68,7 +72,7 @@ describe("sweepInterruptedWork", () => {
 
   it("does not sweep a managed deployment — one instance cannot speak for the others", async () => {
     env.selfHosted = false;
-    expect(await sweepInterruptedWork()).toEqual({ skipped: true, runs: 0, drives: 0, worktrees: 0 });
+    expect(await sweepInterruptedWork()).toEqual({ skipped: true, runs: 0, drives: 0, worktrees: 0, resumed: 0 });
     expect(calls).toEqual([]);
   });
 
@@ -81,23 +85,23 @@ describe("sweepInterruptedWork", () => {
   it("runs once per process — a hot reload re-entering register() sweeps nothing twice", async () => {
     await sweepInterruptedWork();
     const second = await sweepInterruptedWork();
-    expect(second).toEqual({ skipped: true, runs: 0, drives: 0, worktrees: 0 });
+    expect(second).toEqual({ skipped: true, runs: 0, drives: 0, worktrees: 0, resumed: 0 });
     expect(calls).toEqual(["lanes", "runs", "drives", "worktrees"]);
   });
 });
 
 describe("bootSweepLine", () => {
   it("says nothing on a clean boot — a line every start trains the operator to ignore it", () => {
-    expect(bootSweepLine({ skipped: false, runs: 0, drives: 0, worktrees: 0 })).toBeNull();
-    expect(bootSweepLine({ skipped: true, runs: 0, drives: 0, worktrees: 0 })).toBeNull();
+    expect(bootSweepLine({ skipped: false, runs: 0, drives: 0, worktrees: 0, resumed: 0 })).toBeNull();
+    expect(bootSweepLine({ skipped: true, runs: 0, drives: 0, worktrees: 0, resumed: 0 })).toBeNull();
   });
 
   it("names every half, singular and plural, when there was something to reconcile", () => {
-    expect(bootSweepLine({ skipped: false, runs: 1, drives: 0, worktrees: 0 })).toContain("1 loop run stopped");
-    expect(bootSweepLine({ skipped: false, runs: 2, drives: 1, worktrees: 0 })).toContain(
+    expect(bootSweepLine({ skipped: false, runs: 1, drives: 0, worktrees: 0, resumed: 0 })).toContain("1 loop run stopped");
+    expect(bootSweepLine({ skipped: false, runs: 2, drives: 1, worktrees: 0, resumed: 0 })).toContain(
       "2 loop runs stopped, 1 drive marked interrupted",
     );
-    expect(bootSweepLine({ skipped: false, runs: 1, drives: 0, worktrees: 3 })).toContain("3 stranded worktrees removed");
-    expect(bootSweepLine({ skipped: false, runs: 0, drives: 0, worktrees: 1 })).toContain("1 stranded worktree removed");
+    expect(bootSweepLine({ skipped: false, runs: 1, drives: 0, worktrees: 3, resumed: 0 })).toContain("3 stranded worktrees removed");
+    expect(bootSweepLine({ skipped: false, runs: 0, drives: 0, worktrees: 1, resumed: 0 })).toContain("1 stranded worktree removed");
   });
 });

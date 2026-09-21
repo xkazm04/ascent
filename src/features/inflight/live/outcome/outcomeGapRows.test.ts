@@ -39,7 +39,9 @@ const outcome = (o: Partial<LoopLaneOutcome> & { lane: LoopLaneRecord }): LoopLa
 describe("buildGapRows — one state per row", () => {
   it("marks a claim covered by commits and an attributable pair `committed`", () => {
     const rows = buildGapRows([outcome({ lane: lane({}), deliverables: [closedRow] })]);
-    expect(rows).toEqual([{ ...closedRow, state: "committed", laneId: "l1" }]);
+    // `identity` is the covered follow-up's durable key (dimension + normalized title) — see
+    // outcomeGapRows.identity.test.ts for why the id alone is not one.
+    expect(rows).toEqual([{ ...closedRow, state: "committed", laneId: "l1", identity: "rec|D2|add a coverage gate to ci" }]);
   });
 
   it("marks a claim `committed` on its closed id even when the pair's movement was refused", () => {

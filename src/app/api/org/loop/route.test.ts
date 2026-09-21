@@ -341,6 +341,51 @@ describe("POST { action: 'start' }", () => {
     }
   });
 
+  // PLAN MODE — the field whose absence made a split arm mean something other than what it said.
+  //
+  // An arm may name a different transport and model for its planning half, and that half is spawned
+  // by the planning session and nothing else. This route did not accept `planMode`, so a
+  // "Claude plans, a local model executes" arm armed through this door ran the local model for BOTH
+  // halves and recorded `planModel: null` — the configuration the arms feature exists for was
+  // unreachable here, while looking exactly like it had worked. Found by running one and reading the
+  // lane row (2026-09-21), which is why these assertions are about what reaches `startLoopRun`
+  // rather than about the response.
+  describe("planMode", () => {
+    it("reaches startLoopRun as 'on', so a split arm's planning half is actually spawned", async () => {
+      vi.mocked(startLoopRun).mockClear();
+      await post({
+        action: "start",
+        org: "acme",
+        repos: ["acme/web"],
+        planMode: "on",
+        armPolicy: "single",
+        arms: [{ id: "split", transport: "claude", model: "qwen3.8:27b-64k", plan: { transport: "claude", model: "sonnet" } }],
+      });
+      expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).toMatchObject({ planMode: "on" });
+    });
+
+    it("is NULL when the caller named none — every manual run before this field planned nothing", async () => {
+      vi.mocked(startLoopRun).mockClear();
+      await post({ action: "start", org: "acme", repos: ["acme/web"] });
+      expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).toMatchObject({ planMode: null });
+    });
+
+    it("is null for an explicit 'off', which is the same run every caller before it got", async () => {
+      vi.mocked(startLoopRun).mockClear();
+      await post({ action: "start", org: "acme", repos: ["acme/web"], planMode: "off" });
+      expect(vi.mocked(startLoopRun).mock.calls.at(-1)![0]).toMatchObject({ planMode: null });
+    });
+
+    it("REFUSES a value it does not know rather than silently not planning", async () => {
+      // "off" by accident is a different run for a split arm — it collapses both halves onto the
+      // executing transport — so a typo must not be read as a decision.
+      for (const planMode of ["yes", "true", 1, "ON "]) {
+        const res = await post({ action: "start", org: "acme", repos: ["a/b"], planMode });
+        expect(res.status, `accepted ${JSON.stringify(planMode)}`).toBe(400);
+      }
+    });
+  });
+
   it("passes the dials through when they are in band, and NULL when the caller named none", async () => {
     vi.mocked(startLoopRun).mockClear();
     await post({ action: "start", org: "acme", repos: ["acme/web"], batchSize: 10, agentTimeoutMs: 2_700_000, verifyMode: "off" });

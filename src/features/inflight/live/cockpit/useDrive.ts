@@ -1,13 +1,16 @@
 "use client";
 
 // The cockpit's DRIVE state machine — the layer above useLoopRun. It owns one drive at a time (the
-// server allows exactly one per org) and the two actions there are: start, stop.
+// server allows exactly one per org) and the actions there are: start, stop, resume, and — for the
+// standing runner — lift one repo's pause.
 //
-// POLL DISCIPLINE, the same contract as useLoopRun and useShipLoop: no idle timer. A tick is armed
-// only while a drive is actually live AND the tab is foregrounded. It costs one more request than the
-// loop's poll, but a drive spends MINUTES between measurements, so it ticks four times slower — the
-// interesting per-second detail during a drive is the running lane, and useLoopRun is already
-// fetching that.
+// POLL DISCIPLINE, the same contract as useLoopRun: no idle timer. The poll is a `setTimeout` CHAIN
+// (`usePollChain`), armed only while a drive is live AND the tab is foregrounded (`useIsVisible`), and
+// every read — the chain's and the one an action asks for — goes through one serial ticker, so a slow
+// status read delays the next rather than racing it. It ticks four times slower than the loop's poll:
+// a drive spends MINUTES between measurements, and the per-second detail is the running lane, which
+// useLoopRun already fetches. A STANDING RUNNER is live while `paused` or `idle` too (`isDriveLive`) —
+// it is waiting, not over — so the poll keeps running through a pause and sees it lift.
 //
 // GATING. `enabled` is the cockpit's own can-run predicate (self-hosted + autopilot + owner + paired).
 // When it is false there is no mount tick at all: on managed cloud the route 404s by design, and a
@@ -18,8 +21,10 @@
 // final DriveStatus — the one carrying the terminal phase — is handed up exactly once.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchDriveStatus, resumeDrive, startDrive, stopDrive, type StartDriveInput } from "./driveClient";
+import { useIsVisible } from "../useIsVisible";
+import { fetchDriveStatus, resumeDrive, resumeRunnerRepo, startDrive, stopDrive, type StartDriveInput } from "./driveClient";
 import { isDriveLive, type DriveStatus } from "./driveTypes";
+import { usePollChain } from "./usePollChain";
 
 const POLL_MS = 12_000;
 
@@ -31,12 +36,15 @@ export interface UseDriveInput {
   onSettled?: (drive: DriveStatus) => void;
 }
 
+const isLive = (d: DriveStatus | null | undefined): boolean => d != null && d.endedAt == null && isDriveLive(d.phase);
+
 export function useDrive({ slug, enabled, onSettled }: UseDriveInput) {
   const [drive, setDrive] = useState<DriveStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const live = drive != null && drive.endedAt == null && isDriveLive(drive.phase);
+  const live = isLive(drive);
+  const visible = useIsVisible();
 
   const settledRef = useRef(onSettled);
   useEffect(() => {
@@ -45,18 +53,9 @@ export function useDrive({ slug, enabled, onSettled }: UseDriveInput) {
   // The id we last saw live — the thing whose termination means "it finished".
   const lastLiveId = useRef<string | null>(null);
 
-  const [visible, setVisible] = useState(true);
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const sync = () => setVisible(document.visibilityState !== "hidden");
-    sync();
-    document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
-  }, []);
-
   const adopt = useCallback((next: DriveStatus | null) => {
     setDrive(next);
-    if (next && next.endedAt == null && isDriveLive(next.phase)) {
+    if (next && isLive(next)) {
       lastLiveId.current = next.id;
     } else if (next && lastLiveId.current === next.id) {
       lastLiveId.current = null;
@@ -64,11 +63,11 @@ export function useDrive({ slug, enabled, onSettled }: UseDriveInput) {
     }
   }, []);
 
-  const tick = useCallback(async () => {
+  const read = useCallback(async () => {
     try {
       const status = await fetchDriveStatus(slug);
       // listDrives is newest-first; a live one always wins, else keep tracking the one we know.
-      const running = status.drives.find((d) => d.endedAt == null && isDriveLive(d.phase)) ?? null;
+      const running = status.drives.find(isLive) ?? null;
       const tracked = lastLiveId.current ? status.drives.find((d) => d.id === lastLiveId.current) ?? null : null;
       adopt(running ?? tracked ?? status.drives[0] ?? null);
       setError(null);
@@ -77,18 +76,17 @@ export function useDrive({ slug, enabled, onSettled }: UseDriveInput) {
     }
   }, [slug, adopt]);
 
-  // One tick on mount (it catches a drive started by curl or in another tab), then an interval ONLY
-  // while one is live and the tab is foregrounded. Both are scheduled from callbacks, so the effect
-  // itself never sets state synchronously.
+  // The chain runs only while a drive is live and the tab is foregrounded; `null` arms nothing.
+  const ticker = usePollChain(read, enabled && live && visible ? POLL_MS : null);
+  const tick = ticker.run;
+
+  // One read on mount (it catches a drive started by curl or in another tab) — scheduled from a
+  // callback, so the effect itself never sets state synchronously.
   useEffect(() => {
     if (!enabled) return;
     const first = setTimeout(() => void tick(), 0);
-    const t = live && visible ? setInterval(() => void tick(), POLL_MS) : null;
-    return () => {
-      clearTimeout(first);
-      if (t) clearInterval(t);
-    };
-  }, [enabled, live, visible, tick]);
+    return () => clearTimeout(first);
+  }, [enabled, tick]);
 
   const guard = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | null> => {
     setBusy(true);
@@ -131,5 +129,15 @@ export function useDrive({ slug, enabled, onSettled }: UseDriveInput) {
     [guard, slug, adopt],
   );
 
-  return { drive, live, error, busy, start, stop, resume, refresh: tick };
+  // Lift one repo's pause on the live runner; the response is the runner with that repo working again.
+  const resumeRepo = useCallback(
+    async (repo: string) => {
+      const res = await guard(() => resumeRunnerRepo(slug, repo));
+      if (res?.drive) adopt(res.drive);
+      return res?.drive ?? null;
+    },
+    [guard, slug, adopt],
+  );
+
+  return { drive, live, error, busy, start, stop, resume, resumeRepo, refresh: tick };
 }

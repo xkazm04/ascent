@@ -9,9 +9,10 @@
 // one click away — and each one now hangs off the label it explains.
 
 import { LOOP_CONCURRENCY_CAP, LOOP_DEFAULT_CONCURRENCY, LOOP_MAX_CYCLES_CAP } from "@/lib/db/loop-runs-types";
-import { AGENT_EFFORTS, AGENT_MODELS } from "@/lib/local/agent-options";
+import { AGENT_EFFORTS } from "@/lib/local/agent-options";
 import { AGENT_TIMEOUT_CAP_MS, AGENT_TIMEOUT_DEFAULT_MS, BATCH_SIZE_CAP, BATCH_SIZE_DEFAULT } from "@/lib/local/run-limits";
 import { ChoiceList, NumberRow, Segmented, SetupRow, type SegmentedOption } from "./RunSetupControls";
+import { ArmsPanel } from "./arms/ArmsPanel";
 import { DRIVE_DEFAULT_MAX_RUNS, DRIVE_MAX_RUNS_CAP } from "./driveTypes";
 import type { RunDials } from "./useRunDials";
 
@@ -23,6 +24,9 @@ export interface SetupSectionProps {
 /** Minute options for a millisecond band, coarse enough to pick from: 5-minute steps. */
 export const minuteSteps = (capMs: number, step = 5): number[] =>
   Array.from({ length: Math.floor(capMs / 60_000 / step) }, (_, i) => (i + 1) * step);
+
+const RESCAN_INFO =
+  "When a multi-cycle run re-reads the repository. “After every cycle” is the default and what every run before this dial did. “Once per run” defers the intermediate cycles' reading to the run's last one, which adjudicates them all — measured at about a sixth of a cycle's time.";
 
 const minuteOptions = (capMs: number, defaultMs?: number): SegmentedOption<number>[] =>
   minuteSteps(capMs).map((m) => ({ value: m, label: `${m} min${defaultMs != null && m === defaultMs / 60_000 ? " — default" : ""}` }));
@@ -42,7 +46,7 @@ export function WorkSection({ dials, onChange, dims }: SetupSectionProps & { dim
     <SetupGroup title="The work">
       <SetupRow
         label="Focus"
-        info="Narrows every lane in this run to follow-ups on ONE dimension. The batch ledger under the sky filters with it, so what you see is what will be dispatched. A drive ignores it: a drive re-picks its own batch before every run."
+        info="Narrows every lane in this run to follow-ups on ONE dimension. The batch ledger under the sky filters with it, so what you see is what will be dispatched. A drive and the standing runner ignore it: each re-picks its own batch before every run."
       >
         <ChoiceList
           ariaLabel="Dimension focus"
@@ -103,17 +107,31 @@ export function SessionSection({ dials, onChange }: SetupSectionProps) {
           options={minuteOptions(AGENT_TIMEOUT_CAP_MS, AGENT_TIMEOUT_DEFAULT_MS)}
         />
       </SetupRow>
-      <SetupRow
-        label="Drive runs"
-        info="The drive's rope: how many runs “Drive to green” may spend before it stops on its own. Inert for a single run — one run is one run."
-      >
-        <NumberRow
-          ariaLabel="Drive runs"
-          testId="setup-max-runs"
-          value={dials.maxRuns}
-          cap={DRIVE_MAX_RUNS_CAP}
-          defaultValue={DRIVE_DEFAULT_MAX_RUNS}
-          onChange={(n) => onChange("maxRuns", n)}
+      {/* The rope only means something to a bounded drive: one run is one run, and a runner has none. */}
+      {dials.mode === "drive" && (
+        <SetupRow label="Drive runs" info="The drive's rope: how many runs “Drive to green” may spend before it stops on its own.">
+          <NumberRow
+            ariaLabel="Drive runs"
+            testId="setup-max-runs"
+            value={dials.maxRuns}
+            cap={DRIVE_MAX_RUNS_CAP}
+            defaultValue={DRIVE_DEFAULT_MAX_RUNS}
+            onChange={(n) => onChange("maxRuns", n)}
+          />
+        </SetupRow>
+      )}
+      {/* Offered in every mode — each of the three start bodies now sends it (a manual run's since
+          2026-09-18), and a dial that silently does nothing is the failure mode this row replaced. */}
+      <SetupRow label="Rescan" info={RESCAN_INFO}>
+        <Segmented
+          ariaLabel="Rescan cadence"
+          testId="setup-rescan"
+          value={dials.rescanCadence}
+          onChange={(v) => onChange("rescanCadence", v)}
+          options={[
+            { value: "cycle", label: "After every cycle" },
+            { value: "run", label: "Once per run" },
+          ]}
         />
       </SetupRow>
     </SetupGroup>
@@ -123,18 +141,21 @@ export function SessionSection({ dials, onChange }: SetupSectionProps) {
 export function AgentSection({ dials, onChange }: SetupSectionProps) {
   return (
     <SetupGroup title="The agent">
-      <SetupRow
-        label="Model"
-        info="“Deployment default” resolves on the server (CLAUDE_MODEL), and what it resolved is recorded on the run and printed on the outcome — so the real default is learned from the ledger, which cannot go stale, rather than from a label in a browser that can."
-      >
-        <Segmented
-          ariaLabel="Agent model"
-          testId="setup-model"
-          value={dials.model ?? ""}
-          onChange={(v) => onChange("model", v || null)}
-          options={[{ value: "", label: "Deployment default" }, ...AGENT_MODELS.map((m) => ({ value: m as string, label: m }))]}
-        />
-      </SetupRow>
+      {/* THE MODEL CONTROL IS GONE (arms, 2026-09-21). It was a closed three-item Claude list, which
+          cannot express a transport, a Claude-plans/local-executes split, or a comparison of four
+          configurations — the three things this feature exists to arm. The panel owns that whole
+          question; the deployment default still applies to a `claude` arm that names no model. */}
+      <ArmsPanel
+        policy={dials.armPolicy}
+        arms={dials.arms}
+        onPolicy={(policy, arms) => {
+          onChange("armPolicy", policy);
+          onChange("arms", arms);
+          onChange("armProbe", "idle");
+        }}
+        onArms={(arms) => onChange("arms", arms)}
+        onPhase={(phase) => onChange("armProbe", phase)}
+      />
       <SetupRow
         label="Effort"
         info="Passed to the CLI as --effort. “Deployment default” sends no flag at all, which is not the same as a default level."

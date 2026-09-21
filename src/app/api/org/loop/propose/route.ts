@@ -1,9 +1,11 @@
-// GET /api/org/loop/propose?org=…&repos=a/b,c/d — the CURATION step's data.
+// GET /api/org/loop/propose?org=…&repos=a/b,c/d[&batchSize=n] — the CURATION step's data.
 //
-// Returns the batch each repo's lane WOULD get if a run started now: the top five open follow-ups by
-// projected points, through the very same `openBatch` the engine calls. That identity is the point —
-// a curation screen built on a second, "equivalent" query would eventually propose a batch the engine
-// then declines to work, and nobody would know which side was wrong.
+// Returns the batch each repo's lane WOULD get if a run started now: the top `batchSize` open
+// follow-ups by projected points (the run-setup dial; default 5), through the very same `openBatch`
+// the engine calls, sized by the very same `batchSizeOf`. That identity is the point — a curation
+// screen built on a second, "equivalent" query would eventually propose a batch the engine then
+// declines to work, and nobody would know which side was wrong. (It used to ignore the dial: an
+// operator who armed a batch of 12 was still shown, and could only curate, five.)
 //
 // It also returns the lane KIND, through the very same `proposeLaneKind` the engine re-runs at arm
 // time, for exactly the same reason. A repo with no `.ai/` foundation leads with a `foundation` lane
@@ -22,6 +24,7 @@ import { getRepoLocalPath } from "@/lib/db";
 import { listDispatchedPractices } from "@/lib/db/loop-runs";
 import { openBatch } from "@/lib/local/loop-lane";
 import { proposeLaneKind } from "@/lib/local/lane-kind";
+import { BATCH_SIZE_CAP, batchSizeOf, normalizeBatchSize } from "@/lib/local/run-limits";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
 import { buildLaneBrief, type LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LoopLaneKind } from "@/lib/db/loop-runs-types";
@@ -74,10 +77,19 @@ export async function GET(request: Request) {
     ),
   ];
   if (repos.length === 0) return NextResponse.json({ error: "Missing 'repos'." }, { status: 400 });
+  // THE BATCH-SIZE DIAL, validated by the SAME normalizer `POST /api/org/loop` uses and with the same
+  // convention: absent = the default, and a value the caller actually SENT that the normalizer does
+  // not recognise is a 400 naming the band — never a silent clamp to a batch nobody asked for. A query
+  // string carries text, so only a plain run of digits becomes a number; "5.5", "1e1" and "" do not.
+  const rawSize = url.searchParams.get("batchSize");
+  const batchSize = rawSize === null ? null : normalizeBatchSize(/^\d+$/.test(rawSize) ? Number(rawSize) : Number.NaN);
+  if (rawSize !== null && batchSize === null) {
+    return NextResponse.json({ error: `batchSize must be a whole number 1–${BATCH_SIZE_CAP}.` }, { status: 400 });
+  }
 
   const proposals: LoopProposal[] = [];
   for (const repo of repos) {
-    const items = await openBatch(org, repo);
+    const items = await openBatch(org, repo, batchSizeOf(batchSize));
     // The lane KIND, from the very same rule the engine re-runs at arm time (loop-engine.ts). A repo
     // with no `.ai/` foundation leads with the foundation lane; a repo whose biggest open gap has a
     // Practice Library starter it is missing leads with that; everything else is the agent lane.

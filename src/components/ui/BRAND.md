@@ -28,6 +28,7 @@ Import everything from `@/components/ui`. Reach for a primitive before hand-roll
 | `--color-danger` / `--color-warn` | `#ef4444` / `#f97316` | error / warning |
 | `--color-success` / `--color-success-soft` | `#10b981` / `#6ee7b7` | success notices + confirm CTAs / success text on dark, CTA hover |
 | `LEVEL_HEX` (`@/lib/ui`) | red→green | level/score color, only |
+| `--color-slate-500` / `--color-slate-600` | `#77879d` / `#64748b` | **re-based** (2026-09-20): the stock shades measured 4.08:1 and 2.56:1 on the canvas, under the 4.5:1 AA floor, and the app writes muted text with them ~1400 times. 500 is the muted-text workhorse (5.30:1); 600 is the de-emphasis floor for marks, ids and placeholders (4.08:1), never paragraphs. Anything darker is a BORDER (`--color-divider`), not text — `src/app/globals.contrast.test.ts` fails the build if that slips. |
 
 `.strata` (altimeter rule-lines), `.focus-ring`, `.animate-fade-up/-meter` remain the shared motion/texture utilities.
 

@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 //
 // The cockpit's poll contract, which is the one piece of it that can burn a laptop if it is wrong:
-//   - a cockpit with nothing running arms NO timer at all;
+//   - a cockpit with nothing running polls only at the slow IDLE-DISCOVERY cadence (one status read
+//     per 20 s) — see useLoopRun.discovery.dom.test.tsx for what that tick finds, and for the
+//     no-overlap and hidden-tab guarantees;
 //   - a live run polls status AND the active run's lanes on the same tick;
 //   - the run FINISHING (the active id disappearing) fetches the final detail exactly once and hands
 //     it up — that final read is what the outcome ledger and the field's drift are both built from.
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useLoopRun } from "./useLoopRun";
+import { IDLE_DISCOVERY_MS, useLoopRun } from "./useLoopRun";
 import type { LoopRunRecord } from "./loopTypes";
 
 const run = (o: Partial<LoopRunRecord> = {}): LoopRunRecord => ({
@@ -65,16 +67,23 @@ afterEach(() => {
 const base = { slug: "acme", initialRuns: [], initialEnabled: true };
 
 describe("useLoopRun", () => {
-  it("ticks once on mount and then arms NO timer while nothing is running", async () => {
+  it("ticks once on mount and then only at the idle-discovery cadence while nothing is running", async () => {
     statuses = [{ enabled: true, active: null, runs: [] }];
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { result } = renderHook(() => useLoopRun({ ...base, initialActive: null }));
     await waitFor(() => expect(calls.length).toBe(1));
     expect(result.current.live).toBe(false);
+    // Nothing at the live cadence: an idle cockpit is not a 3-second poll.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(12_000);
     });
     expect(calls).toHaveLength(1);
+    // One status read per IDLE_DISCOVERY_MS — and only the status: there is no run to read lanes for.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(IDLE_DISCOVERY_MS);
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls.every((c) => c.startsWith("/api/org/loop?"))).toBe(true);
   });
 
   it("polls status AND the active run's detail on every tick while live", async () => {
@@ -108,9 +117,10 @@ describe("useLoopRun", () => {
     await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
     expect(onSettled.mock.calls[0]![0].run.id).toBe("run-1");
 
-    // The timer is gone with the run, so no further tick can settle it a second time.
+    // The live timer is gone with the run, and the idle ticks that follow find nothing to settle:
+    // the finished id was consumed, so no later read can settle it a second time.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(12_000);
+      await vi.advanceTimersByTimeAsync(45_000);
     });
     expect(onSettled).toHaveBeenCalledTimes(1);
   });

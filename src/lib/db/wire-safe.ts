@@ -139,6 +139,17 @@ import type { RepoAdmissionRow } from "@/lib/db/org-admission";
 // forge-installations.ts. Note what the row does NOT carry: `credentialRef`. The wire type has no
 // field for the secret at all, which is a stronger guarantee than redacting one.
 import type { ForgeInstallationRow } from "@/lib/db/forge-installations";
+// Spark theater-upgrade (WP3) — a plan and a direction as the ledger, the approval inbox and the
+// cockpit read them. Declared in the dependency-free runner-types.ts (the browser imports them), built
+// by `toPlanRecord` / `toDirectionRecord` out of Prisma rows whose five `DateTime` columns
+// (`decidedAt`, `approvedAt`, `endedAt`, `createdAt`, `updatedAt`) are all `.toISOString()`-mapped.
+import type { LanePulse, LoopDirectionRecord, LoopPlanRecord, LoopPulse, RunnerPulse } from "@/lib/local/runner-types";
+// The runner-kept lessons the ledger lists (WP5) and the pulse the theater polls (WP4) — every
+// timestamp an ISO string.
+import type { RunnerKeptLessonRow } from "@/lib/db/loop-lessons-runner";
+// The ledger's chronicle row (WP6a) — a LoopRunSummary widened with seq, drive, plan mode and the
+// lanes' verified closes / landing times, all strings, numbers and nulls.
+import type { LoopRunChronicleEntry } from "@/lib/db/loop-runs-read";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -222,6 +233,13 @@ export const WIRE_TYPES = {
   ImprovementEvent: true satisfies WireSafe<ImprovementEvent>,
   LaneOutcomeRow: true satisfies WireSafe<LaneOutcomeRow>,
   LoopLessonRow: true satisfies WireSafe<LoopLessonRow>,
+  LoopPlanRecord: true satisfies WireSafe<LoopPlanRecord>,
+  LoopDirectionRecord: true satisfies WireSafe<LoopDirectionRecord>,
+  RunnerKeptLessonRow: true satisfies WireSafe<RunnerKeptLessonRow>,
+  LoopPulse: true satisfies WireSafe<LoopPulse>,
+  LanePulse: true satisfies WireSafe<LanePulse>,
+  RunnerPulse: true satisfies WireSafe<RunnerPulse>,
+  LoopRunChronicleEntry: true satisfies WireSafe<LoopRunChronicleEntry>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,

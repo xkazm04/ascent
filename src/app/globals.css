@@ -39,6 +39,31 @@
   --color-tone-rising: #84cc16;      /* lime-500 — score moving up */
   --color-tone-falling: #f97316;     /* orange-500 — score moving down (= --color-warn) */
   --color-tone-flat: #94a3b8;        /* slate-400 — holding / within-noise */
+
+  /* ── READABLE MUTED TEXT (2026-09-20) ────────────────────────────────────────────────────────
+     The app is dark-only (#080d1a), and its de-emphasised text is written with the stock slate
+     ramp — `text-slate-500` 1061 times, `text-slate-600` 338 times, for timestamps, ids, units,
+     captions, em-dash placeholders and mono labels. Measured against the canvas, the stock values
+     are BELOW the readable floor:
+
+         slate-600 #475569 → 2.56:1     (WCAG AA needs 4.5:1 for body text, 3:1 for large)
+         slate-500 #64748b → 4.08:1
+         slate-400 #94a3b8 → 7.56:1     (fine — unchanged)
+
+     Re-basing the two shades here fixes every one of those 1399 call sites at once, which is the
+     only honest way to fix a palette problem: a sweep of the utilities would churn 300 files and
+     the next `text-slate-500` anyone types would be unreadable again. Values are chosen to keep the
+     ramp's ORDER intact (600 stays a step under 500, which stays a step under 400), so nothing that
+     relies on the hierarchy inverts — what changes is where the bottom of the ramp sits.
+
+         slate-600 → #64748b = 4.08:1   (exactly the old 500: the de-emphasis step, now legible)
+         slate-500 → #77879d = 5.30:1   (the workhorse muted text, now clear of AA with margin)
+
+     The handful of non-text uses (a meter's threshold line, a 1.5px dot, a bar fill: ~21 sites)
+     move with them and read slightly brighter, which on this canvas is an improvement, not a cost.
+     Anything darker than the ramp's new floor is a BORDER token (`--color-divider`), not text. */
+  --color-slate-600: #64748b;
+  --color-slate-500: #77879d;
 }
 
 /* ── The type scale ───────────────────────────────────────────────────────────────────────────────

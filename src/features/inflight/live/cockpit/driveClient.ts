@@ -3,9 +3,12 @@
 // single most useful thing the panel can say, and a generic failure would throw it away).
 //
 // Same shape and same reasons as loopClient.ts: kept apart from the hook so useDrive is a state
-// machine and nothing else.
+// machine and nothing else. The Ledger's per-repo "Resume" and the cockpit's share `resumeRunnerRepo`
+// here — one door to `action: "resume-repo"`, not two spellings of it.
 
+import type { ArmPolicy } from "@/lib/local/arm";
 import type { LoopDelivery } from "@/lib/local/delivery-options";
+import type { DriveDials, DriveMode } from "@/lib/local/runner-types";
 import type { DriveStatus, DriveStatusPayload } from "./driveTypes";
 
 const ENDPOINT = "/api/org/local/drive";
@@ -32,16 +35,30 @@ async function post<T>(slug: string, body: Record<string, unknown>, fallback: st
 }
 
 export interface StartDriveInput {
-  repos: string[];
-  /** The rope: how many loop runs the drive may spend before it stops at the ceiling. */
-  maxRuns: number;
+  /** Explicit scope. Omitted (the runner's default) = every watched, paired repo, resolved server-side. */
+  repos?: string[];
+  /** The rope: how many loop runs a BOUNDED drive may spend. A runner has none — omit it. */
+  maxRuns?: number;
   maxCycles: number;
   concurrency: number;
   /** Inherited by EVERY run the drive dispatches, so the whole drive is one experiment. */
   model: string | null;
   effort: string | null;
-  /** Inherited the same way, and it survives a resume — see `resumeParams`. */
+  /** Inherited the same way, and it survives a resume — see `resumeParams`. Never sent for a runner:
+   *  the route forces `runner` delivery and refuses any other. */
   delivery?: LoopDelivery;
+  /** The run dials every dispatched run is armed with (`drive-dials.ts` validates them). Both modes. */
+  dials?: DriveDials;
+  /** WHAT EACH DISPATCHED RUN IS ARMED WITH. Sent as plain wire data and validated on the route by
+   *  `normalizeArmSet(arms, armPolicy)` — the same function the cockpit's builder validates against,
+   *  because the way a panel and a validator stop agreeing is two lists. Omitted = the pre-arms
+   *  behaviour: one `claude` arm on `model`/`effort` above. */
+  armPolicy?: ArmPolicy;
+  arms?: Record<string, unknown>[];
+  /** `continuous` arms the standing runner; omitted = a bounded drive. */
+  mode?: DriveMode;
+  /** The runner's daily ceiling in USD; `0` = none. Omitted = the deployment default. */
+  spendCeilingUsd?: number;
 }
 
 export const startDrive = (slug: string, input: StartDriveInput): Promise<{ drive: DriveStatus }> =>
@@ -54,3 +71,8 @@ export const stopDrive = (slug: string, id: string): Promise<{ ok: boolean; driv
  *  response carries a different id from the one asked about — the caller adopts what comes back. */
 export const resumeDrive = (slug: string, id: string): Promise<{ drive: DriveStatus }> =>
   post<{ drive: DriveStatus }>(slug, { action: "resume", id }, "Could not resume the drive");
+
+/** Lift ONE repo's pause on the live standing runner (a failure streak, a branch conflict, a dry
+ *  backoff). The live runner is found by the org; the response is the runner as it now stands. */
+export const resumeRunnerRepo = (slug: string, repo: string): Promise<{ drive: DriveStatus }> =>
+  post<{ drive: DriveStatus }>(slug, { action: "resume-repo", repo }, `Could not resume ${repo}`);

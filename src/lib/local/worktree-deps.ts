@@ -40,7 +40,7 @@
 // not link its dependencies still runs; it simply verifies as `baseline-unavailable` or `skipped` the way it
 // did before this module existed.
 
-import { appendFile, lstat, mkdir, readFile, rm, stat, symlink } from "node:fs/promises";
+import { appendFile, lstat, mkdir, readFile, readlink, rm, rmdir, stat, symlink, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { runGit } from "@/lib/local/git";
 
@@ -187,18 +187,135 @@ export async function linkDependencyDirs(
   return { linked, notes };
 }
 
+// ── REMOVING A LINK, RE-MAKING ONE, AND CLEARING A TREE THE ENGINE INSTALLED ────────────────────
+//
+// Three operations the dependency lane (`lane-deps-install.ts`) and the teardown need, all written to
+// ONE rule: nothing here may ever reach THROUGH a link. A link in a lane worktree points into the
+// operator's real checkout, and every deletion below is shaped so that the worst it can do is remove
+// the link itself. Measured on Windows (Node 24): `fs.unlink` and a non-recursive `fs.rmdir` each
+// remove a junction and leave its target's contents intact; `fs.rm({ recursive: true })` unlinks a
+// junction it meets — at the top or nested — rather than descending into it; and `git worktree remove
+// --force` does NOT: it follows a junction nested inside a real `node_modules` and deletes what it
+// points at. Each of those is pinned by a test in `worktree-deps.links.test.ts`.
+
+/** The one dependency directory the ENGINE ever installs into (`lane-deps-install.ts`). */
+export const ENGINE_INSTALL_DIR = "node_modules";
+
+export interface UnlinkedDependency {
+  /** `removed` — the link is gone, its target untouched; `absent` — nothing was there; `not-a-link` —
+   *  a real directory or file, deliberately left alone; `failed` — it is still a link. */
+  outcome: "removed" | "absent" | "not-a-link" | "failed";
+  /** Where the link pointed (for `relinkDependency`), when it was a link and could be read. */
+  target: string | null;
+}
+
+/** Two removers, neither of which can recurse. `unlink` removes a POSIX symlink and — on Windows — a
+ *  junction or a directory symlink; `rmdir` WITHOUT `recursive` is the fallback for a Windows junction
+ *  a Node build refuses to unlink (EPERM/EISDIR). On POSIX `rmdir` of a symlink is ENOTDIR: harmless. */
+const LINK_REMOVERS: readonly ((path: string) => Promise<void>)[] = [(p) => unlink(p), (p) => rmdir(p)];
+
+/**
+ * Remove ONE dependency link — the link itself, never what it points at. Never throws.
+ *
+ * `lstat` decides, never `stat`: a real directory (or file) under the name is `not-a-link` and is not
+ * touched at all. After each remover the path is `lstat`ed again, so `removed` is observed, not
+ * assumed. The target is read BEFORE removal so a caller can put the same link back.
+ */
+export async function unlinkDependencyLink(worktreeDir: string, name: string = ENGINE_INSTALL_DIR): Promise<UnlinkedDependency> {
+  const path = join(worktreeDir, name);
+  const info = await lstat(path).catch(() => null);
+  if (!info) return { outcome: "absent", target: null };
+  if (!info.isSymbolicLink()) return { outcome: "not-a-link", target: null };
+  const target = await readlink(path).catch(() => null);
+  for (const remove of LINK_REMOVERS) {
+    await remove(path).catch(() => undefined);
+    const after = await lstat(path).catch(() => null);
+    if (!after) return { outcome: "removed", target };
+    if (!after.isSymbolicLink()) return { outcome: "failed", target }; // something else appeared — stop
+  }
+  return { outcome: "failed", target };
+}
+
+/**
+ * Put a dependency link back the way `linkDependencyDirs` makes one — a junction on Windows, a
+ * directory symlink elsewhere. Only onto an EMPTY name (never over anything) and only to a target that
+ * is still a real directory. The ignore conditions `linkDependencyDirs` proves are not re-proven: this
+ * restores a link that existed moments ago in the same worktree, whose ignore rules (and the
+ * `info/exclude` line) are unchanged. Returns whether the link now exists. Never throws.
+ */
+export async function relinkDependency(worktreeDir: string, target: string, name: string = ENGINE_INSTALL_DIR): Promise<boolean> {
+  const link = join(worktreeDir, name);
+  if (await exists(link)) return false;
+  const info = await stat(target).catch(() => null);
+  if (!info?.isDirectory()) return false;
+  return symlink(target, link, LINK_TYPE).then(
+    () => true,
+    () => false,
+  );
+}
+
+/** Is `dir` a LINKED worktree (its own git dir differs from the common one) — never a main checkout? */
+export async function isLinkedWorktree(dir: string): Promise<boolean> {
+  const r = await runGit(dir, ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"]);
+  if (!r.ok) return false;
+  const [gitDir, common] = r.stdout.split(/\r?\n/).map((s) => s.trim().replace(/\\/g, "/").toLowerCase());
+  return Boolean(gitDir && common && gitDir !== common);
+}
+
+/**
+ * Clear every REAL `node_modules` tree in a lane worktree — what an engine install leaves behind — with
+ * Node's recursive remove, which unlinks each link it meets instead of following it. Returns the
+ * repo-relative paths removed. Never throws.
+ *
+ * WHY TEARDOWN NEEDS THIS. Before the engine could install, a lane worktree's `node_modules` was only
+ * ever a link, and `unlinkDependencyDirs` removing it was the whole safety story. An install makes it a
+ * real tree, and a real tree can hold links of its own — a `file:` dependency, a workspace package, a
+ * pnpm store entry — some pointing OUTSIDE the worktree. `git worktree remove --force` follows those
+ * (measured), so the tree has to be gone before git is asked to remove anything.
+ *
+ * Fenced twice: only in a LINKED worktree (a main checkout's own `node_modules` can never be reached
+ * from here), and only paths git itself reports as ignored-and-untracked whose last segment is
+ * `node_modules`.
+ */
+export async function removeInstalledDependencyTrees(worktreeDir: string): Promise<string[]> {
+  if (!(await isLinkedWorktree(worktreeDir))) return [];
+  const listed = await runGit(worktreeDir, ["ls-files", "-o", "-i", "--exclude-standard", "--directory", "-z"]);
+  if (!listed.ok) return [];
+  const removed: string[] = [];
+  for (const entry of listed.stdout.split("\0")) {
+    const rel = entry.replace(/\/+$/, "");
+    const segments = rel.split("/");
+    if (!rel || segments[segments.length - 1] !== ENGINE_INSTALL_DIR) continue;
+    const path = join(worktreeDir, ...segments);
+    const info = await lstat(path).catch(() => null);
+    if (!info) continue;
+    if (info.isSymbolicLink()) {
+      if ((await unlinkDependencyLink(join(worktreeDir, ...segments.slice(0, -1)))).outcome === "removed") removed.push(rel);
+      continue;
+    }
+    if (!info.isDirectory()) continue;
+    const ok = await rm(path, { recursive: true, force: true, maxRetries: 3 }).then(
+      () => true,
+      () => false,
+    );
+    if (ok) removed.push(rel);
+  }
+  return removed;
+}
+
 /**
  * Remove the dependency LINKS from a worktree, without ever following one into the operator's
- * directory. Returns the names removed. Never throws.
+ * directory — then clear any `node_modules` tree the engine installed. Returns the LINK names removed.
+ * Never throws. Called by the teardown (`removeLoopWorktree`, the stranded sweep) immediately before
+ * `git worktree remove --force`.
  *
- * TWO INDEPENDENT GUARANTEES, because this is the one function in the change that could destroy a
- * user's `node_modules`:
- *   • It removes a path ONLY when that path's own `lstat` says it is a link. A real directory in the
- *     worktree — a committed `vendor/`, a `node_modules` some lane genuinely installed — is never
- *     touched here; `git worktree remove` deals with those.
- *   • `fs.rm` is called WITHOUT `recursive`, so there is no code path by which it can walk into the
- *     target. It can only unlink the single entry it was handed. (Verified on Windows: a non-recursive
- *     `rm` on a junction removes the junction and leaves the target's contents intact.)
+ * THE GUARANTEES, because this is the one function that could destroy a user's `node_modules`:
+ *   • A link is removed ONLY when that path's own `lstat` says it is one, and only by the two
+ *     non-recursive removers in `unlinkDependencyLink` — no code path can walk into the target.
+ *   • A real directory under a linkable name — a committed `vendor/` — is never touched here. The one
+ *     exception is a real `node_modules` in a LINKED worktree, which only an engine install (or a
+ *     repository that commits its dependency tree, into a checkout about to be deleted) put there; it
+ *     is cleared by `removeInstalledDependencyTrees` so that git does not follow the links inside it.
  *
  * It takes the full candidate list rather than a record of what was linked, so the boot sweep can
  * clean a STRANDED worktree — one whose lane was hard-killed and whose `LoopWorktree` is long gone.
@@ -209,11 +326,8 @@ export async function unlinkDependencyDirs(
 ): Promise<string[]> {
   const removed: string[] = [];
   for (const name of names) {
-    const link = join(worktreeDir, name);
-    const info = await lstat(link).catch(() => null);
-    if (!info?.isSymbolicLink()) continue;
-    const ok = await rm(link, { force: true }).then(() => true, () => false);
-    if (ok) removed.push(name);
+    if ((await unlinkDependencyLink(worktreeDir, name)).outcome === "removed") removed.push(name);
   }
+  await removeInstalledDependencyTrees(worktreeDir).catch(() => []);
   return removed;
 }

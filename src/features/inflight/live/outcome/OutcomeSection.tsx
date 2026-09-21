@@ -35,6 +35,9 @@ export interface OutcomeSectionProps {
   canReview: boolean;
   onOpen: (id: string) => void;
   onDismissDrive: () => void;
+  /** The page's own instant (the server's render time), so a column's age does not differ between
+   *  the server render and the hydrated one. */
+  nowMs?: number;
 }
 
 export function OutcomeSection(p: OutcomeSectionProps) {
@@ -65,7 +68,8 @@ export function OutcomeSection(p: OutcomeSectionProps) {
   const pending = useMemo(() => pendingLoopProposals(merged).length, [merged]);
   // The agent's per-item account for the run on screen — shown only when the run recorded one, so an
   // empty panel never sits under a full sheet.
-  const itemOutcomes = (p.openedDetail ?? p.liveDetail)?.itemOutcomes ?? [];
+  const onScreen = p.openedDetail ?? p.liveDetail;
+  const itemOutcomes = onScreen?.itemOutcomes ?? [];
   return (
     <section aria-label="Loop outcome" className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-divider pb-2">
@@ -102,9 +106,10 @@ export function OutcomeSection(p: OutcomeSectionProps) {
           onOpen={p.onOpen}
           canReview={p.canReview}
           onReview={onReview}
+          nowMs={p.nowMs}
         />
       )}
-      {itemOutcomes.length > 0 && <CockpitVerdicts outcomes={itemOutcomes} />}
+      {itemOutcomes.length > 0 && <CockpitVerdicts outcomes={itemOutcomes} titles={onScreen?.batchTitles} />}
     </section>
   );
 }

@@ -6,7 +6,13 @@
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
 import { parseStringArray } from "./json-columns";
+// The ARM vocabulary, from the one dependency-free module both the browser and the server hold. Same
+// rule as `delivery-options` below: two declarations of what an arm is would be two arms.
+import { normalizeArmPolicy, normalizeTransport, parseArms, type Arm, type ArmPolicy } from "@/lib/local/arm";
 import { normalizeDelivery, type LoopDelivery } from "@/lib/local/delivery-options";
+// The comparison's report shape, from the committed metric contract. TYPE ONLY: the arithmetic stays
+// where it was declared, and this module only carries the result to a client.
+import type { ComparisonReport } from "@/lib/local/compare-metrics";
 // Both PURE and dependency-free (no `process`, no `node:*`), so the record's shape and the client that
 // renders it share ONE declaration of the vocabulary — the same rule `delivery-options` follows.
 import { normalizeVerifyMode, type VerifyMode } from "@/lib/local/run-limits";
@@ -152,6 +158,7 @@ import type { LaneEconomics } from "@/lib/local/lane-economics";
 // "equivalent" declaration here is how a field silently stops arriving.
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LaneReport } from "@/lib/local/lane-report";
+import type { LaneActivity } from "@/lib/local/runner-types";
 import type { LaneOutcomeRow } from "@/lib/db/lane-outcomes";
 
 /** Lanes in flight at once. 4 local `claude -p` sessions already saturate a developer box. */
@@ -173,7 +180,7 @@ export type LoopRunPhase = "curating" | "running" | "done" | "stopped" | "error"
  *                arms of one experiment, so a cost/lift difference is a MEASUREMENT rather than a
  *                comparison of two runs that differed in a dozen other ways.
  */
-export type LoopModelPolicy = "single" | "ab";
+export type LoopModelPolicy = "single" | "ab" | "compare";
 
 /** HOW A RUN'S WORK IS DELIVERED. Declared in the dependency-free `delivery-options` module (the
  *  cockpit's picker and the route's validator read the same list) and re-exported here so the record
@@ -184,17 +191,29 @@ export type { LoopDelivery };
  *  for the run's shape, and one declaration of what the words mean. */
 export type { VerifyMode, VerifyRung, VerifyVerdict };
 
-export const LOOP_MODEL_POLICIES: readonly LoopModelPolicy[] = ["single", "ab"];
+export const LOOP_MODEL_POLICIES: readonly LoopModelPolicy[] = ["single", "ab", "compare"];
 
-/** A policy from an untrusted string (the column is TEXT, the wire is JSON), else `single`. */
+/**
+ * A policy from an untrusted string (the column is TEXT, the wire is JSON), else `single`.
+ *
+ * `compare` is `ab` GENERALIZED — N arms (2..4) racing one curated batch instead of exactly two
+ * Claude aliases. `ab` is NOT rewritten to it: a row written as `ab` reads back as `ab` forever, so an
+ * existing run replays as the two-model comparison it actually was.
+ */
 export const asModelPolicy = (v: unknown): LoopModelPolicy =>
-  v === "ab" ? "ab" : "single";
+  v === "ab" ? "ab" : v === "compare" ? "compare" : "single";
 
 /** The ONE declared cost source for a lane. A second value would be a second source, which is the
  *  thing the one-source rule exists to forbid — an envelope figure added to an OTLP figure
  *  double-counts the same tokens. See `src/lib/local/lane-economics.ts`. */
 export const LANE_COST_SOURCE = "envelope" as const;
-export type LoopLanePhase = "queued" | "dispatching" | "rescanning" | "done" | "error";
+/**
+ * `void` — THE LANE EDITED THE SURFACE THAT SCORES IT (src/lib/local/lane-gate-diff.ts), so its lift
+ * is excluded from the comparison and `voidReason` says which paths did it. A terminal phase of its
+ * own rather than an `error`: the lane ran fine, and calling it an error would hide it among the
+ * failures instead of reporting it as the outcome it is.
+ */
+export type LoopLanePhase = "queued" | "dispatching" | "rescanning" | "done" | "error" | "void";
 
 /**
  * What a lane DOES, not just which repo it does it to.
@@ -216,7 +235,11 @@ export type LoopLanePhase = "queued" | "dispatching" | "rescanning" | "done" | "
  * Note what a craft lane still is NOT: it moves no score, adds no debt, and closes nothing on the
  * ledger except its own rungs.
  */
-export type LoopLaneKind = "backlog" | "foundation" | "practice" | "craft";
+//
+// `direction` (spark theater-upgrade, 2026-09-18) — an agent lane executing an APPROVED major plan: the
+// operator approved a direction (a fenced, budgeted grant), and this lane runs the plan they read, in a
+// fresh session, with that plan as its fixed tier. Same agent machinery as `backlog`.
+export type LoopLaneKind = "backlog" | "foundation" | "practice" | "craft" | "direction";
 
 /** One repo in a run, with the kind of lane its FIRST cycle was armed for. */
 export interface LoopTarget {
@@ -226,7 +249,20 @@ export interface LoopTarget {
   practiceId: string | null;
 }
 
-export const LANE_KINDS: readonly LoopLaneKind[] = ["backlog", "foundation", "practice", "craft"];
+export const LANE_KINDS: readonly LoopLaneKind[] = ["backlog", "foundation", "practice", "craft", "direction"];
+
+/**
+ * THE BATCH AS OFFERED, before the claim and the plan (spark theater-upgrade, 2026-09-18) — the
+ * "proposed" end of proposed → armed → delivered. Before this the pre-run batch was stored nowhere, so
+ * the ledger could never say what the loop considered and passed over. Counts carry their predicate:
+ * each `excluded` figure is "items of this repo's open list that `openBatch` dropped for this reason".
+ */
+export interface ProposedBatch {
+  items: { id: string; title: string; dimId: string | null; kind: "gap" | "craft"; craftAxis: string | null }[];
+  excluded: { deferred: number; heldByPlan: number; unmeasurable: number; heldByOtherWorker: number };
+  /** True when the operator named the rows by hand (a curated cycle-1 batch). */
+  curated: boolean;
+}
 
 const asKind = (v: unknown): LoopLaneKind =>
   typeof v === "string" && (LANE_KINDS as readonly string[]).includes(v) ? (v as LoopLaneKind) : "backlog";
@@ -273,6 +309,23 @@ export interface LoopRunRecord {
   verifyMode: VerifyMode | null;
   /** Budget for ONE run of the repository's verification command, ms. `null` = 10 minutes. */
   verifyTimeoutMs: number | null;
+  /** The run's STABLE number within its org (#1, #2, …). Null only on a row the backfill never reached. */
+  seq: number | null;
+  /** The drive (bounded or continuous) that dispatched this run; null for a manual run. */
+  driveId: string | null;
+  /** `on` when every lane of this run opened with a read-only planning session; null = off. */
+  planMode: "on" | null;
+  // OPTIONAL for the same reason the lane record's new fields are — see the note there.
+  /** THE ARMS this run is racing (src/lib/local/arm.ts). EMPTY on every run written before arms
+   *  existed — "not recorded", which `model` / `models` above still answer for. Never a fabricated
+   *  single arm: "which transport ran this" is precisely what such a row cannot say. */
+  arms?: Arm[];
+  /** `single` (one arm drives the run) or `compare` (N arms race one batch). Null on a run armed
+   *  before arms existed; `modelPolicy` is then the only reading, and an `ab` row stays `ab`. */
+  armPolicy?: ArmPolicy | null;
+  /** The transport probe taken when this run was armed, verbatim JSON (WP4 owns its shape). Null =
+   *  never probed, which is what every earlier run is — never "the probe found nothing". */
+  probeJson?: string | null;
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -369,6 +422,62 @@ export interface LoopLaneRecord {
   /** ISO. When the current claim lapses; null = no lease held, which for a remote lane means nobody
    *  has claimed into it yet, and is never read as "expired". */
   leaseUntil: string | null;
+
+  // ── THE STANDING RUNNER + THE THEATER (spark theater-upgrade, 2026-09-18). Null on older lanes.
+  /** The LoopPlan this lane planned (or executed, for a `direction` lane). */
+  planId: string | null;
+  /** ISO. The last evidence of life from the lane's agent (a stream event, a worktree change). */
+  heartbeatAt: string | null;
+  /** ISO. When the lane entered its CURRENT phase/stage. */
+  stageAt: string | null;
+  /** ISO. The watchdog's ceiling for this cycle. */
+  deadlineAt: string | null;
+  /** The bounded tail of what the agent did, newest last. Empty on a lane that recorded none. */
+  activity: LaneActivity[];
+  /** The batch as offered, before claim and plan. Null on a lane written before the column. */
+  proposed: ProposedBatch | null;
+  /** The worktree's diff while the agent worked, measured by git. Null = not polled. */
+  diffStat: LaneDiffStat | null;
+  /** ISO. When the lane's branch was delivered into a branch the next lane builds on; null = not landed. */
+  landedAt: string | null;
+
+  // ── WHAT THIS LANE WAS ARMED WITH (spark local-model-lanes, 2026-09-21). `model` above is the
+  // EXECUTING model and is unchanged; these four are the rest of the configuration. Every one is null
+  // on a lane written before them — UNKNOWN, and never defaulted to `claude`, which would be a claim.
+  // OPTIONAL rather than `| null` alone, and deliberately: this record is CONSTRUCTED by fixtures and
+  // by folds in packages that do not own this file, and a required field added under them is a
+  // compile break in somebody else's work rather than a widening of this one. `toLaneRecord` always
+  // writes all four, so a record that came from the store never omits them — an omission means the
+  // value was never measured, which is the same reading as `null` and is what the absent-value
+  // convention asks for.
+  /** The agent CLI that EXECUTED this lane — `claude` | `pi`. Null/absent = unrecorded. */
+  transport?: string | null;
+  /** The run arm this lane is a sample of; what joins a lane back to the arm that produced it. */
+  armId?: string | null;
+  /** The model that PLANNED this lane, when it opened with a planning session. Null = it never
+   *  planned — an absence, never "the same model as the executor". */
+  planModel?: string | null;
+  /** Why this lane is `void`: the paths it committed that score it. Null on every other lane. */
+  voidReason?: string | null;
+
+  // ── WHAT THE PLANNING SESSION SPENT (WP9). The five fields above under MOONSHOT #27 are the
+  // EXECUTING session and keep that meaning exactly; these are the lane's OTHER session. A split
+  // arm spends its Claude tokens here and its local tokens there, and the optimized metric (Claude
+  // tokens per verified point) cannot be computed from a pooled figure — no later read can unpool it.
+  // Null/absent = NOT MEASURED: either the lane never planned, or it ran before these columns. Never
+  // 0, which would be averaged downstream as a free planning session.
+  planInputTokens?: number | null;
+  planOutputTokens?: number | null;
+  planCacheReadTokens?: number | null;
+  planTurns?: number | null;
+  planDurationMs?: number | null;
+}
+
+/** What the worktree poll measured: files changed, lines added, lines removed. */
+export interface LaneDiffStat {
+  files: number;
+  plus: number;
+  minus: number;
 }
 
 /** Who runs a lane's work. A remote lane deliberately carries NO cost envelope: #27's figures come
@@ -450,6 +559,16 @@ export interface LoopRunDetail {
    * which is why every consumer treats it as optional and keeps its own fallbacks.
    */
   batchTitles?: Record<string, { title: string; dimId: string | null }>;
+  /**
+   * THE ARM COMPARISON, for a run whose `armPolicy` is `compare` — built from this run's own lane
+   * rows (`runComparison` in loop-runs-read.ts) against the declared metric contract.
+   *
+   * Null on a `single` run and on a compare run whose lanes carry no arm id: one arm is not a
+   * comparison, and rows that cannot be joined to an arm would pool every arm into one population.
+   * Optional rather than `| null` alone, for the reason `batchTitles` above gives: this record is
+   * constructed by fixtures and by folds in modules that do not own this file.
+   */
+  comparison?: ComparisonReport | null;
 }
 
 
@@ -527,6 +646,12 @@ type RunRow = {
   agentTimeoutMs?: number | null;
   verifyMode?: string | null;
   verifyTimeoutMs?: number | null;
+  seq?: number | null;
+  driveId?: string | null;
+  planMode?: string | null;
+  armsJson?: string | null;
+  armPolicy?: string | null;
+  probeJson?: string | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -575,7 +700,63 @@ type LaneRow = {
   verifyCommand?: string | null;
   verifyNote?: string | null;
   verifyRung?: string | null;
+  planId?: string | null;
+  heartbeatAt?: Date | null;
+  stageAt?: Date | null;
+  deadlineAt?: Date | null;
+  activityJson?: string | null;
+  proposedJson?: string | null;
+  diffStatJson?: string | null;
+  landedAt?: Date | null;
+  transport?: string | null;
+  armId?: string | null;
+  planModel?: string | null;
+  voidReason?: string | null;
+  planInputTokens?: number | null;
+  planOutputTokens?: number | null;
+  planCacheReadTokens?: number | null;
+  planTurns?: number | null;
+  planDurationMs?: number | null;
 };
+
+/** `diffStatJson` → the stat, or null when absent or malformed. */
+export function parseDiffStatColumn(raw: string | null | undefined): LaneDiffStat | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<LaneDiffStat> | null;
+    const ok = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0;
+    return v && ok(v.files) && ok(v.plus) && ok(v.minus) ? { files: v.files, plus: v.plus, minus: v.minus } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `activityJson` → the tail, newest last. Malformed = empty (never a crash in a React tree). */
+export function parseActivityColumn(raw: string | null | undefined): LaneActivity[] {
+  if (!raw) return [];
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.filter(
+      (e): e is LaneActivity =>
+        e != null && typeof e === "object" && typeof (e as LaneActivity).at === "string" && typeof (e as LaneActivity).kind === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** `proposedJson` → the offered batch, or null when absent or malformed. */
+export function parseProposedColumn(raw: string | null | undefined): ProposedBatch | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<ProposedBatch> | null;
+    if (!v || !Array.isArray(v.items) || typeof v.excluded !== "object" || v.excluded == null) return null;
+    return { items: v.items, excluded: v.excluded, curated: v.curated === true } as ProposedBatch;
+  } catch {
+    return null;
+  }
+}
 
 /** `briefJson` → provenance, or null. A malformed column is `null` (unknown), never a crash three
  *  layers up in a React tree — the same posture `parseTargets` takes. */
@@ -644,6 +825,14 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     agentTimeoutMs: row.agentTimeoutMs ?? null,
     verifyMode: normalizeVerifyMode(row.verifyMode),
     verifyTimeoutMs: row.verifyTimeoutMs ?? null,
+    seq: row.seq ?? null,
+    driveId: row.driveId ?? null,
+    // Anything but the explicit "on" is OFF — a stale or hand-written value never turns planning on.
+    planMode: row.planMode === "on" ? "on" : null,
+    // A malformed or absent column yields [] — see `parseArms`. Never a fabricated arm.
+    arms: parseArms(row.armsJson),
+    armPolicy: normalizeArmPolicy(row.armPolicy),
+    probeJson: row.probeJson ?? null,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,
@@ -701,6 +890,29 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     // Same posture: an unreadable rung is `null` ("we do not know which command this verdict is
     // about"), which is what every lane written before the ladder genuinely carries.
     verifyRung: asVerifyRung(row.verifyRung),
+    // Liveness crosses as ISO STRINGS, never Dates (the wire-safe rule).
+    planId: row.planId ?? null,
+    heartbeatAt: row.heartbeatAt ? row.heartbeatAt.toISOString() : null,
+    stageAt: row.stageAt ? row.stageAt.toISOString() : null,
+    deadlineAt: row.deadlineAt ? row.deadlineAt.toISOString() : null,
+    activity: parseActivityColumn(row.activityJson),
+    proposed: parseProposedColumn(row.proposedJson),
+    diffStat: parseDiffStatColumn(row.diffStatJson),
+    landedAt: row.landedAt ? row.landedAt.toISOString() : null,
+    // `?? null` per field, and the transport is NOT floored to "claude": a lane that did not record
+    // one ran before transports existed, and naming one would be a claim about it.
+    transport: normalizeTransport(row.transport),
+    armId: row.armId ?? null,
+    planModel: row.planModel ?? null,
+    voidReason: row.voidReason ?? null,
+    // The PLANNING session's half, `?? null` per field for the same reason the executing half is:
+    // a column the row does not carry is UNMEASURED, and the fold that prices a verified point has
+    // to tell that apart from a planning session that was free.
+    planInputTokens: row.planInputTokens ?? null,
+    planOutputTokens: row.planOutputTokens ?? null,
+    planCacheReadTokens: row.planCacheReadTokens ?? null,
+    planTurns: row.planTurns ?? null,
+    planDurationMs: row.planDurationMs ?? null,
   };
 }
 

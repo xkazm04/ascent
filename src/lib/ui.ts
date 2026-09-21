@@ -203,11 +203,15 @@ export const EFFORT_CLASS: Record<string, string> = {
   high: "bg-red-500/15 text-red-300 border-red-500/30",
 };
 
-export function timeAgo(iso?: string): string {
+export function timeAgo(iso?: string, nowMs?: number): string {
   if (!iso) return "unknown";
   const d = new Date(iso).getTime();
   if (Number.isNaN(d)) return "unknown";
-  const days = Math.floor((Date.now() - d) / 86_400_000);
+  // `nowMs` is for anything rendered on the server AND hydrated on the client: both passes must
+  // measure from the SAME instant or the two renders disagree across a day boundary ("19d ago" on
+  // the server, "18d ago" in the browser) and React throws a hydration mismatch — measured on the
+  // cockpit's outcome sheet, 2026-09-20. Omit it only where the caller renders in one place.
+  const days = Math.floor(((nowMs ?? Date.now()) - d) / 86_400_000);
   if (days <= 0) return "today";
   if (days === 1) return "yesterday";
   if (days < 30) return `${days}d ago`;

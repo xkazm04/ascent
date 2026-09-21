@@ -3,7 +3,8 @@
 // The drive control's states, in the order an operator meets them:
 //   - just started: no run measured yet, so it says it is measuring rather than claiming 0% progress;
 //   - pulling: run counter against the cap, falling debt, the in-flight run's own lane count, Stop;
-//   - stop pressed: the button says it will finish this run first, and cannot be pressed twice;
+//   - stop pressed: the button says it stops the drive AND its in-flight run (which is what
+//     `waitForRun` does), explains the wind-down, and cannot be pressed twice;
 //   - terminal: the verdict banner naming WHICH of the honest stops ended it.
 
 import { describe, expect, it, vi } from "vitest";
@@ -91,14 +92,18 @@ describe("CockpitDrivePanel", () => {
     expect(screen.getByText(/Re-scoring the fleet before the next run/)).toBeInTheDocument();
   });
 
-  it("offers Stop while pulling, and promises to finish the run first once pressed", () => {
+  it("offers Stop while pulling, and once pressed says it stops the in-flight run too", () => {
     const onStop = vi.fn();
     const { rerender } = render(<CockpitDrivePanel drive={drive({ runs: [runRec()] })} runDetail={null} onStop={onStop} />);
     fireEvent.click(screen.getByRole("button", { name: "Stop drive" }));
     expect(onStop).toHaveBeenCalledOnce();
 
     rerender(<CockpitDrivePanel drive={drive({ runs: [runRec()], stopRequested: true })} runDetail={null} onStop={onStop} />);
-    expect(screen.getByRole("button", { name: "Stopping after this run…" })).toBeDisabled();
+    const button = screen.getByRole("button", { name: "Stopping the drive and its in-flight run…" });
+    expect(button).toBeDisabled();
+    // The old promise — "after this run" — is exactly what `waitForRun` does NOT do.
+    expect(screen.queryByText(/after this run/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/force-stopped after a short grace/)).toBeInTheDocument();
   });
 
   it("withdraws Stop the moment the drive is no longer live", () => {

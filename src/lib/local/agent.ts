@@ -18,15 +18,27 @@
 //   is the second belt.
 
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { cliProviderAllowed } from "@/lib/llm/config";
 import { envBool } from "@/lib/env";
 import { normalizeAgentEffort, normalizeAgentModel, type AgentConfig } from "@/lib/local/agent-options";
+import type { TransportId } from "@/lib/local/arm";
+import {
+  CLAUDE_MODEL_TOKEN,
+  claudeArgs,
+  claudeProfile,
+  claudeSpawnEnv,
+} from "@/lib/local/transport/claude";
+import type { LocalEndpoint } from "@/lib/local/transport/run";
 // THE SESSION CEILING NOW LIVES BESIDE THE LANE CEILING IT FEEDS (`laneDeadlineMs`). Re-exported
 // unchanged so every existing caller — the route's stop horizon, this module's own spawn — keeps
 // importing it from here, and so the two numbers can never drift apart into two answers.
 import { agentTimeoutMs } from "@/lib/local/lane-watchdog";
-import { parseAgentEnvelope, type AgentEnvelope } from "@/lib/local/agent-envelope";
+import { agentErrorText, parseAgentEnvelope, type AgentEnvelope } from "@/lib/local/agent-envelope";
+import { createStreamParser } from "@/lib/local/agent-stream";
 import { detachForKillTree, killProcessTree } from "@/lib/local/kill-tree";
+import { sanitizeAgentStderr } from "@/lib/local/agent-stderr";
+import type { AgentStreamEvent } from "@/lib/local/runner-types";
 
 export { agentTimeoutMs };
 
@@ -65,7 +77,29 @@ export function resolveAgentConfig(choice: AgentConfig | null | undefined): { mo
   };
 }
 
-const MAX_STDOUT = 4 * 1024 * 1024; // mirror claude-cli.ts's runaway-subprocess caps
+/**
+ * The environment a spawned agent session gets: the server's own, minus what must never reach it.
+ *
+ *   • `ANTHROPIC_API_KEY` — subscription auth, like every local CLI call.
+ *   • `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` — the markers a Claude Code session sets in the
+ *     environment of everything it starts. A self-hosted Ascent launched from inside a Claude Code
+ *     session hands them to every agent it spawns, and a nested `claude` that inherits them produces
+ *     NOTHING, silently (live.md L2-F-02). Stripped here, at the one spawn site, so no launch path can
+ *     reintroduce it.
+ *
+ * Pure (a copy is returned; the input is not touched), so the strip is a table test, not a spawn.
+ */
+export function agentSpawnEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  // ONE IMPLEMENTATION, in the transport that owns the spawn door. Kept exported here, with its exact
+  // signature and behaviour, because the strip is a property of THIS module's contract and every
+  // existing caller and table test imports it from here.
+  return claudeSpawnEnv(base);
+}
+
+// mirror claude-cli.ts's runaway-subprocess caps. Since streaming it bounds ONE stdout line (and the
+// verbatim copy kept for a non-stream output), not the whole session: a long session's stream is parsed
+// and let go line by line, and only the final `result` line is retained.
+const MAX_STDOUT = 4 * 1024 * 1024;
 const MAX_STDERR = 16 * 1024;
 
 /**
@@ -81,6 +115,73 @@ export interface AgentRunResult extends Partial<Omit<AgentEnvelope, "ok" | "summ
   ok: boolean;
   /** The session's final text (claude -p json envelope `.result`), or the failure reason. */
   summary: string;
+  /**
+   * WHICH CEILING ENDED THIS SESSION, AND ON WHICH ARM. Absent on every session that ended on its
+   * own — success or failure alike.
+   *
+   * EXACTLY ONE FIELD WAS ADDED, and this is the argument for it. Before transports, "a lane timed
+   * out" was a complete statement: there was one clock, so the sentence in `summary` carried
+   * everything a reader could want. With two arms racing the same batch under DIFFERENT bands, the
+   * only finding that matters is comparative — "the local arm ran out of ITS 90 minutes while the
+   * Claude arm finished inside its 20" — and that cannot be recovered from a string later: the ceiling
+   * that fired is not stored anywhere else on the row, and the transport is on the ARM, which a
+   * timing comparison would have to join back through the run. A parser over `summary` would be the
+   * alternative, and a comparison whose denominator comes from a regex over prose is a comparison
+   * nobody should trust. `null`/absent rather than a zeroed record, per the absent-value convention.
+   */
+  ceiling?: CeilingHit | null;
+  /** THE CLI'S OWN ERROR TEXT on a failed session, verbatim and bounded — what the runner's
+   *  session-limit breaker classifies ("You've hit your session limit · resets 3pm"). Absent on
+   *  success, and absent on a runner that has not been taught to carry it. */
+  errorText?: string | null;
+}
+
+/** Which ceiling cut a session short, and which arm it belonged to. */
+export interface CeilingHit {
+  /** `session` — this session's own timer fired. `lane` — something OUTSIDE cut it: the lane
+   *  watchdog's deadline, or an operator's stop. The two are different findings: the first says this
+   *  arm is slow, the second says the cycle around it ran out. */
+  kind: "session" | "lane";
+  /** The transport that was running. */
+  transport: TransportId;
+  /** True when the arm was pointed at a local inference endpoint — the fact that explains the band. */
+  local: boolean;
+  /** The ceiling's own value in ms, when this side knows it. `null` on a `lane` cut: the number that
+   *  fired belongs to the watchdog, and restating a figure this module did not hold would be an
+   *  invention in a column meant for measurements. */
+  limitMs: number | null;
+}
+
+/**
+ * How one session is armed. Everything past `prompt` is optional and ABSENT means exactly what every
+ * session before the field existed did — the argv below only grows when a caller asks.
+ */
+export interface ClaudeAgentOptions {
+  cwd: string;
+  prompt: string;
+  model?: string;
+  effort?: string | null;
+  /** Per-run session ceiling, already normalized by the route. Omitted/null keeps the deployment's
+   *  own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before this parameter used. */
+  timeoutMs?: number | null;
+  /** THE STOP'S REACH INTO THE PROCESS. When this aborts — the lane's watchdog fires it on a run stop
+   *  and on the lane deadline alike (`LaneWatchdog.signal`) — the spawned process TREE is killed and
+   *  this call settles. Absent means nobody outside is watching, which is what every caller before
+   *  the parameter existed did: the session then ends only on its own timer. */
+  signal?: AbortSignal;
+  /** `edit` (the default — `--permission-mode acceptEdits`, the editing session every lane has always
+   *  run) or `plan`: `--permission-mode plan` plus a Read/Grep/Glob allowlist, for the read-only
+   *  planning session. BOTH ARE TOOL POLICY, NOT A SANDBOX — the caller proves the worktree is
+   *  untouched afterwards (see lane-plan.ts). */
+  permission?: "edit" | "plan";
+  /** A session id the ENGINE mints (`--session-id <uuid>`), so it can resume the session later. */
+  sessionId?: string | null;
+  /** Continue an earlier session (`--resume <uuid>`) — the minor execution resumes its planning
+   *  session, whose context already holds the files it read. */
+  resumeSessionId?: string | null;
+  /** Each parsed stream event, as it happens — the lane's live activity tail. Called synchronously
+   *  from the stdout handler; a sink that throws is the sink's problem and never ends the session. */
+  onEvent?: (e: AgentStreamEvent) => void;
 }
 
 /**
@@ -99,24 +200,50 @@ function abortSummary(signal: AbortSignal | undefined): string {
   return detail ? `Agent session stopped: ${detail}` : "Agent session stopped by the operator";
 }
 
+/**
+ * The clause a ceiling sentence carries so a reader knows WHICH ARM hit it.
+ *
+ * `null` for a plain subscription Claude session, which is every lane that exists today — so the
+ * sentence those lanes produce stays byte-identical, and `runner-breakers.ts` keeps classifying the
+ * exact strings it was written against. A local arm is the case where the attribution is new
+ * information, and it is the only case that adds words.
+ */
+function armClause(transport: TransportId, endpoint?: LocalEndpoint | null): string {
+  if (transport === "claude" && !endpoint) return "";
+  return endpoint ? ` (${transport} → ${endpoint.model})` : ` (${transport})`;
+}
+
+/** What one session is armed with BEYOND the caller's options: which transport, and the local
+ *  endpoint it should talk to. `runAgentVia` is the public door onto it. */
+export interface AgentArm {
+  transport: TransportId;
+  endpoint?: LocalEndpoint | null;
+}
+
 /** Run one editing session in `cwd`. Resolves (never rejects) — the autopilot treats every outcome
- *  as cycle data: a failed session ends the cycle with its reason in the log, not a stack. */
-export function runClaudeAgent(opts: {
-  cwd: string;
-  prompt: string;
-  model?: string;
-  effort?: string | null;
-  /** Per-run session ceiling, already normalized by the route. Omitted/null keeps the deployment's
-   *  own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session before this parameter used. */
-  timeoutMs?: number | null;
-  /** THE STOP'S REACH INTO THE PROCESS. When this aborts — the lane's watchdog fires it on a run stop
-   *  and on the lane deadline alike (`LaneWatchdog.signal`) — the spawned process TREE is killed and
-   *  this call settles. Absent means nobody outside is watching, which is what every caller before
-   *  the parameter existed did: the session then ends only on its own timer. */
-  signal?: AbortSignal;
-}): Promise<AgentRunResult> {
+ *  as cycle data: a failed session ends the cycle with its reason in the log, not a stack.
+ *
+ *  UNCHANGED, deliberately: same signature, same argv, same environment, same sentences. It is now
+ *  the `claude` transport's implementation — `runAgentVia("claude", opts)` with no endpoint lands
+ *  exactly here — and the argv identity is pinned against a literal in `transport/claude.test.ts`. */
+export function runClaudeAgent(opts: ClaudeAgentOptions): Promise<AgentRunResult> {
+  return runAgentSession(opts, { transport: "claude" });
+}
+
+/**
+ * THE SPAWN, PARAMETERIZED BY ARM. One body, because the whole point of a bake-off is that the two
+ * arms differ in the model behind the socket and in NOTHING ELSE this module controls: same stream
+ * parsing, same stderr sanitizing, same kill path, same settle discipline. A second copy of this
+ * function for local arms would turn every difference it accumulated into a confound in the very
+ * comparison it exists to make.
+ */
+export function runAgentSession(opts: ClaudeAgentOptions, arm: AgentArm): Promise<AgentRunResult> {
   return new Promise((resolve) => {
-    const limitMs = agentTimeoutMs(opts.timeoutMs);
+    const endpoint = arm.endpoint ?? null;
+    const local = endpoint != null;
+    const transport = arm.transport;
+    const limitMs = agentTimeoutMs(opts.timeoutMs, { transport, local });
+    const clause = armClause(transport, endpoint);
     if (opts.signal?.aborted) {
       resolve({ ok: false, summary: `${abortSummary(opts.signal)} — no session was started.` });
       return;
@@ -128,7 +255,7 @@ export function runClaudeAgent(opts: {
     const model = opts.model || process.env.CLAUDE_MODEL || DEFAULT_AGENT_MODEL;
     // shell:true is required on Windows (claude.cmd), which re-parses argv — so the model must stay
     // a plain token, same validation and reasoning as claude-cli.ts.
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(model)) {
+    if (!CLAUDE_MODEL_TOKEN.test(model)) {
       resolve({ ok: false, summary: `Invalid model "${model}".` });
       return;
     }
@@ -137,14 +264,26 @@ export function runClaudeAgent(opts: {
     // value drops the flag instead of failing the run — a session that would have worked must not die
     // because a stale caller sent a level this build does not know.
     const effort = normalizeAgentEffort(opts.effort);
-    const env = { ...process.env };
-    delete env.ANTHROPIC_API_KEY; // subscription auth, like every local CLI call
+    // THE ENV BLOCK IS ON THE SPAWN, never on the process: `process.env` is READ here and a COPY is
+    // handed to the child, so a Claude lane and a local lane on the same server in the same minute
+    // cannot see each other's endpoint. `API_TIMEOUT_MS` inside the block is pinned to THIS session's
+    // ceiling, so the client does not give up on a merely-slow local answer before the session timer
+    // is allowed to be the thing that ends it — which would attribute the stop to the wrong ceiling.
+    const env = claudeSpawnEnv(process.env, { endpoint, agentMs: limitMs });
 
-    const bin = process.env.CLAUDE_CLI_PATH || "claude";
-    // `--effort` is appended ONLY when a level was chosen, so a `claude` build that has never heard of
-    // the flag runs exactly the argv it always did.
-    const args = ["-p", "--output-format", "json", "--permission-mode", "acceptEdits", "--model", model];
-    if (effort) args.push("--effort", effort);
+    const bin = process.env.CLAUDE_CLI_PATH || claudeProfile.bin;
+    // THE ARGUMENT VECTOR IS BUILT IN `transport/claude.ts` and is byte-identical to the one this
+    // function composed inline before transports existed — flag order, the effort append, and the
+    // resume/session-id precedence included. It is pinned there against a LITERAL array, because
+    // "adding a second transport did not change what the first one runs" is the regression the whole
+    // fleet would otherwise discover on our behalf.
+    const args = claudeArgs({
+      model,
+      effort,
+      ...(opts.permission ? { permission: opts.permission } : {}),
+      ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
+      ...(opts.resumeSessionId ? { resumeSessionId: opts.resumeSessionId } : {}),
+    });
     const child = spawn(bin, args, {
       shell: true,
       cwd: opts.cwd,
@@ -157,7 +296,12 @@ export function runClaudeAgent(opts: {
       detached: detachForKillTree(),
     });
 
-    let out = "";
+    // THE STREAM, parsed line by line as it arrives — each event into the lane's activity tail. The
+    // decoder keeps a multi-byte character split across two chunks whole; the parser swallows a sink
+    // that throws, so telemetry can never end the session it is watching.
+    const decoder = new StringDecoder("utf8");
+    const onEvent = opts.onEvent;
+    const parser = createStreamParser((e) => onEvent?.(e), { cwd: opts.cwd, maxFrameChars: MAX_STDOUT });
     let err = "";
     let settled = false;
     const settle = (r: AgentRunResult) => {
@@ -177,7 +321,11 @@ export function runClaudeAgent(opts: {
       // exactly what they were before the helper existed, and the settle above the lane must not
       // wait on a `taskkill`. The abort path below is the one that reports what the kill confirmed.
       void killProcessTree(child.pid).catch(() => null);
-      settle({ ok: false, summary: `Agent session exceeded ${Math.round(limitMs / 60_000)} min and was stopped.` });
+      settle({
+        ok: false,
+        summary: `Agent session${clause} exceeded ${Math.round(limitMs / 60_000)} min and was stopped.`,
+        ceiling: { kind: "session", transport, local, limitMs },
+      });
     }, limitMs);
 
     // THE STOP REACHING THE PROCESS. The abort resolves the lane's race in the same tick — the lane
@@ -186,16 +334,24 @@ export function runClaudeAgent(opts: {
     const onAbort = (): void => {
       clearTimeout(timer);
       child.kill();
+      // A CUT FROM OUTSIDE is the LANE's ceiling, not this session's, so `limitMs` stays null: the
+      // number that fired belongs to the watchdog and is already on the lane row.
+      const cut: CeilingHit = { kind: "lane", transport, local, limitMs: null };
       void killProcessTree(child.pid).then(
-        (k) => settle({ ok: false, summary: `${abortSummary(opts.signal)} — ${k.note}.` }),
-        () => settle({ ok: false, summary: `${abortSummary(opts.signal)} — agent process termination unconfirmed.` }),
+        (k) => settle({ ok: false, summary: `${abortSummary(opts.signal)} — ${k.note}.`, ceiling: cut }),
+        () =>
+          settle({
+            ok: false,
+            summary: `${abortSummary(opts.signal)} — agent process termination unconfirmed.`,
+            ceiling: cut,
+          }),
       );
     };
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     const disarm = (): void => opts.signal?.removeEventListener("abort", onAbort);
 
-    child.stdout.on("data", (d: Buffer) => {
-      if (out.length < MAX_STDOUT) out += d.toString("utf8").slice(0, MAX_STDOUT - out.length);
+    child.stdout.on("data", (d: Buffer | string) => {
+      parser.push(typeof d === "string" ? d : decoder.write(d));
     });
     child.stderr.on("data", (d: Buffer) => {
       if (err.length < MAX_STDERR) err += d.toString("utf8").slice(0, MAX_STDERR - err.length);
@@ -208,10 +364,19 @@ export function runClaudeAgent(opts: {
     child.on("close", (code) => {
       clearTimeout(timer);
       disarm();
+      parser.push(decoder.end());
       // THE WHOLE ENVELOPE, not just `.result`. The parse is pure and lives in agent-envelope.ts so
       // it can be table-tested without a subprocess; `{ok, summary}` are byte-for-byte what they
-      // were, and the measurements ride alongside them.
-      settle(parseAgentEnvelope(out, { fallbackModel: model, exitCode: code, stderr: err }));
+      // were, and the measurements ride alongside them. The text parsed is the stream's final
+      // `result` line, or — for output that never was a stream — the stdout verbatim, as before; a
+      // stream that ended without a `result` parses "" into today's no-JSON failure sentence.
+      const raw = parser.end() ?? parser.raw();
+      const errorHint = parser.errorHint();
+      // STDERR IS SANITIZED BEFORE IT CAN REACH A STORED TEXT (agent-stderr.ts): a failing user hook's
+      // echoed command line — token included — is exactly what the live check found in it.
+      const stderr = sanitizeAgentStderr(err);
+      const envelope = parseAgentEnvelope(raw, { fallbackModel: model, exitCode: code, stderr, errorHint });
+      settle(envelope.ok ? envelope : { ...envelope, errorText: agentErrorText(raw, { stderr, errorHint }) });
     });
 
     child.stdin.write(opts.prompt);

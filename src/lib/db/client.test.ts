@@ -68,7 +68,7 @@ import {
   withDb,
   withRetry,
 } from "@/lib/db/client";
-import { reconcileColumnDrift } from "@/lib/db/pglite-boot";
+import { backfillRunNumbers, reconcileColumnDrift } from "@/lib/db/pglite-boot";
 
 const ENV_KEYS = [
   "DSQL_ENDPOINT",
@@ -994,6 +994,61 @@ describe("reconcileColumnDrift — NOT-NULL-without-default fails boot loud", ()
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("column-drift reconcile failed (non-fatal)"),
       expect.any(Error),
+    );
+    warn.mockRestore();
+  });
+});
+
+// Pins the DATA half of a migration for the one environment that never runs migrations. A dev data
+// dir gets `LoopRun.seq` as an empty column (drift repair adds it; init.sql cannot backfill it), and
+// the ledger's chronicle pages by that number — so an unnumbered history reads as forty dateless rows
+// the operator cannot page. The backfill numbers only NULLs, continues past the org's current max so
+// a partly-numbered dir cannot collide, and never fails the boot.
+describe("backfillRunNumbers — a migration's UPDATE step, applied to a dev data dir", () => {
+  function fakePglite(pending: number) {
+    const queries: string[] = [];
+    return {
+      queries,
+      query: async (q: string) => {
+        queries.push(q);
+        if (/COUNT\(\*\)/i.test(q)) return { rows: [{ n: pending }] };
+        return { rows: [] };
+      },
+    };
+  }
+
+  it("writes nothing when every run is already numbered", async () => {
+    const pglite = fakePglite(0);
+    await expect(backfillRunNumbers(pglite)).resolves.toBeUndefined();
+    expect(pglite.queries.some((q) => /UPDATE/i.test(q))).toBe(false);
+  });
+
+  it("numbers the unnumbered runs per org, continuing past the org's current maximum", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pglite = fakePglite(7);
+    await backfillRunNumbers(pglite);
+    const update = pglite.queries.find((q) => /UPDATE "LoopRun"/i.test(q));
+    expect(update).toBeTruthy();
+    // Only NULLs are touched, the window partitions by org in creation order, and the offset is the
+    // org's existing max — the three properties that keep it idempotent and collision-free.
+    expect(update).toMatch(/WHERE l\."seq" IS NULL/);
+    expect(update).toMatch(/PARTITION BY l\."orgId" ORDER BY l\."createdAt", l\."id"/);
+    expect(update).toMatch(/COALESCE\(m\."top", 0\)/);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("numbered 7 run(s)"));
+    warn.mockRestore();
+  });
+
+  it("swallows a failure (a data dir without the table yet) rather than failing the boot", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pglite = {
+      query: async () => {
+        throw new Error('relation "LoopRun" does not exist');
+      },
+    };
+    await expect(backfillRunNumbers(pglite)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("run-number backfill skipped (non-fatal)"),
+      expect.stringContaining("does not exist"),
     );
     warn.mockRestore();
   });

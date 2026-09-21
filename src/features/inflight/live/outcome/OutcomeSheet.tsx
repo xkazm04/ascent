@@ -41,9 +41,11 @@ export interface OutcomeSheetProps {
   /** The owner's quick-approval gate — absent for a viewer who cannot rule. */
   canReview?: boolean;
   onReview?: CellReviewHandler;
+  /** The page's own instant, so a column's age reads the same on the server and after hydration. */
+  nowMs?: number;
 }
 
-export function OutcomeSheet({ matrix, slug, selectedId, onOpen, canReview, onReview }: OutcomeSheetProps) {
+export function OutcomeSheet({ matrix, slug, selectedId, onOpen, canReview, onReview, nowMs }: OutcomeSheetProps) {
   const { widthOf, setWidth } = useColumnWidths(slug, matrix.latestId);
   const columnIds = useMemo(() => matrix.columns.map((c) => c.id), [matrix.columns]);
   const projects = useMemo(
@@ -79,6 +81,7 @@ export function OutcomeSheet({ matrix, slug, selectedId, onOpen, canReview, onRe
           setWidth={setWidth}
           onOpen={onOpen}
           latestRef={(el) => void (latestRef.current = el)}
+          nowMs={nowMs}
         />
         {projects.map((project) => (
           <tbody key={project.repo}>

@@ -3,18 +3,23 @@
 // The cockpit's run state machine. Owns the loop status, the ACTIVE run's lane detail, and the four
 // actions; the components above it are pure renderings of what this returns.
 //
-// POLL DISCIPLINE, same contract as useShipLoop.ts: there is no idle timer. A tick is armed only
-// while a run is actually live AND the tab is foregrounded, so a cockpit left open on a finished run
-// — or on a background tab — costs exactly nothing. One tick reads BOTH the status (is there an
-// active run, and what has the history strip got) and, when there is one, that run's detail: the
-// status route deliberately returns the run row alone, so the lanes the run panel draws have to come
-// from the detail route, and doing it in the same tick keeps the two from disagreeing on screen.
+// POLL DISCIPLINE. Two cadences on one `setTimeout` chain (`usePollChain`), none on a hidden tab: LIVE
+// (3 s) while a run curates or runs, IDLE DISCOVERY (20 s) otherwise — without it an open tab never
+// learned of a run it did not start (another tab's, the campaign script's, a drive's NEXT run). An idle
+// tick that finds an active run switches to the live cadence exactly as the mount tick does, and every
+// read — the chain's and an action's — goes through `serialTicker`, so two never overlap.
+//
+// One tick reads BOTH the status (is there an active run, and what has the history strip got) and,
+// when there is one, that run's detail: the status route deliberately returns the run row alone, so
+// the lanes the run panel draws have to come from the detail route, and doing it in the same tick
+// keeps the two from disagreeing on screen.
 //
 // SETTLEMENT. A finished run stops being `active` (the route only reports curating|running), so the
 // transition is detected by the id disappearing — at which point the detail is fetched ONCE more and
 // handed up. That final read is what the outcome ledger and the field's drift are both built from.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePollChain } from "./usePollChain";
 import {
   fetchLoopDetail,
   fetchLoopProposals,
@@ -35,6 +40,8 @@ import {
 import { useIsVisible } from "../useIsVisible";
 
 const POLL_MS = 3_000;
+/** How long an open, foregrounded tab can go without noticing a run it did not start. */
+export const IDLE_DISCOVERY_MS = 20_000;
 
 export interface UseLoopRunInput {
   slug: string;
@@ -82,9 +89,15 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
 
   const visible = useIsVisible();
 
-  const tick = useCallback(async () => {
+  // Bumped by `start`: a read that left BEFORE a start landed would settle the run this tab just
+  // started on its stale `active: null`, so it is discarded whole — its queued successor is believed.
+  const epoch = useRef(0);
+
+  const read = useCallback(async () => {
+    const at = epoch.current;
     try {
       const status = await fetchLoopStatus(slug);
+      if (at !== epoch.current) return;
       setEnabled(status.enabled);
       setPrAvailable(status.prAvailable !== false);
       setHosted(status.hosted ?? null);
@@ -109,17 +122,9 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
     }
   }, [slug]);
 
-  // One tick on mount (it catches a run started in another tab) and then, ONLY while a run is live
-  // and the tab is foregrounded, an interval. Both are scheduled from callbacks rather than run in
-  // the effect body, so the effect itself never sets state synchronously.
-  useEffect(() => {
-    const first = setTimeout(() => void tick(), 0);
-    const t = live && visible ? setInterval(() => void tick(), POLL_MS) : null;
-    return () => {
-      clearTimeout(first);
-      if (t) clearInterval(t);
-    };
-  }, [live, visible, tick]);
+  // ONE ticker per org (`read` changes only with the slug): every read — the chain's and an action's —
+  // goes through it, so two are never in flight together.
+  const tick = usePollChain(read, !visible ? null : live ? POLL_MS : IDLE_DISCOVERY_MS).run;
 
   const guard = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | null> => {
     setBusy(true);
@@ -138,6 +143,7 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
     async (input: StartLoopInput) => {
       const res = await guard(() => startLoop(slug, input));
       if (res?.run) {
+        epoch.current += 1;
         setActive(res.run);
         lastLiveId.current = res.run.id;
         void tick();
@@ -172,8 +178,10 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
     [guard, slug],
   );
 
+  // `batchSize` is the armed dial, so the curated batch is sized exactly as the engine will size it.
   const propose = useCallback(
-    async (repos: readonly string[]): Promise<LoopProposal[] | null> => guard(() => fetchLoopProposals(slug, repos)),
+    async (repos: readonly string[], batchSize?: number): Promise<LoopProposal[] | null> =>
+      guard(() => fetchLoopProposals(slug, repos, batchSize)),
     [guard, slug],
   );
 

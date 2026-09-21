@@ -423,3 +423,18 @@ trigger near the edge of its container.
   into the brand system; see the `/prototype` skill.
 - The 300-LOC-per-`.tsx` ceiling from [`AGENTS.md`](../../../AGENTS.md) and the
   co-located-extraction pattern it prescribes.
+
+## The readable floor (2026-09-20)
+
+The app is dark-only on `#080d1a`, and its de-emphasised text is written with the stock slate ramp:
+`text-slate-500` about 1,060 times and `text-slate-600` about 340 — timestamps, ids, units, captions,
+em-dash placeholders, mono labels. Measured against the canvas, both were below the readable floor
+(4.08:1 and 2.56:1; WCAG AA asks 4.5:1 for body text). `globals.css` re-bases those two shades in
+`@theme` — 500 → `#77879d` (5.30:1), 600 → `#64748b` (4.08:1, the de-emphasis step for marks and
+placeholders) — which fixes every call site at once and keeps the ramp's order intact.
+
+The alternative, sweeping 1,400 utilities, would have churned three hundred files and left the next
+`text-slate-500` anyone typed just as unreadable. `src/app/globals.contrast.test.ts` holds the floor:
+it reads the overrides out of the stylesheet, measures every colour the app writes text in against the
+canvas, and fails if one drops under AA — a palette regression is one hex in a diff and damage spread
+over the whole product, so it is not a thing to catch in review.

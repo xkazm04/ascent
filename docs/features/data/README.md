@@ -6,12 +6,12 @@ Context-map group: **Data & Persistence** (`data`).
 
 | Doc | Covers | Freshness |
 | --- | --- | --- |
-| [data-model.md](data-model.md) | All 83 models grouped by feature area, DSQL-safety principles, scan persistence | CURRENT |
+| [data-model.md](data-model.md) | All 85 models grouped by feature area, DSQL-safety principles, scan persistence | CURRENT |
 | [retention.md](retention.md) | Retention policy, the purge cron, safety floors, dry-run | CURRENT |
 
 ## Implementation roots
 
-- `prisma/schema.prisma` (**83 models**), `prisma/init.sql`, `prisma/migrations/**` (69 migrations)
+- `prisma/schema.prisma` (**85 models**), `prisma/init.sql`, `prisma/migrations/**` (69 migrations)
 - `src/lib/db/**`: client, scans, retention, and one module per feature area
 - `src/lib/db/index.ts`: barrel; `src/lib/db/mode.ts`, `src/instrumentation.ts` (embedded PGlite)
 

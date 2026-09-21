@@ -4,6 +4,7 @@
 // and only the first is behind `selfHostGuard`.
 //
 //   GET  ?org=…                                              → { enabled, active, runs, hosted }
+//   GET  ?org=…&beforeSeq=<n>&limit=<k>                      → { runs }   (the ledger chronicle's page)
 //   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort?,
 //          delivery?, batchSize?, agentTimeoutMs?, verifyMode?, verifyTimeoutMs? }  → { run }
 //   POST { action:"stop",   org, id }                        → { ok, run }
@@ -26,6 +27,14 @@ import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { agentTimeoutMs, autopilotEnabled } from "@/lib/local/agent";
 import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
+import {
+  MAX_COMPARE_ARMS,
+  MIN_COMPARE_ARMS,
+  normalizeArmPolicy,
+  normalizeArmSet,
+  type Arm,
+  type ArmPolicy,
+} from "@/lib/local/arm";
 import { normalizeDelivery } from "@/lib/local/delivery-options";
 import {
   BATCH_SIZE_CAP,
@@ -75,10 +84,16 @@ export async function GET(request: Request) {
   // hide the operator's own rows from them. What is still honest is `enabled`, which stays
   // `autopilotEnabled()` — the answer to "can this deployment run a LOCAL loop", which on cloud is
   // still no. The write path keeps the guard for exactly the executor that needs it.
-  const org = new URL(request.url).searchParams.get("org")?.trim().toLowerCase() ?? "";
+  const params = new URL(request.url).searchParams;
+  const org = params.get("org")?.trim().toLowerCase() ?? "";
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
+  // THE CHRONICLE'S PAGE (spark theater-upgrade, 2026-09-18). `beforeSeq`/`limit` ask for a LEAN page of
+  // older runs — `{ runs }` and nothing else — so the ledger's "Older runs" does not re-derive the price
+  // list or reconcile stale runs on every click. Without either parameter the response below is exactly
+  // what every existing caller has always received.
+  if (params.has("beforeSeq") || params.has("limit")) return runsPage(org, params);
   // Reconcile before reading: a run left `running` by a process that died is not resumable, and
   // rendering it as active would leave the wall spinning on a job nobody is driving. A run THIS
   // process is driving is not stale — without the predicate this GET stopped the run it was
@@ -129,6 +144,22 @@ export async function GET(request: Request) {
   });
 }
 
+/** `?beforeSeq=<n>&limit=<k>` → `{ runs }`: runs numbered below `n`, newest first, at most `k` (1–100,
+ *  default 20). A malformed parameter is a 400, never a silently different page. */
+async function runsPage(org: string, params: URLSearchParams) {
+  const int = (raw: string | null, min: number, max: number): number | null | false => {
+    if (raw == null || raw === "") return null;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= min && n <= max ? n : false;
+  };
+  const beforeSeq = int(params.get("beforeSeq"), 1, Number.MAX_SAFE_INTEGER);
+  const limit = int(params.get("limit"), 1, 100);
+  if (beforeSeq === false) return NextResponse.json({ error: "'beforeSeq' must be a positive whole number." }, { status: 400 });
+  if (limit === false) return NextResponse.json({ error: "'limit' must be a whole number from 1 to 100." }, { status: 400 });
+  const runs = await listLoopRuns(org, limit ?? 20, { beforeSeq });
+  return NextResponse.json({ runs });
+}
+
 type Body = {
   action?: unknown;
   org?: unknown;
@@ -145,6 +176,11 @@ type Body = {
   effort?: unknown;
   modelPolicy?: unknown;
   models?: unknown;
+  /** The ARMS of a run (src/lib/local/arm.ts) — transport + model each, optionally a different
+   *  planning half. Supersedes `models`, which could only ever name Claude aliases. */
+  arms?: unknown;
+  /** `single` | `compare`. Read only when `arms` is present. */
+  armPolicy?: unknown;
   /** branch | land | pr — what happens to each lane's branch when its cycle succeeds. */
   delivery?: unknown;
   /** Items per lane per cycle (1–BATCH_SIZE_CAP); omitted = the default 5. */
@@ -158,6 +194,18 @@ type Body = {
   /** `cycle` | `run` — rescan after every cycle (default) or once after the last cycle a repo
    *  progressed in. Opt-in: intermediate cycles then settle at the run's end, not their own. */
   rescanCadence?: unknown;
+  /**
+   * `on` — run the read-only PLANNING session before the editing one. Omitted = off, which is what
+   * every manual run before this field did.
+   *
+   * IT IS LOAD-BEARING FOR A SPLIT ARM AND IT WAS MISSING. An arm may name a different transport and
+   * model for its planning half, and that half is only ever spawned by the planning session — so
+   * with plan mode off, a "Claude plans, a local model executes" arm silently ran the local model for
+   * BOTH halves and recorded `planModel: null`. The configuration the arms feature exists for was
+   * unreachable from this door; only the standing runner, which sets `planMode` itself, could produce
+   * it. Found by running one (2026-09-21) and reading the lane row rather than the intent.
+   */
+  planMode?: unknown;
   /** #3 — `local` (the default, and what every caller before it meant), `remote-agent`, or `hosted`
    *  (ADR-0001: a run Ascent Cloud dispatches to a worker of its own). The wire word is `hosted`; the
    *  lane rows record `hosted-worker`, which is the executor vocabulary's word for the same thing. */
@@ -165,7 +213,7 @@ type Body = {
 };
 
 /**
- * The two arms of an `ab` run, validated. `null` = "this body did not ask for an A/B run".
+ * The two MODELS of a legacy `ab` run, validated. `null` = "this body did not ask for an A/B run".
  *
  * Throws with a human reason for anything that asked and got it wrong, because an A/B run that
  * silently degrades to a single-model run produces a comparison the operator thinks they ran and did
@@ -175,14 +223,37 @@ type Body = {
  */
 const MODEL_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
-function parseArms(body: Body): string[] | null {
+function parseModels(body: Body): string[] | null {
   if (body.modelPolicy !== "ab") return null;
   const raw = Array.isArray(body.models) ? body.models.filter((m): m is string => typeof m === "string") : [];
-  const arms = [...new Set(raw.map((m) => m.trim()).filter(Boolean))];
-  if (arms.length !== 2) throw new Error("An A/B run needs exactly two distinct models in 'models'.");
-  const bad = arms.find((m) => !MODEL_TOKEN.test(m));
+  const models = [...new Set(raw.map((m) => m.trim()).filter(Boolean))];
+  if (models.length !== 2) throw new Error("An A/B run needs exactly two distinct models in 'models'.");
+  const bad = models.find((m) => !MODEL_TOKEN.test(m));
   if (bad) throw new Error(`Invalid model "${bad}".`);
-  return arms;
+  return models;
+}
+
+/**
+ * THE ARMS, validated. `null` = "this body did not ask for an armed run", which leaves the `models`
+ * path above exactly as it was.
+ *
+ * `normalizeArmSet` is the ONE validator — the cockpit's arm builder and this route read the same
+ * function, because the way two ends stop agreeing is two lists. It returns null rather than
+ * throwing, and turning that null into a 400 is this route's job: a comparison run that silently
+ * degraded to a single arm would produce a measurement the operator thinks they ran and did not.
+ */
+function parseArms(body: Body): { arms: Arm[]; armPolicy: ArmPolicy } | null {
+  if (body.arms === undefined && body.armPolicy === undefined) return null;
+  const armPolicy = normalizeArmPolicy(body.armPolicy) ?? "single";
+  const arms = normalizeArmSet(body.arms, armPolicy);
+  if (!arms) {
+    throw new Error(
+      armPolicy === "compare"
+        ? `A comparison run needs ${MIN_COMPARE_ARMS}–${MAX_COMPARE_ARMS} arms in 'arms', each with a distinct id, a known transport and a valid model.`
+        : "A single-arm run needs exactly one arm in 'arms', with a known transport and a valid model.",
+    );
+  }
+  return { arms, armPolicy };
 }
 
 export async function POST(request: Request) {
@@ -286,9 +357,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `concurrency must be 1–${LOOP_CONCURRENCY_CAP}.` }, { status: 400 });
   }
 
-  let arms: string[] | null;
+  let models: string[] | null;
+  let armed: { arms: Arm[]; armPolicy: ArmPolicy } | null;
   try {
-    arms = parseArms(body);
+    models = parseModels(body);
+    armed = parseArms(body);
   } catch (err) {
     // A malformed A/B request is a 400 (the caller sent something invalid), not a 409 (the server
     // cannot do it right now) — and it never reaches the spawn seam.
@@ -328,6 +401,14 @@ export async function POST(request: Request) {
   }
   // Same discipline as the other dials: an unrecognised value that the caller actually SENT is a 400,
   // an omitted one is the engine's default. Never guessed, never silently coerced.
+  // `on` or absent. A sent-but-invalid value is a 400 rather than a silent "off", because off is a
+  // DIFFERENT RUN for a split arm — it collapses both halves onto the executing transport — and a
+  // caller that asked for planning must not be given a run that quietly did not plan.
+  const planMode = body.planMode === "on" ? ("on" as const) : null;
+  if (body.planMode !== undefined && body.planMode !== "on" && body.planMode !== "off") {
+    return NextResponse.json({ error: "planMode must be 'on' or 'off'." }, { status: 400 });
+  }
+
   const rescanCadence =
     body.rescanCadence === "run" || body.rescanCadence === "cycle" ? (body.rescanCadence as "run" | "cycle") : null;
   if (body.rescanCadence !== undefined && rescanCadence === null) {
@@ -361,7 +442,12 @@ export async function POST(request: Request) {
       verifyMode,
       verifyTimeoutMs,
       rescanCadence,
-      ...(arms ? { modelPolicy: "ab" as const, models: arms } : {}),
+      // Null, not omitted-and-defaulted: `startLoopRun` persists `planMode` on the row so a retry
+      // plans exactly as the original did, and a split arm's two halves depend on it.
+      planMode,
+      // The two vocabularies, never merged: `arms` is what a run armed today carries, `models` is the
+      // pre-arms Claude pair. A body that sends arms takes the arm path; anything else replays.
+      ...(armed ? { arms: armed.arms, armPolicy: armed.armPolicy } : models ? { modelPolicy: "ab" as const, models } : {}),
       actor: viewer?.login ?? null,
     });
     return NextResponse.json({ run });

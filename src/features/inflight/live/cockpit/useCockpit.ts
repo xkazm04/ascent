@@ -10,13 +10,18 @@
 // drive is still pulling — is handled with a ref rather than state: a drive's intermediate runs each
 // settle in turn, and every one of them would otherwise yank the rail out of drive mode and show an
 // outcome for a run the operator never asked about.
+//
+// A DRIVE'S RUNS ARE THE LOOP HOOK'S TO SHOW. The drive dispatches each run server-side, so nothing
+// here started it: the loop poll finds it by idle discovery, and — sooner — when the drive's own poll
+// reports a new in-flight run id, the loop hook is told to look now. Until 2026-09-18 neither
+// happened, and the drive panel read "Re-scoring the fleet…" for the whole drive.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { layoutBodies, type ObservatoryHistory, type ObservatorySeed } from "../observatory";
 import { armedStartInput, canDriveLocally, cockpitDispatchMode, cockpitSetupMessage, cockpitSetupState, type CockpitGateInput } from "./cockpitGate";
 import { driftFor, scanningRepos, type CockpitDrift } from "./cockpitDrift";
-import { lastDriveRunId } from "./driveModel";
+import { driveProgress, lastDriveRunId } from "./driveModel";
 import { useDrive } from "./useDrive";
 import { useLoopRun } from "./useLoopRun";
 import { useProposalBatch } from "./useProposalBatch";
@@ -109,10 +114,20 @@ export function useCockpit(input: UseCockpitInput) {
   // the dials, the CTA in the rail composes a request from them, and the batch ledger under the sky
   // draws and curates what the CTA will dispatch.
   const { dials, set: setDial } = useRunDials();
-  const batch = useProposalBatch({ selected, paired, propose: loop.propose, dimFocus: dials.dimFocus });
+  // The batch is re-proposed when a run starts and when it settles (the epoch), sized by the dial.
+  const epoch = loop.live ? `live:${loop.activeId}` : "idle";
+  const batch = useProposalBatch({ selected, paired, propose: loop.propose, dimFocus: dials.dimFocus, batchSize: dials.batchSize, epoch });
   useEffect(() => {
     driveLive.current = drive.live;
   }, [drive.live]);
+  // The run the drive is waiting on. A new id the loop hook is not already showing → read it now.
+  const driveRunId = drive.live && drive.drive ? driveProgress(drive.drive).currentRunId : null;
+  const { refresh: refreshLoop, activeId: loopRunId } = loop;
+  useEffect(() => {
+    if (!driveRunId || driveRunId === loopRunId) return;
+    const t = setTimeout(() => void refreshLoop(), 0);
+    return () => clearTimeout(t);
+  }, [driveRunId, loopRunId, refreshLoop]);
 
   // The executor (and hosted's pr-only delivery) is stamped by the gate module — see armedStartInput.
   const startRun = async (i: StartLoopInput) => {
@@ -122,10 +137,11 @@ export function useCockpit(input: UseCockpitInput) {
     if (!(await loop.start(armedStartInput(i, dispatchMode)))) setMode("inspect");
   };
 
+  // Returns the adopted drive (null on a refusal) — the setup dialog closes only on a started runner.
   const startDrive = async (i: StartDriveInput) => {
     setDrift(null);
     setDriveOutcome(null);
-    await drive.start(i);
+    return drive.start(i);
   };
 
   // The drive a restart orphaned, offered back to the operator. Only ever surfaced from `inspect`:
@@ -167,7 +183,9 @@ export function useCockpit(input: UseCockpitInput) {
   return {
     loop,
     drive,
-    mode,
+    // A run this tab did not start (another tab's, the campaign script's) shows as the run it is,
+    // exactly as one the page was rendered with does — derived, so there is no effect to keep in step.
+    mode: mode === "inspect" && loop.live && !drive.live ? ("run" as const) : mode,
     setup,
     setupMessage,
     dispatchMode,

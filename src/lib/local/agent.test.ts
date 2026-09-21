@@ -266,7 +266,14 @@ describe("THE STOP REACHES THE PROCESS", () => {
       const r = await p;
       // The exact sentence every session before this change ended with. Settling frees the lane;
       // the kill is in addition to it, never instead of it.
-      expect(r).toEqual({ ok: false, summary: "Agent session exceeded 1 min and was stopped." });
+      expect(r.ok).toBe(false);
+      expect(r.summary).toBe("Agent session exceeded 1 min and was stopped.");
+      // CEILING ATTRIBUTION rides BESIDE the sentence, never inside it: a subscription Claude lane
+      // still prints the string `runner-breakers.ts` was written against, byte for byte, and the
+      // structured field is what a two-arm comparison reads to say WHICH arm ran out of WHICH budget.
+      expect(r.ceiling).toEqual({ kind: "session", transport: "claude", local: false, limitMs: 60_000 });
+      // Nothing else appeared on the result: a timed-out session reports no measurements.
+      expect(Object.keys(r).sort()).toEqual(["ceiling", "ok", "summary"]);
       expect(killProcessTree).toHaveBeenCalledWith(4242);
     } finally {
       vi.useRealTimers();

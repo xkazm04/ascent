@@ -90,6 +90,14 @@ function projectPhase(run: LoopRunRecord, last: LoopLaneRecord | undefined): Aut
       return "rescanning";
     case "error":
       return "error";
+    // A VOID LANE (src/lib/local/lane-gate-diff.ts) is terminal and DID run — it simply may not be
+    // measured, because it edited the surface that scores it. The shim has no vocabulary for that and
+    // must not invent one: `error` is the honest projection here, because the one thing a reader of
+    // this legacy single-repo view must not conclude is that the cycle's lift was banked. The shim
+    // arms no arms, so in practice it never produces one; this arm of the switch exists so the
+    // exhaustiveness check keeps biting when a phase is added.
+    case "void":
+      return "error";
   }
 }
 

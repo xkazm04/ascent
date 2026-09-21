@@ -185,8 +185,12 @@ at OpenAI" privacy disclosure on `/onboarding` (`staysOnPremises` is deliberatel
 The spawn / parse / env-strip / stdout-cap mechanics behind `claude-cli` live in a dedicated
 transport module — the reference implementation of the registry subject
 `software-engineering/llm-agent/runtime-and-io/agent-cli-transport`. (Not to be confused with
-`src/lib/llm/transports.ts`, the Athena text seam's HTTP wire formats.) Every adapter
-implements the same contract (`types.ts`):
+`src/lib/llm/transports.ts`, the Athena text seam's HTTP wire formats — nor with
+`src/lib/local/transport/`, the **loop's** transport registry, which spawns an *editing* agent for a
+lane and carries its own probe and dated capability matrix; see
+[local-mode](../local-mode/README.md#the-transport-registry-srcliblocaltransport-2026-09-21). The
+two seams are deliberately separate exported surfaces: folding them would make "which mode am I in?"
+a bug that type-checks.) Every adapter implements the same contract (`types.ts`):
 
 - **`probe()`** → `{ available, authed, version }` — install + auth proven **without spending
   tokens** (`claude --version` + `claude auth status`; `codex --version` + `codex login
@@ -811,9 +815,16 @@ default**:
 - **`claude-cli` is refused on managed cloud** (no `claude` binary on the host), and its
   module now joins the production file trace because the gate is a runtime predicate rather
   than a compile-time constant — see "`claude-cli` — dev, and self-hosted production" above.
-- **`local` availability is config-driven, not probed.** A running Ollama with the env vars
-  unset is invisible to `auto`; `getProvider()` is synchronous and on the scan hot path, so
-  it cannot make a network call to discover one.
+- **`local` availability is config-driven, not probed — on the SCAN seam only** *(narrowed
+  2026-09-21)*. A running Ollama with the env vars unset is still invisible to `auto`:
+  `getProvider()` (`src/lib/llm/index.ts`) is synchronous and on the scan hot path, so it cannot make
+  a network call to discover one. What is no longer true in general is the "not probed" half — the
+  **loop's** transport seam has a real preflight probe that checks the binary, the endpoint, the
+  pulled model, the *loaded* context window and the server version, and **refuses to arm** on any
+  miss, spending zero tokens doing it (`src/lib/local/transport/probe.ts`,
+  `POST /api/org/local/probe`; see
+  [local-mode](../local-mode/README.md#the-preflight-probe-2026-09-21)). Porting that probe to the
+  scan seam is a question of where an async check can live, not of whether one exists.
 - **A local model's `temperature` obeys `LLM_TEMPERATURE` (default 0), but small models are
   still less reproducible than a hosted one** at the same setting; treat a local-model score
   as directional rather than as an anchor for a filed briefing.
@@ -825,9 +836,17 @@ default**:
   `http://127.0.0.1:8787`); there is no cloud-hosted default today.
 - **`claude-cli` cannot participate in a tool loop**, so an operator running Athena on the CLI
   provider always gets `grounding: "prefetched"` - see the tool-loop section for why.
-- **Whether a `local` or OpenRouter-routed model supports tool calling is unknowable up front.**
-  `supportsToolCalling()` is a permission to *try*, backed by the one-shot fallback; a model with
-  no tool template costs one wasted request per turn before degrading.
+- **Whether a `local` or OpenRouter-routed model supports tool calling is unknowable up front — on
+  the CHAT seam** *(narrowed 2026-09-21)*. `supportsToolCalling()` (`src/lib/llm/config.ts`) is still
+  a set-membership check over provider names: a permission to *try*, backed by the one-shot fallback,
+  and a model with no tool template costs one wasted request per turn before degrading. For the
+  **agent-CLI** seam this is now answered rather than guessed: `TransportProfile.caps`
+  (`src/lib/local/transport/profile.ts`) records per transport whether the stream, the edit and plan
+  stances, resume and prompt-on-stdin actually work, each cell carrying the date, the tool version,
+  the method and the exact invocation smoked, and an unconfirmed cell reads `null` rather than
+  silently true. Both rows were established by **live run** on 2026-09-21 (`claude` 2.1.278, `pi`
+  0.86.1) — see the dated matrix in
+  [local-mode](../local-mode/README.md#the-capability-matrix-is-data-with-a-date-and-a-method).
 - **`codex-cli` serves the assessment seam only.** The text seam resolves it to `null` (no
   `runCodexPrompt` counterpart), so memory/Athena report "no engine" under it; it cannot join
   a tool loop (same session-collapse as claude-cli); its models are unpriced in

@@ -1,14 +1,21 @@
 # The Live tab: the loop cockpit
 
-**Status (2026-08-22): server side SHIPPED, cockpit UI in flight.** The durable, bounded-parallel
-**loop engine** — `LoopRun`/`LoopRunLane`, `/api/org/loop`, `src/lib/local/loop-engine.ts` — is
-implemented and tested. The Live tab (`?tab=live`) is being rebuilt around it as an *Observatory*
-cockpit; the prior war-room wall is kept behind `?view=wall`. The UI section below is a marked
-placeholder until that lands.
+**Status (2026-09-18): shipped, and now a STANDING RUNNER.** The durable, bounded-parallel **loop
+engine** — `LoopRun`/`LoopRunLane`, `/api/org/loop`, `src/lib/local/loop-engine.ts` — drives the
+Observatory cockpit (`?tab=live&view=cockpit`), and since 2026-09-18 it can run UNATTENDED: a
+continuous drive that plans every lane, lands verified work on a per-repo `ascent/runner` branch,
+waits for the operator only on an architecture move, and pauses on named breakers. The tab has three
+views — a passive **Theater** (`/theater/<slug>`), the **Ledger** (the default while a runner exists)
+and the **Cockpit** — described in [The standing runner, its theater and its
+ledger](#the-standing-runner-its-theater-and-its-ledger-2026-09-18). The prior war-room wall is kept
+behind `?view=wall`.
 
 The **local** loop on this page is self-hosted only (`selfHosted()`, `src/lib/env.ts`): it reads the
-server's filesystem and spawns `claude -p`, so `POST /api/org/loop` with the default
-`executor: "local"` answers **404** on managed cloud (`selfHostGuard`).
+server's filesystem and spawns an agent CLI, so `POST /api/org/loop` with the default
+`executor: "local"` answers **404** on managed cloud (`selfHostGuard`). Since 2026-09-21 *which* CLI
+is a property of the run's [arm](#arms-transport--model-and-the-n-arm-comparison-2026-09-21) —
+`claude` (the unchanged default) or `pi` — resolved through one registry in
+`src/lib/local/transport/`.
 
 Since **moonshot #3** that is no longer the whole story. A run may also declare
 `executor: "remote-agent"` — see [Remote runs](#remote-runs-the-agent-neutral-work-protocol) — and
@@ -215,16 +222,16 @@ Member-gated; `org` is **required** even though the id alone would resolve the r
 would either authorize nothing, or have to trust the row it is about to disclose. Returns
 `LoopRunDetail`: `{ run, lanes[], outcomes[] }`. `404` when the run is missing or is another org's.
 
-### `GET /api/org/loop/propose?org=<slug>&repos=a/b,c/d`
+### `GET /api/org/loop/propose?org=<slug>&repos=a/b,c/d[&batchSize=n]`
 
 Member-gated. The curation step's data: the batch each repo's lane *would* get if a run started now.
 
 ```jsonc
 { "proposals": [ {
   "repo": "acme/api",
-  "items": [ /* FollowUpItem × ≤5 — always [] on a foundation lane */ ],
+  "items": [ /* FollowUpItem × ≤ batchSize (default 5) — always [] on a foundation lane */ ],
   "projectedPoints": 14,
-  "kind": "backlog",          // backlog | foundation | practice
+  "kind": "backlog",          // backlog | foundation | practice | craft | direction
   "practiceId": null,          // set only on a practice lane
   "reason": "Works this repo's open follow-ups with a local agent."
 } ] }
@@ -233,7 +240,9 @@ Member-gated. The curation step's data: the batch each repo's lane *would* get i
 It calls the **same `openBatch`** the engine calls, and the **same `proposeLaneKind`**. That identity
 is the point: a curation screen built on a second, "equivalent" query would eventually propose a
 batch (or a lane kind) the engine then declines to work. It is a `GET` because it writes nothing — no `LoopRun` row exists until `start`, so the panel
-can be opened and closed freely. `400` on a missing `org` or empty `repos`. The static `propose`
+can be opened and closed freely. `400` on a missing `org`, empty `repos`, or a `batchSize` that is not a
+whole number 1–`BATCH_SIZE_CAP` (the same `normalizeBatchSize` the start route uses; the batch is sized
+with `batchSizeOf`, as the engine sizes it). The static `propose`
 segment resolves ahead of the sibling `[id]` route, so the two never collide.
 
 ## The engine
@@ -648,7 +657,7 @@ claimed twice, a repeated movement/install headline, or (wave 3) **the same sent
 wrote for two different ids**. That last one is the fix for a run that printed *"Added gating evidence
 to agent review"* twice: the agent described one piece of work and attributed it to two covered ids,
 so it is one deliverable — merged into a single row that **carries both ids in `covers`**, because the
-sheet keys rows by the first cover and a dropped id would take its gap off the review surface. Merging
+review POST keys on a row's first cover and a dropped id would take its gap off the review surface. Merging
 by headline applies **only** to a clause the agent wrote. Two gaps that merely fall back to the same
 per-dimension *template* stay two rows: the template is Ascent's sentence, not the session's, and a
 shared one is a coincidence of how the scan filed them. The verdict gate is `attributeDelivered`
@@ -853,7 +862,8 @@ Each is checked at the route **and** in the engine, and each is load-bearing:
 
 ## Fleet SSE sub-stages
 
-`POST /api/org/scan` (the wall's and the cockpit's scan stream) now emits **two** kinds of `progress`
+`POST /api/org/scan` (the wall's scan stream — the cockpit does not subscribe to it; its lanes' `stage`
+column carries the same vocabulary) now emits **two** kinds of `progress`
 frame. See [rescan.md](../fleet/rescan.md#sub-stage-progress-frames-on-apiorgscan) for the full
 contract; the short version:
 
@@ -905,22 +915,30 @@ permanent `redirect()` to `?tab=live`.
 ## The cockpit UI (`?tab=live`)
 
 `LiveTab.tsx` (server) keeps every load it had (stack scope, goals, rollup, repo histories, ops
-snapshot, pairings) and adds, **only when `selfHosted()`**, `getActiveLoopRun(slug)` +
-`listLoopRuns(slug, 20)` straight from the db layer. The default render is `<LiveCockpit>`
-(`src/features/inflight/live/cockpit/`); `?view=wall` renders the previous tree byte-for-byte
+snapshot, pairings) and adds, **on every deployment**, `getActiveLoopRun(slug)` +
+`listLoopRuns(slug, 20)` straight from the db layer, plus `getLoopRunDetail` for up to 12 of the listed
+runs (the outcome sheet's columns); only the *pairings* stay local-only. Since 2026-09-18 the tab has
+three views — Theater, **Ledger** and **Cockpit** — see [the standing runner, its theater and its
+ledger](#the-standing-runner-its-theater-and-its-ledger-2026-09-18). The Cockpit renders
+`<LiveCockpit>` (`src/features/inflight/live/cockpit/`); `?view=wall` renders the previous tree byte-for-byte
 (autopilot band + stack selector + `LiveWarRoom`). Both are `key`-remounted on a stack change.
 
 `LiveCockpit` props: `slug, seeds (ObservatorySeed[] = toLiveRepoSeeds(rollup.repos) + scannedAt),
-histories, pairedRepos, activeRun, runs, loopEnabled, selfHosted, isOwner, wallHref` — `wallHref`
-rebuilds the current query string with `view=wall` so scope params survive the toggle.
+histories, pairedRepos, activeRun, runs, runDetails (≤ 12 listed runs' details, for the outcome
+sheet), loopEnabled, selfHosted, isOwner, wallHref, runnerRepos?, ledgerHref?, cockpitHref?` — `wallHref`
+rebuilds the current query string with `view=wall` so scope params survive the toggle; the other two
+hrefs come from `liveViewHref`, and `runnerRepos` is the watched, paired repos a standing runner's
+default scope covers.
 
 Layout: header (`Kicker` "Observatory", LIVE dot while a run is live, `N lanes · cycle c/m`, a
-**gear** opening the run-setup dialog, the **Wall** link, **Stop**) · the Observatory field (dominant)
+**gear** opening the run-setup dialog, the Live view switch, the **Wall** link, **Stop**) · the Observatory field (dominant)
 with the fleet list as a collapsible section below it · a right rail whose mode is **derived from the
-run lifecycle**, not a tab bar: `inspect` (no run) ⇄ `run` (active run) ⇄ `drive` (a drive pulling) ⇄
-`outcome` (a finished run, a finished drive, or a history pick) · **the proposed-batch ledger**
-full-width under the grid · the outcome sheet. One primary CTA at a time: **Run (N repos)** / **Drive
-to green** / **Stop after in-flight** / **Stop drive** / **Replay run**.
+run lifecycle**, not a tab bar: `inspect` (no run) ⇄ `run` (a live run — including one this tab did not
+start, once the poll discovers it) ⇄ `drive` (a drive pulling); a finished run or drive gets no rail
+panel — its outcome is the full-width sheet, and a state-machine `mode` of `"outcome"` renders the rail
+as `inspect` · **the proposed-batch ledger** full-width under the grid · the outcome sheet. One primary
+CTA at a time: **Run (N repos)** / **Drive to green** / **Start standing runner…** / **Stop after
+in-flight** / **Stop drive** (**Stop runner** while a runner is on).
 
 The rail's choice is one ordered list in `CockpitRail.tsx`, and the order is the doctrine: a **live
 drive outranks everything**, because while it pulls, "is debt falling and how much rope is left" is
@@ -1004,8 +1022,10 @@ Ten `<select>`s and five standing paragraphs lived in the same 18rem rail (`Cock
 "2 lanes or 3" and "which of ninety minutes" were the same interaction, and the panel read as an essay
 with controls hidden in it.
 
-`RunSetupModal` is the brand `Modal` at `xl`, two columns, five groups — **the work** (focus, items per
-lane, lanes at once), **how long** (cycles, session limit, drive runs), **the agent** (model, effort),
+`RunSetupModal` is the brand `Modal` at `xl`, two columns, opening with a **mode** choice (Run · Drive
+to green · Standing runner, since 2026-09-18), then five groups — **the work** (focus, items per lane,
+lanes at once), **how long** (cycles, session limit, plus drive runs in Drive mode and rescan in
+Drive/Runner mode), **the agent** (model, effort),
 **before each commit** (the guard, its budget) and **when a lane finishes** (delivery). The control
 vocabulary is `RunSetupControls.tsx`: `Segmented` for a short closed list (every option on screen, a
 disabled one keeps its seat and states its reason), `NumberRow` for 1..cap — the caps are 4, 5, 8 and
@@ -1018,6 +1038,8 @@ will check the agent's work before it is committed" in `warn` when the guard is 
 hint for the mode selected. An explanation nobody has asked for yet is what made the rail an essay; a
 consequence the operator must read *before* they act is not an explanation.
 
+In Runner mode the right column is the runner's (scope, ceiling), then the agent, then *Forced for the
+runner* — see [Starting and watching the standing runner](#starting-and-watching-the-standing-runner-2026-09-18).
 Nothing about the armed run changed: the same `RunDials` object, the same defaults, the same caps. The
 dials moved to `useCockpit` because two surfaces now read them (the dialog writes, the CTA composes),
 and the gear's `title` carries `dialsSummary(dials)` so what the dialog holds is legible without
@@ -1026,7 +1048,8 @@ opening it. The gear is drawn only where a run could actually be started.
 ### Run: lanes with stage travel
 
 `useLoopRun` polls `GET /api/org/loop` **and** the active run's `[id]` detail on one 3-second tick
-while the run is `running` (visibility-gated; the status route returns the run row only, the lanes
+while the run is `running`, and the status alone every 20 s otherwise so an open tab discovers runs it
+did not start — one non-overlapping `setTimeout` chain (visibility-gated; the status route returns the run row only, the lanes
 come from detail). `CockpitRunPanel` renders one `LaneRail` per lane: repo, cycle, a rail of stops
 `queued → dispatching → fetch / tree / files / analyze / score / compose → done` with a marker that
 travels between stops (CSS transition, `motion-reduce:transition-none`) and a heartbeat on the active
@@ -1053,9 +1076,10 @@ done, and by which run?*
 | rows | a **project header row** (`th scope="colgroup"`: the repo named once, its lane's PR link or the guarded *open a PR* action, its cumulative attributable lift, `bg-surface/60`), then a **dimension band** per group of gaps (collapsed; see below), then **one row per gap** (`th scope="row"`) — the project name never repeated. |
 | cells | that run's state for that gap: the tinted block (`committed` `bg-success/10` / `uncommitted` `bg-warn/10` / `proposed` `bg-accent/5`), a kind marker (*Closed* / ✓ only when the rescan verified the close; an unverified close reads *Claimed* in muted italic; *Retired* for a rescan-dropped row), the run's own headline, the dimension short label, and the owner's ✓/✕. **A blank cell is normal** and is the point. |
 
-A gap is identified **across runs** by its review key (`gapKey`, outcomeGapRows.ts: the first covered
-follow-up id, else `kind|dimId|headline`), so a gap worked in run 3 and revisited in run 7 is **one
-row** with content in those two columns and blanks between — which is what makes the timing readable
+A gap is identified **across runs** by its durable identity (`gapKey`, outcomeGapRows.ts: the covered
+recommendation's dimension + normalized title — the key scan-persist carries status by, because every
+rescan re-mints the ids — else the covered id, else `kind|dimId|headline`), so a gap worked in run 3
+and revisited in run 7 is **one row** with content in those two columns and blanks between — which is what makes the timing readable
 at a glance. The pure fold is `buildSheetProjects` (`outcome/outcomeSheetModel.ts`), over the same
 `buildOutcomeMatrix` the numbers come from; the row label is the *latest* run's wording while every
 earlier run keeps its own wording in its own cell.
@@ -1124,8 +1148,7 @@ and the client's first paint cannot disagree.
 per-dimension deltas, the engine/`scoreIntegrity` provenance line and the ¢/point economics; the sheet
 prints deliverables, verdicts and commits/gaps instead. The standing cost picture is `PriceListPanel`,
 and the agent's per-item account (`CockpitVerdicts`) moved under the sheet for the run on screen. The
-**Replay run** button went with the ledger; `replayRun` is still on `useCockpit` for the surface that
-re-offers it.
+**Replay run** button went with the ledger; `replayRun` is still on `useCockpit`, and nothing renders it.
 
 A cell prints a coloured delta only when [the attribution rule](#is-this-lift-real-the-attribution-rule)
 allows it; otherwise the verdict word sits where the delta would ("uncommitted", "within noise",
@@ -1138,8 +1161,11 @@ re-seed the server render.
 ### Drive to green, from the cockpit (`CockpitDrivePanel`, `useDrive`)
 
 The inspector's second CTA. It starts a drive over the **same selection** the Run button would work
-(paired repos only) with the same `Lanes at once` / `Cycles` dials plus a **Drive runs** dial capped
-at `DRIVE_MAX_RUNS_CAP`. The gate is not widened for it: `cockpitGate.ts` is ONE predicate
+(paired repos only) with **every** run dial (sent as `dials`: batch size, session ceiling, guard, check
+budget, rescan cadence), plus a **Drive runs** dial capped at `DRIVE_MAX_RUNS_CAP`, shown when the setup
+dialog is in Drive mode. A live **standing runner** takes the same rail slot, rendered by
+`CockpitRunnerPanel` (see [Starting and watching the standing
+runner](#starting-and-watching-the-standing-runner-2026-09-18)). The gate is not widened for it: `cockpitGate.ts` is ONE predicate
 (`selfHosted → repos → owner → autopilot → paired`) serving both, because a drive is a sequence of
 runs with exactly the loop's blast radius.
 
@@ -1149,7 +1175,10 @@ lie by the second.
 
 While it pulls, the panel shows run counter vs cap, debt now against the debt the drive started
 with, `greenCount/inScope`, the in-flight run's own `cycle c/m · n/m lanes done` (from `useLoopRun`'s
-poll, not a second one), and each finished run's debt before → after. **Progress is `null`, not 0,
+poll, not a second one — the drive dispatches runs server-side, so the loop hook reads as soon as the
+drive's poll reports a new in-flight run id, with its 20 s idle discovery as the backstop; until
+2026-09-18 neither happened and the panel read *Re-scoring the fleet…* for the whole drive), and each
+finished run's debt before → after. **Progress is `null`, not 0,
 until a run has been measured** — a fresh drive has burned nothing *and* achieved nothing, and 0%
 claims the second when only the first is known. Debt inverts the house delta convention (falling is
 the win), so the colour takes the size of the drop while the text prints the signed change with
@@ -1157,64 +1186,474 @@ the win), so the colour takes the size of the drop while the text prints the sig
 
 **Stop** is cooperative and belongs to the drive while one is live: stopping only the in-flight run
 would let the drive dispatch the next one, so the header's Stop is re-pointed at `stopDrive` for the
-duration.
+duration. Pressed, it reads *Stopping the drive and its in-flight run…*: `waitForRun` stops the
+in-flight run on its next poll — its lanes wind down cooperatively and are force-stopped after a grace —
+so it does **not** wait for that run to finish. For a standing runner the button reads **Stop runner**
+and its caption is `runnerStopHint`: a waiting runner stops at its next beat.
 
-On termination a `DriveVerdict` banner sits **above** the outcome sheet — the two answer
+On termination a `DriveVerdict` banner (`CockpitDriveVerdict.tsx`; a runner's reads *Runner · Stopped*
+and never uses green/dry/ceiling) sits **above** the outcome sheet — the two answer
 different questions ("why did the drive stop" vs "what did the last run do"), and `dry` and
 `ceiling` are worded apart on purpose because they call for opposite next moves. A drive that never
 dispatched a run (already green) renders the banner alone, with its own way back.
 
-`useDrive` polls `GET /api/org/local/drive?org=` every 12 s, and **only** while a drive is live, the
-tab is foregrounded, and the gate is clear — on managed cloud, where the route 404s by design, it
+`useDrive` polls `GET /api/org/local/drive?org=` on a 12 s `setTimeout` chain (`usePollChain` +
+`useIsVisible`, one serial ticker shared with its actions), and **only** while a drive is live (a
+runner's `paused`/`idle` count, per `isDriveLive`), the tab is foregrounded, and the gate is clear — on managed cloud, where the route 404s by design, it
 makes no request at all. It adopts a drive started elsewhere (curl, another tab) on its mount tick,
 and hands the terminal status up exactly once.
 
-### Per-run model and effort (2026-08-28)
+### Per-run model and effort (2026-08-28, superseded by arms 2026-09-21)
 
 The agent was pinned to the deployment's `CLAUDE_MODEL` (default `sonnet`) with no per-run choice —
 so the most expensive variable in the system was the one an operator could not vary without a
 redeploy, and the outcome ledger compared lifts across runs whose configuration it did not record.
+Two dials answered that: **Model** (`AGENT_MODELS` — haiku · sonnet · opus) and **Effort**
+(`AGENT_EFFORTS` — low · medium · high), both defaulting to *Deployment default*, both persisted
+**resolved** on `LoopRun.model/effort` and `LoopDrive.model/effort` (migration
+`20260828170000_add_run_agent_config`) so a changed env cannot split one run across two setups.
 
-Two dials sit with the others in the run-setup dialog (`RunSetupSections` *the agent*, state in
-`useRunDials`): **Model** (`AGENT_MODELS` — haiku · sonnet · opus) and **Effort** (`AGENT_EFFORTS` —
-low · medium · high), both segmented and both defaulting to *Deployment default*. They ride `POST {action:"start"}` on the
-loop route and on the drive route, and a drive hands the same pair to **every** run it dispatches, so
-a multi-run drive stays one experiment. A resume inherits it for the same reason.
+Three of those decisions still hold verbatim and are load-bearing elsewhere:
 
-| Concern | Where |
-| --- | --- |
-| The closed lists + normalizers + the ledger label | `src/lib/local/agent-options.ts` (dependency-free, so the picker and the route validator cannot drift) |
-| Env resolution + the `--effort` argv | `src/lib/local/agent.ts` (`resolveAgentConfig`, `runClaudeAgent`) |
-| Persistence | `LoopRun.model/effort`, `LoopDrive.model/effort` (migration `20260828170000_add_run_agent_config`) |
-
-Three decisions worth stating:
-
-- **The values are RESOLVED at arm time and the resolved values are persisted.** A row storing the
-  raw pick would read `null` for every default run — "whatever `CLAUDE_MODEL` was that day", which is
-  exactly the fact the ledger needs and the only one an env var cannot recover afterwards. Later
-  cycles and a lane retry read the configuration off the **row**, so a changed env cannot split one
-  run across two setups.
-- **The model list is closed, and not because the CLI cares.** `--model` and `--effort` reach a
-  re-parsing shell on Windows (`shell: true`), so both are normalized against the same list the picker
-  offers; an unrecognised value falls back to the deployment default rather than 400-ing, because a
-  run must not die because a stale tab sent a retired name. An operator who needs a pinned model id
-  sets `CLAUDE_MODEL` and picks *Deployment default* — a pinned id is a deployment decision.
 - **The effort env var is `ASCENT_AGENT_EFFORT`, not `CLAUDE_EFFORT`.** The Claude Code harness sets
   `CLAUDE_EFFORT` itself in the environment it gives child processes (found the hard way: a test
   asserting "no effort chosen" failed against the ambient env of the session writing it). A
   self-hosted Ascent started from inside a Claude Code session would have inherited an effort level
   nobody chose, on every run, invisibly. `CLAUDE_MODEL` carries no such collision and keeps its name.
-- **`null` effort is not a level.** The flag is then not appended at all, so the argv is byte-for-byte
+- **`null` effort is not a level.** The flag is not appended at all, so the argv is byte-for-byte
   what it always was.
+- **A run recorded before the columns existed prints nothing** — "default" would be a claim about a
+  run nobody can check. The same rule governs `armLabel` below.
 
-The configuration is rendered where lifts are compared: beside the timestamp on the outcome header,
-and under every row of the run-history strip. A run recorded before the columns existed prints
-**nothing** — "default" would be a claim about a run nobody can check.
+**What changed on 2026-09-21.** The model/effort *pair* is no longer what a run is armed with. The
+Model segmented control is gone from run setup, replaced by the arm builder; **Effort is unchanged**,
+sits below it, and still sends no flag on *Deployment default*. `dials.model` survives as the
+deployment fallback the three start bodies still send (`null` = `CLAUDE_MODEL`), which is exactly
+what a `claude` arm naming no model means.
 
-Tests: `agent-options.test.ts` (the closed lists, including the shell-injection shapes, and the
-unknown-renders-nothing label), `agent.test.ts` (`resolveAgentConfig` precedence),
-`loop-engine.test.ts` (the parameter threading start → row → agent invocation, and that a mid-run env
-change cannot reach a later cycle), `OutcomeSheet.dom.test.tsx` (the run column header shows it).
+### Arms: transport + model, and the N-arm comparison (2026-09-21)
+
+**Status: the machinery is implemented and committed; no comparison run has completed. The verdict
+does not exist yet.** Every threshold and every band below is *declared* or *chosen*; the only
+measurements on this page are labelled as such.
+
+#### What an arm is
+
+A pair of (model, effort) was adequate while there was exactly one thing to spawn. It stopped being
+adequate the moment a lane could spawn something that is not `claude`: the same model name means
+nothing without the transport that resolves it, and the configuration this work exists to measure —
+*Claude plans, a local model executes* — is a shape the pair cannot hold at all.
+
+An **arm** (`src/lib/local/arm.ts`, dependency-free so the cockpit builder and the route validator
+cannot drift) is one transport + one model to execute, optionally a *different* transport + model to
+plan:
+
+```jsonc
+{ "id": "split", "label": "claude:sonnet plan -> pi:qwen3.8:27b",
+  "transport": "pi", "model": "qwen3.8:27b",
+  "plan": { "transport": "claude", "model": "sonnet" } }
+```
+
+`TRANSPORT_IDS` is the closed list `["claude", "pi"]` — closed because the id reaches a re-parsing
+shell. The model is a **shape** (`MODEL_TOKEN`), not a list: a local roster is whatever the operator
+pulled, and an enum of it is a list this repo would have to chase. A malformed `plan` half fails the
+**whole** arm rather than degrading to "plans with itself", which would quietly convert a split arm
+into a pure-local one and record the result under the wrong name.
+
+#### Arming a run
+
+`POST /api/org/loop` (`action: "start"`) takes two new fields, validated by the one validator
+(`normalizeArmSet`) the cockpit builder also validates against:
+
+| Field | Meaning |
+| --- | --- |
+| `arms` | exactly 1 under `armPolicy: "single"`, 2–4 with distinct ids under `"compare"` |
+| `armPolicy` | `"single"` (one arm drives the run) or `"compare"` (N arms race one curated batch) |
+
+A malformed set is a **400 naming the band**, never a run silently degraded to one arm — a
+comparison the operator thinks they ran and did not is worse than no comparison. A drive carries
+arms the same way, through `dials.arms` / `dials.armPolicy`.
+
+The pre-arms vocabulary (`modelPolicy: "ab"` + two `models`) is untouched and **never merged** with
+arms: a run armed that way still fans out to two lanes keyed by model name under one `abPairKey`,
+with no `armId` and no `transport` on its rows.
+
+#### `compare` is `ab` generalized
+
+`modelPolicy: "ab"` already fanned one curated batch to two lanes per repo — two worktrees, two
+branches, one `abPairKey`, each rescanning its own worktree so neither arm grades the other. The
+instrument was right and hard-capped at two arms that both had to be Claude aliases. `compare` is
+the same instrument with 2–4 arms; `abPairKeyFor(runId, repo, cycle)` needed no change because it
+never mentioned the arm. An N-arm run puts N times as many lanes in flight as the concurrency dial
+says, so it is **refused with the arithmetic in the sentence** when that exceeds
+`LOOP_CONCURRENCY_CAP` (4), exactly as `ab` always was. The 4-arm cap is not arbitrary: above four,
+the wall clock of a serial local arm makes a run that never finishes.
+
+#### Per-step arming
+
+The planning step and the executing step have always been two subprocesses. They now read two
+different halves of the arm — `planArmOf(arm)` in `lane-plan.ts`, `arm.transport` in `loop-lane.ts`
+— and both go through `runAgentVia(transport, opts)` (`src/lib/local/transport/run.ts`). A lane with
+no arm still goes through `runClaudeAgent`: the same call, not an equivalent one.
+
+**A split arm does not resume its planning session.** The resume is an optimization in which the
+executing session continues the planning conversation; when a *different tool* executes, the session
+id names a conversation it has never heard of. The plan still travels as the fenced plan block in the
+prompt, which it always did anyway.
+
+#### What a lane row now records
+
+| Column | Meaning |
+| --- | --- |
+| `transport` | the agent CLI that **executed** (`claude` \| `pi`) |
+| `armId` | the run arm this lane is a sample of — what joins a lane back to its arm |
+| `planModel` | the model that **planned**, when the lane opened with a planning session |
+| `voidReason` | why the lane is `void` (below) |
+| `planInputTokens` / `planOutputTokens` / `planCacheReadTokens` / `planTurns` / `planDurationMs` | the **planning** session's own accounting |
+
+`model`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `turns` and `agentDurationMs` keep their
+exact existing meaning — the **executing** session, byte-identical to every lane before transports.
+Nothing was repurposed, nothing was backfilled, and every new column is **null on a lane written
+before it** — unknown, never floored to `claude` or to `0`. There is deliberately **no plan-side cost
+column**: `costMicros` remains the lane's one declared cost source, and a second money column would
+invite the sum the one-source rule forbids.
+
+On the run: `armsJson`, `armPolicy`, `probeJson`, all TEXT and nullable
+(`prisma/migrations/20260921120000_add_arms_and_transports/`). `modelPolicy` gains `compare` and
+`phase` gains `void`; both columns are already TEXT, so neither is a DDL change. **After pulling
+this, restart a long-lived `next dev`** — a cached Prisma client misses the new DDL and the miss
+reads as a code defect.
+
+`armId` also widens the lane's identity key: two arms of a `compare` run can execute the *same* model
+through different transports, so the model alone would resolve both to one row and the second would
+overwrite the first's branch, cost and result.
+
+The erase path is unchanged and already covers this: no new table, and `eraseOrgLoopRuns`
+(`src/lib/db/retention.ts`) deletes whole `LoopRunLane` rows by `runId` and whole `LoopRun` rows by
+`id`, so it is column-agnostic and the new columns travel with the row.
+
+#### The void phase — a lane may not edit the surface that scores it
+
+An agent candidate holds the same shell the harness holds: it can read the verify command, relax a
+test, and then score a clean lift for having done nothing. The prohibition ("do not weaken the
+tests") is unfalsifiable at the only place it would have to be checked — inside a loop nobody is
+reading — and this loop is explicitly unattended. So before a lift is credited, the lane's own
+committed paths are diffed against the scoring surface (`checkGateDiff`,
+`src/lib/local/lane-gate-diff.ts`, called from `loop-lane.ts`). A lane that touched it:
+
+- is written `phase: "void"` with its `voidReason`;
+- **does not rescan** — nothing it changed becomes the repository's latest reading;
+- is **reported as an outcome**, never dropped. A silently discarded void lane flatters the arm that
+  produced it, which is the failure the guard exists to prevent.
+
+It is a phase of its own rather than an `error` because the lane ran fine; calling it an error would
+hide it among the failures instead of reporting it as the outcome it is. A lane with **no commits is
+not void** — it simply never rescans.
+
+`classifyScoringSurface(path)` is a **classifier, not a path list**: a list goes stale the first time
+a directory is renamed, and would then turn the guard off silently, in a voice indistinguishable from
+"nothing was touched". It matches on shape, after normalizing separators and case, in this order —
+`fixture` (a path *segment* in `__fixtures__` / `fixtures` / `__snapshots__` / `__mocks__` /
+`testdata` / `golden` / `baselines`, or a `.snap` / `*.fixture.ts` / `*.mock.ts` basename; first,
+because `__fixtures__/x.test.json` is a recorded expectation before it is a test), then `test-file`
+(`foo.test.ts`, `foo.spec.tsx`, `test_foo.py`, `foo_test.go`, `FooTest.java`, or a `__tests__` /
+`test(s)` / `spec(s)` / `e2e` / `cypress` segment), then `gate-config` (vitest/jest/playwright/
+cypress/vite/babel/tsconfig configs, `eslint.config.*`, `pytest.ini`, `pyproject.toml`,
+`.pre-commit-config.yaml`, anything under `.github/workflows/`, `.husky/`, `.circleci/`), then
+`verify-command` (exactly where `lane-verify.ts` resolves the command from: `.ai/manifest.yaml`, the
+guidance files, `package.json`, `Makefile` / `justfile` / `Taskfile.yml` / `Cargo.toml` / `pom.xml` /
+`build.gradle`, and gate-shaped `scripts|bin|tools/{verify,check,ci,gate,lint,test}*`). Display is
+bounded to six paths and the remainder is **counted** in the reason (`+N more paths`), never hidden.
+
+`lane-gate-diff.test.ts` pins a `SEEDED_VIOLATIONS` table — 26 paths, each with the class it MUST
+receive — asserted both through the classifier and one at a time through `checkGateDiff`. Loosening a
+rule does not make the guard quieter; it makes that file red. This exists because the repo has been
+bitten exactly once by a source-scanning guard that stopped matching and kept passing (AGENTS.md,
+2026-09-04).
+
+#### Per-arm timing, and the ceiling that fired
+
+Arms run at very different speeds, so one shared ceiling forces a choice between failing every local
+lane on the clock and removing the tripwire that catches a genuinely stuck Claude one. The lane
+deadline is resolved per arm (`armTiming`, `loop-lane.ts`), in this order:
+
+1. the operator's explicit per-run `agentTimeoutMs` — a decision about **this** run;
+2. the transport's own dated band (`transportProfile(id).timing`, widened for a local endpoint by
+   `transportTiming(id, { local: true })`);
+3. the deployment's `ASCENT_AUTOPILOT_TIMEOUT_MS` and the shared `PLAN_TIMEOUT_MS` — exactly what
+   every lane used before transports had bands of their own.
+
+| Band | Claude, hosted | local endpoint (Claude or Pi) |
+| --- | --- | --- |
+| `agentMs` (one executing session) | 20 min | 90 min |
+| `planMs` (one planning session) | 8 min | 30 min |
+| `quietMs` (stream silence → "quiet") | 90 s | 5 min |
+
+**These local bands are CHOSEN, not measured.** What was measured, on the development machine on
+2026-09-21 (qwen3.8:27b Q4_K_M, Ollama 0.32.15, 22.4 GB of 27.1 GB resident at 64k context), is the
+token rate alone: **545 tok/s prefill, 11.5 tok/s generation** — roughly a tenth of a hosted frontier
+model. No local lane has been run to completion here, so no number in that column is a measurement of
+how long a local lane takes. The reasoning is attached rather than dressed as data: 90 min is 4.5×
+the hosted band and deliberately **below** the ~10× the token rate implies, because an overnight
+drive that spends three and a half hours discovering one wedged session is a worse answer than a
+session cut at 90 minutes with the ceiling named on the row (90 min is also `AGENT_TIMEOUT_CAP_MS`,
+so the band and the hard cap on a per-run override agree instead of being two opinions); 30 min for
+`planMs` is 3.75× the hosted 8 min because a planning session is prefill-dominated; 5 min for
+`quietMs` is 3.3× the hosted 90 s because a 2k-token tool call emitted at 11.5 tok/s takes ~3 minutes
+to appear and is normal. Pi's band is **deliberately identical** to the local Claude band: the two
+arms share a GPU and a model, and a bake-off with two different ceilings measures the ceilings.
+
+`PLAN_TIMEOUT_MS` and `PHASE_QUIET_MS` (`src/lib/local/runner-types.ts`) are `@deprecated` in favour
+of the bands but not deleted — they still back the fallback path (`loop-lane.ts`, `lane-plan.ts`) and
+`lane-phase.ts`. `transport/profile.test.ts` pins each equal to the Claude profile's band, so the two
+cannot drift while both exist; a deprecation that lets its replacement diverge is worse than no
+deprecation.
+
+**The deployment dial is scoped to the band it was set for.** `ASCENT_AUTOPILOT_TIMEOUT_MS` still
+applies to a hosted Claude arm exactly as before, so no current deployment changes behaviour. A
+**local** arm takes its profile band and ignores it: it is a number operators chose while watching a
+hosted session, and silently reusing it for an arm ten times slower would fail every local lane on a
+ceiling nobody picked for it — which an operator would read as "the local model cannot finish a
+lane", the exact wrong conclusion.
+
+`AgentRunResult` gained exactly one optional field, `ceiling: { kind: "session" | "lane", transport,
+local, limitMs }`. `session` means this session's own timer fired; `lane` means something outside cut
+it (the watchdog's deadline, an operator stop) and `limitMs` is then `null`, because the number that
+fired belongs to the watchdog and restating a figure this side never held would be an invention in a
+measurement column. It exists because with two arms racing one batch under different bands the only
+finding that matters is comparative — *"the local arm ran out of its 90 minutes while the Claude arm
+finished inside its 20"* — and that is stored nowhere else. The alternative was a regex over
+`summary`, and a comparison whose denominator comes from a parser over prose is one nobody should
+trust. The **sentence** a subscription Claude lane produces is unchanged byte for byte
+(`Agent session exceeded 20 min and was stopped.`) so `runner-breakers.ts` keeps classifying the
+exact strings it was written against; a non-default arm, and only a non-default arm, names itself.
+
+#### Honest cost, and the token split
+
+A transport whose profile declares `zeroCost` reports dollars that are **fabricated**: measured
+2026-09-21, `claude -p` against a local Ollama endpoint returned `total_cost_usd: 0.084` with
+`costBasis: "unknown"` — a price computed from a rate card for a model that was never called.
+
+- An all-local lane records **`costSource: "none"` with `costMicros: null`** — never `0`, because a
+  display that divides would report an infinite lift-per-cent. Tokens, turns and duration are still
+  recorded.
+- A **split arm** records `costSource: "envelope"` with the **plan half's real figure alone**. The
+  executor's invented price is discarded, not added.
+- The usage ledger receives **two events, one per provider** (`lane-cost.ts`): the planning half
+  under its own idempotency key `loop-lane:<laneId>:plan`, the executing half keeping the existing
+  `loop-lane:<laneId>` so a row written by the older path is still the same row.
+- A step is *local* when it ran against a local endpoint **or** its profile declares `zeroCost`. The
+  endpoint is the stronger witness and is checked first: the `claude` transport is not a zero-cost
+  profile, but `claude -p` pointed at a local server spends no Anthropic tokens while still printing
+  a price.
+
+The drive's **daily spend ceiling** needs no arm-awareness: it sums `LoopRunLane.costMicros`, and a
+zero-cost lane contributes nothing by construction rather than by a rule someone has to remember.
+
+#### The comparison readout and its metric contract
+
+**One optimized metric:** `claudeTokensPerVerifiedPoint`, direction *at-most*
+(`src/lib/local/compare-metrics.ts`). Everything else is a **declared threshold**, cleared or not. A
+large gain that breaches a threshold does not advance, and no threshold is renegotiated after a
+result. The three constraints are **declared, not measured**:
+
+| Constraint | Kind | Threshold | Why this number |
+| --- | --- | --- | --- |
+| `landed-rate-vs-claude` | quality | at least **0.85** of the Claude arm's landed rate | a 15 % relative drop is the most quality the trade may cost; below that the operator redoes the missing lanes by hand and the token saving is notional |
+| `verify-verdict-regressions` | quality | at most **0**, paired | counted only over trials both arms worked: the Claude lane verified and this arm's was rejected. Zero, because a rejection is the guard catching work that broke the repository |
+| `median-lane-wall-clock-ms` | operational | at most **45 min** | an unattended night is ~8 h at concurrency 2; 45 min/lane is ~20 lanes, a night's batch. A slower arm can be cheaper per point and still undeployable — which is why this is a threshold and not a second optimized metric |
+
+`laneTokenAttribution` is the **one** function that turns the row's columns into the `claudeTokens` /
+`localTokens` the metric is computed from. Each half is attributed to the transport that ran it, so a
+split arm contributes its planning tokens to Claude and its executing tokens to local. A side that
+did not run, or did not report, is `null` — never `0`, and two unknowns sum to `null`. **One
+conservatism survives and it is narrow:** when the planning half was Claude and its tokens were never
+recorded — a lane older than the `plan*` columns — the executing envelope is attributed to Claude, so
+an unmeasured planner cannot read as zero Claude spend. A *measured* lane is reported exactly as it
+was measured.
+
+Other properties the module holds:
+
+- **Cost both ways.** `costAllCompleted` (every completed lane) is the unconditioned primary and
+  stays, because conditioning on the outcome selects on a post-treatment variable. `costConditioned`
+  covers only trials where **every** arm landed. Both are `Counted<T>`: the subset size and the
+  predicate are fields of the value, so the conditioned figure cannot be printed without its n.
+- **Reliability twice.** `anyOfN` ("achievable at all") and `allOfN` ("can be relied upon" — the
+  question behind running something unattended) over N = 3, with `modelled` set truthfully: observed
+  when a trial actually ran N attempts, otherwise compounded from the per-trial rate and flagged,
+  because compounding assumes independence and a hard case the arm reliably misses is not independent.
+- **A null optimized metric is a finding.** An arm with no verified points reports `null`, never `0`
+  and never `Infinity`; such an arm cannot advance.
+- **Nothing is dropped.** `voided`, `parked` and `timedOut` are reported per arm. A void lane's points
+  are uncredited but it still counts as a failure in the reliability denominator. A **parked** lane
+  counts as a failure only for an arm marked `belowFloor` — that is what makes the capability floor
+  measurable rather than permanent.
+
+`ComparisonView` (`src/features/inflight/live/ledger/comparison/`) renders that report: the headline
+prints its direction beside it (`lower is better`) so a reader never has to already know which way is
+good; a null metric renders `—` with "no verified points — not a zero"; each constraint renders as
+`CLEARED` / `BREACHED` / `UNMEASURED` with its declared bound and the observation, and a null
+observation is UNMEASURED and never shown as cleared; the conditioned cost prints its subset size and
+predicate; both reliability figures render together or neither does, with a compounded one marked
+*Modelled, not observed*; all five outcome rows (landed, failed, void, parked, timed out) render
+always, including at zero, each with the standing reason it happens; a below-floor arm is labelled
+wherever it appears; and when no arm advances, the report's **note is the finding** and is printed in
+place of a verdict. Three states: empty, running (arms present, the headline **deliberately
+withheld** — a provisional number is a number someone will quote after it has changed) and settled.
+
+#### The theater names the arm
+
+The theater header names what a run is armed with, on every run including an ordinary single-arm one,
+as a quiet mono caption under the running answer — context, not a headline. The label comes from
+`armLabel()`. The arm belongs to a **lane**, not to the pulse: a `compare` run races 2–4 arms over one
+batch, so "the run's arm" is not a thing such a run has; `theaterArm.ts` takes the arm of the lane the
+header is already reporting on in **Now**, so the label and the sentence above it describe the same
+piece of work. The pulse carries the whole `Arm` rather than the id — every reader wants to *label*
+it, and a reader handed `claude-sonnet-1` would have to invent words for it. The read selects both
+(`src/lib/db/loop-pulse.ts`) and the pure fold joins them once (`armsById` → `LanePulse.arm`,
+`loop-pulse-fold.ts`); the client's defensive parser runs the field through `normalizeArm`. **A lane
+with no arm, or one whose `armId` names no arm of its run, renders nothing** — not "default", which
+would be a claim about a configuration that is genuinely unknown.
+
+#### The cockpit: the Arms panel, and nothing starts unproven
+
+Run setup → **The agent** opens with the arm builder (`cockpit/arms/`):
+
+1. **Policy** — `One arm` (the default, and what every run before arms did) or `Compare (2–4)`.
+   Policy comes first because it decides what the run's numbers MEAN: a single run produces a result,
+   a compare run produces a comparison.
+2. **Arm rows** — a transport (read from `allTransportProfiles()`, so the picker names the binary:
+   "Claude Code", "Pi") and a model. A Claude model is a segmented control over the deployment's three
+   aliases; a local model is a text field gated only by `arm.ts`'s `MODEL_TOKEN`, the same regex the
+   spawn door applies.
+3. **"Plan with a different model"** — a disclosure revealing a second transport+model pair. The row's
+   live label then reads as the split it is (`claude:sonnet plan -> pi:qwen3.8:27b`), formatted by
+   `arm.ts`'s own default label rather than by a second format in the browser.
+4. **Below the floor** — when the arm's PLANNING half is not Claude, the row grows a warn-toned block
+   stating the consequence and an explicit *"Arm it below the floor anyway"* opt-in. Until it is
+   ticked the whole set is unarmable; when it is, the arm goes over the wire with `belowFloor: true`.
+   **A Claude-planned arm is not below the floor, however local its executing half** — which is what
+   makes "Claude plans, a local model executes" the configuration the feature is *for* rather than a
+   thing to be warned about.
+5. **Check transports** — the preflight probe (`POST /api/org/local/probe`, once per distinct
+   transport in the set). `idle → probing → armable | blocked`. A block prints every failed finding as
+   an **action**, because a red light the operator cannot act on is one they route around. See
+   [the probe](../local-mode/README.md#the-preflight-probe-2026-09-21).
+
+Rules worth writing down: **the panel does not validate** — every rule comes from `@/lib/local/arm`,
+and the panel adds exactly one the wire cannot express (an un-acknowledged below-floor row, because
+consent is a fact about the dialog rather than about the run). **Nothing probes on an effect**: the
+probe spawns a real subprocess, so it fires from a press, and staleness is recomputed during render
+from a signature of the whole arm set, so editing any model turns a green light back to "Not
+checked" with no state to manage. **A probe that cannot be reached is a BLOCK**, not a shrug: nothing
+has proven the transport can answer.
+
+The verdict reaches the buttons. `armStartBlock` (`cockpit/startInputs.ts`) returns one sentence or
+null: `idle` and `armable` start; `blocked` and `probing` disable Run, Drive **and** the standing
+runner; an unarmable set ("give every arm a transport, a model, and its below-floor opt-in where one
+is needed") disables all three too. The reason is rendered beside the buttons and each disabled
+control points at it with `aria-describedby`, so it is reachable by eye and by a screen reader —
+never a silently dead button. The runner is disabled by the same rule and most deliberately: it
+spends against a daily ceiling on the same unproven transport. `idle` does **not** block, because the
+probe fires from a deliberate press and requiring one before every run would make an unchanged,
+already-proven configuration un-runnable.
+
+#### The capability floor, and what would retire it
+
+**A local transport serves the EXECUTING step; the planning step keeps a Claude arm.** The reason is
+structural rather than a judgment about any model: the plan contract fails closed, so a plan the
+harness cannot parse **parks the whole batch** — the most expensive failure mode in an unattended
+drive, because it costs a night and produces nothing to read.
+
+This is recorded as a **floor with its measurement trigger, not as a permanent rule.** An operator
+may arm below it, always labelled, with an explicit opt-in — and a below-floor arm's **parked lanes
+are counted as failures** rather than discarded (`countedFor`, `compare-metrics.ts`). That is the
+whole point: the floor is retired when a below-floor arm's parked rate over a real comparison run is
+low enough that the batch-parking risk is priced rather than assumed. Until such a run exists, the
+floor stands and nothing here claims to know the answer.
+
+One confound is recorded in advance, because it is a harness difference and would otherwise be read
+as a model difference: **Claude plans with `Read,Grep,Glob`; Pi has no grep or glob tool.** Searching
+in Pi goes through `bash`, which is not read-only, so Pi's planning stance is `-t read` — strictly
+read-only but a *weaker planning surface* than Claude's. If Pi plans measurably worse, that is the
+first thing to check.
+
+#### What is not wired yet (2026-09-21)
+
+Three honest edges, so nobody reads more into the above than the code supports:
+
+- **No comparison run has completed.** `buildComparisonReport` has no production caller: nothing
+  reads `LoopRunLane` rows into `LaneMetricRow[]` yet, and `ComparisonView` is exercised only by its
+  fixture and DOM test. The contract, the arithmetic and the surface exist; the ledger does not mount
+  them.
+- **No lane resolves a `LocalEndpoint` yet.** `TransportRunOptions.endpoint` is the committed shape
+  and `claudeSpawnEnv` / `piModelsJson` both honour it, but neither `loop-lane.ts` nor `lane-plan.ts`
+  passes one and no env var resolves one. Today a local arm means arming `pi`, which falls back to
+  the operator's own `~/.pi/agent/models.json` when no endpoint is armed; a `claude` arm with no
+  endpoint is the hosted seat, exactly as before.
+- **`modelPolicy: "ab"` still has no picker.** The Arms panel arms `single` and `compare`; the
+  pre-arms A/B vocabulary remains route-only, and is kept only so runs recorded under it keep their
+  meaning.
+
+#### Driving it headlessly (`scripts/arms.mjs`, 2026-09-21)
+
+The Arms panel is the only way to *build* an arm set in the UI, and a browser is the wrong instrument
+for a measurement that runs for hours and whose entire output is a table. `scripts/arms.mjs` drives
+the same control surface — the same validator, the same probe, the same route:
+
+```
+node scripts/arms.mjs probe   --org kiro --arms "claude:sonnet,claude:sonnet>claude:qwen3.8:27b-64k"
+node scripts/arms.mjs propose --org kiro --repos xkazm04/kp
+node scripts/arms.mjs run     --org kiro --repos xkazm04/kp --arms "…" --plan-mode on --batch-size 1
+node scripts/arms.mjs report  --org kiro --id <runId>
+node scripts/arms.mjs watch   --org kiro
+```
+
+It speaks HTTP rather than importing the engine, and that is not a compromise: `startLoopRun` reaches
+a `server-only` barrel, and in local dev the database is an embedded PGlite **inside the dev server's
+process**, so a second node process would fight it for a single-writer file and keep its own live-run
+registry besides — the UI's next poll would then mark the script's run stale. It needs no credential
+on a box with `ASCENT_AUTH_BYPASS=1`; with the bypass off there is no token path to these routes at
+all.
+
+`run` always preflights and refuses on the probe's verdict, exactly as the panel does.
+
+#### `planMode` is what makes a split arm split, and it was missing (2026-09-21)
+
+An arm's planning half is spawned by the **planning session** and by nothing else. `POST
+/api/org/loop` did not accept `planMode`, so a split arm armed through that door ran the *executing*
+transport for both halves and recorded `planModel: null` — the configuration this whole section is
+about was unreachable from the manual door, while looking exactly like it had worked. Only the
+standing runner, which sets the field itself, could produce it.
+
+Found by arming one against a real repo and reading the lane row instead of the intent. The route now
+takes `planMode: "on" | "off"`, refuses anything else rather than reading a typo as "off" (off is a
+*different run* for a split arm), and the driver refuses a `plan>` arm without `--plan-mode on`.
+
+The proof that it works is a lane row carrying `planModel: "sonnet"` beside `model:
+"qwen3.8:27b-64k"`.
+
+#### A request's ceiling is not the session's (2026-09-21)
+
+`API_TIMEOUT_MS` was set to the local session band on the reasoning that a local response is merely
+slow and the session's own timer should end a run. That is right about slowness and wrong about
+failure.
+
+Measured: a local session read its files, wrote correct output, and its follow-up request then
+errored twice (`api_retry` appears twice in the stream) — after which it sat silent until the harness
+killed it, because a dead request was entitled to wait the entire 90-minute session budget. From
+outside, that is indistinguishable from a slow model, and the wrong conclusion was one step away:
+that a 27B cannot drive an agent loop. It had already done the work.
+
+`LOCAL_REQUEST_TIMEOUT_MS` (10 minutes) now bounds one request. The tests pin the **gap** rather than
+the number: below the session band, above a floor one slow turn cannot reach, and unchanged when the
+session band changes — because the two answer different questions.
+
+**What thinking turned out not to be.** The stall looked like Qwen's default reasoning effort, which
+the research had flagged. It was tested rather than assumed: a closing turn with thinking on costs 59
+output tokens and ~6 s, `MAX_THINKING_TOKENS=0` does **not** suppress reasoning through Ollama's
+Anthropic-compatible endpoint (both A/B arms still emitted thinking blocks), and `think` is not a
+valid Modelfile parameter. Thinking was never the bottleneck; the request ceiling was.
 
 ### Lane kinds: foundation and practice lanes (2026-08-28)
 
@@ -1345,10 +1784,13 @@ install ending cleanly, a curated batch winning), `propose/route.test.ts` (the w
 
 ### Run history
 
-**The sheet's columns are the history** (wave-2): the last runs are its chronological columns — age,
-repo count, gaps, lift, phase and the agent configuration the lift was produced under — and clicking a
-column header fetches that run's detail and drifts the field. The separate `CockpitHistory` strip that
-used to do this was deleted rather than kept beside it.
+**The Chronicle in the Ledger is the history now** (`?view=ledger`, 2026-09-18): every run by its stable
+number, paged below the smallest number shown, each expandable into its lanes with the guard's verdict,
+the plan it ran under and its proposed → armed → delivered flow — see
+[The Ledger](#the-ledger-2026-09-18). The Cockpit keeps the **outcome sheet**, whose columns are the last
+runs (age, repo count, gaps, lift, phase and the agent configuration the lift was produced under);
+clicking a column header still fetches that run's detail and drifts the field. The separate
+`CockpitHistory` strip that preceded the sheet was deleted rather than kept beside it.
 
 ### Setup states (`CockpitSetup`)
 
@@ -1358,7 +1800,9 @@ renders the server's `hosted.reason` verbatim, which names plan, ceiling, credit
 self-hosted-only part and says outright that remote-agent runs work on this deployment, and always
 links to [`docs/SELF-HOSTING.md`](../../SELF-HOSTING.md) — see below) · `no-repos` (→ repositories tab)
 · `not-owner` · `autopilot-off` (shows the route's 409 fix) · `unpaired` (three steps: pair a
-checkout via `?tab=pairing` → pick repos → run).
+checkout via `?tab=pairing` → pick repos → run). Every not-ready state also withholds the standing
+runner's CTA: the rail shows the setup block instead of an inspector, and the gear (the only other door
+to the runner) is drawn only where a run could be started.
 
 **`hosted` is a block on DISPATCH, never on reading (`PRIYA-L1-703`).** `LiveTab` used to read the
 active run, the run list and the run details only when `selfHosted()`, so a cloud owner's armed
@@ -1386,7 +1830,12 @@ the three verdicts), `useLoopRun.dom.test.tsx`, `useDrive.dom.test.tsx` (gating 
 settle-once), `outcomeSheetModel.test.ts` + `OutcomeSheet.dom.test.tsx` (the cross-run row axis, the
 blank cells, the resize separators), `CockpitDrivePanel.dom.test.tsx` (the control's
 states), `LiveTabView.dom.test.tsx` (wall mode and the kiosk render no cockpit),
-`observatory/*.test.ts(x)`.
+`observatory/*.test.ts(x)`; since 2026-09-18 also `runnerModel.test.ts`, `startInputs.test.ts`,
+`RunSetupModal.runner.dom.test.tsx`, `CockpitSetupDialog.dom.test.tsx`,
+`CockpitRunnerPanel.dom.test.tsx`, `CockpitInspector.runner.dom.test.tsx`,
+`CockpitHeader.switch.dom.test.tsx`, `useDrive.runner.dom.test.tsx`,
+`useLoopRun.discovery.dom.test.tsx`, `useCockpit.drive.dom.test.tsx`,
+`useProposalBatch.dom.test.tsx`, `serialTick.test.ts` and `outcomeGapRows.identity.test.ts`.
 
 ### End-to-end proof (2026-08-28)
 
@@ -1453,7 +1902,10 @@ fold, two full iterations, the blocked states), and an honest **L2 not yet run**
 | Drive route | `src/app/api/org/local/drive/route.ts` |
 | Drive UI | `cockpit/{CockpitDrivePanel,CockpitDriveResume,driveModel,driveClient,driveTypes,useDrive}.ts(x)` |
 | Agent model/effort | `src/lib/local/agent-options.ts`, `agent.ts`, `cockpit/useRunDials.ts` |
-| Run setup dialog | `cockpit/{RunSetupModal,RunSetupSections,RunSetupSafety,RunSetupControls}.tsx` |
+| Run setup dialog | `cockpit/{RunSetupModal,RunSetupSections,RunSetupSafety,RunSetupControls,RunSetupMode,RunSetupRunner,RunSetupForced,CockpitSetupDialog}.tsx`, `cockpit/{startInputs,setupSummary}.ts` |
+| Runner panel | `cockpit/{CockpitRunnerPanel,CockpitRunnerRepos,CockpitRunnerResume,CockpitDriveVerdict}.tsx`, `cockpit/runnerModel.ts` |
+| Ledger | `ledger/**` — see [The Ledger](#the-ledger-2026-09-18) |
+| Theater | `theater/**`, `src/app/theater/[slug]/` — see [The theater](#the-theater-2026-09-18) |
 | Proposed-batch ledger | `cockpit/{CockpitBatchLedger,CockpitBatchLedgerRow,cockpitBatchRows,useProposalBatch}.ts(x)` |
 | Outcome bands + error dialog | `outcome/{outcomeSheetGroups,OutcomeGroupRow,OutcomeCellError}.ts(x)` |
 | Lane kinds — the rule | `src/lib/local/lane-kind.ts` |
@@ -1546,7 +1998,9 @@ interrupted while its last run still looks alive. Self-hosted only, and that gua
 on a managed deployment "this process started nothing" is a claim about one instance among many.
 It is idempotent per process and silent unless it actually reconciled something.
 
-**3. Interrupted is offered back, never auto-resumed.** `interrupted` is a terminal phase nobody
+**3. Interrupted is offered back, never auto-resumed — for a BOUNDED drive.** (A continuous drive, the
+standing runner, is the one exception: the boot sweep re-attaches it on its same row while the loop is
+enabled — see [The standing runner](#the-standing-runner-2026-09-18).) `interrupted` is a terminal phase nobody
 chose. A drive spends agent sessions inside real working copies, so a server that re-armed one by
 itself on boot would be spending the operator's money on the strength of a process having crashed.
 The cockpit shows `CockpitDriveResume` as a banner **above** the inspector (a standing offer, not a
@@ -1675,6 +2129,1720 @@ Two causes, both now fixed:
   run started by the drive route was invisible to the loop route. Both registries (`live`, and
   the drive's) now hang off `globalThis`, the same pattern `pglite-boot` uses for its adapter.
 
+## The standing runner, its theater and its ledger (2026-09-18)
+
+The operator asked for the Live tab to become an **autonomous, "infinite" cycle runner**, and named
+three gaps: the history and the proposals ledger were not legible, every cycle still wanted a human's
+approval although nobody would be watching each one, and a screen left running on a third monitor gave
+a passive viewer no sense of what was happening. This section is the answer, in nine parts:
+
+1. [The standing runner](#the-standing-runner-2026-09-18): a drive that runs until it is stopped,
+   lands verified work on a per-repo `ascent/runner` branch, and pauses on named breakers.
+2. [Plan first, and only architecture waits](#plan-first-and-only-architecture-waits-2026-09-18):
+   every runner lane plans read-only first; only an architecture move waits for a person.
+3. [The live signal](#the-live-signal-2026-09-18): the agent's stream, the worktree poll, one phase
+   vocabulary and one lean pulse read.
+4. [Lessons a verified runner lane keeps](#lessons-a-verified-runner-lane-keeps-2026-09-18).
+5. [Dependency lanes](#dependency-lanes-2026-09-18): the engine installs, scripts off.
+6. [The theater](#the-theater-2026-09-18): the passive screen.
+7. [The Ledger](#the-ledger-2026-09-18): the returning operator's view, and the approval inbox.
+8. [Starting and watching the runner from the Cockpit](#starting-and-watching-the-standing-runner-2026-09-18).
+9. [Loop hygiene](#loop-hygiene-2026-09-18): seven cockpit defects an unattended runner would compound.
+
+The operator's decisions behind it: plan every lane and gate only the major ones; accumulate on a
+runner branch; a major is **an architecture move only** (contract, dependency and large-footprint
+changes are auto-approved, because merging the runner branch is itself the human gate); approval is a
+**fenced, budgeted direction**, not a one-off; the runner lives until stopped and breakers pause it;
+the live signal is the event stream plus a worktree poll; lessons from verified lanes are kept
+automatically; the engine installs dependencies with scripts off; and a person is reached by a theater
+sound cue and a browser notification.
+
+### The standing runner (2026-09-18)
+
+A **bounded drive** is a rope: at most `DRIVE_MAX_RUNS_CAP` runs, and it stops on `green`, `dry` or
+`ceiling`. That is the right shape for "get this fleet to green" and the wrong shape for "keep
+improving my repos until I say stop". Stopping on green threw away the craft ladder that exists past
+green. Stopping on dry ended the whole fleet because one repo stalled. And every lane was cut from the
+operator's unchanged `HEAD`, so run N+1 rediscovered what run N had already fixed (the rediscovery the
+21-run campaign measured, see *Delivery*).
+
+The **standing runner** is the other shape: a drive with `LoopDrive.mode = "continuous"`. It starts
+from the same door (`POST /api/org/local/drive {action:"start", mode:"continuous"}`) behind the same
+gates (self-host 404, owner, `ASCENT_AUTOPILOT` 409, single-flight per org). It runs **until the
+operator stops it**. It has no run cap (`maxRuns` is stored as `0`), and it never stops on green or on
+dry. It **waits** instead, and every wait has a named reason. The driver is `runContinuous`
+(`src/lib/local/runner.ts`), its policy is pure (`src/lib/local/runner-policy.ts`), and its production
+wiring is `src/lib/local/runner-control.ts`. A bounded drive is byte-identical to before, except that it
+now carries the dials (below).
+
+#### Progress is a verified close, not debt
+
+A bounded drive is verified by debt because it has a target. The runner has no target, so it counts
+**verified closes**: a lane's `closedIds`, the rows the rescan adjudicated closed (see *The loop
+verifies; the agent proposes*). A green repo keeps getting lanes, because `openBatch` falls back to the
+repo's craft ladder when it has no gaps. The runner still measures the fleet after each run
+(`measureDrive`, for display and for `DriveRunRecord.debtBefore/After`), but the measurement never
+decides whether it continues.
+
+#### Each iteration
+
+`planRunnerStep` decides, in this order: a **stop** wins over everything. Next, a **runner-wide
+breaker** in force pauses everything. Otherwise the step **runs** every repo that may run. When none
+may, the runner goes **idle** until the earliest timed wake, or with no wake time when every repo waits
+on the operator.
+
+For a run, per repo: `ensureRunnerBranch`, then `mergeInBase` (below). A repo that cannot be prepared
+pauses with the reason, and the others go ahead. Then `startLoopRun` runs with the runner's posture
+applied **after** the operator's dials, so no dial can override it:
+
+| Input | Value |
+| --- | --- |
+| `driveId` | the drive, so the ledger can group runs by drive |
+| `planMode` | `"on"`: every lane opens with a read-only planning session |
+| `baseRef` | `ascent/runner`: lanes are cut from the runner branch, so each run builds on the last |
+| `delivery` | `"runner"` |
+| `verifyMode` | `"on"`: the route refuses `dials.verifyMode:"off"` for a runner with a 400, not a silent override |
+| `runnerLane` | `{ autoKeepLessons: true, installDeps: true }` |
+
+A lane retried on a runner run (`retryLane`) is cut from the runner branch too, so its delivery can
+fast-forward. After the run, `summarizeRunLanes` folds each repo's lanes and `applyRunOutcome` updates
+its streaks. Then every lane's `error` and `Agent failed:` log line goes through the session-limit
+classifier.
+
+**One run slot.** The engine allows one active run per org. When `startLoopRun` refuses with *"A loop
+run is already active"* (a manual run), the runner **waits**: it polls every `RUNNER_SLOT_POLL_MS`
+(30 s), honours a stop, and writes one `slot-wait` event. It does not end in `error`. Two other
+refusals behave differently. One that names a repo in the step (a pairing that broke since the step
+began) pauses **that** repo as `repo-failures`. Any other refusal ends the runner in `error` with the
+reason, as a bounded drive's does.
+
+#### The dry backoff
+
+A run in which a repo got **zero verified closes** is dry *for that repo*. That repo pauses as
+`dry-backoff` for `DRY_BACKOFF_MS`: 1 h, then 4 h, then 12 h, and the last step repeats. `dryStreak`
+resets on the next verified close. The other repos keep running. When every repo is backing off, the
+runner is `idle` until the earliest one wakes. It never stops on dry, and it wakes up to re-plan at
+least once every `RUNNER_BEAT_MS` (60 s), so a stop or a resumed repo is noticed within a minute.
+
+#### The runner branch (`src/lib/local/runner-branch.ts`)
+
+Each repo has one long-lived branch, `RUNNER_BRANCH = "ascent/runner"`, that is **never checked out
+anywhere**. Every write to it is a ref move (`update-ref <ref> <new> <old>`), whose old-value guard
+refuses a race. No working copy sits behind it.
+
+- **Base.** The paired repo's `origin/HEAD` branch, when that branch exists locally
+  (`resolveBaseBranch`). Otherwise the branch the checkout was on when the runner first prepared the
+  repo. It is recorded per repo in `repoState[].baseBranch`.
+- **Merge-in, before every run** (`mergeInBase`). This step merges the base into the runner branch and
+  never rebases, because lane SHAs are recorded on rows and a rebase would orphan the ledger. It has
+  three cases. If the base is already contained, nothing happens and no checkout is made. If the runner
+  branch has nothing of its own, it is fast-forwarded. Otherwise the merge runs in a **temp worktree
+  under the OS temp dir, detached at the runner tip**, and the result is written back with a
+  compare-and-swap `update-ref`. The temp worktree is always removed. A conflict runs `git merge
+  --abort`, moves nothing, and pauses that repo as `branch-conflict` with the conflicting files in
+  `note`. A merge commit uses the repo's own identity, falling back to `Ascent Runner` only when none is
+  configured, and it runs the repo's own hooks.
+- **Land, after every verified lane** (delivery `runner`, `landOnRunner`). The runner branch is
+  fast-forwarded to the lane's tip only after `merge-base --is-ancestor <old> <new>` proves the move is
+  a fast-forward. A non-fast-forward, such as the second of two A/B arms, is **refused and logged on the
+  lane, never forced**. The same verified-only rule as `land` applies: a `rejected` lane is never
+  delivered, a lane that committed nothing has nothing to deliver, and under `verifyMode:on` only a
+  `verified` verdict delivers.
+- **`landedAt`.** The lane is stamped `landedAt` only when its branch really reached a branch the next
+  lane builds on. That means the runner branch, or the operator's own branch under an ordinary `land`.
+  A refusal or an `already` is never stamped. The theater's "landed today" counts this field.
+- **Merge-out, on the operator's word only.** `POST /api/org/local/runner/merge {org, repo}` calls
+  `mergeRunnerInto`. The route is owner-only and self-hosted-only. It does **not** need the loop flag,
+  so merging what the runner already produced still works after the loop is switched off. Unknown repo
+  is a 404, unpaired a 409, a broken pairing a 422. The result has three outcomes, and each comes back
+  as JSON with a 200:
+
+  | Outcome | When | What happens |
+  | --- | --- | --- |
+  | `fast-forward` | the base is **not checked out** in any worktree and the runner tip descends from it | `update-ref refs/heads/<base>`; no working copy is touched |
+  | `merged` | the base **is** checked out and its tracked files are clean | `git merge --ff-only ascent/runner` in that checkout |
+  | `commands` | diverged (a real merge), or checked out but dirty | nothing is touched; the exact commands come back (`cd …`, `git switch <base>` when needed, `git merge [--ff-only] ascent/runner`) |
+
+  `runnerAheadCount` (`git rev-list --count <base>..ascent/runner`) feeds `repoState[].aheadOfBase`,
+  which the runner refreshes after every run and the route refreshes after a merge-out.
+
+#### Breakers: every one resolves to PAUSE (`src/lib/local/runner-breakers.ts`)
+
+| Breaker | Scope | Fires when | Lifts |
+| --- | --- | --- | --- |
+| `spend-ceiling` | whole runner | before each run: the org's lane `costMicros` for lanes that **ended** since local midnight (`orgLaneSpendSince`, `src/lib/db/runner-spend.ts`) reaches `spendCeilingMicros` | at `nextLocalMidnight()` |
+| `session-limit` | whole runner (every lane shares the quota) | after each run: any lane's `error` or `Agent failed:` line matches `classifySessionLimit` | at the reset the CLI named (the latest across lanes, never less than 5 min away), else after 60 min |
+| `repo-failures` | one repo | `REPO_FAILURE_STREAK` (3) runs in a row in which **every** lane of that repo ended `error` or guard-`rejected` and nothing landed. A lane that lands resets the count | the operator only: `POST …/drive {action:"resume-repo", repo}` |
+| `branch-conflict` | one repo | the merge-in conflicted, or the runner branch could not be created or merged | the operator only (`resume-repo`) |
+| `dry-backoff` | one repo | a run with zero verified closes | by itself: 1 h, 4 h, 12 h |
+
+A runner-wide pause writes `pausedReason`, `pausedUntil` and phase `paused`, and adds a `paused` event.
+The driver sleeps, polling every ≤ 60 s and honouring a stop, and when the pause lifts it adds a
+`resumed` event and returns to `running`. A stop during a pause ends the runner `stopped` without
+waiting out the pause. A run cut short by the session limit earns its repos **no** failure streak and
+no dry backoff, because the account stopped the run, not the repo.
+
+`classifySessionLimit` accepts the wordings the CLI has used: `Claude AI usage limit reached|<epoch>`,
+*"You've hit your session limit · resets 3pm"*, *"… resets at 15:00"*, *"will reset at 3:30 PM
+(Europe/Prague)"*, *"resets in 2h 15m"*, *"Weekly limit reached ∙ resets Mon 9am"*. It refuses an API
+`rate limit`, a token or context limit, and the loop's own *"session exceeded 20 min"* watchdog,
+because a pause would not cure any of them. Each shape is table-tested in `runner-breakers.test.ts`.
+
+**The ceiling.** `DriveInput.spendCeilingUsd`: omitted gives `DEFAULT_SPEND_CEILING_MICROS` ($100 a
+day), `0` or `null` means no ceiling, and USD converts to the lane's micro-cents as
+`round(usd * 100 * 1e6)` (1 USD = 1e8). `LoopDrive.spendCeilingMicros` (like
+`LoopDirection.budgetMicros`) is a `BIGINT`: a 32-bit column stops at about $21.47 in these units,
+and an over-range write would fail the whole row update, which `saveDriveRow` swallows, so the runner
+would silently stop persisting. The route and `startDrive` refuse a ceiling above
+`SPEND_CEILING_STORABLE_MAX_MICROS` ($1,000,000) with a 400, as a typo guard.
+
+#### Restart: the runner resumes on the same row
+
+This is the one exception to "reconcile, never resume". The runner exists to run until the operator
+stops it, and a restart is not the operator. So the **boot sweep** (`sweepInterruptedWork`) re-attaches
+a continuous drive whose row still says `running`, `paused` or `idle`, **on the same row**
+(`listRunnerDrivesToResume`, then `resumeRunnerDrives`). The order is fixed:
+
+1. Runs are reconciled first. This frees the org's run slot and releases the dead run's claims.
+2. The drive sweep spares the runners it is about to re-attach.
+3. The stranded-worktree sweep runs.
+4. The runners re-attach. The dead run's ledger entry is closed with the note *"Interrupted by a server
+   restart"*, and a `restart-resumed` event reading *"Resumed after restart"* is written.
+
+Two guards hold:
+
+- It happens only on a self-hosted deployment, which the sweep's existing guard enforces.
+- It happens only while `autopilotEnabled()`. With the loop off at boot, the runner is marked
+  `interrupted` with `RUNNER_AUTOPILOT_OFF_REASON`.
+
+A runner that was spared but could not be re-attached is marked interrupted after all, so it is never
+left `running` with no driver. `resumeParams` re-arms an interrupted runner as the same runner, with
+scope, bounds, ceiling and dials carried. A **bounded** drive keeps today's behaviour: it becomes
+`interrupted`, and resuming it is a human's click. `markStaleDrivesInterrupted` and `isDriveLiveHere`
+treat `paused` and `idle` as live phases.
+
+#### The dials reach every run, bounded drives included
+
+`DriveInput.dials` (`DriveDials`) is stored in `dialsJson` and spread into **every** run a drive
+dispatches (`dialRunInput`, `src/lib/local/drive-dials.ts`). The dials are `batchSize`,
+`agentTimeoutMs`, `verifyMode`, `verifyTimeoutMs`, `rescanCadence`, and `modelPolicy`/`models`.
+Before 2026-09-18 a drive armed each run with scope, cycles, lanes, model, effort and delivery only.
+The other dials were silently dropped, and every drive run used the deployment defaults. The route
+validates `dials` with the loop route's own validators (`run-limits.ts`): a value that was sent but not
+recognised is a 400 naming the band, and an omitted value is the default. A drive with no dials arms
+each run with exactly the input it always did. The cockpit sends them for both a drive and the runner
+(see *Starting and watching the standing runner*).
+
+#### The record
+
+- `lastBeatAt` is stamped on every driver iteration and mirrored to the row at most once a minute. It
+  is the theater's evidence that the runner is alive.
+- **Events** (`DriveEventRecord`: `paused`, `resumed`, `repo-paused`, `repo-resumed`,
+  `restart-resumed`, `slot-wait`) are stored in the **same** `runsJson` ledger as the runs, marked by
+  their `event` field. `toDriveStatus` splits them into `DriveStatus.events`, so `runs` stays runs for
+  every reader. A bounded drive writes no events, so its column is byte-identical to before.
+- A continuous run record also carries `verifiedCloses` and `landed`.
+- The ledger keeps at most `RUNNER_LEDGER_RUNS` (200) runs and `RUNNER_LEDGER_EVENTS` (100) events.
+  Older runs are folded into `runsBefore`, so `driveRunsDone` stays true.
+- `GET /api/org/local/drive` returns the runner fields for a continuous drive only (`mode`,
+  `pausedReason`, `pausedUntil`, `spendCeilingMicros`, `repoState`, `lastBeatAt`). `dials` and `events`
+  appear on either mode, and only when set.
+- `LoopRun.seq` numbers every run per org at create (existing runs were backfilled in creation order),
+  and `LoopRun.driveId` / `planMode` say who dispatched it and whether its lanes planned first.
+
+#### What it deliberately does NOT do
+
+- **It never merges into the operator's branch on its own.** Only the merge-out route does, and only
+  when the operator asks.
+- **It never rebases.** Merge-in is a merge commit, and lane SHAs on rows stay reachable.
+- **It never forces.** A non-fast-forward land is refused, and a moved ref fails the compare-and-swap.
+  It never stashes, never resets, and never checks out the operator's branch or the runner branch.
+- **It never proceeds on a breaker.** Every breaker pauses. The per-repo ones pause only their repo,
+  and the operator-held ones lift only on `resume-repo`.
+- **It never stops on green, dry or a run count.** Only a stop request, or an unexpected error, ends it.
+
+#### Honest limits and known gaps
+
+- **The ceiling is checked between runs.** One run can overshoot it by that run's own spend, and a lane
+  still in flight is not counted until it ends. A lane whose cost is unknown (`null`) adds nothing to
+  the sum.
+- **The session limit is classified after a run ends.** The rest of that run's cycles still dispatch
+  and fail fast on the limit, which costs little. Those failures earn no streak.
+- **Reset times are read in the server's local zone.** A named zone in parentheses is ignored. On a
+  self-hosted box the CLI and the server share a clock, so they agree.
+- **A merge-in that git refuses for a reason other than a conflict also pauses the repo as
+  `branch-conflict`.** Examples are a `commit-msg` hook that rejects `Merge <base> into ascent/runner`
+  and a failed temp checkout. The reason is in `note`. The runner does not guess past it.
+- **An A/B dial on a runner** produces two branches per repo per cycle. Only the first arm to land
+  fast-forwards the runner branch, and the second is refused (logged).
+- **The runner keeps the configured model.** The bounded drive's evidence-led model switch
+  (`pickDriveModel`) is not applied to continuous runs.
+
+### Plan first, and only architecture waits (2026-09-18)
+
+Every lane of a runner (plan-mode) run now opens with a **read-only planning session**. Its plan is
+classified item by item; items whose plan moves **architecture** wait for the operator as one pending
+plan, and everything else executes at once, fenced to what it declared. After execution the **real
+diff** is checked against the declaration. Every plan, minor ones too, is a `LoopPlan` row: the table
+*is* the proposals ledger — "what the loop meant to do" — where before a pre-run batch was stored
+nowhere.
+
+**Why.** The operator wanted the loop to stop asking about things that do not need them, and to never
+make a structural change nobody agreed to. Those pull in opposite directions until the question is
+narrowed to one thing a machine can measure: *did the module structure change?* The rule is the
+operator's, and it is deliberately narrow — **only an architecture move is major.** Contract,
+dependency, build and large-footprint changes are auto-approved, because they land on the runner
+branch and merging that branch is itself the human gate. Registry: `hitl-approval/fixed-policy-
+amendable-plan` (the plan is the executor's amendable route; the fence is the fixed tier it cannot
+move) and `plan-review/objection-before-artifacts` (the objection is cheap before the code exists).
+
+#### The planning session — tool policy, proven by the tree
+
+`planLane` (`src/lib/local/lane-plan.ts`) mints the session id itself (`crypto.randomUUID()`, passed
+as `--session-id`) and runs one `claude -p --permission-mode plan --allowedTools Read,Grep,Glob`
+session in the lane's worktree, capped at `PLAN_TIMEOUT_MS` (8 min), streaming into the same activity
+tail the execution session uses. Its brief (`buildPlanningPrompt`, `lane-plan-prompt.ts`) carries the
+batch (id, title, dimension, rationale, explore questions), the org's standard (the same brief text
+the execution session gets), the module partition it will be measured against, any **revision notes**
+the operator left on an earlier plan for these items, and the plan contract.
+
+**Plan mode and an allowlist are policy, not a sandbox.** Neither is an OS boundary, so after the
+session the lane proves it: `git status --porcelain` must be empty **and** `HEAD` must not have moved
+(a session that commits leaves a clean tree). Otherwise the lane fails with *"The planning session
+wrote to the worktree — its read-only policy did not hold; nothing was executed."* and the throwaway
+worktree is restored (`reset --hard` to the pre-session HEAD, `checkout -- .`, `clean -fd` — refused
+outright if the worktree path is the operator's paired checkout). A worktree that was already dirty
+before planning fails with its own message: the proof needs a clean start. A failed session with no
+parseable plan fails the lane with the agent's first line.
+
+#### The plan contract
+
+The session must end with **one fenced ```json block** — the *last* one is read, so a planner that
+drafts and reconsiders is judged on its final word:
+
+```json
+{ "v": 1, "intent": "…", "items": [{ "recommendationId": "…", "approach": "…", "files": ["…"], "moves": [] }],
+  "modules": ["src/lib/x/"], "check": "…", "risks": ["…"], "notDoing": ["…"] }
+```
+
+A move is `{ kind, from, to }` with `kind` one of `module-created` (to), `module-removed` (from),
+`module-split` (from, one move per new module), `module-merged` (each source → the new module),
+`cross-module-move` (from and to). The planner is told in so many words that **an undeclared move is
+detected from the real diff and the work is discarded** — a planner that thinks a declaration is a
+formality under-declares.
+
+`parsePlan` (`lane-plan-parse.ts`) **fails closed and never repairs**. Count bounds are rejections,
+not truncations (≤ 20 items, ≤ 40 files and ≤ 10 moves per item, ≤ 40 modules): a truncated move list
+is an undeclared move. An unknown move kind, a move missing the end its kind needs, or a path with a
+`..` segment voids the **whole** plan — dropping the bad move would let a plan declare something in a
+vocabulary the engine does not speak and have it silently vanish from the fence. String bounds are
+caps (intent 600 chars; control characters stripped). `risks`/`notDoing` absent read as empty.
+
+#### The module partition — the ruler
+
+`modulePartition(repoDir)` (`module-partition.ts`, readers in `module-partition-sources.ts`): first
+hit wins, and `source` records which rule won.
+
+1. **`context-map`** — every `filePaths` entry of the repo's `context-map.json` (`groups[].contexts[]`,
+   `ungrouped[]`, or a flat `contexts[]`) becomes its directory prefix.
+2. **`workspace`** — npm/yarn `workspaces` (array or `{packages}`, `!`-exclusions honoured),
+   `pnpm-workspace.yaml` `packages`, every directory holding a nested `go.mod` (a root one is the whole
+   repo), Cargo `[workspace] members`. Globs match only directories holding the manifest.
+3. **`directory`** — directories at depth 2 under the first existing source root among `src/`,
+   `lib/`, `app/`, `packages/` (depth 1 there when it has nothing deeper), else depth 1 at the repo
+   root. Dot-directories are never modules.
+
+Modules are repo-relative prefixes with a trailing `/`, longest first, filtered to directories that
+actually hold a file; the root is never a module. A checkout is read through `git ls-files` (so build
+output and untracked files never become modules); the fence check reads the tree **at the diff's
+base** through `git ls-tree` / `git show <before>:<path>`, because the working copy already carries
+the moves being judged.
+
+`movesInDiff` states its rules exactly: a **cross-module-move** is a rename between two different
+existing modules (a side that resolves to no module is not an architecture move — holding every README
+move would be gate fatigue); a **module-created** is a file added under a new directory that held no
+file before, is neither a module nor an ancestor of one, and is a direct child of a directory that
+already parents a module (a new *peer*; a new folder inside a *leaf* module is internal structure);
+**module-removed** is every file that resolved to a module deleted or renamed away; **module-split** is
+one module renamed into ≥ 2 new modules, **module-merged** ≥ 2 modules renamed into one new module
+(one move per pair, and the new modules are also reported created). A rename into a single new module
+from a single source is its creation only.
+
+#### Classification and the per-item split
+
+`splitPlan` / `classifyPlan` (`lane-plan-classify.ts`), per item: declared moves minus the ones whose
+two ends resolve to the **same** module → none: `minor` / `no-moves`, executes now; all inside **one**
+active direction's fence (every module a move names starts with a fence prefix) with budget left:
+`minor-under-direction` / `inside-direction-fence`, executes now; anything else with moves: `major` /
+`declared-moves`, parked. An unreadable plan parks **every** item as `major` / `unreadable`. An item
+the plan never mentioned declared no move, so it runs — and the fence check still guards it.
+
+**One direction per execution.** When items qualify under different directions, the one covering the
+most items wins (ties: the older grant) and an item only another direction covers is parked. A union
+of two fences would let one grant's work move inside the other's.
+
+`planLane` persists at most **two rows**: the executing slice (`executing`, `minor` or
+`minor-under-direction`, with its `directionId`, charged one cycle of that direction) and the parked
+slice (`pending`, `major`, its reason) — one transaction (`recordLanePlans`, `loop-plans-write.ts`),
+because a half-recorded plan is a parked item nobody holds. Each row carries the planner's prose
+verbatim (bounded), the parsed plan restricted to its own items, the partition it was classified
+against, the session id, and the items' durable keys, row ids and **titles as they read** — aligned
+index for index. Earlier `revise` plans on these keys are marked `superseded`. A plan that cannot be
+recorded fails the lane rather than running unrecorded. The execution session gets `planBlock` — *"YOUR
+PLAN — this is the fixed tier…"*: intent, each item's approach and expected files, the modules, the
+declared moves (the only ones allowed), the direction fence, the check, and the rule that an
+undeclared architecture move is detected and discarded — and **resumes** the planning session when
+the plan parsed and the session succeeded (its context already holds the files it read).
+
+#### The fence check and held branches
+
+`checkPlanFence` (`lane-plan-fence.ts`) runs on a plan-mode lane that committed: `git diff
+--name-status -z -M before..HEAD` against the partition at `before`. An actual move is fine when the
+plan **declared** it (same kind, same modules — `moveCovered`: either side may name a file or a broader
+prefix; a declared split/merge also covers the new module's creation and the source's removal; a
+split's missing `to` / a merge's missing `from` is a wildcard) or when it lies wholly inside the
+direction's fence. Anything else is **held**, never landed:
+
+1. the cycle's commits are kept on `ascent/held/<planId ?? laneId>` — a ref the paired repository
+   shares, so the evidence outlives the throwaway worktree;
+2. the lane branch is `reset --hard` to `before` **inside the throwaway worktree only** (refused when
+   the worktree path is the paired checkout, or the worktree is not on the lane's branch);
+3. the executing plan becomes `held` with `heldBranch`, and a **new `pending` major plan**
+   (`undeclared-moves-in-diff`) re-asks for the same items, its text leading with the moves the diff
+   actually made and where the commits went.
+
+It **fails closed**: a diff the check cannot read is held too. A clean check settles the plan `landed`.
+A plan whose lane ends **without** reaching the check — it committed nothing, failed or was stopped —
+is settled `failed` by the lane (`settleLanePlan`), so the ledger never shows it `executing` forever;
+`landed` is never offered there, because nothing that did not pass the fence may say it landed.
+
+#### Directions — fenced, budgeted grants
+
+Approving a major plan creates a `LoopDirection` (`loop-directions.ts`): a title (the plan's intent), a
+**fence** (module prefixes — the operator's edit, else the plan's `modules`; a root or `..` prefix is
+never kept), the plan's check, a **cycle budget** (default 3, at most 50) and an optional **cost budget**
+(`budgetUsd` on the wire, stored as `budgetMicros` micro-cents — 1e8 per USD, so the column is a
+`BigInt`; the record carries plain numbers; `BUDGET_USD_MAX` $10,000 is a typo guard). Later plans
+whose moves stay inside the fence run under it without asking, one cycle each, and the lane charges its
+metered cost to the direction (`chargeLanePlanCost`) when its session settles. Lifecycle: `active` →
+`exhausted` (either budget spent — the engine does it), `done` or `revoked` (the operator). An ended
+direction runs nothing again: **exhausted/revoked** return its approved-but-unexecuted plans to
+`pending` (a grant that ran out, or was withdrawn, is not a grant for work it had not reached);
+**done** supersedes them (their items go back to the ordinary backlog).
+
+`nextDirectedBatch` (`lane-plan-directed.ts`) replaces a runner lane's pick when an approved plan is
+due: oldest first, re-resolved to **today's** open rows (gaps via `getOrgBacklog`, rungs via
+`getCraftItems`, `openItemsByKey` in `loop-plan-items.ts`) by durable key — keys that no longer resolve
+are dropped; none left → `superseded`, try the next. A plan whose direction is gone or ended goes back
+to `pending`; a direction with no budget is exhausted on the spot. The chosen plan moves `approved →
+executing` conditionally (two lanes cannot both take it), its direction is charged a cycle, and it runs
+in a **fresh** session with the approved plan as its fixed tier.
+
+#### The durable-key rule
+
+Recommendation rows are recreated on every scan, so everything a plan or a decision remembers about an
+item is keyed on `recommendationDecisionKey(repo, dimId, title)` — the same key `openBatch`'s
+held-item exclusion computes. `heldPlanKeys` returns the keys of plans in `PLAN_HOLDS_ITEMS`
+(`pending | approved`); those items stay out of `openBatch` until the decision is made. A `revise`
+verdict **releases** its items: they return to the backlog at once, and the next planning session over
+them is shown the operator's note. Row ids and titles are stored alongside, aligned, for the reader.
+
+#### The decision API — and what each verdict does
+
+- `GET /api/org/loop/plans?org=&status=&repo=&limit=` — the ledger; `status=pending` is the inbox.
+  `GET /api/org/loop/directions?org=&status=&repo=`. Both `selfHostGuard` + `requireOrgAccess`.
+- `POST /api/org/loop/plans/[id]` `{ decision, note, fence?, budgetCycles?, budgetUsd? }` —
+  **resolve-then-gate**: the org comes from the plan row (`getLoopPlanOrgSlug`), gated at `owner`;
+  `requireSameOrigin` first. Only a `pending` plan (409); `note` mandatory on reject and revise (400).
+  **approve** creates the direction and binds the plan `approved` to it in one transaction;
+  **reject** writes a standing dismissal per item through the existing roadmap-dismissal path — an
+  `OrgDecision` (`roadmap`, `dismissed`, the note as rationale, titled with the item as it read) keyed
+  on the durable key, which the next scan's prompt reads, and today's open row dismissed the way the
+  recommendations PATCH does it (status carries forward) — then marks the plan `rejected`; **revise**
+  marks it `revise`, releases its items, and the note is what the next planning session is shown.
+  Every verdict stamps `decidedBy`/`decidedAt`/`decisionNote` and audits
+  `loop.plan_approved|rejected|revised`. **Never a phantom decision:** the plan's status moves last and
+  conditionally; a failed write is a 500 with the plan still `pending`, a raced one a 409 with no
+  direction left behind.
+- `POST /api/org/loop/directions/[id]` `{ action: "revoke" | "done" }` — resolve-then-gate at owner;
+  only an `active` or `exhausted` direction (409 otherwise); audits `loop.direction_revoked|done`.
+
+#### What it deliberately does not do
+
+- It does not gate contract, dependency, build or footprint changes — operator decision.
+- A `pending` plan never times out into proceeding, and nothing the executor writes can approve it.
+- The planning session is not trusted to have been read-only; the tree is.
+
+#### Known gaps
+
+- **The partition's granularity decides what a module is.** A context map that names files directly
+  under `src/` makes `src/` a module that absorbs new subdirectories (they are only caught as a created
+  peer when a sibling module exists); a map that names every route directory makes a new route
+  directory a module creation. The partition is recorded on every plan so a surprising verdict can be
+  explained.
+- **A rename is only a move when git detects it** (`-M`, default 50% similarity). Code copied into a
+  new file and deleted from the old one below that threshold reads as an add and a delete — caught as a
+  creation or removal only when it crosses a whole directory.
+- **Budget races.** Two lanes that classify against the same direction at the same moment can both
+  run under its last cycle; `usedCycles` then exceeds `budgetCycles` by one before it exhausts.
+- **A direction's cost is charged when a session settles.** A lane still running under a direction
+  has not charged it yet, so a cost budget can be overrun by the sessions in flight when it runs out.
+- **A reject that fails half-way** may leave some items' standing dismissals written with the plan
+  still `pending`; re-sending the reject completes it (every write is an idempotent upsert).
+
+### The live signal (2026-09-18)
+
+A running lane used to read **"agent working" for 25 minutes and more**. `runClaudeAgent` spawned
+`claude -p --output-format json`, buffered stdout, and parsed it only on `close`: between dispatch and
+the session's end there was nothing to show but a dot, and a lane that was reading, editing, stuck in a
+ten-minute test run, or silently dead all looked identical. The live signal is what a passive screen
+(the Theater) and the cockpit's rail now read instead. It has five parts, and one rule runs through all
+of them: **every figure is presence, never progress** — what the lane is doing and when it was last
+heard from, never a percentage.
+
+#### Streaming, without regressing the envelope
+
+`runClaudeAgent` (`src/lib/local/agent.ts`) now spawns with `--output-format stream-json --verbose`
+(`stream-json` requires `--verbose` under `-p`). Every other argv rule is unchanged: the read-only
+planning session's `--permission-mode plan --allowedTools Read,Grep,Glob`, the UUID-validated
+`--session-id`/`--resume`, `--effort` only when a level was chosen, the plain-token discipline the
+Windows `shell: true` re-parse needs.
+
+stdout is decoded with a `StringDecoder` (a multi-byte character split across two chunks stays whole)
+and fed chunk by chunk into `createStreamParser` (`src/lib/local/agent-stream.ts`), which frames lines
+before it parses them (the unterminated tail is carried, never parsed early) and turns each line into
+`AgentStreamEvent`s for the lane's sink:
+
+| stream shape | event |
+| --- | --- |
+| `tool_use` Read / NotebookRead | `read`, path from `file_path` / `notebook_path` |
+| `tool_use` Grep / Glob | `search`, note = the pattern, path = `input.path` when given |
+| `tool_use` Edit / MultiEdit / NotebookEdit | `edit` |
+| `tool_use` Write | `write` |
+| any other `tool_use` | `tool`, by name (note = its `description`, never the command) |
+| assistant `text` | `text`, note = first non-empty line, ≤ 160 chars |
+| `result` | `result`, with `turns` (`num_turns`) and `costMicros` (`total_cost_usd`) |
+
+Paths inside the session's cwd become repo-relative with forward slashes (case-folded on a drive-letter
+path). `thinking` blocks (the CLI redacts their text), `user`/`tool_result` messages, `system` events,
+hook traces and `rate_limit_event`s are ignored — the map is total, and "ignore" is one of its answers.
+
+**The envelope is the one it always was.** The stream's final `result` line carries exactly the fields
+the one-shot `json` object did, so the parser hands that line to `parseAgentEnvelope` unchanged and the
+settled `AgentRunResult` is field-for-field what the same session returned before
+(`agent.stream.test.ts` pins it against the recorded session). The parser is tolerant by contract:
+
+- output that **never looks like a stream** — an older CLI's one-shot object, a pretty-printed one, a
+  test double, `command not found` — is kept verbatim (to the old 4 MiB cap) and parsed exactly as
+  before;
+- a stream that **ends without a `result`** parses `""` into today's no-JSON failure sentence;
+- unknown event types are ignored, malformed lines skipped, and an `onEvent` that throws is swallowed —
+  a sink's failure never reaches the session;
+- **memory is bounded by one line, not by the session.** `MAX_STDOUT` now caps one frame (and the
+  verbatim copy kept for a non-stream output, dropped the moment a typed stream line parses); only the
+  `result` line is retained. A frame over the cap is **skipped whole and never clipped**
+  (`streaming-output/stream-parsing`: a clipped frame is malformed input the framer manufactured).
+
+The event shapes were **verified live once**, against CLI 2.1.276 on 2026-09-18
+(`src/lib/local/__fixtures__/claude-stream-2.1.276.jsonl`, trimmed, the worktree path replaced). That
+call is also where the parser learned that assistant messages arrive **one content block per event**,
+and that the `result` object's `type` key is not its first.
+
+**A failed session now says why, in its own words.** `AgentRunResult.errorText` carries the CLI's own
+error text on a failure, bounded to 2 KB (`agentErrorText` in `agent-envelope.ts`): the result's text,
+else the newer CLIs' `errors` list, else the stream's error hint (an assistant message on the
+`<synthetic>` model or flagged `error` — how the session-limit sentence arrives), else stderr. The
+failure **summary's first line** now carries that text too: the lane log keeps only the first line, and
+a failure whose result was empty or began with a blank line used to log `Agent error (success): ` and
+nothing else — hiding "You've hit your session limit" from the breaker that classifies it.
+
+**stderr is sanitized before anything reads it** (`sanitizeAgentStderr`, `agent-stderr.ts`). Measured
+on the verifying call, a failing `SessionEnd` hook's full command line — a local token included — was
+the whole of stderr, and stderr is the last fallback of `errorText`, which the lane persists. So every
+line that mentions a hook is dropped, and keyed secrets and any run of 32+ token characters are
+redacted, before the envelope parser or the error-text fallback sees it.
+
+**The spawn environment strips the Claude Code session markers.** `agentSpawnEnv` removes
+`CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` beside `ANTHROPIC_API_KEY`. A self-hosted Ascent started from
+inside a Claude Code session handed those markers to every agent it spawned, and a nested `claude` that
+inherits them produced nothing, silently (L2-F-02). The strip is at the one spawn site, so no launch
+path can bring it back.
+
+#### The activity tail, and its throttle
+
+`createLaneActivitySink(laneId)` (`src/lib/local/lane-activity.ts`) receives every event synchronously
+and keeps the newest `ACTIVITY_TAIL_MAX` (60) as `LaneActivity` with an ISO `at`, written to
+`LoopRunLane.activityJson` via `updateLane(laneId, { activity, heartbeatAt })`:
+
+- **At most one write per `ACTIVITY_WRITE_THROTTLE_MS` (3 s)** — the first event writes at once (a lane
+  that just woke shows it within one pulse), a burst inside the window coalesces into ONE trailing
+  write, and writes never overlap: a slow write is followed by the newest tail, never an older snapshot
+  landing after a newer one.
+- **`flush()`** writes whatever is pending now; the lane calls it when each session settles, which is
+  what guarantees the trailing write. Nothing is left armed behind it.
+- **`onEvent` never throws and never awaits**, and a failed write is dropped — the next event writes the
+  newer tail anyway. The session is never slowed by its own telemetry.
+- **`heartbeatAt` is the newest EVENT's time**, not the write's (`fleet-orchestration/lifecycle-signals`:
+  source time apart from observation time; the throttle's lag is not the agent's).
+- One sink per lane cycle, seeded from nothing. The planning and execution sessions of one cycle share
+  it.
+
+#### The worktree poll
+
+`startWorktreePoll(dir, laneId)` (`src/lib/local/worktree-poll.ts`) runs only while the agent session
+does. Every `WORKTREE_POLL_MS` (15 s): `git diff --numstat HEAD` plus `git ls-files --others
+--exclude-standard` → `diffStat {files, plus, minus}`. It is **corroboration** for the stream, and the
+only live signal an executor that does not stream would have. Rules:
+
+- git's measurement, not the agent's claim. A binary file (`-`) counts as a file with 0 lines; an
+  **untracked file counts as a file with 0 lines** — counting its lines would mean reading it.
+- **It writes only when the output changed** since the previous poll (the file set or any count). The
+  **first** reading is written without a heartbeat — it establishes the baseline (a check that ran
+  before the session may have left files behind), it is not evidence the agent did anything. Every
+  later change stamps `heartbeatAt`: a moving worktree is a sign of life a silent stream cannot give.
+- It never overlaps (a tick that finds git still running is skipped), a stop wins over a tick already
+  in flight, errors are swallowed, and git runs with `GIT_OPTIONAL_LOCKS=0` (`runGit`), so a poll never
+  takes the index lock out from under the session.
+
+#### Every stage has a start time — `stageAt` at the chokepoint
+
+`updateLane` (`src/lib/db/loop-runs-write.ts`) stamps `stageAt = now` whenever a patch moves `phase` or
+`stage` — an explicit `stage: null` included, because leaving a stage is entering the next — unless
+the patch names its own. There are dozens of stage writes in the lane and one of them would be
+forgotten; at the chokepoint none can be. That is what makes "Checking the build · 4m" a measurement.
+(The stale-run sweep moved to `loop-runs-stale.ts` in the same change — pure relocation, re-exported,
+so `loop-runs-write` stays a screenful.)
+
+The lane now writes a stage for every stretch a watcher could mistake for another: `planning`, then
+`baseline` for the check before the session (it used to share `verifying` with the check after it),
+`installing` for a dependency install, `verifying` for the result check, and `committing` for the
+commit and the delivery that follows it.
+
+#### One phase vocabulary, with honest decay
+
+`deriveLanePhase(input, now)` (`src/lib/local/lane-phase.ts`) is **the** mapping every surface uses —
+the pulse on the server, the cockpit's rail, the theater in the browser (the module is
+dependency-free). It is derived, never stored (`streaming-output/phase-derivation`):
+
+- the row decides `queued` / `rescanning` / `done` / `error` / `held`;
+- a stage decides `planning`, `baseline`, `installing`, `verifying` and `committing`;
+- during `dispatching` with no stage, the newest tail event **inside the current stage** names the agent
+  phase: read/search → `agent-reading`, edit/write → `agent-editing`, text/tool → `agent-thinking`. An
+  event from an earlier stage (the planning session's reads, seen during the execution session's
+  first seconds) cannot name it; with none, the phase is the generic `agent-thinking`, **never the
+  previous label**;
+- **quiet decay.** When the newest evidence (the tail, `heartbeatAt`, and the stage's own start) is
+  older than `PHASE_QUIET_MS` (90 s), the agent phase decays to `agent-quiet` —
+  `lanePhaseLabel` says "Still working — quiet for 3m". Quiet is **presence, not failure**: long
+  silences that resume are the common case on real sessions, so it is never styled as an error, and
+  it is never a percentage. A stage the lane wrote does not decay — the stage row is its evidence.
+
+`lanePhaseLabel(phase, quietForMs)` owns the words ("Planning", "Checking the baseline", "Reading the
+code", "Editing", "Thinking", "Checking the build", "Installing dependencies", "Held for review", …).
+Presentation only: program logic branches on typed lane state, never on a label.
+
+**The cockpit's rail uses it.** `laneStages.ts` splits the dispatching stretch into its stops —
+Plan · Baseline · Agent · Install · Check — instead of one "Agent" dot for plan + baseline + session +
+result check; the agent's own sub-phases share the Agent stop (quiet decay renames its caption, it
+never moves the marker). Captions come from `lanePhaseLabel`. A lane that carries no live signal at all
+(an older row, a remote lane Ascent never sees, an outcome cell) still reads "agent working" — deriving
+a sub-phase for it would be a claim nobody made. A force-failed lane parks at the stop its watchdog
+stage names (`plan`, `baseline`, `agent`, `deps`, `verify`, …). `LaneRail`'s props are unchanged.
+
+#### The pulse — one lean read
+
+`GET /api/org/loop/pulse?org=` (`src/app/api/org/loop/pulse/route.ts`) → `{ pulse: LoopPulse | null }`,
+`Cache-Control: no-store`. `requireOrgAccess` gates it before anything is read; the public funnel org
+is refused; like `GET /api/org/loop` there is no `selfHostGuard` (a cloud org can arm a remote run).
+`pulse` is null when there is nothing to report from (no database, no such org); **a failed read is a
+500, never a pulse of zeros** — "0 landed today" is a claim, and a screen told nothing must say
+"reconnecting", not render an empty day.
+
+`getLoopPulse(orgSlug, now)` (`src/lib/db/loop-pulse.ts`) is **deliberately not `getLoopRunDetail`**:
+that read runs the stale sweep, lists 20 runs, prices the org and compares scans per lane — right for
+a detail view, wrong for a 2-second poll. After the org lookup it issues one parallel round of seven
+small queries — the active run with its lanes' **live columns only** (never `log`, the scan ids, the
+brief or the report), the continuous drive, the pending plans' count and newest twelve, the held plans'
+lane ids, the last 24 h of ended/landed lanes, and the day's spend through `orgLaneSpendSince` (the
+same read the spend-ceiling breaker uses — one authority for "what today cost") — and hands the rows to
+the pure fold `foldLoopPulse` (`loop-pulse-fold.ts`):
+
+- **lanes**: the current cycle's plus any still in flight, each a `LanePulse` with `deriveLanePhase`,
+  `phaseSince` (= `stageAt`), `filesRead` / `filesEdited` (distinct tail paths, newest first, ≤ 8),
+  `diffStat`, `turns`, `costMicros`, and the last 6 tail events;
+- **waiting**: run repos with no lane row in the current cycle — minus a repo the engine dropped
+  because its previous cycle made no progress (read as "the previous cycle did not end `done` with
+  commits");
+- **runner**: the continuous drive (`mode: "continuous"`, not ended) as a `RunnerPulse` — `runsDone`
+  via `driveRunsDone`, `spendTodayMicros` = lane cost ended since local midnight, the ceiling, the
+  per-repo state;
+- **needsYou**: pending plans + paused repos + runner paused — where a repo's **`dry-backoff` is not
+  counted**: it lifts on its own timer and is what an idle runner that has run out of work looks like,
+  so counting it would light the badge on a healthy runner;
+- **today**, since local midnight on the server's clock: verified closes (Σ `closedIds` over lanes
+  ended today), landed (lanes with `landedAt` today), spend. **`liftPoints` is null** — lift needs two
+  scans per lane and the scorer's comparison, which is `getLoopRunDetail`'s job, not a poll's; null is
+  "not computed here", never zero movement;
+- **latest**, newest first, ≤ 12, over the last 24 h: landings (the lane's first real deliverable
+  headline, else "Landed <repo> cycle N"), verified closes, guard rejections, failed lanes, pending
+  plans (the plan's `intent`), and the runner's pause.
+
+#### What it cannot show
+
+- **Progress.** Nothing here knows how far through its work a session is. `planStep` is always null:
+  the stream does not say which step of a plan the agent is on, and guessing it from file names would
+  be fabricated progress.
+- **What a thinking agent is thinking.** `thinking` blocks carry no display text; a long reasoning
+  stretch with no tool call reads as `agent-thinking`, then honestly as quiet.
+- **A remote lane's work.** An agent Ascent did not spawn streams nothing here and has no worktree to
+  poll; its lane keeps the "agent working" caption and its lease countdown.
+- **A session's running cost.** A `result` event's `turns`/`costMicros` ride the event, but the tail
+  stores `LaneActivity` only; a lane's `turns` and `costMicros` appear when its session settles and the
+  lane records them, not while it runs.
+
+#### Known gaps
+
+- **No `landing` stage is written.** Delivery runs after the commit under the `committing` stage, so a
+  lane fast-forwarding the runner branch reads as "committing".
+- **"Held" is read from `LoopPlan.status = held` only.** A lane held for a failed dependency install
+  (its "Held — dependency install failed" deliverable) reads as `done` in the pulse.
+- **An untracked file adds no lines** to `diffStat`: a session that only creates new files shows
+  `files: N, plus: 0`.
+- **The pulse's "today" is the server's local midnight**; a browser in another timezone sees the
+  server's day.
+- **The "latest" rail has no "direction-done" events yet** — that needs a `LoopDirection` read the pulse
+  does not make.
+- **A paused runner's event is dated by its last beat**: the drive row keeps no "paused at".
+
+Pinned by `agent-stream.test.ts`, `agent.stream.test.ts`, `agent-envelope.test.ts`,
+`agent-stderr.test.ts`, `lane-activity.test.ts`, `worktree-poll.test.ts`, `lane-phase.test.ts`,
+`loop-runs-write.stage.test.ts`, `loop-pulse.test.ts`, `api/org/loop/pulse/route.test.ts` and the
+cockpit's `laneStages.test.ts`.
+
+### Lessons a verified runner lane keeps (2026-09-18)
+
+**What it is.** A standing-runner lane whose guard verdict was `verified` keeps its own lessons in
+Org Memory. The lane decides eligibility and passes `recordLoopLessons(org, repo, laneId, lessons,
+{ autoKeep })`. The candidates are recorded exactly as before, as pending `OrgMemoryCandidate` rows.
+`autoKeepRunnerLessons` (`src/lib/db/loop-lessons-runner.ts`) then promotes each one through the same
+door a human keep uses, `createOrgMemory`. It writes the lesson as a `procedural` memory in the
+repository's namespace, which is where the next lane brief reads from (`lane-brief-read.ts`: kept
+procedural memory, repo namespace, shared visibility). With `autoKeep` false or absent,
+`recordLoopLessons` behaves exactly as before. The lane log says which happened: *"N lesson(s) kept
+into <repo>'s procedural memory by the runner (verified lane — revocable from the ledger)"*, with any
+left for review counted.
+
+**Why.** The next lane brief reads only kept memory. So a runner working a repository unattended for
+days never read anything it had learned: every lesson sat in an inbox nobody was checking. The
+operator accepted the loosening on two conditions: the keep happens only on a lane whose repository
+checks passed, and every keep can be revoked.
+
+**Provenance.** Each runner keep is marked in four places, all using the existing vocabulary:
+
+- **Memory row.** `source: "loop-lesson"` (it is a loop lesson), `createdBy: "the standing runner"`
+  (`RUNNER_KEEPER`), `tags: ["runner-kept"]` (`RUNNER_KEPT_TAG`), and `confidence: 0.6` (the "Medium:
+  probable, unverified" band). The Memory tab card reads "by the standing runner · from loop-lesson ·
+  #runner-kept". `RUNNER_KEEPER` contains spaces, which a GitHub login cannot, so it can never collide
+  with a real author or reviewer.
+- **Candidate row.** `status: "kept"`, `reviewedBy: "the standing runner"`, `promotedMemoryId`. The
+  Lessons tab reads "settled by the standing runner".
+- **Audit log.** An `org_memory.created` row (existing action label) with
+  `meta.keptBy = "the standing runner"`, the candidate id and the lane id.
+- **Confidence.** A verified guard shows the code did not regress. It does not show the sentence is
+  true, so a human keep (confidence 1.0) outranks a runner keep in recall.
+
+**What it deliberately does NOT do.**
+
+- **It never supersedes.** Before each keep, the consolidation core's deterministic pass runs against
+  the namespace's live memories: `analyzeWrite(…, null)`, meaning no model and so no LLM spend on an
+  unattended path. A `duplicate` verdict (token overlap ≥ 0.75) leaves the candidate **pending** for a
+  human. A `supersede` verdict writes the lesson beside the existing memory, never over it. Retiring
+  something a human kept is a human's decision. Each lesson kept in a batch joins the comparison set,
+  so two near-identical lessons from one lane do not both get in.
+- **It never half-writes.** The memory is created first. The candidate is then settled with a
+  `status: "pending"` constraint. If that settle fails, the new memory is archived again and the
+  candidate stays pending. If the comparison set cannot be read, the memory write fails, or the
+  settle fails, the lesson stays pending. It is never lost.
+- **It does not apply to other lanes.** Rejection lessons, dry-lane lessons, refusal lessons and
+  every non-runner or unverified lane still land `pending`.
+
+**Revoke.** `POST /api/org/loop/lessons { org, id, action: "revoke" }` is **owner-only**
+(`requireOrgRole(org, "owner")`): it takes back a decision the operator delegated to the runner.
+`revokeRunnerKeptLesson` works like this:
+
+- It uses gate-then-constrain: the authorized org goes into every query beside the id, so another
+  org's id returns **404**.
+- It refuses anything the runner did not keep with **409**: a pending row, a human keep, or a lesson
+  already revoked.
+- It archives the memory first, through `archiveOrgMemories`, the soft-archive door the forget verb
+  uses. Then it marks the candidate **`discarded`** by the revoking owner and writes an
+  `org_memory.archived` audit row (`meta.via: "runner-lesson-revoke"`).
+- The candidate goes to discarded, not back to pending, because a revoke is the operator's decision
+  on that lesson. Re-queuing it would ask them the same question twice.
+- The candidate keeps `promotedMemoryId`, so the link to the archived memory survives.
+- If the candidate update fails after the archive, the lesson is already out of every brief. It still
+  reads as runner-kept, so revoking again finishes the job (a **500** says a retry is safe).
+
+**Discard is now pending-only.** `discard` on a candidate that is no longer pending returns **409**,
+the same as a second keep. Before this change, a discard of a *kept* candidate marked it `discarded`
+while its memory stayed live and in every brief. `revoke` is the correct way to take a keep back. The
+Lessons UI only ever offered discard on pending rows, so no UI flow changes.
+
+**The ledger read.** The `GET /api/org/loop/lessons` response gains a `runnerKept` field alongside
+`lessons`: `listRunnerKeptLessons(org, { since })`, newest decision first, capped at 50.
+`?since=<ISO>` filters on the **last decision** on each row, whether that was the keep or the revoke,
+so "since you left" returns both kinds. A malformed `since` returns 400. A candidate is listed only
+when its memory's own `createdBy` is `RUNNER_KEEPER`, so a human keep never appears here. Row shape
+(`RunnerKeptLessonRow`, ISO strings throughout):
+
+```ts
+{ id /* the candidate id — what revoke takes */, repo /* namespace, null = org-wide */, content,
+  laneId, memoryId, state: "kept" | "revoked" | "archived", keptAt, revokedBy, revokedAt, createdAt }
+```
+
+`archived` means the memory was archived some other way (the Memory tab, or the forget verb). The
+lesson is then out of every brief but was never revoked.
+
+**The risk the operator accepted.** An unattended agent's sentence now reaches the next lane brief
+with no human reading it first. The limits on that: verified lanes only, the duplicate hold, the 0.6
+confidence, the provenance on every surface, the audit rows, and revoke. A wrong lesson from a
+verified lane will still be read by later lanes until someone revokes it.
+
+#### Known gaps
+
+- **A double failure can leave a live memory behind a pending candidate.** If the settle after a
+  runner keep fails *and* the compensating archive also fails, the memory stays live while its
+  candidate reads pending. Both writes are best-effort; nothing retries the archive.
+
+### Dependency lanes (2026-09-18)
+
+**What it is.** A runner lane's worktree reaches the paired checkout's `node_modules` through a link,
+and the agent has no shell. A session that added a package therefore used to fail its own guard and
+never landed. Now, when the lane's `installDeps` flag is set, the **engine** runs the install after the
+session and before the guard's result run, under the lane stage `installing`. The function is
+`installChangedDependencies` (`src/lib/local/lane-deps-install.ts`, with `lane-deps-detect.ts` holding
+the pure rules and `lane-deps-spawn.ts` the process), and it works in this order:
+
+1. **Detect.** It diffs the worktree against the session's `before` commit
+   (`git diff --name-only -z <before>` plus `git ls-files --others --exclude-standard -z`) and looks
+   for `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml` or `yarn.lock` at
+   any depth, excluding anything under `node_modules/`. If none changed, the result is
+   `{ changed: false }`.
+2. **Pick the manager** from the lockfile at the repository root: `package-lock.json` or
+   `npm-shrinkwrap.json` → npm, `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, none → npm. A changed
+   manifest in a nested workspace package still installs **at the root**, because workspaces resolve
+   there.
+3. **Hold** the lane if the repository does not ignore `node_modules/`. Otherwise the installed tree
+   would be committed with the lane.
+4. **Remove the link, never through it** (see the safety rule below).
+5. **Install into the worktree's own folder, scripts off**, using exactly these commands:
+   - npm: `npm install --ignore-scripts --no-audit --no-fund`. This is `install`, not `ci`: the
+     agent could edit `package.json` but not the lockfile, and `ci` refuses that mismatch.
+   - pnpm: `pnpm install --ignore-scripts --no-frozen-lockfile`. pnpm freezes the lockfile whenever
+     `CI` is set.
+   - yarn classic: `yarn install --ignore-scripts --non-interactive`.
+   - yarn berry: `yarn install --mode=skip-build --no-immutable`, with `YARN_ENABLE_SCRIPTS=false`
+     and `YARN_ENABLE_IMMUTABLE_INSTALLS=false` set.
+
+   Classic vs berry comes from `yarn --version` run in the worktree, so a repository pinning berry
+   through `packageManager` or `yarnPath` is read correctly. npm and pnpm also get
+   `npm_config_ignore_scripts=true` as a second guard beside the flag. The process runs with
+   `cwd: dir`, `shell` on win32 only (one command string built from constants, never repository
+   text), the inherited environment minus `ANTHROPIC_API_KEY`, and a `timeoutMs` bound (the lane
+   passes its verify budget). A timeout or lane abort ends the process tree through
+   `killProcessTree`.
+6. **On success**, the note reads *"Installed dependencies for the changed manifest with <manager>,
+   scripts disabled — the guard verifies against them."* The updated lockfile stays in the worktree
+   and goes into the lane's commit, which stages from `git status --porcelain`. `node_modules` is
+   ignored, so it is never committed.
+7. **On failure** (non-zero exit, timeout, missing binary, or a yarn that cannot report its version),
+   the engine:
+   - discards the session's edits in the throwaway worktree (`discardWorktreeEdits`:
+     `reset --hard HEAD` + `clean -fd`, never `-x`);
+   - removes the real `node_modules` **only when `lstat` shows it is a real directory this install
+     created** (there was a link or nothing there before);
+   - puts the link back (`relinkDependency`, same link type as `worktree-deps.ts`, only onto an empty
+     name, only to a target that is still a directory), so a later cycle in the same worktree still
+     runs;
+   - returns `ok: false` with the first meaningful error line (`firstMeaningfulLine`: the first
+     error-shaped line that is not a bare `code E404` label). The lane holds with
+     *"Held — dependency install failed"*.
+
+**The safety rule: the worktree's `node_modules` is a link into the operator's real checkout.**
+
+- `unlinkDependencyLink` (`worktree-deps.ts`) uses `lstat` to decide. A real directory or file under
+  the name is reported as `not-a-link` and left alone.
+- A link is removed only by two removers that cannot recurse: `fs.unlink` first, then non-recursive
+  `fs.rmdir` as the fallback for a Windows junction some Node build refuses to unlink. After each
+  attempt the path is checked with `lstat` again, so `removed` is observed, not assumed.
+- A link that cannot be removed holds the lane *before* anything is installed.
+- Measured on Windows with Node 24: `unlink`, non-recursive `rmdir` and non-recursive `rm` each remove
+  a junction and leave the target intact.
+- Tests pin it: a real directory with a marker file is linked into a temp worktree as `node_modules`
+  (junction on win32, `dir` symlink elsewhere), the unlink runs, and the target and marker must still
+  exist (`worktree-deps.links.test.ts`).
+- The function returns early (`{ changed: false }`) for a **main** checkout. Only a linked worktree
+  (`isLinkedWorktree`: its git dir differs from the common dir) is ever touched.
+- An **aborted** lane is never re-linked, because its worktree may already be headed for
+  `git worktree remove`, which follows a junction.
+
+**Teardown changed with it, and this is the part to read twice.** An engine install makes
+`node_modules` a *real* tree, and a real tree can contain links of its own: a `file:` dependency, a
+workspace package, a pnpm store entry. Some of those point **outside** the worktree. Measured on
+Windows: `git worktree remove --force` **follows a junction nested inside a real `node_modules`** and
+deletes the directory it points at. Unlinking the top-level links first is therefore no longer enough.
+
+`unlinkDependencyDirs`, the first step of `removeLoopWorktree` and of the stranded sweep, now also
+calls `removeInstalledDependencyTrees`:
+
+- It asks git for ignored, untracked directories
+  (`git ls-files -o -i --exclude-standard --directory -z`).
+- For each whose last segment is `node_modules`, it removes that tree with Node's recursive `rm`
+  **before** git sees the worktree.
+- Node's recursive `rm` unlinks each link it meets instead of following it (measured; pinned by a
+  test).
+- It runs only in a linked worktree, never in a main checkout.
+
+Two tests pin this. `worktree-deps.links.test.ts` reproduces the hazard (a real tree with junctions
+pointing out of the worktree, then `removeLoopWorktree`, and the outside directory must survive). It
+fails with the tree removal disabled. `lane-deps-install.e2e.test.ts` runs a **real, offline
+`npm install --ignore-scripts`** of a local `file:` dependency outside the worktree, then the real
+teardown. It checks:
+
+- neither the dependency's nor the repository's `postinstall` ran;
+- `package-lock.json` was written in the worktree and shows as a change to commit;
+- the operator's `node_modules` was never written;
+- the dependency's source directory survived the teardown.
+
+**What runs on the operator's machine.** Lifecycle scripts are off, so installing runs no package
+code. The operator accepted that **the new package's code runs when the guard runs the tests**, the
+same way the repository's own code already does. The install itself contacts the configured registry
+with the operator's inherited npm/pnpm/yarn configuration, and it downloads into the worktree. It is a
+**full** install, not an incremental one, because the worktree started with no `node_modules` of its
+own. On a large repository that costs real time inside the verify budget.
+
+**Not supported in v1:**
+
+- **Other ecosystems** (Python, Go, Rust, Ruby and others). A change to their manifests returns
+  `{ changed: false }`, and the guard judges the change against the dependencies the checkout
+  already has, exactly as before.
+- **A JS manifest in a repository with no root `package.json`** (a nested package that is not a
+  workspace). Same result.
+
+#### Known gaps
+
+- **A failed install into a `node_modules` that an earlier cycle installed is not rolled back.** The
+  tree was not created by this install, so it is kept. It may contain a partial install, and later
+  cycles in that worktree verify against it.
+- **Only root `node_modules` is linked, and only at the root is it re-linked.** A nested workspace
+  `node_modules` created by a failed install is removed at teardown, not by the failure path.
+- **The stranded sweep cannot clear an installed tree in a worktree git no longer recognises.**
+  `removeInstalledDependencyTrees` relies on `git ls-files`. If that fails, it removes nothing, and
+  `git worktree remove --force` can still follow a nested junction there. The standard teardown path
+  is covered; this is the hard-kill case.
+- **Yarn Plug'n'Play has no `node_modules`.** An install writes `.pnp.cjs` and the cache, which may be
+  tracked or ignored depending on the repository. That is untested.
+- **The plan fence sees the lockfile.** After a successful install, the root lockfile is part of the
+  lane's diff. If a plan did not list it, `checkPlanFence` sees an extra root file. That should be a
+  route amendment, not an architecture move, but it has not been exercised.
+
+### The theater (2026-09-18)
+
+The standing runner works for hours with nobody watching it. The theater is the screen for that: a
+chrome-less, full-screen page meant for a passive third monitor, so that a person glancing at it from
+across the room knows four things — **is it running, what is it doing right now, is it going well,
+does it need me**. It is a shell with a fixed four-answer header, a **hero** filling the big middle,
+a one-line "latest" rail, and rare celebrations. Everything lives in
+`src/features/inflight/live/theater/`; the route is `src/app/theater/[slug]/page.tsx`.
+
+#### The route, and why it sits outside the org shell
+
+`/theater/<slug>` is **not** under `src/app/org/[slug]/`, because that segment's layout wraps every
+page in `OrgShell` — header, rail, program strip, the guidance drawer — and a screen read from three
+metres must carry none of it. So the page sits beside the org segment and **repeats the shell's access
+gates** instead of inheriting them: `theaterGate` (`src/app/theater/[slug]/theaterGate.tsx`) runs
+`OrgShell`'s checks in its order with its outcomes — no database → the same calm notice; the Supabase
+wall without a viewer → the same `SignInNotice`, returning to `/theater/<slug>`; the retired session
+stack without a session → the same sign-in; `canReadOrg` false → the same "No access to <slug>". The
+pulse route it polls (`GET /api/org/loop/pulse`, WP4) runs its own `requireOrgAccess`, so a page that
+slipped a gate would still read nothing. It is URL-addressable and survives a reload; the Live tab's
+view switch (`LiveViewSwitch`, `theaterHref`) opens it in its own tab.
+
+Query parameters: `?sound=1` preselects sound (see below), `?hero=<id>` picks a hero from the slot
+registry, and `?demo=1|running|paused-spend|paused-session|idle|none` renders the **fixture** on a
+deterministic simulated clock (`&demoAt=<seconds>` starts it later). The demo reads no org data at all
+— it is the same page for every slug — so it skips the gates; that is what lets the prototype round run
+it on a box with no database. It is labelled `demo · fixture data` in the dateline.
+
+#### The four-question header (the prototype round does not change it)
+
+`TheaterHeader` renders `headerModel()` (`theaterHeaderModel.ts`, pure) as four blocks in
+`type-display-lg`, each a headline of a few words plus one supporting line:
+
+1. **Running?** — the runner's phase in one word: *Running* (with the `live-dot` — the one sanctioned
+   ambient loop — and only then), *Paused — spend ceiling until 00:00*, *Paused — session limit until
+   15:00*, *Idle — next repo wakes at 14:20* (the earliest future `pausedUntil` among the repos), *Stopped*,
+   *Stopped on an error*, *No runner*. The line below: uptime since `runner.startedAt`, run `#seq`,
+   cycle c/m.
+2. **Now** — the busiest lane (`busiestLane`: the working lane with the newest evidence — last activity,
+   heartbeat or phase change; queued/held/done/error lanes are never "now") as `repo · <phase words>` via
+   `lanePhaseLabel`, the file it last touched (`lastTouched`), and step/time-in-phase. With no working
+   lane it says only what the pulse says: *Waiting for a run slot* (and which repos), *Run #14 · <phase>*,
+   *Between runs — preparing the next run*, *Holding — nothing dispatches while paused*, *Resting*.
+3. **Today** — verified closes, landed, spend of the ceiling with a thin meter (amber past 90 %). Each
+   figure carries its predicate in a tooltip (`TODAY_PREDICATES`: "since local midnight (server time)").
+   No ceiling reads as "no ceiling", never as a full meter.
+4. **Needs you** — amber when `needsYou.plans + needsYou.pausedRepos > 0` or the runner is paused, with
+   the count first ("3 · 2 plans wait · 1 repo paused") and a link to the Ledger
+   (`/org/<slug>?tab=live&view=ledger`, `ledgerHref`); neutral *Nothing waiting* otherwise.
+
+#### The hero: Mission
+
+`theaterHeroSlot.ts` is the one seam: `THEATER_HEROES` maps an id to a component taking
+`TheaterHeroProps` — `{ pulse: LoopPulse; now: number; reducedMotion: boolean }` — and the shell renders
+`renderHero(id, props)`. A hero is **one registry entry and its own folder**; the shell, header and
+transport do not change, and `?hero=<id>` selects it (an unknown id falls back to `DEFAULT_HERO`). The
+contract a hero honours: `pulse` is never null (the shell owns the empty state); every elapsed figure is
+derived from `now`, which the shell **freezes at last contact** when the pulse is stale; under
+`reducedMotion` every animation resolves to its end state; and because the pulse is a bounded **window**
+(8 files, 6 events), a hero that wants a session's whole picture accumulates it across pulses in its own
+state and says on screen what it has actually seen.
+
+**Mission** (`heroes/MissionHero.tsx` + `heroes/mission/`) is the hero that seam was built to choose.
+Each working repo gets one wide band, stacked in a fixed order by repo name so a lane never moves under
+the reader's eye: the stage track (plan · baseline · agent · check · commit · land) from
+`deriveLanePhase`, then **the phase word in display type** (~80 px at 1080p, ~160 px at 2160p — sized by
+viewport, not by breakpoint) with the agent's own last line and a strip of file chips (read blue, edit
+amber), then the diff so far and a **time-used** ring against `deadlineAt` (`deadlineFraction`,
+`theaterFormat.ts`; amber past 75 %, red at the limit, green once the lane landed, and labelled *time
+used* because elapsed-vs-deadline is the clock, never work done). Every repo not at work gets a compact
+row underneath — waiting for a slot, paused with its reason, resting, or finished this cycle — and with
+no lane working at all the slot states why and when work resumes.
+
+The motion budget is in constants beside the components (`missionTokens.ts`), and every animation is
+tied to a real pulse event: a chip enters when a file appears for the first time, a read chip turns amber
+and moves to the front on its first edit, chips and the band's edge cool with time since their newest
+event, the phase word cross-fades on a phase change (held ≥ 6 s so reading/editing/thinking cannot
+flicker), the ring fills with the clock, and the band turns green when a `landed` event dated inside that
+lane's session arrives. A stale pulse freezes all of it; `reducedMotion` renders the end states.
+
+The file trail is accumulated per lane session (lane id + cycle + start time,
+`missionAccumulate.ts` — a pure reducer) and the band says how much it knows: *"11 files · 4 edited —
+since this screen opened"*.
+
+**The round that chose it (2026-09-18).** Three heroes were built in parallel against this seam and
+judged from live renders on the demo's deterministic clock: **mission**, **heatmap** (a treemap of the
+modules the lane had opened, warming on edits and cooling into silence) and **observatory** (three
+orbits, each working repo a comet whose tail was its activity, with one narrated sentence across the
+foot). Mission won on the job the screen exists for — the first thing read at three metres is *which
+repo is doing what*, it is useful within seconds of a reload where the other two need to accumulate
+before they say anything, and it is the only one that holds a twenty-repo fleet. The other two were
+**deleted with their tests**, not kept as dead alternatives; the seam and this section are what remain of
+them. Mission's own admitted limits: it has never been rendered with more than two working lanes (three
+or more shrink the type), and *"for 37 s"* is time in the **stage**, not in the sub-phase, so a long
+agent stretch can overstate how long it has been editing.
+
+#### Nothing to report: one answer, not six (2026-09-20)
+
+Every part of this page answers its own question, which is right while something is happening and
+wrong when nothing is. On an org with no runner the page said the same thing six times — *No runner* ·
+*Nothing running* · *0 verified, 0 landed, $0.00* · *Nothing waiting* · *No runner is reporting* ·
+*Nothing yet today* — on a screen whose whole purpose is that a glance lands on one thing.
+
+`nothingToReport(pulse)` (`theaterHeaderModel.ts`, the same predicate the header and the shell both
+read, so they cannot disagree) is true only when **everything** is false: no runner, no run, no lane,
+nothing waiting for a slot, no event in the last 24 h, nothing needing a person, and a day with no
+closes, no landings and no spend. Then the four header answers keep their kickers and render an empty
+block (`HeaderModel.quiet`, `data-quiet` on the header), the latest rail stands down, and
+`TheaterEmpty` says it once in the middle — with a **link to the Live tab's cockpit**, because a
+third-monitor screen is usually not the operator's own browser and "start it from the Live tab" is a
+sentence, not a way there. The kiosk gets the statement without the link: its token may authenticate
+nobody who can open the org. The moment anything is true, every block has its own answer again.
+
+A **stale** feed is never quiet: a lost connection is not an empty org, so the reconnecting labels
+take precedence and every last-known value stays, marked *as of*.
+
+#### Transport and staleness honesty
+
+`useTheaterPulse` polls every `THEATER_PULSE_MS` (2 s) through a **non-overlapping `setTimeout` chain**:
+the next tick is armed only after the current read settles, so a slow response delays the next tick
+instead of racing a second read beside it. Hidden tab → the chain is torn down and nothing polls;
+visible again → an immediate tick. A failed read backs off 2 → 4 → 8 → 15 s and a good one resets the
+cadence. `parsePulseResponse` reads the route's `{ pulse: LoopPulse | null }`, a bare `LoopPulse` or a
+bare `null` **defensively**: every missing array defaults to empty and every sub-object to its zero, an
+unknown event kind is dropped, and anything that does not parse (an HTML error page, a string) is a
+**failed read** — distinct from a valid "nothing running", because the page says "Reconnecting…" for one
+and "No runner" for the other.
+
+**Staleness is the page's own clock**, never the server's: `receivedAt` is this browser's time at the
+last good read, so a skewed server clock cannot make a live runner look dead or a dead one look live.
+`feedStale` is true once the last good pulse is older than `THEATER_STALE_MS` (10 s) — before the first
+answer, once the page has listened that long. Then **every** liveness claim switches together
+(`motion/content-bearing-degradation`): the phase word becomes *Reconnecting…* with *Last heard 42 s
+ago · was Running*, NOW becomes *Last heard 42 s ago*, the live-dot goes out, TODAY and NEEDS YOU keep
+their last values labelled *as of 42 s ago*, and the hero's elapsed figures freeze at the moment of last
+contact (the shell passes `receivedAt` as the hero's `now`). After a tab return there is no grace
+window: the render clock stays frozen until the return's immediate read lands (fresh at once) or the
+clock's next second shows it did not — a minute-old pulse never passes for live.
+
+#### The latest rail
+
+`pulse.latest` as **one line** at the foot, newest first, clustered by `clusterLatest`
+(`theaterLatest.ts`, `feed/event-clustering`): consecutive events with the same repo and kind within
+two minutes of their neighbour fold into one entry (the newest headline speaks, `×N` counts); a
+`failed` or `rejected` event is never clustered away. A cluster's identity is its relation plus its
+**oldest** member, so a growing cluster updates in place. No marquee — a line that scrolls itself is
+ambient motion implying progress; what does not fit is clipped behind a fade. A cluster **enters once**
+(`animate-pop-in`) only when its oldest member arrived while the page was open (`arrivedKeys`,
+`motion/one-shot-guarding`), so neither a poll nor a reload replays the rail.
+
+#### Celebrations and cues — the budget
+
+Arrivals are events not seen before, and **the first non-null pulse is history** (`diffArrivals`): a
+reload never replays a day of landings. `theaterCues.ts` classifies them — `landed` / `direction-done`
+→ a **celebration** (the wall's burst card with its `burst-ring`, `TheaterCueCards`, plus the chime);
+`plan-pending` / `paused` → an **attention** cue (a quieter amber card plus a distinct tone); everything
+else stays on the rail. The budget is a number with an owner: **at most one cue per `CUE_GAP_MS`
+(20 s)**; arrivals inside the gap queue and **coalesce** into the next cue ("3 landed · 1 direction
+done"), and a cue that carries both classes speaks as attention — being needed outranks a celebration.
+Each card leaves after `CELEBRATION_MS`. The controller (`createCueController`, `useTheaterCues`) is a
+plain closure the transport feeds from its own fetch callback, never from an effect.
+
+**Sound** is the wall's voice: `liveWarRoomCelebrate.ts` now exports `CHIME_TONES` and
+`scheduleTones` (the wall's `playChime` uses them, unchanged in behaviour), and the attention tone
+(`ATTENTION_TONES`, `theaterSound.ts`) is the same two pitches **falling**. Browsers refuse audio until a
+gesture, so `?sound=1` only **arms** sound and the toggle says so — *Sound: click anywhere to turn it
+on*; the first pointer or key press unlocks one `AudioContext` inside that gesture and reuses it (a fresh
+context per cue, the wall's pattern, would be refused on a screen nobody touches for hours). Sound is
+gated only by that unlock: reduced motion governs animation, not audio.
+
+**Reduced motion** (`useReducedMotion`): every animation resolves to its end state — the cards render
+without `animate-burst`/`burst-ring`/`animate-pop-in`, the rail's entrances are dropped, and the
+`live-dot` is still under the global reduced-motion block. The cards themselves still appear: their
+words are the content.
+
+#### Fullscreen and wake lock
+
+One control, **Enter theater mode**, reuses the wall's kit (`enterTvMode` / `releaseWakeLock` in
+`liveWakeLock.ts`): it fullscreens the page — which *is* the theater, having no other chrome — and holds
+a screen wake lock, re-acquired when the tab returns and released when fullscreen ends (Esc, the
+browser's own exit) or the page unmounts. In theater mode the controls step aside and only the dateline
+stays.
+
+#### The kiosk variant, and what it withholds
+
+A live-share token gains an optional **`view` claim** (`LiveShareView`: `"wall" | "theater"`,
+`src/lib/live-share.ts`). It is stamped only for `theater`, so a default token's payload is exactly the
+old shape, and **every token without it — including every one minted before it existed — renders the
+wall**. `POST /api/org/live-share` accepts `{ org, view? }` (anything but the two words is a 400) and
+answers `view`; the theater's **Share to a kiosk** control mints one (`useTvShareLink(slug, "theater")`).
+`/live/shared/[token]` renders `TheaterShell` in kiosk mode when `view === "theater"`; the wall branch is
+unchanged.
+
+The kiosk theater polls **`GET /api/live/pulse?token=`** — no login wall. The page and this route both
+call **one** verification, `resolveLiveShare` (`src/lib/live-share-access.ts`, extracted from the kiosk
+page in its order: signature + domain + expiry, then per-link revocation and owner binding, both failing
+closed). The org is taken **from the token**, never from the request. A **wall** token is refused (403):
+it was granted to show the fleet rollup, and widening what an already-issued capability can read is not
+something a deploy should do silently. The route serves exactly one thing, `getLoopPulse(org)` passed
+through `kioskPulse`, which withholds every piece of prose: each lane activity's `note` and each repo's
+runner `note` become null, and each `latest` headline becomes fixed words for its kind
+(`KIOSK_HEADLINES`) — the signed-in pulse titles a landing with the deliverable's headline, a pending
+plan with its intent and a failure with the error's first line, which are agent prose and error text.
+Paths, phases, counts and repo names stay. The kiosk carries no notifier, no share control and no
+ledger link (its viewer can use none of them).
+
+#### The runner notifier: permission-first, not visibility-gated, batched
+
+`RunnerNotifier` (`src/components/org/shell/RunnerNotifier.tsx`, mounted once in `OrgShell`; its engine
+`useRunnerNotifier` lives in `org/shared` because the theater arms the same engine) sends an OS
+notification when the runner needs a person. It reads **`GET /api/org/loop/needs-you?org=`**
+(`requireOrgAccess`, then a db guard): pending plans (`listLoopPlans(org, { status: ["pending"] })`,
+titled by `planTitle` — intent, else the first item's title, else its approach), the repos the org's
+live continuous drive paused on a breaker only a person clears, and the runner-wide pause, plus a
+`runner` flag (a live continuous drive exists). `buildNeedsYou` (beside the route, server-side) decides
+"paused on something a person clears" with the pulse's own `needsOperator`
+(`src/lib/db/loop-pulse-fold.ts`) — one rule, so the theater's NEEDS YOU count and the notifier cannot
+disagree; `dry-backoff` lifts itself and counts in neither. The shape, the defensive parse, the item
+identities, the summary and the batching decision are the dependency-free
+`src/lib/org/runner-needs-you.ts`, which the browser imports.
+
+- **Permission-first.** It does nothing for anyone who did not ask: no prompt on load, no poll. Unarmed,
+  it makes at most **one** probe per mount — and only when the browser could still grant permission and
+  the offer was not dismissed — to learn whether the org has a runner, so its quiet chip (*Notify me when
+  the runner needs me*, dismissible, remembered) appears only where it means something. The theater
+  carries the same control. `Notification.requestPermission()` runs only inside that click
+  (`requestRunnerNotify`, `src/lib/org/runner-notify.ts`).
+- **Not visibility-gated.** Armed (preference on **and** permission granted), it polls every
+  `NOTIFIER_POLL_MS` (60 s) whether or not the tab is visible — a hidden tab is exactly when an OS
+  notification matters.
+- **Deduped and batched.** `decideNotify` keys every waiting thing by a stable id (`plan:<id>`,
+  `repo:<repo>:<reason>`, `runner:<reason>:<until>`), persists the seen set in `localStorage` (so a
+  reload never re-announces), forgets ids that cleared (so the same pause recurring later is news again),
+  and sends **at most one** notification per `NOTIFY_BATCH_MS` (15 min), summarising only what is new:
+  "2 directions wait for your approval · kp paused: branch conflict". Items that arrive inside the window
+  ride the next notification — unless they clear first. Clicking it focuses the window and opens the
+  Ledger. Every storage access is wrapped; without storage, dedup lasts for the page's life.
+
+#### What it deliberately does not do
+
+- It does not start, stop or steer anything: the theater and the kiosk are read-only; every action lives
+  in the Ledger and the Cockpit.
+- It never shows a percentage of progress. Bars are elapsed-vs-deadline and spend-vs-ceiling — time and
+  money used, not work done.
+- It does not auto-prompt for notifications, and it does not ask the user to unlock sound on load.
+
+#### Known gaps
+
+- **The theater's own gate is the org shell's read gate (`canReadOrg`), the pulse route's is
+  `requireOrgAccess` (member).** A viewer-role member can open the page and will see *Reconnecting… No
+  access to this organization* rather than a clean "No access" notice.
+- **The notifier cannot learn of a permission revoked in browser settings** until its next poll (it then
+  simply stops showing); there is no `permissions.onchange` subscription.
+- **The needs-you and pulse counts are computed by two reads** (`buildNeedsYou` over `listLoopPlans` +
+  `listDriveRows`; `foldLoopPulse` over its own queries). They share the pause rule (`needsOperator`) and
+  the plan status (`pending`), but a plan decided between the two reads can differ for one poll.
+- **Two open org tabs both poll needs-you when armed.** The persisted seen-set and batch window keep the
+  second from re-announcing, and the notification `tag` makes the OS replace rather than stack, but two
+  reads land within the same second.
+- **The kiosk rail's headlines are generic** (`KIOSK_HEADLINES`) by design; a kiosk viewer sees *that* a
+  plan waits, not what it proposes.
+- **`?demo=` skips the gates.** It renders only the fixture (no org data), but it does echo the slug in
+  the URL back onto the page.
+
+### The Ledger (2026-09-18)
+
+The Live tab is three views over one standing runner, and the Ledger is the one for the operator who
+comes BACK: what the runner did while they were away, what waits for them, what sits on the runner
+branch, the directions they granted, every run, and the lessons the runner kept.
+
+**Every section's explanation lives on its title (2026-09-20).** Each of the six sections shipped with
+a two-line paragraph under its heading, and on an org whose runner had not run yet those paragraphs
+were five-sixths of the screen: the operator read the same description on every visit and the runs —
+the thing they came for — started below the fold. The sentences now sit in an `InfoTip` on the title
+they describe (`LedgerSectionHeader`), which is where the brand already puts a standing explanation,
+and the freed header row carries the section's own figure instead: *Needs you · 2 waiting*,
+*Chronicle · 20+ runs* (the count is what is SHOWN, with `+` when a page is bounded), *Directions ·
+1 active of 4*, *Lessons · 3 in memory of 5*. Three classes of text were **not** eligible and stayed on
+the page: a warning or a consequence to read before acting, a failed read (*"could not read the
+directions"* — an empty list and an unreadable one must never look alike), and an empty state that
+names the next action. The empty states that merely restated the description were cut to the action
+(*"No plan waits for you."*, *"None yet — approving a plan in Needs you creates one."*).
+
+#### Three views, and which one opens
+
+| View | Where | For |
+| --- | --- | --- |
+| Theater | `/theater/<slug>`, its own page (a new browser tab) | a screen nobody is operating |
+| Ledger | `?tab=live&view=ledger` | the returning operator |
+| Cockpit | `?tab=live&view=cockpit` | setup, manual runs, the sky chart |
+| Wall | `?tab=live&view=wall` | the original war room, unchanged |
+
+`LiveTab` resolves the view with `resolveLiveView` (`ledger/ledgerView.ts`): an explicit `?view=` always
+wins; with none, the tab opens on the **Ledger when the org has a standing runner** (a continuous drive
+that is live and has not ended, `standingRunner` in `ledger/ledgerLoad.ts`) and on the **Cockpit
+otherwise**. The runner probe (`hasStandingRunner`) runs only when the URL leaves the choice open, and a
+failed probe reads as "no runner", so a broken drive read opens the Cockpit rather than an empty Ledger.
+The Ledger branches off before the fleet rollup (it does not render it). Both the Ledger and the Cockpit
+mount the shared `LiveViewSwitch`; its hrefs come from `liveViewHref`, so a switch keeps the stack scope.
+
+**Why the default follows the runner.** An org with a runner has news every time the operator returns;
+an org without one has nothing to report and its next step is setup. The view is the URL, so a bookmark
+or a second screen lands exactly where it was pointed.
+
+#### One load, on the server
+
+`LedgerTab` (a server component) calls `loadLedger` once and hands the client view one prop. Every read
+is caught **separately and named** when it fails (`LedgerData.failed`: drives, anchor, runs, plans,
+directions, lessons), and its data is `null` rather than an empty list, so each section can say "could
+not read" instead of drawing a confident, empty, wrong list. The load reads: the org's drives (the live
+runner, and the newest continuous drive even after it stopped), the active run, the chronicle's first
+page (`listLoopRuns(slug, 20)`), the pending plans, the 200 most recent plans of every status, the
+directions, the runner-kept lessons, the viewer's anchor, and, self-hosted only, each runner repo's
+commits ahead (below). Relative times are measured against the load's own `now`, so the server render
+and the hydrated one print the same words. The page does not poll: it is the returning operator's
+snapshot, and the Theater is the live surface.
+
+#### Since you last looked
+
+A delta briefing (`deriveBriefing`, `ledger/briefingModel.ts`), derived with **zero fetches of its own**
+from what the load already read, so the card and the sections it links to are filters over the same
+rows and cannot disagree.
+
+- **The anchor** is `Membership.liveSeenAt` for the viewer (`getLiveSeenAt`, `src/lib/db/live-seen.ts`),
+  read and SNAPSHOTTED at render. Null (never looked, or no per-user anchor because auth is off or the
+  viewer has no membership) falls back to the last 24 hours, and the card says "In the last 24 hours".
+- **Lines, ranked by consequence** to the operator: plans waiting for approval (a CURRENT count, worded
+  "now"); breakers that tripped (runner events `paused` / `repo-paused` after the anchor, a dry-run rest
+  excluded), or, when no event falls after the anchor but a pause is in force, "Paused now"; directions
+  that ran out of budget; verified closes (the lanes' `closedIds`, summed over runs that ended after the
+  anchor); lanes landed on `ascent/runner` (each lane's own `landedAt`); directions marked done; runs
+  finished (with the errored count). Capped at **five**; the rest is "…and N quieter changes", never a
+  scroll.
+- **Every count names its predicate** (the line's tooltip) and **every line is a door**: an anchor to the
+  section that proves it (`#ledger-needs-you`, `#ledger-runner`, `#ledger-directions`,
+  `#ledger-chronicle`).
+- **A count over a bounded sample says so.** The chronicle's first page is 20 runs. Runs are sequential
+  per org, so when the page is full and its oldest run started after the anchor, older unread runs may
+  also have finished after it: the run-derived counts then print "N+" and the predicate says it is a
+  lower bound.
+- **No news, no card.** It never renders "nothing happened". **A failed read it depends on** (drives,
+  anchor, runs, plans, directions) renders "Could not derive the briefing — X could not be read", never
+  silence.
+
+**The stamp.** `useSeenStamp` posts `POST /api/org/loop/seen { org }` only after the ledger has been
+VISIBLE for five continuous seconds (`SEEN_DWELL_MS`), once per mount: the timer starts on visible, is
+cleared the moment the tab hides, and re-checks visibility when it fires, so a tab opened in the
+background never advances the anchor. The route (`src/app/api/org/loop/seen/route.ts`) is
+same-origin-gated, then `requireOrgAccess`, and writes only the CALLER's own membership
+(`markLiveSeen`): the login comes from the session, never the body. No identity, the public org, or no
+membership row is a clean `{ seen: false }`. Because the briefing reads the snapshot, the stamp landing
+five seconds later moves the NEXT visit's anchor and never erases the card it was stamped over. A
+briefing that could not be derived does not stamp: advancing past deltas nobody saw would lose them.
+
+**What it deliberately does not do.** It is not a feed (no per-event lines, no scrolling) and not a
+notification centre (the OS notifier is `RunnerNotifier`). It does not recount the whole history from
+epoch.
+
+#### Needs you — the approval inbox
+
+Every `pending` plan, one surface, each decidable in place (`PlanInbox`, on the shared `DecisionTable`).
+A row reads: repo, intent, the item titles the plan was written for (`itemTitles`), why it waits (the
+classifier's reason verbatim: `declared-moves` "moves architecture"; `unreadable` "the plan could not be
+read — review the text"; `undeclared-moves-in-diff` "the lane made a move its plan did not declare — work
+held on <heldBranch>"), and when it was asked.
+
+**The reviewer sees the real plan** (`PlanReview`) because a verdict on a title is a rubber stamp
+(`hitl-approval/oracle-before-gate`): each item's approach and files, every declared architecture move
+as `from → to` with its kind, which module partition the moves were measured against, the risks, what
+the plan will not do, the check that proves it, and the planner's raw text in a collapsible block. A
+**held plan** also carries its evidence: the branch the fence parked the lane's commits on, and a
+copyable `git log --stat ascent/runner..<heldBranch>` (the lane was cut from the runner branch, so those
+are exactly the commits the plan did not declare).
+
+**Verdicts (owner only).** Approve opens the fence (the plan's `modules` as removable chips, plus any
+prefix the owner adds; an empty fence is refused because it would let the direction move nothing), a
+cycle budget (default 3) and an optional USD budget. Revise needs a note (the next planning session
+reads it); Reject needs a reason (it becomes a standing dismissal of every item). Only the SHAPE is
+checked in the browser (`decisionBody`); the ranges are the route's, and its 400 is shown verbatim. **A
+failed decision keeps the row pending**, keeps what was typed and says why; a row leaves the inbox only
+when the route answered with the decided plan. A viewer reads the whole queue and is told only an owner
+decides. **There is no batch verdict**: pending plans are heterogeneous by construction, so nothing is
+selectable and no bulk action is offered.
+
+The same section shows every pause only a person lifts (`PausedRepos`): a runner-wide pause (its reason
+and when it lifts) and each repo paused on repeated failures, a branch conflict or a failed dependency
+install, with its note and **Resume** (owner; `POST /api/org/local/drive { action: "resume-repo" }`, the
+cockpit's `resumeRunnerRepo`), updated from the drive the route returns. A repo resting after dry runs
+is not here: it lifts itself on a timer and is not asking.
+
+#### The runner branch card
+
+Per repository of the live runner, or of the newest stopped one (work on a stopped runner's branch is
+still the operator's to merge) (`RunnerCard`): the base branch, the commits on `ascent/runner` the base
+does not have, the last landed tip, the failure and dry streaks, and any pause. "Commits ahead" is read
+from git at load (`readAheadCounts` → `runnerAheadCount`), self-hosted only, each call bounded by
+`runGit`'s timeout and a 5-second belt (`AHEAD_TIMEOUT_MS`). **A count git could not produce prints
+"unknown", never 0**: zero means "nothing to merge", and an unknown shown as zero would hide work.
+
+**Merge runner into <base>** (`RunnerMerge`; owner, self-hosted, behind a confirm step) posts
+`POST /api/org/local/runner/merge { org, repo }` and renders the three answers as what they are:
+`fast-forward` (the base ref moved, no working copy touched), `merged` (the clean checkout that has the
+base was fast-forwarded), or `commands` (the branches diverged, or the checkout is dirty) with the
+route's one sentence of why and the exact commands in a copyable block. A `commands` answer is not a
+failure; a failed request is, and says nothing was merged. The button is disabled when nothing is ahead.
+
+#### Directions
+
+Active first, then exhausted, done and revoked (`Directions`, `DirectionRow`): title, repo, the fence as
+chips, the cycle meter (used / budget) and a spend meter only when a spend budget was set, the plans
+that ran under it (plans with its `directionId`, from the recent-plans read), and who approved it and
+when. **Revoke** (the grant is withdrawn and its approved-but-unexecuted plans return to pending, so the
+inbox is re-read) and **Mark done** are owner-only and update from the route's answer
+(`POST /api/org/loop/directions/[id]`).
+
+#### The chronicle
+
+Every run, newest first, by its **stable number** (`#seq`, assigned at create): a label that used to be
+a position in a 12-column window shifted every time a run landed. A run the backfill never numbered is
+labelled by its date. Each row: number, when and how long, who dispatched it (**runner** / **drive** /
+**manual**, from `driveId` and that drive's mode; an unknown drive id is still a drive, never guessed as
+manual), a **planned** badge when the run opened every lane with a planning session, repos, lanes,
+verified closes, landings, lift and cost.
+
+**Paging.** `GET /api/org/loop?org=&beforeSeq=<n>&limit=<k>` returns a lean `{ runs }` page of runs
+numbered below `n` (`listLoopRuns(slug, limit, { beforeSeq })`, ordered by `seq`). A cursor on the
+number rather than an offset means a run landing while the operator reads never repeats or skips one.
+Without either parameter the route's response is exactly what every existing caller receives, and
+`LoopRunChronicleEntry` only ADDS fields to `LoopRunSummary` (`seq`, `driveId`, `planMode`, `lanes`,
+`verifiedCloses`, `landedAt[]`, `error`), folded out of the same one lanes read the lift comes from.
+
+**Expanding a run** reads its detail once (`GET /api/org/loop/<id>`) and keeps it. Each lane
+(`ChronicleLane`): repo, cycle, phase, the guard's verdict and rung, commits, verified closes, landed or
+not, cost, the plan it ran under (status and class, linking to its direction or to the inbox), its
+deliverable headlines, the lane log (collapsed, last 40 lines), the lessons its report kept, and a
+**`FlowRibbon` proposed → armed → delivered**: proposed = what `openBatch` offered (`lane.proposed`,
+with the passed-over counts by reason in the tooltip), armed = `batchIds`, delivered = the rescan's
+verified closes (labelled "Landed" when the lane landed). A lane written before `proposed` existed draws
+its first stage as a break, never as zero.
+
+#### Lessons kept by the runner
+
+Every lesson the runner kept into Org Memory (and those since revoked), from the lessons route's
+`runnerKept` read: the sentence, its repo, when it was kept, and its state. **Revoke** (owner) archives
+the memory, out of every brief from the next lane on, and records who took it back.
+
+#### API
+
+- `GET /api/org/loop?org=<slug>&beforeSeq=<n>&limit=<k>` → `{ runs }` (the chronicle's page; a malformed
+  cursor or size is a 400). The unparameterized GET is unchanged.
+- `POST /api/org/loop/seen { org }` → `{ ok, seen, seenAt? }` (same-origin, `requireOrgAccess`,
+  self-scoped).
+
+#### Honest limits
+
+- The ledger is a snapshot. It updates from what each action's route returns (and re-reads the inbox
+  after a revoke); a plan that arrives while the page is open appears on the next load.
+- The briefing does not exclude the viewer's own actions: a direction they marked done counts as
+  "finished" (directions record no `endedBy`).
+- Breakers are read from the runner's bounded event log; one older than the log since the anchor is not
+  counted, and the predicate says the log is bounded.
+- A run with no `seq` appears on the first page only; it cannot be paged to.
+- "Last landed" is the runner tip's sha, not a time.
+- There is no runner-wide Resume here: a runner-wide pause lifts at its `pausedUntil` (the drive route
+  has no runner-wide resume action).
+
+#### Key files
+
+`src/features/inflight/live/ledger/` — `LedgerTab.tsx` (server), `ledgerLoad.ts` (server load),
+`Ledger.tsx` + `useLedgerState.ts` (client orchestration), `briefingModel.ts` + `LedgerBriefing.tsx`,
+`useSeenStamp.ts`, `PlanInbox.tsx` / `PlanReview.tsx` / `PlanDecision.tsx` / `FenceEditor.tsx` /
+`planDecisionModel.ts`, `PausedRepos.tsx`, `RunnerCard.tsx` / `RunnerMerge.tsx`, `Directions.tsx` /
+`DirectionRow.tsx`, `Chronicle.tsx` / `ChronicleRow.tsx` / `ChronicleLane.tsx` / `chronicleModel.ts`,
+`RunnerLessons.tsx`, `ledgerClient.ts` (every HTTP call), `ledgerTypes.ts`, `ledgerView.ts`.
+`src/lib/db/live-seen.ts`, `src/app/api/org/loop/seen/route.ts`, `listLoopRuns` in
+`src/lib/db/loop-runs-read.ts`.
+
+#### Known gaps
+
+- **The briefing counts the viewer's own "Mark done".** Directions carry no `endedBy`, so a direction
+  the viewer closed themselves is reported back to them as "finished".
+- **The ledger does not refresh on its own.** A new pending plan, a landing or a pause that happens while
+  the page is open is not shown until the next load.
+- **A pre-backfill run (no `seq`) cannot be paged to** — it shows on the first page only.
+- **"Last landed" has no time.** `RepoRunnerState.lastLandedSha` carries the tip, not when it moved.
+
+### Starting and watching the standing runner (2026-09-18)
+
+The Cockpit can now **start, watch and stop the standing runner**, a `continuous` drive (see *The
+standing runner*). It uses the same drive route, the same `useDrive` poll, and the same rail slot a
+bounded drive uses. The runner is a drive with a different shape. It is not a fourth engine.
+
+#### Starting it: a mode in the setup dialog, not a button in the rail
+
+The run-setup dialog opens with a **mode** choice: **Run** · **Drive to green** · **Standing runner**
+(`RunSetupMode.tsx`; the pick is `RunDials.mode` and lasts the session). Run and Drive still start
+from the inspector, over the selection. The mode only decides which mode-specific dials the dialog
+shows. The rope (**Drive runs**) appears only for a drive. **Rescan** (`rescanCadence`) appears for a
+drive and for the runner, which are the two places the cockpit sends it (see *Honest limits*).
+
+The runner is the one start that happens **inside the dialog**. It runs until someone stops it and
+spends against a daily ceiling, so the operator starts it with the ceiling and the fixed rules in
+front of them. The inspector's third CTA, **Start standing runner…**, only switches the dialog to
+runner mode and opens it (`LiveCockpit` → `setDial("mode","runner")`). The ellipsis marks that a
+dialog follows. The CTA is offered even with **nothing selected**, because the runner's default
+scope is not the selection. It is not offered where Run and Drive are not: a viewer, or a rail
+blocked by a setup state (`CockpitInspector` gates it on `canRun && canDrive && !blockedReason`, and a
+non-owner's rail shows `CockpitSetup` instead of an inspector).
+
+In runner mode the dialog shows:
+
+- **Repos.** *Every watched, paired repo* (the default, the same scope the drive route resolves
+  when no `repos` are sent) or *the N selected* (disabled with its reason when nothing paired is
+  selected). The chosen list is drawn as chips.
+- **Daily spend ceiling (USD)**, a typed field. Its default is the contract's own:
+  `spendCeilingUsdFrom(DEFAULT_SPEND_CEILING_MICROS)`, $100. `0` means no ceiling. An **empty** field is
+  an error that disables Start (`parseCeilingUsd`). It is never read as "no ceiling", because clearing
+  a box must not be how the brake comes off. One line under the field says the **session-limit breaker
+  is always on**.
+- **What the runner does · fixed**, a read-only summary (`RUNNER_DOES` in `RunSetupRunner.tsx`): lands
+  verified work on each repo's `ascent/runner` branch, and the working branch is never touched; plans
+  every lane first, and only architecture moves wait for the operator; pauses on the spend ceiling,
+  the session limit, 3 failed lanes on a repo (`REPO_FAILURE_STREAK`), and a branch conflict.
+- **Forced for the runner** (`RunSetupForced.tsx`). Delivery reads *Land on the runner branch* and
+  the guard reads *Verify each lane*. Each is drawn as a fixed value marked "forced", with its reason
+  beside it. There is no radio, no input and nothing focusable. The two pickers are **not hidden**. A
+  dialog that silently dropped them would leave the operator unsure whether their last run's *Land in
+  my current branch* still applied, and that choice writes into a real working copy. The **check
+  budget** is still a dial: the guard is on, and how long one check may take is still the operator's
+  call.
+- The work, how long and agent dials, as for a run (focus is ignored by a drive and by the runner,
+  and its tooltip says so).
+
+**Start standing runner** (`CockpitSetupDialog.tsx`) posts `runnerStartInput(dials, selection)`
+through the same `startDrive` the inspector's Drive uses. The request carries `mode: "continuous"`,
+`spendCeilingUsd`, `maxCycles`, `concurrency`, `model`, `effort`, and `dials` (`batchSize`,
+`agentTimeoutMs`, `verifyTimeoutMs`, `rescanCadence`, and `verifyMode: "on"` whatever the dial says).
+It carries `repos` only when the scope is the selection. It carries **no `delivery`** (the route arms
+`runner` and refuses anything else) and **no `maxRuns`** (a runner has no rope). The dialog closes only
+when the server accepts the start. A refusal stays on screen as an alert, in the route's words. While
+a drive or a runner is already live, Start is disabled with the reason. The footer line
+(`dialsSummary` → `runnerSummary`, `setupSummary.ts`) prints the runner's configuration, and the gear's
+tooltip reads the same line.
+
+#### The dials now reach a bounded drive too
+
+`driveStartInput` (`startInputs.ts`) sends the same `dials` with **Drive to green**. Before this change
+the cockpit's drive sent scope, cycles, lanes, model, effort and delivery only. Batch size, the session
+ceiling, the guard and its budget were silently the deployment defaults on every drive run, whatever
+the dialog said. All three request bodies are composed in `startInputs.ts` as pure functions. The
+manual run's body is byte-identical to what `CockpitInspector` built inline before.
+
+#### Watching it: the runner panel
+
+A live runner takes the rail's top slot, the same slot a drive takes. `CockpitDrivePanel` hands a
+continuous drive to `CockpitRunnerPanel`, because every line of the drive panel (run N/M, debt burned,
+n/m green) would be a false claim about something with no cap and no target. The panel shows:
+
+- **The phase, with its reason** (`runnerPhase`, `runnerModel.ts`): *Running*, *Paused — spend ceiling
+  until 00:00*, *Paused — session limit until 15:00*, or *Idle — next repo wakes 14:20*. The idle
+  wake is the earliest timed repo pause. With no timed pause the line reads *Idle — every repo waits
+  for you*. Times are formatted by the theater's `fmtClock`, so the cockpit and the theater say the
+  same thing. A pause carries the breaker's own sentence underneath: the newest `paused` event's note
+  (`pauseNote`), which for the spend ceiling quotes the server's figure.
+- **Uptime**, measured to the runner's last **beat** (`lastBeatAt`), not to the browser clock. A runner
+  whose server went quiet shows an uptime that stops growing, and a render stays pure.
+- **Runs done**, with no "of N". Lanes **landed** and **verified closes** are summed over the runs
+  that counted them, and a run that has not counted yet reads `—`, not 0. The **ceiling** is shown
+  ("ceiling $100.00 / day", or "no spend ceiling").
+- The in-flight run's `cycle c/m · n/m lanes done` (from `useLoopRun`'s poll, as for a drive), or
+  *Between runs — preparing the next one…*
+- **Per-repo state** (`CockpitRunnerRepos`, from `repoState`): base branch, commits ahead of it,
+  *working* or *paused · 3 failed lanes / branch conflict / dry — backing off / dependency install
+  failed* with its lift time when timed, the runner's note (the conflicting files, the failing check),
+  and the streaks while they are counting ("2 failed in a row · 1 dry run"). The streak is the warning
+  before the pause.
+- The newest five runs, numbered across the whole runner (`runsBefore` included), each measured by
+  what it delivered ("2 landed · 1 verified"), with its `note` when it ended oddly (`DriveRunRow`,
+  `runner` flag).
+
+`useDrive` keeps polling while a runner is `paused` or `idle`, because `isDriveLive` counts both as live.
+A pause is a wait, not an end, and the panel sees it lift. The poll is now `usePollChain` over
+`useIsVisible`: a `setTimeout` chain through one serial ticker, instead of an interval and a private
+copy of the visibility code. A slow read delays the next one rather than racing it, and an action's
+read (after a stop or a resume) never overlaps the chain's.
+
+The terminal banner (`DriveVerdict`, moved to `CockpitDriveVerdict.tsx` and re-exported from
+`CockpitDrivePanel`) reads **Runner · Stopped**, with runs and landed. Its detail says the verified
+work stays on each `ascent/runner` branch until merged. `driveVerdict` has runner entries for
+`running`, `paused`, `idle`, `stopped`, `interrupted` and `error`, and **never** says green, dry or
+ceiling. Those are a bounded drive's three stops, and a runner has none of them. An **interrupted**
+runner gets its own banner (`CockpitRunnerResume`). The drive banner's arithmetic ("2/3 runs spent",
+"1 run left") is about rope, and resuming a runner re-arms the same runner: scope, ceiling and dials.
+Per-repo pauses start fresh, and each runner branch is picked up where it is.
+
+#### Stopping it, and resuming one repo
+
+The masthead's **Stop** stops the runner (the existing drive stop, `c.stop` → `drive.stop()`). While a
+runner is on, the button reads **Stop runner**, and its tooltip and wind-down caption are the runner's
+own (`runnerStopHint`), not the run's "in-flight lanes finish their current session". A waiting runner
+(`paused`/`idle`) stops at its next beat, within a minute. A working one stops the run it is waiting
+on, whose lanes finish their stage and are force-stopped after a grace. Either way the verified work
+already on the runner branch stays. The rail's own **Stop runner** says the same.
+
+A paused repo has a **Resume** in the rail. That covers every pause reason, the dry backoff included,
+because waking a repo early is the operator's call. It is never offered on a runner that has ended.
+Resume goes through `resumeRunnerRepo` (`driveClient.ts`, `action: "resume-repo"`), the same client
+function the Ledger's Resume uses, and adopts the runner the route hands back.
+
+#### The view switch
+
+The masthead mounts the shared `LiveViewSwitch` (Theater ↗ · Ledger · Cockpit, `current="cockpit"`)
+beside the gear, and the **Wall** link stays. `LiveTab` passes `ledgerHref`/`cockpitHref` (built
+with `liveViewHref`), so a switch keeps the stack scope, and `runnerRepos` — the watched, paired repos
+the runner's default scope covers.
+
+#### What it deliberately does not do
+
+- **Start a runner from the rail in one click.** The CTA opens the dialog. Something that runs until
+  stopped and spends money starts with its ceiling in view.
+- **Invent a spend-today figure.** The drive status carries the ceiling and no spend-so-far, so the
+  panel shows the ceiling only. The breaker's own pause note quotes the server's figure when the
+  ceiling fires. The theater's TODAY strip reads spend from the pulse.
+- **Offer delivery or the guard for the runner.** They are shown as forced, never hidden, and never
+  sent: the request omits `delivery` and pins `verifyMode: "on"`.
+- **Merge the runner branch.** That is the Ledger's *Merge runner* (`/api/org/local/runner/merge`).
+
+#### Honest limits
+
+- **The manual Run does not carry `rescanCadence`.** `StartLoopInput` (`loopClient.ts`, outside this
+  package) has no field for it, so the dialog offers the Rescan dial only in Drive and Runner mode.
+- **The A/B model policy still has no picker.** Runner dials never send `modelPolicy`/`models`.
+- **The ceiling's upper bound is the route's.** A value over the deployment's sanity bound is refused
+  by the route, and the dialog shows that refusal. The dialog does not pre-validate against it.
+
+Tests: `runnerModel.test.ts` (phase words, liveness, runner verdicts never borrowing drive words,
+figures, repo rows, masthead caption, stop hint), `startInputs.test.ts` (the three bodies, forced
+settings, ceiling parsing, `dialsSummary`), `RunSetupModal.runner.dom.test.tsx` (mode choice,
+forced settings displayed and not editable, fixed summary, scope, ceiling default and refusal, blocked
+start), `CockpitSetupDialog.dom.test.tsx` (the POSTed body through the real `useCockpit` composition,
+close on accept, alert on refusal), `CockpitRunnerPanel.dom.test.tsx` (three phases, repo states and
+Resume, stop, ended), `CockpitInspector.runner.dom.test.tsx` (owner CTA with and without a selection,
+none for a viewer or a blocked rail), `CockpitHeader.switch.dom.test.tsx` (the switch in the masthead,
+the runner's Stop), `useDrive.runner.dom.test.tsx` (polls through paused/idle without settling, a
+hidden tab reads nothing, `resume-repo`).
+
+### Loop hygiene (2026-09-18)
+
+Seven defects in the cockpit that a person watching could live with and an unattended runner would
+compound. Each is small; together they decide whether a Live tab left open for a day tells the truth.
+
+#### One gap is one sheet row across rescans
+
+**What.** `gapKey` (`outcome/outcomeGapRows.ts`) keys a gap row on its **durable identity** —
+the covered recommendation's dimension plus `normalizeRecTitle(title)`, resolved by
+`outcome/outcomeGapIdentity.ts` (`recTitleIndex`, `recIdentityOf`) — and falls back to the covered id,
+then to `kind|dimId|headline`, only when nothing can title the id. `GapRow.identity` carries the key;
+`buildGapRows` folds a row that shares an identity but not an id into the existing row, whose
+`covers` then lists both ids.
+
+**Why.** `Recommendation` rows are recreated on every scan: scan-persist carries status forward by
+(dimension, normalized title) onto a **new id** (`scans-persist.ts`, "a carried row is a NEW id"). The
+sheet keyed rows on the id, so one gap worked in run 3 and again in run 7, with a rescan between, was
+**two rows**, each holding half its history — and the rescan between two cycles of one run split it
+inside a single column. The Proposals ledger (`pendingLoopProposals`) shares `gapKey`, so the same gap
+also resurfaced there under its older id after the newer run had ruled on it.
+
+**Where the title comes from.** The lanes' own before/after scans, then the diff's closed rows, then
+the run's server-side `batchTitles` — the one source that survives a lane that never rescanned. The
+normalizer is the pure `@/lib/report/recommendation-identity` export, the same one scan-persist
+carries status by; nothing here imports `@/lib/db/*`.
+
+**What it does not do.** It is not the tiered matcher. A gap the model *reworded* (not merely
+re-punctuated or re-cased) between scans is a new identity and a new row — the same trade-off
+`recommendationMatchKey` and the decision keys already accept, because merging two genuinely distinct
+gaps is the worse failure. Each run's cell still addresses its review POST by **that run's own id**
+(`rowCover`), so a ruling lands on the lane that did the work.
+
+#### An open tab notices runs it did not start
+
+**What.** `useLoopRun` polls on two cadences through one `setTimeout` **chain** (`usePollChain`):
+**live** (3 s) while a run curates or runs, **idle discovery** (`IDLE_DISCOVERY_MS`, 20 s) otherwise.
+An idle tick is one status read; when it finds an active run the chain switches to the live cadence
+and reads that run's lanes in the same tick, exactly as the mount tick does. A hidden tab arms no
+timer at all (`useIsVisible`); a tab coming back overdue reads at once.
+
+Every read — the chain's, and the one an action (start / stop / retry) asks for — goes through
+`serialTicker` (`cockpit/serialTick.ts`): **never two in flight**. A read asked for while one is in
+flight gets exactly one fresh read after it, shared by everyone who asked, so the caller that just
+pressed Stop is not handed a status that left before the stop landed. The chain arms its next tick
+only after the current read settles, so a slow response delays the poll instead of stacking a second
+request beside it. A read that left before this tab's own `start` landed is discarded whole (an
+`epoch` bumped by `start`), so its stale `active: null` cannot "settle" the run just started.
+
+**Why.** There was no idle timer: the poll ran only while a run this tab knew about was live. A tab
+left open never learned of a run started in another tab, by the campaign script, or — the case that
+mattered — the **next run a drive dispatched**. The poll was also a `setInterval`, which does not wait:
+a status read slower than 3 s had the next one start beside it.
+
+**Cost, honestly.** One `GET /api/org/loop` per foregrounded Live tab every 20 s while nothing runs.
+That route reconciles stale runs and derives the org's price list on every read, so it is not free;
+it is bounded by visibility, and a background tab costs nothing.
+
+**The rail follows.** `useCockpit` reports `mode: "run"` while a single run is live and the rail would
+otherwise show the inspector — derived, not an effect — so a discovered run renders as the run it is,
+exactly as one the page was server-rendered with does. A drive still outranks it.
+
+#### The drive panel shows its in-flight run
+
+**What.** `useCockpit` watches the drive's own current run (`driveProgress(drive).currentRunId`): a
+new id the loop hook is not already showing makes it read **now** (`loop.refresh`), rather than at the
+next idle tick. From then on the loop poll is live and `CockpitDrivePanel`'s `inFlight` is the run's
+own detail — `cycle c/m · n/m lanes done`.
+
+**Why.** A drive dispatches each run server-side, so nothing in the tab ever started one, and nothing
+ticked the loop poll during a drive (`loop.refresh` had no callers). `inFlight` stayed null and the
+panel read *"Re-scoring the fleet before the next run…"* for the entire drive.
+
+**Latency.** A dispatched run appears within one drive poll (12 s) of the drive recording it, and
+within the 20 s idle tick at worst.
+
+#### The proposed batch does not go stale
+
+**What.** `useProposalBatch` is keyed by the selection, the **batch-size dial** and a **run epoch**
+(`live:<runId>` while a run is live, `idle` otherwise, from `useCockpit`). A run starting and a run
+settling each change the epoch, which refetches the batch and drops the pruning. While the refetch is
+in flight the ledger shows nothing rather than the pre-run items. A plain selection change still keeps
+the pruning — the ids of the repos still selected are the same items.
+
+**Why.** The batch was fetched only when the selection changed, so once a run started the ledger kept
+offering the items that run had just **claimed** (now `in_progress`) as tickable, and after it
+settled it kept offering ids the rescan had re-minted.
+
+#### The propose route honours the batch-size dial
+
+**What.** `GET /api/org/loop/propose` takes an optional `batchSize`, validated by the **same**
+`normalizeBatchSize` `POST /api/org/loop` uses and under the same convention: absent = the default
+(5, byte-identical to a pre-dial request); a value the caller actually sent that is not a whole
+number 1–`BATCH_SIZE_CAP` is a **400** naming the band, never a silent clamp. Only a plain run of digits
+becomes a number (`"5.5"`, `"1e1"`, `""` are 400s). The route sizes `openBatch` with `batchSizeOf`, as
+the engine does. The cockpit sends the setup dialog's dial (`fetchLoopProposals(slug, repos,
+batchSize)`), and a moved dial refetches.
+
+**Why.** The route always proposed five while the engine sized a lane by the dial, so an operator who
+armed a batch of twelve could only ever see — and therefore curate — five, and a curated cycle-1 batch
+was capped at five whatever the dial said.
+
+#### A column's age is measured from one instant (2026-09-20)
+
+The cockpit renders on the server and hydrates in the browser, and the outcome sheet's column header
+read its ages from `Date.now()` in both passes. A run started 18½ days ago therefore printed *19d ago*
+server-side and *18d ago* after hydration, and React threw a hydration mismatch naming
+`OutcomeSheetHeader` — logged on every cockpit render, and the kind of error that trains a reader to
+ignore the console. `timeAgo` now takes the instant to measure from, `LiveTab` passes its own render
+time (`nowMs`) down through `OutcomeSection` → `OutcomeSheet` → `OutcomeSheetHeader`, and the two
+renders agree by construction. It is the rule the Ledger already followed, applied to the cockpit.
+
+#### Verdicts name their items
+
+`CockpitVerdicts` prints each row's dispatched **title** (`verdictItemLabel`, from the run's
+`batchTitles`, passed by `OutcomeSection`), keeps the id on hover, and falls back to the 8-character id
+prefix only for an id nothing titled. It printed the prefix for every row although the title was on
+the payload.
+
+#### The Stop-drive button says what it does
+
+Pressed, it reads **"Stopping the drive and its in-flight run…"**, with the hint (`STOP_DRIVE_HINT`)
+under it and on hover: no further run is dispatched, and the in-flight run's lanes finish the stage
+they are in, then are force-stopped after a short grace. It read "Stopping after this run…", but
+`waitForRun` (`src/lib/local/drive.ts`) stops the in-flight run on its next poll — an operator told
+"after this run" expects that run's work to complete, and it will not.
+
+#### Tests
+
+`outcome/outcomeGapRows.identity.test.ts` (one gap under two ids = one key, one sheet row, one
+proposal; a mid-run rescan folds; an untitled id keeps its own row; `batchTitles` titles a dead lane),
+`cockpit/serialTick.test.ts` (never two reads; one shared fresh read; survives a throw; the clock),
+`cockpit/useLoopRun.discovery.dom.test.tsx` (idle discovery → live cadence; a slow read never
+overlaps; an action's read queues; a hidden tab arms nothing and reads on return; a stale read cannot
+settle a just-started run), `cockpit/useLoopRun.dom.test.tsx` (the idle cadence),
+`cockpit/useCockpit.drive.dom.test.tsx` (the drive panel renders the in-flight run's lanes off the
+drive's own poll, before idle discovery; a run started elsewhere renders as the run panel),
+`cockpit/useProposalBatch.dom.test.tsx` (start and settle refetch and drop pruning; a selection change
+keeps it; the dial travels), `propose/route.test.ts` (the dial: honoured, default, seven invalid values
+→ 400 with no read), `CockpitVerdicts.dom.test.tsx`, `CockpitDrivePanel.dom.test.tsx`.
+
+#### Known gaps
+
+- **A reworded gap is still two rows.** The identity is dimension + normalized title, not the tiered
+  matcher's "lone unmatched item in a dimension" pairing: that tier needs both scans' full lists, which
+  one run's payload does not carry for every rescan between two runs.
+- **A covered id nothing can title keys on the id.** A payload from a server older than `batchTitles`,
+  on a lane that never rescanned, falls back to `id|…` — and if the same id is titled in another run,
+  the two appearances key differently and split. Rare (it needs both conditions at once) but real.
+- **The idle tick reads the whole status route**, including the price-list derivation, every 20 s per
+  foregrounded tab. A lighter "is anything active" read would make discovery cheaper; none exists yet.
+
 ## Delivery: what happens to a lane's branch (2026-08-31)
 
 The loop committed each lane to a throwaway `ascent/loop-<stamp>-<slug>` branch and **left it there
@@ -1756,8 +3924,9 @@ absent verbs directly.
 - **A refusal also records a lesson** (`recordLandRefusalLesson`), so the operator learns *why*
   without reading a diff. Keyed on the **cause**, not the branch: a refusal is a standing fact about
   that checkout and will be true again next run, so keying on the branch name would have refilled the
-  review queue with one row per run — precisely what the 21-run campaign would have produced. Like
-  every loop lesson it lands `pending` and is never written into Org Memory directly.
+  review queue with one row per run — precisely what the 21-run campaign would have produced. It
+  lands `pending` and is never written into Org Memory directly (the one auto-kept class is a VERIFIED
+  runner lane's own lessons — see [Lessons a verified runner lane keeps](#lessons-a-verified-runner-lane-keeps-2026-09-18)).
 - **The ledger says how a run was delivered.** The outcome sheet's run column header prints `landed`
   or `PR` beside the agent configuration. `branch` prints nothing: it is the default and every
   historical row is one, so a tag on every column would say nothing (`deliveryTag`, the same rule
@@ -1783,7 +3952,11 @@ absent verbs directly.
 
 `RunSetupSafety` (*when a lane finishes*) / `useRunDials`, beside model and effort, and remembered the
 same way — the run and the drive read the **same** dials, which is the property that matters: they are
-two ways of arming one experiment. Labelled for what each mode does to the operator's machine rather
+two ways of arming one experiment. (Until 2026-09-18 that was true of the delivery dial only: a drive
+dropped batch size, session ceiling, the guard and its timeout, rescan cadence and model policy.
+`DriveInput.dials` now carries them to every run a drive dispatches — `drive-dials.ts` — and the
+cockpit sends them.) The standing runner shows delivery as a forced value (*Land on the runner
+branch*), not a choice. Labelled for what each mode does to the operator's machine rather
 than for its internal name, and its hint stays **on the page** rather than moving into the dial's
 tooltip with the rest of the dialog's prose: a sentence you can read *before* you commit to the choice
 beats one you would have to go looking for.
@@ -1908,7 +4081,9 @@ required: a close under a playbook the agent never saw is a coincidence, and a c
 verified close is not evidence.
 
 **Lessons are candidates, never memory.** `report.lessons` become `OrgMemoryCandidate` rows with
-`status: "pending"`, `source: "loop-lesson"`. **The loop never writes `OrgMemory`** — the companion,
+`status: "pending"`, `source: "loop-lesson"`. **The loop never writes `OrgMemory`** (one exception since
+2026-09-18: a VERIFIED runner lane's lessons are kept automatically, tagged `runner-kept` and revocable —
+see [Lessons a verified runner lane keeps](#lessons-a-verified-runner-lane-keeps-2026-09-18)) — the companion,
 the brief above and every consolidation pass read memory as truth, so an unattended process editing
 it would let one bad session teach the whole organization something nobody agreed to. The inbox says
 so in as many words. Since 2026-09-15 it is In flight → **Lessons** (`?tab=lessons`,
@@ -1916,14 +4091,19 @@ so in as many words. Since 2026-09-15 it is In flight → **Lessons** (`?tab=les
 candidate (`listLoopLessons(slug, undefined, 200)`) with namespace/kind filters, a settled archive,
 per-row Keep/Discard and bulk Keep N / Discard N (one POST per candidate; a refusal leaves its row
 queued and says why). `keep` promotes through the same `createOrgMemory` door a
-person's own write uses (which is where the duplicate check lives). `discard` is **soft**: a proposal
+person's own write uses — that door has no duplicate check of its own (the check is the advisory
+`POST /api/org/memory/check`, which a human keep does not run). `discard` is **soft** (and pending-only
+since 2026-09-18 — a kept lesson is revoked, not discarded): a proposal
 that was rejected is worth as much on the record as one that was kept.
 
 **Routes.** `GET /api/org/loop/propose` now carries `brief` per proposal, built by the same assembly
 the engine runs. `GET/POST /api/org/loop/lessons` is the inbox — `selfHostGuard` → `requireOrgAccess`
 for the read; `requireSameOrigin` → `selfHostGuard` → `requireOrgRole(org, "member")` for the write,
 with the authorized org passed *into* the update beside the candidate id so another org's candidate is
-simply not found (404). No `[id]` segment, so `id-routes-gated.test.ts` is unaffected by design.
+simply not found (404). No `[id]` segment, so `id-routes-gated.test.ts` is unaffected by design. Since
+2026-09-18 the GET also answers `runnerKept` (with `?since=<ISO>`), `discard` is pending-only (409
+otherwise), and `action: "revoke"` — owner-only — takes back a runner keep (see [Lessons a verified
+runner lane keeps](#lessons-a-verified-runner-lane-keeps-2026-09-18)).
 
 ## The capability rule, and the substitution check (2026-08-30, wave 3)
 
@@ -2135,8 +4315,10 @@ If one is ever wanted, `proposeLaneKind` is where it goes back in; the comment t
 
 **The brief.** `buildFixPrompt` detects an all-craft batch and switches voice: the batch is framed as
 rungs above the band with nothing owed, the instruction is to *raise the ceiling* rather than close a
-gap, and three rules keep a rung reviewable — leave a named **artefact**, one rung not a redesign,
-and never lower an existing bar or move a threshold to make a new one pass. It still ends with the
+gap; whenever the batch carries a rung the craft rules print — leave a named **artefact**, the bar is
+the code itself, restructuring across many files is **invited** (the verify guard discards a regression
+before it is committed), and never lower an existing bar or move a threshold to make a new one pass.
+("One rung, not a redesign" was **deleted** on 2026-09-01 — it was the sentence the output followed.) It still ends with the
 same `RESOLVED: <id> - <what changed>` lines (≤ 8 words, verb-first, past tense) the lane parser
 reads, so the outcome ledger is unchanged. The heading carries **no** maturity points: a craft rung
 has none by construction.
@@ -2417,14 +4599,23 @@ Pinned by [`src/lib/local/loop-engine.cadence.test.ts`](../../../src/lib/local/l
 - **The ceiling's month-to-date read is soft.** It is a count under READ COMMITTED; the balance debit
   is the hard gate. Two concurrent arms can overshoot the ceiling only if they bypass the org's
   one-active-run rule, and `dispatchHostedLane` re-checks the ceiling before any hand-off.
-
-- **`rescanCadence` has no UI and is not persisted.** The engine accepts it and the campaign harness
-  can pass it; the cockpit's run dials do not offer it, and nothing on the `LoopRun` row records which
-  cadence a finished run used — so the ledger cannot yet answer "was this run's pair a per-cycle or a
+- **`rescanCadence` is offered for drives and the runner, not for a manual run, and is not persisted
+  on the run.** The setup dialog's Rescan dial reaches a drive's and the runner's `dials` (stored on
+  `LoopDrive.dialsJson`); the manual run's request type (`StartLoopInput`) has no field for it. Nothing
+  on the `LoopRun` row records which cadence a finished run used — so the ledger cannot yet answer "was this run's pair a per-cycle or a
   per-run reading" except by the lane logs.
-- **The A/B model policy has no picker.** `modelPolicy: "ab"` is accepted, validated and driven end
-  to end by `POST /api/org/loop`, but the run-setup dialog still offers only one model — arming an A/B
-  run today means calling the route. The dials live in `RunSetupSections`/`useRunDials`.
+- **The A/B model policy has no picker** *(narrowed 2026-09-21)*. A multi-arm comparison **does**
+  have one now — the Arms panel arms `armPolicy: "compare"` with 2–4 arms, see
+  [Arms](#arms-transport--model-and-the-n-arm-comparison-2026-09-21). What remains without a picker
+  is the pre-arms `modelPolicy: "ab"` vocabulary, which is still accepted and driven end to end by
+  `POST /api/org/loop` and is kept so runs recorded under it keep their meaning; arming one means
+  calling the route.
+- **A `compare` run's report is not mounted.** `buildComparisonReport` has no production caller and
+  `ComparisonView` is exercised only by its fixture — the contract and the surface exist, the ledger
+  does not read real lanes into them yet, and **no comparison run has completed**.
+- **No lane resolves a `LocalEndpoint`.** The shape is committed and both spawn doors honour it, but
+  nothing passes one, so a local arm today means arming `pi` against the operator's own
+  `~/.pi/agent/models.json`.
 - **Retry builds a fresh worktree and branch.** Deliberate (the original worktree is gone by then),
   but it means a retried lane's commits land on a different branch from its siblings' — two branches
   to review for one repo.
@@ -2454,10 +4645,6 @@ Pinned by [`src/lib/local/loop-engine.cadence.test.ts`](../../../src/lib/local/l
   for a claim that arrives over MCP, and no rescan of a worktree this deployment drove attributes the
   close. So an organization whose remediation runs remotely accumulates no evidence that its
   playbooks are applied, however faithfully its agents follow them.
-- **`agent.ts` does not strip `CLAUDECODE` / `CLAUDE_CODE_ENTRYPOINT` from the spawn env** (L2-F-02).
-  It strips `ANTHROPIC_API_KEY`; a self-hosted Ascent started from inside a Claude Code session hands
-  the harness's own markers to every agent it spawns, and a nested `claude` that inherits them
-  produces nothing, silently.
 
 ---
 
@@ -2706,8 +4893,12 @@ anything else, which is the whole reason the list above is caches only.
 `node_modules`, not the link. So `removeLoopWorktree` (and `removeStrandedWorktrees`, which matters
 more: a hard-killed lane never reached its `finally`, so a stranded worktree is precisely the one that
 still holds its links) calls `unlinkDependencyDirs` before it asks git for anything. That helper
-removes a path **only** when the path's own `lstat` says it is a link, and calls `fs.rm` **without
-`recursive`**, so there is no code path by which it can walk into the target.
+removes a path **only** when the path's own `lstat` says it is a link, and removes it with `unlink`,
+then a non-recursive `rmdir` (`unlinkDependencyLink`), so there is no code path by which it can walk
+into the target. Since 2026-09-18 a dependency lane can leave a REAL `node_modules` the engine
+installed — which may itself hold links out of the worktree — so teardown then clears such trees with
+Node's junction-safe recursive `rm` before git, fenced to linked worktrees and git-reported ignored
+`node_modules` paths (`removeInstalledDependencyTrees`; see [Dependency lanes](#dependency-lanes-2026-09-18)).
 
 **The scan is unaffected — verified, not assumed.** `LocalFsSource` lists a worktree with
 `git ls-files -c -o --exclude-standard`, which drops ignored paths; with `node_modules/` in
@@ -2932,7 +5123,9 @@ checked — and the way past it is a fresh run, or a run started with verificati
   *does* touch the operator's checkout — still never resets, stashes or switches anything. The one
   place the worktree reaches *out* is the dependency **links** above, and their teardown is bounded
   the same way: only an `lstat`-confirmed link is removed, non-recursively, and always before git is
-  asked to remove the worktree.
+  asked to remove the worktree. Since 2026-09-18 a dependency lane can also leave a real `node_modules`
+  that links out; teardown clears it with Node's junction-safe recursive `rm` before git (see
+  [Dependency lanes](#dependency-lanes-2026-09-18)).
 - **The lane row shows it.** One word beside the cost counters (`verified`, `rejected`,
   `no baseline`, `unverified`), the full note on hover, and only `rejected` is coloured: `unverified`
   is a fact, not a fault. A lane written before the guard renders **nothing**.
@@ -3099,7 +5292,7 @@ the 61-title case collapsing to one, another repo's claim ignored, and the odome
 The [/org UX redesign](../../ORG-UX-REDESIGN.md) classifies Live as **"C — targeted: header/legend
 pass only, no re-architecture."** Live is the largest feature directory in the dashboard, it carries
 durable `LoopRun` state and an SSE stream, and `resolveLandingTab` sends a returning org straight to
-it while its loop runs — so it is the riskiest surface to rewrite and, because it already draws (the
+it while it has an improvement PR open (`inFlightPrs > 0`, `landing.ts`) — so it is the riskiest surface to rewrite and, because it already draws (the
 Observatory field, the timetable grid, the stage rail), the least valuable one to rewrite. This pass
 changed **chrome only**. No panel was re-architected, no streaming behaviour touched, no
 server↔client boundary moved.

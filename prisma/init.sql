@@ -84,12 +84,15 @@ CREATE TABLE "Membership" (
     "alertsSeenAt" TIMESTAMP(3),
     "onboardingCompletedAt" TIMESTAMP(3),
     "onboardingSkippedAt" TIMESTAMP(3),
+    "liveSeenAt" TIMESTAMP(3),
 
     CONSTRAINT "Membership_pkey" PRIMARY KEY ("id")
 );
 -- Idempotent add-column (same rule as Scan's below): pglite-boot rewrites CREATE TABLE -> IF NOT
 -- EXISTS, so an EXISTING local .pglite DB needs the new column applied explicitly.
 ALTER TABLE "Membership" ADD COLUMN IF NOT EXISTS "alertsSeenAt" TIMESTAMP(3);
+-- The live ledger's "since you last looked" anchor (spark theater-upgrade, 2026-09-18).
+ALTER TABLE "Membership" ADD COLUMN IF NOT EXISTS "liveSeenAt" TIMESTAMP(3);
 -- Onboarding stamp (W6a): idempotent add-column + ONE-TIME backfill in a guarded DO block, NOT a
 -- bare ALTER + UPDATE. pglite-boot re-execs this file on EVERY boot, so a bare
 -- "UPDATE ... WHERE ... IS NULL" would re-stamp memberships created since the last restart and the
@@ -1403,11 +1406,17 @@ CREATE TABLE "LoopRun" (
     "effort" TEXT,
     "modelPolicy" TEXT NOT NULL DEFAULT 'single',
     "modelsJson" TEXT NOT NULL DEFAULT '[]',
+    "armsJson" TEXT,
+    "armPolicy" TEXT,
+    "probeJson" TEXT,
     "delivery" TEXT,
     "batchSize" INTEGER,
     "agentTimeoutMs" INTEGER,
     "verifyMode" TEXT,
     "verifyTimeoutMs" INTEGER,
+    "seq" INTEGER,
+    "driveId" TEXT,
+    "planMode" TEXT,
     "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "endedAt" TIMESTAMP(3),
     "error" TEXT,
@@ -1424,6 +1433,9 @@ ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "effort" TEXT;
 -- `modelsJson` is TEXT JSON (never jsonb — DSQL/PGlite).
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "modelPolicy" TEXT NOT NULL DEFAULT 'single';
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "modelsJson" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "armsJson" TEXT;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "armPolicy" TEXT;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "probeJson" TEXT;
 -- How the run's work is delivered: branch | land | pr. NULLABLE, and NULL means `branch` — which is
 -- what every run written before this column actually did (commit to a throwaway lane branch and leave
 -- it). Nullable so PGlite's boot-time `reconcileColumnDrift` can add it in place on an existing
@@ -1438,6 +1450,18 @@ ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "batchSize" INTEGER;
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "agentTimeoutMs" INTEGER;
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "verifyMode" TEXT;
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "verifyTimeoutMs" INTEGER;
+-- THE STANDING RUNNER (spark theater-upgrade, 2026-09-18). `seq` is the run's stable number within its
+-- org; `driveId` the drive that dispatched it; `planMode` 'on' when its lanes plan first (null = off).
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "seq" INTEGER;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "driveId" TEXT;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "planMode" TEXT;
+-- Number the runs that predate `seq`, in creation order within each org. IDEMPOTENT by its predicate:
+-- only NULL rows are written, and a run created after the column always carries its own number, so a
+-- re-exec on every PGlite boot is a no-op once the legacy rows are numbered.
+UPDATE "LoopRun" AS r
+SET "seq" = n."rn"
+FROM (SELECT "id", ROW_NUMBER() OVER (PARTITION BY "orgId" ORDER BY "createdAt", "id") AS "rn" FROM "LoopRun") AS n
+WHERE r."id" = n."id" AND r."seq" IS NULL;
 
 -- CreateIndex
 CREATE INDEX "LoopRun_orgId_createdAt_idx" ON "LoopRun"("orgId", "createdAt");
@@ -1470,6 +1494,15 @@ CREATE TABLE "LoopRunLane" (
     "agentDurationMs" INTEGER,
     "agentSessionId" TEXT,
     "abPairKey" TEXT,
+    "transport" TEXT,
+    "armId" TEXT,
+    "planModel" TEXT,
+    "voidReason" TEXT,
+    "planInputTokens" INTEGER,
+    "planOutputTokens" INTEGER,
+    "planCacheReadTokens" INTEGER,
+    "planTurns" INTEGER,
+    "planDurationMs" INTEGER,
     "briefJson" TEXT NOT NULL DEFAULT '{}',
     "reportJson" TEXT NOT NULL DEFAULT '{}',
     "dimId" TEXT,
@@ -1483,6 +1516,14 @@ CREATE TABLE "LoopRunLane" (
     "verifyCommand" TEXT,
     "verifyNote" TEXT,
     "verifyRung" TEXT,
+    "planId" TEXT,
+    "heartbeatAt" TIMESTAMP(3),
+    "stageAt" TIMESTAMP(3),
+    "deadlineAt" TIMESTAMP(3),
+    "activityJson" TEXT,
+    "proposedJson" TEXT,
+    "diffStatJson" TEXT,
+    "landedAt" TIMESTAMP(3),
 
     CONSTRAINT "LoopRunLane_pkey" PRIMARY KEY ("id")
 );
@@ -1500,6 +1541,18 @@ ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "turns" INTEGER;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "agentDurationMs" INTEGER;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "agentSessionId" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "abPairKey" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "transport" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "armId" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planModel" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "voidReason" TEXT;
+-- WP9 — what the PLANNING session spent. The five token columns above stay the EXECUTING session;
+-- these are the other half, nullable with no default because a lane written before them has an
+-- UNKNOWN planning cost and a 0 would be averaged as a free planning session.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planInputTokens" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planOutputTokens" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planCacheReadTokens" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planTurns" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planDurationMs" INTEGER;
 -- MOONSHOT #25 — the lane's brief PROVENANCE and the agent's own report, verbatim after validation.
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "briefJson" TEXT NOT NULL DEFAULT '{}';
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "reportJson" TEXT NOT NULL DEFAULT '{}';
@@ -1529,6 +1582,17 @@ ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "verifyNote" TEXT;
 -- NOT been verified against the repository's tests. NULL = a lane written before the ladder; never
 -- read as 'primary'.
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "verifyRung" TEXT;
+-- THE STANDING RUNNER + THE THEATER (spark theater-upgrade, 2026-09-18): the lane's plan, its liveness
+-- (last evidence of life, when its current stage began, its deadline), the bounded tail of what its
+-- agent did (JSON LaneActivity[]), and the batch as offered. All null on older lanes = not recorded.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planId" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "heartbeatAt" TIMESTAMP(3);
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "stageAt" TIMESTAMP(3);
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "deadlineAt" TIMESTAMP(3);
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "activityJson" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "proposedJson" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "diffStatJson" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "landedAt" TIMESTAMP(3);
 
 -- CreateIndex
 CREATE INDEX "LoopRunLane_runId_idx" ON "LoopRunLane"("runId");
@@ -1552,6 +1616,13 @@ CREATE TABLE "LoopDrive" (
     "model" TEXT,
     "effort" TEXT,
     "delivery" TEXT,
+    "mode" TEXT NOT NULL DEFAULT 'bounded',
+    "pausedReason" TEXT,
+    "pausedUntil" TIMESTAMP(3),
+    "spendCeilingMicros" BIGINT,
+    "repoStateJson" TEXT NOT NULL DEFAULT '[]',
+    "dialsJson" TEXT,
+    "lastBeatAt" TIMESTAMP(3),
     "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "endedAt" TIMESTAMP(3),
@@ -1565,9 +1636,80 @@ ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "effort" TEXT;
 -- And the delivery mode every run the drive dispatches inherits, so a RESUME continues the same
 -- experiment. NULL means `branch`.
 ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "delivery" TEXT;
+-- THE STANDING RUNNER (spark theater-upgrade, 2026-09-18). `mode` defaults to 'bounded' — exactly what
+-- every existing drive is. A 'continuous' drive pauses on named breakers instead of stopping.
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "mode" TEXT NOT NULL DEFAULT 'bounded';
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "pausedReason" TEXT;
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "pausedUntil" TIMESTAMP(3);
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "spendCeilingMicros" BIGINT;
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "repoStateJson" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "dialsJson" TEXT;
+ALTER TABLE "LoopDrive" ADD COLUMN IF NOT EXISTS "lastBeatAt" TIMESTAMP(3);
 
 -- CreateIndex
 CREATE INDEX "LoopDrive_orgId_startedAt_idx" ON "LoopDrive"("orgId", "startedAt");
+
+-- CreateTable: a LANE'S PLAN (spark theater-upgrade, 2026-09-18). Every lane of a plan-mode run writes
+-- one, minor plans too, so this is the persisted proposals ledger. Only a plan that moves ARCHITECTURE
+-- is `major` and waits for a human; an unreadable plan is major with clsReason 'unreadable'.
+CREATE TABLE "LoopPlan" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repo" TEXT NOT NULL,
+    "runId" TEXT,
+    "laneId" TEXT,
+    "directionId" TEXT,
+    "itemKeysJson" TEXT NOT NULL DEFAULT '[]',
+    "recIdsJson" TEXT NOT NULL DEFAULT '[]',
+    "itemTitlesJson" TEXT NOT NULL DEFAULT '[]',
+    "planJson" TEXT NOT NULL DEFAULT '{}',
+    "planText" TEXT NOT NULL DEFAULT '',
+    "partitionJson" TEXT,
+    "cls" TEXT NOT NULL DEFAULT 'minor',
+    "clsReason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'executing',
+    "sessionId" TEXT,
+    "heldBranch" TEXT,
+    "decidedBy" TEXT,
+    "decidedAt" TIMESTAMP(3),
+    "decisionNote" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "LoopPlan_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "LoopPlan_orgId_status_idx" ON "LoopPlan"("orgId", "status");
+
+-- CreateIndex
+CREATE INDEX "LoopPlan_orgId_repo_idx" ON "LoopPlan"("orgId", "repo");
+
+-- CreateTable: an APPROVED DIRECTION — the fenced, budgeted grant approving a major plan creates.
+CREATE TABLE "LoopDirection" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "repo" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "fenceJson" TEXT NOT NULL DEFAULT '[]',
+    "checkText" TEXT NOT NULL DEFAULT '',
+    "budgetCycles" INTEGER NOT NULL DEFAULT 3,
+    "budgetMicros" BIGINT,
+    "usedCycles" INTEGER NOT NULL DEFAULT 0,
+    "usedMicros" BIGINT NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "originPlanId" TEXT NOT NULL,
+    "approvedBy" TEXT,
+    "approvedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "endedAt" TIMESTAMP(3),
+
+    CONSTRAINT "LoopDirection_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "LoopDirection_orgId_status_idx" ON "LoopDirection"("orgId", "status");
 
 
 -- ATHENA — the resident, ORG-SCOPED companion. Her EPISODES are NOT here: they are OrgMemory rows

@@ -7,6 +7,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CELEBRATION_MAX, CELEBRATION_MS, type Celebration } from "@/components/org/shared/liveWarRoomShared";
 
+/** The wall's "ta-da" as `[frequency Hz, offset s]` pairs, rising. Exported so the theater's cues
+ *  (theater/theaterSound.ts) are derived from the same voice rather than a second, drifting synth. */
+export const CHIME_TONES: readonly (readonly [number, number])[] = [
+  [880, 0],
+  [1175, 0.12],
+];
+
+/** Schedule `tones` on an open context: triangle voices, 20 ms attack, 250 ms decay. May throw. */
+export function scheduleTones(ctx: AudioContext, tones: readonly (readonly [number, number])[]): void {
+  const start = ctx.currentTime;
+  for (const [freq, at] of tones) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, start + at);
+    gain.gain.exponentialRampToValueAtTime(0.15, start + at + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.25);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(start + at);
+    osc.stop(start + at + 0.3);
+  }
+}
+
 export function useLiveWarRoomCelebrations() {
   const [celebrations, setCelebrations] = useState<Celebration[]>([]);
   // WARROOM-5: opt-in (default-off) celebration sound. Read via a ref in pushCelebration so the
@@ -37,19 +61,7 @@ export function useLiveWarRoomCelebrations() {
     if (!Ctx) return;
     try {
       const ctx = new Ctx();
-      const start = ctx.currentTime;
-      for (const [freq, at] of [[880, 0], [1175, 0.12]] as const) {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "triangle";
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.0001, start + at);
-        gain.gain.exponentialRampToValueAtTime(0.15, start + at + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.25);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(start + at);
-        osc.stop(start + at + 0.3);
-      }
+      scheduleTones(ctx, CHIME_TONES);
       const closer = setTimeout(() => void ctx.close().catch(() => {}), 600);
       timersRef.current.add(closer);
     } catch {

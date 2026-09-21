@@ -1,0 +1,90 @@
+// THE WORKTREE, read while the agent works — corroboration for the stream, and the ONLY live signal for
+// an executor that does not stream (spark theater-upgrade, 2026-09-18; WP4).
+//
+// Every `WORKTREE_POLL_MS` during the agent stage: `git diff --numstat HEAD` plus the untracked list
+// (`git ls-files --others --exclude-standard`) in the lane's worktree → `{files, plus, minus}` on the
+// lane (`diffStatJson`). Never overlaps itself (a tick that finds the previous git call still running is
+// skipped), never throws, and the returned stop function clears every timer it armed.
+//
+// WHAT IT CLAIMS, AND WHAT IT DOES NOT:
+//   • The stat is git's measurement of the working tree against the lane's HEAD — what has changed, not
+//     what the agent says it changed. Binary files (`-` in numstat) count as a file with 0 lines, and an
+//     UNTRACKED file counts as a file with 0 lines: counting a new file's lines would mean reading it,
+//     and a stat that reads files is no longer a cheap poll.
+//   • It writes ONLY WHEN THE OUTPUT CHANGED since the previous poll (the file set or any count), so a
+//     quiet worktree costs no writes. The FIRST reading is written without a heartbeat: it establishes
+//     the baseline (a check that ran before the session may have left files behind), it is not
+//     evidence that the agent did anything. Every later change stamps `heartbeatAt` — a worktree that
+//     moved is a sign of life a silent stream cannot give (`fleet-orchestration/lifecycle-signals`).
+//   • git runs with `GIT_OPTIONAL_LOCKS=0` (`runGit`), so a poll never takes the index lock out from
+//     under the session it is watching.
+
+import { updateLane } from "@/lib/db/loop-runs";
+import type { LaneDiffStat } from "@/lib/db/loop-runs-types";
+import { runGit, type GitResult } from "@/lib/local/git";
+import { WORKTREE_POLL_MS } from "@/lib/local/runner-types";
+
+export interface WorktreePollOptions {
+  /** The git seam — `runGit` in production. */
+  git?: (cwd: string, args: readonly string[]) => Promise<GitResult>;
+  /** The write — `updateLane` in production. */
+  write?: (laneId: string, patch: { diffStat: LaneDiffStat; heartbeatAt?: Date }) => Promise<unknown>;
+  intervalMs?: number;
+}
+
+/** `git diff --numstat` + the untracked list → the stat. Pure. */
+export function parseDiffStat(numstat: string, untracked: string): LaneDiffStat {
+  let files = 0;
+  let plus = 0;
+  let minus = 0;
+  for (const line of numstat.split("\n")) {
+    if (!line.trim()) continue;
+    const [add, del] = line.split("\t");
+    files += 1;
+    const a = Number.parseInt(add ?? "", 10);
+    const d = Number.parseInt(del ?? "", 10);
+    plus += Number.isFinite(a) && a > 0 ? a : 0;
+    minus += Number.isFinite(d) && d > 0 ? d : 0;
+  }
+  for (const line of untracked.split("\n")) if (line.trim()) files += 1;
+  return { files, plus, minus };
+}
+
+/** Start polling. Returns the stop function. */
+export function startWorktreePoll(dir: string, laneId: string, opts: WorktreePollOptions = {}): () => void {
+  const git = opts.git ?? runGit;
+  const write = opts.write ?? ((id: string, patch: { diffStat: LaneDiffStat; heartbeatAt?: Date }) => updateLane(id, patch));
+  let stopped = false;
+  let busy = false;
+  let last: string | null = null;
+
+  const tick = async (): Promise<void> => {
+    if (stopped || busy) return;
+    busy = true;
+    try {
+      const [diff, others] = await Promise.all([
+        git(dir, ["diff", "--numstat", "HEAD"]),
+        git(dir, ["ls-files", "--others", "--exclude-standard"]),
+      ]);
+      // A stop that arrived while git ran wins: nothing is written for a lane that has moved on.
+      if (stopped || !diff.ok || !others.ok) return;
+      const signature = `${diff.stdout.trim()}\u0000${others.stdout.trim()}`;
+      if (signature === last) return;
+      const first = last === null;
+      last = signature;
+      const diffStat = parseDiffStat(diff.stdout, others.stdout);
+      await write(laneId, first ? { diffStat } : { diffStat, heartbeatAt: new Date() });
+    } catch {
+      // A failed poll is a missed reading, never a lane failure.
+    } finally {
+      busy = false;
+    }
+  };
+
+  const timer = setInterval(() => void tick(), opts.intervalMs ?? WORKTREE_POLL_MS);
+  (timer as { unref?: () => void }).unref?.();
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}

@@ -4,6 +4,7 @@
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
+import { parseStringArray } from "@/lib/db/json-columns";
 import { dateRange, getOrgBySlug } from "@/lib/db/org-shared";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 import { getScanComparison } from "@/lib/db/scans-read";
@@ -14,6 +15,12 @@ import type { ComparableScan } from "@/lib/db/scans";
 import { listRunOutcomes } from "@/lib/db/lane-outcomes";
 import type { LaneImpactInput } from "@/lib/db/improvement-events";
 import { laneEconomics, priceList, type LaneEconomics, type RemediationPriceList } from "@/lib/local/lane-economics";
+// THE COMPARISON'S METRIC CONTRACT (src/lib/local/compare-metrics.ts) — the committed wire contract,
+// consumed here and never re-implemented. `buildComparisonReport` does its own token attribution
+// (`laneTokenAttribution`), so this read supplies the COLUMNS and leaves the arithmetic where it was
+// declared.
+import { buildComparisonReport, type ComparisonReport, type LaneMetricRow, type LaneOutcomeClass } from "@/lib/local/compare-metrics";
+import { planArmOf, type Arm } from "@/lib/local/arm";
 import {
   baseRelationOf,
   isReviewMarker,
@@ -170,15 +177,48 @@ export async function getActiveLoopRun(orgSlug: string): Promise<LoopRunRecord |
   }, null);
 }
 
-export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRunSummary[]> {
+/**
+ * A run as the LEDGER'S CHRONICLE lists it (spark theater-upgrade, 2026-09-18) — the summary plus the
+ * facts a returning operator reads a run by. ADDITIVE: every field `LoopRunSummary` carried is still
+ * here with its meaning unchanged, so every caller typed against the summary keeps compiling.
+ *
+ * `verifiedCloses` is the sum of the lanes' `closedIds` — the rescan's ADJUDICATED set, never an
+ * agent's claim. `landedAt` lists when each lane that landed did (ISO), so "landed since you last
+ * looked" is a count over instants rather than a guess from the run's own end.
+ */
+export interface LoopRunChronicleEntry extends LoopRunSummary {
+  /** The run's stable number within its org; null only on a row the backfill never reached. */
+  seq: number | null;
+  /** The drive that dispatched it; null = a manual run. */
+  driveId: string | null;
+  planMode: "on" | null;
+  /** Lane rows the run wrote, every cycle counted. */
+  lanes: number;
+  verifiedCloses: number;
+  landedAt: string[];
+  error: string | null;
+}
+
+/**
+ * The org's runs, newest first. `opts.beforeSeq` PAGES the chronicle: only runs whose stable number is
+ * below it, newest number first — so "Older runs" never repeats or skips a run when a new one lands
+ * while the operator reads (a createdAt offset would). A run with no `seq` cannot be paged to and only
+ * appears on the first page; the backfill is what makes that set empty.
+ */
+export async function listLoopRuns(
+  orgSlug: string,
+  limit = 20,
+  opts: { beforeSeq?: number | null } = {},
+): Promise<LoopRunChronicleEntry[]> {
   if (!isDbConfigured()) return [];
-  return dbReadSafe<LoopRunSummary[]>(async () => {
+  return dbReadSafe<LoopRunChronicleEntry[]>(async () => {
     const org = await getOrgBySlug(orgSlug);
     if (!org) return [];
     const prisma = getPrisma();
+    const paged = opts.beforeSeq != null && Number.isFinite(opts.beforeSeq);
     const rows = await prisma.loopRun.findMany({
-      where: { orgId: org.id },
-      orderBy: { createdAt: "desc" },
+      where: { orgId: org.id, ...(paged ? { seq: { lt: Math.trunc(opts.beforeSeq as number) } } : {}) },
+      orderBy: paged ? { seq: "desc" } : { createdAt: "desc" },
       take: Math.max(1, Math.min(100, Math.trunc(limit) || 20)),
     });
     if (rows.length === 0) return [];
@@ -191,7 +231,9 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
       // green number here would have the history strip claim a lift the ledger refuses (L2-B-01).
       // `costMicros` rides along in the SAME batched read that folds the lift — the strip prints
       // both, and two queries for one row would be two chances for them to disagree.
-      select: { runId: true, beforeScanId: true, afterScanId: true, commits: true, costMicros: true },
+      // `closedIdsJson` and `landedAt` ride along for the ledger's chronicle — the same one read, so a
+      // run's closes and its landings cannot come from a different population than its lift.
+      select: { runId: true, beforeScanId: true, afterScanId: true, commits: true, costMicros: true, closedIdsJson: true, landedAt: true },
     });
     const ids = [
       ...new Set(lanes.flatMap((l) => [l.beforeScanId, l.afterScanId]).filter((x): x is string => !!x)),
@@ -213,7 +255,13 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
     // Note this fold does NOT answer to the attribution rule the lift does: money was spent whether
     // or not the movement it bought can be claimed, and hiding unattributable spend would flatter it.
     const costByRun = new Map<string, number>();
+    const tally = new Map<string, { lanes: number; closes: number; landedAt: string[] }>();
     for (const l of lanes) {
+      const t = tally.get(l.runId) ?? { lanes: 0, closes: 0, landedAt: [] };
+      t.lanes += 1;
+      t.closes += (parseStringArray(l.closedIdsJson) ?? []).length;
+      if (l.landedAt) t.landedAt.push(l.landedAt.toISOString());
+      tally.set(l.runId, t);
       if (l.costMicros != null) costByRun.set(l.runId, (costByRun.get(l.runId) ?? 0) + l.costMicros);
       const b = l.beforeScanId ? score.get(l.beforeScanId) : undefined;
       const a = l.afterScanId ? score.get(l.afterScanId) : undefined;
@@ -237,6 +285,13 @@ export async function listLoopRuns(orgSlug: string, limit = 20): Promise<LoopRun
         model: r.model,
         effort: r.effort,
         costMicros: costByRun.has(r.id) ? (costByRun.get(r.id) as number) : null,
+        seq: r.seq,
+        driveId: r.driveId,
+        planMode: r.planMode,
+        lanes: tally.get(r.id)?.lanes ?? 0,
+        verifiedCloses: tally.get(r.id)?.closes ?? 0,
+        landedAt: tally.get(r.id)?.landedAt ?? [],
+        error: r.error,
       };
     });
   }, []);
@@ -310,14 +365,109 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
   for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug, laneKindOf(run.targets, lane)));
   // The economics ride ALONGSIDE the outcomes, folded from the very same pair — so the ledger's
   // ¢/point and its before → after can never come from two different readings of one lane.
+  const economics = outcomes.map(laneEconomics);
   return {
     run,
     lanes,
     outcomes,
-    economics: outcomes.map(laneEconomics),
+    economics,
     itemOutcomes: await listRunOutcomes(id),
     batchTitles: await batchTitlesFor(lanes),
+    // THE COMPARISON READOUT. Built from THIS run's real lane rows, and only for a run that declared
+    // itself a comparison — a `single` run has one arm, and an arm is not a comparison.
+    comparison: runComparison(run, lanes, economics),
   };
+}
+
+// ── THE COMPARISON PROJECTION ────────────────────────────────────────────────────────────────────
+//
+// `compare-metrics.ts` declares the NARROW input it needs rather than importing the persisted row,
+// so that a column arriving under a different name is a compile error HERE — in the one projection —
+// instead of an `undefined` that silently reads as zero inside the metric. This is that one place.
+
+/** The deadline sentence `runLane` writes when the watchdog cuts a cycle (`loop-lane.ts`). A timeout
+ *  is reported as its own outcome rather than pooled into `failed`, because the whole point of
+ *  per-arm timing bands is that "this arm ran out of ITS budget" is an attributable finding. */
+const FORCE_FAILED = /exceeded its \d+ min deadline/i;
+
+/**
+ * HOW A LANE ENDED, in the metric's vocabulary. Every phase maps; none is dropped.
+ *
+ *   • `void`                       — the integrity guard caught it editing the surface that scores it.
+ *   • queued/dispatching/rescanning— still in flight, or the run was stopped: `incomplete`, not a trial.
+ *   • `error`                      — `timed-out` when the watchdog's sentence is on the row, else `failed`.
+ *   • `done` with commits          — `landed`: the lane delivered work. (Delivery ONTO the runner
+ *                                    branch is a separate step not every run takes, so `landedAt` is
+ *                                    deliberately not the test — it would read a run that never lands
+ *                                    as one where no arm ever delivered anything.)
+ *   • `done`, no commits, EMPTY batch — `parked`: its plan moved architecture (or could not be read)
+ *                                    and every item was parked, which `runLane` records by emptying
+ *                                    `batchIds` before ending the lane. Not evidence about the model.
+ *   • `done`, no commits, batch intact — `failed`: it ran, it had work, and it delivered none.
+ */
+export function laneOutcomeClassOf(lane: LoopLaneRecord): LaneOutcomeClass {
+  if (lane.phase === "void") return "void";
+  if (lane.phase === "queued" || lane.phase === "dispatching" || lane.phase === "rescanning") return "incomplete";
+  if (lane.phase === "error") return FORCE_FAILED.test(lane.error ?? "") ? "timed-out" : "failed";
+  if (lane.commits > 0) return "landed";
+  return lane.batchIds.length === 0 ? "parked" : "failed";
+}
+
+/**
+ * One lane, as the comparison needs it. Absent measurements stay `null`/absent — never 0, which the
+ * metric would average as a free session or a lane that measurably moved nothing.
+ *
+ * `planTransport` is written ONLY for an arm that declares a separate planning half: the contract
+ * reads an absent one as "the executing half planned too", which is what an unsplit arm did.
+ */
+export function laneMetricRow(lane: LoopLaneRecord, arm: Arm | null, points: number | null): LaneMetricRow {
+  const planHalf = arm ? planArmOf(arm) : null;
+  const split = planHalf && arm ? planHalf.transport !== arm.transport || planHalf.model !== arm.model : false;
+  const wallClockMs =
+    lane.startedAt && lane.endedAt ? Math.max(0, Date.parse(lane.endedAt) - Date.parse(lane.startedAt)) : null;
+  return {
+    laneId: lane.id,
+    armId: lane.armId ?? arm?.id ?? "",
+    transport: lane.transport ?? arm?.transport ?? "",
+    ...(split && planHalf ? { planTransport: planHalf.transport } : {}),
+    planModel: lane.planModel ?? null,
+    model: lane.model ?? null,
+    outcome: laneOutcomeClassOf(lane),
+    voidReason: lane.voidReason ?? null,
+    ...(arm?.belowFloor === true ? { belowFloor: true } : {}),
+    trialKey: lane.abPairKey ?? null,
+    inputTokens: lane.inputTokens,
+    outputTokens: lane.outputTokens,
+    planInputTokens: lane.planInputTokens ?? null,
+    planOutputTokens: lane.planOutputTokens ?? null,
+    costMicros: lane.costMicros,
+    verifiedPoints: points,
+    verifyVerdict: lane.verifyVerdict,
+    wallClockMs: Number.isFinite(wallClockMs as number) ? wallClockMs : null,
+  };
+}
+
+/**
+ * The run's comparison, or null.
+ *
+ * Null for anything but an `armPolicy: "compare"` run, and null for a compare run whose lanes carry
+ * no arm id at all — an arm id is what joins a lane back to the arm that produced it, and a report
+ * built over rows that cannot be joined would pool every arm's population into one.
+ */
+export function runComparison(
+  run: LoopRunRecord,
+  lanes: readonly LoopLaneRecord[],
+  economics: readonly LaneEconomics[],
+): ComparisonReport | null {
+  if (run.armPolicy !== "compare") return null;
+  const arms = run.arms ?? [];
+  const byId = new Map(arms.map((a) => [a.id, a]));
+  const pointsOf = new Map(economics.map((e) => [e.laneId, e.verifiedPoints]));
+  const rows = lanes
+    .map((lane) => laneMetricRow(lane, byId.get(lane.armId ?? "") ?? null, pointsOf.get(lane.id) ?? null))
+    .filter((r) => r.armId !== "");
+  if (rows.length === 0) return null;
+  return buildComparisonReport(rows);
 }
 
 /**

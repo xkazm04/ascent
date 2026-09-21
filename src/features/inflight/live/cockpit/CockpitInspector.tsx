@@ -10,7 +10,12 @@
 //   • the PROPOSED BATCH went to the ledger under the sky (`CockpitBatchLedger`) — it is a table, and
 //     a table needs the main column.
 // Both still travel with the run this CTA starts: the dials and the batch live in `useCockpit`, and
-// this panel composes the request from them exactly as it did when it owned them.
+// this panel composes the request from them (`startInputs.ts`) exactly as it did when it owned them.
+//
+// THE STANDING RUNNER'S CTA (2026-09-18) opens the setup dialog in runner mode rather than starting
+// anything: a runner runs until stopped and spends against a daily ceiling, so the operator starts it
+// with that ceiling — and what the runner does that they cannot change — in view. It is offered even
+// with nothing selected, because the runner's default scope is not the selection.
 //
 // PAIRING RULE. A loop lane edits a real working copy, so a selected repo with no local pairing
 // cannot run. Rather than disabling the whole CTA (which would punish a lasso for catching one
@@ -20,9 +25,10 @@
 import { Kicker } from "@/components/ui";
 import { BriefStrip, InspectorEmpty } from "./BriefStrip";
 import { SharedDimensionBars } from "./CockpitBatch";
-import { CockpitInspectorCta } from "./CockpitInspectorCta";
+import { ArmBlockNote, CockpitInspectorCta, RunnerCta } from "./CockpitInspectorCta";
 import type { StartDriveInput } from "./driveClient";
 import type { StartLoopInput } from "./loopClient";
+import { armStartBlock, driveStartInput, runStartInput } from "./startInputs";
 import type { ProposalBatch } from "./useProposalBatch";
 import type { RunDials } from "./useRunDials";
 
@@ -35,6 +41,8 @@ export interface CockpitInspectorProps {
   onRun: (input: StartLoopInput) => void;
   /** Start a DRIVE over the same scope: runs until green, dry, or the run budget is spent. */
   onDrive: (input: StartDriveInput) => void;
+  /** Open the setup dialog in standing-runner mode. Absent = no runner CTA (the caller's gate). */
+  onOpenRunner?: () => void;
   canRun: boolean;
   /** Drive shares the loop's gate; false only when the deployment cannot start one at all. */
   canDrive?: boolean;
@@ -47,47 +55,23 @@ export interface CockpitInspectorProps {
 
 export function CockpitInspector(props: CockpitInspectorProps) {
   const { batch, dials, onRun, onDrive, canRun, canDrive = true, blockedReason = null, busy = false, error = null } = props;
-  const { repos, unpaired, runnable, proposals, shares, batches } = batch;
+  const { repos, unpaired, runnable, proposals, shares } = batch;
+  // The runner is an owner's action like Run and Drive; a blocked or viewer rail offers none of them.
+  const onRunner = canRun && canDrive && !blockedReason ? props.onOpenRunner : undefined;
+  // WHY NOTHING MAY DEPART on the armed configuration, if anything. Derived here rather than held in
+  // state: it is a function of the dials, and a second copy of it is a copy that goes stale the first
+  // time the operator edits an arm.
+  const armBlock = armStartBlock(dials);
 
-  const run = () => {
-    const curated = Object.keys(batches).length > 0;
-    onRun({
-      repos: runnable,
-      batches: curated ? batches : undefined,
-      concurrency: dials.concurrency,
-      maxCycles: dials.cycles,
-      model: dials.model,
-      effort: dials.effort,
-      delivery: dials.delivery,
-      // The throughput and guard dials travel with the run for the same reason the agent
-      // configuration does: they are properties of how the work is done, and a run whose row does not
-      // record them cannot be compared with one that does. Minutes here, milliseconds on the wire.
-      batchSize: dials.batchSize,
-      agentTimeoutMs: dials.sessionMinutes * 60_000,
-      verifyMode: dials.verifyMode,
-      verifyTimeoutMs: dials.verifyMinutes * 60_000,
-    });
-  };
-
-  // A drive picks its OWN batch before every run (the fleet is re-scored between them), so the
-  // ledger's pruning and dimension focus deliberately do not travel with it — only the scope and
-  // the three bounds do.
-  const drive = () =>
-    onDrive({
-      repos: runnable,
-      maxRuns: dials.maxRuns,
-      maxCycles: dials.cycles,
-      concurrency: dials.concurrency,
-      // The agent configuration DOES travel with a drive, unlike the pruning above: it is a property
-      // of how the work is done, not of which work was picked, so it survives the re-batching.
-      model: dials.model,
-      effort: dials.effort,
-      // Delivery travels with a drive too, and it is the dial that most needs to: a drive dispatching
-      // run after run from an unchanged HEAD is exactly the shape the delivery choice exists to fix.
-      delivery: dials.delivery,
-    });
-
-  if (repos.length === 0) return <InspectorEmpty />;
+  if (repos.length === 0) {
+    return (
+      <>
+        <InspectorEmpty />
+        {onRunner && <RunnerCta onClick={onRunner} busy={busy} armBlock={armBlock} />}
+        {onRunner && armBlock && <ArmBlockNote reason={armBlock} />}
+      </>
+    );
+  }
 
   return (
     <div>
@@ -117,11 +101,13 @@ export function CockpitInspector(props: CockpitInspectorProps) {
       <CockpitInspectorCta
         runnable={runnable.length}
         maxRuns={dials.maxRuns}
-        onRun={run}
-        onDrive={drive}
+        onRun={() => onRun(runStartInput(dials, batch))}
+        onDrive={() => onDrive(driveStartInput(dials, runnable))}
+        onRunner={onRunner}
         canRun={canRun}
         canDrive={canDrive}
         blockedReason={blockedReason}
+        armBlock={armBlock}
         busy={busy}
         error={error}
       />

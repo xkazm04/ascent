@@ -15,9 +15,17 @@
 // `agent-options.ts` is: the cockpit's select and the API route's validator have to agree exactly,
 // and the way that stops being true is two lists.
 
-/** The three ways a lane's committed work can reach the operator. */
-export const LOOP_DELIVERIES = ["branch", "land", "pr"] as const;
+/** The ways a lane's committed work can reach the operator. `runner` (spark theater-upgrade,
+ *  2026-09-18) is the standing runner's: each verified lane fast-forwards the repo's long-lived
+ *  `ascent/runner` branch, which no working copy has checked out, so the next lane builds on it and the
+ *  operator merges the runner branch when they choose. It is armed by a continuous drive, not picked by
+ *  hand — see `MANUAL_LOOP_DELIVERIES`. */
+export const LOOP_DELIVERIES = ["branch", "land", "pr", "runner"] as const;
 export type LoopDelivery = (typeof LOOP_DELIVERIES)[number];
+
+/** The modes an operator picks for a MANUAL run. `runner` needs lanes cut from the runner branch and a
+ *  merge-in step before each run, which only a continuous drive performs, so it is not offered here. */
+export const MANUAL_LOOP_DELIVERIES: readonly Exclude<LoopDelivery, "runner">[] = ["branch", "land", "pr"];
 
 /**
  * A delivery mode from an untrusted value, or `null` for "this caller did not choose one".
@@ -42,6 +50,7 @@ export const DELIVERY_LABELS: Record<LoopDelivery, string> = {
   branch: "Leave on a branch",
   land: "Land in my current branch",
   pr: "Open a PR",
+  runner: "Land on the runner branch",
 };
 
 /** One line under the picker saying what the chosen mode will do. The `land` hint is the one that
@@ -51,6 +60,8 @@ export const DELIVERY_HINTS: Record<LoopDelivery, string> = {
     "Each lane commits to its own ascent/loop-… branch and stops there. Nothing merges it — review and merge it yourself.",
   land: "Merges each lane's branch into the branch your paired checkout is on, fast-forward only. A diverged branch or a file you are editing stops it, and the run carries on.",
   pr: "Pushes each lane's branch and opens a draft pull request for it. Needs the GitHub App.",
+  runner:
+    "Fast-forwards the repo's ascent/runner branch to each verified lane, so the next lane builds on it. Your working branch is never touched; you merge the runner branch when you choose.",
 };
 
 /**
@@ -60,5 +71,5 @@ export const DELIVERY_HINTS: Record<LoopDelivery, string> = {
  */
 export const deliveryTag = (v: string | null | undefined): string | null => {
   const d = deliveryOf(v);
-  return d === "land" ? "landed" : d === "pr" ? "PR" : null;
+  return d === "land" ? "landed" : d === "pr" ? "PR" : d === "runner" ? "runner" : null;
 };

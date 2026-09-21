@@ -1,9 +1,8 @@
 // The WRITE half of the loop-run store: create a run, patch a run or lane, append a bounded log
-// line, and reconcile the runs a dead process left behind.
+// line — and, re-exported from loop-runs-stale.ts, reconcile the runs a dead process left behind.
 //
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
-import { parseStringArray } from "./json-columns";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import {
@@ -23,6 +22,8 @@ import {
   type LoopRunPhase,
   type LoopRunRecord,
   type LoopTarget,
+  type LaneDiffStat,
+  type ProposedBatch,
   type VerifyMode,
   type VerifyRung,
   type VerifyVerdict,
@@ -30,6 +31,8 @@ import {
 
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LaneReport } from "@/lib/local/lane-report";
+import type { LaneActivity } from "@/lib/local/runner-types";
+import { serializeArms, type Arm, type ArmPolicy } from "@/lib/local/arm";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
 
@@ -66,17 +69,49 @@ export interface CreateLoopRunInput {
   agentTimeoutMs?: number | null;
   verifyMode?: VerifyMode | null;
   verifyTimeoutMs?: number | null;
+  /** The drive that dispatched this run; omitted/null for a manual run. */
+  driveId?: string | null;
+  /** `on` = every lane plans first (a runner run, or an operator's plan-mode run). Omitted = off. */
+  planMode?: "on" | null;
+  /** THE ARMS this run races (src/lib/local/arm.ts), already validated by `normalizeArmSet`. Omitted
+   *  records NULL, not `[]` — a run armed without arms is a pre-arms run, and `[]` would read as
+   *  "armed with nothing". */
+  arms?: Arm[] | null;
+  /** `single` | `compare`. Omitted = null, which leaves `modelPolicy` the only reading. */
+  armPolicy?: ArmPolicy | null;
+  /** The transport probe taken at arm time, already serialized (WP4 owns its shape). */
+  probeJson?: string | null;
   /** Defaults to "running" — `start` arms a run; "curating" is for a run parked for hand-editing. */
   phase?: LoopRunPhase;
+}
+
+/**
+ * The org's next STABLE run number. Safe without a lock because an org holds one run slot at a time
+ * (the engine refuses a second concurrent run), and a remote run is armed from the same single path.
+ * An org whose legacy rows were never backfilled counts them, so the first new number continues the
+ * history rather than restarting it at #1.
+ */
+async function nextRunSeq(orgId: string): Promise<number | null> {
+  const prisma = getPrisma();
+  const top = await prisma.loopRun
+    .findFirst({ where: { orgId, seq: { not: null } }, orderBy: { seq: "desc" }, select: { seq: true } })
+    .catch(() => null);
+  if (top?.seq != null) return top.seq + 1;
+  const count = await prisma.loopRun.count({ where: { orgId } }).catch(() => null);
+  return count == null ? null : count + 1;
 }
 
 export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunRecord | null> {
   if (!isDbConfigured()) return null;
   const org = await getOrgBySlug(input.orgSlug);
   if (!org) return null;
+  const seq = await nextRunSeq(org.id);
   const row = await getPrisma().loopRun.create({
     data: {
       orgId: org.id,
+      seq,
+      driveId: input.driveId ?? null,
+      planMode: input.planMode === "on" ? "on" : null,
       createdBy: input.createdBy ?? null,
       phase: input.phase ?? "running",
       reposJson: JSON.stringify(input.targets ?? input.repos),
@@ -92,6 +127,11 @@ export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunR
       agentTimeoutMs: input.agentTimeoutMs ?? null,
       verifyMode: input.verifyMode ?? null,
       verifyTimeoutMs: input.verifyTimeoutMs ?? null,
+      // Serialized only when there ARE arms: an empty list would be written as "[]", which the read
+      // side cannot tell from a run armed with nothing at all.
+      armsJson: input.arms && input.arms.length > 0 ? serializeArms(input.arms) : null,
+      armPolicy: input.armPolicy ?? null,
+      probeJson: input.probeJson ?? null,
     },
   });
   return toRunRecord(row);
@@ -182,6 +222,12 @@ export async function upsertLane(key: {
   repoFullName: string;
   cycle: number;
   model?: string | null;
+  /** WIDENS THE KEY the same way `model` does, and more exactly: two arms of a `compare` run can
+   *  execute the SAME model through different transports (or plan differently), so the model alone
+   *  would resolve both to one row. The arm id is what makes them two samples. */
+  armId?: string | null;
+  /** Stamped on CREATE so the row knows its transport from the moment it exists. */
+  transport?: string | null;
   abPairKey?: string | null;
   /** #3 — set on CREATE only, and only on a remote lane. An existing row's executor is never
    *  rewritten by an upsert: which worker a lane belongs to is decided when the run is armed. */
@@ -192,14 +238,19 @@ export async function upsertLane(key: {
 }): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const { model, abPairKey, executor, batchIds, ...base } = key;
-  const existing = await prisma.loopRunLane.findFirst({ where: model ? { ...base, model } : base });
+  const { model, armId, transport, abPairKey, executor, batchIds, ...base } = key;
+  // The arm id is the STRONGER discriminator and wins when present; `model` remains the key an `ab`
+  // run has always been resolved by, so a legacy run re-enters exactly the row it always did.
+  const where = armId ? { ...base, armId } : model ? { ...base, model } : base;
+  const existing = await prisma.loopRunLane.findFirst({ where });
   if (existing) return toLaneRecord(existing);
   const row = await prisma.loopRunLane.create({
     data: {
       ...base,
       phase: "queued",
       ...(model ? { model } : {}),
+      ...(armId ? { armId } : {}),
+      ...(transport ? { transport } : {}),
       ...(abPairKey ? { abPairKey } : {}),
       ...(executor ? { executor } : {}),
       ...(batchIds ? { batchIdsJson: JSON.stringify(batchIds) } : {}),
@@ -238,6 +289,25 @@ export interface LoopLanePatch {
   agentSessionId?: string | null;
   abPairKey?: string | null;
 
+  // ── ARMS (spark local-model-lanes). `null` is a legitimate value on each: it means "this lane did
+  // not record one", which for `planModel` is an absence (the lane never planned) and for `transport`
+  // is a lane older than transports — never a default.
+  transport?: string | null;
+  armId?: string | null;
+  planModel?: string | null;
+  /** Why the lane is `void`. Written in the SAME patch that sets `phase: "void"`, so a void is never
+   *  a phase without its reason. */
+  voidReason?: string | null;
+
+  // ── WHAT THE PLANNING SESSION SPENT (WP9). Written in the same patch as the executing session's
+  // figures, which these do NOT replace: the lane ran two sessions and now records both. `null` is a
+  // legitimate value on each and means "no planning session reported this" — an absence, never 0.
+  planInputTokens?: number | null;
+  planOutputTokens?: number | null;
+  planCacheReadTokens?: number | null;
+  planTurns?: number | null;
+  planDurationMs?: number | null;
+
   // ── MOONSHOT #25. Objects rather than pre-serialized strings: the JSON-in-TEXT encoding is the
   // store's business, and a caller that had to remember to stringify is a caller that will one day
   // write a `[object Object]` column.
@@ -266,12 +336,38 @@ export interface LoopLanePatch {
   /** WHICH RUNG the command was — `primary`, or `typecheck` / `lint` when the guard narrowed because
    *  the declared command could not establish a baseline in the worktree. */
   verifyRung?: VerifyRung | null;
+
+  // ── THE STANDING RUNNER + THE THEATER (spark theater-upgrade, 2026-09-18).
+  planId?: string | null;
+  heartbeatAt?: Date | null;
+  stageAt?: Date | null;
+  deadlineAt?: Date | null;
+  /** The bounded activity tail — serialized into `activityJson`. */
+  activity?: LaneActivity[];
+  /** The batch as offered — serialized into `proposedJson`. */
+  proposed?: ProposedBatch;
+  /** The worktree poll's measurement — serialized into `diffStatJson`. */
+  diffStat?: LaneDiffStat;
+  landedAt?: Date | null;
 }
 
+/**
+ * Patch one lane.
+ *
+ * THE `stageAt` CHOKEPOINT (spark theater-upgrade). Every write that moves the lane's `phase` or
+ * `stage` — an explicit `stage: null` included, because leaving a stage is entering the next one —
+ * stamps `stageAt` with now, unless the patch names its own. Here rather than at the call sites
+ * because there are dozens of them in the lane and one of them would be forgotten: this way every
+ * lane stage has a start time and "Checking the build · 4m" is measured, not guessed.
+ */
 export async function updateLane(id: string, patch: LoopLanePatch): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
-  const { batchIds, closedIds, deliverables, brief, report, ...rest } = patch;
+  const { batchIds, closedIds, deliverables, brief, report, activity, proposed, diffStat, ...rest } = patch;
   const data: Record<string, unknown> = { ...rest };
+  if ((patch.phase !== undefined || patch.stage !== undefined) && patch.stageAt === undefined) data.stageAt = new Date();
+  if (activity) data.activityJson = JSON.stringify(activity);
+  if (proposed) data.proposedJson = JSON.stringify(proposed);
+  if (diffStat) data.diffStatJson = JSON.stringify(diffStat);
   if (batchIds) data.batchIdsJson = JSON.stringify(batchIds);
   if (closedIds) data.closedIdsJson = JSON.stringify(closedIds);
   if (deliverables) data.deliverablesJson = JSON.stringify(deliverables);
@@ -333,140 +429,5 @@ export async function appendLaneLog(id: string, line: string): Promise<void> {
   await prisma.loopRunLane.update({ where: { id }, data: { log: next } }).catch(() => null);
 }
 
-/** The lane executors this process does NOT drive, and whose runs the liveness sweep must not judge.
- *  `hosted-worker` (ADR-0001) joins them for exactly the reason the ADR names: a hosted lane's expiry
- *  is decided by `leaseUntil`, never by whether this process happens to hold a registry entry — and
- *  without this row a cockpit READ would stop every healthy hosted run on the deployment. */
-const EXTERNAL_EXECUTORS = ["remote-agent", "hosted-worker", "human"];
-
-/**
- * Reconcile `running` rows left behind by a process that died. The engine's live handles only ever
- * exist in the process that started a run, so a `running` row this process does not own cannot be
- * resumed — mark it stopped, with a note, instead of leaving a job that looks alive forever.
- *
- * THE PREDICATE IS ONLY VALID FOR RUNS THIS PROCESS COULD BE DRIVING (UAT `PRIYA-L1-701`). The whole
- * inference is "no live handle ⇒ the process that owned it is gone", and that holds exactly while a
- * live handle is something the run would HAVE. A remote run never gets one: `startRemoteRun` creates
- * no registry entry by design — its work is done by an agent in someone else's harness, reached over
- * MCP — so `isLive` is false for it by construction, not by death. With `GET /api/org/loop` firing
- * this sweep on every read, reading the cockpit would stop a perfectly healthy remote run, and the
- * lanes it stopped would take their claims down with them.
- *
- * A local run was never at risk *because of its registry entry* — a live local run survived six reads
- * from a second client over ~24 s in the L2 capture. That is the isolation, not the excuse: the one
- * class of run that has no entry to be spared by is the one the sweep would always kill.
- *
- * **The remote consequence is a HYPOTHESIS**, recorded as such: the missing predicate is fact (grep
- * `executor` in this file — three lane-creation paths, nothing in the sweep), but the remote path was
- * `not reproducible on this host` and the kill was never observed live. The exclusion below is pinned
- * by unit tests rather than by a reproduction.
- *
- * @param orgSlug scope to one org; omit to sweep every org (the boot sweep).
- * @returns how many runs were reconciled.
- */
-export async function markStaleRunsStopped(
-  orgSlug?: string,
-  /**
-   * Which run ids THIS process is still driving. Without it every `running` row is treated as
-   * orphaned — correct for the boot sweep (a fresh process drives nothing) and wrong for every
-   * later call: the loop route reconciles on each GET, so with no predicate a page load during a
-   * run stopped the run it was rendering (found 2026-08-26 when the drive door's first run died
-   * 35 seconds into cycle 1 on the very poll that was watching it). Pass the engine's
-   * `isLoopRunLive`; it is backed by a process-wide registry, so every route chunk agrees.
-   */
-  isLive: (id: string) => boolean = () => false,
-): Promise<number> {
-  if (!isDbConfigured()) return 0;
-  const prisma = getPrisma();
-  let orgId: string | undefined;
-  if (orgSlug) {
-    const org = await getOrgBySlug(orgSlug);
-    if (!org) return 0;
-    orgId = org.id;
-  }
-  const where = { phase: "running", ...(orgId ? { orgId } : {}) };
-  const running = await prisma.loopRun.findMany({ where, select: { id: true } }).catch(() => []);
-  const stale = running.filter((r) => !isLive(r.id));
-  if (stale.length === 0) return 0;
-  // The executor exclusion. Asked as "does this run have ANY lane this process does not drive" and
-  // not "are all of them remote", because the sweep's only verb is stopping the WHOLE run: one
-  // externally-driven lane is enough to make the liveness inference wrong for the row it would stop.
-  // A read failure excludes nothing, which is the pre-existing behaviour and the recoverable
-  // direction — a run wrongly left running is stopped by the next sweep, a run wrongly stopped is
-  // work already thrown away.
-  const external = await prisma.loopRunLane
-    .findMany({
-      where: { runId: { in: stale.map((r) => r.id) }, executor: { in: EXTERNAL_EXECUTORS } },
-      select: { runId: true },
-      distinct: ["runId"],
-    })
-    .catch(() => [] as { runId: string }[]);
-  const externalIds = new Set(external.map((l) => l.runId));
-  const ids = stale.map((r) => r.id).filter((id) => !externalIds.has(id));
-  if (ids.length === 0) return 0;
-  await prisma.loopRun.updateMany({
-    where: { id: { in: ids } },
-    data: {
-      phase: "stopped",
-      endedAt: new Date(),
-      error: "Interrupted — the server restarted while this run was in flight.",
-    },
-  });
-  // A dead run's CLAIMS die with it too. Its lanes marked backlog rows in_progress before the agent
-  // ran; with nobody left to rescan, those rows are zombies — never re-dispatched (openBatch takes
-  // `open` only) and kept in_progress by the movement-gated resolve rule. Drive #1 (2026-08-26) left
-  // ten of eleven rows claimed this way and the next drive found "no open follow-ups" on a fleet with
-  // 350 points of debt. Release them, with a ledger event per row saying why.
-  try {
-    const lanes = await prisma.loopRunLane.findMany({
-      where: { runId: { in: ids }, phase: { in: ["queued", "dispatching", "rescanning"] } },
-      select: { batchIdsJson: true },
-    });
-    const recIds = [
-      ...new Set(
-        lanes.flatMap((l) => parseStringArray(l.batchIdsJson) ?? []),
-      ),
-    ];
-    if (recIds.length > 0) {
-      const claimed = await prisma.recommendation.findMany({
-        where: { id: { in: recIds }, status: "in_progress" },
-        select: { id: true },
-      });
-      if (claimed.length > 0) {
-        // THE CLAIM FIELDS GO WITH THE STATUS. `status: "open"` alone left `claimActor`,
-        // `claimExecutor` and `leaseUntil` standing, so a released row read as open-and-still-held:
-        // the worklist rendered a holder nobody could reach, and the claim path's compare-and-set
-        // over (status, leaseUntil) had a lease to reason about for a claim that no longer existed.
-        // A release that leaves the evidence of the claim behind is half a release.
-        await prisma.recommendation.updateMany({
-          where: { id: { in: claimed.map((r) => r.id) } },
-          data: { status: "open", claimActor: null, claimExecutor: null, leaseUntil: null },
-        });
-        await prisma.recommendationEvent.createMany({
-          data: claimed.map((r) => ({
-            recommendationId: r.id,
-            actor: "autopilot",
-            kind: "status",
-            fromValue: "in_progress",
-            toValue: "open",
-            note: "Released: the loop run that claimed this item was interrupted before its rescan could adjudicate.",
-          })),
-        });
-      }
-    }
-  } catch {
-    // Best-effort: a failed release leaves rows a human can still reopen from the ledger.
-  }
-  // In-flight lanes die with the process too; leaving them "dispatching" would spin forever.
-  await prisma.loopRunLane
-    .updateMany({
-      where: { runId: { in: ids }, phase: { in: ["queued", "dispatching", "rescanning"] } },
-      // Same rule as the rows above: a lane that ended holds no lease. These are local lanes by
-      // construction now (an externally-driven run never reaches here), so this clears nothing today
-      // — it states the invariant where a future executor would otherwise inherit a dangling claim.
-      data: { phase: "error", error: "Interrupted by a server restart.", endedAt: new Date(), stage: null, claimedBy: null, leaseUntil: null },
-    })
-    .catch(() => null);
-  return ids.length;
-}
-
+// The stale-run sweep lives in its own module; re-exported so every import path is unchanged.
+export { markStaleRunsStopped } from "./loop-runs-stale";

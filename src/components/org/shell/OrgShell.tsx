@@ -4,6 +4,7 @@ import { OrgTabNav } from "@/components/org/shell/OrgTabNav";
 import { OrgShellActions } from "@/components/org/shell/OrgShellActions";
 import { OrgFirstScanEmpty } from "@/components/org/shell/OrgFirstScanEmpty";
 import { ProgramStrip } from "@/components/org/shell/ProgramStrip";
+import { RunnerNotifier } from "@/components/org/shell/RunnerNotifier";
 import { getOrgProgramStatus } from "@/lib/db/org-program";
 import { resolveOrgShellState } from "@/lib/org/orgShellGate";
 import { OrgEmpty } from "@/components/org/shared/ui";
@@ -268,6 +269,7 @@ export async function OrgShell({
           content is server-derived, so a thin/personal org gets a shorter, honest list rather than a
           menu of steps it can't perform. */}
       <TourChecklist slug={slug} />
+      <RunnerNotifier slug={slug} />
     </>
   );
 }

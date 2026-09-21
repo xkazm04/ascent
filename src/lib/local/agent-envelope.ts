@@ -18,8 +18,13 @@
 // most important row in the remediation ledger, so `ok: false` never blanks the measurements.
 
 /** Micro-cents per USD: `round(total_cost_usd * 100 * 1e6)`. A 0.4¢ session must not round to zero,
- *  and every display divides by this rather than storing a float. */
-const MICROS_PER_USD = 100 * 1_000_000;
+ *  and every display divides by this rather than storing a float. Exported so the stream parser prices
+ *  a `result` event with the same constant, never a second copy of it. */
+export const MICROS_PER_USD = 100 * 1_000_000;
+
+/** The ceiling on `AgentRunResult.errorText` — enough for the CLI's own sentence and a stack line or
+ *  two, never a transcript in a DB column. */
+export const ERROR_TEXT_MAX = 2_048;
 
 export interface AgentEnvelope {
   ok: boolean;
@@ -45,6 +50,10 @@ export interface ParseEnvelopeOptions {
   exitCode: number | null;
   /** Whatever the child wrote to stderr, for the same message. */
   stderr: string;
+  /** The CLI's own error words seen in the STREAM before it ended (a synthetic assistant message — the
+   *  session-limit sentence arrives that way), for a result that carries none. Optional: absent means
+   *  exactly what every parse before streaming did. */
+  errorHint?: string | null;
 }
 
 /** A finite number, or null. Strings are accepted because the CLI has shipped both encodings for
@@ -115,23 +124,16 @@ export function parseAgentEnvelope(raw: string, opts: ParseEnvelopeOptions): Age
     sessionId: null,
   };
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
+  const env = envelopeObject(raw);
+  if (!env) {
+    // A stream that never produced its `result` hands over "" here, so the sentence carries the hint or
+    // stderr — exactly what a one-shot session that printed nothing always did.
+    const said = raw || str(opts.errorHint) || opts.stderr;
     return {
       ...blank,
-      summary: `Agent exited (${opts.exitCode}) without a JSON envelope: ${(raw || opts.stderr).slice(0, 300) || "(no output)"}`,
+      summary: `Agent exited (${opts.exitCode}) without a JSON envelope: ${said.trimStart().slice(0, 300) || "(no output)"}`,
     };
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return {
-      ...blank,
-      summary: `Agent exited (${opts.exitCode}) without a JSON envelope: ${(raw || opts.stderr).slice(0, 300) || "(no output)"}`,
-    };
-  }
-
-  const env = parsed as Record<string, unknown>;
   const usage = usageOf(env.usage);
   const usd = num(env.total_cost_usd ?? env.totalCostUsd);
   const measured = {
@@ -150,8 +152,42 @@ export function parseAgentEnvelope(raw: string, opts: ParseEnvelopeOptions): Age
   const result = env.result;
   if (env.is_error === true || typeof result !== "string") {
     const subtype = str(env.subtype) ?? "unknown";
-    const reason = typeof result === "string" ? result : opts.stderr;
-    return { ...measured, ok: false, summary: `Agent error (${subtype}): ${reason.slice(0, 500)}` };
+    // THE CLI'S OWN WORDS, first line FIRST. The lane log keeps only the summary's first line, so a
+    // failure whose text was empty (or began with a blank line) used to log "Agent error (success): "
+    // and nothing else — hiding "You've hit your session limit" from the breaker that reads the log.
+    const reason = str(result) ?? errorWordsOf(env) ?? str(opts.errorHint) ?? opts.stderr;
+    return { ...measured, ok: false, summary: `Agent error (${subtype}): ${reason.trimStart().slice(0, 500)}` };
   }
   return { ...measured, ok: true, summary: result.slice(0, 4_000) };
+}
+
+/** The raw text as an envelope object, or null when it is not one. Never throws. */
+function envelopeObject(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The newer CLIs' `errors: string[]` on an error-subtype result, joined — or null. */
+function errorWordsOf(env: Record<string, unknown>): string | null {
+  if (!Array.isArray(env.errors)) return null;
+  return str(env.errors.filter((e): e is string => typeof e === "string" && e.trim() !== "").join("\n"));
+}
+
+/**
+ * THE CLI'S OWN ERROR TEXT for a failed session, bounded to `ERROR_TEXT_MAX` — what the runner's
+ * session-limit breaker classifies. In order: the result's own text (a failed session's `result` IS the
+ * CLI's sentence), the newer `errors` list, the stream's error hint, then stderr; for output that was
+ * never an envelope at all, that output itself first (it is what the CLI printed). Null when nothing
+ * was said anywhere. Only meaningful on a failure — the caller does not ask on success.
+ */
+export function agentErrorText(raw: string, opts: { stderr: string; errorHint?: string | null }): string | null {
+  const env = envelopeObject(raw);
+  const text = env
+    ? (str(env.result) ?? errorWordsOf(env) ?? str(opts.errorHint) ?? str(opts.stderr))
+    : (str(raw) ?? str(opts.errorHint) ?? str(opts.stderr));
+  return text ? text.trim().slice(0, ERROR_TEXT_MAX) : null;
 }
