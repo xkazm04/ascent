@@ -619,6 +619,61 @@ before a token is generated (13.9 s wall minus 8.0 s of model time on the fixtur
 model load cost 23 s** where every warm session was 4–8 s. The first lane of a drive is therefore not
 representative of the rest, and that must not be read as a transport difference.
 
+## What a local execute lane actually did (measured 2026-09-21)
+
+Four real lanes were driven against a paired repo (`xkazm04/kp`, one curated backlog item, Claude
+planning on the seat). **No lane reached a commit.** The reason is the same on both transports and it
+is not the model's capability — which is why it is written down here in full rather than summarised
+as "local is too slow".
+
+| arm | what happened |
+| --- | --- |
+| `claude:sonnet > claude:qwen3.8:27b-64k` | plan ok; execute went silent after a tool result, `api_retry` twice, no further output |
+| `claude:sonnet > pi:qwen3.8:27b-64k` (first) | `Pi error: 404 page not found` in 1 s — the adapter was handed the server root instead of the OpenAI-compatible `/v1` prefix |
+| `claude:sonnet > pi:qwen3.8:27b-64k` (fixed) | **6 real turns, 13 929 in / 430 out, 25 min**, then `Pi error: Request timed out.` |
+
+### The binding constraint is the CLIENT'S SILENCE BUDGET, not the model
+
+Both failures are the same shape, and the standard names it: a client that streams enforces a budget
+on how long a response may produce no bytes, and a candidate that pauses longer than that budget *is
+not slow to such a client — it is failed*, after the request was already accepted.
+
+- **Pi**: `DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000` in the installed 0.86.1 bundle. Five minutes of
+  silence ends the request. There is no documented flag for it and no field for it in
+  `~/.pi/agent/models.json`; `DEFAULT_REQUEST_TIMEOUT` is `0` (unbounded), so the idle budget is the
+  one that bites.
+- **Claude Code**: `API_TIMEOUT_MS` is the lever and Ascent now sets it to
+  {@link LOCAL_REQUEST_TIMEOUT_MS} (10 min) rather than to the session band — but the observed
+  failure there was a request that *errored* and retried, not one that merely ran long.
+
+A 27B at 4-bit on 24 GB spends minutes per turn: ~35 s prefilling a 14k-token context at ~400 tok/s,
+then a reasoning phase that emits nothing to the client. That silence is what trips the budget.
+Reasoning cannot be turned off from either side — `MAX_THINKING_TOKENS=0` does not reach Ollama's
+Anthropic-compatible endpoint, and `think` is not a Modelfile parameter.
+
+### What this does and does not mean
+
+**It does not mean a 27B cannot drive an agent loop.** In a scratch repo the same model ran
+Glob → Read → Read → Write and produced a correct answer, and in the lane above it sustained six
+genuine tool-using turns. The work happens; the client gives up waiting for it.
+
+**It does mean this combination is not viable end to end today**, and the lever is one of:
+- more VRAM, so a 64k context does not spill 8.4 GB and generation runs at ~28 tok/s instead of ~8;
+- a harness whose silence budget is configurable (neither of the two here exposes one usefully);
+- smaller per-turn contexts, which the floor forbids for the reason the floor exists.
+
+**The economics, if the timeouts were solved**: ~4 minutes per turn at the observed rate, so a lane
+needing 20–40 turns is 1.5–3 hours. That is plausible for unattended overnight work and not for
+anything a person waits on — which is the delegation question answered in the shape it was asked.
+
+### The surrounding machinery behaved correctly throughout
+
+Worth recording, because it is what makes the above trustworthy: every failed lane armed its
+degradation guard, logged the failure with its turn count and duration, verified the worktree was
+unchanged, committed nothing, and **refused to rescan** — with the reason written out, that scanning a
+worktree nothing landed in would credit the repo with work that does not exist. Four broken runs
+produced four honest no-ops and not one plausible number.
+
 ## Known gaps
 
 - The agent's `--effort` is passed only when a level is chosen, and nothing probes whether the local
