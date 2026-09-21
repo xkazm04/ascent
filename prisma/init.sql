@@ -1406,6 +1406,9 @@ CREATE TABLE "LoopRun" (
     "effort" TEXT,
     "modelPolicy" TEXT NOT NULL DEFAULT 'single',
     "modelsJson" TEXT NOT NULL DEFAULT '[]',
+    "armsJson" TEXT,
+    "armPolicy" TEXT,
+    "probeJson" TEXT,
     "delivery" TEXT,
     "batchSize" INTEGER,
     "agentTimeoutMs" INTEGER,
@@ -1430,6 +1433,9 @@ ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "effort" TEXT;
 -- `modelsJson` is TEXT JSON (never jsonb — DSQL/PGlite).
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "modelPolicy" TEXT NOT NULL DEFAULT 'single';
 ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "modelsJson" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "armsJson" TEXT;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "armPolicy" TEXT;
+ALTER TABLE "LoopRun" ADD COLUMN IF NOT EXISTS "probeJson" TEXT;
 -- How the run's work is delivered: branch | land | pr. NULLABLE, and NULL means `branch` — which is
 -- what every run written before this column actually did (commit to a throwaway lane branch and leave
 -- it). Nullable so PGlite's boot-time `reconcileColumnDrift` can add it in place on an existing
@@ -1488,6 +1494,10 @@ CREATE TABLE "LoopRunLane" (
     "agentDurationMs" INTEGER,
     "agentSessionId" TEXT,
     "abPairKey" TEXT,
+    "transport" TEXT,
+    "armId" TEXT,
+    "planModel" TEXT,
+    "voidReason" TEXT,
     "briefJson" TEXT NOT NULL DEFAULT '{}',
     "reportJson" TEXT NOT NULL DEFAULT '{}',
     "dimId" TEXT,
@@ -1526,6 +1536,10 @@ ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "turns" INTEGER;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "agentDurationMs" INTEGER;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "agentSessionId" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "abPairKey" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "transport" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "armId" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planModel" TEXT;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "voidReason" TEXT;
 -- MOONSHOT #25 — the lane's brief PROVENANCE and the agent's own report, verbatim after validation.
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "briefJson" TEXT NOT NULL DEFAULT '{}';
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "reportJson" TEXT NOT NULL DEFAULT '{}';

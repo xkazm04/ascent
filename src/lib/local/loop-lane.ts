@@ -96,6 +96,15 @@ import { installChangedDependencies } from "@/lib/local/lane-deps-install";
 import { PLAN_TIMEOUT_MS, type ArchitectureMove } from "@/lib/local/runner-types";
 import { recommendationDecisionKey } from "@/lib/report/rec-identity";
 import type { ProposedBatch } from "@/lib/db/loop-runs-types";
+// ARMS AND TRANSPORTS (spark local-model-lanes, 2026-09-21). `arm.ts` is the dependency-free shape;
+// `transport/run` is the one door a session goes through now that there is more than one thing behind
+// it, and `transport/profile` is the DATED timing band that stops one slow arm's ceiling from
+// governing a fast one. `lane-gate-diff` is the integrity guard: a lane that edited the surface which
+// scores it does not get to bank the lift.
+import type { Arm, TransportId } from "@/lib/local/arm";
+import { runAgentVia, type TransportRunOptions } from "@/lib/local/transport/run";
+import { transportProfile } from "@/lib/local/transport/profile";
+import { checkGateDiff } from "@/lib/local/lane-gate-diff";
 
 /**
  * The DEFAULT batch — how many follow-ups (or craft rungs) one cycle dispatches when a run names no
@@ -112,6 +121,14 @@ const LANE_ACTOR = "autopilot";
 /** The side-effecting primitives a lane drives, injectable so tests never spawn an agent or shell. */
 export interface LaneDeps {
   runAgent: typeof runClaudeAgent;
+  /** THE TRANSPORT-AWARE DOOR. Same signature as `runAgent` plus the transport to spawn — consulted
+   *  only when the lane carries an arm, so a lane armed the old way still goes through `runAgent`
+   *  and behaves byte-identically. */
+  runAgentVia: typeof runAgentVia;
+  /** THE INTEGRITY GUARD: did this lane's own commits touch the surface that scores it? Injected so
+   *  the void path is testable without a git history, and so WP5's implementation lands behind one
+   *  seam rather than in the middle of the cycle. */
+  gateDiff: typeof checkGateDiff;
   /** The deterministic install a `foundation` / `practice` lane does instead of calling an agent. */
   install: typeof installInWorktree;
   /** Commits what the agent session left behind — see lane-commit.ts for why the LANE does this. */
@@ -184,6 +201,8 @@ export interface LaneDeps {
 
 export const defaultLaneDeps: LaneDeps = {
   runAgent: runClaudeAgent,
+  runAgentVia,
+  gateDiff: checkGateDiff,
   install: installInWorktree,
   commitWork: commitAgentWork,
   laneKind: proposeLaneKind,
@@ -260,6 +279,11 @@ export interface LaneRunInput {
   /** What to arm this lane's agent session with, already resolved by the engine. Omitted keeps the
    *  runner's own env fallback, which is what the single-repo autopilot shim has always relied on. */
   agent?: { model?: string | null; effort?: string | null; timeoutMs?: number | null };
+  /** WHAT THIS LANE IS ARMED WITH — one transport + one model to execute, optionally a different
+   *  transport + model to plan (src/lib/local/arm.ts). Absent (every run armed before arms existed,
+   *  the autopilot shim, a retry of a pre-arms lane) means the lane spawns through `runAgent` with
+   *  `agent.model`, which is byte-identical to what it always did. */
+  arm?: Arm | null;
   /** How many items this cycle dispatches. Omitted = `BATCH_SIZE`, which is what every lane before
    *  the parameter existed used. Ignored on a CURATED batch, which names its own rows. */
   batchSize?: number | null;
@@ -838,6 +862,31 @@ async function laneDeliverables(
 }
 
 /**
+ * THIS ARM'S TIMING BAND — the executing ceiling and the planning ceiling, in that order of
+ * precedence:
+ *
+ *   1. the operator's EXPLICIT per-run ceiling, which is a decision about this run and outranks a
+ *      profile's default the way every other dial on the row does;
+ *   2. the transport's own dated band (`transportProfile`), which is what stops a 27B at Q4 from
+ *      being failed on a clock sized for a hosted model;
+ *   3. the deployment's `ASCENT_AUTOPILOT_TIMEOUT_MS` and the shared `PLAN_TIMEOUT_MS` — exactly what
+ *      every lane used before transports had bands of their own.
+ *
+ * The profile lookup is guarded because it is a STUB until WP1 fills the registry in, and a throwing
+ * capability table must degrade to the old ceiling rather than take the lane down with it.
+ */
+function armTiming(transport: TransportId | null, explicitMs: number | null): { agentMs: number; planMs: number } {
+  const fallback = { agentMs: agentTimeoutMs(explicitMs), planMs: PLAN_TIMEOUT_MS };
+  if (!transport || explicitMs != null) return fallback;
+  try {
+    const timing = transportProfile(transport).timing;
+    return { agentMs: timing.agentMs, planMs: timing.planMs };
+  } catch {
+    return fallback;
+  }
+}
+
+/**
  * Drive one lane to completion. Never throws: every outcome — including a failed agent session or a
  * failed rescan — is lane data, so one bad repo can't take the run's other lanes with it.
  */
@@ -851,11 +900,20 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   // cycle are two rows, and without the discriminator the second would resolve to the first's row and
   // overwrite its branch, its cost and its result. A `single` run passes neither and behaves exactly
   // as it always did.
+  // THE ARM, resolved once. `execArm` is what SPAWNS the executing session; its PLANNING half is
+  // resolved by `planLane` itself (`planArmOf`), which is where the planning session is spawned —
+  // "Claude plans, a local model executes" is two transports in one lane, and keeping each half at
+  // the door it actually spawns through is what stops the two from drifting apart.
+  const execArm: Arm | null = input.arm ?? null;
+  const execTransport: TransportId | null = execArm?.transport ?? null;
   const lane = await upsertLane({
     runId,
     repoFullName: repo,
     cycle,
-    ...(input.abPairKey ? { model: input.agent?.model ?? null, abPairKey: input.abPairKey } : {}),
+    // The arm id is the stronger discriminator — two arms of a `compare` run can execute the SAME
+    // model through different transports, and the model alone would resolve both to one row.
+    ...(execArm ? { armId: execArm.id, transport: execArm.transport } : {}),
+    ...(input.abPairKey ? { model: input.agent?.model ?? execArm?.model ?? null, abPairKey: input.abPairKey } : {}),
   });
   const laneId = lane?.id ?? null;
   // CLAIM → RUN → ADJUDICATE, with RELEASE on every path where the adjudication never happened.
@@ -890,16 +948,22 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   // THE CYCLE'S HARD CEILING, derived from what this run is already armed with — the session cap, the
   // guard's budget (twice: baseline and result), plus bounded allowances for the rescan and the git
   // work. Raising `agentTimeoutMs` raises this by the same amount; see lane-watchdog.ts.
+  // AND ITS BUDGET IS THE ARM'S, NOT THE RUN'S. An N-arm run races arms that generate at very
+  // different rates (measured 2026-09-21 on this machine: 11.5 tok/s for a local 27B at Q4 against a
+  // hosted model's hundreds), so one shared ceiling forces a choice between failing every local lane
+  // on the clock and removing the tripwire that catches a genuinely stuck Claude one. Per-arm bands
+  // refuse the choice: a timeout then means "this arm ran out of ITS budget", which is attributable.
+  const timing = armTiming(execTransport, input.agent?.timeoutMs ?? null);
   const watch =
     input.watchdog ??
     createLaneWatchdog({
       deadlineMs: laneDeadlineMs({
-        agentMs: agentTimeoutMs(input.agent?.timeoutMs ?? null),
+        agentMs: timing.agentMs,
         verifyMs: verifyTimeoutMsOf(input.verify?.timeoutMs ?? null),
         verifyEnabled: input.verify?.enabled !== false,
         // A lane that plans, or that may install dependencies, is PAID for that time — omitted on an
         // ordinary lane, so its ceiling is exactly what it always was.
-        planMs: input.runner?.plan ? PLAN_TIMEOUT_MS : 0,
+        planMs: input.runner?.plan ? timing.planMs : 0,
         depsMs: input.runner?.installDeps ? verifyTimeoutMsOf(input.verify?.timeoutMs ?? null) : 0,
       }),
     });
@@ -913,6 +977,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   // THE RUNNER'S PER-LANE STATE (spark theater-upgrade). All inert on an ordinary lane.
   const runnerFlags = input.runner ?? null;
   let planId: string | null = null;
+  let planModel: string | null = null;
   let declaredMoves: ArchitectureMove[] = [];
   let directionFence: string[] | null = null;
   let directed: DirectedBatch | null = null;
@@ -1155,6 +1220,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
             briefText: brief?.text ?? null,
             agent: { model: input.agent?.model ?? null, effort: input.agent?.effort ?? null },
             runAgent: deps.runAgent,
+            // THE PLANNING HALF OF THE ARM and the door it goes through. Both absent on a pre-arms
+            // lane, which is the path `planLane` keeps byte-identical.
+            ...(execArm ? { arm: execArm, runVia: deps.runAgentVia, planTimeoutMs: timing.planMs } : {}),
             onEvent: (e) => activity.onEvent(e),
             signal: watch.signal,
           }),
@@ -1167,6 +1235,10 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           resumeSessionId = planned.resumeSessionId;
           declaredMoves = planned.declaredMoves;
           directionFence = planned.directionFence;
+          // WHAT ACTUALLY PLANNED, on the row. Recorded only when a planning session RAN: a lane that
+          // never planned carries null, which is an absence and not "the same model as the executor".
+          planModel = planned.planModel;
+          if (planModel) await updateLane(laneId, { planModel });
           if (planId) await updateLane(laneId, { planId });
           if (planned.parked.length > 0) {
             const parked = new Set(planned.parked.map((p) => p.id));
@@ -1284,25 +1356,32 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // THE STOP REACHES THE PROCESS. The call is held in `agentInFlight` before it is raced: the
       // race rejects the moment the watchdog fires, long before a `taskkill` can answer, so the
       // force-fail below awaits this promise briefly to report what the kill actually confirmed.
-      const agentCall = deps.runAgent({
+      // ONE SET OF OPTIONS, TWO DOORS. An armed lane goes through `runAgentVia` with its EXECUTING
+      // transport; an unarmed one goes through `runAgent`, which is the same function `claude`
+      // resolves to — so the pre-arms path is not merely equivalent, it is the same call it was.
+      const agentOpts: TransportRunOptions = {
         cwd: worktree.dir,
         prompt,
         // The watchdog's cut, passed outward. A run stop or the lane's own deadline now ends the
         // `claude -p` process TREE instead of leaving it running unmonitored against a run nobody
         // is watching any more — in ADDITION to the race settling, never instead of it.
         signal: watch.signal,
-        ...(input.agent?.model ? { model: input.agent.model } : {}),
+        // The ARM's executing model when there is one; otherwise the run's, exactly as before.
+        ...(execArm?.model ?? input.agent?.model ? { model: execArm?.model ?? input.agent?.model ?? undefined } : {}),
         ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
         // Conditional for the same reason the two above are: an ABSENT key lets the runner fall
         // back to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session
         // before this parameter used. Passing an explicit null would say the same thing, but a lane
         // that sends the key on every call is one refactor away from sending a 0.
-        ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : {}),
+        // An ARMED lane sends its own band instead, so a slow transport is not cut off at a ceiling
+        // sized for a fast one.
+        ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : execArm ? { timeoutMs: timing.agentMs } : {}),
         // THE LIVE SIGNAL (spark theater-upgrade): every stream event into the lane's activity tail,
         // and a minor plan's execution resumes its planning session.
         onEvent: (e) => activity.onEvent(e),
         ...(resumeSessionId ? { resumeSessionId } : {}),
-      });
+      };
+      const agentCall = execTransport ? deps.runAgentVia(execTransport, agentOpts) : deps.runAgent(agentOpts);
       agentInFlight = agentCall;
       // The worktree poll runs only while the session does, and is stopped on EVERY exit — including a
       // watchdog cut, which is exactly when a leaked timer would outlive the lane.
@@ -1491,6 +1570,42 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         await releaseClaims(`loop cycle ${cycle}'s diff moved architecture its plan did not declare, so it waits for the operator`);
         await updateLane(laneId, { phase: "done", commits: 0, stage: null, endedAt: new Date() });
         return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+      }
+    }
+
+    // ── THE INTEGRITY GUARD (src/lib/local/lane-gate-diff.ts). Every measurement in this system
+    // assumes the instrument is read-only to the thing being measured, and an agent candidate voids
+    // that assumption in a way no previous system under test could: it holds the same shell the
+    // harness holds, so it can relax a test and then score a clean lift for having done nothing. The
+    // prohibition in the brief is unfalsifiable at the only place it would have to be checked —
+    // inside a loop nobody is reading — so the corrective is structural and sits HERE: after the
+    // lane's commits are known and BEFORE any lift is credited.
+    //
+    // A void lane is a REPORTED OUTCOME, never a dropped one: silently discarding it would flatter
+    // the arm that produced it, which is precisely the failure this guard exists to prevent. It does
+    // not rescan, so nothing it changed becomes the repository's latest reading.
+    if (commits > 0) {
+      const names = await git(["diff", "--name-only", `${before}..HEAD`]);
+      const changedPaths = names.ok ? names.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+      const void_ = deps.gateDiff(changedPaths);
+      if (void_.void) {
+        const reason = void_.reason ?? "This lane edited the surface that scores it.";
+        const shown = void_.paths.slice(0, 10).join(", ");
+        await appendLaneLog(
+          laneId,
+          `VOID: ${reason}${shown ? ` (${shown})` : ""} — the commits stay on ${worktree.branch} for a human, but no rescan is taken and no lift is credited: a lane that edits its own scoring surface cannot be measured by it.`,
+        );
+        await updateLane(laneId, {
+          deliverables: [
+            { headline: "Void — the lane edited the surface that scores it", dimId: null, kind: "noted", covers: [], evidence: reason },
+          ],
+        });
+        await releaseClaims(`loop cycle ${cycle} was voided: ${firstLine(reason)}`);
+        await deps.settlePlan(planId);
+        await updateLane(laneId, { phase: "void", voidReason: reason, commits, stage: null, endedAt: new Date() });
+        // `progressed: false` — a void lane is not evidence this repo is worth another cycle, and
+        // counting it as progress would let an arm buy itself cycles by editing its own gate.
+        return { laneId, progressed: false, commits, closed: 0, error: null };
       }
     }
 

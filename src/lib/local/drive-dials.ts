@@ -13,6 +13,14 @@
 
 import type { DriveDials } from "@/lib/local/runner-types";
 import {
+  MAX_COMPARE_ARMS,
+  MIN_COMPARE_ARMS,
+  normalizeArmPolicy,
+  normalizeArmSet,
+  type Arm,
+  type ArmPolicy,
+} from "@/lib/local/arm";
+import {
   AGENT_TIMEOUT_CAP_MS,
   AGENT_TIMEOUT_MIN_MS,
   BATCH_SIZE_CAP,
@@ -37,6 +45,8 @@ export interface DialRunInput {
   rescanCadence?: "cycle" | "run";
   modelPolicy?: "ab";
   models?: string[];
+  arms?: Arm[];
+  armPolicy?: ArmPolicy;
 }
 
 /** The run-input fields a drive's dials set — ONLY the ones that are set, so a drive with no dials
@@ -49,7 +59,12 @@ export function dialRunInput(dials: DriveDials | null | undefined): DialRunInput
   if (dials.verifyMode != null) out.verifyMode = dials.verifyMode;
   if (dials.verifyTimeoutMs != null) out.verifyTimeoutMs = dials.verifyTimeoutMs;
   if (dials.rescanCadence != null) out.rescanCadence = dials.rescanCadence;
-  if (dials.modelPolicy === "ab" && dials.models && dials.models.length === 2) {
+  // THE ARMS WIN when the drive carries them: the two vocabularies are never merged, so a drive armed
+  // with arms dispatches arm runs and one armed the old way dispatches exactly what it always did.
+  if (dials.arms && dials.arms.length > 0) {
+    out.arms = dials.arms.map((a) => ({ ...a }));
+    out.armPolicy = dials.armPolicy === "compare" ? "compare" : "single";
+  } else if (dials.modelPolicy === "ab" && dials.models && dials.models.length === 2) {
     out.modelPolicy = "ab";
     out.models = [...dials.models];
   }
@@ -103,6 +118,24 @@ export function parseDriveDials(raw: unknown): ParsedDials {
     dials.models = arms;
   } else if (b.modelPolicy === "single") {
     dials.modelPolicy = "single";
+  }
+  // THE ARMS. One validator (`normalizeArmSet`), the same one the loop route and the cockpit's arm
+  // builder read — a second list here is how the two ends stop agreeing. A drive that ASKED for arms
+  // and got them wrong is an error naming the band, never a drive quietly armed with one arm.
+  if (b.arms !== undefined || b.armPolicy !== undefined) {
+    const armPolicy = normalizeArmPolicy(b.armPolicy) ?? "single";
+    const arms = normalizeArmSet(b.arms, armPolicy);
+    if (!arms) {
+      return {
+        ok: false,
+        error:
+          armPolicy === "compare"
+            ? `dials.arms must hold ${MIN_COMPARE_ARMS}–${MAX_COMPARE_ARMS} arms with distinct ids, a known transport and a valid model.`
+            : "dials.arms must hold exactly one arm, with a known transport and a valid model.",
+      };
+    }
+    dials.arms = arms;
+    dials.armPolicy = armPolicy;
   }
   return { ok: true, dials: Object.keys(dials).length > 0 ? dials : null };
 }

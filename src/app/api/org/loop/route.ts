@@ -24,6 +24,14 @@ import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { agentTimeoutMs, autopilotEnabled } from "@/lib/local/agent";
 import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
+import {
+  MAX_COMPARE_ARMS,
+  MIN_COMPARE_ARMS,
+  normalizeArmPolicy,
+  normalizeArmSet,
+  type Arm,
+  type ArmPolicy,
+} from "@/lib/local/arm";
 import { normalizeDelivery } from "@/lib/local/delivery-options";
 import {
   BATCH_SIZE_CAP,
@@ -141,6 +149,11 @@ type Body = {
   effort?: unknown;
   modelPolicy?: unknown;
   models?: unknown;
+  /** The ARMS of a run (src/lib/local/arm.ts) — transport + model each, optionally a different
+   *  planning half. Supersedes `models`, which could only ever name Claude aliases. */
+  arms?: unknown;
+  /** `single` | `compare`. Read only when `arms` is present. */
+  armPolicy?: unknown;
   /** branch | land | pr — what happens to each lane's branch when its cycle succeeds. */
   delivery?: unknown;
   /** Items per lane per cycle (1–BATCH_SIZE_CAP); omitted = the default 5. */
@@ -159,7 +172,7 @@ type Body = {
 };
 
 /**
- * The two arms of an `ab` run, validated. `null` = "this body did not ask for an A/B run".
+ * The two MODELS of a legacy `ab` run, validated. `null` = "this body did not ask for an A/B run".
  *
  * Throws with a human reason for anything that asked and got it wrong, because an A/B run that
  * silently degrades to a single-model run produces a comparison the operator thinks they ran and did
@@ -169,14 +182,37 @@ type Body = {
  */
 const MODEL_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
-function parseArms(body: Body): string[] | null {
+function parseModels(body: Body): string[] | null {
   if (body.modelPolicy !== "ab") return null;
   const raw = Array.isArray(body.models) ? body.models.filter((m): m is string => typeof m === "string") : [];
-  const arms = [...new Set(raw.map((m) => m.trim()).filter(Boolean))];
-  if (arms.length !== 2) throw new Error("An A/B run needs exactly two distinct models in 'models'.");
-  const bad = arms.find((m) => !MODEL_TOKEN.test(m));
+  const models = [...new Set(raw.map((m) => m.trim()).filter(Boolean))];
+  if (models.length !== 2) throw new Error("An A/B run needs exactly two distinct models in 'models'.");
+  const bad = models.find((m) => !MODEL_TOKEN.test(m));
   if (bad) throw new Error(`Invalid model "${bad}".`);
-  return arms;
+  return models;
+}
+
+/**
+ * THE ARMS, validated. `null` = "this body did not ask for an armed run", which leaves the `models`
+ * path above exactly as it was.
+ *
+ * `normalizeArmSet` is the ONE validator — the cockpit's arm builder and this route read the same
+ * function, because the way two ends stop agreeing is two lists. It returns null rather than
+ * throwing, and turning that null into a 400 is this route's job: a comparison run that silently
+ * degraded to a single arm would produce a measurement the operator thinks they ran and did not.
+ */
+function parseArms(body: Body): { arms: Arm[]; armPolicy: ArmPolicy } | null {
+  if (body.arms === undefined && body.armPolicy === undefined) return null;
+  const armPolicy = normalizeArmPolicy(body.armPolicy) ?? "single";
+  const arms = normalizeArmSet(body.arms, armPolicy);
+  if (!arms) {
+    throw new Error(
+      armPolicy === "compare"
+        ? `A comparison run needs ${MIN_COMPARE_ARMS}–${MAX_COMPARE_ARMS} arms in 'arms', each with a distinct id, a known transport and a valid model.`
+        : "A single-arm run needs exactly one arm in 'arms', with a known transport and a valid model.",
+    );
+  }
+  return { arms, armPolicy };
 }
 
 export async function POST(request: Request) {
@@ -248,9 +284,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `concurrency must be 1–${LOOP_CONCURRENCY_CAP}.` }, { status: 400 });
   }
 
-  let arms: string[] | null;
+  let models: string[] | null;
+  let armed: { arms: Arm[]; armPolicy: ArmPolicy } | null;
   try {
-    arms = parseArms(body);
+    models = parseModels(body);
+    armed = parseArms(body);
   } catch (err) {
     // A malformed A/B request is a 400 (the caller sent something invalid), not a 409 (the server
     // cannot do it right now) — and it never reaches the spawn seam.
@@ -323,7 +361,9 @@ export async function POST(request: Request) {
       verifyMode,
       verifyTimeoutMs,
       rescanCadence,
-      ...(arms ? { modelPolicy: "ab" as const, models: arms } : {}),
+      // The two vocabularies, never merged: `arms` is what a run armed today carries, `models` is the
+      // pre-arms Claude pair. A body that sends arms takes the arm path; anything else replays.
+      ...(armed ? { arms: armed.arms, armPolicy: armed.armPolicy } : models ? { modelPolicy: "ab" as const, models } : {}),
       actor: viewer?.login ?? null,
     });
     return NextResponse.json({ run });

@@ -1780,7 +1780,7 @@ model LoopRun {
   // MOONSHOT #27 — how this run spends models. `single` = every lane runs the one resolved model;
   // `ab` = the run pairs its lanes across two models so a cost/lift comparison is a MEASUREMENT
   // rather than a comparison across two runs that differed in a dozen other ways.
-  modelPolicy String    @default("single") // single | ab
+  modelPolicy String    @default("single") // single | ab | compare
   // JSON string[] (TEXT, never jsonb) of the models this run is armed with, IN ORDER: ["sonnet"] for
   // a `single` run, the two arms for an `ab` run. Defaulted to "[]" so a pre-#27 row reads as "not
   // recorded" without a nullable column the readers would each have to interpret.
@@ -1819,6 +1819,22 @@ model LoopRun {
   seq             Int?
   driveId         String?
   planMode        String?
+  // ── ARMS (spark local-model-lanes, 2026-09-21). An ARM is one transport + one model, optionally
+  // with a DIFFERENT transport/model for the planning step (src/lib/local/arm.ts). It supersedes the
+  // `model`/`modelsJson` pair, which could only ever name Claude aliases — a model name means nothing
+  // without the transport that resolves it. All three NULLABLE, so every row written before them keeps
+  // its exact current meaning and is still read through `modelPolicy`/`modelsJson`.
+  //
+  // `armsJson`  — JSON `Arm[]` (TEXT, never jsonb — DSQL has none). Null = a pre-arms run.
+  // `armPolicy` — "single" (one arm drives the run) | "compare" (2..4 arms race the same curated
+  //               batch). Null = not armed with arms; `modelPolicy` is then the only answer, and a
+  //               legacy `ab` row keeps reading as `ab` forever.
+  // `probeJson` — the transport PROBE taken at arm time (WP4): which binaries answered, at which
+  //               version, and what the local endpoint reported. Null = never probed, which is what
+  //               every run before this is — never "the probe found nothing".
+  armsJson        String?
+  armPolicy       String?
+  probeJson       String?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
   error       String?
@@ -1836,7 +1852,7 @@ model LoopRunLane {
   runId         String
   repoFullName  String // "owner/name"
   cycle         Int       @default(1)
-  phase         String    @default("queued") // queued | dispatching | rescanning | done | error
+  phase         String    @default("queued") // queued | dispatching | rescanning | done | error | void
   branch        String? // ascent/loop-<stamp>-<repo> — the deliverable; survives the run
   batchIdsJson  String    @default("[]") // JSON string[] of Recommendation ids dispatched
   closedIdsJson String    @default("[]") // JSON string[] of ids the rescan's trailers closed
@@ -1939,6 +1955,24 @@ model LoopRunLane {
   // branch, or the operator's own under `land`). Null = not landed; the pulse counts "landed today" on it.
   diffStatJson  String?
   landedAt      DateTime?
+
+  // ── WHAT THIS LANE WAS ARMED WITH (spark local-model-lanes, 2026-09-21). `model` above records the
+  // EXECUTING model and keeps its meaning exactly; these four say the rest of it. All nullable: a lane
+  // written before them is UNKNOWN, never "claude" by assumption.
+  //
+  // `transport`  — the agent CLI that EXECUTED ("claude" | "pi"). Null = unrecorded.
+  // `armId`      — the run arm this lane is a sample of. It is what joins a lane back to its arm, so
+  //                two arms of one repo in one cycle are two rows rather than one overwriting the other.
+  // `planModel`  — the model that PLANNED, when this lane opened with a planning session and that
+  //                session's half of the arm differs from (or simply is) the executing one. Null when
+  //                the lane never planned — an absence, never "the same as the executor".
+  // `voidReason` — why phase is `void`: the lane edited the surface that scores it
+  //                (src/lib/local/lane-gate-diff.ts), so its lift is excluded from the comparison and
+  //                the void is REPORTED as an outcome rather than dropped.
+  transport     String?
+  armId         String?
+  planModel     String?
+  voidReason    String?
 
   run LoopRun @relation(fields: [runId], references: [id])
 

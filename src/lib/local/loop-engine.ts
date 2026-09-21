@@ -45,6 +45,7 @@ import {
   type LoopRunRecord,
 } from "@/lib/db/loop-runs";
 import type { LoopModelPolicy, LoopTarget } from "@/lib/db/loop-runs-types";
+import { MAX_COMPARE_ARMS, MIN_COMPARE_ARMS, normalizeArmSet, type Arm, type ArmPolicy } from "@/lib/local/arm";
 import type { LoopDelivery } from "@/lib/local/delivery-options";
 import { batchSizeOf, verifyModeOf, type VerifyMode } from "@/lib/local/run-limits";
 // The guard's baseline cache is keyed by worktree DIRECTORY and lives for the life of the process, so
@@ -124,10 +125,19 @@ export interface StartLoopRunInput {
    *  deployment's env HERE, once, and the resolved values are what land on the row. */
   model?: string | null;
   effort?: string | null;
-  /** `single` (the default, and what every run before #27 was) or `ab`. */
+  /** `single` (the default, and what every run before #27 was), `ab`, or `compare`. */
   modelPolicy?: LoopModelPolicy;
-  /** The two arms of an `ab` run, in order. Ignored under `single`. */
+  /** The two arms of an `ab` run, in order. Ignored under `single` and under `compare`. */
   models?: string[];
+  /** THE ARMS (src/lib/local/arm.ts) — one transport + one model each, optionally with a different
+   *  planning half. Supersedes `models`, which could only name Claude aliases. Omitted = a pre-arms
+   *  run, which is byte-identical to everything above. */
+  arms?: Arm[];
+  /** `single` (one arm drives the run) or `compare` (2..4 arms race one curated batch). Only read
+   *  when `arms` is present. */
+  armPolicy?: ArmPolicy | null;
+  /** The transport probe taken before the run was armed, already serialized (WP4). */
+  probeJson?: string | null;
   /** WHAT HAPPENS TO EACH LANE'S BRANCH once its cycle succeeds — `branch` (the default, and exactly
    *  what every run before this did), `land` or `pr`. Already validated by the route. */
   delivery?: LoopDelivery | null;
@@ -223,9 +233,27 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
   // read `null` for every default run, i.e. "whatever CLAUDE_MODEL was that day" — the one fact the
   // ledger needs and the only one an env var cannot recover afterwards.
   const agent = resolveAgentConfig({ model: input.model, effort: input.effort });
-  // THE ARMS OF THE EXPERIMENT. `single` has one; `ab` has exactly two distinct models, checked here
-  // as well as at the route because the engine is also called from the drive and from tests.
-  const policy: LoopModelPolicy = input.modelPolicy === "ab" ? "ab" : "single";
+  // THE ARMS OF THE EXPERIMENT, in two vocabularies that deliberately do not merge.
+  //
+  // `arms` is the ARM shape (transport + model, optionally a different planning half) and is what a
+  // run armed today carries. `models` is the pre-arms pair of Claude aliases; an `ab` run recorded
+  // with it keeps reading as `ab` forever, so an existing run replays unchanged. A run given neither
+  // is exactly the `single` run it always was.
+  const armed = input.arms && input.arms.length > 0 ? input.arms : null;
+  const armPolicy: ArmPolicy | null = armed ? (input.armPolicy === "compare" ? "compare" : "single") : null;
+  if (armed) {
+    // Re-validated HERE as well as at the route, because the engine is also called from the drive and
+    // from tests. `normalizeArmSet` owns the count, the id-distinctness and the token rules.
+    if (!normalizeArmSet(armed, armPolicy ?? "single")) {
+      throw new Error(
+        armPolicy === "compare"
+          ? `A comparison run needs ${MIN_COMPARE_ARMS}–${MAX_COMPARE_ARMS} arms with distinct ids.`
+          : "A single-arm run needs exactly one valid arm.",
+      );
+    }
+  }
+  const policy: LoopModelPolicy =
+    armPolicy === "compare" ? "compare" : input.modelPolicy === "ab" ? "ab" : "single";
   const arms = policy === "ab" ? [...new Set((input.models ?? []).map((m) => m.trim()).filter(Boolean))] : [agent.model];
   if (policy === "ab") {
     if (arms.length !== 2) throw new Error("An A/B run needs exactly two distinct models.");
@@ -236,6 +264,16 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     if (inFlight > LOOP_CONCURRENCY_CAP) {
       throw new Error(
         `An A/B run doubles the lanes in flight (${inFlight}), past the cap of ${LOOP_CONCURRENCY_CAP} — lower the lane count to ${Math.floor(LOOP_CONCURRENCY_CAP / 2)} or run one model at a time.`,
+      );
+    }
+  }
+  if (policy === "compare" && armed) {
+    // The same budget rule as `ab`, with N in place of 2 — every arm of a repo runs in the SAME
+    // cycle, so an N-arm run has N times as many lanes in flight as the concurrency dial says.
+    const inFlight = (input.concurrency ?? LOOP_DEFAULT_CONCURRENCY) * armed.length;
+    if (inFlight > LOOP_CONCURRENCY_CAP) {
+      throw new Error(
+        `A ${armed.length}-arm comparison puts ${inFlight} lanes in flight, past the cap of ${LOOP_CONCURRENCY_CAP} — lower the lane count to ${Math.max(1, Math.floor(LOOP_CONCURRENCY_CAP / armed.length))} or compare fewer arms.`,
       );
     }
   }
@@ -251,10 +289,15 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     createdBy: input.actor ?? null,
     // The run-level `model` stays the FIRST arm, so every pre-#27 reader (the history strip's setup
     // line, a retry's inherited configuration) keeps working and reads something true.
-    model: arms[0] ?? agent.model,
+    // The run-level `model` stays the first EXECUTING model — under `compare` that is the first
+    // arm's, so every pre-arms reader still reads something true rather than nothing.
+    model: armed ? (armed[0]?.model ?? agent.model) : (arms[0] ?? agent.model),
     effort: agent.effort,
     modelPolicy: policy,
-    models: arms,
+    models: armed ? armed.map((a) => a.model) : arms,
+    arms: armed,
+    armPolicy,
+    probeJson: input.probeJson ?? null,
     delivery: input.delivery ?? null,
     batchSize: input.batchSize ?? null,
     agentTimeoutMs: input.agentTimeoutMs ?? null,
@@ -477,6 +520,10 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
         // and under `ab` that means the LANE's own arm, not the run's first one. Re-running arm B
         // under arm A's model would silently turn a comparison into two samples of one model.
         agent: { model: lane.model ?? run.model, effort: run.effort, timeoutMs: run.agentTimeoutMs },
+        // …and the SAME ARM, rehydrated from the run's recorded set by the id the lane carries. A
+        // retry that re-armed from today's defaults would silently re-run arm B's work as arm A.
+        // Null when the lane predates arms, which is the retry path exactly as it always was.
+        arm: (run.arms ?? []).find((a) => a.id === lane.armId) ?? null,
         // A retry re-runs the SAME experiment, which includes its throughput and its guard: read off
         // the ROW, never re-derived from today's env or defaults.
         batchSize: run.batchSize,
@@ -566,13 +613,13 @@ async function drive(
       // An `ab` run fans the SAME curated batch out to two lanes per repo — two worktrees, two
       // branches, two models, one `abPairKey` — so each arm rescans its OWN worktree and the same
       // guardbanded scorer adjudicates both. Neither arm ever grades the other.
-      const arms: (string | null)[] = run.modelPolicy === "ab" && run.models.length === 2 ? run.models : [null];
+      const arms = runLegs(run);
       const legs = activeTargets.flatMap((t) => arms.map((arm) => ({ t, arm })));
       const results = await mapPool(legs, run.concurrency * arms.length, async ({ t, arm }) => {
         if (state.stopRequested) return { repo: t.repo, progressed: false };
         // Keyed by arm as well as repo: two arms of one repo are two working copies, and sharing one
         // would have them commit over each other.
-        const wtKey = arm ? `${t.repo}#${arm}` : t.repo;
+        const wtKey = arm.key ? `${t.repo}#${arm.key}` : t.repo;
         let wt = state.worktrees.get(wtKey);
         if (!wt) {
           try {
@@ -621,13 +668,17 @@ async function drive(
           // input, so a retry dispatched hours later cannot silently pick up a changed env. Under
           // `ab` the ARM's model overrides it; the effort is shared, because the arms are a model
           // comparison and a second varying factor would make the difference uninterpretable.
-          agent: { model: arm ?? run.model, effort: run.effort, timeoutMs: run.agentTimeoutMs },
+          agent: { model: arm.model ?? run.model, effort: run.effort, timeoutMs: run.agentTimeoutMs },
+          // THE ARM ITSELF, when this run has one: the lane reads its executing transport and its
+          // planning half off it, and records both on its row. Null on every pre-arms run, which is
+          // the path that must stay byte-identical.
+          arm: arm.arm,
           // Read off the ROW for the same reason the agent configuration is: a run's throughput and
           // its guard are part of what it IS, and a cycle dispatched hours later must not silently
           // pick up a changed default.
           batchSize: run.batchSize,
           verify: { enabled: verifyModeOf(run.verifyMode) === "on", timeoutMs: run.verifyTimeoutMs },
-          abPairKey: arm ? abPairKeyFor(run.id, t.repo, cycle) : null,
+          abPairKey: arm.key ? abPairKeyFor(run.id, t.repo, cycle) : null,
           // WHEN THIS LANE RESCANS. Under `"run"` only the run's LAST cycle takes the reading; the
           // earlier ones hand their cycle back and the settle below adjudicates all of them against
           // it. The lane cannot decide this itself — whether a repo gets another cycle is this
@@ -729,11 +780,37 @@ async function drive(
 }
 
 /**
+ * ONE LEG PER ARM, in whichever vocabulary this run was armed in.
+ *
+ * `key` is what makes two legs of one repo two different lanes: it keys the worktree, the watchdog
+ * and the `abPairKey`. It is NULL for a run with one arm — an arm is not a comparison, and giving a
+ * single-arm run a key would rename its worktree and its branch for no measurement at all.
+ *
+ * The legacy pair (`modelPolicy: "ab"` + two model names) is kept as its own branch rather than
+ * rewritten into arms: an existing run must replay with the same worktree keys, the same branches and
+ * the same pair key it had, and a translation layer is one off-by-one from silently not doing that.
+ */
+function runLegs(run: LoopRunRecord): { key: string | null; arm: Arm | null; model: string | null }[] {
+  const armed = run.arms ?? [];
+  if (armed.length > 0) {
+    const compare = run.armPolicy === "compare" && armed.length > 1;
+    return armed.map((arm) => ({ key: compare ? arm.id : null, arm, model: arm.model }));
+  }
+  if (run.modelPolicy === "ab" && run.models.length === 2) {
+    return run.models.map((model) => ({ key: model, arm: null, model }));
+  }
+  return [{ key: null, arm: null, model: null }];
+}
+
+/**
  * The key joining the two arms of one A/B comparison.
  *
  * Derived, not random: `(run, repo, cycle)` is exactly what makes two lanes the same experiment, so
  * the key can be recomputed from the row rather than having to be carried through every path that
  * might retry or resume a lane.
+ *
+ * UNDER `compare` IT IS THE SAME KEY, joining N arms instead of two — the derivation never mentioned
+ * the arm, which is why generalizing it needed no change here at all.
  */
 export function abPairKeyFor(runId: string, repo: string, cycle: number): string {
   return `${runId}:${repo}:${cycle}`;

@@ -15,6 +15,10 @@
 // for a human — contract, dependency and footprint changes are auto-approved by operator decision.
 //
 // Timestamps are ISO STRINGS throughout (AGENTS.md: a wire type never declares a `Date`).
+//
+// The ONE import this file may carry: `arm.ts` is dependency-free by the same law, so the arm
+// vocabulary crosses to the browser with the rest of this contract rather than being re-declared.
+import type { Arm, ArmPolicy } from "@/lib/local/arm";
 
 /** The one long-lived branch per repo the runner accumulates verified work on. Never checked out
  *  anywhere: landing is a fast-forward `update-ref`, so no working copy is ever touched by it. */
@@ -66,6 +70,12 @@ export interface DriveDials {
   rescanCadence?: "cycle" | "run" | null;
   modelPolicy?: "single" | "ab" | null;
   models?: string[] | null;
+  /** THE ARMS a drive's runs are armed with (src/lib/local/arm.ts). Supersedes `modelPolicy`/`models`,
+   *  which could only ever name Claude aliases — a drive that could not arm a comparison would leave
+   *  the one configuration this feature exists to measure reachable from a manual run only. Omitted =
+   *  a drive armed the old way, byte-identical to every drive before arms existed. */
+  arms?: Arm[] | null;
+  armPolicy?: ArmPolicy | null;
 }
 
 // ── plans and directions ─────────────────────────────────────────────────────────────────────────
@@ -326,7 +336,22 @@ export interface NeedsYou {
 
 // ── the constants every package reads from one place ─────────────────────────────────────────────
 
-/** Ceiling on one read-only planning session. */
+/**
+ * Ceiling on one read-only planning session.
+ *
+ * @deprecated SUPERSEDED BY THE TRANSPORT PROFILE. The plan ceiling is per-transport now
+ * (`transportTiming(id, { local }).planMs` in `transport/profile.ts`): a planning session on a local
+ * 27B at 11.5 generated tokens per second does not finish inside a band sized for a hosted model, and
+ * a shared constant forces a choice between failing every local plan on the clock and removing the
+ * tripwire that catches a wedged Claude plan.
+ *
+ * KEPT, AND EQUAL TO THE CLAUDE PROFILE'S BAND, for exactly as long as the two remaining call sites
+ * need it: `lane-plan.ts:164` (the planning session's `timeoutMs`) and `loop-lane.ts:902` (the plan's
+ * share of the lane deadline). Both belong to the package that wires the transport through the lane;
+ * neither may be edited from here. `transport/profile.test.ts` asserts this number and
+ * `claudeHostedTiming.planMs` are the same value, so the two cannot drift apart while both exist —
+ * a deprecation that lets its replacement diverge is worse than no deprecation.
+ */
 export const PLAN_TIMEOUT_MS = 480_000;
 /** The lane's activity tail keeps at most this many events. */
 export const ACTIVITY_TAIL_MAX = 60;
@@ -334,7 +359,14 @@ export const ACTIVITY_TAIL_MAX = 60;
 export const ACTIVITY_WRITE_THROTTLE_MS = 3_000;
 /** How often the engine reads a working lane's worktree diff. */
 export const WORKTREE_POLL_MS = 15_000;
-/** A specific agent phase over a stream silent this long decays to `agent-quiet`. */
+/**
+ * A specific agent phase over a stream silent this long decays to `agent-quiet`.
+ *
+ * @deprecated Same story as `PLAN_TIMEOUT_MS` above, and the same pinning test. The quiet band is
+ * per-transport: at 11.5 generated tokens per second a 2k-token tool call takes roughly three minutes
+ * to appear, so 90 seconds of silence is NORMAL on a local arm and reporting it as quiet would teach
+ * an operator to distrust a working lane.
+ */
 export const PHASE_QUIET_MS = 90_000;
 /** Consecutive guard-rejected or failed lanes that pause a repo. */
 export const REPO_FAILURE_STREAK = 3;

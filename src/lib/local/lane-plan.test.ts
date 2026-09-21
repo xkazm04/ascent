@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClaudeAgentOptions, AgentRunResult } from "./agent";
+import type { Arm, TransportId } from "./arm";
 import type { FollowUpItem } from "@/lib/org/followups";
 import type { RecordLanePlansInput } from "@/lib/db/loop-plans-write";
 
@@ -178,5 +179,83 @@ describe("planLane", () => {
     recordLanePlans.mockRejectedValueOnce(new Error("db down"));
     const res = await run(() => ({ ok: true, summary: planText({}) })).outcome;
     expect(res).toEqual({ mode: "failed", message: "The plan could not be recorded (db down); nothing was executed." });
+  });
+});
+
+// ── THE PLANNING HALF OF AN ARM (spark local-model-lanes, 2026-09-21) ────────────────────────────
+//
+// "Claude plans, a local model executes" is the configuration this whole feature exists to measure,
+// and it is unreachable if the planning session can only read the executing model off `agent`. These
+// pin that the session spawns through the arm's PLANNING transport, that an unsplit arm plans with
+// what it executes with, and that a split arm does not try to resume a session the executing tool has
+// never heard of.
+describe("planLane — per-step arming", () => {
+  const SPLIT: Arm = { id: "split", label: "split", transport: "pi", model: "qwen3.8:27b", plan: { transport: "claude", model: "sonnet" } };
+  const LOCAL: Arm = { id: "local", label: "local", transport: "pi", model: "qwen3.8:27b" };
+
+  function armed(arm: Arm, planTimeoutMs?: number) {
+    const via: { transport: TransportId; opts: ClaudeAgentOptions }[] = [];
+    const runVia = vi.fn(async (transport: TransportId, opts: ClaudeAgentOptions) => {
+      via.push({ transport, opts });
+      return { ok: true, summary: planText({}) };
+    });
+    const runAgent = vi.fn(async () => ({ ok: true, summary: planText({}) }));
+    const outcome = planLane({
+      org: "acme", repo: "acme/web", runId: "run-1", laneId: "lane-1", cycle: 1,
+      worktree: { dir, branch: "ascent/loop-x", pairedPath: join(dir, "..", "paired-elsewhere"), linkedDeps: [], depNotes: [] },
+      batch: BATCH, briefText: null, agent: { model: "sonnet", effort: null },
+      runAgent, arm, runVia: runVia as never, ...(planTimeoutMs ? { planTimeoutMs } : {}),
+    });
+    return { outcome, via, runAgent };
+  }
+
+  it("a SPLIT arm plans through the PLANNING transport with the PLANNING model", async () => {
+    const { outcome, via, runAgent } = armed(SPLIT);
+    const res = await outcome;
+    expect(via).toHaveLength(1);
+    expect(via[0]!.transport).toBe("claude");
+    expect(via[0]!.opts.model).toBe("sonnet");
+    // The Claude-only door is never taken when an arm is present: one seam, not two.
+    expect(runAgent).not.toHaveBeenCalled();
+    if (res.mode !== "execute") throw new Error(res.mode);
+    expect(res.planModel).toBe("sonnet");
+  });
+
+  it("an UNSPLIT arm plans with exactly what it executes with", async () => {
+    const { outcome, via } = armed(LOCAL);
+    const res = await outcome;
+    expect(via[0]!.transport).toBe("pi");
+    expect(via[0]!.opts.model).toBe("qwen3.8:27b");
+    if (res.mode !== "execute") throw new Error(res.mode);
+    expect(res.planModel).toBe("qwen3.8:27b");
+  });
+
+  it("a SPLIT arm offers NO resume — the session id names a conversation the executor never held", async () => {
+    const res = await armed(SPLIT).outcome;
+    if (res.mode !== "execute") throw new Error(res.mode);
+    expect(res.resumeSessionId).toBeNull();
+    // …while an unsplit arm keeps the optimization, because the same tool holds the session.
+    const same = await armed(LOCAL).outcome;
+    if (same.mode !== "execute") throw new Error(same.mode);
+    expect(same.resumeSessionId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("takes the ARM'S planning ceiling when one is given, not the shared constant", async () => {
+    const { outcome, via } = armed(SPLIT, 999_000);
+    await outcome;
+    expect(via[0]!.opts.timeoutMs).toBe(999_000);
+    // …and the shared constant when none is.
+    const { outcome: o2, via: v2 } = armed(SPLIT);
+    await o2;
+    expect(v2[0]!.opts.timeoutMs).toBe(PLAN_TIMEOUT_MS);
+  });
+
+  it("an UNARMED call is unchanged — it goes through `runAgent` and records no planning model", async () => {
+    const { outcome, calls } = run(() => ({ ok: true, summary: planText({}) }));
+    const res = await outcome;
+    expect(calls[0]!.model).toBe("sonnet");
+    if (res.mode !== "execute") throw new Error(res.mode);
+    // `agent.model` answered, which is what every lane before arms existed did.
+    expect(res.planModel).toBe("sonnet");
   });
 });

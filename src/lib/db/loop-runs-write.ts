@@ -32,6 +32,7 @@ import {
 import type { LaneBriefProvenance } from "@/lib/org/lane-brief";
 import type { LaneReport } from "@/lib/local/lane-report";
 import type { LaneActivity } from "@/lib/local/runner-types";
+import { serializeArms, type Arm, type ArmPolicy } from "@/lib/local/arm";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(n)));
 
@@ -72,6 +73,14 @@ export interface CreateLoopRunInput {
   driveId?: string | null;
   /** `on` = every lane plans first (a runner run, or an operator's plan-mode run). Omitted = off. */
   planMode?: "on" | null;
+  /** THE ARMS this run races (src/lib/local/arm.ts), already validated by `normalizeArmSet`. Omitted
+   *  records NULL, not `[]` — a run armed without arms is a pre-arms run, and `[]` would read as
+   *  "armed with nothing". */
+  arms?: Arm[] | null;
+  /** `single` | `compare`. Omitted = null, which leaves `modelPolicy` the only reading. */
+  armPolicy?: ArmPolicy | null;
+  /** The transport probe taken at arm time, already serialized (WP4 owns its shape). */
+  probeJson?: string | null;
   /** Defaults to "running" — `start` arms a run; "curating" is for a run parked for hand-editing. */
   phase?: LoopRunPhase;
 }
@@ -118,6 +127,11 @@ export async function createLoopRun(input: CreateLoopRunInput): Promise<LoopRunR
       agentTimeoutMs: input.agentTimeoutMs ?? null,
       verifyMode: input.verifyMode ?? null,
       verifyTimeoutMs: input.verifyTimeoutMs ?? null,
+      // Serialized only when there ARE arms: an empty list would be written as "[]", which the read
+      // side cannot tell from a run armed with nothing at all.
+      armsJson: input.arms && input.arms.length > 0 ? serializeArms(input.arms) : null,
+      armPolicy: input.armPolicy ?? null,
+      probeJson: input.probeJson ?? null,
     },
   });
   return toRunRecord(row);
@@ -201,6 +215,12 @@ export async function upsertLane(key: {
   repoFullName: string;
   cycle: number;
   model?: string | null;
+  /** WIDENS THE KEY the same way `model` does, and more exactly: two arms of a `compare` run can
+   *  execute the SAME model through different transports (or plan differently), so the model alone
+   *  would resolve both to one row. The arm id is what makes them two samples. */
+  armId?: string | null;
+  /** Stamped on CREATE so the row knows its transport from the moment it exists. */
+  transport?: string | null;
   abPairKey?: string | null;
   /** #3 — set on CREATE only, and only on a remote lane. An existing row's executor is never
    *  rewritten by an upsert: which worker a lane belongs to is decided when the run is armed. */
@@ -211,14 +231,19 @@ export async function upsertLane(key: {
 }): Promise<LoopLaneRecord | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
-  const { model, abPairKey, executor, batchIds, ...base } = key;
-  const existing = await prisma.loopRunLane.findFirst({ where: model ? { ...base, model } : base });
+  const { model, armId, transport, abPairKey, executor, batchIds, ...base } = key;
+  // The arm id is the STRONGER discriminator and wins when present; `model` remains the key an `ab`
+  // run has always been resolved by, so a legacy run re-enters exactly the row it always did.
+  const where = armId ? { ...base, armId } : model ? { ...base, model } : base;
+  const existing = await prisma.loopRunLane.findFirst({ where });
   if (existing) return toLaneRecord(existing);
   const row = await prisma.loopRunLane.create({
     data: {
       ...base,
       phase: "queued",
       ...(model ? { model } : {}),
+      ...(armId ? { armId } : {}),
+      ...(transport ? { transport } : {}),
       ...(abPairKey ? { abPairKey } : {}),
       ...(executor ? { executor } : {}),
       ...(batchIds ? { batchIdsJson: JSON.stringify(batchIds) } : {}),
@@ -256,6 +281,16 @@ export interface LoopLanePatch {
   agentDurationMs?: number | null;
   agentSessionId?: string | null;
   abPairKey?: string | null;
+
+  // ── ARMS (spark local-model-lanes). `null` is a legitimate value on each: it means "this lane did
+  // not record one", which for `planModel` is an absence (the lane never planned) and for `transport`
+  // is a lane older than transports — never a default.
+  transport?: string | null;
+  armId?: string | null;
+  planModel?: string | null;
+  /** Why the lane is `void`. Written in the SAME patch that sets `phase: "void"`, so a void is never
+   *  a phase without its reason. */
+  voidReason?: string | null;
 
   // ── MOONSHOT #25. Objects rather than pre-serialized strings: the JSON-in-TEXT encoding is the
   // store's business, and a caller that had to remember to stringify is a caller that will one day

@@ -6,6 +6,9 @@
 // Import from the `@/lib/db/loop-runs` barrel; this module is an implementation split.
 
 import { parseStringArray } from "./json-columns";
+// The ARM vocabulary, from the one dependency-free module both the browser and the server hold. Same
+// rule as `delivery-options` below: two declarations of what an arm is would be two arms.
+import { normalizeArmPolicy, normalizeTransport, parseArms, type Arm, type ArmPolicy } from "@/lib/local/arm";
 import { normalizeDelivery, type LoopDelivery } from "@/lib/local/delivery-options";
 // Both PURE and dependency-free (no `process`, no `node:*`), so the record's shape and the client that
 // renders it share ONE declaration of the vocabulary — the same rule `delivery-options` follows.
@@ -174,7 +177,7 @@ export type LoopRunPhase = "curating" | "running" | "done" | "stopped" | "error"
  *                arms of one experiment, so a cost/lift difference is a MEASUREMENT rather than a
  *                comparison of two runs that differed in a dozen other ways.
  */
-export type LoopModelPolicy = "single" | "ab";
+export type LoopModelPolicy = "single" | "ab" | "compare";
 
 /** HOW A RUN'S WORK IS DELIVERED. Declared in the dependency-free `delivery-options` module (the
  *  cockpit's picker and the route's validator read the same list) and re-exported here so the record
@@ -185,17 +188,29 @@ export type { LoopDelivery };
  *  for the run's shape, and one declaration of what the words mean. */
 export type { VerifyMode, VerifyRung, VerifyVerdict };
 
-export const LOOP_MODEL_POLICIES: readonly LoopModelPolicy[] = ["single", "ab"];
+export const LOOP_MODEL_POLICIES: readonly LoopModelPolicy[] = ["single", "ab", "compare"];
 
-/** A policy from an untrusted string (the column is TEXT, the wire is JSON), else `single`. */
+/**
+ * A policy from an untrusted string (the column is TEXT, the wire is JSON), else `single`.
+ *
+ * `compare` is `ab` GENERALIZED — N arms (2..4) racing one curated batch instead of exactly two
+ * Claude aliases. `ab` is NOT rewritten to it: a row written as `ab` reads back as `ab` forever, so an
+ * existing run replays as the two-model comparison it actually was.
+ */
 export const asModelPolicy = (v: unknown): LoopModelPolicy =>
-  v === "ab" ? "ab" : "single";
+  v === "ab" ? "ab" : v === "compare" ? "compare" : "single";
 
 /** The ONE declared cost source for a lane. A second value would be a second source, which is the
  *  thing the one-source rule exists to forbid — an envelope figure added to an OTLP figure
  *  double-counts the same tokens. See `src/lib/local/lane-economics.ts`. */
 export const LANE_COST_SOURCE = "envelope" as const;
-export type LoopLanePhase = "queued" | "dispatching" | "rescanning" | "done" | "error";
+/**
+ * `void` — THE LANE EDITED THE SURFACE THAT SCORES IT (src/lib/local/lane-gate-diff.ts), so its lift
+ * is excluded from the comparison and `voidReason` says which paths did it. A terminal phase of its
+ * own rather than an `error`: the lane ran fine, and calling it an error would hide it among the
+ * failures instead of reporting it as the outcome it is.
+ */
+export type LoopLanePhase = "queued" | "dispatching" | "rescanning" | "done" | "error" | "void";
 
 /**
  * What a lane DOES, not just which repo it does it to.
@@ -297,6 +312,17 @@ export interface LoopRunRecord {
   driveId: string | null;
   /** `on` when every lane of this run opened with a read-only planning session; null = off. */
   planMode: "on" | null;
+  // OPTIONAL for the same reason the lane record's new fields are — see the note there.
+  /** THE ARMS this run is racing (src/lib/local/arm.ts). EMPTY on every run written before arms
+   *  existed — "not recorded", which `model` / `models` above still answer for. Never a fabricated
+   *  single arm: "which transport ran this" is precisely what such a row cannot say. */
+  arms?: Arm[];
+  /** `single` (one arm drives the run) or `compare` (N arms race one batch). Null on a run armed
+   *  before arms existed; `modelPolicy` is then the only reading, and an `ab` row stays `ab`. */
+  armPolicy?: ArmPolicy | null;
+  /** The transport probe taken when this run was armed, verbatim JSON (WP4 owns its shape). Null =
+   *  never probed, which is what every earlier run is — never "the probe found nothing". */
+  probeJson?: string | null;
   startedAt: string;
   endedAt: string | null;
   error: string | null;
@@ -411,6 +437,25 @@ export interface LoopLaneRecord {
   diffStat: LaneDiffStat | null;
   /** ISO. When the lane's branch was delivered into a branch the next lane builds on; null = not landed. */
   landedAt: string | null;
+
+  // ── WHAT THIS LANE WAS ARMED WITH (spark local-model-lanes, 2026-09-21). `model` above is the
+  // EXECUTING model and is unchanged; these four are the rest of the configuration. Every one is null
+  // on a lane written before them — UNKNOWN, and never defaulted to `claude`, which would be a claim.
+  // OPTIONAL rather than `| null` alone, and deliberately: this record is CONSTRUCTED by fixtures and
+  // by folds in packages that do not own this file, and a required field added under them is a
+  // compile break in somebody else's work rather than a widening of this one. `toLaneRecord` always
+  // writes all four, so a record that came from the store never omits them — an omission means the
+  // value was never measured, which is the same reading as `null` and is what the absent-value
+  // convention asks for.
+  /** The agent CLI that EXECUTED this lane — `claude` | `pi`. Null/absent = unrecorded. */
+  transport?: string | null;
+  /** The run arm this lane is a sample of; what joins a lane back to the arm that produced it. */
+  armId?: string | null;
+  /** The model that PLANNED this lane, when it opened with a planning session. Null = it never
+   *  planned — an absence, never "the same model as the executor". */
+  planModel?: string | null;
+  /** Why this lane is `void`: the paths it committed that score it. Null on every other lane. */
+  voidReason?: string | null;
 }
 
 /** What the worktree poll measured: files changed, lines added, lines removed. */
@@ -567,6 +612,9 @@ type RunRow = {
   seq?: number | null;
   driveId?: string | null;
   planMode?: string | null;
+  armsJson?: string | null;
+  armPolicy?: string | null;
+  probeJson?: string | null;
   startedAt: Date;
   endedAt: Date | null;
   error: string | null;
@@ -623,6 +671,10 @@ type LaneRow = {
   proposedJson?: string | null;
   diffStatJson?: string | null;
   landedAt?: Date | null;
+  transport?: string | null;
+  armId?: string | null;
+  planModel?: string | null;
+  voidReason?: string | null;
 };
 
 /** `diffStatJson` → the stat, or null when absent or malformed. */
@@ -735,6 +787,10 @@ export function toRunRecord(row: RunRow): LoopRunRecord {
     driveId: row.driveId ?? null,
     // Anything but the explicit "on" is OFF — a stale or hand-written value never turns planning on.
     planMode: row.planMode === "on" ? "on" : null,
+    // A malformed or absent column yields [] — see `parseArms`. Never a fabricated arm.
+    arms: parseArms(row.armsJson),
+    armPolicy: normalizeArmPolicy(row.armPolicy),
+    probeJson: row.probeJson ?? null,
     startedAt: row.startedAt.toISOString(),
     endedAt: row.endedAt ? row.endedAt.toISOString() : null,
     error: row.error,
@@ -801,6 +857,12 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     proposed: parseProposedColumn(row.proposedJson),
     diffStat: parseDiffStatColumn(row.diffStatJson),
     landedAt: row.landedAt ? row.landedAt.toISOString() : null,
+    // `?? null` per field, and the transport is NOT floored to "claude": a lane that did not record
+    // one ran before transports existed, and naming one would be a claim about it.
+    transport: normalizeTransport(row.transport),
+    armId: row.armId ?? null,
+    planModel: row.planModel ?? null,
+    voidReason: row.voidReason ?? null,
   };
 }
 

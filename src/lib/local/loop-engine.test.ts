@@ -13,8 +13,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── in-memory stand-in for the persistence layer ─────────────────────────────────────────────────
 type Target = { repo: string; kind: string; practiceId: string | null };
-type Run = { id: string; orgId: string; phase: string; repos: string[]; targets: Target[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; model: string | null; effort: string | null; modelPolicy: string; models: string[]; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
-type Lane = { id: string; runId: string; repoFullName: string; cycle: number; executor?: string; phase: string; branch: string | null; batchIds: string[]; closedIds: string[]; commits: number; beforeScanId: string | null; afterScanId: string | null; stage: string | null; log: string[]; error: string | null; startedAt: string | null; endedAt: string | null; model: string | null; abPairKey: string | null };
+type Run = { id: string; orgId: string; phase: string; repos: string[]; targets: Target[]; concurrency: number; maxCycles: number; cycle: number; curated: boolean; model: string | null; effort: string | null; modelPolicy: string; models: string[]; arms?: unknown[]; armPolicy?: string | null; startedAt: string; endedAt: string | null; error: string | null; createdAt: string; createdBy: string | null };
+type Lane = { id: string; runId: string; repoFullName: string; cycle: number; executor?: string; phase: string; branch: string | null; batchIds: string[]; closedIds: string[]; commits: number; beforeScanId: string | null; afterScanId: string | null; stage: string | null; log: string[]; error: string | null; startedAt: string | null; endedAt: string | null; model: string | null; abPairKey: string | null; armId?: string | null; transport?: string | null; planModel?: string | null; voidReason?: string | null };
 
 const db = { runs: [] as Run[], lanes: [] as Lane[], seq: 0, hangWrites: false };
 
@@ -23,7 +23,7 @@ vi.mock("@/lib/db/loop-runs", () => ({
   LOOP_DEFAULT_CONCURRENCY: 2,
   LOOP_MAX_CYCLES_CAP: 5,
   LANE_LOG_LINES: 200,
-  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; targets?: Target[]; concurrency?: number; maxCycles?: number; curated?: boolean; model?: string | null; effort?: string | null; modelPolicy?: string; models?: string[]; phase?: string }) => {
+  createLoopRun: vi.fn(async (input: { orgSlug: string; repos: string[]; targets?: Target[]; concurrency?: number; maxCycles?: number; curated?: boolean; model?: string | null; effort?: string | null; modelPolicy?: string; models?: string[]; arms?: unknown[] | null; armPolicy?: string | null; phase?: string }) => {
     const run: Run = {
       id: `run${++db.seq}`,
       orgId: "org1",
@@ -40,6 +40,8 @@ vi.mock("@/lib/db/loop-runs", () => ({
       effort: input.effort ?? null,
       modelPolicy: input.modelPolicy ?? "single",
       models: input.models ?? [],
+      arms: input.arms ?? [],
+      armPolicy: input.armPolicy ?? null,
       startedAt: new Date().toISOString(),
       endedAt: null,
       error: null,
@@ -63,13 +65,19 @@ vi.mock("@/lib/db/loop-runs", () => ({
   }),
   // The MODEL is part of the key when it is given: two arms of one `ab` repo are two rows in one
   // cycle, and on the three-part key the second would resolve to the first's row.
-  upsertLane: vi.fn(async (key: { runId: string; repoFullName: string; cycle: number; model?: string | null; abPairKey?: string | null; executor?: string; batchIds?: string[] }) => {
-    const { model = null, abPairKey = null, executor = "local", batchIds = [], ...base } = key;
+  upsertLane: vi.fn(async (key: { runId: string; repoFullName: string; cycle: number; model?: string | null; armId?: string | null; transport?: string | null; abPairKey?: string | null; executor?: string; batchIds?: string[] }) => {
+    const { model = null, armId = null, transport = null, abPairKey = null, executor = "local", batchIds = [], ...base } = key;
+    // The ARM ID is the stronger discriminator and wins when present — two arms of a `compare` run can
+    // execute the same model through different transports, and the model alone would pool them.
     const found = db.lanes.find(
-      (l) => l.runId === base.runId && l.repoFullName === base.repoFullName && l.cycle === base.cycle && (!model || l.model === model),
+      (l) =>
+        l.runId === base.runId &&
+        l.repoFullName === base.repoFullName &&
+        l.cycle === base.cycle &&
+        (armId ? l.armId === armId : !model || l.model === model),
     );
     if (found) return found;
-    const lane: Lane = { id: `lane${++db.seq}`, ...base, model, abPairKey, executor, phase: "queued", branch: null, batchIds, closedIds: [], commits: 0, beforeScanId: null, afterScanId: null, stage: null, log: [], error: null, startedAt: null, endedAt: null };
+    const lane: Lane = { id: `lane${++db.seq}`, ...base, model, armId, transport, abPairKey, executor, phase: "queued", branch: null, batchIds, closedIds: [], commits: 0, beforeScanId: null, afterScanId: null, stage: null, log: [], error: null, startedAt: null, endedAt: null };
     db.lanes.push(lane);
     return lane;
   }),
@@ -158,6 +166,9 @@ function workingDeps(over: Partial<LaneDeps> = {}): Partial<LaneDeps> {
     laneKind: vi.fn(async () => BACKLOG_LANE),
     install: vi.fn(async () => ({ ok: true, written: [], skipped: [], committed: false, summary: "not used" })),
     runAgent: vi.fn(async () => ({ ok: true, summary: "did the thing" })),
+    // THE TRANSPORT DOOR. An armed lane spawns through this one; an unarmed lane must never reach it,
+    // which is what the two REPLAY cases below prove by asserting `runAgent` carried them instead.
+    runAgentVia: vi.fn(async () => ({ ok: true, summary: "did the thing" })) as unknown as LaneDeps["runAgentVia"],
     commitWork: vi.fn(async () => ({ committed: true, files: 2, resolved: [], summary: "the lane committed the agent's work" })),
     rescan: vi.fn(async ({ repo, onStage }) => {
       onStage("analyze");
@@ -720,6 +731,141 @@ describe("modelPolicy: 'ab' — two arms of ONE experiment", () => {
     const lanes = db.lanes.filter((l) => l.runId === run.id);
     expect(lanes).toHaveLength(2);
     expect(lanes.every((l) => l.abPairKey === null)).toBe(true);
+  });
+});
+
+// ── ARMS: `compare` is `ab` GENERALIZED (spark local-model-lanes, 2026-09-21) ────────────────────
+//
+// The instrument existed and was hard-capped at two arms that both had to be Claude aliases. These
+// pin the generalization and — just as load-bearing — that the two vocabularies never merge: a run
+// armed the old way must still fan out, key its worktrees and pair its lanes exactly as it did.
+describe("armPolicy: 'compare' — N arms of ONE experiment", () => {
+  const arm = (id: string, transport: "claude" | "pi", model: string, plan?: { transport: "claude" | "pi"; model: string }) => ({
+    id,
+    label: id,
+    transport,
+    model,
+    ...(plan ? { plan } : {}),
+  });
+
+  it("fans one curated batch to N lanes per repo, each with its own worktree and arm id, under one key", async () => {
+    const deps = workingDeps();
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 1,
+      concurrency: 1,
+      armPolicy: "compare",
+      arms: [arm("claude", "claude", "sonnet"), arm("local", "pi", "qwen3.8:27b"), arm("split", "pi", "qwen3.8:27b", { transport: "claude", model: "sonnet" })],
+      deps,
+    });
+    await settle(run.id);
+    const lanes = db.lanes.filter((l) => l.runId === run.id);
+    expect(lanes).toHaveLength(3);
+    expect(lanes.map((l) => l.armId).sort()).toEqual(["claude", "local", "split"]);
+    // Every arm records the transport it EXECUTED through — the fact a model name alone cannot carry.
+    expect(lanes.map((l) => l.transport).sort()).toEqual(["claude", "pi", "pi"]);
+    // ONE comparison key joins them: the arms are samples of one experiment, not unrelated lanes.
+    expect(new Set(lanes.map((l) => l.abPairKey)).size).toBe(1);
+    expect(lanes[0]!.abPairKey).toContain("acme/web");
+    // Each arm ran its OWN session: three lanes, three agent calls, and the two `pi` arms asked for
+    // the local model while the Claude arm asked for sonnet.
+    expect(vi.mocked(deps.runAgentVia!)).toHaveBeenCalledTimes(3);
+    const spawned = vi.mocked(deps.runAgentVia!).mock.calls.map((c) => [c[0], (c[1] as { model?: string }).model]);
+    expect(spawned.sort()).toEqual([
+      ["claude", "sonnet"],
+      ["pi", "qwen3.8:27b"],
+      ["pi", "qwen3.8:27b"],
+    ]);
+  });
+
+  it("records the arms and the policy on the run, keeping `model` as the first arm's executor", async () => {
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 1,
+      concurrency: 1,
+      armPolicy: "compare",
+      arms: [arm("claude", "claude", "sonnet"), arm("local", "pi", "qwen3.8:27b")],
+      deps: workingDeps(),
+    });
+    await settle(run.id);
+    expect(db.runs[0]).toMatchObject({ modelPolicy: "compare", armPolicy: "compare", models: ["sonnet", "qwen3.8:27b"], model: "sonnet" });
+  });
+
+  it("refuses an arm set outside 2..4, and says which band", async () => {
+    await expect(
+      startLoopRun({ org: "acme", repos: ["acme/web"], armPolicy: "compare", arms: [arm("only", "claude", "sonnet")], deps: workingDeps() }),
+    ).rejects.toThrow(/2–4 arms/);
+  });
+
+  it("refuses two arms sharing an id — the id is what joins a lane back to its arm", async () => {
+    await expect(
+      startLoopRun({
+        org: "acme",
+        repos: ["acme/web"],
+        armPolicy: "compare",
+        arms: [arm("same", "claude", "sonnet"), arm("same", "pi", "qwen3.8:27b")],
+        deps: workingDeps(),
+      }),
+    ).rejects.toThrow(/distinct ids/);
+  });
+
+  it("refuses when N arms would blow the concurrency budget, naming N", async () => {
+    await expect(
+      startLoopRun({
+        org: "acme",
+        repos: ["acme/web"],
+        concurrency: 2,
+        armPolicy: "compare",
+        arms: [arm("a", "claude", "sonnet"), arm("b", "pi", "q"), arm("c", "pi", "r")],
+        deps: workingDeps(),
+      }),
+    ).rejects.toThrow(/3-arm comparison puts 6 lanes in flight/);
+  });
+
+  it("a SINGLE arm keys nothing: one lane per repo, no pair key, the worktree named as it always was", async () => {
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 1,
+      armPolicy: "single",
+      arms: [arm("local", "pi", "qwen3.8:27b")],
+      deps: workingDeps(),
+    });
+    await settle(run.id);
+    const lanes = db.lanes.filter((l) => l.runId === run.id);
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]!.abPairKey).toBeNull();
+    expect(lanes[0]!.transport).toBe("pi");
+  });
+
+  it("REPLAY: a pre-existing `ab` run is unchanged — two lanes keyed by model, no arm id", async () => {
+    const run = await startLoopRun({
+      org: "acme",
+      repos: ["acme/web"],
+      maxCycles: 1,
+      concurrency: 2,
+      modelPolicy: "ab",
+      models: ["sonnet", "opus"],
+      deps: workingDeps(),
+    });
+    await settle(run.id);
+    const lanes = db.lanes.filter((l) => l.runId === run.id);
+    expect(lanes).toHaveLength(2);
+    expect(lanes.map((l) => l.model).sort()).toEqual(["opus", "sonnet"]);
+    expect(lanes.every((l) => l.armId === null)).toBe(true);
+    expect(lanes.every((l) => l.transport === null)).toBe(true);
+    expect(db.runs[0]).toMatchObject({ modelPolicy: "ab", armPolicy: null });
+  });
+
+  it("REPLAY: a pre-existing `single` run is unchanged — one lane per repo, no arm, no key", async () => {
+    const run = await startLoopRun({ org: "acme", repos: ["acme/web", "acme/api"], maxCycles: 1, deps: workingDeps() });
+    await settle(run.id);
+    const lanes = db.lanes.filter((l) => l.runId === run.id);
+    expect(lanes).toHaveLength(2);
+    expect(lanes.every((l) => l.abPairKey === null && l.armId === null && l.transport === null)).toBe(true);
+    expect(db.runs[0]).toMatchObject({ modelPolicy: "single", armPolicy: null });
   });
 });
 

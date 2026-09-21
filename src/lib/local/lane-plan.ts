@@ -35,6 +35,8 @@ import { modulePartition } from "@/lib/local/module-partition";
 import { parsePlan } from "@/lib/local/lane-plan-parse";
 import { splitPlan, type DirectionGrant, type ItemClass } from "@/lib/local/lane-plan-classify";
 import { buildPlanBlock, buildPlanningPrompt, type ReviseNote } from "@/lib/local/lane-plan-prompt";
+import { isSplitArm, planArmOf, type Arm, type TransportId } from "@/lib/local/arm";
+import type { TransportRunOptions } from "@/lib/local/transport/run";
 import { recommendationDecisionKey } from "@/lib/report/rec-identity";
 import {
   PLAN_TIMEOUT_MS,
@@ -64,10 +66,28 @@ export interface PlanLaneInput {
   agent: { model?: string | null; effort?: string | null };
   /** The runner seam (`LaneDeps.runAgent`), so a test never spawns a process. */
   runAgent: (opts: ClaudeAgentOptions) => Promise<AgentRunResult>;
+  /**
+   * THE ARM THIS LANE IS RUNNING, when the run has one. Its PLANNING half is what this session is
+   * spawned as (`planArmOf`) — which is the whole point of the arm shape: "Claude plans, a local
+   * model executes" is two transports in one lane, and it is unreachable if the planning session can
+   * only read the executing model off `agent`.
+   *
+   * Null (every run armed before arms existed) leaves this function byte-identical: it spawns through
+   * `runAgent` with `agent.model`, exactly as it always did.
+   */
+  arm?: Arm | null;
+  /** Transport-aware dispatch. Consulted ONLY when `arm` is present; absent means the pre-arms path,
+   *  so a caller that never heard of transports cannot accidentally take the new one. */
+  runVia?: (transport: TransportId, opts: TransportRunOptions) => Promise<AgentRunResult>;
   /** The lane's activity sink — the planning session streams into the same tail the theater reads. */
   onEvent?: (e: AgentStreamEvent) => void;
   /** The watchdog's cut. */
   signal?: AbortSignal;
+  /** THIS ARM'S planning ceiling. Omitted = `PLAN_TIMEOUT_MS`, the shared constant every lane used
+   *  before transports had their own timing bands — a 27B at Q4 generates at roughly a tenth of a
+   *  hosted model's rate, and one ceiling for both forces a choice between failing every local lane on
+   *  the clock and removing the tripwire that catches a stuck Claude one. */
+  planTimeoutMs?: number | null;
 }
 
 export type PlanLaneOutcome =
@@ -93,6 +113,9 @@ export type PlanLaneOutcome =
       declaredMoves: ArchitectureMove[];
       /** When the executing items run under an approved direction, that direction's fence. */
       directionFence: string[] | null;
+      /** THE MODEL THAT PLANNED — what the lane row's `planModel` records. Null when nothing named
+       *  one (the deployment default answered), which is an absence and never a guess. */
+      planModel: string | null;
     };
 
 export const PLAN_WROTE_MESSAGE =
@@ -154,17 +177,23 @@ export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
   const before = await porcelain(worktree.dir);
   const headBefore = await headOf(worktree.dir);
   const sessionId = randomUUID();
-  const result = await input.runAgent({
+  // THE PLANNING HALF OF THE ARM. `planArmOf` returns the executing half when the arm declares no
+  // separate planner, so an unsplit arm plans with exactly what it executes with — which is what
+  // every lane before arms existed did, written down rather than assumed.
+  const planArm = input.arm ? planArmOf(input.arm) : null;
+  const planModel = planArm?.model ?? input.agent.model ?? null;
+  const opts: TransportRunOptions = {
     cwd: worktree.dir,
     prompt: buildPlanningPrompt({ org, repo, batch, briefText: input.briefText, partition, revise: revise.map((r) => r.note) }),
     permission: "plan",
     sessionId,
-    ...(input.agent.model ? { model: input.agent.model } : {}),
+    ...(planModel ? { model: planModel } : {}),
     ...(input.agent.effort ? { effort: input.agent.effort } : {}),
-    timeoutMs: PLAN_TIMEOUT_MS,
+    timeoutMs: input.planTimeoutMs ?? PLAN_TIMEOUT_MS,
     ...(input.signal ? { signal: input.signal } : {}),
     ...(input.onEvent ? { onEvent: input.onEvent } : {}),
-  });
+  };
+  const result = planArm && input.runVia ? await input.runVia(planArm.transport, opts) : await input.runAgent(opts);
 
   // THE CLEAN-TREE PROOF. The policy said read-only; only the tree can say whether it held — its
   // files (`git status --porcelain` empty) AND its history (HEAD where it was: a commit leaves a
@@ -229,9 +258,15 @@ export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
     execute,
     parked,
     planBlock: buildPlanBlock({ plan, items: planned, directionFence, directed: false }),
-    resumeSessionId: plan && result.ok ? sessionId : null,
+    // A SPLIT ARM CANNOT RESUME ITS OWN PLAN. The resume is an optimization — the execution session
+    // continues the planning session, whose context is already loaded — and it is only available when
+    // the SAME tool holds that session. When Claude planned and a local transport executes, the
+    // session id names a conversation the executor has never heard of, so the plan travels as the
+    // fenced `planBlock` in the prompt (which it always does anyway) and nothing is resumed.
+    resumeSessionId: plan && result.ok && !(input.arm && isSplitArm(input.arm)) ? sessionId : null,
     declaredMoves: planned.flatMap((p) => p.moves),
     directionFence,
+    planModel,
   };
 }
 
