@@ -32,6 +32,13 @@ function fmtCostMicros(micros: number | null): string {
  * carries the caller-owned idempotency key `loop-lane:<laneId>` so a retried write cannot double
  * count, and hands over the cost rather than letting the meter re-price it: for a subscription-auth
  * CLI session the envelope is authoritative and a token-times-rate estimate is not.
+ *
+ * THE PLANNING SESSION (WP9), when the lane ran one. `result` is the EXECUTING session and every
+ * column it writes keeps its exact meaning; the planner's envelope goes to the `plan*` columns
+ * beside them, in this same patch, so a lane that dies afterwards still carries both halves. It used
+ * to be read past and dropped, which reported a split arm — Claude plans, a local model executes —
+ * as having spent ZERO Claude tokens, on the one metric this whole feature optimizes. A lane that
+ * did not plan passes nothing and the five columns stay NULL: absent, never a free planning session.
  */
 export async function recordAgentCost(
   laneId: string,
@@ -41,6 +48,10 @@ export async function recordAgentCost(
   // A STRUCTURAL slice of `LaneRunInput` rather than the type itself: importing it would make this
   // module and loop-lane.ts a cycle, and the two fields below are all this function reads.
   input: { agent?: { model?: string | null }; abPairKey?: string | null },
+  /** The planning session that opened this lane, or null/absent when it opened without one. Its
+   *  dollar figure is NOT read here: `costMicros` is the lane's one declared source and summing a
+   *  second envelope into it is the double-count the one-source rule exists to forbid. */
+  planResult?: AgentRunResult | null,
 ): Promise<void> {
   const model = result.model ?? input.agent?.model ?? null;
   const costMicros = result.costMicros ?? null;
@@ -48,6 +59,9 @@ export async function recordAgentCost(
     model,
     costSource: LANE_COST_SOURCE,
     costMicros,
+    // The planner's half. `tokensOf(..., true)` would discard a cost this call never reads anyway;
+    // the `local` flag is passed false because only the token counts are taken from it.
+    ...planTokenColumns(planResult ? tokensOf(planResult, false) : null),
     inputTokens: result.inputTokens ?? null,
     outputTokens: result.outputTokens ?? null,
     cacheReadTokens: result.cacheReadTokens ?? null,
@@ -236,8 +250,38 @@ export function splitLaneTokens(steps: ArmStep[]): LaneTokenSplit {
   return split;
 }
 
-/** What `laneArmPatch` hands the lane row — the existing columns, and nothing invented. */
-export interface LaneArmPatch {
+/** The five columns that record the PLANNING session. Null on every field the session did not
+ *  report, and the WHOLE shape is absent when no planning session ran — see `planTokenColumns`. */
+export interface PlanTokenColumns {
+  planInputTokens: number | null;
+  planOutputTokens: number | null;
+  planCacheReadTokens: number | null;
+  planTurns: number | null;
+  planDurationMs: number | null;
+}
+
+/**
+ * The planning session's half, as the row's columns.
+ *
+ * A lane that never planned gets `null` in every field rather than 0: the planning cost of a lane
+ * that had no planning session is ABSENT, and a 0 would be averaged as a free planning session by
+ * exactly the metric these columns exist to feed. The cost figure is deliberately NOT among them —
+ * `costMicros` is one declared source for the whole lane and a second money column here would invite
+ * the sum this module refuses.
+ */
+export function planTokenColumns(plan: StepTokens | null): PlanTokenColumns {
+  return {
+    planInputTokens: plan?.inputTokens ?? null,
+    planOutputTokens: plan?.outputTokens ?? null,
+    planCacheReadTokens: plan?.cacheReadTokens ?? null,
+    planTurns: plan?.turns ?? null,
+    planDurationMs: plan?.durationMs ?? null,
+  };
+}
+
+/** What `laneArmPatch` hands the lane row — the existing columns, the plan-side ones, and nothing
+ *  invented. */
+export interface LaneArmPatch extends PlanTokenColumns {
   model: string | null;
   costSource: string;
   costMicros: number | null;
@@ -256,17 +300,24 @@ export interface LaneArmPatch {
  * when a Claude-side step ran, in which case `costMicros` carries that side's figure ALONE. A split
  * arm therefore records what its plan actually cost, and never the local executor's invented price.
  *
- * The token columns carry the EXECUTING session, which is byte-identical to what every lane before
- * transports recorded (the planning session's envelope was read past and dropped). The plan half is
- * in the returned `split`, which is what a plan-side column would be written from.
+ * The unprefixed token columns carry the EXECUTING session, byte-identical to what every lane before
+ * transports recorded. The planning session is no longer read past and dropped: it lands in the
+ * `plan*` columns beside them (WP9), because the optimized metric is CLAUDE TOKENS per verified point
+ * and a split arm spends every one of them in the planning session. Pooling the two halves into one
+ * set of columns reported that arm as costing zero Claude tokens, and no later read can unpool them.
  */
 export function laneArmPatch(steps: ArmStep[]): { patch: LaneArmPatch; split: LaneTokenSplit } {
   const split = splitLaneTokens(steps);
   const exec = steps.find((s) => s.step === "execute") ?? steps[steps.length - 1] ?? null;
   const execTokens = exec ? tokensOf(exec.result, stepIsLocal(exec)) : null;
+  // The PLAN step by name, never "the other one": an arm with a single step planned nothing, and
+  // inferring a planning session from a lane that had none is the fabrication these columns refuse.
+  const planStep = steps.find((s) => s.step === "plan") ?? null;
+  const planTokens = planStep ? tokensOf(planStep.result, stepIsLocal(planStep)) : null;
   return {
     split,
     patch: {
+      ...planTokenColumns(planTokens),
       model: exec?.result.model ?? exec?.model ?? null,
       costSource: split.claude ? LANE_COST_SOURCE : LANE_COST_SOURCE_NONE,
       costMicros: split.claude?.costMicros ?? null,

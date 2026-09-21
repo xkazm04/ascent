@@ -292,6 +292,15 @@ export interface LoopLanePatch {
    *  a phase without its reason. */
   voidReason?: string | null;
 
+  // ── WHAT THE PLANNING SESSION SPENT (WP9). Written in the same patch as the executing session's
+  // figures, which these do NOT replace: the lane ran two sessions and now records both. `null` is a
+  // legitimate value on each and means "no planning session reported this" — an absence, never 0.
+  planInputTokens?: number | null;
+  planOutputTokens?: number | null;
+  planCacheReadTokens?: number | null;
+  planTurns?: number | null;
+  planDurationMs?: number | null;
+
   // ── MOONSHOT #25. Objects rather than pre-serialized strings: the JSON-in-TEXT encoding is the
   // store's business, and a caller that had to remember to stringify is a caller that will one day
   // write a `[object Object]` column.

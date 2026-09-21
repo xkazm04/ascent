@@ -1974,6 +1974,25 @@ model LoopRunLane {
   planModel     String?
   voidReason    String?
 
+  // ── WHAT THE PLANNING SESSION SPENT (spark local-model-lanes, WP9, 2026-09-21). The columns above
+  // (`inputTokens`, `outputTokens`, `cacheReadTokens`, `turns`, `agentDurationMs`) keep their exact
+  // meaning — the EXECUTING session — and are not repurposed. These five are the other session.
+  //
+  // They exist because of the one metric this feature optimizes: CLAUDE TOKENS PER VERIFIED POINT. A
+  // split arm (Claude plans, a local model executes) spends its Claude tokens in the planning session
+  // alone, and a row that recorded only the executing half reported that arm as costing ZERO Claude
+  // tokens — wrong, and flattering to the arm this feature advocates, which is the worst combination.
+  // A metric that has to join the usage ledger to answer "what did this lane cost in Claude tokens"
+  // is one refactor away from silently answering zero, so the row carries it.
+  //
+  // ALL NULLABLE, no default, NO BACKFILL. A lane that ran before these columns has an UNKNOWN
+  // planning cost; a 0 would be averaged as a free planning session, which is a claim nobody made.
+  planInputTokens     Int?
+  planOutputTokens    Int?
+  planCacheReadTokens Int?
+  planTurns           Int?
+  planDurationMs      Int?
+
   run LoopRun @relation(fields: [runId], references: [id])
 
   @@index([runId])

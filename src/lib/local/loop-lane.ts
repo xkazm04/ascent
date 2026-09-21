@@ -978,6 +978,17 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   const runnerFlags = input.runner ?? null;
   let planId: string | null = null;
   let planModel: string | null = null;
+  // THE PLANNING SESSION'S ENVELOPE (WP9), captured where the dependency is INJECTED rather than
+  // returned through `planLane`'s outcome: the lane owns the two doors the planner is spawned
+  // through, so wrapping them here is the one place that sees every planning session regardless of
+  // which transport answered. It is what the lane row's `plan*` columns are written from — a split
+  // arm spends its CLAUDE tokens here and its local ones in the executing session, and a row that
+  // recorded only the latter reported the split arm as having cost nothing on the optimized metric.
+  let planResult: AgentRunResult | null = null;
+  const capturePlan = (r: AgentRunResult): AgentRunResult => {
+    planResult = r;
+    return r;
+  };
   let declaredMoves: ArchitectureMove[] = [];
   let directionFence: string[] | null = null;
   let directed: DirectedBatch | null = null;
@@ -1219,10 +1230,16 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
             batch,
             briefText: brief?.text ?? null,
             agent: { model: input.agent?.model ?? null, effort: input.agent?.effort ?? null },
-            runAgent: deps.runAgent,
+            runAgent: (o) => deps.runAgent(o).then(capturePlan),
             // THE PLANNING HALF OF THE ARM and the door it goes through. Both absent on a pre-arms
             // lane, which is the path `planLane` keeps byte-identical.
-            ...(execArm ? { arm: execArm, runVia: deps.runAgentVia, planTimeoutMs: timing.planMs } : {}),
+            ...(execArm
+              ? {
+                  arm: execArm,
+                  runVia: (t: TransportId, o: TransportRunOptions) => deps.runAgentVia(t, o).then(capturePlan),
+                  planTimeoutMs: timing.planMs,
+                }
+              : {}),
             onEvent: (e) => activity.onEvent(e),
             signal: watch.signal,
           }),
@@ -1403,7 +1420,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // that can fail. A lane that dies three steps from here still carries its cost, which is the
       // half of the ledger that cannot be reconstructed from git afterwards. A FAILED session is
       // recorded too: a failure that burned two dollars is the most important row in the price list.
-      await recordAgentCost(laneId, org, repo, result, input);
+      // …and, in the same patch, what the PLANNING session spent, when this lane ran one. Two
+      // sessions, two sets of columns: pooling them makes a split arm's Claude spend unrecoverable.
+      await recordAgentCost(laneId, org, repo, result, input, planResult);
       // …and charged to the direction the plan ran under — the half of a direction's budget its cycle
       // count cannot measure.
       await deps.chargePlanCost(planId, result.costMicros);

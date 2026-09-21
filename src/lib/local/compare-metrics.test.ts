@@ -69,12 +69,32 @@ describe("the optimized metric", () => {
     expect(report.note).toContain("No arm produced a verified point");
   });
 
-  it("attributes a split arm's whole envelope to Claude — the bias runs against the arm being sold", () => {
+  it("credits a MEASURED split arm with its plan side only, and its execution to local", () => {
+    const report = buildComparisonReport([
+      row({
+        armId: "split",
+        transport: "pi",
+        planTransport: "claude",
+        verifiedPoints: 1,
+        inputTokens: 300,
+        outputTokens: 200,
+        planInputTokens: 80,
+        planOutputTokens: 40,
+      }),
+    ]);
+    expect(report.arms[0]?.claudeTokens).toBe(120);
+    expect(report.arms[0]?.localTokens).toBe(500);
+    expect(report.arms[0]?.claudeTokensPerVerifiedPoint).toBe(120);
+  });
+
+  it("falls back to the whole envelope when a Claude planner's tokens were never recorded", () => {
+    // A lane older than the `plan*` columns. Reading its unmeasured planner as ZERO Claude tokens
+    // would flatter exactly the arm this feature advocates, so the conservative attribution stands
+    // where — and only where — the measurement is missing.
     const report = buildComparisonReport([
       row({ armId: "split", transport: "pi", planTransport: "claude", verifiedPoints: 1, inputTokens: 300, outputTokens: 200 }),
     ]);
     expect(report.arms[0]?.claudeTokens).toBe(500);
-    expect(report.arms[0]?.localTokens).toBe(0);
   });
 
   it("honours an explicit per-side split when the caller can record one", () => {

@@ -105,13 +105,14 @@ export interface ComparisonReport {
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // THE INPUT SHAPE.
 //
-// WP3 owns the persisted columns (`transport`, `armId`, `planModel`, `voidReason`, the cost/token
-// columns, the before/after scan diff) and they are NOT committed yet — `LoopLaneRecord` in
-// `src/lib/db/loop-runs-types.ts` carries none of them at the time this module was written. So this
-// file declares the NARROW INPUT IT NEEDS rather than importing a half-built row type: the read side
-// projects a `LoopLaneRecord` onto this, in one place, and a column that arrives under a different
-// name is then a compile error at that projection instead of an `undefined` that silently reads as
-// zero. Field names match the wire contract's booked identifiers wherever one exists.
+// This file declares the NARROW INPUT IT NEEDS rather than importing the persisted row type: the
+// read side projects a `LoopLaneRecord` onto this, in one place, and a column that arrives under a
+// different name is then a compile error at that projection instead of an `undefined` that silently
+// reads as zero. Field names match the wire contract's booked identifiers wherever one exists.
+//
+// The columns themselves are now committed: `transport`, `armId`, `planModel`, `voidReason`, the
+// executing session's token columns and the planning session's `plan*` ones. `laneTokenAttribution`
+// below is that one projection for the token halves, and it is what the optimized metric reads.
 
 /**
  * HOW A LANE ENDED, as the metric needs to count it. Every value is REPORTED; none is dropped.
@@ -154,10 +155,15 @@ export interface LaneMetricRow {
    * in every unconditioned figure and is simply not in the conditioned subset.
    */
   trialKey?: string | null;
+  /** The EXECUTING session's tokens, verbatim from the lane row's columns of the same name. */
   inputTokens?: number | null;
   outputTokens?: number | null;
-  /** Explicit per-side token attribution, when WP3 can record the two halves separately. When absent
-   *  the split is inferred (see `tokenSplit`). */
+  /** The PLANNING session's tokens, from the lane row's `plan*` columns. Absent/null = the lane never
+   *  planned, or it ran before those columns existed — UNMEASURED, and never a free session. */
+  planInputTokens?: number | null;
+  planOutputTokens?: number | null;
+  /** Explicit per-side token attribution, already projected (`laneTokenAttribution`). Set, it wins
+   *  over the columns above; absent, the split is computed from them. */
   claudeTokens?: number | null;
   localTokens?: number | null;
   /** MICRO-CENTS, from the lane's own envelope. Null = the CLI reported nothing, which is not 0. */
@@ -259,22 +265,59 @@ function median(values: number[]): number | null {
 const COMPLETED: readonly LaneOutcomeClass[] = ["landed", "failed", "void", "parked", "timed-out"];
 const isCompleted = (r: LaneMetricRow): boolean => COMPLETED.includes(r.outcome);
 
+/** One session's tokens: the sum of its two counts, or null when NEITHER was reported. A half that
+ *  reported nothing is unmeasured, and `0 + null` is not 0. */
+function sessionTokens(input: number | null | undefined, output: number | null | undefined): number | null {
+  const i = num(input);
+  const o = num(output);
+  return i == null && o == null ? null : (i ?? 0) + (o ?? 0);
+}
+
 /**
- * WHOSE TOKENS. The conservative rule: a lane with ANY Claude half has its whole envelope counted as
- * Claude tokens unless the caller states the split explicitly. That over-attributes a split arm's
- * local execution to Claude — deliberately, because the bias then runs AGAINST the arm this feature
- * is advocating for. An optimistic split would let the headline metric improve by an apportionment
- * choice nobody could see.
+ * THE PROJECTION — whose tokens, from the lane row's own columns, in ONE place.
+ *
+ * A lane runs up to two sessions and the row records them separately: the unprefixed token columns
+ * are the EXECUTING session, the `plan*` columns the PLANNING one. Each half is attributed to the
+ * transport that ran it, so a split arm — Claude plans, a local model executes — contributes its
+ * planning tokens to Claude and its executing tokens to local, which is the arithmetic the optimized
+ * metric was defined over. This is the ONE function that reads those columns: a renamed column is a
+ * compile error here rather than an `undefined` that silently reads as zero downstream.
+ *
+ * A side that did not run, or did not report, is `null` — never 0, and two unknowns sum to null.
+ *
+ * THE ONE CONSERVATISM LEFT, and it is now NARROW: when the planning half was Claude and its tokens
+ * were never recorded (a lane older than the `plan*` columns), the executing envelope is attributed
+ * to Claude rather than letting an unmeasured planner read as zero Claude spend. The bias still runs
+ * AGAINST the arm this feature advocates, but only where the measurement is genuinely missing — a
+ * measured lane is now reported as it was measured.
  */
-function tokenSplit(r: LaneMetricRow): { claude: number; local: number } {
+export function laneTokenAttribution(r: LaneMetricRow): { claudeTokens: number | null; localTokens: number | null } {
   const explicitClaude = num(r.claudeTokens);
   const explicitLocal = num(r.localTokens);
-  if (explicitClaude != null || explicitLocal != null) return { claude: explicitClaude ?? 0, local: explicitLocal ?? 0 };
-  const total = (num(r.inputTokens) ?? 0) + (num(r.outputTokens) ?? 0);
-  if (total === 0) return { claude: 0, local: 0 };
-  const plan = r.planTransport ?? r.transport;
-  const touchesClaude = r.transport === REFERENCE_TRANSPORT || plan === REFERENCE_TRANSPORT;
-  return touchesClaude ? { claude: total, local: 0 } : { claude: 0, local: total };
+  if (explicitClaude != null || explicitLocal != null) return { claudeTokens: explicitClaude, localTokens: explicitLocal };
+  const exec = sessionTokens(r.inputTokens, r.outputTokens);
+  const plan = sessionTokens(r.planInputTokens, r.planOutputTokens);
+  const execIsClaude = r.transport === REFERENCE_TRANSPORT;
+  // An absent `planTransport` means the executing half planned too — the wire contract's reading of
+  // it, and what every lane before split arms actually did.
+  const planIsClaude = (r.planTransport ?? r.transport) === REFERENCE_TRANSPORT;
+  if (planIsClaude && plan == null && !execIsClaude) return { claudeTokens: exec, localTokens: null };
+  const sides = [
+    { claude: execIsClaude, tokens: exec },
+    { claude: planIsClaude, tokens: plan },
+  ];
+  const side = (isClaude: boolean): number | null =>
+    sides
+      .filter((x) => x.claude === isClaude && x.tokens != null)
+      .reduce<number | null>((acc, x) => (acc ?? 0) + (x.tokens as number), null);
+  return { claudeTokens: side(true), localTokens: side(false) };
+}
+
+/** The attribution as the AGGREGATION consumes it. A null side contributes nothing to a sum, which is
+ *  the only place an unmeasured side may become a 0 — it never becomes one on the row itself. */
+function tokenSplit(r: LaneMetricRow): { claude: number; local: number } {
+  const { claudeTokens, localTokens } = laneTokenAttribution(r);
+  return { claude: claudeTokens ?? 0, local: localTokens ?? 0 };
 }
 
 /** Lanes whose lift the metric may credit: completed, and not voided by the integrity guard. */

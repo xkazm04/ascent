@@ -1498,6 +1498,11 @@ CREATE TABLE "LoopRunLane" (
     "armId" TEXT,
     "planModel" TEXT,
     "voidReason" TEXT,
+    "planInputTokens" INTEGER,
+    "planOutputTokens" INTEGER,
+    "planCacheReadTokens" INTEGER,
+    "planTurns" INTEGER,
+    "planDurationMs" INTEGER,
     "briefJson" TEXT NOT NULL DEFAULT '{}',
     "reportJson" TEXT NOT NULL DEFAULT '{}',
     "dimId" TEXT,
@@ -1540,6 +1545,14 @@ ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "transport" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "armId" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planModel" TEXT;
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "voidReason" TEXT;
+-- WP9 — what the PLANNING session spent. The five token columns above stay the EXECUTING session;
+-- these are the other half, nullable with no default because a lane written before them has an
+-- UNKNOWN planning cost and a 0 would be averaged as a free planning session.
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planInputTokens" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planOutputTokens" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planCacheReadTokens" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planTurns" INTEGER;
+ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "planDurationMs" INTEGER;
 -- MOONSHOT #25 — the lane's brief PROVENANCE and the agent's own report, verbatim after validation.
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "briefJson" TEXT NOT NULL DEFAULT '{}';
 ALTER TABLE "LoopRunLane" ADD COLUMN IF NOT EXISTS "reportJson" TEXT NOT NULL DEFAULT '{}';

@@ -456,6 +456,18 @@ export interface LoopLaneRecord {
   planModel?: string | null;
   /** Why this lane is `void`: the paths it committed that score it. Null on every other lane. */
   voidReason?: string | null;
+
+  // ── WHAT THE PLANNING SESSION SPENT (WP9). The five fields above under MOONSHOT #27 are the
+  // EXECUTING session and keep that meaning exactly; these are the lane's OTHER session. A split
+  // arm spends its Claude tokens here and its local tokens there, and the optimized metric (Claude
+  // tokens per verified point) cannot be computed from a pooled figure — no later read can unpool it.
+  // Null/absent = NOT MEASURED: either the lane never planned, or it ran before these columns. Never
+  // 0, which would be averaged downstream as a free planning session.
+  planInputTokens?: number | null;
+  planOutputTokens?: number | null;
+  planCacheReadTokens?: number | null;
+  planTurns?: number | null;
+  planDurationMs?: number | null;
 }
 
 /** What the worktree poll measured: files changed, lines added, lines removed. */
@@ -675,6 +687,11 @@ type LaneRow = {
   armId?: string | null;
   planModel?: string | null;
   voidReason?: string | null;
+  planInputTokens?: number | null;
+  planOutputTokens?: number | null;
+  planCacheReadTokens?: number | null;
+  planTurns?: number | null;
+  planDurationMs?: number | null;
 };
 
 /** `diffStatJson` → the stat, or null when absent or malformed. */
@@ -863,6 +880,14 @@ export function toLaneRecord(row: LaneRow): LoopLaneRecord {
     armId: row.armId ?? null,
     planModel: row.planModel ?? null,
     voidReason: row.voidReason ?? null,
+    // The PLANNING session's half, `?? null` per field for the same reason the executing half is:
+    // a column the row does not carry is UNMEASURED, and the fold that prices a verified point has
+    // to tell that apart from a planning session that was free.
+    planInputTokens: row.planInputTokens ?? null,
+    planOutputTokens: row.planOutputTokens ?? null,
+    planCacheReadTokens: row.planCacheReadTokens ?? null,
+    planTurns: row.planTurns ?? null,
+    planDurationMs: row.planDurationMs ?? null,
   };
 }
 
