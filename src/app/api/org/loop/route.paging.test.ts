@@ -47,7 +47,9 @@ beforeEach(() => vi.clearAllMocks());
 describe("GET /api/org/loop — the chronicle page", () => {
   it("keeps the full status response, and the 20-run default, when no paging parameter is sent", async () => {
     const body = (await (await get("org=acme")).json()) as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["active", "enabled", "prAvailable", "prices", "runs", "stopHorizonMs", "stopping"]);
+    // `hosted` joined the status body on origin (ADR-0001, #18) while this branch was building the
+    // chronicle page; the full-response assertion has to name it or the merge silently drops it.
+    expect(Object.keys(body).sort()).toEqual(["active", "enabled", "hosted", "prAvailable", "prices", "runs", "stopHorizonMs", "stopping"]);
     expect(listLoopRuns).toHaveBeenCalledWith("acme", 20);
   });
 

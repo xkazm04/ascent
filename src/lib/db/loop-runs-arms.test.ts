@@ -27,7 +27,11 @@ const laneRow = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("the migration", () => {
-  const sql = readFileSync(MIGRATION, "utf8");
+  // SPLIT ON `\r?\n`, NOT `\n`. The blob is LF, but `core.autocrlf` checks this file out CRLF on
+  // Windows, so a `\n` split left a trailing `\r` on every line and the `TEXT;$` anchor below could
+  // not match on the author's own machine while CI (Linux) stayed green — the exact failure mode
+  // `.gitattributes` in this repo was written about. Asserted the same way; read portably.
+  const sql = readFileSync(MIGRATION, "utf8").replace(/\r\n/g, "\n");
 
   it("adds every new column NULLABLE — no NOT NULL, no DEFAULT, no backfill", () => {
     const adds = sql.split("\n").filter((l) => l.trim().startsWith("ALTER TABLE"));
