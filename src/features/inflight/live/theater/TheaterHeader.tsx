@@ -8,6 +8,7 @@
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
+import { armLabel, type Arm } from "@/lib/local/arm";
 import { TODAY_PREDICATES, type HeaderModel, type HeaderTone } from "./theaterHeaderModel";
 
 const TONE: Record<HeaderTone, string> = {
@@ -47,7 +48,25 @@ function Sub({ children }: { children: React.ReactNode }) {
   return <p className="type-title text-slate-400">{children}</p>;
 }
 
-export function TheaterHeader({ model }: { model: HeaderModel }) {
+/**
+ * WHAT THE RUN IS ARMED WITH — shown on EVERY run, single-arm ones included, because "which model did
+ * this" is the question the theater could not answer at all before arms existed.
+ *
+ * Quiet by construction: a mono caption under the running answer, never a headline. A null label
+ * renders NOTHING rather than "default" — a lane recorded before arms existed has a genuinely unknown
+ * configuration, and "default" would be a claim about it (`armLabel`, arm.ts).
+ */
+function ArmLine({ arm }: { arm: Arm | null | undefined }) {
+  const label = armLabel(arm);
+  if (!label) return null;
+  return (
+    <p data-testid="theater-arm" className="truncate font-mono type-caption text-slate-500" title={`Armed with ${label}`}>
+      {label}
+    </p>
+  );
+}
+
+export function TheaterHeader({ model, arm }: { model: HeaderModel; arm?: Arm | null }) {
   const { running, now, today, needs } = model;
   // NOTHING TO REPORT: the four questions keep their kickers and answer with an empty block, because
   // with no runner every one of them would say the same thing the hero is already saying once. The
@@ -72,6 +91,7 @@ export function TheaterHeader({ model }: { model: HeaderModel }) {
           </Headline>
         </div>
         <Sub>{running.sub}</Sub>
+        <ArmLine arm={arm} />
       </Block>
 
       <Block label="Now">
