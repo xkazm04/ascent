@@ -122,12 +122,34 @@ export function piArgs(input: PiArgvInput): string[] {
  * for OpenAI-compatible servers that do not understand the `developer` role or `reasoning_effort`;
  * Ollama is named in those docs and the measured runs all carried them.
  */
+/**
+ * PI'S BASE URL IS NOT THE ARM'S BASE URL, and the difference is one path segment that cost a lane.
+ *
+ * `LocalEndpoint.baseUrl` is the server ROOT, which is what the `claude` transport needs: that client
+ * speaks the Anthropic protocol and appends `/v1/messages` itself. Pi speaks `openai-completions`,
+ * whose base must already be the OpenAI-compatible prefix — `/v1` — because Pi appends only
+ * `/chat/completions`.
+ *
+ * Handed the bare root, Pi posts to `/chat/completions` and the server answers **404 page not found**.
+ * Measured 2026-09-21 on a real lane: the session failed in 1 second and 1 turn, the lane recorded it
+ * honestly and committed nothing, and the 404 was the only evidence that anything was wrong — a
+ * transport that merely LOOKS misconfigured is indistinguishable from a model that cannot work.
+ *
+ * The knowledge lives here rather than in `resolveLocalEndpoint` because it is Pi's protocol
+ * requirement, not the deployment's: the same endpoint must keep serving the Claude transport as the
+ * root it already is. An operator who configured the variable WITH `/v1` is not punished for it.
+ */
+export function piBaseUrl(baseUrl: string): string {
+  const root = baseUrl.replace(/\/+$/, "");
+  return /\/v\d+$/.test(root) ? root : `${root}/v1`;
+}
+
 export function piModelsJson(endpoint: LocalEndpoint): string {
   return `${JSON.stringify(
     {
       providers: {
         [PI_LOCAL_PROVIDER]: {
-          baseUrl: endpoint.baseUrl,
+          baseUrl: piBaseUrl(endpoint.baseUrl),
           api: "openai-completions",
           // Local servers ignore the value but reject its absence, so an absent one is a connection
           // failure that reads like a model failure.

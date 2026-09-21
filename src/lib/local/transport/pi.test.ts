@@ -18,6 +18,7 @@ import {
   PI_LOCAL_PROVIDER,
   PI_PLAN_TOOLS,
   piArgs,
+  piBaseUrl,
   piModelsJson,
   piProfile,
   piSessionDir,
@@ -104,6 +105,30 @@ describe("piArgs — pinned against a literal", () => {
     const args = piArgs({ model: "m", sessionId: "not; a uuid", sessionDir: "D:/s" });
     expect(args).not.toContain("--session-id");
     expect(args).toContain("--no-session");
+  });
+});
+
+describe("piBaseUrl — the one path segment that cost a lane", () => {
+  // The arm's endpoint is the server ROOT, because the `claude` transport speaks Anthropic and
+  // appends `/v1/messages` itself. Pi speaks openai-completions and appends only `/chat/completions`,
+  // so the bare root makes it POST to `/chat/completions` and the server answers 404. Measured on a
+  // real lane 2026-09-21: the session died in 1 second, the lane recorded it honestly and committed
+  // nothing, and a misconfigured transport is indistinguishable from a model that cannot work.
+  it("appends the OpenAI-compatible prefix to a bare server root", () => {
+    expect(piBaseUrl("http://localhost:11434")).toBe("http://localhost:11434/v1");
+    expect(piBaseUrl("http://localhost:11434/")).toBe("http://localhost:11434/v1");
+  });
+
+  it("leaves an operator's already-versioned base alone rather than doubling it", () => {
+    expect(piBaseUrl("http://localhost:11434/v1")).toBe("http://localhost:11434/v1");
+    expect(piBaseUrl("http://host/v2")).toBe("http://host/v2");
+  });
+
+  it("is what the generated provider entry actually carries", () => {
+    const cfg = JSON.parse(piModelsJson({ baseUrl: "http://localhost:11434", model: "m", token: null, contextTokens: 65_536 })) as {
+      providers: Record<string, { baseUrl: string }>;
+    };
+    expect(Object.values(cfg.providers)[0]!.baseUrl).toBe("http://localhost:11434/v1");
   });
 });
 
