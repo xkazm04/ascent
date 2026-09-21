@@ -6,6 +6,7 @@
 // machine and nothing else. The Ledger's per-repo "Resume" and the cockpit's share `resumeRunnerRepo`
 // here — one door to `action: "resume-repo"`, not two spellings of it.
 
+import type { ArmPolicy } from "@/lib/local/arm";
 import type { LoopDelivery } from "@/lib/local/delivery-options";
 import type { DriveDials, DriveMode } from "@/lib/local/runner-types";
 import type { DriveStatus, DriveStatusPayload } from "./driveTypes";
@@ -48,6 +49,12 @@ export interface StartDriveInput {
   delivery?: LoopDelivery;
   /** The run dials every dispatched run is armed with (`drive-dials.ts` validates them). Both modes. */
   dials?: DriveDials;
+  /** WHAT EACH DISPATCHED RUN IS ARMED WITH. Sent as plain wire data and validated on the route by
+   *  `normalizeArmSet(arms, armPolicy)` — the same function the cockpit's builder validates against,
+   *  because the way a panel and a validator stop agreeing is two lists. Omitted = the pre-arms
+   *  behaviour: one `claude` arm on `model`/`effort` above. */
+  armPolicy?: ArmPolicy;
+  arms?: Record<string, unknown>[];
   /** `continuous` arms the standing runner; omitted = a bounded drive. */
   mode?: DriveMode;
   /** The runner's daily ceiling in USD; `0` = none. Omitted = the deployment default. */

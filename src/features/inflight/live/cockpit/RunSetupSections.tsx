@@ -9,9 +9,10 @@
 // one click away — and each one now hangs off the label it explains.
 
 import { LOOP_CONCURRENCY_CAP, LOOP_DEFAULT_CONCURRENCY, LOOP_MAX_CYCLES_CAP } from "@/lib/db/loop-runs-types";
-import { AGENT_EFFORTS, AGENT_MODELS } from "@/lib/local/agent-options";
+import { AGENT_EFFORTS } from "@/lib/local/agent-options";
 import { AGENT_TIMEOUT_CAP_MS, AGENT_TIMEOUT_DEFAULT_MS, BATCH_SIZE_CAP, BATCH_SIZE_DEFAULT } from "@/lib/local/run-limits";
 import { ChoiceList, NumberRow, Segmented, SetupRow, type SegmentedOption } from "./RunSetupControls";
+import { ArmsPanel } from "./arms/ArmsPanel";
 import { DRIVE_DEFAULT_MAX_RUNS, DRIVE_MAX_RUNS_CAP } from "./driveTypes";
 import type { RunDials } from "./useRunDials";
 
@@ -140,18 +141,21 @@ export function SessionSection({ dials, onChange }: SetupSectionProps) {
 export function AgentSection({ dials, onChange }: SetupSectionProps) {
   return (
     <SetupGroup title="The agent">
-      <SetupRow
-        label="Model"
-        info="“Deployment default” resolves on the server (CLAUDE_MODEL), and what it resolved is recorded on the run and printed on the outcome — so the real default is learned from the ledger, which cannot go stale, rather than from a label in a browser that can."
-      >
-        <Segmented
-          ariaLabel="Agent model"
-          testId="setup-model"
-          value={dials.model ?? ""}
-          onChange={(v) => onChange("model", v || null)}
-          options={[{ value: "", label: "Deployment default" }, ...AGENT_MODELS.map((m) => ({ value: m as string, label: m }))]}
-        />
-      </SetupRow>
+      {/* THE MODEL CONTROL IS GONE (arms, 2026-09-21). It was a closed three-item Claude list, which
+          cannot express a transport, a Claude-plans/local-executes split, or a comparison of four
+          configurations — the three things this feature exists to arm. The panel owns that whole
+          question; the deployment default still applies to a `claude` arm that names no model. */}
+      <ArmsPanel
+        policy={dials.armPolicy}
+        arms={dials.arms}
+        onPolicy={(policy, arms) => {
+          onChange("armPolicy", policy);
+          onChange("arms", arms);
+          onChange("armProbe", "idle");
+        }}
+        onArms={(arms) => onChange("arms", arms)}
+        onPhase={(phase) => onChange("armProbe", phase)}
+      />
       <SetupRow
         label="Effort"
         info="Passed to the CLI as --effort. “Deployment default” sends no flag at all, which is not the same as a default level."

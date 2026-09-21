@@ -21,6 +21,9 @@ import {
 // Both pure (runner-breakers imports only runner-types), so they are safe in the browser.
 import { spendCeilingUsdFrom } from "@/lib/local/runner-breakers";
 import { DEFAULT_SPEND_CEILING_MICROS } from "@/lib/local/runner-types";
+import type { ArmPolicy } from "@/lib/local/arm";
+import { newArmDraft, type ArmDraft } from "./arms/armDraft";
+import type { ArmProbePhase } from "./arms/useArmProbe";
 import { DRIVE_DEFAULT_MAX_RUNS } from "./driveTypes";
 
 /** What the setup dialog is arming: one run, a bounded drive, or the standing runner. */
@@ -37,8 +40,22 @@ export interface RunDials {
   cycles: number;
   /** The drive's rope. Inert for a single run — one run is one run — and a runner has none. */
   maxRuns: number;
-  /** null = the deployment's `CLAUDE_MODEL`. The server resolves it and records what it resolved. */
+  /** null = the deployment's `CLAUDE_MODEL`. The server resolves it and records what it resolved.
+   *
+   *  NO LONGER OPERATOR-SETTABLE (arms, 2026-09-21): the Model segmented control was replaced by the
+   *  arm builder, which says the same thing per arm and can also say the three things the pair never
+   *  could — the transport, the split, and the comparison. The field stays because the three start
+   *  bodies still send it (`startInputs.ts`) and a `claude` arm on the deployment default is exactly
+   *  what `null` has always meant; it is the fallback, not a dial. */
   model: string | null;
+  /** `single` = one arm drives the run; `compare` = 2..4 arms race the same curated batch. */
+  armPolicy: ArmPolicy;
+  /** The arm builder's rows. Drafts, not `Arm`s — see `arms/armDraft.ts` for the distinction. */
+  arms: ArmDraft[];
+  /** The preflight probe's verdict on the armed transports. `blocked` must disable the run CTA: the
+   *  two measured failures produce a wrong ANSWER rather than an error, and hours of wall clock buy
+   *  it. Never an effect — the probe fires from a deliberate press. */
+  armProbe: ArmProbePhase;
   /** null = no `--effort` flag at all, which is not the same as a default level. */
   effort: string | null;
   /** WHAT HAPPENS TO EACH LANE'S BRANCH — `branch` (leave it), `land` (fast-forward it into the
@@ -75,6 +92,11 @@ export const INITIAL_DIALS: RunDials = {
   cycles: DEFAULT_CYCLES,
   maxRuns: DRIVE_DEFAULT_MAX_RUNS,
   model: null,
+  // One Claude arm on the deployment default — the configuration every run before arms existed had,
+  // written down. An operator who never opens the panel arms exactly the run they armed yesterday.
+  armPolicy: "single",
+  arms: [newArmDraft()],
+  armProbe: "idle",
   effort: null,
   // `branch` is the default because it is what every run before delivery existed did, and because it
   // is the only mode that writes nothing outside the loop's own branches.
