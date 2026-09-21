@@ -68,6 +68,17 @@ export const claudeHostedTiming: TransportTiming = {
  * When a local lane has actually been run to completion, these become measurements and this comment
  * should be rewritten to say so. Until then they are judgments with their basis attached.
  */
+/**
+ * THE CEILING FOR ONE REQUEST against a local endpoint — deliberately NOT the session ceiling.
+ *
+ * A session may legitimately run for the whole local band; a single HTTP request to an inference
+ * server may not. Ten minutes is far more than one slow turn costs (a closing turn against a 27B at
+ * 4-bit with ~15k tokens of context measured at 6 seconds on 2026-09-21, and the slowest observed
+ * generation rate here was 8.4 tok/s), and far less than the 90-minute session band that let a dead
+ * request keep a lane silent until the harness killed it.
+ */
+export const LOCAL_REQUEST_TIMEOUT_MS = 600_000;
+
 export const claudeLocalTiming: TransportTiming = {
   agentMs: 5_400_000,
   planMs: 1_800_000,
@@ -226,10 +237,18 @@ export function claudeArgs(input: ClaudeArgvInput): string[] {
  *     answered with an error, not ignored.
  *   • `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` — no background calls to an endpoint that is not
  *     Anthropic's, which is both a privacy property and one less way for a local arm to stall.
- *   • `API_TIMEOUT_MS` — the CLIENT's own per-request ceiling, set to the same number as the session
- *     ceiling. Left at its hosted default, the client gives up on a local response that is merely
- *     slow, and the session's own timer never gets to be the thing that ends it — so a timeout would
- *     be attributed to the wrong ceiling.
+ *   • `API_TIMEOUT_MS` — the CLIENT's own ceiling for ONE REQUEST, which is not the session's.
+ *     Left at its hosted default, the client gives up on a local response that is merely slow. Set
+ *     to the SESSION ceiling — which is what this did until it was measured — a single failing
+ *     request waits the whole session budget before it is allowed to fail, and the session looks
+ *     hung when it is in fact retrying something that will never answer.
+ *
+ *     Measured 2026-09-21: an agent session completed its work (the file was written, correctly),
+ *     then its follow-up request errored twice (`api_retry` in the stream) and the session sat
+ *     silent until the harness killed it 25 minutes later, having emitted nothing further. The
+ *     ceiling was 90 minutes because that is the local session band. A request ceiling has to be
+ *     generous enough for one slow local turn and small enough that a dead request dies while
+ *     someone is still watching — {@link LOCAL_REQUEST_TIMEOUT_MS}.
  *
  * Pure: a copy is returned and the input is never touched, so the whole block is a table test rather
  * than a spawn.
@@ -252,7 +271,7 @@ export function claudeSpawnEnv(
   env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(endpoint.contextTokens);
   env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS = "1";
   env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
-  env.API_TIMEOUT_MS = String(arm?.agentMs ?? claudeLocalTiming.agentMs);
+  env.API_TIMEOUT_MS = String(LOCAL_REQUEST_TIMEOUT_MS);
   return env;
 }
 

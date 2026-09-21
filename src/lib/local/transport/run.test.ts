@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { killProcessTree } from "@/lib/local/kill-tree";
 import { runAgentVia } from "@/lib/local/transport/run";
-import { CLAUDE_LOCAL_ENV_KEYS, CLAUDE_STRIPPED_ENV_KEYS } from "@/lib/local/transport/claude";
+import { CLAUDE_LOCAL_ENV_KEYS, CLAUDE_STRIPPED_ENV_KEYS, LOCAL_REQUEST_TIMEOUT_MS } from "@/lib/local/transport/claude";
 
 interface FakeChildLike extends EventEmitter {
   pid: number;
@@ -128,8 +128,10 @@ describe("runAgentVia('claude') with a local endpoint", () => {
     expect(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("65536");
     expect(env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS).toBe("1");
     expect(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe("1");
-    // The session's own ceiling, so the CLIENT does not give up before the session timer can.
-    expect(env.API_TIMEOUT_MS).toBe("60000");
+    // NOT the session's ceiling (60_000 was passed as `timeoutMs` above). One request gets its own,
+    // larger bound: a session that is merely slow must not be cut short, and a request that is DEAD
+    // must not be allowed to hold the lane silent for the whole session budget — measured 2026-09-21.
+    expect(env.API_TIMEOUT_MS).toBe(String(LOCAL_REQUEST_TIMEOUT_MS));
     for (const k of CLAUDE_STRIPPED_ENV_KEYS) expect(env[k], k).toBeUndefined();
   });
 

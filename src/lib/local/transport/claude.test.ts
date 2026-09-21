@@ -13,6 +13,7 @@ import {
   claudeArgs,
   claudeHostedTiming,
   claudeLocalTiming,
+  LOCAL_REQUEST_TIMEOUT_MS,
   claudeProfile,
   claudeSpawnEnv,
 } from "@/lib/local/transport/claude";
@@ -114,14 +115,36 @@ describe("claudeSpawnEnv", () => {
     expect(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe("65536");
     expect(env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS).toBe("1");
     expect(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe("1");
-    expect(env.API_TIMEOUT_MS).toBe("5400000");
+    // ONE REQUEST's ceiling, not the session's — see the second test below for why they differ.
+    expect(env.API_TIMEOUT_MS).toBe(String(LOCAL_REQUEST_TIMEOUT_MS));
     // …and the strip still holds inside the local block.
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
-  it("honours an explicit token and falls back to the local band for API_TIMEOUT_MS", () => {
+  it("honours an explicit token", () => {
     expect(claudeSpawnEnv({}, { endpoint: { ...endpoint, token: "tok" } }).ANTHROPIC_AUTH_TOKEN).toBe("tok");
-    expect(claudeSpawnEnv({}, { endpoint }).API_TIMEOUT_MS).toBe(String(claudeLocalTiming.agentMs));
+  });
+
+  // THE REQUEST CEILING IS NOT THE SESSION CEILING, and this pins the gap rather than the number.
+  //
+  // It used to be the session band, on the reasoning that a local response is merely slow and the
+  // session's own timer should be what ends a run. That reasoning is right about slowness and wrong
+  // about failure: measured 2026-09-21, a session finished its work, its follow-up request errored
+  // twice, and the session then sat silent for the rest of its 90-minute budget because a single
+  // request was allowed to wait that long. A dead request has to die while someone is still watching.
+  it("bounds ONE request well below the session band, so a dead request cannot hold a lane silent", () => {
+    const requestMs = Number(claudeSpawnEnv({}, { endpoint }).API_TIMEOUT_MS);
+    expect(requestMs).toBe(LOCAL_REQUEST_TIMEOUT_MS);
+    expect(requestMs).toBeLessThan(claudeLocalTiming.agentMs);
+    // Generous enough for one slow local turn: the slowest generation rate measured on this hardware
+    // was 8.4 tok/s, so ten minutes is thousands of tokens, not a tight fit.
+    expect(requestMs).toBeGreaterThanOrEqual(300_000);
+  });
+
+  it("uses the same request ceiling whatever the session band is, because they answer different questions", () => {
+    const short = claudeSpawnEnv({}, { endpoint, agentMs: 600_000 }).API_TIMEOUT_MS;
+    const long = claudeSpawnEnv({}, { endpoint, agentMs: 5_400_000 }).API_TIMEOUT_MS;
+    expect(short).toBe(long);
   });
 });
 
