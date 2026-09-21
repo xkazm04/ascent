@@ -1546,6 +1546,66 @@ Three honest edges, so nobody reads more into the above than the code supports:
   pre-arms A/B vocabulary remains route-only, and is kept only so runs recorded under it keep their
   meaning.
 
+#### Driving it headlessly (`scripts/arms.mjs`, 2026-09-21)
+
+The Arms panel is the only way to *build* an arm set in the UI, and a browser is the wrong instrument
+for a measurement that runs for hours and whose entire output is a table. `scripts/arms.mjs` drives
+the same control surface — the same validator, the same probe, the same route:
+
+```
+node scripts/arms.mjs probe   --org kiro --arms "claude:sonnet,claude:sonnet>claude:qwen3.8:27b-64k"
+node scripts/arms.mjs propose --org kiro --repos xkazm04/kp
+node scripts/arms.mjs run     --org kiro --repos xkazm04/kp --arms "…" --plan-mode on --batch-size 1
+node scripts/arms.mjs report  --org kiro --id <runId>
+node scripts/arms.mjs watch   --org kiro
+```
+
+It speaks HTTP rather than importing the engine, and that is not a compromise: `startLoopRun` reaches
+a `server-only` barrel, and in local dev the database is an embedded PGlite **inside the dev server's
+process**, so a second node process would fight it for a single-writer file and keep its own live-run
+registry besides — the UI's next poll would then mark the script's run stale. It needs no credential
+on a box with `ASCENT_AUTH_BYPASS=1`; with the bypass off there is no token path to these routes at
+all.
+
+`run` always preflights and refuses on the probe's verdict, exactly as the panel does.
+
+#### `planMode` is what makes a split arm split, and it was missing (2026-09-21)
+
+An arm's planning half is spawned by the **planning session** and by nothing else. `POST
+/api/org/loop` did not accept `planMode`, so a split arm armed through that door ran the *executing*
+transport for both halves and recorded `planModel: null` — the configuration this whole section is
+about was unreachable from the manual door, while looking exactly like it had worked. Only the
+standing runner, which sets the field itself, could produce it.
+
+Found by arming one against a real repo and reading the lane row instead of the intent. The route now
+takes `planMode: "on" | "off"`, refuses anything else rather than reading a typo as "off" (off is a
+*different run* for a split arm), and the driver refuses a `plan>` arm without `--plan-mode on`.
+
+The proof that it works is a lane row carrying `planModel: "sonnet"` beside `model:
+"qwen3.8:27b-64k"`.
+
+#### A request's ceiling is not the session's (2026-09-21)
+
+`API_TIMEOUT_MS` was set to the local session band on the reasoning that a local response is merely
+slow and the session's own timer should end a run. That is right about slowness and wrong about
+failure.
+
+Measured: a local session read its files, wrote correct output, and its follow-up request then
+errored twice (`api_retry` appears twice in the stream) — after which it sat silent until the harness
+killed it, because a dead request was entitled to wait the entire 90-minute session budget. From
+outside, that is indistinguishable from a slow model, and the wrong conclusion was one step away:
+that a 27B cannot drive an agent loop. It had already done the work.
+
+`LOCAL_REQUEST_TIMEOUT_MS` (10 minutes) now bounds one request. The tests pin the **gap** rather than
+the number: below the session band, above a floor one slow turn cannot reach, and unchanged when the
+session band changes — because the two answer different questions.
+
+**What thinking turned out not to be.** The stall looked like Qwen's default reasoning effort, which
+the research had flagged. It was tested rather than assumed: a closing turn with thinking on costs 59
+output tokens and ~6 s, `MAX_THINKING_TOKENS=0` does **not** suppress reasoning through Ollama's
+Anthropic-compatible endpoint (both A/B arms still emitted thinking blocks), and `think` is not a
+valid Modelfile parameter. Thinking was never the bottleneck; the request ceiling was.
+
 ### Lane kinds: foundation and practice lanes (2026-08-28)
 
 Until this, the loop's batch source was the **scan backlog only**, and its only tool was an agent
