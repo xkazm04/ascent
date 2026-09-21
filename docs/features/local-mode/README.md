@@ -533,16 +533,67 @@ measured on the development machine on 2026-09-21:
 
 | Setting | Why |
 | --- | --- |
-| `OLLAMA_CONTEXT_LENGTH=65536` | the server's default is 4096 under 24 GB of VRAM, which truncates the tool definitions and makes the model look incapable of calling tools at all. This is what the probe's `context` check enforces (`MIN_CONTEXT_TOKENS`) |
+| a model serving **65 536** tokens | the server's default is 4096 under 24 GB of VRAM (32 768 at 24–48 GB), which truncates the tool definitions and makes the model look incapable of calling tools at all. This is what the probe's `context` check enforces (`MIN_CONTEXT_TOKENS`). `OLLAMA_CONTEXT_LENGTH=65536` is the documented lever; where the desktop app manages the server it may not reach it — see **Baking the context into the model** below |
 | Ollama **≥ 0.33.0** | below it the client's token-countdown message sits at the front of every prompt and breaks the key-value cache every request, so each turn re-prefills the whole context and the arm merely looks slow (`MIN_SERVER_VERSION`) |
 | `OLLAMA_KV_CACHE_TYPE=q8_0` | quantizes the KV cache so a 64k context fits alongside a 27B at Q4 on 24 GB |
 | `OLLAMA_FLASH_ATTENTION=1` | same reason: it is what makes that context fit at all |
 
-Measured alongside them, same machine, same date: qwen3.8:27b Q4_K_M at 64k context occupied
-**22.4 GB of 27.1 GB** resident, and generated at **11.5 tok/s** with **545 tok/s** prefill. Those
-two rates are the only local performance numbers this repo has measured; the per-transport timing
-bands derived from them are **chosen**, not measured — see
+### Baking the context into the model (2026-09-21)
+
+`OLLAMA_CONTEXT_LENGTH` is the documented lever and it is the first thing to try. On the development
+machine it did **not** reach the server: the desktop app manages the server process and its own
+settings store won that argument, so a user-scope variable and a full restart left the loaded context
+at 32 768 while `OLLAMA_KV_CACHE_TYPE` and `OLLAMA_FLASH_ATTENTION` both took effect (VRAM dropped
+2 GB). The fix that worked, and that is better anyway:
+
+```
+printf 'FROM qwen3.8:27b\nPARAMETER num_ctx 65536\n' > Modelfile
+ollama create qwen3.8:27b-64k -f Modelfile
+```
+
+A model parameter beats the server default, and the window becomes a property of **the model an arm
+names** rather than an invisible server variable — so a run records the context it actually got,
+which is the same reason the model itself is never read from the environment.
+
+Verify with `GET /api/ps`, which reports the *loaded* context. `/api/show` reports the model's
+architectural maximum, which answers a different question and is why the probe refuses to accept it.
+
+### The context ladder, measured — 64k costs 3.3× the throughput on 24 GB
+
+The floor is 65 536 because harness vendors require it and because a truncated tool-definition block
+reads as model incapacity. On a 24 GB card that floor is **not free**, and the cost is large enough
+that it belongs beside the floor rather than in a footnote.
+
+Measured 2026-09-21, RTX 4090 / 64 GB RAM, qwen3.8:27b Q4_K_M, `q8_0` KV cache, flash attention on.
+Identical ~15.6k-token prompt, **unique per trial** (an identical prompt is served from the key/value
+cache and reported prefill at 31 000 tok/s, which is not a measurement), arms **alternated** rather
+than run in blocks, n=3 per arm for the two ends:
+
+| Loaded context | Spilled to system RAM | Median generation |
+| --- | --- | --- |
+| 32 768 | 2.5 GB | **27.8 tok/s** |
+| 40 960 | 4.0 GB | 14.5 tok/s (n=1) |
+| 65 536 | 8.4 GB | **8.4 tok/s** |
+
+The cliff is immediately after 32 768: the card cannot hold more KV cache, and every additional
+gigabyte of spill is paid on every generated token.
+
+**The floor was not lowered to make that number better, and the reasoning is the point.** A real lane
+reads many files; the trivial four-turn smoke on this machine already accumulated 50 272 input tokens,
+so a 32 768 window would overflow a genuine session — and an overflowed session fails in ways that
+read as model incapacity, which is precisely what the floor exists to prevent. The honest statement is
+therefore: **this hardware can run local lanes at roughly a third of its unconstrained speed**, and
+that tradeoff *is* the delegation question rather than an obstacle to it. A card that can hold a 64k
+KV cache resident would not pay it.
+
+The earlier figures in this doc (11.5 tok/s at 64k, 545 tok/s prefill, 22.4 GB resident) came from a
+single f16-KV trial before the q8_0 cache and the alternating method; the table above supersedes them.
+The per-transport timing bands derived from any of these are **chosen**, not measured — see
 [per-arm timing](../org-planning/live.md#arms-transport--model-and-the-n-arm-comparison-2026-09-21).
+
+**A first observed consequence**: with the local band's 5-minute quiet window, a local execute lane
+still reported `agent-quiet` while legitimately working (observed on the first real split-arm lane,
+2026-09-21). The window is a chosen number and this is the first evidence that it is chosen too low.
 
 For a **Pi** arm, install the binary and give it a provider:
 
