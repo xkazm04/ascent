@@ -12,9 +12,14 @@
 // subcommand is rejected after it. So a capability cell records the invocation that was actually
 // smoked, and a cell no method has confirmed reads `unverified`, never silently true or false.
 //
-// STUB — WP1 owns the Claude profile and the registry; WP2 owns the Pi profile. Signatures are final.
+// DEPENDENCY-FREE (no `process`, no `node:*`), like `arm.ts` beside it: the cockpit renders this
+// matrix, and the plan ceiling below is read by modules the browser loads. Environment resolution and
+// spawning stay in `run.ts` / `agent.ts`; a `process.env` read here would drag the spawn side across
+// the client boundary the first time the matrix appeared on a page.
 
 import type { TransportId } from "@/lib/local/arm";
+import { claudeLocalTiming, claudeProfile } from "@/lib/local/transport/claude";
+import { piProfile } from "@/lib/local/transport/pi";
 
 /** How a capability was established, weakest last. A live run proves behaviour; help text proves a
  *  flag exists, not what it does; vendor docs describe the version the vendor wishes you had. */
@@ -88,12 +93,32 @@ export interface TransportProfile {
   caps: TransportCaps;
 }
 
-/** Every profile this build knows. WP1 fills `claude`, WP2 fills `pi`. */
-export function transportProfile(_id: TransportId): TransportProfile {
-  throw new Error("transportProfile: not implemented (WP1)");
+/** Every profile this build knows. */
+export function transportProfile(id: TransportId): TransportProfile {
+  return id === "pi" ? piProfile : claudeProfile;
 }
 
-/** All profiles, for the cockpit's transport picker and the capability matrix surface. */
+/** All profiles, for the cockpit's transport picker and the capability matrix surface. Declaration
+ *  order, not alphabetical: `claude` is the proven path and reads first. */
 export function allTransportProfiles(): TransportProfile[] {
-  throw new Error("allTransportProfiles: not implemented (WP1)");
+  return [claudeProfile, piProfile];
+}
+
+/**
+ * THE BAND A LANE WILL ACTUALLY RUN UNDER — the transport's, widened when the arm points at a LOCAL
+ * ENDPOINT.
+ *
+ * `TransportProfile.timing` is one band per transport, and that is the right shape for a capability
+ * matrix; but the same `claude` binary answering from a 27B at 4-bit on one consumer GPU is not the
+ * same clock as the same binary on a subscription seat. The endpoint, not the transport id, is what
+ * changes the arithmetic, so it is a parameter here rather than a second row in the matrix — a second
+ * row would claim there are two Claude CLIs.
+ *
+ * `local` on a transport with no measured local band falls through to that transport's own timing
+ * rather than inventing one: an unmeasured number presented as a band is exactly what the dated
+ * matrix above exists to refuse.
+ */
+export function transportTiming(id: TransportId, opts?: { local?: boolean } | null): TransportTiming {
+  if (opts?.local && id === "claude") return claudeLocalTiming;
+  return transportProfile(id).timing;
 }

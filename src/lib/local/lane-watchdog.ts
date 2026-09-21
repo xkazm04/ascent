@@ -24,12 +24,9 @@
 // settles.
 
 import { envNumber } from "@/lib/llm/config";
-import {
-  AGENT_TIMEOUT_CAP_MS,
-  AGENT_TIMEOUT_DEFAULT_MS,
-  AGENT_TIMEOUT_MIN_MS,
-  normalizeAgentTimeoutMs,
-} from "@/lib/local/run-limits";
+import { AGENT_TIMEOUT_CAP_MS, AGENT_TIMEOUT_MIN_MS, normalizeAgentTimeoutMs } from "@/lib/local/run-limits";
+import type { TransportId } from "@/lib/local/arm";
+import { transportTiming } from "@/lib/local/transport/profile";
 
 /**
  * Per-session ceiling for one agent run. A fix batch is a real working session — default 20 min,
@@ -51,13 +48,33 @@ import {
  * refused it at the route, so anything arriving here out of band is a stale caller and the honest
  * answer is the deployment's own value.
  */
-export function agentTimeoutMs(override?: number | null): number {
+export function agentTimeoutMs(override?: number | null, arm?: AgentBand | null): number {
   const chosen = normalizeAgentTimeoutMs(override ?? null);
   if (chosen != null) return chosen;
+  const band = transportTiming(arm?.transport ?? "claude", arm?.local ? { local: true } : null);
+  // THE DEPLOYMENT DIAL IS SCOPED TO THE BAND IT WAS SET FOR. `ASCENT_AUTOPILOT_TIMEOUT_MS` is a
+  // number operators chose while watching a HOSTED session; silently reusing it for an arm that
+  // generates at 11.5 tokens/s would fail every local lane on a ceiling nobody picked for it, and
+  // the operator would read that as "the local model cannot finish a lane" — the exact wrong
+  // conclusion. A local arm therefore takes its profile band, and an operator who wants a different
+  // local ceiling passes `timeoutMs` per run: bounded, recorded on the row, and attributable, which
+  // an ambient env var is not.
+  if (arm?.local) return band.agentMs;
   return Math.min(
     AGENT_TIMEOUT_CAP_MS,
-    Math.max(AGENT_TIMEOUT_MIN_MS, envNumber("ASCENT_AUTOPILOT_TIMEOUT_MS", AGENT_TIMEOUT_DEFAULT_MS)),
+    Math.max(AGENT_TIMEOUT_MIN_MS, envNumber("ASCENT_AUTOPILOT_TIMEOUT_MS", band.agentMs)),
   );
+}
+
+/** WHICH ARM a ceiling is being computed for. Omitted, everywhere, means `claude` on a subscription
+ *  seat — what every lane before transports existed ran, so an omitted band is not a new default but
+ *  the old behaviour written down. */
+export interface AgentBand {
+  transport?: TransportId;
+  /** True when the arm points at a LOCAL inference endpoint. It is the endpoint, not the transport
+   *  id, that changes the arithmetic: the same `claude` binary is two different clocks depending on
+   *  what is behind the socket. */
+  local?: boolean;
 }
 
 /**
@@ -79,7 +96,14 @@ export const LANE_RESCAN_ALLOWANCE_MS = 1_200_000;
 export const LANE_GIT_ALLOWANCE_MS = 300_000;
 
 /**
- * THE LANE'S DEADLINE, DERIVED FROM THE RUN'S OWN PARAMETERS — never a fresh knob.
+ * THE LANE'S DEADLINE, DERIVED FROM THE RUN'S OWN PARAMETERS AND THE ARM THAT WILL RUN IT — never
+ * a fresh knob.
+ *
+ * THE ARM IS PART OF THE DERIVATION, not a multiplier bolted onto it. A lane executing on a local
+ * 27B at 11.5 generated tokens per second, under a ceiling sized for a hosted model, does not report
+ * "this model was slower": it reports a TIMEOUT, in the same words a genuinely wedged Claude lane
+ * produces, and the comparison this whole feature exists to make dies there. Taking the arm here is
+ * what turns a ceiling into an attributable finding — "this arm ran out of ITS budget".
  *
  *     deadline = the agent session ceiling            (the run's `agentTimeoutMs`, else the env default)
  *              + 2 × the verification budget          (the guard runs the command TWICE: baseline, then result)
@@ -96,8 +120,12 @@ export const LANE_GIT_ALLOWANCE_MS = 300_000;
  * nowhere near it, and a lane that reaches it is by construction stuck rather than slow.
  */
 export function laneDeadlineMs(p: {
-  /** The agent ceiling ALREADY RESOLVED (`agentTimeoutMs(run.agentTimeoutMs)`). */
-  agentMs: number;
+  /** The agent ceiling ALREADY RESOLVED (`agentTimeoutMs(run.agentTimeoutMs)`). Omitted = the
+   *  EXECUTING arm's own profile band, so a caller that knows the arm need not resolve it twice. */
+  agentMs?: number;
+  /** THE ARM THAT WILL ACTUALLY RUN the agent session. Omitted = `claude` on a subscription seat,
+   *  which is byte-identical to every deadline computed before transports existed. */
+  exec?: AgentBand | null;
   /** One verification run's budget, already resolved (`verifyTimeoutMsOf(run.verifyTimeoutMs)`). */
   verifyMs: number;
   /** False when the run's guard is off — then neither verification run happens, and neither is paid for. */
@@ -105,12 +133,20 @@ export function laneDeadlineMs(p: {
   /** THE PLANNING SESSION's ceiling, when this lane plans first (a plan-mode run). Omitted = 0, which
    *  is byte-identical to every lane before planning existed — a lane that does not plan pays nothing. */
   planMs?: number;
+  /** THE ARM THAT PLANS, when this lane plans and the caller did not resolve `planMs` itself. Present
+   *  with no `planMs` = that arm's profile `planMs`; BOTH absent still means 0, so "a lane that does
+   *  not plan pays nothing" is untouched. A split arm (Claude plans, a local model executes) is
+   *  exactly why this is a SECOND band rather than a flag on the first. */
+  planArm?: AgentBand | null;
   /** The engine's dependency install, when a runner lane changed a manifest. Omitted = 0, same rule. */
   depsMs?: number;
 }): number {
+  const band = (b: AgentBand | null | undefined) => transportTiming(b?.transport ?? "claude", b?.local ? { local: true } : null);
+  const agentMs = p.agentMs ?? band(p.exec).agentMs;
+  const planMs = p.planMs ?? (p.planArm ? band(p.planArm).planMs : 0);
   const guardMs = p.verifyEnabled === false ? 0 : 2 * p.verifyMs;
-  const extraMs = Math.max(0, p.planMs ?? 0) + Math.max(0, p.depsMs ?? 0);
-  return Math.max(1, Math.round(p.agentMs + guardMs + extraMs + LANE_RESCAN_ALLOWANCE_MS + LANE_GIT_ALLOWANCE_MS));
+  const extraMs = Math.max(0, planMs) + Math.max(0, p.depsMs ?? 0);
+  return Math.max(1, Math.round(agentMs + guardMs + extraMs + LANE_RESCAN_ALLOWANCE_MS + LANE_GIT_ALLOWANCE_MS));
 }
 
 /**

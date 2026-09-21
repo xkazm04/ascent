@@ -6,10 +6,14 @@
 // `src/lib/registry/dispatch-local.ts` need no shape change — a transport swap must not become a
 // refactor of every caller.
 //
-// STUB — WP1 implements the registry and the claude path; WP2 adds `pi`. Signature is final.
+// WHY `endpoint` LIVES HERE AND NOT IN `ClaudeAgentOptions`: the endpoint is a property of the ARM,
+// resolved by whoever armed the run, and every existing caller of `runClaudeAgent` must keep passing
+// exactly what it always passed. Extending the options type instead would have made "does this lane
+// talk to Anthropic?" a question about a field nobody set.
 
-import type { AgentRunResult, ClaudeAgentOptions } from "@/lib/local/agent";
+import { runAgentSession, type AgentRunResult, type ClaudeAgentOptions } from "@/lib/local/agent";
 import type { TransportId } from "@/lib/local/arm";
+import { runPiAgent } from "@/lib/local/transport/pi";
 
 /** What a spawned session is armed with, beyond the options the caller already passed. */
 export interface TransportRunOptions extends ClaudeAgentOptions {
@@ -43,8 +47,26 @@ export interface LocalEndpoint {
   contextTokens: number;
 }
 
-/** Run one session through the named transport. Resolves, never rejects — every outcome is cycle
- *  data, exactly as `runClaudeAgent` has always behaved. */
-export function runAgentVia(_transport: TransportId, _opts: TransportRunOptions): Promise<AgentRunResult> {
-  return Promise.resolve({ ok: false, summary: "runAgentVia: not implemented (WP1)" });
+/**
+ * Run one session through the named transport. Resolves, never rejects — every outcome is cycle
+ * data, exactly as `runClaudeAgent` has always behaved.
+ *
+ * THE `claude` PATH WITH NO ENDPOINT IS TODAY'S PATH, BYTE FOR BYTE. Not "equivalent", not "the same
+ * shape": the same function, the same argv (pinned against a literal in `claude.test.ts`), the same
+ * stripped environment, the same sentences. That is the property every lane in the fleet depends on,
+ * and it is the one a registry is most likely to break quietly while looking correct.
+ *
+ * A `switch` rather than a lookup table of implementations, deliberately: the transport id reaches a
+ * re-parsing shell, `TRANSPORT_IDS` is a closed list for that reason, and an exhaustive switch is
+ * what makes a third transport a COMPILE error here instead of a runtime fallthrough onto `claude`
+ * — which would run a lane on the wrong arm and record it under the right name.
+ */
+export function runAgentVia(transport: TransportId, opts: TransportRunOptions): Promise<AgentRunResult> {
+  const { endpoint, ...session } = opts;
+  switch (transport) {
+    case "pi":
+      return runPiAgent(opts);
+    case "claude":
+      return runAgentSession(session, { transport: "claude", endpoint: endpoint ?? null });
+  }
 }
