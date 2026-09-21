@@ -11,8 +11,11 @@ ledger](#the-standing-runner-its-theater-and-its-ledger-2026-09-18). The prior w
 behind `?view=wall`.
 
 The **local** loop on this page is self-hosted only (`selfHosted()`, `src/lib/env.ts`): it reads the
-server's filesystem and spawns `claude -p`, so `POST /api/org/loop` with the default
-`executor: "local"` answers **404** on managed cloud (`selfHostGuard`).
+server's filesystem and spawns an agent CLI, so `POST /api/org/loop` with the default
+`executor: "local"` answers **404** on managed cloud (`selfHostGuard`). Since 2026-09-21 *which* CLI
+is a property of the run's [arm](#arms-transport--model-and-the-n-arm-comparison-2026-09-21) —
+`claude` (the unchanged default) or `pi` — resolved through one registry in
+`src/lib/local/transport/`.
 
 Since **moonshot #3** that is no longer the whole story. A run may also declare
 `executor: "remote-agent"` — see [Remote runs](#remote-runs-the-agent-neutral-work-protocol) — and
@@ -1151,52 +1154,397 @@ runner's `paused`/`idle` count, per `isDriveLive`), the tab is foregrounded, and
 makes no request at all. It adopts a drive started elsewhere (curl, another tab) on its mount tick,
 and hands the terminal status up exactly once.
 
-### Per-run model and effort (2026-08-28)
+### Per-run model and effort (2026-08-28, superseded by arms 2026-09-21)
 
 The agent was pinned to the deployment's `CLAUDE_MODEL` (default `sonnet`) with no per-run choice —
 so the most expensive variable in the system was the one an operator could not vary without a
 redeploy, and the outcome ledger compared lifts across runs whose configuration it did not record.
+Two dials answered that: **Model** (`AGENT_MODELS` — haiku · sonnet · opus) and **Effort**
+(`AGENT_EFFORTS` — low · medium · high), both defaulting to *Deployment default*, both persisted
+**resolved** on `LoopRun.model/effort` and `LoopDrive.model/effort` (migration
+`20260828170000_add_run_agent_config`) so a changed env cannot split one run across two setups.
 
-Two dials sit with the others in the run-setup dialog (`RunSetupSections` *the agent*, state in
-`useRunDials`): **Model** (`AGENT_MODELS` — haiku · sonnet · opus) and **Effort** (`AGENT_EFFORTS` —
-low · medium · high), both segmented and both defaulting to *Deployment default*. They ride `POST {action:"start"}` on the
-loop route and on the drive route, and a drive hands the same pair to **every** run it dispatches, so
-a multi-run drive stays one experiment. A resume inherits it for the same reason.
+Three of those decisions still hold verbatim and are load-bearing elsewhere:
 
-| Concern | Where |
-| --- | --- |
-| The closed lists + normalizers + the ledger label | `src/lib/local/agent-options.ts` (dependency-free, so the picker and the route validator cannot drift) |
-| Env resolution + the `--effort` argv | `src/lib/local/agent.ts` (`resolveAgentConfig`, `runClaudeAgent`) |
-| Persistence | `LoopRun.model/effort`, `LoopDrive.model/effort` (migration `20260828170000_add_run_agent_config`) |
-
-Three decisions worth stating:
-
-- **The values are RESOLVED at arm time and the resolved values are persisted.** A row storing the
-  raw pick would read `null` for every default run — "whatever `CLAUDE_MODEL` was that day", which is
-  exactly the fact the ledger needs and the only one an env var cannot recover afterwards. Later
-  cycles and a lane retry read the configuration off the **row**, so a changed env cannot split one
-  run across two setups.
-- **The model list is closed, and not because the CLI cares.** `--model` and `--effort` reach a
-  re-parsing shell on Windows (`shell: true`), so both are normalized against the same list the picker
-  offers; an unrecognised value falls back to the deployment default rather than 400-ing, because a
-  run must not die because a stale tab sent a retired name. An operator who needs a pinned model id
-  sets `CLAUDE_MODEL` and picks *Deployment default* — a pinned id is a deployment decision.
 - **The effort env var is `ASCENT_AGENT_EFFORT`, not `CLAUDE_EFFORT`.** The Claude Code harness sets
   `CLAUDE_EFFORT` itself in the environment it gives child processes (found the hard way: a test
   asserting "no effort chosen" failed against the ambient env of the session writing it). A
   self-hosted Ascent started from inside a Claude Code session would have inherited an effort level
   nobody chose, on every run, invisibly. `CLAUDE_MODEL` carries no such collision and keeps its name.
-- **`null` effort is not a level.** The flag is then not appended at all, so the argv is byte-for-byte
+- **`null` effort is not a level.** The flag is not appended at all, so the argv is byte-for-byte
   what it always was.
+- **A run recorded before the columns existed prints nothing** — "default" would be a claim about a
+  run nobody can check. The same rule governs `armLabel` below.
 
-The configuration is rendered where lifts are compared: beside the timestamp on the outcome header,
-and under every row of the run-history strip. A run recorded before the columns existed prints
-**nothing** — "default" would be a claim about a run nobody can check.
+**What changed on 2026-09-21.** The model/effort *pair* is no longer what a run is armed with. The
+Model segmented control is gone from run setup, replaced by the arm builder; **Effort is unchanged**,
+sits below it, and still sends no flag on *Deployment default*. `dials.model` survives as the
+deployment fallback the three start bodies still send (`null` = `CLAUDE_MODEL`), which is exactly
+what a `claude` arm naming no model means.
 
-Tests: `agent-options.test.ts` (the closed lists, including the shell-injection shapes, and the
-unknown-renders-nothing label), `agent.test.ts` (`resolveAgentConfig` precedence),
-`loop-engine.test.ts` (the parameter threading start → row → agent invocation, and that a mid-run env
-change cannot reach a later cycle), `OutcomeSheet.dom.test.tsx` (the run column header shows it).
+### Arms: transport + model, and the N-arm comparison (2026-09-21)
+
+**Status: the machinery is implemented and committed; no comparison run has completed. The verdict
+does not exist yet.** Every threshold and every band below is *declared* or *chosen*; the only
+measurements on this page are labelled as such.
+
+#### What an arm is
+
+A pair of (model, effort) was adequate while there was exactly one thing to spawn. It stopped being
+adequate the moment a lane could spawn something that is not `claude`: the same model name means
+nothing without the transport that resolves it, and the configuration this work exists to measure —
+*Claude plans, a local model executes* — is a shape the pair cannot hold at all.
+
+An **arm** (`src/lib/local/arm.ts`, dependency-free so the cockpit builder and the route validator
+cannot drift) is one transport + one model to execute, optionally a *different* transport + model to
+plan:
+
+```jsonc
+{ "id": "split", "label": "claude:sonnet plan -> pi:qwen3.8:27b",
+  "transport": "pi", "model": "qwen3.8:27b",
+  "plan": { "transport": "claude", "model": "sonnet" } }
+```
+
+`TRANSPORT_IDS` is the closed list `["claude", "pi"]` — closed because the id reaches a re-parsing
+shell. The model is a **shape** (`MODEL_TOKEN`), not a list: a local roster is whatever the operator
+pulled, and an enum of it is a list this repo would have to chase. A malformed `plan` half fails the
+**whole** arm rather than degrading to "plans with itself", which would quietly convert a split arm
+into a pure-local one and record the result under the wrong name.
+
+#### Arming a run
+
+`POST /api/org/loop` (`action: "start"`) takes two new fields, validated by the one validator
+(`normalizeArmSet`) the cockpit builder also validates against:
+
+| Field | Meaning |
+| --- | --- |
+| `arms` | exactly 1 under `armPolicy: "single"`, 2–4 with distinct ids under `"compare"` |
+| `armPolicy` | `"single"` (one arm drives the run) or `"compare"` (N arms race one curated batch) |
+
+A malformed set is a **400 naming the band**, never a run silently degraded to one arm — a
+comparison the operator thinks they ran and did not is worse than no comparison. A drive carries
+arms the same way, through `dials.arms` / `dials.armPolicy`.
+
+The pre-arms vocabulary (`modelPolicy: "ab"` + two `models`) is untouched and **never merged** with
+arms: a run armed that way still fans out to two lanes keyed by model name under one `abPairKey`,
+with no `armId` and no `transport` on its rows.
+
+#### `compare` is `ab` generalized
+
+`modelPolicy: "ab"` already fanned one curated batch to two lanes per repo — two worktrees, two
+branches, one `abPairKey`, each rescanning its own worktree so neither arm grades the other. The
+instrument was right and hard-capped at two arms that both had to be Claude aliases. `compare` is
+the same instrument with 2–4 arms; `abPairKeyFor(runId, repo, cycle)` needed no change because it
+never mentioned the arm. An N-arm run puts N times as many lanes in flight as the concurrency dial
+says, so it is **refused with the arithmetic in the sentence** when that exceeds
+`LOOP_CONCURRENCY_CAP` (4), exactly as `ab` always was. The 4-arm cap is not arbitrary: above four,
+the wall clock of a serial local arm makes a run that never finishes.
+
+#### Per-step arming
+
+The planning step and the executing step have always been two subprocesses. They now read two
+different halves of the arm — `planArmOf(arm)` in `lane-plan.ts`, `arm.transport` in `loop-lane.ts`
+— and both go through `runAgentVia(transport, opts)` (`src/lib/local/transport/run.ts`). A lane with
+no arm still goes through `runClaudeAgent`: the same call, not an equivalent one.
+
+**A split arm does not resume its planning session.** The resume is an optimization in which the
+executing session continues the planning conversation; when a *different tool* executes, the session
+id names a conversation it has never heard of. The plan still travels as the fenced plan block in the
+prompt, which it always did anyway.
+
+#### What a lane row now records
+
+| Column | Meaning |
+| --- | --- |
+| `transport` | the agent CLI that **executed** (`claude` \| `pi`) |
+| `armId` | the run arm this lane is a sample of — what joins a lane back to its arm |
+| `planModel` | the model that **planned**, when the lane opened with a planning session |
+| `voidReason` | why the lane is `void` (below) |
+| `planInputTokens` / `planOutputTokens` / `planCacheReadTokens` / `planTurns` / `planDurationMs` | the **planning** session's own accounting |
+
+`model`, `inputTokens`, `outputTokens`, `cacheReadTokens`, `turns` and `agentDurationMs` keep their
+exact existing meaning — the **executing** session, byte-identical to every lane before transports.
+Nothing was repurposed, nothing was backfilled, and every new column is **null on a lane written
+before it** — unknown, never floored to `claude` or to `0`. There is deliberately **no plan-side cost
+column**: `costMicros` remains the lane's one declared cost source, and a second money column would
+invite the sum the one-source rule forbids.
+
+On the run: `armsJson`, `armPolicy`, `probeJson`, all TEXT and nullable
+(`prisma/migrations/20260921120000_add_arms_and_transports/`). `modelPolicy` gains `compare` and
+`phase` gains `void`; both columns are already TEXT, so neither is a DDL change. **After pulling
+this, restart a long-lived `next dev`** — a cached Prisma client misses the new DDL and the miss
+reads as a code defect.
+
+`armId` also widens the lane's identity key: two arms of a `compare` run can execute the *same* model
+through different transports, so the model alone would resolve both to one row and the second would
+overwrite the first's branch, cost and result.
+
+The erase path is unchanged and already covers this: no new table, and `eraseOrgLoopRuns`
+(`src/lib/db/retention.ts`) deletes whole `LoopRunLane` rows by `runId` and whole `LoopRun` rows by
+`id`, so it is column-agnostic and the new columns travel with the row.
+
+#### The void phase — a lane may not edit the surface that scores it
+
+An agent candidate holds the same shell the harness holds: it can read the verify command, relax a
+test, and then score a clean lift for having done nothing. The prohibition ("do not weaken the
+tests") is unfalsifiable at the only place it would have to be checked — inside a loop nobody is
+reading — and this loop is explicitly unattended. So before a lift is credited, the lane's own
+committed paths are diffed against the scoring surface (`checkGateDiff`,
+`src/lib/local/lane-gate-diff.ts`, called from `loop-lane.ts`). A lane that touched it:
+
+- is written `phase: "void"` with its `voidReason`;
+- **does not rescan** — nothing it changed becomes the repository's latest reading;
+- is **reported as an outcome**, never dropped. A silently discarded void lane flatters the arm that
+  produced it, which is the failure the guard exists to prevent.
+
+It is a phase of its own rather than an `error` because the lane ran fine; calling it an error would
+hide it among the failures instead of reporting it as the outcome it is. A lane with **no commits is
+not void** — it simply never rescans.
+
+`classifyScoringSurface(path)` is a **classifier, not a path list**: a list goes stale the first time
+a directory is renamed, and would then turn the guard off silently, in a voice indistinguishable from
+"nothing was touched". It matches on shape, after normalizing separators and case, in this order —
+`fixture` (a path *segment* in `__fixtures__` / `fixtures` / `__snapshots__` / `__mocks__` /
+`testdata` / `golden` / `baselines`, or a `.snap` / `*.fixture.ts` / `*.mock.ts` basename; first,
+because `__fixtures__/x.test.json` is a recorded expectation before it is a test), then `test-file`
+(`foo.test.ts`, `foo.spec.tsx`, `test_foo.py`, `foo_test.go`, `FooTest.java`, or a `__tests__` /
+`test(s)` / `spec(s)` / `e2e` / `cypress` segment), then `gate-config` (vitest/jest/playwright/
+cypress/vite/babel/tsconfig configs, `eslint.config.*`, `pytest.ini`, `pyproject.toml`,
+`.pre-commit-config.yaml`, anything under `.github/workflows/`, `.husky/`, `.circleci/`), then
+`verify-command` (exactly where `lane-verify.ts` resolves the command from: `.ai/manifest.yaml`, the
+guidance files, `package.json`, `Makefile` / `justfile` / `Taskfile.yml` / `Cargo.toml` / `pom.xml` /
+`build.gradle`, and gate-shaped `scripts|bin|tools/{verify,check,ci,gate,lint,test}*`). Display is
+bounded to six paths and the remainder is **counted** in the reason (`+N more paths`), never hidden.
+
+`lane-gate-diff.test.ts` pins a `SEEDED_VIOLATIONS` table — 26 paths, each with the class it MUST
+receive — asserted both through the classifier and one at a time through `checkGateDiff`. Loosening a
+rule does not make the guard quieter; it makes that file red. This exists because the repo has been
+bitten exactly once by a source-scanning guard that stopped matching and kept passing (AGENTS.md,
+2026-09-04).
+
+#### Per-arm timing, and the ceiling that fired
+
+Arms run at very different speeds, so one shared ceiling forces a choice between failing every local
+lane on the clock and removing the tripwire that catches a genuinely stuck Claude one. The lane
+deadline is resolved per arm (`armTiming`, `loop-lane.ts`), in this order:
+
+1. the operator's explicit per-run `agentTimeoutMs` — a decision about **this** run;
+2. the transport's own dated band (`transportProfile(id).timing`, widened for a local endpoint by
+   `transportTiming(id, { local: true })`);
+3. the deployment's `ASCENT_AUTOPILOT_TIMEOUT_MS` and the shared `PLAN_TIMEOUT_MS` — exactly what
+   every lane used before transports had bands of their own.
+
+| Band | Claude, hosted | local endpoint (Claude or Pi) |
+| --- | --- | --- |
+| `agentMs` (one executing session) | 20 min | 90 min |
+| `planMs` (one planning session) | 8 min | 30 min |
+| `quietMs` (stream silence → "quiet") | 90 s | 5 min |
+
+**These local bands are CHOSEN, not measured.** What was measured, on the development machine on
+2026-09-21 (qwen3.8:27b Q4_K_M, Ollama 0.32.15, 22.4 GB of 27.1 GB resident at 64k context), is the
+token rate alone: **545 tok/s prefill, 11.5 tok/s generation** — roughly a tenth of a hosted frontier
+model. No local lane has been run to completion here, so no number in that column is a measurement of
+how long a local lane takes. The reasoning is attached rather than dressed as data: 90 min is 4.5×
+the hosted band and deliberately **below** the ~10× the token rate implies, because an overnight
+drive that spends three and a half hours discovering one wedged session is a worse answer than a
+session cut at 90 minutes with the ceiling named on the row (90 min is also `AGENT_TIMEOUT_CAP_MS`,
+so the band and the hard cap on a per-run override agree instead of being two opinions); 30 min for
+`planMs` is 3.75× the hosted 8 min because a planning session is prefill-dominated; 5 min for
+`quietMs` is 3.3× the hosted 90 s because a 2k-token tool call emitted at 11.5 tok/s takes ~3 minutes
+to appear and is normal. Pi's band is **deliberately identical** to the local Claude band: the two
+arms share a GPU and a model, and a bake-off with two different ceilings measures the ceilings.
+
+`PLAN_TIMEOUT_MS` and `PHASE_QUIET_MS` (`src/lib/local/runner-types.ts`) are `@deprecated` in favour
+of the bands but not deleted — they still back the fallback path (`loop-lane.ts`, `lane-plan.ts`) and
+`lane-phase.ts`. `transport/profile.test.ts` pins each equal to the Claude profile's band, so the two
+cannot drift while both exist; a deprecation that lets its replacement diverge is worse than no
+deprecation.
+
+**The deployment dial is scoped to the band it was set for.** `ASCENT_AUTOPILOT_TIMEOUT_MS` still
+applies to a hosted Claude arm exactly as before, so no current deployment changes behaviour. A
+**local** arm takes its profile band and ignores it: it is a number operators chose while watching a
+hosted session, and silently reusing it for an arm ten times slower would fail every local lane on a
+ceiling nobody picked for it — which an operator would read as "the local model cannot finish a
+lane", the exact wrong conclusion.
+
+`AgentRunResult` gained exactly one optional field, `ceiling: { kind: "session" | "lane", transport,
+local, limitMs }`. `session` means this session's own timer fired; `lane` means something outside cut
+it (the watchdog's deadline, an operator stop) and `limitMs` is then `null`, because the number that
+fired belongs to the watchdog and restating a figure this side never held would be an invention in a
+measurement column. It exists because with two arms racing one batch under different bands the only
+finding that matters is comparative — *"the local arm ran out of its 90 minutes while the Claude arm
+finished inside its 20"* — and that is stored nowhere else. The alternative was a regex over
+`summary`, and a comparison whose denominator comes from a parser over prose is one nobody should
+trust. The **sentence** a subscription Claude lane produces is unchanged byte for byte
+(`Agent session exceeded 20 min and was stopped.`) so `runner-breakers.ts` keeps classifying the
+exact strings it was written against; a non-default arm, and only a non-default arm, names itself.
+
+#### Honest cost, and the token split
+
+A transport whose profile declares `zeroCost` reports dollars that are **fabricated**: measured
+2026-09-21, `claude -p` against a local Ollama endpoint returned `total_cost_usd: 0.084` with
+`costBasis: "unknown"` — a price computed from a rate card for a model that was never called.
+
+- An all-local lane records **`costSource: "none"` with `costMicros: null`** — never `0`, because a
+  display that divides would report an infinite lift-per-cent. Tokens, turns and duration are still
+  recorded.
+- A **split arm** records `costSource: "envelope"` with the **plan half's real figure alone**. The
+  executor's invented price is discarded, not added.
+- The usage ledger receives **two events, one per provider** (`lane-cost.ts`): the planning half
+  under its own idempotency key `loop-lane:<laneId>:plan`, the executing half keeping the existing
+  `loop-lane:<laneId>` so a row written by the older path is still the same row.
+- A step is *local* when it ran against a local endpoint **or** its profile declares `zeroCost`. The
+  endpoint is the stronger witness and is checked first: the `claude` transport is not a zero-cost
+  profile, but `claude -p` pointed at a local server spends no Anthropic tokens while still printing
+  a price.
+
+The drive's **daily spend ceiling** needs no arm-awareness: it sums `LoopRunLane.costMicros`, and a
+zero-cost lane contributes nothing by construction rather than by a rule someone has to remember.
+
+#### The comparison readout and its metric contract
+
+**One optimized metric:** `claudeTokensPerVerifiedPoint`, direction *at-most*
+(`src/lib/local/compare-metrics.ts`). Everything else is a **declared threshold**, cleared or not. A
+large gain that breaches a threshold does not advance, and no threshold is renegotiated after a
+result. The three constraints are **declared, not measured**:
+
+| Constraint | Kind | Threshold | Why this number |
+| --- | --- | --- | --- |
+| `landed-rate-vs-claude` | quality | at least **0.85** of the Claude arm's landed rate | a 15 % relative drop is the most quality the trade may cost; below that the operator redoes the missing lanes by hand and the token saving is notional |
+| `verify-verdict-regressions` | quality | at most **0**, paired | counted only over trials both arms worked: the Claude lane verified and this arm's was rejected. Zero, because a rejection is the guard catching work that broke the repository |
+| `median-lane-wall-clock-ms` | operational | at most **45 min** | an unattended night is ~8 h at concurrency 2; 45 min/lane is ~20 lanes, a night's batch. A slower arm can be cheaper per point and still undeployable — which is why this is a threshold and not a second optimized metric |
+
+`laneTokenAttribution` is the **one** function that turns the row's columns into the `claudeTokens` /
+`localTokens` the metric is computed from. Each half is attributed to the transport that ran it, so a
+split arm contributes its planning tokens to Claude and its executing tokens to local. A side that
+did not run, or did not report, is `null` — never `0`, and two unknowns sum to `null`. **One
+conservatism survives and it is narrow:** when the planning half was Claude and its tokens were never
+recorded — a lane older than the `plan*` columns — the executing envelope is attributed to Claude, so
+an unmeasured planner cannot read as zero Claude spend. A *measured* lane is reported exactly as it
+was measured.
+
+Other properties the module holds:
+
+- **Cost both ways.** `costAllCompleted` (every completed lane) is the unconditioned primary and
+  stays, because conditioning on the outcome selects on a post-treatment variable. `costConditioned`
+  covers only trials where **every** arm landed. Both are `Counted<T>`: the subset size and the
+  predicate are fields of the value, so the conditioned figure cannot be printed without its n.
+- **Reliability twice.** `anyOfN` ("achievable at all") and `allOfN` ("can be relied upon" — the
+  question behind running something unattended) over N = 3, with `modelled` set truthfully: observed
+  when a trial actually ran N attempts, otherwise compounded from the per-trial rate and flagged,
+  because compounding assumes independence and a hard case the arm reliably misses is not independent.
+- **A null optimized metric is a finding.** An arm with no verified points reports `null`, never `0`
+  and never `Infinity`; such an arm cannot advance.
+- **Nothing is dropped.** `voided`, `parked` and `timedOut` are reported per arm. A void lane's points
+  are uncredited but it still counts as a failure in the reliability denominator. A **parked** lane
+  counts as a failure only for an arm marked `belowFloor` — that is what makes the capability floor
+  measurable rather than permanent.
+
+`ComparisonView` (`src/features/inflight/live/ledger/comparison/`) renders that report: the headline
+prints its direction beside it (`lower is better`) so a reader never has to already know which way is
+good; a null metric renders `—` with "no verified points — not a zero"; each constraint renders as
+`CLEARED` / `BREACHED` / `UNMEASURED` with its declared bound and the observation, and a null
+observation is UNMEASURED and never shown as cleared; the conditioned cost prints its subset size and
+predicate; both reliability figures render together or neither does, with a compounded one marked
+*Modelled, not observed*; all five outcome rows (landed, failed, void, parked, timed out) render
+always, including at zero, each with the standing reason it happens; a below-floor arm is labelled
+wherever it appears; and when no arm advances, the report's **note is the finding** and is printed in
+place of a verdict. Three states: empty, running (arms present, the headline **deliberately
+withheld** — a provisional number is a number someone will quote after it has changed) and settled.
+
+#### The theater names the arm
+
+The theater header names what a run is armed with, on every run including an ordinary single-arm one,
+as a quiet mono caption under the running answer — context, not a headline. The label comes from
+`armLabel()`. The arm belongs to a **lane**, not to the pulse: a `compare` run races 2–4 arms over one
+batch, so "the run's arm" is not a thing such a run has; `theaterArm.ts` takes the arm of the lane the
+header is already reporting on in **Now**, so the label and the sentence above it describe the same
+piece of work. The pulse carries the whole `Arm` rather than the id — every reader wants to *label*
+it, and a reader handed `claude-sonnet-1` would have to invent words for it. The read selects both
+(`src/lib/db/loop-pulse.ts`) and the pure fold joins them once (`armsById` → `LanePulse.arm`,
+`loop-pulse-fold.ts`); the client's defensive parser runs the field through `normalizeArm`. **A lane
+with no arm, or one whose `armId` names no arm of its run, renders nothing** — not "default", which
+would be a claim about a configuration that is genuinely unknown.
+
+#### The cockpit: the Arms panel, and nothing starts unproven
+
+Run setup → **The agent** opens with the arm builder (`cockpit/arms/`):
+
+1. **Policy** — `One arm` (the default, and what every run before arms did) or `Compare (2–4)`.
+   Policy comes first because it decides what the run's numbers MEAN: a single run produces a result,
+   a compare run produces a comparison.
+2. **Arm rows** — a transport (read from `allTransportProfiles()`, so the picker names the binary:
+   "Claude Code", "Pi") and a model. A Claude model is a segmented control over the deployment's three
+   aliases; a local model is a text field gated only by `arm.ts`'s `MODEL_TOKEN`, the same regex the
+   spawn door applies.
+3. **"Plan with a different model"** — a disclosure revealing a second transport+model pair. The row's
+   live label then reads as the split it is (`claude:sonnet plan -> pi:qwen3.8:27b`), formatted by
+   `arm.ts`'s own default label rather than by a second format in the browser.
+4. **Below the floor** — when the arm's PLANNING half is not Claude, the row grows a warn-toned block
+   stating the consequence and an explicit *"Arm it below the floor anyway"* opt-in. Until it is
+   ticked the whole set is unarmable; when it is, the arm goes over the wire with `belowFloor: true`.
+   **A Claude-planned arm is not below the floor, however local its executing half** — which is what
+   makes "Claude plans, a local model executes" the configuration the feature is *for* rather than a
+   thing to be warned about.
+5. **Check transports** — the preflight probe (`POST /api/org/local/probe`, once per distinct
+   transport in the set). `idle → probing → armable | blocked`. A block prints every failed finding as
+   an **action**, because a red light the operator cannot act on is one they route around. See
+   [the probe](../local-mode/README.md#the-preflight-probe-2026-09-21).
+
+Rules worth writing down: **the panel does not validate** — every rule comes from `@/lib/local/arm`,
+and the panel adds exactly one the wire cannot express (an un-acknowledged below-floor row, because
+consent is a fact about the dialog rather than about the run). **Nothing probes on an effect**: the
+probe spawns a real subprocess, so it fires from a press, and staleness is recomputed during render
+from a signature of the whole arm set, so editing any model turns a green light back to "Not
+checked" with no state to manage. **A probe that cannot be reached is a BLOCK**, not a shrug: nothing
+has proven the transport can answer.
+
+The verdict reaches the buttons. `armStartBlock` (`cockpit/startInputs.ts`) returns one sentence or
+null: `idle` and `armable` start; `blocked` and `probing` disable Run, Drive **and** the standing
+runner; an unarmable set ("give every arm a transport, a model, and its below-floor opt-in where one
+is needed") disables all three too. The reason is rendered beside the buttons and each disabled
+control points at it with `aria-describedby`, so it is reachable by eye and by a screen reader —
+never a silently dead button. The runner is disabled by the same rule and most deliberately: it
+spends against a daily ceiling on the same unproven transport. `idle` does **not** block, because the
+probe fires from a deliberate press and requiring one before every run would make an unchanged,
+already-proven configuration un-runnable.
+
+#### The capability floor, and what would retire it
+
+**A local transport serves the EXECUTING step; the planning step keeps a Claude arm.** The reason is
+structural rather than a judgment about any model: the plan contract fails closed, so a plan the
+harness cannot parse **parks the whole batch** — the most expensive failure mode in an unattended
+drive, because it costs a night and produces nothing to read.
+
+This is recorded as a **floor with its measurement trigger, not as a permanent rule.** An operator
+may arm below it, always labelled, with an explicit opt-in — and a below-floor arm's **parked lanes
+are counted as failures** rather than discarded (`countedFor`, `compare-metrics.ts`). That is the
+whole point: the floor is retired when a below-floor arm's parked rate over a real comparison run is
+low enough that the batch-parking risk is priced rather than assumed. Until such a run exists, the
+floor stands and nothing here claims to know the answer.
+
+One confound is recorded in advance, because it is a harness difference and would otherwise be read
+as a model difference: **Claude plans with `Read,Grep,Glob`; Pi has no grep or glob tool.** Searching
+in Pi goes through `bash`, which is not read-only, so Pi's planning stance is `-t read` — strictly
+read-only but a *weaker planning surface* than Claude's. If Pi plans measurably worse, that is the
+first thing to check.
+
+#### What is not wired yet (2026-09-21)
+
+Three honest edges, so nobody reads more into the above than the code supports:
+
+- **No comparison run has completed.** `buildComparisonReport` has no production caller: nothing
+  reads `LoopRunLane` rows into `LaneMetricRow[]` yet, and `ComparisonView` is exercised only by its
+  fixture and DOM test. The contract, the arithmetic and the surface exist; the ledger does not mount
+  them.
+- **No lane resolves a `LocalEndpoint` yet.** `TransportRunOptions.endpoint` is the committed shape
+  and `claudeSpawnEnv` / `piModelsJson` both honour it, but neither `loop-lane.ts` nor `lane-plan.ts`
+  passes one and no env var resolves one. Today a local arm means arming `pi`, which falls back to
+  the operator's own `~/.pi/agent/models.json` when no endpoint is armed; a `claude` arm with no
+  endpoint is the hosted seat, exactly as before.
+- **`modelPolicy: "ab"` still has no picker.** The Arms panel arms `single` and `compare`; the
+  pre-arms A/B vocabulary remains route-only, and is kept only so runs recorded under it keep their
+  meaning.
 
 ### Lane kinds: foundation and practice lanes (2026-08-28)
 
@@ -4133,9 +4481,18 @@ Pinned by [`src/lib/local/loop-engine.cadence.test.ts`](../../../src/lib/local/l
   `LoopDrive.dialsJson`); the manual run's request type (`StartLoopInput`) has no field for it. Nothing
   on the `LoopRun` row records which cadence a finished run used — so the ledger cannot yet answer "was this run's pair a per-cycle or a
   per-run reading" except by the lane logs.
-- **The A/B model policy has no picker.** `modelPolicy: "ab"` is accepted, validated and driven end
-  to end by `POST /api/org/loop`, but the run-setup dialog still offers only one model — arming an A/B
-  run today means calling the route. The dials live in `RunSetupSections`/`useRunDials`.
+- **The A/B model policy has no picker** *(narrowed 2026-09-21)*. A multi-arm comparison **does**
+  have one now — the Arms panel arms `armPolicy: "compare"` with 2–4 arms, see
+  [Arms](#arms-transport--model-and-the-n-arm-comparison-2026-09-21). What remains without a picker
+  is the pre-arms `modelPolicy: "ab"` vocabulary, which is still accepted and driven end to end by
+  `POST /api/org/loop` and is kept so runs recorded under it keep their meaning; arming one means
+  calling the route.
+- **A `compare` run's report is not mounted.** `buildComparisonReport` has no production caller and
+  `ComparisonView` is exercised only by its fixture — the contract and the surface exist, the ledger
+  does not read real lanes into them yet, and **no comparison run has completed**.
+- **No lane resolves a `LocalEndpoint`.** The shape is committed and both spawn doors honour it, but
+  nothing passes one, so a local arm today means arming `pi` against the operator's own
+  `~/.pi/agent/models.json`.
 - **Retry builds a fresh worktree and branch.** Deliberate (the original worktree is gone by then),
   but it means a retried lane's commits land on a different branch from its siblings' — two branches
   to review for one repo.

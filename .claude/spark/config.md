@@ -33,6 +33,11 @@ when the turn edited feature source with a user-visible effect:
 when a Prisma migration landed:
 - `npx prisma generate`, then re-run `npx tsc --noEmit`, then **restart any long-lived
   `next dev`** — a cached client/ensureDb misses new DDL and the miss reads as a code defect.
+- **mirror every new column into `prisma/init.sql`** (both the `CREATE TABLE` body and the
+  idempotent `ADD COLUMN IF NOT EXISTS` block), then `npx vitest run src/lib/db/init-sql.test.ts`.
+  The migration is what an existing database runs; init.sql is what a FRESH one is built from, and
+  a wave that updates only the first builds a database the app 500s on. Promoted to a gate on
+  2026-09-21 after the guard caught it twice.
 
 builder:
 - `npx tsc --noEmit` and `npx vitest run <their paths>` before returning.
@@ -75,7 +80,14 @@ Pasted verbatim into every builder brief:
   before guard tests run; a guard that suddenly enumerates untracked files is a
   regression, not a fix. State the constraint and bounce it back.
 - **Counter-propose, don't guess.** A builder refusal backed by `file:line` evidence
-  is signal.
+  is signal. **Measure before believing the brief**: a brief that asserts a third-party
+  behaviour can be wrong, and a builder that measured one instead of trusting it saved a whole
+  comparison on 2026-09-21.
+- **A doc section written by a package goes stale inside the same session.** Before merging any
+  doc, re-read every claim against the COMMITTED code, and hand the doc writer an explicit list of
+  what changed after each section was drafted. Promoted from the improvement log on 2026-09-21
+  (second occurrence): a confident "Known gap" that the code has since closed does more damage
+  than no doc, because a reader trusts a stated gap more than silence.
 
 ## Wave defaults
 
@@ -123,7 +135,38 @@ Pasted verbatim into every builder brief:
   prototype pick — the comparison page carried each option's own admitted weaknesses, the question
   carried the link, and the answer came back in one round.
 
+- **2026-09-21 (local-model-lanes): 13 of 15 recommendations taken, both overrides toward MORE.**
+  Override 1: the theater shows the arm ALWAYS, where the recommendation was "only on multi-arm
+  runs" — this operator prefers one unconditional rule over conditional chrome. Override 2: drive
+  the comparison against **ascent itself** rather than a safer paired side repo, with the blast
+  radius named in the option text. The standing read holds: offer the bold option with its cost
+  stated, and never pre-narrow.
+- 2026-09-21: **zero "Other" answers across fifteen questions again.** The conditions written into
+  the option text are what made both overrides arrive with their mitigations already agreed.
+
 ## Skill improvement log
+
+- 2026-09-21 (local-model-lanes): **live-probe a spark's central premise before wave 1 when the
+  machine can answer it in ten minutes.** The spark asked which harness would make a local model
+  competent; running `claude -p` against Ollama during Phase 2 proved admission already worked and
+  turned wave 1's architecture question from "which tool do we adopt" into "is the harness's prompt
+  tax worth measuring" — a different question with a different, better answer. Two measured defects
+  (a fabricated dollar cost, a silently truncated context) became work packages that speculation
+  would never have produced.
+- 2026-09-21 (local-model-lanes): **the liveness rule needs a third clause — trace a field through
+  every REBUILD boundary, not just its type and its query.** Three separate places dropped the
+  lane's arm between the database and the screen: the pulse type, the query's select, and a
+  defensive CLIENT PARSER that rebuilds each field by hand. The brief named the first two; a builder
+  found the third. Any field crossing a wire that something re-validates has one more place to
+  vanish, and every test passes while it does.
+- 2026-09-21 (local-model-lanes): **a package that refuses a cross-boundary change is doing its
+  job, and the Director should then do it.** A builder declined to import the transport registry
+  into a client component because it would have dragged `child_process` into the browser bundle,
+  and left the evidence and the fix in a comment. The fix was fifteen minutes of Director work and
+  removed a duplicated list. Budget for a short Director pass AFTER the fan-out for exactly this.
+- 2026-09-21 (local-model-lanes): ten parallel packages against a committed wire contract, zero
+  file collisions, one full-suite red (the init.sql mirror) caught by a guard rather than by review.
+  The stubs-before-fan-out rule now has three sessions of evidence at 6, 8 and 10 packages.
 
 - 2026-09-18 (theater-upgrade): **a builder killed by a 429 is not resumable by name** — `SendMessage`
   answers "no agent named …" and the transcript is gone. What survives is its work on disk and its
