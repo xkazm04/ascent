@@ -101,9 +101,13 @@ import type { ProposedBatch } from "@/lib/db/loop-runs-types";
 // it, and `transport/profile` is the DATED timing band that stops one slow arm's ceiling from
 // governing a fast one. `lane-gate-diff` is the integrity guard: a lane that edited the surface which
 // scores it does not get to bank the lift.
-import type { Arm, TransportId } from "@/lib/local/arm";
+// `endpoint.ts` is the ONE place an arm half is judged local and given something to talk to — the
+// lane resolves its EXECUTING half here and `lane-plan.ts` resolves its planning half at the door it
+// spawns through, so a split arm's two sessions cannot end up sharing one answer.
+import { planArmOf, type Arm, type TransportId } from "@/lib/local/arm";
+import { isLocalHalf, resolveLocalEndpoint } from "@/lib/local/endpoint";
 import { runAgentVia, type TransportRunOptions } from "@/lib/local/transport/run";
-import { transportProfile } from "@/lib/local/transport/profile";
+import { transportTiming } from "@/lib/local/transport/profile";
 import { checkGateDiff } from "@/lib/local/lane-gate-diff";
 
 /**
@@ -867,20 +871,35 @@ async function laneDeliverables(
  *
  *   1. the operator's EXPLICIT per-run ceiling, which is a decision about this run and outranks a
  *      profile's default the way every other dial on the row does;
- *   2. the transport's own dated band (`transportProfile`), which is what stops a 27B at Q4 from
+ *   2. the arm's own dated band (`transportTiming`), which is what stops a 27B at Q4 from
  *      being failed on a clock sized for a hosted model;
  *   3. the deployment's `ASCENT_AUTOPILOT_TIMEOUT_MS` and the shared `PLAN_TIMEOUT_MS` — exactly what
  *      every lane used before transports had bands of their own.
  *
  * The profile lookup is guarded because it is a STUB until WP1 fills the registry in, and a throwing
  * capability table must degrade to the old ceiling rather than take the lane down with it.
+ *
+ * THE BAND ANSWERS TO THE ENDPOINT, NOT THE TRANSPORT ID (`transportTiming`). The same `claude`
+ * binary answering from a 27B at 4-bit is not the same clock as the same binary on a subscription
+ * seat, and `agentTimeoutMs` inside the spawn already widens for it — a lane whose DEADLINE was
+ * computed on the hosted band would therefore be cut by its own watchdog while its session was still
+ * legitimately inside its ceiling. The two halves are banded separately because a split arm's
+ * planning session and executing session can sit on opposite sides of that line.
  */
-function armTiming(transport: TransportId | null, explicitMs: number | null): { agentMs: number; planMs: number } {
+interface ArmHalfBand {
+  transport: TransportId;
+  local: boolean;
+}
+
+function armTiming(exec: ArmHalfBand | null, plan: ArmHalfBand | null, explicitMs: number | null): { agentMs: number; planMs: number } {
   const fallback = { agentMs: agentTimeoutMs(explicitMs), planMs: PLAN_TIMEOUT_MS };
-  if (!transport || explicitMs != null) return fallback;
+  if (!exec || explicitMs != null) return fallback;
   try {
-    const timing = transportProfile(transport).timing;
-    return { agentMs: timing.agentMs, planMs: timing.planMs };
+    const planHalf = plan ?? exec;
+    return {
+      agentMs: transportTiming(exec.transport, { local: exec.local }).agentMs,
+      planMs: transportTiming(planHalf.transport, { local: planHalf.local }).planMs,
+    };
   } catch {
     return fallback;
   }
@@ -906,6 +925,11 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   // the door it actually spawns through is what stops the two from drifting apart.
   const execArm: Arm | null = input.arm ?? null;
   const execTransport: TransportId | null = execArm?.transport ?? null;
+  // WHAT THE EXECUTING SESSION TALKS TO. Null on a hosted `claude` half and on every pre-arms lane —
+  // which is the path that stays byte-identical. The PLANNING half is resolved separately, inside
+  // `planLane`, because a split arm's two halves are two independent answers.
+  const execEndpoint = resolveLocalEndpoint(execArm);
+  const planBand = execArm ? planArmOf(execArm) : null;
   const lane = await upsertLane({
     runId,
     repoFullName: repo,
@@ -953,7 +977,11 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   // hosted model's hundreds), so one shared ceiling forces a choice between failing every local lane
   // on the clock and removing the tripwire that catches a genuinely stuck Claude one. Per-arm bands
   // refuse the choice: a timeout then means "this arm ran out of ITS budget", which is attributable.
-  const timing = armTiming(execTransport, input.agent?.timeoutMs ?? null);
+  const timing = armTiming(
+    execTransport ? { transport: execTransport, local: execEndpoint != null } : null,
+    planBand ? { transport: planBand.transport, local: isLocalHalf(planBand) } : null,
+    input.agent?.timeoutMs ?? null,
+  );
   const watch =
     input.watchdog ??
     createLaneWatchdog({
@@ -1397,6 +1425,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // and a minor plan's execution resumes its planning session.
         onEvent: (e) => activity.onEvent(e),
         ...(resumeSessionId ? { resumeSessionId } : {}),
+        // WHAT THIS SESSION TALKS TO. Omitted — not passed as null — when the arm's executing half is
+        // hosted, so an unarmed lane's options object is the same object it always was.
+        ...(execEndpoint ? { endpoint: execEndpoint } : {}),
       };
       const agentCall = execTransport ? deps.runAgentVia(execTransport, agentOpts) : deps.runAgent(agentOpts);
       agentInFlight = agentCall;

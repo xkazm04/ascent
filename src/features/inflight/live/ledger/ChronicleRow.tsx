@@ -8,6 +8,7 @@ import { useState } from "react";
 import { fmtDelta } from "@/components/ui";
 import type { LoopRunDetail } from "../cockpit/loopTypes";
 import { ChronicleLane } from "./ChronicleLane";
+import { ComparisonView } from "./comparison/ComparisonView";
 import { runBadge, runLabel, type RunBadge } from "./chronicleModel";
 import { fetchRunDetail } from "./ledgerClient";
 import { fmtAgo, fmtDuration, fmtUsd, plural, shortRepo } from "./ledgerFormat";
@@ -88,6 +89,15 @@ export function ChronicleRow({
             <p role="alert" className="type-caption text-danger">
               {error}
             </p>
+          )}
+          {/* THE ARM COMPARISON, above the lanes it was computed from. Present only on a `compare`
+              run — a `single` run renders nothing new here. `running` is passed from the RUN'S OWN
+              PHASE, because the view withholds its headline while the arms are still going: a
+              provisional winner is a number someone will quote after it has changed. */}
+          {detail?.comparison && (
+            <div className="mb-4">
+              <ComparisonView report={detail.comparison} running={run.phase === "running" || run.phase === "curating"} />
+            </div>
           )}
           {detail && detail.lanes.length === 0 && <p className="type-caption text-slate-500">This run wrote no lanes.</p>}
           {detail && detail.lanes.length > 0 && (

@@ -15,6 +15,12 @@ import type { ComparableScan } from "@/lib/db/scans";
 import { listRunOutcomes } from "@/lib/db/lane-outcomes";
 import type { LaneImpactInput } from "@/lib/db/improvement-events";
 import { laneEconomics, priceList, type LaneEconomics, type RemediationPriceList } from "@/lib/local/lane-economics";
+// THE COMPARISON'S METRIC CONTRACT (src/lib/local/compare-metrics.ts) — the committed wire contract,
+// consumed here and never re-implemented. `buildComparisonReport` does its own token attribution
+// (`laneTokenAttribution`), so this read supplies the COLUMNS and leaves the arithmetic where it was
+// declared.
+import { buildComparisonReport, type ComparisonReport, type LaneMetricRow, type LaneOutcomeClass } from "@/lib/local/compare-metrics";
+import { planArmOf, type Arm } from "@/lib/local/arm";
 import {
   baseRelationOf,
   isReviewMarker,
@@ -359,14 +365,109 @@ export async function getLoopRunDetail(id: string): Promise<LoopRunDetail | null
   for (const lane of lanes) outcomes.push(await laneOutcome(lane, org?.slug, laneKindOf(run.targets, lane)));
   // The economics ride ALONGSIDE the outcomes, folded from the very same pair — so the ledger's
   // ¢/point and its before → after can never come from two different readings of one lane.
+  const economics = outcomes.map(laneEconomics);
   return {
     run,
     lanes,
     outcomes,
-    economics: outcomes.map(laneEconomics),
+    economics,
     itemOutcomes: await listRunOutcomes(id),
     batchTitles: await batchTitlesFor(lanes),
+    // THE COMPARISON READOUT. Built from THIS run's real lane rows, and only for a run that declared
+    // itself a comparison — a `single` run has one arm, and an arm is not a comparison.
+    comparison: runComparison(run, lanes, economics),
   };
+}
+
+// ── THE COMPARISON PROJECTION ────────────────────────────────────────────────────────────────────
+//
+// `compare-metrics.ts` declares the NARROW input it needs rather than importing the persisted row,
+// so that a column arriving under a different name is a compile error HERE — in the one projection —
+// instead of an `undefined` that silently reads as zero inside the metric. This is that one place.
+
+/** The deadline sentence `runLane` writes when the watchdog cuts a cycle (`loop-lane.ts`). A timeout
+ *  is reported as its own outcome rather than pooled into `failed`, because the whole point of
+ *  per-arm timing bands is that "this arm ran out of ITS budget" is an attributable finding. */
+const FORCE_FAILED = /exceeded its \d+ min deadline/i;
+
+/**
+ * HOW A LANE ENDED, in the metric's vocabulary. Every phase maps; none is dropped.
+ *
+ *   • `void`                       — the integrity guard caught it editing the surface that scores it.
+ *   • queued/dispatching/rescanning— still in flight, or the run was stopped: `incomplete`, not a trial.
+ *   • `error`                      — `timed-out` when the watchdog's sentence is on the row, else `failed`.
+ *   • `done` with commits          — `landed`: the lane delivered work. (Delivery ONTO the runner
+ *                                    branch is a separate step not every run takes, so `landedAt` is
+ *                                    deliberately not the test — it would read a run that never lands
+ *                                    as one where no arm ever delivered anything.)
+ *   • `done`, no commits, EMPTY batch — `parked`: its plan moved architecture (or could not be read)
+ *                                    and every item was parked, which `runLane` records by emptying
+ *                                    `batchIds` before ending the lane. Not evidence about the model.
+ *   • `done`, no commits, batch intact — `failed`: it ran, it had work, and it delivered none.
+ */
+export function laneOutcomeClassOf(lane: LoopLaneRecord): LaneOutcomeClass {
+  if (lane.phase === "void") return "void";
+  if (lane.phase === "queued" || lane.phase === "dispatching" || lane.phase === "rescanning") return "incomplete";
+  if (lane.phase === "error") return FORCE_FAILED.test(lane.error ?? "") ? "timed-out" : "failed";
+  if (lane.commits > 0) return "landed";
+  return lane.batchIds.length === 0 ? "parked" : "failed";
+}
+
+/**
+ * One lane, as the comparison needs it. Absent measurements stay `null`/absent — never 0, which the
+ * metric would average as a free session or a lane that measurably moved nothing.
+ *
+ * `planTransport` is written ONLY for an arm that declares a separate planning half: the contract
+ * reads an absent one as "the executing half planned too", which is what an unsplit arm did.
+ */
+export function laneMetricRow(lane: LoopLaneRecord, arm: Arm | null, points: number | null): LaneMetricRow {
+  const planHalf = arm ? planArmOf(arm) : null;
+  const split = planHalf && arm ? planHalf.transport !== arm.transport || planHalf.model !== arm.model : false;
+  const wallClockMs =
+    lane.startedAt && lane.endedAt ? Math.max(0, Date.parse(lane.endedAt) - Date.parse(lane.startedAt)) : null;
+  return {
+    laneId: lane.id,
+    armId: lane.armId ?? arm?.id ?? "",
+    transport: lane.transport ?? arm?.transport ?? "",
+    ...(split && planHalf ? { planTransport: planHalf.transport } : {}),
+    planModel: lane.planModel ?? null,
+    model: lane.model ?? null,
+    outcome: laneOutcomeClassOf(lane),
+    voidReason: lane.voidReason ?? null,
+    ...(arm?.belowFloor === true ? { belowFloor: true } : {}),
+    trialKey: lane.abPairKey ?? null,
+    inputTokens: lane.inputTokens,
+    outputTokens: lane.outputTokens,
+    planInputTokens: lane.planInputTokens ?? null,
+    planOutputTokens: lane.planOutputTokens ?? null,
+    costMicros: lane.costMicros,
+    verifiedPoints: points,
+    verifyVerdict: lane.verifyVerdict,
+    wallClockMs: Number.isFinite(wallClockMs as number) ? wallClockMs : null,
+  };
+}
+
+/**
+ * The run's comparison, or null.
+ *
+ * Null for anything but an `armPolicy: "compare"` run, and null for a compare run whose lanes carry
+ * no arm id at all — an arm id is what joins a lane back to the arm that produced it, and a report
+ * built over rows that cannot be joined would pool every arm's population into one.
+ */
+export function runComparison(
+  run: LoopRunRecord,
+  lanes: readonly LoopLaneRecord[],
+  economics: readonly LaneEconomics[],
+): ComparisonReport | null {
+  if (run.armPolicy !== "compare") return null;
+  const arms = run.arms ?? [];
+  const byId = new Map(arms.map((a) => [a.id, a]));
+  const pointsOf = new Map(economics.map((e) => [e.laneId, e.verifiedPoints]));
+  const rows = lanes
+    .map((lane) => laneMetricRow(lane, byId.get(lane.armId ?? "") ?? null, pointsOf.get(lane.id) ?? null))
+    .filter((r) => r.armId !== "");
+  if (rows.length === 0) return null;
+  return buildComparisonReport(rows);
 }
 
 /**

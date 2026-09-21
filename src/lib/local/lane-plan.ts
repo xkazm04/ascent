@@ -36,6 +36,10 @@ import { parsePlan } from "@/lib/local/lane-plan-parse";
 import { splitPlan, type DirectionGrant, type ItemClass } from "@/lib/local/lane-plan-classify";
 import { buildPlanBlock, buildPlanningPrompt, type ReviseNote } from "@/lib/local/lane-plan-prompt";
 import { isSplitArm, planArmOf, type Arm, type TransportId } from "@/lib/local/arm";
+// THE ONE PLACE AN ARM HALF IS JUDGED LOCAL. Resolved HERE for the planning half, and separately in
+// `loop-lane.ts` for the executing one: "Claude plans, a local model executes" is precisely the arm
+// whose two sessions must not share an answer.
+import { resolveLocalEndpoint } from "@/lib/local/endpoint";
 import type { TransportRunOptions } from "@/lib/local/transport/run";
 import { recommendationDecisionKey } from "@/lib/report/rec-identity";
 import {
@@ -182,6 +186,9 @@ export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
   // every lane before arms existed did, written down rather than assumed.
   const planArm = input.arm ? planArmOf(input.arm) : null;
   const planModel = planArm?.model ?? input.agent.model ?? null;
+  // Null when the planning half is a hosted `claude` alias (the subscription seat) and on every
+  // pre-arms lane — omitted from the options rather than sent as null, so that path is untouched.
+  const planEndpoint = resolveLocalEndpoint(planArm);
   const opts: TransportRunOptions = {
     cwd: worktree.dir,
     prompt: buildPlanningPrompt({ org, repo, batch, briefText: input.briefText, partition, revise: revise.map((r) => r.note) }),
@@ -192,6 +199,7 @@ export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
     timeoutMs: input.planTimeoutMs ?? PLAN_TIMEOUT_MS,
     ...(input.signal ? { signal: input.signal } : {}),
     ...(input.onEvent ? { onEvent: input.onEvent } : {}),
+    ...(planEndpoint ? { endpoint: planEndpoint } : {}),
   };
   const result = planArm && input.runVia ? await input.runVia(planArm.transport, opts) : await input.runAgent(opts);
 

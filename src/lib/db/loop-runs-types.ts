@@ -10,6 +10,9 @@ import { parseStringArray } from "./json-columns";
 // rule as `delivery-options` below: two declarations of what an arm is would be two arms.
 import { normalizeArmPolicy, normalizeTransport, parseArms, type Arm, type ArmPolicy } from "@/lib/local/arm";
 import { normalizeDelivery, type LoopDelivery } from "@/lib/local/delivery-options";
+// The comparison's report shape, from the committed metric contract. TYPE ONLY: the arithmetic stays
+// where it was declared, and this module only carries the result to a client.
+import type { ComparisonReport } from "@/lib/local/compare-metrics";
 // Both PURE and dependency-free (no `process`, no `node:*`), so the record's shape and the client that
 // renders it share ONE declaration of the vocabulary — the same rule `delivery-options` follows.
 import { normalizeVerifyMode, type VerifyMode } from "@/lib/local/run-limits";
@@ -544,6 +547,16 @@ export interface LoopRunDetail {
    * which is why every consumer treats it as optional and keeps its own fallbacks.
    */
   batchTitles?: Record<string, { title: string; dimId: string | null }>;
+  /**
+   * THE ARM COMPARISON, for a run whose `armPolicy` is `compare` — built from this run's own lane
+   * rows (`runComparison` in loop-runs-read.ts) against the declared metric contract.
+   *
+   * Null on a `single` run and on a compare run whose lanes carry no arm id: one arm is not a
+   * comparison, and rows that cannot be joined to an arm would pool every arm into one population.
+   * Optional rather than `| null` alone, for the reason `batchTitles` above gives: this record is
+   * constructed by fixtures and by folds in modules that do not own this file.
+   */
+  comparison?: ComparisonReport | null;
 }
 
 
