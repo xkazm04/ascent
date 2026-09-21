@@ -14,29 +14,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArmPolicy } from "@/lib/local/arm";
 import type { ProbeResult } from "@/lib/local/transport/probe";
 import { ArmsPanel } from "./ArmsPanel";
+import { CONTEXT_MISS, CONTEXT_REMEDY, probeFixture, replyFixture } from "./armProbeFixture";
 import { newArmDraft, type ArmDraft } from "./armDraft";
 import type { ArmProbePhase } from "./useArmProbe";
 
-const CONTEXT_REMEDY = "set OLLAMA_CONTEXT_LENGTH to 65536 and restart the server";
-
-const blockedProbe: ProbeResult = {
-  transport: "pi",
-  ok: false,
-  binVersion: "0.32.15",
-  serverVersion: "0.32.15",
-  at: "2026-09-21T10:00:00.000Z",
-  zeroToken: true,
-  findings: [
-    { check: "binary", ok: true, observed: "pi 0.32.15" },
-    { check: "context", ok: false, observed: "4096", required: "65536", remedy: CONTEXT_REMEDY },
-  ],
-};
-
-const okProbe = (): ProbeResult => ({ transport: "claude", ok: true, at: "2026-09-21T10:00:00.000Z", zeroToken: true, findings: [] });
+const okProbe = (): ProbeResult => probeFixture("claude");
+const blockedProbe: ProbeResult = probeFixture("pi", CONTEXT_MISS);
+const REFUSAL = "Arm “arm 1”, execute half: it is not ready on this machine.";
 
 let phases: ArmProbePhase[] = [];
 let reply: ProbeResult = okProbe();
-const REFUSAL = "pi is not ready on this machine.";
 
 function Host({ initial }: { initial?: ArmDraft[] }) {
   const [policy, setPolicy] = useState<ArmPolicy>("single");
@@ -62,10 +49,13 @@ beforeEach(() => {
   reply = okProbe();
   vi.stubGlobal(
     "fetch",
-    // The route's real shape: { probe, refusal } — see src/app/api/org/local/probe/route.ts.
     vi.fn(
       async () =>
-        ({ ok: true, status: 200, json: async () => ({ probe: reply, refusal: reply.ok ? null : REFUSAL }) }) as Response,
+        ({
+          ok: true,
+          status: 200,
+          json: async () => replyFixture([reply], [{ armId: "arm-1", label: "arm 1", execProbe: 0 }]),
+        }) as Response,
     ),
   );
 });
@@ -100,17 +90,28 @@ describe("ArmsPanel", () => {
     expect(screen.getByTestId("arm-probe-state")).toHaveTextContent("Blocked");
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(REFUSAL);
+    // The blocked ARM is named, not merely the transport — see ArmProbeBar.dom.test.tsx.
+    expect(screen.getByTestId("arm-probe-blocked-arm-1")).toBeTruthy();
     expect(alert).toHaveTextContent("4096 — 65536 required");
     expect(alert).toHaveTextContent(CONTEXT_REMEDY);
     // The phase the CTA gates on — `blocked` is what disables the button that arms the run.
     expect(phases.at(-1)).toBe("blocked");
   });
 
-  it("goes back to unchecked when the arms change under a green light", async () => {
+  it("goes back to unchecked when an ARM is edited under a green light", async () => {
     render(<Host />);
     await press("arm-probe-run");
     expect(screen.getByTestId("arm-probe")).toHaveAttribute("data-state", "armable");
 
+    // A retyped model is a different question for the server's `model` and `context` checks, so the
+    // green light is about another configuration and must stop being shown.
+    await act(async () => {
+      // claude:sonnet -> claude:opus, through the alias segmented control.
+      fireEvent.click(screen.getByLabelText("Arm 1 executing model").querySelectorAll("button")[2]);
+    });
+    expect(screen.getByTestId("arm-probe")).toHaveAttribute("data-state", "idle");
+
+    await press("arm-probe-run");
     await act(async () => {
       fireEvent.click(screen.getByTestId("setup-arm-policy").querySelectorAll("button")[1]);
     });

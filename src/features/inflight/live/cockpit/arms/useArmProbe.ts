@@ -7,25 +7,25 @@
 // be both expensive and, under this repo's React Compiler rules, an error
 // (`react-hooks/set-state-in-effect`).
 //
-// STALENESS IS COMPUTED, NOT SIGNALLED. The hook records the transport signature it probed. A caller
-// compares that with the signature its current arms carry and knows, during render and with no state
-// at all, whether the green light still refers to the configuration on screen.
+// STALENESS IS COMPUTED, NOT SIGNALLED. The hook records the signature of the whole configuration it
+// probed. A caller compares that with the signature its current arms carry and knows, during render
+// and with no state at all, whether the green light still refers to the configuration on screen.
 
 import { useState } from "react";
-import type { TransportId } from "@/lib/local/arm";
-import type { ProbeResult } from "@/lib/local/transport/probe";
-import { allOk, probeTransportOverHttp } from "./armProbe";
+import type { ArmPolicy } from "@/lib/local/arm";
+import { allArmsOk, probeArmsOverHttp, type ArmProbeReply } from "./armProbe";
 
 export type ArmProbePhase = "idle" | "probing" | "armable" | "blocked";
 
 export interface ArmProbeState {
   phase: ArmProbePhase;
-  results: ProbeResult[];
+  /** The per-arm verdicts and the probes they rest on, or null when nothing has been measured. */
+  reply: ArmProbeReply | null;
   /** The route's own refusal sentence, or the transport failure, verbatim. */
   error: string | null;
-  /** The configuration the current `results` were measured against — see `armsSignature`. */
+  /** The configuration the current `reply` was measured against — see `armsSignature`. */
   signature: string;
-  run: (transports: readonly TransportId[], signature: string) => Promise<ArmProbePhase>;
+  run: (arms: readonly Record<string, unknown>[], policy: ArmPolicy, signature: string) => Promise<ArmProbePhase>;
 }
 
 /**
@@ -48,31 +48,33 @@ const currentOrgSlug = (): string | null =>
 
 export function useArmProbe(): ArmProbeState {
   const [phase, setPhase] = useState<ArmProbePhase>("idle");
-  const [results, setResults] = useState<ProbeResult[]>([]);
+  const [reply, setReply] = useState<ArmProbeReply | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signature, setSignature] = useState("");
 
-  const run = async (transports: readonly TransportId[], sig: string): Promise<ArmProbePhase> => {
+  const run = async (
+    arms: readonly Record<string, unknown>[],
+    policy: ArmPolicy,
+    sig: string,
+  ): Promise<ArmProbePhase> => {
     const slug = currentOrgSlug();
-    if (!slug || transports.length === 0) return phase;
+    if (!slug || arms.length === 0) return phase;
     setPhase("probing");
     setError(null);
     try {
-      const replies = await Promise.all(transports.map((t) => probeTransportOverHttp(slug, t)));
-      const next = replies.map((r) => r.probe);
-      const settled: ArmProbePhase = allOk(next) ? "armable" : "blocked";
-      // The route computes the one-sentence refusal itself (`probeRefusal`); it leads the alert, and
-      // the per-finding remedies follow it. Never re-derived here — that would be a second list.
-      const refusal = replies.map((r) => r.refusal).filter((r): r is string => !!r).join(" ");
-      setError(refusal || null);
-      setResults(next);
+      const next = await probeArmsOverHttp(slug, arms, policy);
+      const settled: ArmProbePhase = allArmsOk(next) ? "armable" : "blocked";
+      // The route computes the refusal sentences itself (`probeRefusal`, one per blocked arm); they
+      // lead the alert and the per-finding remedies follow. Never re-derived here — a second list.
+      setError(next.refusal);
+      setReply(next);
       setSignature(sig);
       setPhase(settled);
       return settled;
     } catch (e) {
-      // An unreachable route is a BLOCK, not a shrug: nothing has proven the transport can answer, and
-      // arming on an unproven transport is exactly the hours-long wrong answer the probe exists to stop.
-      setResults([]);
+      // An unreachable route is a BLOCK, not a shrug: nothing has proven the arms can run, and arming
+      // on an unproven arm is exactly the hours-long wrong answer the probe exists to stop.
+      setReply(null);
       setSignature(sig);
       setError(e instanceof Error ? e.message : "The probe could not be reached.");
       setPhase("blocked");
@@ -80,5 +82,5 @@ export function useArmProbe(): ArmProbeState {
     }
   };
 
-  return { phase, results, error, signature, run };
+  return { phase, reply, error, signature, run };
 }

@@ -23,8 +23,8 @@ import {
   canRemoveArm,
   draftsForPolicy,
   draftsToArms,
+  draftsToWire,
   newArmDraft,
-  transportsOf,
   type ArmDraft,
 } from "./armDraft";
 import { useArmProbe, type ArmProbePhase } from "./useArmProbe";
@@ -45,13 +45,15 @@ export interface ArmsPanelProps {
 
 export function ArmsPanel({ policy, arms, onPolicy, onArms, onPhase }: ArmsPanelProps) {
   const probe = useArmProbe();
-  const transports = transportsOf(arms);
   const signature = armsSignature(arms);
   const armable = draftsToArms(arms, policy) != null;
 
   const runProbe = async () => {
     onPhase("probing");
-    onPhase(await probe.run(transports, signature));
+    // The ARMS cross the wire, not their distinct transports: an endpoint cannot be resolved without
+    // a model, so a transport-only probe cannot run the endpoint, model, context or server-version
+    // checks at all. See the header of `src/app/api/org/local/probe/route.ts`.
+    onPhase(await probe.run(draftsToWire(arms), policy, signature));
   };
 
   const patch = (index: number, next: ArmDraft) => {
@@ -105,7 +107,7 @@ export function ArmsPanel({ policy, arms, onPolicy, onArms, onPhase }: ArmsPanel
 
       <ArmProbeBar
         phase={probe.phase}
-        results={probe.results}
+        reply={probe.reply}
         error={probe.error}
         stale={probe.signature !== signature}
         disabled={!armable}
