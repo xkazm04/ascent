@@ -76,6 +76,21 @@ inside "Fleet".
 `/about-org`'s public module map (`src/components/about-org/orgModules.ts`) derives from the same
 constant, so it re-grouped itself; only the per-group icons needed remapping.
 
+### Tabs reach each other sparsely, and the count is pinned (2026-09-14)
+
+The rail groups the tabs, but it does not say how to get from one tab to the next. That depends on
+the links each tab's own source writes to its siblings, and
+`src/lib/org/tab-link-graph.test.ts` pins that link graph. On master `3c49b90b`, **9 tabs have no
+inbound link from a sibling** (Digest, Tech Stacks, Passports, Security, Registry, Memory,
+Members, Governance, Audit): the rail is their only way in. **7 link to no sibling** (Security,
+Practices, Skills, Memory, UI surfaces, Members, Audit), not counting Follow-ups, which ends the
+path on purpose as the hand-off to an agent. The graph reads all five ways a tab link is written
+(`orgTabHref`, a local `tabHref`, `buildUrl({ tab })`, a hand-built `?tab=`, a legacy
+`/org/<slug>/<tab>`), with comments stripped. Overview's Fix-first slot links to whichever findings
+module is busiest, so the test lists it as a conditional link rather than a permanent one. Adding or
+removing a sibling link fails the test. To make it pass, update the pinned list, and that edit is
+where the count visibly changes.
+
 ### The transition programme (W1c, 2026-08-14)
 
 The org's **named, dated commitment**: one row per org (`TransitionProgram`, `orgId` unique),

@@ -6,8 +6,11 @@ import { parseStringArray } from "./json-columns";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 
-/** The lane executors this process does NOT drive, and whose runs the liveness sweep must not judge. */
-const EXTERNAL_EXECUTORS = ["remote-agent", "human"];
+/** The lane executors this process does NOT drive, and whose runs the liveness sweep must not judge.
+ *  `hosted-worker` (ADR-0001) joins them for exactly the reason the ADR names: a hosted lane's expiry
+ *  is decided by `leaseUntil`, never by whether this process happens to hold a registry entry — and
+ *  without this row a cockpit READ would stop every healthy hosted run on the deployment. */
+const EXTERNAL_EXECUTORS = ["remote-agent", "hosted-worker", "human"];
 
 /**
  * Reconcile `running` rows left behind by a process that died. The engine's live handles only ever

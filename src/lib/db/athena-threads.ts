@@ -10,6 +10,7 @@
 // averaged downstream as a measurement. Unknown is not a value; `null` says so.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import type { OrgId } from "@/lib/org/ids";
 
 /** Longest derived title kept in full. Past this the title is cut on a word boundary and elided. */
 export const ATHENA_TITLE_MAX = 72;
@@ -119,14 +120,14 @@ const toTurn = (r: TurnRow): AthenaTurnRecord => ({
  * is the briefing's own prose, never a name someone typed. There is no setter, so a title still cannot
  * drift from what it names — it is written once, at creation, or derived from the first user turn.
  */
-export async function createAthenaThread(orgId: string, titleFrom?: string): Promise<AthenaThreadRecord | null> {
+export async function createAthenaThread(orgId: OrgId, titleFrom?: string): Promise<AthenaThreadRecord | null> {
   if (!isDbConfigured() || !orgId) return null;
   const title = typeof titleFrom === "string" ? deriveThreadTitle(titleFrom) : "";
   return toThread(await getPrisma().athenaThread.create({ data: { orgId, ...(title ? { title } : {}) } }));
 }
 
 /** The org's conversations, most recently active first. */
-export async function listAthenaThreads(orgId: string, limit = ATHENA_THREAD_PAGE): Promise<AthenaThreadRecord[]> {
+export async function listAthenaThreads(orgId: OrgId, limit = ATHENA_THREAD_PAGE): Promise<AthenaThreadRecord[]> {
   if (!isDbConfigured() || !orgId) return [];
   const rows = await getPrisma().athenaThread.findMany({
     where: { orgId },
@@ -137,14 +138,14 @@ export async function listAthenaThreads(orgId: string, limit = ATHENA_THREAD_PAG
 }
 
 /** One thread, ANDed with `orgId` — the tenant boundary is never taken from the id alone. */
-export async function getAthenaThread(orgId: string, threadId: string): Promise<AthenaThreadRecord | null> {
+export async function getAthenaThread(orgId: OrgId, threadId: string): Promise<AthenaThreadRecord | null> {
   if (!isDbConfigured() || !orgId || !threadId) return null;
   const row = await getPrisma().athenaThread.findFirst({ where: { id: threadId, orgId } });
   return row ? toThread(row) : null;
 }
 
 /** A thread's turns, oldest first — the transcript order. */
-export async function listAthenaTurns(orgId: string, threadId: string, limit = 200): Promise<AthenaTurnRecord[]> {
+export async function listAthenaTurns(orgId: OrgId, threadId: string, limit = 200): Promise<AthenaTurnRecord[]> {
   if (!isDbConfigured() || !orgId || !threadId) return [];
   const thread = await getPrisma().athenaThread.findFirst({ where: { id: threadId, orgId }, select: { id: true } });
   if (!thread) return [];
@@ -174,7 +175,7 @@ export interface AthenaActivity {
  * The newest thread is the right one to ask: every appended turn bumps `updatedAt` (appendAthenaTurn),
  * so a live exchange is always in the thread this returns.
  */
-export async function latestAthenaActivity(orgId: string): Promise<AthenaActivity | null> {
+export async function latestAthenaActivity(orgId: OrgId): Promise<AthenaActivity | null> {
   if (!isDbConfigured() || !orgId) return null;
   const prisma = getPrisma();
   const thread = await prisma.athenaThread.findFirst({
@@ -301,7 +302,7 @@ export async function appendAthenaTurn(input: AppendTurnInput): Promise<AthenaTu
  * the child order is written by hand — the same delete-graph convention pruneRepoScans follows.
  * Org-ANDed: a thread id from another tenant deletes nothing.
  */
-export async function deleteAthenaThread(orgId: string, threadId: string): Promise<boolean> {
+export async function deleteAthenaThread(orgId: OrgId, threadId: string): Promise<boolean> {
   if (!isDbConfigured() || !orgId || !threadId) return false;
   const prisma = getPrisma();
   const thread = await prisma.athenaThread.findFirst({ where: { id: threadId, orgId }, select: { id: true } });

@@ -61,7 +61,7 @@ import { recordOrgAudit } from "@/lib/db";
 import { setOrgAutoRecharge } from "@/lib/db/org-settings";
 import { requireOrgRole } from "@/lib/authz";
 import { isSameOrigin } from "@/lib/auth";
-import { AUTO_RECHARGE_ACTION } from "@/components/org/shared/CreditsControl.autorecharge";
+import { AUTO_RECHARGE_ACTION } from "@/lib/autorecharge";
 
 function getReq(org = "acme") {
   return new Request(`http://localhost/api/billing/autorecharge?org=${org}`);

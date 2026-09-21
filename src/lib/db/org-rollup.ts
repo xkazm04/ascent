@@ -21,6 +21,7 @@ import { levelForScore } from "@/lib/maturity/model";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
 import { dayKeyInZone } from "@/lib/org/timezone";
+import { asOrgId, type OrgId } from "@/lib/org/ids";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import { parseContextHealthJson } from "@/lib/analyze/context-health";
@@ -150,9 +151,10 @@ function parseRepoActivity(commitActivity: string | null | undefined, prStats: s
  * regardless of whether it pre-lowercased, and lets members.ts / invites.ts share this one resolver
  * instead of each maintaining a privately-drifting copy.
  */
-export async function getOrgId(slug: string): Promise<string | null> {
+export async function getOrgId(slug: string): Promise<OrgId | null> {
   if (!isDbConfigured()) return null;
-  return (await getOrgBySlug(slug))?.id ?? null;
+  const id = (await getOrgBySlug(slug))?.id;
+  return id ? asOrgId(id) : null;
 }
 
 export interface RepoState {

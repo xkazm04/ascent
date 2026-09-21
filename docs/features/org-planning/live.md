@@ -25,6 +25,52 @@ over the [MCP work tools](../org-knowledge/skills.md#the-work-protocol-claim--br
 status read (`GET /api/org/loop`) is therefore served on cloud too, with `enabled: false` still
 telling the truth about the local loop.
 
+## Hosted runs (ADR-0001): gated, metered, and not yet operated
+
+[ADR-0001](../../adr/0001-hosted-loop-dispatch.md) adds a third executor: `executor: "hosted"`, a run
+**Ascent Cloud** dispatches to a worker of its own. Its lanes are written with
+`executor: "hosted-worker"`. That value is deliberately not `remote-agent`, so a customer's harness
+cannot claim Ascent's lanes and Ascent's dispatcher cannot take the customer's.
+`startHostedRun` (`src/lib/local/loop-engine.ts`) has the same zero-worktree shape as
+`startRemoteRun`, with the gate table (`src/lib/local/hosted-gate.ts`) in front of it. The checks run
+in this order, and each refusal answers with its own status code:
+
+| Block | Status | What it means |
+| --- | --- | --- |
+| `delivery-not-pr` | 400 | Hosted delivers pull requests only. Checked on the request, before any IO. |
+| `unknown-org` | 404 | No such organization. |
+| `no-dispatcher` | 409 | This deployment registers no `LaneDispatcher`, so the run would never be worked. |
+| `not-entitled` | 403 | The plan lacks `hostedLoop` (Team and up, open on self-hosted). |
+| `over-ceiling` | 402 | The org's monthly hosted-lane credit ceiling would be crossed. |
+| `no-credit` | 402 | The balance does not cover the run's reservation. |
+| `repo-not-admitted` | 403 | A repo lacks a recorded `agents-allowed` admission. One repo refuses the whole run. |
+
+Then comes the strict one-active-run rule: any active run blocks a second one, not only a run live in this process.
+
+**The per-org credit ceiling (ADR-0001 T2).** The last gate is also the first write:
+`reserveHostedRunCredits` (`src/lib/db/hosted-credits.ts`) runs **before `createLoopRun`**, so no run
+or lane row can exist unless it was paid for. The decision itself is pure and lives in
+`src/lib/local/hosted-ceiling.ts`:
+
+- Each lane reserves `HOSTED_LANE_CREDITS` (10). The whole run is debited at once, all-or-nothing,
+  through a conditional decrement, and gets one `CreditLedger` row with `reason: "hosted-run"` and
+  `externalId: hosted:<reservationId>`. If the run row then fails to write, the reservation is
+  refunded under `hosted-refund:<reservationId>`.
+- The monthly ceiling per org comes from `HOSTED_MONTHLY_CEILING_CREDITS`: free 0, pro 0, team 200,
+  enterprise 1000. Spend is counted from the queue itself (this org's `hosted-worker` lanes since the
+  start of the UTC month × the reservation), not from the ledger. An unlimited plan is never debited,
+  and the ceiling is what still binds it. A self-hosted deployment has no ceiling and no debit.
+- The ceiling is judged before the balance, because buying credits does not lift it.
+- **Dispatch is behind the ceiling too.** `dispatchHostedLane` (`src/lib/local/hosted-dispatch.ts`) is
+  the only sanctioned way to call the registered dispatcher. It re-reads entitlement and month-to-date
+  spend before every hand-off, so a plan downgraded after arming stops at the next lane. A refusal
+  comes back as data, never as a throw.
+
+**Nothing operates it yet.** No deployment registers a `LaneDispatcher`, so every hosted arm answers
+`409 no-dispatcher`. The cron drain, lease reaper and worker token (ADR-0001 T6–T8) do not exist. For
+the same reason `hostedLoop` is `unlisted` in `PLAN_CAPABILITIES`: it is enforced at the gate and
+advertised on no pricing surface.
+
 ## The loop
 
 ```
@@ -130,7 +176,10 @@ Member-gated (`requireOrgAccess`). Reconciles stale runs first (see
 ```jsonc
 { "enabled": true,               // autopilotEnabled(): ASCENT_AUTOPILOT=1 + the claude CLI
   "active": { /* LoopRunRecord */ } | null,
-  "runs":  [ /* LoopRunSummary × ≤20, newest first */ ] }
+  "runs":  [ /* LoopRunSummary × ≤20, newest first */ ],
+  // ADR-0001: can THIS org dispatch a hosted run? "available" is about the deployment (a registered
+  // dispatcher); "reason" names the first shut gate, including the credit ceiling. Unreadable = refusal.
+  "hosted": { "enabled": false, "reason": "…", "available": false } }
 ```
 
 `LoopRunSummary` carries a `lift`: the summed overall-score movement across the lanes that have
@@ -1745,6 +1794,8 @@ clicking a column header still fetches that run's detail and drifts the field. T
 
 ### Setup states (`CockpitSetup`)
 
+`hosted-not-enabled` (ADR-0001: the deployment has a hosted worker but this org may not dispatch; the card
+renders the server's `hosted.reason` verbatim, which names plan, ceiling, credit or admission) ·
 `hosted` (the field is still rendered read-only; the copy names the **local lane** as the
 self-hosted-only part and says outright that remote-agent runs work on this deployment, and always
 links to [`docs/SELF-HOSTING.md`](../../SELF-HOSTING.md) — see below) · `no-repos` (→ repositories tab)
@@ -4536,6 +4587,18 @@ Pinned by [`src/lib/local/loop-engine.cadence.test.ts`](../../../src/lib/local/l
 
 ## Known gaps
 
+- **Hosted dispatch is gated and metered but not operated** (ADR-0001 T5–T8). No `LaneDispatcher` is
+  registered anywhere, and there is no cron drain, no lease reaper and no worker token. Every hosted
+  arm therefore answers `409 no-dispatcher`.
+- **The hosted ceiling's numbers are placeholders.** `HOSTED_LANE_CREDITS` and
+  `HOSTED_MONTHLY_CEILING_CREDITS` are not a priced decision. They gate nothing while no dispatcher
+  exists, and they must be set deliberately before one does.
+- **A hosted lane is charged its reservation, never its measured cost.** `costMicros` stays null on a
+  hosted lane until a worker reports it. Reconciling the two needs a credits-to-micros rate nobody
+  has priced.
+- **The ceiling's month-to-date read is soft.** It is a count under READ COMMITTED; the balance debit
+  is the hard gate. Two concurrent arms can overshoot the ceiling only if they bypass the org's
+  one-active-run rule, and `dispatchHostedLane` re-checks the ceiling before any hand-off.
 - **`rescanCadence` is offered for drives and the runner, not for a manual run, and is not persisted
   on the run.** The setup dialog's Rescan dial reaches a drive's and the runner's `dials` (stored on
   `LoopDrive.dialsJson`); the manual run's request type (`StartLoopInput`) has no field for it. Nothing

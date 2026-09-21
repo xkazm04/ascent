@@ -11,7 +11,7 @@
 //
 // Pure data: no React, no env reads — the Blueprint, the onboarding setup panel and a test import it.
 
-import { PLAN_CAPABILITIES, PLAN_CAPABILITY_ORDER, PLAN_FEATURES, type PlanId } from "@/lib/plans";
+import { PLAN_CAPABILITIES, PLAN_LISTED_CAPABILITY_ORDER, PLAN_FEATURES, type PlanId } from "@/lib/plans";
 
 export interface DiffRow {
   /** The thing being compared. */
@@ -33,7 +33,7 @@ const FREE = PLAN_FEATURES.free;
 
 /** The paid-vs-local comparison, capabilities first (model-derived), then metering, then operation. */
 export const CAPABILITY_DIFF: DiffRow[] = [
-  ...PLAN_CAPABILITY_ORDER.map((c) => ({
+  ...PLAN_LISTED_CAPABILITY_ORDER.map((c) => ({
     label: PLAN_CAPABILITIES[c].label,
     cloud: fromTier(PLAN_CAPABILITIES[c].minPlan),
     local: "On",

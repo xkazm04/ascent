@@ -163,6 +163,13 @@ export async function attachRemoteClaim(args: {
     .findFirst({ where: { orgId: org.id, phase: { in: ["curating", "running"] } }, orderBy: { createdAt: "desc" } })
     .catch(() => null);
   if (!run) return false;
+  // DELIBERATELY `remote-agent` ONLY, not every external executor. A `hosted-worker` lane (ADR-0001)
+  // was armed for a worker ASCENT dispatches, and the claim path here authenticates a caller as
+  // "some agent holding a followups:write token" — which is every customer harness on the deployment.
+  // Widening this filter would let one org's own agent claim the lane Ascent is paying to have
+  // worked, and the reverse. Hosted lanes become claimable when the per-run scoped token that
+  // identifies Ascent's own worker exists (ADR-0001 T8); until then they are armed and unclaimable,
+  // which is the honest state rather than a wrongly-open door.
   const lane = await prisma.loopRunLane
     .findFirst({ where: { runId: run.id, repoFullName: args.repoFullName, executor: "remote-agent" } })
     .catch(() => null);

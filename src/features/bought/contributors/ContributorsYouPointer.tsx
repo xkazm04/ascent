@@ -9,7 +9,7 @@
 //
 // Server-safe (no hooks, no handlers) — both pieces render inside the tab's server components.
 
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { StateSwatch } from "@/components/org/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 

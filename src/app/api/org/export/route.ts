@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollup, isDbConfigured, listSegments, listTechStackGroups } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { csvTable } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
