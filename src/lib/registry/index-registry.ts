@@ -2,7 +2,9 @@
 //
 // The registry is the source of truth; this is the only thing that makes its contents visible to the
 // Skills / Practices / Memory tabs, the fleet heatmap and the catalog. It runs on the registry repo's
-// push webhook, on a scan of the org, and from the tab's "Re-index" button.
+// push webhook (`./registry-push`), from the tab's "Re-index" button, on a self-hosted pairing and on a
+// render that sees a paired checkout move — and every one of those callers enters through the
+// single-flight door in `./index-pass`, never by calling `indexRegistry` directly.
 //
 // RESILIENCE IS THE POINT: one malformed SKILL.md must degrade THAT FILE and nothing else. Every read
 // and parse sits inside a guard, failures become `warnings` on the row, and the pass still commits
@@ -419,7 +421,7 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   // ── Knowledge base: chain the fleet's conformance sweep ──────────────────────────────────────
   // The mirror rows above are committed; what remains is how the FLEET stands against them, which
   // the sweep reads from each repo's own `.ai/registry-map.json` and foundation files. Chained here,
-  // not in the index route, so every caller that indexes with a real token (route, webhook, scan)
+  // not in the index route, so every caller that indexes with a real token (route, push webhook)
   // gets a matrix that is never older than the corpus it is judged against. A sweep failure is a
   // warning on this pass — the index already succeeded, and saying otherwise would hide it.
   let sweep: SweepResult | undefined;

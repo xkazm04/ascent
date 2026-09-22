@@ -9,11 +9,15 @@
 //
 // LOCAL FIRST (self-hosted): a registry paired to a checkout in Admin -> Pairing is re-read from disk
 // and needs no GitHub App; only an unpaired registry mints an installation token.
+//
+// ONE PASS AT A TIME: the pass goes through the single-flight door (`runIndexPass`, policy "join"), so a
+// double-click or a second tab gets the pass already running — and its result — instead of racing it.
 
 import { NextResponse } from "next/server";
 import { getOrgRegistry } from "@/lib/db/org-registry";
 import { registryError, resolveRegistrySource } from "@/lib/registry/api";
-import { githubSource, indexRegistry } from "@/lib/registry/index-registry";
+import { githubSource } from "@/lib/registry/index-registry";
+import { runIndexPass } from "@/lib/registry/index-pass";
 import { localSource } from "@/lib/registry/local-source";
 
 export const runtime = "nodejs";
@@ -30,7 +34,7 @@ export async function POST(_request: Request, ctx: { params: Promise<{ slug: str
   }
 
   const source = gate.kind === "local" ? localSource(gate.dir) : githubSource(gate.token, registry.fullName);
-  const result = await indexRegistry(registry, source);
+  const result = await runIndexPass(registry, source, "join");
   if (result.kind === "error") {
     return registryError("github-error", result.message ?? "The registry could not be read.", 502);
   }

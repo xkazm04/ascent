@@ -15,7 +15,8 @@ import { selfHosted } from "@/lib/env";
 import { runGit } from "@/lib/local/git";
 import { verifyLocalPath, type PairingCheck } from "@/lib/local/pairing";
 import { getOrgRegistry, upsertOrgRegistry, type OrgRegistryRow } from "@/lib/db/org-registry";
-import { indexRegistry, type IndexRegistryResult } from "./index-registry";
+import type { IndexRegistryResult } from "./index-registry";
+import { indexPassInFlight, runIndexPass } from "./index-pass";
 import { REGISTRY_DIRS, REGISTRY_KNOWLEDGE_DIR } from "./layout";
 import { localSource, resolveLocalRegistry } from "./local-source";
 
@@ -72,8 +73,8 @@ export async function pairLocalRegistry(slug: string, dir: string, createdBy: st
     createdBy,
   });
   if (!row) return { ok: false, check, error: "The registry could not be saved." };
-  const index = await indexRegistry(row, localSource(row.localPath!));
-  inFlight.delete(row.id);
+  // JOIN: pairing wants the result, and a render refresh already reading this checkout is that result.
+  const index = await runIndexPass(row, localSource(row.localPath!), "join");
   return { ok: true, check, row, index };
 }
 
@@ -85,26 +86,23 @@ export async function unpairLocalRegistry(slug: string): Promise<boolean> {
 }
 
 // ── keeping the index current without a webhook ─────────────────────────────────────────────────
-// The hosted path re-indexes on the registry's push webhook. A local checkout has no webhook, so a
-// render that sees the checkout's branch head differ from `lastIndexSha` starts a pass in the
-// background. One pass per registry at a time, and at most one HEAD probe per registry per window.
+// The hosted path re-indexes on the registry's push webhook (`./registry-push`). A local checkout has
+// no webhook, so a render that sees the checkout's branch head differ from `lastIndexSha` starts a
+// pass in the background. One pass per registry at a time — the shared door in `./index-pass` owns
+// that — and at most one HEAD probe per registry per window, which stays here.
 
 const PROBE_WINDOW_MS = 30_000;
-const inFlight = new Map<string, Promise<unknown>>();
 const lastProbe = new Map<string, number>();
 
 /** Fire-and-forget: index a paired registry whose checkout moved past the last index. Never throws. */
 export function refreshLocalRegistryIfStale(row: OrgRegistryRow | null, now = Date.now()): void {
   const dir = localRegistryDir(row);
-  if (!row || !dir || inFlight.has(row.id)) return;
+  if (!row || !dir || indexPassInFlight(row.id)) return;
   if (now - (lastProbe.get(row.id) ?? 0) < PROBE_WINDOW_MS) return;
   lastProbe.set(row.id, now);
-  const run = (async () => {
+  void (async () => {
     const head = await runGit(dir, ["rev-parse", "HEAD"]);
     if (!head.ok || head.stdout.trim() === row.lastIndexSha) return;
-    await indexRegistry(row, localSource(dir));
-  })()
-    .catch(() => {})
-    .finally(() => inFlight.delete(row.id));
-  inFlight.set(row.id, run);
+    await runIndexPass(row, localSource(dir), "join");
+  })().catch(() => {});
 }
