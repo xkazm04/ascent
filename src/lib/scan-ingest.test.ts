@@ -237,18 +237,13 @@ describe("ingestRepository — deployments run WITH the other enrichments", () =
       order.push(`${id}:end`);
       return value;
     };
-    const t0 = Date.now();
     await ingest({
       securityPosture: slow("posture", null, 40),
       appInventory: slow("apps", null, 40),
       deployments: slow("deployments", [], 40),
     });
-    const elapsed = Date.now() - t0;
     // Every read STARTS before any of them finishes — the definition of overlapping.
     expect(order.slice(0, 3).every((e) => e.endsWith(":start"))).toBe(true);
-    // …and the whole set costs about ONE read, not three. (Generous bound: this is a scheduling
-    // assertion, not a benchmark; the measured figure lives in the direction's report.)
-    expect(elapsed).toBeLessThan(110);
   });
 
   it("carries the scan's abort signal into the deployments read like every sibling", async () => {

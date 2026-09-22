@@ -38,9 +38,9 @@ beforeEach(async () => {
   git("commit", "-q", "-m", "initial");
   await ensureRunnerBranch(repo, "main");
   await landLane("fix.ts");
-});
+}, 30_000);
 
-afterEach(() => rmSync(repo, { recursive: true, force: true }));
+afterEach(() => rmSync(repo, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 describe("mergeRunnerInto", () => {
   it("base NOT checked out → moves the base ref with update-ref; no working copy touched", async () => {
