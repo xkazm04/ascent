@@ -537,9 +537,17 @@ describe("buildExecBriefing — null / empty fleet", () => {
     expect(await buildExecBriefing("acme")).toBeNull();
   });
 
-  it("returns null for a fleet that IS scanned but entirely mock-floored — scanned is not graded", async () => {
+  it("returns coverage and no-score disclosure for a scanned all-mock fleet", async () => {
     mockRollup.mockResolvedValue(rollup({ scannedCount: 8, realScoredCount: 0, mockCount: 8, avgOverall: null, avgAdoption: null, avgRigor: null }));
-    expect(await buildExecBriefing("acme")).toBeNull();
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.coverage).toEqual({ scanned: 8, total: 10 });
+    expect(noScoreLine(b)).toContain("No live-scored repositories");
+    expect(mockDisclosure(b)).toContain("8 mock placeholders");
+    expect(b.periodDelta).toBeNull();
+    expect(b.priorPeriod).toBeNull();
+    expect(b.benchmark).toBeNull();
+    expect(briefingMarkdown(b)).not.toContain("0/100");
+    expect(briefingMarkdown(b)).not.toContain("L1");
   });
 });
 

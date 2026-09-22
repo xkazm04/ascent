@@ -297,10 +297,43 @@ export async function buildExecBriefing(
       end: window?.endExclusive ?? window?.end ?? null,
     }).catch(() => [] as ImprovementEvent[]),
   ]);
-  // `hasFleetGrade`, not `scannedCount === 0`: the briefing's whole maturity block is the three
-  // averages, and a scanned-but-all-mock fleet has none of them. The old guard printed a board PDF
-  // headlining 0/100 at L1.
-  if (!rollup || !hasFleetGrade(rollup)) return null;
+  if (!rollup || rollup.scannedCount === 0) return null;
+  // A scanned all-mock fleet has real coverage but no grade. Keep the coverage and provenance while
+  // leaving every comparison/benchmark empty; the renderers already use realScoredCount to show
+  // noScoreLine instead of a fabricated 0/100 or L1.
+  if (!hasFleetGrade(rollup)) {
+    return {
+      org: orgSlug,
+      periodTitle,
+      generatedOn: new Date().toISOString().slice(0, 10),
+      maturity: { overall: 0, levelId: "", levelName: "", adoption: 0, rigor: 0 },
+      coverage: { scanned: rollup.scannedCount, total: rollup.repoCount },
+      realScoredCount: 0,
+      mockCount: rollup.mockCount,
+      periodDelta: null,
+      priorPeriod: null,
+      forecastHeadline: null,
+      forecastConfidence: null,
+      forecastBasis: null,
+      forecastInsufficiency: null,
+      engineMix,
+      adoptionRate: null,
+      movement: { up: 0, down: 0, compared: 0 },
+      valueRealized: { recsEngaged: 0, recsActioned: 0, pointsMoved: null, reposPromoted: 0 },
+      benchmark: null,
+      strengths: [],
+      risks: [],
+      security: null,
+      topGainers: [],
+      topRegressions: [],
+      goals: [],
+      regressionCount: 0,
+      recommendations: [],
+      proof: null,
+      loopProof: null,
+      narrative: null,
+    };
+  }
 
   const level = levelForScore(rollup.avgOverall);
   const dimSorted = [...rollup.dimAverages].sort((a, b) => b.avg - a.avg);

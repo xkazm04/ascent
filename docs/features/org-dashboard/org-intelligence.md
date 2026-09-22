@@ -1152,7 +1152,10 @@ repositories") uses the live-scored count; the ranked next move keeps the scanne
 its recommendation count reads mock-floored repos too. A fleet with no live-scored repository has
 **no grade**: the tab tiles, the PDF Stats, the markdown and the share page print "—" plus a sentence
 (never 0/100, never L1), and a prior-period comparison is refused when the prior window scored nothing
-live. A separate disclosure, "N mock placeholders excluded from every average", renders beside the
+live. The assembler now returns a coverage-only briefing for a scanned all-mock fleet; only a scope
+with zero scanned repos returns `null`. Its comparison, benchmark, movement and forecast fields stay
+empty, so the tab, share page and PDF reach their no-score path without making an unsupported metric
+claim. A separate disclosure, "N mock placeholders excluded from every average", renders beside the
 engine-mix caveat on every surface, including the PDF body. All of it is composers in `briefing.ts`
 (`briefingHasScore`, `scoreValue`, `briefingLevelCaption`, `noScoreLine`, `scoreBasisLine`,
 `mockDisclosure`, `coverageLine`), and the HTML surfaces now call `benchmarkCaption` and
