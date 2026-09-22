@@ -43,6 +43,17 @@ export async function setRegistryStatus(
   });
 }
 
+/**
+ * The registry's push webhook was WITNESSED: a signed default-branch push for this registry reached
+ * the app. Only the flag moves — not the status, not `lastError` — because a delivery arriving says
+ * nothing about whether the pass it triggers will succeed. Nothing writes it back to false: absence
+ * of pushes is not evidence of a broken hook.
+ */
+export async function markRegistryWebhookSeen(id: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  await getPrisma().orgRegistry.update({ where: { id }, data: { webhookHealthy: true } });
+}
+
 /** Stamp a SUCCESSFUL index pass: head sha, timestamp, denormalized counts and the skip warnings. */
 export async function recordIndexResult(id: string, result: IndexResultInput): Promise<void> {
   if (!isDbConfigured()) return;
