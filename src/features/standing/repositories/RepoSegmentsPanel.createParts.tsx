@@ -11,10 +11,13 @@ import type { SegmentItem } from "@/features/standing/repositories/RepoSegmentsP
 // instead of silently truncating, so the inputs must stop the user at the same bound.
 const NAME_MAX = 60;
 
-// Auto-add by language — bulk-tag every repo of a language into a segment in one call.
+// Auto-add by language or team — bulk-tag matching repos into a segment in one call.
 export function AutoAddRow({
   languages,
+  teams,
   segments,
+  autoMode,
+  setAutoMode,
   autoLang,
   setAutoLang,
   autoSeg,
@@ -23,7 +26,10 @@ export function AutoAddRow({
   autoAdd,
 }: {
   languages: [string, number][];
+  teams: [string, number][];
   segments: SegmentItem[];
+  autoMode: "language" | "team";
+  setAutoMode: (v: "language" | "team") => void;
   autoLang: string;
   setAutoLang: (v: string) => void;
   autoSeg: string;
@@ -34,19 +40,31 @@ export function AutoAddRow({
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/30 p-3">
       <span className="type-mono-sm uppercase tracking-widest text-slate-500">Auto-add</span>
+      {teams.length > 0 && (
+        <select
+          value={autoMode}
+          onChange={(e) => { setAutoMode(e.target.value as "language" | "team"); setAutoLang(""); }}
+          aria-label="Auto-add mode"
+          className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
+        >
+          <option value="language">Language</option>
+          <option value="team">Team</option>
+        </select>
+      )}
       <select
         value={autoLang}
         onChange={(e) => setAutoLang(e.target.value)}
-        aria-label="Auto-add language"
+        aria-label={autoMode === "team" ? "Auto-add team" : "Auto-add language"}
         className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200"
       >
-        <option value="">language…</option>
-        {languages.map(([lang, n]) => (
+        <option value="">{autoMode === "team" ? "team…" : "language…"}</option>
+        {(autoMode === "team" ? teams : languages).map(([lang, n]) => (
           <option key={lang} value={lang}>
             {lang} ({n})
           </option>
         ))}
       </select>
+      {teams.length === 0 && <span className="type-body-xs text-slate-500">Team options appear after a scan reads CODEOWNERS.</span>}
       <span className="type-mono-sm text-slate-500">→</span>
       <select
         value={autoSeg}

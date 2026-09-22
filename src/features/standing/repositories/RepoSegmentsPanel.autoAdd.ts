@@ -1,7 +1,6 @@
 "use client";
 
-// Auto-add-by-language state + handler, extracted from RepoSegmentsPanel.tsx (pure relocation).
-// Bulk-tags every repo of a chosen primary language into a chosen segment in one call.
+// Auto-add state + handler. Bulk-tags every repo of a chosen language or owning team in one call.
 
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { bulkTagRepos } from "@/lib/org/segment-actions";
@@ -23,6 +22,9 @@ export function useAutoAdd({
   setError: Dispatch<SetStateAction<string | null>>;
 }) {
   // Auto-add-by-language control.
+  const [autoMode, setAutoMode] = useState<"language" | "team">(
+    repos.some((r) => r.language) ? "language" : "team",
+  );
   const [autoLang, setAutoLang] = useState("");
   const [autoSeg, setAutoSeg] = useState("");
   const [autoBusy, setAutoBusy] = useState(false);
@@ -34,10 +36,16 @@ export function useAutoAdd({
     return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   }, [repos]);
 
+  const teams = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of repos) for (const team of new Set(r.teams ?? [])) counts.set(team, (counts.get(team) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [repos]);
+
   // Auto-add every repo of the chosen language to the chosen segment, in one bulk call.
   async function autoAdd() {
     if (!autoLang || !autoSeg) return;
-    const matched = repos.filter((r) => r.language === autoLang).map((r) => r.fullName);
+    const matched = repos.filter((r) => autoMode === "team" ? r.teams?.includes(autoLang) : r.language === autoLang).map((r) => r.fullName);
     if (matched.length === 0) return;
     setAutoBusy(true);
     setError(null);
@@ -85,5 +93,5 @@ export function useAutoAdd({
     }
   }
 
-  return { autoLang, setAutoLang, autoSeg, setAutoSeg, autoBusy, languages, autoAdd };
+  return { autoMode, setAutoMode, autoLang, setAutoLang, autoSeg, setAutoSeg, autoBusy, languages, teams, autoAdd };
 }

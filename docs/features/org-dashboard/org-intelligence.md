@@ -263,7 +263,9 @@ Segments view doesn't pay for a rollup it won't render. It shows user-defined fl
 (platform, mobile, legacy…), top to bottom:
 
 1. **Create & tag** (`RepoSegmentsPanel`) — the segment manager: create/rename/recolor/delete a
-   segment, auto-add every repo of a language, and tag repos one by one. It renders at **any**
+   segment, auto-add every repo of a language or a CODEOWNERS team, and tag repos one by one. Team
+   choices use the latest scanned ownership; when no team was found, the language picker stays available
+   and the panel explains how to enable team choices. It renders at **any**
    segment count, including zero.
 2. **Segment maturity** — per-segment rollup cards, once there is at least one segment.
 3. **Compare** — side-by-side segment-vs-segment (headline metrics + per-dimension Δ).
@@ -271,7 +273,7 @@ Segments view doesn't pay for a rollup it won't render. It shows user-defined fl
 The manager moved here from the main Repositories view on 2026-08-19. It used to sit above the
 leaderboard, which left this view with an empty state whose only advice was "go to the Repositories
 tab and create one" — a dead end on the exact screen a user opens to work on segments. It now feeds
-off `listTaggableRepos` (`src/lib/db/segments.ts`), a three-column read over the same
+off `listTaggableRepos` (`src/lib/db/segments.ts`), a narrow repo and CODEOWNERS-team read over the same
 watched-OR-has-scans universe `getOrgRollup` uses, so hosting it here does **not** reintroduce the
 rollup this view deliberately skips.
 

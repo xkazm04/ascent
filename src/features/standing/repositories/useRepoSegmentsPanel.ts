@@ -38,7 +38,7 @@ export function useRepoSegmentsPanel({
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
   // Auto-add-by-language state + handler (extracted to RepoSegmentsPanel.autoAdd.ts).
-  const { autoLang, setAutoLang, autoSeg, setAutoSeg, autoBusy, languages, autoAdd } = useAutoAdd({
+  const { autoMode, setAutoMode, autoLang, setAutoLang, autoSeg, setAutoSeg, autoBusy, languages, teams, autoAdd } = useAutoAdd({
     slug,
     repos,
     membership,
@@ -147,11 +147,14 @@ export function useRepoSegmentsPanel({
     editColor,
     setEditColor,
     autoLang,
+    autoMode,
+    setAutoMode,
     setAutoLang,
     autoSeg,
     setAutoSeg,
     autoBusy,
     languages,
+    teams,
     autoAdd,
     visibleRepos,
     createSegment,

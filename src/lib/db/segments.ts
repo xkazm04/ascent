@@ -227,6 +227,7 @@ export interface TaggableRepo {
   fullName: string;
   name: string;
   language: string | null;
+  teams: string[];
 }
 
 /**
@@ -244,10 +245,10 @@ export async function listTaggableRepos(orgSlug: string): Promise<TaggableRepo[]
   if (!orgId) return [];
   const repos = await getPrisma().repository.findMany({
     where: { orgId, OR: [{ watched: true }, { scans: { some: {} } }] },
-    select: { fullName: true, name: true, primaryLanguage: true },
+    select: { fullName: true, name: true, primaryLanguage: true, teams: { select: { slug: true } } },
     orderBy: { fullName: "asc" },
   });
-  return repos.map((r) => ({ fullName: r.fullName, name: r.name, language: r.primaryLanguage ?? null }));
+  return repos.map((r) => ({ fullName: r.fullName, name: r.name, language: r.primaryLanguage ?? null, teams: r.teams.map((t) => t.slug) }));
 }
 
 // ── Segment-vs-segment comparison ─────────────────────────────────────────────

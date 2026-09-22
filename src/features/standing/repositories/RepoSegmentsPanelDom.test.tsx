@@ -46,6 +46,32 @@ function chip() {
 }
 
 describe("RepoSegmentsPanel — auto-add reconciles the count with the server (DOM)", () => {
+  it("bulk-tags only repos attributed to the selected CODEOWNERS team", async () => {
+    bulkTagRepos.mockResolvedValue(2);
+    render(
+      <RepoSegmentsPanel
+        slug="acme"
+        repos={[
+          { fullName: "a/r1", name: "r1", teams: ["@acme/platform", "@acme/shared"] },
+          { fullName: "a/r2", name: "r2", teams: ["@acme/platform"] },
+          { fullName: "a/r3", name: "r3", teams: ["@acme/payments"] },
+        ]}
+        segments={[{ id: "seg1", name: "platform", color: "#3b9eff", repoCount: 0 }]}
+        membership={{}}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Auto-add mode"), { target: { value: "team" } });
+    fireEvent.change(screen.getByLabelText("Auto-add team"), { target: { value: "@acme/platform" } });
+    fireEvent.change(screen.getByLabelText("Auto-add target segment"), { target: { value: "seg1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add all" }));
+
+    await waitFor(() => expect(within(chip()).getByText("2 tagged")).toBeInTheDocument());
+    expect(bulkTagRepos).toHaveBeenCalledWith("seg1", {
+      org: "acme", fullNames: ["a/r1", "a/r2"], member: true,
+    });
+  });
+
   it("corrects an over-optimistic count down to the server's 'changed' total", async () => {
     // 5 untagged TS repos → the client optimistically counts +5. The server reports only 4 rows created
     // (one repo isn't the org's / was already tagged). The chip must settle on 4, never the optimistic 5.

@@ -31,6 +31,8 @@ export interface RepoItem {
   name: string;
   /** GitHub's detected primary language (null when unknown) — feeds auto-add-by-language. */
   language?: string | null;
+  /** Teams parsed from this repo's CODEOWNERS in its latest scan. */
+  teams?: string[];
 }
 
 export function RepoSegmentsPanel({
@@ -87,11 +89,14 @@ export function RepoSegmentsPanel({
         />
       )}
 
-      {/* Auto-add by language — bulk-tag every repo of a language into a segment in one call. */}
-      {p.segments.length > 0 && p.languages.length > 0 && (
+      {/* Auto-add by language or team — bulk-tag matching repos into a segment in one call. */}
+      {p.segments.length > 0 && (
         <AutoAddRow
           languages={p.languages}
+          teams={p.teams}
           segments={p.segments}
+          autoMode={p.autoMode}
+          setAutoMode={p.setAutoMode}
           autoLang={p.autoLang}
           setAutoLang={p.setAutoLang}
           autoSeg={p.autoSeg}
