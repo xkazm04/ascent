@@ -2,6 +2,17 @@
 
 Scope: the 2026-09-17 develop wave only. Its catalog has 270 findings, and prior waves selected 222 distinct titles. One selected card (viewer roster access) was skipped for a policy decision, while the Polar customer portal was built in its place. Two unpicked entries are already implemented: the Polar portal and Athena memory prefetch. This leaves **47** titles, so this wave cannot supply the requested 100 new items.
 
+Resolution on 2026-09-22: **16 of these 47 findings were committed; 31 remain open.** The latest-wave backlog register now reads 239 built of 270, including prior waves. Each code fix has its own commit and scoped verification. The 16 resolved rows are:
+
+| Plan # | Commit | Plan # | Commit | Plan # | Commit | Plan # | Commit |
+| ---: | --- | ---: | --- | ---: | --- | ---: | --- |
+| 3 | `95105469` | 6 | `36e085ce` | 7 | `803d103b` | 9 | `cef6ff91` |
+| 10 | `9639e85d` | 11 | `c3c40fe8` | 13 | `acfba5dd` | 15 | `280b7f58` |
+| 17 | `bcb8d060` | 18 | `a7660a56` | 19 | `b94a1f40` | 21 | `e9905721` |
+| 24 | `666b980e` | 33 | `d0f82c72` | 36 | `99a8a217` | 38 | `feae2b35` |
+
+Row 24 now excludes public repos from monthly allowance usage, matching the documented free-public policy. Private BYOM scans still use allowance; changing that would need a product policy decision. The other 31 rows remain in risk order below. Rows 1, 4, 43, and 45-47 are human decisions. Rows 39 and 41 make opposing assumptions about watched repositories with another owner; resolve that policy together. Other rows still need implementation and verification, with their recorded contract and coordination gates respected. No older-outbox finding is counted here.
+
 Order: ascending recorded risk, then S before M before L, then descending impact. Recheck every card against the current tree before editing. `Build` is marked buildable with no hot-file flag; `Coordinate` touches a shared file or contract; `Human` is held by the skill's architecture, irreversible, or unverified-contract gate. Make one verified commit per fix and update the coupled feature doc for user-visible behavior.
 
 | # | Risk | Size | Route | Context | Finding |
