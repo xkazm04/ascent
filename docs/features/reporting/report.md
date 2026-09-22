@@ -333,6 +333,10 @@ closed/opened gap counts, appeared/disappeared signal counts, recommendations mo
 done, and human-readable `movements[]` attribution lines sorted by magnitude. Gaps and
 evidence are normalized (`norm()`: trim/lowercase/collapse-whitespace) for set comparison;
 deltas are `null` unless **both** scans scored the dimension (no invented movement).
+`integrityDelta` separately names changes in D9 measurability, widened guardbands,
+unmeasured dimensions, discrepancy caps and realized blend weight. When only one scan
+recorded score integrity, the comparison says which side lacks it. `WhatChanged` shows
+these lines beside the headline as a scoring-basis caveat, including when the score stayed flat.
 
 When exactly one side scored a dimension (a rubric/model change added or dropped it),
 `DiffBar` renders no delta at all. It shows an explicit badge ("New in this scan, no

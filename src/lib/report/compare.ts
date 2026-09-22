@@ -8,6 +8,7 @@
 import type { ComparableScan } from "@/lib/db/scans";
 import type { DimensionId, LevelId, Posture } from "@/lib/types";
 import { DIMENSIONS, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
+import { diffScoreIntegrity } from "./compareIntegrity";
 
 import { matchRecommendations } from "./recommendation-identity";
 export { normalizeRecTitle, matchRecommendations, isTrackedRec, findOrphanedTracked } from "./recommendation-identity";
@@ -144,6 +145,8 @@ export interface ScanDiff {
   adoption: AxisDelta;
   rigor: AxisDelta;
   posture: { before: Posture; after: Posture; changed: boolean };
+  /** Scoring levers that changed independently of the repository's detected evidence. */
+  integrityDelta: string[];
   /** Ordered by the canonical model order (DIMENSIONS), dims absent from both omitted. */
   dimensions: DimensionDiff[];
   recsMovedToDone: RecMovedToDone[];
@@ -445,6 +448,7 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
   const afterLevel = LEVEL_BY_ID[after.level as LevelId] ?? levelForScore(after.overallScore);
   const beforePosture = postureFor(before.adoptionScore, before.rigorScore);
   const afterPosture = postureFor(after.adoptionScore, after.rigorScore);
+  const integrityDelta = diffScoreIntegrity(before.scoreIntegrity, after.scoreIntegrity);
 
   const overall: AxisDelta = {
     before: before.overallScore,
@@ -462,6 +466,7 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     appearedSignalCount === 0 &&
     disappearedSignalCount === 0 &&
     recsMovedToDone.length === 0 &&
+    integrityDelta.length === 0 &&
     // A dim present on only one side is a change even though its delta is null — see oneSidedDimCount.
     oneSidedDimCount === 0 &&
     dimensions.every((d) => (d.delta ?? 0) === 0 && (d.signalDelta ?? 0) === 0);
@@ -485,6 +490,7 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
       delta: after.rigorScore - before.rigorScore,
     },
     posture: { before: beforePosture, after: afterPosture, changed: beforePosture.id !== afterPosture.id },
+    integrityDelta,
     dimensions,
     recsMovedToDone,
     closedGapCount,

@@ -40,12 +40,27 @@ function mkScan(p: Partial<ComparableScan> & { id: string }): ComparableScan {
     confidence: p.confidence ?? 0.8,
     engineProvider: p.engineProvider ?? "mock",
     headSha: p.headSha ?? null,
+    ...(p.scoreIntegrity ? { scoreIntegrity: p.scoreIntegrity } : {}),
     dimensions: p.dimensions ?? dims(),
     recommendations: p.recommendations ?? [],
   };
 }
 
 describe("diffScans", () => {
+  it("names a scoring-basis change on the same commit and stays quiet when integrity matches", () => {
+    const integrity = { d9Unmeasurable: false, widenedDims: [] as ("D2" | "D9")[], effectiveBlend: 0.6 };
+    const before = mkScan({ id: "a", headSha: "same", scoreIntegrity: integrity });
+    const after = mkScan({ ...before, id: "b", scoreIntegrity: { ...integrity, d9Unmeasurable: true, widenedDims: ["D2"] } });
+
+    const changed = diffScans(before, after);
+    expect(changed.integrityDelta).toEqual([
+      "D9 became unmeasurable and was excluded from the newer scan's score.",
+      "Widened guardband in the newer scan: D2.",
+    ]);
+    expect(changed.unchanged).toBe(false);
+    expect(diffScans(before, { ...after, scoreIntegrity: integrity }).integrityDelta).toEqual([]);
+  });
+
   it.each(["adoptionScore", "rigorScore"] as const)("recognizes %s movement within the same posture", (axis) => {
     const before = mkScan({ id: "a", adoptionScore: 60, rigorScore: 60 });
     const after = mkScan({ ...before, id: "b", [axis]: 65 });

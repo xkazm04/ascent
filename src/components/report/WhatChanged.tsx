@@ -46,6 +46,15 @@ export function WhatChanged({
 
         <MixedEngineCaveat beforeEngine={before.engineProvider} afterEngine={after.engineProvider} />
 
+        {diff.integrityDelta.length > 0 && (
+          <div role="note" className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 type-body-sm text-amber-100">
+            <p className="font-semibold">Scoring basis changed</p>
+            <ul className="mt-1 list-disc pl-5">
+              {diff.integrityDelta.map((line) => <li key={line}>{line}</li>)}
+            </ul>
+          </div>
+        )}
+
         {sameScan ? (
           <p className="mt-4 rounded-lg border border-divider bg-slate-950/40 px-4 py-3 type-body text-slate-400">
             Same scan selected on both sides. Pick two different scans to see a diff.

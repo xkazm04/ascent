@@ -41,6 +41,7 @@ function diff(over: Partial<ScanDiff> = {}): ScanDiff {
     adoption: { before: 50, after: 50, delta: 0 },
     rigor: { before: 50, after: 50, delta: 0 },
     posture: { before: posture, after: posture, changed: false },
+    integrityDelta: [],
     dimensions: [],
     recsMovedToDone: [],
     closedGapCount: 0,
@@ -54,6 +55,18 @@ function diff(over: Partial<ScanDiff> = {}): ScanDiff {
 }
 
 describe("WhatChanged — mixed-engine pairs are labelled", () => {
+  it("shows scoring levers as a caveat beside the headline", () => {
+    render(
+      <WhatChanged
+        diff={diff({ integrityDelta: ["D9 returned to the newer scan's scoring basis."] })}
+        before={scan({ id: "before" })}
+        after={scan({ id: "after" })}
+      />,
+    );
+    expect(screen.getByRole("note")).toHaveTextContent("Scoring basis changed");
+    expect(screen.getByRole("note")).toHaveTextContent("D9 returned");
+  });
+
   it("caveats a mock vs live pair next to the overall delta", () => {
     render(
       <WhatChanged
