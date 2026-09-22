@@ -21,7 +21,11 @@
       "sourceGlobs": [
         "src/lib/maturity/**",
         "src/lib/scoring/engine.ts",
-        "src/lib/scoring/impact.ts"
+        "src/lib/scoring/impact.ts",
+        "src/lib/scoring/prompt.ts",
+        "src/lib/scoring/discrepancy-policy.ts",
+        "src/lib/scoring/recommendations.ts",
+        "src/lib/types.ts"
       ]
     },
     {
@@ -30,6 +34,7 @@
       "sourceGlobs": [
         "src/lib/scoring/gate.ts",
         "src/lib/scoring/gate-comment.ts",
+        "src/lib/scoring/gate-numeric.ts",
         "src/app/api/gate/**",
         "src/app/api/org/gate-policy/**",
         "src/lib/github/checks.ts",
