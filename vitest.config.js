@@ -40,13 +40,10 @@ const config = {
     // would flip the moment the gates learned about self-hosting. Self-host behaviour has its own
     // coverage in src/lib/self-host.test.ts, which sets the flag per-test via vi.stubEnv.
     env: { ASCENT_SELF_HOSTED: "0" },
-    // 15s, up from the 5s default. Not a licence for slow tests — it is a contention allowance. The
-    // suite grew past 5,000 tests across ~400 files, several of which do real work (spawning the
-    // doctor subprocess against fixture repos, driving the @react-pdf pipeline end to end). Those
-    // finish in well under a second each in isolation, but on a saturated 16-core box the runner's
-    // own parallelism starves individual workers past 5s, producing failures that reproduce nowhere
-    // and re-run green. A genuine hang or infinite loop still fails, just three seconds later.
-    testTimeout: 15_000,
+    // The full suite runs real Git subprocesses and PDF rendering alongside DOM tests. On a busy
+    // Windows host, an isolated subsecond fixture can wait more than 15s for a child process.
+    // Bound each test at 30s while the worker cap below keeps contention manageable.
+    testTimeout: 30_000,
     // Real Git fixture repos and DOM workers contend heavily during the full coverage run on
     // Windows. Keep enough parallelism for the suite while giving child processes room to finish.
     maxWorkers: 4,
