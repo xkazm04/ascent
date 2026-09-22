@@ -28,7 +28,7 @@ vi.mock("@/lib/github/app", () => ({
   getInstallationToken: vi.fn(),
   isAppConfigured: () => true,
   listInstallationReposResult: vi.fn(),
-  verifyWebhook: () => true,
+  verifyWebhook: vi.fn(() => true),
 }));
 vi.mock("@/lib/db", () => ({
   claimWebhookDelivery: vi.fn(async () => true),
@@ -86,10 +86,13 @@ vi.mock("@/lib/scan-credit", async (orig) => ({
 }));
 vi.mock("@/lib/entitlement", () => ({ isMeteredScan: vi.fn(() => true) }));
 vi.mock("@/lib/scoring/engine", () => ({ diffReports: vi.fn() }));
+// ai-registry-repo#A — the registry's half of a push. Its own behaviour is pinned in
+// src/lib/registry/registry-push.test.ts; here only the scheduling and the delivery net are.
+vi.mock("@/lib/registry/registry-push", () => ({ onRegistryPush: vi.fn(async () => ({ kind: "ignored" })) }));
 
 import { POST } from "./route";
 import { after } from "next/server";
-import { AppApiError, getInstallation, getInstallationToken, listInstallationReposResult } from "@/lib/github/app";
+import { AppApiError, getInstallation, getInstallationToken, listInstallationReposResult, verifyWebhook } from "@/lib/github/app";
 import {
   claimWebhookDelivery,
   getInstallationIdForOwner,
@@ -116,6 +119,7 @@ import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { refundScanCredit, reserveScanCredit } from "@/lib/scan-credit";
 import { isMeteredScan } from "@/lib/entitlement";
 import { diffReports } from "@/lib/scoring/engine";
+import { onRegistryPush } from "@/lib/registry/registry-push";
 
 const mockGetInstallation = vi.mocked(getInstallation);
 const mockGetToken = vi.mocked(getInstallationToken);
@@ -155,6 +159,7 @@ const mockReserve = vi.mocked(reserveScanCredit);
 const mockRefund = vi.mocked(refundScanCredit);
 const mockIsMetered = vi.mocked(isMeteredScan);
 const mockRecordOutcome = vi.mocked(recordScanOutcome);
+const mockOnRegistryPush = vi.mocked(onRegistryPush);
 
 /** Run the work the route deferred via after() — the test stands in for the post-response phase. */
 async function runDeferred(): Promise<void> {
@@ -1494,5 +1499,88 @@ describe("POST /api/app/webhook — push rescan credit metering", () => {
 
     expect(mockRefund).not.toHaveBeenCalled();
     expect(mockRelease).toHaveBeenCalled();
+  });
+});
+
+// ai-registry-repo#A (challenge-2026-09-23) — a default-branch push also reaches the registry lane:
+// the registry repo's own push re-indexes it, a fleet repo's `.ai/` push re-sweeps that repo. The
+// route's only job is to SCHEDULE that behind the same signature/dedup gates, and never to let the
+// registry's failure touch the delivery: the rescan beside it may already have spent a credit, and a
+// released delivery would make GitHub's redelivery pay for it twice.
+describe("POST /api/app/webhook — registry push lane (onRegistryPush)", () => {
+  let n = 0;
+  const registryPush = (over: Record<string, unknown> = {}) => ({
+    installation: { id: 1 },
+    repository: { name: "AI-Registry", full_name: "acme/AI-Registry", default_branch: "main", owner: { login: "acme" } },
+    ref: "refs/heads/main",
+    after: "abc1230000000000000000000000000000000000",
+    deleted: false,
+    commits: [{ added: [], modified: ["skills/forge/SKILL.md"], removed: [] }],
+    ...over,
+  });
+
+  beforeEach(() => {
+    mockIsRepoWatched.mockResolvedValue(false); // the registry repo is not a watched scan target
+  });
+
+  it("schedules onRegistryPush via after() with the push slice, and answers 200", async () => {
+    const body = await post("push", "registry-push-" + n++, registryPush());
+    expect(body).toEqual({ ok: true, event: "push" });
+    expect(mockOnRegistryPush).not.toHaveBeenCalled(); // deferred, not inline
+    await runDeferred();
+    expect(mockOnRegistryPush).toHaveBeenCalledTimes(1);
+    expect(mockOnRegistryPush.mock.calls[0]![0]).toEqual({
+      installationId: 1,
+      owner: "acme",
+      repo: "AI-Registry",
+      ref: "refs/heads/main",
+      defaultBranch: "main",
+      after: "abc1230000000000000000000000000000000000",
+      deleted: false,
+      commits: [{ added: [], modified: ["skills/forge/SKILL.md"], removed: [] }],
+    });
+  });
+
+  it("onRegistryPush throwing still yields 200 and the delivery is NOT abandoned", async () => {
+    mockOnRegistryPush.mockRejectedValueOnce(new Error("registry lane down"));
+    const body = await post("push", "registry-push-throw-" + n++, registryPush());
+    expect(body).toEqual({ ok: true, event: "push" });
+    await runDeferred();
+    expect(mockOnRegistryPush).toHaveBeenCalledTimes(1);
+    expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("guard: a WATCHED repo's default-branch push still schedules runPushRescan exactly once", async () => {
+    mockIdForOwner.mockResolvedValue("1");
+    mockIsRepoWatched.mockResolvedValue(true);
+    mockGetToken.mockResolvedValue("ghs_tok");
+    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
+    mockScan.mockResolvedValue({ repo: { headSha: "abc" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockPersist.mockResolvedValue({ deduped: true } as Awaited<ReturnType<typeof persistScanReport>>);
+    await post("push", "registry-push-watched-" + n++, registryPush({ repository: { name: "api", default_branch: "main", owner: { login: "acme" } } }));
+    expect(mockAfter).toHaveBeenCalledTimes(2); // the rescan + the registry lane, nothing more
+    await runDeferred();
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockOnRegistryPush).toHaveBeenCalledTimes(1);
+  });
+
+  it("a non-default-branch push schedules neither lane", async () => {
+    await post("push", "registry-push-feature-" + n++, registryPush({ ref: "refs/heads/feature" }));
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockOnRegistryPush).not.toHaveBeenCalled();
+  });
+
+  it("guard: the signature check gates the registry lane — an unsigned push is 401 and schedules nothing", async () => {
+    vi.mocked(verifyWebhook).mockReturnValueOnce(false);
+    const res = await POST(
+      new Request("http://localhost/api/app/webhook", {
+        method: "POST",
+        headers: { "x-hub-signature-256": "sha256=forged", "x-github-event": "push", "x-github-delivery": "registry-push-forged-" + n++ },
+        body: JSON.stringify(registryPush()),
+      }),
+    );
+    expect(res.status).toBe(401);
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockOnRegistryPush).not.toHaveBeenCalled();
   });
 });
