@@ -301,8 +301,9 @@ export async function clawbackOrderRefund(
 
 /**
  * Count the org's metered scans so far this calendar month — the allowance-usage basis. Cached/dedup
- * re-scans persist NO new Scan row (so they're naturally free), and degraded-to-mock runs are excluded
- * (engineProvider "mock"), so this counts only the real-inference scans that draw on the allowance.
+ * re-scans persist NO new Scan row (so they're naturally free). Public repos and degraded-to-mock
+ * runs are excluded, matching the private-repo and real-inference clauses of isBillableScan. BYOM
+ * remains in the allowance until its treatment is decided as a product policy.
  *
  * WINDOW CHOICE (credits-entitlements 07-16 #4): the allowance window is the UTC CALENDAR month
  * (resets at 00:00 UTC on the 1st) — the cheapest window computable from Scan.scannedAt with no
@@ -322,7 +323,7 @@ export async function countMeteredScansThisMonth(orgSlug: string): Promise<numbe
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   return prisma.scan.count({
-    where: { repo: { orgId }, scannedAt: { gte: monthStart }, engineProvider: { not: "mock" } },
+    where: { repo: { orgId, isPrivate: true }, scannedAt: { gte: monthStart }, engineProvider: { not: "mock" } },
   });
 }
 

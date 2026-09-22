@@ -133,7 +133,8 @@ export type ScanCharge = "unlimited" | "allowance" | "credit" | "denied";
 1. **`unlimited`**: the org is on the Custom tier (`isUnlimitedPlan`); never charged.
 2. **`allowance`**: the org's month-to-date metered scan count (`countMeteredScansThisMonth`, a UTC
    calendar-month window reset at 00:00 UTC on the 1st) is still under the plan's `includedCredits`; free,
-   no credit debit.
+   no credit debit. The count excludes public repos and mock runs. Private BYOM scans still count
+   toward the allowance pending a separate product policy decision.
 3. **`credit`**: the allowance is used up but the org has a positive prepaid credit balance
    (`Organization.scanCredits`); one credit is debited.
 4. **`denied`**: allowance spent and no credits left → the 402 / upgrade moment.

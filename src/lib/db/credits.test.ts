@@ -20,7 +20,7 @@ vi.mock("@/lib/db/client", () => ({
     typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "P2002",
 }));
 
-import { clawbackOrderRefund, consumeScanCredit, grantCredits } from "./credits";
+import { clawbackOrderRefund, consumeScanCredit, countMeteredScansThisMonth, grantCredits } from "./credits";
 import { isUnlimitedPlan, PLAN_ORDER } from "@/lib/plans";
 
 /**
@@ -73,6 +73,21 @@ beforeEach(() => {
 });
 
 describe("consumeScanCredit balanceAfter integrity", () => {
+  it("counts only private real-inference scans against the monthly allowance", async () => {
+    const { prisma } = fakePrisma(5);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await countMeteredScansThisMonth("acme");
+
+    expect(prisma.scan.count).toHaveBeenCalledWith({
+      where: {
+        repo: { orgId: "org_1", isPrivate: true },
+        scannedAt: { gte: expect.any(Date) },
+        engineProvider: { not: "mock" },
+      },
+    });
+  });
+
   it("stamps the post-decrement balance even when the initial read is stale (9 then 8, not 9, 9)", async () => {
     const { prisma, ledger, row } = fakePrisma(10);
     mockGetPrisma.mockReturnValue(prisma);
