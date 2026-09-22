@@ -336,11 +336,16 @@ export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
     out.push({ text: `Every dimension ≥ ${p.minDimension}`, bit: `no dim < ${p.minDimension}`, query: ["min_dimension", String(p.minDimension)], ci: `min-dimension: '${p.minDimension}'` });
   }
   for (const [dim, floor] of Object.entries(p.minDimensionFor ?? {})) {
-    const exposed = dim === SECURITY_DIM; // only the Security floor has a gate URL / action input
+    const dimName = DIMENSION_BY_ID[dim as DimensionId]?.name ?? dim;
+    // Every floor has a URL input: D9 is `min_security`, D1..D8 are `min_d<N>`. Only D9 has an
+    // action.yml input, so only D9 carries a `ci` line.
+    const exposed = dim === SECURITY_DIM;
     out.push({
-      text: `${dim} (${DIMENSION_BY_ID[dim as DimensionId]?.name ?? dim}) ≥ ${floor}`,
+      text: `${dim} (${dimName}) ≥ ${floor}`,
       bit: `no ${dim} < ${floor}`,
-      ...(exposed ? { query: ["min_security", String(floor)] as [string, string], ci: `min-security: '${floor}'` } : {}),
+      ...(exposed
+        ? { query: ["min_security", String(floor)] as [string, string], ci: `min-security: '${floor}'` }
+        : { query: [`min_${dim.toLowerCase()}`, String(floor)] as [string, string] }),
     });
   }
   if (p.forbidPostures?.length) {
@@ -889,7 +894,17 @@ export function explicitPolicyFromParams(params: URLSearchParams): GatePolicy {
   if (minOverall !== undefined) pol.minOverall = minOverall;
   const minDimension = floorParam(params, "min_dimension");
   if (minDimension !== undefined) pol.minDimension = minDimension;
-  if (wantSecurity) pol.minDimensionFor = { [SECURITY_DIM]: minSecurity ?? DEFAULT_SECURITY_MIN };
+
+  // Per-dimension floors go into ONE object: D9 from `min_security`, D1..D8 from `min_d<N>` (there is
+  // no `min_d9`). A value floorParam rejects (empty, out of range) is skipped for its dimension.
+  const floors: Partial<Record<DimensionId, number>> = {};
+  if (wantSecurity) floors[SECURITY_DIM] = minSecurity ?? DEFAULT_SECURITY_MIN;
+  for (let i = 1; i <= 8; i++) {
+    const dim = `D${i}` as DimensionId;
+    const f = floorParam(params, `min_d${i}`);
+    if (f !== undefined) floors[dim] = f;
+  }
+  if (Object.keys(floors).length > 0) pol.minDimensionFor = floors;
   if (noUngoverned === "1" || noUngoverned === "true" || wantSecurity) pol.forbidPostures = ["ungoverned"];
   if (requireProtection === "1" || requireProtection === "true") pol.requireProtectedBranch = true;
   // W2: `?min_ai_governed=100` is the ungoverned-AI-change gate. `?no_ungoverned_ai=1` is the

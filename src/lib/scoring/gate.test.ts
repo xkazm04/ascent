@@ -146,6 +146,39 @@ describe("explicitPolicyFromParams + tightenGatePolicy (ci-gate 2026-07-16 #1)",
   });
 });
 
+// Per-dimension floors via `?min_d<N>=N` (D1..D8; D9 stays `min_security`). These floor params are
+// URL inputs with no `ci` line (action.yml has no `min_d<N>`), so they must never claim one in a
+// generated condition.
+describe("explicitPolicyFromParams — per-dimension floors min_d1..min_d8", () => {
+  it("merges multiple floors into ONE minDimensionFor object without any overwrite", () => {
+    const pol = explicitPolicyFromParams(new URLSearchParams("min_d2=50&min_security=70"));
+    expect(pol.minDimensionFor).toEqual({ D2: 50, D9: 70 });
+    expect(pol.minDimensionFor?.D9).toBe(70);
+  });
+
+  it("an out-of-range min_d<N> floor is dropped", () => {
+    const pol = explicitPolicyFromParams(new URLSearchParams("min_d2=150"));
+    expect(pol.minDimensionFor).toBeUndefined();
+  });
+
+  it("a D2 floor gets its own query input but NO ci line (action.yml has no min_d2)", () => {
+    const views = describeGatePolicy(explicitPolicyFromParams(new URLSearchParams("min_d2=50")));
+    const dimView = views.find((v) => v.text.includes("D2"))!;
+    expect(dimView.query).toEqual(["min_d2", "50"]);
+    expect(dimView.ci).toBeUndefined();
+    expect(dimView.text).toContain("≥ 50");
+  });
+
+  it("every floor view's query parses back to the same floor (the link a view builds is one the parser reads)", () => {
+    const pol = explicitPolicyFromParams(new URLSearchParams("min_d2=50&min_d7=40&min_security=70"));
+    for (const v of describeGatePolicy(pol).filter((x) => x.query && x.bit.startsWith("no D"))) {
+      const back = explicitPolicyFromParams(new URLSearchParams([v.query!]));
+      const dim = v.bit.split(" ")[1] as keyof NonNullable<typeof pol.minDimensionFor>;
+      expect(back.minDimensionFor?.[dim]).toBe(pol.minDimensionFor?.[dim]);
+    }
+  });
+});
+
 // Fail-closed must cover EVERY criterion (ambiguity-ui 2026-07-16 ci-gate #2): before this fix a
 // NaN overallScore or a malformed level id sailed past minOverall/minLevel in evaluateGate
 // (`NaN < 40 === false`) while evaluateGateLite parsed the same level as 0 and failed it — the two
