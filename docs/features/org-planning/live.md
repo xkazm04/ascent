@@ -4586,6 +4586,27 @@ The cadence lives on the run's **input**, not on its row: a retry re-runs one la
 there is no "rest of the run" to defer to, so a retried lane is always `"cycle"`.
 Pinned by [`src/lib/local/loop-engine.cadence.test.ts`](../../../src/lib/local/loop-engine.cadence.test.ts).
 
+**The closing rescan is a watched stage, and a Stop reaches it** (2026-09-23). It used to be the one
+lane stage outside the watchdog, and the engine drops the last lane's watchdog before the settle
+runs, so a closing rescan that never settled left the stop's teeth nothing to bite: no abort, no
+backstop, and the run sat on `running` through the operator's Stop. The settle now runs its rescan
+under its own watchdog (`SETTLE_DEADLINE_MS` = the rescan + git allowances a lane ceiling already
+carries), and the engine registers it under `<repo>[#arm]#settle` for exactly the length of the
+settle. A cut closing rescan releases every carried claim and ends each deferred row `error` at stage
+`rescan` (`The run's closing rescan was FORCE-FAILED: …`), the run ends `stopped`, and if even that
+wind-down hangs the backstop names the settle key (`… abandoned: acme/web#settle`). A settle that
+starts after the stop's teeth already bit is aborted on registration.
+
+**One exit door, one adjudication tail.** Every way a lane ends is a word in `LANE_EXIT_KINDS`
+(`src/lib/local/lane-exit.ts`) and what that end owes — release the claim or transfer it, settle an
+executing plan or leave it, the terminal phase, whether it counts as progress — is one row of
+`laneExitObligations`; `exitLane` is the only writer of a lane's terminal row, and it flushes the
+activity tail first, so a plan-mode lane whose planner fails no longer leaves its trailing activity
+write on a timer. The post-rescan tail (`adjudicateLane`, `src/lib/local/lane-adjudicate.ts`) is
+shared by a `"cycle"` lane and the deferred settle, so a deferred lane's log now carries the same
+`Delivered:`, lessons and playbooks lines. Pinned by `lane-exit.test.ts` (including a source guard
+over `loop-lane.ts`), `loop-lane.settle.test.ts` and `loop-engine.settle-stop.test.ts`.
+
 ## Known gaps
 
 - **Hosted dispatch is gated and metered but not operated** (ADR-0001 T5–T8). No `LaneDispatcher` is
