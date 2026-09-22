@@ -47,6 +47,9 @@ const config = {
     // own parallelism starves individual workers past 5s, producing failures that reproduce nowhere
     // and re-run green. A genuine hang or infinite loop still fails, just three seconds later.
     testTimeout: 15_000,
+    // Real Git fixture repos and DOM workers contend heavily during the full coverage run on
+    // Windows. Keep enough parallelism for the suite while giving child processes room to finish.
+    maxWorkers: 4,
     // Calibrated coverage gate (`npm run test:coverage`, wired into CI). Scoped to three high-risk,
     // high-churn directories — the DB write/query layer and the two feature surfaces flagged by the
     // test-mastery scan. Each floor sits a few points BELOW the coverage measured the day it was set,
