@@ -104,6 +104,9 @@ interface LiveRun {
   /** True once the stop backstop has written this run terminal — `drive` must not then overwrite the
    *  row that names the lanes which refused to die. */
   terminated: boolean;
+  /** True once a stop's grace ran out and its teeth bit. A closing rescan registered AFTER that has
+   *  nobody left to abort it, so it is aborted on registration instead (see the settle in `drive`). */
+  stopBitten: boolean;
 }
 
 // ONE registry per PROCESS, on globalThis — not per module instance. Next bundles each API route
@@ -322,6 +325,7 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
     stopTimers: [],
     refreshed: new Set<string>(),
     terminated: false,
+    stopBitten: false,
   };
   live.set(run.id, state);
   void drive(run, targets, input, state).catch(async (err) => {
@@ -596,6 +600,7 @@ function armStopTeeth(state: LiveRun, graceMs: number, terminalMs: number): void
   const bite = setTimeout(() => {
     // Snapshot the names BEFORE aborting: an abort resolves the lane's race, and by the time the
     // backstop runs the map is (correctly) empty for every lane that took the hint.
+    state.stopBitten = true;
     const inFlight = [...state.lanes.keys()];
     for (const watchdog of state.lanes.values()) watchdog.abort();
     if (inFlight.length === 0) return;
@@ -877,15 +882,31 @@ async function drive(
           const owed = pending.get(wtKey) ?? [];
           if (owed.length > 0) {
             pending.delete(wtKey);
-            await settleDeferredCycles({
-              runId: run.id,
-              org: state.orgSlug,
-              repo: t.repo,
-              worktree: wt,
-              deferred: owed,
-              deps: input.deps,
-              scan: res.scan ?? null,
-            }).catch(() => undefined);
+            // THE CLOSING RESCAN IS A LANE STAGE TOO, and a stop must be able to bite on it. The lane
+            // that ended this repo has already left `state.lanes`, so without this registration a
+            // hung closing rescan left `armStopTeeth` nothing to abort and no backstop to arm — the
+            // run stayed `running` through the operator's Stop. Keyed `<repo>[#arm]#settle`, which is
+            // the name the backstop prints if even the settle's wind-down refuses to finish.
+            const settleKey = `${wtKey}#settle`;
+            try {
+              await settleDeferredCycles({
+                runId: run.id,
+                org: state.orgSlug,
+                repo: t.repo,
+                worktree: wt,
+                deferred: owed,
+                deps: input.deps,
+                scan: res.scan ?? null,
+                onWatchdog: (watchdog) => {
+                  state.lanes.set(settleKey, watchdog);
+                  // A stop whose teeth already bit found nothing to abort then; this reading must not
+                  // be the one stage of a stopped run that waits out its whole allowance.
+                  if (state.stopBitten) watchdog.abort();
+                },
+              }).catch(() => undefined);
+            } finally {
+              state.lanes.delete(settleKey);
+            }
           }
         }
         // DELIVERY, after the cycle and never instead of it. Under `branch` (the default) this returns
