@@ -677,6 +677,42 @@ unchanged, committed nothing, and **refused to rescan** — with the reason writ
 worktree nothing landed in would credit the repo with work that does not exist. Four broken runs
 produced four honest no-ops and not one plausible number.
 
+## A 9B executor that fits: the first local wave to reach commits (2026-09-22)
+
+The constraint above is the model's size on this card, so the next wave changed the executor, not the
+harness. `MiMo-V2.6-Distill-Qwen-9B` at Q8 (Ollama `mimo-9b:q8-64k`, `num_ctx 65536`) is **17 GB and
+100% on the GPU at the 64k floor**. Through Pi it ran five analyst-picked items on this repo, each in
+a worktree off `master`, with the item's targeted tests before and after, then `npm run typecheck`
+and a reviewer's pass over the diff. The lanes were script-driven rather than started through
+`/api/org/loop`, because hand-picked items are not follow-up rows.
+
+| Item | Difficulty | Pi time | Tests after | Typecheck | Outcome |
+| --- | --- | --- | --- | --- | --- |
+| `/v1` suffix on the local agent URL | easy | 48 s | green | clean | landed with one cosmetic fix |
+| unmeasured repos as laggards | easy | 30 s | green | clean | landed as written |
+| a lane's quiet window is its arm's | medium | 168 s | green | failed | landed after fixes (see below) |
+| gate URL floors for D1..D8 | medium | 168 s | green | failed | landed after fixes, including a semantic bug |
+| D6 credit from non-GitHub CI | stretch | about 22 min, killed | - | - | not landed |
+
+What it showed:
+
+- **No lane came near Pi's 300 s idle budget.** A resident executor removes the failure the 27B lanes
+  died of.
+- **Green targeted tests were not a verdict.** All four finished lanes were green on tests they had
+  just added. Two of them failed typecheck, and one emitted the URL key `D2` where the parser reads
+  `min_d2`, with a new test asserting the wrong key. A round-trip test that the lane did not write is
+  what caught it. So a lane gate should run `npm run typecheck` by default, and a lane that adds the
+  tests grading it deserves the same suspicion the void rule applies to one that edits them.
+- **The stretch lane failed on line endings.** It wrote its test, then spent 220 tool calls trying to
+  make exact-match edits land in an 850-line file with CRLF endings. The reviewer's own scripted edits
+  hit the same mismatch in these worktrees. On a Windows checkout, a small executor needs normalised
+  line endings or a line-range edit, or its failure reads as incapacity.
+- **Delegation boundary for this executor:** bounded one-file changes land nearly untouched, and
+  two-file changes need a reviewer.
+
+Not measured: there was no hosted arm on the same items, so there is no
+`claudeTokensPerVerifiedPoint`, and no rescan ran. This is a single-arm wave, not an arms verdict.
+
 ## Known gaps
 
 - The agent's `--effort` is passed only when a level is chosen, and nothing probes whether the local
