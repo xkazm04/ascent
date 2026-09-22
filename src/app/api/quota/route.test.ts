@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("next/server", () => ({
   NextResponse: {
@@ -28,8 +28,12 @@ function req(ip: string) {
 }
 
 beforeEach(() => {
+  // x-real-ip is meaningful here because the fixture represents one trusted proxy.
+  vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "1");
   vi.clearAllMocks();
 });
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("GET /api/quota — rate limit on the public peek", () => {
   it("charges rateLimitRequestShared, not the in-process limiter", () => {

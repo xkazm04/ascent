@@ -6,7 +6,7 @@
 // Both the limiter config and the token secret are captured at module load, so the module is imported
 // dynamically after the env is stubbed.
 
-import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 
 // The ONLY stub in this file is the stored-epoch lookup — it is a DB read, and there is no DB here.
 // The HMAC, the limiter and the cap all run for real, so the revocation cases below prove the actual
@@ -22,6 +22,8 @@ let guard: GuardModule;
 let tokens: TokenModule;
 
 beforeAll(async () => {
+  // These requests model a deployment behind one trusted proxy that sets x-real-ip.
+  vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "1");
   process.env.INTEGRATIONS_INGEST_SECRET = SECRET;
   // A tiny window makes the limiter observable in a handful of requests. The real ceiling is derived
   // from Claude Code's export cadence (see INGEST_RATE_LIMIT) and is far too high to test directly.
@@ -30,6 +32,8 @@ beforeAll(async () => {
   guard = await import("./ingest-guard");
   tokens = await import("./ingest-token");
 });
+
+afterAll(() => vi.unstubAllEnvs());
 
 function mkReq(opts: { body?: string; auth?: string | null; contentLength?: string; ip?: string } = {}): Request {
   const headers: Record<string, string> = {};
