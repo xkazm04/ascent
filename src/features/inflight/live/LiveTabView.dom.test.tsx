@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// The Live tab now has TWO views, and the cockpit must not have eaten either of the wall's two entry
-// points. `?view=wall` still renders exactly the wall (autopilot band included), and the kiosk route
+// The cockpit and wall remain distinct views. `?view=wall` links to the cockpit for dispatch,
+// and the kiosk route
 // — a capability-link surface with no session — still renders LiveWarRoom read-only with no cockpit
 // anywhere near it. Both are asserted by rendering, not by reading imports.
 
@@ -53,10 +53,11 @@ describe("LiveTab view routing", () => {
     expect(screen.queryByTestId("war-room")).not.toBeInTheDocument();
   });
 
-  it("renders exactly today's wall tree under ?view=wall", async () => {
+  it("renders the wall with a cockpit link but no second start control", async () => {
     render(await LiveTab({ slug: "acme", sp: { tab: "live", view: "wall" } }));
     expect(screen.getByTestId("war-room")).toHaveTextContent("live");
-    expect(screen.getByTestId("autopilot-band")).toBeInTheDocument();
+    expect(screen.queryByTestId("autopilot-band")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open loop cockpit/ })).toHaveAttribute("href", "?tab=live&view=cockpit");
     expect(screen.queryByTestId("cockpit")).not.toBeInTheDocument();
   });
 });

@@ -4,8 +4,8 @@
 //                   since they last looked, what waits for them, the runner branch, the chronicle.
 //   ?view=cockpit → the LOOP COCKPIT: the observatory sky chart (adoption × rigor) as the dominant
 //                   object, a mode-switching right rail (inspect ⇄ run ⇄ outcome), and the run history.
-//   ?view=wall    → the original Fleet Command WAR ROOM, unchanged — AutopilotBand + stack selector +
-//                   LiveWarRoom, with its SSE fold, TV mode, wake lock and share link all intact.
+//   ?view=wall    → the Fleet Command WAR ROOM — cockpit link + stack selector + LiveWarRoom,
+//                   with its SSE fold, TV mode, wake lock and share link all intact.
 //   no view       → the Ledger when a standing runner exists (a continuous drive not yet ended), else
 //                   the Cockpit. The Theater is its own page (/theater/<slug>), linked from both.
 //
@@ -29,7 +29,6 @@ import { getActiveLoopRun, getLoopRunDetail, listLoopRuns } from "@/lib/db/loop-
 import type { LoopRunDetail } from "@/lib/db/loop-runs-types";
 import { selfHosted } from "@/lib/env";
 import { autopilotEnabled } from "@/lib/local/agent";
-import { AutopilotBand } from "./AutopilotBand";
 import { resolveStackScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
 import { liveShareEnabled } from "@/lib/live-share";
@@ -95,7 +94,11 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
   if (view === "wall") {
     return (
       <div className="space-y-4">
-        {pairedRepos.length > 0 && <AutopilotBand org={slug} pairedRepos={pairedRepos} enabled={autopilotEnabled()} />}
+        <div className="flex justify-end">
+          <a href={liveViewHref(sp, "cockpit")} className="type-body-sm text-accent hover:underline">
+            Open loop cockpit to start or review a run
+          </a>
+        </div>
         {techGroups.length > 0 && (
           <div className="flex justify-end">
             <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />

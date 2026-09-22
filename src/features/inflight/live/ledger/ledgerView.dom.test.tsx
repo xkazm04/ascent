@@ -86,11 +86,12 @@ describe("LiveTab view routing", () => {
     expect(hasStandingRunner).not.toHaveBeenCalled();
   });
 
-  it("leaves ?view=wall exactly the wall, runner or not", async () => {
+  it("leaves ?view=wall on the wall, with a cockpit link and no second start", async () => {
     h.runner = true;
     await view({ view: "wall" });
     expect(screen.getByTestId("war-room")).toBeInTheDocument();
-    expect(screen.getByTestId("autopilot-band")).toBeInTheDocument();
+    expect(screen.queryByTestId("autopilot-band")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open loop cockpit/ })).toBeInTheDocument();
     expect(screen.queryByTestId("ledger")).not.toBeInTheDocument();
     expect(screen.queryByTestId("cockpit")).not.toBeInTheDocument();
     expect(hasStandingRunner).not.toHaveBeenCalled();

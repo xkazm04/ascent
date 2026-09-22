@@ -871,8 +871,9 @@ snapshot, pairings) and adds, **on every deployment**, `getActiveLoopRun(slug)` 
 runs (the outcome sheet's columns); only the *pairings* stay local-only. Since 2026-09-18 the tab has
 three views — Theater, **Ledger** and **Cockpit** — see [the standing runner, its theater and its
 ledger](#the-standing-runner-its-theater-and-its-ledger-2026-09-18). The Cockpit renders
-`<LiveCockpit>` (`src/features/inflight/live/cockpit/`); `?view=wall` renders the previous tree byte-for-byte
-(autopilot band + stack selector + `LiveWarRoom`). Both are `key`-remounted on a stack change.
+`<LiveCockpit>` (`src/features/inflight/live/cockpit/`); `?view=wall` renders the standing war room
+with a link to the cockpit for run dispatch, a stack selector, and `LiveWarRoom`. The wall no longer
+offers its own Autopilot start control. The wall and cockpit remount on a stack change.
 
 `LiveCockpit` props: `slug, seeds (ObservatorySeed[] = toLiveRepoSeeds(rollup.repos) + scannedAt),
 histories, pairedRepos, activeRun, runs, runDetails (≤ 12 listed runs' details, for the outcome
