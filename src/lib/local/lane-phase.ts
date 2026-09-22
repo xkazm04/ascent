@@ -27,6 +27,10 @@ export interface PhaseInput {
   stage: string | null;
   tail: readonly LaneActivity[];
   heartbeatAt: string | null;
+  /** The arm's dated band, when this lane is a local transport: the quiet ceiling is the arm's, not the
+   *  hosted one (a local 27B is the transport's clock, not the API's). Absent, the build default of
+   *  `PHASE_QUIET_MS` applies. */
+  quietMs?: number;
   /** True when the lane's delivery was held (fence, install). */
   held?: boolean;
   /** `LoopRunLane.stageAt` — when the lane entered its current phase/stage. Scopes which events may
@@ -96,9 +100,9 @@ export function deriveLanePhase(input: PhaseInput, now: number): LanePhase {
       break;
   }
   // The agent's own stretch. Quiet first: a specific claim with stale evidence is the lie this exists
-  // to prevent.
+  // to prevent — and the clock is the ARM's, not the build default's.
   const quiet = laneQuietForMs(input, now);
-  if (quiet != null && quiet > PHASE_QUIET_MS) return "agent-quiet";
+  if (quiet != null && quiet > (input.quietMs ?? PHASE_QUIET_MS)) return "agent-quiet";
   // The tail is newest-last, so the only candidate is its last event — and only when it happened inside
   // the current stage.
   const since = ms(input.stageAt);

@@ -5,6 +5,8 @@
 import { firstLine } from "@/lib/local/agent-stream";
 import { parseArms, type Arm } from "@/lib/local/arm";
 import { deriveLanePhase } from "@/lib/local/lane-phase";
+import { transportTiming } from "@/lib/local/transport/profile";
+import { isLocalHalf } from "@/lib/local/endpoint";
 import { driveRunsDone, type DriveRunRecord } from "@/lib/local/drive-types";
 import {
   isBaseDisclosure,
@@ -136,6 +138,10 @@ export function armsById(armsJson: string | null | undefined): Map<string, Arm> 
 
 export function toLanePulse(row: PulseLaneRow, held: boolean, now: Date, arms?: ReadonlyMap<string, Arm>): LanePulse {
   const tail = parseActivityColumn(row.activityJson);
+  // The quiet ceiling is the executing arm's own band: a local arm (a pi arm, or a claude arm on a
+  // non-seat model) is allowed a longer silence than the hosted default. No arm keeps PHASE_QUIET_MS.
+  const arm = row.armId ? arms?.get(row.armId) : undefined;
+  const quietMs = arm ? transportTiming(arm.transport, { local: isLocalHalf(arm) }).quietMs : undefined;
   const phase = deriveLanePhase(
     {
       phase: row.phase,
@@ -145,6 +151,7 @@ export function toLanePulse(row: PulseLaneRow, held: boolean, now: Date, arms?: 
       stageAt: iso(row.stageAt),
       planned: row.planId != null,
       held,
+      ...(quietMs === undefined ? {} : { quietMs }),
     },
     now.getTime(),
   );

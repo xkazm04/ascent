@@ -93,6 +93,17 @@ describe("deriveLanePhase — honest decay", () => {
   });
 });
 
+describe("deriveLanePhase — the quiet clock is the arm's", () => {
+  it("measures silence against the armed transport's band, not the build default", () => {
+    // Three minutes of silence beats a hosted 90 s ceiling by a mile, but a local arm's own band says
+    // it is still mid-stream: stream silence is not a failure.
+    expect(deriveLanePhase(input({ tail: [ev("edit", 0)], quietMs: 300_000 }), T0 + 3 * 60_000)).toBe(
+      "agent-editing",
+    );
+    expect(deriveLanePhase(input({ tail: [ev("edit", 0)] }), T0 + 3 * 60_000)).toBe("agent-quiet");
+  });
+});
+
 describe("evidence and quiet measurement", () => {
   it("takes the newest of the tail, the heartbeat and the stage start", () => {
     expect(newestEvidenceMs({ tail: [ev("read", 1_000)], heartbeatAt: iso(3_000), stageAt: iso(2_000) })).toBe(T0 + 3_000);

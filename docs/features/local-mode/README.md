@@ -591,9 +591,12 @@ single f16-KV trial before the q8_0 cache and the alternating method; the table 
 The per-transport timing bands derived from any of these are **chosen**, not measured — see
 [per-arm timing](../org-planning/live.md#arms-transport--model-and-the-n-arm-comparison-2026-09-21).
 
-**A first observed consequence**: with the local band's 5-minute quiet window, a local execute lane
-still reported `agent-quiet` while legitimately working (observed on the first real split-arm lane,
-2026-09-21). The window is a chosen number and this is the first evidence that it is chosen too low.
+**A first observed consequence, and its correction (2026-09-22)**: a local execute lane reported
+`agent-quiet` while legitimately working (observed on the first real split-arm lane, 2026-09-21). This
+was first read as the local band's 5-minute quiet window being chosen too low. It was not: the lane
+phase never read the band at all and applied the 90 s build default (`PHASE_QUIET_MS`) to every arm.
+The pulse fold now passes the executing arm's own `quietMs` into `deriveLanePhase`, so a local lane is
+labelled quiet only after its band's window. Whether 5 minutes is itself right is still unmeasured.
 
 For a **Pi** arm, install the binary and give it a provider:
 

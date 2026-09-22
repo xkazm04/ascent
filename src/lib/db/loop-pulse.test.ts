@@ -125,6 +125,25 @@ beforeEach(() => {
   db.spend = 4_200_000;
 });
 
+describe("getLoopPulse — quiet is the ARM's, not the build default's", () => {
+  it("a local arm's 5 m band keeps a lane mid-stream three minutes after its last event", async () => {
+    db.run!.armsJson = ARMS_JSON;
+    (db.run!.lanes as Record<string, unknown>[])[4]!.armId = "local-2";
+    const p = (await getLoopPulse("acme", NOW))!;
+    // Three minutes of silence beats the hosted 90 s ceiling by a mile, but a `pi` arm is local, so
+    // its band's own 5 m quiet ceiling still counts it as mid-stream.
+    expect(p.lanes.find((l) => l.laneId === "l-api-2")!.phase).toBe("agent-editing");
+  });
+
+  it("a subscription-seat arm goes quiet", async () => {
+    db.run!.armsJson = ARMS_JSON;
+    // The same three minutes of silence on the hosted seat (claude:sonnet) is past its 90 s ceiling.
+    db.run!.lanes.push(lane({ id: "l-api-3", armId: "claude-1", activityJson: JSON.stringify([act("edit", "src/a.ts", 3)]) }));
+    const p = (await getLoopPulse("acme", NOW))!;
+    expect(p.lanes.find((l) => l.laneId === "l-api-3")!.phase).toBe("agent-quiet");
+  });
+});
+
 describe("getLoopPulse — the read", () => {
   it("is null without an org to report on", async () => {
     expect(await getLoopPulse("nobody", NOW)).toBeNull();
