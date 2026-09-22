@@ -81,8 +81,9 @@ no model number. Absence is not a 0 (G4); a null grade is not 0/100 (G19). The a
 The page lede and metadata no longer claim "how AI-native" an owner is when nothing was model-scored
 — that copy matches the summary's "No published score yet".
 
-Ranking happens in memory over a bounded candidate window (`REGISTER_CANDIDATE_CAP`, ordered by score
-at the DB), so neither surface needs a new column or index. `windowed` discloses when the corpus has
+Ranking happens in memory over a bounded candidate window (`REGISTER_CANDIDATE_CAP` distinct public
+repositories, grouped by best scan score at the DB). Repeated scans of one repo cannot crowd other
+repos out of the window. `windowed` discloses when the corpus has
 outgrown the window, so "top N" is never quietly presented as "all".
 
 **Crawlability** is a requirement, not a nicety: the ranking is server-rendered (no `"use client"`

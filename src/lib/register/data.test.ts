@@ -19,7 +19,7 @@ const { mockIsDbConfigured, mockResolveOrgId, scanFindMany, repoFindMany, repoCo
 vi.mock("@/lib/db/client", () => ({
   isDbConfigured: mockIsDbConfigured,
   getPrisma: () => ({
-    scan: { findMany: scanFindMany },
+    scan: { groupBy: scanFindMany },
     repository: { findMany: repoFindMany, count: repoCount },
   }),
   dbReadSafe: async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
@@ -134,6 +134,24 @@ describe("registerEntryFrom — the per-row privacy enforcement point", () => {
 });
 
 describe("getPublicRegister — tenancy", () => {
+  it("applies the candidate cap after grouping scans by repository", async () => {
+    scanFindMany.mockResolvedValue([{ repoId: "a" }, { repoId: "b" }]);
+    repoFindMany.mockResolvedValue([
+      repoRow({ id: "a", name: "often-scanned", overall: 90 }),
+      repoRow({ id: "b", name: "less-scanned", overall: 80 }),
+    ]);
+
+    const reg = await getPublicRegister();
+
+    expect(scanFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      by: ["repoId"],
+      _max: { overallScore: true },
+      orderBy: [{ _max: { overallScore: "desc" } }, { repoId: "asc" }],
+      take: expect.any(Number),
+    }));
+    expect(reg?.entries.map((r) => r.fullName)).toEqual(["acme/often-scanned", "acme/less-scanned"]);
+  });
+
   it("scopes BOTH queries to the public org AND isPrivate:false", async () => {
     scanFindMany.mockResolvedValue([{ repoId: "acme-api" }]);
     repoFindMany.mockResolvedValue([repoRow()]);

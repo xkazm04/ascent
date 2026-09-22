@@ -251,16 +251,16 @@ async function loadCandidates(orgId: string, ownerPrefix?: string): Promise<Regi
     ...(ownerPrefix ? { fullName: { startsWith: `${ownerPrefix}/` } } : {}),
   };
 
-  // Candidate window = the highest-scoring public SCANS, reduced to their repos. Ordering by score at
-  // the DB (rather than by recency) is what makes "top N" mean top-by-score once the corpus outgrows
-  // the cap — the failure mode the gallery documents.
-  const topScans = await prisma.scan.findMany({
+  // Rank distinct public repositories by their best scan before applying the cap. Repeated scans
+  // of a few repos must not crowd every other repository out of the register.
+  const topRepos = await prisma.scan.groupBy({
+    by: ["repoId"],
     where: { repo: repoWhere },
-    orderBy: [{ overallScore: "desc" }, { scannedAt: "desc" }, { id: "desc" }],
+    _max: { overallScore: true },
+    orderBy: [{ _max: { overallScore: "desc" } }, { repoId: "asc" }],
     take: REGISTER_CANDIDATE_CAP,
-    select: { repoId: true },
   });
-  const ids = Array.from(new Set(topScans.map((s) => s.repoId)));
+  const ids = topRepos.map((r) => r.repoId);
   if (ids.length === 0) return [];
 
   // Re-assert BOTH tenancy predicates on the id-keyed fetch. An id list is caller-independent here, but
