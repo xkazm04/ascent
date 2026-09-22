@@ -1,7 +1,7 @@
 // Current supply-chain EXPOSURE — open known vulnerabilities in a repo's dependencies, from OSV.dev
-// (public, no auth) by parsing the committed npm lockfile. This is the "open vulns are the real
-// negative" signal (per OpenSSF Scorecard's Vulnerabilities check), kept SEPARATE from posture. npm is
-// the dominant ecosystem here; other ecosystems (or no lockfile) return `known:false` = UNKNOWN, which
+// (public, no auth) by parsing committed npm, pnpm, or Cargo lockfiles. This is the "open vulns are the real
+// negative" signal (per OpenSSF Scorecard's Vulnerabilities check), kept SEPARATE from posture. Unsupported
+// ecosystems (or no lockfile) return `known:false` = UNKNOWN, which
 // the score treats as neutral, never as "clean". Lockfile/OSV read failures throw so ingest can
 // record `securityExposure` as failed instead of collapsing into that UNKNOWN. Bounded (≤500 deps
 // queried, ≤40 vuln details fetched) so it can't blow the scan's time budget.
@@ -9,6 +9,7 @@
 import type { SecurityExposure } from "@/lib/types";
 import { fetchWithTimeout, ghHeaders, githubRawBase } from "@/lib/github/host";
 import { mapPool } from "@/lib/pool";
+import { parsePnpmDeps, parseCargoDeps, type OsvDep } from "./exposure-lockfiles";
 
 const RAW = githubRawBase();
 const OSV_BATCH = "https://api.osv.dev/v1/querybatch";
@@ -21,7 +22,7 @@ const MAX_LOCKFILE_BYTES = 6_000_000;
 const UNKNOWN: SecurityExposure = { known: false, source: "none", critical: 0, high: 0, medium: 0, low: 0, scanned: 0 };
 
 /**
- * Fetch + parse the npm lockfile and grade the repo's open-vuln exposure via OSV.
+ * Fetch + parse a supported lockfile and grade the repo's open-vuln exposure via OSV.
  *
  * A missing lockfile (404) or empty dep list is UNKNOWN (`known:false`) — we looked and
  * could not inspect. Lockfile/OSV *read* failures (non-404 GitHub status, OSV !ok, network,
@@ -35,28 +36,35 @@ export async function fetchSecurityExposure(
   token?: string,
   signal?: AbortSignal,
 ): Promise<SecurityExposure> {
-  const deps = await fetchNpmDeps(owner, repo, ref, token, signal);
+  const npm = await fetchLockfile(owner, repo, ref, "package-lock.json", parseNpmDeps, token, signal);
+  const pnpm = npm.length ? [] : await fetchLockfile(owner, repo, ref, "pnpm-lock.yaml", parsePnpmDeps, token, signal);
+  const deps = npm.length ? npm : pnpm.length ? pnpm : await fetchLockfile(owner, repo, ref, "Cargo.lock", parseCargoDeps, token, signal);
   if (!deps.length) return UNKNOWN;
   return await osvExposure(deps.slice(0, MAX_DEPS), signal);
 }
 
-/** Parse (name, version) pairs from package-lock.json (lockfileVersion 2/3 `packages`, else v1 `dependencies`). */
-async function fetchNpmDeps(owner: string, repo: string, ref: string, token?: string, signal?: AbortSignal): Promise<{ name: string; version: string }[]> {
-  const url = `${RAW}/${owner}/${repo}/${encodeURIComponent(ref)}/package-lock.json`;
+async function fetchLockfile(owner: string, repo: string, ref: string, file: string,
+  parse: (text: string) => OsvDep[], token?: string, signal?: AbortSignal): Promise<OsvDep[]> {
+  const url = `${RAW}/${owner}/${repo}/${encodeURIComponent(ref)}/${file}`;
   const res = await fetchWithTimeout(url, { headers: token ? ghHeaders(token, { accept: "*/*" }) : { "User-Agent": "ascent" } }, TIMEOUT_MS, signal);
-  if (res.status === 404) return []; // no committed npm lockfile — UNKNOWN, not a failed read
-  if (!res.ok) throw new Error(`package-lock.json ${res.status}`);
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`${file} ${res.status}`);
   const text = await res.text();
   if (text.length > MAX_LOCKFILE_BYTES) return [];
+  return parse(text);
+}
+
+/** Parse npm lockfileVersion 2/3 `packages`, else v1 `dependencies`. */
+function parseNpmDeps(text: string): OsvDep[] {
   const json = JSON.parse(text) as { packages?: Record<string, { name?: string; version?: string }>; dependencies?: Record<string, { version?: string }> };
   const seen = new Set<string>();
-  const out: { name: string; version: string }[] = [];
+  const out: OsvDep[] = [];
   const push = (name: string, version?: string) => {
     if (!name || !version || !/^\d/.test(version)) return; // skip ranges / file: / git specs
     const key = `${name}@${version}`;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ name, version });
+    out.push({ name, version, ecosystem: "npm" });
   };
   if (json.packages) {
     for (const [path, meta] of Object.entries(json.packages)) {
@@ -71,8 +79,8 @@ async function fetchNpmDeps(owner: string, repo: string, ref: string, token?: st
 }
 
 /** OSV batch query → count vulnerable packages, then bucket by severity (bounded detail look-ups). */
-async function osvExposure(deps: { name: string; version: string }[], signal?: AbortSignal): Promise<SecurityExposure> {
-  const body = JSON.stringify({ queries: deps.map((d) => ({ package: { name: d.name, ecosystem: "npm" }, version: d.version })) });
+async function osvExposure(deps: OsvDep[], signal?: AbortSignal): Promise<SecurityExposure> {
+  const body = JSON.stringify({ queries: deps.map((d) => ({ package: { name: d.name, ecosystem: d.ecosystem }, version: d.version })) });
   const res = await fetchWithTimeout(OSV_BATCH, { method: "POST", headers: { "content-type": "application/json" }, body }, TIMEOUT_MS, signal);
   if (!res.ok) throw new Error(`OSV querybatch ${res.status}`);
   const json = (await res.json()) as { results?: { vulns?: { id: string }[] }[] };
