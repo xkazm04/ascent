@@ -6,8 +6,8 @@ import { parseStringArray } from "./json-columns";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 
-/** The lane executors this process does NOT drive, and whose runs the liveness sweep must not judge. */
-const EXTERNAL_EXECUTORS = ["remote-agent", "human"];
+/** Hosted lanes are also external: their lease, not this process's registry, decides liveness. */
+const EXTERNAL_EXECUTORS = ["remote-agent", "hosted-worker", "human"];
 
 /**
  * Reconcile `running` rows left behind by a process that died. The engine's live handles only ever

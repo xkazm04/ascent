@@ -1,5 +1,5 @@
 // The ledger chronicle's page of the loop status route. `beforeSeq`/`limit` ask for a LEAN `{ runs }`
-// page; with neither, the response is byte-for-byte the shape every existing caller has always read.
+// page; with neither, the response keeps the full status shape, including hosted eligibility.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -47,7 +47,7 @@ beforeEach(() => vi.clearAllMocks());
 describe("GET /api/org/loop — the chronicle page", () => {
   it("keeps the full status response, and the 20-run default, when no paging parameter is sent", async () => {
     const body = (await (await get("org=acme")).json()) as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["active", "enabled", "prAvailable", "prices", "runs", "stopHorizonMs", "stopping"]);
+    expect(Object.keys(body).sort()).toEqual(["active", "enabled", "hosted", "prAvailable", "prices", "runs", "stopHorizonMs", "stopping"]);
     expect(listLoopRuns).toHaveBeenCalledWith("acme", 20);
   });
 

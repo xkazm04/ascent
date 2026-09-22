@@ -32,6 +32,7 @@ import { skillUsageMap } from "@/lib/org/skill-usage";
 import { isUnmirroredSkillId } from "@/lib/registry/usage-samples";
 import { runToolLoop } from "@/lib/llm/tool-loop";
 import { resolveWindow, weekRangeParams } from "@/lib/window";
+import type { OrgId, OrgSlug } from "@/lib/org/ids";
 
 /** Open asks named in the prompt. Enough to stop her re-proposing; not a backlog dump. */
 const OPEN_PROPOSAL_LIMIT = 8;
@@ -50,7 +51,7 @@ function summarize(kind: string, payload: Record<string, unknown>): string {
 const daysSince = (iso: string, now: number): number =>
   Math.max(0, Math.floor((now - Date.parse(iso)) / 86_400_000));
 
-export function buildOrgCycleDeps(ctx: { org: string; orgId: string; signal?: AbortSignal }): OrgCycleDeps {
+export function buildOrgCycleDeps(ctx: { org: OrgSlug; orgId: OrgId; signal?: AbortSignal }): OrgCycleDeps {
   const { org, orgId } = ctx;
   return {
     landing: () => latestAthenaActivity(orgId),

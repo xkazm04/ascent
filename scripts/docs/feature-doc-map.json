@@ -287,6 +287,8 @@
         "src/lib/local/agent-envelope.ts",
         "src/lib/local/lane-*.ts",
         "src/lib/local/loop-pr.ts",
+        "src/lib/local/hosted-*.ts",
+        "src/lib/db/hosted-credits.ts",
         "src/lib/local/drive.ts",
         "src/lib/org/lane-brief.ts",
         "src/lib/db/lane-*.ts",

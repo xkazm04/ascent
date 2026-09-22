@@ -23,8 +23,17 @@ export { deliveryTag } from "@/lib/local/delivery-options";
 // The guard's vocabulary, re-exported for the same reason: ONE declaration of what `rejected` means,
 // so the word on a lane row and the word the engine wrote cannot drift apart.
 export { verifyVerdictTag } from "@/lib/local/verify-options";
+// "Is this lane worked somewhere other than this process?" — ONE declaration: every caller spelled it
+// `=== "remote-agent"` before `hosted-worker` existed, which is how a third executor reads as local.
+import { isExternalExecutor } from "@/lib/db/loop-runs-types";
+export { isExternalExecutor };
 import type { VerifyVerdict } from "@/lib/local/verify-options";
 import type { LoopDelivery } from "@/lib/local/delivery-options";
+// ADR-0001's hosted answer, imported from the PURE gate module (no Prisma, no env) for the same
+// one-declaration reason the records above are: the server composes this object and the cockpit
+// renders `reason` verbatim, so a second client-side copy of the shape is how `reason` would one day
+// stop arriving and the card would silently fall back to its default sentence.
+import type { HostedDispatchStatus as HostedDispatchFact } from "@/lib/local/hosted-gate";
 import type {
   LoopLaneExecutor,
   LoopLaneKind,
@@ -40,6 +49,7 @@ import type {
 export type {
   VerifyVerdict,
   LoopDelivery,
+  HostedDispatchFact,
   FollowUpItem,
   LaneBriefProvenance,
   LaneEconomics,
@@ -62,7 +72,7 @@ export type {
  *  lane is what every row on a self-hosted board already is, and a chip on all of them says nothing.
  *  Same rule `laneKindTag` follows, for the same reason. */
 export const laneExecutorTag = (executor: LoopLaneExecutor): string | null =>
-  executor === "remote-agent" ? "agent" : null;
+  executor === "remote-agent" ? "agent" : executor === "hosted-worker" ? "hosted" : null;
 
 /**
  * WHAT ENGINE PRODUCED A RUN'S WORK — the fact the outcome ledger's column header was missing beside
@@ -77,13 +87,19 @@ export const laneExecutorTag = (executor: LoopLaneExecutor): string | null =>
  *   - `remote-agent` — Ascent started no process and opened no worktree; some agent elsewhere pulled
  *     the lane over MCP. Its engine is genuinely NOT OURS TO REPORT, so the label says who ran it and
  *     stops there. The run row's armed `model` is what Ascent asked for, not what the claimant used.
+ *   - `hosted-worker` (ADR-0001) — Ascent Cloud dispatched the lane to a worker of its own, which
+ *     still claims it over the same MCP door. The engine that worker runs is chosen by the dispatcher
+ *     and is NOT recorded on the row today, so this label is deliberately as reticent as the one
+ *     above: it says the run was hosted and stops there rather than asserting a model nobody wrote
+ *     down. ADR-0001 leaves the provider choice explicitly open.
  *
  * A run with no lanes returns null and the header renders NOTHING — never a guess, and never
  * "claude CLI" by default, which is the mistake this label exists to stop being made silently.
  */
 export function runEngineLabel(lanes: readonly { executor: LoopLaneExecutor }[]): string | null {
   if (lanes.length === 0) return null;
-  const remote = lanes.filter((l) => l.executor === "remote-agent").length;
+  if (lanes.every((l) => l.executor === "hosted-worker")) return "hosted worker";
+  const remote = lanes.filter((l) => isExternalExecutor(l.executor)).length;
   if (remote === 0) return "claude CLI";
   if (remote === lanes.length) return "remote agent";
   // A mixed run is not describable by either word, and picking the majority would print a
@@ -156,6 +172,11 @@ export interface LoopStatusPayload {
    *  requested stop can take. Server-resolved, because the deployment's `ASCENT_AUTOPILOT_TIMEOUT_MS`
    *  is not a fact a browser can know. `null` when there is no active run. */
   stopHorizonMs?: number | null;
+  /** Can THIS ORG dispatch a run Ascent Cloud gets worked (ADR-0001 §3)? The field exists because the
+   *  cockpit used to answer that question in the browser by reading `selfHosted`, and deployment mode
+   *  is not the question — a cloud owner who could already arm a run was shown a self-hosting guide.
+   *  Absent = an older server, which the gate reads as the pre-`hosted` behaviour. Never as a yes. */
+  hosted?: HostedDispatchFact | null;
 }
 
 /**

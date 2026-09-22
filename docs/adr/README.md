@@ -8,6 +8,12 @@ An ADR is **append-only once accepted**. Superseding it means a new ADR that say
 so; editing an accepted ADR to match what the code drifted into destroys the only
 record of why the drift was a change.
 
+**Legacy exception:** [0001-hosted-loop-dispatch.md](./0001-hosted-loop-dispatch.md) predates this
+convention — it was the lane's first record, filed under a numbered scheme (`NNNN-kebab-title.md`)
+before `YYYY-MM-DD-<slug>.md` was settled on. It keeps its original filename rather than being
+renamed to fit: `docs/features/org-planning/live.md` and other docs already cite it by that name,
+and an ADR's own rule is that a past record is never edited to look current.
+
 ## What belongs here
 
 A decision that a reader could reasonably reverse by accident: an import
@@ -15,11 +21,23 @@ convention, a boundary, a layering rule, a persistence choice. Not a bugfix, not
 refactor with no rule attached, and not a feature — features are documented in
 `docs/features/<area>/` under the doc-sync rule in `AGENTS.md`.
 
+Each record carries, at minimum: the **constraint that forced the choice**, the decision, at least
+**three alternatives that lost and why they lost**, and the consequences the team accepts by
+choosing. An alternatives section that lists only straw men is the failure mode this format exists
+to prevent — a losing option should be one a reasonable engineer would have argued for.
+
+This is not the only decision surface in the repo. `.claude/ship-loop/decisions.md` is the ship
+loop's running `D##`/`CP##` log (fast, in-flight, one line each); `docs/specs/` holds implementation
+specs with authoritative write sets. An ADR is for the choice **between shapes**, before a spec has
+a write set to be authoritative about.
+
 ## Index
 
 | ADR | Status | Decision |
 | --- | --- | --- |
+| [0001-hosted-loop-dispatch](0001-hosted-loop-dispatch.md) | Proposed (2026-09-14) | Hosted loop dispatch: substrate, gate mapping and API contract. |
 | [2026-09-07-db-import-convention](2026-09-07-db-import-convention.md) | Accepted | Per-domain barrels under `src/lib/db/`; the root `index.ts` is frozen. |
+| [2026-09-14-org-path-of-use](2026-09-14-org-path-of-use.md) | Proposed | One path of use for the Org modules. |
 
 ## A note on citations
 

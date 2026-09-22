@@ -37,6 +37,7 @@ import {
   type CycleSkipReason,
 } from "@/lib/athena/cycle";
 import { buildOrgCycleDeps } from "./deps";
+import { asOrgSlug } from "@/lib/org/ids";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -113,7 +114,7 @@ export async function GET(request: Request) {
         const result = await runOrgCycle({
           orgSlug: org,
           signal: request.signal,
-          deps: buildOrgCycleDeps({ org, orgId, signal: request.signal }),
+          deps: buildOrgCycleDeps({ org: asOrgSlug(org), orgId, signal: request.signal }),
         });
 
         if (result.skipped) skips[result.skipped] += 1;

@@ -11,12 +11,14 @@ import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { DOCS_ARE_UPSTREAM, selfHostGuideHref } from "@/lib/site";
 
-export type CockpitSetupState = "hosted" | "unpaired" | "autopilot-off" | "no-repos" | "not-owner";
+export type CockpitSetupState = "hosted" | "hosted-not-enabled" | "unpaired" | "autopilot-off" | "no-repos" | "not-owner";
 
 export interface CockpitSetupProps {
   state: CockpitSetupState;
   slug: string;
-  /** The route's own 409 copy, when the block is ASCENT_AUTOPILOT. */
+  /** The route's own copy for the block — the 409 when it is ASCENT_AUTOPILOT, and the hosted gate's
+   *  own `reason` when it is `hosted-not-enabled`. Rendered verbatim: the server is the only party
+   *  that knows WHICH of the hosted gates refused, so a card that guessed would name the wrong fix. */
   message?: string | null;
 }
 
@@ -66,6 +68,39 @@ export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps)
           <a href={selfHostGuideHref()} className="focus-ring rounded text-accent hover:text-accent-soft">
             Self-hosting guide{DOCS_ARE_UPSTREAM ? " (upstream)" : ""} →
           </a>
+        </p>
+      </div>
+    );
+  }
+
+  // ADR-0001. This deployment DOES dispatch hosted runs — the wall is this organization's, and it is
+  // one an owner can walk up to and remove. The reason comes from the server's own gate rather than
+  // being re-derived here: plan, credit headroom and per-repo admission are three different walls
+  // with three different next actions, and a card that picked one would be wrong two thirds of the
+  // time. Links go where the reason points; both are always real destinations.
+  if (state === "hosted-not-enabled") {
+    return (
+      <div>
+        <Kicker tone="accent">Hosted runs are off for this organization</Kicker>
+        <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
+          {message ?? "Hosted loop runs are not enabled for this organization yet."}
+        </p>
+        <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
+          <span className="text-slate-300">Remote-agent runs still work here.</span> Arm one against this org through the
+          API or an MCP work client and its lanes render on this page like any other run.
+        </p>
+        {/* BOTH DESTINATIONS ARE VERIFIED REAL, which is the whole bar for a card whose job is to
+            name a next action. `governance` is an org tab (ORG_TAB_IDS); `/pricing` is a page. There
+            is deliberately NO `?tab=billing` link here — that tab does not exist, and an org's credit
+            balance is managed from the shell's own credits control on every org page, so a link to a
+            fabricated tab would have been the one thing worse than no link. */}
+        <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+          <Link href="/pricing" className="focus-ring rounded type-caption text-accent hover:text-accent-soft">
+            Plans &amp; pricing →
+          </Link>
+          <Link href={tabHref(slug, "governance")} className="focus-ring rounded type-caption text-accent hover:text-accent-soft">
+            Repository admission →
+          </Link>
         </p>
       </div>
     );

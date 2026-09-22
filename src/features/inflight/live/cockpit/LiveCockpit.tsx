@@ -83,7 +83,6 @@ export function LiveCockpit(props: LiveCockpitProps) {
   // `outcome` is still a real mode of the state machine (it suppresses the interrupted-drive offer and
   // marks the opened run), but the RAIL has no panel for it: it shows the inspector instead.
   const railMode = c.mode === "outcome" ? "inspect" : c.mode;
-  const canDispatch = isOwner && loop.enabled;
   const runner = drive.live && isRunner(drive.drive) ? drive.drive : null;
 
   return (
@@ -100,7 +99,7 @@ export function LiveCockpit(props: LiveCockpitProps) {
         cockpitHref={props.cockpitHref ?? liveViewHref({}, "cockpit")}
         // The gear arms the NEXT run, so it is offered only where a run could actually be started —
         // the same gate the CTA answers to.
-        onOpenSetup={canDispatch ? () => setSetupOpen(true) : undefined}
+        onOpenSetup={c.canRun ? () => setSetupOpen(true) : undefined}
         setupSummary={dialsSummary(c.dials)}
         onStop={c.stop}
         stopLabel={runner ? "Stop runner" : undefined}
@@ -129,13 +128,14 @@ export function LiveCockpit(props: LiveCockpitProps) {
             slug={slug}
             mode={railMode}
             setup={c.setup}
+            setupMessage={c.setupMessage}
             liveDrive={drive.live ? drive.drive : null}
             interruptedDrive={c.interruptedDrive}
             runDetail={loop.detail}
             runLive={loop.live}
             batch={c.batch}
             dials={c.dials}
-            canRun={canDispatch}
+            canRun={c.canRun}
             busy={loop.busy || drive.busy}
             loopError={loop.error}
             driveError={drive.error}

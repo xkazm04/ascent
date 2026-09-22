@@ -41,6 +41,8 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "loop.plan_revised", label: "Plan sent back", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "loop.direction_revoked", label: "Direction revoked", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   { value: "loop.direction_done", label: "Direction closed", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  // ADR-0001 — a run Ascent Cloud dispatches. Its detail carries the credit reservation it paid.
+  { value: "loop.hosted_run_started", label: "Hosted run armed", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   // G6-06: `org.gate_policy`/`playbook.updated` are genuinely recorded (see the route files below) but
   // were missing from this hand-maintained list, so they rendered as an unlabeled grey badge AND could
   // not be selected in the Action filter. See AuditLogCells.actions.test.ts, which walks every

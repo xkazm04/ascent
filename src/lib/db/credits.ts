@@ -26,6 +26,9 @@ export const CREDIT_REASON = {
   REFUND: "refund",
   POLAR: "polar",
   POLAR_REFUND: "polar-refund",
+  /** A hosted loop run's arm-time reservation (ADR-0001 T2, src/lib/db/hosted-credits.ts). A debit, so
+   *  reconciliation buckets it as `debited`; its reversal is written as a plain REFUND. */
+  HOSTED_RUN: "hosted-run",
 } as const;
 
 /** True iff a (positive-delta) ledger reason marks a scan-credit refund — an EXACT match on the shared

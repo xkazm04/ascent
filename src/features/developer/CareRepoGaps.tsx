@@ -5,7 +5,7 @@
 // say which open recommendation they are already the natural champion of.
 //
 import { SectionEmpty } from "@/components/org/shared/ui";
-import { CHAMPION_MIN_POP } from "@/components/org/shared/champions";
+import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { reportPermalink } from "@/lib/ui";
 import { CareLevelMark, CareLinkAction } from "./CareBits";
 import type { CareActivityState, DeveloperView } from "@/lib/org/developer-view";
