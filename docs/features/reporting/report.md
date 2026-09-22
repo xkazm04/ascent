@@ -727,6 +727,10 @@ title via the shared `RoadmapFirstStep` (blank omitted, matching the tracker). P
 projected delta survived only as a rounded number inside an English event-trail note: a number
 nothing could ever read back or reconcile.
 
+Successful sandbox commits now update the report's recommendation state as each PATCH returns, so
+switching to the Roadmap tab shows the new `in_progress` status immediately. Failed rows stay open
+and can be retried; the completion message no longer asks for a page reload.
+
 A **`SandboxScenario`** row now holds the model whole: the per-dimension overrides, the roadmap items
 the scenario selected, the baseline it was modeled against (score, level, `scannedAt`), and
 `projectedScore` / `projectedLevel` / `projectedDelta` as **numbers**. One row per

@@ -29,11 +29,13 @@ import { canonicalRepo, ScenarioBar, useScenarioSync } from "@/components/report
 export function RoadmapSandbox({
   report,
   recs,
+  onRecommendationCommitted,
 }: {
   report: ScanReport;
   /** Persisted recommendations for this repo (null when tracking is off) — the sandbox's applied
    *  items commit against these via the existing PATCH path. */
   recs?: PersistedRecommendation[] | null;
+  onRecommendationCommitted?: (rec: PersistedRecommendation) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [overrides, setOverrides] = useState<Overrides>({});
@@ -248,6 +250,7 @@ export function RoadmapSandbox({
               persisted to commit — a static-fallback roadmap or a read-only public report. */}
           {report.roadmap.length > 0 && (
             <SandboxCommitBar
+              onRecommendationCommitted={onRecommendationCommitted}
               roadmap={report.roadmap}
               recs={recs}
               appliedItems={appliedItems}

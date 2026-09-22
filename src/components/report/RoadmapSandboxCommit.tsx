@@ -76,7 +76,7 @@ export function sandboxCommitSummary(saved: number, total: number): string {
   if (failed > 0) {
     return `${head} ${failed} couldn’t be saved and stayed open — commit again to retry ${failed > 1 ? "them" : "it"}.`;
   }
-  return `${head} Reload the roadmap to see the tracker update.`;
+  return head;
 }
 
 type CommitState =
@@ -91,12 +91,14 @@ export function SandboxCommitBar({
   recs,
   appliedItems,
   projectedDelta,
+  onRecommendationCommitted,
 }: {
   roadmap: LlmRoadmapItem[];
   recs: PersistedRecommendation[] | null | undefined;
   appliedItems: Set<number>;
   /** The sandbox's projected overall-score delta vs today — stamped into the event-trail note. */
   projectedDelta: number;
+  onRecommendationCommitted?: (rec: PersistedRecommendation) => void;
 }) {
   const [state, setState] = useState<CommitState>({ kind: "idle" });
   const committable = committableRecs(roadmap, recs, appliedItems);
@@ -136,7 +138,11 @@ export function SandboxCommitBar({
           });
           return;
         }
-        if (res.ok) saved += 1;
+        if (res.ok) {
+          const updated = (await res.json().catch(() => null)) as PersistedRecommendation | null;
+          onRecommendationCommitted?.(updated?.id === rec.id ? updated : { ...rec, status: "in_progress" });
+          saved += 1;
+        }
       } catch {
         // A network blip on one rec shouldn't abort the rest — the summary reports how many landed.
       }

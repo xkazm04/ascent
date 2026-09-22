@@ -6,6 +6,7 @@
 // every change and replays `animate-fade-in` (a clean fade, disabled under reduced-motion).
 
 import type { PersistedRecommendation, ScanReport } from "@/lib/types";
+import { useState } from "react";
 import type { HistoryPoint } from "@/lib/db/scans";
 import { LEVELS } from "@/lib/maturity/model";
 import type { TrendPoint } from "@/components/report/TrendChart";
@@ -41,6 +42,8 @@ export interface ReportPanelsProps {
 
 export function ReportPanels(props: ReportPanelsProps) {
   const { tab, report, isMock, showActivity, recs } = props;
+  const [committed, setCommitted] = useState<Record<string, PersistedRecommendation>>({});
+  const currentRecs = recs?.map((rec) => committed[rec.id] ?? rec) ?? null;
   const curIdx = LEVELS.findIndex((l) => l.id === report.level.id);
   const nextLevel = curIdx >= 0 && curIdx < LEVELS.length - 1 ? LEVELS[curIdx + 1] : null;
 
@@ -67,7 +70,8 @@ export function ReportPanels(props: ReportPanelsProps) {
       {tab === "sandbox" && (
         <div data-testid="report-tab-sandbox">
           {/* Roadmap sandbox — drag dimensions, watch the future (client-side what-if recompute) */}
-          <RoadmapSandbox report={report} recs={recs} />
+          <RoadmapSandbox report={report} recs={currentRecs} onRecommendationCommitted={(rec) =>
+            setCommitted((current) => ({ ...current, [rec.id]: rec }))} />
         </div>
       )}
 
@@ -85,14 +89,14 @@ export function ReportPanels(props: ReportPanelsProps) {
               {nextLevel ? ` (your next rung: ${nextLevel.id} ${nextLevel.name})` : " (sustaining the summit)"}
             </h2>
             <p className="mt-1 type-body text-slate-400">
-              {recs && recs.length > 0
+              {currentRecs && currentRecs.length > 0
                 ? "Inputs to explore at your own pace. These aren't orders. Track what you take on."
                 : "Where trust in AI could grow: open questions to explore, quick wins first."}
             </p>
             <NextLevelPath report={report} />
             <div className="mt-4">
-              {recs && recs.length > 0 ? (
-                <RecommendationTracker items={recs} report={report} prevDimScores={props.prevDimScores} lifts={props.lifts} />
+              {currentRecs && currentRecs.length > 0 ? (
+                <RecommendationTracker items={currentRecs} report={report} prevDimScores={props.prevDimScores} lifts={props.lifts} />
               ) : (
                 <RoadmapSteps items={report.roadmap} report={report} lifts={props.lifts} />
               )}

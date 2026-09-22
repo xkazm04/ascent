@@ -120,7 +120,7 @@ describe("sandboxCommitNote — the projection keeps its sign", () => {
 describe("sandboxCommitSummary — N of M, and the shortfall is named", () => {
   it("reads 'N of M' on a full success and points at the reload", () => {
     expect(sandboxCommitSummary(3, 3)).toBe(
-      "3 of 3 recommendations marked in progress. Reload the roadmap to see the tracker update.",
+      "3 of 3 recommendations marked in progress.",
     );
   });
 
