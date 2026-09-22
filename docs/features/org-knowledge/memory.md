@@ -367,6 +367,11 @@ would hide every scan-fed, repo-mirrored, and otherwise namespaced note. On
 `lifecycleWorkingSet`, omitted namespace means no filter — a namespaced
 `scan-pipeline` row is in the working set the REST verb already packs.
 
+MCP `recall_org_memory` also uses `recallMemories` for the same value ranking and
+character packing. Its optional `namespace` narrows the working set, `charBudget`
+defaults to 6,000 characters, and `limit` independently caps the number of
+entries returned. Only those returned entries count as delivered.
+
 ```
 score = confidence × 0.5^(ageDays / halfLife(kind))
       × min(2, delivery × evidence)

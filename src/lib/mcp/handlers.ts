@@ -20,12 +20,11 @@
 // failure this product spends its whole surface avoiding.
 
 import { bumpMemoryAccessCounts, getOrgRecommendations, getOrgRollup, lifecycleWorkingSet } from "@/lib/db";
-import { citationCountsFor } from "@/lib/db/org-memory-citations";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { getRepoAdmission } from "@/lib/db/org-admission";
 import { compileStance } from "@/lib/org/admission";
-import { scoreMemories } from "@/lib/memory/recall";
+import { deliveredMemoryIds, recallMemories } from "@/lib/memory/recall";
 import { defaultGatePolicy, describeGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
 import { PRACTICES } from "@/lib/practices";
 import { findSkills, getGoverningSubject, getSkill, getSkillLessons } from "@/lib/mcp/registry-reads";
@@ -291,9 +290,11 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
   const query = str(args, "query");
   if (!query) return fail("Provide a `query` describing what you are about to do or decide.");
   const limit = num(args, "limit", 5, 20);
+  const namespace = str(args, "namespace") || undefined;
+  const charBudget = typeof args.charBudget === "number" ? args.charBudget : undefined;
   // lifecycleWorkingSet, never candidateOrgMemories: omitted namespace on the write-check helper
   // means IS NULL (org-wide only), which hides every scan-fed / repo-mirrored namespaced row.
-  const rows = await lifecycleWorkingSet(org, { limit: limit * 4 }, null);
+  const rows = await lifecycleWorkingSet(org, { namespace }, null);
   const q = query.toLowerCase().split(/\s+/).filter(Boolean);
   // Term overlap is a RELEVANCE FILTER, not a ranking. Ordering is the org's recall value model
   // (`src/lib/memory/recall.ts`) — the same one the Memory tab packs with — so this door and that
@@ -315,40 +316,28 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
     };
   }
 
-  // USE EVIDENCE as an INPUT TO PACKING, not a decoration on the packed set. Fetching counts after
-  // the slice meant a cited memory that lost a term-overlap race never entered the pack, so the
-  // citation term the recall model is built around could not change who an agent saw. An id missing
-  // from the map is "no evidence", which is exactly the 0 the model treats as the term's absence.
-  const counts: Record<string, { citedCount: number; notUsefulCount: number }> = await citationCountsFor(
-    org,
-    matched.map((r) => r.id),
-  ).catch(() => ({}));
-
-  const candidates = matched.map((r) => ({
-    ...r,
-    accessCount: r.accessCount ?? 0,
-    citedCount: counts[r.id]?.citedCount ?? r.citedCount ?? 0,
-    notUsefulCount: counts[r.id]?.notUsefulCount ?? r.notUsefulCount ?? 0,
-  }));
-  const byId = new Map(candidates.map((r) => [r.id, r]));
-  const packed = scoreMemories(candidates, Date.now())
-    .slice(0, limit)
+  // The lifecycle row already carries the citation counters. Use the same filter/score/character
+  // pack as REST recall, then apply this tool's separate maximum-entry limit.
+  const result = recallMemories(matched, { now: Date.now(), charBudget, namespace });
+  const selected = result.selected.slice(0, limit);
+  const byId = new Map(matched.map((r) => [r.id, r]));
+  const packed = selected
     .map((s) => byId.get(s.memory.id))
-    .filter((r): r is (typeof candidates)[number] => r != null);
+    .filter((r): r is (typeof matched)[number] => r != null);
 
   // DELIVERIES ARE NOW COUNTED AT THIS DOOR. They never were: the REST recall route bumped
   // `accessCount` and this handler did not, so every memory an agent read through MCP looked, to
   // decay.ts, like one nobody had ever asked for. Best-effort by contract, and only what was returned.
-  await bumpMemoryAccessCounts(
-    org,
-    packed.map((r) => r.id),
-  ).catch(() => 0);
+  await bumpMemoryAccessCounts(org, deliveredMemoryIds({ ...result, selected })).catch(() => 0);
 
   return {
     structuredContent: {
       org,
       query,
       count: packed.length,
+      usedChars: selected.reduce((sum, s) => sum + s.memory.content.length, 0),
+      charBudget: result.charBudget,
+      ...(packed.length === 0 ? { note: "Matching memory exists, but none fit the character budget." } : {}),
       entries: packed.map((r) => ({
         // THE ID IS THE POINT OF THIS FIELD: it is what `cite_memory` needs to report back which of
         // these actually helped. Without it the citation channel has no handle to name.

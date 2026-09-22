@@ -36,7 +36,7 @@ const rollup = {
 };
 
 let recs: { title: string; repos: string[] }[] | null = [];
-let memories: { id: string; kind: string; namespace: string; content: string; tags: string[]; source: string; confidence: number }[] = [];
+let memories: { id: string; kind: string; namespace: string; content: string; tags: string[]; source: string; confidence: number; accessCount: number; citedCount: number; notUsefulCount: number; updatedAt: string }[] = [];
 let stance: unknown = null;
 const bumped: string[][] = [];
 
@@ -52,7 +52,6 @@ vi.mock("@/lib/db", () => ({
     return ids.length;
   }),
 }));
-vi.mock("@/lib/db/org-memory-citations", () => ({ citationCountsFor: vi.fn(async () => ({})) }));
 vi.mock("@/lib/db/org-gate", () => ({ getOrgGatePolicy: vi.fn(async () => null) }));
 vi.mock("@/lib/db/org-stance", () => ({
   getActiveOrgStance: vi.fn(async () => stance),
@@ -61,7 +60,8 @@ vi.mock("@/lib/db/org-stance", () => ({
 vi.mock("@/lib/db/org-admission", () => ({ getRepoAdmission: vi.fn(async () => null) }));
 
 const { runTool } = await import("@/lib/mcp/handlers");
-const { citationCountsFor } = await import("@/lib/db/org-memory-citations");
+const { recallMemories } = await import("@/lib/memory/recall");
+const { lifecycleWorkingSet } = await import("@/lib/db");
 
 const rec = (title: string, repos: string[], impact = "high") => ({
   title,
@@ -81,8 +81,7 @@ beforeEach(() => {
   memories = [];
   stance = null;
   bumped.length = 0;
-  vi.mocked(citationCountsFor).mockReset();
-  vi.mocked(citationCountsFor).mockResolvedValue({});
+  vi.mocked(lifecycleWorkingSet).mockClear();
 });
 
 describe("get_repo_standing", () => {
@@ -258,23 +257,31 @@ describe("recall_org_memory", () => {
     expect(out.count).toBe(2);
   });
 
-  it("scores citations on every match BEFORE packing, so a cited memory can win a tight slice", async () => {
-    memories = [memory("uncited", "We chose postgres", 0.9), memory("cited", "We chose postgres", 0.6)];
-    vi.mocked(citationCountsFor).mockResolvedValue({
-      cited: { citedCount: 4, notUsefulCount: 0 },
-      uncited: { citedCount: 0, notUsefulCount: 0 },
-    });
+  it("uses the REST recall model and counts only entries returned under the budget", async () => {
+    memories = [
+      memory("uncited", `Postgres ${"a".repeat(140)}`, 0.9),
+      { ...memory("cited", `Postgres ${"b".repeat(140)}`, 0.6), citedCount: 4 },
+    ];
     const out = (await runTool("recall_org_memory", "acme", { query: "postgres", limit: 1 })).structuredContent as {
       entries: { id: string; citedCount: number }[];
     };
-    // FAIL-BEFORE: citationCountsFor ran on the already-sliced ids, so packing ranked 0.9 over 0.6
-    // and `cited` never entered the pack. Four citations cap the evidence term at 1.6, which puts
-    // confidence 0.6 above an uncited 0.9.
-    expect(vi.mocked(citationCountsFor).mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["uncited", "cited"]));
-    expect(vi.mocked(citationCountsFor).mock.calls[0]?.[1]).toHaveLength(2);
+    const restIds = recallMemories(memories, { now: Date.now(), charBudget: 200 }).selected.map((s) => s.memory.id);
+    const budgeted = (await runTool("recall_org_memory", "acme", { query: "postgres", charBudget: 200 })).structuredContent as {
+      entries: { id: string }[];
+    };
+    expect(budgeted.entries.map((e) => e.id)).toEqual(restIds);
     expect(out.entries.map((e) => e.id)).toEqual(["cited"]);
     expect(out.entries[0]?.citedCount).toBe(4);
-    expect(bumped).toEqual([["cited"]]);
+    expect(bumped).toEqual([["cited"], ["cited"]]);
+  });
+
+  it("passes a namespace to the shared working set and excludes other namespaces", async () => {
+    memories = [memory("eng", "Postgres convention"), { ...memory("api", "Postgres service"), namespace: "api" }];
+    const out = (await runTool("recall_org_memory", "acme", { query: "postgres", namespace: "api" })).structuredContent as {
+      entries: { id: string }[];
+    };
+    expect(lifecycleWorkingSet).toHaveBeenCalledWith("acme", { namespace: "api" }, null);
+    expect(out.entries.map((e) => e.id)).toEqual(["api"]);
   });
 
   it("answers NO MATCH with the sentence that says it is not an endorsement", async () => {
@@ -287,7 +294,6 @@ describe("recall_org_memory", () => {
     expect(out.note).toMatch(/not that the approach is endorsed/);
     // Nothing was delivered, so nothing is counted as delivered.
     expect(bumped).toEqual([]);
-    expect(citationCountsFor).not.toHaveBeenCalled();
   });
 
   it("requires a query rather than dumping the store", async () => {

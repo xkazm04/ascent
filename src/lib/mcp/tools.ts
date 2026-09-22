@@ -383,6 +383,8 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       properties: {
         query: { type: "string", description: "What you are about to do or decide." },
         limit: { type: "integer", minimum: 1, maximum: 20, description: "Max entries (default 5)." },
+        namespace: { type: "string", description: "Restrict recall to one repository namespace (optional)." },
+        charBudget: { type: "integer", minimum: 200, maximum: 60000, description: "Maximum content characters (default 6000)." },
       },
       required: ["query"],
       additionalProperties: false,
