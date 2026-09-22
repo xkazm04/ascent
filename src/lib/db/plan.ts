@@ -138,12 +138,13 @@ function currentFor(metric: string, snap: FleetSnapshot): number {
   return snap.dimAvg[metric] ?? 0;
 }
 
-/** One repo's score on a goal metric — for finding the repos dragging a target. */
-function repoValueFor(metric: string, r: SnapshotRepo): number {
+/** One repo's score on a goal metric — for finding the repos dragging a target. `null` when the
+ *  repo has no dimension row for that metric at all (never scored), which is not a zero score. */
+function repoValueFor(metric: string, r: SnapshotRepo): number | null {
   if (metric === "overall") return r.overall;
   if (metric === "adoption") return r.adoption;
   if (metric === "rigor") return r.rigor;
-  return r.dims[metric] ?? 0;
+  return r.dims[metric] ?? null;
 }
 
 /** Collapse timestamped observations to one per-day mean — the shape forecastTrajectory fits. Shares
@@ -409,6 +410,7 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
     const proj = projectGoal({ series: series[g.metric] ?? [], current, target: g.target, targetDate, nowMs: now });
     const below = snap.repos
       .map((r) => ({ fullName: r.fullName, name: r.name, value: repoValueFor(g.metric, r) }))
+      .filter((r): r is { fullName: string; name: string; value: number } => r.value != null)
       .filter((r) => r.value < g.target)
       .sort((a, b) => a.value - b.value || a.fullName.localeCompare(b.fullName))
       .map((r) => ({ ...r, gap: g.target - r.value }));

@@ -278,6 +278,26 @@ describe("listGoals progress / laggard / pct derivation", () => {
     expect(g.laggards[0]!.fullName).toBe("acme/r00");
   });
 
+  it("counts an unmeasured repo as neither a laggard nor below the target", async () => {
+    // Repo A is scored on D7 (30), repo B isn't scored on D7 at all — B must not appear under
+    // the target with a gap equal to the whole target.
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g1", target: 50, metric: "D7", status: "active" }],
+      repos: [
+        { fullName: "acme/a", name: "a", overall: 20, dims: { D7: 30 } },
+        { fullName: "acme/b", name: "b", overall: 20 },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.laggards.map((l) => l.fullName)).toEqual(["acme/a"]);
+    expect(g.laggards.map((l) => l.value)).toEqual([30]);
+    expect(g.laggards.map((l) => l.gap)).toEqual([20]);
+    expect(g.belowCount).toBe(1);
+  });
+
   it("target === 0 yields pct === 100 (the divide-by-zero edge) and is treated as reached", async () => {
     const { prisma } = fakePrisma({
       goals: [{ id: "g0", target: 0, status: "active" }],
