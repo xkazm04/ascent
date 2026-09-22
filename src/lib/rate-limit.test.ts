@@ -23,6 +23,11 @@ import {
 } from "./rate-limit-store";
 import { trustedProxyHops, __resetTrustedProxyWarning } from "./env";
 
+// Most limiter cases model the managed platform's witnessed one-hop header. Individual trust-model
+// cases below override this witness to exercise the unconfigured self-hosted fallback.
+beforeEach(() => { vi.stubEnv("VERCEL", "1"); });
+afterEach(() => { vi.unstubAllEnvs(); });
+
 // IMPORTANT: `rate-limit.ts` keeps its sliding-window state in a MODULE-GLOBAL `Map` that is not
 // exported and cannot be reset between tests. To keep tests isolated and deterministic we give
 // every test a UNIQUE config `name` (and, where it matters, a unique IP), so each test counts
@@ -133,9 +138,8 @@ describe("clientIp — IP trust boundary (critical #2)", () => {
       expect(clientIp(req)).toBe("unknown");
     });
 
-    // The default (1) trusts `x-real-ip` verbatim. That is a fail-open, so — like selfHosted()'s
-    // production inference — it is not forbidden, it is made LOUD exactly once per process.
-    describe("the unwitnessed default warns once (the fail-open is loud, not silent)", () => {
+    // An unwitnessed default ignores forwarding headers and warns once per process.
+    describe("the unwitnessed default warns once", () => {
       let warn: ReturnType<typeof vi.spyOn>;
       beforeEach(() => {
         __resetTrustedProxyWarning();
@@ -165,15 +169,23 @@ describe("clientIp — IP trust boundary (critical #2)", () => {
       it("neither declared nor witnessed → EXACTLY one warning across many calls, naming the var", () => {
         vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "");
         vi.stubEnv("VERCEL", "");
-        for (let i = 0; i < 25; i += 1) expect(trustedProxyHops()).toBe(1); // value unchanged: still 1
+        for (let i = 0; i < 25; i += 1) expect(trustedProxyHops()).toBe(0);
         expect(warn).toHaveBeenCalledTimes(1); // once per process, not once per request
         const msg = String(warn.mock.calls[0]?.[0]);
         expect(msg).toContain("ASCENT_TRUSTED_PROXY_HOPS");
-        expect(msg).toContain("x-real-ip");
+        expect(msg).toContain("forwarding headers are ignored");
+        expect(clientIp(new Request("https://example.test", { headers: { "x-real-ip": "9.9.9.9" } }))).toBe("unknown");
+      });
+
+      it("an explicit one-hop setting trusts the header without Vercel", () => {
+        vi.stubEnv("VERCEL", "");
+        vi.stubEnv("ASCENT_TRUSTED_PROXY_HOPS", "1");
+        expect(clientIp(new Request("https://example.test", { headers: { "x-real-ip": "9.9.9.9" } }))).toBe("9.9.9.9");
+        expect(warn).not.toHaveBeenCalled();
       });
     });
 
-    it("unset / invalid values keep the default single-proxy platform behavior", () => {
+    it("unset / invalid values keep the witnessed single-proxy platform behavior", () => {
       const mk = () =>
         new Request("https://example.test", {
           headers: { "x-real-ip": "9.9.9.9", "x-forwarded-for": "1.1.1.1, 3.3.3.3" },

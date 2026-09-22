@@ -164,7 +164,7 @@ export function authGateEnabled(): boolean {
 
 // ── Proxy-trust predicate ────────────────────────────────────────────────────
 
-/** Warn-once latch for the unwitnessed proxy-trust default below. Module-scoped so the log fires
+/** Warn-once latch for the unconfigured proxy trust fallback. Module-scoped so the log fires
  *  once per process, not once per request — `trustedProxyHops()` is on the limiter's hot path. */
 let unwitnessedProxyTrustWarned = false;
 
@@ -180,43 +180,32 @@ let unwitnessedProxyTrustWarned = false;
  *     headers are ignored; every anonymous caller shares one burst bucket (fail closed) and the
  *     monthly quota treats the caller as unidentifiable (fail open — see public-scan-quota's
  *     bucketContext) instead of trusting spoofable input.
- *   - `1` (default) — platform mode: `x-real-ip` first, then the RIGHT-most XFF hop.
+ *   - `1` — witnessed platform or explicit operator setting: `x-real-ip` first, then the RIGHT-most XFF hop.
  *   - `N >= 2` — an N-hop trusted chain (e.g. CDN → LB → app): the client is the Nth-from-the-right
  *     XFF entry (the right-most N−1 are the trusted proxies' own addresses — bucketing on those would
  *     collapse thousands of real users into a handful of edge IPs and lock the whole anonymous funnel
  *     out of the 30-day quota). `x-real-ip` is NOT trusted here: it was set by an intermediate hop and
  *     names the wrong peer. A chain shorter than N yields "unknown" (fail closed / unidentifiable).
  *
- * Anything else (unset, non-integer, negative) → 1.
- *
- * THE FAIL-OPEN, MADE LOUD. The default of 1 means an UNCONFIGURED deployment trusts `x-real-ip`
- * verbatim, with no platform signal and no peer check behind it. That default is still right — every
- * managed platform sets that header, and flipping the default to 0 would drop every self-hosted
- * deployment behind an honest proxy into one shared fail-closed bucket, breaking the anonymous funnel
- * for real users to defend against a shape the operator may not have. So, like `selfHosted()`'s
- * production inference, the fall-through is not forbidden — it is made LOUD: when the operator has
- * neither set the var NOR is running somewhere that witnesses the proxy (Vercel), say so once.
+ * Unset or invalid without a platform witness → 0. A self-hosted proxy must opt in with its depth;
+ * a request's forwarding header cannot stand in for proof that a proxy overwrote it.
  */
 export function trustedProxyHops(): number {
   const raw = process.env.ASCENT_TRUSTED_PROXY_HOPS?.trim();
-  if (!raw) {
-    // No declaration. A platform whose edge OWNS the forwarding headers is a witness that trusting
-    // one hop is correct; without one, the value is an assumption nobody has confirmed.
-    const witnessed = Boolean(process.env.VERCEL);
-    if (!witnessed && !unwitnessedProxyTrustWarned && typeof window === "undefined") {
-      unwitnessedProxyTrustWarned = true;
-      console.warn(
-        "[env] ASCENT_TRUSTED_PROXY_HOPS is unset and no platform proxy witness was found — " +
-          "`x-real-ip` is trusted without a witness, so if this app is reachable without a trusted " +
-          "proxy a caller can mint a fresh rate-limit bucket AND a fresh monthly-quota bucket per " +
-          "request by setting that header. Set ASCENT_TRUSTED_PROXY_HOPS=0 if the app is reachable " +
-          "without a trusted proxy, or 1/N to declare the proxy chain.",
-      );
-    }
-    return 1;
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 0) return n;
   }
-  const n = Number(raw);
-  return Number.isInteger(n) && n >= 0 ? n : 1;
+  const witnessed = Boolean(process.env.VERCEL);
+  if (!witnessed && !unwitnessedProxyTrustWarned && typeof window === "undefined") {
+    unwitnessedProxyTrustWarned = true;
+    console.warn(
+      "[env] ASCENT_TRUSTED_PROXY_HOPS is unset or invalid and no platform proxy witness was found — " +
+        "forwarding headers are ignored. Set ASCENT_TRUSTED_PROXY_HOPS=1/N only when a trusted " +
+        "proxy overwrites them, or 0 when the app is directly reachable.",
+    );
+  }
+  return witnessed ? 1 : 0;
 }
 
 /** Test seam: reset the unwitnessed-proxy-trust warn-once latch. Not used in production code. */
