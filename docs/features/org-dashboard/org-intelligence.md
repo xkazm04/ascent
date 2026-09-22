@@ -1444,6 +1444,10 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   holding the GitHub App installation confers nothing** — that path went with the retired
   custom-OAuth stack, and `sessionOwnsOrg` no longer participates in any gate. Three docstrings
   and the Members tab's own footer copy still said otherwise until 2026-09-04.
+- **Leaving an org**: a signed-in member or viewer may DELETE their own membership through
+  `/api/org/members?org=&login=`. The route compares the verified viewer login to the target before
+  using the viewer gate; removing anyone else remains owner-only. The same serializable last-owner
+  guard applies to self-removal, and successful departures are audited.
 - **An unreadable stored role resolves to the FLOOR** (`coerceStoredRole`, 2026-09-04). A role
   string the vocabulary does not know (DB corruption, a hand-run migration, a role renamed in a
   future release and read by an old deploy) becomes `viewer` and is logged, at all five sites that

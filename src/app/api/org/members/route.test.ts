@@ -18,6 +18,7 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "owner-actor") }));
 // requireSameOrigin is the canonical reject-or-null wrapper the route now calls; the mock mirrors its
 // real contract (null when same-origin, else the 403 rejection) so tests keep driving behavior via the
 // SAME isSameOrigin mock they already control.
@@ -50,6 +51,7 @@ vi.mock("@/lib/db", () => ({
 
 import { GET, POST, DELETE } from "./route";
 import { requireOrgRole } from "@/lib/authz";
+import { resolveViewerLogin } from "@/lib/access";
 import { isSameOrigin, getSession } from "@/lib/auth";
 import {
   setMembershipRole,
@@ -59,6 +61,7 @@ import {
 } from "@/lib/db";
 
 const mockGate = vi.mocked(requireOrgRole);
+const mockViewer = vi.mocked(resolveViewerLogin);
 const mockSameOrigin = vi.mocked(isSameOrigin);
 const mockSession = vi.mocked(getSession);
 const mockSet = vi.mocked(setMembershipRole);
@@ -88,6 +91,7 @@ function deleteReq(org: string, login: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGate.mockResolvedValue(null); // owner gate passes by default
+  mockViewer.mockResolvedValue("owner-actor");
   mockSameOrigin.mockReturnValue(true); // same-origin by default
   mockSession.mockResolvedValue({ login: "owner-actor" } as never);
   mockSet.mockResolvedValue("ok");
@@ -161,6 +165,32 @@ describe("POST /api/org/members — CSRF / same-origin guard", () => {
 });
 
 describe("DELETE /api/org/members — owner gate + CSRF block the removal", () => {
+  it("lets a signed-in viewer leave their own membership", async () => {
+    mockViewer.mockResolvedValue("Alice");
+    const res = await DELETE(deleteReq("Acme", "alice"));
+    expect(res.status).toBe(200);
+    expect(mockGate).toHaveBeenCalledWith("acme", "viewer");
+    expect(mockRemove).toHaveBeenCalledWith("acme", "alice");
+    expect(mockAudit).toHaveBeenCalledWith("org.member.removed", "acme", { org: "acme", login: "alice" }, "Alice");
+  });
+
+  it("keeps removal of another member owner-gated", async () => {
+    mockViewer.mockResolvedValue("bob");
+    mockGate.mockResolvedValue(deny403());
+    const res = await DELETE(deleteReq("acme", "alice"));
+    expect(res.status).toBe(403);
+    expect(mockGate).toHaveBeenCalledWith("acme", "owner");
+    expect(mockRemove).not.toHaveBeenCalled();
+  });
+
+  it("keeps the last-owner guard on self-removal", async () => {
+    mockViewer.mockResolvedValue("alice");
+    mockRemove.mockResolvedValue("last_owner");
+    const res = await DELETE(deleteReq("acme", "alice"));
+    expect(res.status).toBe(409);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
   it("a non-owner (denied gate) gets the gate's 403 and removeMembership is NEVER called", async () => {
     mockGate.mockResolvedValue(deny403());
     const res = await DELETE(deleteReq("acme", "alice"));

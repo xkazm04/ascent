@@ -2,7 +2,8 @@
 // POST   /api/org/members { org, login, role }  -> { ok }         set a member's role
 // DELETE /api/org/members?org=slug&login=login  -> { ok }         remove a member (not the last owner)
 //
-// Owner-only: viewing/assigning/removing roles is an ownership-level action. Roles: owner | admin |
+// Owners view and assign roles or remove anyone; a member may also remove their own membership.
+// Roles: owner | admin |
 // member | viewer (see src/lib/db/members.ts). This is the management surface that makes RBAC usable —
 // an org owner can grant a teammate `viewer` (read-only) or `admin` (destructive ops) without giving
 // them the GitHub App installation. Every privilege change is audited (the action that most needs a
@@ -91,7 +92,9 @@ export async function DELETE(request: Request) {
   if (!GITHUB_LOGIN.test(login)) {
     return NextResponse.json({ error: "login must be a valid GitHub login." }, { status: 400 });
   }
-  const denied = await requireOrgRole(org, "owner");
+  const actor = await resolveViewerLogin();
+  const selfLeave = actor != null && normalizeLogin(actor) === normalizeLogin(login);
+  const denied = await requireOrgRole(org, selfLeave ? "viewer" : "owner");
   if (denied) return denied;
   const outcome = await removeMembership(org, login);
   if (outcome === "not_found") return NextResponse.json({ error: "No such member." }, { status: 404 });
@@ -104,7 +107,6 @@ export async function DELETE(request: Request) {
   if (outcome === "last_owner") {
     return NextResponse.json({ error: "Can't remove the last owner. Assign another owner first." }, { status: 409 });
   }
-  const actor = await resolveViewerLogin();
   await recordOrgAudit("org.member.removed", org, { org, login: normalizeLogin(login) }, actor ?? undefined);
   return NextResponse.json({ ok: true });
 }
