@@ -49,7 +49,7 @@ interface RepoSeed {
 
 /**
  * Fake prisma covering every read `listGoals` issues (organization.findUnique → resolveOrgId,
- * repository.findMany → fleetSnapshot, goal.findMany, and scan/scanDimension.findMany → metricSeries)
+ * flat repository/scan/dimension reads → fleetSnapshot, goal.findMany, and metricSeries reads)
  * plus the one write it can emit (goal.update). `goalUpdates` records each achievedAt stamp so the
  * idempotency invariant is observable: a re-stamp would show up as a second update call.
  */
@@ -71,19 +71,20 @@ function fakePrisma(opts: { goals: GoalSeed[]; repos?: RepoSeed[] }) {
     baselineAt: g.baselineAt ?? null,
   }));
 
-  const repoRows = repos.map((r) => ({
+  const repoRows = repos.map((r, i) => ({
+    id: `repo_${i}`,
     fullName: r.fullName,
     name: r.name,
-    scans: [
-      {
-        overallScore: r.overall,
-        adoptionScore: r.adoption ?? r.overall,
-        rigorScore: r.rigor ?? r.overall,
-        archetype: "org",
-        dimensions: Object.entries(r.dims ?? {}).map(([dimId, score]) => ({ dimId, score })),
-      },
-    ],
   }));
+  const scannedAt = new Date("2026-01-02T00:00:00.000Z");
+  const scanRows = repos.map((r, i) => ({
+    id: `scan_${i}`, repoId: `repo_${i}`, scannedAt,
+    overallScore: r.overall, adoptionScore: r.adoption ?? r.overall,
+    rigorScore: r.rigor ?? r.overall, archetype: "org",
+  }));
+  const dimRows = repos.flatMap((r, i) => Object.entries(r.dims ?? {}).map(([dimId, score]) => ({
+    scanId: `scan_${i}`, dimId, score,
+  })));
 
   const prisma = {
     organization: {
@@ -101,10 +102,12 @@ function fakePrisma(opts: { goals: GoalSeed[]; repos?: RepoSeed[] }) {
     },
     // metricSeries reads: no scans/dimensions → no fittable trend (pace falls back to "tracking").
     scan: {
-      findMany: vi.fn(async () => []),
+      groupBy: vi.fn(async () => scanRows.map((s) => ({ repoId: s.repoId, _max: { scannedAt } }))),
+      findMany: vi.fn(async (query: { where?: { OR?: unknown[] } }) => query.where?.OR ? scanRows : []),
     },
     scanDimension: {
-      findMany: vi.fn(async () => []),
+      findMany: vi.fn(async (query: { where?: { scanId?: { in: string[] } } }) =>
+        query.where?.scanId?.in ? dimRows : []),
     },
   };
 
@@ -118,6 +121,23 @@ beforeEach(() => {
 });
 
 describe("listGoals achievedAt state-stamp (the persisted transition inside a read)", () => {
+  it("reads the latest snapshot through flat scan queries without nested repository scans", async () => {
+    const { prisma } = fakePrisma({ goals: [{ id: "g1", target: 80 }], repos: [
+      { fullName: "acme/a", name: "a", overall: 60, dims: { D1: 55 } },
+    ] });
+    mockGetPrisma.mockReturnValue(prisma);
+    await listGoals(ORG_SLUG);
+    expect(prisma.repository.findMany).toHaveBeenCalledWith({
+      where: { orgId: ORG_ID }, select: { id: true, fullName: true, name: true },
+    });
+    expect(prisma.scan.groupBy).toHaveBeenCalledWith({
+      by: ["repoId"], where: { repo: { orgId: ORG_ID } }, _max: { scannedAt: true },
+    });
+    expect(prisma.scan.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { OR: [{ repoId: "repo_0", scannedAt: new Date("2026-01-02T00:00:00.000Z") }] },
+    }));
+  });
+
   it("stamps achievedAt ONCE the first time an active goal reaches its target (write fires)", async () => {
     const before = Date.now();
     const { prisma, goalUpdates } = fakePrisma({
@@ -440,24 +460,30 @@ describe("parseTargetDate (via createGoal write) — valid ⇒ Date, junk ⇒ nu
    *  capture the `targetDate` value it writes. `repos` seeds the snapshot (default: scan-less fleet). */
   function fakeCreateGoalPrisma(repos: RepoSeed[] = []) {
     const created: Array<{ targetDate: unknown; baselineValue?: unknown; baselineAt?: unknown }> = [];
-    const repoRows = repos.map((r) => ({
+    const repoRows = repos.map((r, i) => ({
+      id: `repo_${i}`,
       fullName: r.fullName,
       name: r.name,
-      scans: [
-        {
-          overallScore: r.overall,
-          adoptionScore: r.adoption ?? r.overall,
-          rigorScore: r.rigor ?? r.overall,
-          archetype: "org",
-          dimensions: Object.entries(r.dims ?? {}).map(([dimId, score]) => ({ dimId, score })),
-        },
-      ],
     }));
+    const scannedAt = new Date("2026-01-02T00:00:00.000Z");
+    const scanRows = repos.map((r, i) => ({
+      id: `scan_${i}`, repoId: `repo_${i}`, scannedAt,
+      overallScore: r.overall, adoptionScore: r.adoption ?? r.overall,
+      rigorScore: r.rigor ?? r.overall, archetype: "org",
+    }));
+    const dimRows = repos.flatMap((r, i) => Object.entries(r.dims ?? {}).map(([dimId, score]) => ({
+      scanId: `scan_${i}`, dimId, score,
+    })));
     return {
       created,
       prisma: {
         organization: { upsert: vi.fn(async () => ({ id: ORG_ID })) },
         repository: { findMany: vi.fn(async () => repoRows) },
+        scan: {
+          groupBy: vi.fn(async () => scanRows.map((s) => ({ repoId: s.repoId, _max: { scannedAt } }))),
+          findMany: vi.fn(async () => scanRows),
+        },
+        scanDimension: { findMany: vi.fn(async () => dimRows) },
         goal: {
           create: vi.fn(async ({ data }: { data: { targetDate: unknown; baselineValue?: unknown; baselineAt?: unknown } }) => {
             created.push({ targetDate: data.targetDate, baselineValue: data.baselineValue, baselineAt: data.baselineAt });
@@ -558,7 +584,7 @@ describe("dailyAvg (via listGoals trend) — collapses same-day points to a per-
       organization: { findUnique: vi.fn(async () => ({ id: ORG_ID })) },
       repository: {
         findMany: vi.fn(async () => [
-          { fullName: "acme/a", name: "a", scans: [{ overallScore: 60, adoptionScore: 60, rigorScore: 60, archetype: "org", dimensions: [] }] },
+          { id: "repo_1", fullName: "acme/a", name: "a" },
         ]),
       },
       goal: {
@@ -567,9 +593,10 @@ describe("dailyAvg (via listGoals trend) — collapses same-day points to a per-
         ]),
       },
       scan: {
-        findMany: vi.fn(async () =>
-          scans.map((s) => ({ scannedAt: new Date(s.at), overallScore: s.overall, adoptionScore: s.overall, rigorScore: s.overall })),
-        ),
+        groupBy: vi.fn(async () => [{ repoId: "repo_1", _max: { scannedAt: new Date("2026-01-02T00:00:00.000Z") } }]),
+        findMany: vi.fn(async (query: { where?: { OR?: unknown[] } }) => query.where?.OR
+          ? [{ id: "scan_latest", repoId: "repo_1", overallScore: 60, adoptionScore: 60, rigorScore: 60, archetype: "org" }]
+          : scans.map((s) => ({ scannedAt: new Date(s.at), overallScore: s.overall, adoptionScore: s.overall, rigorScore: s.overall }))),
       },
       scanDimension: { findMany: vi.fn(async () => []) },
     };

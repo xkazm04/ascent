@@ -67,20 +67,32 @@ interface FleetSnapshot {
   repos: SnapshotRepo[];
 }
 
-/** Build the latest-scan snapshot once; goals/initiatives/simulate all read from it. */
+/** Build the latest-scan snapshot with flat reads, so scan history stays in the database. */
 async function fleetSnapshot(orgId: string): Promise<FleetSnapshot> {
-  const repos = await getPrisma().repository.findMany({
-    where: { orgId },
-    select: {
-      fullName: true,
-      name: true,
-      scans: {
-        orderBy: { scannedAt: "desc" },
-        take: 1,
-        select: { overallScore: true, adoptionScore: true, rigorScore: true, archetype: true, dimensions: { select: { dimId: true, score: true } } },
-      },
-    },
-  });
+  const prisma = getPrisma();
+  const [repos, latestAt] = await Promise.all([
+    prisma.repository.findMany({ where: { orgId }, select: { id: true, fullName: true, name: true } }),
+    prisma.scan.groupBy({ by: ["repoId"], where: { repo: { orgId } }, _max: { scannedAt: true } }),
+  ]);
+  const pairs = latestAt
+    .filter((s): s is typeof s & { _max: { scannedAt: Date } } => s._max.scannedAt != null)
+    .map((s) => ({ repoId: s.repoId, scannedAt: s._max.scannedAt }));
+  const scans = pairs.length ? await prisma.scan.findMany({
+    where: { OR: pairs },
+    select: { id: true, repoId: true, overallScore: true, adoptionScore: true, rigorScore: true, archetype: true },
+  }) : [];
+  const scanByRepo = new Map<string, (typeof scans)[number]>();
+  for (const scan of scans) if (!scanByRepo.has(scan.repoId)) scanByRepo.set(scan.repoId, scan);
+  const scanIds = [...scanByRepo.values()].map((s) => s.id);
+  const dimensions = scanIds.length ? await prisma.scanDimension.findMany({
+    where: { scanId: { in: scanIds } }, select: { scanId: true, dimId: true, score: true },
+  }) : [];
+  const dimsByScan = new Map<string, typeof dimensions>();
+  for (const dim of dimensions) {
+    const rows = dimsByScan.get(dim.scanId) ?? [];
+    rows.push(dim);
+    dimsByScan.set(dim.scanId, rows);
+  }
 
   const rows: SnapshotRepo[] = [];
   const dimSum: Record<string, { sum: number; n: number }> = {};
@@ -89,14 +101,14 @@ async function fleetSnapshot(orgId: string): Promise<FleetSnapshot> {
   let rSum = 0;
   let n = 0;
   for (const r of repos) {
-    const s = r.scans[0];
+    const s = scanByRepo.get(r.id);
     if (!s) continue;
     n += 1;
     oSum += s.overallScore;
     aSum += s.adoptionScore;
     rSum += s.rigorScore;
     const dims: Record<string, number> = {};
-    for (const d of s.dimensions) {
+    for (const d of dimsByScan.get(s.id) ?? []) {
       dims[d.dimId] = d.score;
       const entry = (dimSum[d.dimId] = dimSum[d.dimId] || { sum: 0, n: 0 });
       entry.sum += d.score;
