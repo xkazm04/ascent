@@ -214,6 +214,38 @@ spans, so the digest a CLI compared against the catalog was never comparable wit
   bodies differing only past the 50KB storage cap read as different. Both are loud false positives,
   chosen over the silent false "in sync" the capped/stripped spans produced.
 
+### When a pass runs, and the one door it goes through (2026-09-23)
+
+Four triggers index a registry, and all four enter through `runIndexPass` in
+`src/lib/registry/index-pass.ts`, never through `indexRegistry` directly:
+
+| Trigger | Where | Second-caller policy |
+| --- | --- | --- |
+| The tab's **Re-index** button | `POST .../registry/index` | **join**: a double-click or a second tab gets the running pass and its result. |
+| Admin → Pairing | `pairLocalRegistry` | **join** |
+| A render that sees a paired checkout move (self-hosted) | `refreshLocalRegistryIfStale` (still at most one HEAD probe per 30 s) | **join** |
+| **The registry repo's own push** | `onRegistryPush` (`src/lib/registry/registry-push.ts`), scheduled by the GitHub webhook's `push` arm | **trail**: the running pass may have read the tree before the push, so exactly one more pass follows it. Every further push while it waits shares that slot. |
+
+At most one pass per registry runs in a process. Two passes over one registry would race the
+purge-then-insert writers (`archiveVanishedRegistryRows`, `purgeUsageSamples`,
+`replaceRegistrySubjects`). Only the holder of a pass's token can release it, so no caller can clear a
+guard it did not set. Pairing used to do exactly that. The guard is process-local, like the webhook's
+`serializePerRepo`, so two instances can still each run one pass.
+
+A default-branch push to a mapped registry also sets **`webhookHealthy`**
+(`markRegistryWebhookSeen`). That is why the masthead's "webhook unconfirmed" turns into a witnessed
+fact after the first push. Nothing sets it back to false, because a quiet repo is not a broken hook. A
+registry paired to a local checkout is read from disk, so its GitHub push records the webhook but does
+not index; the render refresh picks up the checkout when it moves.
+
+A default-branch push to a **fleet** repo whose commits add, modify or remove `.ai/registry-map.json`
+or `.ai/manifest.yaml`/`.yml` re-sweeps **that one repo** (`sweepConformance(slug, token, { repositoryId })`).
+It runs only when the org has a registry mapped and the repo has been imported. This is what closes a
+dispatch whose map PR merged, without anyone clicking. Both push paths mint a token only after the
+installation is confirmed to belong to the pushing owner (the webhook's `installationMatchesOwner`).
+A failure in the registry lane is logged and does **not** release the delivery, because the paid
+rescan beside it may already have spent a credit.
+
 ## The conformance ledger (2026-08-30)
 
 The registry's fourth instrument, beside maturity, gate and adoption: **which of the org's own
@@ -507,7 +539,6 @@ requiring admin to *propose* would lock out the people who write the memory.
   than writing through a second door, which would mean two dedup windows for one table.
 - **`catalog.json` is built but not committed back.** `indexRegistry` returns the catalog it would
   write; the policy-gated writer (`catalogWrites: bot | pr`) is not implemented.
-- **No push-webhook wiring.** Indexing runs from `POST .../registry/index` only.
 - **`RegistryView.candidates` is still empty from the server loader.** The picker gets its rows from
   `/api/app/repos` on the client instead, so the field is now only populated by the fixtures. That
   listing does not probe file layout, so a real row can never carry `hasLayout` — the picker falls back
