@@ -8,7 +8,8 @@
 // Gating mirrors /api/dev/seed-fleet: ASCENT_EMPTY refuses; with ASCENT_SEED_SECRET set the caller
 // must present it; with no secret it's allowed only outside production.
 //
-//   curl -X POST http://localhost:3000/api/dev/seed-history -d '{"org":"vercel"}'
+//   curl -N -X POST http://localhost:3000/api/dev/seed-history -d '{"org":"vercel"}'
+// Success streams NDJSON: one {repo,inserted,deduped} line per completed repo, then a summary.
 
 import { NextResponse, type NextRequest } from "next/server";
 import { seedForbiddenMessage, seedRequestAuthorized } from "@/lib/dev/seed-auth";
@@ -61,25 +62,49 @@ export async function POST(req: NextRequest) {
 
   // Newest seeded scan ~1 week ago so today's real scan stays the authoritative newest column.
   const anchor = Date.now() - 7 * 86_400_000;
-  let scansPersisted = 0;
-  for (const r of repos) {
-    const target = r.scans[0]?.overallScore ?? 55;
-    const spec = {
-      owner: r.owner,
-      name: r.name,
-      primaryLanguage: r.primaryLanguage ?? "TypeScript",
-      stars: r.stars,
-      isPrivate: r.isPrivate,
-      archetype: "org" as RepoArchetype,
-      target,
-      trendPoints: 6 + (r.name.length % 10), // a gentle, per-repo-varied climb up to `target`
-    };
-    const reports = reportsForRepo(spec, scansPerRepo, weeksBack, anchor);
-    for (const rep of reports) {
-      const res = await persistScanReport(rep, { orgSlug: slug });
-      if (res && !res.deduped) scansPersisted++;
-    }
-  }
-
-  return NextResponse.json({ ok: true, org: slug, repos: repos.length, scansPersisted, scansPerRepo, weeksBack });
+  const encoder = new TextEncoder();
+  let canceled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const emit = (value: object) => {
+        if (!canceled && !req.signal.aborted) controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`));
+      };
+      void (async () => {
+        let scansPersisted = 0;
+        try {
+          for (const r of repos) {
+            if (canceled || req.signal.aborted) return;
+            const target = r.scans[0]?.overallScore ?? 55;
+            const spec = {
+              owner: r.owner,
+              name: r.name,
+              primaryLanguage: r.primaryLanguage ?? "TypeScript",
+              stars: r.stars,
+              isPrivate: r.isPrivate,
+              archetype: "org" as RepoArchetype,
+              target,
+              trendPoints: 6 + (r.name.length % 10),
+            };
+            const reports = reportsForRepo(spec, scansPerRepo, weeksBack, anchor);
+            let inserted = 0;
+            let deduped = 0;
+            for (const rep of reports) {
+              const res = await persistScanReport(rep, { orgSlug: slug });
+              if (!res) throw new Error("Scan persistence was unavailable.");
+              if (res.deduped) deduped++;
+              else { inserted++; scansPersisted++; }
+            }
+            emit({ repo: `${r.owner}/${r.name}`, inserted, deduped });
+          }
+          emit({ ok: true, org: slug, repos: repos.length, scansPersisted, scansPerRepo, weeksBack });
+        } catch (error) {
+          emit({ ok: false, error: error instanceof Error ? error.message : "Seeding failed.", scansPersisted });
+        } finally {
+          if (!canceled && !req.signal.aborted) controller.close();
+        }
+      })();
+    },
+    cancel() { canceled = true; },
+  });
+  return new Response(stream, { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" } });
 }

@@ -69,6 +69,12 @@ in [`.env.example`](../.env.example).
    (it gates `isDbConfigured`; the PGlite driver adapter provides the actual
    connection and the URL is ignored). Then `npm run db:local:seed` for real data.
 
+   To backfill demo scan history for an existing org's watched repos, POST
+   `/api/dev/seed-history` with `{ "org": "your-org" }` and read its NDJSON response as it arrives
+   (for example, `curl -N`). Each completed repo emits `{repo, inserted, deduped}`; the final line
+   contains the total. If a later repo fails, an `{ok:false,error,scansPersisted}` line preserves
+   the partial progress. This dev endpoint uses the seed-secret gate when configured.
+
    **Do not run `npm run db:push` on the PGlite path.** There is no server for Prisma
    to connect to, so it fails: with a dummy `DATABASE_URL` it cannot reach a database,
    and with none set it exits `P1012 Environment variable not found: DATABASE_URL`.
