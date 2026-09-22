@@ -8,6 +8,9 @@
 //                                                and PAID FOR: the rescan reserves a prepaid credit
 //                                                before inference exactly like the queue worker, and
 //                                                is skipped (never served free) when the org is out.
+//                                                The same push also reaches the registry lane
+//                                                (`onRegistryPush`): a mapped registry re-indexes, a
+//                                                fleet repo's `.ai/` map/manifest move re-sweeps it.
 //   • branch_protection_rule / repository_ruleset / repository / member / team
 //                                             → enqueue a FREE control probe (moonshot #10). These
 //                                                events move a repo's governance posture without
@@ -75,6 +78,9 @@ import { checkAndAlertRegression } from "@/lib/scan-alerts";
 // a push-funded depletion pushes the same lifecycle alert /api/scan does.
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { isMeteredScan } from "@/lib/entitlement";
+// The registry lane of a push (ai-registry-repo#A): the registry repo's own push re-indexes it, and a
+// fleet repo's `.ai/` push re-sweeps that repo. Owner binding reuses installationMatchesOwner below.
+import { onRegistryPush } from "@/lib/registry/registry-push";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +110,8 @@ interface WebhookPayload {
   ref?: string;
   after?: string;
   deleted?: boolean;
+  // push event: which paths each commit touched (the registry lane reads only `.ai/` moves).
+  commits?: { added?: string[]; modified?: string[]; removed?: string[] }[];
   // check_run event: a "Re-run" button click (requested_action) or GitHub's rerequested.
   check_run?: { head_sha?: string; pull_requests?: { number?: number; base?: { ref?: string } }[] };
   requested_action?: { identifier?: string };
@@ -905,6 +913,16 @@ export async function POST(request: Request) {
       const headMoved = !payload.deleted && !!payload.after && !/^0+$/.test(payload.after);
       if (installationId && owner && repo && onDefault && headMoved) {
         after(() => runPushRescan(installationId, owner, repo, delivery ?? undefined));
+        // Deliberately NOT released on failure (no abandonDelivery): the rescan above may already have
+        // spent a credit on this delivery, and a redelivery would pay for it again. A missed registry
+        // pass is recovered by the next push or the tab's Re-index button.
+        const slice = { installationId, owner, repo, ref: payload.ref, defaultBranch, after: payload.after, deleted: payload.deleted, commits: payload.commits };
+        after(() =>
+          onRegistryPush(slice, { ownerMatches: installationMatchesOwner }).then(
+            () => undefined,
+            (err) => console.error("[webhook] registry push lane failed", err instanceof Error ? err.message : err),
+          ),
+        );
       }
     } else if (REPO_CONTROL_EVENTS.has(event) && isAppConfigured() && isDbConfigured()) {
       // A repo-scoped control change (protection rule, ruleset, or the repo itself being renamed /
