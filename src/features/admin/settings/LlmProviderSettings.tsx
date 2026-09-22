@@ -110,7 +110,7 @@ export function LlmProviderSettings({
           </p>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2 pt-1" aria-busy={f.busy !== null}>
           <button
             onClick={f.test}
             disabled={disabledAll || f.busy !== null}
@@ -139,11 +139,9 @@ export function LlmProviderSettings({
         {f.lastValidatedAt && (
           <p className="type-body-sm text-slate-500">Last validated {f.lastValidatedAt.slice(0, 16).replace("T", " ")} UTC.</p>
         )}
-        {f.msg && (
-          <p role="status" className={`type-body-sm ${f.msg.kind === "ok" ? "text-emerald-300" : "text-orange-300"}`}>
-            {f.msg.text}
-          </p>
-        )}
+        <p role="status" aria-live="polite" className={`type-body-sm ${f.msg?.kind === "ok" ? "text-emerald-300" : "text-orange-300"}`}>
+          {f.msg ? `${f.msg.kind === "err" ? "Error: " : ""}${f.msg.text}` : ""}
+        </p>
       </div>
     </Card>
   );

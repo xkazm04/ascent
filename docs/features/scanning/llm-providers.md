@@ -371,7 +371,8 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
   save → test → enable flow via `/api/org/llm-provider` and `/api/org/llm-provider/test`,
   plan/encryption gated. Blocks a cross-provider switch without re-entering AWS keys (would
   otherwise leave the other provider's secret in place under the new provider name and
-  break every scan via the fail-closed guard above).
+  break every scan via the fail-closed guard above). Save, test and disable outcomes update a
+  persistent polite status region; errors have a text prefix and the action row reports busy state.
 - `src/features/admin/settings/OpenRouterByomSettings.tsx`: the structural twin for
   OpenRouter: model slug + API key, same save/test/enable/disable flow, same one-active-
   provider replacement semantics. It is the **cost/flexibility** path, *not* an in-boundary

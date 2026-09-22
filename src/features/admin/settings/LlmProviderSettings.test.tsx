@@ -74,6 +74,18 @@ describe("LlmProviderSettings — no cross-provider state bleed", () => {
 });
 
 describe("LlmProviderSettings — a provider takeover must carry its own credential", () => {
+  it("keeps a live status region mounted and names save failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({ error: "Credential rejected." }) })));
+    renderCard(config());
+
+    const status = screen.getByRole("status");
+    expect(status).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => expect(status).toHaveTextContent("Error: Credential rejected."));
+    expect(screen.getByRole("button", { name: /^save$/i }).parentElement).toHaveAttribute("aria-busy", "false");
+  });
+
   it("blocks Save from an OpenRouter org until AWS keys are entered, then posts provider:bedrock with them", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) }) as unknown as Response);
     vi.stubGlobal("fetch", fetchMock);
