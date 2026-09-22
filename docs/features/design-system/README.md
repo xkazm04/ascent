@@ -92,6 +92,9 @@ paginated ranking of the same corpus lives on `/leaderboard`. That path is a rea
 `next/link` in the register footer, not a heading that merely names the register.
 The growth-loop scan CTA (`/?scan=1`) stays beside it.
 
+The hero's scan dialog uses the shared `Modal` portal and its focus, Escape, backdrop,
+and scroll behavior. The `?scan=1` deep link still opens the same scan form.
+
 Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
 `SelfHostBand` so the copy can't drift apart in spirit:
 

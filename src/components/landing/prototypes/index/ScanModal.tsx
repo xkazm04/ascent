@@ -10,11 +10,11 @@
 // local approximation of it: the panel below is only honest while the endpoint would return 401.
 // Replaces the inline hero input so the masthead stays clean and the promise is front-and-centre on open.
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ScanForm } from "@/components/ScanForm";
 import { QuotaMeter } from "@/components/QuotaMeter";
-import { Kicker } from "@/components/ui";
+import { Kicker, Modal } from "@/components/ui";
 import { scanDurationClaim } from "@/components/report/scanEstimate";
 import { AuthCta, SignInButton, type AuthMode } from "./ScanModal.AuthCta";
 import { OutputsCard } from "./ScanModal.OutputsCard";
@@ -59,8 +59,6 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
   // the gate is live; null until the fetch settles. Starts "locked" so a gated deploy never flashes
   // the scan form to a signed-out viewer.
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -100,48 +98,6 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
     };
   }, [gated]);
 
-  // Close on Escape, lock background scroll, move focus INTO the dialog, trap Tab inside it, and return
-  // focus to the trigger on close. Moving focus in matters because ScanForm only autofocuses its input
-  // on wide + fine-pointer viewports — and the gated "sign in to scan" branch has no form at all — so
-  // without this, touch/SR users would open the dialog with focus stranded on the now-obscured trigger.
-  useEffect(() => {
-    if (!open) return;
-    const trigger = triggerRef.current; // stable node; capture for the cleanup's focus-return
-    const panel = panelRef.current;
-    // Enter the dialog, unless a child (ScanForm's input on desktop) already grabbed focus this tick.
-    if (panel && !panel.contains(document.activeElement)) panel.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        close();
-        return;
-      }
-      if (e.key !== "Tab" || !panel) return;
-      // Focus trap: keep Tab cycling within the dialog rather than escaping to the page behind it.
-      const focusables = panel.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusables.length === 0) return;
-      const first = focusables[0]!;
-      const last = focusables[focusables.length - 1]!;
-      const active = document.activeElement;
-      if (e.shiftKey && (active === first || active === panel)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-      trigger?.focus();
-    };
-  }, [open, close]);
-
   // Three gate states, not two: while the viewer fetch is in flight (`signedIn === null`) the dialog
   // shows a neutral pending placeholder — committing to the sign-in wall early flashed a clickable
   // "Sign in with GitHub" CTA at already-signed-in members arriving via ?scan=1 (the reverse of the
@@ -154,7 +110,6 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
   return (
     <>
       <button
-        ref={triggerRef}
         type="button"
         onClick={() => setManualOpen(true)}
         aria-haspopup="dialog"
@@ -163,22 +118,8 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
         Scan a repository <span aria-hidden>→</span>
       </button>
 
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm sm:items-center"
-          onMouseDown={(e) => {
-            // Backdrop click closes; clicks inside the panel (which stops propagation) don't.
-            if (e.target === e.currentTarget) close();
-          }}
-        >
-          <div
-            ref={panelRef}
-            tabIndex={-1}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="scan-modal-title"
-            className="animate-fade-up relative my-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-divider bg-surface-strong shadow-2xl outline-none ring-1 ring-white/5"
-          >
+      <Modal open={open} onClose={close} ariaLabel="Scan a repository" size="lg">
+        <div className="relative overflow-hidden">
             {/* Azure altimeter glow bleeding from the top edge — the landing's signature accent wash. */}
             <div
               aria-hidden
@@ -278,9 +219,8 @@ function ScanModalInner({ examples, auth, gated = false }: ScanModalProps) {
                 </>
               )}
             </div>
-          </div>
         </div>
-      )}
+      </Modal>
     </>
   );
 }
