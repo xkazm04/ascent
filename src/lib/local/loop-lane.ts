@@ -27,18 +27,17 @@ import { axesByCoverage, emptyAxisTally } from "@/lib/scoring/craft";
 // worker and became a race the moment a remote agent could pull from the same queue. Both callers now
 // go through `claimFollowups`, so the database — not the order the two happened to arrive in —
 // decides who holds a row, and this lane simply works what it won.
-import { claimFollowups, releaseFollowups } from "@/lib/db/followup-claims";
+import { claimFollowups } from "@/lib/db/followup-claims";
 import { getLatestPlatformSignals, persistScanReport } from "@/lib/db";
 import { scanRepository } from "@/lib/scan";
 import { appendLaneLog, getLatestScanIdForRepo, updateLane, upsertLane } from "@/lib/db/loop-runs";
-import { BASE_DIVERGED_NOTE, type LaneDeliverable, type LoopLaneKind } from "@/lib/db/loop-runs-types";
+import type { LaneDeliverable, LoopLaneKind } from "@/lib/db/loop-runs-types";
 import type { ComparableScan } from "@/lib/db/scans";
-import { attributeDelivered, type BaseRelation } from "@/lib/maturity/attribution";
+import type { BaseRelation } from "@/lib/maturity/attribution";
 import { baseRelationIn, type BaseEnd } from "@/lib/local/lane-base";
-import { diffScans } from "@/lib/report/compare";
 import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
-import { deriveLaneDeliverables, parseClaimLines, type AgentClaim } from "@/lib/local/lane-deliverables";
+import { parseClaimLines, type AgentClaim } from "@/lib/local/lane-deliverables";
 import { isAgentLaneKind, proposeLaneKind } from "@/lib/local/lane-kind";
 import { gapSlotsAtGreen, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
 import { batchSizeOf, verifyTimeoutMsOf } from "@/lib/local/run-limits";
@@ -51,6 +50,8 @@ import {
   createLaneWatchdog,
   isLaneDeadlineError,
   laneDeadlineMs,
+  LANE_GIT_ALLOWANCE_MS,
+  LANE_RESCAN_ALLOWANCE_MS,
   LANE_STAGE_LABEL,
   type LaneWatchdog,
 } from "@/lib/local/lane-watchdog";
@@ -67,8 +68,7 @@ import { NO_VERIFY_BASELINE, verifyBaseline, verifyResult, verifyRejectionLesson
 // matters.
 import { unverifiedCycleBrief, unverifiedCycleLesson, type BaselineLaneRow } from "@/lib/local/lane-baseline";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
-import { getActiveDeferrals, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
-import { stampPlaybookApplications } from "@/lib/db/playbooks";
+import { getActiveDeferrals } from "@/lib/db/lane-outcomes";
 import { recordLoopLessons, recordRedBaselineLesson } from "@/lib/db/loop-lessons";
 import { buildLaneBrief, briefSummaryLine } from "@/lib/org/lane-brief";
 import { laneReportContract, readLaneReport, type LaneReport } from "@/lib/local/lane-report";
@@ -109,6 +109,12 @@ import { isLocalHalf, resolveLocalEndpoint } from "@/lib/local/endpoint";
 import { runAgentVia, type TransportRunOptions } from "@/lib/local/transport/run";
 import { transportTiming } from "@/lib/local/transport/profile";
 import { checkGateDiff } from "@/lib/local/lane-gate-diff";
+// THE LANE-EXIT DOOR AND THE ADJUDICATION TAIL (challenge-2026-09-23). Every way this lane ends is a
+// word in `LANE_EXIT_KINDS`, and what each end owes — release, plan settle, terminal phase, progress —
+// is one row of `laneExitObligations`; `exitLane` is the only thing here that writes a terminal row.
+// The post-rescan tail is `adjudicateLane`, shared with the deferred settle below.
+import { createLaneExitContext, exitLane, LANE_ACTOR, releaseLaneClaims, type LaneExitContext } from "@/lib/local/lane-exit";
+import { adjudicateLane } from "@/lib/local/lane-adjudicate";
 
 /**
  * The DEFAULT batch — how many follow-ups (or craft rungs) one cycle dispatches when a run names no
@@ -117,10 +123,6 @@ import { checkGateDiff } from "@/lib/local/lane-gate-diff";
  * five was holding the loop back.
  */
 export const BATCH_SIZE = 5;
-
-/** Who the LOCAL engine claims as. Unchanged from the string the inline claim wrote, so the ledger's
- *  existing rows and this lane's new ones are the same actor. */
-const LANE_ACTOR = "autopilot";
 
 /** The side-effecting primitives a lane drives, injectable so tests never spawn an agent or shell. */
 export interface LaneDeps {
@@ -811,61 +813,6 @@ async function refreshDryLane(args: {
 }
 
 /**
- * The lane's deliverable headlines, or null when the pair could not be read. Never throws.
- * The verdict is `attributeDelivered` over the same pair the ledger renders, so a lane that
- * committed nothing, straddled the mock floor or moved inside the noise band gets its closes and
- * its install as headlines and NO movement line — the prose refuses exactly where the number does.
- */
-async function laneDeliverables(
-  deps: LaneDeps,
-  args: {
-    org: string;
-    repo: string;
-    kind: LoopLaneKind;
-    beforeScanId: string | null;
-    afterScanId: string | null;
-    commits: number;
-    closedIds: string[];
-    agentClaims: readonly AgentClaim[];
-    practiceName: string | null;
-    /** The lane's worktree — the one checkout that holds BOTH ends' commits, so the only place the
-     *  base question can be asked. */
-    cwd: string;
-    /** Told what git concluded, so the caller can put the disclosure on the lane log too. */
-    onBase?: (rel: BaseRelation) => void;
-  },
-): Promise<LaneDeliverable[] | null> {
-  try {
-    const pair = await deps.loadPair({ orgSlug: args.org, repoFullName: args.repo, beforeScanId: args.beforeScanId, afterScanId: args.afterScanId });
-    const before = pair?.before ?? null;
-    const after = pair?.after ?? null;
-    // ARE THE TWO ENDS EVEN COMPARABLE? A pair whose ends sit on divergent commits measured two
-    // different trees (see lane-base.ts). Anything git cannot answer is `unknown`, which refuses
-    // nothing — this call can only ever take a claim away, never manufacture one.
-    const base = await deps.baseRelation(args.cwd, before, after).catch(() => "unknown" as const);
-    args.onBase?.(base);
-    const derived = deriveLaneDeliverables({
-      kind: args.kind,
-      agentClaims: args.agentClaims,
-      diff: before && after ? diffScans(before, after) : null,
-      before,
-      after,
-      verdict: attributeDelivered(before, after, args.commits, base),
-      base,
-      practiceName: args.practiceName,
-      closedFollowUpIds: args.closedIds,
-      // Half of the TOTALITY test: a lane that committed must produce a headline even when nothing
-      // it closed can be resolved to a title. See lane-deliverables.ts §4.
-      commits: args.commits,
-    });
-    if (derived.length === 0) return derived;
-    return await deps.summarize(derived, args.org).catch(() => derived);
-  } catch {
-    return null;
-  }
-}
-
-/**
  * THIS ARM'S TIMING BAND — the executing ceiling and the planning ceiling, in that order of
  * precedence:
  *
@@ -946,28 +893,23 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   // it, and the movement-gated rescan rule keeps it open. Drive #1 (2026-08-26) died 35s in and left
   // ten of eleven backlog rows claimed; the next drive found "no open follow-ups" on a fleet with
   // 350 points of debt. Every failure path below releases; only a lane whose RESCAN ran keeps them.
-  let claimedIds: string[] = [];
-  const releaseClaims = async (why: string): Promise<void> => {
-    // `releaseFollowups` releases only rows THIS actor still holds, which is strictly safer than the
-    // unconditional per-id reopen it replaces: a lane whose cleanup arrives late can no longer
-    // un-claim a row a different worker has since picked up.
-    if (claimedIds.length > 0) await releaseFollowups(claimedIds, why, LANE_ACTOR).catch(() => 0);
-    claimedIds = [];
-  };
-  const fail = async (message: string, stage: string | null = null): Promise<LaneRunResult> => {
-    await releaseClaims(`loop cycle ${cycle} failed before its rescan could adjudicate (${firstLine(message)})`);
-    await deps.settlePlan(planId);
-    if (laneId) {
-      await appendLaneLog(laneId, message);
-      // `stage` IS THE FORENSICS. On an ordinary failure it stays null, exactly as it was. On a
-      // force-fail it is the stage that was in flight, so the run detail and the outcome sheet can
-      // say "cycle 3 timed out in verification" instead of leaving the silent gap that made the two
-      // dead campaigns unreadable after the fact.
-      await updateLane(laneId, { phase: "error", error: message, stage, endedAt: new Date() });
-    }
-    return { laneId, progressed: false, commits: 0, closed: 0, error: message };
-  };
+  //
+  // WHO HOLDS WHAT is the exit context: the rows this lane claimed, the plan it runs under and its
+  // activity tail. Every end below is `exitLane(ctx, <kind>)`, and the kind's obligations row — not
+  // the call site — decides whether the claim is released, whether the plan is settled, and which
+  // terminal phase the row gets (lane-exit.ts).
   if (!laneId) return { laneId: null, progressed: false, commits: 0, closed: 0, error: "No database — a loop run cannot be recorded." };
+  const ctx: LaneExitContext = createLaneExitContext(laneId, deps.settlePlan);
+  // `stage` IS THE FORENSICS. On an ordinary failure it stays null, exactly as it was. On a force-fail
+  // it is the stage that was in flight, so the run detail and the outcome sheet can say "cycle 3 timed
+  // out in verification" instead of leaving the silent gap that made the two dead campaigns unreadable.
+  const fail = (message: string, stage: string | null = null): Promise<LaneRunResult> =>
+    exitLane(ctx, "failed", {
+      why: `loop cycle ${cycle} failed before its rescan could adjudicate (${firstLine(message)})`,
+      log: message,
+      error: message,
+      stage,
+    });
 
   // THE CYCLE'S HARD CEILING, derived from what this run is already armed with — the session cap, the
   // guard's budget (twice: baseline and result), plus bounded allowances for the rescan and the git
@@ -1004,7 +946,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   let agentInFlight: Promise<AgentRunResult> | null = null;
   // THE RUNNER'S PER-LANE STATE (spark theater-upgrade). All inert on an ordinary lane.
   const runnerFlags = input.runner ?? null;
-  let planId: string | null = null;
+  // The plan this lane executes under lives on the exit context (`ctx.planId`), so every exit sees it.
   let planModel: string | null = null;
   // THE PLANNING SESSION'S ENVELOPE (WP9), captured where the dependency is INJECTED rather than
   // returned through `planLane`'s outcome: the lane owns the two doors the planner is spawned
@@ -1107,8 +1049,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // repo for the rest of the run exactly as before; what changed is that the next run has a
         // fresh roadmap to judge.
         await refreshDryLane({ deps, laneId, org, repo, cycle, refresh: input.refresh, watch });
-        await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
-        return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+        return exitLane(ctx, "dry");
       }
       // The batch's DOMINANT dimension, stamped at dispatch (moonshot #26). `ImprovementPr.dimId` is
       // non-nullable, so a lane that later becomes a PR needs one — and it has to be decided here,
@@ -1134,7 +1075,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         leaseMs: null,
         note: `Loop cycle ${cycle}: dispatched to a local agent on ${worktree.branch}`,
       }).catch(() => null);
-      claimedIds = claim?.claimed.map((c) => c.id) ?? [];
+      ctx.claimedIds = claim?.claimed.map((c) => c.id) ?? [];
       const lost = claim?.refused.filter((r) => r.reason === "held") ?? [];
       if (lost.length > 0) {
         await appendLaneLog(
@@ -1144,7 +1085,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // The batch shrinks to what was actually won, so the brief, the dispatch and the per-item
         // adjudication all describe the same rows. A prompt naming work somebody else holds is a
         // prompt asking for a merge conflict.
-        const won = new Set(claimedIds);
+        const won = new Set(ctx.claimedIds);
         batch = batch.filter((it) => won.has(it.id));
         // Re-stamp what was actually dispatched. The row's `batchIds` is what the outcome ledger
         // adjudicates against, so leaving the pre-claim list there would file a stranger's row under
@@ -1171,9 +1112,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       }
       if (batch.length === 0) {
         await appendLaneLog(laneId, "Every follow-up in this batch is held by another worker — nothing to dispatch.");
-        if (directed) await deps.settlePlan(directed.planId);
-        await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
-        return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+        // The approved direction this cycle would have executed is settled: it lost its batch before the
+        // lane adopted it, so it is not on the context yet.
+        return exitLane(ctx, "held-by-others", { planId: directed?.planId ?? null });
       }
     }
 
@@ -1200,9 +1141,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       if (!res.committed) {
         // Nothing landed, so there is nothing for a rescan to attribute. Release rather than leave a
         // claim nobody will adjudicate — the same contract every other non-rescanning path here has.
-        await releaseClaims(`loop cycle ${cycle}'s ${kind} lane wrote nothing`);
-        await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
-        return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+        return exitLane(ctx, "install-wrote-nothing", { why: `loop cycle ${cycle}'s ${kind} lane wrote nothing` });
       }
     } else {
       await appendLaneLog(
@@ -1237,14 +1176,17 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // out of `openBatch` — and the rest execute now, fenced to the plan they declared. An approved
       // direction skips planning: its plan is the one the operator read.
       const activity = deps.activitySink(laneId);
+      // On the context from here on, so EVERY exit — a failed plan and a force-fail included — writes
+      // the trailing tail before the row goes terminal and leaves no throttle timer behind it.
+      ctx.activity = activity;
       let planBlock = "";
       let resumeSessionId: string | null = null;
       if (directed) {
-        planId = directed.planId;
+        ctx.planId = directed.planId;
         planBlock = directed.planBlock;
         declaredMoves = directed.declaredMoves;
         directionFence = directed.directionFence;
-        await updateLane(laneId, { planId });
+        await updateLane(laneId, { planId: ctx.planId });
       } else if (runnerFlags?.plan) {
         await updateLane(laneId, { stage: "planning" });
         const planned = await watch.stage("plan", () =>
@@ -1275,7 +1217,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         await updateLane(laneId, { stage: null });
         if (planned.mode === "failed") return fail(planned.message, "plan");
         if (planned.mode === "execute") {
-          planId = planned.planId;
+          ctx.planId = planned.planId;
           planBlock = planned.planBlock;
           resumeSessionId = planned.resumeSessionId;
           declaredMoves = planned.declaredMoves;
@@ -1284,14 +1226,15 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           // never planned carries null, which is an absence and not "the same model as the executor".
           planModel = planned.planModel;
           if (planModel) await updateLane(laneId, { planModel });
-          if (planId) await updateLane(laneId, { planId });
+          if (ctx.planId) await updateLane(laneId, { planId: ctx.planId });
           if (planned.parked.length > 0) {
             const parked = new Set(planned.parked.map((p) => p.id));
-            const toRelease = claimedIds.filter((id) => parked.has(id));
-            if (toRelease.length > 0) {
-              await releaseFollowups(toRelease, "parked: its plan moves architecture and waits for the operator's approval", LANE_ACTOR).catch(() => 0);
-            }
-            claimedIds = claimedIds.filter((id) => !parked.has(id));
+            // A PARTIAL release, mid-lane — not an exit: the rest of the batch still executes.
+            await releaseLaneClaims(
+              ctx.claimedIds.filter((id) => parked.has(id)),
+              "parked: its plan moves architecture and waits for the operator's approval",
+            );
+            ctx.claimedIds = ctx.claimedIds.filter((id) => !parked.has(id));
             batch = planned.execute;
             await updateLane(laneId, { batchIds: batch.map((b) => b.id), dimId: dominantDimId(batch) });
             await appendLaneLog(
@@ -1299,11 +1242,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
               `${planned.parked.length} item(s) need an architecture move — parked as a plan waiting for approval; this lane works the other ${batch.length}.`,
             );
           }
-          if (batch.length === 0) {
-            await activity.flush().catch(() => undefined);
-            await updateLane(laneId, { phase: "done", stage: null, endedAt: new Date() });
-            return { laneId, progressed: false, commits: 0, closed: 0, error: null };
-          }
+          if (batch.length === 0) return exitLane(ctx, "plan-parked-all");
         }
       }
       await excludeLaneReport(worktree.dir);
@@ -1456,7 +1395,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       await recordAgentCost(laneId, org, repo, result, input, planResult);
       // …and charged to the direction the plan ran under — the half of a direction's budget its cycle
       // count cannot measure.
-      await deps.chargePlanCost(planId, result.costMicros);
+      await deps.chargePlanCost(ctx.planId, result.costMicros);
       // THE AGENT'S OWN ACCOUNT, read before the commit and the rescan so a lane that dies later
       // still carries it. A missing or malformed report is `parsed: false` — which is not the same
       // fact as "it skipped nothing", and the ledger renders the difference.
@@ -1486,10 +1425,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
             await updateLane(laneId, {
               deliverables: [{ headline: "Held — dependency install failed", dimId: null, kind: "noted", covers: [], evidence: depsOut.note }],
             });
-            await releaseClaims(`loop cycle ${cycle}'s dependency change could not be installed, so nothing adjudicated the claim`);
-            await deps.settlePlan(planId);
-            await updateLane(laneId, { phase: "done", commits: 0, stage: null, endedAt: new Date() });
-            return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+            return exitLane(ctx, "deps-held", {
+              why: `loop cycle ${cycle}'s dependency change could not be installed, so nothing adjudicated the claim`,
+            });
           }
         }
       }
@@ -1541,10 +1479,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
               },
             ],
           });
-          await releaseClaims(`loop cycle ${cycle} was reversed by the degradation guard, so nothing adjudicated the claim`);
-          await deps.settlePlan(planId);
-          await updateLane(laneId, { phase: "done", commits: 0, stage: null, endedAt: new Date() });
-          return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+          return exitLane(ctx, "guard-rejected", {
+            why: `loop cycle ${cycle} was reversed by the degradation guard, so nothing adjudicated the claim`,
+          });
         }
       } else {
         // The operator turned the guard off. Recorded as `skipped` WITH the reason, never left null:
@@ -1610,16 +1547,16 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // reset this lane's branch, so the next cycle does not build on held work.
     if ((runnerFlags?.plan || directed) && commits > 0) {
       const fence = await watch.stage("git", () =>
-        deps.checkPlanFence({ org, repo, laneId, worktree, before, planId, declaredMoves, directionFence }),
+        deps.checkPlanFence({ org, repo, laneId, worktree, before, planId: ctx.planId, declaredMoves, directionFence }),
       );
       if (fence.verdict === "held") {
         await appendLaneLog(laneId, fence.reason);
         await updateLane(laneId, {
           deliverables: [{ headline: "Held — an architecture move the plan did not declare", dimId: null, kind: "noted", covers: [], evidence: fence.reason }],
         });
-        await releaseClaims(`loop cycle ${cycle}'s diff moved architecture its plan did not declare, so it waits for the operator`);
-        await updateLane(laneId, { phase: "done", commits: 0, stage: null, endedAt: new Date() });
-        return { laneId, progressed: false, commits: 0, closed: 0, error: null };
+        return exitLane(ctx, "fence-held", {
+          why: `loop cycle ${cycle}'s diff moved architecture its plan did not declare, so it waits for the operator`,
+        });
       }
     }
 
@@ -1650,21 +1587,18 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
             { headline: "Void — the lane edited the surface that scores it", dimId: null, kind: "noted", covers: [], evidence: reason },
           ],
         });
-        await releaseClaims(`loop cycle ${cycle} was voided: ${firstLine(reason)}`);
-        await deps.settlePlan(planId);
-        await updateLane(laneId, { phase: "void", voidReason: reason, commits, stage: null, endedAt: new Date() });
-        // `progressed: false` — a void lane is not evidence this repo is worth another cycle, and
-        // counting it as progress would let an arm buy itself cycles by editing its own gate.
-        return { laneId, progressed: false, commits, closed: 0, error: null };
+        // `progressed: false` (the table's row) — a void lane is not evidence this repo is worth another
+        // cycle, and counting it as progress would let an arm buy itself cycles by editing its own gate.
+        return exitLane(ctx, "void", { why: `loop cycle ${cycle} was voided: ${firstLine(reason)}`, commits, patch: { voidReason: reason } });
       }
     }
 
     if (input.shouldStop?.()) {
-      await releaseClaims(`loop cycle ${cycle} was stopped before its rescan could adjudicate`);
-      await deps.settlePlan(planId);
-      await updateLane(laneId, { phase: "done", commits, stage: null, endedAt: new Date() });
-      await appendLaneLog(laneId, "Stop requested — winding this lane down before the rescan; the batch is released.");
-      return { laneId, progressed: false, commits, closed: 0, error: null };
+      return exitLane(ctx, "stopped", {
+        why: `loop cycle ${cycle} was stopped before its rescan could adjudicate`,
+        log: "Stop requested — winding this lane down before the rescan; the batch is released.",
+        commits,
+      });
     }
 
     // A LANE THAT COMMITTED NOTHING DOES NOT RESCAN. L2-B-01: the L2 run's agent lane lost its work,
@@ -1678,14 +1612,11 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // (The read side refuses the same pair independently — `laneAttribution` in cockpitDrift.ts —
     // because the rows written before this gate existed are still in the database.)
     if (commits === 0) {
-      await releaseClaims(`loop cycle ${cycle} committed nothing, so there was nothing for a rescan to adjudicate`);
-      await deps.settlePlan(planId);
-      await appendLaneLog(
-        laneId,
-        "No commits, so no rescan: scanning a worktree that nothing landed in would make it this repository's latest reading and credit the repo with work that does not exist.",
-      );
-      await updateLane(laneId, { phase: "done", commits, stage: null, endedAt: new Date() });
-      return { laneId, progressed: false, commits, closed: 0, error: null };
+      return exitLane(ctx, "no-commits", {
+        why: `loop cycle ${cycle} committed nothing, so there was nothing for a rescan to adjudicate`,
+        log: "No commits, so no rescan: scanning a worktree that nothing landed in would make it this repository's latest reading and credit the repo with work that does not exist.",
+        commits,
+      });
     }
 
     // ── THE RUN CADENCE. This cycle committed, and under `"run"` it is not the last one the run will
@@ -1700,22 +1631,21 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         beforeScanId,
         commits,
         batch,
-        claimedIds: [...claimedIds],
+        claimedIds: [...ctx.claimedIds],
         agentClaims,
         report,
         briefedPlaybooks,
         practiceId: input.practiceId ?? null,
         autoKeepLessons: runnerFlags?.autoKeepLessons === true && verdict === "verified",
       };
-      // Ownership of the claim transfers with the entry — see `DeferredCycle`. Clearing it here is
-      // what stops this lane's own failure paths from releasing rows the settle step is now holding.
-      claimedIds = [];
-      await appendLaneLog(
-        laneId,
-        `Rescan deferred: this run rescans once, after the last cycle this repository progresses in — the trailers on ${worktree.branch} are adjudicated then, against one reading of everything that landed.`,
-      );
-      await updateLane(laneId, { phase: "done", commits, stage: null, endedAt: new Date() });
-      return { laneId, progressed: true, commits, closed: 0, error: null, deferred };
+      // Ownership of the claim transfers with the entry — see `DeferredCycle`. The door empties the
+      // context without releasing (`deferred` releases nothing), which is what stops this lane's own
+      // failure paths from releasing rows the settle step is now holding.
+      return exitLane(ctx, "deferred", {
+        log: `Rescan deferred: this run rescans once, after the last cycle this repository progresses in — the trailers on ${worktree.branch} are adjudicated then, against one reading of everything that landed.`,
+        commits,
+        deferred,
+      });
     }
 
     await updateLane(laneId, { phase: "rescanning", commits });
@@ -1746,14 +1676,12 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       if (isLaneDeadlineError(err)) throw err;
       await appendLaneLog(laneId, `Rescan failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    if (afterScanId == null) {
-      // No rescan means no adjudication: the rows would sit in_progress forever, owned by nobody.
-      // Releasing risks re-dispatching work that exists unverified on this branch — accepted; a
-      // duplicate attempt is recoverable and a zombie claim is not.
-      await releaseClaims(`loop cycle ${cycle}'s rescan failed, so nothing adjudicated the claim`);
-    } else {
-      claimedIds = []; // the rescan adjudicated; the claim is now the scan feedback's to settle
-    }
+    // No rescan means no adjudication: the rows would sit in_progress forever, owned by nobody, so an
+    // `unread` end releases them. Releasing risks re-dispatching work that exists unverified on this
+    // branch — accepted; a duplicate attempt is recoverable and a zombie claim is not. A reading that
+    // DID land takes the claim over at once: the scan feedback settles it from here.
+    const ruled = afterScanId != null;
+    if (ruled) ctx.claimedIds = [];
     // The log says which of the two numbers it means. A close here has been through the movement
     // witness; a claim has not, and saying "closed" for it is the laundering this lane no longer does.
     const claimNote = unverifiedClaimIds.length > 0 ? ` ${unverifiedClaimIds.length} more were CLAIMED by a commit trailer and the rescan did not confirm them — they stay open.` : "";
@@ -1763,99 +1691,40 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         ? `${closedIds.length} follow-up(s) VERIFIED closed — the gap is no longer raised and its dimension moved.`
         : "No follow-ups closed this cycle.") + claimNote,
     );
-    // WHAT THE LANE DELIVERED, as headlines (lane-deliverables.ts): the agent's claims, the install,
-    // and the ATTRIBUTABLE part of the diff — under the same verdict the ledger's number answers to.
-    // Best-effort end to end: a failed pair read or a polish that never answers leaves the column
-    // null, and the read side derives the same list from what is persisted.
-    const deliverables = await laneDeliverables(deps, {
-      org,
-      repo,
-      kind,
-      beforeScanId,
-      afterScanId,
-      commits,
-      closedIds,
-      agentClaims,
-      practiceName: input.practiceId ? input.practiceId.replace(/[-_]+/g, " ") : null,
-      cwd: worktree.dir,
-      // SAY IT IN THE LOG TOO. The disclosure row explains the ledger; this explains the run to
-      // somebody reading the lane while it happens, and it is the only place the fact survives if the
-      // deliverable derivation itself falls over.
-      onBase: (rel) => {
-        if (rel === "diverged") void appendLaneLog(laneId, BASE_DIVERGED_NOTE).catch(() => null);
-      },
-    });
-    await updateLane(laneId, {
-      phase: "done",
-      commits,
-      closedIds,
-      afterScanId,
-      stage: null,
-      endedAt: new Date(),
-      ...(deliverables ? { deliverables } : {}),
-    });
-    if (deliverables && deliverables.length > 0) {
-      await appendLaneLog(laneId, `Delivered: ${deliverables.map((d) => d.headline).join(" · ")}`);
-    }
-    // PER-ITEM OUTCOMES, after the rescan has ruled. The rescan's close wins over any claim; an id
-    // the agent said it SKIPPED is parked so the next cycle asks a different question instead of
-    // spending another session on the same refusal. Nothing on the Recommendation row changes — a
-    // deferral is advisory to `openBatch` alone.
-    if (isAgentLaneKind(kind) && batch.length > 0) {
-      await recordLaneOutcomes({
-        orgSlug: org,
+    // THE ADJUDICATION TAIL — headlines, the terminal row (through the door), per-item outcomes,
+    // lessons and playbook stamps — shared with the deferred settle, so the two logs read the same.
+    return adjudicateLane(
+      deps,
+      {
+        org,
+        repo,
         runId,
         laneId,
-        repoFullName: repo,
         cycle,
-        batchIds: batch.map((b) => b.id),
+        kind,
+        beforeScanId,
+        afterScanId,
+        commits,
         closedIds,
+        batch,
+        agentClaims,
         report,
-      }).catch(() => []);
-
-      // ADOPTION EVIDENCE, on a verified close only. A row the rescan closed on a dimension the
-      // brief carried a playbook for is the one case where "this repo now follows that playbook" is
-      // supported by something other than hope — the agent read the steps and the verifier saw the
-      // dimension move. A close under a playbook the brief never quoted stamps nothing.
-      // LESSONS, as CANDIDATES — with ONE exception. A lesson is an unattended agent's claim about what
-      // this organization should believe, and the brief above reads memory as truth, so a human keeps or
-      // discards it through the lessons inbox. The exception (spark theater-upgrade, operator decision):
-      // a RUNNER lane the guard VERIFIED has its lessons kept automatically, through the same memory door
-      // and its duplicate check, tagged runner-kept and revocable from the ledger (loop-lessons-runner.ts).
-      if (report && report.lessons.length > 0) {
-        const kept = await recordLoopLessons(org, repo, laneId, report.lessons, {
-          autoKeep: runnerFlags?.autoKeepLessons === true && verdict === "verified",
-        }).catch(() => []);
-        if (kept.length > 0) {
-          const auto = kept.filter((k) => k.status === "kept").length;
-          await appendLaneLog(
-            laneId,
-            auto > 0
-              ? `${auto} lesson(s) kept into ${repo}'s procedural memory by the runner (verified lane — revocable from the ledger)${kept.length > auto ? `; ${kept.length - auto} left for review` : ""}.`
-              : `${kept.length} lesson candidate(s) recorded for review — nothing was written into memory.`,
-          );
-        }
-      }
-
-      const closedDims = new Set(batch.filter((b) => closedIds.includes(b.id)).map((b) => b.dimId));
-      const earned = briefedPlaybooks.filter((p) => closedDims.has(p.dimId)).map((p) => p.id);
-      if (earned.length > 0) {
-        const stamped = await stampPlaybookApplications(org, repo, earned).catch(() => 0);
-        if (stamped > 0) {
-          await appendLaneLog(laneId, `${stamped} playbook(s) from this lane's brief recorded as applied — the rescan verified the close.`);
-        }
-      }
-    }
-    return {
-      laneId,
-      progressed: commits > 0 || closedIds.length > 0,
-      commits,
-      closed: closedIds.length,
-      error: null,
-      // The reading this lane just took, handed up so the run's earlier deferred cycles are settled
-      // against it rather than against a second scan of the same tree.
-      ...(afterScanId ? { scan: { scanId: afterScanId, closedIds } } : {}),
-    };
+        briefedPlaybooks,
+        practiceId: input.practiceId ?? null,
+        autoKeepLessons: runnerFlags?.autoKeepLessons === true && verdict === "verified",
+        cwd: worktree.dir,
+      },
+      (columns) =>
+        exitLane(ctx, ruled ? "adjudicated" : "unread", {
+          why: `loop cycle ${cycle}'s rescan failed, so nothing adjudicated the claim`,
+          commits,
+          closed: closedIds.length,
+          patch: columns,
+          // The reading this lane just took, handed up so the run's earlier deferred cycles are settled
+          // against it rather than against a second scan of the same tree.
+          ...(afterScanId ? { scan: { scanId: afterScanId, closedIds } } : {}),
+        }),
+    );
   } catch (err) {
     // THE FORCE-FAIL. A cut lane takes the SAME exit as any other failed lane — the claim is
     // released, the row reaches a terminal phase with an honest error, and the worktree is removed by
@@ -1899,9 +1768,13 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
  * whole run), its per-item outcomes, its lessons and its playbook stamps — the same tail a `"cycle"`
  * lane runs for itself.
  *
- * NEVER THROWS. A failed or impossible scan releases every carried claim and says so on the lane,
- * because the one thing worse than an unadjudicated cycle is an unadjudicated cycle still holding
- * rows nobody will ever re-dispatch.
+ * NEVER THROWS, AND NEVER HANGS. A failed or impossible scan releases every carried claim and says so
+ * on the lane, because the one thing worse than an unadjudicated cycle is an unadjudicated cycle still
+ * holding rows nobody will ever re-dispatch. And the closing rescan runs under its OWN watchdog, like
+ * every other lane stage: it used to be the one stage outside one, and the engine drops the last
+ * lane's watchdog before this runs — so a closing rescan that never settled survived an operator's
+ * Stop and left the run `running`. The engine registers this watchdog (`onWatchdog`) where a stop's
+ * teeth bite; its deadline is the rescan and git allowances the lane ceiling already carries.
  */
 export async function settleDeferredCycles(args: {
   runId: string;
@@ -1912,94 +1785,105 @@ export async function settleDeferredCycles(args: {
   deps?: Partial<LaneDeps>;
   /** The final cycle's own reading, when it took one. Absent means this function takes it. */
   scan?: { scanId: string | null; closedIds: readonly string[] } | null;
+  /** Handed the closing rescan's watchdog the moment it exists, so a stop can force-fail it. */
+  onWatchdog?: (watchdog: LaneWatchdog) => void;
+  /** TEST SEAM ONLY — production derives `SETTLE_DEADLINE_MS`. */
+  watchdog?: LaneWatchdog;
 }): Promise<void> {
   if (args.deferred.length === 0) return;
   const deps: LaneDeps = { ...defaultLaneDeps, ...args.deps };
   const { org, repo, worktree } = args;
   const last = args.deferred[args.deferred.length - 1]!;
+  // Each deferred cycle ends through the same door a live lane does, holding the claim it carried.
+  const exitFor = (d: DeferredCycle): LaneExitContext => ({ ...createLaneExitContext(d.laneId, deps.settlePlan), claimedIds: [...d.claimedIds] });
 
   let scanId = args.scan?.scanId ?? null;
   let closedIds: string[] = [...(args.scan?.closedIds ?? [])];
   if (!args.scan) {
+    const watch = args.watchdog ?? createLaneWatchdog({ deadlineMs: SETTLE_DEADLINE_MS });
+    args.onWatchdog?.(watch);
     try {
       await updateLane(last.laneId, { phase: "rescanning" });
       await appendLaneLog(last.laneId, `Rescanning ${worktree.branch} once for the whole run — ${args.deferred.length} deferred cycle(s).`);
-      const out = await deps.rescan({
-        org,
-        repo,
-        dir: worktree.dir,
-        branch: worktree.branch,
-        onStage: (stage) => void updateLane(last.laneId, { stage }),
-      });
+      const out = await watch.stage("rescan", () =>
+        deps.rescan({
+          org,
+          repo,
+          dir: worktree.dir,
+          branch: worktree.branch,
+          onStage: (stage) => void updateLane(last.laneId, { stage }),
+        }),
+      );
       scanId = out.scanId;
       closedIds = out.closedIds;
     } catch (err) {
+      if (isLaneDeadlineError(err)) {
+        // CUT, not failed: the reading is not coming, and every cycle it owed is ended NOW — claim
+        // released, row terminal at the stage that hung — so the run can reach its own terminal phase.
+        const why =
+          err.reason === "deadline"
+            ? `it exceeded its ${Math.round(watch.deadlineMs / 60_000)} min deadline`
+            : "the run was stopped while it was in flight and it did not return";
+        for (const d of args.deferred) {
+          const message = `The run's closing rescan was FORCE-FAILED: ${why}. This cycle's batch is released; its commits are on ${worktree.branch}, unadjudicated.`;
+          await exitLane(exitFor(d), "failed", { why: `the run's closing rescan was force-failed, so nothing adjudicated cycle ${d.cycle}'s claim`, log: message, error: message, stage: "rescan" }).catch(() => null);
+        }
+        return;
+      }
       await appendLaneLog(last.laneId, `The run's closing rescan failed: ${firstLine(err instanceof Error ? err.message : String(err))}`);
+    } finally {
+      watch.dispose();
     }
   }
 
   if (scanId == null) {
     for (const d of args.deferred) {
-      if (d.claimedIds.length > 0) {
-        await releaseFollowups(d.claimedIds, `the run's closing rescan never produced a reading, so nothing adjudicated cycle ${d.cycle}'s claim`, LANE_ACTOR).catch(() => 0);
-      }
-      await updateLane(d.laneId, { phase: "done", stage: null, endedAt: new Date() });
-      await appendLaneLog(d.laneId, "No closing rescan, so this cycle's batch was released rather than left claimed by nobody. Its commits are on the branch and unadjudicated.");
+      await exitLane(exitFor(d), "unread", {
+        why: `the run's closing rescan never produced a reading, so nothing adjudicated cycle ${d.cycle}'s claim`,
+        log: "No closing rescan, so this cycle's batch was released rather than left claimed by nobody. Its commits are on the branch and unadjudicated.",
+      });
     }
     return;
   }
 
   for (const d of args.deferred) {
     const mine = d.batch.map((b) => b.id).filter((id) => closedIds.includes(id));
-    const deliverables = await laneDeliverables(deps, {
-      org,
-      repo,
-      kind: d.kind,
-      beforeScanId: d.beforeScanId,
-      afterScanId: scanId,
-      commits: d.commits,
-      closedIds: mine,
-      agentClaims: d.agentClaims,
-      practiceName: d.practiceId ? d.practiceId.replace(/[-_]+/g, " ") : null,
-      cwd: worktree.dir,
-      onBase: (rel) => {
-        if (rel === "diverged") void appendLaneLog(d.laneId, BASE_DIVERGED_NOTE).catch(() => null);
-      },
-    });
-    await updateLane(d.laneId, {
-      phase: "done",
-      closedIds: mine,
-      afterScanId: scanId,
-      stage: null,
-      endedAt: new Date(),
-      ...(deliverables ? { deliverables } : {}),
-    });
     await appendLaneLog(
       d.laneId,
       mine.length > 0
         ? `${mine.length} follow-up(s) VERIFIED closed by the run's closing rescan — the gap is no longer raised and its dimension moved.`
         : "The run's closing rescan confirmed none of this cycle's items.",
     );
-    if (isAgentLaneKind(d.kind) && d.batch.length > 0) {
-      await recordLaneOutcomes({
-        orgSlug: org,
+    // THE SAME TAIL a `"cycle"` lane runs for itself (lane-adjudicate.ts) — so a deferred lane's log
+    // carries the delivered, lessons and playbooks lines too.
+    await adjudicateLane(
+      deps,
+      {
+        org,
+        repo,
         runId: args.runId,
         laneId: d.laneId,
-        repoFullName: repo,
         cycle: d.cycle,
-        batchIds: d.batch.map((b) => b.id),
+        kind: d.kind,
+        beforeScanId: d.beforeScanId,
+        afterScanId: scanId,
+        commits: d.commits,
         closedIds: mine,
+        batch: d.batch,
+        agentClaims: d.agentClaims,
         report: d.report,
-      }).catch(() => []);
-      if (d.report && d.report.lessons.length > 0) {
-        await recordLoopLessons(org, repo, d.laneId, d.report.lessons, { autoKeep: d.autoKeepLessons === true }).catch(() => []);
-      }
-      const closedDims = new Set(d.batch.filter((b) => mine.includes(b.id)).map((b) => b.dimId));
-      const earned = d.briefedPlaybooks.filter((p) => closedDims.has(p.dimId)).map((p) => p.id);
-      if (earned.length > 0) await stampPlaybookApplications(org, repo, earned).catch(() => 0);
-    }
+        briefedPlaybooks: d.briefedPlaybooks,
+        practiceId: d.practiceId,
+        autoKeepLessons: d.autoKeepLessons === true,
+        cwd: worktree.dir,
+      },
+      (columns) => exitLane(exitFor(d), "adjudicated", { patch: columns }),
+    );
   }
 }
+
+/** The closing rescan's ceiling: the rescan and git allowances a lane's own deadline already carries. */
+export const SETTLE_DEADLINE_MS = LANE_RESCAN_ALLOWANCE_MS + LANE_GIT_ALLOWANCE_MS;
 
 /**
  * The run ended (or was stopped) with cycles still deferred and no reading possible — give the rows
@@ -2008,7 +1892,7 @@ export async function settleDeferredCycles(args: {
  */
 export async function abandonDeferredCycles(deferred: readonly DeferredCycle[], why: string): Promise<void> {
   for (const d of deferred) {
-    if (d.claimedIds.length > 0) await releaseFollowups(d.claimedIds, why, LANE_ACTOR).catch(() => 0);
+    await releaseLaneClaims(d.claimedIds, why);
     await appendLaneLog(d.laneId, `This cycle's rescan was deferred and the run ended before it could be taken — ${why}. Its batch is released; its commits are on the branch, unadjudicated.`).catch(() => null);
   }
 }
