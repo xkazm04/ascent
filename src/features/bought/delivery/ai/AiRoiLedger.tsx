@@ -116,6 +116,9 @@ export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: str
       {/* the takeaway — in noCostSource mode state only the real (git) facts + a connect prompt, never fake $. */}
       {noCostSource ? (
         <p className="type-body-sm text-slate-400">
+          {s.seatSource && s.totalSeats > 0 && (
+            <>{s.seatSource} reports <span className="font-mono text-slate-200">{s.totalSeats} seats</span> for the org. Repository seat allocation is unknown. </>
+          )}
           AI reaches <span className="font-mono text-slate-200">{s.aiShareOfPRs}%</span> of merged PRs
           {s.governedAiShare != null && (
             <>

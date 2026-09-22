@@ -162,6 +162,8 @@ describe("buildAiDeliveryModel — a cost-less connector is not a cost source", 
   it("reports zero spend rather than a fabricated allocation", () => {
     const m = buildAiDeliveryModel(fleet, seatsOnly)!;
     expect(m.summary.totalMonthlySpend).toBe(0);
+    expect(m.summary.totalSeats).toBe(40);
+    expect(m.summary.seatSource).toBe("Copilot");
     expect(m.repos.every((r) => r.monthlySpend === 0 && r.seats === 0)).toBe(true);
   });
 

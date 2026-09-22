@@ -114,6 +114,8 @@ export interface AiDeliverySummary {
   totalMonthlySpend: number;
   annualSpend: number;
   totalSeats: number;
+  /** Connected org-level seat source when no cost source exists; seats are not assigned to repos. */
+  seatSource?: string | null;
   totalAiPRs: number;
   totalPRs: number;
   aiShareOfPRs: number; // % of PRs AI-involved across the fleet

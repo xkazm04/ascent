@@ -124,7 +124,15 @@ export function buildAiDeliveryModel(pr: OrgPrSignals | null, usage?: OrgUsageRo
   for (const r of repos) counts[r.verdict]++;
 
   const totalMonthlySpend = repos.reduce((s, r) => s + r.monthlySpend, 0);
-  const totalSeats = repos.reduce((s, r) => s + r.seats, 0);
+  // A seats-only connector reports an ORG total, not a repo allocation. Keep repo seats unknown
+  // while carrying the measured org count into the summary; the spend fidelity still stays "none".
+  const seatOnlyTotals = fidelity === "none" ? (usage?.orgTotals ?? []).filter((t) => t.seats > 0) : [];
+  const totalSeats = seatOnlyTotals.length > 0
+    ? seatOnlyTotals.reduce((s, t) => s + t.seats, 0)
+    : repos.reduce((s, r) => s + r.seats, 0);
+  const seatSource = seatOnlyTotals.length === 1
+    ? (SOURCE_NAME[seatOnlyTotals[0]!.source] ?? seatOnlyTotals[0]!.source)
+    : seatOnlyTotals.length > 1 ? "Connected providers" : null;
   const totalAiPRs = repos.reduce((s, r) => s + r.aiPRs, 0);
   const totalPRs = repos.reduce((s, r) => s + r.prs, 0);
   const idleSpend = repos.filter((r) => r.verdict === "idle").reduce((s, r) => s + r.monthlySpend, 0);
@@ -154,6 +162,7 @@ export function buildAiDeliveryModel(pr: OrgPrSignals | null, usage?: OrgUsageRo
       totalMonthlySpend,
       annualSpend: totalMonthlySpend * 12,
       totalSeats,
+      seatSource,
       totalAiPRs,
       totalPRs,
       aiShareOfPRs: totalPRs > 0 ? Math.round((totalAiPRs / totalPRs) * 100) : 0,

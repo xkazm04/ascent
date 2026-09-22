@@ -2919,3 +2919,7 @@ unrecognized fields remain accepted; supported metric selection still determines
 Copilot seat and engagement requests each use the shared 30-second GitHub timeout,
 including response-body reads. A timeout reports that source as unreachable; a
 successful companion request still contributes its available data.
+
+Delivery shows an org-level Copilot seat count and source after a seats-only sync, even when
+cost is unavailable. Repository seat cells stay empty because the connector does not
+attribute seats to repositories; money figures remain empty.
