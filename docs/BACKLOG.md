@@ -355,4 +355,4 @@ Coordinator wave over **all 54 contexts**, 5 highest-impact cards each (270). De
 | Live War Room | Surface drive/run outcome on the shared kiosk instead of standing-only LiveWarRoom | M | none | none |
 | Members & Access Control | Let viewers read the org roster; keep role writes owner-only | M | policy-loosen | catalog said policy-tighten; GET `/api/org/members` currently owner-only — widening it is a human call |
 
-Remaining auto-buildable cards (37) stay in `.personas/scan-sweep-20260917/catalog.json` for later waves. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest are unrecorded in the outbox and live in the catalog.
+The 2026-09-22 recount is in [the risk-ordered execution plan](scan-sweep-risk-plan-2026-09-22.md): 47 open titles, including the viewer-roster policy decision skipped in wave 5. The earlier 37-card estimate was based on the wave 5 pick list; the recount also marks two unpicked titles already implemented. Outbox ingest cap took 30 remaining findings (escalated first, then highest impact); the rest live in the catalog.
