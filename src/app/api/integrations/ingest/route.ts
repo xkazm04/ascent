@@ -1,7 +1,7 @@
 // POST /api/integrations/ingest — the authenticated ingestion entrypoint for AI-usage telemetry.
 //
 // Validates the per-org ingest token (Authorization: Bearer <token>, the header a Claude Code OTel
-// exporter is configured to send), then STORES any records sent in our normalized JSON contract
+// exporter is configured to send), then STORES supported records sent in our normalized JSON contract
 // { records: [{ source, scope, scopeKey, periodStart, tokens?, costCents?, sessions?, seats?, fidelity }] }.
 // A body with no `records` (e.g. a raw OTLP push to THIS base path) is accepted with 202 but not
 // persisted here — an OTel exporter instead targets the /v1/metrics sub-route, which parses OTLP metrics
@@ -26,7 +26,7 @@ function toRecord(x: unknown): UsageRecordInput | null {
   if (Number.isNaN(periodStart.getTime())) return null;
   if (typeof r.source !== "string" || typeof r.scopeKey !== "string") return null;
   const scope = r.scope;
-  if (scope !== "repo" && scope !== "user" && scope !== "team" && scope !== "org") return null;
+  if (scope !== "repo" && scope !== "org") return null;
   const fidelity = r.fidelity;
   if (fidelity !== "measured" && fidelity !== "allocated") return null;
   const num = (v: unknown) => (typeof v === "number" ? v : 0);
@@ -58,6 +58,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (Array.isArray(body.records) && body.records.length > 0) {
+    // User/team rows cannot be attributed by getOrgUsageRollup. Reject the whole batch rather than
+    // acknowledge storage that silently disappears from Delivery, or mix overlapping scopes into
+    // org totals and double-count spend.
+    if (body.records.some((x) => x && typeof x === "object" &&
+      ("scope" in x) && (x.scope === "user" || x.scope === "team"))) {
+      return NextResponse.json({ error: "Usage scope must be repo or org; user and team scopes are not rolled up." }, { status: 400 });
+    }
     const records = body.records.map(toRecord).filter((r): r is UsageRecordInput => r !== null);
     const res = await recordUsage(gate.slug, records);
     return NextResponse.json({ accepted: true, persisted: res.ok, stored: res.stored, org: gate.slug }, { status: 202 });

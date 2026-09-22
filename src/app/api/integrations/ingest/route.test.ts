@@ -60,6 +60,13 @@ describe("GET /api/integrations/ingest — health probe", () => {
 });
 
 describe("POST /api/integrations/ingest", () => {
+  it.each(["user", "team"])("rejects %s scope with 400 before storing a mixed batch", async (scope) => {
+    const res = await POST(mkReq(JSON.stringify({ records: [validRecord, { ...validRecord, scope }] })));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Usage scope must be repo or org; user and team scopes are not rolled up." });
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
   it("401s a missing/invalid ingest token before touching the DB", async () => {
     mockParse.mockReturnValue(null);
     const res = await POST(mkReq(JSON.stringify({ records: [validRecord] })));

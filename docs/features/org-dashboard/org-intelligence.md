@@ -1612,6 +1612,10 @@ Per-user sessions, lines, commits and PRs, and Anthropic Admin Usage/Cost totals
 written by this connector and are not listed. The card (`ProviderCard`) renders the registry
 verbatim, so honesty lives in `PROVIDERS[].capabilities`.
 
+The JSON usage ingest endpoint accepts `scope=repo` and `scope=org`. It rejects `scope=user` and
+`scope=team` with 400 for the whole batch: Delivery has no rollup for those records, and folding
+them into org totals alongside repo or org records could count the same spend twice.
+
 | Fidelity | Provider | What it means |
 | --- | --- | --- |
 | `measured` | Claude Code (available) | Spend attributed to the exact repo, via the OTel `git.repository` resource attribute. |
