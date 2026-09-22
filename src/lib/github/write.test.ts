@@ -158,6 +158,16 @@ describe("openDraftPr — never overwrite a real file on the base branch (data-l
 });
 
 describe("openDraftPr — happy path creates the file on the working branch", () => {
+  it("preserves slash-separated base branches in the ref path", async () => {
+    installRouter({ baseFileSha: null, branchFileSha: null });
+
+    await openDraftPr({ ...baseInput(), base: "release/1.2" });
+
+    expect(calls.find((c) => c.path.includes("/git/ref/heads/"))?.path).toBe(
+      `/repos/${OWNER}/${REPO}/git/ref/heads/release/1.2`,
+    );
+  });
+
   it("creates the file on the WORKING branch (not base) when it does not exist anywhere", async () => {
     installRouter({ baseFileSha: null, branchFileSha: null });
 

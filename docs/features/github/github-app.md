@@ -265,6 +265,7 @@ permissions." and the two secrets can still be set by hand.
 branch**, and that refusal is load-bearing rather than a limitation: it seeds STARTER artifacts, so a
 PR replacing a real `CODEOWNERS` / `SECURITY.md` / `ci.yml` with a scaffold would delete the
 customer's content the moment it merged — fanned across a whole fleet from one click.
+The writer preserves slash-separated base branches in the GitHub ref path when it reads their head.
 
 Moonshot #8 needs the opposite shape — write INTO a file the customer already owns — so it got a
 **sibling module**, `src/lib/github/admission-write.ts`, rather than a relaxation of that rule:

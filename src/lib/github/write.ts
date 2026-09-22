@@ -43,7 +43,7 @@ async function resolveBaseBranch(token: string, owner: string, repo: string, bas
 
 async function refSha(token: string, owner: string, repo: string, branch: string): Promise<string> {
   const ref = await githubAppFetch<{ object: { sha: string } }>(
-    `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`,
+    `/repos/${owner}/${repo}/git/ref/heads/${encodePathSegments(branch)}`,
     token,
   );
   return ref.object.sha;
