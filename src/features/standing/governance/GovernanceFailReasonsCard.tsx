@@ -46,14 +46,14 @@ export function GovernanceFailReasonsCard({ g }: { g: GovernanceOverview }) {
               // set none — correct, and silent about the only part she has a stake in.
               const declared = unjudgedBarDeclaration(r.key, g.savedPolicy);
               return (
-                <div key={r.key} className="flex items-center gap-3 type-body-sm">
+                <div key={r.key} className="flex flex-wrap items-center gap-3 type-body-sm">
                   <span className="w-44 shrink-0 text-slate-500">{r.label}</span>
                   <span className="flex-1 text-slate-500">
                     {FLEET_UNJUDGED_NOTE}
                     {declared ? ` — ${declared}` : ""}
                   </span>
                   <span className="w-16 shrink-0 text-right font-mono text-slate-600">—</span>
-                  <span aria-hidden className="w-52 shrink-0" />
+                  <span aria-hidden className="hidden w-52 shrink-0 xl:block" />
                 </div>
               );
             }
@@ -70,13 +70,12 @@ export function GovernanceFailReasonsCard({ g }: { g: GovernanceOverview }) {
             // fleet-wide" a bare 0 reads as the placeholder it is not.
             const earned = earnedZeroNote(r.key, n, g.assessed, g.measuredOn, g.barSet);
             return (
-              <div key={r.key} className="flex items-center gap-3 type-body-sm">
+              <div key={r.key} className="flex flex-wrap items-center gap-3 type-body-sm">
                 <span className="w-44 shrink-0 text-slate-400">{r.label}</span>
-                <Meter className="flex-1" value={pct} color={n ? "#ef4444" : "#334155"} />
+                <Meter className="min-w-28 flex-1" value={pct} color={n ? "#ef4444" : "#334155"} />
                 <span className="w-16 shrink-0 text-right font-mono text-slate-300">{n} repo{n === 1 ? "" : "s"}</span>
-                {/* The column is always reserved so the meters stay aligned whether or not a row
-                    earned a qualifier — a note that reflows the chart it annotates is a worse read
-                    than no note. */}
+                {/* Keep the qualifier column reserved on wide rows; wrapping preserves the meter's
+                    minimum width when the card is narrow. */}
                 <span className="w-52 shrink-0 text-right text-slate-500">{earned ?? ""}</span>
               </div>
             );

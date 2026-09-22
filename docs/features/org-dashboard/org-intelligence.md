@@ -580,6 +580,9 @@ rollup row carries neither a conformance ledger nor PR stats, so both criteria a
 repo, every time. `governance.ts` has always said so in a comment — *"these stay 0 honestly, because
 the criteria were never DUE here"* — and the comment never reached the screen.
 
+The rows wrap when space is tight, and measured bars keep a minimum width so the comparison remains
+readable on narrow screens.
+
 Live cost (UAT 2026-08-30, `PRIYA-L1-02`): a platform lead who had just declared two required controls
 read **"A required control is failing — 0 repos"** beside five genuinely measured meter rows, while the
 per-repo CI gate was blocking PRs on exactly those controls. Those two rows now render
