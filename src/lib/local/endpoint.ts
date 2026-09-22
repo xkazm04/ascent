@@ -92,13 +92,25 @@ function contextTokens(): number {
  * THE ENDPOINT THIS HALF OF AN ARM SPAWNS AGAINST, or `null` for "the transport's own default auth",
  * which for `claude` is the operator's subscription seat.
  *
+ * `baseUrl` is always the SERVER ROOT: a trailing slash is stripped, and so is one trailing
+ * `/v<digits>` segment — see the code below for why an OpenAI-compatible `/v1` suffix survives
+ * the probe but would otherwise break every Claude message.
+ *
  * Call it once per SPAWN, not once per lane: a split arm ("Claude plans, a local model executes")
  * resolves its two halves independently, and the whole configuration is unreachable if one answer is
  * reused for both sessions.
  */
 export function resolveLocalEndpoint(half: { transport: TransportId; model: string } | PlanArm | null | undefined): LocalEndpoint | null {
   if (!half || !isLocalHalf(half)) return null;
-  const baseUrl = (process.env[LOCAL_AGENT_URL_ENV]?.trim() || DEFAULT_LOCAL_AGENT_URL).replace(/\/+$/, "");
+  // Trailing slashes first, then ONE trailing `/v<digits>` segment — the OpenAI-compatible suffix.
+  // Strip it because operators routinely point `ASCENT_LOCAL_AGENT_URL` at the model server's /v1
+  // path (`http://host:11434/v1`) rather than its root; the transport probe passes, but every
+  // Claude-lane message would then POST to /v1/v1/messages, which no local inference server has.
+  // Only Pi appends `/v1` itself (`piBaseUrl`, pi.ts), which is why stripping here leaves it
+  // untouched.
+  const baseUrl = (process.env[LOCAL_AGENT_URL_ENV]?.trim() || DEFAULT_LOCAL_AGENT_URL)
+    .replace(/\/+$/, "")
+    .replace(/\/v\d+$/, "");
   const token = process.env[LOCAL_AGENT_TOKEN_ENV]?.trim() || DEFAULT_LOCAL_AGENT_TOKEN;
   return { baseUrl, model: half.model.trim(), token, contextTokens: contextTokens() };
 }

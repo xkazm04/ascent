@@ -74,6 +74,28 @@ describe("which half of an arm is local", () => {
     expect(ep).toEqual({ baseUrl: "http://10.0.0.4:11434", model: "llama3.3:70b", token: "anything", contextTokens: DEFAULT_LOCAL_AGENT_CONTEXT });
   });
 
+  describe("the server root: one trailing /v<digits> segment is stripped", () => {
+    it("strips an OpenAI-compatible /v1 suffix — the operator typed the model server path, not its root", () => {
+      process.env[LOCAL_AGENT_URL_ENV] = "http://10.0.0.4:11434/v1";
+      expect(resolveLocalEndpoint({ transport: "claude", model: "qwen3.8:27b" })?.baseUrl).toBe("http://10.0.0.4:11434");
+    });
+
+    it("strips a trailing slash after /v1 — neither the slash nor the suffix survives", () => {
+      process.env[LOCAL_AGENT_URL_ENV] = "http://10.0.0.4:11434/v1/";
+      expect(resolveLocalEndpoint({ transport: "claude", model: "qwen3.8:27b" })?.baseUrl).toBe("http://10.0.0.4:11434");
+    });
+
+    it("leaves a root with no suffix alone — DEFAULT_LOCAL_AGENT_URL", () => {
+      delete process.env[LOCAL_AGENT_URL_ENV];
+      expect(resolveLocalEndpoint({ transport: "pi", model: "m" })?.baseUrl).toBe(DEFAULT_LOCAL_AGENT_URL);
+    });
+
+    it("keeps a suffix that is NOT the last segment — /v1 is a path here, not a root", () => {
+      process.env[LOCAL_AGENT_URL_ENV] = "http://10.0.0.4:11434/v1/preview";
+      expect(resolveLocalEndpoint({ transport: "claude", model: "qwen3.8:27b" })?.baseUrl).toBe("http://10.0.0.4:11434/v1/preview");
+    });
+  });
+
   it("nothing to resolve is null, not a throw", () => {
     expect(resolveLocalEndpoint(null)).toBeNull();
     expect(resolveLocalEndpoint(undefined)).toBeNull();
