@@ -1076,7 +1076,7 @@ are unchanged rather than wrong.
 
 ## Declining a passport gap by choice, and the one identity a blocker has (0.4.0)
 
-**An owner can now record an accepted trade-off from the fleet Passports drawer.** Everything else
+**An owner can record an accepted trade-off from the passport card.** Everything else
 about "declined by choice" shipped with passport 0.4.0 and was unreachable: the allow-list
 (`DECLINABLE_PATHS` in `src/lib/analyze/passport-overlay.ts`), `PATCH
 /api/report/passport/overrides`, the 365-day re-confirmation window, the severity-drift
@@ -1085,12 +1085,15 @@ fields (criticality / lifecycle / rollback) had a control, so an owner who had d
 tracking — this is an internal cron worker" had nowhere to say it, and the blocker re-litigated
 itself on every scan, which is exactly what the overlay exists to prevent.
 
-- **Where.** `DeclineControl` (`src/features/standing/passports/DeclineControl.tsx`) sits beside the
-  org-decision buttons on each **allow-listed** blocker row in the expanded passport row, and again
-  on each entry of "Accepted by choice" as **Retract**.
+- **Where.** `PassportDeclineControl` (`src/features/standing/passports/PassportDeclineControl.tsx`)
+  renders under "Accept a gap" on `PassportCard` when the card is editable (`canEdit`, the per-repo
+  report page), beside `PassportOwnerControls`. Each offered gap gets **Accept**, which opens a
+  required reason draft; each existing decline gets **Retract**. The fleet drawer does not host it:
+  there the owner's declines are *read* (the "Accepted by choice" list, and the judgment model below).
 - **Which blockers.** Only those whose minted finding id appears in `DECLINABLE_PATHS`, resolved
-  through the exported `declinablePathForFinding(id)` — one copy of the allow-list, never a second in
-  the UI. An **evidence limitation** (`prod.enforcement-not-observable`,
+  through `DECLINABLE_BY_FINDING` by `declineOffers` / `isDeclinableFinding`
+  (`src/features/standing/passports/passportDeclineOffers.ts`) — one copy of the allow-list, never a
+  second in the UI. An **evidence limitation** (`prod.enforcement-not-observable`,
   `prod.observability-unassessable`, `prod.tests-unassessable`, `auto.self-verify-unassessable`)
   and an `unclassified` back-fill id get **no control at all**:
   declining one would silence a limit of *our* evidence rather than accept a real trade-off.
@@ -1101,35 +1104,62 @@ itself on every scan, which is exactly what the overlay exists to prevent.
   row (`prod.*-unassessable`, `auto.self-verify-unassessable`, `prod.enforcement-not-observable`)
   stays informational — the sentence is still there; the control is not. Pinned on
   `PassportDetailLists.keys.test.tsx` and `PassportRowDetail.dom.test.tsx`.
-- **What it sends.** `PATCH { repo, declined: { "<field.path>": { reason?, at, code, severity } } }`,
-  and `{ "<field.path>": null }` to retract. The reason is optional and capped at
-  `DECLINE_REASON_MAX` (280, the same constant the route parses with). `at`/`code`/`severity` are the
-  **baseline** the overlay compares against later — omit them and a decline can never age out and
-  never re-surface when the gap hardens.
-- **Owner gate.** The route gates (`requireOrgRole(org, "owner")`). The drawer does not know the
-  viewer's role — the Passports tab resolves no membership — so the control renders for everyone and
-  a non-owner sees the route's 403 as the inline error. Hiding it needs a role the server page does
-  not read today.
+- **What it sends.** `PATCH { repo, declined: { "<field.path>": { reason, code, severity } } }`,
+  and `{ "<field.path>": null }` to retract. The control requires a reason; the overlay's parser caps
+  it at 280 characters. `code`/`severity` are the **baseline** the overlay compares against later —
+  omit them and a decline never re-surfaces when the gap hardens. `at` and `by` are stamped by the
+  route from the server clock and the session, never accepted from the client.
+- **Owner gate.** The route gates (`requireOrgRole(org, "owner")`); the card renders the control only
+  when the page resolved an editable viewer.
 - **After the write** `router.refresh()` re-reads the server; the overlay is applied read-time, so
   the blocker moves under "Accepted by choice" with no reload and no rescan.
+- **The owner-settings Save no longer erases declines (2026-09-23).** `PassportOwnerControls` POSTs
+  `{ repo, criticality, lifecycle, rollback }` with no `declined`, and `setPassportOverrides`
+  (`src/lib/db/passport-overrides.ts`) used to replace the whole blob, so every accepted gap on the
+  repo, with its reason, author and baseline, vanished on an unrelated Save. An absent `declined` now
+  keeps what is stored; an explicit `declined` map (even `{}`) still replaces it. No stored row was
+  migrated or rewritten: the fix only stops the erasing write. Pinned by
+  `src/lib/db/passport-overrides.test.ts`.
 
-**One identity per blocker.** The org-decision system (accept / dismiss / snooze, `/api/org/decision`)
-keyed a passport blocker by `blockerKey(fullName, prose)` — an FNV-1a of the sentence — while the
-decline overlay joined on the minted `findings[].id`. Two subsystems, two names for one finding, so an
-LLM rewording a blocker silently reset an owner's snooze. `passportFindingKey(fullName, finding)` in
-`src/lib/org/findings.ts` is now the single derivation, used by both the nav badge
-(`passportFindings`, fed by `getOrgPassportBlockers`'s new `findings[]`) and the drawer's
-`BlockerList`. It prefers the minted id and falls back to the prose hash when there is none — which
-includes the positional `auto.unclassified.<index>` id `upgradePassport` back-fills for a stored
-blocker it cannot classify, an id `passport-migrate.ts` documents as non-durable and which must never
-carry a decision. The drawer **dual-reads** `[idKey, legacyProseKey]` so a decision recorded before
-this change keeps resolving, and writes the id key, migrating it forward on the next touch.
+**One judgment model per finding (2026-09-23).** A blocker's human judgment can sit in two ledgers:
+the owner's overlay decline (`Repository.passportOverridesJson.declined`) and a member's
+`OrgDecision` (module `passports`, accept / dismiss / snooze via `/api/org/decision`). Four surfaces
+ask whether it is decided: the drawer's `BlockerList`, the rail badge, the fleet Pareto and its issue
+draft. They used to answer separately and disagree. `src/lib/org/passport-judgments.ts` now owns both
+halves, and every one of them reads it:
 
-The **rail badge** dual-reads too: a `Finding` carries `legacyKeys[]` (the prose key it used to be
-decided under) and `isFindingResolved` — the one place a decision key is compared — treats a hit on
-the current key OR any legacy key as settled. Without that, improving the key derivation would itself
-have been the regression: an owner's existing snooze would stop suppressing the badge, curable only
-by deciding the same finding twice. `legacyKeys` is read-only; a write always uses the current key.
+- **The key: `passportJudgmentKey(fullName, finding)`.** A durable minted id keys on the id
+  (`acme/api::auto.self-verify-gaps`) for any wording of the sentence. No id, or the positional
+  `<axis>.unclassified.<i>` id `upgradePassport` back-fills for a stored blocker it cannot classify
+  (non-durable by `passport-migrate.ts`'s own definition), keys on the prose hash `blockerKey`.
+  `passportJudgmentKeys` adds the prose key of a durable-id blocker as a **read-only alias**, so a
+  decision recorded before minted ids keeps resolving; a write always uses the id key. `fnv1a`,
+  `blockerKey`, `findingItemKey` and `blockerKeys` are re-exported from `src/lib/org/findings.ts`, so
+  no import path moved.
+- **The state: `judgeFinding({ fullName, finding, declined, decisions })`** returns `open`,
+  `reconfirm`, `declined`, `dismissed`, `accepted` or `snoozed` under one fixed precedence:
+  **overlay reconfirm > overlay decline > OrgDecision > open**. A decline the overlay re-surfaced
+  (`needsReconfirm`) therefore reads open even when a member dismissed the same finding; the drawer
+  used to bury it behind a greyed "Dismissed" pill. `decisions` is the `decisionMap` view, so an
+  expired snooze reads open. A coverage hole gets no judgment at all (`null`): no key, no control, no
+  bucket.
+- **The rail badge** is fed `findings[]` by `getOrgPassportBlockers`, so `passportFindings` keys each
+  blocker through `passportJudgmentKey`, the key the drawer writes. It used to key on a hash of the
+  *current* sentence and reach the id key only through the `resolvedKeys` title alias, which hashes
+  the sentence *as it was on decision day*; the self-verify blocker interpolates its missing-script
+  list, so a repo that added one script brought a decided blocker back into the badge. A `Finding` now
+  carries read-only `aliases`, and `isFindingResolved` (`findings.ts`), used by the badge count and
+  the Overview Fix-first panel, treats a hit on the key or any alias as settled.
+- **The fleet Pareto** (`aggregateBlockers(rows, decisions)`) puts a repo whose team resolved the
+  blocker with an OrgDecision into a third population, `dismissedRepos`, drawn as a **dashed** mark
+  with its own "+N decided" count. It is counted beside the open repos (ranking uses open + accepted +
+  decided, so the bucket keeps its true size) and is **never an issue-draft target**, which reads
+  `repos` only. Pinned by `passportBlockerAgg.judgments.test.ts`.
+
+**Known gap.** An overlay decline is not written through to `OrgDecision`, so `decisionsForRepo` (the
+scan prompt's STANDING DECISIONS block) and Shared Org Memory see member decisions only: an owner's
+accepted gap never reaches the model. The `resolvedKeys` title alias (`src/lib/db/org-decisions.ts`)
+is now redundant for the badge and goes with the prose alias after 2027-03-01.
 
 ## The Passports tab draws its epistemics instead of narrating them (2026-09-08)
 
