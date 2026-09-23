@@ -15,6 +15,7 @@ import { OpenRouterByomSettings } from "./OpenRouterByomSettings";
 import { ModelScorecard } from "./ModelScorecard";
 import { BYOM_ANCHOR } from "./modelScorecardViz";
 import { ProviderBoundaryCard } from "./ProviderBoundaryCard";
+import { LaneRoutingCard } from "./LaneRoutingCard";
 import { DataErasureCard } from "./DataErasureCard";
 import { RetentionCard } from "./RetentionCard";
 import { PlanControl } from "./PlanControl";
@@ -27,15 +28,20 @@ import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { envBool } from "@/lib/env";
 import { polarEnabled } from "@/lib/polar";
+import { loadLaneRouting } from "@/lib/llm/lane-routes-load";
 
 export async function SettingsTab({ slug }: { slug: string }) {
   if (!(await hasOrgRole(slug, "owner"))) {
     return <OrgEmpty title="Owner only" body="Organization settings are available to organization owners." href={orgTabHref(slug, "overview")} cta="← Overview" />;
   }
-  const [config, credit, retention] = await Promise.all([
-    getOrgLlmConfig(slug),
+  const configRead = getOrgLlmConfig(slug);
+  const [config, credit, retention, laneRouting] = await Promise.all([
+    configRead,
     getCreditState(slug).catch(() => null),
     getOrgRetention(slug).catch(() => null),
+    // Where each LLM lane runs for this org, plus the "if switched on" preview of a saved provider.
+    // Never throws: an unreadable state renders as "could not be read", not as a platform guess.
+    configRead.then((c) => loadLaneRouting(slug, c)),
   ]);
 
   const planAllowed = planAllowsByom(credit?.plan);
@@ -54,6 +60,7 @@ export async function SettingsTab({ slug }: { slug: string }) {
       {/* First sight is graphical (§2.2): the boundary/billing/plan comparison the two BYOM cards
           below used to carry as a paragraph each, drawn once, above both. */}
       <ProviderBoundaryCard config={config} planAllowed={planAllowed} />
+      <LaneRoutingCard routing={laneRouting} />
       <LlmProviderSettings
         slug={slug}
         initial={config}
