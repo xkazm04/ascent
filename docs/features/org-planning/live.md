@@ -2555,7 +2555,7 @@ unapproved). Now:
   **Resolve-then-gate at org read**: the org comes from the plan row, and a caller who cannot read it
   gets the same 404 as a missing plan, before any git call. The route is self-hosted only, and a plan
   with no held branch is a 404. `PlanReview` mounts `HeldDiff`, which lists every file with its +/-
-  counts. A failed read says *"Could not read the held branch — …"*. The `git log --stat` copy command
+  counts. A failed read says *"Could not read the held branch"*, with the server's reason under it. The `git log --stat` copy command
   stays under it either way, so the review is never an empty list. The approve button on a held plan
   reads **"Approve — land these commits"**.
 - **Approval lands them.** `nextDirectedBatch` passes the row's `heldBranch` through as
