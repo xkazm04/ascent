@@ -16,19 +16,28 @@ import type { LaneDeliverable } from "@/lib/db/loop-runs-types";
 import { HEADLINE_WORDS } from "@/lib/local/lane-deliverables";
 import { resolveTextRunner } from "@/lib/llm/text";
 import { sanitizeAgentText } from "@/lib/llm/untrusted";
-import type { TextRunner } from "@/lib/llm/leg";
+import type { ResolvedTextRunner, TextRunner } from "@/lib/llm/leg";
 
 /** Hard ceiling on the polish call — a lane is never held longer than this for a rewrite. */
 export const LANE_SUMMARY_TIMEOUT_MS = 20_000;
 
+/**
+ * The resolved runner WITH its engine and model, or null when no model is reachable. The Settings
+ * lane-routing card (and its contract test) read which engine answers this lane from here; the lane
+ * itself only needs the runner, below. Platform seam on purpose, as resolveMemoryRunner.
+ */
+export async function resolveLaneSummaryTextRunner(orgSlug: string | null | undefined): Promise<ResolvedTextRunner | null> {
+  return resolveTextRunner({
+    legKind: "lane_summary",
+    timeoutMs: LANE_SUMMARY_TIMEOUT_MS,
+    meter: { orgSlug: orgSlug ?? null },
+  });
+}
+
 /** The runner, or null when no model is reachable — the caller then keeps the derived list. */
 export async function resolveLaneSummaryRunner(orgSlug: string | null | undefined): Promise<TextRunner | null> {
   try {
-    const runner = await resolveTextRunner({
-      legKind: "lane_summary",
-      timeoutMs: LANE_SUMMARY_TIMEOUT_MS,
-      meter: { orgSlug: orgSlug ?? null },
-    });
+    const runner = await resolveLaneSummaryTextRunner(orgSlug);
     return runner?.run ?? null;
   } catch {
     return null;
