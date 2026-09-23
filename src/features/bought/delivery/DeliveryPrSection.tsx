@@ -12,6 +12,8 @@ import { WhyChip } from "@/components/org/viz";
 import { PrSignalsBand, REVIEW_TARGET } from "./PrSignalsBand";
 import { PrRepoTable } from "./PrRepoTable";
 import { ReviewCoverageStrip } from "./ReviewCoverageStrip";
+import { ReviewIntegrityStrip } from "./ReviewIntegrityStrip";
+import { reviewIntegrityModel } from "./reviewIntegrityModel";
 import { BASIS_HINT, PRS_COLUMN_HINT, prSectionBasisLine } from "./prBasis";
 import type { OrgPrSignals } from "@/lib/db";
 
@@ -43,6 +45,10 @@ export function DeliveryPrSection({ pr }: { pr: OrgPrSignals }) {
       />
       <div className="mt-3">
         <PrSignalsBand pr={pr} />
+      </div>
+      {/* What the coverage cell above is made of: self-approved and within-minutes approvals. */}
+      <div id="review-integrity" className="mt-3 scroll-mt-24">
+        <ReviewIntegrityStrip model={reviewIntegrityModel(pr.perRepo)} />
       </div>
 
       {/* The averages above are only readable with the spread behind them: who drags the mean. */}

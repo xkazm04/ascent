@@ -6,6 +6,7 @@
 
 import { fmtHours } from "@/components/org/shared/ui";
 import { REVIEW_TARGET } from "./PrSignalsBand";
+import { integrityQuestionEvidence, integrityQuestions } from "./reviewIntegrityModel";
 import type { OrgGovernance, OrgPrSignals } from "@/lib/db";
 
 export interface Priority {
@@ -80,6 +81,20 @@ export function derivePriorities(pr: OrgPrSignals | null, gov: OrgGovernance | n
         }.`,
         href: "#per-repo",
         action: "See repos",
+      });
+    }
+    // Coverage counts every recorded approval. Where a repo's approvals mostly land within minutes of
+    // opening, clearing the coverage bar says little, so ask (a question about the repo's approvals,
+    // never a verdict on a reviewer). Independent of the coverage branch above: a fleet at 95% is
+    // exactly the one that otherwise gets the all-clear.
+    const questions = integrityQuestions(pr.perRepo);
+    if (questions.length > 0) {
+      out.push({
+        severity: "improve",
+        title: `Ask what approval means in ${questions.length} repo${questions.length > 1 ? "s" : ""}`,
+        evidence: integrityQuestionEvidence(questions),
+        href: "#review-integrity",
+        action: "See approvals",
       });
     }
     if (pr.avgAiInvolvedRate >= 10 && pr.avgAiGovernedRate != null && pr.avgAiGovernedRate < REVIEW_TARGET) {
