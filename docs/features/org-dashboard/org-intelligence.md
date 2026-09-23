@@ -2668,6 +2668,22 @@ at org scope only the declaration-level clauses, since no repository has been re
   `/api/org/ai-stance/apply` (admin; opens a draft PR committing `AI_POLICY.md`, rendered by
   `src/lib/org/stance-artifact.ts`, through the shared practices apply machinery; the filename
   deliberately matches the D1 detector's `ai[-_]policy` reward, so adoption lifts D1).
+  **The repo must belong to the org** (since 2026-09-23): `ai-stance/apply` refuses a repository
+  outside the gated org's namespace with 403 "That repository doesn't belong to <org>.", on the
+  preview as well as the write, and before any installation lookup. It used to gate `body.org` and
+  then mint the installation token for the repo's own owner, so an admin of one org could open a
+  draft `AI_POLICY.md` PR in another tenant's repository with that tenant's token. The fleet sibling
+  `apply-batch` already refused a foreign owner (400).
+
+**One door for customer-repo writes** (since 2026-09-23). Every in-context PR-write route
+(practices apply / apply-batch / rollout, ai-stance apply / apply-batch, admission propose / ruleset)
+resolves its token and its write coordinate through `requirePrWriteTarget(gatedOrg, repo, rule)` in
+`src/lib/github/pr-route.ts`. The token is always minted for the gated org; the coordinate is always
+the parsed repository, never the org slug. `rule` names the tenancy policy: `owner-namespace`
+(practices, ai-stance) or `tracked` (admission, via `repoUnderOrg`, now living beside the composer).
+`src/lib/github/pr-write-target.guard.test.ts` pins that these routes use it and that only six
+out-of-context routes (playbooks apply / apply-batch, report foundation pr / pr-batch / secrets,
+passport pr) still call `requirePrWriteContext` directly; that list may only shrink.
 
 ## Agent admission (Governance tab → Perimeter, moonshot #8)
 
@@ -2735,6 +2751,10 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
   which reads the `Repository` `(orgId, fullName)` key — the actual tenancy fact, so another tenant's
   repo still matches nothing. Deliberately the **tracked** set, not the `watched` subset: `watched` is
   a rescan-cadence preference, and a governance decision must not depend on whether autoscan is on.
+  **The writers target the admitted repo's real owner** (since 2026-09-23). `propose` and `ruleset`
+  admitted a tracked repo under another namespace and then passed the org slug as the GitHub owner, so
+  for org `kiro` over `xkazm04/kp` the CODEOWNERS read/PR and the ruleset list/apply/revert all went to
+  the nonexistent `kiro/kp`. They now write to `xkazm04/kp`, with the gated org's installation token.
 - **The column says which artifacts a decision writes** (since 2026-08-31; UAT `NADIA-L1-09`). It
   claimed a decision was *"recorded and enforceable"* and named none of the four, so a reader
   concluded all four had landed. One sentence under the intro now scopes it honestly: a decision
