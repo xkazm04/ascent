@@ -1,5 +1,6 @@
 import type { OrgRepo } from "@/components/onboarding/types";
 import { byProminence } from "@/components/onboarding/byProminence";
+import { isCovered } from "@/components/onboarding/repoStanding";
 import type { ImportPlan } from "@/components/onboarding/importPlan";
 
 /** Credit context for the select step's cost disclosure, tagged with the org it was read for so a
@@ -62,14 +63,24 @@ export interface RunConsent {
 
 // Cap the installation selector so a large org (hundreds/thousands of repos) yields a usable
 // list rather than an endless wall of buttons — mirrors the public listing's bound. The
-// most prominent repos surface first; the connect page offers full search over the rest.
+// most prominent repos surface first; the rest are added from the dashboard's Repositories tab.
 export const MAX_LIST = 50;
 
 export const MAX_SELECT = 10;
 
-// The single "default selection" rule: sort by prominence, take the top MAX_SELECT, seed the selection
-// from their fullNames. Re-sorting an already-sorted/sliced list through `byProminence` is idempotent,
+// The single "default selection" rule: repos WITHOUT a live score first, then prominence; take the top
+// MAX_SELECT and seed the selection from their fullNames. The coverage tier (first-run-onboarding-
+// wizard#B) spends the 10 slots on what the org has not measured yet, instead of re-buying the same
+// top-starred scores on every "Scan another"; a preview-scored repo is NOT covered (its live scan is
+// owed). With no standing on any row (the public listing) every repo is in the same tier, so the
+// result is exactly the old prominence top-N. Re-sorting an already-sorted/sliced list is idempotent,
 // so every phase entry point can route through this without changing its result.
 export function topSelection(list: OrgRepo[]): Set<string> {
-  return new Set([...list].sort(byProminence).slice(0, MAX_SELECT).map((r) => r.fullName));
+  const tier = (r: OrgRepo) => (isCovered(r.standing) ? 1 : 0);
+  return new Set(
+    [...list]
+      .sort((a, b) => tier(a) - tier(b) || byProminence(a, b))
+      .slice(0, MAX_SELECT)
+      .map((r) => r.fullName),
+  );
 }

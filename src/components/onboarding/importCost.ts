@@ -34,11 +34,16 @@ export const IMPORT_WATCH_MONTHLY_RATE = MONTHLY_RUNS[IMPORT_WATCH_SCHEDULE] ?? 
  *  band canRunRealScan treats as real-scan headroom, so the cost shown nets exactly what the gate
  *  qualified. Defaults to 0 (raw upper bound) so a caller that doesn't yet know the allowance — or the
  *  contract test — gets `count × rate`, unchanged. Delegates to estimateMonthlyCredits so the schedule
- *  rate (MONTHLY_RUNS) and the allowance netting stay single-sourced and can't drift from the commit. */
-export function importWatchMonthlyCredits(count: number, allowanceRemaining = 0): number {
-  // Every committed repo is watched on IMPORT_WATCH_SCHEDULE, so model `count` such rows and reuse the
+ *  rate (MONTHLY_RUNS) and the allowance netting stay single-sourced and can't drift from the commit.
+ *
+ *  `alreadyOnSchedule` (first-run-onboarding-wizard#B) is how many of the `count` repos ALREADY
+ *  autoscan on IMPORT_WATCH_SCHEDULE: they draw that credit today whether or not this click commits
+ *  them, so the disclosed figure is the increment only. Defaults to 0 (every repo newly committed). */
+export function importWatchMonthlyCredits(count: number, allowanceRemaining = 0, alreadyOnSchedule = 0): number {
+  // Every NEWLY committed repo is watched on IMPORT_WATCH_SCHEDULE, so model those rows and reuse the
   // shared estimator (identical to how the connect cost strip nets its allowance).
-  const committed = Array.from({ length: Math.max(0, count) }, () => ({
+  const increment = Math.max(0, count - Math.max(0, alreadyOnSchedule));
+  const committed = Array.from({ length: increment }, () => ({
     watched: true,
     schedule: IMPORT_WATCH_SCHEDULE,
   }));

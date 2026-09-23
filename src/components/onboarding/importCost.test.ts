@@ -75,3 +75,23 @@ describe("importWatchMonthlyCredits — free-allowance netting (finding #1)", ()
     expect(importWatchMonthlyCredits(4, -5)).toBe(4 * rate);
   });
 });
+
+// first-run-onboarding-wizard#B (challenge-2026-09-23): the recurring increment nets the repos that
+// already autoscan on the committed cadence. They draw that credit today with or without this click.
+describe("importWatchMonthlyCredits: nets repos already on the committed schedule", () => {
+  const rate = MONTHLY_RUNS[IMPORT_WATCH_SCHEDULE]!;
+
+  it("5 selected, 2 already weekly, allowance 0 -> 3 x rate (12), not 20", () => {
+    expect(importWatchMonthlyCredits(5, 0, 2)).toBe(3 * rate);
+    expect(importWatchMonthlyCredits(5, 0, 2)).toBe(12);
+  });
+
+  it("never goes negative, and nets before the allowance", () => {
+    expect(importWatchMonthlyCredits(2, 0, 5)).toBe(0);
+    expect(importWatchMonthlyCredits(5, 4, 2)).toBe(Math.max(0, 3 * rate - 4));
+  });
+
+  it("guard: the default (nothing already scheduled) is the old count x rate", () => {
+    expect(importWatchMonthlyCredits(5, 0)).toBe(5 * rate);
+  });
+});

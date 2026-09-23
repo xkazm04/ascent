@@ -3,7 +3,9 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
-import type { OrgRepo } from "@/components/onboarding/types";
+import type { OrgRepo, RepoStanding } from "@/components/onboarding/types";
+import { applyRunOverlay, overlayFromRun, standingFromWire } from "@/components/onboarding/repoStanding";
+import type { RepoState } from "@/lib/db";
 import { runImportScan } from "@/components/onboarding/importScan";
 import { resolveScanMode, type CreditRead } from "@/components/onboarding/scanMode";
 import { runRepoRetry } from "@/components/onboarding/retryRepo";
@@ -106,6 +108,12 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // awaits this so the money-gate decision never reads a null `credit` from an un-awaited fetch and
   // fabricates a preview on an org that actually has credits (ONB-1 race).
   const creditReady = useRef<Promise<CreditRead> | null>(null);
+
+  // first-run-onboarding-wizard#B: what THIS session's finished runs scored, by fullName. "Scan
+  // another" re-lists the installation, and /api/app/repos serves a 30s payload cache that can still
+  // carry the pre-scan state; the overlay makes the next listing show (and preselect around) the run
+  // the user just watched finish. Session memory only: the server's state catches up on its own.
+  const runOverlay = useRef<Record<string, RepoStanding>>({});
 
   // One credit read, shared by the load-time kick-off and startScan's retry. Resolves "failed" on a
   // non-OK response or a thrown fetch — never rejects, so awaiting it is always safe.
@@ -325,15 +333,20 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
       const res = await fetch(`/api/app/repos?${qs.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? `Failed to list installation repos (${res.status}).`);
-      // The /api/app/repos rows carry extra fields (url, state); normalize to OrgRepo.
-      const list = ((data.repos ?? []) as Partial<OrgRepo>[])
-        .map((r) => ({
+      // The /api/app/repos rows carry extra fields (url, state, dOverall); normalize to OrgRepo. The
+      // `state` is KEPT as the row's standing (it used to be dropped here), then this session's own
+      // finished runs are overlaid on it, since the route's payload cache can predate them.
+      const list = applyRunOverlay(
+        ((data.repos ?? []) as (Partial<OrgRepo> & { state?: Partial<RepoState> | null })[]).map((r) => ({
           fullName: String(r.fullName),
           private: Boolean(r.private),
           language: r.language ?? null,
           stars: r.stars ?? 0,
           pushedAt: r.pushedAt ?? null,
-        }))
+          standing: standingFromWire(r.state),
+        })),
+        runOverlay.current,
+      )
         .sort(byProminence)
         .slice(0, MAX_LIST);
       if (list.length === 0) throw new Error("No repositories accessible to this installation.");
@@ -381,6 +394,12 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // it: this is the user's explicit start-over, so it is the snapshot's reaper. Keeping sourceLabel
   // made the persist effect rewrite {phase:"select", sourceLabel:<old>}, and a refresh reopened it.
   function resetRun() {
+    // Hand the finished run's scored rows to the session overlay BEFORE the reset drops them: they are
+    // the only client record of what the run just measured (and whether it was a preview).
+    runOverlay.current = {
+      ...runOverlay.current,
+      ...overlayFromRun(run.rows, run.plan, repos, new Date().toISOString()),
+    };
     dispatch({ type: "reset" });
     creditReady.current = null;
     setRepos([]);

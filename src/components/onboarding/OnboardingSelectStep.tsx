@@ -3,6 +3,9 @@
 import type { OrgRepo } from "@/components/onboarding/types";
 import { ScanCostDisclosure } from "@/components/onboarding/OnboardingSelectStep.CostDisclosure";
 import { PrivateRepoBadge } from "@/components/LevelBadge";
+import { IMPORT_WATCH_SCHEDULE } from "@/components/onboarding/importScan";
+import { alreadyScheduled, hasStanding } from "@/components/onboarding/repoStanding";
+import { SelectionMix, StandingChip } from "@/components/onboarding/OnboardingSelectStep.Standing";
 
 /** The "choose up to maxSelect repos" phase: sticky action bar, repo list (or skeleton), scan/back. */
 export function SelectStep({
@@ -42,6 +45,8 @@ export function SelectStep({
 }) {
   const listing = loading && repos.length === 0;
   const atCap = selected.size >= maxSelect;
+  // The App listing carries each repo's standing; the public one does not (and keeps today's copy).
+  const withStanding = hasStanding(repos);
   return (
     <div key="select" className="animate-phase-in">
       {/* ONB a11y #1: focus target for the step transition (focus moves here on phase change).
@@ -57,9 +62,11 @@ export function SelectStep({
           neither list's order and contradicted the public route outright. */}
       <p className="mt-1 text-slate-400">
         Up to {maxSelect}.{" "}
-        {sourceInstallId
-          ? "Listed by stars, then recent activity: the top few are preselected."
-          : "Listed most-recently-pushed; the most-starred are preselected."}
+        {withStanding
+          ? "Listed by stars, then recent activity. Repositories without a live score are preselected first."
+          : sourceInstallId
+            ? "Listed by stars, then recent activity: the top few are preselected."
+            : "Listed most-recently-pushed; the most-starred are preselected."}
         {sourceLabel && <> Source: {sourceLabel}</>}
       </p>
       {/* Both listings walk a bounded number of pages, so a large account can be cut short. The
@@ -76,7 +83,10 @@ export function SelectStep({
 
       {/* Sticky action bar: bulk select/clear + a filled progress pill for the cap. */}
       <div className="sticky top-16 z-10 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2 backdrop-blur">
-        <CapPill count={selected.size} max={maxSelect} />
+        <div className="flex flex-wrap items-center gap-3">
+          <CapPill count={selected.size} max={maxSelect} />
+          <SelectionMix selected={selected} repos={repos} />
+        </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -127,7 +137,10 @@ export function SelectStep({
                 <span className={`flex h-5 w-5 items-center justify-center rounded border ${checked ? "border-accent bg-accent text-on-accent" : "border-slate-600"}`}>
                   {checked && "✓"}
                 </span>
-                <span className="flex-1 truncate font-mono type-body text-white">{r.fullName}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-mono type-body text-white">{r.fullName}</span>
+                  <StandingChip repo={r} />
+                </span>
                 {r.private && <PrivateRepoBadge />}
                 {capped && (
                   <span className="type-mono-sm uppercase tracking-widest text-slate-500">limit reached</span>
@@ -170,7 +183,12 @@ export function SelectStep({
           {/* Cost disclosure AT the commitment button + the recurring-autoscan opt-in. Both live in
               ScanCostDisclosure (co-located) so this file stays inside the 300-LOC cap; it also owns
               the free-preview reassurance for the public-handle path. */}
-          <ScanCostDisclosure count={selected.size} sourceInstallId={sourceInstallId} credit={credit} />
+          <ScanCostDisclosure
+            count={selected.size}
+            sourceInstallId={sourceInstallId}
+            credit={credit}
+            alreadyScheduled={alreadyScheduled(selected, repos, IMPORT_WATCH_SCHEDULE)}
+          />
         </>
       )}
     </div>

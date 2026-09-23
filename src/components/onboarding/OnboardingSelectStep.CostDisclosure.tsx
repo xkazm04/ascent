@@ -37,11 +37,15 @@ export function ScanCostDisclosure({
   count,
   sourceInstallId,
   credit,
+  alreadyScheduled = 0,
 }: {
   count: number;
   sourceInstallId: string | null;
   /** Prepaid balance for the source org (App path only) — null when the balance couldn't be read. */
   credit: { balance: number; unlimited: boolean; allowanceRemaining?: number | null } | null;
+  /** How many of the `count` selected repos already autoscan on IMPORT_WATCH_SCHEDULE (the App
+   *  listing's standing). They are netted out of the recurring figure and named in the copy. */
+  alreadyScheduled?: number;
 }) {
   // The checkboxes render from the SAME stores startScan reads, so the disclosed commitment and the
   // committed request can't drift. Server snapshots are the safe defaults (false / true).
@@ -64,7 +68,12 @@ export function ScanCostDisclosure({
   // Net the org's included free monthly scans, exactly as canRunReal does when it qualifies this org for
   // a real scan — otherwise a qualifying Free-tier org sees an inflated "pauses at zero" alarm at the
   // exact moment it would convert. Zero when nothing recurring was opted into.
-  const monthlyCredits = optedIn ? importWatchMonthlyCredits(count, credit?.allowanceRemaining ?? 0) : 0;
+  // Repos already on the weekly autoscan draw that credit today, so the disclosed figure nets them out
+  // (first-run-onboarding-wizard#B): the user consents to the increment, not to a re-bill.
+  const alreadyOn = Math.min(Math.max(0, alreadyScheduled), count);
+  const monthlyCredits = optedIn
+    ? importWatchMonthlyCredits(count, credit?.allowanceRemaining ?? 0, alreadyOn)
+    : 0;
   const immediate = immediateScanCredits(count, credit);
   const repoPhrase = count === 1 ? "this repo" : `these ${count} repos`;
 
@@ -104,7 +113,7 @@ export function ScanCostDisclosure({
         />
         <span>
           Also autoscan {repoPhrase} {IMPORT_WATCH_SCHEDULE} (a recurring credit draw you can change or
-          turn off anytime on Connect).
+          turn off anytime on the Repositories tab).
         </span>
       </label>
       <p className="type-body-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
@@ -114,6 +123,9 @@ export function ScanCostDisclosure({
             {IMPORT_WATCH_SCHEDULE.slice(1)} autoscan of {repoPhrase} ≈{" "}
             <span className="font-mono text-slate-300">{monthlyCredits}</span> prepaid credit
             {monthlyCredits === 1 ? "" : "s"}/month
+            {alreadyOn > 0 && (
+              <> ({alreadyOn} already autoscan {IMPORT_WATCH_SCHEDULE}, so they add nothing)</>
+            )}
           </>
         ) : (
           <>One-time scan: no recurring autoscan is set up</>
