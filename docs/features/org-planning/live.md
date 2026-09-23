@@ -765,6 +765,7 @@ totals, the history strip's per-run lift (`listLoopRuns`), and the follow-up res
 | `unmeasured` | one end missing (first-ever scan, lane never rescanned) | *not measured* |
 | `unmeasured` + `reason: "base"` | both ends exist, and git proves they were taken on **divergent commits** | *not comparable: the two scans were taken on different bases* |
 | `undelivered` | a real pair, and the lane that produced it committed **nothing** | *not attributable: nothing was committed, so what this measured no longer exists* |
+| `unmeasured` + `reason: "rubric"` | both ends record a rubric, and they differ (`sameRuler` is `false`) | *not comparable: the two scans were scored under different rubrics* |
 
 `undelivered` is the one verdict that is not a fact about the *measurement* — the measurement was
 fine. It is a fact about the lane: the loop scans a worktree it then deletes, so a pair with no
@@ -847,6 +848,22 @@ only with **both** commits present; a missing sha, a missing object and an absen
 dimension refuses, a missing end stays plain `unmeasured`) and `lane-deliverables.test.ts` (no
 `regressed` row, the disclosure and its wording, the commit row survives, `shared`/`unknown`/absent
 are unchanged, and the finding round-trips through `baseRelationOf`).
+
+#### A pair that crosses a rubric bump is not comparable (2026-09-23)
+
+A rubric bump re-scores every repository (r13 moved D4 up on workflow repos, r18 moved D1 down by up
+to 8), and the loop's before-scan is the last persisted one, so the first lane after a bump pairs an
+r(N-1) end with an r(N) end. That delta is the ruler moving. Each end now carries `rubricVersion`
+(the persisted previous scan in `persistScanReport`, `loadComparableScan` and so `getLanePair`, the
+run-lift read in `listLoopRuns`, and `reportToComparable` for live reports), and the rule returns
+`unmeasured` with `reason: "rubric"` after the base check and before the engine check. So the run's
+lift adds nothing for that lane, the cockpit drift, the lane's movement deliverables and the outcome
+cells treat it as not attributable, and a claimed follow-up is kept in progress (`rubric-changed`) with a note naming both rubrics instead of
+closing. A diverged base still reports `base`; an end with no recorded rubric refuses nothing.
+
+Tests: `attribution.rubric.test.ts`, `followups.rubric.test.ts`, and the rubric cases in
+`scans-persist.test.ts`, `scans-read-comparison.test.ts`, `loop-runs-read.chronicle.test.ts` and
+`engine.test.ts`.
 
 ## Gates
 
