@@ -357,20 +357,40 @@ API token with the `memory:read` scope** (`Authorization: Bearer askl_…`,
 the same `authorizeOrgApi` seam the Skills routes use; minted on the Skills
 tab's API-tokens panel). A token principal carries no GitHub identity, so it
 reads as an anonymous member: **shared memories only**, never anyone's
-private scratch. The route fetches the org's active, visible memories
-via `lifecycleWorkingSet` (namespace/kind filters allowed, unknown kind values
-silently dropped) and scores each one. MCP `recall_org_memory` and Athena's
-chat prefetch load through the **same** function. They must not call
+private scratch. The route loads the org's active, visible memories
+through `recallPopulation` (namespace/kind filters allowed, unknown kind values
+silently dropped) and scores each one. MCP `recall_org_memory` loads through the
+**same** function. They must not call
 `candidateOrgMemories`: that helper is the write-intelligence check, and an
 omitted namespace there means `namespace IS NULL` (org-wide rows only), which
 would hide every scan-fed, repo-mirrored, and otherwise namespaced note. On
-`lifecycleWorkingSet`, omitted namespace means no filter — a namespaced
-`scan-pipeline` row is in the working set the REST verb already packs.
+the lifecycle loaders, omitted namespace means no filter: a namespaced
+`scan-pipeline` row is in the population the REST verb packs.
+
+**Each pass loads its own population** (`src/lib/memory/working-set.ts` for the
+rules, `src/lib/db/org-memory-population.ts` for the queries). Recall's cap is
+400 rows, split into **per-kind lanes** by `planRecallLanes`: every kind is
+offered an equal share, a kind with fewer rows takes what it has, and its unused
+quota goes to the others. So 500 episodic, 10 semantic and 3 procedural rows at
+a cap of 400 load 387 / 10 / 3, and a 120-day-old runbook is not pushed out by a
+wall of fresh scan episodes before it is scored. Within a lane rows are the
+kind's most recently updated. Loading the 400 newest rows of the whole store
+(what every door used to do) let recency choose the population before the value
+model saw a row, and it dropped the rows with the longest half-lives first.
+Eligible rows the cap leaves out are counted and returned as
+`notConsideredCount`: they were never scored, so the answer says how much of
+the store it did not look at. A store under the cap loads whole, in the same
+order as before.
 
 MCP `recall_org_memory` also uses `recallMemories` for the same value ranking and
-character packing. Its optional `namespace` narrows the working set, `charBudget`
-defaults to 6,000 characters, and `limit` independently caps the number of
-entries returned. Only those returned entries count as delivered.
+character packing. Its query terms are part of the population's `WHERE`
+(content or tags, case-insensitive), so relevance is filtered **before** the cap:
+a stored answer older than the 400 newest rows is found rather than reported as
+"nothing was recorded on this topic". Its optional `namespace` narrows the
+population, `charBudget` defaults to 6,000 characters, and `limit` independently
+caps the number of entries returned. Only those returned entries count as
+delivered. When matching rows were still left out by the cap, the result carries
+`notConsideredCount`.
 
 ```
 score = confidence × 0.5^(ageDays / halfLife(kind))
@@ -425,7 +445,8 @@ by the "Copy" button in `MemoryCard`).
 { memories:   [{ ...row, score, ageDays }],   // packed, strongest first
   omitted:    [{ ...row, score, ageDays }],   // scored, ranked, budget-bound
   ineligible: [{ ...row, reason }],           // never recallable: superseded | expired | filtered
-  usedChars, charBudget, consideredCount, omittedCount }
+  usedChars, charBudget, consideredCount, omittedCount,
+  notConsideredCount }                        // eligible, but outside the population cap: never scored
 ```
 
 `omitted` and `ineligible` are the same fact split by which lever moves it: a
@@ -455,6 +476,7 @@ that says whether a bigger budget would admit it. That mapping is the pure modul
 | archived | `superseded` | Soft-retired; the row is still in the store. |
 | past its TTL | `superseded` | Expired; the row is still in the store. |
 | excluded by the filter | `not-judged` | Filtering happens *before* scoring, so there is no score — and a hatch prints no value. |
+| never scored: outside the recall population | `not-judged` | `notConsideredCount`: eligible rows the population cap never loaded. Counted, not listed; narrowing the kind or namespace brings them into range. Drawn last. |
 
 Below the pack:
 
@@ -505,7 +527,15 @@ Because the delivery term is part of the same score, a low-confidence memory
 that is still delivered often stays above the floor for longer — but only for
 longer. The bonus is capped at ×2, so the arithmetic terminates: a
 confidence-0.3 memory falls under the floor after two half-lives no matter how
-many times it was delivered. Delivery buys a bounded reprieve, not a veto. Each pass is capped at 50 archived rows. Decay is not
+many times it was delivered. Delivery buys a bounded reprieve, not a veto. Each pass is capped at 50 archived rows.
+The pass runs over its **own population** (`decayPopulation`): the live, visible
+rows that meet decay's row-level conditions (kind not exempt, confidence at or
+below 0.3, older than 60 days), oldest first, at most 400. The predicate is
+derived from `decay.ts`'s own constants by `decayPopulationWhere`, so tuning the
+policy moves the query. It used to run over reflection's newest-400 working set,
+and because every access bump moves `updatedAt`, that set held only rows younger
+than the 60-day grace period on any busy store: the pass evaluated nothing it
+could archive. Decay is not
 its own route; it only runs as part of `POST /api/org/memory/reflect` when
 `decay: true` is passed. I did not find a scheduled/cron trigger for it in
 the files read; whether it also runs unattended on a schedule, versus only
@@ -793,6 +823,11 @@ by hand does not accumulate it by scan either.
   any listed row has them. The recall bar has not been wired to the new field
   yet; it still draws trust · freshness · delivery. The packed row's `score`
   includes the citation term and stays the server's verbatim value.
+- **Athena's chat prefetch still loads the 60 newest rows.** REST recall, MCP
+  `recall_org_memory` and the forget pass load their own populations; Athena's
+  gate and grounding still call `lifecycleWorkingSet` (recency cut, limit 60)
+  with no notice of what it left out. Reflection's proposal pass also reads the
+  newest-400 working set, and says so with `consideredCount`.
 
 ## Registry-backed state (UC2, 2026-08-18)
 
@@ -843,7 +878,9 @@ only news once the other world exists.
 | `src/lib/memory/scan-feed.ts` | Scan-pipeline memory writers. |
 | `src/lib/memory/coverage.ts` | Per-repo memory freshness for the coverage strip. |
 | `src/lib/db/org-memory.ts` | CRUD + supersede transaction, visibility scoping, write-check `candidateOrgMemories` (omitted namespace → IS NULL). |
-| `src/lib/db/org-memory-lifecycle.ts` | `lifecycleWorkingSet` (recall door), `applyReflection`, `archiveOrgMemories`. |
+| `src/lib/db/org-memory-lifecycle.ts` | `lifecycleWorkingSet` (newest-N slice: reflection proposals, Athena), `applyReflection`, `archiveOrgMemories`. |
+| `src/lib/db/org-memory-population.ts` | `recallPopulation` (per-kind lanes, query terms before the cap, `notConsidered`) and `decayPopulation` (forget's oldest-first eligible tail). |
+| `src/lib/memory/working-set.ts` | Pure population rules: `planRecallLanes`, `decayPopulationWhere`, the 400-row caps. |
 | `src/lib/org/memory-kinds.ts` | Kind/visibility/confidence-band constants. |
 | `src/features/shared/memory/MemoryPanel.tsx` | Client orchestrator. |
 | `src/features/shared/memory/MemoryTrust.tsx` | Confidence quartiles of the listed rows (`Distribution`), plus citation evidence (`BudgetPack`) when any listed row has votes. |
