@@ -23,7 +23,9 @@ import { requireOrgAccess } from "@/lib/authz";
 import { getRepoLocalPath } from "@/lib/db";
 import { listDispatchedPractices } from "@/lib/db/loop-runs";
 import { openBatch } from "@/lib/local/loop-lane";
-import { proposeLaneKind } from "@/lib/local/lane-kind";
+import { BACKLOG_LANE, proposeLaneKind } from "@/lib/local/lane-kind";
+import { verifyLocalPath } from "@/lib/local/pairing";
+import { proposalPairing, type ProposalPairing } from "@/lib/local/pairing-health";
 import { BATCH_SIZE_CAP, batchSizeOf, normalizeBatchSize } from "@/lib/local/run-limits";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
 import { buildLaneBrief, type LaneBriefProvenance } from "@/lib/org/lane-brief";
@@ -52,6 +54,13 @@ export interface LoopProposal {
    * the lane then does not use. `null` on a `foundation` lane, which has no batch to brief about.
    */
   brief: { text: string; provenance: LaneBriefProvenance } | null;
+  /**
+   * Does the stored pairing still verify? Checked by `verifyLocalPath`, the very function
+   * `startLoopRun` re-runs at arm time, so the ledger and the dispatch cannot disagree about a moved
+   * checkout. `null` when the repo has no stored path (nothing was claimed, so nothing is checked).
+   * Only `ok` and the verifier's sentence are sent: this route is member-readable, and the path is not.
+   */
+  pairing: ProposalPairing | null;
 }
 
 // NO `selfHostGuard` HERE (PRIYA-L1-703). It 404'd because a proposal was once only ever a local
@@ -89,11 +98,29 @@ export async function GET(request: Request) {
 
   const proposals: LoopProposal[] = [];
   for (const repo of repos) {
+    const path = await getRepoLocalPath(org, repo).catch(() => null);
+    // A STORED PATH IS A CLAIM, and the filesystem is the evidence. Verified FIRST, because the lane
+    // kind rule reads an unreadable folder as "absent": a checkout that moved used to be proposed a
+    // confident "install the .ai/ foundation" lane. A broken pairing reads nothing further (no batch,
+    // no kind, no brief) and says why; `startLoopRun` would refuse it anyway, with the same sentence.
+    const pairing = path ? proposalPairing(await verifyLocalPath(path, repo)) : null;
+    if (pairing && !pairing.ok) {
+      proposals.push({
+        repo,
+        items: [],
+        brief: null,
+        projectedPoints: 0,
+        kind: BACKLOG_LANE.kind,
+        practiceId: null,
+        reason: `Pairing broken: ${pairing.error}`,
+        pairing,
+      });
+      continue;
+    }
     const items = await openBatch(org, repo, batchSizeOf(batchSize));
     // The lane KIND, from the very same rule the engine re-runs at arm time (loop-engine.ts). A repo
     // with no `.ai/` foundation leads with the foundation lane; a repo whose biggest open gap has a
     // Practice Library starter it is missing leads with that; everything else is the agent lane.
-    const path = await getRepoLocalPath(org, repo).catch(() => null);
     // The THIRD argument is the once-per-repo gate on practice lanes, and the curation screen passes
     // the very same read the engine does. It has to: a panel that offered a practice lane the engine
     // then declines to arm is precisely the disagreement this route exists not to have. Read lazily —
@@ -121,6 +148,7 @@ export async function GET(request: Request) {
       kind: plan.kind,
       practiceId: plan.practiceId,
       reason: plan.reason,
+      pairing,
     });
   }
   return NextResponse.json({ proposals });

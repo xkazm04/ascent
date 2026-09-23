@@ -7,6 +7,7 @@
 // then declines to install, and nobody would know which side was wrong.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -42,6 +43,10 @@ function repoDir(files: Record<string, string>): string {
     mkdirSync(dirname(abs), { recursive: true });
     writeFileSync(abs, body, "utf8");
   }
+  // A REAL working copy: the route verifies every stored pairing with `verifyLocalPath` (the engine's
+  // own check) before it reads the folder, so a plain directory would read as a broken pairing.
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t.test", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "init"], { cwd: dir });
   return dir;
 }
 
@@ -58,7 +63,7 @@ const item = (id: string, dimId: string) => ({
   projectedPoints: 5,
 });
 
-type Proposal = { repo: string; items: unknown[]; projectedPoints: number; kind: string; practiceId: string | null; reason: string };
+type Proposal = { repo: string; items: unknown[]; projectedPoints: number; kind: string; practiceId: string | null; reason: string; pairing?: unknown; brief?: unknown };
 
 async function propose(): Promise<Proposal[]> {
   const res = await GET(new Request("https://x.test/api/org/loop/propose?org=acme&repos=acme/web"));
@@ -148,5 +153,58 @@ describe("GET /api/org/loop/propose — the batch-size dial", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toMatch(/batchSize must be a whole number 1–12/);
     expect(openBatch).not.toHaveBeenCalled();
+  });
+});
+
+// A MOVED CHECKOUT (challenge-2026-09-23b, local-autopilot-loop-engine#B). The stored `localPath` is a
+// claim made at pairing time; the filesystem is the evidence. The route used to hand the claim straight
+// to `proposeLaneKind`, whose `exists()` reads every stat failure as "absent", so a folder that is
+// simply GONE proposed a confident "install the .ai/ foundation" lane. It now asks `verifyLocalPath`
+// (the engine's own check) first, and a broken pairing is said, not guessed around.
+describe("GET /api/org/loop/propose — a broken pairing is reported, never read as 'no foundation'", () => {
+  const gone = () => join(tmpdir(), `ascent-propose-gone-${process.pid}-${Date.now()}`);
+
+  it("a stored path that no longer exists → pairing {ok:false} with the verifier's sentence, no items, a backlog kind", async () => {
+    paths["acme/web"] = gone();
+    backlog.items = [item("rec-1", "D1")];
+
+    const [p] = await propose();
+    expect(p!.pairing).toEqual({ ok: false, error: "Folder does not exist on the server's filesystem." });
+    expect(p!.items).toEqual([]);
+    expect(p!.projectedPoints).toBe(0);
+    expect(p!.kind).toBe("backlog");
+    expect(p!.reason).not.toMatch(/foundation/);
+    // Nothing downstream of a broken pairing is read: no batch, no brief.
+    expect(openBatch).not.toHaveBeenCalled();
+    expect(p!.brief).toBeNull();
+  });
+
+  it("guard: a healthy paired repo is unchanged apart from pairing {ok:true}", async () => {
+    paths["acme/web"] = repoDir({ ".ai/manifest.yaml": "version: 1", "AGENTS.md": "# here" });
+    backlog.items = [item("rec-1", "D1")];
+
+    const [p] = await propose();
+    expect(p!.pairing).toEqual({ ok: true });
+    expect(p!.kind).toBe("backlog");
+    expect(p!.items).toHaveLength(1);
+    expect(p!.projectedPoints).toBe(5);
+    expect(p!.reason).toBe("Works this repo's open follow-ups with a local agent.");
+  });
+
+  it("guard: a repo with no stored path carries no pairing verdict (nothing was claimed, so nothing is checked)", async () => {
+    backlog.items = [item("rec-1", "D1")];
+    const [p] = await propose();
+    expect(p!.pairing ?? null).toBeNull();
+    expect(p!.items).toHaveLength(1);
+  });
+
+  it("guard: the response never carries the stored localPath, healthy or broken (the route is member-readable)", async () => {
+    for (const stored of [gone(), repoDir({ ".ai/manifest.yaml": "version: 1" })]) {
+      paths["acme/web"] = stored;
+      const res = await GET(new Request("https://x.test/api/org/loop/propose?org=acme&repos=acme/web"));
+      const text = await res.text();
+      expect(text).not.toContain(JSON.stringify(stored).slice(1, -1));
+      expect(text).not.toContain(stored);
+    }
   });
 });
