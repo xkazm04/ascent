@@ -390,7 +390,7 @@ file ascent is the sole author of.
 | Model | Purpose |
 | --- | --- |
 | `OrgKnowledgeSubject` | one subject per bundle, from the generated index; soft-archived when it leaves the corpus, because a conformance row may still cite it |
-| `RepoConformanceMap` | one row per SWEPT repo — the map header when there is one (`mapSha` null otherwise) plus the foundation the sweep probed (`hasContextMap`, `hasManifest`, `scopeJson`, `directionsJson`, `weaklyGovernedJson`, `registryRemote`) |
+| `RepoConformanceMap` | one row per SWEPT repo: the map header when there is one (`mapSha` null otherwise) plus the foundation the sweep probed (`hasContextMap`, `hasManifest`, `scopeJson`, `directionsJson`, `weaklyGovernedJson`, `registryRemote`) |
 | `RepoConformance` | one judged (context × subject) pair, with its evidence |
 | `RegistrySignal` | the `signals/` lane as one contributor published it; every count nullable |
 | `RegistrySignalContribution` | append-only audit of every contribution ascent attempted |
