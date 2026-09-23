@@ -273,6 +273,13 @@ always on. The runner forces `delivery: "runner"` and the guard on — the route
 drive with another delivery or `verifyMode: "off"`. The details are in *The standing runner* in
 `docs/features/org-planning/live.md`.
 
+**A broken pairing pauses every repo it names (2026-09-23).** `startLoopRun` checks every repo's
+pairing before it arms anything and refuses once, naming each unpaired or broken repo with its
+reason (it used to stop at the first). A runner step whose start is refused that way pauses **every**
+repo the refusal names (`repo-failures`, resumable per repo) and keeps working the rest. The refusal
+text and the runner's reading of it (`pairingRefusal` / `reposNamedIn`) live together in
+`src/lib/local/pairing-health.ts`, so the two cannot drift.
+
 ## Proving it end to end
 
 `e2e/loop/cockpit-loop.spec.ts` (`npm run test:e2e:loop`) drives this whole page against a live
