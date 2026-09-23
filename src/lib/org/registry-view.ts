@@ -2,8 +2,9 @@
 //
 // The registry is a CUSTOMER-OWNED repo (`<org>/ai-registry`); ascent onboards it, indexes it and
 // tracks how the fleet syncs against it. This loader reads the `OrgRegistry` row and the indexed
-// mirror counts, falling back to an honest `unmapped` view. Fleet pointers and 30d-sync are omitted
-// until the adoption pass (R5) exists — unmeasured is not zero. Invoke telemetry degrades per-sink
+// mirror counts, falling back to an honest `unmapped` view. Fleet pointers and 30d-sync come from the
+// conformance sweep's header rows and are omitted until a sweep ran; adoption by hash is still
+// unmeasured. Unmeasured is not zero. Invoke telemetry degrades per-sink
 // (a failed read is "not measured", never a zero). `capabilities` is what the UI gates GitHub
 // actions on (§0b.5) — see @/lib/registry/capabilities.
 //
@@ -22,6 +23,7 @@ import { listOrgKnowledgeSubjects } from "@/lib/db/org-registry-subjects";
 import { listRegistrySignals } from "@/lib/db/org-registry-signals";
 import { listRecentLessons, type SkillLessonRow } from "@/lib/db/org-skill-lessons";
 import { summarizeSignals, type SignalSummary } from "@/lib/registry/signals";
+import { fleetPointing, type FleetRosterEntry } from "@/lib/registry/fleet-pointing";
 import { getRegistryCapabilities, type RegistryCapabilities } from "@/lib/registry/capabilities";
 import { DEFAULT_REGISTRY_NAME } from "@/lib/registry/layout";
 import { localRegistryDir, refreshLocalRegistryIfStale } from "@/lib/registry/local-registry";
@@ -30,7 +32,7 @@ import { registryHowTo, type RegistryHowToCommands } from "./registry-howto";
 
 export { DEFAULT_REGISTRY_NAME, registryHowTo };
 export type { RegistryHowToCommands };
-export type { ConformanceMapRow, ConformanceRow, SignalSummary };
+export type { ConformanceMapRow, ConformanceRow, SignalSummary, FleetRosterEntry };
 
 /**
  * How many judged pairs travel to the tab. A fleet of 50 repos × 180 pairs is 9,000 rows, which is a
@@ -100,11 +102,16 @@ export type RegistryView = {
   fleet: {
     reposTotal: number;
     /**
-     * Present only after the adoption pass (R5) hashes each repo against the catalog.
-     * Absent is unmeasured, never a zero fleet. 0 is "we looked and nobody points".
+     * Derived from each swept repo's manifest `registry.remote` (see @/lib/registry/fleet-pointing).
+     * Absent is unmeasured (never swept), never a zero fleet. 0 is "we looked and nobody points".
      */
     reposPointing?: number;
     reposSynced30d?: number;
+    /** Repos whose pointer has not been read yet. Present only beside `reposPointing`. */
+    unswept?: number;
+    /** Every swept repo's pointing state, the ones needing work first. */
+    roster?: FleetRosterEntry[];
+    /** Adoption BY HASH. No pass measures it yet, so a live view sends zeros: read as unmeasured. */
     adoption: { inSync: number; stale: number; diverged: number; localOnly: number };
   };
   /** Last 20, newest first. */
@@ -245,8 +252,8 @@ function activityOf(row: OrgRegistryRow | null, lessons: SkillLessonRow[] = []):
 }
 
 /**
- * Fleet sync until R5. `reposTotal` is the rollup size (a real count). Pointing and 30d-sync are
- * omitted: a 0 would mean "we looked and nobody points", which this pass cannot attest.
+ * The never-swept fleet. `reposTotal` is the rollup size (a real count). Pointing and 30d-sync are
+ * omitted: a 0 would mean "we looked and nobody points", which nothing has attested yet.
  */
 export function unmeasuredFleet(reposTotal: number): RegistryView["fleet"] {
   return { reposTotal, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 } };
@@ -307,9 +314,13 @@ export async function getRegistryView(slug: string): Promise<RegistryView> {
     ...(row ? { registry: registryOf(row) } : {}),
     counts: { ...counts, lessons: row?.counts.lessons ?? 0 },
     migration: migrationOf(row, totals),
-    // Fleet sync is not observable until the adoption pass (R5) hashes each repo's skills against
-    // the catalog; pointing/synced are omitted, never a fabricated 0.
-    fleet: unmeasuredFleet(rollup?.repos?.length ?? 0),
+    // Pointing and 30d-sync come from the header rows already loaded above (zero new queries); with
+    // none, `fleetPointing` adds nothing and the fleet stays unmeasured, never a fabricated 0.
+    // Adoption by hash is still unmeasured: nothing reads each repo's skills against the catalog.
+    fleet: {
+      ...unmeasuredFleet(rollup?.repos?.length ?? 0),
+      ...fleetPointing({ maps, registryFullName: fullName, reposTotal: rollup?.repos?.length ?? 0, now: Date.now() }),
+    },
     activity: activityOf(row, recentLessons),
     // Read from the registry's own `usage/` lane at index time, not counted here.
     // `reposReporting` is how many installations CONTRIBUTED a file — a zero with
