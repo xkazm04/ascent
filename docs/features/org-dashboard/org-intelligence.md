@@ -1869,6 +1869,42 @@ now an instrument you can walk:
 - **No consumer changed.** Every surface that renders a `MatrixGrid` gained this without a source
   edit; tests that found a matrix by `role="img"` now query `role="grid"`.
 
+#### Legend rows are derived from the chart, not listed beside it (2026-09-23)
+
+`Legend` renders whatever list it is handed, and its contract is "only the states present in the
+data". That derivation used to be written by hand at every call site: sixteen `*States` helpers, each
+with its own private whitelist and order. None of the matrix helpers could see the `missing` cells
+`MatrixGrid` paints for a short row (`cellAt` pads it), and the two `BandLadder` helpers disagreed on
+the edge: `perimeterStates` counted a state-less edge as `missing`, as the ladder paints it, while
+`clearanceStates` dropped it and whitelisted away `declared`.
+
+The kit now owns the derivation (`legendStates.ts`, exported from the barrel, server-safe):
+
+- `matrixLegendStates(axes, rows)`: the states `MatrixGrid` paints, void padding included, nothing
+  for a cell past the last axis, and nothing where the grid falls back to its placeholder.
+- `ladderLegendStates(bands, edge)`: every band's state, plus the edge's state (default `missing`)
+  when an edge is drawn.
+- `vizStatesInOrder(states)`: de-duplicates into `VIZ_STATES` order. No whitelist anywhere.
+
+`legendStates.dom.test.tsx` is the contract: it renders the real `MatrixGrid` and `BandLadder` and
+asserts the set of painted `data-state` values (plus the edge arrow's generated title) equals the
+derivation, so a change to how either chart pads or defaults a mark fails there until the legend
+follows it.
+
+Migrated: the model scorecard and the segment maturity grid call `matrixLegendStates` (their
+`scorecardStates` / `segmentMatrixStates` helpers are deleted); `perimeterStates` and
+`clearanceStates` keep their names as one-line delegations to `ladderLegendStates`, which means the
+clearance legend now lists a declared band or a state-less edge it used to omit; the design-system
+study (`DataCharts.tsx`) calls `ladderLegendStates` instead of filtering `VIZ_STATES` by hand.
+
+Still hand-derived, the migration list: `erasePreviewStates`, `providerBoundaryStates`
+(settings), `presentStates` (digest), `leverageStates` (executive), `dimMatrixStates` (teams) and
+`teamMatrixStates` (adoption), two identical bodies under two names, `omissionStates` (memory),
+`rolloutVizStates` (practices), `admissionStates` (governance), `capabilityVizStates` (passports),
+`fleetShapeStates` and `pairedStates` (repositories), plus about ten inline ternaries at `<Legend>`
+call sites. Each should move to a kit call where its chart is `MatrixGrid` or `BandLadder`, or gain a
+kit derivation beside the chart it describes.
+
 ### Contributors, redesigned: the distribution is plotted (Wave 1, 2026-09-08)
 
 Contributors was the redesign's clearest case: **1473 characters of prose, five tables and zero SVG**
