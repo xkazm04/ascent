@@ -86,6 +86,17 @@ export function DecisionTable<R>(p: DecisionTableProps<R>) {
   const [error, setError] = useState<string | null>(null);
   const selectable = p.isSelectable ?? always;
   const picked = (p.allRows ?? p.rows).filter((r) => p.selected.has(p.rowId(r)));
+  // A batch may be gathered across filters, so `picked` can hold rows the current filter hides. That
+  // reach is the feature and it stays; what the bar owes is the count of it, beside the total and on
+  // every action it reaches, or "Dismiss 5" reads as five rows the user can see.
+  const shownIds = new Set(p.rows.map(p.rowId));
+  const isHidden = (r: R) => !shownIds.has(p.rowId(r));
+  const hidden = picked.filter(isHidden);
+  const dropHidden = () => {
+    const next = new Set(p.selected);
+    for (const r of hidden) next.delete(p.rowId(r));
+    p.onSelectedChange(next);
+  };
   // Select-all covers the SHOWN rows a batch can act on — the same rule the row checkbox enforces.
   const shownSelectable = p.rows.filter(selectable);
   const allShown = shownSelectable.length > 0 && shownSelectable.every((r) => p.selected.has(p.rowId(r)));
@@ -181,7 +192,17 @@ export function DecisionTable<R>(p: DecisionTableProps<R>) {
         <div className="sticky bottom-3 z-10 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-accent/40 bg-surface-strong/95 px-4 py-2.5 shadow-2xl backdrop-blur">
           <span className="type-mono-sm text-slate-200">
             {p.summary ? p.summary(picked) : <><span className="font-bold tabular-nums">{picked.length}</span> selected</>}
+            {hidden.length > 0 && (
+              <span className="text-amber-300">
+                {" "}· <span className="font-bold tabular-nums">{hidden.length}</span> hidden by the current filter
+              </span>
+            )}
           </span>
+          {hidden.length > 0 && (
+            <button type="button" onClick={dropHidden} className="focus-ring type-label tracking-widest text-slate-500 hover:text-white">
+              drop hidden
+            </button>
+          )}
           <button type="button" onClick={() => p.onSelectedChange(new Set())} className="focus-ring type-label tracking-widest text-slate-500 hover:text-white">
             clear
           </button>
@@ -192,8 +213,12 @@ export function DecisionTable<R>(p: DecisionTableProps<R>) {
           )}
           <span className="ml-auto flex flex-wrap items-center gap-2">
             {p.actions.map((a) => {
-              const n = picked.filter(a.appliesTo ?? always).length;
+              const target = picked.filter(a.appliesTo ?? always);
+              const n = target.length;
               if (n === 0) return null;
+              // Per action, not only on the bar: an action scoped by `appliesTo` can take a different
+              // share of the hidden rows than the bar's total, and the user cannot work that out.
+              const h = target.filter(isHidden).length;
               return (
                 <button
                   key={a.key}
@@ -202,7 +227,7 @@ export function DecisionTable<R>(p: DecisionTableProps<R>) {
                   disabled={busy !== null}
                   className={`focus-ring transition disabled:opacity-50 ${TONE[a.tone]}`}
                 >
-                  {busy === a.key ? a.busyLabel : a.countless ? a.label : `${a.label} ${n}`}
+                  {busy === a.key ? a.busyLabel : a.countless ? a.label : `${a.label} ${n}${h > 0 ? ` (${h} hidden)` : ""}`}
                 </button>
               );
             })}
