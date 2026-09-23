@@ -60,7 +60,7 @@ describe("SkillsLifecycle", () => {
 
   it("opens on two graphics, each with a generated accessible name", () => {
     render(<SkillsLifecycle skills={[skill({})]} usage={{ s1: usage({}) }} fleetSize={4} />);
-    expect(screen.getByRole("img", { name: /Reuse per skill/ })).toBeTruthy();
+    expect(screen.getByRole("grid", { name: /Reuse per skill/ })).toBeTruthy();
     expect(screen.getByRole("img", { name: /Skill use over time/ })).toBeTruthy();
   });
 

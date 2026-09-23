@@ -45,7 +45,7 @@ describe("SecurityCheckMatrix — absence cannot look like a pass", () => {
 
   it("the accessible name states both absences, so a screen reader is not told a pass either", () => {
     const { container } = render(<SecurityCheckMatrix rows={[graded, ungraded, unscanned]} />);
-    const label = container.querySelector("[role='img'][aria-label^='D9 control coverage']")!.getAttribute("aria-label")!;
+    const label = container.querySelector("[role='grid'][aria-label^='D9 control coverage']")!.getAttribute("aria-label")!;
     expect(label).toMatch(/not judged/i);
     expect(label).toMatch(/no measurement/i);
     expect(label).toMatch(/hatched cell was not judged/i);

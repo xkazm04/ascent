@@ -40,7 +40,7 @@ describe("ProviderBoundaryCard — the void is real in the DOM", () => {
 
   it("says all three readings in the accessible equivalent, from the same states the geometry uses", () => {
     card();
-    const img = screen.getByRole("img", { name: /Where each provider runs inference/i });
+    const img = screen.getByRole("grid", { name: /Where each provider runs inference/i });
     const label = img.getAttribute("aria-label")!;
     expect(label).toMatch(/OpenRouter — Boundary: no measurement/i);
     expect(label).toMatch(/Bedrock — Boundary: measured/i);

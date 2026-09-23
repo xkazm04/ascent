@@ -45,7 +45,7 @@ describe("honest empties", () => {
     render(<FoundationRolloutPanel slug="acme" rows={[row({ repo: "acme/app" })]} />);
     // The grid cell and the table cell speak the same vocabulary.
     expect(screen.getAllByLabelText(/Not judged/).length).toBeGreaterThan(0);
-    const grid = screen.getByRole("img", { name: /Foundation rollout by repository/ });
+    const grid = screen.getByRole("grid", { name: /Foundation rollout by repository/ });
     expect(grid.querySelector('[data-cell="acme/app:PR"]')?.getAttribute("data-state")).toBe("not-judged");
     // A hatched or void cell can never carry a numeral (rendersValue === false).
     expect(grid.querySelectorAll("[data-score]").length).toBe(0);
@@ -57,13 +57,13 @@ describe("honest empties", () => {
     );
     expect(screen.queryByText(/Installed/)).toBeNull();
     expect(screen.getAllByText(/PR opened/).length).toBeGreaterThan(0);
-    const grid = screen.getByRole("img", { name: /Foundation rollout by repository/ });
+    const grid = screen.getByRole("grid", { name: /Foundation rollout by repository/ });
     expect(grid.querySelector('[data-cell="acme/app:PR"]')?.getAttribute("data-state")).toBe("declared");
   });
 
   it("prints a reported conformance in the grid, where the state permits a value", () => {
     render(<FoundationRolloutPanel slug="acme" rows={[row({ repo: "acme/app", conformance: 82 })]} />);
-    const grid = screen.getByRole("img", { name: /Foundation rollout by repository/ });
+    const grid = screen.getByRole("grid", { name: /Foundation rollout by repository/ });
     expect(grid.querySelector('[data-cell="acme/app:Conformance"]')?.getAttribute("data-state")).toBe("measured");
     expect(grid.querySelector("[data-score]")?.textContent).toBe("82");
   });

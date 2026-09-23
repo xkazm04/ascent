@@ -20,7 +20,7 @@ const ROWS: MatrixRow[] = [
 describe("MatrixGrid accessibility", () => {
   it("names every subject and axis from the same cells it paints", () => {
     render(<MatrixGrid axes={AXES} rows={ROWS} title="Practice rollout" />);
-    const name = screen.getByRole("img", { name: /Practice rollout/i }).getAttribute("aria-label")!;
+    const name = screen.getByRole("grid", { name: /Practice rollout/i }).getAttribute("aria-label")!;
     expect(name).toContain("acme/api — Declared: declared, not enforced 80");
     expect(name).toContain("Enforced: not judged");
     expect(name).toContain("A hatched cell was not judged");

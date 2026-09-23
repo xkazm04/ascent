@@ -19,13 +19,24 @@
 //
 // The cell keeps the SVG encoding (matrixMark.tsx): the ONE hatch, the dash array, the accent ring.
 // A hatched or void cell never prints a numeral — `rendersValue` gates the <span>, structurally.
+//
+// INSPECT MODE (2026-09-23). The matrix is an ARIA `grid`, not an `img`: one tab stop (a roving
+// tabindex keyed by row identity, matrixCursorModel.ts), arrow keys walk the cells, Home/End jump to
+// the row's edges and Ctrl+Home/Ctrl+End to the grid's corners. Focusing or tapping a cell PINS a
+// visible readout under the grid (MatrixReadout.tsx) with the subject, axis, state and caveat that
+// used to live only in a hover title; Escape clears it. The header row and the subject labels are
+// aria-hidden because each cell's accessible name already carries both, and the sr-only table stays
+// the one place a reader finds column and row headers.
 
+import { useState, type KeyboardEvent } from "react";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { scoreHex } from "@/lib/ui";
 import { fmtNum, isNum } from "@/components/org/viz/vizNum";
 import { isStruck, rendersValue, stateTitle } from "@/components/org/viz/states";
 import { MatrixHatchDefs, MatrixMark, cellInk } from "@/components/org/viz/matrixMark";
 import { MatrixEmpty, MatrixSrTable, cellAt, matrixAriaLabel, type MatrixGridProps } from "@/components/org/viz/matrixShared";
+import { cellName, moveCursor, readoutText, resolveCursor, type MatrixCursor } from "@/components/org/viz/matrixCursorModel";
+import { MatrixReadout } from "@/components/org/viz/MatrixReadout";
 
 export type { MatrixCell, MatrixRow } from "@/components/org/viz/matrixShared";
 
@@ -36,22 +47,58 @@ const FILL_ALPHA = 0.55;
  *  holds a three-digit mono figure with air around it. One template for the head and every row. */
 const template = (axes: number) => `minmax(12rem, 22rem) repeat(${axes}, minmax(3.5rem, 5.5rem))`;
 
+/** The remembered position, with the row order it was taken against so a row change can carry it. */
+type Roving = { cursor: MatrixCursor | null; ids: string[]; pinned: boolean };
+
+/** Focus the cell element for `to` inside `grid`: attribute compare, so no id needs CSS escaping. */
+function focusCell(grid: HTMLElement, to: MatrixCursor) {
+  const key = `${to.rowId}:${to.axis}`;
+  for (const el of grid.querySelectorAll<HTMLElement>("[data-cell]")) {
+    if (el.getAttribute("data-cell") === key) return el.focus();
+  }
+}
+
 export function MatrixGrid({ axes, rows, title = "Matrix", className = "" }: MatrixGridProps) {
   const reduced = usePrefersReducedMotion();
   const mounted = useMounted();
   const animate = mounted || reduced;
+  const [roving, setRoving] = useState<Roving>({ cursor: null, ids: [], pinned: false });
 
   if (axes.length === 0 || rows.length === 0) return <MatrixEmpty title={title} className={className} />;
 
   const columns = template(axes.length);
+  const rowIds = rows.map((r) => r.id);
+  // Derived, never synced: the live cursor is the remembered one carried across any row change.
+  const cursor = resolveCursor(roving.cursor, roving.ids, rowIds, axes)!;
+  const pinRow = roving.pinned ? rows.find((r) => r.id === cursor.rowId) : undefined;
+  const readout = pinRow ? readoutText(pinRow.label, cursor.axis, cellAt(pinRow, axes.indexOf(cursor.axis))) : null;
+
+  const pin = (to: MatrixCursor) => setRoving({ cursor: to, ids: rowIds, pinned: true });
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape") {
+      if (!roving.pinned) return; // not ours: an enclosing dialog may want it
+      e.preventDefault();
+      e.stopPropagation();
+      return setRoving({ cursor, ids: rowIds, pinned: false });
+    }
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      return pin(cursor);
+    }
+    const to = moveCursor(cursor, e.key, rowIds, axes, { ctrl: e.ctrlKey || e.metaKey });
+    if (!to) return;
+    e.preventDefault();
+    pin(to);
+    focusCell(e.currentTarget, to);
+  };
 
   return (
     <div className={className}>
-      {/* One accessible name for the drawing, built from the cells it paints. The sr-only table sits
-          OUTSIDE this element: an `img` role makes its children presentational. */}
-      <div role="img" aria-label={matrixAriaLabel(title, axes, rows)} className="relative">
+      {/* One accessible name for the grid, built from the cells it paints. The sr-only table sits
+          OUTSIDE this element: it is the headers' home, so the grid adds no second set. */}
+      <div role="grid" aria-label={matrixAriaLabel(title, axes, rows)} onKeyDown={onKeyDown} className="relative">
         <MatrixHatchDefs />
-        <div className="grid" style={{ gridTemplateColumns: columns }}>
+        <div aria-hidden="true" className="grid" style={{ gridTemplateColumns: columns }}>
           <div className="type-micro self-end border-b border-divider pb-1.5 font-mono uppercase tracking-[0.18em] text-slate-600">
             subject
           </div>
@@ -69,6 +116,7 @@ export function MatrixGrid({ axes, rows, title = "Matrix", className = "" }: Mat
         {rows.map((row, ri) => (
           <div
             key={row.id}
+            role="row"
             data-row={row.id}
             className="grid border-b border-divider/50 last:border-b-0"
             style={{
@@ -78,6 +126,7 @@ export function MatrixGrid({ axes, rows, title = "Matrix", className = "" }: Mat
             }}
           >
             <div
+              aria-hidden="true"
               title={row.label}
               className="type-label line-clamp-2 min-w-0 self-center py-1.5 pr-3 leading-snug tracking-[0.06em] text-slate-300 [overflow-wrap:anywhere]"
             >
@@ -88,13 +137,23 @@ export function MatrixGrid({ axes, rows, title = "Matrix", className = "" }: Mat
               const base = isNum(cell.score) ? scoreHex(cell.score) : undefined;
               const printed = rendersValue(cell.state) && isNum(cell.score);
               const ink = cellInk(cell, FILL_ALPHA);
+              const here = cursor.rowId === row.id && cursor.axis === a;
               return (
                 <div
                   key={`${row.id}-${a}`}
+                  role="gridcell"
+                  aria-label={cellName(row.label, a, cell)}
+                  tabIndex={here ? 0 : -1}
                   data-cell={`${row.id}:${a}`}
                   data-state={cell.state}
+                  data-pinned={here && roving.pinned ? "" : undefined}
                   title={stateTitle(cell.state, `${row.label} · ${a}`)}
-                  className="relative h-10"
+                  onFocus={() => pin({ rowId: row.id, axis: a })}
+                  onClick={(e) => {
+                    pin({ rowId: row.id, axis: a });
+                    e.currentTarget.focus();
+                  }}
+                  className={`focus-ring relative h-10 cursor-pointer motion-safe:transition-shadow${here && roving.pinned ? " shadow-[inset_0_0_0_1px_var(--color-accent)]" : ""}`}
                 >
                   <MatrixMark state={cell.state} base={base} alpha={FILL_ALPHA} />
                   {printed && (
@@ -114,6 +173,7 @@ export function MatrixGrid({ axes, rows, title = "Matrix", className = "" }: Mat
         ))}
       </div>
 
+      <MatrixReadout text={readout} />
       <MatrixSrTable title={title} axes={axes} rows={rows} />
     </div>
   );

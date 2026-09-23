@@ -136,7 +136,7 @@ describe("SegmentMaturityGrid", () => {
         summaries={[summary({ name: "platform" }), unscanned("new")]}
       />,
     );
-    const grid = screen.getByRole("img", { name: /Segment maturity/ });
+    const grid = screen.getByRole("grid", { name: /Segment maturity/ });
     expect(grid.querySelector('[data-cell="new:Overall"]')?.getAttribute("data-state")).toBe("not-judged");
     expect(grid.querySelectorAll("[data-score]")).toHaveLength(3); // platform's three, and only those
     expect(segmentMatrixRows([unscanned("new")])[0]!.cells[0]!.score).toBeUndefined();

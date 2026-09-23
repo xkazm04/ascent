@@ -168,7 +168,7 @@ describe("a missing measurement never renders as a zero", () => {
         title="Coverage"
       />,
     );
-    const grid = screen.getByRole("img", { name: /Coverage/i });
+    const grid = screen.getByRole("grid", { name: /Coverage/i });
     expect(grid.querySelectorAll("[data-score]")).toHaveLength(0);
     // …and it is announced as an absence, not as a number.
     expect(screen.getByRole("cell", { name: STATE_LABEL.missing })).toBeInTheDocument();
@@ -183,7 +183,7 @@ describe("a missing measurement never renders as a zero", () => {
         title="Coverage"
       />,
     );
-    const grid = screen.getByRole("img", { name: /Coverage/i });
+    const grid = screen.getByRole("grid", { name: /Coverage/i });
     const scores = Array.from(grid.querySelectorAll("[data-score]")).map((n) => n.textContent);
     expect(scores).toEqual(["0"]);
   });

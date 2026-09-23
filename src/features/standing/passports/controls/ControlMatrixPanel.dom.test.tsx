@@ -55,7 +55,7 @@ describe("ControlMatrixPanel", () => {
   it("opens on the overview grid, with the table below it", async () => {
     mockFetch({ org: "acme", rows: [row()] });
     render(<ControlMatrixPanel org="acme" />);
-    const grid = await screen.findByRole("img", { name: /Doctor checks by repository and check family/i });
+    const grid = await screen.findByRole("grid", { name: /Doctor checks by repository and check family/i });
     expect(grid.getAttribute("aria-label")).toContain("acme/api — control: measured 100, guardrail: not judged");
     // The invariant the deleted lede used to promise: the hatched cell carries no number.
     expect(grid.getAttribute("aria-label")).not.toMatch(/guardrail: not judged \d/);
@@ -82,7 +82,7 @@ describe("ControlMatrixPanel", () => {
     await waitFor(() => expect(screen.getAllByText("acme/web").length).toBeGreaterThan(0));
     expect(screen.getByLabelText(/did not report this clause/i)).toBeTruthy();
     // …and the same absence is a hatch in the overview, not an empty (reassuring) cell.
-    const grid = screen.getByRole("img", { name: /Doctor checks by repository/i });
+    const grid = screen.getByRole("grid", { name: /Doctor checks by repository/i });
     expect(grid.querySelector('[data-cell="acme/web:guardrail"]')?.getAttribute("data-state")).toBe("not-judged");
   });
 

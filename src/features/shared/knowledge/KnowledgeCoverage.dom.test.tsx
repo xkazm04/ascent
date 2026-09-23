@@ -17,7 +17,7 @@ const cell = (id: string, axis: string) => document.querySelector(`[data-cell="$
 describe("KnowledgeCoverage", () => {
   it("draws one row per bundle, with the axes as columns", () => {
     render(<KnowledgeCoverage view={view} />);
-    const matrix = screen.getByRole("img", { name: /Coverage of 2 knowledge bundles/ });
+    const matrix = screen.getByRole("grid", { name: /Coverage of 2 knowledge bundles/ });
     // The matrix is an HTML ledger since 2026-09-15; the drawing is still one named image.
     expect(matrix.querySelector("svg text")).toBeNull();
     for (const d of view.domains) for (const axis of ["Mirrored", "Routable", "Judged"]) expect(cell(d.name, axis)).toBeTruthy();
