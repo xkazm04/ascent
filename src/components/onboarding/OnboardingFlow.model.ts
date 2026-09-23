@@ -1,5 +1,6 @@
 import type { OrgRepo } from "@/components/onboarding/types";
 import { byProminence } from "@/components/onboarding/byProminence";
+import type { ImportPlan } from "@/components/onboarding/importPlan";
 
 /** Credit context for the select step's cost disclosure, tagged with the org it was read for so a
  *  late response from a previously-picked org can never label the current one. */
@@ -33,6 +34,30 @@ export interface ResumeSnapshot {
    *  rehydrated "scanning" snapshot RE-ATTACHES (polls GET /api/org/scan/queue) rather than either
    *  abandoning the run or re-running it, which would scan and charge the same repos twice. */
   runId?: string | null;
+  /** v2 (first-run-onboarding-wizard#A): the snapshot records WHAT the run is, not only where the
+   *  user was. Absent on a v1 snapshot, which still resumes; only the plan-dependent disclosures then
+   *  fall back to their defaults. Encode/decode through OnboardingFlow.run.ts, never by hand. */
+  version?: 2;
+  /** The run's resolved request plan, so a re-attached done screen discloses live vs preview truthfully
+   *  and a preview-then-upgrade run still writes its owed upgrade handoff. Null before it resolves. */
+  plan?: RunPlan | null;
+  /** The select-step consent this run was started with, so a Retry after a reload reproduces the
+   *  batch's plan instead of reading module stores the reload reset to their defaults. */
+  consent?: RunConsent | null;
+}
+
+/** One run's resolved plan: the import request matrix plus the mode facts the done screen discloses. */
+export interface RunPlan extends ImportPlan {
+  /** The token-less public funnel (real, free, allowance-metered). */
+  publicFunnel: boolean;
+  /** Why a preview ran when the default explanation would misdiagnose (a failed credit read). */
+  previewCause: "credit_unknown" | null;
+}
+
+/** The select step's two per-run choices, recorded when the run starts. */
+export interface RunConsent {
+  previewFirst: boolean;
+  watchOptIn: boolean;
 }
 
 // Cap the installation selector so a large org (hundreds/thousands of repos) yields a usable
