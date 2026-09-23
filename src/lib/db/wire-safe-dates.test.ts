@@ -18,7 +18,8 @@ describe("wire-safe dates (structural guard)", () => {
     // 58 + the knowledge base rebuild's four (KnowledgeView, KnowledgeRepo, KnowledgeCell,
     // RegistryDispatchRow) + ScanDigestRow (MOONSHOT #32, barrel-exported with CompactedPoint)
     // + the standing runner's LoopPlanRecord and LoopDirectionRecord (spark theater-upgrade, WP3)
-    // + RunnerKeptLessonRow (WP5), LoopPulse / LanePulse / RunnerPulse (WP4), LoopRunChronicleEntry (WP6a).
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(70);
+    // + RunnerKeptLessonRow (WP5), LoopPulse / LanePulse / RunnerPulse (WP4), LoopRunChronicleEntry (WP6a)
+    // + RepoState (first-run-onboarding-wizard#B: the select step reads it off /api/app/repos).
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(71);
   });
 });

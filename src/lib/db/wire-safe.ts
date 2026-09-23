@@ -150,6 +150,10 @@ import type { RunnerKeptLessonRow } from "@/lib/db/loop-lessons-runner";
 // The ledger's chronicle row (WP6a) — a LoopRunSummary widened with seq, drive, plan mode and the
 // lanes' verified closes / landing times, all strings, numbers and nulls.
 import type { LoopRunChronicleEntry } from "@/lib/db/loop-runs-read";
+// first-run-onboarding-wizard#B: a repo's watch/schedule/latest-scan state, merged into every
+// /api/app/repos row and read by the onboarding select step (repoStanding.ts). `scannedAt` comes off
+// Scan.scannedAt and getRepoStates `.toISOString()`s it.
+import type { RepoState } from "@/lib/db/org-rollup";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -273,5 +277,6 @@ export const WIRE_TYPES = {
   UsageDay: true satisfies WireSafe<UsageDay>,
   // #11 — one metered model call. `createdAt` is the ISO string `listUsageEvents` maps it to.
   UsageEventRow: true satisfies WireSafe<UsageEventRow>,
+  RepoState: true satisfies WireSafe<RepoState>,
 } as const;
 
