@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { mockHasOrgRole } = vi.hoisted(() => ({ mockHasOrgRole: vi.fn() }));
+const { mockHasOrgRole, mockLoadLanes } = vi.hoisted(() => ({ mockHasOrgRole: vi.fn(), mockLoadLanes: vi.fn() }));
 
 vi.mock("@/lib/authz", () => ({ hasOrgRole: mockHasOrgRole }));
 vi.mock("@/lib/db", () => ({
@@ -20,12 +20,15 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/db/retention", () => ({ getOrgRetention: vi.fn(async () => null) }));
 vi.mock("@/lib/crypto/secret-box", () => ({ isEncryptionConfigured: () => true }));
 vi.mock("@/lib/polar", () => ({ polarEnabled: vi.fn(() => true) }));
+vi.mock("@/lib/llm/lane-routes-load", () => ({ loadLaneRouting: mockLoadLanes }));
 
 import { SettingsTab } from "./SettingsTab";
 import { DataErasureCard } from "./DataErasureCard";
 import { RetentionCard } from "./RetentionCard";
 import { PlanControl } from "./PlanControl";
+import { LaneRoutingCard } from "./LaneRoutingCard";
 import { polarEnabled } from "@/lib/polar";
+import { routeLanes, type LaneFacts } from "@/lib/llm/lane-routes";
 
 function findType(node: React.ReactNode, type: unknown): React.ReactElement | null {
   if (!node || typeof node !== "object") return null;
@@ -41,12 +44,17 @@ function findType(node: React.ReactNode, type: unknown): React.ReactElement | nu
   return findType(el.props?.children ?? null, type);
 }
 
+const GEMINI = { engine: "gemini", model: "gemini-3.8-flash" } as const;
+const LANE_FACTS: LaneFacts = { byom: { state: "inactive" }, platform: { scan: GEMINI, text: GEMINI }, briefingEnabled: true };
+
 async function renderTab() {
   return (await SettingsTab({ slug: "acme" })) as React.ReactElement;
 }
 
 beforeEach(() => {
   mockHasOrgRole.mockReset();
+  mockLoadLanes.mockReset();
+  mockLoadLanes.mockResolvedValue({ current: routeLanes(LANE_FACTS), preview: null });
   vi.mocked(polarEnabled).mockReturnValue(true);
 });
 
@@ -127,5 +135,40 @@ describe("SettingsTab — Polar portal placement", () => {
     const html = renderToStaticMarkup(el);
     expect(html).not.toMatch(/manage billing/i);
     expect(html).toMatch(/Owner only/i);
+  });
+});
+
+describe("SettingsTab: lane routing (llm-provider-abstraction#B)", () => {
+  async function renderLanes() {
+    const card = findType(await renderTab(), LaneRoutingCard);
+    expect(card).not.toBeNull();
+    return renderToStaticMarkup(card!);
+  }
+
+  it("renders where each lane runs for an owner, with an 'If switched on' column only for a saved-but-off provider", async () => {
+    mockHasOrgRole.mockResolvedValue(true);
+    const preview = routeLanes({ ...LANE_FACTS, byom: { state: "active", kind: "openrouter", model: "anthropic/claude-sonnet-4" } });
+    mockLoadLanes.mockResolvedValue({ current: routeLanes(LANE_FACTS), preview });
+
+    const html = await renderLanes();
+    expect(mockLoadLanes).toHaveBeenCalledWith("acme", null);
+    expect(html).toMatch(/If switched on/);
+    expect(html.match(/data-moves="true"/g)).toHaveLength(3);
+    expect(html).toMatch(/3 of 5 lanes run on your provider/);
+  });
+
+  it("has no preview column without a saved provider", async () => {
+    mockHasOrgRole.mockResolvedValue(true);
+    const html = await renderLanes();
+    expect(html).not.toMatch(/If switched on/);
+    expect(html).not.toMatch(/data-moves="true"/);
+  });
+
+  it("guard: a non-owner render contains no lane-routing text and loads nothing", async () => {
+    mockHasOrgRole.mockResolvedValue(false);
+    const el = await renderTab();
+    expect(findType(el, LaneRoutingCard)).toBeNull();
+    expect(renderToStaticMarkup(el)).not.toMatch(/lane|switched on|gemini/i);
+    expect(mockLoadLanes).not.toHaveBeenCalled();
   });
 });
