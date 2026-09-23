@@ -1,8 +1,9 @@
 // GET  /api/org/alerts?org=slug                                  -> { webhookUrl, overallDrop, dimensionDrop }  (admin)
 // GET  /api/org/alerts?org=slug&movement=1                       -> { movement }          (member) scan-memory ∪ control-failed AlertEvents since watermark
-// GET  /api/org/alerts?org=slug&history=1                        -> { events }            (member) recent alert dispatches (AlertEvent)
+// GET  /api/org/alerts?org=slug&history=1                        -> { events, health }    (member) recent alert dispatches (AlertEvent) + sink health
 // POST /api/org/alerts { org, webhookUrl?, overallDrop?, dimensionDrop? } -> { ok, ... }  (admin)  set/clear sink + thresholds
 // POST /api/org/alerts { org, test: true }                       -> { ok, delivered }     (admin)  send a test alert
+// POST /api/org/alerts { org, resend: eventId }                  -> { ok, delivered }     (admin)  re-send an undelivered alert's stored text
 // POST /api/org/alerts { org, seen: true }                       -> { ok, seen }          (member) advance the viewer's watermark
 //
 // Per-org alert sink configuration — where regression alerts, low-credit pushes and the weekly
@@ -24,12 +25,16 @@ import {
   recordOrgAudit,
   setOrgAlertThresholds,
   setOrgAlertWebhook,
+  type AlertEventInput,
+  type AlertEventKind,
 } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { buildTestAlertMessage, validateAlertWebhookUrl } from "@/lib/alerts";
 import { deliverAlert, type SinkRead } from "@/lib/alert-door";
+import { getAlertEventForResend } from "@/lib/db/alert-events";
+import { isResendable, sinkHealth, toHistoryEvent } from "@/lib/alert-sink-health";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +56,55 @@ function parseThreshold(v: unknown): number | null | false | undefined {
   const n = Number(v);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 100) return false;
   return n;
+}
+
+/** Rows read for sink health (a failing streak can outlast the drawer), and rows the drawer lists. */
+const HEALTH_WINDOW = 100;
+const HISTORY_ROWS = 30;
+
+/** Copy for a send the door reported undelivered, by its outcome. No em dashes: users read these. */
+function undeliveredError(outcome: string | null, candidate = false): string {
+  if (candidate) return "Couldn't deliver to that webhook URL. Check it's a live incoming webhook.";
+  if (outcome === "sink-unreadable") return "Couldn't read this organization's alert sink. Try again in a moment.";
+  if (outcome === "no-sink") return "No alert sink is configured (set a webhook, or the global ALERT_WEBHOOK_URL).";
+  return "Couldn't deliver to the configured alert sink.";
+}
+
+/**
+ * Admin resend of one undelivered alert (fleet-alerts-digests#B). A failed weekly digest used to be
+ * lost for the week: its claim is released "so the next run retries", but the next run is seven days
+ * later in a new window. Gate-then-constrain: the caller is already admin-gated on `org`, and the
+ * row is looked up by id AND that org, so another org's id is a plain 404. The stored plain text is a
+ * complete payload for both channel kinds (a `mailto:` sink renders from text alone). It goes out
+ * through the one delivery door, so the attempt is a NEW history row; the original row is untouched.
+ */
+async function resendResponse(org: string, id: string): Promise<NextResponse> {
+  const row = await getAlertEventForResend(org, id).catch(() => undefined);
+  if (row === undefined) return NextResponse.json({ error: "Couldn't read the alert history." }, { status: 500 });
+  if (!row) return NextResponse.json({ error: "No such alert in this organization." }, { status: 404 });
+  if (!isResendable(row)) {
+    return NextResponse.json(
+      { error: "This alert can't be resent: it was delivered, held back on purpose, or its stored text was cut off." },
+      { status: 409 },
+    );
+  }
+  const text = `Resent by an admin. First raised ${row.createdAt.slice(0, 10)}.\n\n${row.body}`;
+  const out = await deliverAlert({
+    org,
+    kind: row.kind as AlertEventKind,
+    severity: row.severity as AlertEventInput["severity"],
+    title: row.title,
+    repoFullName: row.repoFullName,
+    build: () => ({ text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }] }),
+  });
+  const actorLogin = await resolveViewerLogin();
+  await recordOrgAudit(
+    "org.alerts.resend",
+    org,
+    { eventId: row.id, kind: row.kind, delivered: out.delivered },
+    actorLogin ?? undefined,
+  ).catch(() => {});
+  return NextResponse.json({ ok: true, delivered: out.delivered, ...(out.delivered ? {} : { error: undeliveredError(out.outcome) }) });
 }
 
 /**
@@ -112,8 +166,14 @@ export async function GET(request: Request) {
   if (params.get("history") === "1") {
     const deniedHistory = await requireOrgRole(org, "viewer");
     if (deniedHistory) return deniedHistory;
-    const events = await listAlertEvents(org).catch(() => null);
-    return NextResponse.json({ events: events ?? [] });
+    // Health is read over a wider window than the drawer lists, and is null (unknown) when the read
+    // failed: "we could not tell" must not render as "no alert was ever attempted".
+    const rows = await listAlertEvents(org, HEALTH_WINDOW).catch(() => null);
+    if (!rows) return NextResponse.json({ events: [], health: null });
+    return NextResponse.json({
+      events: rows.slice(0, HISTORY_ROWS).map(toHistoryEvent),
+      health: sinkHealth(rows, { windowFull: rows.length >= HEALTH_WINDOW }),
+    });
   }
   const denied = await requireOrgRole(org, "admin");
   if (denied) return denied;
@@ -133,6 +193,7 @@ export async function POST(request: Request) {
     dimensionDrop?: unknown;
     test?: boolean;
     seen?: boolean;
+    resend?: unknown;
   };
   if (!body.org) return NextResponse.json({ error: "Provide { org, webhookUrl }." }, { status: 400 });
 
@@ -152,6 +213,13 @@ export async function POST(request: Request) {
 
   const denied = await requireOrgRole(body.org, "admin");
   if (denied) return denied;
+
+  if (body.resend !== undefined) {
+    if (typeof body.resend !== "string" || body.resend === "") {
+      return NextResponse.json({ error: "resend must be an alert event id." }, { status: 400 });
+    }
+    return resendResponse(body.org, body.resend);
+  }
 
   // Test-send: the popover's whole job is to validate the CANDIDATE webhook the admin is still
   // editing, so when the request carries a non-empty `webhookUrl` we validate it and dispatch to
@@ -185,17 +253,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       delivered,
-      ...(delivered
-        ? {}
-        : {
-            error: candidate
-              ? "Couldn't deliver to that webhook URL. Check it's a live incoming webhook."
-              : out.outcome === "sink-unreadable"
-                ? "Couldn't read this organization's alert sink. Try again in a moment."
-                : out.outcome === "no-sink"
-                  ? "No alert sink is configured (set a webhook, or the global ALERT_WEBHOOK_URL)."
-                  : "Couldn't deliver to the configured alert sink.",
-          }),
+      ...(delivered ? {} : { error: undeliveredError(out.outcome, candidate) }),
     });
   }
 

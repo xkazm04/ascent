@@ -8,6 +8,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { ALERT_BODY_CAP } from "@/lib/alert-sink-health";
 
 export type AlertEventKind =
   | "regression"
@@ -55,7 +56,12 @@ export interface AlertEventRow {
   createdAt: string;
 }
 
-const BODY_CAP = 2000;
+/** A history row plus the text its sink got: server-side only (the route strips `body` before the wire). */
+export interface AlertEventRecord extends AlertEventRow {
+  body: string;
+}
+
+const BODY_CAP = ALERT_BODY_CAP;
 
 /** Best-effort write. Accepts a slug OR an already-resolved orgId ({ orgId }). Never throws. */
 export async function recordAlertEvent(
@@ -87,8 +93,25 @@ export async function recordAlertEvent(
   }
 }
 
-/** Newest-first history for the alerts drawer. Null when DB-less (matches sibling readers). */
-export async function listAlertEvents(orgSlug: string, limit = 30): Promise<AlertEventRow[] | null> {
+const RECORD_SELECT = {
+  id: true,
+  kind: true,
+  severity: true,
+  repoFullName: true,
+  title: true,
+  body: true,
+  delivered: true,
+  sinkKind: true,
+  suppressedReason: true,
+  createdAt: true,
+} as const;
+
+/**
+ * Newest-first history for the alerts drawer, WITH each row's stored body: the route derives sink
+ * health and each row's `resendable` flag from it, then strips it (`toHistoryEvent`). Null when
+ * DB-less (matches sibling readers).
+ */
+export async function listAlertEvents(orgSlug: string, limit = 30): Promise<AlertEventRecord[] | null> {
   if (!isDbConfigured()) return null;
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
@@ -97,17 +120,22 @@ export async function listAlertEvents(orgSlug: string, limit = 30): Promise<Aler
     where: { orgId },
     orderBy: { createdAt: "desc" },
     take: Math.max(1, Math.min(100, limit)),
-    select: {
-      id: true,
-      kind: true,
-      severity: true,
-      repoFullName: true,
-      title: true,
-      delivered: true,
-      sinkKind: true,
-      suppressedReason: true,
-      createdAt: true,
-    },
+    select: RECORD_SELECT,
   });
   return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+}
+
+/**
+ * One row for an admin resend, looked up by id AND the (already gated) org: gate-then-constrain, so
+ * another org's id is simply not found. Null when DB-less, the org is unknown, or no such row is its.
+ */
+export async function getAlertEventForResend(orgSlug: string, id: string): Promise<AlertEventRecord | null> {
+  if (!isDbConfigured()) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const r = await getPrisma().alertEvent.findFirst({
+    where: { id, orgId },
+    select: RECORD_SELECT,
+  });
+  return r ? { ...r, createdAt: r.createdAt.toISOString() } : null;
 }
