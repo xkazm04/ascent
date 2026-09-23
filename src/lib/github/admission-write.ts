@@ -18,6 +18,7 @@ import { AppApiError, githubAppFetch } from "@/lib/github/app";
 import { encodePathSegments } from "@/lib/github/host";
 import { spliceManagedBlock, unifiedDiff } from "@/lib/org/admission-artifacts";
 import type { RulesetProposal } from "@/lib/org/admission";
+import { artifactFingerprint } from "@/lib/practices/fingerprint";
 
 /** What a dry run tells the reviewer, and what a confirmed run then did. */
 export interface ProposalResult {
@@ -25,8 +26,13 @@ export interface ProposalResult {
   diff: string;
   willCreate: boolean;
   willModify: boolean;
+  /** `artifactFingerprint(diff)`: what a caller echoes back as `expectedDiffDigest` on the confirm. */
+  diffDigest: string;
   /** Present only on a CONFIRMED run that actually opened (or reused) a PR. */
   pr?: { url: string; number: number; branch: string; reused: boolean };
+  /** A confirmed run whose `expectedDiffDigest` no longer matches: NOTHING was sent. `diff` is the
+   *  diff as it would be now, for the caller to show before asking again. */
+  contentDrift?: true;
 }
 
 const enc = (s: string) => Buffer.from(s, "utf8").toString("base64");
@@ -67,6 +73,14 @@ export interface MergeProposalInput {
   /** FALSE (the default) means dry run: read, diff, and send NOTHING. */
   confirm?: boolean;
   base?: string;
+  /**
+   * The digest of the diff the caller PREVIEWED (`diffDigest` of that dry run). The confirmed run
+   * re-reads the base and re-splices, so without this nothing ties the PR to what a person saw: a
+   * CODEOWNERS edited between preview and confirm would land a diff nobody reviewed. Checked against
+   * the diff computed from the read this run splices from (the same shape as practices apply's
+   * `expectedFingerprint`), never against a second read. Absent = today's behaviour.
+   */
+  expectedDiffDigest?: string;
 }
 
 /**
@@ -88,8 +102,14 @@ export async function proposeManagedBlock(input: MergeProposalInput): Promise<Pr
   const before = existing?.content ?? "";
   const spliced = spliceManagedBlock(before, block, begin, end);
   const diff = unifiedDiff(path, before, spliced.content);
-  const result: ProposalResult = { diff, willCreate: existing === null, willModify: existing !== null && spliced.changed };
+  const diffDigest = artifactFingerprint(diff);
+  const result: ProposalResult = { diff, diffDigest, willCreate: existing === null, willModify: existing !== null && spliced.changed };
 
+  // Checked before the empty-diff short-circuit: a preview that showed a change and a base that now
+  // needs none is still "not what was shown", and the caller should see the current state.
+  if (input.confirm && input.expectedDiffDigest !== undefined && input.expectedDiffDigest !== diffDigest) {
+    return { ...result, contentDrift: true };
+  }
   if (!input.confirm || !spliced.changed) return result;
 
   // Create the branch off base; tolerate "already exists" so a retry reuses it.

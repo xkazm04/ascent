@@ -20,6 +20,7 @@ vi.mock("@/lib/github/app", () => ({
 
 import { applyRuleset, listRulesets, proposeManagedBlock, revertRuleset } from "./admission-write";
 import { AppApiError, githubAppFetch } from "@/lib/github/app";
+import { artifactFingerprint } from "@/lib/practices/fingerprint";
 
 const fetchMock = vi.mocked(githubAppFetch);
 
@@ -133,6 +134,37 @@ describe("proposeManagedBlock — a confirmed run", () => {
     expect(res.willCreate).toBe(true);
     expect(res.willModify).toBe(false);
     expect(res.diff).toContain(`+${BEGIN}`);
+  });
+});
+
+describe("proposeManagedBlock — expectedDiffDigest binds the write to the previewed diff", () => {
+  const confirmedGitHub = () =>
+    routeGitHub(
+      {
+        "/repos/acme/billing/contents/CODEOWNERS?ref=main": { content: b64(EXISTING), sha: "f1" },
+        "/repos/acme/billing/git/ref/heads/main": { object: { sha: "base-sha" } },
+        "/repos/acme/billing/pulls": { html_url: "https://github.com/acme/billing/pull/9", number: 9 },
+        "/repos/acme/billing": { default_branch: "main" },
+      },
+      ["contents/CODEOWNERS?ref=ascent"],
+    );
+
+  it("refuses on the SAME read that splices when the diff moved, sending nothing", async () => {
+    confirmedGitHub();
+    const res = await proposeManagedBlock(input({ confirm: true, expectedDiffDigest: "00000000" }));
+
+    expect(res.contentDrift).toBe(true);
+    expect(res.pr).toBeUndefined();
+    expect(res.diffDigest).toBe(artifactFingerprint(res.diff));
+    for (const [, , init] of fetchMock.mock.calls) expect((init as RequestInit | undefined)?.method ?? "GET").toBe("GET");
+  });
+
+  it("a digest of the diff it just computed proceeds to the PR", async () => {
+    confirmedGitHub();
+    const { diff } = await proposeManagedBlock(input());
+    const res = await proposeManagedBlock(input({ confirm: true, expectedDiffDigest: artifactFingerprint(diff) }));
+    expect(res.contentDrift).toBeUndefined();
+    expect(res.pr?.number).toBe(9);
   });
 });
 

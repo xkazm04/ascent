@@ -1,4 +1,5 @@
-// POST /api/org/admission/propose { org, repo, owners?, confirm? } -> { diff, willCreate, willModify, pr? }
+// POST /api/org/admission/propose { org, repo, owners?, confirm?, expectDiffDigest? }
+//   -> { diff, diffDigest, willCreate, willModify, pr? } | 409 { code: "content-drift", diff, diffDigest }
 //
 // AGENT ADMISSION (moonshot #8) — the CODEOWNERS proposal. DRY RUN BY DEFAULT: without `confirm`
 // this reads the repo's existing CODEOWNERS, splices the managed block, and returns the unified diff
@@ -7,6 +8,12 @@
 // Why the diff comes first and always: this writes into a file a customer already owns. The managed
 // block touches only the region between its markers, but "trust me, it only touches the markers" is
 // not something a reviewer can verify from a button. The diff is.
+//
+// WHAT RUNS ON APPROVAL IS WHAT WAS SHOWN. The confirmed run re-reads the base and re-splices, so a
+// caller that previewed sends `expectDiffDigest` (the preview's `diffDigest`, i.e. the
+// artifactFingerprint of the diff text it rendered). The writer checks it against the diff computed
+// from the read it splices from, and a mismatch is a 409 `content-drift` with the current diff and no
+// branch, commit or PR. Omitting it keeps the older contract, so MCP/API callers are unaffected.
 //
 // Auth: OWNER. The spec sketched admin, but `requireOrgOwnerPost` is the only same-origin POST gate
 // this codebase has, and the stricter bar is the safe direction for a route that writes into a
@@ -35,7 +42,7 @@ function cleanOwners(raw: unknown): string[] {
 
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Admission proposals require a database." }, { status: 503 });
-  const gate = await requireOrgOwnerPost<{ repo?: unknown; owners?: unknown; confirm?: unknown }>(request, {
+  const gate = await requireOrgOwnerPost<{ repo?: unknown; owners?: unknown; confirm?: unknown; expectDiffDigest?: unknown }>(request, {
     missingOrgError: "Provide { org, repo, owners }.",
   });
   if (gate instanceof NextResponse) return gate;
@@ -70,6 +77,7 @@ export async function POST(request: Request) {
   }
 
   const confirm = body.confirm === true;
+  const expectedDiffDigest = typeof body.expectDiffDigest === "string" && body.expectDiffDigest ? body.expectDiffDigest : undefined;
   // The token is minted for the gated org; the coordinate is the ADMITTED repo. A tracked repo under
   // another owner namespace (org `kiro` over `xkazm04/kp`) is written in `xkazm04/kp`. This used to
   // pass `owner: org`, so every such proposal read and wrote the nonexistent `kiro/kp`.
@@ -102,6 +110,7 @@ export async function POST(request: Request) {
         `produces no diff.\n\n` +
         `Opened by Ascent on behalf of ${actorLogin ?? "an organization admin"}.`,
       confirm,
+      expectedDiffDigest: confirm ? expectedDiffDigest : undefined,
     });
 
     await recordOrgAudit(
@@ -116,13 +125,26 @@ export async function POST(request: Request) {
         prUrl: result.pr?.url ?? null,
         // A dry run is recorded too: "who looked at what we would write" is part of the record, and a
         // gap between the dry runs and the confirmed one is exactly what an examiner reads.
-        status: confirm
-          ? `CODEOWNERS PR ${result.pr ? `opened (${result.pr.url})` : "unchanged — no diff"} for ${repo}`
-          : `dry run for ${repo}: ${result.diff ? "would modify CODEOWNERS" : "no change"}`,
+        status: result.contentDrift
+          ? `refused for ${repo}: CODEOWNERS changed since the preview — nothing written`
+          : confirm
+            ? `CODEOWNERS PR ${result.pr ? `opened (${result.pr.url})` : "unchanged — no diff"} for ${repo}`
+            : `dry run for ${repo}: ${result.diff ? "would modify CODEOWNERS" : "no change"}`,
       },
       actorLogin ?? undefined,
     ).catch(() => {});
 
+    if (result.contentDrift) {
+      return NextResponse.json(
+        {
+          error: "CODEOWNERS changed since your preview, so the change would differ from the one you reviewed. Nothing was written; review the current diff and confirm again.",
+          code: "content-drift",
+          diff: result.diff,
+          diffDigest: result.diffDigest,
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(result);
   } catch (err) {
     return mapPrWriteError(err, {
