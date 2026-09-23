@@ -1033,6 +1033,27 @@ Passports tab's Clearance prototype (`src/features/standing/passports/autonomy/`
 the real `pp.autonomy` tier and the real `sandbox`/`hooks` gates when the passport carries them,
 falling back to its labeled proxy/mock derivation for pre-0.3.0 data.
 
+### Stable condition ids and the promotion plan (2026-09-23)
+
+Each `unlocks[]` entry now carries an optional `ids[]` parallel to `missing[]` (`ids[i]` names
+`missing[i]`), typed `AutonomyConditionId` in `src/lib/types.ts`. The nine predicates are
+`t1.agent-instructions`, `t1.test-entry`, `t1.tests-partial`, `t2.ci-gated`, `t2.tests-substantial`,
+`t2.guardrails`, `t3.ai-in-workflow`, `t3.evals` and `t3.migrations-versioned`; the tokenless caveat
+that leads a checklist above T1 is `enforcement-not-observable` (`AUTONOMY_TOKENLESS_ID`). The prose
+is unchanged and still interpolates the repo's own levels ("Test suite is none" vs "is smoke"); the
+id is what a fleet rollup groups on. The field is additive: tiers are unchanged, older passports
+carry no ids, the read path re-derives autonomy anyway, and `app-passport.schema.json` already
+allows extra properties. `RepoAutonomy.blockingIds` sits beside `blocking` for the next tier.
+
+The Clearance view opens its register with a **promotion plan** (`autonomy/PromotionPlan.tsx` over the
+pure `autonomy/promotionPlanModel.ts`): per transition (T0 to T1, T1 to T2, T2 to T3) it ranks the
+conditions by how many repos each one **alone** holds back, with how many **carry it** beside that,
+ties broken by condition id so any input order yields the same list. A repo contributes only to its
+own next transition. A tokenless repo is counted as "not assessable" for its step and never ranked
+as a fix; placeholder-scan repos are counted and labelled ("incl. N placeholder scans"); T3 repos
+contribute nothing. Clicking a row narrows the register to the repos carrying that condition, and a
+chip clears it. The register itself stays unranked: the plan ranks conditions, not repos.
+
 ## Who issued the claim: placeholder scans and owner-set fields
 
 Two provenance gaps on the passport surfaces, both closed by labelling rather than by filtering or
@@ -1284,6 +1305,8 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/scorecard/[owner]/page.test.tsx` | Page-level gate: invalid owner 404s; persistence-off / thrown read / empty-but-valid owner do not, and those two non-404 bodies are distinct. |
 | `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0` or the averages are null, and never draws `0/100` for an unpublished grade. |
 | `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews (including `empty` / `unavailable` reads). |
+| `src/features/standing/passports/autonomy/promotionPlanModel.ts` | The fleet promotion plan: per autonomy transition, conditions by sole-blocker count then incidence, ties by id; tokenless repos in an unassessable bucket, placeholder repos labelled. |
+| `src/features/standing/passports/autonomy/PromotionPlan.tsx` | Renders the plan above the clearance register; a row click filters the register to the repos carrying that condition. |
 
 ## Failure states on the report page (2026-09-05)
 
