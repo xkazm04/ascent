@@ -695,6 +695,16 @@ Regression-pinned by `src/lib/db/org-passport-blockers.test.ts` (the query must 
 keep the rollup's repo set) and `src/lib/org/nav-counts.test.ts` (`getOrgRollup` is never called from
 the badge path).
 
+**The passports badge keys on the judgment key (2026-09-23).** `getOrgPassportBlockers` also returns
+each repo's minted `findings[]` (id + sentence), still from the same three columns and still
+scan-free, so `passportFindings` keys a blocker through `passportJudgmentKey`
+(`src/lib/org/passport-judgments.ts`). That is the key the drawer writes a decision under, where the
+badge used to use a hash of the current sentence. A decided self-verify blocker therefore stays out
+of the badge after its missing-script list changes. A decision stored under the old prose key
+still clears the badge through the `Finding`'s read-only `aliases`: `isFindingResolved` is the one
+comparison, shared by `getOrgFindingCounts` and the Overview Fix-first panel. See
+[report.md](../reporting/report.md) for the full judgment model.
+
 The Overview page composes several server queries, all scoped to the org:
 
 | Function | Produces |
