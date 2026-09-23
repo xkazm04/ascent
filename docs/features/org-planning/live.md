@@ -1016,6 +1016,24 @@ The fold is pure (`cockpitBatchRows.ts`: `batchRows`, `batchTotals`) and the sta
 `useProposalBatch.ts`, lifted out of `CockpitInspector` so the ledger and the CTA read **one** batch —
 what the table draws is what the button dispatches.
 
+**A moved checkout shows before Run, and an owner re-pairs it in place (2026-09-23).** A stored
+`localPath` is a claim made at pairing time. `GET /api/org/loop/propose` now checks it with
+`verifyLocalPath`, the function `startLoopRun` re-runs at arm time, before it reads anything else.
+A pairing that no longer verifies comes back as `pairing: { ok: false, error }` with no items and a
+`backlog` kind, instead of the confident "install the .ai/ foundation" lane a missing folder used to
+read as. A healthy pairing carries `pairing: { ok: true }`, and a repo with no stored path carries
+`null`. Only the verdict and the verifier's sentence are sent, never the path, because the route is
+member-readable. The ledger shows such a repo as its own **broken** row
+("pairing broken: Folder does not exist on the server's filesystem.") with no checkbox, counts it as
+`B pairing broken` in the header, and `useProposalBatch` keeps it out of `runnable` and `batches`, so
+Run never arms it only to meet a 409. An **owner** sees a path field and **Re-pair** on that row
+(`BatchRepairPairing`). It posts the same owner-gated `POST /api/org/local/pairing` Admin → Pairing
+uses, refetches the batch on success (`reload()`), and shows a refused path's reason inline with the
+typed path kept. A non-owner sees the sentence only. Behind it, `startLoopRun` collects every broken
+or missing pairing before refusing, so a stale tab or an API caller gets one refusal naming each repo
+with its reason. That text is a contract with the standing runner, which pauses every repo it names:
+the producer (`pairingRefusal`) and the parser (`reposNamedIn`) share `src/lib/local/pairing-health.ts`.
+
 #### The dials are a dialog behind the masthead gear (2026-09-17)
 
 Ten `<select>`s and five standing paragraphs lived in the same 18rem rail (`CockpitRunControls`,
