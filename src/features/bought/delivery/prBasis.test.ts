@@ -81,3 +81,25 @@ describe("prSectionBasisLine", () => {
     expect(PRS_COLUMN_HINT).toMatch(/analyzed count/);
   });
 });
+
+describe("fleetBasisCopy method (pooled vs volume-weighted)", () => {
+  it("case 7: a pooled rate states its counts over its population", () => {
+    const c = fleetBasisCopy("reviewed", { weight: 110, repos: 2, population: 20, method: "pooled", count: 11, legacyRepos: 0 })!;
+    expect(c.short).toBe("basis: 11 of 20 · 2 repos");
+    expect(c.full).toMatch(/11 of 20 human-authored merged PRs across 2 repos/);
+    expect(c.full).not.toMatch(/weighted by/);
+    expect(c.short + c.full).not.toMatch(/\u2014/);
+  });
+
+  it("case 7: a volume-weighted rate says it is weighted because scans predate per-rate counts", () => {
+    const c = fleetBasisCopy("reviewed", { weight: 110, repos: 2, population: null, method: "volume-weighted", count: null, legacyRepos: 1 })!;
+    expect(c.full).toMatch(/weighted by 110 analyzed PRs because 1 scan predates per-rate counts/);
+    expect(c.short + c.full).not.toMatch(/\u2014/);
+  });
+
+  it("a pooled rate under its sample floor says why no percentage is published", () => {
+    const c = fleetBasisCopy("reviewed", { weight: 40, repos: 2, population: 4, method: "pooled", count: 2, legacyRepos: 0 })!;
+    expect(c.short).toBe("basis: 2 of 4 · 2 repos");
+    expect(c.full).toMatch(/below the 5-PR floor/);
+  });
+});

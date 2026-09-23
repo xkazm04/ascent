@@ -479,3 +479,39 @@ describe("buildDeliveryTrend — each rate carries the sample that produced it",
     expect(points[0]!.basis.protectedRate).toEqual({ prs: null, scans: 1 });
   });
 });
+
+// ── Pooled rates (people-delivery-analytics#A) ────────────────────────────────
+//
+// A day's review coverage is the share of that day's human-merged PRs that were approved, pooled from
+// each scan's rate book: the same arithmetic getOrgPrSignals publishes for the snapshot, so the trend's
+// last point and the headline cell cannot disagree about one fleet.
+
+describe("buildDeliveryTrend — pooled rate book", () => {
+  const book = (reviewed: [number, number]) => ({
+    rates: { reviewed: { id: "reviewed", count: reviewed[0], population: reviewed[1], defVersion: 1 } },
+  }) as unknown as Partial<PrStats>;
+
+  it("case 6: pools the day's reviewed counts (11 of 20 = 55), agreeing with the snapshot", () => {
+    const points = buildDeliveryTrend(
+      [
+        scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: prStats({ analyzed: 100, reviewedRate: 10, ...book([1, 10]) }) }),
+        scan({ scannedAt: new Date("2026-05-01T05:00:00Z"), prStats: prStats({ analyzed: 10, reviewedRate: 100, ...book([10, 10]) }), repoId: "r2" }),
+      ],
+      TZ,
+    );
+    expect(points[0]!.reviewedRate).toBe(55);
+    expect(points[0]!.basis.reviewedRate).toMatchObject({ method: "pooled", count: 11, population: 20 });
+  });
+
+  it("guard: a day with one scan lacking the book keeps the analyzed-weighted mean", () => {
+    const points = buildDeliveryTrend(
+      [
+        scan({ scannedAt: new Date("2026-05-01T01:00:00Z"), prStats: prStats({ analyzed: 100, reviewedRate: 10, ...book([1, 10]) }) }),
+        scan({ scannedAt: new Date("2026-05-01T05:00:00Z"), prStats: prStats({ analyzed: 10, reviewedRate: 100 }), repoId: "r2" }),
+      ],
+      TZ,
+    );
+    expect(points[0]!.reviewedRate).toBe(18);
+    expect(points[0]!.basis.reviewedRate).toEqual({ prs: 110, scans: 2 });
+  });
+});

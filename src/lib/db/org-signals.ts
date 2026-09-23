@@ -7,6 +7,7 @@ import { getOrgId } from "@/lib/db/org-rollup";
 import { dayKeyInZone, daysBetweenDayKeys, resolveOrgTimeZone } from "@/lib/org/timezone";
 import { parseStringArray } from "@/lib/db/json-columns";
 import type { PrStats } from "@/lib/types";
+import { POOLABLE_RATE_IDS, bookCounts, poolFleetRate, volumeWeighted, type FleetRateMethod, type PoolableRateId, type RateContribution } from "@/lib/db/fleet-rate-pool";
 
 /**
  * The fleet rates `OrgPrSignals` publishes, keyed so a rate and the basis that produced it cannot
@@ -39,10 +40,9 @@ export type FleetRateId =
  */
 export interface FleetRateBasis {
   /**
-   * The weight the mean actually used, summed over contributing repos: analyzed PRs, the persisted
-   * volume proxy the weighting has always run on. Kept as the weight (rather than switching to
-   * `population`) so no published fleet number moves in this change — what changes is that the
-   * weight is now stated instead of implied by the `totalPrs` beside it.
+   * Analyzed PRs summed over the contributing repos. For a `volume-weighted` rate this is the weight
+   * the mean actually used (the persisted volume proxy); for a `pooled` rate it is only the volume
+   * behind the pooled counts, and `count` / `population` are what produced the number.
    */
   weight: number;
   /** Repos that contributed a measurement — never the fleet's repo count when some were null. */
@@ -54,6 +54,18 @@ export interface FleetRateBasis {
    * masquerading as a complete one. Null means "not persisted", never zero.
    */
   population: number | null;
+  /**
+   * How the percentage was computed, present exactly for the five rates the analyzer's rate book can
+   * pool (`POOLABLE_RATE_IDS`, fleet-rate-pool.ts). `pooled`: summed counts over summed populations.
+   * `volume-weighted`: the analyzed-weighted mean, because `legacyRepos` contributors predate the
+   * book. Absent for merge / aiTrailer / aiPreReviewed, which have no persisted counts and have only
+   * ever been volume-weighted.
+   */
+  method?: FleetRateMethod;
+  /** The pooled numerator (`count` of `population`). Null unless `method` is `pooled`. */
+  count?: number | null;
+  /** Repos whose latest scan predates the rate book for this rate. 0 when pooled. */
+  legacyRepos?: number;
 }
 
 /** One repo's PR-signal row for the delivery drill-down table. */
@@ -97,11 +109,13 @@ export interface OrgPrSignals {
   /** PRs analyzed across the fleet. Fleet VOLUME, not any rate's denominator — see `rateBasis`. */
   totalPrs: number;
   avgMergeRate: number; // analyzed-PR-weighted fleet merge rate (a large repo outweighs a toy one)
-  avgReviewedRate: number | null; // analyzed-weighted repo reviewedRate (null when NO repo has a human-merged sample)
-  avgSmallPrRate: number; // analyzed-weighted
-  avgAiInvolvedRate: number; // analyzed-weighted
-  avgAiGovernedRate: number | null; // analyzed-weighted repo aiGovernedRate (null when NO repo has a sample)
-  avgRevertRate: number | null; // analyzed-weighted; null only when NO blob carries the field (pre-W1a scans)
+  // The next five are POOLED from the rate book (count over population) when every repo's latest scan
+  // carries it, else analyzed-weighted: `rateBasis[id].method` says which.
+  avgReviewedRate: number | null; // null when NO repo has a human-merged sample, or the pool is under its floor
+  avgSmallPrRate: number;
+  avgAiInvolvedRate: number;
+  avgAiGovernedRate: number | null; // null when NO repo has a sample, or the pool is under its floor
+  avgRevertRate: number | null; // null only when NO blob carries the field (pre-W1a scans)
   avgAiTrailerRate: number | null; // analyzed-weighted; null when NO blob carries a merged-PR trailer sample (W2)
   avgAiPreReviewedRate: number | null; // analyzed-weighted; same null semantics (W2)
   typicalHoursToMerge: number | null; // mean of per-repo medians (a median-of-medians, left unweighted)
@@ -147,6 +161,8 @@ function ratePopulations(p: PrStats, num: (v: unknown) => number | null): Partia
   put("aiGoverned", num(p.rates?.aiGoverned?.population));
   return pop;
 }
+
+const isPoolable = (id: FleetRateId): id is PoolableRateId => (POOLABLE_RATE_IDS as readonly string[]).includes(id);
 
 /** Fleet-level pull-request signals — aggregated from each repo's latest scan's prStats. */
 export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null, techGroupId?: string | null): Promise<OrgPrSignals | null> {
@@ -212,41 +228,36 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
       (b.medianHoursToMerge ?? -1) - (a.medianHoursToMerge ?? -1),
   );
 
-  // Volume-weighted fleet rates: weight each repo's rate by its analyzed PR count, so a 500-PR flagship
-  // outweighs a 1-PR toy repo instead of every repo voting equally (an average-of-averages). The old
-  // unweighted mean let low-traffic repos dominate a headline "fleet" rate no meaningful slice of PRs
-  // experienced — and was internally inconsistent with the commit-weighted org AI share
-  // (org-contributors.ts) and the PR-count-based `totalPrs` right beside it. A nullable rate
-  // (reviewedRate / aiGovernedRate — "no sample") contributes only where present and stays null when NO
-  // repo carries it, preserving the null-vs-measured-0 distinction. `analyzed` is the natural fleet
-  // weight (exact for the analyzed-denominated rates; a volume proxy for reviewed/governed whose exact
-  // sub-denominators aren't persisted per repo). (fleet-rollups-insights #3)
+  // Fleet rates fold through ONE module (fleet-rate-pool.ts). A rate the analyzer's book carries
+  // (smallPr / aiInvolved / revert / reviewed / aiGoverned) is POOLED, sum(count) / sum(population)
+  // floored by RATE_BASIS.minSample, whenever every repo's latest scan persisted the book for it.
+  // Otherwise, and always for merge / aiTrailer / aiPreReviewed (no persisted counts), it is the
+  // analyzed-weighted mean it has been since fleet-rollups-insights #3: a 500-PR flagship outweighs a
+  // 1-PR toy repo, and a nullable rate ("no sample") contributes only where present, null when NO
+  // repo carries it. The weighting was a volume proxy for reviewed / aiGoverned, whose populations
+  // are human-merged and AI-involved PRs; with the book persisted the proxy is no longer needed, and
+  // a legacy fleet keeps its old numbers until it rescans (`rateBasis[id].legacyRepos` says why).
   //
-  // WHAT CHANGED (and what deliberately did not): the arithmetic is untouched — every published
-  // fleet percentage is the same number it was. What is new is that each rate now REPORTS the weight
-  // and the repo count it was actually computed over, plus its own summed denominator, into
-  // `rateBasis`. `repos` / `totalPrs` describe the fleet, not any one rate, and the gap between them
-  // was silent: a coverage figure resting on 2 of 40 repos rendered beside "40 repos, 5,000 PRs".
+  // Each rate REPORTS what produced it into `rateBasis`: `repos` / `totalPrs` describe the fleet, not
+  // any one rate, and a coverage figure resting on 2 of 40 repos must not read as if it spoke for 40.
   const rateBasis = {} as Record<FleetRateId, FleetRateBasis>;
+  const contributions = (id: FleetRateId, pick: (s: PrStats) => number | null): RateContribution[] =>
+    stats.map((s, i) => ({
+      analyzed: s.analyzed,
+      percent: pick(s),
+      population: pops[i]?.[id] ?? null,
+      counts: isPoolable(id) ? bookCounts(s.rates, id) : null,
+    }));
   const weightedRate = (id: FleetRateId, pick: (s: PrStats) => number | null): number | null => {
-    let wsum = 0;
-    let sum = 0;
-    let contributors = 0;
-    // The rate's own denominator, summed over the CONTRIBUTING repos only. It stays a number only
-    // while every contributor persisted one; the first that didn't turns it null, because a sum
-    // missing a term is a smaller denominator that still looks complete.
-    let population: number | null = 0;
-    for (const [i, s] of stats.entries()) {
-      const v = pick(s);
-      if (v == null) continue; // "no sample" — not a measured 0
-      wsum += s.analyzed;
-      sum += v * s.analyzed;
-      contributors += 1;
-      const p = pops[i]?.[id];
-      population = p == null || population == null ? null : population + p;
+    const cs = contributions(id, pick);
+    if (isPoolable(id)) {
+      const { percent, ...basis } = poolFleetRate(id, cs);
+      rateBasis[id] = basis;
+      return percent;
     }
-    rateBasis[id] = { weight: wsum, repos: contributors, population: contributors ? population : null };
-    return wsum > 0 ? Math.round(sum / wsum) : null;
+    const { percent, ...basis } = volumeWeighted(cs);
+    rateBasis[id] = basis;
+    return percent;
   };
   const ttm = stats.map((s) => s.medianHoursToMerge).filter((x): x is number => x != null);
   const ttfr = stats.map((s) => num(s.medianHoursToFirstReview)).filter((x): x is number => x != null);
@@ -275,7 +286,7 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
     typicalHoursToFirstReview: meanTenth(ttfr),
     tools: [...toolMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
     perRepo,
-    // Filled in by the `weightedRate` calls above — every one of them writes its basis — so this
+    // Filled in by the `weightedRate` calls above (every one of them writes its basis), so this
     // reads the completed record. Listing it last keeps that dependency visible in source order.
     rateBasis,
   };

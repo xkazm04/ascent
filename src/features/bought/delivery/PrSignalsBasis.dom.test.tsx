@@ -88,6 +88,14 @@ describe("PrSignalsBand basis", () => {
     const { container } = render(<PrSignalsBand pr={signals({ rateBasis: basis })} />);
     expect(container.textContent).toMatch(/sample size unknown/);
   });
+
+  it("shows a pooled review coverage as its counts over its population", () => {
+    const basis = fullBasis() as OrgPrSignals["rateBasis"];
+    basis.reviewed = { weight: 110, repos: 2, population: 20, method: "pooled", count: 11, legacyRepos: 0 };
+    const { container } = render(<PrSignalsBand pr={signals({ avgReviewedRate: 55, rateBasis: basis })} />);
+    expect(container.textContent).toMatch(/basis: 11 of 20 · 2 repos/);
+    expect(container.querySelector('[title*="pooled"]')).toBeTruthy();
+  });
 });
 
 describe("PrRepoTable denominators", () => {

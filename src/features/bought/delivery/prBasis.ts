@@ -11,6 +11,7 @@
 // Pure string building, no JSX, so the claims are unit-testable without rendering a server tree.
 
 import type { FleetRateBasis, FleetRateId } from "@/lib/db/org-signals";
+import { RATE_BASIS, type RateBasisId } from "@/lib/analyze/pr-thresholds";
 
 /** What each rate's denominator IS, in the reader's words. Mirrors org-signals' ratePopulations. */
 export const RATE_DENOMINATOR: Record<FleetRateId, string> = {
@@ -45,17 +46,39 @@ const repoWord = (r: number) => `${r} repo${r === 1 ? "" : "s"}`;
 export function fleetBasisCopy(id: FleetRateId, basis: FleetRateBasis | undefined): BasisCopy | null {
   if (!basis || basis.repos === 0) return null;
   const denom = RATE_DENOMINATOR[id];
+  if (basis.method === "pooled" && basis.count != null && basis.population != null) return pooledCopy(id, basis.count, basis.population, basis.repos);
+  // Volume-weighted because some contributing scans predate per-rate counts: say so, since that is
+  // the one reason the number is not the pooled share its name promises.
+  const legacy = basis.method === "volume-weighted" && (basis.legacyRepos ?? 0) > 0 ? basis.legacyRepos! : 0;
+  const weighted = legacy
+    ? `weighted by ${n(basis.weight)} analyzed PRs because ${scanWord(legacy)} predate${legacy === 1 ? "s" : ""} per-rate counts; a rescan pools the exact counts`
+    : `weighted by ${n(basis.weight)} analyzed PRs`;
   if (basis.population == null) {
     return {
       short: `basis: ${repoWord(basis.repos)}, sample size unknown`,
-      full: `Measured across ${repoWord(basis.repos)}; the exact denominator (${denom}) was not persisted by every contributing scan, so it is not summed here. Weighted by ${n(basis.weight)} analyzed PRs.`,
+      full: `Measured across ${repoWord(basis.repos)}; the exact denominator (${denom}) was not persisted by every contributing scan, so it is not summed here, and the rate is ${weighted}.`,
     };
   }
   return {
     short: `basis: ${n(basis.population)} · ${repoWord(basis.repos)}`,
-    full: `Measured over ${n(basis.population)} ${denom} across ${repoWord(basis.repos)} (weighted by ${n(basis.weight)} analyzed PRs).`,
+    full: `Measured over ${n(basis.population)} ${denom} across ${repoWord(basis.repos)} (${weighted}).`,
   };
 }
+
+const scanWord = (s: number) => `${s} scan${s === 1 ? "" : "s"}`;
+
+/** A pooled rate IS its counts: the fleet's summed numerator over its summed population, with the
+ *  rate's own sample floor stated when the pool is under it (the cell then renders no percentage). */
+function pooledCopy(id: FleetRateId, count: number, population: number, repos: number): BasisCopy {
+  const floor = isRateBasisId(id) ? RATE_BASIS[id].minSample : null;
+  const under = floor != null && population < floor ? ` That is below the ${floor}-PR floor, so no percentage is published.` : "";
+  return {
+    short: `basis: ${n(count)} of ${n(population)} · ${repoWord(repos)}`,
+    full: `${n(count)} of ${n(population)} ${RATE_DENOMINATOR[id]} across ${repoWord(repos)}, pooled: the fleet's counts over its population, not a mean of per-repo percentages.${under}`,
+  };
+}
+
+const isRateBasisId = (id: FleetRateId): id is FleetRateId & RateBasisId => id in RATE_BASIS;
 
 /**
  * The two hour readings are not rates and have no population: they are the unweighted MEAN OF the

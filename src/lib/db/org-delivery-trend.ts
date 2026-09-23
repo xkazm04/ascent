@@ -17,8 +17,11 @@
 // and, since a nullable rate contributes only where present, its own PER-RATE `basis` (see
 // `DeliveryRateSample`): the day's `prs` is the day's total, never the denominator of a given rate.
 //
-// WEIGHTING mirrors `getOrgPrSignals` exactly: rates are weighted by each scan's `analyzed` PR count,
-// so a 500-PR flagship outweighs a 1-PR toy repo. A nullable rate ("no sample" — `reviewedRate`,
+// WEIGHTING mirrors `getOrgPrSignals` exactly, through the same fold (fleet-rate-pool.ts): a rate the
+// analyzer's book carries (reviewed, aiGoverned, smallPr, aiInvolved, revert) is POOLED on a day when
+// every scan that day persisted the book, sum(count) / sum(population) under the rate's own floor.
+// Otherwise rates are weighted by each scan's `analyzed` PR count, so a 500-PR flagship outweighs a
+// 1-PR toy repo. A nullable rate ("no sample" — `reviewedRate`,
 // `aiGovernedRate`) contributes only where present and stays null when no scan that day carried it;
 // null is never coerced to a measured 0.
 //
@@ -32,6 +35,7 @@ import { retentionCutoff } from "@/lib/plans";
 import { dayKeyInZone, orgTimeZone, resolveOrgTimeZone } from "@/lib/org/timezone";
 import { forecastInsufficiency, forecastTrajectory, type Trajectory } from "@/lib/maturity/forecast";
 import type { PrStats } from "@/lib/types";
+import { bookCounts, poolFleetRate, type FleetRateMethod, type PoolableRateId, type RateContribution } from "@/lib/db/fleet-rate-pool";
 
 /** The engine name that marks a deterministic, model-free scan (mirrors `chartEngine.MOCK_ENGINE`). */
 const MOCK_ENGINE = "mock";
@@ -79,6 +83,11 @@ export interface DeliveryRateSample {
   prs: number | null;
   /** Scans that carried this rate at all. 0 means the rate is null on this point. */
   scans: number;
+  /** Present only when the point POOLED this rate from every scan's rate book (fleet-rate-pool.ts):
+   *  the percentage is `count` of `population`. Absent = the analyzed-weighted mean. */
+  method?: FleetRateMethod;
+  count?: number | null;
+  population?: number | null;
 }
 
 /** One calendar day of delivery signal, aggregated over the scans that ran that day. */
@@ -93,11 +102,12 @@ export interface DeliveryTrendPoint {
   prs: number;
   /** Analyzed-PR-weighted merge rate. Null when no scan that day carried PR stats. */
   mergeRate: number | null;
-  /** Analyzed-weighted share of merged human PRs with an approving review. Null = no sample. */
+  /** Share of merged human PRs with an approving review: pooled from the rate book when every scan
+   *  that day carries it (`basis.reviewedRate.method`), else analyzed-weighted. Null = no sample. */
   reviewedRate: number | null;
   /** Analyzed-weighted share of PRs with AI involvement. Null = no sample. */
   aiInvolvedRate: number | null;
-  /** Analyzed-weighted share of AI PRs that got an approving review. Null = no sample. */
+  /** Share of AI PRs that got an approving review, pooled or weighted like reviewedRate. Null = no sample. */
   aiGovernedRate: number | null;
   /** Mean of the day's per-repo median hours-to-merge (a median-of-medians, left unweighted —
    *  identical to `getOrgPrSignals.typicalHoursToMerge`). Null = no sample. */
@@ -202,6 +212,17 @@ const PR_RATES = [
 ] as const;
 type PrRateField = (typeof PR_RATES)[number];
 
+/** The trend fields the rate book can pool, and the book id each one reads. */
+const POOLED_FIELDS = {
+  reviewedRate: "reviewed",
+  aiGovernedRate: "aiGoverned",
+  smallPrRate: "smallPr",
+  aiInvolvedRate: "aiInvolved",
+  revertRate: "revert",
+} as const satisfies Partial<Record<PrRateField, PoolableRateId>>;
+type PooledField = keyof typeof POOLED_FIELDS;
+const POOLED_KEYS = Object.keys(POOLED_FIELDS) as PooledField[];
+
 interface DayAcc {
   scans: number;
   repos: Set<string>;
@@ -213,6 +234,8 @@ interface DayAcc {
    *  PR-count half). A rate present on one scan of five is a different claim from one present on all
    *  five, and the point must be able to say which. */
   carried: Record<PrRateField, number>;
+  /** Every PR scan's say in each poolable rate, book or no book: the pool decides per day. */
+  contrib: Record<PooledField, RateContribution[]>;
   ttm: number[];
   ttfr: number[];
   govReadable: number;
@@ -229,6 +252,7 @@ function emptyDay(): DayAcc {
     sum: zeros(),
     weight: zeros(),
     carried: zeros(),
+    contrib: Object.fromEntries(POOLED_KEYS.map((k) => [k, []])) as unknown as Record<PooledField, RateContribution[]>,
     ttm: [],
     ttfr: [],
     govReadable: 0,
@@ -289,6 +313,7 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
         acc.weight[k] += analyzed;
         acc.carried[k] += 1;
       }
+      for (const k of POOLED_KEYS) acc.contrib[k].push({ analyzed, percent: num(pr[k]), counts: bookCounts(pr.rates, POOLED_FIELDS[k]) });
       const ttm = num(pr.medianHoursToMerge);
       if (ttm !== null) acc.ttm.push(ttm);
       const ttfr = num(pr.medianHoursToFirstReview);
@@ -305,7 +330,21 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
   return [...byDay.entries()]
     .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
     .map(([date, a]) => {
-      const rate = (k: PrRateField) => (a.weight[k] > 0 ? Math.round(a.sum[k] / a.weight[k]) : null);
+      const pools = Object.fromEntries(POOLED_KEYS.map((k) => [k, poolFleetRate(POOLED_FIELDS[k], a.contrib[k])])) as Record<
+        PooledField,
+        ReturnType<typeof poolFleetRate>
+      >;
+      const pooled = (k: PrRateField) => (k in pools && pools[k as PooledField].method === "pooled" ? pools[k as PooledField] : null);
+      const rate = (k: PrRateField) => {
+        const p = pooled(k);
+        if (p) return p.percent;
+        return a.weight[k] > 0 ? Math.round(a.sum[k] / a.weight[k]) : null;
+      };
+      const sample = (k: PrRateField): DeliveryRateSample => {
+        const p = pooled(k);
+        if (!p) return { prs: a.weight[k], scans: a.carried[k] };
+        return { prs: p.weight, scans: p.repos, method: p.method, count: p.count, population: p.population };
+      };
       const meanTenth = (xs: number[]) => (xs.length ? Math.round((xs.reduce((x, y) => x + y, 0) / xs.length) * 10) / 10 : null);
       return {
         date,
@@ -326,7 +365,7 @@ export function buildDeliveryTrend(rows: readonly DeliveryScanRow[], tz: string 
         protectedRate: a.govReadable > 0 ? Math.round((a.govProtected / a.govReadable) * 100) : null,
         basis: {
           ...(Object.fromEntries(
-            PR_RATES.map((k) => [k, { prs: a.weight[k], scans: a.carried[k] } satisfies DeliveryRateSample]),
+            PR_RATES.map((k) => [k, sample(k)]),
           ) as Record<PrRateField, DeliveryRateSample>),
           // Governance is denominated in READABLE scans, not PRs — "couldn't read governance" was
           // never in the denominator, and `prs: null` says so instead of implying a PR count.
