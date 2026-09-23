@@ -9,17 +9,22 @@
 // is sent by BOTH drive modes now; the route validates it with the loop route's own rules
 // (`parseDriveDials`). Minutes here, milliseconds on the wire, exactly as the manual run.
 //
+// AND SO DO THE ARMS (challenge-2026-09-23b). Both drive bodies used to spread the arms at the TOP of
+// the body, where the drive route never looked, so every arm built in the gear was silently dropped on
+// "Drive to green" and on the runner while this module's own test stayed green. They travel inside
+// `dials` now, and the reader tests beside both routes POST these bodies to the real handlers.
+//
 // THE RUNNER'S TWO FORCED SETTINGS are forced here as well as refused by the route: no `delivery`
 // (the route arms `runner` and 400s anything else), and `verifyMode: "on"` whatever the dial says —
 // the runner lands only verified work.
 
 import type { DriveDials } from "@/lib/local/runner-types";
-import { armRequestFields } from "./arms/armDraft";
+import { armRequestFields, draftsToArms } from "./arms/armDraft";
 import type { StartDriveInput } from "./driveClient";
 import type { StartLoopInput } from "./loopClient";
 import type { ProposalBatch } from "./useProposalBatch";
 import type { RunDials } from "./useRunDials";
-import type { ArmPolicy } from "@/lib/local/arm";
+import { isSplitArm, type ArmPolicy } from "@/lib/local/arm";
 
 /**
  * THE ARMS, as the three bodies carry them — or nothing at all.
@@ -29,8 +34,28 @@ import type { ArmPolicy } from "@/lib/local/arm";
  * configuration nobody chose. `armStartBlock` below is what keeps a caller from reaching this case
  * with a press; this is the second line of the same refusal.
  */
-function armFieldsOf(d: RunDials): { armPolicy: ArmPolicy; arms: Record<string, unknown>[] } | Record<string, never> {
-  return armRequestFields(d.arms, d.armPolicy) ?? {};
+function armFieldsOf(d: RunDials): { armPolicy: ArmPolicy; arms: Record<string, unknown>[]; planMode?: "on" } | Record<string, never> {
+  const fields = armRequestFields(d.arms, d.armPolicy);
+  return fields ? { ...fields, ...splitPlanMode(d) } : {};
+}
+
+/**
+ * PLAN MODE for a split arm (challenge-2026-09-23b). An arm's planning half is spawned only by the
+ * planning session, and the manual Run never sent `planMode`, so "Claude plans, a local model
+ * executes" ran the local model for both halves from this door. Sent only when an arm is split: a
+ * plain arm's run is byte-identical to before. The routes imply the same (`run-spec.ts`); sending it
+ * keeps the body honest about the run it asks for.
+ */
+function splitPlanMode(d: RunDials): { planMode: "on" } | Record<string, never> {
+  const arms = draftsToArms(d.arms, d.armPolicy);
+  return arms && arms.some(isSplitArm) ? { planMode: "on" } : {};
+}
+
+/** THE ARMS AS A DRIVE READS THEM: inside `dials`, which is the only place the drive route looks
+ *  (`dials.arms` / `dials.armPolicy`). Sent at the top of a drive body they are a 400. */
+function driveArmDialsOf(d: RunDials): Pick<DriveDials, "arms" | "armPolicy" | "planMode"> {
+  const arms = draftsToArms(d.arms, d.armPolicy);
+  return arms ? { arms, armPolicy: d.armPolicy, ...splitPlanMode(d) } : {};
 }
 
 /**
@@ -107,8 +132,7 @@ export function driveStartInput(d: RunDials, repos: string[]): StartDriveInput {
     model: d.model,
     effort: d.effort,
     delivery: d.delivery,
-    dials: driveDialsOf(d),
-    ...armFieldsOf(d),
+    dials: { ...driveDialsOf(d), ...driveArmDialsOf(d) },
   };
 }
 
@@ -143,8 +167,7 @@ export function runnerStartInput(d: RunDials, selection: readonly string[]): Run
       model: d.model,
       effort: d.effort,
       spendCeilingUsd: ceiling.usd,
-      dials: { ...driveDialsOf(d), verifyMode: "on" },
-      ...armFieldsOf(d),
+      dials: { ...driveDialsOf(d), ...driveArmDialsOf(d), verifyMode: "on" },
     },
   };
 }

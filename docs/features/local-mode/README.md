@@ -240,7 +240,7 @@ on cloud.
 
 | | |
 | --- | --- |
-| `POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency?, model?, effort?, delivery?, dials?, mode?, spendCeilingUsd? }` | start a drive over the watched, paired repos (or the given ones) — `202 { drive }`. `dials` (batch size, session ceiling, guard, verify timeout, rescan cadence, model policy) now reach every run the drive dispatches; before 2026-09-18 they were dropped. `mode: "continuous"` arms the standing runner (below) |
+| `POST { org, action:"start", repos?, maxRuns?, maxCycles?, concurrency?, model?, effort?, delivery?, dials?, mode?, spendCeilingUsd? }` | start a drive over the watched, paired repos (or the given ones) — `202 { drive }`. `dials` (batch size, session ceiling, guard, verify timeout, rescan cadence, model policy, `arms` / `armPolicy`, `planMode`) now reach every run the drive dispatches; before 2026-09-18 they were dropped. They are parsed by the same function as `POST /api/org/loop`'s flat body (`src/lib/local/run-spec.ts`), so an input gets one verdict at either door; a split arm implies `planMode: "on"`, and a top-level `arms` / `armPolicy` / `planMode` is a 400 saying they belong in `dials` (2026-09-23). `mode: "continuous"` arms the standing runner (below) |
 | `POST { org, action:"stop", id }` | cooperative stop: the current run finishes its phase, then the drive ends |
 | `GET ?org=<slug>` | every drive for the org with its phase, per-run debt before/after, and the latest measurement |
 

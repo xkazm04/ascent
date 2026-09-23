@@ -3,8 +3,9 @@
 //   - a manual run's body is EXACTLY what the inspector sent before the composition moved here;
 //   - a bounded drive now carries the dials (until 2026-09-18 it sent none, so every drive run used the
 //     deployment defaults whatever the dialog said);
-//   - all three now carry the ARMS the builder composed, and none of them departs on a configuration
-//     the preflight probe refused;
+//   - all three now carry the ARMS the builder composed (the two drive bodies inside `dials`, the only
+//     place the drive route reads them; the reader tests beside both routes prove the round trip), and
+//     none of them departs on a configuration the preflight probe refused;
 //   - the standing runner forces its two settings — no delivery, verify on — whatever the dials hold,
 //     omits `repos` for the default scope, and refuses an empty ceiling rather than read it as "none".
 
@@ -45,13 +46,29 @@ describe("runStartInput", () => {
 describe("driveStartInput", () => {
   it("sends the dials with a bounded drive, and no runner fields", () => {
     const body = driveStartInput(dials({ batchSize: 8, verifyMode: "off", rescanCadence: "run" }), ["acme/a"]);
-    expect(body.dials).toEqual({ batchSize: 8, agentTimeoutMs: 1_200_000, verifyMode: "off", verifyTimeoutMs: 600_000, rescanCadence: "run" });
+    expect(body.dials).toEqual({
+      batchSize: 8,
+      agentTimeoutMs: 1_200_000,
+      verifyMode: "off",
+      verifyTimeoutMs: 600_000,
+      rescanCadence: "run",
+      armPolicy: "single",
+      arms: [{ id: "claude-sonnet-1", label: "claude:sonnet", transport: "claude", model: "sonnet", plan: null }],
+    });
     expect(body.maxRuns).toBe(3);
     expect(body.delivery).toBe("branch");
     expect(body.mode).toBeUndefined();
     expect(body.spendCeilingUsd).toBeUndefined();
-    expect(body.armPolicy).toBe("single");
-    expect(body.arms).toHaveLength(1);
+    // The arms ride INSIDE the dials: at the top of a drive body the route refuses them.
+    expect("arms" in body).toBe(false);
+    expect("armPolicy" in body).toBe(false);
+  });
+
+  it("sends planMode 'on' with a split arm, on every door, and never for a plain one", () => {
+    const split = { ...newArmDraft("pi"), model: "qwen3.8:27b", plan: { transport: "claude" as const, model: "sonnet" } };
+    expect(driveStartInput(dials({ arms: [split] }), ["acme/a"]).dials?.planMode).toBe("on");
+    expect(runStartInput(dials({ arms: [split] }), { runnable: ["acme/a"], batches: {} }).planMode).toBe("on");
+    expect(driveStartInput(dials(), ["acme/a"]).dials?.planMode).toBeUndefined();
   });
 });
 
@@ -99,9 +116,15 @@ describe("runnerStartInput", () => {
       model: null,
       effort: null,
       spendCeilingUsd: 40,
-      dials: { batchSize: 5, agentTimeoutMs: 1_200_000, verifyMode: "on", verifyTimeoutMs: 600_000, rescanCadence: "cycle" },
-      armPolicy: "single",
-      arms: [{ id: "claude-sonnet-1", label: "", transport: "claude", model: "sonnet", plan: null }],
+      dials: {
+        batchSize: 5,
+        agentTimeoutMs: 1_200_000,
+        verifyMode: "on",
+        verifyTimeoutMs: 600_000,
+        rescanCadence: "cycle",
+        armPolicy: "single",
+        arms: [{ id: "claude-sonnet-1", label: "claude:sonnet", transport: "claude", model: "sonnet", plan: null }],
+      },
     });
     // Neither delivery nor a rope reaches the wire.
     expect("delivery" in built.input).toBe(false);

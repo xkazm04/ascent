@@ -76,6 +76,10 @@ export interface DriveDials {
    *  a drive armed the old way, byte-identical to every drive before arms existed. */
   arms?: Arm[] | null;
   armPolicy?: ArmPolicy | null;
+  /** `on` = every run the drive dispatches plans first. Implied `on` when an arm is split (a split arm's
+   *  planning half is spawned only by the planning session); `off` with a split arm is refused at the
+   *  route. The standing runner plans whatever this says. Omitted = off, as every drive before it. */
+  planMode?: "on" | "off" | null;
 }
 
 // ── plans and directions ─────────────────────────────────────────────────────────────────────────

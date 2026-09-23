@@ -6,7 +6,9 @@
 //   GET  ?org=…                                              → { enabled, active, runs, hosted }
 //   GET  ?org=…&beforeSeq=<n>&limit=<k>                      → { runs }   (the ledger chronicle's page)
 //   POST { action:"start",  org, repos[], batches?, concurrency?, maxCycles?, curated?, model?, effort?,
-//          delivery?, batchSize?, agentTimeoutMs?, verifyMode?, verifyTimeoutMs? }  → { run }
+//          delivery?, batchSize?, agentTimeoutMs?, verifyMode?, verifyTimeoutMs?, rescanCadence?,
+//          modelPolicy?, models?, arms?, armPolicy?, planMode? }            → { run }
+//          (every field after `delivery` is parsed by `run-spec.ts`, as the drive door's `dials` are)
 //   POST { action:"stop",   org, id }                        → { ok, run }
 //   POST { action:"retry",  org, laneId }                    → { ok }
 //   POST { action:"review", org, laneId, cover, verdict }    → { ok, deliverables }
@@ -26,27 +28,8 @@ import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { agentTimeoutMs, autopilotEnabled } from "@/lib/local/agent";
-import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
-import {
-  MAX_COMPARE_ARMS,
-  MIN_COMPARE_ARMS,
-  normalizeArmPolicy,
-  normalizeArmSet,
-  type Arm,
-  type ArmPolicy,
-} from "@/lib/local/arm";
 import { normalizeDelivery } from "@/lib/local/delivery-options";
-import {
-  BATCH_SIZE_CAP,
-  AGENT_TIMEOUT_CAP_MS,
-  AGENT_TIMEOUT_MIN_MS,
-  VERIFY_TIMEOUT_CAP_MS,
-  VERIFY_TIMEOUT_MIN_MS,
-  normalizeAgentTimeoutMs,
-  normalizeBatchSize,
-  normalizeVerifyMode,
-  normalizeVerifyTimeoutMs,
-} from "@/lib/local/run-limits";
+import { parseRunSpec } from "@/lib/local/run-spec";
 import { isAppConfigured } from "@/lib/github/app";
 import {
   LOOP_CONCURRENCY_CAP,
@@ -204,6 +187,10 @@ type Body = {
    * BOTH halves and recorded `planModel: null`. The configuration the arms feature exists for was
    * unreachable from this door; only the standing runner, which sets `planMode` itself, could produce
    * it. Found by running one (2026-09-21) and reading the lane row rather than the intent.
+   *
+   * Since challenge-2026-09-23b a split arm with no `planMode` implies `on`, and `off` beside a split
+   * arm is a 400 (`run-spec.ts`): the cockpit's manual Run never sent the field, so the fix at this
+   * route alone still left the cockpit's own door producing the collapse.
    */
   planMode?: unknown;
   /** #3 — `local` (the default, and what every caller before it meant), `remote-agent`, or `hosted`
@@ -211,50 +198,6 @@ type Body = {
    *  lane rows record `hosted-worker`, which is the executor vocabulary's word for the same thing. */
   executor?: unknown;
 };
-
-/**
- * The two MODELS of a legacy `ab` run, validated. `null` = "this body did not ask for an A/B run".
- *
- * Throws with a human reason for anything that asked and got it wrong, because an A/B run that
- * silently degrades to a single-model run produces a comparison the operator thinks they ran and did
- * not. Each name is checked against the SAME token rule `agent.ts` enforces before a spawn — `shell:
- * true` re-parses argv on Windows, so an unvalidated model name is an argument-injection surface and
- * the answer is a 400, never a spawn.
- */
-const MODEL_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
-
-function parseModels(body: Body): string[] | null {
-  if (body.modelPolicy !== "ab") return null;
-  const raw = Array.isArray(body.models) ? body.models.filter((m): m is string => typeof m === "string") : [];
-  const models = [...new Set(raw.map((m) => m.trim()).filter(Boolean))];
-  if (models.length !== 2) throw new Error("An A/B run needs exactly two distinct models in 'models'.");
-  const bad = models.find((m) => !MODEL_TOKEN.test(m));
-  if (bad) throw new Error(`Invalid model "${bad}".`);
-  return models;
-}
-
-/**
- * THE ARMS, validated. `null` = "this body did not ask for an armed run", which leaves the `models`
- * path above exactly as it was.
- *
- * `normalizeArmSet` is the ONE validator — the cockpit's arm builder and this route read the same
- * function, because the way two ends stop agreeing is two lists. It returns null rather than
- * throwing, and turning that null into a 400 is this route's job: a comparison run that silently
- * degraded to a single arm would produce a measurement the operator thinks they ran and did not.
- */
-function parseArms(body: Body): { arms: Arm[]; armPolicy: ArmPolicy } | null {
-  if (body.arms === undefined && body.armPolicy === undefined) return null;
-  const armPolicy = normalizeArmPolicy(body.armPolicy) ?? "single";
-  const arms = normalizeArmSet(body.arms, armPolicy);
-  if (!arms) {
-    throw new Error(
-      armPolicy === "compare"
-        ? `A comparison run needs ${MIN_COMPARE_ARMS}–${MAX_COMPARE_ARMS} arms in 'arms', each with a distinct id, a known transport and a valid model.`
-        : "A single-arm run needs exactly one arm in 'arms', with a known transport and a valid model.",
-    );
-  }
-  return { arms, armPolicy };
-}
 
 export async function POST(request: Request) {
   // THE BODY IS READ BEFORE THE SELF-HOST GUARD (moonshot #3), and only for that guard's sake.
@@ -348,25 +291,18 @@ export async function POST(request: Request) {
     }
   }
 
-  const maxCycles = intOr(body.maxCycles, 3);
-  if (maxCycles < 1 || maxCycles > LOOP_MAX_CYCLES_CAP) {
-    return NextResponse.json({ error: `maxCycles must be 1–${LOOP_MAX_CYCLES_CAP}.` }, { status: 400 });
-  }
-  const concurrency = intOr(body.concurrency, 2);
-  if (concurrency < 1 || concurrency > LOOP_CONCURRENCY_CAP) {
-    return NextResponse.json({ error: `concurrency must be 1–${LOOP_CONCURRENCY_CAP}.` }, { status: 400 });
-  }
-
-  let models: string[] | null;
-  let armed: { arms: Arm[]; armPolicy: ArmPolicy } | null;
-  try {
-    models = parseModels(body);
-    armed = parseArms(body);
-  } catch (err) {
-    // A malformed A/B request is a 400 (the caller sent something invalid), not a 409 (the server
-    // cannot do it right now) — and it never reaches the spawn seam.
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Invalid model policy." }, { status: 400 });
-  }
+  // THE RUN SPEC: cycles, lanes, the agent configuration and every dial, parsed by `run-spec.ts`, the
+  // SAME function the drive door calls on `body.dials` (challenge-2026-09-23b). Two hand-kept copies
+  // had stopped agreeing on a sent null, a modelPolicy typo and a fractional cycle count; now an input
+  // has one verdict at either door. Absent or null = the deployment default; sent-but-unrecognised =
+  // a 400 naming the band, never a run quietly configured with a number nobody asked for.
+  //
+  // PLAN MODE is implied `on` for a split arm, and an explicit `off` beside one is refused: the planning
+  // session is the only thing that spawns an arm's planning half, so off would run the executing
+  // transport for both halves under the split arm's name.
+  const spec = parseRunSpec(body, { maxCycles: LOOP_MAX_CYCLES_CAP, concurrency: LOOP_CONCURRENCY_CAP }, "body");
+  if (!spec.ok) return NextResponse.json({ error: spec.error }, { status: 400 });
+  const { maxCycles, concurrency, model, effort, dials } = spec.value;
 
   // DELIVERY. Normalized against the same closed list the picker offers (`normalizeDelivery`), so an
   // unknown value is `null` — "unchosen", which the run records as `branch`. `pr` is the one mode that
@@ -380,48 +316,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // THE THROUGHPUT + GUARD DIALS. Each normalizer NEVER GUESSES (`run-limits.ts`): an unrecognised
-  // value is `null`, and a caller that SENT one gets a 400 naming the band rather than a run quietly
-  // configured with a number nobody asked for. Omitting a field entirely is the supported way to say
-  // "use the deployment default", and that path is byte-identical to every run before these existed.
-  const batchSize = normalizeBatchSize(body.batchSize);
-  if (body.batchSize !== undefined && batchSize === null) {
-    return NextResponse.json({ error: `batchSize must be a whole number 1–${BATCH_SIZE_CAP}.` }, { status: 400 });
-  }
-  const agentTimeoutMs = normalizeAgentTimeoutMs(body.agentTimeoutMs);
-  if (body.agentTimeoutMs !== undefined && agentTimeoutMs === null) {
-    return NextResponse.json(
-      { error: `agentTimeoutMs must be a whole number of milliseconds between ${AGENT_TIMEOUT_MIN_MS} and ${AGENT_TIMEOUT_CAP_MS}.` },
-      { status: 400 },
-    );
-  }
-  const verifyMode = normalizeVerifyMode(body.verifyMode);
-  if (body.verifyMode !== undefined && verifyMode === null) {
-    return NextResponse.json({ error: "verifyMode must be 'on' or 'off'." }, { status: 400 });
-  }
-  // Same discipline as the other dials: an unrecognised value that the caller actually SENT is a 400,
-  // an omitted one is the engine's default. Never guessed, never silently coerced.
-  // `on` or absent. A sent-but-invalid value is a 400 rather than a silent "off", because off is a
-  // DIFFERENT RUN for a split arm — it collapses both halves onto the executing transport — and a
-  // caller that asked for planning must not be given a run that quietly did not plan.
-  const planMode = body.planMode === "on" ? ("on" as const) : null;
-  if (body.planMode !== undefined && body.planMode !== "on" && body.planMode !== "off") {
-    return NextResponse.json({ error: "planMode must be 'on' or 'off'." }, { status: 400 });
-  }
-
-  const rescanCadence =
-    body.rescanCadence === "run" || body.rescanCadence === "cycle" ? (body.rescanCadence as "run" | "cycle") : null;
-  if (body.rescanCadence !== undefined && rescanCadence === null) {
-    return NextResponse.json({ error: "rescanCadence must be 'cycle' or 'run'." }, { status: 400 });
-  }
-  const verifyTimeoutMs = normalizeVerifyTimeoutMs(body.verifyTimeoutMs);
-  if (body.verifyTimeoutMs !== undefined && verifyTimeoutMs === null) {
-    return NextResponse.json(
-      { error: `verifyTimeoutMs must be a whole number of milliseconds between ${VERIFY_TIMEOUT_MIN_MS} and ${VERIFY_TIMEOUT_CAP_MS}.` },
-      { status: 400 },
-    );
-  }
-
   const viewer = await getViewer().catch(() => null);
   try {
     const run = await startLoopRun({
@@ -432,22 +326,27 @@ export async function POST(request: Request) {
       maxCycles,
       curated: body.curated === true,
       // Normalized against the closed list the picker offers, never passed through: both values reach
-      // a re-parsing shell in the agent runner. An unrecognised value falls back to the deployment
-      // default rather than 400-ing — a run must not fail because a stale tab sent a retired name.
-      model: normalizeAgentModel(body.model),
-      effort: normalizeAgentEffort(body.effort),
+      // a re-parsing shell in the agent runner (`parseRunShape`).
+      model,
+      effort,
       delivery,
-      batchSize,
-      agentTimeoutMs,
-      verifyMode,
-      verifyTimeoutMs,
-      rescanCadence,
+      // Null, not omitted: a column the caller named no value for records the deployment default,
+      // byte-identical to every run armed before these dials existed.
+      batchSize: dials.batchSize ?? null,
+      agentTimeoutMs: dials.agentTimeoutMs ?? null,
+      verifyMode: dials.verifyMode ?? null,
+      verifyTimeoutMs: dials.verifyTimeoutMs ?? null,
+      rescanCadence: dials.rescanCadence ?? null,
       // Null, not omitted-and-defaulted: `startLoopRun` persists `planMode` on the row so a retry
       // plans exactly as the original did, and a split arm's two halves depend on it.
-      planMode,
+      planMode: dials.planMode === "on" ? "on" : null,
       // The two vocabularies, never merged: `arms` is what a run armed today carries, `models` is the
       // pre-arms Claude pair. A body that sends arms takes the arm path; anything else replays.
-      ...(armed ? { arms: armed.arms, armPolicy: armed.armPolicy } : models ? { modelPolicy: "ab" as const, models } : {}),
+      ...(dials.arms && dials.armPolicy
+        ? { arms: dials.arms, armPolicy: dials.armPolicy }
+        : dials.modelPolicy === "ab" && dials.models
+          ? { modelPolicy: "ab" as const, models: dials.models }
+          : {}),
       actor: viewer?.login ?? null,
     });
     return NextResponse.json({ run });
@@ -498,9 +397,6 @@ async function review(org: string, body: Body): Promise<NextResponse> {
   if (!deliverables) return NextResponse.json({ error: "Could not record the review." }, { status: 409 });
   return NextResponse.json({ ok: true, deliverables });
 }
-
-const intOr = (v: unknown, fallback: number): number =>
-  typeof v === "number" && Number.isFinite(v) ? Math.round(v) : fallback;
 
 /** `{ "owner/repo": ["recId", …] }`, defensively narrowed — it arrives from the wire. */
 function parseBatches(raw: unknown): Record<string, string[]> | undefined {

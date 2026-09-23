@@ -12,8 +12,10 @@
 // branch. It always delivers `runner` and always verifies, so a `delivery` other than `runner` or a
 // `dials.verifyMode:"off"` is a 400 rather than a silent override. `spendCeilingUsd` omitted = the
 // default daily ceiling, `0`/`null` = none. `resume-repo` lifts one repo's pause on the live runner.
-// `dials` (batch, session ceiling, guard, its timeout, cadence, model policy) reach EVERY run either
-// mode dispatches, validated exactly as /api/org/loop validates them (`drive-dials.ts`).
+// `dials` (batch, session ceiling, guard, its timeout, cadence, model policy, arms, plan mode) reach
+// EVERY run either mode dispatches, parsed by the SAME function /api/org/loop calls (`run-spec.ts`).
+// A drive reads the arms ONLY from `dials.arms`: a top-level `arms`/`armPolicy`/`planMode` is a stale
+// client and a 400 saying where they belong, never silently dropped (challenge-2026-09-23b).
 //
 // `resume` re-arms an INTERRUPTED drive (one a server restart orphaned) as a new drive continuing the
 // same chain — the run count carries over, so a restart never re-grants rope the operator did not
@@ -36,12 +38,12 @@ import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { resolveViewerLogin } from "@/lib/access";
 import { autopilotEnabled } from "@/lib/local/agent";
-import { normalizeAgentEffort, normalizeAgentModel } from "@/lib/local/agent-options";
 import { normalizeDelivery } from "@/lib/local/delivery-options";
 import { isAppConfigured } from "@/lib/github/app";
 import { DRIVE_MAX_RUNS_CAP, getDrive, listDrives, readDrive, resumeDrive, startDrive, stopDrive } from "@/lib/local/drive";
 import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/local/loop-engine";
-import { parseDriveDials } from "@/lib/local/drive-dials";
+import { toDriveDials } from "@/lib/local/drive-dials";
+import { parseRunSpec, parseWholeCount } from "@/lib/local/run-spec";
 import { resumeRunnerRepo } from "@/lib/local/runner-control";
 import { MICROS_PER_USD } from "@/lib/local/runner-breakers";
 import { SPEND_CEILING_STORABLE_MAX_MICROS } from "@/lib/db/drives";
@@ -50,7 +52,6 @@ import type { DriveMode } from "@/lib/local/runner-types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const intOr = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : d);
 const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
 
 /** The runner's daily ceiling from the body: omitted = the default, `null`/`0` = none, else a finite
@@ -99,6 +100,10 @@ export async function POST(request: Request) {
     spendCeilingUsd?: unknown;
     dials?: unknown;
     repo?: unknown;
+    /** Read only to refuse them: a drive's arms and plan mode live in `dials`. */
+    arms?: unknown;
+    armPolicy?: unknown;
+    planMode?: unknown;
   };
   const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
   const denied = await gate(org);
@@ -149,13 +154,15 @@ export async function POST(request: Request) {
     return bad("mode must be 'bounded' or 'continuous'.");
   }
   const mode: DriveMode = body.mode === "continuous" ? "continuous" : "bounded";
-  const maxRuns = intOr(body.maxRuns, 3);
-  const maxCycles = intOr(body.maxCycles, 3);
-  const concurrency = intOr(body.concurrency, 2);
-  // A runner has no rope, so `maxRuns` is not its to validate.
-  if (mode === "bounded" && (maxRuns < 1 || maxRuns > DRIVE_MAX_RUNS_CAP)) return bad(`maxRuns must be 1–${DRIVE_MAX_RUNS_CAP}.`);
-  if (maxCycles < 1 || maxCycles > LOOP_MAX_CYCLES_CAP) return NextResponse.json({ error: `maxCycles must be 1–${LOOP_MAX_CYCLES_CAP}.` }, { status: 400 });
-  if (concurrency < 1 || concurrency > LOOP_CONCURRENCY_CAP) return NextResponse.json({ error: `concurrency must be 1–${LOOP_CONCURRENCY_CAP}.` }, { status: 400 });
+  // A runner has no rope, so `maxRuns` is not its to validate. Same whole-number rule as every count.
+  const rope = mode === "bounded" ? parseWholeCount(body.maxRuns, 3, 1, DRIVE_MAX_RUNS_CAP, "maxRuns") : { ok: true as const, value: 3 };
+  if (!rope.ok) return bad(rope.error);
+  const maxRuns = rope.value;
+  // THE RUN SPEC, parsed by the loop door's own function: cycles, lanes and the agent configuration
+  // from the top of the body, the dials from `body.dials`. One verdict per input at either door.
+  const spec = parseRunSpec(body, { maxCycles: LOOP_MAX_CYCLES_CAP, concurrency: LOOP_CONCURRENCY_CAP }, "dials");
+  if (!spec.ok) return bad(spec.error);
+  const { maxCycles, concurrency, model, effort } = spec.value;
   const repos = Array.isArray(body.repos) ? body.repos.filter((r): r is string => typeof r === "string") : undefined;
   // Same closed list and the same honest refusal as /api/org/loop: `pr` is not silently downgraded on
   // a deployment that has no GitHub App, because a drive that ran eight times and quietly opened
@@ -167,10 +174,12 @@ export async function POST(request: Request) {
   if (mode === "continuous" && body.delivery !== undefined && delivery !== "runner") {
     return bad("The standing runner always delivers to its runner branch; omit 'delivery' or send 'runner'.");
   }
-  const dials = parseDriveDials(body.dials);
-  if (!dials.ok) return bad(dials.error);
-  if (mode === "continuous" && dials.dials?.verifyMode === "off") {
+  const dials = toDriveDials(spec.value.dials);
+  if (mode === "continuous" && dials?.verifyMode === "off") {
     return bad("The standing runner lands only verified work, so its guard cannot be switched off.");
+  }
+  if (mode === "continuous" && dials?.planMode === "off") {
+    return bad("The standing runner always plans before it edits, so dials.planMode cannot be 'off'.");
   }
   const ceiling = parseSpendCeiling(body.spendCeilingUsd);
   if (!ceiling.ok) return bad(ceiling.error);
@@ -189,10 +198,10 @@ export async function POST(request: Request) {
       maxCycles,
       concurrency,
       // Same normalization as /api/org/loop, and for the same reason — one closed list, two doors.
-      model: normalizeAgentModel(body.model),
-      effort: normalizeAgentEffort(body.effort),
+      model,
+      effort,
       delivery: mode === "continuous" ? "runner" : delivery,
-      dials: dials.dials,
+      dials,
       ...(mode === "continuous" ? { mode, spendCeilingUsd: ceiling.usd } : {}),
       actor: await resolveViewerLogin(),
     });

@@ -86,12 +86,19 @@ describe("CockpitSetupDialog — starting the standing runner", () => {
       model: null,
       effort: null,
       spendCeilingUsd: 40,
-      dials: { batchSize: 5, agentTimeoutMs: 1_200_000, verifyMode: "on", verifyTimeoutMs: 600_000, rescanCadence: "cycle" },
       // Since 2026-09-21 the runner carries the ARMS the builder composed, like the other two starts.
       // The untouched dialog composes one Claude arm on the deployment default — the pre-arms runner,
       // written down — so an operator who never opens the Arms panel arms what they armed yesterday.
-      armPolicy: "single",
-      arms: [{ id: "claude-sonnet-1", label: "", transport: "claude", model: "sonnet", plan: null }],
+      // Since challenge-2026-09-23b they ride INSIDE the dials, the only place the drive route reads.
+      dials: {
+        batchSize: 5,
+        agentTimeoutMs: 1_200_000,
+        verifyMode: "on",
+        verifyTimeoutMs: 600_000,
+        rescanCadence: "cycle",
+        armPolicy: "single",
+        arms: [{ id: "claude-sonnet-1", label: "claude:sonnet", transport: "claude", model: "sonnet", plan: null }],
+      },
     });
     expect(onClose).toHaveBeenCalledOnce();
   });

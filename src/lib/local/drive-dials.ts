@@ -7,34 +7,15 @@
 // defaults whatever the operator had set on the cockpit's dials. A drive is a sequence of runs of ONE
 // experiment; a dial that reaches the first manual run but not the drive's is two experiments.
 //
-// The validators are the loop route's own (`run-limits.ts`): an unrecognised value that was SENT is a
-// 400 naming the band, an omitted one is the deployment default. Never clamped, never guessed.
+// The validators are the loop route's own: both doors call `run-spec.ts` (challenge-2026-09-23b), so
+// an unrecognised value that was SENT is a 400 naming the band and an omitted or null one is the
+// deployment default on either door. Never clamped, never guessed.
 // DEPENDENCY-FREE (no db, no `process`), like `run-limits.ts`.
 
 import type { DriveDials } from "@/lib/local/runner-types";
-import {
-  MAX_COMPARE_ARMS,
-  MIN_COMPARE_ARMS,
-  normalizeArmPolicy,
-  normalizeArmSet,
-  type Arm,
-  type ArmPolicy,
-} from "@/lib/local/arm";
-import {
-  AGENT_TIMEOUT_CAP_MS,
-  AGENT_TIMEOUT_MIN_MS,
-  BATCH_SIZE_CAP,
-  VERIFY_TIMEOUT_CAP_MS,
-  VERIFY_TIMEOUT_MIN_MS,
-  normalizeAgentTimeoutMs,
-  normalizeBatchSize,
-  normalizeVerifyMode,
-  normalizeVerifyTimeoutMs,
-  type VerifyMode,
-} from "@/lib/local/run-limits";
-
-/** The same token rule the loop route and `agent.ts` enforce on a model name before a spawn. */
-const MODEL_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+import type { Arm, ArmPolicy } from "@/lib/local/arm";
+import type { VerifyMode } from "@/lib/local/run-limits";
+import { impliedPlanMode, parseRunDials, type RunDialSpec } from "@/lib/local/run-spec";
 
 /** The subset of `StartLoopRunInput` the dials set. Structural, so this module needs no engine import. */
 export interface DialRunInput {
@@ -47,6 +28,8 @@ export interface DialRunInput {
   models?: string[];
   arms?: Arm[];
   armPolicy?: ArmPolicy;
+  /** `on` runs the planning session first; null = off. A split arm is only split when it is `on`. */
+  planMode?: "on" | null;
 }
 
 /** The run-input fields a drive's dials set — ONLY the ones that are set, so a drive with no dials
@@ -68,74 +51,25 @@ export function dialRunInput(dials: DriveDials | null | undefined): DialRunInput
     out.modelPolicy = "ab";
     out.models = [...dials.models];
   }
+  // PLAN MODE travels with the arms. Implied again here, not only at the route, so a drive stored
+  // before the route implied it (split arms in `dialsJson`, no `planMode`) still plans on resume.
+  const planMode = impliedPlanMode(out.arms, dials.planMode ?? undefined);
+  if (planMode) out.planMode = planMode === "on" ? "on" : null;
   return out;
 }
 
 export type ParsedDials = { ok: true; dials: DriveDials | null } | { ok: false; error: string };
 
-/** Validate the `dials` object of a drive start. Absent/null = no dials (the deployment defaults). */
+/** The parsed dial spec as the drive stores it (`LoopDrive.dialsJson`): null when nothing was set. */
+export function toDriveDials(spec: RunDialSpec): DriveDials | null {
+  return Object.keys(spec).length > 0 ? { ...spec } : null;
+}
+
+/** Validate the `dials` object of a drive start. Absent/null = no dials (the deployment defaults).
+ *  The rules are `run-spec.ts`'s, the SAME function the loop route calls on its flat body. */
 export function parseDriveDials(raw: unknown): ParsedDials {
   if (raw === undefined || raw === null) return { ok: true, dials: null };
   if (typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "dials must be an object." };
-  const b = raw as Record<string, unknown>;
-  const dials: DriveDials = {};
-  if (b.batchSize != null) {
-    const v = normalizeBatchSize(b.batchSize);
-    if (v === null) return { ok: false, error: `dials.batchSize must be a whole number 1–${BATCH_SIZE_CAP}.` };
-    dials.batchSize = v;
-  }
-  if (b.agentTimeoutMs != null) {
-    const v = normalizeAgentTimeoutMs(b.agentTimeoutMs);
-    if (v === null) {
-      return { ok: false, error: `dials.agentTimeoutMs must be a whole number of milliseconds between ${AGENT_TIMEOUT_MIN_MS} and ${AGENT_TIMEOUT_CAP_MS}.` };
-    }
-    dials.agentTimeoutMs = v;
-  }
-  if (b.verifyMode != null) {
-    const v = normalizeVerifyMode(b.verifyMode);
-    if (v === null) return { ok: false, error: "dials.verifyMode must be 'on' or 'off'." };
-    dials.verifyMode = v;
-  }
-  if (b.verifyTimeoutMs != null) {
-    const v = normalizeVerifyTimeoutMs(b.verifyTimeoutMs);
-    if (v === null) {
-      return { ok: false, error: `dials.verifyTimeoutMs must be a whole number of milliseconds between ${VERIFY_TIMEOUT_MIN_MS} and ${VERIFY_TIMEOUT_CAP_MS}.` };
-    }
-    dials.verifyTimeoutMs = v;
-  }
-  if (b.rescanCadence != null) {
-    if (b.rescanCadence !== "cycle" && b.rescanCadence !== "run") return { ok: false, error: "dials.rescanCadence must be 'cycle' or 'run'." };
-    dials.rescanCadence = b.rescanCadence;
-  }
-  if (b.modelPolicy != null && b.modelPolicy !== "single") {
-    if (b.modelPolicy !== "ab") return { ok: false, error: "dials.modelPolicy must be 'single' or 'ab'." };
-    const raw = Array.isArray(b.models) ? b.models.filter((m): m is string => typeof m === "string") : [];
-    const arms = [...new Set(raw.map((m) => m.trim()).filter(Boolean))];
-    if (arms.length !== 2) return { ok: false, error: "An A/B drive needs exactly two distinct models in 'dials.models'." };
-    const bad = arms.find((m) => !MODEL_TOKEN.test(m));
-    if (bad) return { ok: false, error: `Invalid model "${bad}".` };
-    dials.modelPolicy = "ab";
-    dials.models = arms;
-  } else if (b.modelPolicy === "single") {
-    dials.modelPolicy = "single";
-  }
-  // THE ARMS. One validator (`normalizeArmSet`), the same one the loop route and the cockpit's arm
-  // builder read — a second list here is how the two ends stop agreeing. A drive that ASKED for arms
-  // and got them wrong is an error naming the band, never a drive quietly armed with one arm.
-  if (b.arms !== undefined || b.armPolicy !== undefined) {
-    const armPolicy = normalizeArmPolicy(b.armPolicy) ?? "single";
-    const arms = normalizeArmSet(b.arms, armPolicy);
-    if (!arms) {
-      return {
-        ok: false,
-        error:
-          armPolicy === "compare"
-            ? `dials.arms must hold ${MIN_COMPARE_ARMS}–${MAX_COMPARE_ARMS} arms with distinct ids, a known transport and a valid model.`
-            : "dials.arms must hold exactly one arm, with a known transport and a valid model.",
-      };
-    }
-    dials.arms = arms;
-    dials.armPolicy = armPolicy;
-  }
-  return { ok: true, dials: Object.keys(dials).length > 0 ? dials : null };
+  const parsed = parseRunDials(raw as Record<string, unknown>, "dials.");
+  return parsed.ok ? { ok: true, dials: toDriveDials(parsed.value) } : parsed;
 }
