@@ -1792,7 +1792,7 @@ ever printing a numeral, which is the part prose could not enforce. `VizDefs` re
 | `BudgetPack` | used-vs-budget fill plus omission blocks grouped by reason | memory recall (it shows the losers) |
 | `FlowRibbon` | 3-stage proportional ribbon; an absent stage breaks the ribbon | delivery unit economics |
 | `StateTrack` | state-over-time lanes, change markers, unobserved intervals as voids | governance control ledger, adoption |
-| `MatrixGrid` | declared × observed × enforced heat matrix, set as an HTML ledger (see below) | passports, practices, settings |
+| `MatrixGrid` | declared × observed × enforced heat matrix, set as an HTML ledger you can walk: arrow keys or a tap pin a visible cell readout (see below) | passports, practices, settings |
 | `ConcentrationCurve` | Lorenz curve, gini area, marked bus-factor knee | contributors, teams |
 
 Every component: `role="img"` with an `aria-label` and a `<title>` **generated from the same props
@@ -1824,8 +1824,9 @@ to 13–18 characters and wrapped each matrix in a `max-w-*` cap. A `/prototype`
 - **The label caps are relaxed to safety bounds.** They were sized for the retired 104-unit gutter:
   practices / knowledge / security / memory from 16–18 to 56 characters, and the model scorecard
   from 13 to 40.
-- **Accessibility is unchanged in substance.** The drawing is a `role="img"` wrapper named by
-  `matrixAriaLabel`, and the `sr-only` table sits outside it (`matrixShared.tsx`).
+- **Accessibility was unchanged in substance at the time.** The drawing was a `role="img"` wrapper named by
+  `matrixAriaLabel`, and the `sr-only` table sits outside it (`matrixShared.tsx`). Since 2026-09-23
+  it is a `role="grid"` (see [MatrixGrid inspect mode](#matrixgrid-inspect-mode-2026-09-23)).
 
 The SVG baseline, the Strata variant, the switcher and `matrixAxis.ts` (SVG header wrapping) were
 deleted.
@@ -1843,6 +1844,30 @@ The same pass applied the rule to five more charts that drew their labels as `vi
 
 In every one the `role="img"` name moved to an HTML wrapper, with the `sr-only` table outside it,
 and each test file now pins "no `svg text`".
+
+#### MatrixGrid inspect mode (2026-09-23)
+
+A cell's state and caveat (why it is hatched, void or only declared) used to live only in a hover
+`title`, so a keyboard or touch reader could not learn it on any of the 18 matrices. `MatrixGrid` is
+now an instrument you can walk:
+
+- **One tab stop, arrows inside.** The matrix is a `role="grid"` under the same accessible name
+  `matrixAriaLabel` builds, with a roving tabindex: exactly one cell is tab-reachable. Arrow keys
+  walk the cells and stop at an edge (no wrap), Home/End jump to the row's first and last axis, and
+  Ctrl+Home/Ctrl+End to the grid's corners. A padded void cell is reachable like any other.
+- **The position is keyed by row identity** (`matrixCursorModel.ts`, pure). When rows resort the
+  cursor follows its subject; when its row disappears it falls to the nearest surviving neighbour,
+  never to whatever now sits in the old slot.
+- **Focus or a tap pins a visible readout.** One line under the grid (`MatrixReadout.tsx`, reserved
+  height so pinning shifts nothing) reads `subject · axis: state`, then the state's one-sentence
+  caveat. It is announced politely, and `rendersValue` gates its numeral exactly as it gates the
+  cell, so a hatched or void cell's readout carries no number. Escape clears the pin (and only
+  swallows the key while a pin exists, so an enclosing dialog still gets it).
+- **One set of headers.** Each gridcell's accessible name carries its subject and axis, so the visual
+  header row and subject labels are `aria-hidden`; the `sr-only` table stays the only place a reader
+  finds column and row headers. The empty placeholder is still a `role="img"` ("no matrix data").
+- **No consumer changed.** Every surface that renders a `MatrixGrid` gained this without a source
+  edit; tests that found a matrix by `role="img"` now query `role="grid"`.
 
 ### Contributors, redesigned: the distribution is plotted (Wave 1, 2026-09-08)
 
