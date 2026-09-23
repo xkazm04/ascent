@@ -401,6 +401,33 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
   this is the one sentence on the tab that should change whether an owner pastes a key at
   all. `ProviderBoundaryCard.dom.test.tsx` fails if it stops being rendered, stops naming
   "not in-boundary" / "third-party upstream", or drifts below the key field.
+- `src/features/admin/settings/LaneRoutingCard.tsx` (+ the pure `laneRoutingViz.ts`), under the
+  boundary matrix (2026-09-23): **where every LLM lane runs for this org**. One row per lane
+  (scans, Athena, board narrative, shared memory, lane summaries) with the engine, the model and
+  whose account answers: *Your account*, *Ascent platform*, or *Nothing sent* (the mock, a lane
+  with no engine, the narrative switched off). The header reads "3 of 5 lanes run on your
+  provider" with an OpenRouter or Bedrock BYOM active. Shared memory and lane summaries are
+  flagged **BYOM does not apply** on their rows and named in the footnote: they resolve through
+  the platform seam on purpose (`consolidation-engine.ts`, `lane-summary.ts`), so an org that
+  connects Bedrock to keep inference in its AWS account still sends memory entries and lane
+  headlines to the platform provider. An unresolvable BYOM shows scans and Athena as **Blocked:
+  fails closed, no platform fallback** and the narrative on its template paragraph. When a
+  provider is **saved but not switched on**, a second column, **If switched on**, shows where
+  each lane would run and marks the rows that move. The card is read-only: it changes no routing.
+
+  The routing is a declared table, `LANE_ROUTING` in `src/lib/llm/lane-routes.ts` (pure,
+  client-safe), projected by `routeLanes(facts)`; the preview is the same projection over a
+  hypothetical active BYOM. The facts come from `src/lib/llm/lane-routes-load.ts`, construction
+  only (no model call): a secret-free projection of `resolveByomState` (state, provider, model,
+  region; never the key or AWS credentials), the registry's `byomDescriptor` for the provider
+  name, `getProvider()` for the platform scan engine, `resolveLegRunner` for the platform text
+  engine and `briefingNarrativeEnabled()`. An unreadable BYOM state renders "could not be read",
+  never a platform guess. `lane-summary.ts` exports `resolveLaneSummaryTextRunner` so the lane's
+  engine is knowable. The table is trusted because `lane-routes.contract.test.ts` drives each
+  lane's **real** resolver under a mocked active OpenRouter BYOM with `LLM_PROVIDER=openai` and
+  requires the declared engine, and scans each lane's call site (comments and strings stripped,
+  a seeded violation pinned) for the resolver its row names: a lane that changes seam without
+  updating the table fails.
 
 ## Implementations
 
@@ -884,3 +911,9 @@ default**:
   for the memory passes and the tool loop (and `MemoryRunner.usage` exposes the running total),
   but `src/lib/db/usage.ts` derives `/usage` entirely from `Scan` rows, so non-scan LLM spend is
   visible in the tracklight mirror and at the seam, not yet in the in-app cost estimate.
+- **Shared memory and lane summaries do not honour BYOM** *(shown since 2026-09-23, not
+  changed)*. Both resolve through the platform text seam with the org slug in hand, so a BYOM org's
+  memory entries and lane headlines reach the platform provider. Settings now states it per lane
+  (`LaneRoutingCard`); moving them is a provider decision, and `LANE_ROUTING` plus its contract
+  test is where that change starts. The boundary matrix's Ascent row is still hatched *not judged*
+  even though the lane card names the platform engine for this deployment.
