@@ -49,6 +49,18 @@ optional** on the POST: a body carrying only one leaves the other exactly as sto
 silently reset the other threshold to its default — invisible from the popover, which always posts
 both.)
 
+**One delivery door.** Every alert kind reaches its sink through `deliverAlert` in
+`src/lib/alert-door.ts`: it reads the org's sink, resolves it, claims a slot (the in-memory cooldown
+keys, or the digest's durable once-per-window claim, released when delivery fails), dispatches, and
+writes exactly one `AlertEvent` row whose `suppressedReason` comes from one table (`alertOutcome`).
+A sink lookup that **fails** is its own outcome, `sink-unreadable`: nothing is sent. Until
+2026-09-23 the scan and conformance pushes swallowed a failed lookup into `null`, which the resolver
+reads as "no org sink, use the global `ALERT_WEBHOOK_URL`", so a transient DB error could post one
+tenant's regression, credit or control alert into the operator's channel and record it as delivered.
+Only a genuine `null` (the row read fine, the column is empty) takes the global fallback.
+`src/lib/alert-door.contract.test.ts` pins that no other file calls `dispatchAlert` or
+`recordAlertEvent`.
+
 ### Control transitions (moonshot #1)
 
 Score movement is not the only thing worth interrupting a human for. The **control** kind reports
@@ -533,8 +545,10 @@ loses the attempt. See the at-most-once note under the weekly digest — that sa
 the route's old audit-log pre-check wrong.) Rows are written **even when no sink is configured**
 (`delivered=false, suppressedReason="no-sink"`), so a webhook-less org finally has a trace of what
 it would have been told. Fields: kind (`regression | promotion | security | low-credits | digest |
-goal-at-risk | spend-anomaly | control`), severity, repo, title, body, `delivered`, `sinkKind`
-(`webhook | email | null`), `suppressedReason` (`no-sink | cooldown | dispatch-failed`).
+goal-at-risk | spend-anomaly | control | test`), severity, repo, title, body, `delivered`, `sinkKind`
+(`webhook | email | null`), `suppressedReason` (`no-sink | cooldown | dispatch-failed |
+sink-unreadable`; `sink-unreadable` means the org's sink could not be read, so nothing was sent
+rather than falling back to the global sink).
 **`sinkKind` names the channel the message LEFT BY, so it is computed from the RESOLVED sink**
 (`sinkKindForOrg` in `src/lib/alerts.ts`: org field → global `ALERT_WEBHOOK_URL` → none), never from
 the org's raw column. Classifying the raw column got two things wrong for every tenant riding the
@@ -542,7 +556,9 @@ global fallback — a global `mailto:` sink recorded `webhook` on a row whose me
 mail, and an org with no sink of its own recorded `webhook` instead of `null`. (Corrected 2026-09-05;
 `scan-alerts.ts` and `conformance-alerts.ts` already resolved first.) Writers:
 `scan-alerts.ts` (regression / promotion / security / low-credits / control), the digest cron (digest), and
-`extra-alerts.ts` (goal-at-risk / spend-anomaly). Test alerts are deliberately not recorded.
+`extra-alerts.ts` (goal-at-risk / spend-anomaly), and the admin test send (`POST /api/org/alerts
+{ test: true }`, kind `test`), all through the delivery door. Recording test sends makes the history
+the channel's health record: a test that failed to deliver says so there.
 
 The history is surfaced in the Alerts popover ("Recent alerts", `AlertsHistory.tsx`, lazy-loaded
 `<details>`) via `GET /api/org/alerts?org=…&history=1`, member-readable like movement (rows carry
