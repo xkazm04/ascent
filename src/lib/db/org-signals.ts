@@ -7,7 +7,7 @@ import { getOrgId } from "@/lib/db/org-rollup";
 import { dayKeyInZone, daysBetweenDayKeys, resolveOrgTimeZone } from "@/lib/org/timezone";
 import { parseStringArray } from "@/lib/db/json-columns";
 import type { PrStats } from "@/lib/types";
-import { POOLABLE_RATE_IDS, bookCounts, poolFleetRate, volumeWeighted, type FleetRateMethod, type PoolableRateId, type RateContribution } from "@/lib/db/fleet-rate-pool";
+import { POOLABLE_RATE_IDS, bookCounts, poolFleetRate, volumeWeighted, type FleetRateMethod, type PoolableRateId, type RateContribution, type RateCounts } from "@/lib/db/fleet-rate-pool";
 
 /**
  * The fleet rates `OrgPrSignals` publishes, keyed so a rate and the basis that produced it cannot
@@ -100,6 +100,22 @@ export interface PrRepoRow {
    * `analyzed`. This is also what lets the fleet sum its denominators honestly.
    */
   population: Partial<Record<FleetRateId, number>>;
+  /**
+   * The review-integrity counts this repo's scan persisted, passed through from the rate book
+   * untouched: `selfApproved` (human-authored merged PRs approved by their own author) and
+   * `fastApproval` (first human approval within FAST_APPROVAL_MAX_MINUTES of opening, over approved
+   * PRs). They are NOT fleet rates (`FleetRateId` leaves them out on purpose): the Delivery tab's
+   * review-integrity strip pools them itself. Null per entry when the scan predates the book (or the
+   * entry is not a sane count pair), which a reader must show as "not persisted", never as 0.
+   * Optional only so row literals built elsewhere need not restate it; the producer always sets it.
+   */
+  integrity?: PrRepoIntegrity;
+}
+
+/** One repo's review-integrity counts (see `PrRepoRow.integrity`). */
+export interface PrRepoIntegrity {
+  selfApproved: RateCounts | null;
+  fastApproval: RateCounts | null;
 }
 
 export interface OrgPrSignals {
@@ -212,6 +228,7 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
           medianHoursToFirstReview: num(p.medianHoursToFirstReview),
           aiTrailerRate: num(p.aiTrailerRate),
           aiPreReviewedRate: num(p.aiPreReviewedRate),
+          integrity: { selfApproved: bookCounts(p.rates, "selfApproved"), fastApproval: bookCounts(p.rates, "fastApproval") },
         });
       }
     } catch {
