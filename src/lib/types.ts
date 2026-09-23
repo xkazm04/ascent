@@ -486,7 +486,14 @@ export interface AutonomyBlock {
   tier: AutonomyTierId;
   /** For every tier above the granted one: the human-readable checklist of what unblocks it.
    *  Each entry's `missing` is cumulative (includes still-unmet lower-tier predicates). */
-  unlocks: { tier: AutonomyTierId; missing: string[] }[];
+  unlocks: {
+    tier: AutonomyTierId;
+    missing: string[];
+    /** Stable condition ids parallel to `missing` (ids[i] names missing[i]), so a fleet rollup can
+     *  group repos by condition while the prose interpolates each repo's own levels. Optional:
+     *  passports built before the ids existed carry none, and the read path re-derives anyway. */
+    ids?: AutonomyConditionId[];
+  }[];
   /** The raw predicate inputs the verdict rests on — so a reader can audit the grant.
    *  `sandbox`/`hooks` are null when the stored scan predates 0.3.0 (unknown, not false). */
   inputs: {
@@ -503,6 +510,21 @@ export interface AutonomyBlock {
     enforcementVisible: boolean;
   };
 }
+
+/** One autonomy-ladder predicate, by identity (see tierPredicates in passport-autonomy.ts), plus
+ *  `enforcement-not-observable`: the tokenless-scan caveat that leads a checklist above T1. That one
+ *  is a limit of the scan's evidence, not a condition a repo can fix. */
+export type AutonomyConditionId =
+  | "t1.agent-instructions"
+  | "t1.test-entry"
+  | "t1.tests-partial"
+  | "t2.ci-gated"
+  | "t2.tests-substantial"
+  | "t2.guardrails"
+  | "t3.ai-in-workflow"
+  | "t3.evals"
+  | "t3.migrations-versioned"
+  | "enforcement-not-observable";
 
 // ---------------------------------------------------------------------------
 // Org AI stance (W3) — the published "what may AI do here" policy artifact
