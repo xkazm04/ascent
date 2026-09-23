@@ -240,3 +240,38 @@ describe("OnboardingScanStep SKILL.md download on done", () => {
     expect(screen.queryByRole("heading", { name: "Download SKILL.md" })).toBeNull();
   });
 });
+
+// first-run-onboarding-wizard#A — a RE-ATTACHED done screen. The queue poll reports a finished repo as
+// { completed: true } with no level, and the step used to count only level/error/skipped: the bar read
+// "0% · 0/1" on a finished run and the foundation install + SKILL.md list vanished.
+describe("OnboardingScanStep on a re-attached done screen (completed rows)", () => {
+  const base = {
+    phase: "done" as const,
+    error: null,
+    announce: "",
+    onCancel: noop,
+    onViewDashboard: noop,
+    onScanAnother: noop,
+  };
+
+  it("counts a completed-only row as finished: 100% · 1/1", () => {
+    const { container } = render(<ScanStep {...base} rows={{ "acme/api": { repo: "acme/api", completed: true } }} />);
+    expect(container.textContent).toContain("100% · 1/1");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+  });
+
+  it("offers the foundation install and SKILL.md for completed rows", () => {
+    render(
+      <ScanStep
+        {...base}
+        foundationOrg="acme"
+        rows={{
+          "acme/api": { repo: "acme/api", completed: true },
+          "acme/web": { repo: "acme/web", completed: true },
+        }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Install the foundation in 2 repos" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /Onboarding skill/ })).toHaveLength(2);
+  });
+});

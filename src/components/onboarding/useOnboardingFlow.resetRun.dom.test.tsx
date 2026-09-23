@@ -12,6 +12,7 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { useOnboardingFlow } from "./useOnboardingFlow";
+import { RESUME_KEY } from "./OnboardingFlow.model";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -68,5 +69,25 @@ describe("useOnboardingFlow.resetRun — 'Scan another' clears the FULL per-run 
     expect(result.current.invitedCount).toBe(0);
     expect(result.current.previewCause).toBeNull();
     expect(result.current.notices).toEqual([]);
+  });
+
+  // first-run-onboarding-wizard#A: "Scan another" is the user's explicit start-over, so it is the
+  // snapshot's reaper. The persist effect used to rewrite {phase:"select", sourceLabel:<old>} right
+  // after the reset (sourceLabel was never cleared), so a refresh reopened the previous source.
+  it("removes the resume snapshot, and a remount lands on 'pick'", async () => {
+    stubFetch();
+    const { result, unmount } = renderHook(() => useOnboardingFlow());
+    await act(async () => {
+      await result.current.loadInstallationRepos("acme", "77");
+    });
+    await waitFor(() => expect(sessionStorage.getItem(RESUME_KEY)).not.toBeNull());
+
+    act(() => result.current.resetRun());
+
+    expect(sessionStorage.getItem(RESUME_KEY)).toBeNull();
+    unmount();
+    const again = renderHook(() => useOnboardingFlow());
+    expect(again.result.current.phase).toBe("pick");
+    expect(again.result.current.sourceLabel).toBe("");
   });
 });

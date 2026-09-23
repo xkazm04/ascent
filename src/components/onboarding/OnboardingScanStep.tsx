@@ -7,6 +7,7 @@ import { FoundationPanel } from "@/components/onboarding/OnboardingFoundationPan
 import { SkipNotices } from "@/components/onboarding/OnboardingSkipNotices";
 import type { ImportNotice } from "@/components/onboarding/skipReason";
 import { ReconnectedNotice } from "@/components/onboarding/OnboardingReconnected";
+import { reportableRepos, rowSettled, runProgress } from "@/components/onboarding/OnboardingFlow.run";
 import type { ReattachState } from "@/components/onboarding/useImportReattach";
 import { SkillDownloadList } from "@/components/report/SkillDownload";
 import { SCAN_CONCURRENCY } from "@/lib/pool";
@@ -87,15 +88,12 @@ export function ScanStep({
    *  there is no org and no installation token. */
   foundationOrg?: string | null;
 }) {
-  // Skipped (credit-deferred) rows are terminal too, so they count toward completion — otherwise the
-  // progress bar would stay stuck below 100% on the done screen when some repos were skipped.
-  const completed = Object.values(rows).filter((r) => r.level || r.error || r.skipped).length;
+  // One settle rule (OnboardingFlow.run.ts): skipped rows AND a re-attached run's `completed` rows are
+  // terminal, so the bar reaches 100% on every finished run, and the handoffs below list every repo
+  // with a saved scan, including the ones a re-attach saw finish without a score.
+  const { completed, total: scanTotal, pct } = runProgress(rows);
   const errorCount = Object.values(rows).filter((r) => r.error).length;
-  const scanTotal = Object.keys(rows).length;
-  const scoredRepos = Object.values(rows)
-    .filter((r) => r.level && !r.error && !r.skipped)
-    .map((r) => r.repo);
-  const pct = scanTotal ? Math.round((completed / scanTotal) * 100) : 0;
+  const scoredRepos = reportableRepos(rows);
   const reattached = Boolean(reattach && reattach.status !== "off");
 
   // Direction 9 — which unsettled rows are actually in a scan lane right now. The import route emits
@@ -108,7 +106,7 @@ export function ScanStep({
   if (streaming) {
     for (const r of Object.values(rows)) {
       if (lanes.size >= SCAN_CONCURRENCY) break;
-      if (!r.level && !r.error && !r.skipped && !r.completed) lanes.add(r.repo);
+      if (!rowSettled(r)) lanes.add(r.repo);
     }
   }
   const rowState = (row: ScanRow): ScanRowState | undefined =>
@@ -263,7 +261,7 @@ export function ScanStep({
           </p>
 
           {/* moonshot #35: the wizard's one INSTALLABLE handoff. Only repos that actually produced a
-              level are offered — a repo that errored or was credit-skipped has no saved scan, so the
+              saved scan are offered — a repo that errored or was credit-skipped has none, so the
               foundation cannot be generated for it and the batch would report it as a failure row. */}
           {foundationOrg && <FoundationPanel org={foundationOrg} repos={scoredRepos} />}
 

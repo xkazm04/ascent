@@ -17,6 +17,7 @@ import { resolveImportPlan } from "@/components/onboarding/importPlan";
 import { leftoverSkipReason, type ImportNotice } from "@/components/onboarding/skipReason";
 import type { OrgCredit } from "@/components/onboarding/OnboardingFlow.model";
 import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
+import { rowSettled } from "@/components/onboarding/OnboardingFlow.run";
 
 export interface RepoRetryDeps {
   fullName: string;
@@ -27,8 +28,9 @@ export interface RepoRetryDeps {
   fetchCredit: (org: string) => Promise<CreditRead>;
   /** In-flight retries: the synchronous double-click guard AND the unmount abort registry. */
   retries: { current: Map<string, AbortController> };
-  /** The select step's "fast preview first" choice for THIS run — read at click time from the same
-   *  store the batch read, so the retry reproduces the batch's plan rather than inventing one. */
+  /** The select step's "fast preview first" choice for THIS run — the consent the run RECORDED when it
+   *  started (it survives a reload in the resume snapshot; the module store does not), so the retry
+   *  reproduces the batch's plan rather than inventing one. */
   previewFirst: boolean;
   /** The select step's recurring weekly autoscan opt-in for THIS run. `false` must travel as `false`:
    *  omitting `watch` lets runImportScan default it to `Boolean(installationId)` (and the server to
@@ -112,7 +114,7 @@ export async function runRepoRetry(deps: RepoRetryDeps): Promise<void> {
           const reason = leftoverSkipReason(notices);
           setRows((cur) => {
             const row = cur[fullName];
-            if (!row || row.level || row.error || row.skipped) return cur;
+            if (!row || rowSettled(row)) return cur;
             return { ...cur, [fullName]: { ...row, skipped: reason } };
           });
         },
