@@ -19,7 +19,7 @@
 // model would read as "nothing to worry about". An agent acting on a silent absence is exactly the
 // failure this product spends its whole surface avoiding.
 
-import { bumpMemoryAccessCounts, getOrgRecommendations, getOrgRollup, lifecycleWorkingSet } from "@/lib/db";
+import { bumpMemoryAccessCounts, getOrgRecommendations, getOrgRollup, recallPopulation } from "@/lib/db";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { getRepoAdmission } from "@/lib/db/org-admission";
@@ -292,10 +292,12 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
   const limit = num(args, "limit", 5, 20);
   const namespace = str(args, "namespace") || undefined;
   const charBudget = typeof args.charBudget === "number" ? args.charBudget : undefined;
-  // lifecycleWorkingSet, never candidateOrgMemories: omitted namespace on the write-check helper
-  // means IS NULL (org-wide only), which hides every scan-fed / repo-mirrored namespaced row.
-  const rows = await lifecycleWorkingSet(org, { namespace }, null);
   const q = query.toLowerCase().split(/\s+/).filter(Boolean);
+  // recallPopulation, never candidateOrgMemories: omitted namespace on the write-check helper means
+  // IS NULL (org-wide only), which hides every scan-fed / repo-mirrored namespaced row. The query terms
+  // go INTO the population's WHERE, so relevance is filtered before the cap. Loading the newest 400
+  // and filtering after answered a stored-but-older topic with "nothing was recorded", a false absence.
+  const { rows, notConsidered } = await recallPopulation(org, { namespace, terms: q }, null);
   // Term overlap is a RELEVANCE FILTER, not a ranking. Ordering is the org's recall value model
   // (`src/lib/memory/recall.ts`) — the same one the Memory tab packs with — so this door and that
   // surface cannot disagree about which memory is worth the context.
@@ -338,6 +340,8 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
       usedChars: selected.reduce((sum, s) => sum + s.memory.content.length, 0),
       charBudget: result.charBudget,
       ...(packed.length === 0 ? { note: "Matching memory exists, but none fit the character budget." } : {}),
+      // Matching rows past the population cap: never scored, so this answer does not speak for them.
+      ...(notConsidered > 0 ? { notConsideredCount: notConsidered } : {}),
       entries: packed.map((r) => ({
         // THE ID IS THE POINT OF THIS FIELD: it is what `cite_memory` needs to report back which of
         // these actually helped. Without it the citation channel has no handle to name.

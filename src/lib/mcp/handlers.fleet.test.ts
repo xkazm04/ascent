@@ -38,6 +38,7 @@ const rollup = {
 let recs: { title: string; repos: string[] }[] | null = [];
 let memories: { id: string; kind: string; namespace: string; content: string; tags: string[]; source: string; confidence: number; accessCount: number; citedCount: number; notUsefulCount: number; updatedAt: string }[] = [];
 let stance: unknown = null;
+const newest = <T extends { updatedAt: string }>(rows: T[]) => [...rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 const bumped: string[][] = [];
 
 vi.mock("@/lib/db", () => ({
@@ -46,7 +47,14 @@ vi.mock("@/lib/db", () => ({
     // The REAL contract this handler now leans on: the repo filter is applied INSIDE, before the cap.
     recs === null ? null : (repo ? recs.filter((r) => r.repos.some((x) => `acme/${x}` === repo)) : recs).slice(0, limit),
   ),
-  lifecycleWorkingSet: vi.fn(async () => memories),
+  // The two loaders over ONE fake store, each with its real population rule and the real cap:
+  // lifecycleWorkingSet is the newest-400 cut; recallPopulation applies the query terms BEFORE the cap.
+  lifecycleWorkingSet: vi.fn(async () => newest(memories).slice(0, 400)),
+  recallPopulation: vi.fn(async (_org: string, opts: { terms?: string[] }) => {
+    const terms = opts.terms ?? [];
+    const hit = memories.filter((m) => !terms.length || terms.some((t) => `${m.content} ${m.tags.join(" ")}`.toLowerCase().includes(t)));
+    return { rows: newest(hit).slice(0, 400), notConsidered: Math.max(0, hit.length - 400) };
+  }),
   bumpMemoryAccessCounts: vi.fn(async (_org: string, ids: string[]) => {
     bumped.push(ids);
     return ids.length;
@@ -61,7 +69,7 @@ vi.mock("@/lib/db/org-admission", () => ({ getRepoAdmission: vi.fn(async () => n
 
 const { runTool } = await import("@/lib/mcp/handlers");
 const { recallMemories } = await import("@/lib/memory/recall");
-const { lifecycleWorkingSet } = await import("@/lib/db");
+const { lifecycleWorkingSet, recallPopulation } = await import("@/lib/db");
 
 const rec = (title: string, repos: string[], impact = "high") => ({
   title,
@@ -82,6 +90,7 @@ beforeEach(() => {
   stance = null;
   bumped.length = 0;
   vi.mocked(lifecycleWorkingSet).mockClear();
+  vi.mocked(recallPopulation).mockClear();
 });
 
 describe("get_repo_standing", () => {
@@ -280,7 +289,7 @@ describe("recall_org_memory", () => {
     const out = (await runTool("recall_org_memory", "acme", { query: "postgres", namespace: "api" })).structuredContent as {
       entries: { id: string }[];
     };
-    expect(lifecycleWorkingSet).toHaveBeenCalledWith("acme", { namespace: "api" }, null);
+    expect(recallPopulation).toHaveBeenCalledWith("acme", { namespace: "api", terms: ["postgres"] }, null);
     expect(out.entries.map((e) => e.id)).toEqual(["api"]);
   });
 
@@ -294,6 +303,24 @@ describe("recall_org_memory", () => {
     expect(out.note).toMatch(/not that the approach is endorsed/);
     // Nothing was delivered, so nothing is counted as delivered.
     expect(bumped).toEqual([]);
+  });
+
+  it("finds a stored answer older than the 400 newest rows, instead of reporting a false absence", async () => {
+    const fresh = Array.from({ length: 400 }, (_, i) => ({
+      ...memory(`scan${i}`, `Overall moved on acme/api scan ${i}`),
+      updatedAt: new Date(Date.parse("2026-09-10T00:00:00.000Z") - i * 60_000).toISOString(),
+    }));
+    memories = [...fresh, { ...memory("flaky", "The e2e suite is flaky on Windows runners"), updatedAt: "2026-06-01T00:00:00.000Z" }];
+    const out = (await runTool("recall_org_memory", "acme", { query: "flaky" })).structuredContent as {
+      count: number;
+      entries: { id: string }[];
+      note?: string;
+    };
+    expect(out.count).toBe(1);
+    expect(out.entries.map((e) => e.id)).toEqual(["flaky"]);
+    expect(out.note).toBeUndefined();
+    // guard: only what was delivered is counted as delivered.
+    expect(bumped).toEqual([["flaky"]]);
   });
 
   it("requires a query rather than dumping the store", async () => {
