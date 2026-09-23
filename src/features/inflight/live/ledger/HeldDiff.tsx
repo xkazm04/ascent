@@ -48,9 +48,10 @@ export function HeldDiff({ planId, heldBranch }: { planId: string; heldBranch: s
     <div data-testid="held-diff" className="mt-2 space-y-2">
       {read.kind === "loading" && <p className="type-caption text-slate-500">Reading the held branch…</p>}
       {read.kind === "failed" && (
-        <p role="status" className="type-body-sm text-warn">
-          Could not read the held branch — {read.message.replace(/\.$/, "")}. Read the commits in a terminal instead:
-        </p>
+        <div role="status" className="space-y-0.5">
+          <p className="type-body-sm text-warn">Could not read the held branch. Read the commits in a terminal instead:</p>
+          <p className="type-caption text-slate-500">{read.message}</p>
+        </div>
       )}
       {read.kind === "ok" && (
         <>

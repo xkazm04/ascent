@@ -51,7 +51,7 @@ export async function decidePlan(
 /** `GET /api/org/loop/plans/[id]` → the held branch's commits and per-file +/- counts (a held plan only). */
 export async function fetchHeldDiff(id: string): Promise<HeldDiff> {
   const res = await fetch(`/api/org/loop/plans/${q(id)}`, { cache: "no-store" });
-  return json<HeldDiff>(res, "Could not read the held branch");
+  return json<HeldDiff>(res, "The held-diff request failed");
 }
 
 /** `POST /api/org/local/drive { action: "resume-repo" }` → the drive — lifts one repo's pause. ONE door

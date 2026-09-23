@@ -81,6 +81,6 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   const pairedPath = await getRepoLocalPath(org, plan.repo).catch(() => null);
   if (!pairedPath) return NextResponse.json({ error: `No paired checkout for ${plan.repo} — the held branch lives there.` }, { status: 409 });
   const read = await readHeldDiff(pairedPath, plan.heldBranch);
-  if (!read.ok) return NextResponse.json({ error: `Could not read the held branch (${read.reason}).` }, { status: 502 });
+  if (!read.ok) return NextResponse.json({ error: `git could not read ${plan.heldBranch} in the paired checkout (${read.reason}).` }, { status: 502 });
   return NextResponse.json(read.diff);
 }
