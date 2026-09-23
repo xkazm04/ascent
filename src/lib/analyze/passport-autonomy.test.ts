@@ -14,6 +14,7 @@ import {
   parsePassportJson,
   upgradePassport,
 } from "@/lib/analyze/passport";
+import { AUTONOMY_TOKENLESS_ID } from "@/lib/analyze/passport-autonomy";
 import type { AppPassport, Governance, RepoMeta, RepoSnapshot, ScanReport, TechStack } from "@/lib/types";
 
 // ── synthetic passport factory (direct-unit half) ─────────────────────────────────────────────────
@@ -350,5 +351,59 @@ describe("buildPassport — sandbox/hooks detectors + persisted autonomy block",
     const fresh = buildPassport(report(), snap({ tree: T3_TREE, files: T3_FILES, commits: [AI_COMMIT] }));
     expect(parsePassportJson(JSON.stringify(fresh))).toEqual(fresh);
     expect(parsePassportJson(JSON.stringify(fresh))?.migratedFrom).toBeUndefined();
+  });
+});
+
+// ── stable condition ids (challenge-2026-09-23, ai-native-passports#B) ────────────────────────────
+// The fleet promotion plan groups repos by WHICH condition holds them back. The prose interpolates the
+// repo's own levels ("Test suite is none" vs "Test suite is smoke"), so grouping on it would split one
+// condition into several buckets. Each unlock therefore carries ids[] parallel to missing[].
+describe("deriveAutonomyTier — stable condition ids beside the prose", () => {
+  it("tests 'none' and 'smoke' carry the SAME id where the prose differs", () => {
+    const t1 = (testsLevel: Knobs["testsLevel"]) =>
+      deriveAutonomyTier(pp({ testsLevel }), gov()).unlocks.find((u) => u.tier === "T1")!;
+    const none = t1("none");
+    const smoke = t1("smoke");
+    for (const u of [none, smoke]) {
+      expect(u.ids).toBeDefined();
+      expect(u.ids).toContain("t1.tests-partial");
+      expect(u.ids!.length).toBe(u.missing.length);
+      expect(u.missing[u.ids!.indexOf("t1.tests-partial")]).toMatch(/^Test suite is (none|smoke)/);
+    }
+    expect(none.missing[none.ids!.indexOf("t1.tests-partial")]).not.toBe(smoke.missing[smoke.ids!.indexOf("t1.tests-partial")]);
+    expect(none.ids).toEqual(["t1.agent-instructions", "t1.test-entry", "t1.tests-partial"]);
+  });
+
+  it("every unlock on every fixture pairs ids[i] with missing[i], the tokenless caveat included", () => {
+    const cases = [
+      deriveAutonomyTier(pp(), gov()),
+      deriveAutonomyTier(pp(), null),
+      deriveAutonomyTier(pp(T1_KNOBS), gov()),
+      deriveAutonomyTier(pp(T1_KNOBS), null),
+      deriveAutonomyTier(pp({ ...T2_KNOBS, hooks: false, sandbox: false }), gov()),
+      deriveAutonomyTier(pp(T2_KNOBS), gov()),
+      deriveAutonomyForStored(pp({ ...T1_KNOBS, ciLevel: "gated", testsLevel: "substantial" })),
+    ];
+    for (const a of cases) {
+      for (const u of a.unlocks) {
+        expect(u.ids!.length).toBe(u.missing.length);
+        u.missing.forEach((m, i) => {
+          expect(m === TOKENLESS_MISSING).toBe(u.ids![i] === AUTONOMY_TOKENLESS_ID);
+          if (/^Migrations are/.test(m)) expect(u.ids![i]).toBe("t3.migrations-versioned");
+          if (/CI does not gate merges/.test(m)) expect(u.ids![i]).toBe("t2.ci-gated");
+          if (/substantial coverage/.test(m)) expect(u.ids![i]).toBe("t2.tests-substantial");
+        });
+      }
+    }
+  });
+
+  it("the T3 checklist names all nine predicate ids on a floor passport (ids are unique)", () => {
+    const ids = deriveAutonomyTier(pp(), gov()).unlocks.find((u) => u.tier === "T3")!.ids!;
+    expect(ids).toEqual([
+      "t1.agent-instructions", "t1.test-entry", "t1.tests-partial",
+      "t2.ci-gated", "t2.tests-substantial", "t2.guardrails",
+      "t3.ai-in-workflow", "t3.evals", "t3.migrations-versioned",
+    ]);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
