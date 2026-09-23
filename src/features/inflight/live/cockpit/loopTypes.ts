@@ -7,8 +7,9 @@
 //
 // `LoopProposal` and `LoopStatusPayload` are the two shapes that exist ONLY as route responses (the
 // propose route composes the first; the GET status route composes the second), so they are declared
-// here — the routes' own declarations live next to `export const runtime`, which a client module has
-// no business importing from.
+// on this side (the first in `loopProposalTypes.ts`, re-exported below) — the routes' own
+// declarations live next to `export const runtime`, which a client module has no business importing
+// from.
 
 import type { FollowUpItem } from "@/lib/org/followups";
 // The economics shapes come from the PURE fold (no Prisma, no node built-ins), for the same reason
@@ -124,31 +125,9 @@ export function leaseCountdown(leaseUntil: string | null, now: Date = new Date()
   return `lease ${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
-/** One repo's proposed lane batch — GET /api/org/loop/propose. */
-export interface LoopProposal {
-  repo: string;
-  items: FollowUpItem[];
-  projectedPoints: number;
-  kind: LoopLaneKind;
-  practiceId: string | null;
-  reason: string;
-  /** The brief this lane WOULD get — same assembly the engine runs, so the preview and the dispatch
-   *  cannot diverge. `null` on a foundation lane, which has no batch to brief about. */
-  brief?: { text: string; provenance: LaneBriefProvenance } | null;
-}
-
-/** The one-word tag a lane's kind renders as, everywhere. `null` for the default agent lane, which
- *  needs no tag — a badge on every row would say nothing. */
-export const laneKindTag = (kind: LoopLaneKind): string | null =>
-  kind === "foundation"
-    ? ".ai/ foundation"
-    : kind === "practice"
-      ? "practice starter"
-      : kind === "craft"
-        ? "craft rung"
-        : kind === "direction"
-          ? "approved direction"
-          : null;
+// The proposal shape and the lane-kind tag live in `loopProposalTypes.ts` (split at the 200-line cap).
+export type { LoopProposal, ProposalPairing } from "./loopProposalTypes";
+export { laneKindTag, pairingBroken } from "./loopProposalTypes";
 
 /** GET /api/org/loop?org=… */
 export interface LoopStatusPayload {

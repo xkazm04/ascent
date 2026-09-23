@@ -8,8 +8,9 @@
 // itself, which this ledger never does. Nothing here writes to the backlog — a tick is a statement
 // about ONE run.
 //
-// The lane and unpaired rows carry no checkbox at all, because there is nothing about them to decide:
-// an install lane has no items to curate and an unpaired repo cannot run whatever it proposed.
+// The lane, unpaired and broken rows carry no checkbox at all, because there is nothing about them to
+// decide: an install lane has no items to curate, and an unpaired or broken-pairing repo cannot run
+// whatever it proposed. A broken row's proposal cell is `detail` (the inline re-pair) when given.
 
 import type { BatchRow } from "./cockpitBatchRows";
 
@@ -21,12 +22,15 @@ export function BatchLedgerRow({
   onToggle,
   chips,
   points,
+  detail,
 }: {
   row: BatchRow;
   pruned: boolean;
   onToggle: () => void;
   chips: React.ReactNode;
   points: React.ReactNode;
+  /** Replaces the note in the proposal cell (the broken row's inline re-pair). */
+  detail?: React.ReactNode;
 }) {
   const muted = row.kind !== "item" || pruned;
   return (
@@ -58,11 +62,13 @@ export function BatchLedgerRow({
         )}
       </td>
       <td className="px-3 py-1.5 align-top">
-        {row.kind === "item" ? (
+        {detail ? (
+          detail
+        ) : row.kind === "item" ? (
           <span className={`type-body-sm ${pruned ? "text-slate-600 line-through" : "text-slate-100"}`}>{row.item.title}</span>
         ) : (
           <span className="min-w-0">
-            <span className={`type-caption ${row.kind === "unpaired" ? "text-warn" : "text-slate-500"}`}>{row.note}</span>
+            <span className={`type-caption ${row.kind === "unpaired" || row.kind === "broken" ? "text-warn" : "text-slate-500"}`}>{row.note}</span>
             {row.curation && <span className="ml-2 type-caption text-slate-600">{row.curation}</span>}
           </span>
         )}

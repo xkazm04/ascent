@@ -86,3 +86,27 @@ describe("batchTotals", () => {
     expect(batchTotals(withUnpaired, none)).toMatchObject({ items: 0, unpaired: 1, repos: 0 });
   });
 });
+
+// A MOVED CHECKOUT (challenge-2026-09-23b). A pairing that exists but no longer verifies is its own
+// row: the verifier's sentence, no checkbox, excluded from the count, never an install lane.
+describe("a broken pairing", () => {
+  const moved = "Folder does not exist on the server's filesystem.";
+  const broken = proposal({ repo: "acme/two", pairing: { ok: false, error: moved } });
+
+  it("renders as exactly one 'broken' row carrying the verifier's sentence", () => {
+    const rows = batchRows([broken], none, null);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "broken", repo: "acme/two", laneTag: null });
+    expect((rows[0] as { note: string }).note).toContain(moved);
+  });
+
+  it("is counted as broken, not as a repo the run works", () => {
+    const rows = batchRows([proposal({ items: [item("a")] }), broken], none, null);
+    expect(batchTotals(rows, none)).toMatchObject({ items: 1, repos: 1, broken: 1, unpaired: 0 });
+  });
+
+  it("guard: a repo with no localPath at all still renders the unpaired row, unchanged", () => {
+    const rows = batchRows([proposal({ repo: "acme/two", items: [item("a")] })], new Set(["acme/two"]), null);
+    expect(rows).toEqual([{ kind: "unpaired", id: "unpaired:acme/two", repo: "acme/two", repoName: "two", laneTag: null, note: "not paired · skipped", curation: null }]);
+  });
+});

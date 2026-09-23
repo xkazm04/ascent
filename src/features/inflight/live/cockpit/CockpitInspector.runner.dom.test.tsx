@@ -23,6 +23,7 @@ const batch = (repos: string[]): ProposalBatch => ({
   togglePrune: vi.fn(),
   unpaired: new Set(),
   runnable: repos,
+  reload: () => {},
   shares: { total: 0, rows: [] },
   dims: [],
   batches: {},

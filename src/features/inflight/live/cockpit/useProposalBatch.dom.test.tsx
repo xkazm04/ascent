@@ -90,3 +90,31 @@ describe("useProposalBatch — the batch-size dial", () => {
     expect(propose).toHaveBeenLastCalledWith(["acme/a"], 12);
   });
 });
+
+// A MOVED CHECKOUT (challenge-2026-09-23b). "Paired" is a claim the stored path makes; the proposal's
+// `pairing` verdict is the evidence. A repo whose pairing no longer verifies is not runnable, so Run
+// cannot arm it and answer 409; an inline re-pair then `reload()`s and the repo comes back.
+describe("useProposalBatch — a broken pairing", () => {
+  const broken = { ...proposal("acme/b", []), pairing: { ok: false as const, error: "Folder does not exist on the server's filesystem." } };
+
+  it("keeps a paired-but-broken repo out of runnable and out of batches", async () => {
+    answer = [proposal("acme/a", ["a-1"]), broken];
+    const { result } = mount({ epoch: "idle", selected: ["acme/a", "acme/b"] });
+    await settle();
+    expect(result.current.runnable).toEqual(["acme/a"]);
+    expect(Object.keys(result.current.batches)).toEqual(["acme/a"]);
+  });
+
+  it("reload() refetches, and a repaired repo is runnable again with its items", async () => {
+    answer = [proposal("acme/a", ["a-1"]), broken];
+    const { result } = mount({ epoch: "idle", selected: ["acme/a", "acme/b"] });
+    await settle();
+    const before = propose.mock.calls.length;
+    answer = [proposal("acme/a", ["a-1"]), { ...proposal("acme/b", ["b-1"]), pairing: { ok: true as const } }];
+    act(() => result.current.reload());
+    await settle();
+    expect(propose.mock.calls.length).toBe(before + 1);
+    expect(result.current.runnable).toEqual(["acme/a", "acme/b"]);
+    expect(result.current.batches).toEqual({ "acme/a": ["a-1"], "acme/b": ["b-1"] });
+  });
+});

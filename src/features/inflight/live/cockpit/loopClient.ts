@@ -46,6 +46,21 @@ export async function fetchLoopProposals(slug: string, repos: readonly string[],
   return body.proposals ?? [];
 }
 
+/**
+ * Re-pair a repo whose stored checkout no longer verifies, from the batch ledger. The SAME owner-gated
+ * route Admin → Pairing posts (verify, then persist), reached directly rather than through that
+ * feature's client so no In flight file imports from Admin. A refused path (422) throws with the
+ * verifier's own sentence, which the ledger row renders inline.
+ */
+export async function repairPairing(slug: string, fullName: string, path: string): Promise<void> {
+  const res = await fetch("/api/org/local/pairing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ org: slug, fullName, path }),
+  });
+  await json<{ ok?: boolean }>(res, "Could not re-pair that repository");
+}
+
 /** Pending lesson CANDIDATES — nothing here is in Org Memory until a human keeps it. */
 export async function fetchLoopLessons(slug: string): Promise<LoopLessonRow[]> {
   const res = await fetch(`/api/org/loop/lessons?org=${encodeURIComponent(slug)}&status=pending`, { cache: "no-store" });

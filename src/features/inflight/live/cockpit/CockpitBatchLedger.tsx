@@ -23,6 +23,7 @@ import { OrgTable, SectionEmpty } from "@/components/org/shared/ui";
 import { ImpactEffort, Points } from "@/components/org/followups/FollowupChips";
 import { batchRows, batchTotals } from "./cockpitBatchRows";
 import { BatchLedgerRow } from "./CockpitBatchLedgerRow";
+import { BatchRepairPairing } from "./BatchRepairPairing";
 import type { LoopProposal } from "./loopTypes";
 
 export interface CockpitBatchLedgerProps {
@@ -37,6 +38,8 @@ export interface CockpitBatchLedgerProps {
   loading?: boolean;
   /** Nothing is selected at all — a different state from "selected, and nothing open". */
   empty?: boolean;
+  /** The inline re-pair on a broken-pairing row. Absent = the row states the verifier's sentence only. */
+  repair?: { slug: string; canRepair: boolean; onRepaired: () => void };
 }
 
 export function CockpitBatchLedger(p: CockpitBatchLedgerProps) {
@@ -60,6 +63,7 @@ export function CockpitBatchLedger(p: CockpitBatchLedgerProps) {
           <span className="tabular-nums text-white">+{totals.points}</span> projected
           {totals.pruned > 0 && <span className="text-slate-600"> · {totals.pruned} pruned</span>}
           {totals.unpaired > 0 && <span className="text-warn"> · {totals.unpaired} unpaired</span>}
+          {totals.broken > 0 && <span className="text-warn"> · {totals.broken} pairing broken</span>}
         </p>
       </div>
 
@@ -109,6 +113,17 @@ export function CockpitBatchLedger(p: CockpitBatchLedgerProps) {
               onToggle={() => p.onTogglePrune(row.id)}
               chips={row.kind === "item" ? <ImpactEffort r={row.item} /> : null}
               points={row.kind === "item" ? <Points n={row.item.projectedPoints} /> : null}
+              detail={
+                row.kind === "broken" ? (
+                  <BatchRepairPairing
+                    slug={p.repair?.slug ?? ""}
+                    repo={row.repo}
+                    error={row.error}
+                    canRepair={p.repair?.canRepair === true}
+                    onRepaired={p.repair?.onRepaired ?? (() => {})}
+                  />
+                ) : null
+              }
             />
           ))}
         </OrgTable>

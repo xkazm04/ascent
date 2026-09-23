@@ -166,6 +166,7 @@ export function LiveCockpit(props: LiveCockpitProps) {
         unpaired={c.batch.unpaired}
         loading={c.batch.loading}
         empty={c.batch.repos.length === 0}
+        repair={{ slug, canRepair: isOwner, onRepaired: c.batch.reload }}
       />
 
       <OutcomeSection

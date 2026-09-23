@@ -18,10 +18,15 @@
 // a run starts and when it settles; each change refetches and drops the pruning, which named items of
 // a batch that no longer exists. A plain selection change keeps the pruning: the ids of the repos
 // still selected are the same ids.
+//
+// A BROKEN PAIRING (challenge-2026-09-23b). `paired` is the stored-path CLAIM; each proposal's
+// `pairing` verdict is the evidence. A repo whose pairing no longer verifies is neither runnable nor
+// batched, so Run never arms it only to meet the engine's 409. `reload()` refetches in place, which is
+// what an inline re-pair calls once the pairing route accepts the new path.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { proposalDimensions, sharedDimensions, type SharedDimensions } from "./cockpitDimensions";
-import type { LoopProposal } from "./loopTypes";
+import { pairingBroken, type LoopProposal } from "./loopTypes";
 
 /** A lasso drags through dozens of intermediate selections; only the one it settles on is queried. */
 const PROPOSE_DEBOUNCE_MS = 350;
@@ -37,8 +42,10 @@ export interface ProposalBatch {
   togglePrune: (id: string) => void;
   /** Selected repos with no local pairing — flagged, and excluded from the run. */
   unpaired: ReadonlySet<string>;
-  /** Selected repos a lane can actually be dispatched into. */
+  /** Selected repos a lane can actually be dispatched into: paired, and not reported broken. */
   runnable: string[];
+  /** Refetch the proposals for the same selection (after an inline re-pair). Keeps the pruning. */
+  reload: () => void;
   shares: SharedDimensions;
   /** The dimensions these proposals carry — the Focus dial's options. */
   dims: { id: string; label: string }[];
@@ -58,15 +65,20 @@ export function useProposalBatch(input: {
   epoch?: string;
 }): ProposalBatch {
   const { selected, paired, propose, dimFocus, batchSize, epoch = "" } = input;
-  const [fetched, setFetched] = useState<{ key: string; proposals: LoopProposal[] }>({ key: "", proposals: [] });
+  const [fetched, setFetched] = useState<{ request: string; proposals: LoopProposal[] }>({ request: "", proposals: [] });
   const [loading, setLoading] = useState(false);
+  // Bumped by `reload()`. It is part of the effect's key (so a reload is just another request) but NOT
+  // of the request identity the proposals are read against: a reload keeps showing the batch it is
+  // refreshing, broken row included, until the new answer lands.
+  const [nonce, setNonce] = useState(0);
   // Pruning is keyed by the epoch it was made in — a new epoch reads as none, with no effect to reset it.
   const [pruning, setPruning] = useState<{ epoch: string; ids: ReadonlySet<string> }>({ epoch: "", ids: NONE });
   const pruned = pruning.epoch === epoch ? pruning.ids : NONE;
 
   const repos = useMemo(() => [...selected].sort(), [selected]);
-  const key = `${repos.join(",")}#${batchSize ?? ""}#${epoch}`;
-  const proposals = useMemo(() => (fetched.key === key ? fetched.proposals : []), [fetched, key]);
+  const request = `${repos.join(",")}#${batchSize ?? ""}#${epoch}`;
+  const key = `${request}#${nonce}`;
+  const proposals = useMemo(() => (fetched.request === request ? fetched.proposals : []), [fetched, request]);
 
   useEffect(() => {
     if (repos.length === 0) return;
@@ -75,7 +87,7 @@ export function useProposalBatch(input: {
       setLoading(true);
       void propose(repos, batchSize).then((res) => {
         if (!alive) return;
-        setFetched({ key, proposals: res ?? [] });
+        setFetched({ request, proposals: res ?? [] });
         setLoading(false);
       });
     }, PROPOSE_DEBOUNCE_MS);
@@ -83,25 +95,27 @@ export function useProposalBatch(input: {
       alive = false;
       clearTimeout(t);
     };
-    // `key` is the stable identity of the request (selection · dial · epoch); `repos` is a fresh
+    // `key` is the stable identity of the request (selection · dial · epoch · reload); `repos` is a fresh
     // array every render and `batchSize` is already inside `key`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, propose]);
 
   const unpaired = useMemo(() => new Set(repos.filter((r) => !paired.has(r))), [repos, paired]);
-  const runnable = useMemo(() => repos.filter((r) => paired.has(r)), [repos, paired]);
+  const broken = useMemo(() => new Set(proposals.filter(pairingBroken).map((p) => p.repo)), [proposals]);
+  const runnable = useMemo(() => repos.filter((r) => paired.has(r) && !broken.has(r)), [repos, paired, broken]);
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
   const shares = useMemo(() => sharedDimensions(proposals, selected), [proposals, selected]);
   const dims = useMemo(() => proposalDimensions(proposals), [proposals]);
 
   const batches = useMemo(() => {
     const out: Record<string, string[]> = {};
     for (const p of proposals) {
-      if (!paired.has(p.repo)) continue;
+      if (!paired.has(p.repo) || broken.has(p.repo)) continue;
       const ids = p.items.filter((i) => !pruned.has(i.id) && (!dimFocus || i.dimId === dimFocus)).map((i) => i.id);
       if (ids.length > 0) out[p.repo] = ids;
     }
     return out;
-  }, [proposals, paired, pruned, dimFocus]);
+  }, [proposals, paired, broken, pruned, dimFocus]);
 
   return {
     repos,
@@ -117,6 +131,7 @@ export function useProposalBatch(input: {
       }),
     unpaired,
     runnable,
+    reload,
     shares,
     dims,
     batches,

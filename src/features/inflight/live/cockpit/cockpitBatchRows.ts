@@ -11,6 +11,9 @@
 //     nothing for an operator to curate. It carries the lane's reason, not a checkbox.
 //   • an UNPAIRED row — a selected repo with no local working copy. Flagged and excluded, never
 //     silently dropped: a lasso that caught one unpaired repo must say which.
+//   • a BROKEN row — a repo that IS paired but whose stored path no longer verifies (the checkout
+//     moved or was deleted). It carries the verifier's own sentence, is excluded from the run, and is
+//     where an owner re-pairs it in place (challenge-2026-09-23b).
 //
 // Pure, so the arithmetic under the ledger (what will actually dispatch) is pinnable without a DOM.
 
@@ -20,7 +23,8 @@ import { laneKindTag } from "./loopTypes";
 export type BatchRow =
   | { kind: "item"; id: string; repo: string; repoName: string; laneTag: string | null; item: FollowUpItem }
   | { kind: "lane"; id: string; repo: string; repoName: string; laneTag: string | null; note: string; curation: string | null }
-  | { kind: "unpaired"; id: string; repo: string; repoName: string; laneTag: null; note: string; curation: null };
+  | { kind: "unpaired"; id: string; repo: string; repoName: string; laneTag: null; note: string; curation: null }
+  | { kind: "broken"; id: string; repo: string; repoName: string; laneTag: null; note: string; curation: null; error: string };
 
 const shortRepo = (repo: string): string => repo.split("/")[1] ?? repo;
 
@@ -41,6 +45,13 @@ export function batchRows(
     const tag = laneKindTag(p.kind);
     if (unpaired.has(p.repo)) {
       out.push({ kind: "unpaired", id: `unpaired:${p.repo}`, repo: p.repo, repoName, laneTag: null, note: "not paired · skipped", curation: null });
+      continue;
+    }
+    // A broken pairing is the next thing that wins: whatever the repo would propose, it cannot run
+    // until it is re-paired, and the verifier's sentence says why.
+    if (p.pairing && !p.pairing.ok) {
+      const error = p.pairing.error;
+      out.push({ kind: "broken", id: `broken:${p.repo}`, repo: p.repo, repoName, laneTag: null, note: `pairing broken: ${error}`, curation: null, error });
       continue;
     }
     const items = dimFocus ? p.items.filter((i) => i.dimId === dimFocus) : p.items;
@@ -75,6 +86,8 @@ export interface BatchTotals {
   points: number;
   /** Selected repos excluded for want of a local pairing. */
   unpaired: number;
+  /** Selected repos excluded because their pairing no longer verifies. */
+  broken: number;
 }
 
 export function batchTotals(rows: readonly BatchRow[], pruned: ReadonlySet<string>): BatchTotals {
@@ -83,9 +96,14 @@ export function batchTotals(rows: readonly BatchRow[], pruned: ReadonlySet<strin
   let prunedCount = 0;
   let points = 0;
   let unpaired = 0;
+  let broken = 0;
   for (const row of rows) {
     if (row.kind === "unpaired") {
       unpaired += 1;
+      continue;
+    }
+    if (row.kind === "broken") {
+      broken += 1;
       continue;
     }
     if (row.kind === "lane") {
@@ -100,5 +118,5 @@ export function batchTotals(rows: readonly BatchRow[], pruned: ReadonlySet<strin
     repos.add(row.repo);
     points += row.item.projectedPoints ?? 0;
   }
-  return { items, pruned: prunedCount, repos: repos.size, points, unpaired };
+  return { items, pruned: prunedCount, repos: repos.size, points, unpaired, broken };
 }
