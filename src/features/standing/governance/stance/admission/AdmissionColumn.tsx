@@ -35,7 +35,9 @@ const WRITES_HINT =
   "The gate-policy overlay applies automatically on every gate call, tighten-only, and fails closed if " +
   "the table cannot be read. The compiler's other three artifacts — the CODEOWNERS managed block, the " +
   ".ai/manifest.yaml controls.oversight block and the branch-ruleset — are proposals a person opens " +
-  "deliberately. Nothing here changes a repository on its own.";
+  "deliberately. Nothing here changes a repository on its own. An owner opens the CODEOWNERS block (as a " +
+  "draft PR) and the branch ruleset from a row's Enforce panel, each previewed before anything is written, " +
+  "and reverts an applied ruleset from the same place. The oversight block has no write path yet.";
 
 export function AdmissionColumn({ org, canEdit }: { org: string; canEdit: boolean }) {
   const [views, setViews] = useState<AdmissionView[] | null>(null);

@@ -8,11 +8,17 @@
 // no passport and no decision is the `missing` void. That is the sentence "the tier a scan DERIVES
 // is a measurement, admission is the decision" made into an encoding, with the sentence itself
 // reachable as the swatch's own generated title.
+//
+// Enforce (owner only) opens the panel that turns the decision into its compiled per-repo controls:
+// the CODEOWNERS draft PR and the branch ruleset, each previewed before it is written, and the ruleset
+// revertable from here. Closed by default: the row is a record first.
 
+import { useState } from "react";
 import { StateSwatch, stateTitle } from "@/components/org/viz";
 import { MODE_HEX, MODE_META, type AdmissionView } from "./admissionRows";
 import { viewState } from "./admissionLadder";
 import { AdmissionOverrideControl } from "./AdmissionOverrideControl";
+import { AdmissionEnforce } from "./AdmissionEnforce";
 
 /** The neutral rail for a repo nothing has been recorded or measured for — never a mode colour. */
 const UNASSESSED_HEX = "#475569";
@@ -33,6 +39,7 @@ export function AdmissionRow({
   // not exist — the exact confusion between a measurement and a decision this column is here to end.
   const hex = view.unassessed ? UNASSESSED_HEX : MODE_HEX[view.mode];
   const state = viewState(view);
+  const [enforcing, setEnforcing] = useState(false);
   return (
     <div className="relative overflow-hidden rounded-xl border border-divider bg-surface/40 px-4 py-3">
       <div aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: hex }} />
@@ -70,6 +77,16 @@ export function AdmissionRow({
         </span>
       </div>
       {canEdit && <AdmissionOverrideControl org={org} view={view} onSaved={onSaved} />}
+      {canEdit && (
+        <button
+          onClick={() => setEnforcing((o) => !o)}
+          aria-expanded={enforcing}
+          className="focus-ring mt-2 font-mono type-micro uppercase tracking-[0.14em] text-slate-400 transition hover:text-white"
+        >
+          {enforcing ? "Close enforce" : "Enforce"}
+        </button>
+      )}
+      {canEdit && enforcing && <AdmissionEnforce org={org} view={view} onSaved={onSaved} />}
     </div>
   );
 }
