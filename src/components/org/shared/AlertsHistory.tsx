@@ -28,12 +28,16 @@ const KIND_EMOJI: Record<string, string> = {
   digest: "🗞️",
   "goal-at-risk": "🎯",
   "spend-anomaly": "💸",
+  control: "🔐",
+  test: "🧪",
 };
 
 const OUTCOME: Record<string, string> = {
   "no-sink": "not sent (no sink)",
   cooldown: "suppressed (cooldown)",
   "dispatch-failed": "delivery failed",
+  // The org's sink could not be READ, so nothing was sent (never rerouted to the global sink).
+  "sink-unreadable": "not sent (sink unreadable)",
 };
 
 export function AlertsHistory({ org }: { org: string }) {

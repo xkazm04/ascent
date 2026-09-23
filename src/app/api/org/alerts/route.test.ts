@@ -21,13 +21,19 @@ vi.mock("@/lib/db", () => ({
   listAlertEvents: vi.fn(async () => []),
   markAlertsSeen: vi.fn(async () => true),
   recordOrgAudit: vi.fn(async () => undefined),
+  recordAlertEvent: vi.fn(async () => true),
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat") }));
+vi.mock("@/lib/alerts", async (orig) => ({
+  ...(await orig<typeof import("@/lib/alerts")>()),
+  dispatchAlert: vi.fn(async () => true),
+}));
 
 import { POST } from "./route";
-import { getOrgAlertThresholds, setOrgAlertThresholds } from "@/lib/db";
+import { getOrgAlertThresholds, getOrgAlertWebhook, recordAlertEvent, setOrgAlertThresholds } from "@/lib/db";
+import { dispatchAlert } from "@/lib/alerts";
 
 const mockGet = vi.mocked(getOrgAlertThresholds);
 const mockSet = vi.mocked(setOrgAlertThresholds);
@@ -72,5 +78,27 @@ describe("POST /api/org/alerts — thresholds", () => {
     const res = await POST(post({ org: "acme", overallDrop: 0 }));
     expect(res.status).toBe(400);
     expect(mockSet).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/org/alerts: test send", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(dispatchAlert).mockResolvedValue(true);
+  });
+
+  it("a test send to the stored mailto: sink writes exactly one AlertEvent row, kind test", async () => {
+    vi.mocked(getOrgAlertWebhook).mockResolvedValue("mailto:ops@acme.test");
+    const res = await POST(post({ org: "acme", test: true }));
+    expect(await res.json()).toMatchObject({ ok: true, delivered: true });
+    expect(dispatchAlert).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ webhookUrl: "mailto:ops@acme.test", org: "acme" }),
+    );
+    expect(recordAlertEvent).toHaveBeenCalledTimes(1);
+    expect(recordAlertEvent).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ kind: "test", sinkKind: "email", delivered: true }),
+    );
   });
 });

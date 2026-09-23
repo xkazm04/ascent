@@ -28,7 +28,8 @@ import {
 import { requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
-import { buildTestAlertMessage, dispatchAlert, validateAlertWebhookUrl } from "@/lib/alerts";
+import { buildTestAlertMessage, validateAlertWebhookUrl } from "@/lib/alerts";
+import { deliverAlert, type SinkRead } from "@/lib/alert-door";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -157,20 +158,30 @@ export async function POST(request: Request) {
   // THAT url — not the previously-stored sink (which would falsely report a typo'd new URL as
   // "delivered ✓" via a stored/global fallback). A blank field still tests the org's resolved sink.
   if (body.test === true) {
-    let testUrl: string | null;
+    const org = body.org;
+    let sink: SinkRead | undefined;
     let candidate = false;
     if (typeof body.webhookUrl === "string" && body.webhookUrl.trim() !== "") {
       const v = validateAlertWebhookUrl(body.webhookUrl);
       if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
-      testUrl = v.url;
+      sink = { ok: true, value: v.url };
       candidate = true;
-    } else {
-      testUrl = await getOrgAlertWebhook(body.org);
     }
-    // `org` is not decoration on this call. For a `mailto:` sink it is what mints the unsubscribe
+    // Through the one alert door, like every other kind, so the test lands in the same AlertEvent
+    // ledger (kind `test`): the history is then also the channel's health record, and a test that
+    // failed says so there. Without a candidate the door reads the org's stored sink itself.
+    // `org` is not decoration on the dispatch. For a `mailto:` sink it is what mints the unsubscribe
     // link and names the tenant in the "why am I receiving this" line (see email/alert-sink.ts);
     // without it the ONE mail an admin sends to verify their email sink is the one mail with neither.
-    const delivered = await dispatchAlert(buildTestAlertMessage(body.org), { webhookUrl: testUrl, org: body.org });
+    const out = await deliverAlert({
+      org,
+      sink,
+      kind: "test",
+      severity: "info",
+      title: candidate ? "Test alert (unsaved webhook)" : "Test alert",
+      build: () => buildTestAlertMessage(org),
+    });
+    const delivered = out.delivered;
     return NextResponse.json({
       ok: true,
       delivered,
@@ -179,7 +190,11 @@ export async function POST(request: Request) {
         : {
             error: candidate
               ? "Couldn't deliver to that webhook URL. Check it's a live incoming webhook."
-              : "No alert sink is configured (set a webhook, or the global ALERT_WEBHOOK_URL).",
+              : out.outcome === "sink-unreadable"
+                ? "Couldn't read this organization's alert sink. Try again in a moment."
+                : out.outcome === "no-sink"
+                  ? "No alert sink is configured (set a webhook, or the global ALERT_WEBHOOK_URL)."
+                  : "Couldn't deliver to the configured alert sink.",
           }),
     });
   }
