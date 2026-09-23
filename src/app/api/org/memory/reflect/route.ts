@@ -28,7 +28,11 @@
 // what makes the supersession real — read back on the next index pass.
 //
 // `decay: true` runs the forget pass in the same call (they are the same janitorial moment), and
-// `dryRun: true` makes that pass report what it WOULD archive without touching a row.
+// `dryRun: true` makes that pass report what it WOULD archive without touching a row. The forget pass
+// reads its OWN population (`decayPopulation`: the oldest rows decay.ts's row-level conditions admit),
+// not the proposal's newest-400 working set. That set is younger than forget's 60-day grace period on
+// any busy store, because every access bump moves `updatedAt`, so the pass used to evaluate nothing it
+// could ever archive.
 //
 // Gated as a WRITE (member + Team+/personal workspace): it spends the LLM and, on apply, mutates the
 // store. A THIN ADAPTER — every judgment lives in src/lib/memory/{reflection,decay}.ts.
@@ -37,6 +41,7 @@ import { NextResponse } from "next/server";
 import {
   applyReflection,
   archiveOrgMemories,
+  decayPopulation,
   getCreditState,
   getOrgId,
   isDbConfigured,
@@ -193,7 +198,9 @@ export async function POST(request: Request) {
 
   let decay: Awaited<ReturnType<typeof archiveDecayed>> | undefined;
   if (body.decay) {
-    decay = await archiveDecayed(working, Date.now(), (ids) => archiveOrgMemories(body.org!, ids), {
+    const now = Date.now();
+    const forgettable = await decayPopulation(body.org, { namespace: body.namespace }, viewer, now);
+    decay = await archiveDecayed(forgettable, now, (ids) => archiveOrgMemories(body.org!, ids), {
       dryRun: Boolean(body.dryRun),
     });
     if (decay.archivedCount > 0) {

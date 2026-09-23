@@ -32,6 +32,8 @@ export interface RecallResponse {
   charBudget: number;
   consideredCount: number;
   omittedCount: number;
+  /** Eligible rows the population cap never loaded, so never scored. 0 when the store fit. */
+  notConsideredCount: number;
 }
 
 export const INELIGIBLE_COPY: Record<IneligibleReason, string> = {

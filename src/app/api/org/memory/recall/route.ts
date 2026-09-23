@@ -3,7 +3,7 @@
 //   -> { memories: [{ ...row, score, ageDays }],        // what was PACKED, strongest first
 //        omitted:  [{ ...row, score, ageDays }],        // scored but budget-bound
 //        ineligible: [{ ...row, reason }],              // present but not recallable, with the reason
-//        usedChars, charBudget, consideredCount, omittedCount }
+//        usedChars, charBudget, consideredCount, omittedCount, notConsideredCount }
 //
 // The `recall` verb: "give me the most valuable thing this org knows, in N characters." Where GET
 // /api/org/memory is a BROWSE surface (filter, search, sort, 200 rows for a human to scroll), this is
@@ -19,14 +19,16 @@
 // session — the header comment's "AGENT surface" claim, finally true. Token callers have no GitHub
 // identity, so they see only SHARED memories (the private-scratch filter gets a null viewer).
 //
-// THIN ADAPTER over src/lib/memory/recall.ts: resolve caller → fetch the bounded working set → call the
+// THIN ADAPTER over src/lib/memory/recall.ts: resolve caller → load the recall POPULATION → call the
 // pure core with an injected `now` → bump the counters of what was actually RETURNED. All judgment (the
-// value model, the packing) lives in the core. MCP `recall_org_memory` and Athena's chat prefetch load
-// the same working set (`lifecycleWorkingSet`) — never the write-check helper `candidateOrgMemories`,
+// value model, the packing) lives in the core. The population is `recallPopulation`: the cap split into
+// per-kind lanes, so a store full of fresh scan episodes still hands the core its old runbooks, and the
+// rows the cap left out come back as `notConsideredCount` (never scored, so never "lost"). MCP
+// `recall_org_memory` loads the same population. Never the write-check helper `candidateOrgMemories`,
 // whose omitted namespace means IS NULL and would hide every namespaced scan-pipeline row.
 
 import { NextResponse } from "next/server";
-import { bumpMemoryAccessCounts, isDbConfigured, lifecycleWorkingSet } from "@/lib/db";
+import { bumpMemoryAccessCounts, isDbConfigured, recallPopulation } from "@/lib/db";
 import { authorizeOrgApi, isDenied } from "@/lib/api-token-auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { isMemoryKind } from "@/lib/org/memory-kinds";
@@ -63,7 +65,7 @@ async function handle(request: Request, params: RecallParams) {
   // private scratch into an agent's context. A token principal carries no GitHub login (its `login` is
   // an audit label), so it reads as an anonymous member: shared memories only.
   const viewer = auth.principal.via === "token" ? null : await resolveViewerLogin();
-  const working = await lifecycleWorkingSet(
+  const { rows: working, notConsidered } = await recallPopulation(
     params.org,
     { namespace: params.namespace, kinds: params.kinds.length ? params.kinds : undefined },
     viewer,
@@ -104,7 +106,7 @@ async function handle(request: Request, params: RecallParams) {
           ("filtered" as const)
         : m.supersededBy
           ? ("superseded" as const)
-          : // lifecycleWorkingSet already excludes archived rows, so the remaining way to be
+          : // recallPopulation already excludes archived rows, so the remaining way to be
             // unrecallable is the §8 TTL.
             ("expired" as const),
     }));
@@ -120,6 +122,9 @@ async function handle(request: Request, params: RecallParams) {
     /** Eligible rows the pass ranked — so a caller never implies it received everything. */
     consideredCount: result.consideredCount,
     omittedCount: result.omitted.length,
+    /** Eligible rows the population cap never loaded. Not scored, so neither packed nor omitted: the
+     *  answer says how much of the store it did not look at instead of reading as the whole store. */
+    notConsideredCount: notConsidered,
   });
 }
 

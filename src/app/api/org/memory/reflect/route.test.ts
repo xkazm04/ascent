@@ -30,6 +30,7 @@ const h = vi.hoisted(() => ({
   apply: vi.fn(),
   audit: vi.fn(),
   working: vi.fn(),
+  decayPop: vi.fn(),
   archive: vi.fn(),
   runner: vi.fn(),
   propose: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock("@/lib/db", () => ({
   getCreditState: h.credit,
   getOrgId: h.orgId,
   lifecycleWorkingSet: h.working,
+  decayPopulation: h.decayPop,
   recordAudit: h.audit,
   workspaceAllowsMemory: h.allows,
   // Declared inside the factory: vi.mock is hoisted above every top-level binding, so a class
@@ -72,6 +74,7 @@ vi.mock("@/lib/registry/memory-pr", async (importOriginal) => {
 });
 
 import { NextResponse } from "next/server";
+import { archiveDecayed } from "@/lib/memory/decay";
 import { POST } from "./route";
 
 const post = (body: unknown) =>
@@ -107,6 +110,7 @@ beforeEach(() => {
   h.createProposal.mockResolvedValue({ id: "prop-1" });
   h.pr.mockResolvedValue({ ok: true, url: "https://github.com/acme/ai-registry/pull/7", number: 7, branch: "b", path: "memory/summary/s.md", reused: false });
   h.working.mockResolvedValue([]);
+  h.decayPop.mockResolvedValue([]);
   h.propose.mockResolvedValue({ proposals: [], clusterCount: 0, llmUnavailable: false, engine: null });
   h.runner.mockResolvedValue(null);
 });
@@ -231,5 +235,60 @@ describe("gates shared by both branches", () => {
   it("403s an org without the memory entitlement", async () => {
     h.allows.mockResolvedValue(false);
     expect((await POST(post({ org: "acme", proposePr: APPLY }))).status).toBe(403);
+  });
+});
+
+describe("forget · the pass loads its own population", () => {
+  const DAY = 86_400_000;
+  const wire = (id: string, daysAgo: number, over: Record<string, unknown> = {}) => ({
+    id,
+    namespace: "",
+    content: `memory ${id}`,
+    kind: "episodic",
+    visibility: "shared",
+    source: "",
+    confidence: 1,
+    tags: [],
+    supersededBy: null,
+    version: 1,
+    accessCount: 0,
+    citedCount: 0,
+    notUsefulCount: 0,
+    expiresAt: null,
+    origin: "hosted",
+    registryPath: null,
+    createdBy: null,
+    createdAt: new Date(Date.now() - daysAgo * DAY).toISOString(),
+    updatedAt: new Date(Date.now() - daysAgo * DAY).toISOString(),
+    ...over,
+  });
+  const stale = wire("stale", 200, { confidence: 0.3, notUsefulCount: 2 });
+
+  beforeEach(async () => {
+    // The real forget policy, not the file-level stub: this case is about WHICH rows it is shown.
+    const actual = await vi.importActual<typeof import("@/lib/memory/decay")>("@/lib/memory/decay");
+    vi.mocked(archiveDecayed).mockImplementation(actual.archiveDecayed);
+    // What the newest-400 cut sees on a busy store: 400 fresh rows and nothing forget may touch.
+    h.working.mockResolvedValue(Array.from({ length: 400 }, (_, i) => wire(`fresh${i}`, 1 + i / 100)));
+    h.decayPop.mockResolvedValue([stale]);
+  });
+
+  it("dry-run names a decay-eligible row that 400 fresher rows hid from the working set", async () => {
+    const res = await POST(post({ org: "acme", decay: true, dryRun: true }));
+    const body = await res.json();
+    expect(body.decay.archivedIds).toContain("stale");
+    expect(body.decay.dryRun).toBe(true);
+    expect(h.archive).not.toHaveBeenCalled();
+  });
+
+  it("guard: the reflection proposal still reads the working set, scoped by namespace and viewer", async () => {
+    await POST(post({ org: "acme", namespace: "acme/api", decay: true, dryRun: true }));
+    expect(h.working).toHaveBeenCalledWith("acme", { namespace: "acme/api" }, "owner-login");
+    expect(h.decayPop).toHaveBeenCalledWith("acme", { namespace: "acme/api" }, "owner-login", expect.any(Number));
+  });
+
+  it("does not load the forget population when no forget pass was asked for", async () => {
+    await POST(post({ org: "acme" }));
+    expect(h.decayPop).not.toHaveBeenCalled();
   });
 });

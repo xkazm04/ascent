@@ -51,6 +51,7 @@ function response(over: Partial<RecallResponse>): RecallResponse {
     charBudget: 6000,
     consideredCount: 0,
     omittedCount: 0,
+    notConsideredCount: 0,
     ...over,
   };
 }
@@ -92,6 +93,14 @@ describe("recallOmissions", () => {
       response({ omitted: [scored("a")], ineligible: [ineligible("b", "superseded")] }),
     );
     expect(blocks.map((b) => b.id)).toEqual(["budget", "superseded"]);
+  });
+
+  it("draws the rows the population cap never let the pass score as one `not-judged` block, last", () => {
+    const blocks = recallOmissions(response({ omitted: [scored("a")], notConsideredCount: 100 }));
+    expect(blocks.map((b) => b.id)).toEqual(["budget", "not-considered"]);
+    expect(blocks[1]).toMatchObject({ id: "not-considered", count: 100, state: "not-judged" });
+    expect(blocks[1]!.label).toMatch(/never scored/);
+    expect(recallOmissions(response({ notConsideredCount: 0 }))).toEqual([]);
   });
 
   it("drops zero-count groups rather than drawing a floor-width block for them", () => {

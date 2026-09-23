@@ -13,6 +13,8 @@
 //   expired     → `superseded`  past its TTL; the row is still in the store.
 //   filtered    → `not-judged`  excluded by the caller's own kind/namespace filter BEFORE scoring,
 //                               so there is no score to show and a hatch must print no value.
+//   not loaded  → `not-judged`  eligible, but outside the recall population's cap: the pass never
+//                               loaded them, so they were never scored either (notConsideredCount).
 //
 // Pure: no React, no fetch. `Omission` comes from the kit so the shape cannot drift from BudgetPack.
 
@@ -30,6 +32,10 @@ export const INELIGIBLE_STATE: Record<IneligibleReason, VizState> = {
 
 /** The state a budget-bound omission paints in: it WAS scored, so it is a measurement. */
 export const BUDGET_STATE: VizState = "measured";
+
+/** Rows the population cap never loaded. Never scored, so the hatch prints no value for them. */
+export const NOT_CONSIDERED_STATE: VizState = "not-judged";
+export const NOT_CONSIDERED_LABEL = "never scored: outside the recall population";
 
 /** The (D) sentence the two groups used to need a paragraph to separate. One line, on demand. */
 export const OMISSION_HINT =
@@ -82,6 +88,17 @@ export function recallOmissions(r: RecallResponse): Omission[] {
         state: INELIGIBLE_STATE[reason],
       });
     }
+  }
+  // Last: the rows no lever on this panel reaches. They are counted, not listed, because the pass
+  // never loaded them; narrowing the kind or namespace filter is what brings them into range.
+  const notConsidered = r.notConsideredCount ?? 0;
+  if (notConsidered > 0) {
+    out.push({
+      id: "not-considered",
+      label: NOT_CONSIDERED_LABEL,
+      count: notConsidered,
+      state: NOT_CONSIDERED_STATE,
+    });
   }
   return out;
 }
