@@ -156,6 +156,9 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // the trail keeps both the attempt and its withdrawal. Slate: nothing happened to the org — the point
   // of the row is that the intended act did NOT take effect and the next window will retry it.
   { value: "claim.released", label: "Claim released", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  // An admin re-sent an undelivered alert's stored text from the Alerts popover. Sky, like the other
+  // alert-sink config writes: it is an outbound delivery the admin chose, not a grant or a revoke.
+  { value: "org.alerts.resend", label: "Alert resent", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
 ];
 
 export const ACTION_META: Record<string, { label: string; cls: string }> = Object.fromEntries(
