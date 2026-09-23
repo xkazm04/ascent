@@ -162,9 +162,16 @@ export interface RepoState {
   scanSchedule: string;
   level: string | null;
   overall: number | null;
+  /** When the latest scan ran, as an ISO string (this type crosses to the onboarding client, so it
+   *  never declares a Date; see src/lib/db/wire-safe.ts). Null when the repo was never scanned. */
+  scannedAt: string | null;
+  /** The latest scan was the deterministic mock floor ({@link isMockScore}): a preview, not a
+   *  measurement. A live rescan of the same commit is then NOT a free no-op (dedup is engine-aware
+   *  and upgrades the mock row), so the wizard must never call such a repo "unchanged" or covered. */
+  preview: boolean;
 }
 
-/** Per-fullName watch/schedule/latest-level state, to merge into an installation listing. */
+/** Per-fullName watch/schedule/latest-scan state, to merge into an installation listing. */
 export async function getRepoStates(orgSlug: string): Promise<Record<string, RepoState>> {
   if (!isDbConfigured()) return {};
   const prisma = getPrisma();
@@ -176,7 +183,11 @@ export async function getRepoStates(orgSlug: string): Promise<Record<string, Rep
       fullName: true,
       watched: true,
       scanSchedule: true,
-      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { level: true, overallScore: true } },
+      scans: {
+        orderBy: { scannedAt: "desc" },
+        take: 1,
+        select: { level: true, overallScore: true, scannedAt: true, engineProvider: true },
+      },
     },
   });
   const out: Record<string, RepoState> = {};
@@ -186,6 +197,8 @@ export async function getRepoStates(orgSlug: string): Promise<Record<string, Rep
       scanSchedule: r.scanSchedule,
       level: r.scans[0]?.level ?? null,
       overall: r.scans[0]?.overallScore ?? null,
+      scannedAt: r.scans[0]?.scannedAt.toISOString() ?? null,
+      preview: isMockScore(r.scans[0]?.engineProvider),
     };
   return out;
 }
