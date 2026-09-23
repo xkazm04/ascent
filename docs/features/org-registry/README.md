@@ -340,6 +340,27 @@ sweep failure is a warning, never an index failure. The indexer also mirrors eac
 `taxonomy.json` (`OrgRegistry.bundlesJson[].taxonomy`, normalized; missing → `[]` + warning) and each
 subject's `digest`.
 
+#### Fleet pointing, from the manifests the sweep already reads (2026-09-23)
+
+The manifest the sweep fetches also carries the fleet pointer: `remote:` under a top-level
+`registry:` block. `parseManifestRegistryRemote` (`conformance-foundation.ts`) reads it and normalizes
+`github:owner/repo`, a GitHub URL or a bare `owner/repo` to `owner/repo`. A remote it cannot normalize
+is kept as written, and a `remote:` under any other block is ignored. The header row stores it in
+`RepoConformanceMap.registryRemote` in one of three states: `NULL` means not read (no manifest, or a
+row swept before the column existed), `""` means the manifest was read and names no registry, and
+anything else is the remote.
+
+`fleetPointing` (`src/lib/registry/fleet-pointing.ts`, pure) derives `fleet.reposPointing`,
+`reposSynced30d`, `unswept` and a `roster` from the header rows `getRegistryView` already loads, so it
+adds no query. A repo points here when its remote matches the registry's full name
+(case-insensitive). The registry repo itself counts as pointing. Synced 30d means a pointing repo
+whose map was regenerated in the last 30 days (a map-less repo does not count). With no rows read,
+the keys are absent and the meters hatch. A row with a manifest but a `NULL` pointer counts as
+unswept, never as "no pointer". The roster (`RegistryFleetRoster`) names every swept repo that does
+not point here, with the reason: `elsewhere` (with the foreign remote), `no-pointer` or
+`no-manifest`, plus the exact `registry.remote: github:<registry>` line to paste. Step 5 can now reach
+`done`.
+
 ### Contributing signals back
 
 `POST /api/org/:slug/registry/signals` publishes `signals/<contributor>.json` into the customer's
@@ -369,7 +390,7 @@ file ascent is the sole author of.
 | Model | Purpose |
 | --- | --- |
 | `OrgKnowledgeSubject` | one subject per bundle, from the generated index; soft-archived when it leaves the corpus, because a conformance row may still cite it |
-| `RepoConformanceMap` | one row per SWEPT repo — the map header when there is one (`mapSha` null otherwise) plus the foundation the sweep probed (`hasContextMap`, `hasManifest`, `scopeJson`, `directionsJson`, `weaklyGovernedJson`) |
+| `RepoConformanceMap` | one row per SWEPT repo — the map header when there is one (`mapSha` null otherwise) plus the foundation the sweep probed (`hasContextMap`, `hasManifest`, `scopeJson`, `directionsJson`, `weaklyGovernedJson`, `registryRemote`) |
 | `RepoConformance` | one judged (context × subject) pair, with its evidence |
 | `RegistrySignal` | the `signals/` lane as one contributor published it; every count nullable |
 | `RegistrySignalContribution` | append-only audit of every contribution ascent attempted |
@@ -525,13 +546,14 @@ requiring admin to *propose* would lock out the people who write the memory.
 
 ## Known gaps
 
-- **Fleet SYNC adoption is not measured.** `fleet.reposPointing` and `reposSynced30d` are **omitted**
-  until R5, and `RegistryFleetSync` hatches those meters (`not-judged`) rather than painting 0%. The
-  adoption breakdown still arrives as zeros and reads as "No adoption measured yet". The pass that
-  hashes each repo's `.claude/skills` against the catalog does not exist yet. *(Narrowed 2026-09-17:
+- **Fleet adoption BY HASH is not measured.** The breakdown (`in_sync` / `stale` / `diverged` /
+  `local_only`) still arrives as zeros, and the panel and the verdict read four zeros as "not
+  measured", never as "every pointing repo in sync". No pass compares each repo's installed skills
+  with the catalog yet. *(Narrowed 2026-09-23: pointing and synced-30d are measured from each swept
+  repo's manifest `registry.remote`; see "Fleet pointing" under the conformance ledger. 2026-09-17:
   pointing/synced are no longer reported as a measured zero. 2026-08-30: `telemetry.invokes30d` is
   real, from the registry's `usage/` lane and this org's own events API, and CONFORMANCE adoption is
-  measured — see the conformance ledger above.)*
+  measured; see the conformance ledger above.)*
 - **Lessons do not reach Memory yet.** The mapping (`lesson-memory.ts`: the skill as namespace,
   `procedural`, confidence 0.6, ten newest per pass) is written and tested, but the insert goes
   through the one ingest door in `src/lib/memory/scan-feed.ts` and that door's generalized form
