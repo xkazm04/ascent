@@ -1,13 +1,14 @@
 "use client";
 
 // State/effects for MemoryPanel — the browsable list state, the debounced server refetch, the write
-// form + duplicate-check pass, and the archive mutation. Extracted per the 200-LOC .tsx cap
+// form + duplicate-check pass (or a correction started from a card), and the archive mutation. Extracted per the 200-LOC .tsx cap
 // (docs/ORG-TABS-REFACTOR.md §3): this file owns no JSX so MemoryPanel.tsx stays a thin render of what
 // this hook returns.
 
 import { useEffect, useRef, useState } from "react";
 import { runMemoryCheck, type CheckResponse } from "@/features/shared/memory/memoryCheck";
 import { EMPTY_FORM, fetchMemoryList, postMemory } from "@/features/shared/memory/memoryLibraryApi";
+import { useMemoryCorrection } from "@/features/shared/memory/useMemoryCorrection";
 import type { MemoryFormState } from "@/features/shared/memory/MemoryTypes";
 import type { MemoryRow, MemorySort } from "@/lib/db";
 
@@ -41,6 +42,7 @@ export function useMemoryLibrary({
   const [verdict, setVerdict] = useState<CheckResponse | null>(null);
   const [supersedeId, setSupersedeId] = useState<string | null>(null);
   const checkAbort = useRef<AbortController | null>(null);
+  const correction = useMemoryCorrection(emptyForm, { setFormState, setSupersedeId, setVerdict, cancelCheck });
 
   const didMount = useRef(false);
   const setForm = (patch: Partial<MemoryFormState>) => setFormState((f) => ({ ...f, ...patch }));
@@ -95,7 +97,7 @@ export function useMemoryLibrary({
     setChecking(true);
     setError(null);
     setVerdict(null);
-    setSupersedeId(null);
+    setSupersedeId(correction.armedAfter(null));
     try {
       const v = await runMemoryCheck(
         { org: slug, content: form.content, kind: form.kind, namespace: form.namespace || undefined },
@@ -103,8 +105,9 @@ export function useMemoryLibrary({
       );
       setVerdict(v);
       // Pre-select the strongest match only when the pass actually recommends replacing it; a mere
-      // "related" verdict must not arm a destructive supersede behind an unread radio button.
-      if (v.recommendation === "supersede" && v.duplicates[0]) setSupersedeId(v.duplicates[0].id);
+      // "related" verdict must not arm a destructive supersede behind an unread radio button. A
+      // correction in progress keeps the target its author named (supersedeAfterCheck).
+      setSupersedeId(correction.armedAfter(v));
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
         setError(e instanceof Error ? e.message : "The duplicate check failed.");
@@ -122,7 +125,7 @@ export function useMemoryLibrary({
 
   function dismissVerdict() {
     setVerdict(null);
-    setSupersedeId(null);
+    setSupersedeId(correction.armedAfter(null));
   }
 
   /** Step 2 — write. `supersedeId` (when chosen) retires the memory this one corrects, atomically. */
@@ -132,6 +135,7 @@ export function useMemoryLibrary({
     setError(null);
     try {
       await postMemory(slug, form, supersedeId);
+      correction.endCorrection();
       setFormState(emptyForm);
       setVerdict(null);
       setSupersedeId(null);
@@ -188,6 +192,9 @@ export function useMemoryLibrary({
     dismissVerdict,
     save,
     archive,
+    correcting: correction.correcting,
+    startCorrection: correction.startCorrection,
+    cancelCorrection: correction.cancelCorrection,
     filtered: Boolean(search || namespace || kind || source),
   };
 }

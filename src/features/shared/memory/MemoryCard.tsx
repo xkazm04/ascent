@@ -1,12 +1,15 @@
 "use client";
 
 // One Org Memory: the body, its provenance (who/where it came from), its trust score, and the
-// admin-only Archive. "Copy" counts as a recall (§3 access_count) — the signal a future consolidation
-// job prunes on. The body is rendered as plain preformatted text (never dangerouslySetInnerHTML), so a
+// admin-only Archive, plus "Correct" (a supersede aimed at this row, for a hosted row the viewer can
+// write) and, from v2 on, what the memory replaced (MemoryLineage). "Copy" counts as a recall
+// (§3 access_count) — the signal a future consolidation job prunes on. The body is rendered as plain preformatted text (never dangerouslySetInnerHTML), so a
 // member-authored memory can't inject markup. Mirrors SkillCard.
 
 import { OpenInRegistry, registryBlobHref } from "@/features/shared/registry/RegistryOriginTag";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { MemoryLineage } from "@/features/shared/memory/MemoryLineage";
+import { canCorrectMemory } from "@/features/shared/memory/memoryCorrectionModel";
 import {
   confidenceLabel,
   isRepoMemorySource,
@@ -26,12 +29,18 @@ export function MemoryCard({
   viewerLogin,
   canArchive,
   onArchive,
+  canWrite,
+  onCorrect,
   registryBase,
 }: {
   memory: MemoryRow;
   viewerLogin: string | null;
   canArchive: boolean;
   onArchive: () => void;
+  /** The viewer may write memories here (member on a plan that allows it). */
+  canWrite: boolean;
+  /** Load this row into the author form as a correction. */
+  onCorrect: (row: MemoryRow) => void;
   /** Blob-URL prefix of the mapped registry, or null. See MemoryPanel's prop doc. */
   registryBase: string | null;
 }) {
@@ -106,6 +115,15 @@ export function MemoryCard({
             ariaLabel="Copy this memory for an LLM"
             onCopied={countRecall}
           />
+          {canCorrectMemory(m, canWrite) && (
+            <button
+              onClick={() => onCorrect(m)}
+              className="type-mono-sm text-slate-400 hover:text-accent"
+              title="Write a corrected version that supersedes this memory"
+            >
+              Correct
+            </button>
+          )}
           {/* A registry-origin note mirrors a file in a repo the customer owns: archiving it here would
               be undone by the next index pass, so the affordance is the file itself. */}
           {m.origin === "registry" ? (
@@ -165,6 +183,8 @@ export function MemoryCard({
           </span>
         )}
       </div>
+
+      {m.version > 1 && <MemoryLineage id={m.id} />}
     </div>
   );
 }

@@ -8,6 +8,10 @@
 //   2. "Save" writes, optionally carrying `supersedeId` — which makes the write a CORRECTION that
 //      retires the memory it replaces.
 //
+// 3. "Correct" on a card loads that row here with it already armed as the supersede target (a
+//    "Correcting" banner, a struck excerpt of the target, Cancel and "Save correction"). No check is
+//    needed for it; the check stays available and never re-aims the armed target.
+//
 // The check is OPTIONAL. Save is always enabled with content: a duplicate check is a guardrail, not a
 // gate, and a model that is slow, absent, or wrong must never stop someone recording what they learned.
 //
@@ -15,11 +19,13 @@
 // and MemoryFormState in MemoryTypes.ts — both extracted to keep this file under the 200-LOC .tsx cap
 // (docs/ORG-TABS-REFACTOR.md §3).
 
-import { WhyChip } from "@/components/org/viz";
+import { useEffect, useRef } from "react";
+import { StateSwatch, WhyChip } from "@/components/org/viz";
 import { CheckVerdict } from "@/features/shared/memory/MemoryCheckVerdict";
 import { MemoryAuthorFormFields } from "@/features/shared/memory/MemoryAuthorFormFields";
 import type { CheckResponse } from "@/features/shared/memory/memoryCheck";
 import type { MemoryFormState } from "@/features/shared/memory/MemoryTypes";
+import type { MemoryRow } from "@/lib/db";
 
 export function MemoryAuthorForm({
   canWrite,
@@ -37,6 +43,8 @@ export function MemoryAuthorForm({
   onCancelCheck,
   onDismissVerdict,
   onSave,
+  correcting,
+  onCancelCorrection,
 }: {
   canWrite: boolean;
   planAllowed: boolean;
@@ -53,7 +61,19 @@ export function MemoryAuthorForm({
   onCancelCheck: () => void;
   onDismissVerdict: () => void;
   onSave: () => void;
+  /** The row a card's "Correct" loaded into the form, or null. */
+  correcting: MemoryRow | null;
+  onCancelCorrection: () => void;
 }) {
+  // A card's "Correct" happens up in the list; bring the reader to the form it filled.
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+  const correctingId = correcting?.id ?? null;
+  useEffect(() => {
+    if (!correctingId) return;
+    contentRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    contentRef.current?.focus({ preventScroll: true });
+  }, [correctingId]);
+
   /* Write form (members on a Team+ plan) — or an upsell when the plan doesn't include memory writes. */
   if (!canWrite) {
     return (
@@ -67,10 +87,13 @@ export function MemoryAuthorForm({
   }
 
   const hasContent = form.content.trim().length > 0;
+  const savingCorrection = Boolean(correcting && supersedeId === correcting.id);
 
   return (
     <div className="mt-5 space-y-2 border-t border-slate-800 pt-4">
+      {correcting && <CorrectionBanner target={correcting} onCancel={onCancelCorrection} disabled={busy} />}
       <textarea
+        ref={contentRef}
         value={form.content}
         onChange={(e) => setForm({ content: e.target.value })}
         placeholder="What should the org remember? e.g. “We chose Supabase GitHub OAuth over the custom flow; the custom one is dormant.”"
@@ -121,9 +144,32 @@ export function MemoryAuthorForm({
           disabled={busy || checking || !hasContent}
           className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
         >
-          {busy ? "Saving…" : supersedeId ? "Save & supersede" : "Save memory"}
+          {busy ? "Saving…" : savingCorrection ? "Save correction" : supersedeId ? "Save & supersede" : "Save memory"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** What the form is correcting: the target wears the `superseded` mark it will carry once saved. */
+function CorrectionBanner({ target, onCancel, disabled }: { target: MemoryRow; onCancel: () => void; disabled: boolean }) {
+  const excerpt = target.content.length > 140 ? `${target.content.slice(0, 140)}…` : target.content;
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border border-accent/40 bg-accent/5 px-3 py-2">
+      <div className="min-w-0">
+        <p className="type-body-sm font-medium text-slate-200">Correcting</p>
+        <p data-state="superseded" className="mt-1 flex items-start gap-1.5">
+          <StateSwatch state="superseded" size={11} className="mt-1 shrink-0" />
+          <span className="type-caption text-slate-400 line-through decoration-slate-500 opacity-50">{excerpt}</span>
+        </p>
+      </div>
+      <button
+        onClick={onCancel}
+        disabled={disabled}
+        className="shrink-0 rounded-lg border border-slate-700 px-2.5 py-1 type-body-sm text-slate-400 hover:text-white disabled:opacity-50"
+      >
+        Cancel
+      </button>
     </div>
   );
 }

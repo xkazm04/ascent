@@ -18,6 +18,8 @@ export function MemoryList({
   viewerLogin,
   isAdmin,
   onArchive,
+  canWrite,
+  onCorrect,
   registryBase,
 }: {
   memories: MemoryRow[];
@@ -26,6 +28,8 @@ export function MemoryList({
   viewerLogin: string | null;
   isAdmin: boolean;
   onArchive: (id: string) => void;
+  canWrite: boolean;
+  onCorrect: (row: MemoryRow) => void;
   registryBase: string | null;
 }) {
   return (
@@ -77,6 +81,8 @@ export function MemoryList({
                     viewerLogin={viewerLogin}
                     canArchive={isAdmin}
                     onArchive={() => onArchive(m.id)}
+                    canWrite={canWrite}
+                    onCorrect={onCorrect}
                     registryBase={registryBase}
                   />
                 </td>

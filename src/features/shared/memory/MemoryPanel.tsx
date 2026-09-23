@@ -96,6 +96,8 @@ export function MemoryPanel({
             viewerLogin={viewerLogin}
             isAdmin={isAdmin}
             onArchive={m.archive}
+            canWrite={canWrite}
+            onCorrect={m.startCorrection}
           />
         )}
       </div>
@@ -116,6 +118,8 @@ export function MemoryPanel({
         onCancelCheck={m.cancelCheck}
         onDismissVerdict={m.dismissVerdict}
         onSave={m.save}
+        correcting={m.correcting}
+        onCancelCorrection={m.cancelCorrection}
       />
       {m.error && <p className="mt-2 type-body-sm text-orange-300">{m.error}</p>}
     </Card>
