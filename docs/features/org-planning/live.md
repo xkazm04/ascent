@@ -2537,7 +2537,43 @@ due: oldest first, re-resolved to **today's** open rows (gaps via `getOrgBacklog
 are dropped; none left → `superseded`, try the next. A plan whose direction is gone or ended goes back
 to `pending`; a direction with no budget is exhausted on the spot. The chosen plan moves `approved →
 executing` conditionally (two lanes cannot both take it), its direction is charged a cycle, and it runs
-in a **fresh** session with the approved plan as its fixed tier.
+in a **fresh** session with the approved plan as its fixed tier — unless the plan carries a held
+branch, in which case the lane **adopts** the held commits instead (next section).
+
+#### Adopting held work (challenge-2026-09-23)
+
+A plan the fence held already has its work: the finished commits sit on `ascent/held/<planId>`, and
+the pending plan that re-asks about them carries `heldBranch`, which survives approval. Approving it
+used to throw those commits away in practice. The directed lane opened a fresh session and re-derived
+the work, paying for a second session whose output nobody had been shown (registry
+`hitl-approval/resume-after-decision`: whatever runs after an approval that was not what was shown is
+unapproved). Now:
+
+- **The inbox shows the commits.** `GET /api/org/loop/plans/[id]` answers `{ heldBranch, commits,
+  files: [{ path, added, deleted }] }` from `git diff --numstat ascent/runner...<held>` in the repo's
+  paired checkout (`readHeldDiff`, `lane-adopt.ts`; `added`/`deleted` are null for a binary file).
+  **Resolve-then-gate at org read**: the org comes from the plan row, and a caller who cannot read it
+  gets the same 404 as a missing plan, before any git call. The route is self-hosted only, and a plan
+  with no held branch is a 404. `PlanReview` mounts `HeldDiff`, which lists every file with its +/-
+  counts. A failed read says *"Could not read the held branch — …"*. The `git log --stat` copy command
+  stays under it either way, so the review is never an empty list. The approve button on a held plan
+  reads **"Approve — land these commits"**.
+- **Approval lands them.** `nextDirectedBatch` passes the row's `heldBranch` through as
+  `DirectedBatch.adoptBranch`. After the baseline is measured, `runLane` calls `adoptHeldCommits`,
+  which cherry-picks `HEAD..<held>` onto the lane's worktree. The lane is cut from `ascent/runner`, so
+  that range is exactly what the reviewer was shown. No agent session is dispatched and no cost is
+  charged. The log says *"Adopted N commit(s) from ascent/held/… — no agent session was spent"*. The
+  guard verify, the integrity check (`gateDiff`), the rescan and the adjudication then run unchanged.
+  The fence is **skipped**, because the reviewed diff is the declaration, and the plan settles `landed`
+  through the fence's own `settleLandedPlan`.
+- **A guard rejection still reverses it.** The adopted commits are committed, so the guard's discard
+  cannot reach them: the lane resets its branch to `before`, the cycle exits `guard-rejected` (nothing
+  committed, claims released, plan `failed`), and the commits stay on the held branch.
+- **The fresh session is the fallback.** A missing branch, an empty range, a dirty tree or a
+  cherry-pick conflict refuses the adoption. The cherry-pick is aborted, the worktree HEAD is unmoved,
+  and the log says why. The lane then runs today's fresh session under the approved plan, fence
+  included. Only a ref shaped `ascent/held/<safe>` is ever passed to git. Held branches are never
+  deleted.
 
 #### The durable-key rule
 
@@ -2590,6 +2626,9 @@ them is shown the operator's note. Row ids and titles are stored alongside, alig
   has not charged it yet, so a cost budget can be overrun by the sessions in flight when it runs out.
 - **A reject that fails half-way** may leave some items' standing dismissals written with the plan
   still `pending`; re-sending the reject completes it (every write is an idempotent upsert).
+- **Adopted commits carry their original trailers.** The held commits' `Ascent-Resolves:` trailers
+  name the row ids of the cycle that made them. If a scan has recreated those rows since, the trailers
+  name ids that no longer exist, and only the rescan's own reading can close the items.
 
 ### The live signal (2026-09-18)
 
