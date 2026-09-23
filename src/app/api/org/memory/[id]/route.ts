@@ -1,4 +1,5 @@
 // GET    /api/org/memory/:id                                      -> { memory }  (read-gated)
+// GET    /api/org/memory/:id?lineage=1           -> { memory, lineage, lineageHidden }  (read-gated)
 // PATCH  /api/org/memory/:id { content?, kind?, namespace?, ... } -> { ok }      (member + Team+)
 // DELETE /api/org/memory/:id                                      -> { ok }      (admin · soft-archive)
 //
@@ -17,6 +18,13 @@
 // customer owns; PATCH or DELETE here would be reverted by the next index pass. The UI already hides
 // archive on those rows; the wire must refuse too (`409 registry-origin`), matching reflect/apply.
 // A write that reports success and does not survive is worse than a refusal.
+//
+// Both gates are `memoryWriteRefusal` in the db module, the one predicate the POST supersede door also
+// applies, so a correction cannot reach a row an edit may not.
+//
+// `?lineage=1` adds what this memory replaced (the `supersededBy` chain, walked backwards within the
+// viewer's visibility): the history behind the card's v{n} badge. Hidden predecessors are counted,
+// not listed.
 
 import { NextResponse } from "next/server";
 import {
@@ -34,6 +42,12 @@ import { resolveViewerLogin } from "@/lib/access";
 import { workspaceAllowsMemory } from "@/lib/db";
 import { MEMORY_KINDS, isMemoryKind, isMemoryVisibility } from "@/lib/org/memory-kinds";
 import type { OrgRole } from "@/lib/db/members";
+import {
+  REGISTRY_ORIGIN_REFUSAL,
+  getOrgMemoryLineage,
+  memoryVisibleTo,
+  memoryWriteRefusal,
+} from "@/lib/db/org-memory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,26 +88,13 @@ async function gateWrite(id: string, min: OrgRole): Promise<{ org: string } | Ne
 async function denyWriteOnRow(id: string): Promise<NextResponse | null> {
   const memory = await getOrgMemory(id);
   if (!memory) return NextResponse.json({ error: "Memory not found." }, { status: 404 });
-  if (memory.visibility === "private") {
-    const viewer = await resolveViewerLogin();
-    if (!(viewer && memory.createdBy === viewer)) {
-      return NextResponse.json({ error: "Memory not found." }, { status: 404 });
-    }
-  }
-  if (memory.origin === "registry") {
-    return NextResponse.json(
-      {
-        error:
-          "This note is a mirror of a file in your registry. Editing or archiving it here would be reverted by the next index pass — change it with a pull request instead.",
-        code: "registry-origin",
-      },
-      { status: 409 },
-    );
-  }
+  const refusal = memoryWriteRefusal(memory, await resolveViewerLogin());
+  if (refusal === "not-found") return NextResponse.json({ error: "Memory not found." }, { status: 404 });
+  if (refusal === "registry-origin") return NextResponse.json(REGISTRY_ORIGIN_REFUSAL, { status: 409 });
   return null;
 }
 
-export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Memory requires a database." }, { status: 503 });
   const { id } = await ctx.params;
   const org = await getOrgMemoryOrgSlug(id);
@@ -103,10 +104,13 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   const memory = await getOrgMemory(id);
   if (!memory) return NextResponse.json({ error: "Memory not found." }, { status: 404 });
   // Another author's private scratch is not readable just because its id was guessed (§4.5).
-  if (memory.visibility === "private" && memory.createdBy !== (await resolveViewerLogin())) {
+  const viewer = await resolveViewerLogin();
+  if (!memoryVisibleTo(memory, viewer)) {
     return NextResponse.json({ error: "Memory not found." }, { status: 404 });
   }
-  return NextResponse.json({ memory });
+  if (new URL(request.url).searchParams.get("lineage") !== "1") return NextResponse.json({ memory });
+  const { lineage, lineageHidden } = await getOrgMemoryLineage(id, viewer);
+  return NextResponse.json({ memory, lineage, lineageHidden });
 }
 
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {

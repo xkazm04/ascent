@@ -18,6 +18,7 @@ vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: ()
 
 import {
   SupersedeTargetNotFoundError,
+  SupersedeTargetRegistryOriginError,
   candidateOrgMemories,
   createOrgMemory,
   listOrgMemories,
@@ -33,7 +34,14 @@ function fakePrisma(
   opts: {
     slugToId?: Record<string, string>;
     /** Memories that exist, for the supersede-target lookup. */
-    memories?: { id: string; orgId: string; version: number }[];
+    memories?: {
+      id: string;
+      orgId: string;
+      version: number;
+      visibility?: string;
+      createdBy?: string | null;
+      origin?: string;
+    }[];
     /** What updateMany reports having stamped (0 simulates a lost race). */
     updateManyCount?: number;
     /** Rows findMany returns, filtered by `where.namespace` when that clause is present. */
@@ -62,7 +70,14 @@ function fakePrisma(
     }),
     findFirst: vi.fn(async ({ where }: { where: { id: string; orgId: string } }) => {
       const m = (opts.memories ?? []).find((x) => x.id === where.id && x.orgId === where.orgId);
-      return m ? { version: m.version } : null;
+      return m
+        ? {
+            version: m.version,
+            visibility: m.visibility ?? "shared",
+            createdBy: m.createdBy ?? null,
+            origin: m.origin ?? "hosted",
+          }
+        : null;
     }),
     updateMany: vi.fn(async (args: { where: Where; data: Where }) => {
       calls.updateMany.push(args);
@@ -291,6 +306,52 @@ describe("createOrgMemory — supersede (versioning + tenant boundary)", () => {
     await expect(
       createOrgMemory("acme", { content: "x", supersedeId: "mem_old" }),
     ).rejects.toBeInstanceOf(SupersedeTargetNotFoundError);
+  });
+
+  // challenge-2026-09-23b org-memory#B: the supersede door now applies the same author + origin
+  // refusals PATCH/DELETE do (memoryWriteRefusal). Before, the lookup was { id, orgId } alone.
+  it("REFUSES to supersede another author's PRIVATE memory (not found, nothing written)", async () => {
+    const { prisma, calls } = fakePrisma({
+      memories: [{ id: "p1", orgId: "org_acme", version: 1, visibility: "private", createdBy: "alice" }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    await expect(
+      createOrgMemory("acme", { content: "x", supersedeId: "p1" }, "bob"),
+    ).rejects.toBeInstanceOf(SupersedeTargetNotFoundError);
+    expect(calls.create).toHaveLength(0);
+    expect(calls.updateMany).toHaveLength(0);
+  });
+
+  it("lets the AUTHOR supersede their own private memory", async () => {
+    const { prisma, calls } = fakePrisma({
+      memories: [{ id: "p1", orgId: "org_acme", version: 2, visibility: "private", createdBy: "alice" }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    await createOrgMemory("acme", { content: "x", supersedeId: "p1" }, "alice");
+    expect(calls.create[0]!.data.version).toBe(3);
+  });
+
+  it("REFUSES to supersede a registry mirror (the index pass would never un-stamp it)", async () => {
+    const { prisma, calls } = fakePrisma({
+      memories: [{ id: "r1", orgId: "org_acme", version: 1, origin: "registry" }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    await expect(
+      createOrgMemory("acme", { content: "x", supersedeId: "r1" }, "bob"),
+    ).rejects.toBeInstanceOf(SupersedeTargetRegistryOriginError);
+    expect(calls.create).toHaveLength(0);
+    expect(calls.updateMany).toHaveLength(0);
+  });
+
+  it("guard: any member still corrects a SHARED memory, at target.version + 1", async () => {
+    const { prisma, calls } = fakePrisma({
+      memories: [{ id: "s1", orgId: "org_acme", version: 4, visibility: "shared", createdBy: "alice" }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    const created = await createOrgMemory("acme", { content: "x", supersedeId: "s1" }, "bob");
+    expect(created).toEqual({ id: "mem_new" });
+    expect(calls.create[0]!.data.version).toBe(5);
+    expect(calls.updateMany[0]!.data).toEqual({ supersededBy: "mem_new" });
   });
 
   it("does not open a supersede path for a plain write", async () => {

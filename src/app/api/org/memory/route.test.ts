@@ -74,7 +74,25 @@ vi.mock("@/lib/authz", () => ({
 }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: mockResolveViewerLogin }));
 
+// The supersede pre-check (org-memory#B) runs the REAL memoryWriteRefusal over a row read through the
+// db client, so these cases exercise the same predicate PATCH/DELETE use rather than a stub of it.
+const { mockGetPrisma, targets } = vi.hoisted(() => ({
+  mockGetPrisma: vi.fn(),
+  targets: [] as { id: string; orgId: string; visibility: string; createdBy: string | null; origin: string }[],
+}));
+vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: () => true }));
+mockGetPrisma.mockReturnValue({
+  organization: {
+    findUnique: async ({ where }: { where: { slug: string } }) => (where.slug === "acme" ? { id: "org_acme" } : null),
+  },
+  orgMemory: {
+    findFirst: async ({ where }: { where: { id: string; orgId: string } }) =>
+      targets.find((t) => t.id === where.id && t.orgId === where.orgId) ?? null,
+  },
+});
+
 import { GET, POST } from "./route";
+import { SupersedeTargetRegistryOriginError } from "@/lib/db/org-memory";
 
 const postReq = (body: unknown) =>
   new Request("http://t/api/org/memory", {
@@ -149,6 +167,7 @@ describe("POST /api/org/memory — auth chain + order", () => {
   });
 
   it("writes on the happy path, passing the author login and auditing", async () => {
+    targets.splice(0, targets.length, { id: "mem_old", orgId: "org_acme", visibility: "shared", createdBy: "bob", origin: "hosted" });
     const res = await POST(postReq({ ...valid, kind: "procedural", supersedeId: "mem_old" }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ id: "mem_1" });
@@ -167,6 +186,40 @@ describe("POST /api/org/memory — auth chain + order", () => {
     const res = await POST(postReq({ ...valid, supersedeId: "mem_from_other_org" }));
     expect(res.status).toBe(400);
     expect((await res.json()).error).toContain("supersede");
+  });
+
+  it("REFUSES to supersede a registry mirror with 409 registry-origin, and never calls the write", async () => {
+    targets.splice(0, targets.length, { id: "r1", orgId: "org_acme", visibility: "shared", createdBy: null, origin: "registry" });
+    const res = await POST(postReq({ ...valid, supersedeId: "r1" }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe("registry-origin");
+    expect(body.error).toContain("pull request instead");
+    expect(mockCreateOrgMemory).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("answers another author's PRIVATE target as not found (400), and never calls the write", async () => {
+    targets.splice(0, targets.length, { id: "p1", orgId: "org_acme", visibility: "private", createdBy: "bob", origin: "hosted" });
+    const res = await POST(postReq({ ...valid, supersedeId: "p1" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("supersede");
+    expect(mockCreateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("answers a registry target in ANOTHER org as not found, never 409 (origin must not leak existence)", async () => {
+    targets.splice(0, targets.length, { id: "r9", orgId: "org_evil", visibility: "shared", createdBy: null, origin: "registry" });
+    const res = await POST(postReq({ ...valid, supersedeId: "r9" }));
+    expect(res.status).toBe(400);
+    expect(mockCreateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("maps the db layer's own registry refusal (a race past the pre-check) to 409 too", async () => {
+    targets.splice(0, targets.length, { id: "s1", orgId: "org_acme", visibility: "shared", createdBy: "bob", origin: "hosted" });
+    mockCreateOrgMemory.mockRejectedValue(new SupersedeTargetRegistryOriginError());
+    const res = await POST(postReq({ ...valid, supersedeId: "s1" }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("registry-origin");
   });
 
   it("maps an unexpected db failure to 500", async () => {

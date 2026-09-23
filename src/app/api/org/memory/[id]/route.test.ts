@@ -77,6 +77,13 @@ vi.mock("@/lib/authz", () => ({
   requireOrgRead: mockRequireOrgRead,
 }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: mockResolveViewerLogin }));
+// The lineage walk is db logic with its own test (org-memory-lineage.test.ts); here only the route's
+// shape and gating are pinned. memoryWriteRefusal stays REAL: PATCH/DELETE and POST share it.
+const { mockGetOrgMemoryLineage } = vi.hoisted(() => ({ mockGetOrgMemoryLineage: vi.fn() }));
+vi.mock("@/lib/db/org-memory", async (orig) => ({
+  ...(await orig<typeof import("@/lib/db/org-memory")>()),
+  getOrgMemoryLineage: mockGetOrgMemoryLineage,
+}));
 
 import { DELETE, GET, PATCH } from "./route";
 
@@ -236,5 +243,38 @@ describe("DELETE /api/org/memory/[id] — the registry-origin refusal", () => {
     const res = await DELETE(new Request("http://localhost/x", { method: "DELETE" }), ctx);
     expect(res.status).toBe(200);
     expect(mockArchiveOrgMemory).toHaveBeenCalledWith("mem_1");
+  });
+});
+
+// challenge-2026-09-23b org-memory#B: the v{n} badge's history. `?lineage=1` adds the predecessors the
+// viewer may see, newest first, and a count of the ones they may not.
+describe("GET /api/org/memory/[id]?lineage=1 — what this memory replaced", () => {
+  const M2 = { id: "m2", content: "older", createdBy: "bob", updatedAt: "2026-02-01T00:00:00.000Z" };
+  const M1 = { id: "m1", content: "oldest", createdBy: "alice", updatedAt: "2026-01-01T00:00:00.000Z" };
+
+  it("returns { memory, lineage, lineageHidden } read under the viewer's login", async () => {
+    mockGetOrgMemory.mockResolvedValue({ ...SHARED, id: "m3", version: 3 });
+    mockGetOrgMemoryLineage.mockResolvedValue({ lineage: [M2, M1], lineageHidden: 1 });
+    const res = await GET(new Request("http://localhost/api/org/memory/m3?lineage=1"), ctx);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.lineage.map((r: { id: string }) => r.id)).toEqual(["m2", "m1"]);
+    expect(body.lineage[0]).toMatchObject({ content: "older", createdBy: "bob", updatedAt: M2.updatedAt });
+    expect(body.lineageHidden).toBe(1);
+    expect(mockGetOrgMemoryLineage).toHaveBeenCalledWith("mem_1", "alice");
+  });
+
+  it("guard: without ?lineage the shape is still { memory } and no walk runs", async () => {
+    mockGetOrgMemory.mockResolvedValue(SHARED);
+    const res = await GET(new Request("http://localhost/x"), ctx);
+    expect(Object.keys(await res.json())).toEqual(["memory"]);
+    expect(mockGetOrgMemoryLineage).not.toHaveBeenCalled();
+  });
+
+  it("guard: another author's private row still answers 404, lineage or not, and no walk runs", async () => {
+    mockGetOrgMemory.mockResolvedValue(BOBS_PRIVATE);
+    const res = await GET(new Request("http://localhost/x?lineage=1"), ctx);
+    expect(res.status).toBe(404);
+    expect(mockGetOrgMemoryLineage).not.toHaveBeenCalled();
   });
 });

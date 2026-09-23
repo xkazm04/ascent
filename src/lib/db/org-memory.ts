@@ -100,6 +100,23 @@ export class SupersedeTargetNotFoundError extends Error {
   }
 }
 
+/** The wire body for a refused write on a registry mirror (PATCH, DELETE and a POST supersede). */
+export const REGISTRY_ORIGIN_REFUSAL = {
+  error:
+    "This note is a mirror of a file in your registry. A change made here would be reverted by the next index pass, so change it with a pull request instead.",
+  code: "registry-origin",
+} as const;
+
+/** Raised when a supersede targets a registry-origin row. The index pass never writes `supersededBy`,
+ *  so a hosted stamp on a mirror would hide the note in ascent while it stays live in the repo. The
+ *  route maps this to `409 registry-origin`, the same answer PATCH/DELETE give. */
+export class SupersedeTargetRegistryOriginError extends Error {
+  constructor() {
+    super(REGISTRY_ORIGIN_REFUSAL.error);
+    this.name = "SupersedeTargetRegistryOriginError";
+  }
+}
+
 function parseTags(raw: string): string[] {
   try {
     const v = JSON.parse(raw);
@@ -167,6 +184,39 @@ export function visibilityScope(viewerLogin: string | null | undefined): Prisma.
   return viewerLogin
     ? { OR: [{ visibility: "shared" }, { visibility: "private", createdBy: viewerLogin }] }
     : { visibility: "shared" };
+}
+
+/** The in-memory image of `visibilityScope`, for a row already read by id: shared rows are visible to
+ *  everyone, private ones only to their author, and nothing private to an anonymous viewer. */
+export function memoryVisibleTo(
+  row: { visibility: string; createdBy: string | null },
+  viewerLogin: string | null | undefined,
+): boolean {
+  if (row.visibility === "shared") return true;
+  return row.visibility === "private" && Boolean(viewerLogin && row.createdBy === viewerLogin);
+}
+
+/** Why a write on an existing row is refused, or null when it may proceed. */
+export type MemoryWriteRefusal = "not-found" | "registry-origin";
+
+/**
+ * THE per-row write refusal, shared by every door that changes an existing memory: PATCH and DELETE on
+ * /api/org/memory/:id, and a POST that supersedes one (the route's pre-check and createOrgMemory's
+ * in-transaction check). One predicate, so the doors cannot drift apart again: the supersede door used
+ * to check only `{ id, orgId }`.
+ *
+ *   - AUTHOR (§4.5): another author's private scratch is `not-found`, never `forbidden`. A caller who
+ *     may not know the row exists must not learn it from a write path either.
+ *   - ORIGIN: a registry mirror is changed by pull request. The author test runs first, so a private
+ *     registry row the caller may not see is still `not-found`, never `registry-origin`.
+ */
+export function memoryWriteRefusal(
+  row: { visibility: string; createdBy: string | null; origin: string },
+  viewerLogin: string | null | undefined,
+): MemoryWriteRefusal | null {
+  if (!memoryVisibleTo(row, viewerLogin)) return "not-found";
+  if (row.origin === "registry") return "registry-origin";
+  return null;
 }
 
 /** The TTL fragment (§8): a row with no `expiresAt` is permanent; one in the past is already gone. */
@@ -289,12 +339,42 @@ export async function getOrgMemoryOrgSlug(id: string): Promise<string | null> {
   return m?.org.slug ?? null;
 }
 
+/** What the supersede checks read from the target row. */
+const SUPERSEDE_TARGET_SELECT = { version: true, visibility: true, createdBy: true, origin: true } as const;
+
+/**
+ * The POST door's pre-check for a supersede, before anything is written: the target resolved inside
+ * THIS org (a target in another org is `not-found`, never `registry-origin`, so origin cannot leak a
+ * foreign row's existence), then `memoryWriteRefusal` as the author. createOrgMemory repeats the check
+ * inside its transaction; this read exists so the route can answer 409 without calling the write.
+ */
+export async function supersedeTargetRefusal(
+  orgSlug: string,
+  supersedeId: string,
+  viewerLogin: string | null | undefined,
+): Promise<MemoryWriteRefusal | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const org = await prisma.organization.findUnique({
+    where: { slug: normalizeOrgSlug(orgSlug) },
+    select: { id: true },
+  });
+  if (!org) return "not-found";
+  const target = await prisma.orgMemory.findFirst({
+    where: { id: supersedeId, orgId: org.id },
+    select: SUPERSEDE_TARGET_SELECT,
+  });
+  return target ? memoryWriteRefusal(target, viewerLogin) : "not-found";
+}
+
 /**
  * Write a memory. When `supersedeId` is set this is a CORRECTION (design doc §8 "versioning"): the new
  * row is created and, in the SAME transaction, the target is stamped `supersededBy = <new id>` so the
  * old memory leaves default reads while its history survives. The target update is scoped to
  * `{ id, orgId }` — a supersedeId from ANOTHER org matches nothing, and we roll the whole write back
- * (SupersedeTargetNotFoundError) rather than commit a "correction" that corrected nothing.
+ * (SupersedeTargetNotFoundError) rather than commit a "correction" that corrected nothing. The target
+ * must also pass `memoryWriteRefusal` as `createdBy`: another author's private note is not found, and a
+ * registry mirror throws SupersedeTargetRegistryOriginError.
  *
  * The new row inherits `version = target.version + 1`, so a corrected memory carries its lineage depth.
  */
@@ -319,9 +399,12 @@ export async function createOrgMemory(
       // Read the target INSIDE the txn and scoped to this org — the cross-tenant guard.
       const target = await tx.orgMemory.findFirst({
         where: { id: input.supersedeId, orgId: org.id },
-        select: { version: true },
+        select: SUPERSEDE_TARGET_SELECT,
       });
       if (!target) throw new SupersedeTargetNotFoundError();
+      const refusal = memoryWriteRefusal(target, createdBy);
+      if (refusal === "registry-origin") throw new SupersedeTargetRegistryOriginError();
+      if (refusal) throw new SupersedeTargetNotFoundError();
       version = target.version + 1;
     }
 
@@ -354,6 +437,48 @@ export async function createOrgMemory(
 
     return created;
   });
+}
+
+/** How far back a lineage read walks. Bounds the read on a long correction chain. */
+const LINEAGE_MAX_ROWS = 50;
+const LINEAGE_MAX_DEPTH = 25;
+
+/**
+ * What a memory replaced: the rows whose `supersededBy` points at it, then the rows pointing at those,
+ * inside the head row's org and bounded by LINEAGE_MAX_ROWS / LINEAGE_MAX_DEPTH. Newest first by depth,
+ * then by `updatedAt` within one depth (a reflection summary replaces several rows at once).
+ *
+ * Predecessors are superseded by definition and may since be archived or expired, so the live-row
+ * filter (`activeMemoryWhere`) does not apply: history is still history. VISIBILITY does. Another
+ * author's private predecessor is left out and COUNTED in `lineageHidden`, and the walk continues past
+ * it, so a reader learns that history exists without reading it. Callers authorize the head row first.
+ */
+export async function getOrgMemoryLineage(
+  id: string,
+  viewerLogin: string | null | undefined,
+): Promise<{ lineage: MemoryRow[]; lineageHidden: number }> {
+  const out = { lineage: [] as MemoryRow[], lineageHidden: 0 };
+  if (!isDbConfigured()) return out;
+  const prisma = getPrisma();
+  const head = await prisma.orgMemory.findUnique({ where: { id }, select: { orgId: true } });
+  if (!head) return out;
+
+  let frontier = [id];
+  let seen = 0;
+  for (let depth = 0; depth < LINEAGE_MAX_DEPTH && frontier.length > 0 && seen < LINEAGE_MAX_ROWS; depth++) {
+    const rows = await prisma.orgMemory.findMany({
+      where: { orgId: head.orgId, supersededBy: { in: frontier } },
+      orderBy: { updatedAt: "desc" },
+      take: LINEAGE_MAX_ROWS - seen,
+    });
+    seen += rows.length;
+    for (const r of rows) {
+      if (memoryVisibleTo(r, viewerLogin)) out.lineage.push(toRow(r));
+      else out.lineageHidden++;
+    }
+    frontier = rows.map((r) => r.id);
+  }
+  return out;
 }
 
 /** Edit a memory. A CONTENT change bumps the version; an archive-only toggle does not (mirrors

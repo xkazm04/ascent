@@ -7,6 +7,12 @@
 // Library split. `supersedeId` makes the write a CORRECTION: the db layer stamps the old memory
 // `supersededBy` in the same transaction, and refuses a target from another org (design doc §4 + §8).
 //
+// A correction changes an existing row, so it passes the SAME per-row refusal PATCH/DELETE apply
+// (`memoryWriteRefusal`, via supersedeTargetRefusal): another author's private note is not found (400,
+// the answer an unknown target gets), and a registry mirror is `409 registry-origin`, before the write
+// is called. It used to check `{ id, orgId }` alone, so a member could retire a colleague's private
+// note by id, or hide a mirror the index pass never restores.
+//
 // The tenant boundary is enforced twice, deliberately: requireOrgRead/requireOrgAccess authorize the
 // slug, and every db query AND-s the resolved orgId. A client-supplied org is never trusted alone (§4.1).
 
@@ -28,6 +34,13 @@ import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 import { PERSONAL_MEMORY_LIMIT, personalMemoryCapReached, workspaceAllowsMemory } from "@/lib/db";
 import { MEMORY_KINDS, isMemoryKind, isMemoryVisibility } from "@/lib/org/memory-kinds";
+// Imported from the module, not the barrel: these are the one definition PATCH/DELETE share.
+import {
+  REGISTRY_ORIGIN_REFUSAL,
+  SupersedeTargetNotFoundError as TargetNotFound,
+  SupersedeTargetRegistryOriginError,
+  supersedeTargetRefusal,
+} from "@/lib/db/org-memory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,6 +115,11 @@ export async function POST(request: Request) {
   }
 
   const author = await resolveViewerLogin();
+  if (body.supersedeId) {
+    const refusal = await supersedeTargetRefusal(body.org, body.supersedeId, author);
+    if (refusal === "registry-origin") return NextResponse.json(REGISTRY_ORIGIN_REFUSAL, { status: 409 });
+    if (refusal) return NextResponse.json({ error: new TargetNotFound().message }, { status: 400 });
+  }
   try {
     const created = await createOrgMemory(
       body.org,
@@ -131,6 +149,10 @@ export async function POST(request: Request) {
     // whole write rolled back. A 400 is honest: the CLIENT's target is wrong, nothing was stored.
     if (err instanceof SupersedeTargetNotFoundError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+    // The pre-check passed and the in-transaction check did not (the row changed in between).
+    if (err instanceof SupersedeTargetRegistryOriginError) {
+      return NextResponse.json(REGISTRY_ORIGIN_REFUSAL, { status: 409 });
     }
     return NextResponse.json({ error: "Failed to write the memory." }, { status: 500 });
   }
