@@ -290,6 +290,13 @@ export {
   type ApplyReflectionInput,
 } from "@/lib/db/org-memory-lifecycle";
 export {
+  recallPopulation,
+  decayPopulation,
+  type PopulationScope,
+  type RecallPopulationOpts,
+  type RecallPopulation,
+} from "@/lib/db/org-memory-population";
+export {
   syncTechStackGroups,
   listTechStackGroups,
   getTechGroupIdByKey,
