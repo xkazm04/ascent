@@ -53,3 +53,5 @@ export type { TrackRow, TrackSegment } from "./StateTrack";
 export { MatrixGrid } from "./MatrixGrid";
 export type { MatrixCell, MatrixRow } from "./MatrixGrid";
 export { ConcentrationCurve } from "./ConcentrationCurve";
+
+export { ladderLegendStates, matrixLegendStates, vizStatesInOrder } from "./legendStates";
