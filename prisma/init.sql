@@ -2060,6 +2060,8 @@ CREATE TABLE "RepoConformanceMap" (
     -- NULL = unknown on that side; "behind" is derived only when both are known and differ.
     "contextMapRevision" TEXT,
     "repoContextMapRevision" TEXT,
+    -- The manifest's registry.remote, normalized. NULL = not read, '' = read with no pointer.
+    "registryRemote" TEXT,
     "ingestedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "RepoConformanceMap_pkey" PRIMARY KEY ("id")
@@ -2087,6 +2089,10 @@ CREATE UNIQUE INDEX "RepoConformanceMap_repositoryId_key" ON "RepoConformanceMap
 -- derivable from the counts or from RepoConformance (a context with no judged pair leaves no row),
 -- so without it "3 weakly governed" names nothing a reader can act on. TEXT JSON string[].
 ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "weaklyGovernedJson" TEXT NOT NULL DEFAULT '[]';
+
+-- Fleet pointing: the manifest's registry.remote, kept by the sweep that already reads the manifest.
+-- Nullable, no backfill: NULL is "not read yet", which the next sweep fills.
+ALTER TABLE "RepoConformanceMap" ADD COLUMN IF NOT EXISTS "registryRemote" TEXT;
 
 -- CreateIndex
 CREATE INDEX "RepoConformanceMap_orgId_idx" ON "RepoConformanceMap"("orgId");
