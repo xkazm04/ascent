@@ -22,7 +22,10 @@ export type AlertEventKind =
   // subtype: `security` is a D9 SCORE movement, and a reader who learns that "security" can mean
   // either a score slide or a control flip stops trusting both. The reason codes are
   // control-failed | control-restored | control-unmeasurable (src/lib/controls/transitions.ts).
-  | "control";
+  | "control"
+  // An admin's "send test alert" from the Alerts popover. Recorded through the same door as every
+  // other kind, so the ledger is also the channel's health record: a test that failed says so here.
+  | "test";
 
 export interface AlertEventInput {
   kind: AlertEventKind;
@@ -34,8 +37,10 @@ export interface AlertEventInput {
   delivered: boolean;
   /** webhook | email; null/undefined when no sink resolved. */
   sinkKind?: "webhook" | "email" | null;
-  /** Why nothing was sent: no-sink | cooldown | dispatch-failed. Omit when delivered. */
-  suppressedReason?: "no-sink" | "cooldown" | "dispatch-failed" | null;
+  /** Why nothing was sent: no-sink | cooldown | dispatch-failed | sink-unreadable (the org's sink
+   *  lookup FAILED, so nothing was sent rather than falling back to the global sink). Omit when
+   *  delivered. The table lives in `alertOutcome` (src/lib/alert-door.ts). */
+  suppressedReason?: "no-sink" | "cooldown" | "dispatch-failed" | "sink-unreadable" | null;
 }
 
 export interface AlertEventRow {
