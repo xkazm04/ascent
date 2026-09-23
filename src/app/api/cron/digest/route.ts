@@ -28,16 +28,15 @@ import {
   getStandingRegressions,
   isDbConfigured,
   listOrgsWithWatchedRepos,
-  recordAlertEvent,
   type OrgWindow,
 } from "@/lib/db";
-// Direct submodule import: the atomic once-per-window claim helpers are not re-exported through the
-// @/lib/db barrel. They collapse the digest's old check-then-act idempotency guard into one conditional
-// write (fleet-alerts-digests #3).
-import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
+// The atomic once-per-window claim (`claimOrgAuditOnce`, fleet-alerts-digests #3) is taken inside the
+// alert door, which collapses the digest's old check-then-act idempotency guard into one conditional
+// write and owns the release-on-failure and the history row.
+import { deliverAlert } from "@/lib/alert-door";
 import { hasFleetGrade } from "@/lib/db/org-shared";
 import { requireCronAuth } from "@/lib/cron-auth";
-import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, digestMovementFields, dispatchAlert, isAlertConfigured, sinkKindForOrg } from "@/lib/alerts";
+import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, digestMovementFields, isAlertConfigured } from "@/lib/alerts";
 import { controlLabel } from "@/lib/controls/catalog";
 import { controlCoverage, listObservationsSince } from "@/lib/db/control-observations";
 import { dispatchExtraAlerts } from "./extra-alerts";
@@ -341,39 +340,38 @@ export async function GET(request: Request) {
       // audit log, dispatched, then stamped AFTER the send — check-then-act — so two overlapping runs (a
       // platform retry, a re-fired schedule) both read "not sent" and both POSTed the same digest. Lost
       // the claim → a concurrent run already owns this window; skip without dispatching.
-      const claim = await claimOrgAuditOnce(DIGEST_SENT_ACTION, org, windowStart, { weekStart: windowStart.toISOString() });
-      if (!claim.claimed) {
-        skippedAlreadySent += 1;
-        return;
-      }
-      const delivered = await dispatchAlert(msg, { webhookUrl, org });
-      if (delivered) {
-        sent += 1;
-      } else {
-        // Delivery failed AFTER we claimed the window — RELEASE the claim so the next run retries this
-        // org, rather than the window staying falsely marked sent (which would DROP the digest).
-        //
-        // CAUGHT, like the same call in ./extra-alerts. Unhandled, a release failure threw past the
-        // `failed` counter AND past the AlertEvent row below into the per-org catch, so the one
-        // outcome that most needs a record — delivery failed and the window is still claimed, i.e.
-        // this org gets no digest at all — was the outcome that left none. A release that fails is
-        // worth an error line; it is not worth destroying the history row for the send.
-        await releaseAuditClaim(claim.id).catch((err: unknown) => {
-          errors.push(`${org}: digest claim release failed (${err instanceof Error ? err.message : "unknown"})`);
-        });
-        failed += 1; // sink unresolvable at send time, non-2xx, or the deadline aborted the POST
-      }
-      // History row for the in-app drawer — the released claim forgets a failed window (so next run
-      // retries); this row remembers the attempt and its outcome.
-      await recordAlertEvent(org, {
+      //
+      // The claim, the dispatch, the release and the history row all run through the one alert door
+      // (src/lib/alert-door.ts), with the sink this route already read above (a FAILED read never
+      // reaches here: it threw into the per-org catch before any claim was taken).
+      //
+      // Delivery failed AFTER we claimed the window: the door RELEASES the claim so the next run
+      // retries this org, rather than the window staying falsely marked sent (which would DROP the
+      // digest). A release that itself fails is CAUGHT and reported here: unhandled, it threw past the
+      // `failed` counter AND past the AlertEvent row into the per-org catch, so the one outcome that
+      // most needs a record (delivery failed and the window is still claimed, i.e. this org gets no
+      // digest at all) was the outcome that left none. The row still gets written: the released
+      // claim forgets a failed window, the row remembers the attempt and its outcome.
+      const out = await deliverAlert({
+        org,
+        sink: { ok: true, value: webhookUrl },
         kind: "digest",
         severity: "info",
         title: `Weekly fleet digest (${rollup.scannedCount} repos, avg ${rollup.avgOverall})`,
-        body: msg.text,
-        delivered,
-        sinkKind: sinkKindForOrg(webhookUrl),
-        suppressedReason: delivered ? null : "dispatch-failed",
+        claim: { window: { action: DIGEST_SENT_ACTION, since: windowStart, meta: { weekStart: windowStart.toISOString() } } },
+        onReleaseError: (err) => {
+          errors.push(`${org}: digest claim release failed (${err instanceof Error ? err.message : "unknown"})`);
+        },
+        build: () => msg,
       });
+      if (out.claimError) throw new Error(out.claimError);
+      // Lost the window (outcome `cooldown`, nothing recorded): a concurrent run already owns it.
+      if (!out.claimed && out.outcome === "cooldown") {
+        skippedAlreadySent += 1;
+        return;
+      }
+      if (out.delivered) sent += 1;
+      else failed += 1; // sink unresolvable at send time, non-2xx, or the deadline aborted the POST
     } catch (err) {
       errors.push(`${org}: ${err instanceof Error ? err.message : "failed"}`);
     }

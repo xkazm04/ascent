@@ -16,14 +16,13 @@
 // EVERY dispatch here is subject to the same routing as the digest itself: the org's own sink (webhook
 // OR mailto:, see G7-01), else the global ALERT_WEBHOOK_URL, else nothing. No sink → no work.
 
-import { listGoals, getUsageSummary, recordAlertEvent, type AlertEventKind } from "@/lib/db";
-import { claimOrgAuditOnce, releaseAuditClaim } from "@/lib/db/scans-audit";
+import { listGoals, getUsageSummary, type AlertEventKind } from "@/lib/db";
+import { deliverAlert } from "@/lib/alert-door";
 import {
   buildGoalAtRiskMessage,
   buildSpendAnomalyMessage,
-  dispatchAlert,
   isSpendAnomaly,
-  sinkKindForOrg,
+  type AlertMessage,
   type GoalRisk,
 } from "@/lib/alerts";
 import { orgTabHref, type OrgTabId } from "@/lib/org/orgTabs";
@@ -65,32 +64,33 @@ function extraAlertTabUrl(ctx: ExtraAlertContext, tab: OrgTabId): string | undef
 }
 
 /**
- * Claim → dispatch → release-on-failure, the exact discipline the digest uses. Returns true only when a
- * message was actually delivered. Never throws.
+ * Claim → dispatch → release-on-failure → record, the exact discipline the digest uses, through the
+ * one alert door (src/lib/alert-door.ts). The released claim deliberately forgets a failed window so
+ * next week retries; the history row REMEMBERS the failure — that split is the whole reason AlertEvent
+ * exists as its own table. Returns true only when a message was actually delivered. Throws only when
+ * the window claim itself could not be taken, into `dispatchExtraAlerts`' per-alert catch.
  */
 async function claimAndDispatch(
   action: string,
   ctx: ExtraAlertContext,
-  build: () => { text: string; blocks: unknown[] },
+  build: () => AlertMessage,
   meta: Record<string, unknown>,
   record: { kind: AlertEventKind; severity: "warning" | "critical"; title: string },
 ): Promise<boolean> {
-  const claim = await claimOrgAuditOnce(action, ctx.org, ctx.windowStart, meta);
-  if (!claim.claimed) return false;
-  const message = build();
-  const ok = await dispatchAlert(message, { webhookUrl: ctx.webhookUrl, org: ctx.org });
-  if (!ok && claim.id) await releaseAuditClaim(claim.id).catch(() => {});
-  // History row (in-app drawer). The released claim above deliberately forgets a failed window so
-  // next week retries; the history row REMEMBERS the failure — that split is the whole reason
-  // AlertEvent exists as its own table.
-  await recordAlertEvent(ctx.org, {
+  const sent = await deliverAlert({
+    org: ctx.org,
+    // The caller already read this org's sink (a failed read never reaches here: the digest route
+    // counts it as an error and skips the org).
+    sink: { ok: true, value: ctx.webhookUrl },
     ...record,
-    body: message.text,
-    delivered: ok,
-    sinkKind: sinkKindForOrg(ctx.webhookUrl),
-    suppressedReason: ok ? null : "dispatch-failed",
+    claim: { window: { action, since: ctx.windowStart, meta } },
+    onReleaseError: () => {},
+    build,
   });
-  return ok;
+  // A claim that could not be taken is an error for this alert (reported by the caller's catch), not
+  // a window some other run already owns.
+  if (sent.claimError) throw new Error(sent.claimError);
+  return sent.delivered;
 }
 
 /** Goals the plan layer already marks as behind — the alert's whole trigger condition. */
