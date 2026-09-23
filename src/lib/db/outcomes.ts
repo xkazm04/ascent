@@ -29,6 +29,7 @@ import { recordAudit } from "@/lib/db/scans-audit";
 import { resolveOrgId } from "@/lib/db/scans-shared";
 import { mapPool } from "@/lib/pool";
 import { PAIRING_MAX_DISTANCE_DAYS } from "@/lib/org/skill-outcomes";
+import { sameRuler } from "@/lib/maturity/attribution";
 import type { OutcomeSample } from "@/lib/outcomes/aggregate";
 
 /** Which loop measured this outcome. `identityKey` means something different under each. */
@@ -294,9 +295,11 @@ function measurablePair(
   after: ScanBookend | null,
 ): { overallDelta: number; rubricVersion: string; engineProvider: string; gapDays: number; withinBound: boolean } | null {
   if (!before || !after) return null;
-  // An absent rubricVersion is UNKNOWN, never "the same" — a legacy row cannot be paired.
+  // An absent rubricVersion is UNKNOWN, never "the same": a legacy row cannot be paired. That is this
+  // lane's STRICTER policy (the loop's attribution lets unknown through), so it is spelled out here
+  // rather than inherited: only a `true` from the shared predicate pairs.
   if (!before.rubricVersion || !after.rubricVersion) return null;
-  if (before.rubricVersion !== after.rubricVersion) return null;
+  if (sameRuler(before.rubricVersion, after.rubricVersion) !== true) return null;
   if (!before.engineProvider || before.engineProvider !== after.engineProvider) return null;
   const gapDays = Math.floor(Math.abs(after.scannedAt.getTime() - before.scannedAt.getTime()) / DAY_MS);
   return {

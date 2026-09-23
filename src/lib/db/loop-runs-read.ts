@@ -244,8 +244,9 @@ export async function listLoopRuns(
           // The engine columns ride along with the score: the history strip's lift is the same claim
           // the outcome ledger makes, so it answers to the same attribution rule. Without them this
           // read would fold a mock/real pair — or a run of pure model wobble — into a green number
-          // the ledger beside it refuses to print.
-          select: { id: true, overallScore: true, engineProvider: true, engineDegraded: true },
+          // the ledger beside it refuses to print. `rubricVersion` rides for the same reason: a lane
+          // whose two scans straddle a rubric bump measured the bump, not the lane's work.
+          select: { id: true, overallScore: true, engineProvider: true, engineDegraded: true, rubricVersion: true },
         })
       : [];
     const score = new Map(scans.map((s) => [s.id, s]));

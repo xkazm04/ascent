@@ -84,6 +84,8 @@ export type InProgressDecision =
         | "no-movement"
         | "within-noise"
         | "mock-scan"
+        /** The two scans were scored under different rubrics: the movement is the rubric bump. */
+        | "rubric-changed"
         /** A CRAFT rung nobody claimed. See the craft rule in `decideInProgress`. */
         | "craft-unclaimed";
     };
@@ -126,7 +128,9 @@ export interface MovementEngines {
  *   • a pair with a MOCK end is two different rulers — a follow-up must never close on it, however
  *     far the number travelled;
  *   • a real pair whose movement is inside `SCORE_NOISE_BAND` is a re-run of the same measurement,
- *     which is exactly the evidence the old `after > before` test accepted as repair.
+ *     which is exactly the evidence the old `after > before` test accepted as repair;
+ *   • a pair scored under two different rubrics measured the rubric bump (`rubric-changed`). An end
+ *     that does not record its rubric refuses nothing.
  * Omitting `engines` keeps the pre-attribution behaviour: a caller with no provenance in hand gets
  * the strict-movement rule, never a verdict invented from absent data.
  */
@@ -160,6 +164,12 @@ export function decideInProgress(
   if (movement) {
     if (engines) {
       const verdict = attributeDelta(movement.after - movement.before, engines.before, engines.after);
+      // A pair scored under two different rubrics measured the rubric bump, not the repository. This
+      // is the one `unmeasured` verdict reachable here (both ends and a delta are in hand, and no base
+      // is passed), and it must never fall through to `done` below.
+      if (verdict.kind === "unmeasured") {
+        return { kind: "keep", reason: verdict.reason === "rubric" ? "rubric-changed" : "no-movement" };
+      }
       if (verdict.kind === "mock-scan") return { kind: "keep", reason: "mock-scan" };
       // A real pair inside the band, or moving the wrong way, is not repair. `no-movement` stays the
       // reason for a flat-or-down dimension so the existing ledger wording is unchanged for the case
@@ -167,9 +177,8 @@ export function decideInProgress(
       if (verdict.kind === "within-noise") {
         return { kind: "keep", reason: verdict.delta > 0 ? "within-noise" : "no-movement" };
       }
-      // `attributable` is the only kind left that carries a delta — `unmeasured` cannot be reached
-      // here (this branch already established both a movement and two engines), but the narrowing is
-      // written explicitly rather than assumed.
+      // `attributable` and `undelivered` are the kinds left; `attributeDelta` never returns the latter,
+      // and the narrowing is written explicitly rather than assumed.
       if (verdict.kind === "attributable" && verdict.delta < 0) return { kind: "keep", reason: "no-movement" };
     } else if (movement.after <= movement.before) {
       return { kind: "keep", reason: "no-movement" };
@@ -180,7 +189,12 @@ export function decideInProgress(
 
 /** The event note for a row a rescan KEPT open despite a signal that it might be done, so the ledger
  *  explains why a claim did not close it. Empty for a plain restatement (nothing to explain). */
-export function keepNote(d: InProgressDecision, scanRef: string, movement?: DimMovement | null): string {
+export function keepNote(
+  d: InProgressDecision,
+  scanRef: string,
+  movement?: DimMovement | null,
+  engines?: MovementEngines | null,
+): string {
   if (d.kind !== "keep") return "";
   if (d.reason === "claimed-but-restated") {
     return `Claimed resolved by commit trailer (${FOLLOWUP_TRAILER}), but scan ${scanRef} still raises it — kept in progress`;
@@ -195,6 +209,12 @@ export function keepNote(d: InProgressDecision, scanRef: string, movement?: DimM
   }
   if (d.reason === "craft-unclaimed") {
     return `Scan ${scanRef} no longer raises this craft rung, but no commit claimed it (${FOLLOWUP_TRAILER}) — a craft entry is re-derived every scan, so its absence is not evidence it was built; kept in progress`;
+  }
+  if (d.reason === "rubric-changed") {
+    const from = engines?.before.rubricVersion ?? "an earlier rubric";
+    const to = engines?.after.rubricVersion ?? "a later one";
+    const m = movement ? ` (${movement.before} → ${movement.after})` : "";
+    return `No longer raised by scan ${scanRef}, but the previous scan was scored under rubric ${from} and this one under ${to}: the movement${m} measures the rubric change, not the repository, so it cannot close this row. Kept in progress until two scans under one rubric measure it`;
   }
   if (d.reason === "mock-scan") {
     return `No longer raised by scan ${scanRef}, but one end of the comparison came from the deterministic mock floor — the two scans are not on the same ruler, so no movement between them can close this row`;

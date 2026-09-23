@@ -353,6 +353,9 @@ export async function persistScanReport(
         // row however far the number travelled (src/lib/maturity/attribution.ts).
         engineProvider: true,
         engineDegraded: true,
+        // ...and its RUBRIC. A movement measured across a rubric bump is the ruler moving: it must not
+        // close a claimed row either (attribution.ts sameRuler).
+        rubricVersion: true,
       },
     });
     const prevRecs = previous?.recommendations ?? [];
@@ -368,8 +371,9 @@ export async function persistScanReport(
     // than letting it judge from a fabricated end.
     const movementEngines: MovementEngines | null = previous
       ? {
-          before: { engineProvider: previous.engineProvider, engineDegraded: previous.engineDegraded },
-          after: { engineProvider: report.engine.provider, engineDegraded: report.engine.degraded },
+          before: { engineProvider: previous.engineProvider, engineDegraded: previous.engineDegraded, rubricVersion: previous.rubricVersion },
+          // The rubric THIS row is stamped with below: the one active at persist time.
+          after: { engineProvider: report.engine.provider, engineDegraded: report.engine.degraded, rubricVersion: SCORING_RUBRIC_VERSION },
         }
       : null;
     const carryMatch = matchRecommendations(
@@ -416,12 +420,12 @@ export async function persistScanReport(
         carryMatch.forEach((m, j) => {
           if (m === i) carryMatch[j] = null;
         });
-      } else if (decision.reason === "no-movement" || decision.reason === "craft-unclaimed") {
-        // Both are UNPAIRED keeps: the new assessment did not restate the row, so nothing in the new
+      } else if (decision.reason === "no-movement" || decision.reason === "craft-unclaimed" || decision.reason === "rubric-changed") {
+        // All three are UNPAIRED keeps: the new assessment did not restate the row, so nothing in the new
         // roadmap matched it and it would vanish from the ledger without an explicit carry-forward.
-        keptRows.push({ row: r, note: keepNote(decision, scanRef, movement), paired: false });
+        keptRows.push({ row: r, note: keepNote(decision, scanRef, movement, movementEngines), paired: false });
       } else {
-        const note = keepNote(decision, scanRef, movement);
+        const note = keepNote(decision, scanRef, movement, movementEngines);
         if (note) keptRows.push({ row: r, note, paired: true });
         // Restated (kept): keep the pairing ONLY if it is a title-tier match. matchRecommendations does
         // not report the tier, so re-check the specific pair — a tier-3 pairing joins titles that

@@ -28,6 +28,7 @@ import { deliverAlert, readAlertSink } from "@/lib/alert-door";
 import { getAuditLog, getOrgAlertThresholds, recordAudit, reportPermalink } from "@/lib/db";
 import { publicBaseUrl } from "@/lib/site";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
+import { sameRuler } from "@/lib/maturity/attribution";
 // MOONSHOT #1 — the control ledger is the SOURCE for the control push; `ScanDiff` gains no
 // governance field, because a flip observed by a probe between two scans would never appear in one.
 import { listObservationsSince } from "@/lib/db/control-observations";
@@ -123,11 +124,13 @@ export async function checkAndAlertRegression(
   // lane already keys every aggregate by rubricVersion for exactly this reason (lib/outcomes/aggregate.ts);
   // the alert lane must be as strict. A persisted `prev` carries its rubric (types.ts: populated on a
   // DB-reconstructed report); a live `fresh` may omit it and IS the current rubric. A legacy `prev` row
-  // with no recorded rubric is UNKNOWN, not "changed" — it takes the ordinary path, never a silent skip.
+  // with no recorded rubric is UNKNOWN, not "changed" — it takes the ordinary path, never a silent skip:
+  // `sameRuler` answers null for it, and only a provable `false` skips. The predicate is the loop's
+  // own (maturity/attribution.ts), so the alert lane and the loop cannot disagree about one pair.
   // Registry: conformance-checking/edition-stratified-conformance.
   const prevRubric = prev.engine?.rubricVersion;
   const freshRubric = fresh.engine?.rubricVersion ?? SCORING_RUBRIC_VERSION;
-  if (prevRubric && prevRubric !== freshRubric) {
+  if (sameRuler(prevRubric, freshRubric) === false) {
     return { regressed: false, verdict: null, dispatched: false, rulerChanged: true };
   }
   try {

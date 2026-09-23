@@ -26,6 +26,7 @@ import type { PlatformSignalRecord, ScoreIntegrity } from "@/lib/types";
 import { SCORE_BLEND } from "@/lib/maturity/model";
 import { PLATFORM_FOLD_DIMS, securityObservability } from "@/lib/analyze/platform-carry";
 import { blendWeightLabel, blendWeightPercent } from "@/lib/scoring/provenance";
+import { SCORE_NOISE_BAND } from "@/lib/maturity/noise";
 
 /** The engine name a degraded or keyless scan carries. Mirrors MockProvider.name. */
 export const MOCK_ENGINE = "mock";
@@ -33,7 +34,8 @@ export const MOCK_ENGINE = "mock";
 /**
  * How far the overall score can move between two scans of the SAME commit before the movement means
  * anything. ±2 points, from the live UAT measurement above: the model's realized contribution to the
- * headline was that size, so anything inside it is within one re-run of itself.
+ * headline was that size, so anything inside it is within one re-run of itself. Declared ONCE, in
+ * maturity/noise.ts, and re-exported here so this module's callers keep their import.
  *
  * A caveat worth keeping in view when this number is next revisited: the measurement is of the
  * OVERALL score, and the same band is applied below to a single dimension's score, where the model's
@@ -41,15 +43,47 @@ export const MOCK_ENGINE = "mock";
  * therefore CONSERVATIVE — it will accept some movement that is still model wobble. It is not
  * tightened speculatively: the honest fix is a per-dimension measurement, not a guessed constant.
  */
-export const SCORE_NOISE_BAND = 2;
+export { SCORE_NOISE_BAND };
 
 /** The provenance an end of a comparison has to carry to be judged. `ComparableScan` satisfies it
- *  structurally, and so does a raw `{ engineProvider, engineDegraded }` row select. */
+ *  structurally, and so does a raw `{ engineProvider, engineDegraded, rubricVersion }` row select. */
 export interface EngineEnd {
   engineProvider: string;
   /** The mock floor FIRED: a model was requested and never answered. Undefined = unknown (a row
    *  written before the column), which is NOT the same as false. */
   engineDegraded?: boolean | null;
+  /** The scoring rubric this end was scored under (`SCORING_RUBRIC_VERSION` at persist time).
+   *  Undefined or null = unknown (a row written before the column), which never refuses a pair. */
+  rubricVersion?: string | null;
+}
+
+// ── the sixth way a number moves: the ruler ─────────────────────────────────────────────────────
+//
+// A rubric bump re-scores every repository. r7 and r13 moved D2/D3/D4 up and r18 moved D1 down on
+// repositories nobody touched, so the first scan after a bump, diffed against the last one before
+// it, measures the bump. The loop's before-scan is the last persisted one, which makes a
+// cross-rubric pair an ORDINARY pair here, not an edge case. The alert lane, the outcomes lane and
+// the skill-outcome strip each used to hand-roll this check; they now all ask `sameRuler`, and each
+// keeps its own policy for the unknown case explicitly at the call site.
+
+/**
+ * Rubric versions declared score-comparable with each other. **Deliberately empty**: declaring
+ * "r6 is r7" requires evidence that the re-weighting did not move scores, and nobody has produced it.
+ * An unjustified entry here would re-introduce exactly the silent error above under a legitimizing
+ * label, so a version is comparable only with itself until an equivalence is earned.
+ */
+export const COMPARABLE_RUBRIC_GROUPS: readonly (readonly string[])[] = [];
+
+/**
+ * Were the two ends scored under the same ruler? `true` = the same rubric (or two a group declares
+ * comparable), `false` = provably different, `null` = at least one end does not record its rubric.
+ * The three states are not two for the same reason `BaseRelation` has three: absent data is not
+ * evidence of a difference, and what a caller does with `null` is its own, stated policy.
+ */
+export function sameRuler(before: string | null | undefined, after: string | null | undefined): boolean | null {
+  if (!before || !after) return null;
+  if (before === after) return true;
+  return COMPARABLE_RUBRIC_GROUPS.some((g) => g.includes(before) && g.includes(after));
 }
 
 /**
@@ -85,14 +119,16 @@ export function isRealEngine(end: EngineEnd | null | undefined): boolean {
  */
 export type BaseRelation = "shared" | "diverged" | "unknown";
 
-/** Why a pair could not be measured. Absent on the ordinary missing-end case, which needs no word. */
-export type UnmeasuredReason = "base";
+/** Why a pair could not be measured. Absent on the ordinary missing-end case, which needs no word.
+ *  `base`: the two ends were taken on divergent trees. `rubric`: they were scored by different rubrics. */
+export type UnmeasuredReason = "base" | "rubric";
 
 export type Attribution =
   /** The pair is real on both ends and the movement clears the band. `delta` is signed. */
   | { kind: "attributable"; delta: number }
   /** One or both ends is missing — a first-ever scan, or a lane that never rescanned. `reason: "base"`
-   *  is the other way a pair is unmeasurable: both ends exist and were taken on divergent bases. */
+   *  and `reason: "rubric"` are the other ways a pair is unmeasurable: both ends exist, but were taken
+   *  on divergent bases or scored under different rubrics. */
   | { kind: "unmeasured"; reason?: UnmeasuredReason }
   /** At least one end came from the mock floor, so the two ends are not on the same ruler. */
   | { kind: "mock-scan"; delta: number; degraded: boolean }
@@ -118,6 +154,9 @@ export function attributeScores(
   // THE BASE CHECK COMES FIRST, and for the same reason the engine check precedes the band: a delta
   // between two divergent trees is not a small delta or a mock delta, it is not a delta at all.
   if (base === "diverged") return { kind: "unmeasured", reason: "base" };
+  // THE RULER CHECK COMES NEXT, and before the engine check: a delta between two rubrics is not a mock
+  // delta or a small delta, it is the rubric bump. Unknown on either end refuses nothing.
+  if (sameRuler(before.rubricVersion, after.rubricVersion) === false) return { kind: "unmeasured", reason: "rubric" };
   const delta = after.overallScore - before.overallScore;
   if (!isRealEngine(before) || !isRealEngine(after)) {
     return { kind: "mock-scan", delta, degraded: before.engineDegraded === true || after.engineDegraded === true };
@@ -171,6 +210,7 @@ export function attributeDelta(
 ): Attribution {
   if (delta == null || !before || !after) return { kind: "unmeasured" };
   if (base === "diverged") return { kind: "unmeasured", reason: "base" };
+  if (sameRuler(before.rubricVersion, after.rubricVersion) === false) return { kind: "unmeasured", reason: "rubric" };
   if (!isRealEngine(before) || !isRealEngine(after)) {
     return { kind: "mock-scan", delta, degraded: before.engineDegraded === true || after.engineDegraded === true };
   }
@@ -277,9 +317,9 @@ export function attributionLabel(a: Attribution): string {
     case "attributable":
       return "";
     case "unmeasured":
-      return a.reason === "base"
-        ? "not comparable: the two scans were taken on different bases"
-        : "not measured";
+      if (a.reason === "base") return "not comparable: the two scans were taken on different bases";
+      if (a.reason === "rubric") return "not comparable: the two scans were scored under different rubrics";
+      return "not measured";
     case "mock-scan":
       return a.degraded
         ? "not attributable: the model failed and this scan fell to the deterministic floor"
@@ -356,7 +396,8 @@ export function attributionChip(a: Attribution): string {
     case "attributable":
       return "";
     case "unmeasured":
-      return a.reason === "base" ? "different bases" : "not measured";
+      if (a.reason === "base") return "different bases";
+      return a.reason === "rubric" ? "different rubrics" : "not measured";
     case "mock-scan":
       return a.degraded ? "mock (degraded)" : "mock scan";
     case "within-noise":

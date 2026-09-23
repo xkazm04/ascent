@@ -15,7 +15,9 @@
 
 // Dependency-free on purpose: this module is imported by client components, so it must never pull a
 // runtime `@/lib/db` symbol into the browser bundle. Its inputs are structural types and every read
-// lives in skill-outcomes-load.ts.
+// lives in skill-outcomes-load.ts. Its one runtime import is the client-safe rubric predicate.
+
+import { sameRuler } from "@/lib/maturity/attribution";
 
 /**
  * `measured` = both sides exist AND both were produced by the same instrument. Everything else is an
@@ -114,18 +116,9 @@ export function outcomeStatusLabel(status: OutcomeStatus): string {
 // noise, but treating it as a mismatch would void nearly every pair for a signal the rubric version
 // already dominates; provider is the coarse cut that separates mock from live scoring.
 
-/**
- * Rubric versions declared score-comparable with each other. **Deliberately empty**: declaring
- * "r6 ≈ r7" requires evidence that the re-weighting did not move scores, and nobody has produced it.
- * An unjustified entry here would re-introduce exactly the silent error above under a legitimizing
- * label, so a version is comparable only with itself until an equivalence is earned.
- */
-export const COMPARABLE_RUBRIC_GROUPS: readonly (readonly string[])[] = [];
-
-function rubricsComparable(a: string, b: string): boolean {
-  if (a === b) return true;
-  return COMPARABLE_RUBRIC_GROUPS.some((g) => g.includes(a) && g.includes(b));
-}
+// Which rubric versions count as one ruler (`COMPARABLE_RUBRIC_GROUPS`, deliberately empty) is decided
+// in ONE place, maturity/attribution.ts `sameRuler`, shared with the loop and the alert lane. This
+// strip keeps its stricter unknown policy explicitly below: a silent side is `null`, never "same".
 
 /** `true` = same instrument, `false` = provably different, `null` = at least one side is silent. */
 function sameInstrument(before: OutcomeScan, after: OutcomeScan): boolean | null {
@@ -134,7 +127,7 @@ function sameInstrument(before: OutcomeScan, after: OutcomeScan): boolean | null
   const bp = before.engineProvider;
   const ap = after.engineProvider;
   if (!br || !ar || !bp || !ap) return null;
-  return rubricsComparable(br, ar) && bp === ap;
+  return sameRuler(br, ar) === true && bp === ap;
 }
 
 /**

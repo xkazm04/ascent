@@ -446,7 +446,7 @@ export { projectScore, projectDimensionClose, projectedGain, projectSandbox, che
  *  carries no recommendation statuses (those are tracked only once persisted), so the
  *  rec-status side of the diff is left empty — score, level, posture, gap, and signal
  *  movement are all derived from the report itself. */
-function reportToComparable(report: ScanReport): ComparableScan {
+export function reportToComparable(report: ScanReport): ComparableScan {
   return {
     id: report.repo.headSha ?? report.scannedAt,
     scannedAt: report.scannedAt,
@@ -464,6 +464,9 @@ function reportToComparable(report: ScanReport): ComparableScan {
     engineProvider: report.engine.provider,
     engineModel: report.engine.model,
     ...(report.engine.degraded === undefined ? {} : { engineDegraded: report.engine.degraded }),
+    // Copied as-is, never defaulted: a report without a stamp may be a reconstructed legacy row, and
+    // inventing the current rubric for it would manufacture a ruler the scan never recorded.
+    ...(report.engine.rubricVersion ? { rubricVersion: report.engine.rubricVersion } : {}),
     ...(report.scoreIntegrity ? { scoreIntegrity: report.scoreIntegrity } : {}),
     headSha: report.repo.headSha ?? null,
     dimensions: report.dimensions.map((d) => ({

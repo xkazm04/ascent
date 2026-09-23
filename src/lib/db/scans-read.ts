@@ -536,6 +536,9 @@ export interface ComparableScan {
    *  is the deterministic floor rather than a chosen engine. Undefined on a row written before the
    *  column — UNKNOWN, which the attribution rule must not read as "not degraded". */
   engineDegraded?: boolean;
+  /** The scoring rubric this scan was scored under. Undefined on a row written before the column:
+   *  UNKNOWN, which the attribution rule never reads as a rubric change. */
+  rubricVersion?: string;
   /** The levers that can move a headline on an UNCHANGED commit (see ScoreIntegrity). Undefined on a
    *  row written before the column, and on any scan that never recorded one. */
   scoreIntegrity?: ScoreIntegrity;
@@ -583,6 +586,9 @@ async function loadComparableScan(
       // of a bracketed pair, and whether the number it carries was moved by something other than the
       // repository. A comparison that cannot see them cannot tell a lift from an engine swap.
       engineDegraded: true,
+      // And the RULER: a pair scored under two different rubrics measured the rubric bump, not the
+      // repository, and the attribution rule refuses it (sameRuler).
+      rubricVersion: true,
       scoreIntegrityJson: true,
       // The third provenance column: whether this end's D2/D3/D4 were observed, carried from an
       // earlier GitHub scan, or not measurable at all. A pair whose two ends folded the platform
@@ -612,6 +618,7 @@ async function loadComparableScan(
     // unknown on both counts, and defaulting would manufacture the exact certainty the attribution
     // rule is there to withhold.
     ...(scan.engineDegraded == null ? {} : { engineDegraded: scan.engineDegraded }),
+    ...(scan.rubricVersion ? { rubricVersion: scan.rubricVersion } : {}),
     ...(integrity ? { scoreIntegrity: integrity } : {}),
     ...(() => {
       const ps = parsePlatformSignals(scan.platformSignalsJson);
