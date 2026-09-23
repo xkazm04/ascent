@@ -211,3 +211,21 @@ a parallel run has already swept an in-flight version bump into its own commit h
   Every such note names the moment a second reader of the same rule could have gone stale, and two of
   this round's seven fixes came from checking exactly that. Grep `used to|no longer|now appends|this
   used to be` and, for each hit, find every OTHER site that reads the rule it describes.
+
+- **2026-09-23 (first `--challenge` run here, 12 cards / 3 waves, all landed) - four things the next
+  challenge brief must carry, each measured by this run.**
+  1. **Four builders' full suites at once starve each other past the agent watchdog.** The suite is
+     5.6 min alone; two wave-1 builders ran it in the foreground, went 600 s without output and were
+     killed mid-build (uncommitted work survived; SendMessage resumed both). Say "full suite with
+     `run_in_background: true`" in the brief from the start. Under that load `lane-deps-spawn.test.ts`
+     also fails its `afterAll` temp-dir `rmSync` with EPERM; it passes alone, and is not a regression.
+  2. **`git commit -- <paths>` refuses an untracked path**, so every builder that created a file had
+     to improvise (`git add -N -- <exact path>` or an exact-path add). Put the `-N` form in the brief.
+  3. **The em-dash rule lives in no gate** (`scripts/check-em-dashes.mjs` is a reporter), and wave 2
+     put ~12 back into button labels, error strings and doc prose; the coordinator fix cost three
+     cards their flawless mark. Put the rule and the reporter in the builder brief.
+  4. **This filesystem is case-insensitive:** a pure module `promotionPlan.ts` beside
+     `PromotionPlan.tsx` made `./PromotionPlan` resolve to the module and the component import
+     undefined. Name a logic module distinctly (`*Model.ts`), never by case alone.
+  Also: `npx prisma validate` exits 1 here only because `DATABASE_URL` is unset in the shell; set a
+  placeholder URL to validate the schema.
