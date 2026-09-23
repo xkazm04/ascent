@@ -4,6 +4,7 @@
 // surface's spine and divergent copies of it would have been the real bug.
 
 import type { MigrationStep, RegistryArtifact, RegistryView } from "@/lib/org/registry-view";
+import { migratedTotals } from "./registryVerdict";
 
 export type StepState = "done" | "active" | "blocked" | "pending" | "skipped";
 
@@ -61,40 +62,12 @@ export const STEP_TONE: Record<StepState, { text: string; border: string; dot: s
   skipped: { text: "text-slate-500", border: "border-divider", dot: "bg-slate-700" },
 };
 
-export function migratedTotals(v: RegistryView): { moved: number; total: number } {
-  return ARTIFACTS.reduce(
-    (acc, a) => ({ moved: acc.moved + v.migration[a].moved, total: acc.total + v.migration[a].total }),
-    { moved: 0, total: 0 },
-  );
-}
-
 export function inRegistryTotal(v: RegistryView): number {
   return v.counts.skills.registry + v.counts.practices.registry + v.counts.memory.registry;
 }
 
-export function hostedOnlyTotal(v: RegistryView): number {
-  return v.counts.skills.hostedOnly + v.counts.practices.hostedOnly + v.counts.memory.hostedOnly;
-}
-
-/** The one-line honest summary the masthead/verdict slot shows in every variant. */
-export function registryVerdict(v: RegistryView): string {
-  if (v.status === "unmapped") {
-    const n = hostedOnlyTotal(v);
-    return n === 0
-      ? "Hosted only — nothing in a registry yet, and nothing to move."
-      : `Hosted only — ${n} artifact${n === 1 ? "" : "s"} live in ascent's tables, nothing in a registry yet.`;
-  }
-  if (v.status === "scaffolding") return "Scaffolding the registry layout.";
-  if (v.status === "scaffold_pr_open") return "Scaffold PR is open — a CODEOWNER merge turns it into your registry.";
-  if (v.status === "error") return v.error?.message ?? "The last index attempt failed.";
-  if (v.registry?.mode === "hosted_mirror") return "Hosted mirror — ascent stays the writer; the repo is a read-only copy.";
-  const { moved, total } = migratedTotals(v);
-  const pointing = v.fleet.reposPointing;
-  if (typeof pointing !== "number") return `${moved}/${total} artifacts in the registry · fleet pointing not measured yet`;
-  const behind = v.fleet.adoption.stale + v.fleet.adoption.diverged;
-  const tail = behind > 0 ? ` · ${behind} repo${behind === 1 ? "" : "s"} behind the catalog` : " · every pointing repo in sync";
-  return `${moved}/${total} artifacts in the registry · ${pointing}/${v.fleet.reposTotal} repos pointing${tail}`;
-}
+// The verdict line and its two totals moved to ./registryVerdict (200-LOC cap); re-exported so callers are unchanged.
+export { hostedOnlyTotal, migratedTotals, registryVerdict } from "./registryVerdict";
 
 /**
  * The six onboarding steps, resolved against the view. Resumable by construction: each step reads its
@@ -168,7 +141,7 @@ export function registrySteps(v: RegistryView): RegistryStep[] {
       "Point the fleet",
       "Each repo names its registry in .ai/manifest.yaml — or a developer just runs the sync command.",
       pointing && typeof pointingN === "number" && pointingN >= v.fleet.reposTotal ? "done" : pointing ? "active" : indexed ? "active" : "pending",
-      typeof pointingN === "number" ? `${pointingN}/${v.fleet.reposTotal} repos carry the pointer` : "Not measured yet — the adoption pass has not run",
+      typeof pointingN === "number" ? `${pointingN}/${v.fleet.reposTotal} repos carry the pointer` : "Not measured yet: no sweep has read the fleet's pointers",
     ),
     step(
       "verify",

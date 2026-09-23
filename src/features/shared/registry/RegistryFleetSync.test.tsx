@@ -45,6 +45,46 @@ describe("RegistryFleetSync — pointing/synced before R5", () => {
     expect(meter(container, "Synced 30d")?.textContent).toMatch(/22\/27/);
   });
 
+  it("names each repo that does not point here, with the foreign remote or the exact line to paste", () => {
+    const { container } = render(
+      <RegistryFleetSync
+        slug="acme"
+        view={fleetView({
+          reposTotal: 5,
+          reposPointing: 1,
+          reposSynced30d: 1,
+          unswept: 2,
+          roster: [
+            { repoFullName: "acme/api", state: "elsewhere", remote: "other/registry" },
+            { repoFullName: "acme/cli", state: "no-manifest" },
+            { repoFullName: "acme/web", state: "pointing" },
+          ],
+          adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 },
+        })}
+      />,
+    );
+    expect(meter(container, "Pointing")?.getAttribute("data-state")).toBe("measured");
+    const api = container.querySelector('[data-roster-repo="acme/api"]')!;
+    expect(api.textContent).toContain("acme/api");
+    expect(api.textContent).toContain("points at other/registry");
+    const cli = container.querySelector('[data-roster-repo="acme/cli"]')!;
+    expect(cli.textContent).toContain("acme/cli");
+    expect(cli.querySelector("code[data-pointer-line]")?.textContent).toBe("registry.remote: github:acme/ai-registry");
+    expect(container.querySelector('[data-roster-repo="acme/web"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/—/);
+  });
+
+  it("measured pointing with no adoption does not promise a scan that hashes .claude/skills", () => {
+    const { container } = render(
+      <RegistryFleetSync
+        slug="acme"
+        view={fleetView({ reposTotal: 5, reposPointing: 3, reposSynced30d: 2, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 } })}
+      />,
+    );
+    expect(container.textContent).not.toContain("the next scan of each repo hashes its .claude/skills");
+    expect(container.textContent).toMatch(/not measured/i);
+  });
+
   it("a measured empty fleet is 0%, not a hatch — 0 means we looked", () => {
     const { container } = render(
       <RegistryFleetSync

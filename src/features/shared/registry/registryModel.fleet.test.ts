@@ -24,6 +24,14 @@ describe("registryVerdict — fleet pointing", () => {
   it("names the pointing fraction once a pass supplied it", () => {
     expect(registryVerdict(fixtureRegistryView("acme", "indexed")!)).toMatch(/27\/34 repos pointing/);
   });
+
+  it("measured pointing with all-zero adoption does not claim the pointing repos are in sync", () => {
+    const line = registryVerdict(
+      withFleet({ reposTotal: 5, reposPointing: 3, reposSynced30d: 2, adoption: { inSync: 0, stale: 0, diverged: 0, localOnly: 0 } }),
+    );
+    expect(line).toContain("3/5 repos pointing");
+    expect(line).not.toContain("every pointing repo in sync");
+  });
 });
 
 describe("registrySteps — point / verify", () => {
@@ -35,6 +43,15 @@ describe("registrySteps — point / verify", () => {
     expect(byId.verify!.detail).not.toMatch(/0 synced/);
     expect(byId.point!.state).toBe("active");
     expect(byId.verify!.state).toBe("active");
+  });
+
+  it("point is done when every repo carries the pointer, and names the fraction while it is not", () => {
+    const ZERO = { inSync: 0, stale: 0, diverged: 0, localOnly: 0 };
+    const all = Object.fromEntries(registrySteps(withFleet({ reposTotal: 4, reposPointing: 4, reposSynced30d: 4, adoption: ZERO })).map((s) => [s.id, s]));
+    expect(all.point!.state).toBe("done");
+    const half = Object.fromEntries(registrySteps(withFleet({ reposTotal: 4, reposPointing: 2, reposSynced30d: 1, adoption: ZERO })).map((s) => [s.id, s]));
+    expect(half.point!.state).toBe("active");
+    expect(half.point!.detail).toBe("2/4 repos carry the pointer");
   });
 
   it("keeps the pointing fraction when a pass supplied it", () => {

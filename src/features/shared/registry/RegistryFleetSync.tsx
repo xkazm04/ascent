@@ -3,8 +3,10 @@
 // Shared by all three directions. Server-safe (no hooks): the pointer-PR action lives in
 // RegistryActions and is composed alongside this.
 //
-// Pointing and 30d-sync are R5. Until that pass exists the loader omits the counts, and this
-// panel hatches the meters — unmeasured is not 0%. Reporting (usage-lane contributors) is real.
+// Pointing and 30d-sync come from the conformance sweep's header rows (each repo's manifest
+// `registry.remote`). Until a sweep ran the loader omits the counts, and this panel hatches the
+// meters: unmeasured is not 0%. Once measured, RegistryFleetRoster names every repo not pointing
+// here. Reporting (usage-lane contributors) is real. Adoption BY HASH is not measured by any pass.
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
@@ -14,6 +16,7 @@ import { MatrixHatchDefs, MatrixMark } from "@/components/org/viz/matrixMark";
 import { scoreHex } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { RegistryView } from "@/lib/org/registry-view";
+import { RegistryFleetRoster } from "./RegistryFleetRoster";
 
 const SYNC_STATES = [
   { key: "inSync", label: "in_sync", hint: "hash matches the catalog" },
@@ -46,7 +49,7 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
   // Reporting is a DIFFERENT population from pointing: an installation contributes to the registry's
   // usage lane whether or not its repo carries the pointer, so this is measured against the fleet
   // total and sits beside the other two meters rather than inside them. It is the only one of the
-  // three that is real today — pointing/synced hatch until the adoption pass (R5).
+  // three that needs no sweep; pointing/synced hatch until one has read the fleet's manifests.
   const reporting = view.telemetry.reposReporting;
   const reportPct = reposTotal === 0 ? 0 : Math.round((reporting / reposTotal) * 100);
 
@@ -98,10 +101,14 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
         />
       </div>
 
+      {pointingMeasured && view.fleet.roster ? (
+        <RegistryFleetRoster roster={view.fleet.roster} unswept={view.fleet.unswept} pointer={view.howTo.pointer} />
+      ) : null}
+
       {totalStates === 0 ? (
         <p className="type-body-sm text-slate-500">
-          No adoption measured yet — the next scan of each repo hashes its <code className="font-mono">.claude/skills</code> against
-          the catalog and fills this in.
+          Adoption by hash (in_sync, stale, diverged, local_only) is not measured: no pass compares each repo&apos;s skills
+          with the catalog yet.
         </p>
       ) : (
         <ul className="divide-y divide-divider rounded-xl border border-divider">
