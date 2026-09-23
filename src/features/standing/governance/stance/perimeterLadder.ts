@@ -9,7 +9,7 @@
 //
 // PURE — no React, no I/O. Server-safe.
 
-import type { LadderBand, LadderEdge, VizState } from "@/components/org/viz";
+import { ladderLegendStates, type LadderBand, type LadderEdge, type VizState } from "@/components/org/viz";
 import type { AutonomyTierId } from "@/lib/types";
 import type { RepoStanceCompliance } from "@/lib/org/stance";
 import { TIER_HEX, TIER_META } from "./stanceShared";
@@ -68,11 +68,7 @@ export function perimeterEdge(undeclaredTools: readonly { name: string }[]): Lad
   };
 }
 
-/** Only the states this ladder actually draws, in the vocabulary's own order. */
+/** Only the states this ladder actually draws, in the vocabulary's own order: the kit derives it. */
 export function perimeterStates(bands: readonly LadderBand[], edge: LadderEdge | null): VizState[] {
-  const present: VizState[] = [];
-  for (const s of ["measured", "declared", "not-judged", "missing"] as const) {
-    if (bands.some((b) => b.state === s) || (edge != null && (edge.state ?? "missing") === s)) present.push(s);
-  }
-  return present;
+  return ladderLegendStates(bands, edge);
 }

@@ -6,9 +6,9 @@
 // more — so `BandLadder` draws the nesting (docs/ORG-UX-REDESIGN.md §2.2) and the per-repo card keeps
 // the countersignature line, which is a per-repo fact and was never a fleet one.
 //
-// Pure: no React. Kit types are `import type`, so nothing client-side is pulled in.
+// Pure: no React, no hooks. The legend derivation is the kit's server-safe `ladderLegendStates`.
 
-import type { LadderBand, LadderEdge, VizState } from "@/components/org/viz";
+import { ladderLegendStates, type LadderBand, type LadderEdge, type VizState } from "@/components/org/viz";
 import { TIERS, TIER_META, tierHex, type AutonomyTier, type RepoAutonomy } from "./autonomyModel";
 
 /** A clearance resting on a deterministic placeholder scan was never graded by a model. */
@@ -47,9 +47,7 @@ export function clearanceEdge(repos: RepoAutonomy[]): LadderEdge | null {
   return { label: "issued on a placeholder scan", count, state: "not-judged" };
 }
 
-/** The states these bands (plus the edge) actually use, in kit order — the `Legend` contract. */
+/** The states these bands (plus the edge) actually paint, in kit order: the kit derives it. */
 export function clearanceStates(bands: LadderBand[], edge: LadderEdge | null): VizState[] {
-  const present = new Set<VizState>(bands.map((b) => b.state));
-  if (edge?.state) present.add(edge.state);
-  return (["measured", "not-judged"] as VizState[]).filter((s) => present.has(s));
+  return ladderLegendStates(bands, edge);
 }

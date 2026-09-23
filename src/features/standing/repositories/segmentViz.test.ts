@@ -5,7 +5,7 @@
 // pinned reading the field it draws rather than inferring the void from `scannedCount`.
 
 import { describe, it, expect } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { matrixLegendStates, rendersValue } from "@/components/org/viz";
 import type { SegmentComparison, SegmentSummary } from "@/lib/db";
 import {
   SEGMENT_AXES,
@@ -13,7 +13,6 @@ import {
   headlinePairs,
   pairedStates,
   segmentMatrixRows,
-  segmentMatrixStates,
 } from "./segmentViz";
 
 const summary = (over: Partial<SegmentSummary> & { name: string }): SegmentSummary =>
@@ -72,9 +71,10 @@ describe("maturity matrix", () => {
     expect(rendersValue("not-judged")).toBe(false);
   });
 
-  it("lists only the states present", () => {
+  it("lists only the states present, through the kit's derivation (no module whitelist)", () => {
     const mixed = segmentMatrixRows([summary({ name: "a" }), unscanned("b")]);
-    expect(segmentMatrixStates(mixed)).toEqual(["measured", "not-judged"]);
+    expect(matrixLegendStates([...SEGMENT_AXES], mixed)).toEqual(["measured", "not-judged"]);
+    expect(matrixLegendStates([...SEGMENT_AXES], segmentMatrixRows([summary({ name: "a" })]))).toEqual(["measured"]);
   });
 });
 

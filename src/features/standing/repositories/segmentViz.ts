@@ -47,12 +47,6 @@ export function segmentMatrixRows(summaries: readonly SegmentSummary[]): MatrixR
   });
 }
 
-/** Only the states these rows contain, in kit order — the `Legend` contract. */
-export function segmentMatrixStates(rows: readonly MatrixRow[]): VizState[] {
-  const present = new Set<VizState>(rows.flatMap((r) => r.cells.map((c) => c.state)));
-  return (["measured", "not-judged"] as VizState[]).filter((s) => present.has(s));
-}
-
 function paired(id: string, label: string, a: number | null, b: number | null, delta: number | null): PairedRow {
   return { id, label, a, b, delta: a == null || b == null ? null : delta };
 }

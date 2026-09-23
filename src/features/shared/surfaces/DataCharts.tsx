@@ -6,7 +6,7 @@ import {
   Distribution,
   Legend,
   STATE_LABEL,
-  VIZ_STATES,
+  ladderLegendStates,
   type LadderBand,
   type VizState,
 } from "@/components/org/viz";
@@ -49,7 +49,7 @@ function DataVizStudy() {
   const values = STUDY[period];
   const latest = values.at(-1)!;
   const bands = levelBands(values);
-  const states = VIZ_STATES.filter((s) => bands.some((b) => b.state === s));
+  const states = ladderLegendStates(bands, null);
   return (
     <div className={styles.demo}>
       <div className={styles.demoToolbar}>

@@ -11,9 +11,9 @@
 // Server-safe: no hooks, no handlers.
 
 import { Kicker } from "@/components/ui";
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { Legend, MatrixGrid, WhyChip, matrixLegendStates } from "@/components/org/viz";
 import type { SegmentSummary } from "@/lib/db";
-import { SEGMENT_AXES, segmentMatrixRows, segmentMatrixStates } from "./segmentViz";
+import { SEGMENT_AXES, segmentMatrixRows } from "./segmentViz";
 
 const SENTINEL_HINT =
   "A segment with no scanned repository is hatched here rather than scored: its averages reduce to 0, which is a sentinel and not a measurement, so no number is printed for it at all.";
@@ -21,14 +21,15 @@ const SENTINEL_HINT =
 export function SegmentMaturityGrid({ summaries, className = "" }: { summaries: SegmentSummary[]; className?: string }) {
   const rows = segmentMatrixRows(summaries);
   if (rows.length === 0) return null;
+  const axes = [...SEGMENT_AXES];
   return (
     <div className={`rounded-2xl border border-divider bg-surface/40 p-4 ${className}`}>
       <div className="flex items-center justify-between gap-3">
         <Kicker tone="muted">segments on three axes</Kicker>
         <WhyChip hint={SENTINEL_HINT} label="why a segment can be hatched" align="end" />
       </div>
-      <MatrixGrid className="mt-2" axes={[...SEGMENT_AXES]} rows={rows} title="Segment maturity" />
-      <Legend states={segmentMatrixStates(rows)} className="mt-3" />
+      <MatrixGrid className="mt-2" axes={axes} rows={rows} title="Segment maturity" />
+      <Legend states={matrixLegendStates(axes, rows)} className="mt-3" />
     </div>
   );
 }

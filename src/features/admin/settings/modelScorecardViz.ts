@@ -88,12 +88,6 @@ export function scorecardRows(ranked: ModelScore[]): MatrixRow[] {
   return ranked.map(scorecardRow);
 }
 
-/** Only the states actually drawn — the `Legend` contract. */
-export function scorecardStates(rows: MatrixRow[]): VizState[] {
-  const present = new Set(rows.flatMap((r) => r.cells.map((c) => c.state)));
-  return (["measured", "not-judged"] as VizState[]).filter((s) => present.has(s));
-}
-
 /** "10 labeled repos · measured 2026-07-07" — window and sample, not meaning (§2.3). */
 export function scorecardScopeLine(scores: Pick<MatrixScores, "measuredAt" | "repos">): string {
   return `${scores.repos} labeled repos · measured ${scores.measuredAt.slice(0, 10)}`;

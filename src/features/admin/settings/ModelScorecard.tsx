@@ -11,7 +11,7 @@
 
 import { Kicker } from "@/components/ui";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { Legend, MatrixGrid, WhyChip, matrixLegendStates } from "@/components/org/viz";
 import {
   isAdapterArtifact,
   isMatrixStale,
@@ -26,7 +26,6 @@ import {
   SCORE_AXIS_HINT,
   scorecardRows,
   scorecardScopeLine,
-  scorecardStates,
   shortModel,
 } from "./modelScorecardViz";
 
@@ -45,6 +44,7 @@ export function ModelScorecard({ now }: { now?: number } = {}) {
   const rows = scorecardRows(ranked);
   const stale = isMatrixStale(MATRIX_SCORES, at);
   const ageDays = matrixAgeDays(MATRIX_SCORES, at);
+  const axes = [...SCORE_AXES];
 
   return (
     <Card>
@@ -52,13 +52,13 @@ export function ModelScorecard({ now }: { now?: number } = {}) {
 
       <div className="mt-4">
         <MatrixGrid
-          axes={[...SCORE_AXES]}
+          axes={axes}
           rows={rows}
           title="Judged quality, benchmark calibration and reliability, per model, out of 100"
         />
       </div>
 
-      <Legend states={scorecardStates(rows)} className="mt-3" />
+      <Legend states={matrixLegendStates(axes, rows)} className="mt-3" />
 
       <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
         {SCORE_AXES.map((axis) => (

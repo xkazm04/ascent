@@ -55,4 +55,9 @@ describe("clearanceStates", () => {
     const mixed = [repo("a", 1, "mock"), repo("b", 2)];
     expect(clearanceStates(clearanceBands(mixed), clearanceEdge(mixed))).toEqual(["measured", "not-judged"]);
   });
+
+  it("delegates to the kit: a declared band and a state-less edge are listed, as BandLadder paints them", () => {
+    const bands = [...clearanceBands([repo("a", 1)]), { id: "x", label: "X", state: "declared" as const }];
+    expect(clearanceStates(bands, { label: "unstated", count: 1 })).toEqual(["measured", "declared", "missing"]);
+  });
 });
