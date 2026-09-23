@@ -213,7 +213,35 @@ import type {
 // agreement 7/10 -> 8/10, within-1 10/10 -> 10/10, MAE 0.3 -> 0.2 (denoland/deno L4 -> L3, its label).
 // No weight, band, blend or guardband moved. Evidence and the saturated-rule decision:
 // docs/SCORING-VALIDITY.md section 4c.
-export const SCORING_RUBRIC_VERSION = "r18";
+// r19 (2026-09-23): NOTHING MOVED IN THIS COMMIT, AND THAT IS THE POINT. Five score-moving changes had
+// already landed under an unchanged token, because the only mechanical backstop hashed the rubric
+// DECLARATION and each of them lived where that hash cannot see. This entry argues with the entries
+// above it; it does not delete them.
+//   • 303bb0258 (2026-08-31) added D6 "Quality ratchet / debt ceiling enforced" (+15) and "Lint/type
+//     gate fails on warnings" (+5) in analyze/index.ts. r14 and r15 landed the same day and their
+//     entries above say no detector moved; that was true of THOSE commits and silent about this one.
+//     D6 rises by up to 20 on every repo with a ratchet script or a zero-warning gate.
+//   • 84226a65 (2026-09-16): a claim quote is verified against the text the model was SHOWN, so a
+//     commit subject quoted with the prompt's own "- " bullet now verifies (0/140 -> 140/140 in its
+//     measurement). D1/D4 claim points rise wherever the model copied the line as rendered.
+//   • be3780d3 (2026-09-17): a guidance file and its own projection or copy are no longer two agreeing
+//     documents. The 6-point D1 `commands_agree` award (detector and claim) is withheld for that pair.
+//   • 178a2818 (2026-09-19): the coverage figure gained the prompt window's own term. A repo whose
+//     fetched files overflow the window scores lower coverage, so effectiveBlend falls (0.51 -> 0.23 on
+//     a self-scan) and the model is told which files it did not see (WINDOW COVERAGE, a USER prompt
+//     block: a changed model input, the r13 class).
+//   • b8c9df08 (2026-09-18): on a truncated GitHub tree the high-signal exact names (CLAUDE.md,
+//     AGENTS.md, .ai/manifest.yaml, CODEOWNERS, SECURITY.md) are probed and fetched. The ingested file
+//     set changes, which is score-moving by the r17 precedent.
+// Scores computed between r18 and this bump are therefore not one instrument, and the bump re-derives
+// every cached score fleet-wide rather than leave r18 naming two. THE REMEDY FOR THE CLASS, not just
+// these five: rubric-fingerprint.test.ts now pins this token to a golden-fixture corpus driven through
+// the whole pipeline (see MECHANICAL BACKSTOPS above), so the next detector, fold, verifier, window or
+// engine change goes red in its own diff. b8c9df08's class (the network half of ingestion) is the one
+// that corpus still cannot reach, and it says so.
+// No weight, band, blend, guardband, threshold, lens or system-prompt text moved: EXPECTED_RUBRIC_HASH
+// in model.test.ts is unchanged.
+export const SCORING_RUBRIC_VERSION = "r19";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
