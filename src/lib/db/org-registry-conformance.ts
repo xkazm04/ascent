@@ -26,6 +26,9 @@ export interface RepoFoundation {
   domains: string[];
   scope: RepoScope;
   directions: RepoDirection[];
+  /** The manifest's `registry.remote`, normalized: null = not read (no manifest), "" = read, no
+   *  pointer. Optional so a caller from before the pointer existed stores "not read". */
+  registryRemote?: string | null;
 }
 
 export const EMPTY_FOUNDATION: RepoFoundation = {
@@ -71,6 +74,9 @@ export interface ConformanceMapRow {
   contextMapRevision: string | null;
   /** The `context-map.json` revision the sweep READ at the repo root; null when it could not. */
   repoContextMapRevision: string | null;
+  /** The manifest's `registry.remote` (owner/repo). null = not read, "" = the manifest names none.
+   *  Optional so fixtures written before the pointer existed stay valid; absent reads as null. */
+  registryRemote?: string | null;
   ingestedAt: string;
 }
 
@@ -142,6 +148,7 @@ const foundationData = (f: RepoFoundation) => ({
   hasManifest: f.hasManifest,
   scopeJson: JSON.stringify(f.scope),
   directionsJson: JSON.stringify(f.directions),
+  registryRemote: f.registryRemote ?? null,
 });
 
 /**
@@ -359,6 +366,7 @@ export async function listConformanceMaps(orgId: string): Promise<ConformanceMap
       renamedContexts: r.renamedContexts ?? 0,
       contextMapRevision: r.contextMapRevision ?? null,
       repoContextMapRevision: r.repoContextMapRevision ?? null,
+      registryRemote: r.registryRemote ?? null,
       ingestedAt: r.ingestedAt.toISOString(),
     }))
     .sort((a, b) => a.repoFullName.localeCompare(b.repoFullName));
