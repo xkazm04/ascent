@@ -24,12 +24,15 @@ import type {
  * editing a rubric knob means stale scores are served as current (the failure this constant prevents).
  * Keep it ONE short, monotonic token; never scatter copies — this is the only place it lives.
  *
- * MECHANICAL BACKSTOP: model.test.ts pins a sha256 of the rubric surface (weights+criteria, bands,
- * blend, guardband, posture threshold, lenses, and the assessment SYSTEM prompt) — any change there
- * fails the suite until the hash is re-pinned, putting the bump decision in the same diff.
- * DETECTOR POINT TABLES COUNT TOO: a calibration retune (docs/features/scanning/calibration.md step 3) moves signal
- * scores and therefore final scores — bump for those as well, even though they live in analyze/*
- * where the hash test can't see them.
+ * MECHANICAL BACKSTOPS, two of them. model.test.ts pins a sha256 of the rubric DECLARATION (weights+
+ * criteria, bands, blend, guardband, posture threshold, lenses, and the assessment SYSTEM prompt).
+ * rubric-fingerprint.test.ts pins what the declaration cannot reach: a golden-fixture corpus
+ * (rubric-corpus.ts) driven through the real pipeline — the detector point tables in analyze/*, the
+ * PR / governance / platform folds, the D9 battery, the USER prompt (file window, WINDOW COVERAGE),
+ * the claim verifier and the engine — hashed on its full explanation object and pinned to this
+ * version (PINNED_RUBRIC_FINGERPRINT). Either one going red puts the bump decision in the same diff.
+ * What remains genuinely out of reach is a live model's answer and the network half of ingestion
+ * (which files a forge returns for a tree); a change there still needs the bump judged by hand.
  */
 // r2 (2026-07-17): classifyArchetype now caps star-driven "org" escalation at "team" for repos with
 // ≤2 active human authors — the archetype lens (and therefore the weights) moved for viral solo repos.

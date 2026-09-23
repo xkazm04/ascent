@@ -123,6 +123,12 @@ not assumed.
    (e.g. test-count tiers, signal point values).
 4. Re-run. Repeat until within-1-level agreement is comfortably high and the distribution
    looks sane.
+5. Land the retune as a rubric version event. `src/lib/maturity/rubric-fingerprint.test.ts`
+   drives a small golden-fixture corpus (`src/lib/maturity/rubric-corpus.ts`) through the real
+   pipeline, so any change to a detector's points, a PR/governance/platform fold, the D9 battery,
+   the user prompt or the engine turns it red. Bump `SCORING_RUBRIC_VERSION` with a changelog
+   entry and re-pin `PINNED_RUBRIC_FINGERPRINT` (version and hash) in the same diff. Re-pinning
+   the hash alone is right only when the corpus itself changed.
 
 > Keep changes evidence-driven: change one thing, re-run, compare. The harness makes the
 > rubric a measurable artifact rather than an opinion.
