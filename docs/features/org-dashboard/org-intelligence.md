@@ -231,7 +231,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Admin | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
 | Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers: Claude Code (measured, OTel push) and Copilot (seats-only, admin pull); OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
 | Admin | Audit | `org/[slug]/audit` | `src/app/org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
-| Admin | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. |
+| Admin | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. **2026-09-23:** under the provider boundary matrix, a **Where each lane runs** card lists, per LLM lane (scans, Athena, board narrative, shared memory, lane summaries), the engine, model and whose account answers for this org, flags the two lanes a connected provider never carries, and adds an **If switched on** column for a saved-but-off provider. Owner-only like every card here; read-only. See [llm-providers](../scanning/llm-providers.md#settings-ui). |
 
 ### The Overview ledger (2026-08-17)
 
