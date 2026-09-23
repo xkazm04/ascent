@@ -34,6 +34,10 @@ vi.mock("@/lib/alerts", () => ({
   // rows use — plus the sink-kind + security-message helpers the glue now imports.
   resolveAlertWebhook: vi.fn((url?: string | null) => (url && url.trim() ? url : null)),
   emailSinkAddress: vi.fn(() => null),
+  // The door (src/lib/alert-door.ts) classifies the RESOLVED channel through sinkKindForOrg. Same
+  // no-global semantics as the two mocks above. The real resolver (env fallback included) is exercised
+  // in scan-alerts.sink-unreadable.test.ts.
+  sinkKindForOrg: vi.fn((url?: string | null) => (url && url.trim() ? (/^mailto:/i.test(url) ? "email" : "webhook") : null)),
   buildSecurityAlertMessage: vi.fn(() => ({ text: "🚨 security", blocks: [] })),
   DEFAULT_THRESHOLDS: { overallDrop: 5, dimensionDrop: 15 },
   // Low-credits helpers are unused by checkAndAlertRegression but the module imports them, so the
@@ -442,25 +446,36 @@ describe("checkAndAlertRegression — throw-safety (never fails the scan path)",
     expect(out.dispatched).toBe(true);
   });
 
-  it("does NOT throw when dispatchAlert rejects; resolves to dispatched:false", async () => {
+  it("does NOT throw when dispatchAlert rejects; the verdict stays real and the row says dispatch-failed", async () => {
     mockDetect.mockReturnValue(REGRESSED);
     mockWebhook.mockResolvedValue("https://hooks.example/acme");
     mockDispatch.mockRejectedValue(new Error("webhook 500 / network down"));
 
-    // The audit still recorded; only the dispatch blew up — and it must not fail the scan.
+    // The audit still recorded; only the dispatch blew up — and it must not fail the scan. The door
+    // catches the rejection itself, so the regression is no longer erased into the outer catch's
+    // `{ regressed: false, verdict: null }`: the verdict was real, only the push failed.
     const out = await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
-    expect(out).toEqual({ regressed: false, verdict: null, dispatched: false });
+    expect(out).toEqual({ regressed: true, verdict: REGRESSED, dispatched: false });
     expect(mockAudit).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(recordAlertEvent)).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ kind: "regression", delivered: false, suppressedReason: "dispatch-failed" }),
+    );
   });
 
-  it("does NOT throw when the webhook lookup itself rejects (orgWebhook swallows to null → no dispatch)", async () => {
+  it("does NOT throw when the webhook lookup itself rejects: no dispatch, and the row says sink-unreadable", async () => {
     mockDetect.mockReturnValue(REGRESSED);
     mockWebhook.mockRejectedValue(new Error("sink lookup db error"));
     const out = await checkAndAlertRegression(report(), report(), { orgSlug: "acme" });
-    // orgWebhook .catch(()=>null) → no sink → no dispatch, audit still recorded, regression reported.
+    // A FAILED read is not "no sink": it never reaches the global fallback (see
+    // scan-alerts.sink-unreadable.test.ts for the real resolver), audit still recorded, regression reported.
     expect(out.regressed).toBe(true);
     expect(out.dispatched).toBe(false);
     expect(mockDispatch).not.toHaveBeenCalled();
+    expect(vi.mocked(recordAlertEvent)).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ kind: "regression", delivered: false, suppressedReason: "sink-unreadable" }),
+    );
   });
 });
 

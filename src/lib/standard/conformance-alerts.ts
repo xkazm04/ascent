@@ -21,16 +21,8 @@
 //     worth keeping; a missing sink is a `suppressedReason`, not a reason to forget.
 //  4. NEVER THROWS. A telemetry push must not be able to fail a customer's CI ingest.
 
-import {
-  buildControlAlertMessage,
-  controlCooldownKey,
-  claimRegressionAlert,
-  dispatchAlert,
-  emailSinkAddress,
-  resolveAlertWebhook,
-  type ControlAlertItem,
-} from "@/lib/alerts";
-import { getOrgAlertWebhook, recordAlertEvent } from "@/lib/db";
+import { buildControlAlertMessage, controlCooldownKey, type ControlAlertItem } from "@/lib/alerts";
+import { deliverAlert } from "@/lib/alert-door";
 import { listConformanceReports } from "@/lib/db/org-conformance";
 import { detectControlRegressions } from "@/lib/standard/control-matrix";
 
@@ -73,23 +65,22 @@ export async function alertConformanceRegressions(
       actorLogin: null,
     }));
 
-    const webhookUrl = await getOrgAlertWebhook(orgSlug).catch(() => null);
-    const resolved = resolveAlertWebhook(webhookUrl);
-    // Rule 2: claim per (repo, control) so a batch is throttled per-control, not all-or-nothing.
-    const claimed = resolved !== null ? items.filter((i) => claimRegressionAlert(controlCooldownKey(i.repo, i.controlId))) : [];
-
-    let dispatched = false;
-    let text: string | undefined;
-    if (claimed.length > 0) {
-      const message = buildControlAlertMessage({ org: orgSlug, items: claimed });
-      text = message.text;
-      dispatched = await dispatchAlert(message, { signal: opts.signal, webhookUrl, org: orgSlug });
+    // Rule 2: claim per (repo, control) so a batch is throttled per-control, not all-or-nothing. The
+    // first item per key wins, as the per-item filter did before.
+    const byKey = new Map<string, ControlAlertItem>();
+    for (const i of items) {
+      const key = controlCooldownKey(i.repo, i.controlId);
+      if (!byKey.has(key)) byKey.set(key, i);
     }
 
     // Rule 3: the row is written over EVERY regression, not just the dispatched ones — the history
-    // has to say a control failed even in the week the push was throttled.
+    // has to say a control failed even in the week the push was throttled. The door writes it, and a
+    // sink lookup that FAILS is recorded as `sink-unreadable` instead of being swallowed into null
+    // (which the resolver used to read as "use the operator's global sink").
     const head = items[0]!;
-    await recordAlertEvent(orgSlug, {
+    const sent = await deliverAlert({
+      org: orgSlug,
+      signal: opts.signal,
       kind: "control",
       // Every item here is a `control-failed` by construction (the detector emits nothing else), so
       // the batch is critical. Deriving it rather than hard-coding would imply a variability that
@@ -97,12 +88,10 @@ export async function alertConformanceRegressions(
       severity: "critical",
       repoFullName,
       title: `${head.controlId} failed on ${repoFullName}${items.length > 1 ? ` (+${items.length - 1} more)` : ""}`,
-      body: text,
-      delivered: dispatched,
-      sinkKind: resolved ? (emailSinkAddress(resolved) ? "email" : "webhook") : null,
-      suppressedReason: dispatched ? null : !resolved ? "no-sink" : claimed.length === 0 ? "cooldown" : "dispatch-failed",
+      claim: { cooldown: items.map((i) => controlCooldownKey(i.repo, i.controlId)) },
+      build: (keys) => buildControlAlertMessage({ org: orgSlug, items: keys.map((k) => byKey.get(k)!) }),
     });
-    return dispatched;
+    return sent.delivered;
   } catch (err) {
     // Rule 4. A conformance POST is a customer's CI step; a telemetry failure must never redden it.
     console.warn("[conformance] control-regression alert failed", err instanceof Error ? err.message : err);

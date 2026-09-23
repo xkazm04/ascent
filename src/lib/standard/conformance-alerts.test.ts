@@ -137,6 +137,27 @@ describe("alertConformanceRegressions", () => {
     await expect(alertConformanceRegressions("acme", "acme/billing")).resolves.toBe(false);
   });
 
+  it("a sink lookup that FAILS never falls through to the global sink: no dispatch, a sink-unreadable row", async () => {
+    // The resolver is REAL here (only dispatchAlert is mocked), so a swallowed lookup error becoming
+    // null would resolve to this global URL and dispatch the tenant's control push into it.
+    vi.stubEnv("ALERT_WEBHOOK_URL", "https://global.example/hook");
+    try {
+      mockList.mockResolvedValue([FAILING, PASSING]);
+      mockWebhook.mockRejectedValue(new Error("db connection reset"));
+
+      expect(await alertConformanceRegressions("acme", "acme/billing")).toBe(false);
+
+      expect(mockDispatch).not.toHaveBeenCalled();
+      expect(mockEvent).toHaveBeenCalledTimes(1);
+      expect(mockEvent).toHaveBeenCalledWith(
+        "acme",
+        expect.objectContaining({ kind: "control", delivered: false, suppressedReason: "sink-unreadable" }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("returns false without a database rather than inventing history", async () => {
     mockList.mockResolvedValue(null);
     expect(await alertConformanceRegressions("acme", "acme/billing")).toBe(false);
