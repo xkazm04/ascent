@@ -5,20 +5,14 @@
 // including alerts raised when NO sink was configured (before this table, those vanished without a
 // trace). Member-readable (GET /api/org/alerts?history=1 — rows carry titles and outcomes, never the
 // sink URL). Collapsed behind a <details> so the popover's primary jobs (movement, routing config)
-// keep the space. Lazy: fetches once on first expand.
+// keep the space. The rows are read on mount by `useAlertHistory` (the chip's sink-health marker needs
+// them before anyone opens the popover); this component only renders them.
+//
+// An undelivered row whose stored text is whole carries a Resend button for admins
+// (fleet-alerts-digests#B): a failed weekly digest used to be lost for the week, because its retry is
+// the next cron run seven days later in a new window.
 
-import { useState } from "react";
-
-interface AlertEventRow {
-  id: string;
-  kind: string;
-  severity: string;
-  repoFullName: string | null;
-  title: string;
-  delivered: boolean;
-  suppressedReason: string | null;
-  createdAt: string;
-}
+import type { AlertHistoryEvent, ResendState } from "./useAlertsControl";
 
 const KIND_EMOJI: Record<string, string> = {
   regression: "🔻",
@@ -40,24 +34,36 @@ const OUTCOME: Record<string, string> = {
   "sink-unreadable": "not sent (sink unreadable)",
 };
 
-export function AlertsHistory({ org }: { org: string }) {
-  const [events, setEvents] = useState<AlertEventRow[] | null>(null);
-  const [failed, setFailed] = useState(false);
+interface AlertsHistoryProps {
+  events: AlertHistoryEvent[] | null;
+  failed: boolean;
+  /** Admin view with the config loaded: the resend POST is admin-gated, so viewers get no button. */
+  canResend: boolean;
+  resends: Record<string, ResendState>;
+  onResend: (id: string) => void;
+}
 
-  async function load() {
-    if (events !== null || failed) return;
-    try {
-      const res = await fetch(`/api/org/alerts?org=${encodeURIComponent(org)}&history=1`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error();
-      setEvents((data.events as AlertEventRow[]) ?? []);
-    } catch {
-      setFailed(true);
-    }
-  }
-
+function ResendAction({ e, state, onResend }: { e: AlertHistoryEvent; state: ResendState | undefined; onResend: (id: string) => void }) {
+  if (state === "sent") return <span className="ml-1 text-emerald-400/80">resent</span>;
   return (
-    <details className="mb-3 border-b border-slate-800 pb-3" onToggle={(e) => e.currentTarget.open && void load()}>
+    <>
+      <button
+        type="button"
+        onClick={() => onResend(e.id)}
+        disabled={state === "sending"}
+        aria-label={`Resend ${e.title}`}
+        className="focus-ring ml-1.5 rounded border border-slate-700 px-1.5 type-caption text-slate-300 transition hover:border-accent hover:text-white disabled:opacity-50"
+      >
+        {state === "sending" ? "Resending…" : "Resend"}
+      </button>
+      {typeof state === "object" && <span className="ml-1 text-danger">{state.error}</span>}
+    </>
+  );
+}
+
+export function AlertsHistory({ events, failed, canResend, resends, onResend }: AlertsHistoryProps) {
+  return (
+    <details className="mb-3 border-b border-slate-800 pb-3">
       <summary className="cursor-pointer type-mono-sm uppercase tracking-widest text-slate-500 hover:text-slate-300">
         Recent alerts
       </summary>
@@ -81,6 +87,7 @@ export function AlertsHistory({ org }: { org: string }) {
                   <span className="text-slate-500">{OUTCOME[e.suppressedReason ?? ""] ?? "not sent"}</span>
                 )}
               </span>
+              {canResend && e.resendable && <ResendAction e={e} state={resends[e.id]} onResend={onResend} />}
             </li>
           ))}
         </ul>

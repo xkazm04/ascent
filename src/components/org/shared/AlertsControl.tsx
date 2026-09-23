@@ -10,11 +10,15 @@
 // a "since you last looked" list above the config section (see AlertsMovement.tsx). That half is
 // member-readable and degrades to the old countless chip whenever there's no viewer/membership.
 //
+// It also carries the sink's HEALTH (AlertsSinkHealth.tsx): a failing marker on the chip, one line of
+// "failing since when, what was lost" above the sink field, and Resend on undelivered history rows.
+//
 // State/effects/handlers live in useAlertsControl.ts — this file is JSX only.
 
 import { trapTab, ThresholdFields } from "./AlertsControlParts";
 import { AlertsHistory } from "./AlertsHistory";
 import { MovementBadge, MovementSince } from "./AlertsMovement";
+import { SinkHealthLine, SinkHealthMarker } from "./AlertsSinkHealth";
 import { useAlertsControl } from "./useAlertsControl";
 
 export function AlertsControl({ org }: { org: string }) {
@@ -39,6 +43,7 @@ export function AlertsControl({ org }: { org: string }) {
     dialogRef,
     movement,
     badgeCount,
+    history,
     dirty,
     canSave,
     save,
@@ -59,6 +64,7 @@ export function AlertsControl({ org }: { org: string }) {
       >
         <span aria-hidden>🔔</span> Alerts
         <MovementBadge count={badgeCount} capped={movement?.capped ?? false} />
+        <SinkHealthMarker health={history.health} />
       </button>
 
       {open && (
@@ -75,8 +81,16 @@ export function AlertsControl({ org }: { org: string }) {
           <MovementSince movement={movement} />
           {/* Persisted dispatch history (AlertEvent) — what was raised and whether it landed,
               including alerts raised with no sink configured. Member-readable, lazy-loaded. */}
-          <AlertsHistory org={org} />
+          <AlertsHistory
+            events={history.events}
+            failed={history.failed}
+            canResend={loaded && !denied && !loadFailed}
+            resends={history.resends}
+            onResend={(id) => void history.resend(id)}
+          />
           <div className="type-mono-sm uppercase tracking-widest text-accent">Alert routing</div>
+          {/* Whether alerts are ARRIVING, above where they are configured to go. Member-readable. */}
+          <SinkHealthLine health={history.health} />
           {denied ? (
             <p className="mt-2 type-body-sm text-slate-400">Only org admins can configure alert routing.</p>
           ) : loadFailed ? (

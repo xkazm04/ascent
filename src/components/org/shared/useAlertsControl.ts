@@ -5,8 +5,78 @@
 // bring AlertsControl.tsx under the 200-LOC cap.
 
 import { useEffect, useRef, useState } from "react";
+import type { SinkHealth } from "@/lib/alert-sink-health";
 import { FOCUSABLE_SELECTOR } from "./AlertsControlParts";
 import { useOrgMovement } from "./AlertsMovement";
+
+/** One Recent-alerts row as GET ?history=1 serves it (never the body or the sink URL). */
+export interface AlertHistoryEvent {
+  id: string;
+  kind: string;
+  severity: string;
+  repoFullName: string | null;
+  title: string;
+  delivered: boolean;
+  suppressedReason: string | null;
+  createdAt: string;
+  resendable?: boolean;
+}
+
+/** A row's resend, as this viewer has driven it: in flight, delivered, or refused with a reason. */
+export type ResendState = "sending" | "sent" | { error: string };
+
+/**
+ * The AlertEvent history and the sink health derived from it (fleet-alerts-digests#B). Read on MOUNT,
+ * not on expand: the chip's failing marker has to be visible before anyone opens the popover, since a
+ * broken sink is otherwise noticed only by its silence. Any failure leaves `health` null, which renders
+ * exactly the pre-feature chip. A successful resend re-reads, so the new row and the recovered health
+ * appear without a reload.
+ */
+export function useAlertHistory(org: string) {
+  const [events, setEvents] = useState<AlertHistoryEvent[] | null>(null);
+  const [health, setHealth] = useState<SinkHealth | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [resends, setResends] = useState<Record<string, ResendState>>({});
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/org/alerts?org=${encodeURIComponent(org)}&history=1`)
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error("history read failed");
+        if (!live) return;
+        setEvents(Array.isArray(d.events) ? (d.events as AlertHistoryEvent[]) : []);
+        setHealth(d.health && typeof d.health.state === "string" ? (d.health as SinkHealth) : null);
+        setFailed(false);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [org, version]);
+
+  async function resend(id: string) {
+    setResends((m) => ({ ...m, [id]: "sending" }));
+    try {
+      const res = await fetch("/api/org/alerts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org, resend: id }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.delivered) throw new Error(d.error ?? "Resend failed.");
+      setResends((m) => ({ ...m, [id]: "sent" }));
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setResends((m) => ({ ...m, [id]: { error: e instanceof Error ? e.message : "Resend failed." } }));
+    }
+  }
+
+  return { events, health, failed, resends, resend };
+}
 
 export function useAlertsControl(org: string) {
   const [open, setOpen] = useState(false);
@@ -36,6 +106,7 @@ export function useAlertsControl(org: string) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { movement, badgeCount, markSeen } = useOrgMovement(org);
+  const history = useAlertHistory(org);
 
   // Opening the control IS the act of looking, so it advances the watermark (the list stays visible —
   // only the badge clears). Kept in an effect rather than the click handler so a keyboard/programmatic
@@ -91,8 +162,6 @@ export function useAlertsControl(org: string) {
           setDenied(true);
           return;
         }
-        // A 5xx used to fall through to `r.json().catch(() => ({}))`, which reads as "nothing is
-        // configured" — indistinguishable from the real thing, and silently destructive on Save.
         // A 5xx used to fall through to `r.json().catch(() => ({}))`, which reads as "nothing is
         // configured" — indistinguishable from the real thing, and silently destructive on Save.
         if (!r.ok) {
@@ -213,6 +282,7 @@ export function useAlertsControl(org: string) {
     dialogRef,
     movement,
     badgeCount,
+    history,
     dirty,
     canSave,
     save,

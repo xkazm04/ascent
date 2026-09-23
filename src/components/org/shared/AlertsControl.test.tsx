@@ -171,3 +171,65 @@ describe("AlertsControl names the email sink — its only configuration surface"
     expect(field).toHaveAttribute("aria-describedby", "alert-sink-help");
   });
 });
+
+describe("AlertsControl sink health (fleet-alerts-digests#B)", () => {
+  const FAILING = {
+    state: "failing",
+    consecutiveFailures: 2,
+    failingSince: "2026-09-15T13:00:00Z",
+    lastDeliveredAt: "2026-09-08T13:00:00Z",
+    unsent: 2,
+    exact: true,
+  };
+  const EVENTS = [
+    { id: "e2", kind: "digest", severity: "info", repoFullName: null, title: "Weekly digest", delivered: false, suppressedReason: "dispatch-failed", createdAt: "2026-09-15T13:00:00Z", resendable: true },
+    { id: "e1", kind: "regression", severity: "warning", repoFullName: "acme/api", title: "acme/api regressed", delivered: true, suppressedReason: null, createdAt: "2026-09-08T13:00:00Z", resendable: false },
+  ];
+  function api(health: unknown, posts: unknown[] = []) {
+    return mockFetch((u, opts) => {
+      const url = String(u);
+      if (url.includes("movement=1")) return okJson({ movement: null });
+      if (url.includes("history=1")) return okJson({ events: EVENTS, health });
+      if (opts?.method === "POST") {
+        posts.push(JSON.parse(String(opts.body)));
+        return okJson({ ok: true, delivered: true });
+      }
+      return okJson({ webhookUrl: "https://hooks.slack.com/services/T/B/xyz" });
+    });
+  }
+
+  it("marks the chip, leads the popover with the failing line, and offers Resend on each resendable row", async () => {
+    const posts: unknown[] = [];
+    api(FAILING, posts);
+    render(<AlertsControl org="acme" />);
+    const marker = await screen.findByLabelText("Alert sink failing");
+    const bell = screen.getByRole("button", { name: /Alerts/ });
+    expect(bell).toContainElement(marker);
+
+    fireEvent.click(bell);
+    await screen.findByRole("button", { name: "Save" });
+    const line = screen.getByText("Failing since 2026-09-15. 2 alerts not delivered.");
+    expect(line.textContent).not.toContain("\u2014");
+    fireEvent.click(screen.getByText("Recent alerts"));
+    const resend = screen.getAllByRole("button", { name: /^Resend/ });
+    expect(resend).toHaveLength(1);
+    expect(resend[0]).toHaveAccessibleName("Resend Weekly digest");
+
+    fireEvent.click(resend[0]!);
+    await waitFor(() => expect(posts).toContainEqual({ org: "acme", resend: "e2" }));
+  });
+
+  it("guard: a healthy or never-attempted sink puts no marker on the chip", async () => {
+    for (const state of ["healthy", "no-attempts"]) {
+      api({ ...FAILING, state, consecutiveFailures: 0, failingSince: null, unsent: 0 });
+      const { unmount } = render(<AlertsControl org="acme" />);
+      const bell = screen.getByRole("button", { name: /Alerts/ });
+      await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([u]) => String(u).includes("history=1"))).toBe(true));
+      await Promise.resolve();
+      expect(screen.queryByLabelText("Alert sink failing")).toBeNull();
+      expect(bell.textContent).toBe("🔔 Alerts");
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+});
