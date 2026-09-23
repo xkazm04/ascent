@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assembleReport, cheapestPathToNextLevel, contributions, diffReports, projectDimensionClose, projectScore, projectSandbox, projectedGain } from "./engine";
+import { assembleReport, cheapestPathToNextLevel, contributions, diffReports, projectDimensionClose, projectScore, projectSandbox, projectedGain, reportToComparable } from "./engine";
 import { ARCHETYPE_WEIGHTS, DIMENSIONS, LEVEL_BY_ID, LLM_GUARDBAND, SCORE_BLEND, axisScore, levelForScore, overallScoreFor, postureFor } from "@/lib/maturity/model";
 import { MAX_FLAGGED_DIMENSIONS } from "./discrepancy-policy";
 import { MockProvider } from "@/lib/llm/mock";
@@ -96,6 +96,15 @@ describe("diffReports", () => {
     expect(diff.unchanged).toBe(true);
     expect(diff.appearedSignalCount).toBe(0);
     expect(diff.movements).toEqual([]);
+  });
+
+  // The rubric is part of the provenance the attribution rule reads: an in-memory comparison must carry
+  // it like a persisted one does, or a cross-rubric pair built from live reports reads as a lift.
+  it("reportToComparable carries the report's rubricVersion, and leaves an unknown one unknown", () => {
+    const stamped = mkReport({ overallScore: 50, level: "L3" });
+    stamped.engine = { ...stamped.engine, rubricVersion: "r17" };
+    expect(reportToComparable(stamped).rubricVersion).toBe("r17");
+    expect(reportToComparable(mkReport({ overallScore: 50, level: "L3" })).rubricVersion).toBeUndefined();
   });
 });
 

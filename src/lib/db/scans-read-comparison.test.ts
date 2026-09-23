@@ -38,11 +38,11 @@ function listRows() {
 
 /** A ComparableScan-shaped findFirst row for a given id. `prov` overrides the provenance columns the
  *  attribution rule reads — omitted keys stay NULL, which is what a pre-migration row looks like. */
-function comparableRow(id: string, prov: Partial<{ engineDegraded: boolean | null; scoreIntegrityJson: string | null }> = {}) {
+function comparableRow(id: string, prov: Partial<{ engineDegraded: boolean | null; scoreIntegrityJson: string | null; rubricVersion: string | null }> = {}) {
   return {
     id, scannedAt: new Date("2026-01-01"), overallScore: 60, level: "L1", levelName: "x",
     archetype: "library", adoptionScore: 1, rigorScore: 1, posture: "p", confidence: 1,
-    engineProvider: "p", engineModel: "m", engineDegraded: null, scoreIntegrityJson: null,
+    engineProvider: "p", engineModel: "m", engineDegraded: null, scoreIntegrityJson: null, rubricVersion: null,
     headSha: id, dimensions: [], recommendations: [], ...prov,
   };
 }
@@ -143,5 +143,22 @@ describe("getScanComparison — the pair carries its engine provenance", () => {
     const cmp = await getScanComparison("o", "r", {});
     expect(cmp!.after!.engineDegraded).toBeUndefined();
     expect(cmp!.after!.scoreIntegrity).toBeUndefined();
+  });
+
+  // The rubric the end was scored under: attribution refuses a pair whose ends were scored by two
+  // different rubrics, so a comparison that drops the column would read every rubric bump as a lift.
+  it("rubricVersion is SELECTED and round-trips onto both ends; a legacy row leaves it undefined", async () => {
+    const prisma = fakePrisma({ rubricVersion: "r17" });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const cmp = await getScanComparison("o", "r", {});
+    expect(cmp!.after).toMatchObject({ rubricVersion: "r17" });
+    expect(cmp!.before).toMatchObject({ rubricVersion: "r17" });
+    const firstCall = prisma.scan.findFirst.mock.calls[0] as unknown as [{ select: Record<string, unknown> }];
+    expect(firstCall[0].select).toMatchObject({ rubricVersion: true });
+
+    mockGetPrisma.mockReturnValue(fakePrisma());
+    const legacy = await getScanComparison("o", "r", {});
+    expect(legacy!.after!.rubricVersion).toBeUndefined();
   });
 });

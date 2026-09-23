@@ -101,6 +101,8 @@ function fakePrisma(opts: {
   previousRecs?: PrevRec[] | null;
   /** The previous scan's dimension scores — the movement witness for an in-progress row (2026-08-26). */
   previousDims?: { dimId: string; score: number }[];
+  /** The previous scan's rubric stamp. Omitted = the key is absent from the row, as in every older test. */
+  previousRubric?: string | null;
   /** Make the in-tx scan.create throw this on its first call (cross-instance P2002 race). */
   scanCreateThrows?: unknown;
 } = {}) {
@@ -157,7 +159,12 @@ function fakePrisma(opts: {
     scan: {
       findFirst: vi.fn(async () => {
         const recs = opts.previousRecs;
-        return recs ? { recommendations: recs, dimensions: opts.previousDims ?? [] } : null;
+        if (!recs) return null;
+        return {
+          recommendations: recs,
+          dimensions: opts.previousDims ?? [],
+          ...(opts.previousRubric === undefined ? {} : { engineProvider: "anthropic", engineDegraded: false, rubricVersion: opts.previousRubric }),
+        };
       }),
     },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
@@ -1198,6 +1205,35 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
 
     expect(createdResolved[0]).toMatchObject({ status: "done" });
     expect(String(createdEvents[0]!.note)).toContain("Ascent-Resolves");
+  });
+
+  // The ruler moving is not the repository moving: the previous scan's rubric rides into the movement
+  // engines, so a dimension that rose only because the rubric was bumped cannot close the claim.
+  it("NOT restated and the dimension ROSE, but across a RUBRIC bump → KEPT and copied forward naming both rubrics", async () => {
+    const { prisma, createdResolved, createdEvents } = fakePrisma({
+      previousRecs: [prevInProgress()],
+      previousDims: [{ dimId: "D2", score: 61 }],
+      previousRubric: "r1",
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_v3r",
+        roadmap: [],
+        resolvedFollowUpIds: ["rec_ip"],
+        dimensions: [{ id: "D2", name: "Automated Testing", weight: 0.15, score: 90, signalScore: 90, llmScore: 90, summary: "", evidence: [], strengths: [], gaps: [] }],
+      }),
+    );
+
+    const select = (prisma.scan.findFirst.mock.calls[0] as unknown as [{ select: Record<string, unknown> }])[0].select;
+    expect(select).toMatchObject({ rubricVersion: true });
+    expect(createdResolved).toHaveLength(1);
+    expect(createdResolved[0]).toMatchObject({ status: "in_progress", title: "No coverage threshold fails a run" });
+    const note = String(createdEvents[0]!.note);
+    expect(note).toContain("r1 ");
+    expect(note).toContain(SCORING_RUBRIC_VERSION);
   });
 
   it("RESTATED without a trailer → stays in progress on the new scan (carry-forward as before), nothing resolved", async () => {

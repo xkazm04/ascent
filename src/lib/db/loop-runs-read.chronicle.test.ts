@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type Row = Record<string, unknown>;
-const h = vi.hoisted(() => ({ runs: [] as Row[], lanes: [] as Row[], runQueries: [] as Row[] }));
+const h = vi.hoisted(() => ({ runs: [] as Row[], lanes: [] as Row[], runQueries: [] as Row[], scans: [] as Row[], scanQueries: [] as Row[] }));
 
 vi.mock("@/lib/db/client", () => ({
   isDbConfigured: () => true,
@@ -24,7 +24,12 @@ vi.mock("@/lib/db/client", () => ({
     loopRunLane: {
       findMany: async ({ where }: { where: { runId: { in: string[] } } }) => h.lanes.filter((l) => where.runId.in.includes(l.runId as string)),
     },
-    scan: { findMany: async () => [] },
+    scan: {
+      findMany: async (q: { where: { id: { in: string[] } } }) => {
+        h.scanQueries.push(q);
+        return h.scans.filter((sc) => q.where.id.in.includes(sc.id as string));
+      },
+    },
   }),
 }));
 vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: async (slug: string) => (slug === "acme" ? { id: "org-acme" } : null), dateRange: () => ({}) }));
@@ -73,6 +78,8 @@ const lane = (runId: string, closed: string[], landedAt: Date | null): Row => ({
 
 beforeEach(() => {
   h.runQueries = [];
+  h.scanQueries = [];
+  h.scans = [];
   h.runs = [1, 2, 3, 4, 5].map((n) => run(n));
   h.lanes = [
     lane("run-3", ["a", "b"], new Date("2026-09-03T00:30:00Z")),
@@ -121,5 +128,20 @@ describe("listLoopRuns — the chronicle", () => {
   it("ignores a null cursor and reads another org as nothing", async () => {
     expect((await listLoopRuns("acme", 20, { beforeSeq: null })).length).toBe(5);
     expect(await listLoopRuns("other", 20)).toEqual([]);
+  });
+
+  // The lift answers to the attribution rule, and the rule refuses a pair scored under two different
+  // rubrics: a rubric bump between the before and after scans is the ruler moving, not the lane's work.
+  it("a lane whose two scans were scored under different rubrics adds nothing to the run's lift", async () => {
+    const sc = (id: string, overallScore: number, rubricVersion: string | null) => ({ id, overallScore, engineProvider: "claude-cli", engineDegraded: false, rubricVersion });
+    h.scans = [sc("b1", 60, "r17"), sc("a1", 70, "r18"), sc("b2", 60, "r18"), sc("a2", 70, "r18")];
+    h.lanes = [
+      { ...lane("run-3", [], null), beforeScanId: "b1", afterScanId: "a1", commits: 3 },
+      { ...lane("run-5", [], null), beforeScanId: "b2", afterScanId: "a2", commits: 3 },
+    ];
+    const runs = await listLoopRuns("acme", 5);
+    expect(runs.find((r) => r.id === "run-3")!.lift).toBeNull();
+    expect(runs.find((r) => r.id === "run-5")!.lift).toBe(10);
+    expect(h.scanQueries[0]).toMatchObject({ select: { rubricVersion: true } });
   });
 });
