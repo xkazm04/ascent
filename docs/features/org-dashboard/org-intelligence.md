@@ -2710,13 +2710,19 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
   `staleDecision` so a human is asked to re-affirm rather than being credited with having done so.
 - **Writers are proposals, never silent mutations.** `POST /api/org/admission/propose` is a **dry run
   by default**: it reads the repo's existing CODEOWNERS, splices the managed block, and returns the
-  unified diff having written nothing; `confirm: true` opens a draft PR with that exact diff. The
-  splice is idempotent, so a recompile that changes nothing opens no PR. `openDraftPr`'s
+  unified diff (and its `diffDigest`) having written nothing; `confirm: true` opens a draft PR with
+  that diff. A caller that previewed sends `expectDiffDigest`, and the writer checks it against the
+  diff computed from the very read it splices from: a CODEOWNERS that moved since the preview is a
+  **409 `content-drift`** carrying the current diff, with no branch, commit or PR (since 2026-09-23;
+  omitting the field keeps the older contract for MCP/API callers). The splice is idempotent, so a recompile that changes nothing opens no PR. `openDraftPr`'s
   refuse-to-clobber rule is untouched — the merge-append writer is a sibling module
   (`src/lib/github/admission-write.ts`); see [github-app.md](../github/github-app.md).
 - **The one real mutation is reversible.** `POST /api/org/admission/ruleset` creates a branch ruleset
-  (owner + same-origin + a typed `confirm` equal to the repository's full name + an observed-vs-
-  proposed read first). The created id is stored on `RepoAdmission.rulesetId` and `DELETE` on the same
+  (owner + same-origin + a typed `confirm` equal to the repository's full name). The observed-vs-
+  proposed read is a real **dry run** since 2026-09-23: `{ org, repo, dryRun: true }` returns
+  `{ proposal, observed }` with no typed confirm and no write (audited as `org.admission_ruleset` with
+  `dryRun: true`). Before that the typed confirm ran first and `observed` was read in the call that
+  applied, so an owner saw the rulesets already on the repo only after adding one. The created id is stored on `RepoAdmission.rulesetId` and `DELETE` on the same
   route removes it. Audit rows on every path: `org.admission`, `org.admission_propose` (dry runs
   included), `org.admission_ruleset`, `org.admission_ruleset_revert`.
 - **A decision is withdrawable, and the withdrawal is an act** (since 2026-08-31; UAT `RC2-N4`).
@@ -2775,6 +2781,20 @@ autonomy model's own `DATA_MODEL_GAPS` recorded as a gap. That line is now delet
 - **MCP**: `get_ai_stance` takes an optional `repo` and returns that repository's compiled controls,
   admission mode and `unenforceable[]` list. Read-only, `mcp:read`, no new tool, and the `repo`
   argument is constrained to the caller's own org.
+- **Enforce, from the row** (since 2026-09-23; moonshot #8 follow-up "proposal dry-run modal UI",
+  `MC-X3`). The column said the CODEOWNERS block and the branch ruleset are proposals a person opens
+  deliberately, and nothing on screen could open them: neither writer had a UI caller, and an applied
+  ruleset could only be reverted with a hand-built DELETE. Each row now carries an owner-only
+  **Enforce** panel (`AdmissionEnforce.tsx`, `AdmissionRulesetControl.tsx`, pure decisions in
+  `admissionEnforceModel.ts`). CODEOWNERS: type the reviewing teams, **Preview CODEOWNERS change**
+  (a `confirm: false` call) renders the diff or *"no change: CODEOWNERS already carries this block"*,
+  and **Open draft PR** sends `confirm: true` with the digest of the diff it rendered, so a
+  `content-drift` 409 replaces the shown diff for a second look instead of opening a PR nobody saw.
+  Ruleset: **Preview ruleset** shows the proposed rules beside the rulesets already on the repo, and
+  **Apply ruleset** waits for the typed `owner/name`. On a row with a stored ruleset the panel offers
+  **Revert ruleset** behind the same typed confirm, never a second apply. An unassessed tier offers
+  neither control, and a tier/mode that compiles no ruleset says so. The `controls.oversight` block
+  still has no write path.
 
 ### Delivery, redesigned: the flow is drawn and the gaps are holes (Wave 1, 2026-09-08)
 
