@@ -18,9 +18,11 @@ vi.mock("next/link", () => ({
 }));
 // Capture which rows the fleet widget is offered on — evidence-limit findings must not get one.
 const seen: string[] = [];
+const statuses: string[] = [];
 vi.mock("@/components/org/DecisionControl", () => ({
-  DecisionControl: ({ itemKey }: { itemKey: string }) => {
+  DecisionControl: ({ itemKey, status }: { itemKey: string; status: string }) => {
     seen.push(itemKey);
+    statuses.push(status);
     return null;
   },
 }));
@@ -132,5 +134,41 @@ describe("PassportRowDetail — evidence-limit findings stay informational", () 
     );
     expect(seen).toEqual(["acme/web::prod.ci-not-gating"]);
     for (const h of holes) expect(screen.getByText(h.text)).toBeTruthy();
+  });
+});
+
+// Card ai-native-passports#A (challenge-2026-09-23): the drawer reads the ONE judgment model. An owner
+// decline the overlay RE-SURFACED (needsReconfirm) keeps its blocker open; a member's OrgDecision under
+// the same id key used to win the lookup and bury that re-confirmation behind a greyed "Dismissed" pill.
+describe("PassportRowDetail — a re-surfaced decline outranks a member's decision", () => {
+  it("renders the open decision control, not a greyed Dismissed pill", () => {
+    seen.length = 0;
+    statuses.length = 0;
+    const ci: PassportFinding = { id: "prod.ci-not-gating", code: "ci-not-gating", text: "CI does not gate merges.", severity: "block" };
+    const { container } = render(
+      <PassportRowDetail
+        fullName="acme/web"
+        org="acme"
+        decisions={{ "acme/web::prod.ci-not-gating": { status: "dismissed", rationale: "n/a", decidedBy: "bob" } }}
+        detail={detail({
+          prodBlockers: [ci.text],
+          prodFindings: [ci],
+          declined: [
+            {
+              path: "productionReadiness.ci",
+              label: "CI merge gating",
+              blocker: ci.text,
+              findingId: ci.id,
+              at: "2025-01-01",
+              needsReconfirm: true,
+              reconfirmReason: "This gap hardened since it was accepted (severity block -> critical).",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(seen).toEqual(["acme/web::prod.ci-not-gating"]);
+    expect(statuses).toEqual(["open"]);
+    expect(container.querySelector("li.opacity-60")).toBeNull();
   });
 });

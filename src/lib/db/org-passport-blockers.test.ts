@@ -85,7 +85,19 @@ describe("getOrgPassportBlockers", () => {
     ]);
     mockGetPrisma.mockReturnValue(fake.client);
 
-    expect(await getOrgPassportBlockers("acme")).toEqual([{ fullName: "acme/a", blockers: ["no CI", "no runbook"] }]);
+    // `findings` rides along (card ai-native-passports#A): the badge keys a blocker on its minted id.
+    // This stored row predates 0.4.0, so `upgradePassport` back-fills positional `unclassified` ids —
+    // ids `passportJudgmentKey` refuses to key on, so these two keep the legacy prose key.
+    expect(await getOrgPassportBlockers("acme")).toEqual([
+      {
+        fullName: "acme/a",
+        blockers: ["no CI", "no runbook"],
+        findings: [
+          { id: "auto.unclassified.0", text: "no CI" },
+          { id: "prod.unclassified.0", text: "no runbook" },
+        ],
+      },
+    ]);
   });
 
   it("drops repos with no passport, and a malformed blob, rather than badging a phantom", async () => {
@@ -99,5 +111,83 @@ describe("getOrgPassportBlockers", () => {
 
     const out = await getOrgPassportBlockers("acme");
     expect(out.map((r) => r.fullName)).toEqual(["acme/ok"]);
+  });
+});
+
+// ── The badge reads the ONE judgment key (card ai-native-passports#A, challenge-2026-09-23) ──────────
+//
+// The drawer writes a passport decision under the minted-id key (`acme/api::auto.self-verify-gaps`).
+// The badge used to be fed blockers with NO findings, so it keyed on a hash of the CURRENT sentence and
+// bridged to the id key only through `resolvedKeys`' alias, which hashes the decision's stored TITLE —
+// the sentence as it was on decision day. The self-verify blocker interpolates the missing-script list,
+// so the day a repo added one script the alias went stale and the decided blocker was back in the rail
+// badge while the drawer still showed it Dismissed.
+
+vi.mock("next/cache", () => ({ unstable_cache: (fn: () => unknown) => fn }));
+vi.mock("@/lib/org/security", () => ({ buildSecurityOverview: async () => null }));
+
+const SV_OLD = "Agent can't self-verify: missing build, lint script(s).";
+const SV_NEW = "Agent can't self-verify: missing build script(s).";
+
+function currentPassportJson(autoText: string): string {
+  const pp = JSON.parse(passportJson([autoText], [])) as Record<string, Record<string, unknown>>;
+  pp.passportVersion = "0.4.0" as unknown as Record<string, unknown>;
+  pp.automationReadiness!.findings = [{ id: "auto.self-verify-gaps", code: "self-verify-gaps", text: autoText, severity: "block" }];
+  pp.productionReadiness!.findings = [];
+  return JSON.stringify(pp);
+}
+
+function badgePrisma(decisions: { itemKey: string; title: string; status: string }[]) {
+  return {
+    organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme" })) },
+    repository: {
+      findMany: vi.fn(async () => [
+        { fullName: "acme/api", passportJson: currentPassportJson(SV_NEW), passportOverridesJson: null },
+      ]),
+    },
+    orgDecision: {
+      findMany: vi.fn(async () =>
+        decisions.map((d) => ({
+          module: "passports",
+          rationale: "we ship without lint",
+          decidedBy: "alice",
+          snoozedUntil: null,
+          updatedAt: new Date("2026-09-01T00:00:00Z"),
+          ...d,
+        })),
+      ),
+    },
+  };
+}
+
+describe("passports badge — decision key stability", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("getOrgPassportBlockers carries the minted findings[] per repo", async () => {
+    mockGetPrisma.mockReturnValue(badgePrisma([]));
+    const [r] = await getOrgPassportBlockers("acme");
+    expect(r!.findings).toEqual([{ id: "auto.self-verify-gaps", text: SV_NEW }]);
+  });
+
+  it("a blocker dismissed under its id key stays decided after its sentence is reworded", async () => {
+    mockGetPrisma.mockReturnValue(
+      badgePrisma([{ itemKey: "acme/api::auto.self-verify-gaps", title: SV_OLD, status: "dismissed" }]),
+    );
+    const { getOrgFindingCounts } = await import("@/lib/org/nav-counts");
+    expect((await getOrgFindingCounts("acme")).passports).toBe(0);
+  });
+
+  it("guard: an undecided blocker is still counted", async () => {
+    mockGetPrisma.mockReturnValue(badgePrisma([]));
+    const { getOrgFindingCounts } = await import("@/lib/org/nav-counts");
+    expect((await getOrgFindingCounts("acme")).passports).toBe(1);
+  });
+
+  it("guard: a decision stored under the legacy prose key of the CURRENT sentence still resolves in the badge", async () => {
+    const { blockerKey } = await import("@/lib/org/findings");
+    // Title deliberately blank, so the resolvedKeys title alias cannot be what matches it.
+    mockGetPrisma.mockReturnValue(badgePrisma([{ itemKey: blockerKey("acme/api", SV_NEW), title: "", status: "accepted" }]));
+    const { getOrgFindingCounts } = await import("@/lib/org/nav-counts");
+    expect((await getOrgFindingCounts("acme")).passports).toBe(0);
   });
 });
