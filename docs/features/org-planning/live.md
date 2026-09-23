@@ -1273,7 +1273,9 @@ into a pure-local one and record the result under the wrong name.
 
 A malformed set is a **400 naming the band**, never a run silently degraded to one arm — a
 comparison the operator thinks they ran and did not is worse than no comparison. A drive carries
-arms the same way, through `dials.arms` / `dials.armPolicy`.
+arms the same way, through `dials.arms` / `dials.armPolicy`, and ONLY there: a top-level `arms`,
+`armPolicy` or `planMode` on a drive body is a 400 saying where it belongs. See
+[One run-spec parser behind both doors](#one-run-spec-parser-behind-both-doors-2026-09-23).
 
 The pre-arms vocabulary (`modelPolicy: "ab"` + two `models`) is untouched and **never merged** with
 arms: a run armed that way still fans out to two lanes keyed by model name under one `abPairKey`,
@@ -1633,6 +1635,36 @@ takes `planMode: "on" | "off"`, refuses anything else rather than reading a typo
 
 The proof that it works is a lane row carrying `planModel: "sonnet"` beside `model:
 "qwen3.8:27b-64k"`.
+
+#### One run-spec parser behind both doors (2026-09-23)
+
+The fix above landed at the route and in `scripts/arms.mjs`; the cockpit's own doors still produced
+the collapse, and worse. The manual Run never sent `planMode`, and both drive bodies ("Drive to
+green" and the standing runner) spread the arms at the TOP of the body, where the drive route never
+looked: every arm built in the gear was silently dropped on both, while the cockpit's test (which
+pinned the body it wrote, not what the route read) stayed green. The two routes also validated the
+same dials with two hand-kept copies that disagreed on four inputs.
+
+`src/lib/local/run-spec.ts` is now the one parser. `/api/org/loop` calls it on its flat body,
+`/api/org/local/drive` on `body.dials` (cycles, lanes, model and effort from the top of either).
+The contract it pins:
+
+| Input | Verdict at either door |
+| --- | --- |
+| a dial sent as `null` | omitted: the deployment default (it was a 400 on `/loop`) |
+| `modelPolicy` other than `single` / `ab` | 400 (it was silently `single` on `/loop`) |
+| a fractional `maxCycles` / `concurrency` / `maxRuns` | 400 (it was rounded on `/loop`, truncated on `/drive`) |
+| an agent `model` or `effort` off the roster | the deployment default, so a stale tab still starts |
+| a split arm with no `planMode` | `planMode: "on"` implied, so the planning half is spawned |
+| a split arm with `planMode: "off"` | 400 naming `planMode` |
+| `dials.planMode: "off"` on the standing runner | 400: the runner always plans first |
+
+`DriveDials` carries `planMode`, and `dialRunInput` carries it (implied again for a split arm stored
+before this) into every run a bounded drive dispatches; the runner still forces `planMode: "on"`,
+`verifyMode: "on"` and `runner` delivery after the dials. The cockpit sends the drive arms inside
+`dials`, and `planMode: "on"` on every door when an arm is split. `route.reader.test.ts` beside each
+route POSTs the bodies `startInputs.ts` composes to the real handlers and asserts what reaches
+`startLoopRun` / `startDrive`, which is the check the old emitter-only test could not make.
 
 #### A request's ceiling is not the session's (2026-09-21)
 
