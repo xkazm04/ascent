@@ -123,7 +123,8 @@ Their runs are unchanged.
 2026-09-05 the **phase** and the import's **`runId`**) to `sessionStorage` (`RESUME_KEY`) on every
 change and rehydrates on mount, re-fetching the source's repos and re-applying the selection. A
 refresh or auth bounce on the pick/select steps lands back on **select**, not step one. The snapshot
-wins over `?org=`; it clears once the scan is saved.
+wins over `?org=`; it clears once the scan is saved, and "Scan another" removes it (the user's
+explicit start-over), so a refresh after it lands on **pick**, not on the previous source.
 
 **A refresh mid-scan re-attaches instead of re-running (2026-09-05).** The import stream is not
 the run: `mapPool` in `POST /api/org/import` outlives the request, so a closed tab keeps scanning
@@ -143,12 +144,25 @@ its pending read.
 An unreadable queue snapshot also makes following unavailable: missing or invalid counters never
 mean "finished", and malformed rows never replace the last known results.
 
+**A re-attached run knows what it is (2026-09-23).** The run lives in one reducer
+(`OnboardingFlow.run.ts`: `RunState`, `initialRun()` as the reset, one `rowSettled` rule) and the
+snapshot is **v2**: besides the phase and `runId` it carries the run's resolved **plan** (mock,
+watch, schedule, whether a live upgrade is owed, public funnel, preview cause) and the select step's
+**consent** (preview-first, autoscan opt-in). So after a refresh mid-scan the done screen says
+"preview" only for a preview run, a preview-then-upgrade run still writes its one-shot upgrade
+handoff when the queue settles, and the progress bar, foundation install and SKILL.md list count
+the re-attached "scanned" rows. A v1 snapshot (no plan) still re-attaches; only those disclosures
+fall back to the preview defaults.
+
 **Retry carries the same consent as the batch (2026-09-05).** The per-row Retry used to post only
 `{ org, repos, installationId, mock }`, so `watch` defaulted to true on the App path and re-enrolled
 the repo in the weekly billable autoscan the user had declined, and the missing `publicFunnel` made a
 free-funnel retry metered. It now resolves the same plan the batch did (`resolveImportPlan` over the
-preview-first and autoscan opt-in stores plus `resolveScanMode`) and posts `watch`, `schedule` and
-`publicFunnel` explicitly.
+run's recorded consent plus `resolveScanMode`) and posts `watch`, `schedule` and `publicFunnel`
+explicitly. The consent is the one the run recorded when it started (and the v2 snapshot keeps), not
+the module stores a reload resets to their defaults, so a Retry after a refresh no longer turns a
+paid live run into a preview. A re-attach also starts the App-path credit read the retry's money gate
+needs.
 
 **Skip reasons are the server's, not "out of credits" (2026-09-05).** The stream deferred a repo
 for one of three reasons (`insufficient_credits`, `monthly_quota`, `in_progress`) and every one
@@ -395,6 +409,7 @@ cluster, each repo a star:
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
 | `src/components/report/SkillDownload.tsx` | Report-header SKILL.md pill + `SkillDownloadList` for the wizard done step (one pill per scored repo). |
 | `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`GET /api/report/skill` and the foundation PR). Emits two instruction files with the same trackIds: `.claude/skills/ascent-onboard/SKILL.md` (Claude Code, kept; default download) and `.agents/skills/ascent-onboard/SKILL.md` (vendor-neutral, plus a one-line "also linked from Claude's path" header). `?format=json` returns both. Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |
+| `src/components/onboarding/OnboardingFlow.run.ts` | The pure run model: `RunState`/`initialRun()`/`runReducer`, the one row-settle rule (`rowSettled`, `runProgress`, `reportableRepos`), `runMode()` and the v2 snapshot codec (plan + consent; v1 still decodes). |
 
 ## Generated onboarding skill footer (control matrix)
 
