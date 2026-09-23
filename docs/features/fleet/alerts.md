@@ -253,6 +253,8 @@ cooldown claim, so an interactive rescan can't double-alert with the cron.
 | `src/app/api/cron/digest/extra-alerts.ts` | Goal-at-risk + spend-anomaly pushes that ride the weekly run. |
 | `src/lib/email/alert-sink.ts` | Renders an `AlertMessage` as mail for a `mailto:` sink. |
 | `src/lib/email/unsubscribe.ts`, `src/app/api/email/unsubscribe/route.ts` | Signed one-click unsubscribe (clears the org's sink). |
+| `src/lib/alert-sink-health.ts` | Pure sink health (`sinkHealth`), the popover's health line, and the resend rule (`isResendable` / `toHistoryEvent`). |
+| `src/components/org/shared/AlertsSinkHealth.tsx` | The chip's failing marker and the popover's health line. |
 
 ## What moved since you last looked (in-app unread state)
 
@@ -560,9 +562,49 @@ mail, and an org with no sink of its own recorded `webhook` instead of `null`. (
 { test: true }`, kind `test`), all through the delivery door. Recording test sends makes the history
 the channel's health record: a test that failed to deliver says so there.
 
-The history is surfaced in the Alerts popover ("Recent alerts", `AlertsHistory.tsx`, lazy-loaded
+The history is surfaced in the Alerts popover ("Recent alerts", `AlertsHistory.tsx`, a collapsed
 `<details>`) via `GET /api/org/alerts?org=…&history=1`, member-readable like movement (rows carry
-titles and outcomes, never the sink URL).
+titles and outcomes, never the sink URL or the stored body). The rows are read when the chip mounts,
+not when the section expands, because the chip's sink-health marker needs them first.
+
+### Sink health and resend
+
+The sink field says where alerts go; the ledger says whether they arrive. `sinkHealth` in
+`src/lib/alert-sink-health.ts` reads the org's newest 100 `AlertEvent` rows and answers from them alone:
+
+| State | When (decided by the newest attempt outcome) |
+| --- | --- |
+| `failing` | The newest attempt was `dispatch-failed`: the sink refused it. |
+| `unconfigured` | The newest attempt was `no-sink`: nothing resolved to send to. |
+| `healthy` | The newest attempt was delivered. |
+| `no-attempts` | No row is an attempt outcome (none at all, or only cooldown / ineligible / `sink-unreadable` rows). |
+
+Beside the state: `consecutiveFailures` (dispatch-failed rows since the last delivery),
+`failingSince` (the oldest of them; a lower bound, shown as "at least", when the streak runs off the
+end of a full 100-row window), `lastDeliveredAt`, and `unsent` (real alerts, not test sends, since the
+last delivery that failed or had no sink). A cooldown, an ineligible row (`control-unmeasurable`) and
+`sink-unreadable` (our read failed; the sink was never tried) are not attempts, so they neither count
+as a failure nor break the streak. A failed test send does count toward `failing`, but not toward
+`unsent`. `GET ?history=1` returns `{ events, health }`; `health` is `null` when the read failed, so
+"could not tell" never renders as "nothing was attempted".
+
+- **On the chip:** a red dot labelled "Alert sink failing", only while the state is `failing`. A
+  healthy sink, a quiet org and a sink-less org get no new chrome on the chip.
+- **In the popover:** one line under "Alert routing", above the sink field, for every member:
+  "Failing since 2026-09-15. 2 alerts not delivered.", "No alert sink resolved. 3 alerts not
+  sent." or "Sink healthy. Last delivered 2026-09-21." Nothing for `no-attempts`.
+- **Resend:** each history row that is `resendable` gets a Resend button for admins. A row is
+  resendable when it was not delivered, its reason is `dispatch-failed` or `no-sink`, it is not a
+  test send, and its stored body is non-empty and shorter than the 2000-character storage cap (a body
+  that reached the cap may have been cut off). `POST /api/org/alerts { org, resend: <eventId> }` is
+  admin-gated and gate-then-constrain: the row is read by id AND the gated org
+  (`getAlertEventForResend`), so another org's id is a 404; a non-resendable row is a 409. The stored
+  plain text, prefixed "Resent by an admin. First raised <date>.", goes out through the delivery door
+  to the org's CURRENT sink as kind and title of the original, so the attempt is a NEW history row and
+  the original row is left as it was. Each resend is audited as `org.alerts.resend`
+  (`{ eventId, kind, delivered }`, with the actor). This is what makes a failed weekly digest
+  recoverable: its claim is released "so the next run retries", but the next run is the following
+  week's cron in a new window, so until now that week's digest was simply lost.
 
 ## Environment variables
 
@@ -612,5 +654,10 @@ titles and outcomes, never the sink URL).
   **The honest remainder:** it shares the previous item's remainder — digest-only delivery — and the
   in-app half is one word (`no baseline`) on the Live tab's outcome sheet, which an operator only sees
   if they open that tab. There is no repository- or report-page surface for it.
+- **A resent row stays resendable:** the original row is deliberately unchanged, so after a
+  successful resend it still carries its Resend button on the next load (the popover shows
+  "resent" only for the session that sent it). Nothing links the new row to the one it re-sent.
+- **Sink health reads the newest 100 rows:** a failing streak longer than that shows its start as
+  "at least" a date rather than the real one.
 - **No acknowledgement or assignment on a control alert:** the `AlertEvent` row records the decision,
   but there is no "who is fixing this" state — the same gap the history rows have generally.
