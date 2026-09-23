@@ -229,3 +229,19 @@ a parallel run has already swept an in-flight version bump into its own commit h
      undefined. Name a logic module distinctly (`*Model.ts`), never by case alone.
   Also: `npx prisma validate` exits 1 here only because `DATABASE_URL` is unset in the shell; set a
   placeholder URL to validate the schema.
+
+- **2026-09-23 (second `--challenge` run, challenge-2026-09-23b: 12 of 12 landed, 0 integration
+  failures, 0 coordinator fixes) - three things the next brief should change.**
+  1. **A builder's mid-wave full suite is noise here; the coordinator's integration run is the gate.**
+     Every builder that ran `npx vitest run` while siblings were still writing saw 1-19 failures in
+     the siblings' red-first test files, and each spent time proving they were foreign. Say in the
+     brief: "failures only in files another builder has dirty (check `git status --porcelain`) are
+     expected mid-wave; list them and hand off". All three integration runs were green.
+  2. **The builder order contradicts itself:** "commit `test(...)` then `feat(...)`, each commit
+     green" cannot both hold, because a test commit ahead of its implementation is red. Two
+     maturity builders committed red-only test commits (`ad89e230`, `c8659ae0`); the rest folded
+     tests into the feature commit. Proposal for the shared method: tests ride with the module
+     they pin; the red-before proof lives in the return file, not in history.
+  3. **`src/lib/local/transport/pi.e2e.test.ts` drives a live local model** and failed once under
+     the four-builder load (the model skipped the write tool); it passes alone in ~5 s. Name it in
+     the brief next to `lane-deps-spawn.test.ts` as known load flake.
