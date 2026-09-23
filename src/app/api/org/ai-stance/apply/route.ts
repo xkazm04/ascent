@@ -10,8 +10,9 @@
 // lifts the dimension that scores AI guidance.
 //
 // HITL: `preview: true` or `dryRun: true` returns the exact AI_POLICY.md bytes BEFORE
-// requirePrWriteContext / token mint / openArtifactDraftPr. The admin gate still runs — policy
-// bytes are org-authored, not public. Absent / false keeps the write path.
+// requirePrWriteTarget / token mint / openArtifactDraftPr. The admin gate and the tenancy check
+// (the repo's owner must be `org`) still run: policy bytes are org-authored, not public. Absent /
+// false keeps the write path.
 //
 // The write sequence lives in applyStanceToRepo, shared with the fleet sibling
 // /api/org/ai-stance/apply-batch (admin, one org, MAX_BATCH 25, mapPool). This route owns gating,
@@ -26,7 +27,7 @@ import { getActiveOrgStance, getOrgId, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
-import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
+import { mapPrWriteError, requirePrWriteTarget, resolvePrWriteCoordinate } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,15 +57,22 @@ export async function POST(request: Request) {
     preview?: unknown;
     dryRun?: unknown;
   };
-  const parsed = parseRepoUrl(body.repo ?? "");
-  if (!body.org || !parsed) {
+  const rawRepo = body.repo ?? "";
+  if (!body.org || !parseRepoUrl(rawRepo)) {
     return NextResponse.json({ error: "Provide { org, repo: 'owner/name' }." }, { status: 400 });
   }
   const org = body.org.toLowerCase();
-  parsed.owner = parsed.owner.toLowerCase();
 
   const denied = await requireOrgRole(org, "admin");
   if (denied) return denied;
+
+  // TENANCY, before the preview and before any installation lookup: the repo must sit in the gated
+  // org's own namespace. This route used to gate `org` and then mint for the repo's parsed owner, so an admin
+  // of any org could open a draft AI_POLICY.md PR in another tenant's repository with THAT tenant's
+  // installation token (audited under the caller's own org). The preview is refused too: it would
+  // render one org's policy against another org's repository.
+  const coordinate = await resolvePrWriteCoordinate(org, rawRepo, "owner-namespace");
+  if (coordinate instanceof Response) return coordinate;
 
   const active = await getActiveOrgStance(org);
   if (!active) {
@@ -76,12 +84,12 @@ export async function POST(request: Request) {
     version: active.version,
     publishedAt: active.publishedAt?.toISOString().slice(0, 10) ?? null,
   };
-  // HITL preview: same admin / published-stance gates as the write, zero GitHub writes. Must run
-  // before requirePrWriteContext so a dry-run cannot mint an installation token.
+  // HITL preview: same admin / tenancy / published-stance gates as the write, zero GitHub writes.
+  // Must run before requirePrWriteTarget so a dry-run cannot mint an installation token.
   if (body.preview === true || body.dryRun === true) {
     const artifact = buildStanceArtifact(active.stance, meta, {
-      fullName: `${parsed.owner}/${parsed.repo}`,
-      name: parsed.repo,
+      fullName: coordinate.fullName,
+      name: coordinate.repo,
     });
     return NextResponse.json({
       preview: true,
@@ -93,12 +101,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const ctx = await requirePrWriteContext(parsed.owner);
-    if (ctx instanceof Response) return ctx;
+    // The token is minted for the gated org and the coordinate is the one tenancy just admitted.
+    const target = await requirePrWriteTarget(org, rawRepo, "owner-namespace");
+    if (target instanceof Response) return target;
     const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
     const { pr, path } = await applyStanceToRepo({
-      token: ctx.token,
-      ref: parsed,
+      token: target.token,
+      ref: target.parsed,
       stance: active.stance,
       meta,
       base: body.base,

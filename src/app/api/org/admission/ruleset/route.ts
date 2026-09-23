@@ -23,10 +23,9 @@ import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { getRepoAdmission, setAdmissionRulesetId } from "@/lib/db/org-admission";
 import { compileStance } from "@/lib/org/admission";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
-import { requirePrWriteContext, mapPrWriteError } from "@/lib/github/pr-route";
+import { requirePrWriteTarget, mapPrWriteError, repoUnderOrg } from "@/lib/github/pr-route";
 import { applyRuleset, listRulesets, revertRuleset } from "@/lib/github/admission-write";
 import { resolveViewerLogin } from "@/lib/access";
-import { repoUnderOrg } from "@/app/api/org/admission/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,16 +83,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const ctx = await requirePrWriteContext(org);
-  if (ctx instanceof NextResponse) return ctx;
-  const [, name] = repo.split("/");
+  // Token for the gated org, coordinate of the ADMITTED repo: a tracked `xkazm04/kp` under org `kiro`
+  // is configured in `xkazm04/kp` (these calls used to pass `org` as the owner, i.e. `kiro/kp`).
+  const target = await requirePrWriteTarget(org, repo, "tracked");
+  if (target instanceof Response) return target;
   const actorLogin = await resolveViewerLogin();
 
   try {
     // Observed-vs-proposed: read what is already on the repo BEFORE adding to it, and return it so a
     // caller who is about to double up on an existing rule can see that.
-    const observed = await listRulesets(ctx.token, org, name!).catch(() => []);
-    const rulesetId = await applyRuleset(ctx.token, org, name!, compiled.ruleset);
+    const observed = await listRulesets(target.token, target.owner, target.repo).catch(() => []);
+    const rulesetId = await applyRuleset(target.token, target.owner, target.repo, compiled.ruleset);
     await setAdmissionRulesetId(org, repo, rulesetId);
     await recordOrgAudit(
       "org.admission_ruleset",
@@ -123,13 +123,12 @@ export async function DELETE(request: Request) {
   if (!admission?.rulesetId) {
     return NextResponse.json({ error: `No Ascent ruleset is recorded for ${repo}.` }, { status: 404 });
   }
-  const ctx = await requirePrWriteContext(org);
-  if (ctx instanceof NextResponse) return ctx;
-  const [, name] = repo.split("/");
+  const target = await requirePrWriteTarget(org, repo, "tracked");
+  if (target instanceof Response) return target;
   const actorLogin = await resolveViewerLogin();
 
   try {
-    await revertRuleset(ctx.token, org, name!, admission.rulesetId);
+    await revertRuleset(target.token, target.owner, target.repo, admission.rulesetId);
     // The column is cleared only after GitHub confirms (a 404 counts — someone deleting it directly
     // is the same end state). Clearing first would strand a live ruleset with no reversal handle.
     await setAdmissionRulesetId(org, repo, null);

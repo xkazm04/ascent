@@ -21,45 +21,22 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
-import { deleteRepoAdmission, listOrgAdmissions, upsertRepoAdmission, orgTracksRepo, MAX_RATIONALE } from "@/lib/db/org-admission";
+import { deleteRepoAdmission, listOrgAdmissions, upsertRepoAdmission, MAX_RATIONALE } from "@/lib/db/org-admission";
 import { isAdmissionMode, isAutonomyTierId } from "@/lib/org/admission";
 import { requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { resolveViewerLogin } from "@/lib/access";
+import { parseRepoFullName, repoUnderOrg } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** `owner/name` or null. Shape only — this makes no claim about who the repo belongs to. */
-export function parseRepoFullName(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const full = raw.trim();
-  return /^[\w.-]+\/[\w.-]+$/.test(full) ? full : null;
-}
-
-/**
- * The repo name a caller supplied, constrained to the org that was just gated. Returns null when the
- * shape is wrong OR when the repository does not belong to this org — the gate-then-constrain half
- * that a structural test cannot check for us.
- *
- * TENANCY IS THE ORG'S REPO SET, NOT A STRING PREFIX (UAT `PRIYA-L2-C5`). This used to require
- * `owner === org`, which is true only of an organization whose slug equals its GitHub owner
- * namespace. Every org named for its team rather than its account failed it: on this host, `kiro`
- * could never admit its own `xkazm04/*` repositories, so moonshot #3's remote work protocol was
- * permanently unreachable for the one org actually using it — not a test artifact, the real working
- * org. The prefix was never the authority anyway; `orgTracksRepo` reads the `(orgId, fullName)` key
- * that is, so a repo belonging to another tenant still matches nothing.
- *
- * The prefix survives as a FAST PATH ahead of the read, and only because it can never be wrong in
- * the direction that matters: an owner-namespace match is the case the old rule already admitted.
- */
-export async function repoUnderOrg(org: string, raw: unknown): Promise<string | null> {
-  const full = parseRepoFullName(raw);
-  if (!full) return null;
-  const [owner] = full.split("/");
-  if (owner?.toLowerCase() === org.toLowerCase()) return full;
-  return (await orgTracksRepo(org, full)) ? full : null;
-}
+// `repoUnderOrg` (and its shape check `parseRepoFullName`) moved to @/lib/github/pr-route, where it
+// is the `tracked` rule of requirePrWriteTarget: the admission WRITERS (propose, ruleset) need the
+// same tenancy the decision routes use, and they need it to hand back the repo's real owner, not the
+// org slug. The PRIYA-L2-C5 semantics are unchanged: an org admits a repo it tracks under another
+// owner namespace. Re-exported here so existing importers keep their import path.
+export { parseRepoFullName, repoUnderOrg };
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Admission decisions require a database." }, { status: 503 });

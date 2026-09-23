@@ -18,7 +18,8 @@ vi.mock("next/server", () => ({
 
 const h = vi.hoisted(() => ({
   requireOrgRole: vi.fn(),
-  requirePrWriteContext: vi.fn(),
+  getInstallationIdForOwner: vi.fn(),
+  getInstallationToken: vi.fn(),
   openArtifactDraftPr: vi.fn(),
   getActiveOrgStance: vi.fn(),
   getOrgId: vi.fn(),
@@ -43,11 +44,13 @@ vi.mock("@/lib/github/app", () => ({
     }
   },
   isAppConfigured: () => true,
+  getInstallationToken: h.getInstallationToken,
 }));
 vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   getActiveOrgStance: h.getActiveOrgStance,
   getOrgId: h.getOrgId,
+  getInstallationIdForOwner: h.getInstallationIdForOwner,
 }));
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => true }));
 vi.mock("@/lib/access", () => ({
@@ -55,10 +58,7 @@ vi.mock("@/lib/access", () => ({
   resolveViewerLogin: h.resolveViewerLogin,
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
-vi.mock("@/lib/github/pr-route", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/github/pr-route")>();
-  return { ...actual, requirePrWriteContext: h.requirePrWriteContext };
-});
+// The REAL pr-route composer runs, so the installation lookup is asserted by the org it was asked for.
 
 import { POST } from "./route";
 import { GitHubError } from "@/lib/github/source";
@@ -93,7 +93,8 @@ function run(body: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks();
   h.requireOrgRole.mockResolvedValue(null);
-  h.requirePrWriteContext.mockResolvedValue({ token: "installation-token" });
+  h.getInstallationIdForOwner.mockImplementation(async (owner: string) => `inst-${owner}`);
+  h.getInstallationToken.mockResolvedValue("installation-token");
   h.openArtifactDraftPr.mockImplementation(async (_t: string, ref: { owner: string; repo: string }) => ({
     url: `https://github.com/${ref.owner}/${ref.repo}/pull/1`,
     number: 1,
@@ -117,7 +118,7 @@ describe("POST /api/org/ai-stance/apply-batch — admin + tenancy", () => {
     expect(res.status).toBe(403);
     expect(h.requireOrgRole).toHaveBeenCalledWith("acme", "admin");
     expect(h.openArtifactDraftPr).not.toHaveBeenCalled();
-    expect(h.requirePrWriteContext).not.toHaveBeenCalled();
+    expect(h.getInstallationToken).not.toHaveBeenCalled();
   });
 
   it("401s an unsigned caller before any write", async () => {
@@ -128,10 +129,10 @@ describe("POST /api/org/ai-stance/apply-batch — admin + tenancy", () => {
     expect(h.openArtifactDraftPr).not.toHaveBeenCalled();
   });
 
-  it("rejects (400) a mixed-owner batch before the admin gate", async () => {
+  it("guard: rejects (400) a mixed-owner batch before the admin gate", async () => {
     const res = await run({ org: "acme", repos: ["acme/a", "victim/secret"] });
     expect(res.status).toBe(400);
-    expect(String((await res.json()).error)).toMatch(/belong to acme/i);
+    expect((await res.json()).error).toBe("All repos in a batch must belong to acme.");
     expect(h.requireOrgRole).not.toHaveBeenCalled();
     expect(h.openArtifactDraftPr).not.toHaveBeenCalled();
   });
@@ -148,7 +149,8 @@ describe("POST /api/org/ai-stance/apply-batch — 3 repos + cap + isolation", ()
     expect(json.results.every((r: { ok: boolean }) => r.ok)).toBe(true);
     expect(json.results.map((r: { repo: string }) => r.repo).sort()).toEqual(["acme/a", "acme/b", "acme/c"]);
     expect(h.requireOrgRole).toHaveBeenCalledWith("acme", "admin");
-    expect(h.requirePrWriteContext).toHaveBeenCalledTimes(1);
+    expect(h.getInstallationIdForOwner.mock.calls).toEqual([["acme"]]);
+    expect(h.getInstallationToken).toHaveBeenCalledTimes(1);
     expect(h.openArtifactDraftPr).toHaveBeenCalledTimes(3);
   });
 

@@ -14,7 +14,7 @@ import { getOrgId } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
-import { classifyPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
+import { classifyPrWriteError, requirePrWriteTarget, type PrWriteCoordinate } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import type { BatchResult } from "@/features/shared/practices/practiceApplyShared";
 
@@ -80,15 +80,16 @@ export async function POST(request: Request) {
   const skipped = unique.length - batch.length;
 
   try {
-    // Install presence (403) + installation-token mint, single-sourced across the PR-write routes. A
-    // mint failure throws into the catch below, which keeps THIS route's own "couldn't mint" 502 copy.
-    const ctx = await requirePrWriteContext(owner);
-    if (ctx instanceof Response) return ctx;
-    const { token } = ctx;
-    const orgId = (await getOrgId(owner.toLowerCase()).catch(() => null)) ?? undefined;
+    // The one door (@/lib/github/pr-route): every coordinate re-checked against the gated owner, then
+    // install presence (403) + ONE token mint for that org. A mint failure throws into the catch
+    // below, which keeps THIS route's own "couldn't mint" 502 copy.
+    const target = await requirePrWriteTarget(owner, batch.map((b) => b.raw), "owner-namespace");
+    if (target instanceof Response) return target;
+    const { token, org } = target;
+    const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
 
     // Bounded fan-out; the per-repo worker owns its errors so one failure can't abort the pool.
-    const results = await mapPool<typeof batch[number], BatchResult>(batch, SCAN_CONCURRENCY, async ({ raw, ref }) => {
+    const results = await mapPool<PrWriteCoordinate, BatchResult>(target.targets, SCAN_CONCURRENCY, async ({ raw, parsed: ref }) => {
       try {
         const result = await applyPracticeToRepo(
           token,
@@ -99,7 +100,7 @@ export async function POST(request: Request) {
           // W6 — every PR in the fan-out carries the org's own pattern when there is one. Resolved
           // per repo rather than hoisted: the read is request-cached, and hoisting it would put an
           // org-wide fetch in front of a fan-out that may apply to a single repo.
-          { orgSlug: owner.toLowerCase() },
+          { orgSlug: org },
         );
         if (result.kind === "unknown-practice") {
           return { repo: result.ctx.fullName, ok: false, error: `Unknown practice "${body.practiceId}".` };

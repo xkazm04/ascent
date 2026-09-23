@@ -12,7 +12,7 @@ import { getOrgId } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
-import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
+import { mapPrWriteError, requirePrWriteTarget } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,7 +43,8 @@ export async function POST(request: Request) {
      *  is what guarantees the committed content is the content the user actually reviewed. */
     previewFingerprint?: string;
   };
-  const parsed = parseRepoUrl(body.repo ?? "");
+  const rawRepo = body.repo ?? "";
+  const parsed = parseRepoUrl(rawRepo);
   if (!parsed || !body.practiceId) {
     return NextResponse.json({ error: "Provide { repo: 'owner/name', practiceId }." }, { status: 400 });
   }
@@ -60,13 +61,15 @@ export async function POST(request: Request) {
   if (denied) return denied;
 
   try {
-    // Install presence (403) + installation-token mint, single-sourced across the PR-write routes.
-    const ctx = await requirePrWriteContext(parsed.owner);
-    if (ctx instanceof Response) return ctx;
-    const orgId = (await getOrgId(parsed.owner).catch(() => null)) ?? undefined;
+    // The one door (@/lib/github/pr-route): the coordinate must sit in the gated org's namespace
+    // (here it IS the gated org, so this cannot refuse), then install presence (403) + token mint for
+    // that org. The writer takes the returned coordinate, never a string of its own.
+    const target = await requirePrWriteTarget(parsed.owner, rawRepo, "owner-namespace");
+    if (target instanceof Response) return target;
+    const orgId = (await getOrgId(target.org).catch(() => null)) ?? undefined;
     const result = await applyPracticeToRepo(
-      ctx.token,
-      parsed,
+      target.token,
+      target.parsed,
       body.practiceId,
       body.base,
       { orgId, actorId: actorLogin ?? undefined },
@@ -74,7 +77,7 @@ export async function POST(request: Request) {
         expectedFingerprint: typeof body.previewFingerprint === "string" ? body.previewFingerprint : undefined,
         // W6 — lets the artifact carry the org's OWN mined pattern when it has one. Same slug
         // resolution as getOrgId above, so the two can't disagree about which org this is.
-        orgSlug: parsed.owner,
+        orgSlug: target.org,
       },
     );
     if (result.kind === "unknown-practice") {

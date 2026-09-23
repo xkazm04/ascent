@@ -13,7 +13,7 @@ import { getActiveOrgStance, getOrgId, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
-import { classifyPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
+import { classifyPrWriteError, requirePrWriteTarget, type PrWriteCoordinate } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { applyStanceToRepo } from "@/lib/org/stance-apply";
 
@@ -92,12 +92,15 @@ export async function POST(request: Request) {
   };
 
   try {
-    const ctx = await requirePrWriteContext(org);
-    if (ctx instanceof Response) return ctx;
-    const { token } = ctx;
+    // One door: the composer re-checks every coordinate against the gated org (the loop above has
+    // already refused a foreign one with this route's own 400), mints ONE token for that org, and
+    // hands back the coordinates the writer uses.
+    const target = await requirePrWriteTarget(org, batch.map((b) => b.raw), "owner-namespace");
+    if (target instanceof Response) return target;
+    const { token } = target;
     const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
 
-    const results = await mapPool<(typeof batch)[number], BatchResult>(batch, SCAN_CONCURRENCY, async ({ raw, ref }) => {
+    const results = await mapPool<PrWriteCoordinate, BatchResult>(target.targets, SCAN_CONCURRENCY, async ({ raw, parsed: ref }) => {
       try {
         const { pr, fullName } = await applyStanceToRepo({
           token,

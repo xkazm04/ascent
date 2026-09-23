@@ -15,7 +15,8 @@ vi.mock("next/server", () => ({
 
 const h = vi.hoisted(() => ({
   requireOrgRole: vi.fn(),
-  requirePrWriteContext: vi.fn(),
+  getInstallationIdForOwner: vi.fn(),
+  getInstallationToken: vi.fn(),
   openArtifactDraftPr: vi.fn(),
   getActiveOrgStance: vi.fn(),
   getOrgId: vi.fn(),
@@ -28,11 +29,16 @@ vi.mock("@/lib/github/source", async (importOriginal) => {
   return { ...actual, fetchRepoContext: h.fetchRepoContext };
 });
 vi.mock("@/lib/practices/apply", () => ({ openArtifactDraftPr: h.openArtifactDraftPr }));
-vi.mock("@/lib/github/app", () => ({ isAppConfigured: () => true }));
+vi.mock("@/lib/github/app", () => ({
+  AppApiError: class AppApiError extends Error {},
+  isAppConfigured: () => true,
+  getInstallationToken: h.getInstallationToken,
+}));
 vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   getActiveOrgStance: h.getActiveOrgStance,
   getOrgId: h.getOrgId,
+  getInstallationIdForOwner: h.getInstallationIdForOwner,
 }));
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => true }));
 vi.mock("@/lib/access", () => ({
@@ -40,10 +46,8 @@ vi.mock("@/lib/access", () => ({
   resolveViewerLogin: h.resolveViewerLogin,
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
-vi.mock("@/lib/github/pr-route", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/github/pr-route")>();
-  return { ...actual, requirePrWriteContext: h.requirePrWriteContext };
-});
+// The REAL pr-route composer runs: the installation lookup and the token mint are the boundary this
+// file asserts on, so a cross-tenant mint is visible as a call with the wrong org.
 
 import { POST } from "./route";
 import { buildStanceArtifact } from "@/lib/org/stance-artifact";
@@ -85,7 +89,10 @@ function run(body: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks();
   h.requireOrgRole.mockResolvedValue(null);
-  h.requirePrWriteContext.mockResolvedValue({ token: "installation-token" });
+  // Every org in these tests HAS an installation, the victim included: the refusal must come from
+  // tenancy, not from a missing install.
+  h.getInstallationIdForOwner.mockImplementation(async (owner: string) => `inst-${owner}`);
+  h.getInstallationToken.mockResolvedValue("installation-token");
   h.openArtifactDraftPr.mockResolvedValue({
     url: "https://github.com/acme/api/pull/7",
     number: 7,
@@ -99,7 +106,8 @@ beforeEach(() => {
 
 function expectNoWrite() {
   expect(h.openArtifactDraftPr).not.toHaveBeenCalled();
-  expect(h.requirePrWriteContext).not.toHaveBeenCalled();
+  expect(h.getInstallationIdForOwner).not.toHaveBeenCalled();
+  expect(h.getInstallationToken).not.toHaveBeenCalled();
   expect(h.fetchRepoContext).not.toHaveBeenCalled();
 }
 
@@ -157,7 +165,8 @@ describe("POST /api/org/ai-stance/apply — write path", () => {
     expect(json.path).toBe("AI_POLICY.md");
     expect(json.preview).toBeUndefined();
     expect(h.requireOrgRole).toHaveBeenCalledWith("acme", "admin");
-    expect(h.requirePrWriteContext).toHaveBeenCalledTimes(1);
+    expect(h.getInstallationIdForOwner.mock.calls).toEqual([["acme"]]);
+    expect(h.getInstallationToken).toHaveBeenCalledTimes(1);
     expect(h.openArtifactDraftPr).toHaveBeenCalledTimes(1);
   });
 
@@ -166,5 +175,32 @@ describe("POST /api/org/ai-stance/apply — write path", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).url).toBe("https://github.com/acme/api/pull/7");
     expect(h.openArtifactDraftPr).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("POST /api/org/ai-stance/apply — the repo must belong to the gated org", () => {
+  it("403s an admin of acme naming victim/app: no victim token, no PR", async () => {
+    const res = await run({ org: "acme", repo: "victim/app" });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("That repository doesn't belong to acme.");
+    expect(h.getInstallationIdForOwner).not.toHaveBeenCalledWith("victim");
+    expectNoWrite();
+  });
+
+  it("refuses the same coordinate on preview, before any policy bytes are rendered", async () => {
+    const res = await run({ org: "acme", repo: "victim/app", preview: true });
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe("That repository doesn't belong to acme.");
+    expect(json.body).toBeUndefined();
+    expect(json.bytes).toBeUndefined();
+    expectNoWrite();
+  });
+
+  it("guard: a mixed-case own-org coordinate still writes, to the lower-cased owner", async () => {
+    const res = await run({ org: "Acme", repo: "ACME/api" });
+    expect(res.status).toBe(200);
+    expect(h.getInstallationIdForOwner.mock.calls).toEqual([["acme"]]);
+    expect(h.openArtifactDraftPr.mock.calls[0]![1]).toMatchObject({ owner: "acme", repo: "api" });
   });
 });

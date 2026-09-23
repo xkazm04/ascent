@@ -26,7 +26,7 @@ import { listBehindRepos, listDriftedRepos } from "@/lib/db/practice-adoption";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
-import { classifyPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
+import { classifyPrWriteError, requirePrWriteTarget, type PrWriteCoordinate } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import type { BatchResult } from "@/features/shared/practices/practiceApplyShared";
 
@@ -129,16 +129,17 @@ export async function POST(request: Request) {
   const skipped = unique.length - batch.length;
 
   try {
-    const ctx = await requirePrWriteContext(org);
-    if (ctx instanceof Response) return ctx;
-    const { token } = ctx;
+    // The one door: re-checks every coordinate against the gated org, mints ONE token for it.
+    const target = await requirePrWriteTarget(org, batch.map((b) => b.raw), "owner-namespace");
+    if (target instanceof Response) return target;
+    const { token } = target;
     const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
     // The version span this rollout is closing, recorded on the audit row so "why did 12 PRs open on
     // Tuesday" has an answer that outlives the session. Null for a drift rollout (no version moved) and
     // for a practice with no mined pattern — absent, never 0.
     const versions = mode === "behind" ? await listBehindRepos(org, practiceId).catch(() => null) : null;
 
-    const results = await mapPool<(typeof batch)[number], BatchResult>(batch, SCAN_CONCURRENCY, async ({ raw, ref }) => {
+    const results = await mapPool<PrWriteCoordinate, BatchResult>(target.targets, SCAN_CONCURRENCY, async ({ raw, parsed: ref }) => {
       try {
         const result = await applyPracticeToRepo(
           token,

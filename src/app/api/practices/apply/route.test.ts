@@ -95,7 +95,7 @@ import { artifactFingerprint } from "@/lib/practices/fingerprint";
 import { openDraftPr } from "@/lib/github/write";
 import { fetchRepoContext } from "@/lib/github/source";
 import { AppApiError, getInstallationToken } from "@/lib/github/app";
-import { getInstallationIdForOwner, recordAudit, recordPracticePr } from "@/lib/db";
+import { getInstallationIdForOwner, getOrgId, recordAudit, recordPracticePr } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { requireOrgRole } from "@/lib/authz";
 
@@ -259,5 +259,17 @@ describe("POST /api/practices/apply — authorized path + overwrite guard", () =
     expect(res.status).toBe(409);
     const json = await res.json();
     expect(String(json.error)).toMatch(/overwrite|already exists/i);
+  });
+});
+
+describe("POST /api/practices/apply — one lower-cased org for gate, mint and audit", () => {
+  it("guard: 'MyOrg/Repo' gates, mints and audits against 'myorg'", async () => {
+    const res = await run({ repo: "MyOrg/Repo", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("myorg", "admin");
+    expect(mockInstallId.mock.calls).toEqual([["myorg"]]);
+    expect(vi.mocked(getOrgId).mock.calls).toEqual([["myorg"]]);
+    expect(mockFetchCtx.mock.calls[0]![0]).toMatchObject({ owner: "myorg", repo: "Repo" });
   });
 });

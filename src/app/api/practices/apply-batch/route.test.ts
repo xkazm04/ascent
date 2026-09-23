@@ -188,12 +188,12 @@ describe("POST /api/practices/apply-batch — tenant gate", () => {
 });
 
 describe("POST /api/practices/apply-batch — same-org (cross-tenant) guard", () => {
-  it("rejects (400) a batch spanning two different owners — cross-tenant write refused", async () => {
+  it("guard: rejects (400) a batch spanning two different owners — cross-tenant write refused", async () => {
     const res = await run({ repos: ["orgA/app", "orgB/app"], practiceId: "ci-gates" });
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(String(json.error)).toMatch(/same org/i);
+    expect(json.error).toBe("All repos in a batch must belong to the same org.");
     // Refused before the gate / any write: a mixed-owner batch must never reach a token mint.
     expect(mockRequireOrgRole).not.toHaveBeenCalled();
     expect(mockOpenPr).not.toHaveBeenCalled();

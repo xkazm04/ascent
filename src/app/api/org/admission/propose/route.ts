@@ -19,10 +19,9 @@ import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { getRepoAdmission } from "@/lib/db/org-admission";
 import { codeownersMarkers, compileStance } from "@/lib/org/admission";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
-import { requirePrWriteContext, mapPrWriteError } from "@/lib/github/pr-route";
+import { requirePrWriteTarget, mapPrWriteError, repoUnderOrg } from "@/lib/github/pr-route";
 import { proposeManagedBlock } from "@/lib/github/admission-write";
 import { resolveViewerLogin } from "@/lib/access";
-import { repoUnderOrg } from "@/app/api/org/admission/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,17 +70,19 @@ export async function POST(request: Request) {
   }
 
   const confirm = body.confirm === true;
-  const ctx = await requirePrWriteContext(org);
-  if (ctx instanceof NextResponse) return ctx;
-  const [, name] = repo.split("/");
+  // The token is minted for the gated org; the coordinate is the ADMITTED repo. A tracked repo under
+  // another owner namespace (org `kiro` over `xkazm04/kp`) is written in `xkazm04/kp`. This used to
+  // pass `owner: org`, so every such proposal read and wrote the nonexistent `kiro/kp`.
+  const target = await requirePrWriteTarget(org, repo, "tracked");
+  if (target instanceof Response) return target;
   const { begin, end } = codeownersMarkers(stance.version);
   const actorLogin = await resolveViewerLogin();
 
   try {
     const result = await proposeManagedBlock({
-      token: ctx.token,
-      owner: org,
-      repo: name!,
+      token: target.token,
+      owner: target.owner,
+      repo: target.repo,
       path: "CODEOWNERS",
       block: compiled.codeownersBlock,
       begin,
