@@ -2506,6 +2506,11 @@ model RepoConformanceMap {
   // failure is never evidence of drift.
   contextMapRevision     String?
   repoContextMapRevision String?
+  // The manifest's `registry.remote`, normalized to `owner/repo` (a remote that is not a GitHub
+  // repo is kept verbatim). THREE states: NULL = not read (no manifest, or a row swept before this
+  // column existed), "" = the manifest was read and names no registry, else the remote. Fleet
+  // pointing is derived from it; a NULL row with a manifest is unmeasured, never "no pointer".
+  registryRemote     String?
   ingestedAt         DateTime
 
   // One map header per repo. Block-level for the same reason as UsageEvent.idemKey — the emitted
