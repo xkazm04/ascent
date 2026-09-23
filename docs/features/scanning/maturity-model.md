@@ -646,7 +646,7 @@ is not built.
 
 Every scan records the rubric version that produced it (`Scan.rubricVersion`, stamped via
 `src/lib/cache.ts`). It is one short monotonic token, defined in exactly one place:
-`src/lib/maturity/model.ts`. **Current: `r18`.**
+`src/lib/maturity/model.ts`. **Current: `r19`.**
 
 It exists so a cached score always carries the rubric that produced it. A score computed under an
 older rubric is not wrong, it is *not comparable* — so cache reuse, the org corpus, and cross-repo
@@ -673,14 +673,32 @@ threshold, archetype lenses, **the assessment system prompt**, and detector poin
 `d.description`, so a dimension's `description` and the posture `blurb`s render in the report without
 reaching the model.
 
-**Mechanical backstop.** `model.test.ts` pins a sha256 of the rubric surface (dimensions, levels,
-blend, guardband, posture threshold, archetype weights, and the built assessment system prompt). Any
-change there fails the suite until it is re-pinned, which forces the bump decision into the same diff.
-The guard is deliberately broader than the prompt: re-pinning without bumping is legitimate for a
-genuinely display-only change, but the reasoning belongs in the diff.
+**Mechanical backstops.** Two, because one hash cannot reach both halves of the rubric.
+
+- `model.test.ts` pins a sha256 of the rubric *declaration* (dimensions, levels, blend, guardband,
+  posture threshold, archetype weights, and the built assessment system prompt). Any change there
+  fails the suite until it is re-pinned, which forces the bump decision into the same diff. The guard
+  is deliberately broader than the prompt: re-pinning without bumping is legitimate for a genuinely
+  display-only change, but the reasoning belongs in the diff.
+- `rubric-fingerprint.test.ts` pins what the declaration cannot reach. A golden-fixture corpus
+  (`src/lib/maturity/rubric-corpus.ts`: nine synthetic repos, one per honesty rule) runs through the
+  real pipeline (`buildScanScoreInput`, `buildAssessmentPrompt`, `assembleReport`) at a fixed clock
+  with no network. The result is hashed on its full explanation object: signals, facets and labels,
+  the system and user prompts, and the report's scores, evidence, roadmap dimensions and
+  `scoreIntegrity`. It is pinned as `PINNED_RUBRIC_FINGERPRINT = { version, sha256 }`. A change to a
+  detector's points, a PR, governance or platform fold, the D9 battery, the user prompt's file window,
+  the claim verifier or the engine turns it red with a message that demands the bump and the re-pin
+  in one diff. Re-pinning the hash alone is right only when the corpus itself changed. A coverage
+  guard (`rubric-fingerprint.coverage.test.ts`) keeps every fixture the only witness of some pipeline
+  branch, so the corpus cannot rot into a pin that matches nothing.
+
+What neither reaches: a live model's answer (every fixture carries a canned one) and the network half
+of ingestion (which files a forge returns for a tree). A change there still needs the bump judged by
+hand.
 
 | Version | Change |
 | --- | --- |
+| `r19` (2026-09-23) | **The bump five changes were owed.** Nothing moved in the bump itself. Five score-moving changes had landed under an unchanged `r18` because the only backstop hashed the declaration: D6 ratchet +15 and zero-warning +5 (303bb0258, 2026-08-31; the `r14` row below says no detector moved, which was true of that commit and silent about this one); claim quotes verified against the text the model was shown, so a bullet-copied commit subject verifies (84226a65); a guidance copy or projection no longer earns `commands_agree` against its source (be3780d3); window-aware coverage, which lowers the blend when fetched files overflow the prompt window, plus the WINDOW COVERAGE user-prompt block (178a2818); and the truncated-tree exact-name fetch (b8c9df08, the `r17` precedent). `r18` rows therefore name two instruments, and the bump re-derives every cached score. The remedy for the class is the fixture fingerprint above. No weight, band, blend, guardband, threshold, lens or system-prompt text moved. |
 | `r18` (2026-09-15) | **D1 stops paying for guidance length.** `guidanceQuality` paid 5 points past 1200 characters and 8 past 4000, beside eight content rules. Two characters of padding across 4000 bought 3 D1 points, and a 4001-character file of filler naming each trigger once reached the grader maximum. Both tiers are removed; the Context Health quality normalizer drops from 56 to 48. D1 falls by up to 8 on repos whose graded document passed 1200 characters. Mock replay of the ten captured bench fixtures: exact level agreement 7/10 to 8/10, within one level 10/10 unchanged. No weight, band, blend or guardband moved. Evidence: [SCORING-VALIDITY.md section 4c](../../SCORING-VALIDITY.md). |
 | `r17` (2026-09-05) | **The ingested file set is a pure function of the tree.** The byte budget used to be spent inside the concurrent fetch pool with an optimistic claim reconciled after each await, so a budget-bound repo read a timing-dependent file set (34–41 files, 4–6 distinct sets on a measured fixture). `planFetchBudget` now plans admission from listed blob sizes before any fetch (44–46 files, one set). No constant moved and nothing was priced, but the deterministic detectors now see more content on budget-bound repos, so scores can move on rescan; the bump keeps r16 rows labelled as the instrument that produced them. |
 | `r16` (2026-09-01) | **A seventh craft axis, `code-health`.** The craft rules require at least one rung under it for any dimension at or above the green floor; nothing priced. The bump exists because the system prompt asks a different question. |
