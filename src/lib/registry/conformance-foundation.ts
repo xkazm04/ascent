@@ -19,6 +19,9 @@ export interface ManifestFoundation {
   /** The `scope:` block's exclusion lists; `null` when the manifest has no `scope:` block at all —
    *  a different fact from an empty one, and what the fleet map reports as `scope: missing`. */
   scope: RepoScope | null;
+  /** The top-level `registry:` block's `remote`, normalized to `owner/repo` for a GitHub remote and
+   *  kept verbatim otherwise; `null` when the manifest names no registry remote. */
+  registryRemote: string | null;
 }
 
 const unquote = (s: string): string => {
@@ -93,9 +96,45 @@ export function parseManifestScope(text: string): RepoScope | null {
   return { outOfScopeCategories: list("out_of_scope_categories"), outOfScopeSubjects: list("out_of_scope_subjects") };
 }
 
-/** Both reads over one manifest body. */
+/** `github:owner/repo`, `https://github.com/owner/repo(.git)` and a bare `owner/repo` all name the
+ *  same GitHub repo; anything else is kept as written, so a foreign remote can still be SHOWN. */
+export function normalizeRegistryRemote(raw: string): string {
+  const v = raw.trim();
+  const m =
+    v.match(/^github:([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i) ??
+    v.match(/^(?:https?:\/\/|git@)?(?:www\.)?github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i) ??
+    v.match(/^([\w.-]+\/[\w.-]+)$/);
+  return m ? m[1]! : v;
+}
+
+/**
+ * The fleet pointer: `remote:` directly under a TOP-LEVEL `registry:` block, the shape the
+ * ai-manifest spec carries and the Registry tab tells users to add. A `remote:` under any other
+ * block (`repo:`, `knowledge:`) is not a registry pointer and is ignored.
+ */
+export function parseManifestRegistryRemote(text: string): string | null {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^registry:\s*$/.test(stripComment(l)));
+  if (start < 0) return null;
+  let indent: number | null = null; // the block's own key indent; a deeper `remote:` belongs to a child
+  for (let i = start + 1; i < lines.length; i++) {
+    const raw = lines[i]!;
+    if (/^\S/.test(raw) && !/^#/.test(raw)) break; // next top-level key
+    const line = stripComment(raw);
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    const lead = line.match(/^\s*/)![0].length;
+    indent ??= lead;
+    const kv = lead === indent ? line.match(/^\s+remote:\s*(.+)$/) : null;
+    if (!kv) continue;
+    const v = unquote(kv[1]!);
+    return v ? normalizeRegistryRemote(v) : null;
+  }
+  return null;
+}
+
+/** Every read over one manifest body. */
 export function parseManifestFoundation(text: string): ManifestFoundation {
-  return { domains: parseManifestDomains(text), scope: parseManifestScope(text) };
+  return { domains: parseManifestDomains(text), scope: parseManifestScope(text), registryRemote: parseManifestRegistryRemote(text) };
 }
 
 const DECISIONS: readonly DirectionDecision[] = ["accepted", "declined", "deferred"];

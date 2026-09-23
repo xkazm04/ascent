@@ -52,7 +52,7 @@ describe("parseManifestScope", () => {
   });
   it("is null when there is no scope block — 'missing', not 'empty'", () => {
     expect(parseManifestScope("knowledge:\n  domains: [a]\n")).toBeNull();
-    expect(parseManifestFoundation("knowledge:\n  domains: [a]\n")).toEqual({ domains: ["a"], scope: null });
+    expect(parseManifestFoundation("knowledge:\n  domains: [a]\n")).toEqual({ domains: ["a"], scope: null, registryRemote: null });
   });
   it("treats a scope block with no exclusion keys as empty lists", () => {
     expect(parseManifestScope("scope:\n  does:\n    - x\n")).toEqual({ outOfScopeCategories: [], outOfScopeSubjects: [] });
@@ -78,5 +78,29 @@ describe("parseDirectionsLedger", () => {
   });
   it("is [] for an empty file", () => {
     expect(parseDirectionsLedger("")).toEqual([]);
+  });
+});
+
+describe("parseManifestFoundation: registry.remote (the fleet pointer)", () => {
+  it("reads a top-level registry block's github remote as owner/repo", () => {
+    const text = "registry:\n  remote: github:xkazm04/ai-registry\n  local: ../ai-registry\nknowledge:\n  domains: [software-engineering]\n";
+    expect(parseManifestFoundation(text).registryRemote).toBe("xkazm04/ai-registry");
+  });
+  it("is null for a manifest with no top-level registry block", () => {
+    expect(parseManifestFoundation("knowledge:\n  domains: [a]\n").registryRemote).toBeNull();
+  });
+  it("is null when remote sits under another block", () => {
+    expect(parseManifestFoundation("repo:\n  remote: github:a/b\n").registryRemote).toBeNull();
+  });
+  it("reads the real shape: comments, quotes, and a block that ends at the next top-level key", () => {
+    const text = '# header\nregistry:\n  # the org registry\n  remote: "github:Acme/AI-Registry"   # canonical\nknowledge:\n  remote: github:x/y\n';
+    expect(parseManifestFoundation(text).registryRemote).toBe("Acme/AI-Registry");
+  });
+  it("normalizes a github URL, and keeps a remote it cannot normalize verbatim rather than guessing", () => {
+    expect(parseManifestFoundation("registry:\n  remote: https://github.com/acme/ai-registry.git\n").registryRemote).toBe("acme/ai-registry");
+    expect(parseManifestFoundation("registry:\n  remote: gitlab:acme/registry\n").registryRemote).toBe("gitlab:acme/registry");
+  });
+  it("is null for a registry block with only a local path", () => {
+    expect(parseManifestFoundation("registry:\n  local: ../ai-registry\n").registryRemote).toBeNull();
   });
 });

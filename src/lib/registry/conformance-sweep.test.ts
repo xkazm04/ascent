@@ -145,6 +145,8 @@ describe("sweepConformance", () => {
       domains: ["software-engineering"],
       scope: { outOfScopeCategories: ["software-engineering/llm-agent/companion"], outOfScopeSubjects: ["software-engineering/feed"] },
       directions: [{ subject: "table", bundle: "software-engineering", decision: "declined" }],
+      // The manifest was read and names no registry: a measured absence, not "not read".
+      registryRemote: "",
     });
     expect(input.header.weaklyGovernedContexts).toEqual(["A/B"]);
   });
@@ -174,6 +176,7 @@ describe("sweepConformance", () => {
       domains: [],
       scope: { outOfScopeCategories: [], outOfScopeSubjects: [] },
       directions: [],
+      registryRemote: null,
     });
   });
 
@@ -349,7 +352,29 @@ describe("foundationOf", () => {
       domains: [],
       scope: { outOfScopeCategories: [], outOfScopeSubjects: [] },
       directions: [],
+      registryRemote: null,
     });
+  });
+  it("carries the manifest's registry pointer, and '' for a manifest read with none (a measured absence)", () => {
+    const pointed = "registry:\n  remote: github:acme/ai-registry\nknowledge:\n  domains: [a]\n";
+    expect(foundationOf({ manifest: pointed, ledger: null, hasContextMap: false }).registryRemote).toBe("acme/ai-registry");
+    expect(foundationOf({ manifest: "knowledge:\n  domains: [a]\n", ledger: null, hasContextMap: false }).registryRemote).toBe("");
+    expect(foundationOf({ manifest: null, ledger: null, hasContextMap: false }).registryRemote).toBeNull();
+  });
+  it("hands the pointer to both writers: the ingest and the map-less header", async () => {
+    mockRead.mockResolvedValue(files({ manifest: "registry:\n  remote: github:acme/ai-registry\n" }));
+    await sweepConformance("acme", "tok");
+    expect(mockIngest.mock.calls[0]![0].foundation.registryRemote).toBe("acme/ai-registry");
+    mockRead.mockResolvedValue(files({ map: null, mapSha: null, manifest: "registry:\n  remote: github:other/reg\n" }));
+    await sweepConformance("acme", "tok");
+    expect(mockClear.mock.calls[0]![0].foundation.registryRemote).toBe("other/reg");
+  });
+  it("guard: a repo the reader cannot reach writes nothing, so its previous header (and pointer) stays", async () => {
+    const reader = { files: vi.fn().mockResolvedValue(null), contextMapRevision: vi.fn().mockResolvedValue(null) };
+    const r = await sweepConformance("acme", reader);
+    expect(mockIngest).not.toHaveBeenCalled();
+    expect(mockClear).not.toHaveBeenCalled();
+    expect(r.scanned).toBe(0);
   });
   it("reads a manifest with no scope block as an EMPTY scope, so every in-domain absence is a candidate", () => {
     expect(foundationOf({ manifest: "knowledge:\n  domains: [a]\n", ledger: null, hasContextMap: true })).toMatchObject({

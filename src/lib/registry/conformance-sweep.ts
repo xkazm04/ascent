@@ -58,6 +58,8 @@ export function foundationOf(files: Pick<RepoStandardsFiles, "manifest" | "ledge
     domains: parsed?.domains ?? [],
     scope: parsed?.scope ?? EMPTY_SCOPE,
     directions: files.ledger ? parseDirectionsLedger(files.ledger) : [],
+    // "" is a MEASURED absence (the manifest was read and names no registry); null is "not read".
+    registryRemote: parsed ? (parsed.registryRemote ?? "") : null,
   };
 }
 
