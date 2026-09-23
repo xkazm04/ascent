@@ -55,10 +55,10 @@ describe("HeldDiff — the held commits, inline", () => {
 });
 
 describe("PlanDecision — what approving held work does", () => {
-  it("reads 'Approve — land these commits' on a held plan, and 'Approve as a direction' otherwise", () => {
+  it("reads 'Approve: land these commits' on a held plan, and 'Approve as a direction' otherwise", () => {
     const { unmount } = render(<PlanDecision plan={held} onDecided={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Approve…" }));
-    expect(screen.getByRole("button", { name: "Approve — land these commits" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve: land these commits" })).toBeInTheDocument();
     unmount();
     render(<PlanDecision plan={plan("p2")} onDecided={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Approve…" }));

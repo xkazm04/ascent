@@ -49,7 +49,7 @@ export function PlanReview({ plan: p }: { plan: LoopPlanRecord }) {
         <div data-testid="plan-held" className="rounded-lg border border-warn/40 px-4 py-3">
           <p className="type-body-sm text-slate-200">
             The fence held this lane&apos;s work on <code className="font-mono text-warn">{p.heldBranch}</code>. These are the
-            commits the plan did not declare, and approving lands exactly these — read them before you decide:
+            commits the plan did not declare, and approving lands exactly these. Read them before you decide:
           </p>
           <HeldDiff planId={p.id} heldBranch={p.heldBranch} />
         </div>

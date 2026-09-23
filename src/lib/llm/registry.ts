@@ -217,7 +217,7 @@ export const REGISTRY: Record<ProviderName, ProviderDescriptor> = {
     scan: () => new MockProvider(),
     textSeam: {
       none:
-        "there is no honest deterministic text for a caller whose whole job is judgment — " +
+        "there is no honest deterministic text for a caller whose whole job is judgment; " +
         '"no engine" is the truthful answer',
     },
   },

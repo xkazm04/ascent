@@ -24,7 +24,7 @@ const VERBS: { verb: Verb; label: string }[] = [
 
 const SUBMIT: Record<Verb, string> = { approve: "Approve as a direction", revise: "Send back for revision", reject: "Reject the plan" };
 /** A held plan's approval lands the parked commits the reviewer just read — the button says so. */
-const APPROVE_HELD = "Approve — land these commits";
+const APPROVE_HELD = "Approve: land these commits";
 
 export function PlanDecision({ plan, onDecided }: { plan: LoopPlanRecord; onDecided: (plan: LoopPlanRecord, direction: LoopDirectionRecord | null) => void }) {
   const [verb, setVerb] = useState<Verb | null>(null);

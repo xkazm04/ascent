@@ -1338,7 +1338,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           adopted = { commits: out.commits, branch };
           await appendLaneLog(
             laneId,
-            `Adopted ${out.commits} commit(s) from ${branch} — no agent session was spent: these are the commits the operator reviewed and approved. The guard and the rescan still judge them.`,
+            `Adopted ${out.commits} commit(s) from ${branch}. No agent session was spent: these are the commits the operator reviewed and approved. The guard and the rescan still judge them.`,
           );
         } else {
           await appendLaneLog(
@@ -1515,7 +1515,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
               laneId,
               back.ok
                 ? `The adopted commits were taken back off ${worktree.branch}; they remain on ${adopted.branch}.`
-                : `The adopted commits could NOT be taken back off ${worktree.branch} (${firstLine(back.stderr)}) — check the worktree; they remain on ${adopted.branch}.`,
+                : `The adopted commits could NOT be taken back off ${worktree.branch} (${firstLine(back.stderr)}). Check the worktree; they remain on ${adopted.branch}.`,
             );
           }
           // A deliverable too, so the outcome sheet shows the reversal rather than an empty lane. It

@@ -126,7 +126,7 @@ export async function POST(request: Request) {
         // A dry run is recorded too: "who looked at what we would write" is part of the record, and a
         // gap between the dry runs and the confirmed one is exactly what an examiner reads.
         status: result.contentDrift
-          ? `refused for ${repo}: CODEOWNERS changed since the preview — nothing written`
+          ? `refused for ${repo}: CODEOWNERS changed since the preview; nothing written`
           : confirm
             ? `CODEOWNERS PR ${result.pr ? `opened (${result.pr.url})` : "unchanged — no diff"} for ${repo}`
             : `dry run for ${repo}: ${result.diff ? "would modify CODEOWNERS" : "no change"}`,

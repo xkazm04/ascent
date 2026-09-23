@@ -2557,12 +2557,12 @@ unapproved). Now:
   with no held branch is a 404. `PlanReview` mounts `HeldDiff`, which lists every file with its +/-
   counts. A failed read says *"Could not read the held branch"*, with the server's reason under it. The `git log --stat` copy command
   stays under it either way, so the review is never an empty list. The approve button on a held plan
-  reads **"Approve — land these commits"**.
+  reads **"Approve: land these commits"**.
 - **Approval lands them.** `nextDirectedBatch` passes the row's `heldBranch` through as
   `DirectedBatch.adoptBranch`. After the baseline is measured, `runLane` calls `adoptHeldCommits`,
   which cherry-picks `HEAD..<held>` onto the lane's worktree. The lane is cut from `ascent/runner`, so
   that range is exactly what the reviewer was shown. No agent session is dispatched and no cost is
-  charged. The log says *"Adopted N commit(s) from ascent/held/… — no agent session was spent"*. The
+  charged. The log says *"Adopted N commit(s) from ascent/held/…. No agent session was spent"*. The
   guard verify, the integrity check (`gateDiff`), the rescan and the adjudication then run unchanged.
   The fence is **skipped**, because the reviewed diff is the declaration, and the plan settles `landed`
   through the fence's own `settleLandedPlan`.

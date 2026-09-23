@@ -99,7 +99,7 @@ const MARK_LEGEND = (anyDeclined: boolean, anyDismissed: boolean): LegendExtra[]
 
 /** The ranking basis, disclosed rather than asserted — it used to live only in a code comment. */
 const RANK_HINT =
-  "Ranked by how many repositories each blocker affects — open, accepted or decided — so a gap every team has accepted keeps its true size. Somewhere to look next, not an order.";
+  "Ranked by how many repositories each blocker affects (open, accepted or decided), so a gap every team has accepted keeps its true size. Somewhere to look next, not an order.";
 
 type ParetoProps = { rows: PassportRow[]; scopeLabel: string; org: string; max?: number; decisions?: DecisionMap };
 
@@ -170,7 +170,7 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8, decision
                       />
                     ))}
                     {dismissedMarks.map((r) => (
-                      <span key={`decided:${r.fullName}`} title={`${r.name} — decided by the team`} className="h-1.5 w-1.5 rounded-[1px] border border-dashed" style={{ borderColor: tone.color, opacity: 0.6 }} />
+                      <span key={`decided:${r.fullName}`} title={`${r.name}: decided by the team`} className="h-1.5 w-1.5 rounded-[1px] border border-dashed" style={{ borderColor: tone.color, opacity: 0.6 }} />
                     ))}
                   </span>
                   <span className="type-mono-sm tabular-nums text-slate-300">{a.repos.length}</span>
@@ -183,7 +183,7 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8, decision
                     </span>
                   )}
                   {a.dismissedRepos.length > 0 && (
-                    <span title={`${a.dismissedRepos.length} repo(s) decided by the team — counted, never targeted`} className="type-caption tabular-nums text-slate-500">
+                    <span title={`${a.dismissedRepos.length} repo(s) decided by the team: counted, never targeted`} className="type-caption tabular-nums text-slate-500">
                       +{a.dismissedRepos.length} decided
                     </span>
                   )}

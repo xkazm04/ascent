@@ -109,7 +109,7 @@ describe("a directed lane over held work", () => {
     expect(deps.adopt).toHaveBeenCalledWith(expect.objectContaining({ dir: "C:/tmp/wt", heldBranch: "ascent/held/p1" }));
     expect(deps.runAgent).toHaveBeenCalledTimes(0);
     expect(deps.runAgentVia).toHaveBeenCalledTimes(0);
-    expect(logs.some((l) => l.startsWith("Adopted 2 commit(s) from ascent/held/p1 — no agent session was spent"))).toBe(true);
+    expect(logs.some((l) => l.startsWith("Adopted 2 commit(s) from ascent/held/p1. No agent session was spent"))).toBe(true);
     expect(verifyResult).toHaveBeenCalledTimes(1);
     expect(deps.rescan).toHaveBeenCalledTimes(1);
     expect(deps.checkPlanFence).not.toHaveBeenCalled();
