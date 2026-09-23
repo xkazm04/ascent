@@ -20,7 +20,7 @@ import {
   type TextRunnerOptions,
 } from "@/lib/llm/text";
 import { llmTimeoutMs } from "@/lib/llm/config";
-import { DEFAULT_BEDROCK_REGION } from "@/lib/llm/bedrock";
+import { byomDescriptor } from "@/lib/llm/registry";
 
 /**
  * Resolve the RAW leg runner for an ORG — its connected BYOM provider when one is active, else the
@@ -59,12 +59,10 @@ export async function resolveLegRunnerWithProvenance(
     // Deliberately un-caught: see the module header and getProviderForOrg's own note.
     const byom = await resolveByomState(orgSlug);
     if (byom.state === "active") {
-      const p = byom.params;
+      // The kind → provider mapping is the registry's byomDescriptor, the SAME one getProviderForOrg
+      // builds the org's scan provider from; this seam only hands it the text transports to bind.
       return {
-        runner:
-          p.kind === "openrouter"
-            ? openRouterLegRunner(p.model, p.apiKey)
-            : bedrockLegRunner(p.model, p.region ?? DEFAULT_BEDROCK_REGION, p.credentials),
+        runner: byomDescriptor(byom.params).leg({ openrouter: openRouterLegRunner, bedrock: bedrockLegRunner }),
         byom: true,
       };
     }

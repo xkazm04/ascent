@@ -9,6 +9,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { resolveTextRunner, textRunnerFrom } from "@/lib/llm/text";
 import { setMeterSink, type UsageEventInput } from "@/lib/llm/meter";
 import type { ResolvedLegRunner } from "@/lib/llm/leg";
+import { getProvider } from "@/lib/llm";
 
 // `legKind` is a REQUIRED option — there is no default — so every call here names the surface it is
 // standing in for. These tests stand in for Shared Org Memory's passes.
@@ -216,5 +217,52 @@ describe("resolveTextRunner — every call posts exactly one ledger event", () =
     await expect(runner.run("prompt")).resolves.toBe("hi");
     expect(posted).toHaveLength(1);
     expect(posted[0]).toMatchObject({ provider: "claude-cli", inputTokens: null, costMicros: null, status: "success" });
+  });
+});
+
+// The text seam resolves through the SAME provider registry as the scan seam, so a provider that
+// scans can no longer be "no engine" here. Both cases below were live misses: `nebius` had no case in
+// the text switch (after `local` had the identical miss), and `auto` mapped straight to Gemini, so the
+// local rung of getProvider()'s ladder did not exist on this seam.
+describe("resolveTextRunner — resolves every provider the scan seam resolves", () => {
+  const NEBIUS = {
+    LLM_PROVIDER: "nebius",
+    NEBIUS_API_KEY: "k",
+    NEBIUS_MODEL: "zai-org/GLM-5.3-Flash",
+    NEBIUS_BASE_URL: "", // the host's own override must not leak into the endpoint assertion
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("LLM_PROVIDER=nebius resolves a nebius runner on the operator's model", async () => {
+    setEnv({});
+    for (const [k, v] of Object.entries(NEBIUS)) vi.stubEnv(k, v);
+    const runner = await resolveTextRunner(MEMORY);
+    expect(runner?.engine).toBe("nebius");
+    expect(runner?.model).toBe("zai-org/GLM-5.3-Flash");
+  });
+
+  it("the nebius runner POSTs to the Token Factory endpoint with the operator's key", async () => {
+    setEnv({});
+    for (const [k, v] of Object.entries(NEBIUS)) vi.stubEnv(k, v);
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
+      Response.json({ choices: [{ message: { content: "hi" } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const runner = await resolveTextRunner(MEMORY);
+    await expect(runner!.run("prompt")).resolves.toBe("hi");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://api.tokenfactory.nebius.com/v1/chat/completions");
+    expect((init?.headers as Record<string, string>).authorization).toBe("Bearer k");
+  });
+
+  it("`auto` with no Gemini key and both LOCAL_LLM_* knobs is `local` on BOTH seams", async () => {
+    setEnv({
+      LLM_PROVIDER: undefined,
+      LOCAL_LLM_BASE_URL: "http://localhost:11434/v1",
+      LOCAL_LLM_MODEL: "qwen2.5-coder:14b",
+    });
+    expect(getProvider().name).toBe("local");
+    expect((await resolveTextRunner(MEMORY))?.engine).toBe("local");
   });
 });

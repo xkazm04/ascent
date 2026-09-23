@@ -6,8 +6,8 @@
 // seam in the codebase was runClaudePrompt (src/lib/llm/claude-cli.ts), which is LOCAL-DEV-ONLY, so
 // every one of those surfaces was structurally dead in production.
 //
-// THIS IS NOT A SECOND PROVIDER PATH. It reuses `resolveProviderChoice()` + `providerAvailable()` (so
-// "which provider, and is it usable here?" still has exactly ONE answer in this codebase), the shared
+// THIS IS NOT A SECOND PROVIDER PATH. It reads the provider registry (src/lib/llm/registry.ts) that
+// getProvider() reads (so "which provider, and is it usable here?" has exactly ONE answer), the shared
 // env knobs from config.ts (temperature, max tokens, timeout, the AbortController lifecycle), and the
 // same lazy-import discipline the providers use. What it does NOT reuse is the assessment prompt, the
 // JSON schema, the token metering and the validateAssessment safety net — none of which apply to a
@@ -16,9 +16,11 @@
 // SELECTION IS DELIBERATELY THE SAME RULE AS getProvider(), NOT A NEW ONE:
 //   - an EXPLICIT LLM_PROVIDER wins; if that provider isn't available here, this returns null (the
 //     caller degrades honestly) rather than silently substituting a provider the operator didn't pick;
-//   - LLM_PROVIDER=auto/unset resolves to Gemini when a key is present, else null;
-//   - LLM_PROVIDER=mock returns null. There is no deterministic "mock text" that would be honest to
-//     hand a caller whose whole job is judgment — "no engine" is the truthful answer.
+//   - LLM_PROVIDER=auto/unset walks the registry's one auto ladder: Gemini with a key, else a configured
+//     local server, else mock — and mock means null;
+//   - LLM_PROVIDER=mock (and codex-cli, gateway) returns null: each DECLARES its absence, with the
+//     reason, on its descriptor. There is no deterministic "mock text" that would be honest to hand a
+//     caller whose whole job is judgment — "no engine" is the truthful answer.
 // Returning null is a first-class result: callers surface it as `llmUnavailable`.
 //
 // TWO LAYERS. `resolveLegRunner` returns the RAW, unmetered leg call (prompt + prior turns + tools →
@@ -29,12 +31,10 @@
 // wrapper in src/lib/llm/text-meter.ts, and the shared vocabulary in src/lib/llm/leg.ts.
 
 import type { ProviderName } from "@/lib/types";
-import { providerAvailable, resolveProviderChoice } from "@/lib/llm";
+import { resolveProviderChoice } from "@/lib/llm";
+import { REGISTRY, autoProviderName } from "@/lib/llm/registry";
 import { llmTimeoutMs } from "@/lib/llm/config";
-import { DEFAULT_GEMINI_MODEL } from "@/lib/llm/gemini";
-import { DEFAULT_OPENAI_MODEL } from "@/lib/llm/openai";
-import { DEFAULT_OPENROUTER_MODEL } from "@/lib/llm/openrouter";
-import { DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION, type BedrockCredentials } from "@/lib/llm/bedrock";
+import type { BedrockCredentials } from "@/lib/llm/bedrock";
 import type { LegCall, ResolvedLegRunner, ResolvedTextRunner, TextRunnerOptions } from "@/lib/llm/leg";
 import { bedrockLeg, geminiLeg, openAiCompatibleLeg } from "@/lib/llm/transports";
 import { ENGINE_LABEL, textRunnerFrom } from "@/lib/llm/text-meter";
@@ -55,10 +55,10 @@ export type LegConnection =
   | { engine: "gemini"; model: string; apiKey: string }
   | { engine: "openai"; model: string; baseUrl: string; apiKey: string }
   | { engine: "local"; model: string; baseUrl: string; apiKey: string }
+  | { engine: "nebius"; model: string; baseUrl: string; apiKey: string }
   | { engine: "openrouter"; model: string; apiKey: string }
   | { engine: "bedrock"; model: string; region: string; credentials?: BedrockCredentials };
 
-const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
@@ -89,14 +89,16 @@ export function legCallFor(conn: LegConnection): LegCall {
         });
     case "openai":
     case "local":
+    case "nebius":
       return (req, signal) =>
         openAiCompatibleLeg({
           url: `${conn.baseUrl}/chat/completions`,
           headers: conn.apiKey ? { authorization: `Bearer ${conn.apiKey}` } : {},
           model: conn.model,
           label: ENGINE_LABEL[conn.engine],
-          // `local` reads the OpenAI cap on purpose: LocalProvider IS an OpenAiProvider subclass and
-          // uses OPENAI_MAX_TOKENS on the scan path, so the two paths cannot drift apart.
+          // `local` and `nebius` read the OpenAI cap on purpose: LocalProvider and NebiusProvider ARE
+          // OpenAiProvider subclasses and use OPENAI_MAX_TOKENS on the scan path, so the two paths
+          // cannot drift apart.
           maxTokensEnv: "OPENAI_MAX_TOKENS",
           req,
           signal,
@@ -147,107 +149,23 @@ export function bedrockLegRunner(
  * `null` is expected, not exceptional: an unset/mock provider, a missing key, or a claude-cli selection
  * on a production host all mean "no engine". Callers must report that state to the user rather than
  * conflating it with "the model had nothing to say".
+ *
+ * Every step is a read of the provider registry, the same table getProvider() reads: `auto` walks the
+ * one auto ladder (so the local rung exists here too), availability is the descriptor's own check, and
+ * a provider with no text seam DECLARES that (with its reason) rather than falling through a switch
+ * that forgot it — which is how `local`, and later `nebius`, resolved for scans and not here.
  */
 export async function resolveLegRunner(opts: TextRunnerOptions): Promise<ResolvedLegRunner | null> {
   const choice = resolveProviderChoice();
-  // `auto` (and an unset flag) follows getProvider(): Gemini when a key is present, else nothing.
-  const name: ProviderName = choice === "auto" ? "gemini" : choice;
-  if (!providerAvailable(name)) return null;
+  const name: ProviderName = choice === "auto" ? autoProviderName() : choice;
+  const descriptor = REGISTRY[name];
+  if (!descriptor.available()) return null;
 
-  switch (name) {
-    case "gemini": {
-      const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
-      return {
-        engine: "gemini",
-        model,
-        call: legCallFor({
-          engine: "gemini",
-          model,
-          apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
-        }),
-      };
-    }
-    case "openai": {
-      const model = process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
-      const baseUrl = (process.env.OPENAI_BASE_URL || OPENAI_DEFAULT_BASE_URL).replace(/\/$/, "");
-      return {
-        engine: "openai",
-        model,
-        call: legCallFor({ engine: "openai", model, baseUrl, apiKey: process.env.OPENAI_API_KEY ?? "" }),
-      };
-    }
-    case "local": {
-      // WAS MISSING ENTIRELY. `providerAvailable("local")` returns true once both knobs are set
-      // (src/lib/llm/index.ts:148-151), so LLM_PROVIDER=local passed the guard above and then fell into
-      // `default: → null` — meaning a self-hoster on Ollama got "no engine" from EVERY non-scan LLM
-      // surface (memory write-gate, reflection, and now Athena) while their scans ran fine. It speaks
-      // the OpenAI protocol, so it is the same transport with its own identity (see local.ts on why
-      // identity, not capability, is the point).
-      const model = (process.env.LOCAL_LLM_MODEL ?? "").trim();
-      const baseUrl = (process.env.LOCAL_LLM_BASE_URL ?? "").trim().replace(/\/$/, "");
-      return {
-        engine: "local",
-        model,
-        call: legCallFor({
-          engine: "local",
-          model,
-          baseUrl,
-          // Local servers usually ignore auth; pass a key through only when the operator set one
-          // (a reverse proxy, vLLM's --api-key), mirroring LocalProvider.
-          apiKey: process.env.LOCAL_LLM_API_KEY ?? "",
-        }),
-      };
-    }
-    case "openrouter":
-      return openRouterLegRunner(
-        process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL,
-        process.env.OPENROUTER_API_KEY ?? "",
-      );
-    case "bedrock":
-      return bedrockLegRunner(
-        process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL,
-        process.env.BEDROCK_REGION || process.env.AWS_REGION || DEFAULT_BEDROCK_REGION,
-      );
-    case "claude-cli": {
-      // The dynamic import lives INSIDE a `NODE_ENV !== "production"` block, not after a guard `throw`:
-      // the production build inlines NODE_ENV, folds this to `false`, and prunes the block — import
-      // included — dropping claude-cli.ts and its child_process.spawn from the Node File Trace. Same
-      // trick as LazyClaudeCliProvider (index.ts) and the PGlite boot (instrumentation.ts). providerAvailable
-      // already returned false in production, so this branch is unreachable there anyway; the shape is
-      // what keeps the bundler from following the import. Do not "simplify" it.
-      if (process.env.NODE_ENV !== "production") {
-        const { runClaudePrompt } = await import("@/lib/llm/claude-cli");
-        const model = process.env.CLAUDE_MODEL || "sonnet";
-        const timeoutMs = opts.timeoutMs ?? llmTimeoutMs();
-        return {
-          engine: "claude-cli",
-          model,
-          // The CLI owns its own timeout (it spawns a process rather than issuing a request), so pass
-          // it through instead of racing a second AbortController against it. It also cannot be handed
-          // tools — `--output-format json` collapses the whole session (see supportsToolCalling in
-          // config.ts) — so `req.tools` is intentionally ignored here and the loop degrades honestly.
-          call: async (req, signal) => ({ text: await runClaudePrompt(req.prompt, { signal, timeoutMs }) }),
-          ownsTimeout: true,
-        };
-      }
-      return null;
-    }
-    case "codex-cli":
-      // The codex CLI serves the ASSESSMENT seam only (src/lib/llm/codex-cli.ts). There is no
-      // runCodexPrompt counterpart yet, so the non-scan surfaces (memory, Athena) honestly report
-      // "no engine" under LLM_PROVIDER=codex-cli rather than silently substituting a provider the
-      // operator never chose — the same rule the header states for an unavailable explicit choice.
-      return null;
-    case "gateway":
-      // Same rule: the gateway carries ONE measured route (`assess`, src/lib/llm/gateway.ts). The
-      // text surfaces have no route of their own yet, and a literal `provider/model` request here
-      // would run unmeasured under the app's seat limits — so they report "no engine" until a route
-      // for them is onboarded (docs/LLM_ROUTES.md).
-      return null;
-    default:
-      // "mock" — see the header: there is no honest deterministic text for a judgment call.
-      return null;
-  }
+  const seam = descriptor.textSeam;
+  if ("none" in seam) return null;
+  if ("runner" in seam) return seam.runner(opts);
+  const conn = seam.connection();
+  return { engine: conn.engine, model: conn.model, call: legCallFor(conn) };
 }
 
 /**
