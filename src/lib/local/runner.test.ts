@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { RUNNER_SLOT_POLL_MS, runContinuous } from "./runner";
 import { DRY_BACKOFF_MS, RUNNER_BRANCH } from "./runner-types";
 import { T0, harness, lane, runnerStatus } from "./runner.fixture";
+import { pairingRefusal } from "./pairing-health";
 
 describe("runContinuous — it does not stop on green, dry or a run count", () => {
   it("runs past a green fleet and past a dry run, backing off the dry repo and coming back", async () => {
@@ -130,5 +131,24 @@ describe("runContinuous — one run slot", () => {
     const st2 = runnerStatus();
     const h2 = harness({ startError: () => "The loop requires a database.", lanes: () => [] });
     await expect(runContinuous(st2, null, h2.deps)).rejects.toThrow("requires a database");
+  });
+
+  // challenge-2026-09-23b: `startLoopRun` now names EVERY broken pairing in one refusal. The runner
+  // reads the names out of that text, so the producer's real output is what is fed here.
+  it("guard: a multi-repo pairing refusal pauses EVERY repo it names, and only those", async () => {
+    const st = runnerStatus({ repos: ["o/a", "o/ab", "o/c"] });
+    const why = pairingRefusal([
+      { repo: "o/a", reason: "Folder does not exist on the server's filesystem." },
+      { repo: "o/c", reason: null },
+    ]);
+    const h = harness({
+      startError: (attempt) => (attempt === 1 ? why : null),
+      lanes: () => ((st.stopRequested = true), [lane({ repoFullName: "o/ab", closedIds: ["x"] })]),
+    });
+    await runContinuous(st, null, h.deps);
+    expect(st.repoState?.find((s) => s.repo === "o/a")).toMatchObject({ paused: "repo-failures" });
+    expect(st.repoState?.find((s) => s.repo === "o/c")).toMatchObject({ paused: "repo-failures" });
+    // `o/ab` is not named (only its prefix `o/a` is), so it keeps running.
+    expect(h.started[0]!.input.repos).toEqual(["o/ab"]);
   });
 });

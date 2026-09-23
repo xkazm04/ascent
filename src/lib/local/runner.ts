@@ -35,6 +35,7 @@ import {
   type RunnerLaneView,
 } from "@/lib/local/runner-policy";
 import { dialRunInput } from "@/lib/local/drive-dials";
+import { reposNamedIn } from "@/lib/local/pairing-health";
 
 /** How often a waiting runner wakes to re-read its state (a stop, a resumed repo) and stamp its beat. */
 export const RUNNER_BEAT_MS = 60_000;
@@ -192,7 +193,7 @@ async function prepareRepos(cx: Ctx, planned: readonly string[]): Promise<string
 }
 
 /** Start the run, WAITING while the org's one run slot is taken (a manual run). Null = not started:
- *  a stop arrived while waiting, or the refusal named a repo, which is now paused. */
+ *  a stop arrived while waiting, or the refusal named repos, which are now paused. */
 async function startWhenSlotFree(cx: Ctx, repos: string[]): Promise<{ id: string } | null> {
   let announced = false;
   for (;;) {
@@ -211,11 +212,13 @@ async function startWhenSlotFree(cx: Ctx, repos: string[]): Promise<{ id: string
         await beat(cx);
         continue;
       }
-      // A refusal about ONE repo (a pairing that broke since the step began) pauses that repo; any
-      // other refusal is not the runner's to interpret and ends it in `error`, with the reason.
-      const named = repos.filter((r) => why.includes(r)).sort((a, b) => b.length - a.length)[0];
-      if (!named) throw err;
-      holdRepo(cx, stateOf(cx.st, named), "repo-failures", `The run could not start: ${why}`);
+      // A refusal about repos (pairings that broke since the step began) pauses EVERY repo it names;
+      // `startLoopRun` lists them all in one refusal, and `reposNamedIn` is the parser that ships
+      // beside that producer (pairing-health.ts). Any other refusal is not the runner's to interpret
+      // and ends it in `error`, with the reason.
+      const named = reposNamedIn(why, repos);
+      if (named.length === 0) throw err;
+      for (const repo of named) holdRepo(cx, stateOf(cx.st, repo), "repo-failures", `The run could not start: ${why}`);
       await cx.deps.save(cx.st);
       return null;
     }

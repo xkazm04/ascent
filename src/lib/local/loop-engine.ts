@@ -28,6 +28,7 @@ import { selfHosted } from "@/lib/env";
 import { mapPool } from "@/lib/pool";
 import { autopilotEnabled, resolveAgentConfig } from "@/lib/local/agent";
 import { verifyLocalPath } from "@/lib/local/pairing";
+import { pairingRefusal, type BrokenPairing } from "@/lib/local/pairing-health";
 import { getRepoLocalPath } from "@/lib/db";
 import {
   LOOP_CONCURRENCY_CAP,
@@ -211,11 +212,24 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
   const laneKind = input.deps?.laneKind ?? defaultLaneDeps.laneKind;
   const openBatch = input.deps?.openBatch ?? defaultLaneDeps.openBatch;
   const dispatchedPractices = input.deps?.dispatchedPractices ?? defaultLaneDeps.dispatchedPractices;
+  // EVERY broken pairing is collected before refusing (challenge-2026-09-23b): throwing at the first
+  // made N broken repos cost N presses of Run. The refusal text is read back by the standing runner
+  // (`reposNamedIn`, runner.ts), which is why producer and parser share `pairing-health.ts`.
+  const paired: { repo: string; path: string }[] = [];
+  const broken: BrokenPairing[] = [];
   for (const repo of repos) {
     const path = await getRepoLocalPath(org, repo);
-    if (!path) throw new Error(`${repo} is not paired with a local path — pair it on Admin → Pairing.`);
+    if (!path) {
+      broken.push({ repo, reason: null });
+      continue;
+    }
     const check = await verifyLocalPath(path, repo);
-    if (!check.ok) throw new Error(`Pairing broken for ${repo}: ${check.error}`);
+    if (check.ok) paired.push({ repo, path });
+    else broken.push({ repo, reason: check.error ?? "The pairing no longer verifies." });
+  }
+  const refused = pairingRefusal(broken);
+  if (refused) throw new Error(refused);
+  for (const { repo, path } of paired) {
     // The SAME rule the curation panel showed (GET /api/org/loop/propose calls this function too), so
     // a proposal that led with "install the .ai/ foundation" cannot turn into an agent session on the
     // way to the engine. Re-read here rather than trusted from the wire: the operator may have
