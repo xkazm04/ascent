@@ -1,5 +1,5 @@
 import { resolveProviderChoice, hasLlmKey } from "@/lib/llm";
-import { localLlmConfigured } from "@/lib/llm/local";
+import { autoProviderName } from "@/lib/llm/registry";
 import { MAX_FILES } from "@/lib/github/source";
 import type { ProviderName } from "@/lib/types";
 
@@ -9,11 +9,11 @@ import type { ProviderName } from "@/lib/types";
 function effectiveProvider(): ProviderName {
   const choice = resolveProviderChoice();
   if (choice === "gemini") return hasLlmKey() ? "gemini" : "mock";
-  // Mirrors autoProvider()'s ladder in src/lib/llm/index.ts: Gemini key, else a configured local
-  // server, else mock. A self-hoster running Ollama was previously told their code goes "nowhere:
-  // scoring is fully local and deterministic" — accidentally true about the destination, but it named
-  // the wrong reason (mock, i.e. no AI at all) at the exact screen where the reason is the point.
-  if (choice === "auto") return hasLlmKey() ? "gemini" : localLlmConfigured() ? "local" : "mock";
+  // THE auto ladder, read from the provider registry rather than copied here: Gemini key, else a
+  // configured local server, else mock. A self-hoster running Ollama was once told their code goes
+  // "nowhere: scoring is fully local and deterministic" — accidentally true about the destination, but
+  // it named the wrong reason (mock, i.e. no AI at all) at the exact screen where the reason is the point.
+  if (choice === "auto") return autoProviderName();
   return choice;
 }
 
