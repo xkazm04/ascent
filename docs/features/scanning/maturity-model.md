@@ -652,6 +652,18 @@ It exists so a cached score always carries the rubric that produced it. A score 
 older rubric is not wrong, it is *not comparable* — so cache reuse, the org corpus, and cross-repo
 aggregates all key on it, and a bump makes affected scans re-derive.
 
+**The loop refuses a cross-rubric pair too.** The loop's before-scan is the last persisted one, so
+the first rescan after a bump pairs an r(N-1) end with an r(N) end, and that delta measures the bump.
+The attribution rule (`src/lib/maturity/attribution.ts`) now carries each end's `rubricVersion` and
+returns `unmeasured` with `reason: "rubric"` for a provably different pair, labelled *not comparable:
+the two scans were scored under different rubrics* (chip: *different rubrics*). So a follow-up does
+not close on it (it stays in progress with a note naming both rubrics), a lane adds nothing to its
+run's lift, and no lane movement or outcome cell is certified on it. A diverged base still wins over
+it, and an end that does not record its rubric refuses nothing. The one predicate is `sameRuler`
+(with `COMPARABLE_RUBRIC_GROUPS`, deliberately empty); the alert lane, the outcomes lane and the
+skill-outcome strip call it too, and those last two keep their stricter policy that an unknown
+rubric is never paired.
+
 **When to bump.** Anything that can move a score, or that changes what the model is asked:
 dimension weights or criteria, level bands, the signal/LLM blend, the guardband, the posture
 threshold, archetype lenses, **the assessment system prompt**, and detector point tables in
