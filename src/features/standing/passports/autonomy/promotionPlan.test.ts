@@ -7,11 +7,12 @@
 
 import { describe, it, expect } from "vitest";
 import { AUTONOMY_TOKENLESS_ID, TOKENLESS_MISSING } from "@/lib/analyze/passport-autonomy";
+import type { AutonomyConditionId } from "@/lib/types";
 import type { AutonomyTier } from "./autonomyModel";
-import { promotionPlan, type PlanRepo } from "./promotionPlan";
+import { promotionPlan, type PlanRepo } from "./promotionPlanModel";
 
 /** A repo at `tier` whose next transition is blocked by `ids` (prose is irrelevant to the plan). */
-function repo(name: string, tier: AutonomyTier, ids: string[], engine: string | null = "claude"): PlanRepo {
+function repo(name: string, tier: AutonomyTier, ids: AutonomyConditionId[], engine: string | null = "claude"): PlanRepo {
   return {
     fullName: `acme/${name}`,
     name,

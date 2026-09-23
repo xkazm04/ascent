@@ -9,8 +9,11 @@
 // you read a card the way you'd read a badge, not a chart. Nothing here is a score you compare;
 // everything is a permission you either hold or don't.
 //
-// The one control is a clearance filter across the muster ledger — click a tier tile to isolate
-// that cohort. No sorting, deliberately: a clearance register is read, not ranked.
+// Two controls narrow the register: the clearance filter across the muster ledger (click a tier tile
+// to isolate that cohort) and the promotion plan (click a condition to see the repos it holds back).
+// The register itself is still not sorted by merit: a clearance register is read, not ranked. What IS
+// ranked is the plan's list of CONDITIONS per transition (PromotionPlan.tsx), because "which one fix
+// lifts the most repos" is a fleet question no single card can answer.
 
 import { useMemo, useState } from "react";
 import { Kicker, SectionHeading } from "@/components/ui";
@@ -19,11 +22,21 @@ import { BandLadder, Legend } from "@/components/org/viz";
 import { TIERS, TIER_META, tierHex, tierCounts, type AutonomyTier, type RepoAutonomy } from "./autonomyModel";
 import { clearanceBands, clearanceEdge, clearanceStates } from "./clearanceLadder";
 import { ClearanceCard } from "./ClearanceCard";
+import { PromotionPlan, type PlanSelection } from "./PromotionPlan";
+import { promotionPlan } from "./promotionPlanModel";
 
 export function AutonomyClearance({ repos }: { repos: RepoAutonomy[] }) {
   const [filter, setFilter] = useState<AutonomyTier | null>(null);
+  const [condition, setCondition] = useState<PlanSelection | null>(null);
   const counts = useMemo(() => tierCounts(repos), [repos]);
-  const visible = useMemo(() => repos.filter((r) => filter === null || r.tier === filter), [repos, filter]);
+  const plan = useMemo(() => promotionPlan(repos), [repos]);
+  const visible = useMemo(
+    () =>
+      repos.filter(
+        (r) => (filter === null || r.tier === filter) && (condition === null || condition.repos.includes(r.fullName)),
+      ),
+    [repos, filter, condition],
+  );
   const bands = useMemo(() => clearanceBands(repos), [repos]);
   const edge = useMemo(() => clearanceEdge(repos), [repos]);
 
@@ -48,7 +61,7 @@ export function AutonomyClearance({ repos }: { repos: RepoAutonomy[] }) {
 
       {/* First sight is the perimeter itself: nested bands, outermost = most permissive. What a
           clearance PERMITS rides on each tile's `sub` below; what would RAISE one is a per-repo fact
-          and stays on the card that owns it. */}
+          on the card that owns it, and the promotion plan below lays those facts across the fleet. */}
       <div className="rounded-2xl border border-divider bg-surface/40 p-4">
         <BandLadder bands={bands} edge={edge} title="Clearances held across the fleet" className="mx-auto max-w-md" />
         <Legend states={clearanceStates(bands, edge)} className="mt-3 justify-center" />
@@ -80,12 +93,26 @@ export function AutonomyClearance({ repos }: { repos: RepoAutonomy[] }) {
         })}
       </div>
 
+      <PromotionPlan plan={plan} selected={condition} onSelect={setCondition} />
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Kicker tone="muted">
-          {filter === null
-            ? `${repos.length} repo${repos.length === 1 ? "" : "s"} on the register`
-            : `${visible.length} at ${TIER_META[filter].code} · ${TIER_META[filter].label}`}
+          {condition !== null
+            ? `${visible.length} carry "${condition.label}" toward ${TIER_META[condition.to].code}`
+            : filter === null
+              ? `${repos.length} repo${repos.length === 1 ? "" : "s"} on the register`
+              : `${visible.length} at ${TIER_META[filter].code} · ${TIER_META[filter].label}`}
         </Kicker>
+        {condition !== null && (
+          <button
+            type="button"
+            onClick={() => setCondition(null)}
+            aria-label={`Clear the condition filter: ${condition.label}`}
+            className="focus-ring animate-fade-in rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-300 transition hover:border-accent hover:text-white"
+          >
+            <span aria-hidden>✕</span> {condition.label}
+          </button>
+        )}
         {filter !== null && (
           <button
             type="button"
@@ -98,7 +125,11 @@ export function AutonomyClearance({ repos }: { repos: RepoAutonomy[] }) {
       </div>
 
       {sorted.length === 0 ? (
-        <SectionEmpty>No repo currently holds that clearance in this scope.</SectionEmpty>
+        <SectionEmpty>
+          {condition !== null
+            ? "No repo at that clearance carries this condition in this scope."
+            : "No repo currently holds that clearance in this scope."}
+        </SectionEmpty>
       ) : (
         <div className="animate-fade-up grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {sorted.map((r) => (

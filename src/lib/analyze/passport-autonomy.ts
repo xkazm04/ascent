@@ -19,7 +19,7 @@
 // row they are undefined — UNKNOWN, not false — and the T2 checklist names the re-scan, not the
 // missing artifact.
 
-import type { AppPassport, AutonomyBlock, AutonomyTierId, Governance } from "@/lib/types";
+import type { AppPassport, AutonomyBlock, AutonomyConditionId, AutonomyTierId, Governance } from "@/lib/types";
 
 const TEST_RANK = ["none", "smoke", "partial", "substantial", "comprehensive"] as const;
 const CI_RANK = ["none", "build", "checks", "gated", "delivery", "progressive"] as const;
@@ -33,7 +33,15 @@ export const TOKENLESS_MISSING =
 const SANDBOX_HOOKS_UNKNOWN =
   "Sandbox/hooks not assessed by this pre-0.3.0 scan. Re-scan to detect devcontainer/Dockerfile/nix and hook configs.";
 
+/** The stable id of the tokenless caveat in an unlock's ids[]: a visibility limit, never a fix. */
+export const AUTONOMY_TOKENLESS_ID: AutonomyConditionId = "enforcement-not-observable";
+
+// IDENTITY vs PROSE. `missing` interpolates the repo's own levels ("Test suite is none" / "is smoke"),
+// so grouping a fleet on it splits one condition into several buckets. `id` is the condition itself,
+// minted here and carried unchanged into every unlock (ids[i] names missing[i]). The prose is what a
+// reader acts on; the id is what a rollup groups on. Adding a predicate means minting its id.
 interface Predicate {
+  id: AutonomyConditionId;
   met: boolean;
   missing: string;
 }
@@ -63,28 +71,34 @@ function tierPredicates(inputs: AutonomyBlock["inputs"]): Record<Exclude<Autonom
   return {
     T1: [
       {
+        id: "t1.agent-instructions",
         met: inputs.agentInstructions,
         missing: "No agent instructions file. Write a human-curated CLAUDE.md / AGENTS.md so an agent starts oriented.",
       },
       {
+        id: "t1.test-entry",
         met: inputs.selfVerifyTest,
         missing: 'No one-command test entry point (package "test" script) an agent can run unattended.',
       },
       {
+        id: "t1.tests-partial",
         met: testRank(inputs.testsLevel) >= testRank("partial"),
         missing: `Test suite is ${inputs.testsLevel}, and at least a partial suite is needed to check agent-authored tests, docs and refactors.`,
       },
     ],
     T2: [
       {
+        id: "t2.ci-gated",
         met: ciRank(inputs.ciLevel) >= ciRank("gated"),
         missing: "CI does not gate merges. Protect the default branch and require status checks so an agent PR cannot bypass them.",
       },
       {
+        id: "t2.tests-substantial",
         met: testRank(inputs.testsLevel) >= testRank("substantial"),
         missing: `Test suite is ${inputs.testsLevel}, and substantial coverage is needed before delegating feature work.`,
       },
       {
+        id: "t2.guardrails",
         met: inputs.hooks === true || inputs.sandbox === true,
         missing: sandboxHooksUnknown
           ? SANDBOX_HOOKS_UNKNOWN
@@ -93,14 +107,17 @@ function tierPredicates(inputs: AutonomyBlock["inputs"]): Record<Exclude<Autonom
     ],
     T3: [
       {
+        id: "t3.ai-in-workflow",
         met: inputs.aiInWorkflow,
         missing: "No evidence AI is used in this repo's workflow yet (no AI co-author trailers or AI-involved PRs).",
       },
       {
+        id: "t3.evals",
         met: inputs.evals !== "none",
         missing: "No eval / golden-test harness for AI output. Unattended runs need a quality bar the machine can apply.",
       },
       {
+        id: "t3.migrations-versioned",
         met: inputs.migrations === "versioned",
         missing: `Migrations are ${inputs.migrations}, and schema changes need a versioned migration trail before unattended runs.`,
       },
@@ -114,10 +131,10 @@ function derive(pp: AppPassport, enforcementVisible: boolean): AutonomyBlock {
   const preds = tierPredicates(inputs);
 
   // Cumulative unmet predicates per tier (a T2 checklist includes any still-unmet T1 items).
-  const cumulative: Record<Exclude<AutonomyTierId, "T0">, string[]> = {
-    T1: preds.T1.filter((x) => !x.met).map((x) => x.missing),
-    T2: [...preds.T1, ...preds.T2].filter((x) => !x.met).map((x) => x.missing),
-    T3: [...preds.T1, ...preds.T2, ...preds.T3].filter((x) => !x.met).map((x) => x.missing),
+  const cumulative: Record<Exclude<AutonomyTierId, "T0">, Predicate[]> = {
+    T1: preds.T1.filter((x) => !x.met),
+    T2: [...preds.T1, ...preds.T2].filter((x) => !x.met),
+    T3: [...preds.T1, ...preds.T2, ...preds.T3].filter((x) => !x.met),
   };
 
   let tier: AutonomyTierId = "T0";
@@ -127,11 +144,15 @@ function derive(pp: AppPassport, enforcementVisible: boolean): AutonomyBlock {
 
   const order: Exclude<AutonomyTierId, "T0">[] = ["T1", "T2", "T3"];
   const above = order.filter((t) => Number(t.slice(1)) > Number(tier.slice(1)));
-  const unlocks = above.map((t) => ({
-    tier: t,
+  const unlocks = above.map((t) => {
     // The tokenless cap gates every tier above T1, so it leads those checklists explicitly.
-    missing: t === "T1" || enforcementVisible ? cumulative[t] : [TOKENLESS_MISSING, ...cumulative[t]],
-  }));
+    const capped = t !== "T1" && !enforcementVisible;
+    return {
+      tier: t,
+      missing: [...(capped ? [TOKENLESS_MISSING] : []), ...cumulative[t].map((x) => x.missing)],
+      ids: [...(capped ? [AUTONOMY_TOKENLESS_ID] : []), ...cumulative[t].map((x) => x.id)],
+    };
+  });
 
   return { tier, unlocks, inputs };
 }

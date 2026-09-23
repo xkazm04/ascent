@@ -23,7 +23,7 @@
 
 import { TOKENLESS_MISSING, deriveAutonomyForStored } from "@/lib/analyze/passport-autonomy";
 import type { ManifestReadout } from "@/lib/standard/readout";
-import type { AppPassport, ContextHealth } from "@/lib/types";
+import type { AppPassport, AutonomyConditionId, ContextHealth } from "@/lib/types";
 
 import { ciGate, contextGate, hooksGate, sandboxGate, testsGate } from "./autonomyGateBuilders";
 import { GATE_ORDER, type AutonomyGate } from "./autonomyGates";
@@ -60,6 +60,9 @@ export interface RepoAutonomy {
   gates: AutonomyGate[];
   /** The shared ladder's unmet conditions for `nextTier`, in the resolver's own words. */
   blocking: string[];
+  /** The stable condition ids parallel to `blocking` (blockingIds[i] names blocking[i]); what the
+   *  fleet promotion plan groups on, since the prose interpolates this repo's own levels. */
+  blockingIds: AutonomyConditionId[];
   /** 0–100 readiness for `nextTier`: the share of that tier's cumulative predicates already met. */
   nextProgress: number;
   autoScore: number;
@@ -111,7 +114,9 @@ export function deriveAutonomy(input: AutonomyInput): RepoAutonomy {
   // The unmet conditions for the NEXT rung, verbatim from the ladder that decided the tier. The
   // tokenless cap is one of them, and it leads the list — a repo that cannot climb because the scan
   // had no token must say so rather than list three conditions it may already meet.
-  const blocking = nextTier ? (verdict.unlocks.find((u) => u.tier === `T${nextTier}`)?.missing ?? []) : [];
+  const next = nextTier ? verdict.unlocks.find((u) => u.tier === `T${nextTier}`) : undefined;
+  const blocking = next?.missing ?? [];
+  const blockingIds = next?.ids ?? [];
   const total = nextTier ? LADDER_PREDICATES[nextTier] : 0;
   // The tokenless entry is a VISIBILITY caveat, not a predicate, so it is excluded from the
   // denominator's arithmetic — counting it would push a meter below the repo's real standing.
@@ -126,6 +131,7 @@ export function deriveAutonomy(input: AutonomyInput): RepoAutonomy {
     nextTier,
     gates: GATE_ORDER.map((id) => map.get(id)!),
     blocking,
+    blockingIds,
     nextProgress,
     autoScore: pp.automationReadiness.score,
     prodScore: pp.productionReadiness.score,
