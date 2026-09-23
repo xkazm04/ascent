@@ -2,13 +2,13 @@
 // reviewer sees what they are approving — every item's approach and files, each declared architecture
 // move as `from → to` with its kind, which partition the moves were measured against, the risks, what
 // the plan will not do, the check that proves it, and the planner's raw text. A held plan also carries
-// its evidence: the branch the fence parked the commits on, and the command that shows them.
+// its evidence: the branch the fence parked the commits on, its files with their +/- counts read inline
+// (`HeldDiff`), and the command that shows them. Approving a held plan lands exactly those commits.
 //
-// No hooks: a pure rendering of the record (the copy button is its own client island).
+// No hooks: a pure rendering of the record (the held diff and the copy button are client islands).
 
 import { Kicker } from "@/components/ui";
-import { CopyCommand } from "./CopyCommand";
-import { heldLogCommand } from "./ledgerModel";
+import { HeldDiff } from "./HeldDiff";
 import type { LoopPlanRecord } from "./ledgerTypes";
 
 const MOVE_WORDS: Record<string, string> = {
@@ -49,9 +49,9 @@ export function PlanReview({ plan: p }: { plan: LoopPlanRecord }) {
         <div data-testid="plan-held" className="rounded-lg border border-warn/40 px-4 py-3">
           <p className="type-body-sm text-slate-200">
             The fence held this lane&apos;s work on <code className="font-mono text-warn">{p.heldBranch}</code>. These are the
-            commits the plan did not declare — read them before you decide:
+            commits the plan did not declare, and approving lands exactly these — read them before you decide:
           </p>
-          <CopyCommand lines={[heldLogCommand(p.heldBranch)]} />
+          <HeldDiff planId={p.id} heldBranch={p.heldBranch} />
         </div>
       )}
       {!body ? (

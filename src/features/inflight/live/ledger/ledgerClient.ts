@@ -7,6 +7,7 @@
 // asked for.
 
 import type { PlanDecisionBody } from "@/lib/local/runner-types";
+import type { HeldDiff } from "@/lib/local/lane-adopt";
 import { resumeRunnerRepo } from "../cockpit/driveClient";
 import type { LoopRunDetail } from "../cockpit/loopTypes";
 import type {
@@ -45,6 +46,12 @@ export async function decidePlan(
 ): Promise<{ plan: LoopPlanRecord; direction: LoopDirectionRecord | null }> {
   const res = await post(`/api/org/loop/plans/${q(id)}`, body);
   return json(res, "The decision did not land");
+}
+
+/** `GET /api/org/loop/plans/[id]` → the held branch's commits and per-file +/- counts (a held plan only). */
+export async function fetchHeldDiff(id: string): Promise<HeldDiff> {
+  const res = await fetch(`/api/org/loop/plans/${q(id)}`, { cache: "no-store" });
+  return json<HeldDiff>(res, "Could not read the held branch");
 }
 
 /** `POST /api/org/local/drive { action: "resume-repo" }` → the drive — lifts one repo's pause. ONE door

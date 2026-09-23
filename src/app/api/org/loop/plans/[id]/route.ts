@@ -1,4 +1,13 @@
-// THE OPERATOR'S VERDICT ON ONE PLAN (self-hosted only).
+// THE OPERATOR'S VERDICT ON ONE PLAN (self-hosted only) — and the held work it is asked about.
+//
+//   GET → { heldBranch, commits, files: [{ path, added, deleted }] }
+//
+// THE HELD DIFF (challenge-2026-09-23, live-war-room#B): a plan the fence held carries the branch its
+// commits were parked on, and the reviewer decides on THOSE commits — so the inbox reads them here
+// instead of asking for a terminal (`hitl-approval/oracle-before-gate`). RESOLVE-THEN-GATE at org READ:
+// the org comes from the plan row and a caller who cannot read it gets the same 404 as a missing plan,
+// before any git call (no existence oracle). Read with `git diff --numstat ascent/runner...<held>` in
+// the repo's paired checkout (lane-adopt.ts `readHeldDiff`). A plan with no held branch is a 404.
 //
 //   POST { decision: "approve" | "revise" | "reject", note, fence?, budgetCycles?, budgetUsd? }
 //     → { plan, direction }
@@ -16,11 +25,13 @@
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG, requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
-import { requireOrgRole } from "@/lib/authz";
+import { requireOrgRead, requireOrgRole } from "@/lib/authz";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { getLoopPlan, getLoopPlanOrgSlug } from "@/lib/db/loop-plans";
 import { decideLoopPlan, parseDecisionBody } from "@/lib/db/loop-plan-decide";
+import { getRepoLocalPath } from "@/lib/db/org-local";
+import { readHeldDiff } from "@/lib/local/lane-adopt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,4 +61,26 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const outcome = await decideLoopPlan({ plan, orgSlug: org, body: parsed.body, decidedBy });
   if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status });
   return NextResponse.json({ plan: outcome.plan, direction: outcome.direction });
+}
+
+export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+  const guard = selfHostGuard() ?? dbGuard("Held work");
+  if (guard) return guard;
+  const { id } = await ctx.params;
+  const missing = () => NextResponse.json({ error: "No such plan." }, { status: 404 });
+
+  const org = await getLoopPlanOrgSlug(id).catch(() => null);
+  if (!org || org === PUBLIC_ORG) return missing();
+  const denied = await requireOrgRead(org);
+  // A signed-out caller is told to sign in; anyone else who cannot read the org learns nothing.
+  if (denied) return denied.status === 401 ? denied : missing();
+
+  const plan = await getLoopPlan(id).catch(() => null);
+  if (!plan) return missing();
+  if (!plan.heldBranch) return NextResponse.json({ error: "This plan holds no work." }, { status: 404 });
+  const pairedPath = await getRepoLocalPath(org, plan.repo).catch(() => null);
+  if (!pairedPath) return NextResponse.json({ error: `No paired checkout for ${plan.repo} — the held branch lives there.` }, { status: 409 });
+  const read = await readHeldDiff(pairedPath, plan.heldBranch);
+  if (!read.ok) return NextResponse.json({ error: `Could not read the held branch (${read.reason}).` }, { status: 502 });
+  return NextResponse.json(read.diff);
 }

@@ -26,9 +26,21 @@ vi.mock("@/lib/authz", () => ({
     gates.roleOrgs.push(`${org}:${role}`);
     return gates.deny === org ? new Response(JSON.stringify({ error: "Forbidden." }), { status: 403 }) : null;
   }),
+  requireOrgRead: vi.fn(async (org: string) => {
+    gates.roleOrgs.push(`${org}:read`);
+    return gates.deny === org ? new Response(JSON.stringify({ error: "Forbidden." }), { status: 403 }) : null;
+  }),
+}));
+const gitReads: { path: string; branch: string }[] = [];
+vi.mock("@/lib/db/org-local", () => ({ getRepoLocalPath: vi.fn(async (org: string, repo: string) => `C:/pairs/${org}/${repo}`) }));
+vi.mock("@/lib/local/lane-adopt", () => ({
+  readHeldDiff: vi.fn(async (path: string, branch: string) => {
+    gitReads.push({ path, branch });
+    return { ok: true, diff: { heldBranch: branch, commits: 2, files: [{ path: "a.ts", added: 2, deleted: 1 }, { path: "b.ts", added: 1, deleted: 0 }] } };
+  }),
 }));
 
-const plans = new Map<string, { id: string; org: string; status: string }>();
+const plans = new Map<string, { id: string; org: string; status: string; repo?: string; heldBranch?: string | null }>();
 vi.mock("@/lib/db/loop-plans", () => ({
   getLoopPlanOrgSlug: vi.fn(async (id: string) => plans.get(id)?.org ?? null),
   getLoopPlan: vi.fn(async (id: string) => plans.get(id) ?? null),
@@ -45,7 +57,7 @@ vi.mock("@/lib/db/loop-plan-decide", async () => {
   };
 });
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const post = (id: string, body: unknown) =>
   POST(new Request(`http://localhost/api/org/loop/plans/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), {
@@ -55,10 +67,13 @@ const post = (id: string, body: unknown) =>
 beforeEach(() => {
   Object.assign(gates, { selfHosted: true, sameOrigin: true, roleOrgs: [], deny: null });
   decided.length = 0;
+  gitReads.length = 0;
   plans.clear();
   plans.set("p-acme", { id: "p-acme", org: "acme", status: "pending" });
   plans.set("p-other", { id: "p-other", org: "other", status: "pending" });
   plans.set("p-done", { id: "p-done", org: "acme", status: "approved" });
+  plans.set("p1", { id: "p1", org: "acme", status: "pending", repo: "acme/web", heldBranch: "ascent/held/p0" });
+  plans.set("p-foreign", { id: "p-foreign", org: "other", status: "pending", repo: "other/web", heldBranch: "ascent/held/px" });
 });
 
 describe("POST /api/org/loop/plans/[id]", () => {
@@ -100,5 +115,40 @@ describe("POST /api/org/loop/plans/[id]", () => {
     gates.selfHosted = false;
     expect((await post("p-acme", { decision: "approve" })).status).toBe(404);
     expect(decided).toEqual([]);
+  });
+});
+
+// THE HELD DIFF (challenge-2026-09-23, card live-war-room#B) — the reviewer's evidence, read where they
+// decide. Resolve-then-gate at org READ; a plan in an org the caller cannot read is a 404 before git.
+const get = (id: string) => GET(new Request(`http://localhost/api/org/loop/plans/${id}`), { params: Promise.resolve({ id }) });
+
+describe("GET /api/org/loop/plans/[id] — the held diff", () => {
+  it("answers a reader of the plan's org with the held branch's commits and per-file counts", async () => {
+    const res = await get("p1");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      heldBranch: "ascent/held/p0",
+      commits: 2,
+      files: [{ path: "a.ts", added: 2, deleted: 1 }, { path: "b.ts", added: 1, deleted: 0 }],
+    });
+    expect(gates.roleOrgs).toEqual(["acme:read"]);
+    expect(gitReads).toEqual([{ path: "C:/pairs/acme/acme/web", branch: "ascent/held/p0" }]);
+  });
+
+  it("404s a plan in an org the caller cannot read, before any git call", async () => {
+    gates.deny = "other";
+    const res = await get("p-foreign");
+    expect(res.status).toBe(404);
+    expect(gates.roleOrgs).toEqual(["other:read"]);
+    expect(gitReads).toEqual([]);
+  });
+
+  it("404s a plan that holds no branch, and is the selfHostGuard's 404 off a self-hosted deployment", async () => {
+    expect((await get("p-acme")).status).toBe(404);
+    gates.selfHosted = false;
+    const res = await get("p1");
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Not found." });
+    expect(gitReads).toEqual([]);
   });
 });

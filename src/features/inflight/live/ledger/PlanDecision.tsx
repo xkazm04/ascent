@@ -23,6 +23,8 @@ const VERBS: { verb: Verb; label: string }[] = [
 ];
 
 const SUBMIT: Record<Verb, string> = { approve: "Approve as a direction", revise: "Send back for revision", reject: "Reject the plan" };
+/** A held plan's approval lands the parked commits the reviewer just read — the button says so. */
+const APPROVE_HELD = "Approve — land these commits";
 
 export function PlanDecision({ plan, onDecided }: { plan: LoopPlanRecord; onDecided: (plan: LoopPlanRecord, direction: LoopDirectionRecord | null) => void }) {
   const [verb, setVerb] = useState<Verb | null>(null);
@@ -105,7 +107,7 @@ export function PlanDecision({ plan, onDecided }: { plan: LoopPlanRecord; onDeci
               verb === "reject" ? "border border-danger/60 text-danger hover:bg-danger/10" : "bg-accent text-on-accent hover:bg-accent-soft"
             }`}
           >
-            {busy ? "Deciding…" : SUBMIT[verb]}
+            {busy ? "Deciding…" : verb === "approve" && plan.heldBranch ? APPROVE_HELD : SUBMIT[verb]}
           </button>
           {needsText && !note.trim() && <span className="type-caption text-slate-500">A note is required.</span>}
         </div>
