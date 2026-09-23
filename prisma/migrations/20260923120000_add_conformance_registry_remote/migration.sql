@@ -1,0 +1,11 @@
+-- FLEET POINTING, FROM THE MANIFEST THE SWEEP ALREADY READS.
+--
+-- The conformance sweep fetches every repo's .ai/manifest.yaml on every pass and kept only
+-- knowledge.domains and scope. The Registry tab tells users that adding `registry.remote:
+-- github:<registry>` is what makes a repo count as pointing, and nothing counted it. This column keeps
+-- that pointer, normalized to owner/repo.
+--
+-- Three states: NULL = not read (no manifest, or a row swept before this column existed); '' = the
+-- manifest was read and names no registry; otherwise the remote. Nullable with no backfill: an
+-- existing row reads as "not read yet", never as "no pointer", and the next sweep fills it.
+ALTER TABLE "RepoConformanceMap" ADD COLUMN "registryRemote" TEXT;
