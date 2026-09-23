@@ -45,7 +45,7 @@ the co-located `useOnboardingFlow` hook (the component is the view layer).
 | Phase | What happens |
 | --- | --- |
 | **pick** | Choose a source: a GitHub **App installation** (private repos included, via `/api/app/repos`), a discovered/suggested org chip, or a free-text org/user handle (public listing, via `/api/org/repos`). The handle form's **try:** chips lead with `DEMO_ORG_SLUG` (`lib/site.ts`, env-overridable) then two well-known public orgs when those slugs are distinct, so the shortcut matches the landing and the "See an example org report" link. A `?org=<handle>` query param (the `/api/app/setup` post-install bounce, and any deep link that already knows the account) starts the public path immediately. |
-| **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed; the App listing is ordered by stars → recent activity. Both disclose when the listing was cut short (`truncated` from `/api/org/repos` or `/api/app/repos`). Preselection is by prominence (stars, then recency) in both. Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
+| **select** | Up to 10 selectable. The public listing is ordered most-recently-pushed; the App listing is ordered by stars → recent activity. Both disclose when the listing was cut short (`truncated` from `/api/org/repos` or `/api/app/repos`). Preselection is by prominence (stars, then recency) in both; on the App path, repos without a live score go first (see *Standing in view* below). Sticky action bar with "Select top 10" / "Clear", plus the cost disclosure + autoscan **opt-in** (see below). |
 | **scanning** | Stream SSE from `POST /api/org/import` (`{ org, repos, mock, watch, schedule }`); per-repo live progress (level + score, error, or credit-skipped); cancel button; **360s stall timeout** (`STALL_MS`, sized above one real LLM assessment — see below). |
 | **done** | A **short dashboard handoff** + the **SKILL.md download** (`SkillDownload` / `SkillDownloadList`, every repo that scored) + the **foundation install panel** and the invite panel (both App path only) + "View dashboard" / "Scan another" (`resetRun` clears the full per-run state, money snapshot included), plus the preview disclosure and any credit-shortfall notice. On a preview-then-upgrade run the banner + CTA switch to the handoff copy ("live scan is queued: open the dashboard and it starts automatically"). |
 
@@ -88,9 +88,27 @@ halves of the commitment:
   so consent has to travel as a real `false`, not an omission). Ticking it reveals the
   `≈ N prepaid credits/month` estimate and sends `watch: true, schedule: "weekly"`.
 
+Repos that already autoscan weekly (their standing says so) are netted out of that estimate, and the
+line names them ("2 already autoscan weekly, so they add nothing"): the figure consented to is the
+increment. The opt-in copy points at the **Repositories** tab for changing or stopping the autoscan.
+
 The tick is per-run consent, not a preference: `resetRun` ("Scan another") clears it. The value lives
 in a two-consumer store (`OnboardingSelectStep.watchOptIn.ts`) read by both the checkbox and
 `startScan`, so the disclosed commitment and the POSTed one cannot drift.
+
+**Standing in view (App path, 2026-09-23).** `/api/app/repos` merges each repo's `state`
+(`getRepoStates`: watch, schedule, latest level and score, plus the latest scan's `scannedAt` and
+whether that scan was a `preview`, i.e. the mock floor) into every row it lists, and the wizard now
+keeps it as `OrgRepo.standing` (`repoStanding.ts`, pure). Each row shows a chip: "L3 · 62 · pushed
+since last scan", "L3 · 62 · unchanged: a rescan returns the same score, free", "not scanned yet", or,
+for a preview-scored repo, "preview estimate: the live scan has not run". A preview is never called
+unchanged or free, and never counts as covered: a live rescan of the same commit upgrades the mock
+row rather than deduping to a refund. The default selection (`topSelection`) puts repos without a
+live score first, then prominence, so a returning user's 10 slots extend coverage instead of
+re-buying scores; a line beside the cap pill reads "N new · M rescans". "Scan another" overlays the
+run it just finished (scores, and preview vs live from the run's plan) onto the next listing, because
+the route's 30-second payload cache can still answer with the pre-scan state. The public-handle
+listing carries no state, so it shows no chips and no mix line, and its preselection is unchanged.
 
 **Fast preview first: the preview-then-upgrade choreography (W6b, App path with headroom).** A
 second checkbox in the cost disclosure, **default ON** (same store pattern:
