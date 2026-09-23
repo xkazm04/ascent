@@ -69,11 +69,16 @@ async function parkCommits(worktree: LoopWorktree, before: string, id: string): 
   return { branch, note: null };
 }
 
-async function settle(planId: string | null, status: "landed"): Promise<void> {
+/**
+ * Settle an executing plan `landed`. The fence calls it on a clean check; a lane that ADOPTED an
+ * approved plan's held commits (lane-adopt.ts) calls it in the fence's place, because the diff the
+ * operator reviewed IS the declaration. Never throws.
+ */
+export async function settleLandedPlan(planId: string | null): Promise<void> {
   if (!planId) return;
   try {
     const { settleExecutingPlan } = await import("@/lib/db/loop-plans-write");
-    await settleExecutingPlan(planId, status);
+    await settleExecutingPlan(planId, "landed");
   } catch {
     /* the ledger row stays `executing`; the landing itself is unaffected */
   }
@@ -96,7 +101,7 @@ export async function checkPlanFence(input: PlanFenceInput): Promise<PlanFenceVe
     const actual = movesInDiff(parseNameStatus(diff.stdout), partition, trackedBefore);
     undeclared = undeclaredMoves(actual, input.declaredMoves, input.directionFence, partition);
     if (undeclared.length === 0) {
-      await settle(input.planId, "landed");
+      await settleLandedPlan(input.planId);
       return { verdict: "land" };
     }
   }

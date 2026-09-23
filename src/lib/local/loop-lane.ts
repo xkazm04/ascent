@@ -115,6 +115,11 @@ import { checkGateDiff } from "@/lib/local/lane-gate-diff";
 // The post-rescan tail is `adjudicateLane`, shared with the deferred settle below.
 import { createLaneExitContext, exitLane, LANE_ACTOR, releaseLaneClaims, type LaneExitContext } from "@/lib/local/lane-exit";
 import { adjudicateLane } from "@/lib/local/lane-adjudicate";
+// ADOPTING HELD WORK (challenge-2026-09-23, live-war-room#B). An approved plan that carries a held
+// branch lands the commits the operator reviewed instead of dispatching a second session; the fence's
+// own `landed` settle is what the adopting lane calls in the fence's place.
+import { adoptHeldCommits } from "@/lib/local/lane-adopt";
+import { settleLandedPlan } from "@/lib/local/lane-plan-fence";
 
 /**
  * The DEFAULT batch — how many follow-ups (or craft rungs) one cycle dispatches when a run names no
@@ -203,6 +208,12 @@ export interface LaneDeps {
   settlePlan: typeof settleLanePlan;
   /** The session's metered cost, charged to the direction the lane's plan ran under. Never throws. */
   chargePlanCost: typeof chargeLanePlanCost;
+  /** Cherry-pick an approved plan's held commits onto the lane, or refuse and leave the worktree where
+   *  it was. Consulted only on a directed batch that carries `adoptBranch`. */
+  adopt: typeof adoptHeldCommits;
+  /** Settle the executing plan `landed` — the fence does it on a clean check; an adopting lane, which
+   *  skips the fence, does it here. Never throws. */
+  landPlan: typeof settleLandedPlan;
 }
 
 export const defaultLaneDeps: LaneDeps = {
@@ -244,6 +255,8 @@ export const defaultLaneDeps: LaneDeps = {
   depsInstall: installChangedDependencies,
   settlePlan: settleLanePlan,
   chargePlanCost: chargeLanePlanCost,
+  adopt: adoptHeldCommits,
+  landPlan: settleLandedPlan,
 };
 
 /** `openBatch`'s options. `onExcluded` reports what the pick passed over and why — the "proposed" end
@@ -963,6 +976,8 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   let directionFence: string[] | null = null;
   let directed: DirectedBatch | null = null;
   let verdict: string | null = null;
+  /** The held commits this lane ADOPTED instead of running a session — null on every other lane. */
+  let adopted: { commits: number; branch: string } | null = null;
 
   try {
     const beforeScanId = await getLatestScanIdForRepo(org, repo);
@@ -1308,106 +1323,133 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // refreshed as the lane count climbs — see recordRedBaselineLesson.
         await recordRedBaselineLesson(org, repo, unverifiedCycleLesson(repo, unverified)).catch(() => null);
       }
-      // THE BRIEF NO LONGER ASKS FOR A COMMIT, because the flags make one impossible: `claude -p
-      // --permission-mode acceptEdits` grants file edits and not Bash, and headless `-p` has nobody
-      // to answer the prompt `git commit` raises instead (L2-A-01). It asks for the one thing only
-      // the session knows — which ids it resolved — and the lane commits below. See lane-commit.ts.
-      const prompt =
-        buildFixPrompt(batch, {
-          org,
-          generatedAt: new Date().toISOString().slice(0, 10),
-          scanNote: "autopilot cycle",
-          commitPolicy: "lane",
-          // ONLY when the net is real. A promise of verification on a repo whose baseline is red (or
-          // that declares no check) would invite exactly the bold change nothing is going to catch.
-          verifyCommand: guardOn && baseline.passed === true ? baseline.resolved?.command ?? null : null,
-          // …and, when that command is a NARROWED rung, the declared command it stands in for. The
-          // brief's safety-net paragraph is what invites the larger swing, so it has to say exactly
-          // what will and will not catch it: a typecheck catches a broken build, not a broken test.
-          verifyNarrowedFrom: guardOn && baseline.passed === true ? baseline.narrowedFrom?.command ?? null : null,
-          // The opposite case, and mutually exclusive with the line above by construction: no net to
-          // promise, so the brief says so and asks for conservative work — never for a repair.
-          unverifiedCycle: unverified,
-        }) +
-        `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n` +
-        // The org's standard, then the report contract. In that order deliberately: the standard is
-        // what the work should look like, and the contract is how the session reports on it.
-        (brief ? `\n\nYOUR ORGANIZATION'S STANDARD:\n${brief.text}\n` : "") +
-        // THE PLAN, when this lane planned (or executes an approved direction): the route the session
-        // committed to and the fence it may not leave. After the standard, before the contract.
-        (planBlock ? `\n\n${planBlock}\n` : "") +
-        laneReportContract(batch.map((b) => b.id));
-      // THE STOP REACHES THE PROCESS. The call is held in `agentInFlight` before it is raced: the
-      // race rejects the moment the watchdog fires, long before a `taskkill` can answer, so the
-      // force-fail below awaits this promise briefly to report what the kill actually confirmed.
-      // ONE SET OF OPTIONS, TWO DOORS. An armed lane goes through `runAgentVia` with its EXECUTING
-      // transport; an unarmed one goes through `runAgent`, which is the same function `claude`
-      // resolves to — so the pre-arms path is not merely equivalent, it is the same call it was.
-      const agentOpts: TransportRunOptions = {
-        cwd: worktree.dir,
-        prompt,
-        // The watchdog's cut, passed outward. A run stop or the lane's own deadline now ends the
-        // `claude -p` process TREE instead of leaving it running unmonitored against a run nobody
-        // is watching any more — in ADDITION to the race settling, never instead of it.
-        signal: watch.signal,
-        // The ARM's executing model when there is one; otherwise the run's, exactly as before.
-        ...(execArm?.model ?? input.agent?.model ? { model: execArm?.model ?? input.agent?.model ?? undefined } : {}),
-        ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
-        // Conditional for the same reason the two above are: an ABSENT key lets the runner fall
-        // back to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session
-        // before this parameter used. Passing an explicit null would say the same thing, but a lane
-        // that sends the key on every call is one refactor away from sending a 0.
-        // An ARMED lane sends its own band instead, so a slow transport is not cut off at a ceiling
-        // sized for a fast one.
-        ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : execArm ? { timeoutMs: timing.agentMs } : {}),
-        // THE LIVE SIGNAL (spark theater-upgrade): every stream event into the lane's activity tail,
-        // and a minor plan's execution resumes its planning session.
-        onEvent: (e) => activity.onEvent(e),
-        ...(resumeSessionId ? { resumeSessionId } : {}),
-        // WHAT THIS SESSION TALKS TO. Omitted — not passed as null — when the arm's executing half is
-        // hosted, so an unarmed lane's options object is the same object it always was.
-        ...(execEndpoint ? { endpoint: execEndpoint } : {}),
-      };
-      const agentCall = execTransport ? deps.runAgentVia(execTransport, agentOpts) : deps.runAgent(agentOpts);
-      agentInFlight = agentCall;
-      // The worktree poll runs only while the session does, and is stopped on EVERY exit — including a
-      // watchdog cut, which is exactly when a leaked timer would outlive the lane.
-      const stopPoll = deps.worktreePoll(worktree.dir, laneId);
-      let result: AgentRunResult;
-      try {
-        result = await watch.stage("agent", () => agentCall);
-      } finally {
-        stopPoll();
-        await activity.flush().catch(() => undefined);
+      // ── ADOPT THE REVIEWED COMMITS (challenge-2026-09-23, live-war-room#B). An approved plan that
+      // carries a held branch already has its work: the fence parked the finished commits and the
+      // operator approved THEM. So the lane cherry-picks them onto its worktree instead of opening a
+      // second session that would re-derive something nobody was shown. Measured AFTER the baseline, so
+      // the guard below still compares the adopted tree against the pristine one; the integrity check
+      // and the rescan adjudicate it exactly as they would a session's work. A branch that no longer
+      // applies (a conflict, an empty range) leaves the worktree untouched and the lane runs today's
+      // fresh session instead, saying why.
+      if (directed?.adoptBranch) {
+        const branch = directed.adoptBranch;
+        const out = await watch.stage("git", () => deps.adopt({ dir: worktree.dir, heldBranch: branch }));
+        if (out.ok) {
+          adopted = { commits: out.commits, branch };
+          await appendLaneLog(
+            laneId,
+            `Adopted ${out.commits} commit(s) from ${branch} — no agent session was spent: these are the commits the operator reviewed and approved. The guard and the rescan still judge them.`,
+          );
+        } else {
+          await appendLaneLog(
+            laneId,
+            `The held commits on ${branch} could not be adopted: ${out.reason}. Falling back to a fresh session that re-derives the approved plan; ${branch} is kept.`,
+          );
+        }
       }
-      await appendLaneLog(
-        laneId,
-        `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
-      );
-      const armed = new Set(batch.map((b) => b.id));
-      agentClaims = parseClaimLines(result.summary).filter((c) => armed.has(c.id));
-      // WHAT THE SESSION COST, recorded IMMEDIATELY — before the commit, the rescan or anything else
-      // that can fail. A lane that dies three steps from here still carries its cost, which is the
-      // half of the ledger that cannot be reconstructed from git afterwards. A FAILED session is
-      // recorded too: a failure that burned two dollars is the most important row in the price list.
-      // …and, in the same patch, what the PLANNING session spent, when this lane ran one. Two
-      // sessions, two sets of columns: pooling them makes a split arm's Claude spend unrecoverable.
-      await recordAgentCost(laneId, org, repo, result, input, planResult);
-      // …and charged to the direction the plan ran under — the half of a direction's budget its cycle
-      // count cannot measure.
-      await deps.chargePlanCost(ctx.planId, result.costMicros);
-      // THE AGENT'S OWN ACCOUNT, read before the commit and the rescan so a lane that dies later
-      // still carries it. A missing or malformed report is `parsed: false` — which is not the same
-      // fact as "it skipped nothing", and the ledger renders the difference.
-      report = await deps.readReport(worktree.dir, batch.map((b) => b.id)).catch(() => null);
-      if (report) {
-        await updateLane(laneId, { report });
+      /** The session this cycle dispatched — null when the lane adopted held commits instead. */
+      let result: AgentRunResult | null = null;
+      if (!adopted) {
+        // THE BRIEF NO LONGER ASKS FOR A COMMIT, because the flags make one impossible: `claude -p
+        // --permission-mode acceptEdits` grants file edits and not Bash, and headless `-p` has nobody
+        // to answer the prompt `git commit` raises instead (L2-A-01). It asks for the one thing only
+        // the session knows — which ids it resolved — and the lane commits below. See lane-commit.ts.
+        const prompt =
+          buildFixPrompt(batch, {
+            org,
+            generatedAt: new Date().toISOString().slice(0, 10),
+            scanNote: "autopilot cycle",
+            commitPolicy: "lane",
+            // ONLY when the net is real. A promise of verification on a repo whose baseline is red (or
+            // that declares no check) would invite exactly the bold change nothing is going to catch.
+            verifyCommand: guardOn && baseline.passed === true ? baseline.resolved?.command ?? null : null,
+            // …and, when that command is a NARROWED rung, the declared command it stands in for. The
+            // brief's safety-net paragraph is what invites the larger swing, so it has to say exactly
+            // what will and will not catch it: a typecheck catches a broken build, not a broken test.
+            verifyNarrowedFrom: guardOn && baseline.passed === true ? baseline.narrowedFrom?.command ?? null : null,
+            // The opposite case, and mutually exclusive with the line above by construction: no net to
+            // promise, so the brief says so and asks for conservative work — never for a repair.
+            unverifiedCycle: unverified,
+          }) +
+          `\n\nAUTOPILOT CONTEXT:\n- You are in an isolated worktree on branch \`${worktree.branch}\`. DO NOT run git — this session has no shell permission and every git command will be refused. Leave your changes in the working tree; the Ascent lane commits them for you the moment you exit, with the trailers.\n- NEVER push, never switch branches, never touch remotes.\n- If an item cannot be safely resolved, skip it and say why in your summary.\n\nWHAT COUNTS AS RESOLVED:\n- Understand this codebase first, then implement the change that most raises the level of trust the item describes. Do the WORK, never the detector: a config file for a tool this project does not use, an empty or stub file, or a tool's name in a workflow comment is not a fix — the rescan scores practices that operate, and it verifies before it closes anything.\n- The trailer is a claim, not a verdict. A row closes only when the next scan no longer raises the gap AND its dimension measurably moved; a claim the rescan cannot confirm stays open.\n- On each RESOLVED line, state how a reviewer would tell the practice is real: what runs, when it runs, and what happens when it fails. If you cannot write that sentence honestly, the item is SKIPPED, not resolved.\n` +
+          // The org's standard, then the report contract. In that order deliberately: the standard is
+          // what the work should look like, and the contract is how the session reports on it.
+          (brief ? `\n\nYOUR ORGANIZATION'S STANDARD:\n${brief.text}\n` : "") +
+          // THE PLAN, when this lane planned (or executes an approved direction): the route the session
+          // committed to and the fence it may not leave. After the standard, before the contract.
+          (planBlock ? `\n\n${planBlock}\n` : "") +
+          laneReportContract(batch.map((b) => b.id));
+        // THE STOP REACHES THE PROCESS. The call is held in `agentInFlight` before it is raced: the
+        // race rejects the moment the watchdog fires, long before a `taskkill` can answer, so the
+        // force-fail below awaits this promise briefly to report what the kill actually confirmed.
+        // ONE SET OF OPTIONS, TWO DOORS. An armed lane goes through `runAgentVia` with its EXECUTING
+        // transport; an unarmed one goes through `runAgent`, which is the same function `claude`
+        // resolves to — so the pre-arms path is not merely equivalent, it is the same call it was.
+        const agentOpts: TransportRunOptions = {
+          cwd: worktree.dir,
+          prompt,
+          // The watchdog's cut, passed outward. A run stop or the lane's own deadline now ends the
+          // `claude -p` process TREE instead of leaving it running unmonitored against a run nobody
+          // is watching any more — in ADDITION to the race settling, never instead of it.
+          signal: watch.signal,
+          // The ARM's executing model when there is one; otherwise the run's, exactly as before.
+          ...(execArm?.model ?? input.agent?.model ? { model: execArm?.model ?? input.agent?.model ?? undefined } : {}),
+          ...(input.agent?.effort ? { effort: input.agent.effort } : {}),
+          // Conditional for the same reason the two above are: an ABSENT key lets the runner fall
+          // back to the deployment's own `ASCENT_AUTOPILOT_TIMEOUT_MS`, which is what every session
+          // before this parameter used. Passing an explicit null would say the same thing, but a lane
+          // that sends the key on every call is one refactor away from sending a 0.
+          // An ARMED lane sends its own band instead, so a slow transport is not cut off at a ceiling
+          // sized for a fast one.
+          ...(input.agent?.timeoutMs ? { timeoutMs: input.agent.timeoutMs } : execArm ? { timeoutMs: timing.agentMs } : {}),
+          // THE LIVE SIGNAL (spark theater-upgrade): every stream event into the lane's activity tail,
+          // and a minor plan's execution resumes its planning session.
+          onEvent: (e) => activity.onEvent(e),
+          ...(resumeSessionId ? { resumeSessionId } : {}),
+          // WHAT THIS SESSION TALKS TO. Omitted — not passed as null — when the arm's executing half is
+          // hosted, so an unarmed lane's options object is the same object it always was.
+          ...(execEndpoint ? { endpoint: execEndpoint } : {}),
+        };
+        const agentCall = execTransport ? deps.runAgentVia(execTransport, agentOpts) : deps.runAgent(agentOpts);
+        agentInFlight = agentCall;
+        // The worktree poll runs only while the session does, and is stopped on EVERY exit — including a
+        // watchdog cut, which is exactly when a leaked timer would outlive the lane.
+        const stopPoll = deps.worktreePoll(worktree.dir, laneId);
+        try {
+          result = await watch.stage("agent", () => agentCall);
+        } finally {
+          stopPoll();
+          await activity.flush().catch(() => undefined);
+        }
         await appendLaneLog(
           laneId,
-          report.parsed
-            ? `Report: ${report.items.length} item verdict(s), ${report.lessons.length} lesson(s).`
-            : "No lane report was written — the agent's per-item verdicts are unknown for this cycle.",
+          `${result.ok ? "Agent finished" : "Agent failed"}: ${firstLine(result.summary, AGENT_SUMMARY_CHARS)}`,
         );
+        const armed = new Set(batch.map((b) => b.id));
+        agentClaims = parseClaimLines(result.summary).filter((c) => armed.has(c.id));
+        // WHAT THE SESSION COST, recorded IMMEDIATELY — before the commit, the rescan or anything else
+        // that can fail. A lane that dies three steps from here still carries its cost, which is the
+        // half of the ledger that cannot be reconstructed from git afterwards. A FAILED session is
+        // recorded too: a failure that burned two dollars is the most important row in the price list.
+        // …and, in the same patch, what the PLANNING session spent, when this lane ran one. Two
+        // sessions, two sets of columns: pooling them makes a split arm's Claude spend unrecoverable.
+        await recordAgentCost(laneId, org, repo, result, input, planResult);
+        // …and charged to the direction the plan ran under — the half of a direction's budget its cycle
+        // count cannot measure.
+        await deps.chargePlanCost(ctx.planId, result.costMicros);
+        // THE AGENT'S OWN ACCOUNT, read before the commit and the rescan so a lane that dies later
+        // still carries it. A missing or malformed report is `parsed: false` — which is not the same
+        // fact as "it skipped nothing", and the ledger renders the difference.
+        report = await deps.readReport(worktree.dir, batch.map((b) => b.id)).catch(() => null);
+        if (report) {
+          await updateLane(laneId, { report });
+          await appendLaneLog(
+            laneId,
+            report.parsed
+              ? `Report: ${report.items.length} item verdict(s), ${report.lessons.length} lesson(s).`
+              : "No lane report was written — the agent's per-item verdicts are unknown for this cycle.",
+          );
+        }
       }
       // ── THE DEPENDENCY INSTALL (spark theater-upgrade), runner lanes only. A session that changed a
       // manifest is verified against the NEW dependencies, installed by the engine with scripts off —
@@ -1465,6 +1507,17 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           // The lesson is a STANDING FACT about this repository and this command, so it goes through
           // the same pending-candidate queue every agent lesson does — a human keeps or discards it.
           await recordLoopLessons(org, repo, laneId, [verifyRejectionLesson(repo, outcome)]).catch(() => []);
+          // AN ADOPTED DIFF IS COMMITTED, so the guard's discard (which cleans a dirty tree) cannot reach
+          // it: the lane branch goes back to `before` here, and the held branch keeps the commits.
+          if (adopted) {
+            const back = await git(["reset", "--hard", before]);
+            await appendLaneLog(
+              laneId,
+              back.ok
+                ? `The adopted commits were taken back off ${worktree.branch}; they remain on ${adopted.branch}.`
+                : `The adopted commits could NOT be taken back off ${worktree.branch} (${firstLine(back.stderr)}) — check the worktree; they remain on ${adopted.branch}.`,
+            );
+          }
           // A deliverable too, so the outcome sheet shows the reversal rather than an empty lane. It
           // covers nothing on purpose: no follow-up was closed, and listing the armed ids here would
           // put them in the ledger under a cycle that delivered none of them.
@@ -1499,22 +1552,26 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // whatever is dirty in it is this session's work. A session that DID manage to commit (a future
       // mode with a wider grant) leaves nothing behind and this is a no-op; anything left over is
       // residue and lands in one commit carrying the armed batch's `Ascent-Resolves:` trailers.
-      await updateLane(laneId, { stage: "committing" });
-      const committed = await watch.stage("commit", () =>
-        deps.commitWork({
-          dir: worktree.dir,
-          branch: worktree.branch,
-          cycle,
-          batch,
-          summary: result.summary,
-          // A FAILED SESSION'S FINAL TEXT IS ITS ERROR, NOT ITS ACCOUNT OF THE WORK (PRIYA-L2-C7). The
-          // lane still commits the residue — that work is real and the worktree is about to be deleted
-          // — but the subject stops being the failure message.
-          sessionFailed: !result.ok,
-        }),
-      );
-      await appendLaneLog(laneId, committed.summary);
-      await updateLane(laneId, { stage: null });
+      // An ADOPTING lane has nothing to commit: the held commits landed as they were reviewed.
+      const session = result;
+      if (session) {
+        await updateLane(laneId, { stage: "committing" });
+        const committed = await watch.stage("commit", () =>
+          deps.commitWork({
+            dir: worktree.dir,
+            branch: worktree.branch,
+            cycle,
+            batch,
+            summary: session.summary,
+            // A FAILED SESSION'S FINAL TEXT IS ITS ERROR, NOT ITS ACCOUNT OF THE WORK (PRIYA-L2-C7). The
+            // lane still commits the residue — that work is real and the worktree is about to be deleted
+            // — but the subject stops being the failure message.
+            sessionFailed: !session.ok,
+          }),
+        );
+        await appendLaneLog(laneId, committed.summary);
+        await updateLane(laneId, { stage: null });
+      }
     }
 
     const countRes = await git(["rev-list", "--count", `${before}..HEAD`]);
@@ -1545,7 +1602,12 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // declared moves (and an approved direction's fence). An architecture move nobody declared is not
     // landed: the implementation has already parked the commits on a held branch for the reviewer and
     // reset this lane's branch, so the next cycle does not build on held work.
-    if ((runnerFlags?.plan || directed) && commits > 0) {
+    //
+    // AN ADOPTING LANE SKIPS IT: the diff it landed is the one the operator reviewed and approved — the
+    // review IS the declaration — so the plan settles `landed` here, in the fence's place.
+    if (adopted && commits > 0) {
+      await deps.landPlan(ctx.planId);
+    } else if ((runnerFlags?.plan || directed) && commits > 0) {
       const fence = await watch.stage("git", () =>
         deps.checkPlanFence({ org, repo, laneId, worktree, before, planId: ctx.planId, declaredMoves, directionFence }),
       );

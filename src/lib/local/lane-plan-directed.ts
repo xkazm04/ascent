@@ -11,7 +11,11 @@
 //   • a plan none of whose items is open any more → `superseded`.
 // The chosen plan moves `approved → executing` conditionally (two lanes cannot both take it) and its
 // direction is charged one cycle. It executes in a FRESH session — the planning session that wrote it
-// is days old — with the approved plan as its fixed tier. Every db access is a LAZY import.
+// is days old — with the approved plan as its fixed tier. UNLESS the plan carries a held branch: then
+// the fence already parked the finished commits the operator reviewed, and the lane ADOPTS them
+// (`adoptBranch`, lane-adopt.ts) instead of paying a second session to re-derive something nobody was
+// shown — the fresh session stays as the fallback when they no longer apply. Every db access is a LAZY
+// import.
 
 import type { FollowUpItem } from "@/lib/org/followups";
 import { effectiveMoves } from "@/lib/local/lane-plan-classify";
@@ -27,6 +31,9 @@ export interface DirectedBatch {
   planBlock: string;
   directionFence: string[];
   declaredMoves: ArchitectureMove[];
+  /** The approved plan's held branch — the commits the fence parked and the operator reviewed. When
+   *  set, the lane adopts them instead of dispatching a session; null executes the plan fresh. */
+  adoptBranch: string | null;
 }
 
 /** Today's rows for a plan's keys, each paired with the plan's entry for it (via the aligned rec id). */
@@ -83,6 +90,7 @@ export async function nextDirectedBatch(org: string, repo: string): Promise<Dire
         planBlock: buildPlanBlock({ plan: plan.plan, items: planned, directionFence: direction.fence, directed: true }),
         directionFence: direction.fence,
         declaredMoves: planned.flatMap((p) => p.moves),
+        adoptBranch: plan.heldBranch ?? null,
       };
     }
     return null;

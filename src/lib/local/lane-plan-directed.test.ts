@@ -99,6 +99,14 @@ describe("nextDirectedBatch", () => {
     expect(exhaustDirection.mock.calls).toEqual([["dir-1"], ["dir-2"]]);
   });
 
+  it("carries an approved plan's held branch through as the branch to adopt (live-war-room#B)", async () => {
+    state.plans = [{ ...plan("p1", "dir-1", ["k"], ["r"]), heldBranch: "ascent/held/p1" }];
+    state.today = new Map([["k", row("t", "x")]]);
+    expect((await nextDirectedBatch("acme", "acme/web"))?.adoptBranch).toBe("ascent/held/p1");
+    state.plans = [plan("p2", "dir-1", ["k"], ["r"])];
+    expect((await nextDirectedBatch("acme", "acme/web"))?.adoptBranch).toBeNull();
+  });
+
   it("loses a race gracefully: a plan another lane already took is skipped", async () => {
     state.startOk = false;
     state.plans = [plan("p1", "dir-1", ["k"], ["r"])];
