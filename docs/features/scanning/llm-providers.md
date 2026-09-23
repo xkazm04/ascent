@@ -54,8 +54,28 @@ the boundary:
 ### `LLM_PROVIDER` and `resolveProviderChoice()`
 
 Chosen at runtime by the `LLM_PROVIDER` env flag, resolved by `resolveProviderChoice()`
-against a fixed `PROVIDER_CHOICES` list: `"auto" | "gemini" | "bedrock" | "openai" |
-"openrouter" | "local" | "mock" | "claude-cli" | "codex-cli"`.
+against a list **derived from the provider registry** (below): `"auto"` plus every registry key,
+`"gemini" | "bedrock" | "openai" | "openrouter" | "local" | "nebius" | "mock" | "claude-cli" |
+"codex-cli" | "gateway"`. There is no hand-kept list to forget a provider in.
+
+### The provider registry (`src/lib/llm/registry.ts`, 2026-09-23)
+
+Every provider question reads one table: `REGISTRY`, a **total** `Record<ProviderName,
+ProviderDescriptor>`, so a new union member without a descriptor fails `tsc`. Each descriptor
+owns `available()` (the env prerequisite), `scan()` (the scan-seam `LLMProvider`), an optional
+`autoRung` (its place on the `auto` ladder; absent = explicit-only), and `textSeam`: a
+`connection()` bound by the text seam's wire transport, a `runner()` for a transport that owns its
+own process (claude-cli), or a declared `{ none: reason }` (`mock`, `codex-cli`, `gateway` — the only
+three). `autoProviderName()` is the **one** auto ladder (Gemini → local → mock), read by
+`getProvider()`, the text seam and the privacy notice alike, and `byomDescriptor(params)` is the one
+BYOM kind → provider mapping, shared by `getProviderForOrg()` and `text-org.ts`.
+
+Why a table: provider identity used to be re-implemented in seven hand-kept places (the choice list,
+three switches in `index.ts`, three copies of the auto ladder, the text seam's switch, two BYOM
+ternaries), and every provider added since the text seam existed landed in some and not others —
+`local`, then `nebius`, resolved for scans and "no engine" everywhere else. A parity contract in
+`registry.test.ts` now asserts, for every key, that `getProvider()`, `providerByName()` and the text
+seam resolve the same provider (or that the descriptor declares no text seam).
 
 **An unrecognized, non-empty `LLM_PROVIDER` value throws** rather than being coerced to
 `"auto"`. A typo like `LLM_PROVIDER=bedrok` on an enterprise-privacy deploy used to fall
@@ -252,20 +272,19 @@ fallback SSE event, so a misconfigured deploy would serve mock scores with no ca
 genuinely broken config instead fails fast inside `assess()` and degrades through the
 accounted retry → failover → mock chain. The same reasoning applies to an **explicit**
 `gemini` selection: it constructs a real `GeminiProvider` (with the key or `""`) rather
-than calling the keyless-shortcut `geminiOrMock()`. Only the **`auto`** branch uses
-`geminiOrMock()`: there, "no key configured" genuinely means mock, not broken config.
+than degrading to mock. Only the **`auto`** branch degrades: `autoProviderName()` skips a keyless
+Gemini, because there "no key configured" genuinely means mock, not broken config.
 
 ### `providerByName()`
 
 Builds a specific real provider by name for `LLM_FALLBACK_PROVIDER` (retry with a second
 model on a transient primary failure before degrading to mock). Returns `null` for
 `"mock"`/unknown/empty **and** for any provider whose `providerAvailable()` check fails,
-including a keyless `"gemini"` (which would otherwise construct a `MockProvider` via
-`geminiOrMock()` and have the orchestrator log it as a *successful* fallback, hiding the
-real failure). `null` tells the caller "no real fallback exists"; the caller then degrades
+including a keyless `"gemini"` (which would otherwise run as a *successful* fallback step
+and hide the real failure). `null` tells the caller "no real fallback exists"; the caller then degrades
 to `MockProvider` itself, with honest accounting.
 
-`"nebius"` is in that switch, same contract as `"local"` / `"bedrock"`: when both Token
+`"nebius"` follows its registry descriptor, same contract as `"local"` / `"bedrock"`: when both Token
 Factory knobs are set it returns a `NebiusProvider`; otherwise `null`. Setting
 `LLM_FALLBACK_PROVIDER=nebius` therefore actually fails over instead of the name falling
 through as unknown.
@@ -504,13 +523,14 @@ the same lazy-import discipline. What it deliberately does **not** reuse is the 
 prompt, `ASSESSMENT_JSON_SCHEMA`, token metering and `validateAssessment`, none of which
 apply to a caller bringing its own contract.
 
-- Selection is the **same rule as `getProvider()`, not a new one**: an explicit
-  `LLM_PROVIDER` wins, and if that provider isn't available here the resolver returns `null`
-  rather than silently substituting one the operator never chose; `auto`/unset resolves to
-  Gemini when a key is present, else `null`; `mock` returns `null`, there is no honest
-  "deterministic mock judgment" to hand a caller whose whole job is judgment.
+- Selection is the **same rule as `getProvider()`, by construction**: both read the provider
+  registry. An explicit `LLM_PROVIDER` wins, and if that provider isn't available here the resolver
+  returns `null` rather than silently substituting one the operator never chose; `auto`/unset walks
+  the same ladder as scans (Gemini with a key, else a configured `local` server, else `null`);
+  `mock` returns `null`, there is no honest "deterministic mock judgment" to hand a caller whose
+  whole job is judgment. `codex-cli` and `gateway` also return `null`, each by a declared reason.
 - One OpenAI-compatible `/chat/completions` transport serves `openai` (incl. Azure), `local`
-  (vLLM / Ollama / LM Studio) and `openrouter`; Gemini and Bedrock reuse their own SDK shapes.
+  (vLLM / Ollama / LM Studio), `nebius` and `openrouter`; Gemini and Bedrock reuse their own SDK shapes.
   The wire formats live in `src/lib/llm/transports.ts`; `text.ts` keeps selection, the timeout
   lifecycle and the metering.
   No `response_format` is requested; callers own their contract and repair-parse through
@@ -526,6 +546,11 @@ apply to a caller bringing its own contract.
   both sets the tracklight tag and selects the sampling temperature. A default would turn a
   chokepoint back into a habit, and the caller that forgets to tag itself is exactly the one you
   needed to see.
+- **`nebius` resolves here too** *(2026-09-23)*. It had no case in the text seam, so Athena, the
+  memory passes, lane summaries and the briefing narrative reported "no engine" under
+  `LLM_PROVIDER=nebius` while its scans ran. It binds the same OpenAI-compatible transport as
+  `openai`/`local` (`NEBIUS_BASE_URL` or the Token Factory default, `NEBIUS_API_KEY`, `NEBIUS_MODEL`,
+  the `OPENAI_MAX_TOKENS` cap `NebiusProvider` inherits).
 - **`local` resolves here too.** It had no `case` in the switch and fell through to `null`, even
   though `providerAvailable("local")` returns true once both knobs are set - so a self-hoster on
   Ollama got "no engine" from every non-scan LLM surface while their scans ran fine on the same
