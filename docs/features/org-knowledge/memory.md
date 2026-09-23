@@ -172,6 +172,11 @@ superseded) is stamped `supersededBy = <new id>`. If the target can't be
 found in this org or was already superseded by a concurrent write, the whole
 transaction is rejected and the route returns 400.
 
+The target must also pass the same per-row refusal `PATCH`/`DELETE` apply
+(`memoryWriteRefusal`): another author's private note answers 400 as not found,
+and a registry mirror answers `409 registry-origin` before anything is written.
+See "Correct a memory from its card" below.
+
 ### Archive
 
 An admin can archive a **hosted** memory (soft-delete: `archived: true`, never a hard
@@ -728,6 +733,7 @@ kind is episodic" assumption is the scan feed's, not the store's.
 | `/api/org/memory/[id]` | `PATCH` | Edit a memory (member, Team+); bumps `version`. 404s another author's private row. |
 | `/api/org/memory/[id]` | `DELETE` | Archive a memory (admin-only, soft-delete). 404s another author's private row. |
 | `/api/org/memory/[id]/recall` | `POST` | Record a recall/use of a single memory. |
+| `/api/org/memory/[id]?lineage=1` | `GET` | The memory plus what it replaced: `{ memory, lineage, lineageHidden }`, newest first, within the viewer's visibility. |
 
 All routes resolve the memory's owning org from its id before authorizing, so
 guessing an id from another org 404s rather than leaking existence via a
@@ -905,6 +911,9 @@ only news once the other world exists.
 | `src/lib/memory/repo-memory-mirror.ts` | The mirror: gates, parse, upsert, ingest, supersede. |
 | `src/lib/db/repo-memory.ts` | `RepoMemoryMirror` reads/writes + the dead-ends read. |
 | `src/features/shared/memory/RepoMemoryDeadEnds.tsx` | "Dead ends other repos already hit". |
+| `src/features/shared/memory/memoryCorrectionModel.ts` | Pure correction draft, the Correct-button rule, and which target a check verdict leaves armed. |
+| `src/features/shared/memory/useMemoryCorrection.ts` | The correction state behind the author form (start, cancel, end). |
+| `src/features/shared/memory/MemoryLineage.tsx` | The earlier versions behind a card's `v{n}` badge. |
 
 ## Lesson candidates from the local loop (moonshot #25)
 
@@ -913,3 +922,39 @@ they land as `OrgMemoryCandidate` rows (`source: "loop-lesson"`, `status: pendin
 cockpit's lessons inbox (`GET /api/org/loop/lessons`). A human keeps or discards each one; a kept lesson
 is promoted through `createOrgMemory` — the same door as an authored memory — never by the loop itself.
 `OrgMemoryCandidate` is deliberately generic; the skills lessons channel (#36) reuses it.
+
+## Correct a memory from its card (2026-09-23)
+
+A correction used to be reachable only through the duplicate check: retype the
+memory, match its namespace, run a model pass that compares the 50 newest rows
+of that namespace, and hope the old row cleared the overlap floor. A row older
+than that window, or reworded past it, could not be superseded from the product.
+
+- **Correct** sits on an expanded Memory card for a hosted row the viewer can
+  write (`canCorrectMemory`). It loads the row into the author form with that
+  row armed as `supersedeId`: content, kind, namespace, visibility and tags carry
+  over, `source` starts blank (the correction's provenance is the person making
+  it), and confidence starts at High, since a human correction is the highest
+  evidence grade. The form shows a **Correcting** banner with a struck excerpt of
+  the target (the `superseded` mark), **Cancel**, and **Save correction**. Saving
+  is one `POST /api/org/memory`; no check runs. The check stays available, and a
+  verdict never re-aims an armed correction at a different row.
+- A **registry mirror** shows no Correct: its change path is a pull request, and
+  the card keeps **Open in registry**.
+- **The supersede door is gated like an edit.** `createOrgMemory` and the POST
+  route both apply `memoryWriteRefusal`, the predicate `PATCH`/`DELETE` use.
+  Another author's private note is not found (400), and a registry-origin target
+  is `409 registry-origin` without the write being called. Before, the target
+  lookup was `{ id, orgId }` alone: a member could retire a colleague's private
+  note by id, and a hosted supersede could stamp a mirror row that the index pass
+  never un-stamps (the note stayed live in the repo and hidden in Ascent). A
+  target in another org is always not found, never 409, so origin does not leak
+  a foreign row's existence.
+- **What a memory replaced.** From `v2` on, the card offers **Show earlier
+  versions**, read on demand from `GET /api/org/memory/:id?lineage=1`. The server
+  walks the `supersededBy` pointer backwards inside the row's org (at most 50
+  rows, 25 levels; a reflection summary has several predecessors at one level).
+  Predecessors may be archived or expired and are still shown, because history
+  is still history. Another author's private predecessor is left out and counted
+  in `lineageHidden`. A `v2` with no predecessor on record was edited in place
+  (`PATCH` also raises the version), and the list says so.
