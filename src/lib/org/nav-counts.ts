@@ -41,6 +41,7 @@ import { getOrgNavCounts, type OrgNavCounts } from "@/lib/db";
 import { buildSecurityOverview } from "@/lib/org/security";
 import {
   contributorFindings,
+  isFindingResolved,
   passportFindings,
   practiceFindings,
   securityFindings,
@@ -123,7 +124,8 @@ export const getOrgFindingCounts = cache(async (orgSlug: string) => {
   ]);
   const counts = { ...NO_DERIVED };
   for (const f of findings) {
-    if (resolved.get(f.module)?.has(f.itemKey)) continue;
+    // Current key OR a read-only alias it was decided under before (a passport blocker's prose key).
+    if (isFindingResolved(f, resolved)) continue;
     counts[f.module] += 1;
   }
   return counts;

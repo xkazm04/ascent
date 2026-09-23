@@ -69,6 +69,14 @@ export interface OrgPassportBlockers {
   fullName: string;
   /** Both readiness axes concatenated; `passportFindings` de-dupes the overlap. */
   blockers: string[];
+  /**
+   * The minted findings behind those blockers (both axes, id + sentence), so the badge keys a blocker
+   * on its CAUSE — the same `passportJudgmentKey` the drawer writes under. Without them the badge fell
+   * back to a hash of the current sentence, and a decided self-verify blocker came back into the badge
+   * the day its missing-script list changed. Coverage holes ride along harmlessly: `blockers` never
+   * lists them, and `passportFindings` only looks an id up for a listed blocker.
+   */
+  findings: { id: string; text: string }[];
 }
 
 /**
@@ -111,6 +119,10 @@ export const getOrgPassportBlockers = cache(async (orgSlug: string): Promise<Org
     out.push({
       fullName: r.fullName,
       blockers: [...p.automationReadiness.blockers, ...p.productionReadiness.blockers],
+      findings: [...(p.automationReadiness.findings ?? []), ...(p.productionReadiness.findings ?? [])].map((f) => ({
+        id: f.id,
+        text: f.text,
+      })),
     });
   }
   return out;

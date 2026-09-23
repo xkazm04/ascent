@@ -17,8 +17,8 @@
 // was accepted about a different repo than the one that exists now. The entry says so, so the duplicate
 // reads as "this is the reasoning you are being asked to reaffirm", not as a double-count.
 
-import { DecisionControl } from "@/components/org/DecisionControl";
-import { blockerKeys } from "@/lib/org/findings";
+import { DecisionControl, type DecisionStatusUi } from "@/components/org/DecisionControl";
+import { judgeFinding } from "@/lib/org/passport-judgments";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import type { DeclinedByChoice, PassportFinding } from "@/lib/types";
 import { isDeclinableFinding } from "./passportDeclineOffers";
@@ -34,6 +34,12 @@ import { isDeclinableFinding } from "./passportDeclineOffers";
 // rotated the key, and orphaned the decision the owner had recorded. `blockerKeys` returns the id key
 // first (what a new decision is written under) and the old prose key second (read-only, so a decision
 // made before this change still suppresses its blocker). See findings.ts for the cleanup window.
+//
+// ONE JUDGMENT MODEL (card ai-native-passports#A). The key AND the state now come from `judgeFinding`
+// (src/lib/org/passport-judgments.ts) — the same model the rail badge and the fleet Pareto read — with
+// its fixed precedence: overlay reconfirm > overlay decline > OrgDecision > open. The row used to look
+// only at OrgDecisions, so a member's "Dismissed" under the same id key buried an owner decline the
+// overlay had RE-SURFACED for re-confirmation behind a greyed pill.
 export function BlockerList({
   title,
   items,
@@ -42,6 +48,7 @@ export function BlockerList({
   fullName,
   decisions,
   findings,
+  declined,
 }: {
   title: string;
   items: string[];
@@ -53,6 +60,9 @@ export function BlockerList({
    *  which keeps the legacy text key — there is no id to key on, and inventing one would orphan the
    *  very decisions this change exists to preserve. */
   findings?: PassportFinding[];
+  /** The owner's declines for this repo (`passport.declined`), so a re-surfaced one outranks a
+   *  member's decision on the same finding. */
+  declined?: DeclinedByChoice[];
 }) {
   return (
     <div>
@@ -62,15 +72,15 @@ export function BlockerList({
       ) : (
         <ul className="mt-1.5 space-y-2.5">
           {items.map((b) => {
-            const findingId = findings?.find((f) => f.text === b)?.id;
-            const [key, ...legacy] = blockerKeys(fullName, b, findingId);
-            // Read the id key first, then any legacy alias — a decision recorded before Direction 8
-            // still counts. The WRITE below always uses `key`.
-            const decision = decisions[key!] ?? legacy.map((k) => decisions[k]).find(Boolean);
+            const finding = findings?.find((f) => f.text === b);
+            // Reads the id key, then any legacy prose alias; `j.key` is always the WRITE key. Null for a
+            // coverage hole, which is never a decidable finding.
+            const j = judgeFinding({ fullName, finding: { id: finding?.id, code: finding?.code, text: b }, declined, decisions });
             // Pre-0.4.0 rows have no minted id to classify, so the control stays on the prose key.
-            const offerDecision = findings === undefined || isDeclinableFinding(findingId);
+            const offerDecision = j !== null && (findings === undefined || isDeclinableFinding(finding?.id));
+            const status = j?.source === "decision" ? (j.state as DecisionStatusUi) : "open";
             return (
-              <li key={b} className={`type-body-sm text-slate-300 ${decision && decision.status !== "open" ? "opacity-60" : ""}`}>
+              <li key={b} className={`type-body-sm text-slate-300 ${j && !j.open ? "opacity-60" : ""}`}>
                 <span className="flex gap-2">
                   <span aria-hidden className="mt-0.5 shrink-0 text-orange-400">▸</span>
                   {b}
@@ -80,11 +90,11 @@ export function BlockerList({
                     <DecisionControl
                       org={org}
                       module="passports"
-                      itemKey={key!}
+                      itemKey={j.key}
                       title={b}
-                      status={decision?.status ?? "open"}
-                      rationale={decision?.rationale}
-                      decidedBy={decision?.decidedBy}
+                      status={status}
+                      rationale={j.source === "decision" ? (j.reason ?? "") : undefined}
+                      decidedBy={j.source === "decision" ? j.by : undefined}
                     />
                   </div>
                 )}

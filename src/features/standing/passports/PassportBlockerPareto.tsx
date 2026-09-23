@@ -19,6 +19,10 @@
 // and accepted it". The issue draft still targets the open repos only — filing an issue against a repo
 // whose owner has already declined the gap is exactly the "present a team's own decision back to them
 // as an open finding" failure the aggregation change exists to prevent.
+//
+// A MEMBER'S DECISION GETS THE SAME TREATMENT (card ai-native-passports#A). A repo whose team resolved
+// the blocker from the drawer (OrgDecision: dismissed / accepted / snoozed) is `dismissedRepos`: a
+// DASHED mark and its own count, never folded into the solid run and never an issue-draft target.
 
 import { useState } from "react";
 import { Legend, WhyChip, type LegendExtra } from "@/components/org/viz";
@@ -27,6 +31,7 @@ import { PLACEHOLDER_LABEL, PLACEHOLDER_TITLE } from "@/features/standing/passpo
 import { CreateIssueModal, type IssueDraft } from "@/components/github/CreateIssueModal";
 import { AXIS_TONE, aggregateBlockers, scopeCounts, type Agg } from "@/features/standing/passports/passportBlockerAgg";
 import type { PassportRow } from "@/features/standing/passports/PassportTable";
+import type { DecisionMap } from "@/lib/org/decision-map";
 import { reportPermalink } from "@/lib/ui";
 
 // Mark budget per row, split across the two populations so a long open run cannot crowd the declined
@@ -63,7 +68,7 @@ function draftFor(a: Agg, org: string, scopeLabel: string, inView: number): Issu
 
 /** The docket's own marks at legend scale — the identical spans a row paints, so the legend cannot
  *  describe a mark the rows draw differently. Neutral-toned: a row's hairline carries its axis. */
-const MARK_LEGEND = (anyDeclined: boolean): LegendExtra[] => [
+const MARK_LEGEND = (anyDeclined: boolean, anyDismissed: boolean): LegendExtra[] => [
   {
     id: "open",
     label: "blocked",
@@ -80,23 +85,36 @@ const MARK_LEGEND = (anyDeclined: boolean): LegendExtra[] => [
         },
       ]
     : []),
+  ...(anyDismissed
+    ? [
+        {
+          id: "decided",
+          label: "decided by the team",
+          swatch: <span className="h-1.5 w-1.5 rounded-[1px] border border-dashed border-accent/60" />,
+          hint: "A dashed mark is a repository whose team resolved this blocker (dismissed, accepted or snoozed). Counted beside the open repos, never targeted by the issue draft.",
+        },
+      ]
+    : []),
 ];
 
 /** The ranking basis, disclosed rather than asserted — it used to live only in a code comment. */
 const RANK_HINT =
-  "Ranked by how many repositories each blocker affects — open plus accepted — so a gap every team has accepted keeps its true size. Somewhere to look next, not an order.";
+  "Ranked by how many repositories each blocker affects — open, accepted or decided — so a gap every team has accepted keeps its true size. Somewhere to look next, not an order.";
 
-export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows: PassportRow[]; scopeLabel: string; org: string; max?: number }) {
-  const top = aggregateBlockers(rows).slice(0, max);
+type ParetoProps = { rows: PassportRow[]; scopeLabel: string; org: string; max?: number; decisions?: DecisionMap };
+
+export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8, decisions = {} }: ParetoProps) {
+  const top = aggregateBlockers(rows, decisions).slice(0, max);
   const scope = scopeCounts(rows);
   const [draft, setDraft] = useState<IssueDraft | null>(null);
 
   const anyDeclined = top.some((a) => a.declinedRepos.length > 0);
+  const anyDismissed = top.some((a) => a.dismissedRepos.length > 0);
 
   return (
     <PassportBlockerShell
       scopeLabel={scopeLabel}
-      legend={<Legend extra={MARK_LEGEND(anyDeclined)} />}
+      legend={<Legend extra={MARK_LEGEND(anyDeclined, anyDismissed)} />}
       empty={top.length === 0}
     >
       {/* The docket's predicate, stated. A placeholder-scanned repo is COUNTED in every bucket below
@@ -121,6 +139,7 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
           const tone = AXIS_TONE[a.axis];
           const marks = a.repos.slice(0, MAX_MARKS);
           const declinedMarks = a.declinedRepos.slice(0, MAX_DECLINED_MARKS);
+          const dismissedMarks = a.dismissedRepos.slice(0, MAX_DECLINED_MARKS);
           return (
             <div key={a.code} className="border-l-2 pl-3" style={{ borderColor: `${tone.color}66` }}>
               <button
@@ -150,6 +169,9 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
                         style={{ borderColor: tone.color, opacity: 0.6 }}
                       />
                     ))}
+                    {dismissedMarks.map((r) => (
+                      <span key={`decided:${r.fullName}`} title={`${r.name} — decided by the team`} className="h-1.5 w-1.5 rounded-[1px] border border-dashed" style={{ borderColor: tone.color, opacity: 0.6 }} />
+                    ))}
                   </span>
                   <span className="type-mono-sm tabular-nums text-slate-300">{a.repos.length}</span>
                   {a.declinedRepos.length > 0 && (
@@ -158,6 +180,11 @@ export function PassportBlockerPareto({ rows, scopeLabel, org, max = 8 }: { rows
                       className="type-caption tabular-nums text-slate-500"
                     >
                       +{a.declinedRepos.length} accepted
+                    </span>
+                  )}
+                  {a.dismissedRepos.length > 0 && (
+                    <span title={`${a.dismissedRepos.length} repo(s) decided by the team — counted, never targeted`} className="type-caption tabular-nums text-slate-500">
+                      +{a.dismissedRepos.length} decided
                     </span>
                   )}
                 </span>

@@ -25,6 +25,8 @@
 // buildSecurityOverview they already hold. That keeps this unit-testable and keeps the key derivation
 // in exactly one place.
 
+import { passportJudgmentKeys, stableBlockerText } from "@/lib/org/passport-judgments";
+
 /** The modules whose derived signals are decidable. Matches OrgDecision.module. */
 export const FINDING_MODULES = ["security", "teams", "passports", "contributors", "practices"] as const;
 
@@ -38,6 +40,12 @@ export interface Finding {
   module: FindingModule;
   /** Deterministic identity within (org, module). Stable across re-scans. */
   itemKey: string;
+  /**
+   * READ-ONLY keys a decision on this finding may have been stored under before its key moved (a
+   * passport blocker decided under its prose hash before minted ids). Compared by
+   * `isFindingResolved`; never written. Absent for every module whose key never moved.
+   */
+  aliases?: string[];
   /** Repo this finding belongs to (fullName), for grouping and display. */
   repo: string;
   /** One-line human title. Persisted onto the decision so it survives the finding disappearing. */
@@ -54,24 +62,10 @@ export interface Finding {
   subject?: string;
 }
 
-/**
- * FNV-1a, 32-bit, hex. Used only where a finding has no stable id of its own (passport blockers are
- * LLM prose). Not a security hash — it needs to be fast, dependency-free and identical on every run.
- * Collisions are scoped to one repo's blocker list, where a handful of strings makes them negligible.
- */
-export function fnv1a(text: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, "0");
-}
-
-/** Normalize free text before hashing so whitespace/case churn doesn't rotate a key. */
-function stableText(text: string): string {
-  return text.trim().toLowerCase().replace(/\s+/g, " ");
-}
+// The passport key primitives (fnv1a, blockerKey, findingItemKey, passportJudgmentKey) live in
+// passport-judgments.ts — the one module that owns a passport finding's key AND its judgment state —
+// and are re-exported here so every existing import path keeps resolving to the same functions.
+export { fnv1a, blockerKey, findingItemKey } from "@/lib/org/passport-judgments";
 
 // ── Security ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -140,38 +134,13 @@ export interface PassportFindingInput {
 }
 
 /**
- * The LEGACY key: repo + a hash of the normalized blocker TEXT. Retained because decisions recorded
- * before Direction 8 are stored under it — see {@link blockerKeys} for how they are still honoured,
- * and for when this can be deleted. Never use it as the write key for a blocker that carries an id.
- */
-export function blockerKey(fullName: string, blocker: string): string {
-  return `${fullName}::${fnv1a(stableText(blocker))}`;
-}
-
-/**
- * The identity of a passport blocker: the repo plus the minted finding id. Rewording the blocker's
- * sentence — which the self-verify blocker does every time the repo's script list changes — leaves
- * this key untouched, which is the whole point: a decision is about the CAUSE, not about the
- * sentence that described it on the day it was made.
- */
-export function findingItemKey(fullName: string, findingId: string): string {
-  return `${fullName}::${findingId}`;
-}
-
-/**
- * Every key a decision for this blocker may be stored under, newest first.
- *
- * `[0]` is the WRITE key. The rest are READ-ONLY legacy aliases a lookup falls back to, so a decision
- * recorded before Direction 8 keeps suppressing its finding instead of silently re-opening.
- *
- * CLEANUP. The alias is dead weight once every pre-Direction-8 passport decision has either been
- * re-decided or aged out. Two quarters is the window: after 2027-03-01, delete the legacy element
- * here, the `?? decisions[legacy]` fallbacks at the call sites, and the title-derived alias in
- * `resolvedKeys` (src/lib/db/org-decisions.ts). Nothing else reads it.
+ * Every key a decision for this blocker may be stored under, newest first: `[0]` is the WRITE key, the
+ * rest are READ-ONLY legacy aliases. A thin adapter over `passportJudgmentKeys` (passport-judgments.ts),
+ * which owns the rule — including that a positional `*.unclassified.<i>` back-fill id is not durable
+ * and keys on the prose instead.
  */
 export function blockerKeys(fullName: string, blocker: string, findingId?: string | null): string[] {
-  const legacy = blockerKey(fullName, blocker);
-  return findingId ? [findingItemKey(fullName, findingId), legacy] : [legacy];
+  return passportJudgmentKeys(fullName, { id: findingId, text: blocker });
 }
 
 export function passportFindings(repos: PassportFindingInput[]): Finding[] {
@@ -182,16 +151,16 @@ export function passportFindings(repos: PassportFindingInput[]): Finding[] {
     // minted under one cause id — which is the same thing the fleet Pareto's bucketing does.
     const seen = new Set<string>();
     const idFor = (text: string): string | undefined =>
-      r.findings?.find((f) => stableText(f.text) === stableText(text))?.id;
+      r.findings?.find((f) => stableBlockerText(f.text) === stableBlockerText(text))?.id;
     for (const b of r.blockers) {
-      const text = stableText(b);
-      if (!text) continue;
-      const key = blockerKeys(r.fullName, b, idFor(b))[0]!;
-      if (seen.has(key)) continue;
-      seen.add(key);
+      if (!stableBlockerText(b)) continue;
+      const [key, ...aliases] = passportJudgmentKeys(r.fullName, { id: idFor(b), text: b });
+      if (seen.has(key!)) continue;
+      seen.add(key!);
       out.push({
         module: "passports",
-        itemKey: key,
+        itemKey: key!,
+        ...(aliases.length ? { aliases } : {}),
         repo: r.fullName,
         title: b.trim(),
         detail: `Readiness blocker on ${r.fullName}.`,
@@ -199,6 +168,18 @@ export function passportFindings(repos: PassportFindingInput[]): Finding[] {
     }
   }
   return out;
+}
+
+/**
+ * Has a human already resolved this finding? THE comparison every badge and worklist makes against
+ * `resolvedKeys`: the current key, or any read-only alias it used to be decided under. Without the
+ * alias half, moving a blocker onto its id key would itself be the regression — a decision recorded
+ * under the old prose key would stop suppressing the badge, curable only by deciding it twice.
+ */
+export function isFindingResolved(f: Pick<Finding, "module" | "itemKey" | "aliases">, resolved: Map<string, Set<string>>): boolean {
+  const set = resolved.get(f.module);
+  if (!set) return false;
+  return set.has(f.itemKey) || (f.aliases ?? []).some((k) => set.has(k));
 }
 
 // ── Practices (MOONSHOT #33) ──────────────────────────────────────────────────────────────────────

@@ -81,6 +81,7 @@ export function PassportRowDetail({
           org={org}
           fullName={fullName}
           decisions={decisions}
+          declined={d.declined}
         />
         <BlockerList
           title="Production blockers"
@@ -90,6 +91,7 @@ export function PassportRowDetail({
           org={org}
           fullName={fullName}
           decisions={decisions}
+          declined={d.declined}
         />
         <DeclinedList items={d.declined ?? []} />
       </div>

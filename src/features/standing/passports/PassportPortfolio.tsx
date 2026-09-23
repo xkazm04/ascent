@@ -89,7 +89,7 @@ export function PassportPortfolio({ rows, org, decisions }: { rows: PassportRow[
         </div>
         {/* h-full keeps the docket stretching to the scatter's height like it did as a bare grid child */}
         <PhaseReplay dep={filter} className="h-full">
-          <PassportBlockerPareto rows={visible} scopeLabel={scopeLabel} org={org} max={8} />
+          <PassportBlockerPareto rows={visible} scopeLabel={scopeLabel} org={org} max={8} decisions={decisions} />
         </PhaseReplay>
       </div>
       <PhaseReplay dep={filter}>

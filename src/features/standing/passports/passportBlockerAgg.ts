@@ -23,8 +23,17 @@
 //    `enforcement-not-observable` caveat name a limit of THIS scan, not a gap in the app. Ranking
 //    them would make "we could not look" look like the org's most common problem. They stay on
 //    `findings[]` so a rung can still be classified unassessable; they are dropped here.
+//
+// 4. A MEMBER'S DECISION IS A DECISION TOO (card ai-native-passports#A). Only the owner's overlay
+//    decline used to move a repo out of `repos`; a blocker a member DISMISSED from the drawer (an
+//    OrgDecision) was still counted open, and the issue draft filed against it. Every open blocker is
+//    now judged by `judgeFinding` (src/lib/org/passport-judgments.ts), the same model the drawer and
+//    the rail badge read, and a decided repo lands in `dismissedRepos` — counted beside, never
+//    subtracted, exactly like a decline.
 
 import { isCoverageHoleFinding, isCoverageHoleText } from "@/lib/analyze/passport";
+import type { DecisionMap } from "@/lib/org/decision-map";
+import { judgeFinding } from "@/lib/org/passport-judgments";
 import type { DeclinedByChoice, PassportFinding } from "@/lib/types";
 
 export interface BlockedRepo {
@@ -64,6 +73,9 @@ export interface Agg {
   /** Repos whose owner has deliberately ACCEPTED this gap. Counted BESIDE `repos`, never subtracted
    *  from it, and kept separate so a chart can render the decision as a decision. */
   declinedRepos: BlockedRepo[];
+  /** Repos where a member has resolved this blocker with an OrgDecision (accepted / dismissed / an
+   *  unexpired snooze). Counted beside `repos`, never targeted by the issue draft. */
+  dismissedRepos: BlockedRepo[];
 }
 
 export const SELF_VERIFY_BUCKET = "Agent can't self-verify (missing build/test/lint/typecheck scripts).";
@@ -76,10 +88,12 @@ const legacyKey = (text: string): string => (text.startsWith("Agent can't self-v
  *  keys on the code, which is the same value the finding carries. */
 const codeOf = (findingId: string): string => findingId.slice(findingId.indexOf(".") + 1);
 
-export function aggregateBlockers(rows: BlockerAggRow[]): Agg[] {
+/** `decisions` is the `decisionMap(slug, "passports")` view (an expired snooze already reads open).
+ *  Omitted, every listed blocker is open — exactly the pre-decision behaviour. */
+export function aggregateBlockers(rows: BlockerAggRow[], decisions: DecisionMap = {}): Agg[] {
   const byCode = new Map<string, Agg>();
   const bucket = (code: string, label: string, axis: Agg["axis"]): Agg => {
-    const agg = byCode.get(code) ?? { code, label, axis, repos: [], declinedRepos: [] };
+    const agg = byCode.get(code) ?? { code, label, axis, repos: [], declinedRepos: [], dismissedRepos: [] };
     byCode.set(code, agg);
     return agg;
   };
@@ -90,16 +104,23 @@ export function aggregateBlockers(rows: BlockerAggRow[]): Agg[] {
       { axis: "automation" as const, texts: r.detail.autoBlockers, findings: r.detail.autoFindings },
       { axis: "production" as const, texts: r.detail.prodBlockers, findings: r.detail.prodFindings },
     ];
+    // One judgment per listed blocker: open (incl. a re-surfaced decline) -> `repos`; a member's
+    // resolution -> `dismissedRepos`. A standing overlay decline is counted by the loop below.
+    const place = (agg: Agg, finding: { id?: string; code?: string; text: string }) => {
+      const j = judgeFinding({ fullName: r.fullName, finding, declined: r.detail.declined, decisions });
+      if (!j || j.state === "declined") return;
+      (j.open ? agg.repos : agg.dismissedRepos).push(repo);
+    };
     for (const { axis, texts, findings } of axes) {
       if (findings) {
         for (const f of findings) {
           if (isCoverageHoleFinding(f)) continue;
-          bucket(f.code, f.text, axis).repos.push(repo);
+          place(bucket(f.code, f.text, axis), f);
         }
       } else {
         for (const t of texts) {
           if (isCoverageHoleText(t)) continue;
-          bucket(legacyKey(t), legacyKey(t), axis).repos.push(repo);
+          place(bucket(legacyKey(t), legacyKey(t), axis), { text: t });
         }
       }
     }
@@ -118,11 +139,10 @@ export function aggregateBlockers(rows: BlockerAggRow[]): Agg[] {
     }
   }
 
-  // Rank by the problem's TRUE size — open plus accepted. Ties break toward the more open one, since
-  // that is the more actionable row.
-  return [...byCode.values()].sort(
-    (a, b) => b.repos.length + b.declinedRepos.length - (a.repos.length + a.declinedRepos.length) || b.repos.length - a.repos.length,
-  );
+  // Rank by the problem's TRUE size — open plus accepted plus member-decided. Ties break toward the
+  // more open one, since that is the more actionable row.
+  const size = (a: Agg) => a.repos.length + a.declinedRepos.length + a.dismissedRepos.length;
+  return [...byCode.values()].sort((a, b) => size(b) - size(a) || b.repos.length - a.repos.length);
 }
 
 /** Axis palette — mirrors the scatter's vocabulary: automation = the accent, production = the

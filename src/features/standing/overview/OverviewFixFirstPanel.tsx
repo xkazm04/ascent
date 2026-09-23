@@ -4,6 +4,7 @@ import { getOrgMovers } from "@/lib/db/org-insights";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 import { listGoals, resolvedKeys } from "@/lib/db";
 import { getOrgFindings } from "@/lib/org/nav-counts";
+import { isFindingResolved } from "@/lib/org/findings";
 
 export { OverviewFixFirstGap } from "./OverviewFixFirst";
 
@@ -40,7 +41,7 @@ export async function OverviewFixFirstPanel({
   ]);
   const movers = moversRead.value;
 
-  const unresolved = findings.filter((f) => !resolved.get(f.module)?.has(f.itemKey));
+  const unresolved = findings.filter((f) => !isFindingResolved(f, resolved));
 
   const items = deriveFixFirst(
     slug,

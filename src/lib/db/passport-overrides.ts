@@ -24,14 +24,31 @@ export async function getPassportOverrides(orgSlug: string, repoFullName: string
   return parsePassportOverrides(repo?.passportOverridesJson);
 }
 
-/** Upsert a repo's overrides (validated/sanitized; empty clears them). False if the repo is unknown. */
+/**
+ * Upsert a repo's overrides (validated/sanitized; empty clears them). False if the repo is unknown.
+ *
+ * DECLINES ARE KEPT UNLESS THE CALLER NAMES THEM. The owner-settings Save (PassportOwnerControls)
+ * POSTs criticality / lifecycle / rollback and never `declined`, and this used to REPLACE the whole
+ * blob — so every accepted gap on the repo, with its reason, author and baseline, was erased by an
+ * unrelated Save. An absent `declined` now keeps what is stored; an explicit `declined` (even `{}`,
+ * which clears) still replaces it. Declines are otherwise written only by `mergePassportDeclines`.
+ */
 export async function setPassportOverrides(orgSlug: string, repoFullName: string, overrides: PassportOverrides): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return false;
+  let next = overrides;
+  if (overrides.declined === undefined) {
+    const repo = await prisma.repository.findUnique({
+      where: { orgId_fullName: { orgId, fullName: repoFullName } },
+      select: { passportOverridesJson: true },
+    });
+    const stored = parsePassportOverrides(repo?.passportOverridesJson)?.declined;
+    if (stored) next = { ...overrides, declined: stored };
+  }
   // Sanitize through the same validator the read path uses (drops unknown enums); empty → clear (null).
-  const clean = parsePassportOverrides(JSON.stringify(overrides));
+  const clean = parsePassportOverrides(JSON.stringify(next));
   const res = await prisma.repository.updateMany({
     where: { orgId, fullName: repoFullName },
     data: { passportOverridesJson: clean ? JSON.stringify(clean) : null },
