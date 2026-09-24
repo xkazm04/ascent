@@ -3,7 +3,7 @@ import { OrgShell } from "@/components/org/shell/OrgShell";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { DeveloperHome } from "@/features/developer/DeveloperHome";
 import { getDeveloperView } from "@/lib/org/developer-view-load";
-import { resolveViewerLogin } from "@/lib/access";
+import { resolveViewerIdentity } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 import { listOrgsForLogin, normalizeLogin } from "@/lib/db/members";
@@ -48,9 +48,13 @@ async function resolveDeveloperOrg(login: string | null, requested: string | und
   return PUBLIC_ORG;
 }
 
-/** The data region. Nested inside OrgShell so it never runs when a shell guard short-circuits. */
-async function DeveloperData({ login, slug }: { login: string | null; slug: string }) {
-  const view = await getDeveloperView(login, slug);
+/**
+ * The data region. Nested inside OrgShell so it never runs when a shell guard short-circuits.
+ * `confirmedEmail` is the address the auth provider confirmed for this viewer (resolved in the route
+ * body), so the private session shape also counts sessions Claude Code sent under it.
+ */
+async function DeveloperData({ login, confirmedEmail, slug }: { login: string | null; confirmedEmail: string | null; slug: string }) {
+  const view = await getDeveloperView(login, slug, undefined, confirmedEmail);
   return <DeveloperHome view={view} slug={slug} />;
 }
 
@@ -58,14 +62,14 @@ export default async function OrgDeveloperPage({ searchParams }: { searchParams:
   const sp = await searchParams;
   // Resolve the viewer in the ROUTE BODY, before anything streams: cookie-scoped reads return null
   // inside a ReadableStream `start()` (memory: getviewer-not-in-sse-start).
-  const login = await resolveViewerLogin();
+  const { login, confirmedEmail } = await resolveViewerIdentity();
   const slug = await resolveDeveloperOrg(login, first(sp.org));
 
   return (
     <OrgShell slug={slug} activeTab="developer">
       <div className="stagger-children space-y-6">
         <Suspense fallback={<OrgTabGap minH="min-h-[36rem]" />}>
-          <DeveloperData login={login} slug={slug} />
+          <DeveloperData login={login} confirmedEmail={confirmedEmail} slug={slug} />
         </Suspense>
       </div>
     </OrgShell>

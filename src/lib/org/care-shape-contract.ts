@@ -151,6 +151,6 @@ export const CARE_SHAPE_REASON_COPY: Record<CareShapeEmptyReason, { label: strin
   },
   "few-own-sessions": {
     label: "too few sessions",
-    title: `Fewer than ${CARE_SHAPE_MIN_SESSIONS} agent sessions carried your login in this workspace in the last ${CARE_SHAPE_WINDOW_DAYS} days, so a number would describe a handful of sessions, not a habit. Only you see this.`,
+    title: `Fewer than ${CARE_SHAPE_MIN_SESSIONS} agent sessions carried your login or confirmed email in this workspace in the last ${CARE_SHAPE_WINDOW_DAYS} days, so a number would describe a handful of sessions, not a habit. Only you see this.`,
   },
 };

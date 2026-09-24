@@ -2,7 +2,13 @@
 // number is too thin to print.
 
 import { describe, expect, it } from "vitest";
-import { applyOwnSessionShape, careTelemetryWindowStart, sessionKeyIsViewer, type OwnSessionRow } from "./care-session-telemetry";
+import {
+  applyOwnSessionShape,
+  careTelemetryWindowStart,
+  ownSessionKeys,
+  sessionKeyIsViewer,
+  type OwnSessionRow,
+} from "./care-session-telemetry";
 import { emptyDeveloperView } from "./developer-view";
 import { CARE_SHAPE_REASON_COPY, careShapeEmptyReason } from "./care-shape-contract";
 
@@ -64,6 +70,65 @@ describe("applyOwnSessionShape", () => {
     view.sharedFields = ["sessionsPerWeek"];
     view.shape.sessionsPerWeek = 9;
     applyOwnSessionShape(view, rows("ada", 20), NOW);
+    expect(view.shape.sessionsPerWeek).toBe(9);
+    expect(view.ownTelemetry).toBeNull();
+  });
+});
+
+// Operator decision 2026-09-24 (row 27 follow-up): a session also counts when its key is an email the
+// auth provider CONFIRMED for the viewer. The comparison is case-insensitive on both keys.
+describe("sessionKeyIsViewer with a confirmed email", () => {
+  it("matches the confirmed email, case-insensitively, as well as the login", () => {
+    expect(sessionKeyIsViewer("ada@acme.io", "ada", "ada@acme.io")).toBe(true);
+    expect(sessionKeyIsViewer("Ada@ACME.io", "ada", "ada@acme.io")).toBe(true);
+    expect(sessionKeyIsViewer("ada", "ada", "ada@acme.io")).toBe(true);
+  });
+
+  it("never matches another person's email or a look-alike", () => {
+    expect(sessionKeyIsViewer("grace@acme.io", "ada", "ada@acme.io")).toBe(false);
+    expect(sessionKeyIsViewer("ada@acme.io.evil", "ada", "ada@acme.io")).toBe(false);
+    expect(sessionKeyIsViewer("xada@acme.io", "ada", "ada@acme.io")).toBe(false);
+  });
+
+  it("an unconfirmed email (passed as null) adds nothing, and an email alone is no viewer", () => {
+    expect(sessionKeyIsViewer("ada@acme.io", "ada", null)).toBe(false);
+    expect(sessionKeyIsViewer("ada@acme.io", null, "ada@acme.io")).toBe(false);
+    expect(sessionKeyIsViewer("", "ada", "")).toBe(false);
+  });
+});
+
+describe("ownSessionKeys", () => {
+  it("lists the login and the confirmed email, each as resolved and lower-cased, without duplicates", () => {
+    expect(ownSessionKeys("Ada", "Ada@Acme.io")).toEqual(["Ada", "ada", "Ada@Acme.io", "ada@acme.io"]);
+    expect(ownSessionKeys("ada", "ada@acme.io")).toEqual(["ada", "ada@acme.io"]);
+    expect(ownSessionKeys("ada@acme.io", "ada@acme.io")).toEqual(["ada@acme.io"]);
+  });
+
+  it("is empty with no login, whatever email it is handed", () => {
+    expect(ownSessionKeys("  ", "ada@acme.io")).toEqual([]);
+    expect(ownSessionKeys(null, "ada@acme.io")).toEqual([]);
+    expect(ownSessionKeys("ada", null)).toEqual(["ada"]);
+  });
+});
+
+describe("applyOwnSessionShape with a confirmed email", () => {
+  it("counts rows under the login and rows under the confirmed email together", () => {
+    const view = emptyDeveloperView("ada");
+    applyOwnSessionShape(view, [...rows("ada", 2), ...rows("ADA@acme.io", 5), ...rows("grace@acme.io", 9)], NOW, "ada@acme.io");
+    expect(view.ownTelemetry?.sessions).toBe(7);
+  });
+
+  it("without a confirmed email, rows under the viewer's address stay uncounted", () => {
+    const view = emptyDeveloperView("ada");
+    applyOwnSessionShape(view, rows("ada@acme.io", 9), NOW, null);
+    expect(view).toEqual(emptyDeveloperView("ada"));
+  });
+
+  it("guard: a field the mentor shared still wins when the email matched", () => {
+    const view = emptyDeveloperView("ada");
+    view.sharedFields = ["sessionsPerWeek"];
+    view.shape.sessionsPerWeek = 9;
+    applyOwnSessionShape(view, rows("ada@acme.io", 20), NOW, "ada@acme.io");
     expect(view.shape.sessionsPerWeek).toBe(9);
     expect(view.ownTelemetry).toBeNull();
   });

@@ -44,8 +44,9 @@ beforeEach(() => {
   getRepoStates.mockResolvedValue({});
   // The fake reader filters exactly like the real one (exact key), so a loader that passed the wrong
   // identity would get the wrong rows back.
-  getOwnAgentSessions.mockImplementation(async (_org: string, login: string, since: Date) =>
-    table.filter((r) => r.userKey === login && r.startedAt >= since),
+  getOwnAgentSessions.mockImplementation(
+    async (_org: string, viewer: { login: string; confirmedEmail: string | null }, since: Date) =>
+      table.filter((r) => r.userKey !== null && [viewer.login, viewer.confirmedEmail].includes(r.userKey) && r.startedAt >= since),
   );
   table = [
     ...Array.from({ length: 12 }, (_, i) => stored("ada", i + 1, i)),
@@ -67,7 +68,7 @@ describe("getDeveloperView: the private session shape", () => {
   it("asks the reader for the viewer's own login and the 30-day window, nothing else", async () => {
     await getDeveloperView("ada", "acme", NOW);
     expect(getOwnAgentSessions).toHaveBeenCalledTimes(1);
-    expect(getOwnAgentSessions).toHaveBeenCalledWith("acme", "ada", day(30));
+    expect(getOwnAgentSessions).toHaveBeenCalledWith("acme", { login: "ada", confirmedEmail: null }, day(30));
   });
 
   it("guard: gives a login with no rows of its own exactly the view an unknown user gets", async () => {

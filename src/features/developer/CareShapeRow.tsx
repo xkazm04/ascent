@@ -38,7 +38,7 @@ const GAP_MARK: Record<CareBandGap, { state: "decided" | "not-judged" | "measure
     state: "measured",
     label: "yours only",
     title:
-      "Measured by this workspace from the agent sessions sent under your login in the last 30 days, every launcher included. Only you see it: it is never compared with anyone or added to the org view.",
+      "Measured by this workspace from the agent sessions sent under your login or confirmed email in the last 30 days, every launcher included. Only you see it: it is never compared with anyone or added to the org view.",
   },
   "comparison-off": {
     state: "decided",

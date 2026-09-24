@@ -208,3 +208,19 @@ export async function resolveViewerLogin(): Promise<string | null> {
   if (session?.login) return session.login;
   return (await getViewer())?.login ?? null;
 }
+
+/**
+ * `resolveViewerLogin`'s login plus the one email the auth provider has CONFIRMED for that same
+ * person, for the Developer home's own-session match (Claude Code keys a session by `user.email`).
+ * The email is `getViewer`'s confirmed-only address, and only when that Supabase viewer IS the resolved
+ * login: a custom-OAuth session carries no email, and a different Supabase identity must not lend its
+ * address. Null under the dev bypass (its address is synthetic) and for an anonymous caller. Never read
+ * an email for this purpose from a query, body or header.
+ */
+export async function resolveViewerIdentity(): Promise<{ login: string | null; confirmedEmail: string | null }> {
+  const login = await resolveViewerLogin();
+  if (!login || authBypassEnabled()) return { login, confirmedEmail: null };
+  const viewer = await getViewer();
+  const confirmedEmail = viewer && viewer.login === login ? (viewer.email ?? null) : null;
+  return { login, confirmedEmail };
+}

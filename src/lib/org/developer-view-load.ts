@@ -21,11 +21,12 @@ import { applyOwnSessionShape, careTelemetryWindowStart } from "./care-session-t
  * recommendations of exactly those repos, read from the org backlog. The care loop (profile, moves,
  * journal) stays the honest EMPTY state until C3 ships `POST /api/me/mentor/share` and the personal
  * tables — nothing here is invented to fill it. The session shape's one telemetry-measurable field
- * is the exception: it is read from the AgentSession rows sent under `viewerLogin` itself
- * (`applyOwnSessionShape`), and is otherwise empty exactly as for an unknown user.
+ * is the exception: it is read from the AgentSession rows sent under `viewerLogin` itself or under
+ * `confirmedEmail` (`applyOwnSessionShape`), and is otherwise empty exactly as for an unknown user.
  *
- * `viewerLogin` MUST be the server-resolved identity of the requester (`resolveViewerLogin`), never
- * a value taken from a query or a body: it is the only key the personal read is scoped by.
+ * `viewerLogin` and `confirmedEmail` MUST be the server-resolved identity of the requester
+ * (`resolveViewerIdentity`: the email only when the auth provider confirmed it), never a value taken
+ * from a query, a body or a header: they are the only keys the personal read is scoped by.
  *
  * Four honest degradations, each one NAMED in `activityState` rather than collapsed into a null:
  *   - `signed-out` — no viewer login, no reads issued;
@@ -40,6 +41,7 @@ export async function getDeveloperView(
   viewerLogin: string | null,
   orgSlug: string,
   now: Date = new Date(),
+  confirmedEmail: string | null = null,
 ): Promise<DeveloperView> {
   const view = emptyDeveloperView(viewerLogin);
   if (!viewerLogin) return view;
@@ -49,9 +51,9 @@ export async function getDeveloperView(
   // Best-effort: a failure leaves the shape exactly as empty as for a viewer never seen.
   const [insights, ownSessions] = await Promise.all([
     getContributorInsights(orgSlug).catch(() => null),
-    getOwnAgentSessions(orgSlug, viewerLogin, careTelemetryWindowStart(now)).catch(() => []),
+    getOwnAgentSessions(orgSlug, { login: viewerLogin, confirmedEmail }, careTelemetryWindowStart(now)).catch(() => []),
   ]);
-  applyOwnSessionShape(view, ownSessions, now);
+  applyOwnSessionShape(view, ownSessions, now, confirmedEmail);
   const login = viewerLogin.toLowerCase();
   const me = insights?.contributors.find((c) => c.login.toLowerCase() === login) ?? null;
   if (!me) {
