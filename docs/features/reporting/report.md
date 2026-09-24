@@ -772,6 +772,24 @@ by itself the moment the user drags away.
 
 Non-goals, deliberately: multi-user shared scenarios, scenario naming/renaming, scenario comparison.
 
+**2026-09-24. The verdict reaches the tracker.** Once `actual` resolves on a `GET`, every
+recommendation the scenario selected that is still tracked (`in_progress` or `done`) on the scan the
+actual was read from gains one system `note` on its timeline (`recordScenarioReconciliation` in
+`scans-recommendations.ts`): "Sandbox plan by @alice, reconciled against the 2026-07-01 scan:
+projected +12, actual +7 since the modeled 2026-06-01 scan, 5 pts short of the model." `open`,
+`dismissed` and unselected recs get nothing. The event's `fromValue` / `toValue` name the modeled and
+the measured scan, and its primary key is (rec, before scan, after scan, author), written with
+`createMany({ skipDuplicates })`, so re-opening the sandbox adds nothing. Before this the
+reconciliation reached only the saved-plan bar and the intervention ledger, and a committed rec's
+trail ended at "Committed from sandbox simulation".
+
+**Across a rubric change the pair is not comparable.** `actual.ruler` carries the rubric each end was
+scored under and `sameRuler`'s answer. Anything but a proven same ruler (a changed rubric, or a scan
+that does not record one) reads "actual not comparable: the scoring rubric changed (r19 to r21)" on
+the bar and in the timeline note, with no actual figure and no "short" or "ahead". The same pair is
+already refused by the intervention ledger (`measurablePair`), and a surface must not claim what the
+ledger will not. Both surfaces read one pure verdict, `src/lib/report/scenario-verdict.ts`.
+
 ## Validation (`src/lib/report/validate.ts`)
 
 `parseScanReport()` is a hand-rolled guard (no runtime deps) over exactly the fields
@@ -1346,6 +1364,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews (including `empty` / `unavailable` reads). |
 | `src/features/standing/passports/autonomy/promotionPlanModel.ts` | The fleet promotion plan: per autonomy transition, conditions by sole-blocker count then incidence, ties by id; tokenless and held-CI repos in an unassessable bucket, placeholder repos labelled. |
 | `src/features/standing/passports/autonomy/PromotionPlan.tsx` | Renders the plan above the clearance register; a row click filters the register to the repos carrying that condition. |
+| `src/lib/report/scenario-verdict.ts` | The sandbox's projected-vs-actual verdict (not comparable across a rubric change) and the timeline reconciliation note, shared by the saved-plan bar and `sandbox-scenario.ts`. |
 
 ## Failure states on the report page (2026-09-05)
 
