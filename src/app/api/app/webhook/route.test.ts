@@ -346,6 +346,17 @@ describe("POST /api/app/webhook — installation_repositories confirmation disci
     await runDeferred();
     expect(mockReconcile).not.toHaveBeenCalled();
   });
+
+  it("lists at the deep 'reconcile' depth, so a >5000-repo installation can still reconcile (row 14)", async () => {
+    mockListReposResult.mockResolvedValueOnce(reposResult(["acme/kept"]));
+    await post("installation_repositories", "del-repos-deep", {
+      installation: { id: 42 },
+      repositories_removed: [{ full_name: "acme/gone" }],
+    });
+    await runDeferred();
+    expect(mockListReposResult).toHaveBeenCalledWith(42, "reconcile");
+    expect(mockReconcile).toHaveBeenCalledWith(42, ["acme/kept"]);
+  });
 });
 
 // Pins test-mastery 06-18 critical #1: the cross-tenant authorization gate `installationMatchesOwner`

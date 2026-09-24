@@ -253,15 +253,17 @@ function webhookGateHooks(deliveryId?: string): PrGateHooks {
  */
 async function reconcileInstallationRepos(installationId: number, deliveryId?: string) {
   try {
-    const { repos: live, truncated } = await listInstallationReposResult(installationId);
+    // "reconcile" depth (row 14): up to 500 pages under a 180 s budget, so a >5000-repo installation
+    // can complete a listing instead of being skipped forever by the interactive 50-page cap.
+    const { repos: live, truncated } = await listInstallationReposResult(installationId, "reconcile");
     // BUG (github-app-installation-webhooks #1): reconcileWatchedRepos' contract is "only pass a
-    // COMPLETE live set" — it unwatches anything NOT in the set. A page-capped (truncated) listing is
-    // a silently-incomplete success, so passing it would unwatch every watched repo beyond page 50 on
+    // COMPLETE live set" — it unwatches anything NOT in the set. A capped (truncated) listing is
+    // a silently-incomplete success, so passing it would unwatch every watched repo past the cap on
     // a large installation. Apply the same "fail-safe, don't wipe" discipline as the throwing path:
     // SKIP the destructive reconcile when the listing was incomplete; a later event re-reconciles.
     if (truncated) {
       console.warn(
-        `[webhook] installation ${installationId}: repo listing truncated (incomplete); skipping watch reconcile to avoid unwatching repos past the page cap`,
+        `[webhook] installation ${installationId}: repo listing truncated (incomplete); skipping watch reconcile to avoid unwatching repos past the listing bound`,
       );
       return;
     }

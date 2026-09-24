@@ -471,6 +471,79 @@ describe("listInstallationReposResult — truncation signal", () => {
   });
 });
 
+// backlog develop-2026-09-17 row 14: a >5000-repo installation ALWAYS came back truncated from the
+// 50-page walk, so the webhook's watch reconcile skipped it forever and repos removed from the
+// installation stayed watched. The "reconcile" depth pages further (500 pages = 50,000 repos) under a
+// 180 s wall-clock budget; past either bound the listing still reports truncated=true, so the
+// destructive reconcile keeps failing safe instead of wiping on a partial list.
+describe("listInstallationReposResult — reconcile depth pages past the interactive cap", () => {
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_APP_ID", "123456");
+    vi.stubEnv("GITHUB_APP_PRIVATE_KEY", TEST_PRIVATE_KEY);
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    invalidateInstallationToken(INSTALL_ID);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    invalidateInstallationToken(INSTALL_ID);
+  });
+
+  /** Full pages of 100 against a stated total; `msPerPage` advances the clock per list call. */
+  function fullPages(total: number, msPerPage = 0) {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (isTokenMint([url])) return Promise.resolve(tokenRes("tok", 3_600_000));
+      const page = Number(/[?&]page=(\d+)/.exec(url)![1]);
+      if (msPerPage) vi.setSystemTime(Date.now() + msPerPage);
+      const repos = Array.from({ length: 100 }, (_, i) => repo(`p${page}-${i}`));
+      return Promise.resolve(ghRes({ total_count: total, repositories: repos }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return () => fetchMock.mock.calls.filter((c) => isRepoList(c)).length;
+  }
+
+  it("an 8000-repo installation lists COMPLETE (truncated=false) at reconcile depth", async () => {
+    const listCalls = fullPages(8000);
+    const result = await listInstallationReposResult(INSTALL_ID, "reconcile");
+    expect(result.truncated).toBe(false);
+    expect(listCalls()).toBe(80);
+    expect(result.repos).toHaveLength(8000);
+  });
+
+  it("reconcile depth is still page-bounded: stops at 500 pages and reports truncated", async () => {
+    const listCalls = fullPages(999_999);
+    const result = await listInstallationReposResult(INSTALL_ID, "reconcile");
+    expect(result.truncated).toBe(true);
+    expect(listCalls()).toBe(500);
+  });
+
+  it("reconcile depth is time-bounded: stops once 180 s have elapsed and reports truncated", async () => {
+    // 10 s per page: pages start at t=0,10,...,170 (18 pages); the 19th would start at t=180.
+    const listCalls = fullPages(999_999, 10_000);
+    const result = await listInstallationReposResult(INSTALL_ID, "reconcile");
+    expect(result.truncated).toBe(true);
+    expect(listCalls()).toBe(18);
+    expect(result.repos).toHaveLength(1800);
+  });
+
+  it("guard: the default (interactive) depth keeps the 50-page cap for the user-facing listing", async () => {
+    const listCalls = fullPages(8000);
+    const result = await listInstallationReposResult(INSTALL_ID);
+    expect(result.truncated).toBe(true);
+    expect(listCalls()).toBe(50);
+  });
+
+  it("the time budget always allows the first page, then stops a slow walk and reports truncated", async () => {
+    const listCalls = fullPages(150, 500_000);
+    const result = await listInstallationReposResult(INSTALL_ID, "reconcile");
+    expect(listCalls()).toBe(1);
+    expect(result.truncated).toBe(true);
+    expect(result.repos).toHaveLength(100);
+  });
+});
+
 // There was NO timeout on the GitHub App surface — a bare fetch covering token minting,
 // getInstallation, the paginated installation-repo listing (up to 50 pages), and every Check Run and
 // sticky-comment write. The sibling REST layer routes everything through fetchWithTimeout; this one

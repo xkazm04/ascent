@@ -262,26 +262,47 @@ interface GhRepo {
 /** A listing plus whether it was page-capped (truncated). See {@link listInstallationReposResult}. */
 export interface InstallationReposResult {
   repos: AppRepo[];
-  /** True when the listing hit MAX_PAGES before exhausting `total_count` — i.e. it is INCOMPLETE. */
+  /** True when the walk hit its page or time bound before exhausting `total_count`: it is INCOMPLETE. */
   truncated: boolean;
 }
 
 /**
- * List an installation's accessible repos AND report whether the listing was page-capped. The
- * endpoint pages at 100/req; we walk every page using `total_count` (and a short-page stop),
- * bounded by MAX_PAGES so a pathological response can't loop forever.
+ * How deep a listing walks. `interactive` serves a user waiting on GET /api/app/repos, so it keeps the
+ * historical 50-page (5000-repo) cap. `reconcile` feeds the webhook's destructive watch reconcile,
+ * which runs in after() under the route's 300 s maxDuration: it pages up to 500 pages (50,000 repos)
+ * but stops starting new pages once 180 s have elapsed. The worst case is that budget plus one page's
+ * 30 s fetch timeout, which leaves room for the DB reconcile. 500 requests is a tenth of the smallest
+ * installation-token hourly rate limit (5000/h). Past either bound the listing reports
+ * `truncated: true` and the reconcile keeps skipping (fail-safe), exactly as before.
+ */
+export type ListingDepth = "interactive" | "reconcile";
+
+export const LISTING_BUDGETS: Record<ListingDepth, { maxPages: number; timeBudgetMs: number }> = {
+  interactive: { maxPages: 50, timeBudgetMs: Number.POSITIVE_INFINITY },
+  reconcile: { maxPages: 500, timeBudgetMs: 180_000 },
+};
+
+/**
+ * List an installation's accessible repos AND report whether the listing was capped. The endpoint
+ * pages at 100/req; we walk every page using `total_count` (and a short-page stop), bounded by the
+ * depth's page cap and wall-clock budget so a pathological response can't loop forever.
  *
- * BUG (github-app-installation-webhooks #1): a >5000-repo installation overflows MAX_PAGES×PER_PAGE,
+ * BUG (github-app-installation-webhooks #1): a >5000-repo installation overflows the 50-page cap,
  * and the old listInstallationRepos returned the *silently truncated* list with only a console.warn.
  * Callers that reconcile destructively (reconcileWatchedRepos, whose contract is "only pass a COMPLETE
  * live set") then unwatched every repo past page 50. This variant surfaces `truncated` so such callers
  * can fail-safe (skip the destructive reconcile) instead of treating a partial list as authoritative.
+ * The `reconcile` depth (backlog develop-2026-09-17 row 14) then lets such installations actually
+ * complete a listing, so they get reconciled instead of being skipped forever.
  */
 export async function listInstallationReposResult(
   installationId: number | string,
+  depth: ListingDepth = "interactive",
 ): Promise<InstallationReposResult> {
   const PER_PAGE = 100;
-  const MAX_PAGES = 50; // safety bound — up to 5000 repos
+  const { maxPages, timeBudgetMs } = LISTING_BUDGETS[depth];
+  // One deadline for the whole listing, shared by the 401 self-heal retry, so a heal can't double it.
+  const deadline = Date.now() + timeBudgetMs;
 
   // Self-heal a stale token: a cached installation token can outlive the installation's access
   // (suspend/uninstall/permission change), so on a 401 we drop it and retry ONCE with a freshly
@@ -289,21 +310,34 @@ export async function listInstallationReposResult(
   const collect = async (token: string): Promise<{ raw: GhRepo[]; truncated: boolean }> => {
     const raw: GhRepo[] = [];
     let total = Infinity;
-    for (let page = 1; page <= MAX_PAGES && raw.length < total; page++) {
+    let stop = "";
+    for (let page = 1; raw.length < total; page++) {
+      if (page > maxPages) {
+        stop = `page cap ${maxPages}`;
+        break;
+      }
+      // The first page is always fetched, so a slow GitHub still yields a (truncated) listing.
+      if (page > 1 && Date.now() >= deadline) {
+        stop = `time budget ${timeBudgetMs / 1000}s`;
+        break;
+      }
       const data = await githubAppFetch<{ total_count: number; repositories: GhRepo[] }>(
         `/installation/repositories?per_page=${PER_PAGE}&page=${page}`,
         token,
       );
       total = typeof data.total_count === "number" ? data.total_count : raw.length + data.repositories.length;
       raw.push(...data.repositories);
-      if (data.repositories.length < PER_PAGE) break; // last (short) page
+      if (data.repositories.length < PER_PAGE) {
+        stop = "short page";
+        break; // last (short) page
+      }
     }
-    // A silent truncation: an installation with more than MAX_PAGES×PER_PAGE repos drops the overflow.
+    // A silent truncation: an installation larger than the walk's bound drops the overflow.
     // Signal it to callers (return value, not just a warn) so a destructive reconcile can fail-safe.
     const truncated = Number.isFinite(total) && raw.length < total;
     if (truncated) {
       console.warn(
-        `[github/app] installation ${installationId}: listed ${raw.length} of ${total} repos (capped at MAX_PAGES=${MAX_PAGES}); the rest are not visible to watch/scan.`,
+        `[github/app] installation ${installationId}: listed ${raw.length} of ${total} repos (${depth} listing stopped: ${stop}); the rest are not visible to watch/scan.`,
       );
     }
     return { raw, truncated };
