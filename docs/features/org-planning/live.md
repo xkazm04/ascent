@@ -5559,3 +5559,31 @@ not chrome for it. What replaced it is unit and window: `org-wide scan · overal
   Same void-vs-zero family as the timetable, but the sheet is an auditable row-level evidence table
   and its dashes are load-bearing across the economics columns; converging it is a panel-sized change
   with its own test surface.
+
+## The kiosk wall's run summary (2026-09-24)
+
+The shared war-room link (`/live/shared/[token]`, a `wall` link) used to render the standing wall
+and nothing of what the improvement loop had done. When the org has loop runs, a read-only strip now
+sits **beneath** the wall (`KioskRunStrip`, `src/features/inflight/live/KioskRunStrip.tsx`) with three
+counts:
+
+- **Runs**: the org's latest runs, at most 20 (`KIOSK_RUN_WINDOW`, the same bound the cockpit lists).
+  The caption says "the latest 20" when the bound is reached.
+- **Verified closes**: the sum of those runs' `verifiedCloses`, the rescan's adjudicated `closedIds`,
+  never an agent's claim.
+- **Points in review**: the Impact Ledger's `inReviewPoints`, verified points on lane branches that
+  have not merged. When no lane is measured it prints "Unmeasured", never 0, as the Executive tab does.
+
+An org with no runs gets the wall alone, and a `theater` link reads no summary at all.
+
+**Counts only, by type.** The token page is readable by anyone who holds the link, so it carries no
+repo name, branch, commit message, lane log, follow-up title or login, and the in-app outcome sheet is
+not rendered there. The summary comes from `loadKioskRunSummary` / `countKioskRuns`
+(`src/lib/live-share-summary.ts`), whose return type is built through `CountsOnly`: a field that is not
+a number (or null for "not measured") fails to compile. `src/lib/live-share-summary.typecheck.ts` seeds
+that refusal for `tsc`, and `page.summary.dom.test.tsx` asserts that the serialized page tree and its
+DOM carry none of a fixture's repo names, branch, error text, login or model. The strip has no button,
+link or form.
+
+Token validation is unchanged. The page calls `resolveLiveShare` first (signature, audience, expiry,
+per-link revocation, owner binding), and reads the summary afterwards for the **verified** org only.
