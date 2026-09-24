@@ -16,13 +16,20 @@ downgrades a plan on a full refund. The accounting layer stays provider-agnostic
 
 ## Plan tiers (`PLAN_FEATURES` in `src/lib/plans.ts`)
 
-| Plan id | Shown as | Monthly price | Included scans/mo | Seats | Retention | Extra gates |
-| --- | --- | --- | --- | --- | --- | --- |
-| _(self-hosted)_ | — | Free | **Unmetered** | Unlimited | Unlimited | **Everything** — not a tier; the same code with every gate off |
-| `free` | Free | $0 | 20 | 1 | 30 days | — |
-| `pro` | **Starter** | $5 | 50 | 3 | 180 days | PDF export |
-| `team` | Team | $10 | 150 | 10 | 365 days | White-label briefings, Org Skills Library authoring, Shared Org Memory writes, **BYOM** |
-| `enterprise` | **Custom** | **Flexible** | Unmetered (`unlimited: true`) | Unlimited | Unlimited | Everything in Team; SSO, VPC/on-prem hosting and an SLA are scoped in the conversation |
+| Plan id | Shown as | Monthly price | Included scans/mo | Retention | Extra gates |
+| --- | --- | --- | --- | --- | --- |
+| _(self-hosted)_ | — | Free | **Unmetered** | Unlimited | **Everything** — not a tier; the same code with every gate off |
+| `free` | Free | $0 | 20 | 30 days | — |
+| `pro` | **Starter** | $5 | 50 | 180 days | PDF export |
+| `team` | Team | $10 | 150 | 365 days | White-label briefings, Org Skills Library authoring, Shared Org Memory writes, **BYOM** |
+| `enterprise` | **Custom** | **Flexible** | Unmetered (`unlimited: true`) | Unlimited | Everything in Team; SSO, VPC/on-prem hosting and an SLA are scoped in the conversation |
+
+**Plans do not limit or sell seats.** Every tier lets an org add as many members as it likes, and no
+plan card, credit-matrix row or self-host comparison states a member count. The cards used to sell
+one (Free 1, Starter 3, Team 10, Custom "yours to set") that no membership, invite or `authz` path
+read; on 2026-09-24 the operator chose to stop selling it rather than enforce it, so `PlanFeature`
+has no `seats` field. `src/components/pricing/noSeatCount.test.ts` fails if a seat or member count
+comes back onto any surface that sells a tier.
 
 Two numbers moved on **2026-08-19**, with the open-source transition:
 
@@ -246,7 +253,7 @@ runs. (`SelfHostBand` is unchanged and still the band the **cloud** page carries
 
 Both facts come from one pure module, `selfHostPricingData.ts`: `CAPABILITY_DIFF` is **derived from
 `PLAN_CAPABILITIES` / `PLAN_FEATURES`** (a capability that moves tiers moves on the page; the
-metering, seats, retention, model and operation rows are stated beside them), and `ONBOARDING_STEPS`
+metering, retention, model and operation rows are stated beside them), and `ONBOARDING_STEPS`
 is the skill's own step shape at "what happens" altitude. `SelfHostSetupPanel` on `/onboarding`
 renders the same `ONBOARDING_STEPS`, so the two surfaces cannot describe two different skills.
 
@@ -554,7 +561,6 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
 
   | Claim on `/pricing` | Reality |
   | --- | --- |
-  | Seats: "1 / 3 / 10 members", Custom "yours to set" | `PlanFeature.seats` is read by **nothing**. No membership-write path, invite route, or `authz` check consults it. Previously logged here as "unconfirmed"; now confirmed unenforced. |
   | Org fleet dashboard: Starter and up | No plan check anywhere under `/org/**`. A Free org gets the whole dashboard. |
   | Scheduled autoscans + alerts: Starter and up | `org-watch.ts`, the rescan cron and `alerts.ts` have no plan gate. A Free org can schedule autoscans; only the *scans* they trigger are metered, not the capability. |
   | Segments + comparisons: Team | `src/lib/db/segments.ts` has no plan check. |
@@ -613,8 +619,7 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
   tiering exists anywhere). The SSO row now reads "Scoped", which is what the enquiry form is for.
 
   Closing the rest is a product decision, not a bug fix: either enforce the gates (each needs a predicate
-  in `plans.ts` plus a call site, and seats additionally needs a count-vs-limit check on the invite/accept
-  path) or restate the bullets as what they are: capabilities included at every tier.
+  in `plans.ts` plus a call site) or restate the bullets as what they are: capabilities included at every tier.
 - **Email receipts**: Polar sends its own; Ascent doesn't send a separate one.
 - **No off-session charging (blocks true auto-recharge)**: the low-balance feature above stops at a
   *warning + one-click top-up* because this integration has no stored payment method and no Polar

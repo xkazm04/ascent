@@ -20,9 +20,6 @@ Context-map group: **Billing, Credits & Metering** (`feature`).
 
 ## Known gaps
 
-- **Seat limits may not be enforced.** `PLAN_FEATURES` declares a `seats` cap per
-  tier, but whether the membership-write path actually enforces it was not verified.
-  Treat the cap as declarative until confirmed in `src/lib/db/members.ts`.
 - **`usage.md` omits the whole cost-accounting layer**: `inputTokens`,
   `outputTokens`, `estimatedCostUsd`, `costBasis`, and `byRepo` (top-10 billable
   repos). It also says the daily series is bucketed in JS. That is now only the
