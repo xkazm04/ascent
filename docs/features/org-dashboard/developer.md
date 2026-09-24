@@ -155,13 +155,22 @@ Since 2026-09-24 **sessions per week** fills without a share, from the `AgentSes
 Claude Code OTLP ingest already stores (`userKey` is the exporter's `user.email`, else `user.id`).
 It is a private productivity loop, never surveillance, and the rules are structural:
 
-- **Own rows only.** `getDeveloperView(login, slug)` takes the login the route resolved server-side
-  (`resolveViewerLogin`), never a query or body value, and `getOwnAgentSessions`
-  (`src/lib/db/agent-sessions-viewer.ts`, the only per-person read of that table) matches it
-  **exactly**: `userKey in [login, lower(login)]`, never `contains` or an insensitive mode, so no
-  wildcard can widen it. A null key is never guessed onto anyone. `applyOwnSessionShape`
-  (`src/lib/org/care-session-telemetry.ts`) re-checks every row's key, so a reader bug cannot count
-  another login.
+- **Own rows only: your login or your confirmed email.** A session counts when its key equals your
+  login **or** an email the auth provider has **confirmed** for you, and never anyone else's
+  (operator decision 2026-09-24). The route resolves both server-side with `resolveViewerIdentity`
+  (`src/lib/access.ts`): the email is `getViewer`'s confirmed-only address (Supabase
+  `email_confirmed_at`), and only when that Supabase viewer is the same login the route resolved; a
+  custom-OAuth session carries no email, the dev bypass gets none, and nothing is read from a query,
+  body or header. An unconfirmed address never reaches the loader. `getOwnAgentSessions`
+  (`src/lib/db/agent-sessions-viewer.ts`, the only per-person read of that table) matches
+  **exactly**: `userKey in` each key as resolved and lower-cased (`ownSessionKeys`), never `contains`
+  or an insensitive mode, so no wildcard can widen it; no login means no read. A null key is never
+  guessed onto anyone. `applyOwnSessionShape` (`src/lib/org/care-session-telemetry.ts`) re-checks
+  every row's key, so a reader bug cannot count anyone else's session.
+- **Email case.** The email match is case-insensitive: the fold compares both sides lower-cased, and
+  the reader asks for the address as confirmed and lower-cased. A key stored in some third casing
+  (neither of those) is missed at the database, which under-counts your own habit rather than
+  widening the match.
 - **No trace of anyone else.** A viewer with no rows of their own gets a view deep-equal to an unknown
   user's (`ownTelemetry: null`), however many sessions colleagues have; a signed-out viewer issues no
   read.
@@ -255,9 +264,6 @@ the same client/server boundary split as `skill-usage-load.ts`.
   `getRepoStates` (one query, in parallel with the backlog read, best-effort) for each repo's latest
   level and score; "—" appears only when a repo has no scan. A repo card with no open
   recommendations says "No open gaps." instead of rendering an empty list.
-- **Own telemetry matches on the login only.** Claude Code sends `user.email` (else an anonymous
-  `user.id`), so the session count fills only when that key equals your login: in practice, when your
-  sign-in login is itself your confirmed email (the Supabase fallback), or a key stored in the same
-  casing as your login. Matching a GitHub-login viewer by their confirmed email is a deliberate,
-  separate decision that is still owed. The count also cannot exclude SDK or CI sessions sent under
-  your key, because the export carries no launcher.
+- **Own telemetry cannot exclude SDK or CI sessions** sent under your login or confirmed email,
+  because the OTLP export carries no launcher. A session sent under an anonymous `user.id` (no email
+  attribute) is never matched to anyone.
