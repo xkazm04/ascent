@@ -3112,3 +3112,28 @@ model MentorShare {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// Backlog develop-2026-09-17 row 47: one org's pull credential for an AI-usage provider read by ADMIN
+// PULL with a customer-supplied key (the OpenAI Admin Costs connector). `credentialRef` holds
+// encryptSecret() CIPHERTEXT of the admin key (AES-256-GCM, ENCRYPTION_KEY), the custody the forge
+// `Installation` and BYOM use, so the secret dies with the row: the org erase drains this table. The
+// wire row (src/lib/db/provider-credentials.ts) carries `hasCredential`, never the key. The last-sync
+// columns record whether the latest pull was complete, so a pull cut short by the page cap or a rate
+// limit stays visibly PARTIAL. Standalone under relationMode = "prisma" (denormalized orgId, no FK).
+model ProviderCredential {
+  id              String    @id @default(uuid())
+  orgId           String
+  provider        String // "openai"
+  credentialRef   String? // encryptSecret() ciphertext of the admin key
+  projectIdsJson  String? // TEXT JSON string[]: the Costs API project filter; null/[] = every project
+  lastSyncAt      DateTime?
+  lastSyncStatus  String? // "complete" | "partial" | "failed"
+  lastSyncDetail  String?
+  lastSyncFrom    DateTime? // first bucket start the last sync stored
+  lastSyncThrough DateTime? // last bucket end (exclusive) the last sync stored
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([orgId, provider])
+  @@index([orgId])
+}

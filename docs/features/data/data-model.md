@@ -6,7 +6,7 @@ layers on the **optional** Prisma persistence layer in `prisma/schema.prisma` + 
 When `DATABASE_URL` is unset, `isDbConfigured()` returns false and DB-backed features degrade
 to empty/notice states rather than erroring.
 
-The schema now defines **86 models**. It is **DSQL-safe by design** so the same migrations run
+The schema now defines **87 models**. It is **DSQL-safe by design** so the same migrations run
 on local Postgres and Amazon Aurora DSQL (see the header comment in `prisma/schema.prisma`):
 
 - `relationMode = "prisma"`: **no foreign-key constraints** emitted (DSQL has none);
@@ -172,6 +172,7 @@ chain is computed over are exported by `GET /api/org/controls?org=…&format=csv
 | `AgentSession` | One Claude Code (today) agent session as an **attempt**, not a rate: re-exported counters UPDATE the row (`@@unique([orgId, source, sessionId])`). No `outcome` enum — a session with no commit is often a question or a debug pass, and calling it "failed" would over-claim the most common kind of session. | `source`, `sessionId`, `repoFullName`, `userKey?`, `startedAt`/`lastSeenAt`, `tokens`/`costCents`, `commits`/`pullRequests`, `linesAdded`/`linesRemoved` |
 | `UsageEvent` | Every model call this deployment served, one row per metered leg (standalone, like `QuotaEvent`). The `scan` lane keeps its ledger on `Scan` and is UNIONed on read; this table carries the lanes that had none. Token/cost columns are nullable — a provider that reported nothing is UNKNOWN, never 0. | `lane` (scan\|athena\|memory\|briefing\|local), `legKind?`, `refId?`, `provider`/`model`, `byom?`, token/cost/`latencyMs?`, `status`, `idemKey?` (`@@unique`); indexed `[orgId, createdAt]` |
 | `MentorShare` | The signed-in developer's own care share (C3): one snapshot per login, written only by `POST /api/me/mentor/share` for the login the session resolves and read back only by that login's Developer home. A push replaces it; `DELETE` removes it whole (no history, no soft delete). The payload never names the person and by contract holds no transcript, prompt, diff or file contents. | `login` (`@unique`, normalized), `payloadJson` (TEXT `CareSharePayload`), `sharedAt` |
+| `ProviderCredential` | One org's pull credential for an AI-usage provider read by admin pull with a customer key (the OpenAI Admin Costs connector, backlog row 47). `credentialRef` holds `encryptSecret()` ciphertext of the admin key, never plaintext, and the org erase drains the table, so the secret dies with the row. The last-sync columns record whether the latest pull was complete or stopped short (page cap, rate limit), so a partial pull is never read as a whole window. | `provider` (openai), `credentialRef?`, JSON `projectIdsJson?` (project filter), `lastSyncAt?`, `lastSyncStatus?` (complete\|partial\|failed), `lastSyncDetail?`, `lastSyncFrom?`, `lastSyncThrough?`; `@@unique([orgId, provider])` |
 
 ### Sessions, webhooks & quotas
 
@@ -290,7 +291,7 @@ in that precedence) for an honest "served live from …" UI indicator.
 
 | File | Role |
 | --- | --- |
-| `prisma/schema.prisma` | The 86-model schema (DSQL-safe). |
+| `prisma/schema.prisma` | The 87-model schema (DSQL-safe). |
 | `src/lib/db/client.ts` | Lazy Prisma singleton, DSQL token refresh/retry, `isDbConfigured()`. |
 | `src/lib/db/mode.ts` | Reports the live backend (`dsql`\|`postgres`\|`pglite`\|`disabled`). |
 | `src/lib/db/index.ts` | Barrel re-export of the data layer. |

@@ -2724,6 +2724,31 @@ CREATE TABLE "MentorShare" (
 -- CreateIndex
 CREATE UNIQUE INDEX "MentorShare_login_key" ON "MentorShare"("login");
 
+-- Backlog row 47: an org's OpenAI admin key (encryptSecret() ciphertext) and its last-sync outcome.
+-- See the 20260924170000_add_provider_credential migration.
+CREATE TABLE "ProviderCredential" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "provider" TEXT NOT NULL,
+    "credentialRef" TEXT,
+    "projectIdsJson" TEXT,
+    "lastSyncAt" TIMESTAMP(3),
+    "lastSyncStatus" TEXT,
+    "lastSyncDetail" TEXT,
+    "lastSyncFrom" TIMESTAMP(3),
+    "lastSyncThrough" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ProviderCredential_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ProviderCredential_orgId_provider_key" ON "ProviderCredential"("orgId", "provider");
+
+-- CreateIndex
+CREATE INDEX "ProviderCredential_orgId_idx" ON "ProviderCredential"("orgId");
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes
