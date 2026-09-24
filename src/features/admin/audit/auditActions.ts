@@ -159,6 +159,8 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // An admin re-sent an undelivered alert's stored text from the Alerts popover. Sky, like the other
   // alert-sink config writes: it is an outbound delivery the admin chose, not a grant or a revoke.
   { value: "org.alerts.resend", label: "Alert resent", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  // Row 35: repos newly granted on the GitHub App installation were watched; meta carries any overflow.
+  { value: "org.repos.auto_watched", label: "Repos auto-watched", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
 ];
 
 export const ACTION_META: Record<string, { label: string; cls: string }> = Object.fromEntries(
