@@ -147,6 +147,7 @@ function personalFixture(login: string | null): DeveloperView {
       "compactionsPerSession",
     ],
     shapeReasons: { compactionsPerSession: "below-sample" },
+    ownTelemetry: null,
     orgBands: BANDS,
     activity: {
       commits: 412,

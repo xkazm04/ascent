@@ -52,8 +52,12 @@ export const CARE_SHAPE_SCOPE: Record<CareShapeField, CareFieldScope> = {
   compactionsPerSession: { numerator: "context compactions, automatic or manual", denominator: SESSIONS, unit: "per-session" },
 };
 
-/** Why a shape value is empty. The first two are derived here; the last two only a producer can declare. */
-export type CareShapeEmptyReason = "no-share-received" | "not-shared" | "below-sample" | "not-collected";
+/**
+ * Why a shape value is empty. `no-share-received`, `not-shared` and `few-own-sessions` are derived
+ * here; `below-sample` and `not-collected` only a producer can declare. `few-own-sessions` is the
+ * telemetry path's floor (`care-session-telemetry.ts`): ascent saw your sessions, too few to rate.
+ */
+export type CareShapeEmptyReason = "no-share-received" | "not-shared" | "below-sample" | "not-collected" | "few-own-sessions";
 export type CareShapeDeclaredReason = Extract<CareShapeEmptyReason, "below-sample" | "not-collected">;
 const DECLARABLE: ReadonlySet<string> = new Set<CareShapeDeclaredReason>(["below-sample", "not-collected"]);
 
@@ -64,6 +68,8 @@ export function careShapeEmptyReason(view: DeveloperView, field: CareShapeField)
   // A shared null always arrives with a declared reason (the validator refuses one without); the
   // fallback only covers a hand-built view, and "not measured" is the claim that asserts least.
   if (shared) return view.shapeReasons[field] ?? "not-collected";
+  // Measured by ascent from the viewer's own telemetry: a value, or too few sessions to rate one.
+  if (view.ownTelemetry?.fields.includes(field)) return view.shape[field] != null ? null : "few-own-sessions";
   return view.setup.lastShareAt == null && view.sharedFields.length === 0 ? "no-share-received" : "not-shared";
 }
 
@@ -142,5 +148,9 @@ export const CARE_SHAPE_REASON_COPY: Record<CareShapeEmptyReason, { label: strin
   "not-collected": {
     label: "not measured",
     title: "Shared, but your mentor cannot measure this count from the tools you use. Not a zero.",
+  },
+  "few-own-sessions": {
+    label: "too few sessions",
+    title: `Fewer than ${CARE_SHAPE_MIN_SESSIONS} agent sessions carried your login in this workspace in the last ${CARE_SHAPE_WINDOW_DAYS} days, so a number would describe a handful of sessions, not a habit. Only you see this.`,
   },
 };

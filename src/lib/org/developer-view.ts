@@ -118,6 +118,13 @@ export interface DeveloperView {
   sharedFields: CareShapeField[];
   /** Why a SHARED field is still null, as the producer declared it (too few sessions, not measurable). */
   shapeReasons: Partial<Record<CareShapeField, CareShapeDeclaredReason>>;
+  /**
+   * What ascent measured ITSELF from agent telemetry sent under this viewer's own login in this
+   * workspace (`care-session-telemetry.ts`), for `fields` the mentor did not share. Null when no such
+   * session fell in the window, which is exactly what a viewer ascent has never seen gets. Only the
+   * viewer reads it; no org band or aggregate is built from it.
+   */
+  ownTelemetry: { source: "claude-code"; sessions: number; fields: CareShapeField[] } | null;
   /** Anonymous org bands for the shared fields — present only if the developer opted into comparison. */
   orgBands: Partial<Record<CareShapeField, CareBand>> | null;
   /**
@@ -206,6 +213,7 @@ export function emptyDeveloperView(login: string | null = null): DeveloperView {
     },
     sharedFields: [],
     shapeReasons: {},
+    ownTelemetry: null,
     orgBands: null,
     activity: null,
     myRepos: [],

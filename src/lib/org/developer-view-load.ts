@@ -9,7 +9,9 @@
 // the "build not in the gate" note).
 
 import { getContributorInsights, getOrgBacklog, getRepoStates } from "@/lib/db";
+import { getOwnAgentSessions } from "@/lib/db/agent-sessions-viewer";
 import { emptyDeveloperView, emptyOrgView, type CareOrgView, type DeveloperView } from "./developer-view";
+import { applyOwnSessionShape, careTelemetryWindowStart } from "./care-session-telemetry";
 
 /**
  * The signed-in developer's own view of themself inside `orgSlug` (docs/REGISTRY-AND-CARE-IMPL.md §5.4).
@@ -17,8 +19,13 @@ import { emptyDeveloperView, emptyOrgView, type CareOrgView, type DeveloperView 
  * REAL PATH, today: the viewer's slice of `getContributorInsights` (their commits, AI-attributed
  * share, the repos they touch, whether they are in the champions cohort) plus the OPEN
  * recommendations of exactly those repos, read from the org backlog. The care loop (profile, moves,
- * journal, session shape) stays the honest EMPTY state until C3 ships `POST /api/me/mentor/share` and
- * the personal tables — nothing here is invented to fill it.
+ * journal) stays the honest EMPTY state until C3 ships `POST /api/me/mentor/share` and the personal
+ * tables — nothing here is invented to fill it. The session shape's one telemetry-measurable field
+ * is the exception: it is read from the AgentSession rows sent under `viewerLogin` itself
+ * (`applyOwnSessionShape`), and is otherwise empty exactly as for an unknown user.
+ *
+ * `viewerLogin` MUST be the server-resolved identity of the requester (`resolveViewerLogin`), never
+ * a value taken from a query or a body: it is the only key the personal read is scoped by.
  *
  * Four honest degradations, each one NAMED in `activityState` rather than collapsed into a null:
  *   - `signed-out` — no viewer login, no reads issued;
@@ -29,11 +36,22 @@ import { emptyDeveloperView, emptyOrgView, type CareOrgView, type DeveloperView 
  * `activity` is null in all four; only the state tells them apart, and the page encodes the
  * difference rather than showing zeros that would read as "you did nothing".
  */
-export async function getDeveloperView(viewerLogin: string | null, orgSlug: string): Promise<DeveloperView> {
+export async function getDeveloperView(
+  viewerLogin: string | null,
+  orgSlug: string,
+  now: Date = new Date(),
+): Promise<DeveloperView> {
   const view = emptyDeveloperView(viewerLogin);
   if (!viewerLogin) return view;
 
-  const insights = await getContributorInsights(orgSlug).catch(() => null);
+  // The personal session read runs beside the snapshot read: it does not depend on the viewer having
+  // a contributor row (someone who only asks questions in Claude Code has sessions and no commits).
+  // Best-effort: a failure leaves the shape exactly as empty as for a viewer never seen.
+  const [insights, ownSessions] = await Promise.all([
+    getContributorInsights(orgSlug).catch(() => null),
+    getOwnAgentSessions(orgSlug, viewerLogin, careTelemetryWindowStart(now)).catch(() => []),
+  ]);
+  applyOwnSessionShape(view, ownSessions, now);
   const login = viewerLogin.toLowerCase();
   const me = insights?.contributors.find((c) => c.login.toLowerCase() === login) ?? null;
   if (!me) {
