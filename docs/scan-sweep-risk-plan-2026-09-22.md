@@ -78,5 +78,7 @@ The human rows were decided in session; each is now buildable as stated here, wh
 | 45 | Stop selling a seat count instead of enforcing it: remove seats from the plan cards, the pricing matrix and the self-host pricing line, and say so in `billing.md`. |
 | 46 | Build C3 mentor-share (L, architecture; personal tables need a migration). |
 | 47 | Build the OpenAI Codex admin-pull cost connector (L, architecture); verified against a recorded fixture, not the live API. |
+| 35 | Auto-watch repos newly granted on the install, as the finding says: only from the complete live GitHub list, only when the org already has a watchlist, at most 20 per event, hosted and self-hosted alike. This reverses the webhook's "added repos stay opt-in". |
+| 27 (follow-up) | The private session shape matches the viewer's own sessions by login OR an email the auth provider has confirmed for them; never anyone else's. |
 
 Progress is recorded in scan-sweep history and commits. Preserve unrelated worktree edits; never push.
