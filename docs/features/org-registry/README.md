@@ -139,7 +139,7 @@ user account). Every probe fails closed.
 | --- | --- | --- |
 | `GET /api/org/:slug/registry` | read | `{ view: RegistryView }` (`?demo=` selects a fixture) |
 | `POST /api/org/:slug/registry` | admin | map `fullName`, or `create: true` to create `<org>/ai-registry`; then open the scaffold PR |
-| `POST .../registry/index` | member | re-read HEAD and rebuild the mirror rows |
+| `POST .../registry/index` | member | re-read HEAD and rebuild the mirror rows; write `catalog.json` back when the registry's `catalogWrites` allows it (`catalogWrite` in the response, see "Writing `catalog.json` back") |
 | `POST .../registry/local` | owner · **self-hosted only** (404 otherwise) | pair / verify / unpair the registry checkout on this machine, and index it — see below |
 | `POST .../registry/migrate?type=skills,practices,memory` | admin | export the still-hosted rows of one type as one draft PR; a type with zero rows is a **no-op**, never an empty PR |
 | `POST .../registry/conformance` (`{ repositoryIds?, repositoryId? }`) | admin | sweep the fleet, a list, or one repo — see the conformance ledger |
@@ -245,6 +245,42 @@ dispatch whose map PR merged, without anyone clicking. Both push paths mint a to
 installation is confirmed to belong to the pushing owner (the webhook's `installationMatchesOwner`).
 A failure in the registry lane is logged and does **not** release the delivery, because the paid
 rescan beside it may already have spent a credit.
+
+### Writing `catalog.json` back (2026-09-24)
+
+After it builds the catalog, a pass applies the registry's own `policies.catalogWrites` from
+`.ascent/registry.yaml` (`src/lib/registry/catalog-write.ts`):
+
+- **`bot`** commits `catalog.json` to the default branch, against the blob sha the tree walk read. If
+  the file moved in between, GitHub refuses (409) and the trailing pass that the move fired rebuilds.
+  The row's `catalogSha` becomes the blob it **wrote**, not the one it read.
+- **`pr`** opens or updates one pull request on the stable branch `ascent/registry-catalog`. It skips
+  when that branch already carries the same content, and it never commits to the default branch.
+
+A pass does **not** write, and says why in `catalogWrite` (on the result and in the index route's
+response), when:
+
+| Reason | Why |
+| --- | --- |
+| `no-writer` | the source cannot write: a checkout paired locally, or a test fixture |
+| `no-spine` | `.ascent/registry.yaml` is missing; the defaults a pass indexes with are not consent to write |
+| `truncated` | GitHub truncated the tree, so the catalog would drop real entries |
+| `read-failures` | a blob read failed this pass (size-cap skips do not count, they are permanent) |
+| `prior-unreadable` | a committed catalog that could not be read is never overwritten blind |
+| `foreign-producer` | another producer signed the committed catalog (`generatedBy` other than `ascent`), e.g. the reference registry's own `scripts/build-catalog.mjs`, whose CI `--check` would fail on Ascent's envelope |
+| `unchanged` | same content, ignoring `generatedAt`/`generatedBy` and key order |
+
+`unchanged` is what stops a loop: a `bot` commit fires the registry's push webhook, and the trailing
+pass it triggers finds nothing to write. The scaffold seed is signed `ascent`, so a scaffolded registry
+gets a real catalog on its first index. Keys Ascent does not produce are carried forward: at the top
+level (`bundles`) and on each entry, matched by `path` (`adopters`). A write GitHub rejects (a protected
+branch, a missing write scope) shows up as a warning on a pass that otherwise succeeded.
+
+The write uses the token the pass already reads with (minted by the index route's gate for the gated
+org, or by the push lane for the installation confirmed to own the pushing repo) and the org's own
+registry row as the coordinate. It mints nothing of its own. The index route's floor stays `member`
+because the caller chooses nothing: the registry's declaration authorizes the write, the content is
+generated from the tree, and the push webhook runs the same write with no caller at all.
 
 ## The conformance ledger (2026-08-30)
 
@@ -559,8 +595,6 @@ requiring admin to *propose* would lock out the people who write the memory.
   through the one ingest door in `src/lib/memory/scan-feed.ts` and that door's generalized form
   (`writeMemoryCandidate`) is not in this build. `ingestSkillLessons` reports `held: true` rather
   than writing through a second door, which would mean two dedup windows for one table.
-- **`catalog.json` is built but not committed back.** `indexRegistry` returns the catalog it would
-  write; the policy-gated writer (`catalogWrites: bot | pr`) is not implemented.
 - **`RegistryView.candidates` is still empty from the server loader.** The picker gets its rows from
   `/api/app/repos` on the client instead, so the field is now only populated by the fixtures. That
   listing does not probe file layout, so a real row can never carry `hasLayout` — the picker falls back
