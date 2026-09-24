@@ -8,6 +8,7 @@
 #     with:
 #       ascent-url: ${{ vars.ASCENT_URL }}   # e.g. https://ascent.yourco.dev
 #       min-level: L3
+#       min-d2: '50'                         # optional per-dimension floor (D1..D8; D9 is min-security)
 #       no-ungoverned: 'true'
 #
 # `repo` defaults to the workflow's own repository. Combine with the PR Check + comment posted by
@@ -49,6 +50,38 @@ inputs:
     default: ""
   min-security:
     description: "Minimum Security (D9) dimension score — the security gate floor."
+    required: false
+    default: ""
+  min-d1:
+    description: "Minimum D1 (AI Tooling & Conventions) dimension score. Tightens, never relaxes, a floor your org's gate policy already sets."
+    required: false
+    default: ""
+  min-d2:
+    description: "Minimum D2 (Automated Testing) dimension score. Tightens, never relaxes, a floor your org's gate policy already sets."
+    required: false
+    default: ""
+  min-d3:
+    description: "Minimum D3 (CI/CD & Delivery) dimension score. Tightens, never relaxes, a floor your org's gate policy already sets."
+    required: false
+    default: ""
+  min-d4:
+    description: "Minimum D4 (Agentic Workflows) dimension score. Tightens, never relaxes, a floor your org's gate policy already sets."
+    required: false
+    default: ""
+  min-d5:
+    description: "Minimum D5 (Documentation & Knowledge) dimension score. Tightens, never relaxes, a floor your org's gate policy already sets."
+    required: false
+    default: ""
+  min-d6:
+    description: "Minimum D6 (Code Quality & Guardrails) dimension score. Tightens, never relaxes, a floor your org's gate policy already sets."
+    required: false
+    default: ""
+  min-d7:
+    description: "Minimum D7 (Commit & Velocity Signals) dimension score. Tightens, never relaxes, a floor your org's gate policy already sets."
+    required: false
+    default: ""
+  min-d8:
+    description: "Minimum D8 (AI Process & Harness) dimension score. Tightens, never relaxes, a floor your org's gate policy already sets."
     required: false
     default: ""
   no-ungoverned:
@@ -118,6 +151,14 @@ runs:
         INPUT_MIN_OVERALL: ${{ inputs.min-overall }}
         INPUT_MIN_DIMENSION: ${{ inputs.min-dimension }}
         INPUT_MIN_SECURITY: ${{ inputs.min-security }}
+        INPUT_MIN_D1: ${{ inputs.min-d1 }}
+        INPUT_MIN_D2: ${{ inputs.min-d2 }}
+        INPUT_MIN_D3: ${{ inputs.min-d3 }}
+        INPUT_MIN_D4: ${{ inputs.min-d4 }}
+        INPUT_MIN_D5: ${{ inputs.min-d5 }}
+        INPUT_MIN_D6: ${{ inputs.min-d6 }}
+        INPUT_MIN_D7: ${{ inputs.min-d7 }}
+        INPUT_MIN_D8: ${{ inputs.min-d8 }}
         INPUT_NO_UNGOVERNED: ${{ inputs.no-ungoverned }}
         INPUT_REQUIRE_PROTECTION: ${{ inputs.require-protection }}
         INPUT_MIN_AI_GOVERNED: ${{ inputs.min-ai-governed }}
@@ -133,6 +174,14 @@ runs:
         if [ -n "$INPUT_MIN_OVERALL" ]; then ARGS+=(--min-overall "$INPUT_MIN_OVERALL"); fi
         if [ -n "$INPUT_MIN_DIMENSION" ]; then ARGS+=(--min-dimension "$INPUT_MIN_DIMENSION"); fi
         if [ -n "$INPUT_MIN_SECURITY" ]; then ARGS+=(--min-security "$INPUT_MIN_SECURITY"); fi
+        if [ -n "$INPUT_MIN_D1" ]; then ARGS+=(--min-d1 "$INPUT_MIN_D1"); fi
+        if [ -n "$INPUT_MIN_D2" ]; then ARGS+=(--min-d2 "$INPUT_MIN_D2"); fi
+        if [ -n "$INPUT_MIN_D3" ]; then ARGS+=(--min-d3 "$INPUT_MIN_D3"); fi
+        if [ -n "$INPUT_MIN_D4" ]; then ARGS+=(--min-d4 "$INPUT_MIN_D4"); fi
+        if [ -n "$INPUT_MIN_D5" ]; then ARGS+=(--min-d5 "$INPUT_MIN_D5"); fi
+        if [ -n "$INPUT_MIN_D6" ]; then ARGS+=(--min-d6 "$INPUT_MIN_D6"); fi
+        if [ -n "$INPUT_MIN_D7" ]; then ARGS+=(--min-d7 "$INPUT_MIN_D7"); fi
+        if [ -n "$INPUT_MIN_D8" ]; then ARGS+=(--min-d8 "$INPUT_MIN_D8"); fi
         if [ -n "$INPUT_REF" ]; then ARGS+=(--ref "$INPUT_REF"); fi
         if [ "$INPUT_NO_UNGOVERNED" = "true" ]; then ARGS+=(--no-ungoverned); fi
         if [ "$INPUT_REQUIRE_PROTECTION" = "true" ]; then ARGS+=(--require-protection); fi

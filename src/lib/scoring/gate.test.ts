@@ -146,9 +146,9 @@ describe("explicitPolicyFromParams + tightenGatePolicy (ci-gate 2026-07-16 #1)",
   });
 });
 
-// Per-dimension floors via `?min_d<N>=N` (D1..D8; D9 stays `min_security`). These floor params are
-// URL inputs with no `ci` line (action.yml has no `min_d<N>`), so they must never claim one in a
-// generated condition.
+// Per-dimension floors via `?min_d<N>=N` (D1..D8; D9 stays `min_security`). Each also has a
+// `min-d<N>` input on action.yml, so the generated Enforce-in-CI snippet carries it
+// (gate-action-inputs.test.ts pins that every emitted `ci` key is a real input).
 describe("explicitPolicyFromParams — per-dimension floors min_d1..min_d8", () => {
   it("merges multiple floors into ONE minDimensionFor object without any overwrite", () => {
     const pol = explicitPolicyFromParams(new URLSearchParams("min_d2=50&min_security=70"));
@@ -161,12 +161,18 @@ describe("explicitPolicyFromParams — per-dimension floors min_d1..min_d8", () 
     expect(pol.minDimensionFor).toBeUndefined();
   });
 
-  it("a D2 floor gets its own query input but NO ci line (action.yml has no min_d2)", () => {
+  it("a D2 floor gets its own query input AND a min-d2 ci line", () => {
     const views = describeGatePolicy(explicitPolicyFromParams(new URLSearchParams("min_d2=50")));
     const dimView = views.find((v) => v.text.includes("D2"))!;
     expect(dimView.query).toEqual(["min_d2", "50"]);
-    expect(dimView.ci).toBeUndefined();
+    expect(dimView.ci).toBe("min-d2: '50'");
     expect(dimView.text).toContain("≥ 50");
+  });
+
+  it("guard: the D9 floor keeps its min_security / min-security projection (there is no min-d9)", () => {
+    const [view] = describeGatePolicy({ minDimensionFor: { D9: 70 } });
+    expect(view!.query).toEqual(["min_security", "70"]);
+    expect(view!.ci).toBe("min-security: '70'");
   });
 
   it("every floor view's query parses back to the same floor (the link a view builds is one the parser reads)", () => {

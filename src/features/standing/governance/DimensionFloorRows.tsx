@@ -7,9 +7,9 @@
 // well inside the LOC cap (AGENTS.md).
 //
 // D9 deliberately keeps its own dedicated checkbox up in the parent form and is EXCLUDED here: it is
-// the one fully deterministic dimension, the only floor the gate URL / CI action input expose
-// (?min_security / min-security), and switching it on also forbids the "ungoverned" posture. Merging
-// it into this generic list would quietly drop all three of those behaviors.
+// the one fully deterministic dimension, its gate URL / CI action input is the named
+// ?min_security / min-security (every other floor is ?min_d<N> / min-d<N>), and switching it on also
+// forbids the "ungoverned" posture. Merging it into this generic list would quietly drop all three.
 
 import { DIMENSIONS } from "@/lib/maturity/model";
 
@@ -32,7 +32,9 @@ export function DimensionFloorRows({
     <div className="mt-3 border-t border-slate-800 pt-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="type-mono-sm uppercase tracking-widest text-slate-500">Other dimension floors</span>
-        <span className="type-body-sm text-slate-500">Enforced by the gate; not exposed as a CI input.</span>
+        <span className="type-body-sm text-slate-500">
+          Enforced by the gate; the CI snippet carries each as <code className="font-mono">min-d&lt;N&gt;</code>.
+        </span>
       </div>
 
       {configured.length === 0 ? (

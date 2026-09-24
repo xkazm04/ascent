@@ -320,9 +320,9 @@ export interface GateConditionView {
  * (`policyText`), the PR-comment footer (`policyBits`), the gate-API query string (`gateQuery`),
  * and the GitHub-Action `with:` lines (`ciWith`). They can no longer drift — the PR footer used to
  * silently omit the D9 security floor + protected-branch rule the gate actually enforces. `query`
- * and `ci` are populated only for conditions the gate URL / action input expose (the per-dimension
- * Security floor maps to `min_security`; protection to `require_protection`); other per-dimension
- * floors still render into `text`/`bit` so every enforced condition is visible.
+ * and `ci` are populated only for conditions the gate URL / action input expose (every per-dimension
+ * floor: D9 as `min_security`, D1..D8 as `min_d<N>`; protection as `require_protection`); the rest
+ * (admission, required controls) still render into `text`/`bit` so every enforced condition is visible.
  */
 export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
   const out: GateConditionView[] = [];
@@ -337,15 +337,15 @@ export function describeGatePolicy(p: GatePolicy): GateConditionView[] {
   }
   for (const [dim, floor] of Object.entries(p.minDimensionFor ?? {})) {
     const dimName = DIMENSION_BY_ID[dim as DimensionId]?.name ?? dim;
-    // Every floor has a URL input: D9 is `min_security`, D1..D8 are `min_d<N>`. Only D9 has an
-    // action.yml input, so only D9 carries a `ci` line.
-    const exposed = dim === SECURITY_DIM;
+    // Every floor has a URL param AND an action.yml input: D9 is `min_security` / `min-security`,
+    // D1..D8 are `min_d<N>` / `min-d<N>` (there is no min-d9). gate-action-inputs.test.ts pins that
+    // each `ci` key emitted here is an input the action declares and forwards.
+    const [param, input] = dim === SECURITY_DIM ? ["min_security", "min-security"] : [`min_${dim.toLowerCase()}`, `min-${dim.toLowerCase()}`];
     out.push({
       text: `${dim} (${dimName}) ≥ ${floor}`,
       bit: `no ${dim} < ${floor}`,
-      ...(exposed
-        ? { query: ["min_security", String(floor)] as [string, string], ci: `min-security: '${floor}'` }
-        : { query: [`min_${dim.toLowerCase()}`, String(floor)] as [string, string] }),
+      query: [param, String(floor)],
+      ci: `${input}: '${floor}'`,
     });
   }
   if (p.forbidPostures?.length) {

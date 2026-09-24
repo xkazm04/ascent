@@ -9,6 +9,9 @@
 //   --min-overall 60      minimum overall score (0..100)
 //   --min-dimension 40    no dimension may score below this
 //   --min-security 50     minimum Security (D9) score — the security gate floor
+//   --min-d1 .. --min-d8  minimum score on ONE dimension (D1..D8), e.g. --min-d2 50 for Testing; D9 is
+//                         --min-security. A floor the org's server policy already holds is fine to
+//                         restate: the gate keeps the stricter of the two.
 //   --no-ungoverned       fail if the posture is "ungoverned" (heavy AI, light guardrails)
 //   --require-protection  fail if the default branch has no branch-protection rules (when readable)
 //   --min-ai-governed 100 minimum % of AI-attributed merged PRs with an approving human review
@@ -88,27 +91,25 @@ const outcome = (status, body = {}) =>
     skipped: skippedCodes(body.skipped),
   });
 
-async function main() {
-  const argv = process.argv.slice(2);
-  const repo = argv.find((a) => !a.startsWith("--"));
-  if (!repo || !/^[^/]+\/[^/]+$/.test(repo)) {
-    outcome("error");
-    console.error("Usage: node scripts/maturity-gate.mjs owner/repo [--min-level L3] [--min-dimension 40] [--no-ungoverned] [--live]");
-    process.exit(2);
-  }
-
+/**
+ * The CLI flags as /api/gate query params. Pure and exported so the whole chain (action.yml input ->
+ * flag -> param -> parsed policy) can be unit-tested; an old caller's flags produce the same query,
+ * in the same order, they always did (the per-dimension floors are appended after min_security).
+ */
+export function gateQueryFromArgv(argv) {
   const flag = (name) => argv.includes(`--${name}`);
   const opt = (name) => {
     const i = argv.indexOf(`--${name}`);
     return i >= 0 ? argv[i + 1] : undefined;
   };
 
-  const base = (process.env.ASCENT_URL || "http://localhost:3000").replace(/\/$/, "");
   const qs = new URLSearchParams();
   if (opt("min-level")) qs.set("min_level", opt("min-level"));
   if (opt("min-overall")) qs.set("min_overall", opt("min-overall"));
   if (opt("min-dimension")) qs.set("min_dimension", opt("min-dimension"));
   if (opt("min-security")) qs.set("min_security", opt("min-security"));
+  // D1..D8 only: D9's floor is --min-security, and the gate URL has no min_d9 to receive it.
+  for (let i = 1; i <= 8; i++) if (opt(`min-d${i}`)) qs.set(`min_d${i}`, opt(`min-d${i}`));
   if (flag("no-ungoverned")) qs.set("no_ungoverned", "1");
   if (flag("require-protection")) qs.set("require_protection", "1");
   if (opt("min-ai-governed")) qs.set("min_ai_governed", opt("min-ai-governed"));
@@ -117,6 +118,20 @@ async function main() {
   // --ref <sha|branch>: gate a specific ref (e.g. a PR head) so the score reflects what the PR
   // changes, not the default branch. In a PR workflow: --ref "$GITHUB_SHA" or the PR head sha.
   if (opt("ref")) qs.set("ref", opt("ref"));
+  return qs;
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const repo = argv.find((a) => !a.startsWith("--"));
+  if (!repo || !/^[^/]+\/[^/]+$/.test(repo)) {
+    outcome("error");
+    console.error("Usage: node scripts/maturity-gate.mjs owner/repo [--min-level L3] [--min-dimension 40] [--min-d2 50] [--no-ungoverned] [--live]");
+    process.exit(2);
+  }
+
+  const base = (process.env.ASCENT_URL || "http://localhost:3000").replace(/\/$/, "");
+  const qs = gateQueryFromArgv(argv);
 
   const url = `${base}/api/gate/${repo}${qs.toString() ? `?${qs}` : ""}`;
 
