@@ -5,7 +5,7 @@
 // every model in schema.prisma must have its CREATE TABLE in init.sql, and the public-org seed the
 // app depends on (ensureOrgId reads instead of upserting the hot row) must survive regeneration.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -254,6 +254,31 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
   it("makes the Scan dedup constraint a UNIQUE index (cross-instance same-commit backstop)", () => {
     expect(schema).toMatch(/@@unique\(\[repoId, headSha\]\)/);
     expect(initSql).toMatch(/CREATE UNIQUE INDEX "Scan_repoId_headSha_key" ON "Scan"\("repoId", "headSha"\)/);
+  });
+
+  // One score per dimension per scan is a fact of the store, not a convention every (scanId, dimId)
+  // reader Map-collapses around. persistScanReport already de-dupes by dimId (last wins); this index
+  // makes a writer that forgets fail with P2002 instead of persisting an order-dependent history.
+  it("makes ScanDimension (scanId, dimId) a UNIQUE index", () => {
+    expect(schema).toMatch(/model ScanDimension \{[^}]*@@unique\(\[scanId, dimId\]\)/);
+    expect(initSql).toMatch(
+      /CREATE UNIQUE INDEX "ScanDimension_scanId_dimId_key" ON "ScanDimension"\("scanId", "dimId"\)/,
+    );
+  });
+
+  // A unique index over existing data can only fail the deploy loudly, never lose a row — as long
+  // as the migration carrying it does not "clean up" first. Comments are stripped before matching,
+  // so prose that names DELETE (or the index) can neither trip nor satisfy this.
+  it("ships the ScanDimension unique in a migration that deletes no rows", () => {
+    const dir = join(root, "prisma", "migrations");
+    const code = (sql: string) => sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    const carriers = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => code(readFileSync(join(dir, e.name, "migration.sql"), "utf8")))
+      .filter((sql) => sql.includes(`"ScanDimension_scanId_dimId_key"`));
+    expect(carriers).toHaveLength(1);
+    expect(carriers[0]).toMatch(/CREATE UNIQUE INDEX "ScanDimension_scanId_dimId_key" ON "ScanDimension"\("scanId", "dimId"\)/);
+    expect(carriers[0]).not.toMatch(/\b(DELETE|TRUNCATE|DROP\s+TABLE|UPDATE)\b/i);
   });
 });
 

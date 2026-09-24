@@ -1,0 +1,26 @@
+-- One score per dimension per scan, enforced by the store.
+--
+-- WHY: ScanDimension is the per-scan D1..D9 breakdown, but only (scanId) was indexed, so nothing below
+-- the application stopped two rows with the same (scanId, dimId). Every reader keys that pair
+-- (standing regressions, history, evidence) and Map-collapses, so a duplicate would not error: it would
+-- make those reads order-dependent. persistScanReport de-dupes by dimId before its nested create (last
+-- wins); this index is the backstop that turns a writer that forgets into a P2002 instead of a lie.
+--
+-- EXISTING ROWS: this migration deletes and rewrites NOTHING. It was added only after establishing that
+-- no writer could ever have stored a duplicate: ScanDimension rows are written in exactly one place,
+-- the nested create inside persistScanReport's scan.create (a freshly created Scan, never appended to
+-- later), and every persisted report's dimensions come from assembleReport over the fixed D1..D9
+-- DETECTORS list (unchanged since the initial commit) or from the dev fleet seed's DIMENSIONS.map.
+-- If a hand-edited database does hold a duplicate, this CREATE fails and the deploy stops; nothing is
+-- lost. Find them with:
+--   SELECT "scanId", "dimId", count(*) FROM "ScanDimension" GROUP BY 1, 2 HAVING count(*) > 1;
+-- and decide per row before re-running. Do not add a DELETE here.
+--
+-- ON AURORA DSQL: run this as `CREATE UNIQUE INDEX ASYNC "ScanDimension_scanId_dimId_key" ON
+-- "ScanDimension"("scanId", "dimId");` out of band (DSQL builds secondary indexes asynchronously and
+-- rejects the synchronous form on a populated table), wait for it to report ACTIVE, then mark this
+-- migration applied with `prisma migrate resolve --applied 20260924120000_add_scan_dimension_unique`.
+-- See docs/ARCHITECTURE.md section 3.
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ScanDimension_scanId_dimId_key" ON "ScanDimension"("scanId", "dimId");

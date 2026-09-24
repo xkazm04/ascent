@@ -670,6 +670,9 @@ CREATE INDEX "Scan_scannedAt_idx" ON "Scan"("scannedAt");
 -- CreateIndex
 CREATE INDEX "ScanDimension_scanId_idx" ON "ScanDimension"("scanId");
 
+-- CreateIndex (UNIQUE: one score per dimension per scan; see 20260924120000_add_scan_dimension_unique)
+CREATE UNIQUE INDEX "ScanDimension_scanId_dimId_key" ON "ScanDimension"("scanId", "dimId");
+
 -- CreateIndex
 CREATE INDEX "Recommendation_scanId_idx" ON "Recommendation"("scanId");
 

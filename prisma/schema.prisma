@@ -738,6 +738,8 @@ model ScanDimension {
   scan Scan @relation(fields: [scanId], references: [id])
 
   @@index([scanId])
+  // One score per dimension per scan: the store enforces the D1..D9 identity every reader keys on.
+  @@unique([scanId, dimId])
 }
 
 model Recommendation {

@@ -460,8 +460,9 @@ export async function persistScanReport(
           });
           await tx.scan.delete({ where: { id: upgradeOldScanId } });
         }
-        // Last-wins by dimId so nested create writes at most one ScanDimension per dimension
-        // (readers already key that way; schema unique on (scanId, dimId) is a separate item).
+        // Last-wins by dimId so nested create writes at most one ScanDimension per dimension. The
+        // schema's @@unique([scanId, dimId]) would reject a duplicate with P2002 and roll the whole
+        // scan back, so this de-dupe is what keeps a repeated dimension from costing the scan.
         const byDimId = new Map<string, (typeof report.dimensions)[number]>();
         for (const d of report.dimensions) byDimId.set(d.id, d);
         const scan = await tx.scan.create({
