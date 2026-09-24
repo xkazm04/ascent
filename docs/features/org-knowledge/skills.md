@@ -769,6 +769,22 @@ write tool is one policy row plus one handler, and a structural test fails the b
 tool has no row or a row has no `mutates` tool. #3 exercised it exactly as written — two rows, three
 handlers, and not one line of the gate's own logic touched.
 
+**`report_skill_invoke` for a skill the library has not indexed yet (2026-09-24).** An agent working
+from the registry checkout can run a skill the moment its file merges, before the next index pass
+mirrors it. That report used to be refused and nothing was written, so the one agent that had used
+the skill left no trace and the skill later read as unused. Now, when the org has a registry mapped,
+the invoke is **held** in `OrgSkillEvent` under the synthetic `registry:<name>` id the usage lane
+already uses for unmirrored skills (the name normalized with the indexer's own slug rule), and the
+reply says `pending: true` with a note that the next index attaches it. No `OrgSkill` row is
+invented and no schema changed. `upsertRegistrySkill` attaches the held rows when it mirrors that
+name: skill id and dedupe key are re-keyed onto the real row, a twin already recorded under the real
+id (the same session reported before and after the mirror) is dropped rather than counted twice, and
+attached invokes bump the use tally exactly as a direct report does. A held row votes on no library
+verdict until then, and `listSkillInvokeAnchors` skips it so no outcome is keyed to a skill the
+library does not hold. With no registry mapped, nothing will ever mirror the name, so the refusal
+stands. Held rows do count in the Registry tab's sink A invoke readout (`countOrgSkillInvokes`),
+which counts invokes this org recorded, not invokes of mirrored skills.
+
 ### The work protocol: claim → brief → report
 
 The Follow-ups ledger is a **pull queue any coding agent can serve**. Claude Code, Copilot, Codex,
@@ -1012,3 +1028,4 @@ as Trace.
 | `src/features/shared/skills/SkillOutcomes.tsx` | Score-movement-since-adoption display. |
 | `src/features/shared/skills/ApiTokensPanel.tsx` | Token mint/list/revoke UI. |
 | `src/app/org/[slug]/skills/page.tsx` | Page composition. |
+| `src/lib/db/org-skill-pending-invokes.ts` | Held `registry:<name>` invokes from `report_skill_invoke`, and their attach on the next index pass. |
