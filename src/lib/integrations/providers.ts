@@ -45,19 +45,18 @@ export interface ProviderDef {
 /** Per-id connect panel. Distinct from `connectKind`: kind names the mechanism (OTel push vs admin
  *  pull); this map names the surface, so an available admin-pull row cannot inherit Copilot's GitHub
  *  App pull. Total over `ProviderId` — a new id is a compile error until it is mapped. `none` is the
- *  explicit unshipped slot and requires a reason. */
+ *  explicit unshipped slot and requires a reason. OpenAI (backlog row 47) has its own surface: it
+ *  pulls with an owner-supplied admin key, where Copilot pulls through the GitHub App. */
 export type ConnectSetup =
   | { panel: "claude-code" }
   | { panel: "copilot" }
+  | { panel: "openai" }
   | { panel: "none"; reason: string };
 
 export const CONNECT_SETUP = {
   "claude-code": { panel: "claude-code" },
   copilot: { panel: "copilot" },
-  openai: {
-    panel: "none",
-    reason: "The OpenAI Codex Admin Costs connector is not shipped.",
-  },
+  openai: { panel: "openai" },
 } as const satisfies Record<ProviderId, ConnectSetup>;
 
 export const FIDELITY_META: Record<Fidelity, { label: string; hex: string; note: string }> = {
@@ -103,16 +102,19 @@ export const PROVIDERS: ProviderDef[] = [
   {
     id: "openai",
     name: "OpenAI · Codex",
-    status: "planned",
+    status: "available",
     fidelity: "allocated",
     connectKind: "admin-pull",
-    blurb: "Org & project cost and usage via the Admin Costs API.",
+    blurb: "Org daily spend via the Admin Costs API, pulled with an organization Admin key.",
+    // Honest catalog: the Costs sync stores org-scope daily cost (buildOpenAIUsage). The Costs API
+    // returns money, never tokens, so token usage is not listed.
     capabilities: [
-      "Cost by project / API key",
-      "Codex CLI token usage",
-      "Per-repo only if projects map 1:1 to repos",
+      "Org daily cost in USD (Admin Costs API)",
+      "Optional filter to the OpenAI projects Codex bills to",
+      "No tokens (the Costs API reports cost only)",
     ],
-    perRepo: "Allocated. Costs group by project, not repo; Ascent allocates by git evidence unless projects map to repos.",
+    perRepo:
+      "Allocated. OpenAI reports cost by organization and project, not by repository, so Ascent distributes the org total across repos by git-attributed AI volume.",
     accent: "#10b981",
   },
 ];

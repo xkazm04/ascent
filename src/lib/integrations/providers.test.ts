@@ -71,3 +71,20 @@ describe("Claude Available catalog capabilities", () => {
     });
   });
 });
+
+// Backlog row 47: the OpenAI row is available, and its catalog lists only what the Costs sync stores
+// (org-scope daily costCents via buildOpenAIUsage). It must not promise Codex token counts: the Costs
+// API returns money, never tokens, so `tokens` is always 0 on its records.
+describe("OpenAI Available catalog capabilities", () => {
+  const openai = PROVIDERS.find((p) => p.id === "openai")!;
+
+  it("is available, allocated, admin-pull", () => {
+    expect(openai).toMatchObject({ status: "available", fidelity: "allocated", connectKind: "admin-pull" });
+  });
+
+  it("does not advertise token usage the Costs API never returns", () => {
+    const listed = openai.capabilities.join("\n");
+    expect(listed).not.toMatch(/Codex CLI token usage/);
+    expect(listed).toMatch(/cost/i);
+  });
+});

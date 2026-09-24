@@ -16,6 +16,7 @@ import { getIngestTokenEpoch, getProviderIngestStatus } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { listForgeInstallations } from "@/lib/db/forge-installations";
+import { getProviderConnection } from "@/lib/db/provider-credentials";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { ForgeInstallationCard } from "./ForgeInstallationCard";
 
@@ -42,6 +43,9 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
   // moonshot #4 — the org's connected forge accounts. Secret-free by type: `ForgeInstallationRow`
   // carries `hasCredential`, and has no field the credential could travel in.
   const forgeInstallations = await listForgeInstallations(slug).catch(() => []);
+  // Backlog row 47: the OpenAI Costs connection. Secret-free by type (`ProviderConnectionRow` has
+  // `hasCredential` and no field the admin key could travel in).
+  const openaiConnection = await getProviderConnection(slug, "openai").catch(() => null);
 
   return (
     <div className="space-y-6">
@@ -63,6 +67,7 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
         ingestToken={isIngestConfigured() ? ingestToken(slug, epoch) : ""}
         ingestPath="/api/integrations/ingest"
         statuses={statuses}
+        openai={{ connection: openaiConnection, encryptionConfigured: isEncryptionConfigured() }}
       />
     </div>
   );

@@ -3,10 +3,11 @@
 // Pins the connect-surface dispatch to CONNECT_SETUP[id], not to connectKind alone. Kind-only
 // dispatch was the Copilot fix (the panel used to test `p.id === "claude-code"`, so available
 // Copilot offered no way to act) but it mapped every available admin-pull row onto CopilotSetup.
-// OpenAI is already admin-pull and planned; flipping it available must not inherit GitHub App pull.
+// OpenAI is admin-pull too and, since backlog row 47, available with its OWN key-based surface
+// (OpenAISetup): it must never inherit Copilot's GitHub App pull.
 //
 // Setup components are mocked to a marker so this file fails when the dispatch changes, not when a
-// button label inside Copilot/Claude does. OpenAISetup lives in this module (unshipped stub).
+// button label inside a setup panel does.
 
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -20,6 +21,13 @@ vi.mock("./ClaudeCodeSetup", () => ({
 vi.mock("./CopilotSetup", () => ({
   CopilotSetup: ({ slug }: { slug: string }) => <div data-testid="copilot-setup">pull:{slug}</div>,
 }));
+vi.mock("./OpenAISetup", () => ({
+  OpenAISetup: ({ slug, encryptionConfigured }: { slug: string; encryptionConfigured: boolean }) => (
+    <div data-testid="openai-setup">
+      key:{slug}:{String(encryptionConfigured)}
+    </div>
+  ),
+}));
 
 import { IntegrationsPanel } from "./IntegrationsPanel";
 import { CONNECT_SETUP, PROVIDERS, type ProviderDef } from "@/lib/integrations/providers";
@@ -32,6 +40,7 @@ function setup(providers?: readonly ProviderDef[]) {
       slug="acme"
       ingestToken="asc_otel.acme.abc"
       ingestPath="/api/integrations/ingest"
+      openai={{ connection: null, encryptionConfigured: true }}
       {...(providers ? { providers } : {})}
     />,
   ).container;
@@ -45,8 +54,8 @@ function cardFor(id: string): HTMLElement {
   return card as HTMLElement;
 }
 
-function withOpenaiAvailable(): ProviderDef[] {
-  return PROVIDERS.map((p) => (p.id === "openai" ? { ...p, status: "available" as const } : p));
+function withOpenaiPlanned(): ProviderDef[] {
+  return PROVIDERS.map((p) => (p.id === "openai" ? { ...p, status: "planned" as const } : p));
 }
 
 describe("IntegrationsPanel — the connect surface is chosen by provider id, not only connectKind", () => {
@@ -64,7 +73,7 @@ describe("IntegrationsPanel — the connect surface is chosen by provider id, no
   });
 
   it("renders NO connect surface for a planned provider", () => {
-    setup();
+    setup(withOpenaiPlanned());
     const card = cardFor("openai");
     expect(card.querySelector('[data-testid="copilot-setup"]')).toBeNull();
     expect(card.querySelector('[data-testid="claude-code-setup"]')).toBeNull();
@@ -77,26 +86,20 @@ describe("IntegrationsPanel — the connect surface is chosen by provider id, no
     expect(screen.getAllByTestId(/-setup$/).length).toBe(available.length);
   });
 
-  it("maps openai to an explicit none/reason panel, not Copilot's GitHub App pull", () => {
+  it("maps openai to its own key-based panel, not Copilot's GitHub App pull", () => {
     const openai = PROVIDERS.find((p) => p.id === "openai")!;
     expect(openai.connectKind).toBe("admin-pull");
-    expect(openai.status).toBe("planned");
-    expect(CONNECT_SETUP.openai.panel).toBe("none");
-    expect(CONNECT_SETUP.openai.panel).not.toBe("copilot");
+    expect(openai.status).toBe("available");
+    expect(CONNECT_SETUP.openai.panel).toBe("openai");
     expect(CONNECT_SETUP.copilot.panel).toBe("copilot");
-    expect(CONNECT_SETUP.openai.reason.length).toBeGreaterThan(0);
   });
 
-  it("does not render CopilotSetup when the planned openai admin-pull row is flipped available", () => {
-    const providers = withOpenaiAvailable();
-    expect(providers.find((p) => p.id === "openai")?.status).toBe("available");
-    setup(providers);
+  it("renders OpenAISetup (and never CopilotSetup) under the available openai card", () => {
+    setup();
     expect(cardFor("copilot").querySelector('[data-testid="copilot-setup"]')).not.toBeNull();
     const card = cardFor("openai");
     expect(card.querySelector('[data-testid="copilot-setup"]')).toBeNull();
     expect(card.querySelector('[data-testid="claude-code-setup"]')).toBeNull();
-    const stub = card.querySelector('[data-testid="openai-setup"]');
-    expect(stub).not.toBeNull();
-    expect(stub?.textContent).toMatch(/not shipped/i);
+    expect(card.querySelector('[data-testid="openai-setup"]')?.textContent).toBe("key:acme:true");
   });
 });

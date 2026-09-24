@@ -25,6 +25,8 @@ import {
   bumpIngestTokenEpoch,
   type UsageRecordInput,
 } from "./integrations";
+import { buildOpenAIUsage } from "@/lib/integrations/openai-costs";
+import { COSTS_PAGE_1, COSTS_PAGE_2 } from "@/lib/integrations/openai-costs.fixture";
 
 type Row = {
   orgId: string;
@@ -417,5 +419,29 @@ describe("getOrgUsageRollup — allocated records vs allocated COST", () => {
     expect(r).toMatchObject({ hasAllocated: true, hasAllocatedCost: false });
     // The seats are real and must still be reported — the connector is not useless, it just isn't money.
     expect(r!.orgTotals).toEqual([{ source: "copilot", costCents: 0, seats: 40, tokens: 0 }]);
+  });
+});
+
+// Backlog row 47: the OpenAI Costs connector folds through THIS rollup, not a parallel one. The
+// recorded fixture's buckets, stored the way the sync route stores them, must light the allocated
+// COST branch Delivery reads, and a re-sync of the same window must not double the total.
+describe("getOrgUsageRollup — OpenAI Costs records (row 47)", () => {
+  const openai = () => buildOpenAIUsage("acme", [...COSTS_PAGE_1.data!, ...COSTS_PAGE_2.data!]).records;
+
+  it("fixture records make hasAllocatedCost true with the real org total", async () => {
+    const { prisma } = fakeUsageStore();
+    mockGetPrisma.mockReturnValue(prisma);
+    await recordUsage("acme", openai(), { mode: "replace" });
+    const r = await getOrgUsageRollup("acme");
+    expect(r).toMatchObject({ hasMeasured: false, hasAllocated: true, hasAllocatedCost: true, perRepo: {} });
+    expect(r!.orgTotals).toEqual([{ source: "openai", costCents: 1379, seats: 0, tokens: 0 }]);
+  });
+
+  it("guard: a re-sync of the same window replaces the days rather than adding to them", async () => {
+    const { prisma } = fakeUsageStore();
+    mockGetPrisma.mockReturnValue(prisma);
+    await recordUsage("acme", openai(), { mode: "replace" });
+    await recordUsage("acme", openai(), { mode: "replace" });
+    expect((await getOrgUsageRollup("acme"))!.orgTotals[0]!.costCents).toBe(1379);
   });
 });

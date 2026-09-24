@@ -20,11 +20,20 @@ function Dot({ hex }: { hex: string }) {
 }
 
 /** What an owner does next when nothing has ever landed — one sentence per connect mechanism, so a
- *  provider added to the registry inherits the right instruction instead of Claude Code's. */
+ *  provider added to the registry inherits the right instruction instead of Claude Code's. An
+ *  admin-pull row also splits on fidelity: Copilot pulls seats through the App, OpenAI pulls cost
+ *  with a customer admin key (backlog row 47). */
 const FIRST_ACTION: Record<ConnectKind, string> = {
   "otel-push": "No telemetry received yet. Finish the setup below, then run Claude Code once.",
   "admin-pull": "Nothing synced yet. Use Sync now below to pull the org's seats and engagement.",
 };
+const FIRST_ACTION_ALLOCATED_PULL = "Nothing synced yet. Save an admin key below, then use Sync now to pull the org's daily cost.";
+
+function firstAction(provider: ProviderDef): string {
+  return provider.connectKind === "admin-pull" && provider.fidelity === "allocated"
+    ? FIRST_ACTION_ALLOCATED_PULL
+    : FIRST_ACTION[provider.connectKind];
+}
 
 export function ProviderStatus({ provider, status }: { provider: ProviderDef; status: ProviderIngestStatus | null }) {
   if (provider.status !== "available") return null;
@@ -33,7 +42,7 @@ export function ProviderStatus({ provider, status }: { provider: ProviderDef; st
     return (
       <p className="mt-2 flex items-center gap-2 type-caption text-slate-500">
         <Dot hex="#475569" />
-        {FIRST_ACTION[provider.connectKind]}
+        {firstAction(provider)}
       </p>
     );
   }
@@ -54,6 +63,25 @@ export function ProviderStatus({ provider, status }: { provider: ProviderDef; st
           <span className="tabular-nums text-slate-300">{status.sessions}</span> engaged user{status.sessions === 1 ? "" : "s"} (peak) ·{" "}
           <span className="text-slate-500" title={meta.note}>
             no cost reported
+          </span>
+        </span>
+      </p>
+    );
+  }
+
+  // Allocated admin pull (OpenAI): the vendor reports org-level cost, so no repository attribution is
+  // expected and the "nothing landed on a repository" alarm below would be false. No dollar figure
+  // either: this status window selects rows by when they were WRITTEN, and one sync rewrites a 90-day
+  // window, so a "last 35 days" total would be a mislabel. The sync summary states the real span.
+  if (provider.connectKind === "admin-pull" && provider.fidelity === "allocated") {
+    const meta = FIDELITY_META.allocated;
+    return (
+      <p className="mt-2 flex items-center gap-2 type-caption text-slate-400">
+        <Dot hex={meta.hex} />
+        <span>
+          Last synced <span className="tabular-nums text-slate-300">{when}</span> ·{" "}
+          <span className="text-slate-500" title={meta.note}>
+            org-level cost, allocated to repositories by git evidence
           </span>
         </span>
       </p>
