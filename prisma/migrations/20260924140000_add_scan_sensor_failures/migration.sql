@@ -1,0 +1,15 @@
+-- SENSOR-FAILURE PROVENANCE: which GitHub reads THREW on this scan.
+--
+-- Every token-gated enrichment (branch governance, security posture, dependency exposure, installed-App
+-- inventory, CI health, deployments) degrades to null / [] when its read fails, which is byte-identical
+-- to a scan that legitimately found nothing, and downstream that value scores as absence. The scan
+-- records the difference on `ScanReport.sensorFailures`, and the gate reads it to say "read FAILED"
+-- rather than "not read". But `Scan` had no column for it, so a DB-tier gate hit
+-- (lookupPersistedScanByCommit, after the in-memory cache expires or on another instance) rehydrated a
+-- report whose failed reads looked like legitimate absence: the exact lie the list exists to stop.
+--
+-- The column carries JSON ScanSensorId[]. "[]" = the scan ran its reads and none threw.
+--
+-- Additive and nullable; nothing is backfilled or rewritten. A NULL is UNKNOWN (every row written before
+-- this column, and any report that never carried the list), which is deliberately NOT "no failures".
+ALTER TABLE "Scan" ADD COLUMN "sensorFailuresJson" TEXT;

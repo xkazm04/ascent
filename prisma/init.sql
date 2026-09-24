@@ -293,6 +293,7 @@ CREATE TABLE "Scan" (
     "engineDegraded" BOOLEAN,
     "scoreIntegrityJson" TEXT,
     "platformSignalsJson" TEXT,
+    "sensorFailuresJson" TEXT,
     "inputTokens" INTEGER,
     "outputTokens" INTEGER,
     "llmLatencyMs" INTEGER,
@@ -322,6 +323,9 @@ ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "scoreIntegrityJson" TEXT;
 -- What this scan could SEE of the GitHub-side platform signals — observed / carried from an earlier
 -- scan / unavailable. See the 20260828160000_add_scan_platform_signals migration.
 ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "platformSignalsJson" TEXT;
+-- The GitHub sensors whose read THREW on this scan (typed). See the
+-- 20260924140000_add_scan_sensor_failures migration: NULL is UNKNOWN, never "no failures".
+ALTER TABLE "Scan" ADD COLUMN IF NOT EXISTS "sensorFailuresJson" TEXT;
 
 -- CreateTable
 CREATE TABLE "ScanDimension" (

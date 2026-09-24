@@ -675,6 +675,12 @@ model Scan {
   // Null on legacy rows and on any scan that never asked the question: UNKNOWN, which is deliberately
   // not the same value as "unavailable" — that one removes dimensions from a verdict.
   platformSignalsJson String?
+  // The GitHub-side sensors whose read THREW on this scan (JSON ScanSensorId[], ScanReport.sensorFailures).
+  // A failed read degrades to the same null as a legitimately absent finding, so without this list a
+  // DB-tier gate hit (lookupPersistedScanByCommit) rehydrated a report whose failed reads looked like
+  // absence, and the gate said "not read" instead of "read FAILED". "[]" = the scan ran and nothing threw.
+  // Null on legacy rows and on a report that never carried the list: UNKNOWN, never "no failures".
+  sensorFailuresJson  String?
   // LLM cost/usage metering: tokens consumed + the LLM-stage latency for this scan's model call.
   // Null on a mock/keyless scan (no model cost) or a provider that didn't report usage.
   inputTokens         Int?
