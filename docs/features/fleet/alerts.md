@@ -255,6 +255,7 @@ cooldown claim, so an interactive rescan can't double-alert with the cron.
 | `src/lib/email/unsubscribe.ts`, `src/app/api/email/unsubscribe/route.ts` | Signed one-click unsubscribe (clears the org's sink). |
 | `src/lib/alert-sink-health.ts` | Pure sink health (`sinkHealth`), the popover's health line, and the resend rule (`isResendable` / `toHistoryEvent`). |
 | `src/components/org/shared/AlertsSinkHealth.tsx` | The chip's failing marker and the popover's health line. |
+| `src/lib/email/digest-mail.ts`, `src/app/api/cron/digest/digest-mail-load.ts` | The weekly digest artefact rendered as mail HTML (pure), and its load for an email sink only. |
 
 ## What moved since you last looked (in-app unread state)
 
@@ -500,7 +501,20 @@ spend-anomaly pushes. There is no second transport and no second recipient list.
   Clearing the sink stops the webhook pushes too, because they are one setting; the mail says so.
 - **Rendering:** `buildAlertEmail` (`src/lib/email/alert-sink.ts`, pure) uses each builder's
   existing plain-text fallback as the body, so a new alert builder gets an email rendering for
-  free. Slack Block Kit is ignored on this path.
+  free. Slack Block Kit is ignored on this path. A builder with a better mail rendering attaches
+  `AlertMessage.mail` (`{ subject?, bodyHtml? }`), which the delivery door carries unchanged and
+  the shell renders inside the same why-you-got-this and unsubscribe envelope. A webhook never
+  receives `mail` (the POST is `text` + `blocks` only) and the history row stores `text`.
+- **The weekly digest mails as the artefact, not as Slack text:** for an **email** sink (the org's
+  own, or a global `mailto:` fallback) the digest cron reads the Weekly digest tab's model
+  (`buildWeeklyDigest`) and renders it as HTML (`src/lib/email/digest-mail.ts`): the standing with
+  the cohort it was measured over and the percentile, coverage and the mock-engine caveat, the
+  trajectory, the Controls block with its coverage line, standing concerns, the per-dimension
+  table (the band's word, "not measured" rather than 0), follow-ups, the ranked next actions,
+  repository movement, credits, a link to the tab and the method footer with every degraded read.
+  The subject is "Weekly digest: <org> · <window>". Every interpolated value is HTML-escaped and
+  only an `http(s)` URL becomes a link. A Slack sink skips the read entirely. If the artefact
+  cannot be read, the digest still goes out, rendered from its text.
 
 ## Goal-at-risk and spend-anomaly pushes (G7-03)
 
@@ -601,7 +615,9 @@ as a failure nor break the streak. A failed test send does count toward `failing
   (`getAlertEventForResend`), so another org's id is a 404; a non-resendable row is a 409. The stored
   plain text, prefixed "Resent by an admin. First raised <date>.", goes out through the delivery door
   to the org's CURRENT sink as kind and title of the original, so the attempt is a NEW history row and
-  the original row is left as it was. Each resend is audited as `org.alerts.resend`
+  the original row is left as it was. A mail sink gets "Resent: <original title>" as the subject
+  and the whole stored text as the body; a resent digest therefore mails as its text rendering,
+  because the stored body is plain text and the HTML was never stored. Each resend is audited as `org.alerts.resend`
   (`{ eventId, kind, delivered }`, with the actor). This is what makes a failed weekly digest
   recoverable: its claim is released "so the next run retries", but the next run is the following
   week's cron in a new window, so until now that week's digest was simply lost.
@@ -661,3 +677,6 @@ as a failure nor break the streak. A failed test send does count toward `failing
   "at least" a date rather than the real one.
 - **No acknowledgement or assignment on a control alert:** the `AlertEvent` row records the decision,
   but there is no "who is fixing this" state — the same gap the history rows have generally.
+- **A resent weekly digest mails as text, not as the artefact:** the history row stores the plain
+  text only, so a resend cannot re-render the HTML the original mail would have carried, and
+  re-reading the artefact at resend time would describe a different week.
