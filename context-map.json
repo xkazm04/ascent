@@ -1592,10 +1592,19 @@
             "src/features/developer/careLedgerRows.test.ts",
             "src/features/developer/careLedgerRows.ts",
             "src/lib/org/developer-view-load.test.ts",
-            "src/lib/org/developer-view.test.ts"
+            "src/lib/org/developer-view.test.ts",
+            "src/app/api/me/mentor/share/route.ts",
+            "src/app/api/me/mentor/share/route.test.ts",
+            "src/lib/db/mentor-share.ts",
+            "src/lib/org/care-share-contract.ts",
+            "src/lib/org/care-share-contract.test.ts",
+            "src/lib/org/care-share-view.ts",
+            "src/lib/org/developer-view-load.share.test.ts"
           ],
           "target": null,
-          "apiRoutes": []
+          "apiRoutes": [
+            "/api/me/mentor/share"
+          ]
         }
       ]
     },

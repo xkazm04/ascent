@@ -135,7 +135,7 @@ export function validateCareShapePayload(input: unknown): CareShapeValidation {
 export const CARE_SHAPE_REASON_COPY: Record<CareShapeEmptyReason, { label: string; title: string }> = {
   "no-share-received": {
     label: "nothing shared yet",
-    title: "Your mentor has not sent a share to this workspace. Nothing is stored, and this is not a zero.",
+    title: "Your mentor has not sent a share yet. Nothing is stored, and this is not a zero.",
   },
   "not-shared": {
     label: "not shared",

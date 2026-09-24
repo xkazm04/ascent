@@ -11,10 +11,10 @@
 //                   per-person shape in it: the surveillance-y view is not merely hidden in the UI,
 //                   it is unrepresentable in the data.
 //
-// Until C3 lands (`POST /api/me/mentor/share` + the personal tables), the loader in the `-load`
-// sibling fills the git-side half from `getContributorInsights` and returns an HONEST EMPTY care loop
-// (nothing shared yet / population below the floor). It never fabricates. `developer-view.fixture.ts`
-// backs the client-state "preview as" control only.
+// The loader in the `-load` sibling fills the git-side half from `getContributorInsights` and the care
+// loop from the viewer's OWN share (`POST /api/me/mentor/share` -> `MentorShare`, folded in by
+// `care-share-view.ts`); with no share it is an HONEST EMPTY care loop. It never fabricates.
+// `developer-view.fixture.ts` backs the client-state "preview as" control only.
 //
 // PURE module — no `@/lib/db` import, because every Developer component is a client component (see
 // the "build not in the gate" note: a db import here would break `next build` with tsc still green).

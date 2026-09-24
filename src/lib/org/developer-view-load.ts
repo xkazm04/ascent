@@ -10,8 +10,10 @@
 
 import { getContributorInsights, getOrgBacklog, getRepoStates } from "@/lib/db";
 import { getOwnAgentSessions } from "@/lib/db/agent-sessions-viewer";
+import { getMentorShare } from "@/lib/db/mentor-share";
 import { emptyDeveloperView, emptyOrgView, type CareOrgView, type DeveloperView } from "./developer-view";
 import { applyOwnSessionShape, careTelemetryWindowStart } from "./care-session-telemetry";
+import { applyMentorShare } from "./care-share-view";
 
 /**
  * The signed-in developer's own view of themself inside `orgSlug` (docs/REGISTRY-AND-CARE-IMPL.md §5.4).
@@ -19,10 +21,11 @@ import { applyOwnSessionShape, careTelemetryWindowStart } from "./care-session-t
  * REAL PATH, today: the viewer's slice of `getContributorInsights` (their commits, AI-attributed
  * share, the repos they touch, whether they are in the champions cohort) plus the OPEN
  * recommendations of exactly those repos, read from the org backlog. The care loop (profile, moves,
- * journal) stays the honest EMPTY state until C3 ships `POST /api/me/mentor/share` and the personal
- * tables — nothing here is invented to fill it. The session shape's one telemetry-measurable field
- * is the exception: it is read from the AgentSession rows sent under `viewerLogin` itself or under
- * `confirmedEmail` (`applyOwnSessionShape`), and is otherwise empty exactly as for an unknown user.
+ * journal, session shape, setup) is the viewer's OWN share, stored by `POST /api/me/mentor/share` under
+ * their login (`getMentorShare`) and folded in by `applyMentorShare`; with no share it stays the honest
+ * EMPTY state, nothing invented. The session shape's one telemetry-measurable field is read from the
+ * AgentSession rows sent under `viewerLogin` itself or under `confirmedEmail` (`applyOwnSessionShape`),
+ * AFTER the share, so a field the developer shared wins; otherwise it is empty as for an unknown user.
  *
  * `viewerLogin` and `confirmedEmail` MUST be the server-resolved identity of the requester
  * (`resolveViewerIdentity`: the email only when the auth provider confirmed it), never a value taken
@@ -49,10 +52,16 @@ export async function getDeveloperView(
   // The personal session read runs beside the snapshot read: it does not depend on the viewer having
   // a contributor row (someone who only asks questions in Claude Code has sessions and no commits).
   // Best-effort: a failure leaves the shape exactly as empty as for a viewer never seen.
-  const [insights, ownSessions] = await Promise.all([
+  // The share is keyed by the same server-resolved login and read beside both; a failure reads as
+  // "nothing shared", never as an error page.
+  const [insights, ownSessions, share] = await Promise.all([
     getContributorInsights(orgSlug).catch(() => null),
     getOwnAgentSessions(orgSlug, { login: viewerLogin, confirmedEmail }, careTelemetryWindowStart(now)).catch(() => []),
+    getMentorShare(viewerLogin).catch(() => null),
   ]);
+  // ORDER IS LOAD-BEARING: the share first, so `applyOwnSessionShape` sees its shared fields and
+  // skips them (a shared field wins over telemetry; pinned in developer-view-load.share.test.ts).
+  if (share) applyMentorShare(view, share.share, share.sharedAt);
   applyOwnSessionShape(view, ownSessions, now, confirmedEmail);
   const login = viewerLogin.toLowerCase();
   const me = insights?.contributors.find((c) => c.login.toLowerCase() === login) ?? null;
