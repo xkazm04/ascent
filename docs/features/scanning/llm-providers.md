@@ -480,8 +480,9 @@ silent all-scans-to-mock degrade:
   which spends extra hidden reasoning tokens billed as output at the same `MODEL_PRICES` row.
   Unset / blank / unrecognized → `low`. `high` remains selectable. Does not change the scoring
   blend or the price table.
-- `TECH_STACK_PROMPT`: gated prompt-enrichment flag (Feature 3a) that adds a "DETECTED
-  TECH STACK" block to the user message when set.
+- `TECH_STACK_PROMPT`: prompt-enrichment kill switch (Feature 3a). The scan adds a "DETECTED
+  TECH STACK" block to the user message by default (since rubric r21) whenever it detected a
+  language or framework; `0`, `false`, `off` or `no` withholds it and restores the r20 prompt.
 
 `PROVIDER_LABEL` (in `config.ts`) is the single human-label vocabulary for every
 `ProviderName`, used by the `/usage` "by inference engine" bars and the executive
