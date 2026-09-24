@@ -36,7 +36,7 @@ describe("cockpitSetupState", () => {
   });
 
   it.each<[string, Partial<CockpitGateInput>, string]>([
-    ["managed cloud has no loop at all", { selfHosted: false }, "hosted"],
+    ["managed cloud has no LOCAL loop (its remote-agent arm is `canArmRemote`)", { selfHosted: false }, "hosted"],
     ["nothing scanned yet", { repoCount: 0 }, "no-repos"],
     ["a member may read but not dispatch", { isOwner: false }, "not-owner"],
     ["ASCENT_AUTOPILOT is off", { enabled: false }, "autopilot-off"],

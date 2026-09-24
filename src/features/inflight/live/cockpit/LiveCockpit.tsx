@@ -151,6 +151,7 @@ export function LiveCockpit(props: LiveCockpitProps) {
             onDismissDrive={c.dismissDrive}
             onRetryLane={(laneId) => void loop.retry(laneId)}
             onResumeRepo={(repo) => void drive.resumeRepo(repo)}
+            remoteArm={c.remoteArm}
           />
         </Surface>
       </div>

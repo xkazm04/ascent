@@ -16,6 +16,7 @@
 // server's disk. A hosted run spawns nothing here, so it is a different capability with a different
 // gate, and `canDriveLocally` is how a caller says which one it means. A caller that reaches for
 // `canDispatch` when it meant the drive is now making a visible mistake rather than an invisible one.
+// A remote-agent arm is a third capability again, with its own predicate (`canArmRemote`, below).
 
 import type { CockpitSetupState } from "./CockpitSetup";
 import type { StartLoopInput } from "./loopClient";
@@ -80,6 +81,17 @@ export const canDispatch = (o: CockpitGateInput): boolean => cockpitDispatchMode
 /** Can this cockpit start a DRIVE? Local mode only, by construction: a drive is a sequence of local
  *  runs, each spawning `claude -p` inside a paired working copy on this server. */
 export const canDriveLocally = (o: CockpitGateInput): boolean => cockpitDispatchMode(o) === "local";
+
+/**
+ * Can this cockpit arm a REMOTE-AGENT run (backlog develop-2026-09-17 row 29)? A THIRD question, kept
+ * apart from `canDispatch` on purpose: a remote run spawns nothing on this server, opens no worktree
+ * and is worked by an agent the org runs itself, so none of the local gates (self-hosting, ASCENT_AUTOPILOT,
+ * a pairing) are facts about it, and the route takes none of them for `executor: "remote-agent"`. What
+ * it does take is ownership, and a run needs repos to scope to. Offered on a cloud deployment only,
+ * where the hosted setup card is what the rail shows; a self-hosted one has its local Run. It never
+ * widens `cockpitDispatchMode`, so the local Run, the gear and the drive stay exactly as closed.
+ */
+export const canArmRemote = (o: CockpitGateInput): boolean => !o.selfHosted && o.isOwner && o.repoCount > 0;
 
 /** The sentence the setup card shows. The `hosted-not-enabled` card renders the SERVER's sentence,
  *  because only the server knows which of plan / ceiling / credit / admission refused. Every other card

@@ -19,16 +19,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { layoutBodies, type ObservatoryHistory, type ObservatorySeed } from "../observatory";
-import { armedStartInput, canDriveLocally, cockpitDispatchMode, cockpitSetupMessage, cockpitSetupState, type CockpitGateInput } from "./cockpitGate";
+import { canArmRemote, canDriveLocally, cockpitDispatchMode, cockpitSetupMessage, cockpitSetupState, type CockpitGateInput } from "./cockpitGate";
+import { cockpitNav } from "./cockpitNav";
+import { cockpitStarts } from "./cockpitStarts";
 import { driftFor, scanningRepos, type CockpitDrift } from "./cockpitDrift";
 import { driveProgress, lastDriveRunId } from "./driveModel";
 import { useDrive } from "./useDrive";
 import { useLoopRun } from "./useLoopRun";
 import { useProposalBatch } from "./useProposalBatch";
 import { useRunDials } from "./useRunDials";
-import type { StartDriveInput } from "./driveClient";
 import type { DriveStatus } from "./driveTypes";
-import type { StartLoopInput } from "./loopClient";
 import type { CockpitMode, LoopRunDetail, LoopRunRecord, LoopRunSummary } from "./loopTypes";
 
 export interface UseCockpitInput {
@@ -129,20 +129,8 @@ export function useCockpit(input: UseCockpitInput) {
     return () => clearTimeout(t);
   }, [driveRunId, loopRunId, refreshLoop]);
 
-  // The executor (and hosted's pr-only delivery) is stamped by the gate module — see armedStartInput.
-  const startRun = async (i: StartLoopInput) => {
-    setMode("run");
-    setDrift(null);
-    setDriveOutcome(null);
-    if (!(await loop.start(armedStartInput(i, dispatchMode)))) setMode("inspect");
-  };
-
-  // Returns the adopted drive (null on a refusal) — the setup dialog closes only on a started runner.
-  const startDrive = async (i: StartDriveInput) => {
-    setDrift(null);
-    setDriveOutcome(null);
-    return drive.start(i);
-  };
+  // Run, remote arm, drive and resume: the four departures, with what each clears (`cockpitStarts.ts`).
+  const starts = cockpitStarts({ loop, drive, dispatchMode, setMode, setDrift, setDriveOutcome });
 
   // The drive a restart orphaned, offered back to the operator. Only ever surfaced from `inspect`:
   // while something is running, or while an outcome is on screen, the rail is answering a different
@@ -150,35 +138,8 @@ export function useCockpit(input: UseCockpitInput) {
   const interruptedDrive =
     mode === "inspect" && drive.drive?.phase === "interrupted" && drive.drive.id !== dismissedDriveId ? drive.drive : null;
 
-  const resumeDrive = async () => {
-    if (!interruptedDrive) return;
-    setDrift(null);
-    setDriveOutcome(null);
-    await drive.resume(interruptedDrive.id);
-  };
-
-  const openRun = async (id: string) => {
-    if (loop.live && id === loop.activeId) return setMode("run");
-    const detail = await loop.loadDetail(id);
-    if (!detail) return;
-    setOutcome(detail);
-    setDriveOutcome(null);
-    setMode("outcome");
-    setReplay(0);
-    setDrift(driftFor(seeds, histories, detail, 0));
-  };
-
-  const replayRun = () => {
-    if (!outcome) return;
-    const next = replay + 1;
-    setReplay(next);
-    setDrift(driftFor(seeds, histories, outcome, next));
-  };
-
-  const backToInspect = () => {
-    setDriveOutcome(null);
-    setMode("inspect");
-  };
+  // Open a past run, replay its drift, back to the inspector (`cockpitNav.ts`).
+  const nav = cockpitNav({ loop, seeds, histories, outcome, replay, setMode, setOutcome, setDriveOutcome, setReplay, setDrift });
 
   return {
     loop,
@@ -195,6 +156,11 @@ export function useCockpit(input: UseCockpitInput) {
     // `dispatchMode`, so asking ASCENT_AUTOPILOT about it would disable the very button ADR-0001
     // exists to enable. Ownership stays, unchanged and for both modes: the route enforces it anyway.
     canRun: isOwner && dispatchMode != null,
+    // THE CLOUD CARDS' REMOTE-AGENT ARM (row 29): its own predicate, never folded into `canRun`, so the
+    // gear, the local Run and the drive stay exactly as closed on a hosted deployment.
+    remoteArm: canArmRemote(gate)
+      ? { repos: batch.repos.length, onArm: () => void starts.armRemote(batch.repos), busy: loop.busy, error: loop.error }
+      : null,
     dials,
     setDial,
     batch,
@@ -212,12 +178,10 @@ export function useCockpit(input: UseCockpitInput) {
     // A drive owns the stop while it is pulling: stopping only the in-flight run would let the drive
     // dispatch the next one, which is not what "Stop" can be allowed to mean.
     stop: drive.live ? () => void drive.stop() : loop.activeId ? () => void loop.stop(loop.activeId!) : undefined,
-    startRun,
-    startDrive,
-    resumeDrive,
-    openRun,
-    replayRun,
-    backToInspect,
+    startRun: starts.startRun,
+    startDrive: starts.startDrive,
+    resumeDrive: () => starts.resumeDrive(interruptedDrive),
+    ...nav,
   };
 }
 

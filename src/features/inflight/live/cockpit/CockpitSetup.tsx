@@ -10,6 +10,7 @@
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { DOCS_ARE_UPSTREAM, selfHostGuideHref } from "@/lib/site";
+import { CockpitRemoteArm, type RemoteArm } from "./CockpitRemoteArm";
 
 export type CockpitSetupState = "hosted" | "hosted-not-enabled" | "unpaired" | "autopilot-off" | "no-repos" | "not-owner";
 
@@ -20,6 +21,9 @@ export interface CockpitSetupProps {
    *  own `reason` when it is `hosted-not-enabled`. Rendered verbatim: the server is the only party
    *  that knows WHICH of the hosted gates refused, so a card that guessed would name the wrong fix. */
   message?: string | null;
+  /** The remote-agent arm, present only where the caller's `canArmRemote` holds (an owner with repos).
+   *  Rendered on the two cloud cards alone; every local not-ready card ignores it. */
+  remote?: RemoteArm | null;
 }
 
 const tabHref = (slug: string, tab: string) => `/org/${encodeURIComponent(slug)}?tab=${tab}`;
@@ -35,7 +39,7 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
   );
 }
 
-export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps) {
+export function CockpitSetup({ state, slug, message = null, remote = null }: CockpitSetupProps) {
   if (state === "hosted") {
     return (
       <div>
@@ -51,9 +55,12 @@ export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps)
           standing in adoption × rigor — works everywhere.
         </p>
         <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
-          <span className="text-slate-300">Remote-agent runs do work here.</span> Arm one against this org through the
-          API or an MCP work client and its lanes, verdicts and outcome ledger render on this page like any other run.
+          <span className="text-slate-300">Remote-agent runs do work here.</span>{" "}
+          {remote
+            ? "Arm one for the repos selected on the chart."
+            : "Arm one against this org through the API or an MCP work client and its lanes, verdicts and outcome ledger render on this page like any other run."}
         </p>
+        {remote && <CockpitRemoteArm {...remote} />}
         {/* MC-B43. This panel's whole point is that the reader must self-host to get a local lane, and
             it used to hand them `sourceRepoHref("docs/SETUP.md")` — null whenever
             NEXT_PUBLIC_SOURCE_REPO_URL is unset, which is every deployment that has not set a
@@ -86,9 +93,12 @@ export function CockpitSetup({ state, slug, message = null }: CockpitSetupProps)
           {message ?? "Hosted loop runs are not enabled for this organization yet."}
         </p>
         <p className="mt-2 type-body-sm leading-relaxed text-slate-400">
-          <span className="text-slate-300">Remote-agent runs still work here.</span> Arm one against this org through the
-          API or an MCP work client and its lanes render on this page like any other run.
+          <span className="text-slate-300">Remote-agent runs still work here.</span>{" "}
+          {remote
+            ? "Arm one for the repos selected on the chart."
+            : "Arm one against this org through the API or an MCP work client and its lanes render on this page like any other run."}
         </p>
+        {remote && <CockpitRemoteArm {...remote} />}
         {/* BOTH DESTINATIONS ARE VERIFIED REAL, which is the whole bar for a card whose job is to
             name a next action. `governance` is an org tab (ORG_TAB_IDS); `/pricing` is a page. There
             is deliberately NO `?tab=billing` link here — that tab does not exist, and an org's credit

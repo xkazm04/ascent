@@ -24,6 +24,7 @@ import { CockpitDriveResume } from "./CockpitDriveResume";
 import { CockpitInspector } from "./CockpitInspector";
 import { CockpitRunnerResume } from "./CockpitRunnerResume";
 import { CockpitRunPanel } from "./CockpitRunPanel";
+import type { RemoteArm } from "./CockpitRemoteArm";
 import { CockpitSetup, type CockpitSetupState } from "./CockpitSetup";
 import type { StartDriveInput } from "./driveClient";
 import type { DriveStatus } from "./driveTypes";
@@ -68,6 +69,8 @@ export interface CockpitRailProps {
   onRetryLane: (laneId: string) => void;
   /** Lift one repo's pause on the live runner. */
   onResumeRepo?: (repo: string) => void;
+  /** The cloud cards' remote-agent arm (`useCockpit`'s `remoteArm`, null unless `canArmRemote`). */
+  remoteArm?: RemoteArm | null;
 }
 
 export function CockpitRail(props: CockpitRailProps) {
@@ -97,7 +100,9 @@ export function CockpitRail(props: CockpitRailProps) {
       />
     );
   }
-  if (setup) return <CockpitSetup state={setup} slug={props.slug} message={props.setupMessage ?? props.loopError} />;
+  if (setup) {
+    return <CockpitSetup state={setup} slug={props.slug} message={props.setupMessage ?? props.loopError} remote={props.remoteArm} />;
+  }
   const Banner = isRunner(interruptedDrive) ? CockpitRunnerResume : CockpitDriveResume;
   return (
     <>

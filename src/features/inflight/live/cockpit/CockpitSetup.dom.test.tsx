@@ -8,10 +8,11 @@
 // the degradation MC-B22 fixed on the four marketing surfaces. `docHref` has the opposite rule: a doc
 // link is a reading reference, upstream's copy is the second-best address, and no address is worst.
 
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { DOCS_ARE_UPSTREAM, SELF_HOST_GUIDE_PATH, selfHostGuideHref } from "@/lib/site";
 import { CockpitSetup } from "./CockpitSetup";
+import type { RemoteArm } from "./CockpitRemoteArm";
 
 describe("CockpitSetup — the self-hosting guide is always a link", () => {
   it("renders an anchor, never a printed file path, whatever the source-repo env is", () => {
@@ -81,5 +82,43 @@ describe("CockpitSetup — `hosted-not-enabled`", () => {
   it("keeps the remote-agent fallback visible", () => {
     render(<CockpitSetup state="hosted-not-enabled" slug="acme" />);
     expect(screen.getByText(/Remote-agent runs still work here/i)).toBeInTheDocument();
+  });
+});
+
+// ROW 29 (backlog develop-2026-09-17). Both cloud cards used to DESCRIBE the remote-agent run ("arm one
+// through the API") that the deployment's own POST route accepts, and offer no way to start it. The
+// arm now sits on the card itself, for an owner with repos (the caller's `canArmRemote`), and nowhere
+// else: the local lane and the drive are still self-hosted only.
+describe("CockpitSetup — the remote-agent arm on the cloud cards", () => {
+  const arm = (over: Partial<RemoteArm> = {}): RemoteArm => ({ repos: 2, onArm: vi.fn(), busy: false, error: null, ...over });
+
+  it.each(["hosted", "hosted-not-enabled"] as const)("offers an owner a remote run on the `%s` card", (state) => {
+    const remote = arm();
+    render(<CockpitSetup state={state} slug="acme" remote={remote} />);
+    fireEvent.click(screen.getByRole("button", { name: "Arm remote run (2 repos)" }));
+    expect(remote.onArm).toHaveBeenCalledTimes(1);
+    // Honest about who works it: nothing spawns here, the lanes wait for the org's own agent.
+    expect(screen.getByText(/wait for an agent you run to claim them/i)).toBeInTheDocument();
+  });
+
+  it("disables the arm and says why when nothing is selected", () => {
+    render(<CockpitSetup state="hosted" slug="acme" remote={arm({ repos: 0 })} />);
+    expect(screen.getByRole("button", { name: /Select repos on the chart/i })).toBeDisabled();
+  });
+
+  it("renders a refused arm's own error on the card", () => {
+    render(<CockpitSetup state="hosted" slug="acme" remote={arm({ error: "A loop run is already active for acme." })} />);
+    expect(screen.getByText("A loop run is already active for acme.")).toBeInTheDocument();
+  });
+
+  it("guard: with no arm (a member, or no repos) the card only describes the API door", () => {
+    render(<CockpitSetup state="hosted" slug="acme" />);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText(/Remote-agent runs do work here/i)).toBeInTheDocument();
+  });
+
+  it("guard: a local not-ready card never grows a remote arm", () => {
+    render(<CockpitSetup state="autopilot-off" slug="acme" remote={arm()} />);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

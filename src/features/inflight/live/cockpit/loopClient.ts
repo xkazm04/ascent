@@ -140,13 +140,29 @@ export interface StartLoopInput {
    *  server spawns `claude -p` in a paired checkout. `hosted` arms a run Ascent Cloud dispatches —
    *  no worktree here, no process here — and the route answers it with its own gate table (plan,
    *  credit headroom, per-repo admission, pr-only delivery) rather than the self-hosted checks.
-   *  `remote-agent` is deliberately NOT offered here: that run is armed by the customer's own
-   *  harness against the API, and the cockpit has no claimant to hand it to. */
+   *  `remote-agent` is NOT a dial on this shape: it takes none of these fields (`StartRemoteInput`). */
   executor?: "local" | "hosted";
 }
 
-export const startLoop = (slug: string, input: StartLoopInput): Promise<{ run: LoopRunRecord }> =>
-  post<{ run: LoopRunRecord }>(slug, { action: "start", curated: input.batches != null, ...input }, "Could not start the loop");
+/** A REMOTE-AGENT run (row 29), armed from the hosted setup card. Ascent spawns nothing for it: its
+ *  lanes wait for an agent the org runs to claim them over the API or MCP. The route's remote branch
+ *  reads the repos and nothing else a local run carries, so nothing else is sent. */
+export interface StartRemoteInput {
+  executor: "remote-agent";
+  repos: string[];
+}
+
+export type StartInput = StartLoopInput | StartRemoteInput;
+
+/** The `POST /api/org/loop` start body (the org is added by `post`). A remote arm sends exactly the
+ *  fields the route's remote branch reads: no dials, no `curated`, no model a remote agent never ran. */
+export function startLoopBody(input: StartInput): Record<string, unknown> {
+  if (input.executor === "remote-agent") return { action: "start", repos: input.repos, executor: "remote-agent" };
+  return { action: "start", curated: input.batches != null, ...input };
+}
+
+export const startLoop = (slug: string, input: StartInput): Promise<{ run: LoopRunRecord }> =>
+  post<{ run: LoopRunRecord }>(slug, startLoopBody(input), "Could not start the loop");
 
 export const stopLoop = (slug: string, id: string): Promise<{ ok: boolean; run: LoopRunRecord | null }> =>
   post<{ ok: boolean; run: LoopRunRecord | null }>(slug, { action: "stop", id }, "Could not stop the run");

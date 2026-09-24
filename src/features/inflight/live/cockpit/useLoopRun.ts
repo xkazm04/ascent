@@ -27,7 +27,7 @@ import {
   retryLoopLane,
   startLoop,
   stopLoop,
-  type StartLoopInput,
+  type StartInput,
 } from "./loopClient";
 import {
   isRunLive,
@@ -140,7 +140,7 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   }, []);
 
   const start = useCallback(
-    async (input: StartLoopInput) => {
+    async (input: StartInput) => {
       const res = await guard(() => startLoop(slug, input));
       if (res?.run) {
         epoch.current += 1;
