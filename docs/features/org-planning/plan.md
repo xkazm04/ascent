@@ -28,7 +28,7 @@ per repo, never stored as a snapshot.
 - **Model:** `Goal { id, orgId, label, metric, target (0–100), status, createdAt, baselineValue?,
   baselineAt? }`, where `metric` ∈ `overall | adoption | rigor | D1…D9` (validated by `isGoalMetric`).
 - **API** (`src/app/api/org/goals/route.ts`, `…/goals/[id]/route.ts`):
-  - `GET ?org=` → `{ goals: GoalProgress[] }` (with current value per goal).
+  - `GET ?org=` → `{ goals: GoalProgress[] }` (with current value per goal; `null` when the metric is unmeasured).
   - `POST { org, label, metric, target }` → `{ id }`.
   - `PATCH /:id { status?, target?, label? }`, `DELETE /:id`.
   - Writes require a session when auth is configured.
@@ -51,10 +51,21 @@ guard uses. `pct` is then `(current − baseline) / (target − baseline)` and `
 Goals created **before** that column existed have no baseline and never will. They keep the old
 ratio and report `pctBasis: "attainment"` with a `pctLabel` that says so — a back-derived baseline
 (the earliest scan on record, say) would be a fabrication indistinguishable from a measurement, and
-could make an in-flight goal read as having regressed. Same for a goal created against a fleet with
-no scans, where the metric reads 0 as a placeholder rather than an observation: no baseline is
-stored. **Any surface rendering `pct` must render `pctLabel` (or its own wording for `pctBasis`)** —
+could make an in-flight goal read as having regressed. Same for a goal created against a metric
+nothing has measured yet (see below): no baseline is stored. **Any surface rendering `pct` must render `pctLabel` (or its own wording for `pctBasis`)** —
 an unlabelled attainment ratio in a progress bar is the original defect.
+
+**An unmeasured metric is `null`, never 0.** A metric that nothing has scored has no standing. That
+covers any metric on a fleet with no scans, and a dimension that no repository's latest scan has a
+row for. For such a goal `GoalProgress.current` and `pct` are `null` and `pctBasis` is
+`"unmeasured"`, with its own `GOAL_PCT_LABEL` caption. The pace is the neutral `tracking`, with no
+fit, ETA or required weekly rate, so the goal can never read as behind or at risk because of the
+missing number. The digest's goal-at-risk push skips it too. The missing value also changes no
+status: an achieved goal is not reverted and nothing is stamped achieved. The laggard list only
+counts repos that have a score on the metric. Every reader says so in words: the briefing stats
+line (the Goals card, the markdown and the board PDF) and the live wall's goal banner and TV card
+all print "<metric> not measured yet, target N" (the briefing drops the metric name). The wall and
+the Goals card draw no meter, because an empty bar would read as 0.
 
 
 **Goals are READ, not managed, since 2026-08-17.** The GoalsPanel retired with the Plan tab, so
