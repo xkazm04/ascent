@@ -243,7 +243,9 @@ describe("DELETE /api/org/members — owner gate + CSRF block the removal", () =
   });
 });
 
-describe("GET /api/org/members — owner gate guards the read", () => {
+// The roster read is member-gated (backlog develop-2026-09-17 row 4); the full role matrix lives
+// in route.roles.test.ts.
+describe("GET /api/org/members — member gate guards the read", () => {
   it("a denied gate returns the gate's 403 and listOrgMembers is NEVER called", async () => {
     mockGate.mockResolvedValue(deny403());
     const res = await GET(new Request("http://localhost/api/org/members?org=acme"));
@@ -251,10 +253,10 @@ describe("GET /api/org/members — owner gate guards the read", () => {
     expect(mockList).not.toHaveBeenCalled();
   });
 
-  it("an authorized owner lists members", async () => {
+  it("an authorized caller lists members", async () => {
     const res = await GET(new Request("http://localhost/api/org/members?org=acme"));
     expect(res.status).toBe(200);
-    expect(mockGate).toHaveBeenCalledWith("acme", "owner");
+    expect(mockGate).toHaveBeenCalledWith("acme", "member");
     expect(mockList).toHaveBeenCalledTimes(1);
   });
 });

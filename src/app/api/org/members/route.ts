@@ -2,8 +2,9 @@
 // POST   /api/org/members { org, login, role }  -> { ok }         set a member's role
 // DELETE /api/org/members?org=slug&login=login  -> { ok }         remove a member (not the last owner)
 //
-// Owners view and assign roles or remove anyone; a member may also remove their own membership.
-// Roles: owner | admin |
+// Reading the roster is a member-level read: members, admins and owners see who they share the org
+// with (a viewer does not). Writing it is owner-only: owners assign roles or remove anyone; a member
+// may also remove their own membership. Roles: owner | admin |
 // member | viewer (see src/lib/db/members.ts). This is the management surface that makes RBAC usable —
 // an org owner can grant a teammate `viewer` (read-only) or `admin` (destructive ops) without giving
 // them the GitHub App installation. Every privilege change is audited (the action that most needs a
@@ -34,7 +35,11 @@ export async function GET(request: Request) {
   // Canonicalize the slug once so the gate, data read, and (in POST/DELETE) the mutation + audit can
   // never disagree on which org the request refers to (case-divergence was a real IDOR/audit risk).
   const org = normalizeOrgSlug(raw);
-  const denied = await requireOrgRole(org, "owner");
+  // `member`, not `owner` (operator decision 2026-09-24, backlog develop-2026-09-17 row 4): listing
+  // who is in the org is not a privilege change. The payload is login, display name, role and joined
+  // date, never an email; pending invites (which carry invitee emails) stay behind the owner-only
+  // /api/org/invites. Every write below keeps its owner gate.
+  const denied = await requireOrgRole(org, "member");
   if (denied) return denied;
   // `createdAt` is already an ISO string (`toRow` in members.ts) — JSON must not see a Date.
   const members = await listOrgMembers(org);
