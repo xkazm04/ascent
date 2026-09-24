@@ -1,11 +1,15 @@
 // POST /api/org/:slug/registry/index -> re-read the mapped registry at HEAD and rebuild the mirror rows.
 //
-// 200 { headSha, counts:{skills,practices,memory,lessons}, archived:{…}, warnings: string[] }
+// 200 { headSha, counts:{skills,practices,memory,lessons}, archived:{…}, warnings: string[], catalogWrite }
 // 409 { error, code: "not-mapped" }  — nothing is mapped yet
 // 502 { error, code: "github-error" } — the tree could not be read; the previous index survives
 //
-// `member` is enough here (not `admin` like map/migrate): re-indexing only re-reads content the org
-// already owns and writes nothing to GitHub.
+// `member` is enough here (not `admin` like map/migrate): re-indexing re-reads content the org already
+// owns. Its one write, `catalog.json`, is not the caller's to choose: the registry's own
+// `.ascent/registry.yaml` (`catalogWrites: bot | pr`) authorizes it, the content is generated from the
+// tree, and the push webhook runs the same write with no caller at all. `catalogWrite` reports what
+// happened (committed / proposed / skipped with a reason / failed). The token it writes with is the one
+// the gate below minted for this org, and the repo is this org's own registry row.
 //
 // LOCAL FIRST (self-hosted): a registry paired to a checkout in Admin -> Pairing is re-read from disk
 // and needs no GitHub App; only an unpaired registry mints an installation token.
@@ -45,5 +49,6 @@ export async function POST(_request: Request, ctx: { params: Promise<{ slug: str
     counts: result.counts,
     archived: result.archived,
     warnings: result.warnings ?? [],
+    catalogWrite: result.catalogWrite ?? null,
   });
 }

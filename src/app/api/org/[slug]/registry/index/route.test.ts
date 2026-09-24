@@ -71,13 +71,19 @@ describe("POST /api/org/[slug]/registry/index", () => {
     expect(ja.counts).toEqual(jb.counts);
   });
 
-  it("guard: the response keys stay {fullName, source, headSha, counts, archived, warnings}", async () => {
+  it("guard: the response keys stay {fullName, source, headSha, counts, archived, warnings, catalogWrite}", async () => {
     mockIndex.mockResolvedValueOnce(OK);
     const res = await POST(req(), ctx);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(Object.keys(body).sort()).toEqual(["archived", "counts", "fullName", "headSha", "source", "warnings"]);
-    expect(body).toMatchObject({ fullName: "acme/ai-registry", source: "github", warnings: ["w1"] });
+    expect(Object.keys(body).sort()).toEqual(["archived", "catalogWrite", "counts", "fullName", "headSha", "source", "warnings"]);
+    expect(body).toMatchObject({ fullName: "acme/ai-registry", source: "github", warnings: ["w1"], catalogWrite: null });
+  });
+
+  it("reports the pass's catalog.json write-back outcome", async () => {
+    mockIndex.mockResolvedValueOnce({ ...OK, catalogWrite: { kind: "committed", commitSha: "c0ffee", blobSha: "b10b" } });
+    const body = await (await POST(req(), ctx)).json();
+    expect(body.catalogWrite).toEqual({ kind: "committed", commitSha: "c0ffee", blobSha: "b10b" });
   });
 
   it("guard: 409 not-mapped when nothing is mapped, and the indexer is never reached", async () => {

@@ -10,7 +10,9 @@
 // and parse sits inside a guard, failures become `warnings` on the row, and the pass still commits
 // every file that did parse. `indexRegistry` therefore NEVER throws — a total failure (no access,
 // deleted repo, rate limit) comes back as `{ kind: "error" }`, leaving the previous index readable.
-// Tree selection and capped reading live in `./index-walk`; this file is the orchestration.
+// Tree selection and capped reading live in `./index-walk`; this file is the orchestration. The one
+// thing the pass writes INTO the registry, `catalog.json`, is gated by the registry's own
+// `catalogWrites` policy in `./catalog-write`.
 
 import type { OrgRegistryRow } from "@/lib/db/org-registry";
 import { archiveVanishedRegistryRows, recordIndexError, recordIndexResult } from "@/lib/db/org-registry-write";
@@ -20,6 +22,7 @@ import { recordRegistrySignals } from "@/lib/db/org-registry-signals";
 import { purgeSkillLessons, replaceSkillLessons } from "@/lib/db/org-skill-lessons";
 import { upsertRegistryMemory, upsertRegistryPractice, upsertRegistrySkill } from "@/lib/db/org-registry-mirror";
 import { buildCatalog, shortDigest, type RegistryCatalog } from "./catalog";
+import { readPriorCatalog, writeCatalogBack, type CatalogWriteOutcome } from "./catalog-write";
 import { REGISTRY_CATALOG_PATH, REGISTRY_LESSONS_FILE, REGISTRY_SKILL_FILE, REGISTRY_SPINE_PATH } from "./layout";
 import { cappedReader, countLessons, MAX_BUNDLE_INDEX_BYTES, selectArtifacts, type RegistrySource } from "./index-walk";
 import { contentDigest, parseRegistryMemory, parseRegistryPractice, parseRegistrySkill } from "./parse";
@@ -48,8 +51,13 @@ export interface IndexRegistryResult {
   warnings?: string[];
   archived?: { skills: number; practices: number; memory: number };
   declaration?: RegistryDeclaration;
-  /** The catalog this pass WOULD commit; writing it back is a separate, policy-gated step. */
+  /** The catalog this pass built from the tree; `catalogWrite` says whether it was written back. */
   catalog?: RegistryCatalog;
+  /**
+   * The policy-gated write-back of `catalog` (`catalogWrites: bot | pr`, see ./catalog-write):
+   * committed, proposed as a PR, skipped with the reason, or failed (also a warning on this pass).
+   */
+  catalogWrite?: CatalogWriteOutcome;
   /**
    * The registry's `usage/` lane, aggregated: how often the fleet reaches for
    * these skills and how many installations reported it.
@@ -197,7 +205,21 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   if (tree.truncated) warnings.push("GitHub truncated the file tree — this index is partial.");
 
   const picked = selectArtifacts(tree, warnings);
-  const read = cappedReader(source, warnings);
+  // Count the reads that THREW: a catalog built around a file that failed to load would commit that
+  // file's absence, so the write-back refuses any pass with one (size-cap skips are not counted).
+  let readFailures = 0;
+  const counted: RegistrySource = {
+    ...source,
+    readBlob: async (entry) => {
+      try {
+        return await source.readBlob(entry);
+      } catch (err) {
+        readFailures++;
+        throw err;
+      }
+    },
+  };
+  const read = cappedReader(counted, warnings);
 
   // ── the spine: `.ascent/registry.yaml` decides mode, telemetry and policies ──
   const spine = picked.byPath.get(REGISTRY_SPINE_PATH);
@@ -302,36 +324,15 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
   const zero = { skills: 0, practices: 0, memory: 0 };
   const archived = await archiveVanishedRegistryRows(registry.id, seen).catch(() => zero);
 
-  // The catalog as committed, read so `buildCatalog` can carry forward the keys
-  // it does not own. Tolerant: an unreadable or malformed catalog means "carry
-  // nothing", never a failed pass — but it IS reported, because silently
-  // dropping another producer's `bundles` array is the exact outcome this read
-  // exists to prevent.
-  let priorCatalog: RegistryCatalog | null = null;
-  {
-    const entry = picked.byPath.get(REGISTRY_CATALOG_PATH);
-    if (entry) {
-      const text = await read(entry);
-      if (text !== null) {
-        try {
-          const parsed: unknown = JSON.parse(text);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            priorCatalog = parsed as RegistryCatalog;
-          } else {
-            warnings.push(`${REGISTRY_CATALOG_PATH}: not an object — foreign keys not carried forward`);
-          }
-        } catch {
-          warnings.push(`${REGISTRY_CATALOG_PATH}: not valid JSON — foreign keys not carried forward`);
-        }
-      }
-    }
-  }
+  // The catalog as committed: what `buildCatalog` carries foreign keys from, and what the write-back
+  // would replace. Tolerant and reported; see `readPriorCatalog`.
+  const prior = await readPriorCatalog(picked.byPath.get(REGISTRY_CATALOG_PATH), read, warnings);
 
   // ── knowledge/<domain>/index.json ──
   // ONE read feeds two readers: `readBundles` takes the `meta` counts, `readBundleSubjects` takes
   // the subject map. Fetching the same file twice for two shapes of the same document would be a
   // second request per bundle for no new information.
-  const readIndex = cappedReader(source, warnings, MAX_BUNDLE_INDEX_BYTES);
+  const readIndex = cappedReader(counted, warnings, MAX_BUNDLE_INDEX_BYTES);
   const bundleFiles = await Promise.all(picked.bundles.map(async (e) => ({ path: e.path, text: await readIndex(e) })));
   // ── knowledge/<domain>/taxonomy.json — the category tree WITH titles, mirrored beside the counts.
   // A bundle that has an index but no taxonomy is reported, not failed: the tab falls back to
@@ -361,7 +362,7 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     // Carry forward the keys this builder does not own — `bundles` from the
     // knowledge lane, and anything a future producer adds. Without this, a
     // catalog write-back would silently delete another producer's work.
-    previous: priorCatalog,
+    previous: prior.state === "read" ? prior.catalog : null,
     fullName: registry.fullName,
     defaultBranch: registry.defaultBranch,
     canonical: declaration.canonical,
@@ -418,6 +419,23 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     }
   }
 
+  // ── catalog.json write-back, gated by the registry's own `catalogWrites` (see ./catalog-write) ──
+  // Before the stamp below, so the row records the blob it WROTE rather than the one it read. A
+  // refusal is a warning on this pass; the mirror rows above are already committed.
+  const catalogWrite = await writeCatalogBack({
+    policy: declaration.policies.catalogWrites,
+    spinePresent: spineText !== null,
+    truncated: tree.truncated,
+    readFailures,
+    prior,
+    next: catalog,
+    branch: registry.defaultBranch || "main",
+    headSha: tree.headSha,
+    writer: source.catalogWriter,
+  });
+  if (catalogWrite.kind === "failed") warnings.push(`${REGISTRY_CATALOG_PATH}: not written back (${catalogWrite.message})`);
+  const writtenBlob = catalogWrite.kind === "committed" ? catalogWrite.blobSha : null;
+
   // ── Knowledge base: chain the fleet's conformance sweep ──────────────────────────────────────
   // The mirror rows above are committed; what remains is how the FLEET stands against them, which
   // the sweep reads from each repo's own `.ai/registry-map.json` and foundation files. Chained here,
@@ -439,7 +457,7 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     headSha: tree.headSha,
     counts,
     warnings,
-    catalogSha: picked.byPath.get(REGISTRY_CATALOG_PATH)?.sha ?? null,
+    catalogSha: writtenBlob ?? picked.byPath.get(REGISTRY_CATALOG_PATH)?.sha ?? null,
     usage: { invokes30d: usage.invokes30d, contributors: usage.contributors },
     bundles,
     // Omitted rather than zeroed on a truncated tree, by the same rule the usage counts follow:
@@ -455,6 +473,7 @@ export async function indexRegistry(registry: OrgRegistryRow, source: RegistrySo
     archived,
     declaration,
     catalog,
+    catalogWrite,
     usage,
     bundles,
     subjects,

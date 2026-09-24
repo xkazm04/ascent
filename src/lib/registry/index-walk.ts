@@ -20,6 +20,8 @@ import {
   type RegistryTreeEntry,
 } from "./read";
 import { isBundleTaxonomy } from "./taxonomy";
+import type { CatalogWriter } from "./catalog-write";
+import { githubCatalogWriter } from "./catalog-write-github";
 
 /** The two GitHub reads the indexer needs, injectable so tests never touch the network. */
 export interface RegistrySource {
@@ -36,6 +38,12 @@ export interface RegistrySource {
    * repo's paired working copy. Consulted only when `token` is absent.
    */
   sweep?: import("./conformance-sweep").StandardsReader;
+  /**
+   * Writes `catalog.json` back when the registry's `catalogWrites` policy allows it (see
+   * ./catalog-write). Only `githubSource` carries one, built from the token it already reads with; a
+   * local checkout or a test fixture indexes and writes nothing.
+   */
+  catalogWriter?: CatalogWriter;
 }
 
 /** The default source: the installation-token GitHub read layer in ./read. */
@@ -46,6 +54,7 @@ export function githubSource(token: string, fullName: string): RegistrySource {
     readTree: (branch) => readRegistryTree(token, ref.owner, ref.repo, branch),
     readBlob: (entry) => readBlob(token, ref.owner, ref.repo, entry.sha),
     token,
+    catalogWriter: githubCatalogWriter(token, ref.owner, ref.repo),
   };
 }
 

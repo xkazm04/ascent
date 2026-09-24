@@ -21,6 +21,11 @@ export interface SignalsPrInput {
   repo: string;
   /** Base branch; resolved to the repo default when omitted. */
   base?: string;
+  /**
+   * The stable head branch. Defaults to `signalsBranch(<file name>)`; the catalog write-back
+   * (`./catalog-write-github`) passes its own, since it reuses this create-or-update shape.
+   */
+  branch?: string;
   path: string;
   content: string;
   commitMessage: string;
@@ -69,7 +74,7 @@ export async function openOrUpdateSignalsPr(input: SignalsPrInput): Promise<Sign
     )
   ).object.sha;
 
-  const branch = signalsBranch(path.split("/").pop()!.replace(/\.json$/i, ""));
+  const branch = input.branch ?? signalsBranch(path.split("/").pop()!.replace(/\.json$/i, ""));
   try {
     await githubAppFetch(`/repos/${owner}/${repo}/git/refs`, token, {
       method: "POST",
