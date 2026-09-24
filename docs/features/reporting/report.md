@@ -986,7 +986,8 @@ display now names them, from one helper (`rungHonesty` / `productionRungViews` i
   miss: CI stays at `checks · present`.
 - **absent**: the scan looked and found nothing (`none`). A real miss.
 - **unassessable**: `prod.ci-unassessable` / `prod.security-unassessable` /
-  `prod.observability-unassessable` / `prod.tests-unassessable` on a `none` level. The scan
+  `prod.observability-unassessable` / `prod.tests-unassessable` on a `none` level (or on a held CI
+  `build` / security `policy` floor, see below). The scan
   could not look. **Unassessable is not a 0** (G4) and is never painted as `none`. An unread
   package.json also mints `auto.self-verify-unassessable` (same coverage-hole shape) so missing
   scripts are not reported as `auto.self-verify-gaps` at block.
@@ -994,6 +995,40 @@ display now names them, from one helper (`rungHonesty` / `productionRungViews` i
 Pinned on `PassportCard.dom.test.tsx`. An evidence-limit finding on a *seen* present level (unread
 workflows, CI still at `checks`) stays **present**: we observed presence; we did not finish
 assessing the gate.
+
+### Held CI and security rungs (unread workflow content)
+
+The CI and security ladders are read off workflow *content*, which arrives through a bounded fetch.
+When the scan reads fewer workflow files than the tree lists, or one only up to its byte cap, the
+builder mints `prod.ci-unassessable` / `prod.security-unassessable` (info). Until 2026-09-24 the
+ordinals still scored off the partial read: an unread tree listed as CI `build` (20 pts) and
+security `none` (0 pts), and the production score priced the bounded fetch as a weak pipeline.
+
+A rung is now **held** when that finding stands and its level is the floor the unread content could
+lift: CI `build` (workflows exist, no checks seen) or security `none` / `policy` (no scanner seen).
+A level the read part already proves (CI `checks`, security `scanning`) stays a measured lower
+bound. One helper decides it (`isRungHeld` in `src/lib/analyze/passport-score.ts`) and every surface
+that shows or ranks the ordinal reads it:
+
+- **Production score**: a held axis is left out and the score renormalizes over the axes that were
+  measured (CI weighs 25%, security 20%). With nothing held the formula is unchanged. The owner
+  rollback override re-derives over the same axes.
+- **Card, fleet table, report hero**: the rung reads `unassessable`, never its floor. The hero draws
+  an empty dashed track instead of a bar and says the rung is left out of the score. Sorting the
+  table by CI or Security puts held rows after every assessed row in either direction.
+- **CSV export**: the `ci` / `security` cells print `unassessable`.
+- **Autonomy and the promotion plan**: a held CI fills the `t2.ci-gated` slot with
+  `ci-unassessable` and names the re-scan (the tier is unchanged: a held floor is below `gated`).
+  The promotion plan counts that repo as not assessable for its step and never ranks it as a fix,
+  and the clearance card's CI gate prints `unassessable` instead of a number. Trade-off: on a token
+  scan whose branch is unprotected, "protect the branch" is not proposed for such a repo until the
+  workflows are read.
+
+The stored passport is not rewritten: `ci.level` / `security.level` keep the floor, the findings
+carry the coverage fact, and a passport scored before this change keeps its stored score until the
+next scan. Pinned on `passport-held.test.ts`, `passport-display.test.ts`, `passportTableSort.test.ts`,
+`PassportHero.dom.test.tsx`, `promotionPlan.test.ts`, `PromotionPlan.dom.test.tsx` and the export
+route test.
 
 ## Coverage holes are not scored blockers (G4)
 
@@ -1053,6 +1088,10 @@ own next transition. A tokenless repo is counted as "not assessable" for its ste
 as a fix; placeholder-scan repos are counted and labelled ("incl. N placeholder scans"); T3 repos
 contribute nothing. Clicking a row narrows the register to the repos carrying that condition, and a
 chip clears it. The register itself stays unranked: the plan ranks conditions, not repos.
+
+Since 2026-09-24 a repo whose CI rung is **held** (workflow files not read in full, so its next
+condition is `ci-unassessable`) joins the not-assessable count too, stated apart from the tokenless
+ones ("CI workflow files were not read in full"), and is never ranked on any row.
 
 ## Who issued the claim: placeholder scans and owner-set fields
 
@@ -1305,7 +1344,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/scorecard/[owner]/page.test.tsx` | Page-level gate: invalid owner 404s; persistence-off / thrown read / empty-but-valid owner do not, and those two non-404 bodies are distinct. |
 | `src/components/leaderboard/ScorecardSummary.tsx` | The scorecard headline; renders the refusal state when `verifiedCount === 0` or the averages are null, and never draws `0/100` for an unpublished grade. |
 | `src/app/scorecard/[owner]/opengraph-image.tsx` | Scorecard OG card, on the shared `og-brand` shell; falls back to the neutral card rather than drawing an average over previews (including `empty` / `unavailable` reads). |
-| `src/features/standing/passports/autonomy/promotionPlanModel.ts` | The fleet promotion plan: per autonomy transition, conditions by sole-blocker count then incidence, ties by id; tokenless repos in an unassessable bucket, placeholder repos labelled. |
+| `src/features/standing/passports/autonomy/promotionPlanModel.ts` | The fleet promotion plan: per autonomy transition, conditions by sole-blocker count then incidence, ties by id; tokenless and held-CI repos in an unassessable bucket, placeholder repos labelled. |
 | `src/features/standing/passports/autonomy/PromotionPlan.tsx` | Renders the plan above the clearance register; a row click filters the register to the repos carrying that condition. |
 
 ## Failure states on the report page (2026-09-05)
