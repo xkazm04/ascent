@@ -161,6 +161,11 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "org.alerts.resend", label: "Alert resent", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   // Row 35: repos newly granted on the GitHub App installation were watched; meta carries any overflow.
   { value: "org.repos.auto_watched", label: "Repos auto-watched", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  // Row 47: the OpenAI Admin Costs connector. Connecting stores a high-value key (amber, a grant);
+  // disconnecting destroys it (slate); a sync is a read of the org's bill (sky), meta says if partial.
+  { value: "integrations.openai.connect", label: "OpenAI connected", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { value: "integrations.openai.disconnect", label: "OpenAI disconnected", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  { value: "integrations.openai.sync", label: "OpenAI synced", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
 ];
 
 export const ACTION_META: Record<string, { label: string; cls: string }> = Object.fromEntries(
