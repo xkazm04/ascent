@@ -23,6 +23,9 @@ import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { cliProviderAllowed } from "@/lib/llm/config";
 import { claudeCliTransport, unwrapCliEnvelope, DEFAULT_CLAUDE_MODEL } from "@/lib/llm/transport/claude";
+import { claudeEnvelopeText } from "@/lib/llm/transport/claude-stream";
+import type { TransportRunResult } from "@/lib/llm/transport/types";
+import { ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
 
 // Re-exported from the transport adapter so existing consumers (config.test.ts, index.ts's mirror
 // comment) keep their import surface.
@@ -42,8 +45,10 @@ export class ClaudeCliProvider implements LLMProvider {
     // quoting issues (the prompt contains quotes/newlines); model treats it as input.
     const prompt = `${system}\n\n${user}`;
 
-    const raw = await runClaude(prompt, { model: this.model, signal: opts.signal });
-    const outer = unwrapCliEnvelope(raw);
+    // Constrain the answer to the SAME contract Gemini/Bedrock/OpenAI decode against. The transport
+    // sends the schema over stdin (stream-json initialize), never argv; see transport/claude-stream.ts.
+    const res = await runClaude(prompt, { model: this.model, signal: opts.signal, schema: ASSESSMENT_JSON_SCHEMA });
+    const outer = unwrapCliEnvelope(claudeEnvelopeText(res.raw));
     // Report token usage (before the parse/usability check, like the other providers) so a claude-cli
     // scan's volume + latency populate the metering columns instead of reading as null. [P2-5]
     if (outer.usage) {
@@ -54,7 +59,9 @@ export class ClaudeCliProvider implements LLMProvider {
         cacheWriteTokens: outer.usage.cache_creation_input_tokens,
       });
     }
-    return validateAssessment(parseJsonLoose(outer.result));
+    // structured_output when the CLI honoured the schema; an older CLI that ignores initialize's
+    // jsonSchema still answers in text, which the loose parse recovers exactly as before.
+    return validateAssessment(res.json !== undefined ? res.json : parseJsonLoose(outer.result));
   }
 }
 
@@ -94,27 +101,29 @@ export async function runClaudePrompt(
         "Set ASCENT_SELF_HOSTED=1 if you are running Ascent on your own machine.",
     );
   }
-  const raw = await runClaude(prompt, opts);
-  return unwrapCliEnvelope(raw).result;
+  const res = await runClaude(prompt, opts);
+  return unwrapCliEnvelope(res.raw).result;
 }
 
 /**
- * One assessment-seam call through the transport adapter, returning the RAW envelope capture so both
- * consumers above keep reading `.usage`/`.result` off it exactly as before. Failure parity with the
+ * One assessment-seam call through the transport adapter, returning the successful result whose RAW
+ * capture both consumers above read `.usage`/`.result` off exactly as before (a schema run's capture
+ * is a stream, reduced to its result event by claudeEnvelopeText). Failure parity with the
  * pre-transport implementation: the transport reports a typed error whose `cause` preserves the
  * original rejection object (an abort's `signal.reason`, a spawn ENOENT) and whose message text is
  * unchanged, so this throws the identical things the old private runClaude() rejected with.
  */
 async function runClaude(
   prompt: string,
-  opts: { model?: string; signal?: AbortSignal; timeoutMs?: number } = {},
-): Promise<string> {
+  opts: { model?: string; signal?: AbortSignal; timeoutMs?: number; schema?: object } = {},
+): Promise<TransportRunResult> {
   const res = await claudeCliTransport.run({
     prompt,
     mode: "generate",
     model: opts.model, // adapter resolves opts.model || CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL
     signal: opts.signal,
     timeoutMs: opts.timeoutMs, // adapter defaults to claudeCliTimeoutMs()
+    schema: opts.schema, // assess() only; runClaudePrompt stays schema-free (callers own their shape)
   });
   if (!res.ok) {
     // Envelope failures carry their diagnosable message; spawn/abort failures carry the original
@@ -122,5 +131,5 @@ async function runClaude(
     if (res.error?.kind === "envelope") throw new Error(res.error.message);
     throw (res.error?.cause ?? new Error(res.error?.message ?? "Claude CLI failed."));
   }
-  return res.raw;
+  return res;
 }

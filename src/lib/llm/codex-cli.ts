@@ -20,6 +20,7 @@ import { parseJsonLoose } from "@/lib/llm/json";
 import type { LlmAssessment } from "@/lib/types";
 import { buildAssessmentPrompt } from "@/lib/scoring/prompt";
 import { codexCliTransport, parseCodexJsonl } from "@/lib/llm/transport/codex";
+import { STRICT_ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
 
 /**
  * Display/persistence identity when CODEX_MODEL is unset: the CLI picks its own configured default
@@ -51,6 +52,9 @@ export class CodexCliProvider implements LLMProvider {
       model: this.model === DEFAULT_CODEX_MODEL ? undefined : this.model,
       signal: opts.signal,
       // timeoutMs: adapter defaults to codexCliTimeoutMs() (CODEX_CLI_TIMEOUT_MS, 10 min).
+      // The same contract the hosted providers decode against, in its STRICT derivation: codex's
+      // --output-schema is OpenAI structured output. It travels as a temp file, never argv text.
+      schema: STRICT_ASSESSMENT_JSON_SCHEMA,
     });
     if (!res.ok) {
       if (res.error?.kind === "envelope") throw new Error(res.error.message);
@@ -67,6 +71,6 @@ export class CodexCliProvider implements LLMProvider {
         outputTokens: usage.output_tokens,
       });
     }
-    return validateAssessment(parseJsonLoose(res.text ?? ""));
+    return validateAssessment(res.json !== undefined ? res.json : parseJsonLoose(res.text ?? ""));
   }
 }

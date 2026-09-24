@@ -10,6 +10,7 @@
 import { tmpdir } from "node:os";
 import { envNumber } from "@/lib/llm/config";
 import { captureCli, CliRunError, SAFE_MODEL_RE } from "@/lib/llm/transport/spawn";
+import { CLAUDE_STREAM_ARGS, claudeResultLine, claudeSchemaStdin, type ClaudeStreamResult } from "@/lib/llm/transport/claude-stream";
 import type { AgentCliTransport, TransportProbe, TransportRunArgs, TransportRunResult } from "@/lib/llm/transport/types";
 
 export const DEFAULT_CLAUDE_MODEL = "sonnet";
@@ -92,9 +93,11 @@ export const claudeCliTransport: AgentCliTransport = {
     // promised untested.
     modes: ["generate"],
     answerChannel: "single-json", // answer in `.result`; is_error/subtype carry the error class
-    schemaOutput: "inline-flag", // --json-schema exists in the tool…
-    schemaWired: false, //           …but inline JSON through a shell:true argv is a quoting hazard;
-    //                               unwired until a consumer needs it (typed not-supported today).
+    // The tool's --json-schema flag takes inline JSON only (no file form), which through a shell:true
+    // argv is a quoting and length hazard. Schema runs instead send it over stdin as the stream-json
+    // `initialize` control request (claude-stream.ts), verified live 2026-09-24 on 2.1.281.
+    schemaOutput: "stdin-control",
+    schemaWired: true,
     readonlyEnforcement: "policy",
     billing: { direction: "strip", envVars: ["ANTHROPIC_API_KEY"] },
   },
@@ -131,12 +134,6 @@ export const claudeCliTransport: AgentCliTransport = {
             : `claude-cli transport does not implement mode "${args.mode}" yet (capability matrix: modes=[generate]).`,
       });
     }
-    if (args.schema) {
-      return fail(started, {
-        kind: "not-supported",
-        message: "claude-cli transport has not wired --json-schema through the shell:true spawn door (schemaWired: false); parse the text answer instead.",
-      });
-    }
     const model = args.model || process.env.CLAUDE_MODEL || DEFAULT_CLAUDE_MODEL;
     if (!SAFE_MODEL_RE.test(model)) {
       return fail(started, {
@@ -148,24 +145,32 @@ export const claudeCliTransport: AgentCliTransport = {
     // this is what keeps the run on the operator's subscription seat.
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY; // force subscription auth (not pay-per-token)
+    // A schema run speaks stream-json and carries the schema on stdin (claude-stream.ts); a plain
+    // run keeps the single-json argv and the bare prompt, byte for byte.
+    const schema = args.schema;
     try {
       const raw = await captureCli({
         bin: process.env.CLAUDE_CLI_PATH || "claude",
-        args: ["-p", "--output-format", "json", "--model", model],
+        args: schema ? [...CLAUDE_STREAM_ARGS, "--model", model] : ["-p", "--output-format", "json", "--model", model],
         cwd: tmpdir(), // neutral cwd so it doesn't auto-load the project's CLAUDE.md/tools
         env,
-        stdin: args.prompt,
+        stdin: schema ? claudeSchemaStdin(args.prompt, schema) : args.prompt,
         timeoutMs: Math.max(MIN_CLI_TIMEOUT_MS, args.timeoutMs ?? claudeCliTimeoutMs()),
         signal: args.signal,
         label: "Claude CLI",
       });
+      const envelopeRaw = schema ? claudeResultLine(raw) : raw;
+      if (envelopeRaw === undefined) {
+        return fail(started, { kind: "envelope", message: `Claude CLI stream produced no result event: ${raw.slice(0, 300) || "(empty stdout)"}` }, raw);
+      }
       try {
-        const envelope = unwrapCliEnvelope(raw);
-        return { ok: true, text: envelope.result, raw, durationMs: Date.now() - started };
+        const envelope: ClaudeStreamResult = unwrapCliEnvelope(envelopeRaw);
+        const json = schema ? envelope.structured_output : undefined;
+        return { ok: true, text: envelope.result, ...(json !== undefined ? { json } : {}), raw, durationMs: Date.now() - started };
       } catch (e) {
         const envelope = ((): ClaudeCliEnvelope => {
           try {
-            return JSON.parse(raw) as ClaudeCliEnvelope;
+            return JSON.parse(envelopeRaw) as ClaudeCliEnvelope;
           } catch {
             return {};
           }

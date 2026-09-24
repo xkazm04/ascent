@@ -36,7 +36,8 @@ export interface TransportRunArgs {
   mode: TransportMode;
   /** Workspace for readonly-scan/edit. Ignored by `generate`, which always uses a neutral tmpdir. */
   cwd?: string;
-  /** JSON Schema to constrain the final answer. See TransportCapabilities.schemaWired before use. */
+  /** JSON Schema to constrain the final answer. Never placed on argv as JSON text (see
+   *  TransportCapabilities.schemaOutput); check schemaWired before use. */
   schema?: object;
   /** Model id/alias; validated as a plain token before it reaches the shell:true spawn. */
   model?: string;
@@ -94,8 +95,10 @@ export interface TransportCapabilities {
   modes: TransportMode[];
   /** How the tool's answer arrives — which envelope dialect the adapter normalizes. */
   answerChannel: "single-json" | "jsonl-events" | "answer-file";
-  /** Native schema-constrained output support in the TOOL (inline flag / schema file / none)… */
-  schemaOutput: "inline-flag" | "schema-file" | "none";
+  /** The channel a schema reaches the TOOL through: an inline argv flag, a schema FILE whose path is
+   *  the only argv text, a stdin control message (never argv), or none. Argv is the one to avoid: a
+   *  real schema through the shell:true door is a quoting and command-line-length hazard. */
+  schemaOutput: "inline-flag" | "schema-file" | "stdin-control" | "none";
   /** …and whether THIS adapter has wired it through the spawn door yet. */
   schemaWired: boolean;
   /** What backs the readonly-scan promise: an OS sandbox, tool policy, or nothing (unsupported). */

@@ -20,6 +20,7 @@ vi.mock("@/lib/scoring/prompt", () => ({
 }));
 
 import { CodexCliProvider, DEFAULT_CODEX_MODEL } from "./codex-cli";
+import { STRICT_ASSESSMENT_JSON_SCHEMA } from "@/lib/llm/schema";
 
 const INPUT = {} as unknown as LlmScoreInput; // buildAssessmentPrompt is mocked — never read
 
@@ -73,6 +74,15 @@ describe("CodexCliProvider.assess", () => {
       error: { kind: "envelope", message: "Codex CLI produced no agent_message in its JSONL output: (empty stdout)" },
     });
     await expect(new CodexCliProvider("gpt-5-codex").assess(INPUT)).rejects.toThrow(/no agent_message/i);
+  });
+
+  // Backlog develop-2026-09-17 row 44: codex's --output-schema decodes strictly (OpenAI structured
+  // outputs), so the provider sends the STRICT derivation, and reads the transport's parsed json.
+  it("constrains the run to STRICT_ASSESSMENT_JSON_SCHEMA and validates the parsed json", async () => {
+    h.run.mockResolvedValue({ ok: true, text: "not json at all", json: { headline: "From json", dimensions: [] }, raw: "", durationMs: 5 });
+    const result = await new CodexCliProvider("gpt-5-codex").assess(INPUT);
+    expect(h.run).toHaveBeenCalledWith(expect.objectContaining({ schema: STRICT_ASSESSMENT_JSON_SCHEMA }));
+    expect(result.headline).toBe("From json");
   });
 
   it("rethrows a spawn failure's original cause (ENOENT and friends stay diagnosable)", async () => {

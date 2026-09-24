@@ -17,6 +17,7 @@
 import { tmpdir } from "node:os";
 import { envNumber } from "@/lib/llm/config";
 import { captureCli, CliRunError, SAFE_MODEL_RE } from "@/lib/llm/transport/spawn";
+import { SchemaFileError, withSchemaFile } from "@/lib/llm/transport/schema-file";
 import type { AgentCliTransport, TransportProbe, TransportRunArgs, TransportRunResult } from "@/lib/llm/transport/types";
 
 const MIN_CLI_TIMEOUT_MS = 1_000;
@@ -81,6 +82,16 @@ export function parseCodexJsonl(raw: string): CodexParsed {
   return parsed;
 }
 
+/** The schema-constrained answer as JSON, or undefined when the text is not strict JSON (the
+ *  consumer then falls back to its own loose parse; `json` is a bonus, never a requirement). */
+function parseJsonOrUndefined(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 function fail(started: number, error: TransportRunResult["error"], raw = ""): TransportRunResult {
   return { ok: false, raw, durationMs: Date.now() - started, error };
 }
@@ -95,9 +106,9 @@ export const codexCliTransport: AgentCliTransport = {
     verifiedVersion: "0.139.0",
     modes: ["generate", "readonly-scan"], // edit deliberately absent — not wired into the autopilot
     answerChannel: "jsonl-events",
-    schemaOutput: "schema-file", // --output-schema <FILE> exists in the tool…
-    schemaWired: false, //           …but a temp-file path through a shell:true argv (Windows spaces)
-    //                               is unwired until a consumer needs it (typed not-supported today).
+    schemaOutput: "schema-file", // --output-schema <FILE>, re-verified live 2026-09-24 on 0.155.1
+    schemaWired: true, //            the schema goes to a unique os.tmpdir() file (schema-file.ts), the
+    //                               argv carries only its quoted path, and a finally deletes it.
     readonlyEnforcement: "os-sandbox", // `-s read-only`: Seatbelt / Landlock / Windows restricted tokens
     billing: { direction: "strip", envVars: ["OPENAI_API_KEY"] },
   },
@@ -130,12 +141,6 @@ export const codexCliTransport: AgentCliTransport = {
         message: "codex-cli transport does not run edit sessions — codex is not wired into the autopilot (the editing seam stays claude-only; see src/lib/local/agent.ts).",
       });
     }
-    if (args.schema) {
-      return fail(started, {
-        kind: "not-supported",
-        message: "codex-cli transport has not wired --output-schema through the shell:true spawn door (schemaWired: false); parse the text answer instead.",
-      });
-    }
     if (args.mode === "readonly-scan" && !args.cwd) {
       return fail(started, { kind: "config", message: "codex-cli readonly-scan requires a cwd (the workspace to read)." });
     }
@@ -150,18 +155,24 @@ export const codexCliTransport: AgentCliTransport = {
     // operator's ChatGPT plan (seat auth), never silently per token.
     const env = { ...process.env };
     delete env.OPENAI_API_KEY;
-    try {
-      const raw = await captureCli({
+    const capture = (schemaPath?: string) =>
+      captureCli({
         bin: process.env.CODEX_CLI_PATH || "codex",
         // `-s read-only` in BOTH modes: readonly-scan's promise is the OS sandbox; generate has no
         // workspace to write (neutral tmpdir), so read-only is containment, not a restriction.
         // (No approval flag: `codex exec` is non-interactive by definition — `-a` is a top-level
         // `codex` flag and exec rejects it, verified live 2026-08-25 on 0.139.0.)
         // `--skip-git-repo-check`: the tmpdir/workspace is not necessarily a git repo.
+        // `--output-schema`: only the already-quoted temp-file PATH, never the schema text.
         // Trailing "-": read the prompt from stdin (never the argv — prompts contain quotes,
         // newlines and flag-shaped text); the spawn door closes stdin so codex never blocks on
         // "Reading additional input from stdin...".
-        args: ["exec", "--json", "--skip-git-repo-check", "-s", "read-only", ...(model ? ["-m", model] : []), "-"],
+        args: [
+          "exec", "--json", "--skip-git-repo-check", "-s", "read-only",
+          ...(model ? ["-m", model] : []),
+          ...(schemaPath ? ["--output-schema", schemaPath] : []),
+          "-",
+        ],
         cwd: args.mode === "readonly-scan" ? (args.cwd as string) : tmpdir(), // generate: neutral cwd, no ambient project instructions
         env,
         stdin: args.prompt,
@@ -169,6 +180,9 @@ export const codexCliTransport: AgentCliTransport = {
         signal: args.signal,
         label: "Codex CLI",
       });
+    try {
+      // The schema file exists only for the life of this one child (withSchemaFile's finally).
+      const raw = args.schema ? await withSchemaFile(args.schema, (quoted) => capture(quoted)) : await capture();
       const parsed = parseCodexJsonl(raw);
       if (parsed.errorMessage && parsed.text === undefined) {
         return fail(started, { kind: "envelope", message: `Codex CLI reported an error: ${parsed.errorMessage.slice(0, 300)}` }, raw);
@@ -181,9 +195,10 @@ export const codexCliTransport: AgentCliTransport = {
           raw,
         );
       }
-      return { ok: true, text: parsed.text, raw, durationMs: Date.now() - started };
+      return { ok: true, text: parsed.text, json: args.schema ? parseJsonOrUndefined(parsed.text) : undefined, raw, durationMs: Date.now() - started };
     } catch (e) {
       if (e instanceof CliRunError) return fail(started, { kind: e.kind, message: e.message, cause: e.cause });
+      if (e instanceof SchemaFileError) return fail(started, { kind: "config", message: e.message });
       return fail(started, { kind: "spawn", message: e instanceof Error ? e.message : String(e), cause: e });
     }
   },
