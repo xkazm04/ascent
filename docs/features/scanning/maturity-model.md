@@ -291,6 +291,9 @@ freshness.
 *Signals:* linters/formatters (ESLint, Prettier, Ruff, Biome, golangci-lint), type
 checking (`tsconfig` strict, mypy, pyright), pre-commit hooks (`.pre-commit-config`,
 husky/lint-staged), `CODEOWNERS`, conventional-commit/commitlint config, PR templates.
+Enforcement (a lint/type gate that runs, a quality ratchet, a zero-warning gate) is read from
+GitHub Actions, GitLab CI, a `Jenkinsfile`, CircleCI, Azure, Travis and Bitbucket configs, and
+`lefthook.yml` (labelled as a git hook, not CI) since `r20`.
 (Supply-chain security scanning moved to **D9**.)
 *LLM assessment:* are guardrails enforced (CI-wired) vs. merely present? Strictness.
 
@@ -646,7 +649,7 @@ is not built.
 
 Every scan records the rubric version that produced it (`Scan.rubricVersion`, stamped via
 `src/lib/cache.ts`). It is one short monotonic token, defined in exactly one place:
-`src/lib/maturity/model.ts`. **Current: `r19`.**
+`src/lib/maturity/model.ts`. **Current: `r20`.**
 
 It exists so a cached score always carries the rubric that produced it. A score computed under an
 older rubric is not wrong, it is *not comparable* — so cache reuse, the org corpus, and cross-repo
@@ -681,7 +684,7 @@ reaching the model.
   is deliberately broader than the prompt: re-pinning without bumping is legitimate for a genuinely
   display-only change, but the reasoning belongs in the diff.
 - `rubric-fingerprint.test.ts` pins what the declaration cannot reach. A golden-fixture corpus
-  (`src/lib/maturity/rubric-corpus.ts`: nine synthetic repos, one per honesty rule) runs through the
+  (`src/lib/maturity/rubric-corpus.ts`: ten synthetic repos, one per honesty rule) runs through the
   real pipeline (`buildScanScoreInput`, `buildAssessmentPrompt`, `assembleReport`) at a fixed clock
   with no network. The result is hashed on its full explanation object: signals, facets and labels,
   the system and user prompts, and the report's scores, evidence, roadmap dimensions and
@@ -698,6 +701,7 @@ hand.
 
 | Version | Change |
 | --- | --- |
+| `r20` (2026-09-24) | **D6 reads the CI files D3 already credits.** D6's enforcement signals (guardrail enforced in CI, quality ratchet, zero-warning gate) searched only `.github/workflows/*`, while D3 scores `.gitlab-ci.yml`, a `Jenkinsfile`, `.circleci/`, Azure, Travis and Bitbucket configs as a pipeline. They now read those bodies too, after Actions, so an Actions repo keeps its exact awards and citations; a `lefthook.yml` gate earns the same points labelled *enforced in a git hook*. The scan now fetches the root Jenkins, CircleCI, Azure, Travis, Bitbucket and lefthook configs (GitLab was already fetched), which also brings the D8 doctor-wiring read of `lefthook.yml` to life. D6 rises by up to 40 (guardrail 20, or 5 over a configured linter, plus ratchet 15 and zero-warning 5) on a repo whose only gate lives in one of those files, and D8 by 6 where `.ai/doctor.mjs` is wired only through lefthook. The fixture corpus gained `gitlab-native` so the pin sees this class. No point value, weight, band, blend, guardband, lens or system-prompt text moved. |
 | `r19` (2026-09-23) | **The bump five changes were owed.** Nothing moved in the bump itself. Five score-moving changes had landed under an unchanged `r18` because the only backstop hashed the declaration: D6 ratchet +15 and zero-warning +5 (303bb0258, 2026-08-31; the `r14` row below says no detector moved, which was true of that commit and silent about this one); claim quotes verified against the text the model was shown, so a bullet-copied commit subject verifies (84226a65); a guidance copy or projection no longer earns `commands_agree` against its source (be3780d3); window-aware coverage, which lowers the blend when fetched files overflow the prompt window, plus the WINDOW COVERAGE user-prompt block (178a2818); and the truncated-tree exact-name fetch (b8c9df08, the `r17` precedent). `r18` rows therefore name two instruments, and the bump re-derives every cached score. The remedy for the class is the fixture fingerprint above. No weight, band, blend, guardband, threshold, lens or system-prompt text moved. |
 | `r18` (2026-09-15) | **D1 stops paying for guidance length.** `guidanceQuality` paid 5 points past 1200 characters and 8 past 4000, beside eight content rules. Two characters of padding across 4000 bought 3 D1 points, and a 4001-character file of filler naming each trigger once reached the grader maximum. Both tiers are removed; the Context Health quality normalizer drops from 56 to 48. D1 falls by up to 8 on repos whose graded document passed 1200 characters. Mock replay of the ten captured bench fixtures: exact level agreement 7/10 to 8/10, within one level 10/10 unchanged. No weight, band, blend or guardband moved. Evidence: [SCORING-VALIDITY.md section 4c](../../SCORING-VALIDITY.md). |
 | `r17` (2026-09-05) | **The ingested file set is a pure function of the tree.** The byte budget used to be spent inside the concurrent fetch pool with an optimistic claim reconciled after each await, so a budget-bound repo read a timing-dependent file set (34–41 files, 4–6 distinct sets on a measured fixture). `planFetchBudget` now plans admission from listed blob sizes before any fetch (44–46 files, one set). No constant moved and nothing was priced, but the deterministic detectors now see more content on budget-bound repos, so scores can move on rescan; the bump keeps r16 rows labelled as the instrument that produced them. |
