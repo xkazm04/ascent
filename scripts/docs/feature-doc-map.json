@@ -12,7 +12,8 @@
         "src/lib/analyze/**",
         "src/app/api/scan/**",
         "src/components/ScanForm.tsx",
-        "src/components/scan/**"
+        "src/components/scan/**",
+        "src/lib/db/scan-sensor-failures.ts"
       ]
     },
     {
@@ -78,7 +79,8 @@
         "src/lib/viewer-installations.ts",
         "src/app/api/app/**",
         "src/lib/db/installations.ts",
-        "src/lib/github/admission-write.ts"
+        "src/lib/github/admission-write.ts",
+        "src/lib/db/install-grants.ts"
       ]
     },
     {
@@ -139,7 +141,8 @@
         "src/lib/scan-probe*.ts",
         "src/lib/scan-queue-worker.ts",
         "src/lib/db/scan-jobs.ts",
-        "src/app/api/cron/probe/**"
+        "src/app/api/cron/probe/**",
+        "src/lib/scan-import-policy.ts"
       ]
     },
     {
@@ -168,7 +171,8 @@
         "src/lib/org/adoption.ts",
         "src/lib/org/playbook-apply.ts",
         "src/lib/db/practice-adoption.ts",
-        "src/lib/db/house-pattern-versions.ts"
+        "src/lib/db/house-pattern-versions.ts",
+        "src/lib/db/playbook-adoption.ts"
       ]
     },
     {
@@ -205,7 +209,9 @@
         "src/app/api/org/controls/**",
         "src/features/standing/governance/**",
         "src/lib/org/admission*.ts",
-        "src/app/api/org/admission/**"
+        "src/app/api/org/admission/**",
+        "src/app/api/integrations/**",
+        "src/lib/db/provider-credentials.ts"
       ]
     },
     {
@@ -241,7 +247,10 @@
         "src/lib/org/developer-view*.ts",
         "src/features/developer/**",
         "src/app/org/developer/**",
-        "src/app/org/[slug]/developer/**"
+        "src/app/org/[slug]/developer/**",
+        "src/app/api/me/mentor/**",
+        "src/lib/db/mentor-share.ts",
+        "src/lib/db/agent-sessions-viewer.ts"
       ]
     },
     {
@@ -292,7 +301,8 @@
         "src/lib/local/drive.ts",
         "src/lib/org/lane-brief.ts",
         "src/lib/db/lane-*.ts",
-        "src/lib/db/loop-*.ts"
+        "src/lib/db/loop-*.ts",
+        "src/lib/live-share-summary*.ts"
       ]
     },
     {
@@ -323,7 +333,8 @@
         "src/lib/mcp/**",
         "src/app/api/mcp/**",
         "src/lib/db/org-skill-usage-samples.ts",
-        "src/lib/db/org-memory-citations.ts"
+        "src/lib/db/org-memory-citations.ts",
+        "src/lib/db/org-skill-pending-invokes.ts"
       ]
     },
     {
@@ -357,7 +368,8 @@
         "src/app/scorecard/**",
         "src/lib/outcomes/**",
         "src/lib/db/outcomes.ts",
-        "src/lib/corpus/**"
+        "src/lib/corpus/**",
+        "src/lib/db/repo-deployments.ts"
       ]
     },
     {
