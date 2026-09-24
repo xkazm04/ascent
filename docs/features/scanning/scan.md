@@ -380,6 +380,13 @@ Two **token-gated** enrichments run alongside the detectors and fold into dimens
   Folds ADDITIVELY into D2/D3/D4 (`analyze/platform-signals.ts:applyAppInventorySignals`) and
   into the D9 battery (`security/checks.ts`, SAST + dependency-updates). Null = "not observable"
   (anonymous scan / read failed) and never means "no Apps"; an empty list on a 200 is a real zero.
+  **PR heads (2026-09-24):** the same read also runs on up to 3 recent merged PR head commits
+  (`PR_HEAD_INVENTORY_CAP`), taken from the PR page ingestion already fetched
+  (`analyze/pulls.ts:recentPrHeadShas`, the last node of `commits(last:15)`, so no list call; no
+  PR page means no extra read). The at most 3 extra calls run concurrently once the PR page lands.
+  Apps seen only there land in `prHeadApps` (with `prHeadShas`, and `prHeadTruncated` when a head
+  read failed or was truncated), beside the scored commit's `apps`. They are observed, not
+  credited: every fold reads `apps` only. A failed head read never marks the sensor failed.
 - `src/lib/github/actions-health.ts:fetchCiHealth` (deepening pass, r7): **default-branch CI
   health** from the last 50 non-PR Actions runs (`GET /repos/{o}/{r}/actions/runs?branch=…&
   exclude_pull_requests=true`): success rate over completed runs with a verdict (cancelled /
@@ -839,11 +846,12 @@ three workflows shows its first three in pick order.
   different rubric. A *failed* token-gated read is reported separately from an empty one since
   2026-09-05 (see "A failed sensor read is unknown, never zero"); the typed `sensorFailures` list
   has no `Scan` column, so only the prose caveat survives persistence.
-- **The App inventory is one page of one commit.** It reads the suites on the *scored* commit
-  only (≤100, `truncated` flags a floor). An App that posts suites only on pull-request heads
-  and never on the default branch is invisible to it; the observed `aiPreReviewedRate` covers
-  the review-bot case from the PR side, but a PR-only SAST/coverage App can still go
-  uncredited. Reading suites on recent PR heads is the obvious extension (a few more calls).
+- **PR-only Apps are observed, not credited.** The inventory reads one page (≤100, `truncated`
+  flags a floor) on the *scored* commit and on up to 3 recent merged PR heads. An App that posts
+  suites only on pull-request heads now appears in `prHeadApps`, but no fold reads that list
+  yet, so a PR-only SAST/coverage App still earns nothing on D2/D9 (the observed
+  `aiPreReviewedRate` covers the review-bot case from the PR side). An App that posted only on
+  older PRs, or only on open ones, is still not seen.
 - **Code-scanning REST endpoints are not read.** `/code-scanning/default-setup` and
   `/code-scanning/alerts` return 403 for an ordinary token on public repos (they need
   `security_events`, which the App does not request), so default-setup CodeQL is credited only
