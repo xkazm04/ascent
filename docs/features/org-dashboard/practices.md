@@ -284,12 +284,12 @@ halves:
   { repos[], dryRun?: true }` opens a draft PR seeding the playbook into a whole segment (or the
   whole fleet) in one action, mirroring the practices batch verbatim. Its bounds: the **admin**
   role (resolved from the playbook's own org; the single-repo `apply` stays member-level),
-  every repo must belong to that org (a foreign coordinate fails the whole batch, never
+  every repo must belong to that org, its namespace or a repo it tracks (a foreign coordinate fails the whole batch, never
   partially applies), **25 repos per call** after case-insensitive dedupe with the excess
   reported as `skipped`, and `SCAN_CONCURRENCY` lanes. One repo's failure never aborts the
   rest. `dryRun: true` is the HITL preview: it returns `{ repos, starter, skipped }` where
   `starter` is the exact `playbookStarterFile` bytes that would be committed, after the same
-  admin / tenancy / cap gates, and it returns before `requirePrWriteContext` so no installation
+  admin / tenancy / cap gates, and it returns before `requirePrWriteTarget` so no installation
   token is minted and `applyPlaybookToRepo` is never called. The write path is unchanged when
   `dryRun` is absent or false. UI: `PlaybookApplyBatch.tsx`, behind the same `batchPrConfirm`
   dialog the practices rollout uses; the single-repo and batch paths are mutually locked. The
