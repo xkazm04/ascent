@@ -8,6 +8,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { canonicalRepoFullName, DEFAULT_ORG_SLUG, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 import { findOrphanedTracked, type TrackedRecIdentity } from "@/lib/report/recommendation-identity";
 import { withAuditSignature } from "@/lib/db/audit-integrity";
+import { recommendationDecisionKey } from "@/lib/report/rec-identity";
 
 /** Parse a YYYY-MM-DD (or ISO) string to a Date, or null for empty/invalid input. */
 function parseDateInput(v?: string | null): Date | null {
@@ -395,6 +396,66 @@ export async function getOrphanedTrackedRecommendations(
   return findOrphanedTracked(previous.recommendations.map(shape), latest.recommendations.map(shape)).map(
     (o) => ({ ...o, fromScanId: previous.id }),
   );
+}
+
+// ── Sandbox reconciliation onto the timeline (backlog develop-2026-09-17 row 34) ─────────────────
+
+/** A gap somebody is (or was) working: `open` was never picked up and `dismissed` was retired. */
+const TRACKED_REC_STATUSES = ["in_progress", "done"];
+
+export interface ScenarioReconciliationInput {
+  repoFullName: string;
+  /** The scan the actual was read from. Its rows are the ones the tracker shows now. */
+  afterScanId: string;
+  /** The modeled scan's id, or its baseline instant when retention has since removed that scan. */
+  beforeScanKey: string;
+  /** The scenario's selected `recommendationDecisionKey` identities. */
+  itemKeys: string[];
+  /** The scenario's author ("" when anonymous): two authors' plans are two reconciliations. */
+  author: string;
+  note: string;
+}
+
+/**
+ * The event's primary key IS its identity: (rec, before scan, after scan, author). That makes the
+ * write idempotent in the database rather than in a read-then-insert this read path would race on
+ * every render: `createMany({ skipDuplicates })` is one `ON CONFLICT DO NOTHING`.
+ */
+export function scenarioReconciliationEventId(recId: string, input: ScenarioReconciliationInput): string {
+  return `sandbox-recon:${recId}:${input.beforeScanKey}:${input.afterScanId}:${input.author}`;
+}
+
+/**
+ * Write the sandbox's projected-vs-actual onto the timeline of every still-tracked recommendation the
+ * scenario selected, as a system `note` whose from/to name the two scans it compares. Before this the
+ * reconciliation reached only the saved-plan bar and the intervention ledger, so each committed rec's
+ * trail ended at "Committed from sandbox simulation" and the tracker could not say whether the plan
+ * came true. Returns how many notes are new (0 on a re-read). No audit row, like the other system
+ * notes the rescan carry-forward writes: this records a measurement, not a member's change.
+ */
+export async function recordScenarioReconciliation(input: ScenarioReconciliationInput): Promise<number> {
+  if (!isDbConfigured() || input.itemKeys.length === 0) return 0;
+  const prisma = getPrisma();
+  const wanted = new Set(input.itemKeys);
+  const recs = await prisma.recommendation.findMany({
+    where: { scanId: input.afterScanId, status: { in: TRACKED_REC_STATUSES } },
+    select: { id: true, dimId: true, title: true },
+  });
+  const hits = recs.filter((r) => wanted.has(recommendationDecisionKey(input.repoFullName, r.dimId, r.title)));
+  if (hits.length === 0) return 0;
+  const res = await prisma.recommendationEvent.createMany({
+    data: hits.map((r) => ({
+      id: scenarioReconciliationEventId(r.id, input),
+      recommendationId: r.id,
+      actor: null,
+      kind: "note",
+      fromValue: input.beforeScanKey,
+      toValue: input.afterScanId,
+      note: input.note,
+    })),
+    skipDuplicates: true,
+  });
+  return res.count;
 }
 
 /**

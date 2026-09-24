@@ -9,6 +9,7 @@ import type { SandboxScenarioRecord } from "@/lib/db/sandbox-scenario";
 import type { ScenarioSaveState } from "@/components/report/RoadmapSandboxScenario";
 import { Kicker } from "@/components/ui";
 import { DeltaTag } from "@/components/report/deltas";
+import { notComparableReason, scenarioVerdict } from "@/lib/report/scenario-verdict";
 
 const dateLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -20,8 +21,22 @@ const dateLabel = (iso: string) => new Date(iso).toLocaleDateString(undefined, {
 function ScenarioOutcome({ scenario }: { scenario: SandboxScenarioRecord }) {
   const { projected, actual } = scenario;
   if (!actual) return null;
-  const gap = actual.delta - projected.delta;
-  const behind = Math.abs(gap);
+  const verdict = scenarioVerdict(projected.delta, actual);
+  const scanned = `(scanned ${dateLabel(actual.scannedAt)})`;
+  // Across a rubric change the two deltas are on two scales: no actual figure, no "short"/"ahead".
+  if (verdict.kind === "not_comparable") {
+    return (
+      <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 type-body-sm text-slate-400">
+        <span className="text-slate-300">Since you modeled this:</span>
+        <span className="inline-flex items-center gap-1">
+          projected <DeltaTag delta={projected.delta} />
+        </span>
+        <span className="text-slate-500">
+          , actual not comparable: {notComparableReason(verdict)} {scanned}.
+        </span>
+      </p>
+    );
+  }
   return (
     <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 type-body-sm text-slate-400">
       <span className="text-slate-300">Since you modeled this:</span>
@@ -35,11 +50,11 @@ function ScenarioOutcome({ scenario }: { scenario: SandboxScenarioRecord }) {
         actual <DeltaTag delta={actual.delta} />
       </span>
       <span className="text-slate-500">
-        {gap === 0
-          ? `, exactly as modeled (scanned ${dateLabel(actual.scannedAt)}).`
-          : gap > 0
-            ? `, ${gap} pt${gap === 1 ? "" : "s"} ahead of the model (scanned ${dateLabel(actual.scannedAt)}).`
-            : `, ${behind} pt${behind === 1 ? "" : "s"} short so far (scanned ${dateLabel(actual.scannedAt)}).`}
+        {verdict.kind === "exact"
+          ? `, exactly as modeled ${scanned}.`
+          : verdict.kind === "ahead"
+            ? `, ${verdict.gap} pt${verdict.gap === 1 ? "" : "s"} ahead of the model ${scanned}.`
+            : `, ${verdict.gap} pt${verdict.gap === 1 ? "" : "s"} short so far ${scanned}.`}
       </span>
     </p>
   );

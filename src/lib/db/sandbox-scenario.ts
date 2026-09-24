@@ -12,7 +12,10 @@
 
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { recordOutcomeForScanPair, scenarioBookends, scenarioIdentityKey } from "@/lib/db/outcomes";
+import { recordScenarioReconciliation } from "@/lib/db/scans-recommendations";
 import { canonicalRepoFullName, resolveOrgId } from "@/lib/db/scans-shared";
+import { sameRuler } from "@/lib/maturity/attribution";
+import { scenarioReconciliationNote, type ScenarioRuler } from "@/lib/report/scenario-verdict";
 import type { DimensionId } from "@/lib/types";
 
 /** The saved model, as the sandbox reads it back. */
@@ -30,9 +33,11 @@ export interface SandboxScenarioRecord {
    * Projected-vs-actual, present ONLY once a scan NEWER than the one the scenario was modeled on has
    * landed. `delta` is the real movement over the same baseline the projection used, so the two
    * numbers are directly comparable — which is the whole reason the baseline is stored rather than
-   * inferred from "current" at read time.
+   * inferred from "current" at read time. `ruler` names the rubric each end was scored under: when
+   * it is not provably the same, the two deltas are on two scales and the surfaces say "not
+   * comparable" instead of a miss or a win (src/lib/report/scenario-verdict.ts).
    */
-  actual: { score: number; level: string; scannedAt: string; delta: number } | null;
+  actual: { score: number; level: string; scannedAt: string; delta: number; ruler: ScenarioRuler } | null;
 }
 
 export interface SandboxScenarioInput {
@@ -100,38 +105,89 @@ function parseKeys(json: string): string[] {
   }
 }
 
+/** The measured half plus the two scans it came from (server-only: the ids never reach the wire). */
+interface Reconciliation {
+  actual: NonNullable<SandboxScenarioRecord["actual"]>;
+  /** The modeled scan: the latest at-or-before the baseline instant. Null once retention removed it. */
+  beforeScanId: string | null;
+  afterScanId: string;
+}
+
+const LATEST_FIRST = [{ scannedAt: "desc" as const }, { createdAt: "desc" as const }, { id: "desc" as const }];
+
 /**
  * The reconciliation half: the repo's latest scan, IF it postdates the scan the scenario was modeled
  * on. Returns null while the scenario is still describing the current scan — there is nothing to
  * reconcile yet, and reporting "actual +0" against the very scan you modeled would be a lie dressed as
- * a measurement.
+ * a measurement. It also reads the RULER both ends were scored under: across a rubric change the two
+ * deltas are on two scales, and the verdict (src/lib/report/scenario-verdict.ts) says so.
  */
-async function actualSince(
+async function reconcile(
   orgId: string,
   fullName: string,
   baselineScanAt: Date,
   baselineScore: number,
-): Promise<SandboxScenarioRecord["actual"]> {
+): Promise<Reconciliation | null> {
   const prisma = getPrisma();
   const repo = await prisma.repository.findUnique({
     where: { orgId_fullName: { orgId, fullName } },
     select: { id: true },
   });
   if (!repo) return null;
-  const scan = await prisma.scan.findFirst({
-    where: { repoId: repo.id, scannedAt: { gt: baselineScanAt } },
-    // Same deterministic "latest first" ordering the rest of the read layer uses: scannedAt is not
-    // unique, so a bare desc can resolve a tie to an arbitrary row.
-    orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
-    select: { overallScore: true, level: true, scannedAt: true },
-  });
+  const [scan, modeled] = await Promise.all([
+    prisma.scan.findFirst({
+      where: { repoId: repo.id, scannedAt: { gt: baselineScanAt } },
+      // Same deterministic "latest first" ordering the rest of the read layer uses: scannedAt is not
+      // unique, so a bare desc can resolve a tie to an arbitrary row.
+      orderBy: LATEST_FIRST,
+      select: { id: true, overallScore: true, level: true, scannedAt: true, rubricVersion: true },
+    }),
+    prisma.scan.findFirst({
+      where: { repoId: repo.id, scannedAt: { lte: baselineScanAt } },
+      orderBy: LATEST_FIRST,
+      select: { id: true, rubricVersion: true },
+    }),
+  ]);
   if (!scan) return null;
+  const before = modeled?.rubricVersion ?? null;
+  const after = scan.rubricVersion ?? null;
   return {
-    score: scan.overallScore,
-    level: scan.level,
-    scannedAt: scan.scannedAt.toISOString(),
-    delta: scan.overallScore - baselineScore,
+    actual: {
+      score: scan.overallScore,
+      level: scan.level,
+      scannedAt: scan.scannedAt.toISOString(),
+      delta: scan.overallScore - baselineScore,
+      ruler: { before, after, same: sameRuler(before, after) },
+    },
+    beforeScanId: modeled?.id ?? null,
+    afterScanId: scan.id,
   };
+}
+
+/**
+ * Put the verdict where the team tracks the work: one note on each still-tracked recommendation the
+ * scenario selected (backlog develop-2026-09-17 row 34). Awaited rather than fire-and-forget so a
+ * serverless freeze after the response cannot drop it; idempotent in the database, so the re-reads
+ * this read path sees on every open add nothing. Never throws into the read.
+ */
+async function reconcileOntoTimeline(row: Row, rec: Reconciliation): Promise<void> {
+  try {
+    await recordScenarioReconciliation({
+      repoFullName: row.repoFullName,
+      afterScanId: rec.afterScanId,
+      beforeScanKey: rec.beforeScanId ?? row.baselineScanAt.toISOString(),
+      itemKeys: parseKeys(row.itemKeysJson),
+      author: row.authorLogin,
+      note: scenarioReconciliationNote({
+        author: row.authorLogin,
+        projectedDelta: row.projectedDelta,
+        baselineScannedAt: row.baselineScanAt.toISOString(),
+        actual: rec.actual,
+      }),
+    });
+  } catch {
+    // The timeline note is a record of the plan, never a reason for the sandbox to lose it.
+  }
 }
 
 function toRecord(row: Row, actual: SandboxScenarioRecord["actual"]): SandboxScenarioRecord {
@@ -174,9 +230,8 @@ export async function getSandboxScenario(
       select: SELECT,
     });
     if (!row) return null;
-    const actual = await actualSince(orgId, repoFullName, row.baselineScanAt, row.baselineScore).catch(
-      () => null,
-    );
+    const rec = await reconcile(orgId, repoFullName, row.baselineScanAt, row.baselineScore).catch(() => null);
+    const actual = rec?.actual ?? null;
     // A resolved `actual` IS a measured before/after pair — the fourth loop feeding the intervention
     // outcome ledger (moonshot #9). Mirrored as `kind: "scenario"` with a NULL dimId, because a
     // scenario models the whole scan rather than one dimension, and a null there is the honest
@@ -184,8 +239,9 @@ export async function getSandboxScenario(
     // write is an upsert on the pair identity so re-reads add nothing, and the ledger must never be
     // able to fail the report tab. `actualSince` is untouched — the ledger resolves the two scan IDS
     // itself, since it additionally needs the instrument both sides were scored under.
-    if (actual) {
+    if (rec) {
       void mirrorScenarioOutcome(orgId, repoFullName, row.baselineScanAt, row.itemKeysJson, row.updatedAt);
+      await reconcileOntoTimeline(row, rec);
     }
     return toRecord(row, actual);
   }, null);
@@ -259,10 +315,8 @@ export async function saveSandboxScenario(
     create: { orgId, repoFullName, authorLogin: authorLogin ?? "", ...data },
     select: SELECT,
   });
-  const actual = await actualSince(orgId, repoFullName, row.baselineScanAt, row.baselineScore).catch(
-    () => null,
-  );
-  return toRecord(row, actual);
+  const rec = await reconcile(orgId, repoFullName, row.baselineScanAt, row.baselineScore).catch(() => null);
+  return toRecord(row, rec?.actual ?? null);
 }
 
 /** Discard this author's scenario for this repo. Idempotent — deleting nothing is a success. */

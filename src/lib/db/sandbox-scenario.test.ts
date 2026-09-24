@@ -89,7 +89,11 @@ function fakePrisma(opts: {
       },
       repository: { findUnique: vi.fn(async () => (opts.repo === undefined ? { id: "repo_1" } : opts.repo)) },
       scan: {
-        findFirst: vi.fn(async (args: Record<string, unknown>) => {
+        // Two reads: the NEXT scan (`gt`, recorded) and the MODELED scan (`lte`, for its rubric),
+        // which this fake does not carry, so the ruler reads as unrecorded here. The ruler has its
+        // own suite: sandbox-scenario.timeline.test.ts.
+        findFirst: vi.fn(async (args: { where: { scannedAt: { gt?: Date; lte?: Date } } }) => {
+          if (args.where.scannedAt.lte) return null;
           calls.scanFindFirst.push(args);
           return opts.nextScan ?? null;
         }),
@@ -158,6 +162,7 @@ describe("getSandboxScenario", () => {
       level: "L3",
       scannedAt: "2026-07-01T00:00:00.000Z",
       delta: 7,
+      ruler: { before: null, after: null, same: null },
     });
   });
 
