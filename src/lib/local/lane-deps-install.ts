@@ -106,7 +106,14 @@ export async function installChangedDependencies(input: DepsInstallInput, overri
     return { changed: true, ok: false, manager, note: `${why}${HELD_SUFFIX}` };
   };
 
-  if (!(await runGit(dir, ["check-ignore", "-q", "--", `${ENGINE_INSTALL_DIR}/`])).ok) {
+  // NO TRAILING SLASH here, unlike `worktree-deps.ts`'s pre-link check: by this point
+  // `isLinkedWorktree` has already proven `ENGINE_INSTALL_DIR` exists as the dependency SYMLINK, and
+  // git's directory-only pattern match (`name/`) refuses to answer for a path "beyond a symbolic
+  // link" — on Linux/macOS this is a fatal `check-ignore` error (exit 128, not just "not ignored"),
+  // so the install was held on every run there (measured: git 2.45, Alpine). The bare form is exactly
+  // what `linkDependencyDirs`/`ensureIgnoredAsFile` already proved ignorable — as a file/symlink, not
+  // just as a directory — before this link was ever created.
+  if (!(await runGit(dir, ["check-ignore", "-q", "--", ENGINE_INSTALL_DIR])).ok) {
     return held(
       `Held: this repository does not ignore ${ENGINE_INSTALL_DIR}/, so installing the changed manifest's dependencies would put the whole dependency tree into the lane's commit.`,
     );
