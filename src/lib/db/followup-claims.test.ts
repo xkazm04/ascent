@@ -354,3 +354,62 @@ describe("holder identity is the token id, not the token name", () => {
     expect((await heldFollowups("acme", ["rec-1"], B, "agent:deploy")).map((h) => h.id)).toEqual([]);
   });
 });
+
+describe("the browser hand-off shape — executor human, no lease, whole-request tenancy", () => {
+  const handoff = (ids: string[]) =>
+    claimFollowups({ org: "acme", ids, actor: "alice", executor: "human", leaseMs: null, note: "Handed off", allOrNothingTenancy: true });
+
+  it("guard: writes the claim columns — the viewer holds it, as a human, on no lease the sweep can reclaim", async () => {
+    const res = await handoff(["rec-1"]);
+    expect(res!.claimed).toEqual([
+      { id: "rec-1", repo: "acme/api", title: rows[0]!.title, claimActor: "alice", claimExecutor: "human", leaseUntil: null, needsHuman: false },
+    ]);
+    expect(rows[0]).toMatchObject({ status: "in_progress", claimActor: "alice", claimExecutor: "human", leaseUntil: null });
+    expect(events[0]!.note).toContain("executor human; no lease");
+    expect(await sweepExpiredLeases("acme", new Date(Date.now() + 365 * 86_400_000))).toBe(0);
+    expect(rows[0]!.status).toBe("in_progress");
+  });
+
+  it("one foreign id refuses the WHOLE batch before anything is claimed, swept, evented or audited", async () => {
+    rows.push(row({ id: "rec-other", orgId: "org-other" }));
+    rows.push(row({ id: "rec-lapsed", status: "in_progress", claimActor: "agent:dead", claimExecutor: "remote-agent", leaseUntil: new Date(Date.now() - 60_000) }));
+    const res = await handoff(["rec-1", "rec-other"]);
+    expect(res).toEqual({
+      claimed: [],
+      refused: [
+        { id: "rec-1", reason: "unknown" },
+        { id: "rec-other", reason: "unknown" },
+      ],
+    });
+    expect(rows.find((r) => r.id === "rec-1")).toMatchObject({ status: "open", claimActor: null });
+    expect(rows.find((r) => r.id === "rec-lapsed")!.status).toBe("in_progress");
+    expect(events).toEqual([]);
+    expect(audits).toEqual([]);
+  });
+
+  it("an id that does not exist refuses the whole batch the same way a foreign one does", async () => {
+    const res = await handoff(["rec-1", "rec-nope"]);
+    expect(res!.claimed).toEqual([]);
+    expect(res!.refused.map((r) => r.reason)).toEqual(["unknown", "unknown"]);
+    expect(rows[0]!.status).toBe("open");
+  });
+
+  it("guard: without the flag a machine claim still answers per id and works the ids it owns", async () => {
+    rows.push(row({ id: "rec-other", orgId: "org-other" }));
+    const res = await claimFollowups({ org: "acme", ids: ["rec-1", "rec-other"], actor: "agent:ci", executor: "remote-agent", leaseMs: 60_000, note: "n" });
+    expect(res!.claimed.map((c) => c.id)).toEqual(["rec-1"]);
+    expect(res!.refused).toEqual([{ id: "rec-other", reason: "unknown" }]);
+  });
+
+  it("guard: an already-handed-off row is `held` and a closed one `not-open`, and neither is re-marked", async () => {
+    rows = [row({ id: "rec-held", status: "in_progress", claimActor: "bob", claimExecutor: "human" }), row({ id: "rec-done", status: "done" })];
+    const res = await handoff(["rec-held", "rec-done"]);
+    expect(res!.claimed).toEqual([]);
+    expect(res!.refused).toEqual([
+      { id: "rec-held", reason: "held" },
+      { id: "rec-done", reason: "not-open" },
+    ]);
+    expect(rows[0]!.claimActor).toBe("bob");
+    expect(events).toEqual([]);
+  });
+});

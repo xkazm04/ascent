@@ -11,6 +11,12 @@
 // `0` lost. THE DATABASE DECIDES. Not a mutex, not an ordering convention, not a lock the next
 // caller might forget to take.
 //
+// The browser hand-off (`POST /api/org/followups/handoff`) is a caller like any other: executor
+// `human`, `leaseMs: null` (the unleased claim the sweep never reclaims), `claimActor` the viewer's
+// login, and `allOrNothingTenancy` for its whole-request 403. Until 2026-09-24 it still called
+// `handoffRecommendations`, which moved the status and wrote no claim column, so the ledger could
+// not say who had taken a row handed off from the browser.
+//
 // A CLAIM IS A STATE OF THE ROW IT CLAIMS. There is deliberately no `FollowupClaim` side table: a
 // second place to ask "who holds this" is precisely the race this module exists to prevent, and it
 // would need its own retention rule, its own erase cascade and its own reconciliation with the row.
@@ -163,6 +169,13 @@ export interface ClaimFollowupsInput {
   note: string;
   /** The token that authorized a machine claim, for the audit row. Null for a local/human claim. */
   tokenId?: string | null;
+  /**
+   * WHOLE-REQUEST TENANCY. When true, one id this org does not own refuses the ENTIRE batch before
+   * any row is touched: every id comes back `unknown` and nothing is claimed, swept or audited. The
+   * browser hand-off's contract (a partial success beside a refusal would tell the caller which of
+   * its ids exist). Off by default: a machine claim answers per id, and `unknown` is already opaque.
+   */
+  allOrNothingTenancy?: boolean;
 }
 
 export interface ClaimFollowupsResult {
@@ -186,20 +199,24 @@ export async function claimFollowups(input: ClaimFollowupsInput): Promise<ClaimF
   const ids = [...new Set(input.ids)];
   if (ids.length === 0) return { claimed: [], refused: [] };
 
+  // ONE org-scoped batch read for ownership. An id this org does not own is answered `unknown`, the
+  // same word an id that does not exist gets — no existence oracle across tenants. Read BEFORE the
+  // sweep so a whole-request refusal below leaves the org exactly as it found it.
+  const owned = await prisma.recommendation.findMany({
+    where: { id: { in: ids }, scan: { repo: { orgId: org.id } } },
+    select: { id: true },
+  });
+  const ownedIds = new Set(owned.map((r) => r.id));
+  if (input.allOrNothingTenancy && ids.some((id) => !ownedIds.has(id))) {
+    return { claimed: [], refused: ids.map((id) => ({ id, reason: "unknown" as const })) };
+  }
+
   // Reclaim what lapsed BEFORE deciding what is available. Without this a crashed agent's rows stay
   // invisible until something else happens to sweep, which is the zombie the loop already knows.
   await sweepExpiredLeases(input.org).catch(() => 0);
 
   const now = new Date();
   const leaseUntil = input.leaseMs == null ? null : new Date(now.getTime() + input.leaseMs);
-
-  // ONE org-scoped batch read for ownership. An id this org does not own is answered `unknown`, the
-  // same word an id that does not exist gets — no existence oracle across tenants.
-  const owned = await prisma.recommendation.findMany({
-    where: { id: { in: ids }, scan: { repo: { orgId: org.id } } },
-    select: { id: true },
-  });
-  const ownedIds = new Set(owned.map((r) => r.id));
 
   const claimed: FollowupClaimRow[] = [];
   const refused: { id: string; reason: ClaimRefusal }[] = [];
