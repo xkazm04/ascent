@@ -481,11 +481,24 @@ still one week. Below either, the panel renders the reason instead of an ETA + c
 `deriveTrendAnnotations` (`src/app/trends/annotations.ts`) derives markers from the scan series
 already on hand: maturity-band crossings (promotion / demotion) and regressions at the same
 `DEFAULT_THRESHOLDS.overallDrop` the alerting path uses, expressed as `TrendAnnotation { at, kind, label,
-detail, delta, sha, commitSha }`, rendered as a dated "Events on this timeline" strip. Deploy/release
-markers are deliberately not invented (no deploy feed is ingested yet); such a feed maps onto the
-same shape. In-chart vertical rules are the pending step, positioned by matching `at` against a
-point's timestamp, never by array index, since the chart slices by range and the annotation list
-does not.
+detail, delta, sha, commitSha }`, rendered as a dated "Events on this timeline" strip and as
+in-chart vertical rules on the overall chart and each `DimLine`. Markers are positioned by matching
+`at` against a point's timestamp, never by array index, since the chart slices by range and the
+annotation list does not.
+
+**Deploy markers** (kind `deploy`) come from persisted `Deployment` rows (the W4 GitHub Deployments
+ingest), never from "a scan happened". `getRepositoryDeployments` (`src/lib/db/repo-deployments.ts`)
+reads one repo's rows under the same org the page read its history under: the repo is resolved in
+that org by canonical full name, a private repo under the shared public org is refused exactly as
+`getRepositoryHistory` refuses it, and rows are filtered by repo id and org id (newest-first, capped
+at 500). `deriveDeployAnnotations` (`src/app/trends/deployAnnotations.ts`) pins each deployment to
+the scan whose `headSha` it shipped, else to the first scan after it. A deployment before the
+baseline scan, after the newest scan, or inside a compacted period is not placed. Each scan gets at
+most one deploy marker folding its deployments (`deploys: { count, failed, environments }`), labelled
+by the deployment's own status and worded "Deployment status, not incidents"; `failure` and `error`
+count as failed and tone the marker red. The overall `TrendChart` draws them as a glyph along the
+plot floor, so a deploy never stacks on a score event's chip; `DimLine` does not receive them. No
+rows means no markers.
 
 ### Export CSV
 
@@ -1365,6 +1378,8 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/features/standing/passports/autonomy/promotionPlanModel.ts` | The fleet promotion plan: per autonomy transition, conditions by sole-blocker count then incidence, ties by id; tokenless and held-CI repos in an unassessable bucket, placeholder repos labelled. |
 | `src/features/standing/passports/autonomy/PromotionPlan.tsx` | Renders the plan above the clearance register; a row click filters the register to the repos carrying that condition. |
 | `src/lib/report/scenario-verdict.ts` | The sandbox's projected-vs-actual verdict (not comparable across a rubric change) and the timeline reconciliation note, shared by the saved-plan bar and `sandbox-scenario.ts`. |
+| `src/app/trends/deployAnnotations.ts` | Pins persisted deployments onto scans as `deploy` markers (sha equality, else the first scan after). |
+| `src/lib/db/repo-deployments.ts` | One repo's `Deployment` rows for /trends, under the history reader's org scope and private-repo refusal. |
 
 ## Failure states on the report page (2026-09-05)
 
