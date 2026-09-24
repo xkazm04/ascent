@@ -70,6 +70,7 @@ import type {
 import type { OrgBranding } from "@/lib/db/branding";
 import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
 import type { MentorShareRow } from "@/lib/db/mentor-share";
+import type { ProviderConnectionRow } from "@/lib/db/provider-credentials";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import type { ConformanceMapRow, ConformanceRow } from "@/lib/db/org-registry-conformance";
 import type { KnowledgeSubjectRow } from "@/lib/db/org-registry-subjects";
@@ -282,5 +283,8 @@ export const WIRE_TYPES = {
   // C3 (backlog row 46): GET /api/me/mentor/share returns it. `sharedAt` is the ISO string the reader
   // maps; the nested share's move and journal dates are ISO strings by contract (care-share-contract).
   MentorShareRow: true satisfies WireSafe<MentorShareRow>,
+  // Backlog row 47: GET/PUT /api/integrations/openai return it and OpenAISetup holds it. Every
+  // timestamp (lastSyncAt/From/Through, updatedAt) is the ISO string toRow() maps; no key field.
+  ProviderConnectionRow: true satisfies WireSafe<ProviderConnectionRow>,
 } as const;
 
