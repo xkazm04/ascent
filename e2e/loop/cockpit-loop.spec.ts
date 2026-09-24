@@ -76,6 +76,13 @@ async function selectFixture(page: Page) {
 
 /** Pin Cycles=1, haiku, low via the masthead setup dialog so cycle 2 cannot start an agent session. */
 async function armBoundedFoundationRun(page: Page) {
+  // A fresh, non-demo org's onboarding is unstamped, so the guided-setup drawer (TourChecklist) opens
+  // itself (`companion` posture) and its `fixed right-0 top-1/2` panel can sit over the masthead's
+  // gear icon — measured on CI (chromium): the click on `cockpit-setup-gear` timed out because the
+  // drawer header's "Guidance channel" mode switch intercepted the pointer event. Collapse it first,
+  // the way a real member would, rather than fighting the overlay.
+  const hideGuidedSetup = page.getByRole("button", { name: "Hide guided setup" });
+  if (await hideGuidedSetup.isVisible().catch(() => false)) await hideGuidedSetup.click();
   await page.getByTestId("cockpit-setup-gear").click();
   const setup = page.getByRole("dialog", { name: "Run setup" });
   await expect(setup).toBeVisible();
