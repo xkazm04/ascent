@@ -2850,10 +2850,11 @@
           "changedAt": "2026-08-22",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "Silent per-tab resume (useOnboardingFlow.ts:182-189) over server-side commit effects: a mid-scan refresh lands on 'select' with no re-attach, inviting a second import POST.",
-          "evaluatedAt": "2026-08-23",
+          "evidence": "Refresh re-attach now works (src/components/onboarding/useOnboardingFlow.ts:194), but src/components/onboarding/useOnboardingFlow.ts:241 keeps the run pointer (runId) only in tab-scoped sessionStorage while the import outlives the tab (src/components/onboarding/useImportReattach.ts:6): a closed tab or second device reopens /onboarding on pick with no trace of the running run (src/app/api/org/import/route.ts:382 claim guard stops a double charge, not the lost pointer); and src/components/onboarding/OnboardingFlow.run.ts:182 decodes an unreadable snapshot as no snapshot, the silent fresh start snapshot-and-resume forbids.",
+          "evaluatedAt": "2026-09-24",
           "evaluatedAgainst": "sha256:27176b11b1406a6a",
-          "source": "retained"
+          "source": "retained",
+          "evaluatedRevision": 4
         },
         {
           "subject": "mcp-tools",

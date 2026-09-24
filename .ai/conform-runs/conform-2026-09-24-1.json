@@ -1,0 +1,37 @@
+{
+  "schema": "rkb-run-result/1",
+  "run_id": "conform-2026-09-24-1",
+  "skill": "conform",
+  "skill_version": "1.8.2",
+  "mode": "named",
+  "domain": null,
+  "started_at": "2026-09-24T07:48:04Z",
+  "ended_at": "2026-09-24T08:07:51Z",
+  "exit": 0,
+  "counts": {
+    "dispatched": 0,
+    "landed": 1,
+    "declined": 0,
+    "idled": 0,
+    "contended": 0
+  },
+  "subjects": [
+    {
+      "id": "wizard-flows",
+      "at": "2026-09-24",
+      "engine": "conform",
+      "outcome": "landed",
+      "points_before": null,
+      "points_after": null
+    }
+  ],
+  "verdicts": [],
+  "files": [
+    ".ai/registry-map.json"
+  ],
+  "commits": [],
+  "pr": null,
+  "declined": [],
+  "failure_signature": null,
+  "notes": "Re-judged First-Run Onboarding Wizard / wizard-flows: the 2026-08-23 refresh-reattach deviation is fixed; the pair stays deviation on new evidence (tab-scoped run pointer, silent fresh start on an unreadable snapshot)."
+}
