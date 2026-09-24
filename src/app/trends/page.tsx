@@ -6,6 +6,8 @@ import { TrajectoryPanel } from "@/app/trends/TrajectoryPanel";
 import { ExportCsvButton } from "@/app/trends/ExportCsvButton";
 import { TimelineAnnotations } from "@/app/trends/TimelineAnnotations";
 import { deriveTrendAnnotations } from "@/app/trends/annotations";
+import { deriveDeployAnnotations, mergeTimelineEvents } from "@/app/trends/deployAnnotations";
+import { getRepositoryDeployments } from "@/lib/db/repo-deployments";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
 import { HISTORY_SCAN_CAP, historyCapNote } from "@/lib/history/limits";
@@ -127,6 +129,17 @@ export default async function TrendsPage({
   const forecast = fitTrendForecast(history.scans);
   // Timeline events (band crossings + threshold regressions) derived from the same series.
   const annotations = deriveTrendAnnotations(history.scans);
+  // Deploy markers from persisted Deployment rows, read under the SAME org the history was read
+  // under: the reader re-applies the history reader's private-repo refusal on its own, so a private
+  // repo's deployments never reach this public-capable page. Bounded below by the oldest real scan,
+  // the earliest window a deploy can be pinned into.
+  const oldestReal = history.scans.filter((s) => !s.compacted).at(-1);
+  const deployments = await getRepositoryDeployments(parsed.owner, parsed.repo, {
+    orgSlug,
+    since: oldestReal?.scannedAt ?? null,
+  });
+  const deployMarkers = deriveDeployAnnotations(history.scans, deployments);
+  const timelineEvents = mergeTimelineEvents(annotations, deployMarkers);
   const capNote = historyCapNote(history.scans.length);
 
   return (
@@ -178,8 +191,8 @@ export default async function TrendsPage({
         </div>
 
         <div className="mt-8">
-          <DimensionTrends history={history} annotations={annotations} />
-          <TimelineAnnotations annotations={annotations} repoFullName={history.repo.fullName} />
+          <DimensionTrends history={history} annotations={annotations} deployMarkers={deployMarkers} />
+          <TimelineAnnotations annotations={timelineEvents} repoFullName={history.repo.fullName} />
         </div>
       </div>
     </Shell>

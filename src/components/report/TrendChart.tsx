@@ -7,6 +7,7 @@
 import { useId } from "react";
 import { useRouter } from "next/navigation";
 import type { TrendAnnotation } from "@/app/trends/annotations";
+import { deployColor } from "@/app/trends/deployTone";
 import { scoreHex } from "@/lib/ui";
 import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { BAND_EDGES, CHART_INK, levelBandRects, vScale, xScale } from "@/components/report/chartScale";
@@ -137,23 +138,33 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
             `points` while the annotation list is derived from the full history. An annotation whose
             scan is outside the visible slice simply doesn't render; it is never clamped to an edge,
             which would plant a marker on a scan it doesn't describe. */}
-        {annotationMarks.map(({ ann, i }) => (
-          <g key={ann.scanId}>
-            <line
-              x1={xFor(i)}
-              x2={xFor(i)}
-              y1={m.top}
-              y2={m.top + innerH}
-              stroke="var(--color-divider)"
-              strokeWidth={1}
-              strokeDasharray="2 4"
-            />
-            <text x={xFor(i)} y={m.top - 5} textAnchor="middle" fontSize={8} className="fill-slate-500">
-              {ann.label}
-              <title>{ann.detail}</title>
-            </text>
-          </g>
-        ))}
+        {/* A deploy marker is its own mark: a toned glyph along the plot floor (red when a deployment
+            in its window failed), so it never stacks its chip on a score event's label at the top. */}
+        {annotationMarks.map(({ ann, i }) =>
+          ann.kind === "deploy" ? (
+            <g key={`deploy:${ann.scanId}`} data-deploy-marker={ann.scanId}>
+              <text x={xFor(i)} y={m.top + innerH - 4} textAnchor="middle" fontSize={9} fill={deployColor(ann.deploys)}>
+                ◆<title>{ann.detail}</title>
+              </text>
+            </g>
+          ) : (
+            <g key={`${ann.kind}:${ann.scanId}`}>
+              <line
+                x1={xFor(i)}
+                x2={xFor(i)}
+                y1={m.top}
+                y2={m.top + innerH}
+                stroke="var(--color-divider)"
+                strokeWidth={1}
+                strokeDasharray="2 4"
+              />
+              <text x={xFor(i)} y={m.top - 5} textAnchor="middle" fontSize={8} className="fill-slate-500">
+                {ann.label}
+                <title>{ann.detail}</title>
+              </text>
+            </g>
+          ),
+        )}
         {/* crosshair at the hovered scan */}
         {a !== null && (
           <line x1={xFor(a)} x2={xFor(a)} y1={m.top} y2={m.top + innerH} stroke={CHART_INK.crosshair} strokeWidth={1} strokeDasharray="3 3" />

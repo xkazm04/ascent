@@ -154,4 +154,22 @@ describe("DimensionTrends forwards annotations onto DimLine", () => {
     render(<DimensionTrends history={historyWithDims()} annotations={[outside]} />);
     expect(screen.queryByText("L3 → L4")).not.toBeInTheDocument();
   });
+
+  it("puts deploy markers on the overall chart only: a deploy is a repo event, not a dimension's", () => {
+    const deploy: TrendAnnotation = {
+      ...PROMOTION,
+      kind: "deploy",
+      label: "deploy",
+      detail: "Deployment status, not incidents: 1 deployment.",
+      deploys: { count: 1, failed: 0, environments: ["production"] },
+    };
+    const { container } = render(
+      <DimensionTrends history={historyWithDims()} annotations={[PROMOTION]} deployMarkers={[deploy]} />,
+    );
+    const overall = screen.getByRole("img", { name: /overall score over time/i });
+    const dim = screen.getByRole("img", { name: /AI Tooling & Conventions score trend/i });
+    expect(overall.querySelectorAll("[data-deploy-marker]")).toHaveLength(1);
+    expect(dim.querySelectorAll("[data-deploy-marker]")).toHaveLength(0);
+    expect(container.querySelectorAll("[data-deploy-marker]")).toHaveLength(1);
+  });
 });

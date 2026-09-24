@@ -9,17 +9,16 @@
 //                        previous scan, the SAME threshold the alerting path uses to call something a
 //                        regression, so the chart and the alert email never disagree about what counts
 //
-// DEPLOY / RELEASE MARKERS: intentionally not invented here. Ascent ingests no deploy or release feed
-// yet, and a marker derived from "a scan happened" is not a deploy. When such a feed lands, it maps
-// onto this same `TrendAnnotation` shape (`at` + `kind` + labels) and everything downstream — this
-// module's consumers and the chart's rendering contract — keeps working unchanged.
+// DEPLOY MARKERS (kind "deploy") are NOT derived here: they come from persisted `Deployment` rows
+// (the W4 GitHub Deployments ingest), pinned onto this same shape by `deployAnnotations.ts`. A
+// marker derived from "a scan happened" is still never a deploy; only a stored deployment is.
 //
 // PURE + no React: safe to import from a server component, a client chart, or a test.
 
 import { DEFAULT_THRESHOLDS } from "@/lib/alerts";
 import type { HistoryPoint } from "@/lib/db/scans";
 
-export type TrendAnnotationKind = "promotion" | "demotion" | "regression";
+export type TrendAnnotationKind = "promotion" | "demotion" | "regression" | "deploy";
 
 /**
  * One marker pinned to a point on the trend timeline.
@@ -47,6 +46,9 @@ export interface TrendAnnotation {
   /** FULL commit sha — what `reportPermalink` / `githubCommitUrl` must be given; a truncated sha
    *  would build a permalink that resolves to nothing. Null when the scan recorded no commit. */
   commitSha: string | null;
+  /** Kind "deploy" only: the persisted deployments folded onto this scan. The marker reports the
+   *  DEPLOYMENT's own status (`failed` counts `failure` / `error`), never an incident. */
+  deploys?: { count: number; failed: number; environments: string[] };
 }
 
 /**

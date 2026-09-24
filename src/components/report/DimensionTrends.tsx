@@ -21,11 +21,14 @@ import { RANGES, RangeToggle, withinRange, type RangeKey } from "@/components/re
 export function DimensionTrends({
   history,
   annotations = [],
+  deployMarkers = [],
 }: {
   history: RepositoryHistory;
   /** G5-18 event markers, derived from the FULL history by the page. Forwarded to the overall chart
    *  AND each DimLine, which resolve by timestamp and drop those outside the visible range. */
   annotations?: TrendAnnotation[];
+  /** Kind "deploy" markers from persisted deployments: a repo-level event, so the OVERALL chart only. */
+  deployMarkers?: TrendAnnotation[];
 }) {
   const [range, setRange] = useState<RangeKey>("all");
   const days = RANGES.find((r) => r.key === range)?.days ?? null;
@@ -182,7 +185,7 @@ export function DimensionTrends({
           <Surface radius="2xl" className="p-6">
             <h2 className="type-lede font-semibold text-white">Overall maturity</h2>
             <div className="mt-3">
-              <TrendChart points={overall} annotations={annotations} />
+              <TrendChart points={overall} annotations={[...annotations, ...deployMarkers]} />
             </div>
           </Surface>
 
