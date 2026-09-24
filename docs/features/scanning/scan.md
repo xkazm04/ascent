@@ -669,7 +669,8 @@ display must not put that subtraction back.
 
 `scan-compose.ts` also attaches `report.contextHealth = deriveContextHealth(…)`, the
 quality-over-presence read of the repo's agent-context layer (CLAUDE.md / AGENTS.md /
-`.cursorrules` / Copilot instructions). Like `passport`/`techStack` it is **display/persist-only**:
+`.cursorrules` / Copilot instructions). Like `passport` it is **display/persist-only** (`techStack`
+was too until r21, which sends it to the prompt by default):
 it never feeds the score or the LLM prompt (pinned by the "stays display-only" test in
 `context-health.test.ts`); folding it into D1 later is a deliberate `SCORING_RUBRIC_VERSION` event.
 
