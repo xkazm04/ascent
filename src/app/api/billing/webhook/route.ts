@@ -11,7 +11,7 @@
 //
 // REVOCATION (the money-OUT trust boundary): a plan tier is NOT a one-way, permanent grant. When a
 // subscription is cancelled/revoked/refunded the org must fall back to `free`, or Ascent keeps serving a
-// paid tier (allowance, seats, retention, BYOM/white-label) to someone who has stopped paying. Polar's
+// paid tier (allowance, retention, BYOM/white-label) to someone who has stopped paying. Polar's
 // subscription lifecycle events drive the downgrade — `subscription.revoked` (access definitively lost)
 // and the immediate-cancel case of `subscription.canceled` — plus a FULL refund/chargeback of a plan
 // order. All downgrades go through setOrgPlan(org, "free"), which is naturally idempotent (updateMany to
@@ -214,7 +214,7 @@ export const POST = secret
           throw new Error(`[billing/webhook] order ${order.id}: no org bound — purchase unfulfilled, will retry`);
         }
         // TIER UPGRADE: a paid plan product moves the org onto its entitlement tier (monthly allowance,
-        // seats, retention, BYOM/white-label). setOrgPlan is idempotent, so a subscription renewal's
+        // retention, BYOM/white-label). setOrgPlan is idempotent, so a subscription renewal's
         // recurring order.paid just re-asserts the tier. Applied BEFORE the grant so a product that is
         // both an upgrade and a credit seed still lands the tier even if the grant later retries.
         if (plan) {

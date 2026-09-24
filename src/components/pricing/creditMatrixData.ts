@@ -63,8 +63,9 @@ export interface MatrixRow {
   /**
    * The row states a tier boundary that NOTHING IN THE CODE ENFORCES — a commercial intent, not a
    * gate. `docs/features/billing/billing.md:424-438` audited every `planAllows*` predicate and every
-   * plan comparison in the tree and found these six: the fleet dashboard, autoscans + alerts,
-   * segments, playbooks, buying credits, and seats. A Free org gets all of them today.
+   * plan comparison in the tree and found these: the fleet dashboard, autoscans + alerts, segments,
+   * playbooks and buying credits. A Free org gets all of them today. (Seats were on this list until
+   * 2026-09-24; plans stopped selling a seat count rather than enforce one, so the row is gone.)
    *
    * Leaving them ticked-and-unmarked was the page asserting a restriction it does not apply, which is
    * the same defect as promising a capability that doesn't exist, only pointed the other way. The
@@ -188,7 +189,6 @@ export const MATRIX_GROUPS: MatrixGroup[] = [
       { label: "SSO · SAML/OIDC", detail: "Directory sign-in and provisioning, scoped as part of a Custom plan.", tag: "plan", cells: { free: false, pro: false, team: false, enterprise: "Scoped" } },
       { label: "Hosting", detail: "Where Ascent and its inference run.", tag: "plan", cells: { free: "Shared cloud", pro: "Shared cloud", team: "Shared cloud", enterprise: "Your VPC / on-prem" } },
       { label: "Support", detail: "How fast you can expect an answer.", tag: "plan", cells: { free: "Community", pro: "Email", team: "Email", enterprise: "SLA you pick" } },
-      { label: "Members / seats", detail: "How many teammates can share the org.", tag: "plan", cells: { free: "1", pro: "3", team: "10", enterprise: "Yours to set" }, planned: true },
     ],
   },
 ];

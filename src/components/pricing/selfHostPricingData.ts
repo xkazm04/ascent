@@ -46,12 +46,6 @@ export const CAPABILITY_DIFF: DiffRow[] = [
     gated: false,
   },
   {
-    label: "Seats",
-    cloud: `${FREE.seats} on Free, more per tier`,
-    local: "Unlimited",
-    gated: false,
-  },
-  {
     label: "Scan history",
     cloud: `${FREE.retentionDays} days on Free, longer per tier`,
     local: "Your disk, your policy — no floor",

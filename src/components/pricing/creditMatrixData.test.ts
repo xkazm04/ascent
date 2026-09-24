@@ -105,7 +105,6 @@ describe("credit matrix — an unenforced tier boundary is marked, not asserted"
     "Segments + comparisons",
     "Playbooks + planning",
     "Buy extra scan credits",
-    "Members / seats",
   ];
 
   it("marks every claim billing.md found ungated", () => {

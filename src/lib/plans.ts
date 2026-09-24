@@ -184,8 +184,10 @@ export interface PlanFeature {
    *  lockstep with the Polar dashboard (see the PRICE CONTRACT note atop this file). */
   monthlyPrice: number | null;
   billing: PlanBilling;
-  /** Member seats included; null = unlimited. */
-  seats: number | null;
+  // No seat count, on purpose. Plans do not limit or sell seats: every card used to advertise one
+  // (1 / 3 / 10 / yours) that no membership or invite path read, and the operator chose to stop
+  // selling it rather than enforce it (2026-09-24). src/components/pricing/noSeatCount.test.ts fails
+  // if a seats field or a member count comes back onto any selling surface.
   /** Scan-history retention in days; null = unlimited/inherit the deployment default. */
   retentionDays: number | null;
   blurb: string;
@@ -213,7 +215,7 @@ export interface PlanFeature {
 
 /** How a tier is WRITTEN below: everything except the two derived fields, plus the ungated prose
  *  bullets. `extras` is the hand-typed half of a card — real selling points with no code gate behind
- *  them (fleet dashboard, autoscans, seat counts, history windows). Keeping them separate from
+ *  them (fleet dashboard, autoscans, history windows). Keeping them separate from
  *  capabilities is the point: a bullet in `extras` is a promise, a bullet from PLAN_CAPABILITIES is
  *  enforced, and the split makes which is which visible instead of a matter of memory. */
 interface PlanSpec extends Omit<PlanFeature, "features" | "capabilities"> {
@@ -233,7 +235,6 @@ const PLAN_SPECS: Record<PlanId, PlanSpec> = {
     unlimited: false,
     monthlyPrice: 0,
     billing: "free",
-    seats: 1,
     retentionDays: 30,
     // MC-B5: this card said "public scans are always free" beside an extras bullet reading "Unlimited
     // free public scans" — while the scan dialog's meter, on the same visit, counted down from 5. The
@@ -246,7 +247,6 @@ const PLAN_SPECS: Record<PlanId, PlanSpec> = {
       `${publicScanAllowance().label} / month`,
       "Maturity report + roadmap",
       "Public report permalink",
-      "1 member",
     ],
   },
   // Stored id `pro`, shown as "Starter" — the same display-only rename as `enterprise`/"Custom" (see
@@ -259,10 +259,9 @@ const PLAN_SPECS: Record<PlanId, PlanSpec> = {
     unlimited: false,
     monthlyPrice: 5,
     billing: "subscription",
-    seats: 3,
     retentionDays: 180,
     blurb: "A monthly subscription with the org fleet dashboard for a small team.",
-    extras: ["Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "3 members", "180-day history"],
+    extras: ["Org fleet dashboard", "Scheduled autoscans + alerts", "Buy extra scans anytime", "180-day history"],
   },
   team: {
     id: "team",
@@ -271,10 +270,9 @@ const PLAN_SPECS: Record<PlanId, PlanSpec> = {
     unlimited: false,
     monthlyPrice: 10,
     billing: "subscription",
-    seats: 10,
     retentionDays: 365,
-    blurb: "More volume, more seats, and segment-scoped intelligence.",
-    extras: ["Segments + comparisons", "Playbooks + planning", "Buy extra scans anytime", "10 members", "1-year history"],
+    blurb: "More volume and segment-scoped intelligence.",
+    extras: ["Segments + comparisons", "Playbooks + planning", "Buy extra scans anytime", "1-year history"],
   },
   // Stored id `enterprise` (see the TIER ID vs TIER LABEL note atop this file); shown as "Custom".
   // Its bullets describe the DIMENSIONS that get scoped in the conversation, not a list of unlimited
@@ -287,7 +285,6 @@ const PLAN_SPECS: Record<PlanId, PlanSpec> = {
     unlimited: true,
     monthlyPrice: null,
     billing: "custom",
-    seats: null,
     retentionDays: null,
     blurb: "Every line adjustable: hosting, scans, support, customization and sign-on.",
     extras: [
