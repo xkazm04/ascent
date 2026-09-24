@@ -1534,6 +1534,19 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   state, and revoking is a two-step `Revoke? → confirm / cancel`, matching the roster's Remove a
   row above. Resend rotates the live token without dropping the row; revoke still asks first
   because it removes the pending invite.
+- **Reading the roster starts at member; writing it stays owner-only** (2026-09-24). Until then
+  `GET /api/org/members` and the Members tab both required `owner`, so a member or admin could not
+  see who they share the org with. The read now gates on `member`: members, admins and owners get
+  the roster, a viewer still gets 403 and the tab's refusal ("visible to members, admins and
+  owners"). The tab checks owner first, then member, and passes a required `canManage` to
+  `MembersPanel`: a non-owner sees the same rows read-only (the role as text with its hint on hover,
+  no Actions column, no role editors, no remove, no invite form, and a line saying only an owner can
+  change the roster). **What a non-owner sees is login, display name, role and joined date, and
+  nothing else:** `listOrgMembers` selects no email, and the pending invites (which carry invitee
+  emails) are neither read by the tab nor reachable through the owner-only `/api/org/invites`.
+  Role changes (POST), invites and removing another member (DELETE) keep their owner gate; the
+  self-leave DELETE keeps its viewer gate. The role matrix is pinned in
+  `src/app/api/org/members/route.roles.test.ts`.
 
 ### Delivery outcomes — the AI-vs-human failure split (W4, 2026-08-14)
 
