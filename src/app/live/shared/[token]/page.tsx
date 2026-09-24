@@ -4,6 +4,9 @@
 // org's current standing but can't trigger scans (/api/org/scan stays session-gated). Exposes only the
 // same rollup the dashboard shows. noindex so a leaked link isn't crawled. A `view: "theater"` link renders
 // the standing runner's theater instead (spark theater-upgrade) — the wall below is unchanged for all others.
+// Beneath the wall, when the org has loop runs, a read-only strip of COUNTS (runs, verified closes, points
+// in review; backlog develop-2026-09-17 row 43). Its data is `KioskRunSummary`, a numbers-only type, so no
+// repo name, branch, commit, follow-up title or login from the in-app outcome sheet can reach this page.
 
 import { LiveWarRoom } from "@/features/inflight/live/LiveWarRoom";
 import { toLiveRepoSeeds } from "@/components/org/shared/liveWarRoomShared";
@@ -11,6 +14,8 @@ import { buildFleetTimetable } from "@/features/inflight/live/fleetTimetable";
 import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
 import { resolveLiveShare } from "@/lib/live-share-access";
 import { TheaterShell } from "@/features/inflight/live/theater/TheaterShell";
+import { KioskRunStrip } from "@/features/inflight/live/KioskRunStrip";
+import { loadKioskRunSummary } from "@/lib/live-share-summary";
 // Shared with /share/briefing/[token] — the other capability-link surface. Its default min-h-screen is
 // this page's framing: the wall is a full-viewport kiosk with no header/footer chrome around it.
 import { TokenNotice as Notice } from "@/components/TokenNotice";
@@ -55,7 +60,12 @@ export default async function SharedLivePage({ params }: { params: Promise<{ tok
     const at = r.latest?.scannedAt ?? null;
     return at && (!acc || at > acc) ? at : acc;
   }, null);
-  const timetable = buildFleetTimetable(await getOrgRepoHistories(verified.org).catch(() => []));
+  // The summary reads the VERIFIED org only (the token's binding), after every refusal above.
+  const [histories, runSummary] = await Promise.all([
+    getOrgRepoHistories(verified.org).catch(() => []),
+    loadKioskRunSummary(verified.org).catch(() => null),
+  ]);
+  const timetable = buildFleetTimetable(histories);
   return (
     <main id="main" className="mx-auto w-full max-w-6xl px-5 py-8">
       <LiveWarRoom
@@ -67,6 +77,7 @@ export default async function SharedLivePage({ params }: { params: Promise<{ tok
         fleetScannedAt={fleetScannedAt}
         readOnly
       />
+      {runSummary && <KioskRunStrip summary={runSummary} />}
     </main>
   );
 }

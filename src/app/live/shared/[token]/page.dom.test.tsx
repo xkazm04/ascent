@@ -16,6 +16,8 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/db/org-share", () => ({ isLiveShareRevoked: async () => state.revoked }));
 vi.mock("@/lib/db/members", () => ({ getMembershipRole: async () => "owner", roleAtLeast: () => true }));
+// The run summary strip has its own suite (page.summary.dom.test.tsx); here the org has no runs.
+vi.mock("@/lib/live-share-summary", () => ({ loadKioskRunSummary: async () => null }));
 vi.mock("@/features/inflight/live/LiveWarRoom", () => ({
   LiveWarRoom: (p: { readOnly?: boolean; slug: string }) => <div data-testid="war-room">{`${p.slug}:${p.readOnly ? "read-only" : "live"}`}</div>,
 }));

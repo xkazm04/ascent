@@ -11,8 +11,9 @@
 //
 // The wall is not deprecated and is not a fallback; it answers "what is the fleet doing right now",
 // which is a different question from "what should we improve next". Keeping it addressable by URL is
-// also what keeps the kiosk route (/live/shared/[token], which renders LiveWarRoom read-only and is
-// deliberately untouched by any of this) honest — it renders the same component this tab does.
+// also what keeps the kiosk route (/live/shared/[token], which renders LiveWarRoom read-only) honest —
+// it renders the same component this tab does. Under it the kiosk adds only a numbers-only run summary
+// (`KioskRunStrip`, `src/lib/live-share-summary.ts`), never this tab's outcome sheet.
 //
 // SERVER component, filename PINNED as `LiveTab.tsx`; takes `slug` + the resolved `sp` as props.
 // Every loop read goes through the db layer directly (getActiveLoopRun / listLoopRuns), never
