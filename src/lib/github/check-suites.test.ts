@@ -13,7 +13,7 @@
 // the scanner puts on the wire — the ref encoding especially, since a collapsed `release/2.1` 404s.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appsOf, classifyApp, fetchAppInventory, type AppInventory } from "./check-suites";
+import { appsOf, classifyApp, fetchAppInventory, withPrHeadApps, type AppInventory } from "./check-suites";
 
 const API = "https://api.github.com";
 
@@ -215,5 +215,48 @@ describe("appsOf", () => {
   it("treats an unobservable inventory as an empty list for consumers", () => {
     expect(appsOf(null, "ai-review")).toEqual([]);
     expect(appsOf(undefined, "ai-review")).toEqual([]);
+  });
+});
+
+// Row 12 (backlog develop-2026-09-17): suites read on recent PR heads join the inventory as a SEPARATE
+// observation. `apps` stays the scored commit's list, which is all the D2/D3/D4/D9 folds read, so this
+// change observes PR-only Apps without crediting them (crediting is a separate backlog row).
+describe("withPrHeadApps — PR-head suites are observed beside the scored commit, never merged into it", () => {
+  const app = (slug: string, conclusion: string | null = "success") => ({ slug, name: slug, conclusion });
+  const inv = (sha: string, apps: ReturnType<typeof app>[], truncated = false): AppInventory => ({
+    sha, apps, total: apps.length, truncated,
+  });
+
+  it("lists a slug seen ONLY on a PR head in prHeadApps, and leaves `apps` untouched", () => {
+    const base = inv("head", []);
+    const out = withPrHeadApps(base, [{ sha: "pr1", inventory: inv("pr1", [app("github-code-scanning")]) }]);
+    expect(out.prHeadApps?.map((a) => a.slug)).toEqual(["github-code-scanning"]);
+    expect(out.prHeadShas).toEqual(["pr1"]);
+    expect(out.prHeadTruncated).toBe(false);
+    expect(out.apps).toEqual([]);
+    expect(appsOf(out, "sast")).toEqual([]); // guard: no fold sees it through appsOf
+  });
+
+  it("drops slugs the scored commit already has, and dedupes across heads (first head wins)", () => {
+    const base = inv("head", [app("github-actions")]);
+    const out = withPrHeadApps(base, [
+      { sha: "pr1", inventory: inv("pr1", [app("github-actions"), app("codecov", "failure")]) },
+      { sha: "pr2", inventory: inv("pr2", [app("codecov", "success"), app("semgrep-app")]) },
+    ]);
+    expect(out.prHeadApps).toEqual([app("codecov", "failure"), app("semgrep-app")]);
+  });
+
+  it("a failed or truncated PR-head read marks prHeadTruncated (the list is a floor)", () => {
+    const base = inv("head", []);
+    expect(withPrHeadApps(base, [{ sha: "pr1", inventory: null }]).prHeadTruncated).toBe(true);
+    expect(withPrHeadApps(base, [{ sha: "pr1", inventory: inv("pr1", [], true) }]).prHeadTruncated).toBe(true);
+    expect(withPrHeadApps(base, [{ sha: "pr1", inventory: null }]).prHeadApps).toEqual([]);
+  });
+
+  it("guard: no PR heads read returns the scored inventory unchanged (no prHead keys at all)", () => {
+    const base = inv("head", [app("claude")]);
+    const out = withPrHeadApps(base, []);
+    expect(out).toEqual(base);
+    expect("prHeadApps" in out).toBe(false);
   });
 });

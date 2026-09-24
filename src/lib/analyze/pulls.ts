@@ -663,11 +663,40 @@ export async function fetchPrStats(
   token: string,
   signal?: AbortSignal,
   limit = 40,
-): Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[] }> {
+): Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[]; prHeadShas: string[] }> {
   const { totalCount, nodes, partial } = await fetchPullRequests(owner, repo, token, limit, signal);
   // `partial` is omitted upstream on a complete result, so coerce to a definite boolean here.
   // The evidence rows come off the SAME nodes as the rates — one fetch, two readings, no extra cost.
-  return { stats: summarizePullRequests(nodes, totalCount), partial: Boolean(partial), aiChanges: extractAiChanges(nodes) };
+  // So do the merged-PR head shas the App inventory reads suites on (scan-ingest, backlog row 12).
+  return {
+    stats: summarizePullRequests(nodes, totalCount),
+    partial: Boolean(partial),
+    aiChanges: extractAiChanges(nodes),
+    prHeadShas: recentPrHeadShas(nodes),
+  };
+}
+
+/**
+ * The head commit of every MERGED PR on the page, most recent merge first, lower-cased and deduped.
+ * The head is the LAST node of `commits(last:15)` (the connection is in commit order), so this costs
+ * no GraphQL field or call beyond what the page already carries. A PR whose page predates the
+ * `commits` key, or whose last node has no oid, contributes nothing. Uncapped here (the page is
+ * <= 40 PRs); the caller that spends API calls on these applies its own cap.
+ */
+export function recentPrHeadShas(nodes: (PrNode | null)[]): string[] {
+  const mergedAtMs = (pr: PrNode) => {
+    const t = Date.parse(pr.mergedAt ?? "");
+    return Number.isNaN(t) ? -Infinity : t;
+  };
+  const merged = nodes.filter((pr): pr is PrNode => !!pr && !!pr.mergedAt);
+  merged.sort((a, b) => mergedAtMs(b) - mergedAtMs(a));
+  const out: string[] = [];
+  for (const pr of merged) {
+    const commits = pr.commits?.nodes ?? [];
+    const oid = commits[commits.length - 1]?.commit?.oid?.trim().toLowerCase();
+    if (oid && !out.includes(oid)) out.push(oid);
+  }
+  return out;
 }
 
 // ── The AI-change population (evidence rows, not rates) ───────────────────────

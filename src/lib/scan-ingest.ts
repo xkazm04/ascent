@@ -11,7 +11,7 @@ import type { ParsedRepo, ProgressFn, RepoSource } from "@/lib/github/source";
 import type { AiChangeRecord } from "@/lib/analyze/pulls";
 import { pickGuidanceFiles } from "@/lib/analyze/context-health";
 import type { DeploymentRecord } from "@/lib/github/deployments";
-import type { AppInventory } from "@/lib/github/check-suites";
+import { PR_HEAD_INVENTORY_CAP, withPrHeadApps, type AppInventory } from "@/lib/github/check-suites";
 import type { CiHealth } from "@/lib/github/actions-health";
 import { resolveForge } from "@/lib/forge/registry";
 import type { EnrichmentSource, Forge } from "@/lib/forge/types";
@@ -64,7 +64,8 @@ export interface IngestPhaseResult {
   securityPosture: SecurityPosture | null;
   securityExposure: SecurityExposure | null;
   /** Deepening pass: GitHub Apps that posted check suites on the scored commit (Settings-configured
-   *  tooling a file scan can't see). Null = not observable (anonymous scan / read failed). */
+   *  tooling a file scan can't see), plus `prHeadApps` observed only on recent merged PR heads.
+   *  Null = not observable (anonymous scan / the scored-commit read failed). */
   appInventory: AppInventory | null;
   /** Deepening pass: recent default-branch Actions run health. Null = not observable. */
   ciHealth: CiHealth | null;
@@ -128,7 +129,7 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     failedSensors.add(id);
     return degraded;
   };
-  const prPromise: Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[] } | null> = token && enrich.pullRequests
+  const prPromise: Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[]; prHeadShas?: string[] } | null> = token && enrich.pullRequests
     ? enrich.pullRequests(parsed.owner, parsed.repo, token, signal).catch((err) => {
         // The sensor failed — record the fact so it persists with the scan (a caveat via
         // buildScanWarnings), instead of degrading to a null indistinguishable from "no PRs".
@@ -183,9 +184,29 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // Actions:read is optional and its absence degrades to null), and both fold ADDITIVELY into the
   // deterministic scores (analyze/platform-signals.ts, security/checks.ts). Score-bearing, so awaited
   // with the others before analysis.
+  //
+  // The inventory also reads suites on up to PR_HEAD_INVENTORY_CAP recent merged PR HEADS (backlog row
+  // 12): a PR-only SAST / coverage App posts on `pull_request` events and never on the scored commit.
+  // The head shas come off the PR page already fetched (no list call; no PR page = no extra read), so
+  // the bound is <= 3 more check-suite calls, run concurrently once the PR page lands. They land in
+  // `prHeadApps` BESIDE the scored `apps`, which is all any fold reads: observed, not yet credited.
+  // A failed head read is a floor (`prHeadTruncated`), never a failed sensor; the scored-commit read
+  // alone decides that, and a null there stays null whatever the heads saw.
   const scoredSha = snapshot.meta.headSha ?? pinnedRef ?? snapshot.meta.defaultBranch;
-  const appInventoryPromise: Promise<AppInventory | null> = token && enrich.appInventory
-    ? enrich.appInventory(parsed.owner, parsed.repo, scoredSha, token, signal).catch(sensorFailed("appInventory", null))
+  const readInventory = enrich.appInventory;
+  const appInventoryPromise: Promise<AppInventory | null> = token && readInventory
+    ? Promise.all([
+        readInventory(parsed.owner, parsed.repo, scoredSha, token, signal).catch(sensorFailed("appInventory", null)),
+        prPromise.then((pr) => {
+          const shas = (pr?.prHeadShas ?? [])
+            .filter((sha) => sha.toLowerCase() !== scoredSha.toLowerCase())
+            .slice(0, PR_HEAD_INVENTORY_CAP);
+          return Promise.all(shas.map(async (sha) => ({
+            sha,
+            inventory: await readInventory(parsed.owner, parsed.repo, sha, token, signal).catch(() => null),
+          })));
+        }),
+      ]).then(([scored, heads]) => (scored ? withPrHeadApps(scored, heads) : null))
     : Promise.resolve(null);
   const ciHealthPromise: Promise<CiHealth | null> = token && enrich.ciHealth
     ? enrich.ciHealth(parsed.owner, parsed.repo, snapshot.meta.defaultBranch, token, signal).catch(sensorFailed("ciHealth", null))

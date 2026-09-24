@@ -33,6 +33,53 @@ export interface AppInventory {
   /** `total_count` from the API — the page cap is 100, so `truncated` flags a floor. */
   total: number;
   truncated: boolean;
+  /**
+   * Apps whose suites were seen on a recent merged PR HEAD and NOT on the scored commit (backlog row
+   * 12, 2026-09-24): the PR-only SAST / coverage Apps that post on `pull_request` events and never on
+   * the default branch. OBSERVATION ONLY: every fold reads `apps` above (via `appsOf`), so nothing is
+   * credited from this list yet. Absent = no PR head was read (no token, no PR page, no merged PR, or
+   * a forge without the read); present-and-empty = heads were read and added nothing new.
+   */
+  prHeadApps?: AppSuite[];
+  /** The PR head shas whose suites were read for `prHeadApps`, most recent merge first. */
+  prHeadShas?: string[];
+  /** A PR-head read failed or its page was truncated, so `prHeadApps` is a floor. */
+  prHeadTruncated?: boolean;
+}
+
+/**
+ * The most PR heads the scan reads suites on, beside the scored commit. Each is one more
+ * `/commits/{sha}/check-suites` call (concurrent, same timeout); the head shas themselves come off the
+ * PR page ingestion already fetched, so there is no extra list call.
+ */
+export const PR_HEAD_INVENTORY_CAP = 3;
+
+/**
+ * Attach the PR-head observations to the scored commit's inventory. A slug the scored commit already
+ * lists is dropped (it is not PR-only), and across heads the first (most recent) observation wins. A
+ * failed (`null`) or truncated head read marks `prHeadTruncated`. No reads = `base` returned as is.
+ */
+export function withPrHeadApps(
+  base: AppInventory,
+  reads: { sha: string; inventory: AppInventory | null }[],
+): AppInventory {
+  if (!reads.length) return base;
+  const seen = new Set(base.apps.map((a) => a.slug));
+  const prHeadApps: AppSuite[] = [];
+  let prHeadTruncated = false;
+  for (const { inventory } of reads) {
+    if (!inventory) {
+      prHeadTruncated = true;
+      continue;
+    }
+    if (inventory.truncated) prHeadTruncated = true;
+    for (const app of inventory.apps) {
+      if (seen.has(app.slug)) continue;
+      seen.add(app.slug);
+      prHeadApps.push({ ...app });
+    }
+  }
+  return { ...base, prHeadApps, prHeadShas: reads.map((r) => r.sha), prHeadTruncated };
 }
 
 /**

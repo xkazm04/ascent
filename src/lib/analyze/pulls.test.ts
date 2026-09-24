@@ -6,7 +6,7 @@
 // surface as null, not a fabricated "0% reviewed" that drags D6 and misinforms the LLM auditor.
 
 import { describe, it, expect, vi } from "vitest";
-import { applyGovernanceSignals, applyPrSignals, extractAiChanges, fetchPrStats, summarizePullRequests } from "./pulls";
+import { applyGovernanceSignals, applyPrSignals, extractAiChanges, fetchPrStats, recentPrHeadShas, summarizePullRequests } from "./pulls";
 import type { PrNode } from "@/lib/github/graphql";
 import { fetchPullRequests } from "@/lib/github/graphql";
 import type { DimensionSignals, Governance, PrStats } from "@/lib/types";
@@ -551,5 +551,44 @@ describe("applyPrSignals — D4 fold from aiPreReviewedRate", () => {
     expect(withRate[0]!.signalScore).toBe(82); // 0.65*80 + 0.35*(0.5*90 + 0.3*70 + 0.2*100)
     expect(withRate[1]!.signalScore).toBe(68); // +min(18, round(40*0.5))
     expect(withRate[2]!.signalScore).toBe(59); // 0.7*50 + 0.3*80
+  });
+});
+
+// Row 12 (backlog develop-2026-09-17): the PR page already carries each PR's last <=15 commit oids, so
+// the head of every recently merged PR is free. The App inventory reads suites on a bounded few of
+// them, because a PR-only SAST / coverage App never posts on the scored default-branch commit.
+describe("recentPrHeadShas — the PR heads the App inventory reads, off the page already fetched", () => {
+  const withHead = (over: Partial<PrNode>, ...oids: string[]): PrNode =>
+    pr({ ...over, commits: { nodes: oids.map((oid) => ({ commit: { oid, message: "m" } })) } });
+
+  it("takes the LAST commit node of each merged PR, most recent merge first, lower-cased", () => {
+    const nodes = [
+      withHead({ number: 1, mergedAt: "2026-01-02T00:00:00Z" }, "aaa0", "AAA1"),
+      withHead({ number: 2, mergedAt: "2026-01-05T00:00:00Z" }, "bbb1"),
+      withHead({ number: 3, mergedAt: "2026-01-03T00:00:00Z" }, "ccc0", "ccc1", "CCC2"),
+    ];
+    expect(recentPrHeadShas(nodes)).toEqual(["bbb1", "ccc2", "aaa1"]);
+  });
+
+  it("skips open / closed-unmerged PRs, PRs with no commit oid, and duplicate heads", () => {
+    const nodes = [
+      withHead({ number: 1, state: "OPEN", mergedAt: null }, "open1"),
+      withHead({ number: 2, state: "CLOSED", mergedAt: null }, "closed1"),
+      pr({ number: 3, mergedAt: "2026-01-04T00:00:00Z" }), // pre-W2 shape: no commits key
+      withHead({ number: 4, mergedAt: "2026-01-03T00:00:00Z" }, "dup"),
+      withHead({ number: 5, mergedAt: "2026-01-02T00:00:00Z" }, "DUP"),
+    ];
+    expect(recentPrHeadShas(nodes)).toEqual(["dup"]);
+  });
+
+  it("fetchPrStats returns the heads beside the stats (no extra GraphQL call)", async () => {
+    const before = vi.mocked(fetchPullRequests).mock.calls.length;
+    vi.mocked(fetchPullRequests).mockResolvedValueOnce({
+      totalCount: 1,
+      nodes: [withHead({ mergedAt: "2026-01-02T00:00:00Z" }, "f00d")],
+    });
+    const res = await fetchPrStats("o", "r", "tok");
+    expect(res.prHeadShas).toEqual(["f00d"]);
+    expect(vi.mocked(fetchPullRequests).mock.calls.length - before).toBe(1);
   });
 });

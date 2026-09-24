@@ -108,7 +108,14 @@ export interface EnrichmentSource {
     token: string,
     signal?: AbortSignal,
     limit?: number,
-  ): Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[] } | null>;
+  ): Promise<{
+    stats: PrStats;
+    partial: boolean;
+    aiChanges: AiChangeRecord[];
+    /** Merged-PR head shas off the same page, most recent first (GitHub). Absent on a forge whose
+     *  App inventory cannot be read, which is every forge without an `appInventory` member. */
+    prHeadShas?: string[];
+  } | null>;
   branchGovernance?(
     owner: string,
     repo: string,
