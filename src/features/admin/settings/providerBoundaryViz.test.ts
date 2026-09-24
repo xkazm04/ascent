@@ -14,6 +14,7 @@ import type { OrgLlmConfigPublic } from "@/lib/db";
 import {
   PROVIDER_AXES,
   PROVIDER_AXIS_HINT,
+  PROVIDER_ROWS,
   providerBoundaryRows,
   providerBoundaryStates,
   providerScopeLine,
@@ -147,5 +148,19 @@ describe("provider boundary — the kit contract", () => {
     expect(providerScopeLine(null)).toBe("no provider connected");
     expect(providerScopeLine(config({ enabled: true }))).toBe("bedrock · connected");
     expect(providerScopeLine(null).length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe("provider boundary — Nebius, the third BYOM row (backlog row 37)", () => {
+  it("draws Nebius as not in-boundary and billed to your own Nebius account", () => {
+    expect(PROVIDER_ROWS).toContain("nebius");
+    expect(isVoid(at("nebius", "Boundary").state)).toBe(true);
+    expect(at("nebius", "Billing").state).toBe("measured");
+    expect(PROVIDER_AXIS_HINT.Billing).toMatch(/Nebius account/);
+  });
+
+  it("guard: rings Nebius when it holds the slot and leaves the other BYOM rows void", () => {
+    const c = config({ provider: "nebius", enabled: true, hasCredentials: true });
+    expect([slotState(c, "nebius"), slotState(c, "openrouter"), slotState(c, "ascent")]).toEqual(["decided", "missing", "superseded"]);
   });
 });

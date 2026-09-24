@@ -32,7 +32,7 @@ export const PROVIDER_AXES = ["Boundary", "Billing", "Plan", "Active"] as const;
 export type ProviderAxis = (typeof PROVIDER_AXES)[number];
 
 /** The row order is the decision order: what you get by default, then the two things you can connect. */
-export const PROVIDER_ROWS = ["ascent", "bedrock", "openrouter"] as const;
+export const PROVIDER_ROWS = ["ascent", "bedrock", "openrouter", "nebius"] as const;
 export type ProviderRowId = (typeof PROVIDER_ROWS)[number];
 
 /**
@@ -42,9 +42,9 @@ export type ProviderRowId = (typeof PROVIDER_ROWS)[number];
  */
 export const PROVIDER_AXIS_HINT: Record<ProviderAxis, string> = {
   Boundary:
-    "Whether inference runs inside infrastructure you control. Bedrock is solid: the request goes to your own AWS account, in your own region, under your own credential. OpenRouter is EMPTY — it routes the request, repository file samples included, on to a third-party upstream, so it is NOT in-boundary. The Ascent default is hatched because this page cannot see which provider the deployment itself is configured to call.",
+    "Whether inference runs inside infrastructure you control. Bedrock is solid: the request goes to your own AWS account, in your own region, under your own credential. OpenRouter is EMPTY: it routes the request, repository file samples included, on to a third-party upstream, so it is NOT in-boundary. Nebius is empty too: the model runs in Nebius's own datacenter, not in yours. The Ascent default is hatched because this page cannot see which provider the deployment itself is configured to call.",
   Billing:
-    "Whether token spend for scans lands on your own vendor account. Bedrock bills your AWS account and OpenRouter bills your OpenRouter account; the Ascent default draws this organization's plan credits instead, so no vendor account of yours is billed.",
+    "Whether token spend for scans lands on your own vendor account. Bedrock bills your AWS account, OpenRouter bills your OpenRouter account and Nebius bills your Nebius account; the Ascent default draws this organization's plan credits instead, so no vendor account of yours is billed.",
   Plan: "Connecting your own model is a Custom-plan capability. An empty cell means this organization's current plan does not include it, and the card below is read-only until that changes.",
   Active:
     "An organization runs exactly ONE connected provider, so saving one replaces the other. A ringed cell is the provider a person chose and scans use now; a dashed cell is stored but not switched on; a hatched cell holds a credential that has never been test-connected, so nobody has judged whether it works; a struck cell was superseded when another provider took the slot.",
@@ -55,6 +55,7 @@ const ROW_LABEL: Record<ProviderRowId, string> = {
   ascent: "Ascent",
   bedrock: "Bedrock",
   openrouter: "OpenRouter",
+  nebius: "Nebius",
 };
 
 /**
@@ -76,7 +77,7 @@ export function slotState(config: OrgLlmConfigPublic | null, provider: ProviderR
   return config.lastValidatedAt ? "declared" : "not-judged";
 }
 
-/** The three rows, in decision order. `planAllowed` is org-specific; the other columns are the
+/** The rows, in decision order. `planAllowed` is org-specific; the other columns are the
  *  providers' own properties, which is why they do not move when the plan does. */
 export function providerBoundaryRows({
   config,
@@ -92,6 +93,8 @@ export function providerBoundaryRows({
     bedrock: ["measured", "measured", plan, slotState(config, "bedrock")],
     // The void that is the whole panel: OpenRouter has no boundary to paint.
     openrouter: ["missing", "measured", plan, slotState(config, "openrouter")],
+    // Hosted in Nebius's datacenter: no boundary of yours to paint either, billed to your Nebius account.
+    nebius: ["missing", "measured", plan, slotState(config, "nebius")],
   };
   return PROVIDER_ROWS.map((id) => ({
     id,

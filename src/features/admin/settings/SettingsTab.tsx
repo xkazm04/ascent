@@ -12,6 +12,7 @@
 
 import { LlmProviderSettings } from "./LlmProviderSettings";
 import { OpenRouterByomSettings } from "./OpenRouterByomSettings";
+import { NebiusByomSettings } from "./NebiusByomSettings";
 import { ModelScorecard } from "./ModelScorecard";
 import { BYOM_ANCHOR } from "./modelScorecardViz";
 import { ProviderBoundaryCard } from "./ProviderBoundaryCard";
@@ -77,6 +78,12 @@ export async function SettingsTab({ slug }: { slug: string }) {
           encryptionConfigured={isEncryptionConfigured()}
         />
       </div>
+      <NebiusByomSettings
+        slug={slug}
+        initial={config}
+        planAllowed={planAllowed}
+        encryptionConfigured={isEncryptionConfigured()}
+      />
       <ModelScorecard />
       {/* Retention then erasure: both owner-gated above, so a non-owner never renders either control
           (rather than seeing them disabled). Save on RetentionCard never purges. */}
