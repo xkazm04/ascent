@@ -1892,6 +1892,23 @@ document changed with it — the anchor promises a self-hosting guide, and `docs
 credentials-and-preconditions page, while `docs/SELF-HOSTING.md` is the operator's guide.
 Pinned by `CockpitSetup.dom.test.tsx`.
 
+**Both cloud cards arm a remote-agent run (2026-09-24).** They used to describe that run ("arm one
+through the API or an MCP work client") while `POST /api/org/loop` already accepted it on managed
+cloud, so an owner had to leave the page to start one. `canArmRemote` (`cockpitGate.ts`) is a third
+predicate beside `canDispatch` and `canDriveLocally`: a cloud deployment, an owner and at least one
+scanned repo. It does not read `ASCENT_AUTOPILOT`, which is a fact about this server's local loop and
+is false on hosted production by construction; the route's remote branch never checks it either.
+Where it holds, the `hosted` and `hosted-not-enabled` cards show **Arm remote run (N repos)** over the
+chart's selection (disabled, with the reason, when nothing is selected). The button posts exactly
+`{ action: "start", org, repos, executor: "remote-agent" }` (`startLoopBody`, `loopClient.ts`) and no
+dial, since the remote branch reads none. The caption says the lanes wait for an agent the org runs to
+claim them, and a refusal (a run already active) renders under the button. The rail then follows the
+armed run like any other. Nothing else opens: `cockpitDispatchMode`, the local Run, the gear and
+**Drive to green** stay closed on hosted, and a member sees the card with no button. Pinned by
+`cockpitGate.remote.test.ts`, `CockpitSetup.dom.test.tsx`, `useCockpit.remote.dom.test.tsx` and
+`src/app/api/org/loop/route.remote-arm.test.ts`, which posts the cockpit's own body to the real
+route on a deployment where `selfHostGuard` 404s.
+
 Tests: `cockpit/laneStages.test.ts`, `cockpitDimensions.test.ts`, `cockpitDrift.test.ts`,
 `cockpitGate.test.ts` (one gate, two callers), `driveModel.test.ts` (the on-screen arithmetic and
 the three verdicts), `useLoopRun.dom.test.tsx`, `useDrive.dom.test.tsx` (gating + poll discipline +
@@ -4647,6 +4664,10 @@ never zero. The cockpit renders "cost unknown" beside an `agent` chip, the claim
 countdown; a zero there would be averaged downstream as a free session, which is a claim nobody made.
 The run panel also hides "Stop after in-flight" for a remote run: that button is a cooperative signal
 to a process this deployment is driving, and there is none.
+
+**The cockpit arms one too (2026-09-24).** On a cloud deployment an owner can start this run from the
+Live cockpit's setup card, over the repos selected on the chart, as well as through the API. See
+[Setup states](#setup-states-cockpitsetup).
 
 ## Rescan cadence — a multi-cycle run reads the tree once (2026-09-01)
 
