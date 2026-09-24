@@ -30,6 +30,12 @@ export function goalBasisMarker(g: Pick<GoalProgressView, "pctBasis">): string |
   return g.pctBasis === "attainment" ? GOAL_ATTAINMENT_MARKER : null;
 }
 
+/** The visible standing of a goal whose metric nothing has scored ("Security not measured yet,
+ *  target 60"). One wording for every goal surface that would otherwise print `current/target` (G19). */
+export function goalUnmeasuredLine(g: Pick<GoalProgressView, "metricLabel" | "target">): string {
+  return `${g.metricLabel} not measured yet, target ${g.target}`;
+}
+
 /**
  * The accessible name for a goal meter: the numbers the bar draws, plus the basis caption.
  *
@@ -40,14 +46,17 @@ export function goalBasisMarker(g: Pick<GoalProgressView, "pctBasis">): string |
  * payload carries no `pctLabel`; we then state the numbers alone rather than guess a basis.
  */
 export function goalMeterAriaLabel(
-  g: Pick<GoalProgressView, "label" | "current" | "target" | "pctLabel">,
+  g: Pick<GoalProgressView, "label" | "current" | "target" | "pctLabel"> & { metricLabel?: string },
 ): string {
+  if (g.current === null) return `${g.label}: ${goalUnmeasuredLine({ metricLabel: g.metricLabel ?? "metric", target: g.target })}`;
   const head = `${g.label}: ${g.current} of ${g.target}`;
   return g.pctLabel ? `${head} — ${g.pctLabel}` : head;
 }
 
 /** One-line, leader-facing read of a goal's pace — the detail under the progress meter. */
 export function readout(g: GoalProgressView): string {
+  // Nothing has scored the metric: there is no standing to project from, so no pace line at all.
+  if (g.current === null) return `${goalUnmeasuredLine(g)}. A scan that scores it starts the trend.`;
   // When the payload carries the fit, composeGoal is the only thing this surface may print: the
   // unmeasurable hedge travels with the line, and a sub-gate fit cannot state a pace/ETA (G4).
   if ("forecast" in g) {

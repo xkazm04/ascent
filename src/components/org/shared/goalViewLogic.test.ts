@@ -89,3 +89,36 @@ describe("readout — presenters go through composeGoal so they cannot drop the 
     expect(readout(view())).toMatch(/^Behind:/);
   });
 });
+
+// G19: a goal whose metric nothing has scored has no standing. The meter name and the readout say
+// so in words; neither prints a 0, a "null", or a pace verdict the absent number would imply.
+describe("an unmeasured goal (current === null)", () => {
+  const unmeasured = view({
+    current: null,
+    pct: null,
+    pctBasis: "unmeasured",
+    pctLabel: GOAL_PCT_LABEL.unmeasured,
+    metricLabel: "Security",
+    pace: "tracking",
+    perWeek: 0,
+    fitQuality: 0,
+    etaDays: null,
+    etaDate: null,
+    requiredPerWeek: null,
+    forecast: null,
+  });
+
+  it("readout names the absence instead of a standing", () => {
+    const line = readout(unmeasured);
+    expect(line).toMatch(/not measured/i);
+    expect(line).toContain("Security");
+    expect(line).not.toMatch(/\bnull\b|\b0\b|Behind|On pace/);
+  });
+
+  it("the meter's accessible name states the target and the absence, never '0 of'", () => {
+    const name = goalMeterAriaLabel(unmeasured);
+    expect(name).toMatch(/not measured/i);
+    expect(name).toContain("80");
+    expect(name).not.toMatch(/\bnull\b|\b0 of\b/);
+  });
+});

@@ -93,10 +93,11 @@ async function claimAndDispatch(
   return sent.delivered;
 }
 
-/** Goals the plan layer already marks as behind — the alert's whole trigger condition. */
+/** Goals the plan layer already marks as behind — the alert's whole trigger condition. A goal whose
+ *  metric nothing has scored (`current` null) is never at risk on that account (G19). */
 function behindGoals(goals: Awaited<ReturnType<typeof listGoals>>): GoalRisk[] {
   return (goals ?? [])
-    .filter((g) => g.pace === "behind" && !g.achieved)
+    .filter((g): g is typeof g & { current: number } => g.pace === "behind" && !g.achieved && g.current !== null)
     .map((g) => ({
       label: g.label,
       metricLabel: g.metricLabel,

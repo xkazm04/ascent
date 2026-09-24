@@ -19,7 +19,7 @@ export interface FixFirstInputs {
   findings: { module: FindingModule; repo: string; title: string }[];
   /** listGoals rows. `target`/`current`/`metricLabel` are optional because the shape is structural:
    *  a caller that has only the triage fields still gets a band — its goal bar is simply a void. */
-  goals: { label: string; status: string; pace: string; metricLabel?: string; target?: number; current?: number }[];
+  goals: { label: string; status: string; pace: string; metricLabel?: string; target?: number; current?: number | null }[];
   /** `OrgMovers.comparedRepos` — the population a repo's regression is divided across to reach the
    *  fleet scale. Absent (or 0) makes the regression bar a void rather than an undivided overclaim. */
   comparedRepos?: number;

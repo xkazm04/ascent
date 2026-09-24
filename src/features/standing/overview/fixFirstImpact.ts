@@ -82,7 +82,7 @@ export function goalImpact(g: {
   label: string;
   metricLabel?: string;
   target?: number;
-  current?: number;
+  current?: number | null;
 }): FixFirstImpact {
   const { target, current } = g;
   if (!Number.isFinite(target) || !Number.isFinite(current))

@@ -6,14 +6,17 @@
 import Link from "next/link";
 import { Meter } from "@/components/org/shared/ui";
 import { goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
+import { goalUnmeasuredLine } from "@/components/org/shared/goalViewLogic";
 import { scoreHex } from "@/lib/ui";
 import { DIRECTION_TONE, deltaHex, signedDelta, toneFor } from "@/components/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { WallPaceChip } from "@/features/inflight/live/WallPaceChip";
 
 /** An attained goal is not a score — it is a reached target, so it takes the brand success token
- *  rather than a hand-picked emerald. Below attainment the meter keeps the score ramp. */
-export const goalMeterColor = (goal: GoalProgressView) => (goal.achieved ? "var(--color-success)" : scoreHex(goal.current));
+ *  rather than a hand-picked emerald. Below attainment the meter keeps the score ramp; an unmeasured
+ *  goal has no score to ramp, so it takes the muted text token (G19). */
+export const goalMeterColor = (goal: GoalProgressView) =>
+  goal.achieved ? "var(--color-success)" : goal.current === null ? "var(--color-slate-400)" : scoreHex(goal.current);
 
 /** Days until a YYYY-MM-DD deadline (negative = past, 0 = due today). null when no date.
  *
@@ -45,7 +48,7 @@ export function GoalBanner({
   campaignDelta?: number | null;
 }) {
   const countdown = daysUntil(goal.targetDate);
-  const toGoal = Math.max(0, goal.target - goal.current);
+  const toGoal = goal.current === null ? null : Math.max(0, goal.target - goal.current);
   const basisMarker = goalBasisMarker(goal);
   return (
     <div className="mt-4 rounded-2xl border border-divider bg-surface-strong/40 p-4">
@@ -62,19 +65,26 @@ export function GoalBanner({
       {/* This wall is PROJECTED: nobody hovers a tooltip and nobody reads the aria label off a
           screen reader, so a goal that can only report attainment says so in VISIBLE text below —
           the aria label carries the same wording for the authenticated in-browser reader. */}
-      <Meter
-        className="mt-2.5"
-        value={goal.current}
-        threshold={goal.target}
-        color={goalMeterColor(goal)}
-        ariaLabel={goalMeterAriaLabel(goal)}
-      />
+      {/* Unmeasured (G19): no meter, since a bar at 0 would claim a standing nobody observed. */}
+      {goal.current !== null && (
+        <Meter
+          className="mt-2.5"
+          value={goal.current}
+          threshold={goal.target}
+          color={goalMeterColor(goal)}
+          ariaLabel={goalMeterAriaLabel(goal)}
+        />
+      )}
       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 type-mono-sm text-slate-400">
-        <span>
-          {goal.metricLabel} {goal.current}/{goal.target}
-          {basisMarker ? <span className="text-slate-500"> · {basisMarker}</span> : null}
-          {goal.achieved ? " · reached 🎉" : ` · ${toGoal} to goal`}
-        </span>
+        {goal.current === null ? (
+          <span>{goalUnmeasuredLine(goal)}</span>
+        ) : (
+          <span>
+            {goal.metricLabel} {goal.current}/{goal.target}
+            {basisMarker ? <span className="text-slate-500"> · {basisMarker}</span> : null}
+            {goal.achieved ? " · reached 🎉" : ` · ${toGoal} to goal`}
+          </span>
+        )}
         {campaignDelta != null && (
           // The brand direction triad, not a third local copy of it — same noise band the headline
           // strip and the movers ticker now read from, so one wall never shows two verdicts on +1.

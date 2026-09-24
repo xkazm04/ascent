@@ -430,6 +430,84 @@ describe("listGoals pct — progress from a stored baseline, attainment (labelle
   });
 });
 
+// G19: absence is not a number. A metric nothing has scored (a dimension no latest scan carries, or
+// any metric on a fleet with no scans at all) has no standing, so `current` and `pct` are null and
+// the goal is neither missed, behind, nor regressed on its account.
+describe("listGoals — an unmeasured metric reads null, never 0", () => {
+  it("a dimension no latest scan scored: current/pct null, basis 'unmeasured', no pace/ETA/laggards", async () => {
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g1", metric: "D7", target: 60, targetDate: new Date("2026-12-31T00:00:00.000Z") }],
+      repos: [
+        { fullName: "acme/a", name: "a", overall: 55, dims: { D1: 50 } },
+        { fullName: "acme/b", name: "b", overall: 45 },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.current).toBeNull();
+    expect(g.pct).toBeNull();
+    expect(g.pctBasis).toBe("unmeasured");
+    expect(g.pctLabel).toBe(GOAL_PCT_LABEL.unmeasured);
+    expect(g.achieved).toBe(false);
+    expect(g.pace).toBe("tracking");
+    expect(g.requiredPerWeek).toBeNull();
+    expect(g.etaDays).toBeNull();
+    expect(g.forecast).toBeNull();
+    expect(g.laggards).toEqual([]);
+    expect(g.belowCount).toBe(0);
+  });
+
+  it("any metric on a fleet with no scans: current/pct null rather than a fleet at zero", async () => {
+    const { prisma } = fakePrisma({ goals: [{ id: "g1", metric: "overall", target: 70 }], repos: [] });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.current).toBeNull();
+    expect(g.pct).toBeNull();
+    expect(g.pctBasis).toBe("unmeasured");
+  });
+
+  it("an achieved goal whose metric is now unmeasured is not reverted (absence is not a regression)", async () => {
+    const achievedAt = new Date("2026-01-05T00:00:00.000Z");
+    const { prisma, goalUpdates } = fakePrisma({
+      goals: [{ id: "g1", metric: "D7", target: 50, status: "achieved", achievedAt }],
+      repos: [{ fullName: "acme/a", name: "a", overall: 55 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.status).toBe("achieved");
+    expect(g.achievedAt).toBe(achievedAt.toISOString());
+    expect(goalUpdates).toEqual([]);
+  });
+
+  it("guard: a dimension scored on some repos averages only those repos", async () => {
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g1", metric: "D7", target: 60 }],
+      repos: [
+        { fullName: "acme/a", name: "a", overall: 55, dims: { D7: 30 } },
+        { fullName: "acme/b", name: "b", overall: 45 },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const g = (await listGoals(ORG_SLUG))![0]!;
+
+    expect(g.current).toBe(30);
+    expect(g.pct).toBe(50);
+    expect(g.pctBasis).toBe("attainment");
+  });
+
+  it("the unmeasured caption names absence and carries no em dash", () => {
+    expect(GOAL_PCT_LABEL.unmeasured).toMatch(/not measured/i);
+    expect(GOAL_PCT_LABEL.unmeasured).not.toContain("—");
+  });
+});
+
 describe("isGoalMetric — accepts exactly {overall, adoption, rigor, D1..D9}, rejects the rest", () => {
   const VALID = ["overall", "adoption", "rigor", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"];
 
@@ -588,6 +666,16 @@ describe("parseTargetDate (via createGoal write) — valid ⇒ Date, junk ⇒ nu
 
       // Absent rather than 0: a stored 0 would be indistinguishable from a real measurement for the
       // rest of the goal's life, and listGoals would render fabricated progress from it.
+      expect(created[0]!.baselineValue).toBeUndefined();
+      expect(created[0]!.baselineAt).toBeUndefined();
+    });
+
+    it("stores NO baseline for a dimension the scanned fleet has never scored (no 0 baseline)", async () => {
+      const { prisma, created } = fakeCreateGoalPrisma([{ fullName: "acme/a", name: "a", overall: 40, dims: { D1: 50 } }]);
+      mockGetPrisma.mockReturnValue(prisma);
+
+      await expect(createGoal(ORG_SLUG, { label: "G", metric: "D7", target: 30 })).resolves.toEqual({ id: "g_new" });
+
       expect(created[0]!.baselineValue).toBeUndefined();
       expect(created[0]!.baselineAt).toBeUndefined();
     });

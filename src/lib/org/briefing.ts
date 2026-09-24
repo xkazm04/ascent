@@ -46,13 +46,15 @@ export interface BriefingMove {
 }
 export interface BriefingGoal {
   label: string;
-  current: number;
+  /** Null when nothing has scored the goal's metric (G19): stated as absence, never as 0. */
+  current: number | null;
   target: number;
   /** The meter, 0..100. `pctBasis` says WHICH QUESTION it answers and must travel with it:
    *  a goal created before baselines were stored can only report attainment (current/target),
    *  which opens near-full, while a goal with a baseline reports progress since it was set.
-   *  Rendering the two side by side unlabelled invites a reader to compare them. */
-  pct: number;
+   *  Rendering the two side by side unlabelled invites a reader to compare them. Null (basis
+   *  `"unmeasured"`) when `current` is: there is no meter to draw. */
+  pct: number | null;
   pctBasis: GoalPctBasis;
   pctLabel: string;
   pace: string;
@@ -463,11 +465,10 @@ export async function buildExecBriefing(
       // this briefing may state a pace/ETA at all, and when it may, the hedge travels WITH the claim.
       // `etaDays` copies only beside a projection (`confidence` set). No fit, a sub-gate fit, or a
       // reached target degrades to absence — leftover row ETAs are not a basis (G4).
-      const read = composeGoal(g.forecast ?? null, g, {
-        current: g.current,
-        target: g.target,
-        targetDate: g.targetDate ?? null,
-      });
+      // An unmeasured metric has no standing to compose a read from: absence, never a pace (G19).
+      const read = g.current === null
+        ? { headline: null, confidence: null, basis: null, insufficiency: null }
+        : composeGoal(g.forecast ?? null, g, { current: g.current, target: g.target, targetDate: g.targetDate ?? null });
       return {
         label: g.label,
         current: g.current,

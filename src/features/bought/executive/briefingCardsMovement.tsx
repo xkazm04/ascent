@@ -104,12 +104,17 @@ export function BriefingGoalsCard({
             return (
               <div key={g.label} className="flex items-center gap-3 type-body">
                 <span className="min-w-0 flex-1 truncate text-slate-300">{g.label}</span>
-                <Meter
-                  className="w-32 shrink-0"
-                  value={g.pct}
-                  color={scoreHex(g.pct)}
-                  ariaLabel={briefingGoalLine(g)}
-                />
+                {/* Unmeasured (G19): no bar, since an empty one would read as 0%. The stats say why. */}
+                {g.pct == null ? (
+                  <span className="w-32 shrink-0" aria-hidden />
+                ) : (
+                  <Meter
+                    className="w-32 shrink-0"
+                    value={g.pct}
+                    color={scoreHex(g.pct)}
+                    ariaLabel={briefingGoalLine(g)}
+                  />
+                )}
                 <span className="min-w-0 max-w-[50%] shrink truncate text-right type-mono-sm text-slate-400" title={stats}>
                   {stats}
                 </span>

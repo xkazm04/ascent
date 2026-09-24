@@ -14,7 +14,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { retentionCutoff } from "@/lib/plans";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { meanPerDayKey, projectGoal, type Forecast, type GoalPace, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
+import { meanPerDayKey, projectGoal, type Forecast, type GoalPace, type GoalProjection, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 
 export type GoalMetric = "overall" | "adoption" | "rigor" | DimensionId;
@@ -58,11 +58,12 @@ type SnapshotRepo = {
   rigor: number;
 };
 
-/** The fleet's latest-scan snapshot — averages, per-dimension averages, and per-repo dims. */
+/** The fleet's latest-scan snapshot — averages, per-dimension averages, and per-repo dims. The axis
+ *  averages are null when no repo has a scan: the mean of nothing is unknown, not 0 (G19). */
 interface FleetSnapshot {
-  avgOverall: number;
-  avgAdoption: number;
-  avgRigor: number;
+  avgOverall: number | null;
+  avgAdoption: number | null;
+  avgRigor: number | null;
   dimAvg: Record<string, number>;
   repos: SnapshotRepo[];
 }
@@ -125,17 +126,20 @@ async function fleetSnapshot(orgId: string): Promise<FleetSnapshot> {
     });
   }
 
-  const avg = (sum: number) => (n ? Math.round(sum / n) : 0);
+  const avg = (sum: number) => (n ? Math.round(sum / n) : null);
   const dimAvg: Record<string, number> = {};
   for (const [k, v] of Object.entries(dimSum)) dimAvg[k] = Math.round(v.sum / v.n);
   return { avgOverall: avg(oSum), avgAdoption: avg(aSum), avgRigor: avg(rSum), dimAvg, repos: rows };
 }
 
-function currentFor(metric: string, snap: FleetSnapshot): number {
+/** The fleet's live value on a goal metric, or null when nothing has measured it: a fleet with no
+ *  scans, or a dimension no latest scan carries a row for. Absence is not a zero score (G19), so
+ *  callers must not render, baseline, or judge a pace from a null. */
+function currentFor(metric: string, snap: FleetSnapshot): number | null {
   if (metric === "overall") return snap.avgOverall;
   if (metric === "adoption") return snap.avgAdoption;
   if (metric === "rigor") return snap.avgRigor;
-  return snap.dimAvg[metric] ?? 0;
+  return snap.dimAvg[metric] ?? null;
 }
 
 /** One repo's score on a goal metric — for finding the repos dragging a target. `null` when the
@@ -219,12 +223,14 @@ export interface GoalLaggard {
  * The distinction is data, not a footnote — a consumer that renders `pct` without it is republishing
  * an attainment ratio as a progress bar, which is the defect this pair of fields exists to end.
  */
-export type GoalPctBasis = "progress" | "attainment";
+export type GoalPctBasis = "progress" | "attainment" | "unmeasured";
 
-/** Meter captions, single-sourced so every surface says the same thing about the same number. */
+/** Meter captions, single-sourced so every surface says the same thing about the same number.
+ *  `unmeasured` has no number: nothing has scored the metric yet, so `current` and `pct` are null. */
 export const GOAL_PCT_LABEL: Record<GoalPctBasis, string> = {
   progress: "Progress since this goal was set",
   attainment: "Current standing vs target (set before baselines were recorded — not progress)",
+  unmeasured: "Not measured yet: no scan has scored this metric, so there is no standing or progress to show",
 };
 
 export interface GoalProgress {
@@ -233,7 +239,9 @@ export interface GoalProgress {
   metric: string;
   metricLabel: string;
   target: number;
-  current: number;
+  /** The fleet's live value on the metric, or null when nothing has scored it (a fleet with no scans,
+   *  or a dimension no latest scan carries). Null is unknown, never 0: render the absence in words. */
+  current: number | null;
   /**
    * The meter, 0..100 — and `pctBasis` says WHICH QUESTION it answers, because two goals on one board
    * can legitimately answer different ones.
@@ -253,8 +261,11 @@ export interface GoalProgress {
    * Either way the pace/ETA fields are trend-derived and independent of the meter, so they remain the
    * better answer to "how much work remains". createGoal still rejects an already-met target so a goal
    * can never be BORN achieved (ambiguity-ui 07-16 goals #5).
+   *
+   * `"unmeasured"` (`current` is null): no meter at all, so `pct` is null. Drawing 0 would claim a
+   * fleet at zero that nobody observed (G19).
    */
-  pct: number;
+  pct: number | null;
   /** Which question `pct` answers — see above. Never omit this when rendering the meter. */
   pctBasis: GoalPctBasis;
   /** Ready-to-render caption for the meter, matching `pctBasis`. */
@@ -318,10 +329,11 @@ export interface GoalProgress {
  * - `target === 0` — the pre-existing attainment edge, kept: everything is at or above 0, so 100.
  */
 function goalMeter(
-  current: number,
+  current: number | null,
   target: number,
   baseline: number | null,
-): { pct: number; basis: GoalPctBasis } {
+): { pct: number | null; basis: GoalPctBasis } {
+  if (current === null) return { pct: null, basis: "unmeasured" };
   if (baseline !== null && target > baseline) {
     const travelled = (current - baseline) / (target - baseline);
     return { pct: Math.max(0, Math.min(100, Math.round(travelled * 100))), basis: "progress" };
@@ -339,23 +351,23 @@ export async function createGoal(
   const org = await ensureOrg(orgSlug);
   // A target at or below today's fleet value would be stamped "achieved" on the very next listGoals
   // pass, polluting the Met 🎉 history with a milestone that represents zero movement. Reject it at the
-  // source with the number the user needs to pick better (ambiguity-ui 07-16 goals #5). Skipped for a
-  // scan-less fleet, where every metric reads 0 and the guard would be meaningless.
+  // source with the number the user needs to pick better (ambiguity-ui 07-16 goals #5). Skipped when
+  // the metric is unmeasured (a scan-less fleet, or a dimension no latest scan scored): there is no
+  // current value to compare against.
   // The same read is also THE BASELINE: this is the one moment the metric's starting value is
   // knowable, so it is captured here (below) rather than reconstructed later from scan history.
   const snap = await fleetSnapshot(org.id);
   const current = currentFor(input.metric, snap);
-  if (snap.repos.length > 0 && Math.round(input.target) <= current) {
+  if (current !== null && Math.round(input.target) <= current) {
     throw Object.assign(
       new Error(`The fleet is already at ${current} on this metric; pick a target above it.`),
       { code: "GOAL_ALREADY_MET" },
     );
   }
-  // Baseline ONLY when the fleet has actually been measured. On a scan-less fleet `currentFor` returns
-  // 0 as a placeholder, not as an observation, and storing that 0 would mint a fabricated measurement
-  // that is indistinguishable from a real one for the rest of the goal's life. Null instead: the meter
-  // renders as labelled attainment until — and only if — someone sets a goal against a measured fleet.
-  const measured = snap.repos.length > 0;
+  // Baseline ONLY when the metric has actually been measured. `currentFor` is null on a scan-less
+  // fleet and for a dimension no latest scan scored; a stored placeholder would be a fabricated
+  // measurement indistinguishable from a real one for the rest of the goal's life. No baseline
+  // instead: the meter renders as labelled attainment once the metric is measured.
   const goal = await prisma.goal.create({
     data: {
       orgId: org.id,
@@ -363,12 +375,27 @@ export async function createGoal(
       metric: input.metric,
       target: Math.max(0, Math.min(100, Math.round(input.target))),
       targetDate: parseTargetDate(input.targetDate),
-      ...(measured ? { baselineValue: current, baselineAt: new Date() } : {}),
+      ...(current !== null ? { baselineValue: current, baselineAt: new Date() } : {}),
     },
     select: { id: true },
   });
   return goal;
 }
+
+/** The projection fields of a goal whose metric nothing has scored: the neutral verdict, no fit. */
+const UNMEASURED_PROJECTION: Pick<
+  GoalProjection,
+  "pace" | "perWeek" | "trajectory" | "fitQuality" | "etaDays" | "etaDate" | "requiredPerWeek" | "forecast"
+> = {
+  pace: "tracking",
+  perWeek: 0,
+  trajectory: "flat",
+  fitQuality: 0,
+  etaDays: null,
+  etaDate: null,
+  requiredPerWeek: null,
+  forecast: null,
+};
 
 /**
  * All goals for an org with live progress, a trend-derived ETA/pace, and the repos that must move.
@@ -407,16 +434,20 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
   const out = goals.map((g) => {
     const current = currentFor(g.metric, snap);
     const targetDate = g.targetDate ? g.targetDate.toISOString().slice(0, 10) : null;
-    const proj = projectGoal({ series: series[g.metric] ?? [], current, target: g.target, targetDate, nowMs: now });
+    // An unmeasured metric has no ray to project from: no pace verdict, ETA or required rate (G19).
+    const proj = current === null
+      ? UNMEASURED_PROJECTION
+      : projectGoal({ series: series[g.metric] ?? [], current, target: g.target, targetDate, nowMs: now });
     const below = snap.repos
       .map((r) => ({ fullName: r.fullName, name: r.name, value: repoValueFor(g.metric, r) }))
       .filter((r): r is { fullName: string; name: string; value: number } => r.value != null)
       .filter((r) => r.value < g.target)
       .sort((a, b) => a.value - b.value || a.fullName.localeCompare(b.fullName))
       .map((r) => ({ ...r, gap: g.target - r.value }));
-    const reached = current >= g.target;
+    // Unmeasured is neither reached nor a regression: an absent value moves no status either way.
+    const reached = current !== null && current >= g.target;
     const newlyAchieved = reached && g.status === "active";
-    const regressed = !reached && g.status === "achieved";
+    const regressed = current !== null && !reached && g.status === "achieved";
     if (newlyAchieved) justAchieved.push(g.id);
     if (regressed) justRegressed.push(g.id);
     const status = newlyAchieved ? "achieved" : regressed ? "active" : g.status;

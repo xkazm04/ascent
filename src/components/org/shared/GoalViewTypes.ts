@@ -12,8 +12,10 @@ export interface GoalProgressView {
   metric: string;
   metricLabel: string;
   target: number;
-  current: number;
-  pct: number;
+  /** Null when nothing has scored the metric (G19): render the absence in words, never as 0. */
+  current: number | null;
+  /** Null exactly when `current` is (basis `"unmeasured"`): there is no meter to draw. */
+  pct: number | null;
   /** Which question `pct` answers — `"progress"` (measured from the baseline stored at creation) or
    *  `"attainment"` (current over target, for a goal created before baselines existed). The two open
    *  at opposite ends of the bar, so a meter rendered without this says nothing a reader can trust.

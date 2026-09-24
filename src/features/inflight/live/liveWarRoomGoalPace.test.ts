@@ -69,8 +69,10 @@ describe("the wall mounts WallPaceChip, not an ungated PaceChip", () => {
   });
 
   it("TvStanding uses the same chip so TV cannot contradict the banner", () => {
-    const src = live("LiveWarRoomTvStages.tsx");
-    expect(src).toContain("WallPaceChip");
+    // The TV goal card lives in LiveWarRoomTvGoal.tsx (extracted for the 200-LOC cap); TvStanding mounts it.
+    expect(live("LiveWarRoomTvStages.tsx")).toContain("<TvGoalCard");
+    const src = live("LiveWarRoomTvGoal.tsx");
+    expect(src).toContain("<WallPaceChip");
     expect(src).not.toContain("<PaceChip");
   });
 });

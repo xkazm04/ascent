@@ -65,13 +65,15 @@ export function briefingGoal(g: BriefingGoal): GoalRead {
 /** Pct clause: the meter figure only with its basis caption. An unlabelled `pct` is the original
  *  defect (plan.md); missing `pctLabel` degrades to absence, never a guessed basis (G4). */
 function briefingGoalPct(g: BriefingGoal): string | null {
-  return g.pctLabel ? `${g.pct}% · ${g.pctLabel}` : null;
+  return g.pctLabel && g.pct != null ? `${g.pct}% · ${g.pctLabel}` : null;
 }
 
 /** Standing + labelled pct + pace/ETA only when {@link briefingGoal} is presentable.
  *  Markdown uses {@link briefingGoalLine}; the PDF and Goals card split the label off and read
  *  this. Leftover `pace`/`etaDays` on a fixture with no composeGoal read are not printed. */
 export function briefingGoalStats(g: BriefingGoal): string {
+  // Nothing has scored the metric: state the absence, never "0/60" or "null/60" (G19).
+  if (g.current == null) return `not measured yet, target ${g.target}`;
   const read = briefingGoal(g);
   const presentable = read.headline != null;
   const inner: string[] = [];
