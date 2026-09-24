@@ -54,6 +54,26 @@ describe("resolveTextRunnerForOrg — a BYOM org gets an engine", () => {
     expect(headers.authorization).toBe("Bearer sk-or-ORG");
   });
 
+  it("runs a nebius BYOM on the org's key at the public Token Factory endpoint, not the host's", async () => {
+    vi.stubEnv("NEBIUS_API_KEY", "nb-PLATFORM");
+    vi.stubEnv("NEBIUS_MODEL", "platform/model");
+    vi.stubEnv("NEBIUS_BASE_URL", "https://platform-proxy.example/v1");
+    mockResolveState.mockResolvedValue({
+      state: "active",
+      params: { kind: "nebius", model: "zai-org/GLM-5.3-Flash", apiKey: "nb-ORG" },
+    });
+    const fetchMock = vi.fn(async () => Response.json({ choices: [{ message: { content: "hi" } }] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const runner = await resolveTextRunnerForOrg("acme", { legKind: "memory" });
+    expect([runner?.engine, runner?.model]).toEqual(["nebius", "zai-org/GLM-5.3-Flash"]);
+    await runner!.run("prompt");
+
+    const [url, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.tokenfactory.nebius.com/v1/chat/completions");
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer nb-ORG");
+  });
+
   it("uses the org's Bedrock model + region for a bedrock BYOM config", async () => {
     mockResolveState.mockResolvedValue({
       state: "active",

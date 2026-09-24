@@ -52,6 +52,21 @@ describe("getProviderForOrg", () => {
     expect(provider.model).toBe("anthropic/claude-sonnet-4");
   });
 
+  it("builds a Nebius provider with the org's decrypted key for an active nebius BYOM config", async () => {
+    // A platform Nebius account configured on the host must not be what an org's BYOM runs on.
+    vi.stubEnv("NEBIUS_API_KEY", "nb-PLATFORM");
+    vi.stubEnv("NEBIUS_MODEL", "platform/model");
+    mockResolveState.mockResolvedValue({
+      state: "active",
+      params: { kind: "nebius", model: "zai-org/GLM-5.3-Flash", apiKey: "nb-ORG" },
+    });
+    const { provider, byom } = await getProviderForOrg("acme");
+    vi.unstubAllEnvs();
+    expect(byom).toBe(true);
+    expect(provider.name).toBe("nebius");
+    expect(provider.model).toBe("zai-org/GLM-5.3-Flash");
+  });
+
   it("falls back to the platform provider when no active BYOM (byom:false)", async () => {
     mockResolveState.mockResolvedValue({ state: "inactive" });
     const { provider, byom } = await getProviderForOrg("acme");

@@ -37,6 +37,7 @@
 import { OpenAiProvider } from "@/lib/llm/openai";
 import type { AssessOptions, LlmScoreInput } from "@/lib/llm/provider";
 import type { LlmAssessment } from "@/lib/types";
+import { probeJsonModeConnection } from "@/lib/llm/json-mode-probe";
 
 /** The public Token Factory endpoint. OpenAI-compatible; `/chat/completions` hangs off it. */
 export const NEBIUS_DEFAULT_BASE_URL = "https://api.tokenfactory.nebius.com/v1";
@@ -96,4 +97,30 @@ export class NebiusProvider extends OpenAiProvider {
     this.assertConfigured();
     return super.assess(input, opts);
   }
+}
+
+/**
+ * Validate an org's Nebius BYOM connection (the test-connection endpoint): the shared JSON-mode probe
+ * (json-mode-probe.ts) against the PUBLIC Token Factory endpoint with the org's key. Not
+ * NEBIUS_BASE_URL: that is the deployment's override for its own platform account, and an org's key
+ * goes to the vendor that issued it. The reasoning-model note above is why the probe matters here: a
+ * model that thinks aloud into `content` fails it, instead of failing every scan after a green check.
+ *
+ * Returns { ok } on success, or { ok:false, error } with a bounded message (never the key).
+ */
+export async function testNebiusConnection(opts: {
+  model: string;
+  apiKey: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const model = opts.model.trim();
+  const apiKey = opts.apiKey.trim();
+  if (!apiKey) return { ok: false, error: "No Nebius API key to test." };
+  // No default, for the reason the provider has none: an invented id 404s on an account without it.
+  if (!model) return { ok: false, error: "Enter a Nebius model id (from GET /v1/models) to test." };
+  return probeJsonModeConnection({
+    url: `${NEBIUS_DEFAULT_BASE_URL}/chat/completions`,
+    headers: { authorization: `Bearer ${apiKey}` },
+    model,
+    label: "Nebius",
+  });
 }

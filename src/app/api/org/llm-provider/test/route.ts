@@ -1,10 +1,10 @@
 // POST /api/org/llm-provider/test { org, provider?, modelId?, region?, accessKeyId?, secretAccessKey?, apiKey? }
 //   -> { ok, error? }
-// Validate a BYOM connection (Feature 1) for EITHER supported provider — Bedrock (in-boundary) or
-// OpenRouter (fleet/cost path). Owner + Enterprise gated, same-origin. Uses the credentials in the body
-// when present (so an org can TEST before saving / enabling), else the stored (decrypted) secret —
-// supporting the save → test → enable flow. Runs ONE cheap but SCHEMA-SHAPED provider call (see
-// testBedrockConnection / testOpenRouterConnection: a bare ping green-checks configs that fail every
+// Validate a BYOM connection (Feature 1) for EVERY supported provider: Bedrock (in-boundary), and the
+// API-key kinds OpenRouter (fleet/cost path) and Nebius (hosted open-weight). Owner + BYOM-plan gated,
+// same-origin. Uses the credentials in the body when present (so an org can TEST before saving /
+// enabling), else the stored (decrypted) secret, supporting the save → test → enable flow. Runs ONE
+// cheap but SCHEMA-SHAPED provider call (see testBedrockConnection / json-mode-probe.ts: a bare ping green-checks configs that fail every
 // real scan) and stamps lastValidatedAt/Error. The secret is never echoed back; the error message is
 // sanitized + bounded.
 
@@ -16,6 +16,8 @@ import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { testBedrockConnection } from "@/lib/llm/bedrock";
 import { testOpenRouterConnection } from "@/lib/llm/openrouter";
+import { testNebiusConnection } from "@/lib/llm/nebius";
+import { isApiKeyByomKind, type ApiKeyByomKind } from "@/lib/llm/byom-kinds";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,30 +51,39 @@ export async function POST(request: Request) {
   const model = body.modelId?.trim() || stored?.modelId;
   if (!model) return NextResponse.json({ error: "Provide a modelId." }, { status: 400 });
 
-  const result =
-    provider === "openrouter"
-      ? await testOpenRouter(org, model, body)
-      : await testBedrock(org, model, body, stored?.region ?? undefined);
+  const result = isApiKeyByomKind(provider)
+    ? await testApiKeyKind(provider, org, model, body)
+    : await testBedrock(org, model, body, stored?.region ?? undefined);
   if (result instanceof NextResponse) return result;
 
   await recordOrgLlmValidation(org, result.ok, result.error).catch(() => {});
   return NextResponse.json(result, { status: result.ok ? 200 : 502 });
 }
 
-async function testOpenRouter(org: string, model: string, body: TestBody) {
+/** Each API-key kind's vendor name (for the "enter your key" hint) and its connection probe. */
+const API_KEY_TESTERS: Record<
+  ApiKeyByomKind,
+  { label: string; test(opts: { model: string; apiKey: string }): Promise<{ ok: boolean; error?: string }> }
+> = {
+  openrouter: { label: "OpenRouter", test: testOpenRouterConnection },
+  nebius: { label: "Nebius", test: testNebiusConnection },
+};
+
+async function testApiKeyKind(kind: ApiKeyByomKind, org: string, model: string, body: TestBody) {
   const typed = body.apiKey?.trim();
-  // A stored OpenRouter key only comes back when the SAVED provider is openrouter — the union-typed
-  // accessor makes a cross-provider read impossible rather than silently null.
-  const apiKey = typed || (await storedOpenRouterKey(org));
+  // A stored key only comes back when the SAVED provider is this same kind: the union-typed accessor
+  // makes a cross-provider read impossible, so an OpenRouter key is never sent to Nebius (or back).
+  const apiKey = typed || (await storedApiKey(org, kind));
+  const tester = API_KEY_TESTERS[kind];
   if (!apiKey) {
-    return NextResponse.json({ error: "No API key to test. Enter your OpenRouter key first." }, { status: 400 });
+    return NextResponse.json({ error: `No API key to test. Enter your ${tester.label} key first.` }, { status: 400 });
   }
-  return testOpenRouterConnection({ model, apiKey });
+  return tester.test({ model, apiKey });
 }
 
-async function storedOpenRouterKey(org: string): Promise<string | null> {
+async function storedApiKey(org: string, kind: ApiKeyByomKind): Promise<string | null> {
   const secret = await getStoredByomSecret(org);
-  return secret?.provider === "openrouter" ? secret.apiKey : null;
+  return secret?.provider === kind ? secret.apiKey : null;
 }
 
 async function testBedrock(org: string, model: string, body: TestBody, storedRegion: string | undefined) {

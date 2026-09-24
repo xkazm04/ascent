@@ -1,8 +1,10 @@
 // GET    /api/org/llm-provider?org=  -> { config, planAllowed, encryptionConfigured }   (owner)
-// POST   /api/org/llm-provider { org, modelId, region?, authMode?, enabled?, accessKeyId?, secretAccessKey? }
+// POST   /api/org/llm-provider { org, provider?, modelId, region?, authMode?, enabled?, accessKeyId?, secretAccessKey?, apiKey? }
 // DELETE /api/org/llm-provider { org }  -> { ok }  (disable + clear creds)
-// BYOM (Feature 1) — connect an org's own Amazon Bedrock. Owner-gated, same-origin, Enterprise-plan
-// gated, and fail-closed without ENCRYPTION_KEY. The GET response NEVER includes the secret (only
+// BYOM (Feature 1) — connect an org's own provider: Amazon Bedrock (AWS key pair), or an API-key kind,
+// OpenRouter or Nebius (`provider` + `apiKey`; the kinds are listed once in src/lib/llm/byom-kinds.ts,
+// and setOrgLlmConfig rejects any other). Owner-gated, same-origin, BYOM-plan gated, and fail-closed
+// without ENCRYPTION_KEY. The GET response NEVER includes the secret (only
 // `hasCredentials`); the secret is encrypted at rest and decrypted only at provider-construction time.
 
 import { NextResponse } from "next/server";

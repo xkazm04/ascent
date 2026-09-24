@@ -22,6 +22,7 @@ import type { ResolvedLegRunner, TextRunnerOptions } from "@/lib/llm/leg";
 // TYPE-ONLY: text.ts imports this module at runtime, so a value import back would close a cycle.
 import type { LegConnection } from "@/lib/llm/text";
 import type { ByomProviderParams } from "@/lib/db/org-llm";
+import type { ByomKind } from "@/lib/llm/byom-kinds";
 import { DEFAULT_GEMINI_MODEL, GeminiProvider } from "@/lib/llm/gemini";
 import { BedrockProvider, DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION, type BedrockCredentials } from "@/lib/llm/bedrock";
 import { DEFAULT_OPENAI_MODEL, OpenAiProvider } from "@/lib/llm/openai";
@@ -299,10 +300,12 @@ export function autoProviderName(): ProviderName {
 export interface ByomLegBinders {
   openrouter(model: string, apiKey: string): ResolvedLegRunner;
   bedrock(model: string, region: string, credentials?: BedrockCredentials): ResolvedLegRunner;
+  /** Nebius on the org's key, at the PUBLIC Token Factory endpoint (see byomDescriptor). */
+  nebius(model: string, apiKey: string): ResolvedLegRunner;
 }
 
 export interface ByomDescriptor {
-  name: "openrouter" | "bedrock";
+  name: ByomKind;
   model: string;
   /** The org's scan provider, on its own credentials. */
   scan(): LLMProvider;
@@ -313,24 +316,37 @@ export interface ByomDescriptor {
 
 /**
  * An org's resolved BYOM params → its provider, for BOTH seams. Bedrock keeps inference in the org's
- * AWS boundary; OpenRouter routes to third-party upstreams on the org's own key. This is the one
+ * AWS boundary; OpenRouter routes to third-party upstreams on the org's own key; Nebius runs hosted
+ * open-weight models in Nebius's datacenter on the org's own Token Factory key. This is the one
  * place that mapping is written (getProviderForOrg and text-org.ts both read it).
  */
 export function byomDescriptor(p: ByomProviderParams): ByomDescriptor {
-  if (p.kind === "openrouter") {
-    return {
-      name: "openrouter",
-      model: p.model,
-      scan: () => new OpenRouterProvider({ model: p.model, apiKey: p.apiKey }),
-      leg: (bind) => bind.openrouter(p.model, p.apiKey),
-    };
+  switch (p.kind) {
+    case "openrouter":
+      return {
+        name: "openrouter",
+        model: p.model,
+        scan: () => new OpenRouterProvider({ model: p.model, apiKey: p.apiKey }),
+        leg: (bind) => bind.openrouter(p.model, p.apiKey),
+      };
+    case "nebius":
+      return {
+        name: "nebius",
+        model: p.model,
+        // The PUBLIC endpoint, passed explicitly: NEBIUS_BASE_URL is the deployment's own override for
+        // its platform account, and an org's key goes to the vendor that issued it, not to wherever the
+        // host happens to point its own traffic.
+        scan: () => new NebiusProvider({ model: p.model, apiKey: p.apiKey, baseUrl: NEBIUS_DEFAULT_BASE_URL }),
+        leg: (bind) => bind.nebius(p.model, p.apiKey),
+      };
+    case "bedrock":
+      return {
+        name: "bedrock",
+        model: p.model,
+        // The scan provider resolves an absent region through BEDROCK_REGION/AWS_REGION itself; the text
+        // leg takes the default directly. Both behaviours are preserved exactly as they were.
+        scan: () => new BedrockProvider({ model: p.model, region: p.region, credentials: p.credentials }),
+        leg: (bind) => bind.bedrock(p.model, p.region ?? DEFAULT_BEDROCK_REGION, p.credentials),
+      };
   }
-  return {
-    name: "bedrock",
-    model: p.model,
-    // The scan provider resolves an absent region through BEDROCK_REGION/AWS_REGION itself; the text
-    // leg takes the default directly. Both behaviours are preserved exactly as they were.
-    scan: () => new BedrockProvider({ model: p.model, region: p.region, credentials: p.credentials }),
-    leg: (bind) => bind.bedrock(p.model, p.region ?? DEFAULT_BEDROCK_REGION, p.credentials),
-  };
 }

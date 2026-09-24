@@ -12,11 +12,13 @@
 // active BYOM and fails when a lane's call site stops matching its row. Change a lane's routing there
 // first; this file only describes it.
 //
-// Pure and client-safe: type-only imports, no env, no I/O. The facts come from lane-routes-load.ts.
+// Pure and client-safe: no env, no I/O, and the one value import is the pure BYOM-kind leaf. The facts
+// come from lane-routes-load.ts.
 
 import type { LlmLegKind } from "@/lib/llm/leg";
 import type { ProviderName } from "@/lib/types";
 import type { OrgLlmConfigPublic } from "@/lib/db/org-llm";
+import { isByomKind, type ByomKind } from "@/lib/llm/byom-kinds";
 
 /** The lanes, in the order the card lists them: the ones BYOM moves first. */
 export const LANE_IDS = ["scans", "athena", "briefing", "memory", "laneSummary"] as const;
@@ -48,7 +50,7 @@ export const LANE_ROUTING: Record<LaneId, LaneRoute> = {
 export type ByomFact =
   | { state: "inactive" }
   | { state: "unresolvable" }
-  | { state: "active"; kind: "openrouter" | "bedrock"; model: string; region?: string | null };
+  | { state: "active"; kind: ByomKind; model: string; region?: string | null };
 
 export interface EngineFact {
   engine: ProviderName;
@@ -111,6 +113,6 @@ export function routeLanes(facts: LaneFacts): LaneRow[] {
  */
 export function previewByom(config: OrgLlmConfigPublic | null): ByomFact | null {
   if (!config || config.enabled || !config.hasCredentials) return null;
-  if (config.provider !== "openrouter" && config.provider !== "bedrock") return null;
+  if (!isByomKind(config.provider)) return null;
   return { state: "active", kind: config.provider, model: config.modelId, region: config.region };
 }

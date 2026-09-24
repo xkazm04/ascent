@@ -125,6 +125,15 @@ describe("POST /api/org/llm-provider — gate chain + order", () => {
     expect(JSON.stringify(h.recordOrgAudit.mock.calls[0][2])).not.toContain("AKIAEXAMPLE");
     expect(JSON.stringify(h.recordOrgAudit.mock.calls[0][2])).not.toContain("SUPERSECRETVALUE");
   });
+  it("guard: a nebius save rides the same owner/plan/encryption chain and audits without the key", async () => {
+    const res = await POST(post({ org: "acme", provider: "nebius", modelId: "zai-org/GLM-5.3-Flash", apiKey: "nb-SECRET", enabled: true }));
+    expect(res.status).toBe(200);
+    expect(h.setOrgLlmConfig.mock.calls[0][1]).toMatchObject({ provider: "nebius", apiKey: "nb-SECRET" });
+    const meta = h.recordOrgAudit.mock.calls[0][2];
+    expect(meta).toMatchObject({ provider: "nebius", credsRotated: true });
+    expect(JSON.stringify(meta)).not.toContain("nb-SECRET");
+    expect(await res.text()).not.toContain("nb-SECRET");
+  });
   it("propagates a setOrgLlmConfig validation error as 400", async () => {
     h.setOrgLlmConfig.mockResolvedValue({ ok: false, error: "bad" });
     expect((await POST(post(valid))).status).toBe(400);

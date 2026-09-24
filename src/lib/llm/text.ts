@@ -37,6 +37,7 @@ import { llmTimeoutMs } from "@/lib/llm/config";
 import type { BedrockCredentials } from "@/lib/llm/bedrock";
 import type { LegCall, ResolvedLegRunner, ResolvedTextRunner, TextRunnerOptions } from "@/lib/llm/leg";
 import { bedrockLeg, geminiLeg, openAiCompatibleLeg } from "@/lib/llm/transports";
+import { NEBIUS_DEFAULT_BASE_URL } from "@/lib/llm/nebius";
 import { ENGINE_LABEL, textRunnerFrom } from "@/lib/llm/text-meter";
 
 // The seam's vocabulary lives in leg.ts (a leaf, so the transports and the metering wrapper can share
@@ -141,6 +142,14 @@ export function bedrockLegRunner(
   credentials?: BedrockCredentials,
 ): ResolvedLegRunner {
   return { engine: "bedrock", model, call: legCallFor({ engine: "bedrock", model, region, credentials }) };
+}
+/** The Nebius BYOM leg: the org's key at the PUBLIC endpoint, never the host's NEBIUS_BASE_URL. */
+export function nebiusLegRunner(model: string, apiKey: string): ResolvedLegRunner {
+  return {
+    engine: "nebius",
+    model,
+    call: legCallFor({ engine: "nebius", model, baseUrl: NEBIUS_DEFAULT_BASE_URL, apiKey }),
+  };
 }
 
 /**

@@ -172,6 +172,16 @@ describe("BYOM — one byomDescriptor mapping serves both seams", () => {
       credentials: { accessKeyId: "AKIA", secretAccessKey: "s" },
     });
     expect([b.name, b.model, b.scan().name]).toEqual(["bedrock", "eu.anthropic.claude-sonnet-4-6", "bedrock"]);
+    const n = byomDescriptor({ kind: "nebius", model: "zai-org/GLM-5.3-Flash", apiKey: "nb" });
+    expect([n.name, n.model, n.scan().name]).toEqual(["nebius", "zai-org/GLM-5.3-Flash", "nebius"]);
+  });
+
+  it("an active nebius config reports nebius on the scan seam AND the text seam", async () => {
+    mockResolveState.mockResolvedValue({ state: "active", params: { kind: "nebius", model: "m", apiKey: "k" } });
+    const { provider, byom } = await getProviderForOrg("acme");
+    expect([byom, provider.name, provider.model]).toEqual([true, "nebius", "m"]);
+    const leg = await resolveLegRunnerForOrg("acme", MEMORY);
+    expect([leg?.engine, leg?.model]).toEqual(["nebius", "m"]);
   });
 
   it("guard: active-but-unresolvable throws the fail-closed error on BOTH seams", async () => {

@@ -50,6 +50,8 @@ vi.mock("@/lib/llm/text", async () => {
     resolveLegRunner: H.resolveLegRunner,
     openRouterLegRunner: H.openRouterLegRunner,
     bedrockLegRunner: H.bedrockLegRunner,
+    // text-org binds every BYOM kind's leg, so the mocked module must carry each binder it names.
+    nebiusLegRunner: vi.fn(),
   };
 });
 vi.mock("@/lib/db/org-llm", () => ({ resolveByomState: H.resolveByomState }));

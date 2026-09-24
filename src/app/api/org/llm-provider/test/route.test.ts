@@ -34,6 +34,7 @@ const h = vi.hoisted(() => ({
   isEncryptionConfigured: vi.fn(),
   testBedrockConnection: vi.fn(),
   testOpenRouterConnection: vi.fn(),
+  testNebiusConnection: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -48,6 +49,7 @@ vi.mock("@/lib/auth", () => ({ requireSameOrigin: h.requireSameOrigin }));
 vi.mock("@/lib/crypto/secret-box", () => ({ isEncryptionConfigured: h.isEncryptionConfigured }));
 vi.mock("@/lib/llm/bedrock", () => ({ testBedrockConnection: h.testBedrockConnection }));
 vi.mock("@/lib/llm/openrouter", () => ({ testOpenRouterConnection: h.testOpenRouterConnection }));
+vi.mock("@/lib/llm/nebius", () => ({ testNebiusConnection: h.testNebiusConnection }));
 
 import { POST } from "./route";
 
@@ -73,11 +75,13 @@ beforeEach(() => {
   h.recordOrgLlmValidation.mockResolvedValue(undefined);
   h.testBedrockConnection.mockResolvedValue({ ok: true });
   h.testOpenRouterConnection.mockResolvedValue({ ok: true });
+  h.testNebiusConnection.mockResolvedValue({ ok: true });
 });
 
 const noProviderCalled = () => {
   expect(h.testBedrockConnection).not.toHaveBeenCalled();
   expect(h.testOpenRouterConnection).not.toHaveBeenCalled();
+  expect(h.testNebiusConnection).not.toHaveBeenCalled();
 };
 
 describe("POST /api/org/llm-provider/test — gate chain", () => {
@@ -196,6 +200,34 @@ describe("POST /api/org/llm-provider/test — OpenRouter", () => {
     const res = await POST(post({ org: "acme" }));
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/OpenRouter key/);
+    noProviderCalled();
+  });
+});
+
+describe("POST /api/org/llm-provider/test — Nebius (backlog row 37)", () => {
+  const NEBIUS_CONFIG = { provider: "nebius", modelId: "zai-org/GLM-5.3-Flash", region: null };
+
+  it("tests a body key against Nebius, not OpenRouter or Bedrock", async () => {
+    const res = await POST(post({ org: "acme", provider: "nebius", modelId: "zai-org/GLM-5.3-Flash", apiKey: "nb-typed" }));
+    expect(res.status).toBe(200);
+    expect(h.testNebiusConnection).toHaveBeenCalledWith({ model: "zai-org/GLM-5.3-Flash", apiKey: "nb-typed" });
+    expect(h.testOpenRouterConnection).not.toHaveBeenCalled();
+    expect(h.testBedrockConnection).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the stored Nebius key when the saved provider is nebius", async () => {
+    h.getOrgLlmConfig.mockResolvedValue(NEBIUS_CONFIG);
+    h.getStoredByomSecret.mockResolvedValue({ provider: "nebius", modelId: NEBIUS_CONFIG.modelId, apiKey: "nb-stored" });
+    expect((await POST(post({ org: "acme" }))).status).toBe(200);
+    expect(h.testNebiusConnection).toHaveBeenCalledWith({ model: "zai-org/GLM-5.3-Flash", apiKey: "nb-stored" });
+  });
+
+  it("never tests a stored OpenRouter key against Nebius", async () => {
+    h.getOrgLlmConfig.mockResolvedValue(OPENROUTER_CONFIG);
+    h.getStoredByomSecret.mockResolvedValue({ provider: "openrouter", modelId: OPENROUTER_CONFIG.modelId, apiKey: "sk-or-stored" });
+    const res = await POST(post({ org: "acme", provider: "nebius", modelId: "zai-org/GLM-5.3-Flash" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/Nebius key/);
     noProviderCalled();
   });
 });

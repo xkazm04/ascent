@@ -78,6 +78,16 @@ describe("previewByom", () => {
   it("a saved-but-not-enabled provider previews as an active BYOM on the saved model", () => {
     expect(previewByom(savedConfig())).toEqual({ state: "active", kind: "openrouter", model: "anthropic/claude-sonnet-4", region: null });
     expect(previewByom(savedConfig({ provider: "bedrock", modelId: "us.anthropic.x", region: "eu-west-1" }))).toMatchObject({ kind: "bedrock", region: "eu-west-1" });
+    expect(previewByom(savedConfig({ provider: "nebius", modelId: "zai-org/GLM-5.3-Flash" }))).toEqual({ state: "active", kind: "nebius", model: "zai-org/GLM-5.3-Flash", region: null });
+  });
+
+  it("guard: an active Nebius BYOM moves the BYOM lanes to your account on the nebius engine", () => {
+    const r = byLane(routeLanes(facts({ byom: { state: "active", kind: "nebius", model: "zai-org/GLM-5.3-Flash" } })));
+    expect([r.scans.engine, r.scans.account, r.athena.engine]).toEqual(["nebius", "yours", "nebius"]);
+  });
+
+  it("guard: a provider name that is not a BYOM kind previews nothing", () => {
+    expect(previewByom(savedConfig({ provider: "ollama" }))).toBeNull();
   });
 
   it("no preview without a saved config, without credentials, or when it is already on", () => {

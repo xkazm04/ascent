@@ -166,3 +166,70 @@ describe("resolveByomProvider — the only decrypt path", () => {
     await expect(resolveByomProvider("acme")).resolves.toBeNull();
   });
 });
+
+describe("nebius — an API-key BYOM kind beside OpenRouter (backlog row 37)", () => {
+  const NB_KEY = "nb-tf-SECRET-9f3a";
+
+  it("stores the Nebius key ENCRYPTED, and the public view of that very row never carries it", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    const res = await setOrgLlmConfig("acme", { provider: "nebius", modelId: "zai-org/GLM-5.3-Flash", apiKey: NB_KEY });
+    expect(res.ok).toBe(true);
+    const create = calls.upsert[0].create;
+    expect(create.provider).toBe("nebius");
+    const blob = create.credentialsEncrypted as string;
+    expect(blob.startsWith("v1:")).toBe(true);
+    expect(blob).not.toContain(NB_KEY);
+
+    // Round trip: what the GET endpoint returns for the row just written.
+    mockGetPrisma.mockReturnValue(fakePrisma({ ...create, lastValidatedAt: null, lastValidationError: null, updatedAt: new Date() }).prisma);
+    const cfg = await getOrgLlmConfig("acme");
+    expect(cfg).toMatchObject({ provider: "nebius", hasCredentials: true, modelId: "zai-org/GLM-5.3-Flash" });
+    const wire = JSON.stringify(cfg);
+    expect(wire).not.toContain(NB_KEY);
+    expect(wire).not.toContain(blob);
+  });
+
+  it("resolves an active nebius config to decrypted nebius params", async () => {
+    const blob = encryptSecret(JSON.stringify({ kind: "nebius", apiKey: NB_KEY }));
+    mockGetPrisma.mockReturnValue(
+      fakePrisma({ enabled: true, credentialsEncrypted: blob, provider: "nebius", modelId: "zai-org/GLM-5.3-Flash", region: null }).prisma,
+    );
+    expect(await resolveByomProvider("acme")).toEqual({ kind: "nebius", model: "zai-org/GLM-5.3-Flash", apiKey: NB_KEY });
+  });
+
+  it("never reads another vendor's key as a Nebius key (an OpenRouter-era blob under provider nebius)", async () => {
+    const blob = encryptSecret(JSON.stringify({ apiKey: "sk-or-123" }));
+    mockGetPrisma.mockReturnValue(
+      fakePrisma({ enabled: true, credentialsEncrypted: blob, provider: "nebius", modelId: "m", region: null }).prisma,
+    );
+    await expect(resolveByomProvider("acme")).resolves.toBeNull();
+  });
+
+  it("refuses a provider switch that would carry the previous vendor's stored credential across", async () => {
+    // Both API-key kinds store `{ apiKey }`: keeping the blob on an openrouter -> nebius switch would
+    // send the org's OpenRouter key to Nebius on the next scan.
+    const { prisma, calls } = fakePrisma({ provider: "openrouter", credentialsEncrypted: "v1:x" });
+    mockGetPrisma.mockReturnValue(prisma);
+    const res = await setOrgLlmConfig("acme", { provider: "nebius", modelId: "m", enabled: true });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/credential/i);
+    expect(calls.upsert).toHaveLength(0);
+  });
+
+  it("guard: an edit of the SAME provider without re-entering the key keeps the stored key", async () => {
+    const { prisma, calls } = fakePrisma({ provider: "nebius", credentialsEncrypted: "v1:x" });
+    mockGetPrisma.mockReturnValue(prisma);
+    const res = await setOrgLlmConfig("acme", { provider: "nebius", modelId: "m2", enabled: true });
+    expect(res.ok).toBe(true);
+    expect(calls.upsert[0].update.credentialsEncrypted).toBeUndefined();
+  });
+
+  it("rejects a provider kind it cannot resolve rather than storing an unroutable config", async () => {
+    const { prisma, calls } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    const res = await setOrgLlmConfig("acme", { provider: "ollama", modelId: "m", apiKey: "k" });
+    expect(res.ok).toBe(false);
+    expect(calls.upsert).toHaveLength(0);
+  });
+});

@@ -12,6 +12,7 @@
 
 import {
   bedrockLegRunner,
+  nebiusLegRunner,
   openRouterLegRunner,
   resolveLegRunner,
   textRunnerFrom,
@@ -62,7 +63,11 @@ export async function resolveLegRunnerWithProvenance(
       // The kind → provider mapping is the registry's byomDescriptor, the SAME one getProviderForOrg
       // builds the org's scan provider from; this seam only hands it the text transports to bind.
       return {
-        runner: byomDescriptor(byom.params).leg({ openrouter: openRouterLegRunner, bedrock: bedrockLegRunner }),
+        runner: byomDescriptor(byom.params).leg({
+          openrouter: openRouterLegRunner,
+          bedrock: bedrockLegRunner,
+          nebius: nebiusLegRunner,
+        }),
         byom: true,
       };
     }

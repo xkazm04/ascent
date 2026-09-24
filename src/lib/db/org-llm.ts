@@ -14,6 +14,7 @@ import { getOrgId } from "@/lib/db/org-rollup";
 import { getCreditState } from "@/lib/db/credits";
 import { decryptSecret, encryptSecret, isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { planAllowsByom } from "@/lib/plans";
+import { isApiKeyByomKind, isByomKind, type ApiKeyByomKind } from "@/lib/llm/byom-kinds";
 
 /** Public, secret-free view of an org's BYOM config (what the GET endpoint may return). */
 export interface OrgLlmConfigPublic {
@@ -39,9 +40,9 @@ export interface OrgLlmConfigInput {
   /** Static AWS creds for Bedrock (plaintext in; encrypted before storage). Omit both to KEEP existing. */
   accessKeyId?: string;
   secretAccessKey?: string;
-  /** OpenRouter API key (plaintext in; encrypted before storage). Omit to KEEP the existing key. Unlike
-   *  Bedrock, OpenRouter routes to third-party upstreams — a cost/flexibility path, NOT the in-boundary
-   *  privacy guarantee. */
+  /** The API key of an API-key kind, OpenRouter or Nebius (plaintext in; encrypted before storage).
+   *  Omit to KEEP the existing key. Unlike Bedrock, neither is the in-boundary privacy guarantee:
+   *  OpenRouter routes to third-party upstreams, Nebius runs the model in its own datacenter. */
   apiKey?: string;
 }
 
@@ -57,7 +58,7 @@ export interface ByomStaticCredentials {
  *  key (routes to third-party upstreams). Produced ONLY by resolveByomProvider; never serialized. */
 export type ByomProviderParams =
   | { kind: "bedrock"; model: string; region?: string; credentials: ByomStaticCredentials }
-  | { kind: "openrouter"; model: string; apiKey: string };
+  | { kind: ApiKeyByomKind; model: string; apiKey: string };
 
 function toPublic(c: {
   provider: string;
@@ -111,18 +112,21 @@ export async function setOrgLlmConfig(
   if (!orgId) return { ok: false, error: "Unknown organization." };
 
   const provider = input.provider?.trim() || "bedrock";
+  // A kind nothing can resolve would be stored, switched on, and then fail every scan closed.
+  if (!isByomKind(provider)) return { ok: false, error: `Unsupported BYOM provider "${provider.slice(0, 40)}".` };
 
-  // Encrypt the provider-appropriate secret. Bedrock = the AWS key pair (both or neither); OpenRouter =
-  // a single API key. Omitting the secret KEEPS the stored one (an edit of model/region without
+  // Encrypt the provider-appropriate secret. Bedrock = the AWS key pair (both or neither); an API-key
+  // kind (OpenRouter, Nebius) = a single key, stored WITH its kind so it can never be read back as
+  // another vendor's. Omitting the secret KEEPS the stored one (an edit of model/region without
   // re-entering keys). A partial credential is rejected.
   let credentialsEncrypted: string | undefined;
-  if (provider === "openrouter") {
+  if (isApiKeyByomKind(provider)) {
     const key = input.apiKey?.trim();
     if (key) {
       if (!isEncryptionConfigured()) {
         return { ok: false, error: "Secret encryption is not configured (set ENCRYPTION_KEY)." };
       }
-      credentialsEncrypted = encryptSecret(JSON.stringify({ apiKey: key }));
+      credentialsEncrypted = encryptSecret(JSON.stringify({ kind: provider, apiKey: key }));
     }
   } else {
     const hasKeyId = Boolean(input.accessKeyId?.trim());
@@ -137,6 +141,23 @@ export async function setOrgLlmConfig(
       credentialsEncrypted = encryptSecret(
         JSON.stringify({ accessKeyId: input.accessKeyId!.trim(), secretAccessKey: input.secretAccessKey!.trim() }),
       );
+    }
+  }
+
+  // Keeping the stored blob is only safe for the SAME provider. Across a switch it is the previous
+  // vendor's secret: an openrouter -> nebius save without a new key would send the org's OpenRouter key
+  // to Nebius on the next scan (both kinds store `{ apiKey }`), and a bedrock -> openrouter one would
+  // leave an unresolvable config that fails every scan closed. The switch must carry its own credential.
+  if (!credentialsEncrypted) {
+    const prior = await prisma.orgLlmConfig.findUnique({
+      where: { orgId },
+      select: { provider: true, credentialsEncrypted: true },
+    });
+    if (prior?.credentialsEncrypted && prior.provider !== provider) {
+      return {
+        ok: false,
+        error: `Switching the connected provider to ${provider} needs its own credential. Enter it and save again.`,
+      };
     }
   }
 
@@ -203,7 +224,7 @@ export async function recordOrgLlmValidation(orgSlug: string, ok: boolean, error
  *  impossible to build). Never serialized to a response or a log. */
 export type StoredByomSecret =
   | { provider: "bedrock"; modelId: string; region: string | null; credentials: ByomStaticCredentials }
-  | { provider: "openrouter"; modelId: string; apiKey: string };
+  | { provider: ApiKeyByomKind; modelId: string; apiKey: string };
 
 /**
  * THE decrypt primitive — the single place in the codebase that calls decryptSecret on an org's BYOM
@@ -222,9 +243,16 @@ async function readStoredByomSecret(orgSlug: string): Promise<StoredByomSecret |
   try {
     const blob = JSON.parse(decryptSecret(c.credentialsEncrypted)) as Partial<ByomStaticCredentials> & {
       apiKey?: string;
+      kind?: string;
     };
-    if (c.provider === "openrouter") {
-      return blob.apiKey ? { provider: "openrouter", modelId: c.modelId, apiKey: blob.apiKey } : null;
+    if (isApiKeyByomKind(c.provider)) {
+      // The blob names the kind it was saved for. OpenRouter blobs written before `kind` existed carry
+      // none and stay readable as OpenRouter; any other kind must match exactly, so a key saved for one
+      // vendor is never sent to another.
+      const kind = blob.kind ?? "openrouter";
+      return blob.apiKey && kind === c.provider
+        ? { provider: c.provider, modelId: c.modelId, apiKey: blob.apiKey }
+        : null;
     }
     if (c.provider === "bedrock") {
       return blob.accessKeyId && blob.secretAccessKey
@@ -303,8 +331,8 @@ export async function resolveByomState(orgSlug: string): Promise<ByomResolution>
   const stored = await readStoredByomSecret(orgSlug);
   if (!stored) return { state: "unresolvable" };
   const params: ByomProviderParams =
-    stored.provider === "openrouter"
-      ? { kind: "openrouter", model: stored.modelId, apiKey: stored.apiKey }
+    stored.provider !== "bedrock"
+      ? { kind: stored.provider, model: stored.modelId, apiKey: stored.apiKey }
       : {
           kind: "bedrock",
           model: stored.modelId,
