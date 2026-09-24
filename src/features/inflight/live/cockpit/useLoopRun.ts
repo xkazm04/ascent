@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePollChain } from "./usePollChain";
+import { useBusyGuard } from "./useBusyGuard";
 import {
   fetchLoopDetail,
   fetchLoopProposals,
@@ -74,7 +75,6 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   const [runs, setRuns] = useState<LoopRunSummary[]>(initialRuns);
   const [detail, setDetail] = useState<LoopRunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const live = isRunLive(active?.phase);
   const activeId = active?.id ?? null;
@@ -126,18 +126,7 @@ export function useLoopRun({ slug, initialActive, initialRuns, initialEnabled, o
   // goes through it, so two are never in flight together.
   const tick = usePollChain(read, !visible ? null : live ? POLL_MS : IDLE_DISCOVERY_MS).run;
 
-  const guard = useCallback(async <T,>(fn: () => Promise<T>): Promise<T | null> => {
-    setBusy(true);
-    setError(null);
-    try {
-      return await fn();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Network error.");
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const { busy, guard } = useBusyGuard(setError);
 
   const start = useCallback(
     async (input: StartInput) => {
