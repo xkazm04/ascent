@@ -24,17 +24,28 @@ import { dispatchBuiltEmail } from "./index";
 import { emailShell, paragraph, preBlock } from "./render";
 import { unsubscribeUrl } from "./unsubscribe";
 
-/** First non-empty line of the alert's plain text — the subject line. Pure. */
+/** The builder's mail subject when it set one, else the first non-empty line of the plain text. Pure. */
 function subjectFor(message: AlertMessage): string {
-  const first = message.text.split("\n").find((l) => l.trim().length > 0) ?? "Ascent alert";
+  const first =
+    message.mail?.subject?.trim() || (message.text.split("\n").find((l) => l.trim().length > 0) ?? "Ascent alert");
   return first.length > 180 ? `${first.slice(0, 177)}…` : first;
+}
+
+/** The card body: the builder's own mail HTML when it has one, else the plain text verbatim. Pure. */
+function bodyFor(message: AlertMessage): string {
+  if (message.mail?.bodyHtml) return message.mail.bodyHtml;
+  // With a subject of its own, the first line is body, not heading, so none of the text is dropped
+  // (an admin resend: the prefix line, then the whole stored alert).
+  if (message.mail?.subject?.trim()) return preBlock(message.text);
+  return preBlock(message.text.split("\n").slice(1).join("\n").trim() || message.text);
 }
 
 /**
  * Render an AlertMessage as mail. PURE — the Block Kit `blocks` are Slack's shape and are deliberately
  * IGNORED; the `text` fallback every builder already produces is the portable body, so a new alert
- * builder gets an email rendering for free with no per-builder template. Pure so the exact bytes are
- * unit-testable.
+ * builder gets an email rendering for free with no per-builder template. A builder with a better mail
+ * rendering (the weekly digest) attaches `message.mail` and gets it here instead. Pure so the exact
+ * bytes are unit-testable.
  */
 export function buildAlertEmail(input: {
   message: AlertMessage;
@@ -59,9 +70,10 @@ export function buildAlertEmail(input: {
   const text = [message.text, "", "---", why, stop].join("\n");
   const html = emailShell({
     heading: subject,
-    // The alert body is rendered verbatim (escaped, pre-wrapped) rather than re-templated per builder:
-    // the builders own the wording, this module only owns the envelope.
-    bodyHtml: [preBlock(message.text.split("\n").slice(1).join("\n").trim() || message.text), paragraph(why)].join(""),
+    // The alert body is rendered verbatim (escaped, pre-wrapped) rather than re-templated per builder,
+    // unless the builder brought its own mail body: the builders own the wording, this module only
+    // owns the envelope.
+    bodyHtml: [bodyFor(message), paragraph(why)].join(""),
     cta: unsubscribe ? { href: unsubscribe, label: "Stop these emails" } : null,
     footer: `${why} ${stop}`,
   });

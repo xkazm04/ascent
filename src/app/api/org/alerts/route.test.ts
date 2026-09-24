@@ -186,6 +186,9 @@ describe("POST /api/org/alerts { resend }", () => {
     expect(dispatchAlert).toHaveBeenCalledTimes(1);
     const [message] = vi.mocked(dispatchAlert).mock.calls[0]!;
     expect(message.text).toContain("Your fleet this week: 3 repos moved.");
+    // A mail sink names the original alert in the subject, not the admin prefix, and keeps the whole
+    // stored text in the body (row 16: the stored body is plain text, so there is no artefact to re-render).
+    expect(message.mail).toEqual({ subject: "Resent: Weekly digest" });
     expect(recordAlertEvent).toHaveBeenCalledTimes(1);
     expect(recordAlertEvent).toHaveBeenCalledWith(
       "acme",

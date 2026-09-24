@@ -36,7 +36,15 @@ import {
 import { deliverAlert } from "@/lib/alert-door";
 import { hasFleetGrade } from "@/lib/db/org-shared";
 import { requireCronAuth } from "@/lib/cron-auth";
-import { buildFleetDigestMessage, creditsAlertThreshold, digestHasSignal, digestMovementFields, isAlertConfigured } from "@/lib/alerts";
+import {
+  buildFleetDigestMessage,
+  creditsAlertThreshold,
+  digestHasSignal,
+  digestMovementFields,
+  isAlertConfigured,
+  type FleetDigestInput,
+} from "@/lib/alerts";
+import { digestMailPart } from "./digest-mail-load";
 import { controlLabel } from "@/lib/controls/catalog";
 import { controlCoverage, listObservationsSince } from "@/lib/db/control-observations";
 import { dispatchExtraAlerts } from "./extra-alerts";
@@ -287,7 +295,7 @@ export async function GET(request: Request) {
       }
       const level = levelForScore(rollup.avgOverall);
       const top = recs?.[0];
-      const msg = buildFleetDigestMessage({
+      const digestInput: FleetDigestInput = {
         org,
         // Link to the Weekly digest tab — the in-app page this push summarizes. That page's window is
         // FIXED at the same `weekRangeParams()` trailing week this route resolves above, so no
@@ -334,7 +342,12 @@ export async function GET(request: Request) {
         // movement-gate treats as always-worth-sending) — the digest is the one push a leader reliably
         // reads, so a depleting balance gets a standing line there, not just the crossing alert.
         creditsRemaining: creditLow && credit ? credit.balance : null,
-      });
+      };
+      const msg = buildFleetDigestMessage(digestInput);
+      // A `mailto:` sink gets the weekly ARTEFACT as HTML (the page the tab renders, plus the blocks
+      // above), carried through the door as `mail`; Slack keeps text + blocks and skips the read. A
+      // failed artefact read leaves `mail` off and the mail falls back to the text. (backlog row 16)
+      const mail = await digestMailPart(org, webhookUrl, digestInput);
       // At-most-once, ATOMICALLY (fleet-alerts-digests #3): claim the window with a single conditional
       // insert whose affected-row count decides the winner, BEFORE dispatching. The old guard read the
       // audit log, dispatched, then stamped AFTER the send — check-then-act — so two overlapping runs (a
@@ -362,7 +375,7 @@ export async function GET(request: Request) {
         onReleaseError: (err) => {
           errors.push(`${org}: digest claim release failed (${err instanceof Error ? err.message : "unknown"})`);
         },
-        build: () => msg,
+        build: () => (mail ? { ...msg, mail } : msg),
       });
       if (out.claimError) throw new Error(out.claimError);
       // Lost the window (outcome `cooldown`, nothing recorded): a concurrent run already owns it.

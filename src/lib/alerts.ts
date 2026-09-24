@@ -99,6 +99,24 @@ export interface AlertMessage {
   text: string;
   /** Slack Block Kit blocks for a richer card; safe to ignore by non-Slack sinks. */
   blocks: unknown[];
+  /**
+   * The mail rendering, for a `mailto:` sink only. A webhook never receives it (`dispatchAlert` POSTs
+   * `text` + `blocks` and nothing else), and the history row stores `text`, not this. Omitted: the mail
+   * is built from `text` alone, which is what every per-repo alert does.
+   */
+  mail?: AlertMailPart;
+}
+
+/** How an alert reads as mail when its builder has something better than the plain-text fallback. */
+export interface AlertMailPart {
+  /** Subject and card heading. Default: the first non-empty line of `text`. */
+  subject?: string;
+  /**
+   * PRE-ESCAPED HTML for the card body (src/lib/email/digest-mail.ts renders the weekly digest this
+   * way). The shared shell still owns the envelope: the why-you-got-this line and the off switch.
+   * Default: `text` in a preformatted block.
+   */
+  bodyHtml?: string;
 }
 
 const SEV_EMOJI: Record<AlertSeverity, string> = { critical: "🔻", warning: "⚠️", celebration: "🎉" };

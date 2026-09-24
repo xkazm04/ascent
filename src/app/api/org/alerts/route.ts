@@ -95,7 +95,14 @@ async function resendResponse(org: string, id: string): Promise<NextResponse> {
     severity: row.severity as AlertEventInput["severity"],
     title: row.title,
     repoFullName: row.repoFullName,
-    build: () => ({ text, blocks: [{ type: "section", text: { type: "mrkdwn", text } }] }),
+    // A mail sink gets the original title as its subject, not the admin prefix line, and the whole
+    // stored text as the body. The stored body is plain text (a digest's HTML was never stored), so a
+    // resent digest reads as its text rendering. Slack ignores `mail`.
+    build: () => ({
+      text,
+      blocks: [{ type: "section", text: { type: "mrkdwn", text } }],
+      mail: { subject: `Resent: ${row.title}` },
+    }),
   });
   const actorLogin = await resolveViewerLogin();
   await recordOrgAudit(

@@ -92,6 +92,8 @@ vi.mock("@/lib/alerts", () => ({
     blocks: [],
   })),
   creditsAlertThreshold: vi.fn(() => 5),
+  // The digest mail renderer (src/lib/email/digest-mail.ts) prints the percentile with it.
+  ordinal: (n: number) => `${n}th`,
   // The movement-gate. Default to "has signal" so the routing/auth tests behave as before; one test
   // flips it to false to assert the route SKIPS a flat org (skippedFlat++) without building/dispatching.
   digestHasSignal: vi.fn(() => true),
@@ -972,5 +974,77 @@ describe("weekly digest — the trajectory line consults the presentability gate
 
   it("says nothing at all when there is no fit — absence, not a fabricated basis", async () => {
     expect(await trajectorySentTo([{ date: "2026-01-01", value: 60 }])).toBeNull();
+  });
+});
+
+// ---- Digest MAIL renders from the weekly artefact (backlog develop-2026-09-17 row 16) -------------
+// A `mailto:` sink used to receive the Slack text fallback in a <pre>. The route now reads the weekly
+// digest artefact for an EMAIL sink only and attaches its HTML to the message the door carries, as
+// `mail`; Slack keeps its text/blocks and never pays for the extra read. The artefact read is mocked
+// here; the renderer itself is pinned in src/lib/email/digest-mail.test.ts.
+vi.mock("@/lib/org/digest", () => ({ buildWeeklyDigest: vi.fn(async () => null) }));
+import { buildWeeklyDigest } from "@/lib/org/digest";
+
+describe("weekly digest mail: an email sink gets the weekly artefact, Slack keeps its text", () => {
+  const weekly = {
+    org: "orgA",
+    generatedOn: "2026-09-01",
+    window: { from: "2026-08-26", to: "2026-09-01", start: "2026-08-26T00:00:00.000Z", endExclusive: "2026-09-02T00:00:00.000Z", title: "2026-08-26 → 2026-09-01" },
+    headline: { overall: 72, adoption: 68, rigor: 76, levelId: "L3", levelName: "Established", dOverall: 1, dAdoption: 1, dRigor: 1, cohortSize: 4, onboarded: 0, departed: 0, scanned: 4, total: 4 },
+    dims: [],
+    followups: null,
+    actions: [],
+    movement: { gainers: [{ name: "api", dOverall: 9, levelFrom: "L2", levelTo: "L3" }], regressers: [], compared: 4 },
+    provenance: { scansInWindow: 3, engineCaveat: null, notes: [] },
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.CRON_SECRET = SECRET;
+    mockIsDb.mockReturnValue(true);
+    mockListOrgs.mockResolvedValue(["orgA"]);
+    mockRollup.mockResolvedValue(rollupWith());
+    mockMovers.mockResolvedValue(null);
+    mockRecs.mockResolvedValue(null);
+    mockBenchmark.mockResolvedValue(null);
+    mockCredit.mockResolvedValue(null);
+    mockDispatch.mockResolvedValue(true);
+    mockHasSignal.mockReturnValue(true);
+    mockClaim.mockResolvedValue({ claimed: true, id: "clm_1" });
+    vi.mocked(buildWeeklyDigest).mockResolvedValue(weekly as never);
+  });
+  afterEach(() => {
+    delete process.env.CRON_SECRET;
+  });
+
+  it("a mailto: sink receives the artefact's HTML and subject; the history row keeps the plain text", async () => {
+    mockOrgWebhook.mockResolvedValue("mailto:lead@orga.test");
+    const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
+    expect(body).toMatchObject({ sent: 1 });
+    expect(buildWeeklyDigest).toHaveBeenCalledWith("orgA");
+    const [message] = mockDispatch.mock.calls[0]!;
+    expect(message.text).toBe("digest:orgA");
+    expect(message.mail?.subject).toBe("Weekly digest: orgA · 2026-08-26 → 2026-09-01");
+    expect(message.mail?.bodyHtml).toContain("72/100");
+    expect(message.mail?.bodyHtml).toContain("measured over 4 repositories");
+    expect(message.mail?.bodyHtml).toContain("api +9");
+    expect(mockRecordAlertEvent).toHaveBeenCalledWith("orgA", expect.objectContaining({ kind: "digest", body: "digest:orgA", sinkKind: "email" }));
+  });
+
+  it("guard: a Slack webhook gets the unchanged message and the artefact is never read", async () => {
+    mockOrgWebhook.mockResolvedValue("https://hooks.example.com/A");
+    await GET(req({ auth: `Bearer ${SECRET}` }));
+    expect(buildWeeklyDigest).not.toHaveBeenCalled();
+    const [message] = mockDispatch.mock.calls[0]!;
+    expect(message).toEqual({ text: "digest:orgA", blocks: [] });
+  });
+
+  it("an artefact read that fails still sends the digest, as the text rendering", async () => {
+    mockOrgWebhook.mockResolvedValue("mailto:lead@orga.test");
+    vi.mocked(buildWeeklyDigest).mockRejectedValue(new Error("db down"));
+    const body = await bodyOf(await GET(req({ auth: `Bearer ${SECRET}` })));
+    expect(body).toMatchObject({ sent: 1, errors: [] });
+    const [message] = mockDispatch.mock.calls[0]!;
+    expect(message.mail).toBeUndefined();
+    expect(message.text).toBe("digest:orgA");
   });
 });
