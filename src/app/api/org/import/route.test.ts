@@ -29,9 +29,13 @@ vi.mock("@/lib/db/forge-installations", () => ({
   },
 }));
 vi.mock("@/lib/db/scan-jobs", () => ({
+  JOB_PRIORITY: { manual: 10, webhook: 5, cadence: 0 },
+  // The import enqueues its batch, then claims each row by id (backlog develop-2026-09-17 row 26).
   // A won claim by default: every existing money/flow case in this file predates the queue and must
-  // keep asserting exactly what it did. The contention case overrides it with null.
-  claimRepoWork: vi.fn(async (_org: string, repo: string) => ({ id: `job_${++claimCounter}`, repoFullName: repo })),
+  // keep asserting exactly what it did. The contention case overrides the claim with null.
+  enqueueScanJob: vi.fn(async (i: { repoFullName: string }) => ({ id: `job_${++claimCounter}`, created: true, repo: i.repoFullName })),
+  claimJobById: vi.fn(async (id: string) => ({ id, repoFullName: "", creditCharged: false })),
+  listJobsForRun: vi.fn(async () => []),
   markJobCredit: vi.fn(async () => {}),
   settleJob: vi.fn(async () => {}),
 }));
@@ -122,10 +126,10 @@ import { checkScanEntitlement } from "@/lib/entitlement";
 import { consumePublicScanQuota, peekPublicScanQuota, refundPublicScanQuota } from "@/lib/public-scan-quota";
 import { rateLimitRequestShared } from "@/lib/rate-limit";
 // The claim is now a DB row (moonshot #10), so the "another run owns this repo" case is simulated by
-// the queue's own answer — `claimRepoWork` returning null — rather than by taking a process-local
+// the queue's own answer — `claimJobById` returning null — rather than by taking a process-local
 // lock in the test. That IS the behavioural change: the old Map could only refuse a second run on the
 // SAME instance, which on a serverless deploy is not where the second tab usually lands.
-import { claimRepoWork, markJobCredit, settleJob } from "@/lib/db/scan-jobs";
+import { claimJobById, markJobCredit, settleJob } from "@/lib/db/scan-jobs";
 
 const mockScan = vi.mocked(scanRepository);
 const mockAuthOn = vi.mocked(isAuthConfigured);
@@ -480,7 +484,7 @@ describe("POST /api/org/import — per-repo in-flight claim (no double-scan/char
   it("skips a repo a concurrent run already claimed — no scan, no credit — then imports once released", async () => {
     // The queue refuses the claim: another run holds a live lease on (acme, acme/dup). Cross-instance
     // now, which is the whole point of moving the claim into the DB.
-    vi.mocked(claimRepoWork).mockResolvedValueOnce(null);
+    vi.mocked(claimJobById).mockResolvedValueOnce(null);
 
     const first = await collectImport({ org: "acme", repos: ["acme/dup"], mock: false, watch: false });
     // Money invariant: no real inference and no credit reserved for the contended repo.
@@ -852,7 +856,7 @@ describe("POST /api/org/import — the 429 names the scope that refused", () => 
 // Direction 8 — the run's identity on the wire. `importRunId` was minted only as the queue's
 // idempotency bucket and never told to the client, so a browser that lost this stream (a refresh, an
 // auth bounce) had no handle to find the run again — while the server kept scanning and spending,
-// since the mapPool below is not tied to the request signal. The wizard stores this id in its resume
+// since the drain below is not tied to the request signal. The wizard stores this id in its resume
 // snapshot and re-attaches through GET /api/org/scan/queue instead of re-running the import.
 describe("POST /api/org/import — the run id is emitted, not just used internally", () => {
   beforeEach(() => {

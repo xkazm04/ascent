@@ -35,7 +35,16 @@ import {
 // merge. This is the DB-serialized claim (moonshot #10) that replaced the process-local advisory Map —
 // the queue keys on the repo's FULL NAME precisely because an import's repos may have no Repository
 // row yet (they are created mid-scan), which is what made a row-based claim impossible before.
-import { claimRepoWork, markJobCredit, settleJob, type JobOutcome } from "@/lib/db/scan-jobs";
+import {
+  claimJobById,
+  enqueueScanJob,
+  JOB_PRIORITY,
+  listJobsForRun,
+  markJobCredit,
+  settleJob,
+  type JobOutcome,
+} from "@/lib/db/scan-jobs";
+import { importJobReason } from "@/lib/scan-import-policy";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
@@ -53,7 +62,7 @@ import {
   type QuotaIdentity,
 } from "@/lib/public-scan-quota";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
-import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
+import { drainUntilDeadline, fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequestShared, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 import { SCHEDULES as SCAN_SCHEDULES } from "@/lib/org/repo-schedule";
@@ -72,6 +81,10 @@ const SCHEDULES = new Set<string>(SCAN_SCHEDULES);
 const MAX_IMPORT_REPOS = 500;
 
 export async function POST(request: Request) {
+  // Anchor the wall-clock budget at the START of the invocation (the sibling /api/org/scan's rule):
+  // everything below eats into the same 300s ceiling, and the drain stops claiming new repos before it
+  // so the unreached ones stay queued instead of vanishing with a process kill.
+  const invokedAt = Date.now();
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "Org import requires a database (DATABASE_URL)." }, { status: 503 });
   }
@@ -349,17 +362,29 @@ export async function POST(request: Request) {
         send("progress", { stage: "found", total: fullNames.length, mock, watch, schedule });
         // The run's IDENTITY, on the wire, before any work starts. It was minted purely as an internal
         // claim bucket and never told to the client, so a browser that lost this stream (a refresh, an
-        // auth bounce) had no way to find the run again — while the server kept scanning and spending,
-        // because `mapPool` below is not tied to the request signal. Same frame shape as the sibling
+        // auth bounce) had no way to find the run again, while the server kept scanning and spending,
+        // because the drain below is not tied to the request signal. Same frame shape as the sibling
         // /api/org/scan's `queued`, so one client-side reader handles both: the wizard stores it in its
         // resume snapshot and re-attaches through GET /api/org/scan/queue instead of re-running.
         send("queued", { runId: importRunId, queued: fullNames.length, total: fullNames.length });
 
-        // 2. Scan + persist each, with bounded concurrency (each lane emits its own per-repo events
-        // as it resolves; the SSE consumer keys off each message's repo, not arrival order). A
-        // realistic org import finishes in a fraction of the serial wall-clock and is far likelier
-        // to fit the 300s budget. Counters are incremented in single-threaded lanes — race-free.
+        // 2. ENQUEUE FIRST, then drain (the sibling /api/org/scan's shape, backlog develop-2026-09-17
+        // row 26). Every repo becomes a durable ScanJob row of this run BEFORE any is scanned, so the
+        // 300s ceiling can no longer drop the tail: what the drain below does not reach stays QUEUED,
+        // the background worker finishes it, and the reattach poll above has real rows to follow.
+        // Before, a row was only written at claim time, so a killed import left no trace of the repos
+        // it never started.
         //
+        // The worker runs those rows without this request, so the three facts that decide what it may
+        // do (credential, mock, public-funnel metering) ride on the row's reason (scan-import-policy.ts).
+        const reason = importJobReason({
+          token: appTokenMinted ? "install" : authOff ? "ambient" : "none",
+          mock,
+          funnel: publicQuotaIdentity !== null,
+        });
+        type RepoCoord = (typeof fullNames)[number];
+        const pending: { id: string; r: RepoCoord }[] = [];
+
         // `processed` is the progress-denominator index ("repos handled so far", skips included);
         // `scanned` is the OUTCOME metric (repos an actual scan ran for). The old code used one
         // variable for both, so claim-collision and mid-run credit skips were reported as `scanned`
@@ -368,26 +393,57 @@ export async function POST(request: Request) {
         let processed = 0;
         let scanned = 0;
         let skippedInProgress = 0;
-        await mapPool(fullNames, SCAN_CONCURRENCY, async (r) => {
-          // CLAIM this repo BEFORE reserving a credit or scanning — the run-level dedup guard. If
-          // another in-flight run (a second import tab, another member, or an overlapping
-          // /api/org/scan) already holds a live claim for (org, repo), skip: reserving + scanning here
-          // would debit a second credit and burn a second real-LLM ingest for the SAME repo
-          // (reserveScanCredit bounds TOTAL spend, not per-repo duplication).
-          //
-          // Since moonshot #10 the claim is a `ScanJob` ROW, not a module-global Map entry — so it
-          // holds ACROSS instances, which is where the old guard silently did nothing on a
-          // horizontally-scaled deploy. Settled in the finally below on EVERY exit path; a hard
-          // process kill self-heals through the lease reaper instead of the old TTL.
-          const claim = await claimRepoWork(org, r.fullName, "import", { bucket: importRunId, runId: importRunId });
-          if (claim === null) {
-            send("repo", { repo: r.fullName, skipped: "in_progress" });
-            skippedInProgress += 1;
-            processed += 1;
-            send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
-            return;
+        const handled = (repo: string) => {
+          processed += 1;
+          send("progress", { stage: "scan", repo, index: processed, total: fullNames.length });
+        };
+        for (const r of fullNames) {
+          const enq = await enqueueScanJob({
+            orgSlug: org,
+            repoFullName: r.fullName,
+            lane: "rescore",
+            reason,
+            // One bucket per import: a second import of the same repo is new work, not a collision
+            // with the settled row the first one left behind.
+            bucket: importRunId,
+            runId: importRunId,
+            priority: JOB_PRIORITY.manual,
+          }).catch(() => null);
+          if (enq) {
+            pending.push({ id: enq.id, r });
+          } else {
+            // No row, so nothing can scan it or bill it: say so rather than passing it off as a skip.
+            send("repo", { repo: r.fullName, error: "Could not queue this repository for scanning." });
+            handled(r.fullName);
           }
-          // Default: a throw after claim (reserveScanCredit, which mapPool rethrows) must not lie
+        }
+
+        // Scan + persist with bounded concurrency until the wall-clock budget (each lane emits its own
+        // per-repo events as it resolves; the SSE consumer keys off each message's repo, not arrival
+        // order). Counters are incremented in single-threaded lanes — race-free.
+        //
+        // CLAIM each repo BEFORE reserving a credit or scanning — the run-level dedup guard. If
+        // another in-flight run (a second import tab, another member, or an overlapping
+        // /api/org/scan) already holds a live claim for (org, repo), skip: reserving + scanning here
+        // would debit a second credit and burn a second real-LLM ingest for the SAME repo
+        // (reserveScanCredit bounds TOTAL spend, not per-repo duplication). The claim is a `ScanJob`
+        // ROW (moonshot #10), so it holds ACROSS instances; settled in the finally below on EVERY exit
+        // path, and a hard process kill self-heals through the lease reaper.
+        const unclaimed = [...pending];
+        const workerId = `import:${importRunId}`;
+        const supply = async () => {
+          for (;;) {
+            const next = unclaimed.shift();
+            if (next === undefined) return null;
+            const claim = await claimJobById(next.id, workerId).catch(() => null);
+            if (claim) return { claim, r: next.r };
+            send("repo", { repo: next.r.fullName, skipped: "in_progress" });
+            skippedInProgress += 1;
+            handled(next.r.fullName);
+          }
+        };
+        await drainUntilDeadline(supply, SCAN_CONCURRENCY, fleetDeadlineAt(invokedAt, maxDuration), async ({ claim, r }) => {
+          // Default: a throw after claim (reserveScanCredit, which the drain rethrows) must not lie
           // `done`. A hard process kill never reaches finally — the reaper returns the row, and
           // `creditCharged` (stamped below after reserve) is what stops the retry from buying twice.
           let outcome: JobOutcome = { state: "failed", error: "import interrupted" };
@@ -504,20 +560,66 @@ export async function POST(request: Request) {
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
           } finally {
             // SETTLE on EVERY exit — billed done, pre-inference skip/failure, or a throw from
-            // reserveScanCredit (which mapPool rethrows). A claim left unsettled would bar this repo
+            // reserveScanCredit (which the drain rethrows). A claim left unsettled would bar this repo
             // from re-import until its lease expires; only a hard process kill relies on the reaper.
             // Best-effort by design: the settle is bookkeeping, and a failure here must not take down
             // an import whose scans already landed.
             await settleJob(claim.id, outcome).catch(() => {});
           }
         });
+
+        // 3. The tail the budget never reached. Its rows are already queued; what is left is to make
+        // them mean what the caller asked for.
+        const tail = unclaimed.splice(0);
+        if (tail.length > 0 && publicQuotaIdentity) {
+          // The public allowance is metered per REQUEST, and no background worker holds this one, so
+          // the tail cannot be finished off-request. Settle it rather than leave it owed, and disclose
+          // it like every other batch cap.
+          for (const { id } of tail) {
+            await settleJob(id, { state: "skipped", error: "public-funnel import: time budget reached" }).catch(() => {});
+          }
+          send("notice", { reason: "time_budget", scanning: fullNames.length - tail.length, skipped: tail.length });
+        } else if (tail.length > 0 && watch) {
+          // Enrol the queued tail in the watchlist now, as the scanned head was: the worker that scans
+          // it does not know this request's watch/schedule choice. Best-effort and serial, for the same
+          // reason as the per-repo write above.
+          for (const { r } of tail) {
+            try {
+              await setRepoWatch(org, r, true);
+              if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
+            } catch (werr) {
+              console.error("[org/import] watchlist write failed", r.fullName, werr instanceof Error ? werr.message : werr);
+            }
+          }
+        }
+        // The honest remainder is the run's own rows, read after the drain (the sibling route's rule),
+        // so it also counts a contended repo whose claim went back to the queue.
+        const remaining = (await listJobsForRun(org, importRunId).catch(() => [])).filter(
+          (j) => j.state === "queued" || j.state === "claimed",
+        ).length;
+        if (remaining > 0) {
+          // Logged server-side too: `send` swallows writes on a torn-down stream, and a remainder that
+          // only ever existed in a lost frame is exactly the silence this fixes.
+          console.warn(`[org/import] ${org}: ${scanned}/${fullNames.length} scanned this pass, ${remaining} left queued for the worker`);
+          send("queued", { runId: importRunId, queued: remaining, total: fullNames.length });
+        }
         // Capture the team-standings decomposition as a durable output of this full org import
-        // (best-effort — every repo is persisted by now, so the rollup is fresh; a failure here must
-        // never break the scan or the SSE result).
+        // (best-effort — every scanned repo is persisted by now, so the rollup is fresh; a failure here
+        // must never break the scan or the SSE result).
         await persistTeamStandings(org).catch(() => {});
         // `runId` again on the terminal frame (mirroring the sibling route), so a client that joined late
         // or missed the opening frame still learns the handle it would need to re-attach.
-        send("result", { org, runId: importRunId, scanned, total: fullNames.length, skippedForCredits, skippedForQuota, skippedInProgress, dashboard: `/org/${org}` });
+        send("result", {
+          org,
+          runId: importRunId,
+          scanned,
+          total: fullNames.length,
+          skippedForCredits,
+          skippedForQuota,
+          skippedInProgress,
+          queued: remaining,
+          dashboard: `/org/${org}`,
+        });
       } catch (err) {
         send("error", { error: err instanceof Error ? err.message : "Org import failed." });
       } finally {
