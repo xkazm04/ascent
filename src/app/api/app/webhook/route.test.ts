@@ -56,6 +56,12 @@ vi.mock("@/lib/db", () => ({
   upsertInstallation: vi.fn(),
 }));
 vi.mock("@/lib/db/scan-jobs", () => ({ enqueueProbeJob: vi.fn(async () => ({ id: "job_1", created: true })) }));
+// Row 35 — the auto-watch of newly granted repos. Its own rules are pinned in
+// src/lib/db/install-grants.test.ts; here only what the route feeds it and when.
+vi.mock("@/lib/db/install-grants", () => ({
+  planGrantedAutoWatch: vi.fn(async () => []),
+  applyGrantedAutoWatch: vi.fn(async () => []),
+}));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
 // `defaultGatePolicy` / `tightenGatePolicy` are the REAL implementations: runPrGate folds the org
 // bar with the admission overlay through them, and stubbing the merge would let this suite pass
@@ -111,6 +117,7 @@ import {
   upsertInstallation,
 } from "@/lib/db";
 import { enqueueProbeJob } from "@/lib/db/scan-jobs";
+import { applyGrantedAutoWatch, planGrantedAutoWatch } from "@/lib/db/install-grants";
 import { scanRepository } from "@/lib/scan";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment } from "@/lib/scoring/gate-comment";
@@ -356,6 +363,55 @@ describe("POST /api/app/webhook — installation_repositories confirmation disci
     await runDeferred();
     expect(mockListReposResult).toHaveBeenCalledWith(42, "reconcile");
     expect(mockReconcile).toHaveBeenCalledWith(42, ["acme/kept"]);
+  });
+});
+
+// Row 35 — a repo the user just granted on GitHub's Configure page enters the watch loop, from the
+// GitHub-confirmed live listing only, and never off a truncated one.
+describe("POST /api/app/webhook — installation_repositories auto-watches newly granted repos", () => {
+  const mockPlan = vi.mocked(planGrantedAutoWatch);
+  const mockApply = vi.mocked(applyGrantedAutoWatch);
+
+  it("plans from the COMPLETE live listing (before the unwatch) and applies that plan", async () => {
+    const listing = reposResult(["acme/api", "acme/billing"]);
+    mockListReposResult.mockResolvedValueOnce(listing);
+    const plan = [{ orgSlug: "acme", watch: [listing.repos[1]!], overflow: [] }];
+    mockPlan.mockResolvedValueOnce(plan as never);
+    await post("installation_repositories", "add-repos-one", {
+      action: "added",
+      installation: { id: 42 },
+      repositories_added: [{ full_name: "acme/billing" }],
+    });
+    await runDeferred();
+    expect(mockPlan).toHaveBeenCalledWith(42, listing.repos);
+    // The watchlist snapshot is read BEFORE the unwatch step, so a selected {a} -> {b} swap still
+    // counts as an org that runs a watchlist.
+    expect(mockPlan.mock.invocationCallOrder[0]).toBeLessThan(mockReconcile.mock.invocationCallOrder[0]!);
+    expect(mockApply).toHaveBeenCalledWith(42, plan);
+  });
+
+  it("never auto-watches off a TRUNCATED listing (overflow names are not evidence)", async () => {
+    mockListReposResult.mockResolvedValueOnce(reposResult(["acme/page1-repo"], true));
+    await post("installation_repositories", "add-repos-truncated", {
+      action: "added",
+      installation: { id: 42 },
+      repositories_added: [{ full_name: "acme/page1-repo" }],
+    });
+    await runDeferred();
+    expect(mockPlan).not.toHaveBeenCalled();
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  it("the payload's repositories_added is never the source; only GitHub's live set is", async () => {
+    mockListReposResult.mockResolvedValueOnce(reposResult(["acme/api"]));
+    await post("installation_repositories", "add-repos-forged", {
+      action: "added",
+      installation: { id: 42 },
+      repositories_added: [{ full_name: "victim/secret" }],
+    });
+    await runDeferred();
+    const planned = mockPlan.mock.calls[0]![1].map((r) => r.fullName);
+    expect(planned).toEqual(["acme/api"]);
   });
 });
 

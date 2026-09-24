@@ -209,8 +209,8 @@ export async function resumeInstallation(installationId: number | string): Promi
  * that set — catching access changes GitHub does NOT itemize as explicit "removed" rows: a
  * "selected → all" flip sends an empty `repositories_removed`, and an "all → selected" narrowing may
  * paginate them. Leaving such repos watched mints a token that no longer covers them and 401s their
- * scheduled rescan forever. Added repos are deliberately NOT auto-watched (watching stays opt-in).
- * Returns the number of repos unwatched. CALLER MUST only pass a live set from a SUCCESSFUL listing —
+ * scheduled rescan forever. This function only UNWATCHES; newly granted repos are watched separately
+ * (capped, never over an existing row) by @/lib/db/install-grants off the same live set. Returns the number of repos unwatched. CALLER MUST only pass a live set from a SUCCESSFUL listing —
  * an empty array means "zero accessible repos" and will unwatch all of them, so never call this with
  * the result of a failed/throwing list. No-op without a DB.
  */

@@ -52,6 +52,9 @@ import { scanRepository } from "@/lib/scan";
 // at merge (see the handoff). The webhook's half of moonshot #10 is enqueue-ONLY — no observation is
 // written here, because a signed payload is not evidence of a control's state.
 import { enqueueProbeJob } from "@/lib/db/scan-jobs";
+// Row 35: newly granted repos enter the watchlist off the same complete live listing (deep path for
+// the same barrel-ownership reason as scan-jobs above).
+import { applyGrantedAutoWatch, planGrantedAutoWatch } from "@/lib/db/install-grants";
 // MOONSHOT #1 (W3-M) — the two things a delivery carries that a later probe can NEVER recover: the
 // actor, and the moment. `normalizeGovernanceEvent` extracts only those; it never produces a control
 // state (see that module's header for why payload-sourced state would swallow its own alert).
@@ -250,6 +253,10 @@ function webhookGateHooks(deliveryId?: string): PrGateHooks {
  * webhook payload doesn't itemize as explicit "removed" rows (a "selected → all" flip, a paginated
  * "all → selected" narrowing). Best-effort + deferred: a listing failure SKIPS (so a transient GitHub
  * error can't be misread as "zero repos" and wipe the whole watch set); a later event re-reconciles.
+ *
+ * The same complete listing also WATCHES repos newly granted to the installation (row 35): for an org
+ * that already runs a watchlist, a live name the org has no row for is watched through the import
+ * path, capped per event, with the overflow logged + audited. The rules live in @/lib/db/install-grants.
  */
 async function reconcileInstallationRepos(installationId: number, deliveryId?: string) {
   try {
@@ -267,12 +274,21 @@ async function reconcileInstallationRepos(installationId: number, deliveryId?: s
       );
       return;
     }
+    // Planned BEFORE the unwatch, so "the org runs a watchlist" is judged on the state the user changed
+    // (an {a} -> {b} swap would otherwise read as an emptied watchlist and grant nothing).
+    const grants = await planGrantedAutoWatch(installationId, live);
     const dropped = await reconcileWatchedRepos(
       installationId,
       live.map((r) => r.fullName),
     );
     if (dropped > 0) {
       console.warn(`[webhook] installation ${installationId}: unwatched ${dropped} repo(s) no longer accessible`);
+    }
+    const granted = await applyGrantedAutoWatch(installationId, grants);
+    for (const g of granted) {
+      if (g.watched.length > 0) {
+        console.warn(`[webhook] installation ${installationId}: auto-watched ${g.watched.length} newly granted repo(s) for ${g.orgSlug}`);
+      }
     }
   } catch (err) {
     // The deferred reconcile failed after we already 2xx'd — release the delivery so a redelivery
@@ -846,12 +862,15 @@ export async function POST(request: Request) {
       // Deliberately NO payload-trusting fast path here: a valid signature proves authenticity, not
       // freshness/ownership, so acting on `repositories_removed` verbatim would let a forged/misrouted
       // but signed delivery name a victim's installation id and silently unwatch their actively-watched
-      // repos — destructive, and the reconcile below never re-watches (added repos stay opt-in), so the
-      // damage wouldn't self-heal. Destructive webhook actions must be GitHub-confirmed (the same
+      // repos — destructive, and the reconcile below never re-watches a repo the org already has a row
+      // for (it only auto-watches names the org has never recorded), so the damage wouldn't self-heal.
+      // Destructive webhook actions must be GitHub-confirmed (the same
       // discipline as confirmRevocationWithGitHub on delete/suspend): the deferred reconcile re-lists
       // the installation's live repos from GitHub and unwatches only what GitHub confirms is gone. It
       // runs in this same request's after(), so legitimate quiescing is barely delayed, and it also
       // catches changes the payload doesn't itemize (a "selected → all" flip, paginated narrowing).
+      // The same live listing (never `repositories_added`) drives the capped auto-watch of newly
+      // granted repos; see reconcileInstallationRepos.
       if (id != null && isAppConfigured()) {
         after(() => reconcileInstallationRepos(id, delivery ?? undefined));
       }
