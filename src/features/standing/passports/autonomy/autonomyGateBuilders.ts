@@ -3,6 +3,7 @@
 // observed passport fields, "derived" when it is a proxy assembled from adjacent ones, "mock" when the
 // scan does not measure the named thing at all. Read autonomyModel.ts's header for the full contract.
 
+import { isRungHeld } from "@/lib/analyze/passport-score";
 import type { AppPassport } from "@/lib/types";
 
 import { CI_RANK, SEC_RANK, TEST_RANK, hashUnit, statusOf, type AutonomyGate } from "./autonomyGates";
@@ -41,6 +42,21 @@ export function ciGate(pp: AppPassport, protectedBranch: boolean | undefined): A
   const gateBonus = Math.min(20, ci.gates.length * 7);
   const prot = protectedBranch === true ? 15 : 0;
   const score = Math.round(Math.min(100, ladder + gateBonus + prot));
+  // HELD: the workflow files were not read in full, so `build` is a floor, not "runs no checks".
+  if (isRungHeld("ci", ci.level, pp.productionReadiness.findings)) {
+    return {
+      id: "ci",
+      label: "CI gates",
+      short: "CI",
+      status: statusOf(score),
+      score,
+      held: true,
+      evidence: "unassessable: this scan did not read the workflow files in full, so whether CI runs or gates checks is unknown",
+      action: "Re-scan so every workflow file is read. CI gating cannot be judged from a partial read.",
+      source: "scan",
+      gatesTier: 2,
+    };
+  }
   return {
     id: "ci",
     label: "CI gates",

@@ -16,7 +16,44 @@
 // If you need a new criterion, add a rung to the relevant ordinal ladder and teach the detector to award
 // it — never a `if (provider === "…")` here.
 
-import type { AppPassport, ProductionBand } from "@/lib/types";
+import type { AppPassport, PassportFinding, ProductionBand } from "@/lib/types";
+
+// ── HELD rungs: coverage is not absence ──────────────────────────────────────────────────────────────
+// The CI and security ladders are read off workflow CONTENT, which arrives through a bounded fetch.
+// When the scan read less than the tree lists, the builder mints `prod.ci-unassessable` /
+// `prod.security-unassessable`; this is the ONE read of that fact every consumer of the ordinal goes
+// through. A rung is held when that finding stands AND the level is the floor the unread content
+// could lift (CI `build`: no checks seen; security `none`/`policy`: no scanner seen). A level the read
+// part already proves (CI `checks`, security `scanning`) is a measured lower bound and stays scored.
+// A held rung is not scored, not ranked and not painted as a miss: the score renormalizes over the
+// axes it did measure.
+export type HeldRung = "ci" | "security";
+
+const HOLD: Record<HeldRung, { code: string; floor: ReadonlySet<string> }> = {
+  ci: { code: "ci-unassessable", floor: new Set(["none", "build"]) },
+  security: { code: "security-unassessable", floor: new Set(["none", "policy"]) },
+};
+
+const codeOf = (f: Pick<PassportFinding, "id" | "code">): string => f.code || f.id.slice(f.id.indexOf(".") + 1);
+
+/** True when this rung's level is a floor the scan could not see past (see HOLD above). */
+export function isRungHeld(
+  rung: HeldRung,
+  level: string,
+  findings: readonly Pick<PassportFinding, "id" | "code">[] | null | undefined,
+): boolean {
+  const h = HOLD[rung];
+  return h.floor.has(level) && (findings ?? []).some((f) => codeOf(f) === h.code);
+}
+
+/** The level as a flat export (CSV) should print it: `unassessable` for a held rung, never its floor. */
+export function levelOrHeld(
+  rung: HeldRung,
+  level: string,
+  findings: readonly Pick<PassportFinding, "id" | "code">[] | null | undefined,
+): string {
+  return isRungHeld(rung, level, findings) ? "unassessable" : level;
+}
 
 const CI_PTS: Record<string, number> = { none: 0, build: 20, checks: 45, gated: 70, delivery: 85, progressive: 100 };
 const TEST_PTS: Record<string, number> = { none: 0, smoke: 25, partial: 50, substantial: 75, comprehensive: 100 };
@@ -34,7 +71,8 @@ export const SCORED_RUNGS: Readonly<Record<"ci" | "tests" | "security" | "observ
 };
 
 /** Derive the production score + band from the sub-scales (single source for both buildPassport and the
- *  owner-override re-derivation in applyPassportOverrides). */
+ *  owner-override re-derivation in applyPassportOverrides). Reads `findings` for held rungs only, so a
+ *  caller must pass the coverage findings beside the sub-scales. */
 export function deriveProductionScore(
   pr: Omit<AppPassport["productionReadiness"], "band" | "score" | "blockers">,
 ): { score: number; band: ProductionBand } {
@@ -42,13 +80,18 @@ export function deriveProductionScore(
     (pr.delivery.migrations === "versioned" ? 50 : pr.delivery.migrations === "scripted" ? 25 : 0) +
     (pr.delivery.iac ? 25 : 0) +
     (pr.delivery.rollback ? 25 : 0);
-  const score = Math.round(
-    0.25 * (CI_PTS[pr.ci.level] ?? 0) +
-      0.25 * (TEST_PTS[pr.tests.level] ?? 0) +
-      0.2 * (SEC_PTS[pr.security.level] ?? 0) +
-      0.15 * (OBS_PTS[pr.observability.level] ?? 0) +
-      0.15 * Math.min(100, deliv),
-  );
+  // A held axis contributes nothing and its weight leaves the denominator. With nothing held the
+  // expression is the unchanged weighted sum (0 + x is exact, and there is no division).
+  const ciHeld = isRungHeld("ci", pr.ci.level, pr.findings);
+  const secHeld = isRungHeld("security", pr.security.level, pr.findings);
+  const weighted =
+    (ciHeld ? 0 : 0.25 * (CI_PTS[pr.ci.level] ?? 0)) +
+    0.25 * (TEST_PTS[pr.tests.level] ?? 0) +
+    (secHeld ? 0 : 0.2 * (SEC_PTS[pr.security.level] ?? 0)) +
+    0.15 * (OBS_PTS[pr.observability.level] ?? 0) +
+    0.15 * Math.min(100, deliv);
+  const measured = 1 - (ciHeld ? 0.25 : 0) - (secHeld ? 0.2 : 0);
+  const score = Math.round(ciHeld || secHeld ? weighted / measured : weighted);
   const band: ProductionBand = score < 25 ? "prototype" : score < 45 ? "internal" : score < 65 ? "beta" : score < 85 ? "production" : "hardened";
   return { score, band };
 }

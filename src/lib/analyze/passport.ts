@@ -44,7 +44,7 @@ import { PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
 export type { AppPassport, ArtifactGrade, AutomationLevel, DeclinedByChoice, FieldEvidence, FindingSeverity, PassportFinding, ProductionBand } from "@/lib/types";
 // Barrel: the themed sub-modules stay the implementation, this file stays the one import path callers use.
 export { GRADE_RANK, gradeMemory, gradeSkills } from "./passport-grades";
-export { deriveProductionScore } from "./passport-score";
+export { deriveProductionScore, isRungHeld, levelOrHeld, type HeldRung } from "./passport-score";
 export { TOKENLESS_MISSING, deriveAutonomyForStored, deriveAutonomyTier } from "./passport-autonomy";
 export { PASSPORT_SCHEMA_URL, PASSPORT_VERSION, upgradePassport } from "./passport-migrate";
 export {
@@ -502,7 +502,6 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
   const security = detectSecurity(p, gov);
   const observability = detectObservability(stack.monitoring);
   const delivery = detectDelivery(p, stack.persistence);
-  const { score: prodScore, band } = deriveProductionScore({ ci, tests, security, observability, delivery });
 
   const prodFindings: PassportFinding[] = [];
   const prod = (code: string, severity: PassportFinding["severity"], text: string) => prodFindings.push(mint("prod", code, severity, text));
@@ -536,6 +535,9 @@ export function buildPassport(report: ScanReport, snap: Snap): AppPassport {
     }
   }
   if (tokenless) prod("enforcement-not-observable", "info", "Enforcement (branch protection) not observable on this scan. CI/security capped at their present rung.");
+  // Scored AFTER the findings: a `*-unassessable` coverage finding on a floor level HOLDS that rung
+  // (isRungHeld), and a held rung is left out of the score rather than priced as a weak pipeline.
+  const { score: prodScore, band } = deriveProductionScore({ ci, tests, security, observability, delivery, findings: prodFindings });
 
   const pp: AppPassport = {
     passport: "app-passport",

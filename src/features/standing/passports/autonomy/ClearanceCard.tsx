@@ -60,9 +60,13 @@ export function ClearanceCard({ repo }: { repo: RepoAutonomy }) {
                 <span className="flex flex-wrap items-center gap-1.5">
                   <span className="type-label tracking-[0.18em] text-slate-400">{g.short}</span>
                   <SourcePin source={g.source} />
-                  <span className="type-caption tabular-nums" style={{ color: scoreHex(g.score) }}>
-                    {g.score}
-                  </span>
+                  {g.held ? (
+                    <span className="type-caption text-slate-500">unassessable</span>
+                  ) : (
+                    <span className="type-caption tabular-nums" style={{ color: scoreHex(g.score) }}>
+                      {g.score}
+                    </span>
+                  )}
                 </span>
                 <span className="block text-slate-400">{g.evidence}</span>
               </span>

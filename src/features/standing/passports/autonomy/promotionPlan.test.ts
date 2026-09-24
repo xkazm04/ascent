@@ -6,7 +6,7 @@
 // than ranked as a fix.
 
 import { describe, it, expect } from "vitest";
-import { AUTONOMY_TOKENLESS_ID, TOKENLESS_MISSING } from "@/lib/analyze/passport-autonomy";
+import { AUTONOMY_CI_HELD_ID, AUTONOMY_TOKENLESS_ID, TOKENLESS_MISSING } from "@/lib/analyze/passport-autonomy";
 import type { AutonomyConditionId } from "@/lib/types";
 import type { AutonomyTier } from "./autonomyModel";
 import { promotionPlan, type PlanRepo } from "./promotionPlanModel";
@@ -95,6 +95,16 @@ describe("promotionPlan — sole blocker first, incidence beside it", () => {
     expect(entry).toMatchObject({ sole: 1, incidence: 2, placeholderRepos: ["acme/mocked"] });
     expect(entry.repos).toContain("acme/mocked");
     expect(t01.rows.find((r) => r.id === "t1.agent-instructions")!.placeholderRepos).toEqual([]);
+  });
+
+  // Backlog develop-2026-09-17 row 28: a repo whose CI rung is only HELD (workflows not read in full)
+  // must not be proposed for a CI lift; it is unassessable for its step, counted apart from tokenless.
+  it("a held-CI T1 repo is unassessable for T1→T2 and never ranked, not even for its other conditions", () => {
+    const t = t12([repo("a", 1, ["t2.guardrails"]), repo("held", 1, [AUTONOMY_CI_HELD_ID, "t2.guardrails"])]);
+    expect(t.unassessableRepos).toEqual(["acme/held"]);
+    expect(t.heldRepos).toEqual(["acme/held"]);
+    expect(t.rows.map((r) => r.id)).toEqual(["t2.guardrails"]);
+    expect(t.rows[0]).toMatchObject({ sole: 1, incidence: 1, repos: ["acme/a"] });
   });
 
   it("a row carries a stable label, never the repo-specific prose", () => {

@@ -501,6 +501,9 @@ export interface AutonomyBlock {
     selfVerifyTest: boolean;
     testsLevel: string;
     ciLevel: string;
+    /** Present (true) only when `ciLevel` is HELD: workflow files were not read in full, so the level
+     *  is a floor the unread content could lift. Absent when the rung was measured. */
+    ciHeld?: true;
     sandbox: boolean | null;
     hooks: boolean | null;
     aiInWorkflow: boolean;
@@ -524,7 +527,10 @@ export type AutonomyConditionId =
   | "t3.ai-in-workflow"
   | "t3.evals"
   | "t3.migrations-versioned"
-  | "enforcement-not-observable";
+  | "enforcement-not-observable"
+  /** The CI rung is HELD (workflow files not read in full): whether CI gates merges is unknown, so
+   *  the `t2.ci-gated` slot names the re-scan. A visibility limit, never a fix to rank. */
+  | "ci-unassessable";
 
 // ---------------------------------------------------------------------------
 // Org AI stance (W3) — the published "what may AI do here" policy artifact

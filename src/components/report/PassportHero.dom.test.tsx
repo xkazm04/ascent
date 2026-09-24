@@ -112,6 +112,32 @@ describe("PassportHero", () => {
     expect(screen.getByTestId("passport-override-pin")).toHaveTextContent("author unknown");
   });
 
+  // Backlog develop-2026-09-17 row 28: workflow files not read in full HOLD the CI/security rungs. The
+  // equalizer drew CI `build` as a 20% bar and security `none` as an empty one, a weak pipeline.
+  it("draws a HELD CI/security rung as unassessable with no bar, and says it is out of the score", () => {
+    const held: AppPassport = {
+      ...PASSPORT,
+      passportVersion: "0.4.0", // current, so the display lift keeps the findings as built
+      productionReadiness: {
+        ...PASSPORT.productionReadiness,
+        ci: { level: "build", provider: "github-actions", gates: [] },
+        findings: [
+          { id: "prod.ci-unassessable", code: "ci-unassessable", text: "CI gates could not be assessed.", severity: "info" },
+          { id: "prod.security-unassessable", code: "security-unassessable", text: "Scanning could not be assessed.", severity: "info" },
+        ],
+      },
+    };
+    render(<PassportHero passport={held} repo="a/b" />);
+    for (const id of ["ci", "security"]) {
+      const rung = screen.getByTestId(`passport-hero-rung-${id}`);
+      expect(rung).toHaveAttribute("data-held", "true");
+      expect(rung).toHaveTextContent("unassessable");
+      expect(rung.querySelector("[data-bar]")).toBeNull();
+    }
+    expect(screen.getByTestId("passport-hero-rung-tests")).not.toHaveAttribute("data-held");
+    expect(screen.getByTestId("passport-hero-held-note")).toHaveTextContent(/CI and Security .*left out of the production score/);
+  });
+
   it("emits seal tick coordinates rounded to 2dp, so SSR and client markup match", () => {
     const { container } = render(<PassportHero passport={PASSPORT} repo="sindresorhus/slugify" />);
     const lines = Array.from(container.querySelectorAll("line"));

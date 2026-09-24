@@ -313,6 +313,42 @@ describe("GET /api/org/export — authorized export", () => {
     expect(row).toContain("64");
   });
 
+  it("prints a HELD CI/security rung as unassessable, never its floor (backlog row 28)", async () => {
+    // Workflow files not read in full: CI sits at the `build` floor and security at `none`. In a
+    // spreadsheet those read as the weakest pipeline in the fleet; the cell names the coverage hole.
+    mockGetOrgRollup.mockResolvedValue({
+      repos: [
+        {
+          fullName: "acme/big",
+          name: "big",
+          passport: {
+            automationReadiness: { level: "L3", score: 61, blockers: [] },
+            productionReadiness: {
+              band: "beta", score: 64,
+              ci: { level: "build", provider: "github-actions" },
+              tests: { level: "substantial", coveragePct: null },
+              security: { level: "none" },
+              observability: { level: "errors" },
+              delivery: { migrations: "versioned", iac: false, rollback: false },
+              blockers: [],
+              findings: [
+                { id: "prod.ci-unassessable", code: "ci-unassessable", text: "x", severity: "info" },
+                { id: "prod.security-unassessable", code: "security-unassessable", text: "y", severity: "info" },
+              ],
+            },
+          },
+        },
+      ],
+    } as never);
+
+    const csv = await (await get("?org=acme&kind=passports&format=csv")).text();
+    const [header, row] = csv.trim().split(/\r?\n/);
+    const cells = Object.fromEntries(header.split(",").map((h, i) => [h, row.split(",")[i]]));
+    expect(cells.ci).toBe("unassessable");
+    expect(cells.security).toBe("unassessable");
+    expect(cells.tests).toBe("substantial");
+  });
+
   it("returns 404 when the passports rollup lookup itself returns null (matches its sibling branches)", async () => {
     mockGetOrgRollup.mockResolvedValue(null as never);
 

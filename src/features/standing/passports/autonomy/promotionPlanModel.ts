@@ -12,17 +12,19 @@
 //   - TIES BY ID, never input order, so the same fleet always yields the same list.
 //   - UNASSESSABLE IS ITS OWN BUCKET. A tokenless scan cannot see branch protection, so every tier
 //     above T1 is out of reach until a re-scan; that is a limit of the evidence, not a fix, and it is
-//     counted beside the rows instead of ranked among them.
+//     counted beside the rows instead of ranked among them. A HELD CI rung (workflow files not read in
+//     full) joins the same bucket: its ordinal is a floor, not a measurement, so lifting it is not a
+//     fix anyone can be shown to need.
 //   - PLACEHOLDER REPOS ARE COUNTED AND LABELLED, never excluded: a row names which of its repos rest
 //     on a placeholder scan engine.
 
-import { AUTONOMY_TOKENLESS_ID } from "@/lib/analyze/passport-autonomy";
+import { AUTONOMY_CI_HELD_ID, AUTONOMY_TOKENLESS_ID } from "@/lib/analyze/passport-autonomy";
 import type { AutonomyConditionId } from "@/lib/types";
 import type { AutonomyTier, RepoAutonomy } from "./autonomyModel";
 
 export type PlanRepo = Pick<RepoAutonomy, "fullName" | "name" | "tier" | "nextTier" | "blocking" | "blockingIds" | "engine">;
 
-export type FixableConditionId = Exclude<AutonomyConditionId, typeof AUTONOMY_TOKENLESS_ID>;
+export type FixableConditionId = Exclude<AutonomyConditionId, typeof AUTONOMY_TOKENLESS_ID | typeof AUTONOMY_CI_HELD_ID>;
 
 /** A short, repo-independent name per condition. The resolver's prose stays on each repo's card. */
 export const CONDITION_LABEL: Record<FixableConditionId, string> = {
@@ -55,9 +57,12 @@ export interface PlanTransition {
   to: AutonomyTier;
   /** Repos whose next transition this is (assessed + unassessable). */
   population: number;
-  /** Repos the scan could not assess for this step (tokenless: enforcement not observable). */
+  /** Repos the scan could not assess for this step (tokenless: enforcement not observable; or a
+   *  HELD CI rung: workflow files not read in full). */
   unassessable: number;
   unassessableRepos: string[];
+  /** The subset of `unassessableRepos` held by an unread workflow read, not by a missing token. */
+  heldRepos: string[];
   rows: PlanRow[];
 }
 
@@ -68,11 +73,18 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 function rollup(from: AutonomyTier, repos: PlanRepo[]): PlanTransition {
   const cohort = repos.filter((r) => r.tier === from && r.nextTier === from + 1);
   const unassessableRepos: string[] = [];
+  const heldRepos: string[] = [];
   const rows = new Map<FixableConditionId, PlanRow>();
 
   for (const r of cohort) {
     if (r.blockingIds.includes(AUTONOMY_TOKENLESS_ID)) {
       unassessableRepos.push(r.fullName);
+      continue;
+    }
+    // A held CI rung: whether CI gates merges is unknown, so this step is not assessable either.
+    if (r.blockingIds.includes(AUTONOMY_CI_HELD_ID)) {
+      unassessableRepos.push(r.fullName);
+      heldRepos.push(r.fullName);
       continue;
     }
     const ids = [...new Set(r.blockingIds)] as FixableConditionId[];
@@ -96,6 +108,7 @@ function rollup(from: AutonomyTier, repos: PlanRepo[]): PlanTransition {
     population: cohort.length,
     unassessable: unassessableRepos.length,
     unassessableRepos: unassessableRepos.sort(byId),
+    heldRepos: heldRepos.sort(byId),
     rows: ranked,
   };
 }

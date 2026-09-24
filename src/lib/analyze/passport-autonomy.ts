@@ -20,6 +20,7 @@
 // missing artifact.
 
 import type { AppPassport, AutonomyBlock, AutonomyConditionId, AutonomyTierId, Governance } from "@/lib/types";
+import { isRungHeld } from "./passport-score";
 
 const TEST_RANK = ["none", "smoke", "partial", "substantial", "comprehensive"] as const;
 const CI_RANK = ["none", "build", "checks", "gated", "delivery", "progressive"] as const;
@@ -36,6 +37,14 @@ const SANDBOX_HOOKS_UNKNOWN =
 /** The stable id of the tokenless caveat in an unlock's ids[]: a visibility limit, never a fix. */
 export const AUTONOMY_TOKENLESS_ID: AutonomyConditionId = "enforcement-not-observable";
 
+/** The id the `t2.ci-gated` slot carries when the CI rung is HELD (workflows not read in full): whether
+ *  CI gates merges is unknown, so the slot names the re-scan. A visibility limit, like the tokenless
+ *  caveat, so the promotion plan counts it as unassessable and never ranks it as a fix. */
+export const AUTONOMY_CI_HELD_ID: AutonomyConditionId = "ci-unassessable";
+
+export const CI_HELD_MISSING =
+  "CI gates could not be assessed: this scan did not read the workflow files in full, so whether CI gates merges is unknown. Re-scan to read them.";
+
 // IDENTITY vs PROSE. `missing` interpolates the repo's own levels ("Test suite is none" / "is smoke"),
 // so grouping a fleet on it splits one condition into several buckets. `id` is the condition itself,
 // minted here and carried unchanged into every unlock (ids[i] names missing[i]). The prose is what a
@@ -51,11 +60,13 @@ function readInputs(pp: AppPassport, enforcementVisible: boolean): AutonomyBlock
   const auto = pp.automationReadiness;
   const prod = pp.productionReadiness;
   const artifacts = auto?.artifacts;
+  const ciLevel = prod?.ci?.level ?? "none";
   return {
     agentInstructions: (artifacts?.agentInstructions?.length ?? 0) > 0,
     selfVerifyTest: auto?.selfVerify?.test === true,
     testsLevel: prod?.tests?.level ?? "none",
-    ciLevel: prod?.ci?.level ?? "none",
+    ciLevel,
+    ...(isRungHeld("ci", ciLevel, prod?.findings) ? { ciHeld: true as const } : {}),
     sandbox: typeof artifacts?.sandbox === "boolean" ? artifacts.sandbox : null,
     hooks: typeof artifacts?.hooks === "boolean" ? artifacts.hooks : null,
     aiInWorkflow: auto?.aiInWorkflow === true,
@@ -87,11 +98,15 @@ function tierPredicates(inputs: AutonomyBlock["inputs"]): Record<Exclude<Autonom
       },
     ],
     T2: [
-      {
-        id: "t2.ci-gated",
-        met: ciRank(inputs.ciLevel) >= ciRank("gated"),
-        missing: "CI does not gate merges. Protect the default branch and require status checks so an agent PR cannot bypass them.",
-      },
+      // A HELD CI level is a floor below `gated`, so the slot stays unmet either way; what changes is
+      // what it says. "CI does not gate merges" would be a claim about workflow content nobody read.
+      inputs.ciHeld
+        ? { id: AUTONOMY_CI_HELD_ID, met: false, missing: CI_HELD_MISSING }
+        : {
+            id: "t2.ci-gated",
+            met: ciRank(inputs.ciLevel) >= ciRank("gated"),
+            missing: "CI does not gate merges. Protect the default branch and require status checks so an agent PR cannot bypass them.",
+          },
       {
         id: "t2.tests-substantial",
         met: testRank(inputs.testsLevel) >= testRank("substantial"),

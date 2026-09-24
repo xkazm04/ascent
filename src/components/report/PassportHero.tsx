@@ -11,6 +11,7 @@ import { motion } from "framer-motion";
 import type { AppPassport } from "@/lib/types";
 import { scoreHex } from "@/lib/ui";
 import { bandColor, bandLabel, passportForDisplay } from "@/lib/org/passport-display";
+import { isRungHeld } from "@/lib/analyze/passport-score";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { PassportArtifactGrades, PassportDeclined } from "@/components/report/PassportDeclined";
 import { PassportOverridePin } from "@/components/report/PassportOverridePin";
@@ -76,6 +77,7 @@ export function PassportHero({ passport, repo }: { passport: AppPassport; repo: 
         <div className="mt-5">
           <Kicker tone="muted" className="mb-3">Production rungs</Kicker>
           <RungEqualizer rungs={productionRungs(prod)} reduced={reduced} />
+          <HeldNote rungs={productionRungs(prod)} />
         </div>
 
         {/* Named stack */}
@@ -191,15 +193,25 @@ function RungEqualizer({ rungs, reduced }: { rungs: Rung[]; reduced: boolean }) 
   return (
     <div className="grid grid-cols-5 gap-2 sm:gap-3">
       {rungs.map((r, i) => (
-        <div key={r.label} className="flex flex-col items-center gap-2">
-          <div className="relative flex h-24 w-full max-w-[44px] items-end overflow-hidden rounded bg-slate-800/70">
-            <motion.div
-              className="w-full origin-bottom rounded"
-              style={{ height: `${Math.max(3, r.pct)}%`, backgroundColor: scoreHex(r.pct) }}
-              initial={reduced ? false : { scaleY: 0 }}
-              animate={{ scaleY: 1 }}
-              transition={reduced ? { duration: 0 } : { duration: 0.7, ease: "easeOut", delay: 0.1 + i * 0.06 }}
-            />
+        <div
+          key={r.label}
+          className="flex flex-col items-center gap-2"
+          data-testid={`passport-hero-rung-${r.id}`}
+          data-held={r.held ? "true" : undefined}
+          title={r.held ? "Could not be assessed on this scan: the workflow files were not read in full. Not a 0, and not in the score." : undefined}
+        >
+          {/* A held rung draws an empty dashed track, never a bar: a bar at its floor reads as a weak pipeline. */}
+          <div className={`relative flex h-24 w-full max-w-[44px] items-end overflow-hidden rounded ${r.held ? "border border-dashed border-slate-600" : "bg-slate-800/70"}`}>
+            {!r.held && (
+              <motion.div
+                data-bar
+                className="w-full origin-bottom rounded"
+                style={{ height: `${Math.max(3, r.pct)}%`, backgroundColor: scoreHex(r.pct) }}
+                initial={reduced ? false : { scaleY: 0 }}
+                animate={{ scaleY: 1 }}
+                transition={reduced ? { duration: 0 } : { duration: 0.7, ease: "easeOut", delay: 0.1 + i * 0.06 }}
+              />
+            )}
           </div>
           <span className="font-mono type-micro font-semibold uppercase tracking-wider text-slate-300">{r.label}</span>
           <span className="text-center font-mono type-micro leading-tight text-slate-500">{r.level}</span>
@@ -236,9 +248,24 @@ function StackChips({ pp }: { pp: AppPassport }) {
 
 // ── production sub-rung fill (display-only; mirrors the weighted contributions in lib/analyze/passport.ts) ──
 interface Rung {
+  id: string;
   label: string;
   level: string;
   pct: number;
+  /** HELD: workflow files not read in full, so the level is a floor and the rung is out of the score. */
+  held?: boolean;
+}
+
+/** Names the held rungs under the equalizer, so a renormalized score never reads as a full one. */
+function HeldNote({ rungs }: { rungs: Rung[] }) {
+  const held = rungs.filter((r) => r.held).map((r) => r.label);
+  if (held.length === 0) return null;
+  return (
+    <p className="mt-2 type-caption text-slate-500" data-testid="passport-hero-held-note">
+      {held.join(" and ")} could not be assessed: this scan did not read the workflow files in full, so{" "}
+      {held.length === 1 ? "that rung is" : "those rungs are"} left out of the production score rather than scored low.
+    </p>
+  );
 }
 const CI_PTS: Record<string, number> = { none: 0, build: 20, checks: 45, gated: 70, delivery: 85, progressive: 100 };
 const TEST_PTS: Record<string, number> = { none: 0, smoke: 25, partial: 50, substantial: 75, comprehensive: 100 };
@@ -251,11 +278,17 @@ function productionRungs(prod: AppPassport["productionReadiness"]): Rung[] {
     (prod.delivery.iac ? 25 : 0) +
     (prod.delivery.rollback ? 25 : 0);
   const delivLevel = `migrations ${prod.delivery.migrations}${prod.delivery.iac ? " · iac" : ""}${prod.delivery.rollback ? " · rollback" : ""}`;
+  const ciHeld = isRungHeld("ci", prod.ci.level, prod.findings);
+  const secHeld = isRungHeld("security", prod.security.level, prod.findings);
   return [
-    { label: "CI", level: prod.ci.level, pct: CI_PTS[prod.ci.level] ?? 0 },
-    { label: "Tests", level: prod.tests.level, pct: TEST_PTS[prod.tests.level] ?? 0 },
-    { label: "Security", level: prod.security.level, pct: SEC_PTS[prod.security.level] ?? 0 },
-    { label: "Observ.", level: prod.observability.level, pct: OBS_PTS[prod.observability.level] ?? 0 },
-    { label: "Delivery", level: delivLevel, pct: Math.min(100, deliv) },
+    ciHeld
+      ? { id: "ci", label: "CI", level: "unassessable", pct: 0, held: true }
+      : { id: "ci", label: "CI", level: prod.ci.level, pct: CI_PTS[prod.ci.level] ?? 0 },
+    { id: "tests", label: "Tests", level: prod.tests.level, pct: TEST_PTS[prod.tests.level] ?? 0 },
+    secHeld
+      ? { id: "security", label: "Security", level: "unassessable", pct: 0, held: true }
+      : { id: "security", label: "Security", level: prod.security.level, pct: SEC_PTS[prod.security.level] ?? 0 },
+    { id: "observability", label: "Observ.", level: prod.observability.level, pct: OBS_PTS[prod.observability.level] ?? 0 },
+    { id: "delivery", label: "Delivery", level: delivLevel, pct: Math.min(100, deliv) },
   ];
 }

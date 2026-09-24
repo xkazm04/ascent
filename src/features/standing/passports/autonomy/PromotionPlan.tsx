@@ -90,8 +90,10 @@ export function PromotionPlan({
               </Kicker>
               <p className="mt-0.5 type-caption text-slate-500">
                 {plural(t.population, "repo", "repos")} at {from.code}
-                {t.unassessable > 0 &&
-                  `; ${t.unassessable} not assessable (no token, so branch protection was not observed). Re-scan with a token.`}
+                {t.unassessable > t.heldRepos.length &&
+                  `; ${t.unassessable - t.heldRepos.length} not assessable (no token, so branch protection was not observed). Re-scan with a token.`}
+                {t.heldRepos.length > 0 &&
+                  `; ${t.heldRepos.length} not assessable (CI workflow files were not read in full, so CI gating is unknown). Re-scan.`}
               </p>
               {t.rows.length > 0 ? (
                 <ul className="mt-2 space-y-0.5">

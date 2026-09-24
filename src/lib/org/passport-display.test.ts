@@ -64,4 +64,21 @@ describe("rungHonesty", () => {
     expect(rungDisplayValue("observability", "none", "unassessable")).not.toBe("none");
     expect(rungDisplayValue("observability", "none", "unassessable")).not.toBe("0");
   });
+
+  // Backlog develop-2026-09-17 row 28: unread workflows leave CI at `build` (workflows exist, no checks
+  // SEEN) and security at `policy` when SECURITY.md is on the tree. Those floors are held, not present.
+  it("paints a HELD CI build / security policy floor as unassessable, not present", () => {
+    const f = [
+      { id: "prod.ci-unassessable", code: "ci-unassessable" },
+      { id: "prod.security-unassessable", code: "security-unassessable" },
+    ];
+    expect(rungHonesty("ci", "build", f)).toBe("unassessable");
+    expect(rungHonesty("security", "policy", f)).toBe("unassessable");
+    expect(rungHonesty("ci", "build")).toBe("present");
+  });
+
+  it("guard: a level the partial read already proves stays present, even beside the finding", () => {
+    expect(rungHonesty("ci", "checks", [{ id: "prod.ci-unassessable", code: "ci-unassessable" }])).toBe("present");
+    expect(rungHonesty("security", "scanning", [{ id: "prod.security-unassessable", code: "security-unassessable" }])).toBe("present");
+  });
 });

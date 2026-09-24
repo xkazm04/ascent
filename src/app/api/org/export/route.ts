@@ -9,6 +9,7 @@ import { getContributorInsights, getOrgGovernance, getOrgRollup, getOrgTeamRollu
 import { requireOrgRead } from "@/lib/authz";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { csvTable } from "@/lib/export/csv";
+import { levelOrHeld } from "@/lib/analyze/passport-score";
 import { safeFilenameSlug } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
@@ -105,8 +106,9 @@ export async function GET(request: Request) {
         return [
           r.fullName, r.name, auto.level, auto.score, r.passport!.autonomy?.tier ?? "", prod.band, prod.score,
           ovr ? ovr.measuredScore : prod.score, ovr?.by ?? "", ovr ? ovr.delta : "",
-          prod.ci.level, prod.ci.provider ?? "", prod.tests.level, prod.tests.coveragePct ?? "",
-          prod.security.level, prod.observability.level,
+          // A HELD rung (workflow files not read in full) prints `unassessable`, never its floor.
+          levelOrHeld("ci", prod.ci.level, prod.findings), prod.ci.provider ?? "", prod.tests.level, prod.tests.coveragePct ?? "",
+          levelOrHeld("security", prod.security.level, prod.findings), prod.observability.level,
           prod.delivery.migrations, prod.delivery.iac, prod.delivery.rollback,
           auto.blockers.join("; "), prod.blockers.join("; "),
           declined.length, declined.map((d) => d.path).join("; "), declined.filter((d) => d.needsReconfirm).length,

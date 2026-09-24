@@ -25,6 +25,9 @@ export interface AutonomyGate {
   /** The one action that moves this gate up. */
   action: string;
   source: GateSource;
+  /** The rung this gate reads is HELD (workflow files not read in full): the card prints
+   *  `unassessable`, never `score`, which would be the floor's number. */
+  held?: true;
   /** Tier this gate first becomes mandatory for. */
   gatesTier: AutonomyTier;
 }

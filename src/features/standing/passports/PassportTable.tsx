@@ -24,7 +24,7 @@ import { PassportRowDetail, type PassportDetail } from "@/features/standing/pass
 import { PassportTableHead } from "@/features/standing/passports/PassportTableHead";
 import { PlaceholderMark } from "@/features/standing/passports/PlaceholderMark";
 import type { PassportOwnerSet } from "@/features/standing/passports/OwnerSetCue";
-import { ordinalOf, type SortKey, type ThSort } from "@/features/standing/passports/passportTableSort";
+import { compareRows, type SortKey, type ThSort } from "@/features/standing/passports/passportTableSort";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import { scoreHex } from "@/lib/ui";
 
@@ -77,13 +77,7 @@ export function PassportTable({
   }, [focus]);
 
   const sorted = useMemo(() => {
-    const out = [...rows].sort((a, b) => {
-      const av = ordinalOf(a, sortKey);
-      const bv = ordinalOf(b, sortKey);
-      const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : Number(av) - Number(bv);
-      return dir === "asc" ? cmp : -cmp;
-    });
-    return out;
+    return [...rows].sort((a, b) => compareRows(a, b, sortKey, dir));
   }, [rows, sortKey, dir]);
 
   function toggle(key: SortKey) {

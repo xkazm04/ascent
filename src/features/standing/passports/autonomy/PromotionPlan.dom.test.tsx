@@ -22,6 +22,8 @@ interface Knobs {
   aiInWorkflow?: boolean;
   evals?: string;
   migrations?: string;
+  /** The CI rung is HELD: the scan minted prod.ci-unassessable (workflows not read in full). */
+  ciHeld?: boolean;
 }
 
 function passport(name: string, k: Knobs): AppPassport {
@@ -52,6 +54,7 @@ function passport(name: string, k: Knobs): AppPassport {
       observability: { level: "none" },
       delivery: { migrations: k.migrations ?? "none", iac: false, rollback: false },
       blockers: [],
+      ...(k.ciHeld ? { findings: [{ id: "prod.ci-unassessable", code: "ci-unassessable", text: "CI gates could not be assessed.", severity: "info" }] } : {}),
     },
     links: {},
     evidence: { confidence: 0.8, source: "static-scan", files: [] },
@@ -111,6 +114,20 @@ describe("PromotionPlan inside AutonomyClearance", () => {
     expect(within(row).getByText(/3 alone/)).toBeTruthy();
     expect(within(row).getByText(/4 carry/)).toBeTruthy();
     expect(screen.getAllByText(/Refactors with review/).length).toBeGreaterThan(0);
+  });
+
+  it("a held-CI repo is named as not assessable and never counted on the ci-gated row", () => {
+    const held = make("golf", { ...CI_ONLY, ciLevel: "build", ciHeld: true });
+    expect(held.blockingIds).toEqual(["ci-unassessable"]);
+    const { container } = render(<AutonomyClearance repos={[...FLEET, held]} />);
+    expect(screen.getByText(/1 not assessable \(CI workflow files were not read in full/)).toBeTruthy();
+    const row = container.querySelector<HTMLElement>('[data-condition="t2.ci-gated"]')!;
+    expect(within(row).getByText(/4 carry/)).toBeTruthy();
+    expect(container.querySelector('[data-condition="ci-unassessable"]')).toBeNull();
+    // The clearance card's CI gate prints `unassessable`, never the floor's score.
+    const card = render(<ClearanceCard repo={held} />).container;
+    expect(held.gates.find((g) => g.id === "ci")?.held).toBe(true);
+    expect(card.textContent).toMatch(/unassessable: this scan did not read the workflow files in full/);
   });
 });
 

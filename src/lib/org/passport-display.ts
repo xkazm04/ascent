@@ -3,6 +3,7 @@
 
 import type { AppPassport, ArtifactGrade, PassportFinding, ProductionBand } from "@/lib/types";
 import { upgradePassport } from "@/lib/analyze/passport-migrate";
+import { isRungHeld } from "@/lib/analyze/passport-score";
 
 /** Normalize any passport handed to a view — a passport can reach a component straight off a persisted
  *  report blob (not only via parsePassportJson), so the display layer lifts old stored shapes too. Cheap:
@@ -122,6 +123,7 @@ export function rungHonesty(
   level: string,
   findings?: readonly Pick<PassportFinding, "id" | "code">[] | null,
 ): RungHonesty {
+  if ((rung === "ci" || rung === "security") && isRungHeld(rung, level, findings)) return "unassessable";
   if (ENFORCED_LEVELS[rung].has(level)) return "enforced";
   const code = UNASSESSABLE_CODE[rung];
   if (code && ABSENT_LEVELS[rung].has(level) && findingCodes(findings).has(code)) return "unassessable";
