@@ -241,6 +241,7 @@ Two adapters ship:
 | Read-only enforcement | tool policy | **OS sandbox** (`-s read-only`: Seatbelt / Landlock / Windows restricted tokens) |
 | Billing strip | `ANTHROPIC_API_KEY` (Pro/Max seat) | `OPENAI_API_KEY` (ChatGPT-plan seat) |
 | Edit mode | typed not-supported — the editing seam is `agent.ts` | typed not-supported — codex is **not wired into the autopilot** |
+| Schema output | `stdin-control`: stream-json `initialize` request on stdin (verified 2.1.281, 2026-09-24) | `schema-file`: `--output-schema` temp file under `os.tmpdir()` (verified 0.155.1, 2026-09-24) |
 
 The billing strip is applied at the one spawn door (`spawn.ts`), after all other env
 construction, and pinned by tests that read the child env the door actually passes
@@ -257,9 +258,20 @@ Abort, timeout and input-delivery failure clear cancellation resources immediate
 request child termination; late events cannot replace the first terminal result.
 
 Both adapters are routed: `claude-cli` through `src/lib/llm/claude-cli.ts` and `codex-cli`
-through `src/lib/llm/codex-cli.ts` (see the provider sections above). Schema-constrained
-output (`--json-schema` / `--output-schema`) exists in both tools but is not yet wired
-through the `shell:true` spawn door (`schemaWired: false` — a typed error today).
+through `src/lib/llm/codex-cli.ts` (see the provider sections above). Both adapters wire
+schema-constrained output (`schemaWired: true`), and neither puts schema text on the
+`shell:true` argv, where cmd.exe's 8191-character command line and its quote re-parsing
+make a multi-KB schema a hazard. Codex takes `--output-schema <FILE>`: `schema-file.ts`
+writes the schema to a unique `mkdtemp` directory under `os.tmpdir()` (never the repo or
+the scanned workspace; owner-only modes where the platform honours them), the argv carries
+only the double-quoted path, and a `finally` deletes it after success, CLI failure, timeout
+or abort. A temp root the shell would re-interpret (`%`, `!`, `$`, a quote) is a typed
+`config` error. Claude's `--json-schema` accepts inline JSON only, so there is no file to
+write: a schema run switches to `--input-format stream-json --output-format stream-json`
+and sends the schema on stdin as the `initialize` control request (`claude-stream.ts`), and
+the answer is the final `result` event's `structured_output`. Runs without a schema keep the
+single-JSON argv byte for byte. Both paths were verified live on 2026-09-24 (claude 2.1.281,
+codex-cli 0.155.1) against the real assessment schemas.
 
 ### `getProvider()`
 
@@ -524,7 +536,7 @@ a provider to the union without adding its label fails the build.
 
 - `ASSESSMENT_JSON_SCHEMA` (`schema.ts`) is the **single source of truth** for the
   assessment shape, derived from `DIMENSIONS` so it can never drift from the scoring
-  rubric. Consumed three ways:
+  rubric. Consumed four ways:
   - Gemini's `responseJsonSchema` (native structured output). The first `assess()` call
     always sends the schema. A schema-rejected or empty reply retries once without
     `responseJsonSchema`, still requesting `responseMimeType: application/json` — the same
@@ -541,6 +553,11 @@ a provider to the union without adding its label fails the build.
     4xx that names `response_format`/`json_schema` so the OpenAI/OpenRouter adapters can
     retry once on the portable `json_object` fallback instead of hard-failing on a target
     that doesn't implement strict schemas.
+  - The agent CLIs: `claude-cli` sends `ASSESSMENT_JSON_SCHEMA` over stdin and
+    `codex-cli` sends `STRICT_ASSESSMENT_JSON_SCHEMA` as a temp file (see the transport
+    seam above). Each validates the structured answer (`json`) when the tool returns one
+    and falls back to `parseJsonLoose()` on the text when it does not, so an older CLI
+    that ignores the schema still scores as before.
 - `parseJsonLoose()` (`json.ts`) is the tolerant parser every provider's text/tool-string
   reply funnels through: (1) direct `JSON.parse`, (2) the first fenced ` ```json ` block,
   (3) JSONC normalization (strips `//`/`/* */` comments and trailing commas, string-aware)
