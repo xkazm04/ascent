@@ -426,7 +426,9 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       "Tell this organization that you actually ran one of its skills. The Skills Library ranks and " +
       "retires skills on whether they are used, and an agent invoking a skill locally is invisible to " +
       "it otherwise — an unreported skill reads as dormant however often it runs. Report once per " +
-      "skill per session; a repeat with the same session is not counted twice.",
+      "skill per session; a repeat with the same session is not counted twice. A skill from this " +
+      "organization's registry that the library has not indexed yet is held under its name and " +
+      "attached on the next index.",
     scopes: ["mcp:read", "skills:read", "telemetry:write"],
     planGate: "skills",
     mutates: true,

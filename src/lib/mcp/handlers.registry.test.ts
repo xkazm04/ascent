@@ -22,10 +22,16 @@ vi.mock("@/lib/db/org-memory-citations", () => ({
 vi.mock("@/lib/org/skill-usage-load", () => ({
   getOrgSkillUsage: vi.fn(async () => ({})),
 }));
+vi.mock("@/lib/db/org-registry", () => ({ getOrgRegistry: vi.fn(async () => null) }));
+vi.mock("@/lib/db/org-skill-pending-invokes", () => ({
+  recordPendingSkillInvoke: vi.fn(async () => ({ recorded: 1, name: "deploy-check" })),
+}));
 
 import { getOrgRollup, listOrgSkills, recordSkillEvents } from "@/lib/db";
 import { listOrgKnowledgeSubjects } from "@/lib/db/org-registry-subjects";
 import { getOrgSkillUsage } from "@/lib/org/skill-usage-load";
+import { getOrgRegistry } from "@/lib/db/org-registry";
+import { recordPendingSkillInvoke } from "@/lib/db/org-skill-pending-invokes";
 import { findSkills, getGoverningSubject, getSkill, getSkillLessons } from "./registry-reads";
 import { citeMemory, invokeEventTs, reportSkillInvoke } from "./registry-writes";
 
@@ -231,10 +237,59 @@ describe("report_skill_invoke", () => {
     expect(sc.warning).toMatch(/out of date/);
   });
 
-  it("refuses an unknown skill rather than recording an event against nothing", async () => {
+  it("guard: refuses an unknown skill when no registry is mapped (nothing will ever mirror it)", async () => {
     const res = await reportSkillInvoke("acme", { skill: "ghost", session: "s1" }, Date.now());
     expect(res.isError).toBe(true);
     expect(mockEvents).not.toHaveBeenCalled();
+    expect(vi.mocked(recordPendingSkillInvoke)).not.toHaveBeenCalled();
+  });
+});
+
+// Backlog develop-2026-09-17 row 5: an agent running a registry skill the indexer has not mirrored
+// yet used to get a hard failure and leave no trace, so the skill later read as unused.
+describe("report_skill_invoke — a registry name the library has not indexed yet", () => {
+  beforeEach(() => {
+    mockSkills.mockResolvedValue([] as never);
+    vi.mocked(getOrgRegistry).mockResolvedValue({ id: "reg-1" } as never);
+  });
+
+  it("holds the invoke under the registry name instead of failing", async () => {
+    const t0 = Date.parse("2026-09-24T10:05:00.000Z");
+    const res = await reportSkillInvoke("acme", { skill: "deploy-check", session: "s1", repo: "acme/api" }, t0);
+    expect(res.isError).toBeUndefined();
+    expect(vi.mocked(recordPendingSkillInvoke)).toHaveBeenCalledWith("acme", {
+      name: "deploy-check",
+      session: "s1",
+      repo: "acme/api",
+      ts: invokeEventTs(t0),
+    });
+    // Never recorded against an OrgSkill id it does not have.
+    expect(mockEvents).not.toHaveBeenCalled();
+    const sc = res.structuredContent as { recorded: boolean; pending: boolean; note: string; currentVersion: unknown };
+    expect(sc.recorded).toBe(true);
+    expect(sc.pending).toBe(true);
+    expect(sc.currentVersion).toBeNull();
+    expect(sc.note).toMatch(/next index/);
+  });
+
+  it("says a replayed pending report was already held, not that it failed", async () => {
+    vi.mocked(recordPendingSkillInvoke).mockResolvedValueOnce({ recorded: 0, name: "deploy-check" });
+    const res = await reportSkillInvoke("acme", { skill: "deploy-check", session: "s1" }, Date.now());
+    expect(res.isError).toBeUndefined();
+    expect(text(res)).toMatch(/Already recorded for this session/);
+  });
+
+  it("fails plainly when persistence is off", async () => {
+    vi.mocked(recordPendingSkillInvoke).mockResolvedValueOnce(null);
+    const res = await reportSkillInvoke("acme", { skill: "deploy-check", session: "s1" }, Date.now());
+    expect(res.isError).toBe(true);
+    expect(res.text).toMatch(/no persistence/);
+  });
+
+  it("refuses a name that is not a usable skill name", async () => {
+    vi.mocked(recordPendingSkillInvoke).mockResolvedValueOnce({ recorded: 0, name: "" });
+    const res = await reportSkillInvoke("acme", { skill: "!!!", session: "s1" }, Date.now());
+    expect(res.isError).toBe(true);
   });
 });
 

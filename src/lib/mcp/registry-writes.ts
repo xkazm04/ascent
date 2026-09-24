@@ -12,7 +12,10 @@
 
 import { recordSkillEvents } from "@/lib/db";
 import { recordMemoryCitation } from "@/lib/db/org-memory-citations";
+import { getOrgRegistry } from "@/lib/db/org-registry";
+import { recordPendingSkillInvoke } from "@/lib/db/org-skill-pending-invokes";
 import { findSkillByName } from "@/lib/mcp/registry-reads";
+import { slugifySkillName } from "@/lib/org/skill-frontmatter";
 import { fail, str, type Args, type ToolResult } from "./tool-result";
 
 
@@ -50,13 +53,9 @@ export async function reportSkillInvoke(org: string, args: Args, nowMs: number):
 
   const skill = await findSkillByName(org, name);
   if (skill === null) {
-    return fail("This installation has no persistence configured, so a skill invocation cannot be recorded.");
+    return fail(NO_PERSISTENCE);
   }
-  if (!skill) {
-    return fail(
-      `"${name}" is not a skill in this organization's library, so there is nothing to report against. Call find_skills to see what it publishes.`,
-    );
-  }
+  if (!skill) return reportPendingInvoke(org, name, session, str(args, "repo"), nowMs);
 
   const { recorded } = await recordSkillEvents(org, [
     {
@@ -93,6 +92,47 @@ export async function reportSkillInvoke(org: string, args: Args, nowMs: number):
             warning: `You reported version ${stale.claimed}; this organization publishes ${stale.current}. Your local copy is out of date — re-sync before relying on it.`,
           }
         : {}),
+    },
+  };
+}
+
+const NO_PERSISTENCE = "This installation has no persistence configured, so a skill invocation cannot be recorded.";
+
+/**
+ * The invoke for a name the library does not hold (backlog develop-2026-09-17 row 5).
+ *
+ * An agent working from the registry checkout can run a skill the minute its file merges, before the
+ * next index pass mirrors it. Refusing that report lost a real invocation and later painted the skill
+ * unused. With a registry mapped, the invoke is HELD under its registry name
+ * (`@/lib/db/org-skill-pending-invokes`) and attached when the index mirrors that name; no `OrgSkill`
+ * row is invented. Without a registry nothing will ever mirror the name, so the refusal stands: holding
+ * the row would be residue with no future.
+ */
+async function reportPendingInvoke(
+  org: string,
+  name: string,
+  session: string,
+  repo: string | null,
+  nowMs: number,
+): Promise<ToolResult> {
+  const notInLibrary = `"${name}" is not a skill in this organization's library, so there is nothing to report against. Call find_skills to see what it publishes.`;
+  const key = slugifySkillName(name);
+  if (!key) return fail(notInLibrary);
+  const registry = await getOrgRegistry(org);
+  if (!registry) return fail(notInLibrary);
+  const held = await recordPendingSkillInvoke(org, { name: key, session, repo, ts: invokeEventTs(nowMs) });
+  if (held === null) return fail(NO_PERSISTENCE);
+  return {
+    structuredContent: {
+      skill: key,
+      recorded: held.recorded > 0,
+      pending: true,
+      note:
+        held.recorded > 0
+          ? `Recorded against the registry name "${key}". It is not in this organization's library yet; the next index of the registry attaches this invocation to it.`
+          : "Already recorded for this session: one invocation per skill per session is counted, so nothing was added.",
+      currentVersion: null,
+      staleLocalCopy: null,
     },
   };
 }

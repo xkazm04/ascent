@@ -14,6 +14,7 @@ import { listOrgSkillUsageSamples, type SkillUsageSampleRow } from "@/lib/db/org
 import { effectiveSkillFrontmatter, type SkillFrontmatter } from "@/lib/org/skill-frontmatter";
 import { digestVerdict, isLegacyDigest } from "@/lib/registry/catalog";
 import { contentDigest, legacyRawDigest } from "@/lib/registry/parse";
+import { UNMIRRORED_SKILL_PREFIX } from "@/lib/registry/usage-samples";
 
 /** How the list is ordered. `recent` (default) = last edited; `downloads` = most used. */
 export type SkillSort = "name" | "recent" | "downloads";
@@ -461,7 +462,9 @@ export async function listSkillInvokeAnchors(
   if (!orgId) return [];
   const grouped = await getPrisma().orgSkillEvent.groupBy({
     by: ["skillId", "repo"],
-    where: { orgId, type: "invoke", repo: { not: null } },
+    // A pending invoke (`registry:<name>`, see org-skill-pending-invokes) has no library skill yet, so
+    // it cannot anchor an outcome; it becomes an anchor once the index attaches it to a real id.
+    where: { orgId, type: "invoke", repo: { not: null }, NOT: { skillId: { startsWith: UNMIRRORED_SKILL_PREFIX } } },
     _min: { createdAt: true },
   });
   return grouped

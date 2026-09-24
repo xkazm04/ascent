@@ -13,6 +13,7 @@
 //      recoverable, and the adoption/telemetry rows hanging off the id must survive.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { attachPendingSkillInvokes } from "@/lib/db/org-skill-pending-invokes";
 
 export interface MirrorSkillInput {
   path: string;
@@ -113,12 +114,17 @@ export async function upsertRegistrySkill(
     // the migration PR landing does not leave a duplicate beside the row people already reference.
     (await prisma.orgSkill.findFirst({ where: { orgId, name: data.name }, select: { id: true } }));
 
+  let id: string;
   if (existing) {
     await prisma.orgSkill.update({ where: { id: existing.id }, data });
-    return existing.id;
+    id = existing.id;
+  } else {
+    id = (await prisma.orgSkill.create({ data })).id;
   }
-  const created = await prisma.orgSkill.create({ data });
-  return created.id;
+  // An agent may have run this skill before the pass that mirrors it; its held invokes attach now.
+  // Best-effort by contract (never throws), so a failure cannot cost the index pass this row.
+  await attachPendingSkillInvokes(orgId, id, data.name);
+  return id;
 }
 
 /** Upsert one `memory/<kind>/<slug>.md` mirror row. */
