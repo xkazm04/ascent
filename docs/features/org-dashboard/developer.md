@@ -4,7 +4,8 @@ _Status: **consolidated (C1 complete)**. The prototype round is over: **Companio
 directions are deleted, and the surface has moved from a `?tab=care` panel to the personalized route
 `/org/developer`. The git-side half of the read model is **live** (the viewer's own slice of the
 contributor snapshot + the open gaps of their repos); the care-loop half is still an honest empty state
-until C3 ships the personal tables._
+until C3 ships the personal tables, except sessions per week, which since 2026-09-24 is measured from
+the viewer's own agent telemetry (see "Filled from your own telemetry")._
 
 The Developer page is where UC3 lands in the product (design:
 [`../../REGISTRY-AND-CARE-IMPL.md`](../../REGISTRY-AND-CARE-IMPL.md) §5, strategy:
@@ -139,12 +140,41 @@ The session-shape strip carries the same discipline on four outcomes:
 | shared, comparison off | the `decided` ring — your decision, not a shortage of data |
 | shared, comparison on, no band for this field | the hatch — not judged |
 | shared, band exists | the quartile strip, with your value marked |
+| measured from your own telemetry | your number plus the `measured` swatch, "yours only"; never a band |
+| your telemetry seen, fewer than 5 sessions | the hatch, "too few sessions" (`few-own-sessions`), no numeral |
 
 The reason is typed (`careShapeEmptyReason`, `src/lib/org/care-shape-contract.ts`). The same module is
 the C3 share contract: every field's window (30 days), numerator and denominator in `CARE_SHAPE_SCOPE`,
 only interactively launched sessions counted (SDK, MCP and CI entrypoints are excluded), and
 `validateCareShapePayload`, which refuses unknown keys, ratios outside 0 to 100, another window, and
 a reason only the server may derive. No route calls it yet; `POST /api/me/mentor/share` is still owed.
+
+### Filled from your own telemetry
+
+Since 2026-09-24 **sessions per week** fills without a share, from the `AgentSession` rows the org's
+Claude Code OTLP ingest already stores (`userKey` is the exporter's `user.email`, else `user.id`).
+It is a private productivity loop, never surveillance, and the rules are structural:
+
+- **Own rows only.** `getDeveloperView(login, slug)` takes the login the route resolved server-side
+  (`resolveViewerLogin`), never a query or body value, and `getOwnAgentSessions`
+  (`src/lib/db/agent-sessions-viewer.ts`, the only per-person read of that table) matches it
+  **exactly**: `userKey in [login, lower(login)]`, never `contains` or an insensitive mode, so no
+  wildcard can widen it. A null key is never guessed onto anyone. `applyOwnSessionShape`
+  (`src/lib/org/care-session-telemetry.ts`) re-checks every row's key, so a reader bug cannot count
+  another login.
+- **No trace of anyone else.** A viewer with no rows of their own gets a view deep-equal to an unknown
+  user's (`ownTelemetry: null`), however many sessions colleagues have; a signed-out viewer issues no
+  read.
+- **Counts only.** The read selects `userKey` and `startedAt`; the view carries a session count and one
+  rate. No session id, repo, transcript or prompt reaches the payload (the table stores no transcript
+  or prompt at all), and the privacy ledger's never-sent rows are unchanged.
+- **Never banded.** The OTLP export carries no launcher, so this scope counts **every** session under
+  your login, not only interactive ones (`CARE_TELEMETRY_SCOPE`, unlike `CARE_SHAPE_SCOPE`). It is
+  therefore never drawn against an org band, and `getCareOrgAggregate` never reads it.
+
+A field the mentor shares wins over the telemetry value. The six other fields (turns, plan mode,
+retries, tests before commit, skill invokes, compactions) are not in the telemetry and keep "nothing
+shared yet". Preview-as is not offered once your own sessions have landed.
 
 And `CareShareBar` separates *no commits for a share to be a share of* (the void) from a **measured
 0%** (an empty track beside a real zero) — the org-side `AiBar` fix from Wave 1, on the surface where
@@ -194,6 +224,8 @@ The line between them is enforced in two directions:
 | Shared viz kit | `@/components/org/viz` — `MatrixGrid`, `Distribution`, `StateSwatch`, `Legend`, `WhyChip`. No state encoding, hatch, dash or legend is re-implemented in this directory. |
 | Shared org shell | `src/components/org/shell/OrgShell.tsx` (+ `src/lib/org/orgShellGate.ts`) |
 | Contributors relation | `src/features/bought/contributors/ContributorsYouPointer.tsx`, `ContributorsCareSection.tsx`, `CareOrgAggregate.tsx` |
+| Own-telemetry session shape (pure fold + scope) | `src/lib/org/care-session-telemetry.ts` |
+| The viewer's own AgentSession read | `src/lib/db/agent-sessions-viewer.ts` |
 
 `developer-view.ts` is deliberately **pure** (types + constants + helpers) with the `@/lib/db` reads
 split into the `-load.ts` sibling, because the render is a client component and imports those helpers —
@@ -223,3 +255,9 @@ the same client/server boundary split as `skill-usage-load.ts`.
   `getRepoStates` (one query, in parallel with the backlog read, best-effort) for each repo's latest
   level and score; "—" appears only when a repo has no scan. A repo card with no open
   recommendations says "No open gaps." instead of rendering an empty list.
+- **Own telemetry matches on the login only.** Claude Code sends `user.email` (else an anonymous
+  `user.id`), so the session count fills only when that key equals your login: in practice, when your
+  sign-in login is itself your confirmed email (the Supabase fallback), or a key stored in the same
+  casing as your login. Matching a GitHub-login viewer by their confirmed email is a deliberate,
+  separate decision that is still owed. The count also cannot exclude SDK or CI sessions sent under
+  your key, because the export carries no launcher.
