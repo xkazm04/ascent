@@ -51,6 +51,7 @@ so `curl --fail` / CI can branch on the status alone.
 | `security=1` | The security floor at its default value (`DEFAULT_SECURITY_MIN`), same posture rule. |
 | `no_ungoverned=1` | Forbid the "ungoverned" posture (heavy AI, light guardrails). |
 | `require_protection=1` | Fail if the default branch has no branch-protection rules (when readable). |
+| `min_d1` … `min_d8` | Minimum score for **one** dimension (D1–D8), e.g. `min_d2=50` for Testing. There is no `min_d9`: D9 is `min_security`. |
 
 A `≤0`, `>100` or unparseable threshold is **dropped**, not clamped: it is "not set" by
 contract, so a bad value can never install an always-pass (`≤0`) or unreachable (`>100`)
@@ -232,6 +233,7 @@ That is the authenticated path; the public `/api/gate/...` endpoint is for publi
 | `no-ungoverned` | Reject the ungoverned posture. |
 | `require-protection` | Fail if the default branch has no branch-protection rules (when readable). |
 | `live` | Use the live LLM (`true`) instead of mock. |
+| `min-d1` … `min-d8` | Minimum score for one dimension (D1–D8), forwarded as `--min-d<N>` → `?min_d<N>`. D9 is `min-security`. |
 
 Outputs (written on **every** exit path, so `status` always says what happened):
 
@@ -376,15 +378,18 @@ must never assert something it didn't measure:
 `GatePolicy.minDimensionFor` holds a floor for any of **D1–D9**, and the gate enforces every
 one (the stricter of it and the global `minDimension`, see `effectiveFloor`). The owner's
 form exposes them all: **D9 keeps its own dedicated control** (it is the deterministic
-dimension, the only floor the gate URL / CI input surface as `min_security` / `min-security`,
-and enabling it also forbids the ungoverned posture), and every other dimension is added as a
-row in `DimensionFloorRows`. Before this, a non-D9 floor such as "no repo below 50 on Testing"
+dimension, its gate URL / CI input is the named `min_security` / `min-security`, and enabling
+it also forbids the ungoverned posture), and every other dimension is added as a row in
+`DimensionFloorRows`. Before this, a non-D9 floor such as "no repo below 50 on Testing"
 was reachable only by POSTing raw JSON to `/api/org/gate-policy`.
 
-Non-D9 floors render into `policyText` and the PR-comment footer but carry **no** `query` /
-`ci` projection, which is correct rather than a gap: the gate endpoint resolves the org's
-persisted policy as its baseline on every call, so the CI snippet does not need to restate
-them and a param could not weaken them anyway.
+Every floor also has a `query` and a `ci` projection: D1–D8 are `?min_d<N>` on the gate URL
+and `min-d<N>` on the Action, so the Enforce-in-CI snippet carries a Testing floor the same way
+it carries `min-security`, and a caller with no org policy (self-hosted, DB-less) can still ask
+for one. Restating a floor the org already holds is harmless: the endpoint tightens per key, so
+a param can raise a floor but never lower it. `gate-action-inputs.test.ts` walks every `ci`
+line through `action.yml` and `scripts/maturity-gate.mjs` back to the parsed policy, so a key
+the Action does not declare or forward fails the suite.
 
 ### The form replaces only what it renders
 
