@@ -3,12 +3,22 @@
 //   bulk:   { org, watched, repos: [{ owner, name, fullName, url?, private? }, ...] }
 //           (watch/unwatch a whole filtered set in one request — the connect screen's "Watch all").
 // POST /api/org/schedule is the sibling route (its no-fullName body sets cadence for the watched set).
+//
+// WATCH SCOPE (backlog develop-2026-09-17 row 39). A watched repo is a standing credit draw, so a
+// watch (`watched: true`) must pass `watchScopeFor(org)` (src/lib/org/watch-scope.ts): on a hosted
+// deployment the org's own namespace or its GitHub App installation listing, on a self-hosted one
+// anything. The handle shape is checked in both modes. A refused single write is a 400; a refused
+// bulk entry lands in `failed[]` and the rest are still watched. UN-watching is never refused: an
+// in-scope unwatch records the explicit-unwatch row as before (setRepoWatch false), and anything else
+// only clears a row the org already has (clearRepoWatch), so an unwatch cannot mint a tracked row.
 
 import { NextResponse } from "next/server";
 import { isDbConfigured, setRepoWatch } from "@/lib/db";
 import { isAppConfigured } from "@/lib/github/app";
 import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
+import { clearRepoWatch } from "@/lib/db/org-watch";
+import { parseWatchHandle, watchScopeFor, type WatchScope } from "@/lib/org/watch-scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +33,29 @@ interface RepoInput {
   fullName?: string;
   url?: string;
   private?: boolean;
+}
+
+type PresentRepo = Required<Pick<RepoInput, "owner" | "name" | "fullName">> & RepoInput;
+
+/**
+ * Apply one watch-flag write under the org's watch scope. A WATCH is refused as `bad-handle` or
+ * `out-of-scope`; an unwatch is never refused.
+ */
+async function writeWatch(
+  org: string,
+  inScope: WatchScope,
+  r: PresentRepo,
+  watched: boolean,
+): Promise<"ok" | "bad-handle" | "out-of-scope"> {
+  const handle = parseWatchHandle(r);
+  const admitted = handle !== null && (await inScope(handle));
+  if (!admitted) {
+    if (watched) return handle ? "out-of-scope" : "bad-handle";
+    await clearRepoWatch(org, r.fullName);
+    return "ok";
+  }
+  await setRepoWatch(org, { owner: r.owner, name: r.name, fullName: r.fullName, url: r.url, isPrivate: r.private }, watched);
+  return "ok";
 }
 
 export async function POST(request: Request) {
@@ -49,20 +82,21 @@ export async function POST(request: Request) {
   if (notFleet) return notFleet;
 
   const watched = Boolean(body.watched);
+  const inScope = watchScopeFor(org);
 
   // Bulk path: watch/unwatch a whole set in one request. Writes are sequential so the lazy
   // Organization upsert inside setRepoWatch can't race itself; one bad row doesn't abort the rest.
   if (Array.isArray(body.repos)) {
     const valid = body.repos
-      .filter((r): r is Required<Pick<RepoInput, "owner" | "name" | "fullName">> & RepoInput => !!(r && r.owner && r.name && r.fullName))
+      .filter((r): r is PresentRepo => !!(r && r.owner && r.name && r.fullName))
       .slice(0, MAX_BULK);
     if (valid.length === 0) return NextResponse.json({ error: "No valid repos in the batch." }, { status: 400 });
     let count = 0;
     const failed: string[] = [];
     for (const r of valid) {
       try {
-        await setRepoWatch(org, { owner: r.owner, name: r.name, fullName: r.fullName, url: r.url, isPrivate: r.private }, watched);
-        count += 1;
+        if ((await writeWatch(org, inScope, r, watched)) === "ok") count += 1;
+        else failed.push(r.fullName);
       } catch {
         failed.push(r.fullName);
       }
@@ -75,11 +109,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing org/owner/name/fullName." }, { status: 400 });
   }
   try {
-    await setRepoWatch(
-      org,
-      { owner: body.owner, name: body.name, fullName: body.fullName, url: body.url, isPrivate: body.private },
-      watched,
-    );
+    const outcome = await writeWatch(org, inScope, body as PresentRepo, watched);
+    if (outcome === "bad-handle") {
+      return NextResponse.json({ error: "owner/name/fullName must be a GitHub repository handle." }, { status: 400 });
+    }
+    if (outcome === "out-of-scope") {
+      return NextResponse.json(
+        { error: `${body.fullName} is not a repository of ${org} or of its GitHub App installation.` },
+        { status: 400 },
+      );
+    }
     return NextResponse.json({ ok: true, fullName: body.fullName, watched });
   } catch (err) {
     console.error("[org/watch] failed", err);

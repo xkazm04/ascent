@@ -173,6 +173,19 @@ export async function setRepoWatch(orgSlug: string, repo: RepoRef, watched: bool
   });
 }
 
+/**
+ * Unwatch a repo the org ALREADY records, without ever creating a row. The watch route uses this for
+ * an unwatch outside the org's hosted watch scope (src/lib/org/watch-scope.ts): un-watching is never
+ * refused, but `setRepoWatch(false)` upserts, and a `Repository` row is the org's tenancy fact
+ * (`orgTracksRepo`), so an upserting unwatch would let a caller make the org "track" a stranger's repo.
+ */
+export async function clearRepoWatch(orgSlug: string, fullName: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return;
+  await getPrisma().repository.updateMany({ where: { orgId, fullName }, data: { watched: false } });
+}
+
 export async function setRepoSchedule(orgSlug: string, fullName: string, schedule: string): Promise<void> {
   if (!isDbConfigured()) return;
   const prisma = getPrisma();

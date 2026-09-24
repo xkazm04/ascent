@@ -19,8 +19,11 @@
 //      event can pick them up (up to the cap again); they are logged and audited, never dropped silently.
 //
 // Watching goes through the import path (setRepoWatch + setRepoSchedule at the import's default
-// cadence) via the single `watchGrantedRepo`, which is the hook a later hosted watch-scope rule can
-// guard. Nothing here reserves a credit: the scan worker reserves when the scheduled scan runs.
+// cadence) via the single `watchGrantedRepo`. The hosted watch scope that POST /api/org/watch enforces
+// (src/lib/org/watch-scope.ts, row 39: own namespace or the installation listing) is deliberately NOT
+// asked here: every name this module watches comes FROM the installation listing, so it is in scope by
+// construction, and a second GitHub listing read per grant event would buy nothing. Nothing here
+// reserves a credit: the scan worker reserves when the scheduled scan runs.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { setRepoSchedule, setRepoWatch } from "@/lib/db/org-watch";
