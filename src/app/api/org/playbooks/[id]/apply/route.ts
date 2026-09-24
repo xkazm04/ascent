@@ -14,7 +14,7 @@ import { getPlaybook, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
-import { mapPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
+import { mapPrWriteError, requirePrWriteTarget } from "@/lib/github/pr-route";
 import { applyPlaybookToRepo } from "@/lib/org/playbook-apply";
 
 export const runtime = "nodejs";
@@ -46,23 +46,24 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const { org } = gated;
 
   const body = (await request.json().catch(() => ({}))) as { repo?: string; base?: string };
-  // Tenant gate on the repo coordinate (shared with [id]/repos via parseOrgRepo): require the repo to
-  // belong to this playbook's org.
-  const parsed = parseOrgRepo(body.repo, org);
+  // Tenant gate on the repo coordinate (shared with [id]/repos via parseOrgRepo): the repo must be in
+  // this playbook's org's namespace or tracked by it (row 41). Its 400 runs before any lookup.
+  const parsed = await parseOrgRepo(body.repo, org);
   if (parsed instanceof Response) return parsed;
 
   const playbook = await getPlaybook(id);
   if (!playbook) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
 
   try {
-    // Install presence (403) + installation-token mint, single-sourced across the PR-write routes.
-    const prCtx = await requirePrWriteContext(org);
-    if (prCtx instanceof Response) return prCtx;
+    // The one customer-repo write door: tenancy (`tracked`, the rule parseOrgRepo just applied), then
+    // install presence (403) + the token of the installation covering the repo.
+    const target = await requirePrWriteTarget(org, parsed.fullName, "tracked");
+    if (target instanceof Response) return target;
     const { pr } = await applyPlaybookToRepo({
-      token: prCtx.token,
+      token: target.token,
       org,
       playbook,
-      parsed,
+      parsed: target,
       base: body.base,
       actorLogin,
     });

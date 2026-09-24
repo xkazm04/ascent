@@ -27,10 +27,6 @@ const API_DIR = join(process.cwd(), "src", "app", "api");
  * deliberate edit that a reviewer sees.
  */
 const ALLOWED_DIRECT_MINT: Record<string, string> = {
-  // resolvePlaybookOrg(id) reads the org FROM the playbook row and gates it; parseOrgRepo(raw, org)
-  // then refuses any repo whose owner is not that org (400). The mint gets the same gated org.
-  "org/playbooks/[id]/apply/route.ts": "gated org from the playbook row; parseOrgRepo pins owner === org",
-  "org/playbooks/[id]/apply-batch/route.ts": "gated org from the playbook row; parseOrgRepo pins owner === org",
   // readableOrgForOwner(owner) returns the lower-cased OWNER itself (or PUBLIC_ORG, refused), and
   // requireOrgRole gates that value. The gated org, the minted org and the write owner are one string.
   "report/foundation/pr/route.ts": "org IS the repo owner (readableOrgForOwner), then requireOrgRole admin",
@@ -38,7 +34,7 @@ const ALLOWED_DIRECT_MINT: Record<string, string> = {
   "report/foundation/secrets/route.ts": "org IS the repo owner (readableOrgForOwner), then requireOrgRole owner",
   "report/passport/pr/route.ts": "org IS the repo owner (readableOrgForOwner), then requireOrgRole admin",
 };
-const PINNED_ALLOW_COUNT = 6;
+const PINNED_ALLOW_COUNT = 4;
 
 /** The in-context PR-write routes that must go through the composer. */
 const COMPOSER_ROUTES = [
@@ -49,6 +45,9 @@ const COMPOSER_ROUTES = [
   "org/ai-stance/apply-batch/route.ts",
   "org/admission/propose/route.ts",
   "org/admission/ruleset/route.ts",
+  // Migrated off the allow-list by backlog develop-2026-09-17 row 41 (playbooks reach tracked repos).
+  "org/playbooks/[id]/apply/route.ts",
+  "org/playbooks/[id]/apply-batch/route.ts",
 ];
 
 const DIRECT_MINT = /\brequirePrWriteContext\s*\(/;

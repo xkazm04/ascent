@@ -1,12 +1,14 @@
 // Per-row authorization for the playbook routes. A playbook's org is not in the URL — it's resolved
 // FROM the playbook id, then the caller is authorized against that org. This single guard is the one
-// place that encodes that resolve-then-gate ordering + the not-found contract, so the three per-row
-// routes ([id], [id]/repos, [id]/apply) can't drift on the 404 message, the role default, or the order.
+// place that encodes that resolve-then-gate ordering + the not-found contract, so the per-row routes
+// ([id], [id]/repos, [id]/apply, [id]/apply-batch) can't drift on the 404 message, the role default,
+// or the order.
 
 import { NextResponse } from "next/server";
 import { getPlaybookOrgSlug, isDbConfigured } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { parseRepoUrl } from "@/lib/github/source";
+import { repoUnderOrg } from "@/lib/github/pr-route";
 import type { OrgRole } from "@/lib/db/members";
 
 /**
@@ -29,21 +31,26 @@ export async function resolvePlaybookOrg(
 }
 
 /**
- * Tenant gate on a caller-supplied repo coordinate for the playbook write routes. Parses
- * `owner/name` and requires the owner to BE the playbook's `org` (case-insensitive) — without this a
- * member could record / open a PR against a foreign or typo'd repo under the org's playbook (a
- * cross-tenant write / inflated-adoption bug). Returns the validated coordinate on success, or a
- * `Response` (400) to return verbatim (callers branch on `instanceof Response`). Shared by
- * [id]/repos and [id]/apply so their two 400 messages + the owner-match rule can't drift.
+ * Tenant gate on a caller-supplied repo coordinate for the playbook write routes. Parses `owner/name`
+ * and requires the repo to belong to the playbook's `org`: either the org's own namespace
+ * (case-insensitive) or a repository the org TRACKS under another owner (org `kiro` over
+ * `xkazm04/kp`). The second half is `repoUnderOrg`, the same tracked-set predicate the admission
+ * routes and the `tracked` rule of the customer-repo write door use (backlog develop-2026-09-17 row
+ * 41; it used to be `owner === org` only, so a playbook could not reach repos the loop already works).
+ * A random owner the org does not track is still refused (400), so a member cannot record or open a
+ * PR against a foreign or typo'd repo under the org's playbook (the cross-tenant write /
+ * inflated-adoption bug). Returns the validated coordinate, or a `Response` (400) to return verbatim
+ * (callers branch on `instanceof Response`). Shared by [id]/repos, [id]/apply and [id]/apply-batch.
  */
-export function parseOrgRepo(
+export async function parseOrgRepo(
   repo: string | undefined,
   org: string,
-): { fullName: string; owner: string; repo: string } | Response {
+): Promise<{ fullName: string; owner: string; repo: string } | Response> {
   const parsed = parseRepoUrl(repo ?? "");
   if (!parsed) return NextResponse.json({ error: "Provide { repo: 'owner/name' }." }, { status: 400 });
-  if (parsed.owner.toLowerCase() !== org.toLowerCase()) {
-    return NextResponse.json({ error: `Repo must belong to ${org}.` }, { status: 400 });
+  const fullName = `${parsed.owner}/${parsed.repo}`;
+  if (!(await repoUnderOrg(org, fullName))) {
+    return NextResponse.json({ error: `Repo must belong to ${org} or be one it tracks.` }, { status: 400 });
   }
-  return { fullName: `${parsed.owner}/${parsed.repo}`, owner: parsed.owner, repo: parsed.repo };
+  return { fullName, owner: parsed.owner, repo: parsed.repo };
 }

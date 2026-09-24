@@ -18,14 +18,17 @@
 // exactly that: it gated `body.org` and minted for the repo's parsed owner, opening a draft PR in
 // another tenant's repository with THAT tenant's installation token. requirePrWriteTarget takes the
 // gated org and the raw coordinate together, enforces a NAMED tenancy rule, and returns the token
-// (always minted for the gated org) beside the coordinate the writer must use (always the parsed
-// repo, never the org). `pr-write-target.guard.test.ts` pins which routes may still mint by hand.
+// (minted for the gated org, or on a self-hosted deployment for the installation of a repo the org
+// TRACKS under another owner; see installOwnerFor) beside the coordinate the writer must use (always
+// the parsed repo, never the org). `pr-write-target.guard.test.ts` pins which routes may still mint
+// by hand.
 
 import { NextResponse } from "next/server";
 import { AppApiError, getInstallationToken } from "@/lib/github/app";
 import { GitHubError, parseRepoUrl, type ParsedRepo } from "@/lib/github/source";
 import { getInstallationIdForOwner, isDbConfigured } from "@/lib/db";
 import { orgTracksRepo } from "@/lib/db/org-admission";
+import { selfHosted } from "@/lib/env";
 
 const WRITE_REJECTED = "GitHub rejected the write. Check the repo and base branch.";
 const NO_WRITE_SCOPE =
@@ -79,18 +82,27 @@ export interface PrWriteCoordinate {
   parsed: ParsedRepo;
 }
 
-/** One coordinate plus the gated org's installation token. */
+/** One coordinate plus the token of the installation that covers it (see installOwnerFor). */
 export interface PrWriteTarget extends PrWriteCoordinate {
-  /** The gated org, lower-cased: the org the token was minted for. */
+  /** The gated org, lower-cased. */
   org: string;
   token: string;
 }
 
-/** Many coordinates under one gated org and ONE token (the fleet routes). */
+/** A batch coordinate with the token of the installation that covers it. */
+export interface PrWriteBatchCoordinate extends PrWriteCoordinate {
+  token: string;
+}
+
+/** Many coordinates under one gated org (the fleet routes). */
 export interface PrWriteBatchTarget {
   org: string;
+  /**
+   * The first target's token. Under `owner-namespace` every target shares it (the gated org's
+   * installation); a `tracked` batch may span installations, so its writer reads each target's own.
+   */
   token: string;
-  targets: PrWriteCoordinate[];
+  targets: PrWriteBatchCoordinate[];
 }
 
 /** `owner/name` or null. Shape only: this makes no claim about who the repo belongs to. */
@@ -130,6 +142,23 @@ async function underOrg(org: string, parsed: ParsedRepo, rule: PrWriteRule): Pro
   return (await repoUnderOrg(org, `${parsed.owner}/${parsed.repo}`)) !== null;
 }
 
+/**
+ * Whose installation mints the token for a coordinate that already passed its rule under `org`
+ * (backlog develop-2026-09-17 row 41). The org's own namespace, and every `owner-namespace`
+ * coordinate, mint for the gated org. A repo the org TRACKS under another owner:
+ *  - HOSTED: still the gated org. A hosted org can only watch its own namespace or its installation's
+ *    listing (src/lib/org/watch-scope.ts), so its installation IS the repo's; and a `Repository` row is
+ *    not proof of ownership across tenants, so minting another account's token here would reopen the
+ *    ai-stance cross-tenant write. A tracked repo the org's installation cannot see fails at GitHub.
+ *  - SELF-HOSTED: the repo owner's installation. The operator owns every installation on the
+ *    deployment, and an org named for its team (`kiro`) tracking `xkazm04/*` has no installation of its
+ *    own; the loop's PR writer already mints per repo owner (src/lib/db/improvement.ts).
+ */
+function installOwnerFor(org: string, c: PrWriteCoordinate): string {
+  if (c.owner === org) return org;
+  return selfHosted() ? c.owner : org;
+}
+
 function toCoordinate(raw: string, parsed: ParsedRepo): PrWriteCoordinate {
   const owner = parsed.owner.toLowerCase();
   return { raw, owner, repo: parsed.repo, fullName: `${owner}/${parsed.repo}`, parsed: { ...parsed, owner } };
@@ -155,8 +184,10 @@ export async function resolvePrWriteCoordinate(
 
 /**
  * THE door for an in-context customer-repo write. Parses the caller's coordinate(s), enforces `rule`
- * against `gatedOrg`, and only then looks up the installation and mints the token, FOR `gatedOrg`
- * and nothing else. The writer must take `owner`/`repo` from the result, never the org.
+ * against `gatedOrg`, and only then looks up the installation and mints the token: for `gatedOrg`,
+ * except a tracked repo under another owner on a self-hosted deployment (see installOwnerFor). The
+ * writer must take `owner`/`repo` (and in a batch, each target's `token`) from the result, never the
+ * org.
  *
  * Refusals (ready-to-return NextResponse): 400 for an unparseable coordinate; 403 "That repository
  * doesn't belong to <org>." (a batch: "Not repositories of <org>: …") BEFORE any installation
@@ -185,7 +216,7 @@ export async function requirePrWriteTarget(
   if (typeof raw === "string") {
     const coordinate = await resolvePrWriteCoordinate(org, raw, rule);
     if (coordinate instanceof Response) return coordinate;
-    const ctx = await requirePrWriteContext(org);
+    const ctx = await requirePrWriteContext(installOwnerFor(org, coordinate));
     if (ctx instanceof Response) return ctx;
     return { ...coordinate, org, token: ctx.token };
   }
@@ -200,9 +231,26 @@ export async function requirePrWriteTarget(
   if (foreign.length > 0) {
     return NextResponse.json({ error: `Not repositories of ${org}: ${foreign.slice(0, 5).join(", ")}.` }, { status: 403 });
   }
-  const ctx = await requirePrWriteContext(org);
-  if (ctx instanceof Response) return ctx;
-  return { org, token: ctx.token, targets };
+  // One mint per installation, in target order; any installation missing refuses the whole batch.
+  const tokens = new Map<string, string>();
+  const minted: PrWriteBatchCoordinate[] = [];
+  for (const c of targets) {
+    const owner = installOwnerFor(org, c);
+    let token = tokens.get(owner);
+    if (token === undefined) {
+      const ctx = await requirePrWriteContext(owner);
+      if (ctx instanceof Response) return ctx;
+      token = ctx.token;
+      tokens.set(owner, token);
+    }
+    minted.push({ ...c, token });
+  }
+  if (minted.length === 0) {
+    const ctx = await requirePrWriteContext(org);
+    if (ctx instanceof Response) return ctx;
+    return { org, token: ctx.token, targets: minted };
+  }
+  return { org, token: minted[0]!.token, targets: minted };
 }
 
 /**

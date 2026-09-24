@@ -20,8 +20,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   // applied" path previously trusted the client `repo` string verbatim, so a member could record an
   // arbitrary or cross-tenant repo (e.g. "other-org/private") against the org's playbook — inflating
   // its "Adopted by N repos" count and flowing a foreign/typo'd repo name into Initiative scope
-  // (PlaybookCard → trackAsInitiative). Require the repo to belong to this org.
-  const coord = parseOrgRepo(body.repo, gated.org);
+  // (PlaybookCard → trackAsInitiative). Require the repo to belong to this org: its own namespace or a
+  // repo it tracks under another owner (row 41).
+  const coord = await parseOrgRepo(body.repo, gated.org);
   if (coord instanceof Response) return coord;
   // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,
   // so this actor was recorded as null in production.
@@ -40,7 +41,7 @@ export async function DELETE(request: Request, ctx: { params: Promise<{ id: stri
   // Mirror POST (playbooks #6) via the shared parseOrgRepo: normalize + tenant-check the repo. The mark
   // was stored under the canonical `owner/repo` fullName, so the unmark must normalize the SAME way to
   // actually match it — and a member must not be able to aim an unmark at a cross-tenant repo coordinate.
-  const coord = parseOrgRepo(body.repo, gated.org);
+  const coord = await parseOrgRepo(body.repo, gated.org);
   if (coord instanceof Response) return coord;
   await unapplyPlaybook(id, coord.fullName);
   return NextResponse.json({ ok: true });

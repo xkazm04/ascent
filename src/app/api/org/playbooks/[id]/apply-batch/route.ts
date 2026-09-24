@@ -9,15 +9,16 @@
 //   1. ROLE. `admin`, never `member`. A fleet-wide PR-write has the blast radius of a segment delete;
 //      the practices batch was tightened to admin for exactly this reason and the two must not drift.
 //      (The single-repo sibling stays member-level — one PR into one repo is a different act.)
-//   2. TENANCY. Every repo must belong to THIS playbook's org (`parseOrgRepo` per coordinate); a
-//      mixed-owner batch is refused outright rather than partially applied.
+//   2. TENANCY. Every repo must belong to THIS playbook's org, its namespace or its tracked set
+//      (`parseOrgRepo` per coordinate, row 41); a batch with one foreign repo is refused outright
+//      rather than partially applied. The write then goes through requirePrWriteTarget (`tracked`).
 //   3. CAP. MAX_BATCH (25) repos per call, deduped case-insensitively BEFORE the cap so a repeated
 //      repo can't burn a slot or race itself on the same `ascent/playbook-<id>-…` branch. Over-cap
 //      repos are reported as `skipped`, never silently dropped — so one click can never become
 //      hundreds of PRs, and a bigger rollout is an explicit, repeated, re-confirmed act.
 //   4. CONCURRENCY. SCAN_CONCURRENCY lanes, so a big fleet doesn't hammer GitHub or trip maxDuration.
 //   5. DRY-RUN. `dryRun: true` returns the exact `playbookStarterFile` bytes + the capped repo list
-//      BEFORE `requirePrWriteContext` / token mint / `applyPlaybookToRepo`. The admin gate still
+//      BEFORE `requirePrWriteTarget` / token mint / `applyPlaybookToRepo`. The admin gate still
 //      runs — starter bytes are org-authored, not public. Absent / false keeps the write path.
 // One bad repo never aborts the rest: the per-repo worker owns its errors and the response is a 200
 // whatever the mix.
@@ -28,7 +29,7 @@ import { getPlaybook, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
-import { classifyPrWriteError, requirePrWriteContext } from "@/lib/github/pr-route";
+import { classifyPrWriteError, requirePrWriteTarget } from "@/lib/github/pr-route";
 import { applyPlaybookToRepo } from "@/lib/org/playbook-apply";
 import { playbookApplyBatchDryRun } from "@/lib/org/playbook-brief";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -76,7 +77,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   // cross-tenant rollout is worse than a refused one.
   const parsed: { owner: string; repo: string; fullName: string }[] = [];
   for (const raw of body.repos) {
-    const p = parseOrgRepo(raw, org);
+    const p = await parseOrgRepo(raw, org);
     if (p instanceof Response) return p;
     parsed.push(p);
   }
@@ -98,7 +99,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   if (!playbook) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
 
   // HITL preview: same admin / tenancy / cap as the write, zero GitHub writes. Must run before
-  // requirePrWriteContext so a dry-run cannot mint an installation token.
+  // requirePrWriteTarget so a dry-run cannot mint an installation token.
   if (body.dryRun === true) {
     return NextResponse.json(
       playbookApplyBatchDryRun(
@@ -111,15 +112,19 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   }
 
   try {
-    // Install presence (403) + installation-token mint, single-sourced across the PR-write routes.
-    const prCtx = await requirePrWriteContext(org);
-    if (prCtx instanceof Response) return prCtx;
-    const { token } = prCtx;
+    // The one customer-repo write door: install presence (403) + one token per covering installation.
+    // A `tracked` batch may span installations (self-hosted), so each target writes with its own.
+    const door = await requirePrWriteTarget(
+      org,
+      batch.map((p) => p.fullName),
+      "tracked",
+    );
+    if (door instanceof Response) return door;
 
-    const results = await mapPool<(typeof batch)[number], BatchResult>(batch, SCAN_CONCURRENCY, async (p) => {
+    const results = await mapPool<(typeof door.targets)[number], BatchResult>(door.targets, SCAN_CONCURRENCY, async (p) => {
       try {
         const { pr, fullName } = await applyPlaybookToRepo({
-          token,
+          token: p.token,
           org,
           playbook,
           parsed: p,

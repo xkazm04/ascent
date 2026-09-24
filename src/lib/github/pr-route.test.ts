@@ -4,7 +4,7 @@
 // that org is refused before any installation lookup happens. (Before this composer the routes
 // passed a bare string to requirePrWriteContext, and ai-stance/apply passed the wrong one.)
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("next/server", () => ({
   NextResponse: class NextResponse extends Response {
@@ -37,7 +37,9 @@ beforeEach(() => {
   mockInstall.mockImplementation(async (owner: string) => `inst-${owner}`);
   mockToken.mockImplementation(async (id: string | number) => `token-for-${id}`);
   mockTracks.mockResolvedValue(false);
+  vi.stubEnv("ASCENT_SELF_HOSTED", "0");
 });
+afterEach(() => vi.unstubAllEnvs());
 
 async function refusal(res: unknown) {
   expect(res).toBeInstanceOf(Response);
@@ -130,5 +132,50 @@ describe("requirePrWriteTarget — a batch of coordinates", () => {
     const res = await requirePrWriteTarget("acme", ["acme/a", "victim/b"], "owner-namespace");
     expect(await refusal(res)).toEqual({ status: 403, error: "Not repositories of acme: victim/b." });
     expect(mockInstall).not.toHaveBeenCalled();
+  });
+});
+
+// Backlog develop-2026-09-17 row 41: the token for a TRACKED repo under another owner comes from the
+// installation that covers that repo. Hosted: the gated org's own (a hosted org can only watch its own
+// namespace or its installation's listing, so its installation IS the repo's). Self-hosted: the repo
+// owner's installation, which is what the loop already writes with (org `kiro` over `xkazm04/*`).
+describe("requirePrWriteTarget: whose installation mints a tracked foreign repo", () => {
+  it("self-hosted: mints from the repo owner's installation", async () => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    mockTracks.mockResolvedValue(true);
+    const target = await requirePrWriteTarget("kiro", "xkazm04/kp", "tracked");
+    expect(target).toMatchObject({ org: "kiro", owner: "xkazm04", token: "token-for-inst-xkazm04" });
+    expect(mockInstall.mock.calls).toEqual([["xkazm04"]]);
+  });
+
+  it("guard: self-hosted owner-namespace and own-namespace coordinates still mint for the gated org", async () => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    await requirePrWriteTarget("kiro", "kiro/site", "tracked");
+    await requirePrWriteTarget("acme", "acme/app", "owner-namespace");
+    expect(mockInstall.mock.calls).toEqual([["kiro"], ["acme"]]);
+  });
+
+  it("self-hosted batch: each target carries its installation's token, one mint per installation", async () => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    mockTracks.mockImplementation(async (_org, full) => full.startsWith("xkazm04/"));
+    const target = await requirePrWriteTarget("kiro", ["kiro/site", "xkazm04/kp", "xkazm04/systedo"], "tracked");
+    const t = target as Exclude<typeof target, Response>;
+    expect(t.targets.map((x) => [x.fullName, x.token])).toEqual([
+      ["kiro/site", "token-for-inst-kiro"],
+      ["xkazm04/kp", "token-for-inst-xkazm04"],
+      ["xkazm04/systedo", "token-for-inst-xkazm04"],
+    ]);
+    expect(mockToken).toHaveBeenCalledTimes(2);
+  });
+
+  it("self-hosted batch: a tracked owner with no installation refuses the batch with its name", async () => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "1");
+    mockTracks.mockResolvedValue(true);
+    mockInstall.mockImplementation(async (owner: string) => (owner === "kiro" ? "inst-kiro" : null));
+    const res = await requirePrWriteTarget("kiro", ["kiro/site", "xkazm04/kp"], "tracked");
+    expect(await refusal(res)).toEqual({
+      status: 403,
+      error: "Ascent isn't installed on xkazm04. Install the GitHub App (with write access) to open PRs.",
+    });
   });
 });
