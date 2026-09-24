@@ -4,7 +4,7 @@ The scoring step calls an LLM only to **calibrate and explain** deterministic si
 never to invent scores from scratch. That call goes through a single interface,
 `LLMProvider`, so the model behind it is a config change, not a rewrite. Eight providers
 ship today (`gemini`, `bedrock`, `openai`, `openrouter`, `local`, `claude-cli`, `codex-cli`,
-`mock`); an org can also connect its own Bedrock or OpenRouter account (BYOM), and every real
+`mock`); an org can also connect its own Bedrock, OpenRouter or Nebius account (BYOM), and every real
 LLM call is optionally mirrored to a local Tracklight instance for observability.
 
 **Two of them cost nothing and keep your source on hardware you control** — `local` (an
@@ -309,6 +309,17 @@ entry point the scan pipeline calls in place of `getProvider()`:
    - `kind: "openrouter"` → `new OpenRouterProvider({ model, apiKey })`, a **cost/
      flexibility** BYOM, routing to third-party upstreams under the org's own key, *not*
      an in-boundary guarantee.
+   - `kind: "nebius"` *(2026-09-24)* → `new NebiusProvider({ model, apiKey, baseUrl })`:
+     hosted open-weight inference (GLM, Nemotron, MiniMax) billed to the org's own Token
+     Factory account, with its own `nebius` provenance and non-zero cost class. Not
+     in-boundary either: the model runs in Nebius's datacenter. `baseUrl` is always the
+     public endpoint (`NEBIUS_DEFAULT_BASE_URL`), never the host's `NEBIUS_BASE_URL`, on the
+     scan seam and the text seam alike: an org's key goes to the vendor that issued it. Before
+     this, Nebius worked only as the deployment-wide `LLM_PROVIDER=nebius`, so a multi-tenant
+     host could not give one org its own Token Factory credentials.
+   The BYOM kinds are declared once, in `src/lib/llm/byom-kinds.ts` (`BYOM_KINDS`, plus the
+   API-key subset `openrouter` and `nebius`); the registry's `byomDescriptor` maps each kind to
+   its provider for both seams, and the lane projection and the test route read the same list.
    Either way the result carries `byom: true`, which tells the scan pipeline to skip
    platform credits and skip the platform fallback path.
 
@@ -356,8 +367,15 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
 - `setOrgLlmConfig()` fails closed with an explicit error when creds are supplied but
   `ENCRYPTION_KEY` isn't configured, and requires Bedrock's access-key-id/secret pair to be
   supplied together (or neither).
-- An org has exactly one active connected provider (`provider` column: `"bedrock"` or
-  `"openrouter"`); saving one card's config replaces the other's slot in the same row.
+- An org has exactly one active connected provider (`provider` column: `"bedrock"`,
+  `"openrouter"` or `"nebius"`); saving one card's config replaces the other's slot in the same row.
+- *(2026-09-24)* An API-key kind stores `{ kind, apiKey }`, and a key is only read back for the
+  kind it was saved for (an OpenRouter blob written before `kind` existed stays readable as
+  OpenRouter). `setOrgLlmConfig()` rejects a provider that is not a BYOM kind, and refuses a
+  **provider switch without a new credential** while another provider's secret is stored: both
+  API-key kinds store one key, so keeping the blob on an OpenRouter to Nebius save would send the
+  org's OpenRouter key to Nebius on the next scan (and a Bedrock to OpenRouter save would leave an
+  unresolvable config that fails every scan closed). The owner enters the new provider's key.
 
 ### Settings UI
 
@@ -374,6 +392,7 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
   | **Ascent** (platform default) | hatched — *not judged* | void | measured | measured, or **superseded** once a BYOM takes the slot |
   | **Bedrock** | **measured** — your AWS account, your region | measured — your AWS account | measured iff `planAllowsByom` | see the slot ladder below |
   | **OpenRouter** | **void** — routes to a third-party upstream | measured — your OpenRouter account | measured iff `planAllowsByom` | see the slot ladder below |
+  | **Nebius** *(2026-09-24)* | **void**: runs in Nebius's datacenter | measured: your Nebius account | measured iff `planAllowsByom` | see the slot ladder below |
 
   The OpenRouter Boundary cell is `missing`, so `isVoid` is true and `rendersValue` is
   false: it can never acquire a mark or a number that would let it read like Bedrock's. The
@@ -401,6 +420,18 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
   this is the one sentence on the tab that should change whether an owner pastes a key at
   all. `ProviderBoundaryCard.dom.test.tsx` fails if it stops being rendered, stops naming
   "not in-boundary" / "third-party upstream", or drifts below the key field.
+- `src/features/admin/settings/ApiKeyByomSettings.tsx` + `NebiusByomSettings.tsx`
+  *(2026-09-24)*: the OpenRouter card's form is now the shared **API-key BYOM card**,
+  specialised by a spec (title, model and key labels, default model) and a caution;
+  `OpenRouterByomSettings.tsx` and `NebiusByomSettings.tsx` are thin wrappers around it, and
+  its calls live in `apiKeyByomApi.ts`. The **Nebius card** sits below the OpenRouter card:
+  model id + Token Factory key, the same save → test → enable → disable flow and gates. It
+  invents no model id (Save and Test stay disabled until an exact id is typed, for the reason
+  `nebius.ts` gives), is never pre-filled from another provider's slot, and states **not
+  in-boundary** above the key field. Its test goes through `testNebiusConnection()`
+  (`src/lib/llm/nebius.ts`), the same JSON-mode probe `testOpenRouterConnection()` uses
+  (`src/lib/llm/json-mode-probe.ts`): a model that answers in prose fails the test instead of
+  failing every scan after a green check.
 - `src/features/admin/settings/LaneRoutingCard.tsx` (+ the pure `laneRoutingViz.ts`), under the
   boundary matrix (2026-09-23): **where every LLM lane runs for this org**. One row per lane
   (scans, Athena, board narrative, shared memory, lane summaries) with the engine, the model and
