@@ -76,13 +76,22 @@ async function selectFixture(page: Page) {
 
 /** Pin Cycles=1, haiku, low via the masthead setup dialog so cycle 2 cannot start an agent session. */
 async function armBoundedFoundationRun(page: Page) {
-  // A fresh, non-demo org's onboarding is unstamped, so the guided-setup drawer (TourChecklist) opens
-  // itself (`companion` posture) and its `fixed right-0 top-1/2` panel can sit over the masthead's
-  // gear icon — measured on CI (chromium): the click on `cockpit-setup-gear` timed out because the
-  // drawer header's "Guidance channel" mode switch intercepted the pointer event. Collapse it first,
-  // the way a real member would, rather than fighting the overlay.
-  const hideGuidedSetup = page.getByRole("button", { name: "Hide guided setup" });
-  if (await hideGuidedSetup.isVisible().catch(() => false)) await hideGuidedSetup.click();
+  // A fresh, non-demo org's onboarding is unstamped, so the guided-setup drawer (TourChecklist) can
+  // open itself (`companion` posture) the moment its OWN `/api/org/getting-started` fetch settles -
+  // asynchronously, and not necessarily before this point. Its fixed panel then sits over the
+  // masthead's gear icon: measured on CI, `cockpit-setup-gear`'s click intercepted on the drawer's
+  // "Guidance channel" row for the whole 7-minute retry window, on three separate runs
+  // (2026-09-22/23/24) - a plain "is it open right now" check before the click missed it because the
+  // drawer opened DURING the click's own actionability retries, not before them. Wait for the network
+  // to go quiet (the poll is `GETTING_STARTED_POLL_MS` = 20s apart, so idle gaps are plentiful) so the
+  // posture decision has landed, THEN collapse the drawer if it opened - closing the race window
+  // instead of just narrowing it.
+  await page.waitForLoadState("networkidle").catch(() => {});
+  const guidedSetupTab = page.getByRole("button", { name: /guided setup/i });
+  if ((await guidedSetupTab.getAttribute("aria-expanded").catch(() => null)) === "true") {
+    await guidedSetupTab.click();
+    await expect(guidedSetupTab).toHaveAttribute("aria-expanded", "false");
+  }
   await page.getByTestId("cockpit-setup-gear").click();
   const setup = page.getByRole("dialog", { name: "Run setup" });
   await expect(setup).toBeVisible();
