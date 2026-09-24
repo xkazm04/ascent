@@ -2760,14 +2760,17 @@ at org scope only the declaration-level clauses, since no repository has been re
   `apply-batch` already refused a foreign owner (400).
 
 **One door for customer-repo writes** (since 2026-09-23). Every in-context PR-write route
-(practices apply / apply-batch / rollout, ai-stance apply / apply-batch, admission propose / ruleset)
-resolves its token and its write coordinate through `requirePrWriteTarget(gatedOrg, repo, rule)` in
-`src/lib/github/pr-route.ts`. The token is always minted for the gated org; the coordinate is always
-the parsed repository, never the org slug. `rule` names the tenancy policy: `owner-namespace`
-(practices, ai-stance) or `tracked` (admission, via `repoUnderOrg`, now living beside the composer).
-`src/lib/github/pr-write-target.guard.test.ts` pins that these routes use it and that only six
-out-of-context routes (playbooks apply / apply-batch, report foundation pr / pr-batch / secrets,
-passport pr) still call `requirePrWriteContext` directly; that list may only shrink.
+(practices apply / apply-batch / rollout, ai-stance apply / apply-batch, admission propose / ruleset,
+playbooks apply / apply-batch) resolves its token and its write coordinate through
+`requirePrWriteTarget(gatedOrg, repo, rule)` in `src/lib/github/pr-route.ts`. The token is minted for
+the gated org, with one exception since 2026-09-24: on a self-hosted deployment a repo the org tracks
+under another owner mints from that owner's installation (a batch mints once per installation), because
+an org named for its team has no installation of its own there. The coordinate is always the parsed
+repository, never the org slug. `rule` names the tenancy policy: `owner-namespace` (practices,
+ai-stance) or `tracked` (admission and playbooks, via `repoUnderOrg`, now living beside the composer).
+`src/lib/github/pr-write-target.guard.test.ts` pins that these routes use it and that only four
+out-of-context routes (report foundation pr / pr-batch / secrets, passport pr) still call
+`requirePrWriteContext` directly; that list may only shrink.
 
 ## Agent admission (Governance tab → Perimeter, moonshot #8)
 
