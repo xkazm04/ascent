@@ -25,7 +25,13 @@ import { DEVELOPER_PREVIEW_STATES, type DeveloperView } from "@/lib/org/develope
 /** True empty invitation: absent or signed-out, and nothing of the developer's own in the care half. */
 function isBlank(view: DeveloperView): boolean {
   if (view.activityState !== "absent" && view.activityState !== "signed-out") return false;
-  return !view.activity && !view.profile.sharedAt && view.moves.length === 0 && view.myRepos.length === 0;
+  return (
+    !view.activity &&
+    !view.profile.sharedAt &&
+    !view.ownTelemetry &&
+    view.moves.length === 0 &&
+    view.myRepos.length === 0
+  );
 }
 
 const tabClass = (active: boolean) =>

@@ -30,10 +30,16 @@ import {
 } from "@/lib/org/developer-view";
 import { CARE_SHAPE_REASON_COPY, type CareShapeEmptyReason } from "@/lib/org/care-shape-contract";
 
-/** Why a row has no distribution to draw. */
-export type CareBandGap = "comparison-off" | "no-band";
+/** Why a row has no distribution to draw. `own-telemetry`: measured from your own sessions, never banded. */
+export type CareBandGap = "comparison-off" | "no-band" | "own-telemetry";
 
-const GAP_MARK: Record<CareBandGap, { state: "decided" | "not-judged"; label: string; title: string }> = {
+const GAP_MARK: Record<CareBandGap, { state: "decided" | "not-judged" | "measured"; label: string; title: string }> = {
+  "own-telemetry": {
+    state: "measured",
+    label: "yours only",
+    title:
+      "Measured by this workspace from the agent sessions sent under your login in the last 30 days, every launcher included. Only you see it: it is never compared with anyone or added to the org view.",
+  },
   "comparison-off": {
     state: "decided",
     label: "comparison off",
@@ -67,8 +73,8 @@ export function CareShapeRow({
 
   if (!shared || value == null) {
     const why = CARE_SHAPE_REASON_COPY[reason ?? (shared ? "not-collected" : "not-shared")];
-    // Too few sessions is a sample that exists and was not judged; the other three are voids.
-    const swatch = reason === "below-sample" ? "not-judged" : "missing";
+    // Too few sessions (shared or seen) is a sample that exists and was not judged; the rest are voids.
+    const swatch = reason === "below-sample" || reason === "few-own-sessions" ? "not-judged" : "missing";
     return (
       <div>
         <Kicker tone="muted">{label}</Kicker>

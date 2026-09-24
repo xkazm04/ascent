@@ -17,6 +17,9 @@ const SPAN_HINT =
 
 export function CareSessionShape({ personal }: { personal: DeveloperView }) {
   const shared = new Set(personal.sharedFields);
+  // Measured by ascent from your own telemetry, not shared: printed, but never drawn against a band,
+  // because its scope counts every launcher and the band's counts interactive sessions only.
+  const own = new Set((personal.ownTelemetry?.fields ?? []).filter((f) => !shared.has(f)));
   const bands = personal.orgBands;
   // Two different reasons a row has no strip, and they must not share an encoding: comparison never
   // switched on at all, versus switched on with nobody else's numbers to make a band out of.
@@ -36,9 +39,9 @@ export function CareSessionShape({ personal }: { personal: DeveloperView }) {
             key={field}
             field={field}
             value={personal.shape[field]}
-            shared={shared.has(field)}
-            band={bands?.[field]}
-            gap={gap}
+            shared={shared.has(field) || own.has(field)}
+            band={own.has(field) ? undefined : bands?.[field]}
+            gap={own.has(field) ? "own-telemetry" : gap}
             reason={careShapeEmptyReason(personal, field)}
           />
         ))}
