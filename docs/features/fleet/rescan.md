@@ -370,6 +370,33 @@ work that had been dropped, and no work is dropped any more.
 `{ runId, total, queued, running, done, failed, skipped, pending, repos: [{ repo, state }] }`. It
 deliberately carries no ETA: nothing here can honestly say when the next cron pass runs.
 
+## Who can be watched (`POST /api/org/watch`, since 2026-09-24)
+
+A watched repo is a standing credit draw: the rescore lane reserves the org's credits for it on
+its cadence and folds its score into the org's rollup. The watch route used to accept any
+`{ owner, name, fullName }`, so a member could point the org's scan budget at a stranger's
+repository. A watch (`watched: true`, single or bulk) now passes one predicate,
+`watchScopeFor(org)` in `src/lib/org/watch-scope.ts`:
+
+- **Hosted** (`selfHosted()` false): the repo must be in the org's own namespace (owner equals
+  the org slug, case-insensitive) or on the org's GitHub App installation listing. The owner
+  check needs no read; the listing is read once per request, only for a name outside the
+  namespace, and fails closed (no installation, or a listing GitHub would not serve, admits
+  only the org's own namespace). A refused single watch is a 400; a refused bulk entry is
+  reported in `failed[]` and the rest are still watched.
+- **Self-hosted**: free-form, because the operator owns every installation and the bill, and an
+  org named for its team watching another account's repos is the normal self-host shape.
+- **Both modes** check the handle shape: a GitHub login, a repo name, and a `fullName` that is
+  exactly `owner/name`.
+- **Un-watching is never refused.** An in-scope unwatch records the explicit-unwatch row as
+  before. Any other unwatch only clears a row the org already has (`clearRepoWatch`), so an
+  unwatch cannot create a `Repository` row: that row is the org's tenancy fact for the
+  customer-repo write door.
+
+Install-granted auto-watch (`watchGrantedRepo` in `src/lib/db/install-grants.ts`) does not ask
+the predicate: every name it watches comes from the installation listing, so it is in scope by
+construction.
+
 ## Cadences
 
 `scanSchedule` is one of `off | daily | weekly | monthly`. `daily` and `weekly` advance by an
