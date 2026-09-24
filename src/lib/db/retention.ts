@@ -1773,6 +1773,7 @@ async function eraseOrgLedgers(
   installations: number;
   orgMemories: number;
   llmConfigs: number;
+  providerCredentials: number;
   apiTokens: number;
   alertEvents: number;
 }> {
@@ -1800,6 +1801,7 @@ async function eraseOrgLedgers(
     installations: 0,
     orgMemories: 0,
     llmConfigs: 0,
+    providerCredentials: 0,
     apiTokens: 0,
     alertEvents: 0,
   };
@@ -2084,6 +2086,16 @@ async function eraseOrgLedgers(
     "erase.llm-config",
   );
 
+  // Provider credentials (backlog row 47): the OpenAI admin key, as secret-box ciphertext. Like the
+  // BYOM row above, deleting it IS destroying the key; skipping the table would leave the tenant's
+  // key recoverable-with-ENCRYPTION_KEY after the erasure. Org-scoped and batched like the rest.
+  totals.providerCredentials = await drain(
+    (take) => prisma.providerCredential.findMany(page(take)),
+    () => prisma.providerCredential.count({ where }),
+    async (ids) => (await prisma.providerCredential.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.provider-credentials",
+  );
+
   // API tokens. Only the SHA-256 hash is stored, but the row is still a live capability (and a
   // revoked row is still a hash of a tenant secret). Org-scoped, never a bare sweep.
   totals.apiTokens = await drain(
@@ -2262,6 +2274,8 @@ export interface EraseResult {
   orgMemoriesDeleted: number;
   /** `OrgLlmConfig` rows removed — the BYOM ciphertext (`credentialsEncrypted`). Org scope only. */
   llmConfigsDeleted: number;
+  /** `ProviderCredential` rows removed: the OpenAI admin key's ciphertext (row 47). Org scope only. */
+  providerCredentialsDeleted: number;
   /** `OrgApiToken` rows removed (hashes, prefixes, revoked-or-not). Org scope only. */
   apiTokensDeleted: number;
   /** `AlertEvent` rows removed — the durable alert history. Org scope only. */
@@ -2391,6 +2405,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let installationsDeleted = 0;
   let orgMemoriesDeleted = 0;
   let llmConfigsDeleted = 0;
+  let providerCredentialsDeleted = 0;
   let apiTokensDeleted = 0;
   let alertEventsDeleted = 0;
   let digestsDeleted = 0;
@@ -2605,6 +2620,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       installationsDeleted = led.installations;
       orgMemoriesDeleted = led.orgMemories;
       llmConfigsDeleted = led.llmConfigs;
+      providerCredentialsDeleted = led.providerCredentials;
       apiTokensDeleted = led.apiTokens;
       alertEventsDeleted = led.alertEvents;
       if (overBudget()) stoppedEarly = true;
@@ -2670,6 +2686,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       installationsDeleted,
       orgMemoriesDeleted,
       llmConfigsDeleted,
+      providerCredentialsDeleted,
       apiTokensDeleted,
       alertEventsDeleted,
       auditDeleted,
@@ -2728,6 +2745,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       installationsDeleted,
       orgMemoriesDeleted,
       llmConfigsDeleted,
+      providerCredentialsDeleted,
       apiTokensDeleted,
       alertEventsDeleted,
       auditDeleted,
@@ -2776,6 +2794,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     installationsDeleted,
     orgMemoriesDeleted,
     llmConfigsDeleted,
+    providerCredentialsDeleted,
     apiTokensDeleted,
     alertEventsDeleted,
     auditDeleted,

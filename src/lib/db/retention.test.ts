@@ -108,6 +108,9 @@ const WAVE1_LEDGERS = [
   "orgLlmConfig",
   "orgApiToken",
   "alertEvent",
+  // Backlog row 47: the OpenAI admin key's ciphertext. Same array, same reason as Installation: a
+  // missing delegate is a throw caught as an ERROR, which is how a secret quietly stops being erased.
+  "providerCredential",
   // Latest-scan evidence persistScanReport writes on Repository. Drained in eraseRepo (keyed by
   // repoId), not eraseOrgLedgers: a repo-scoped erase must take them without sweeping the tenant,
   // and a fake that omits a delegate makes that drain THROW rather than silently skip.
@@ -2763,6 +2766,7 @@ function fakeWave1ErasePrisma() {
     orgLlmConfig: ["llm_1"],
     orgApiToken: ["tok_1", "tok_2"],
     alertEvent: ["al_1", "al_2", "al_3"],
+    providerCredential: ["pc_1"],
     // persistScanReport's latest-scan evidence — seeded so the "nothing survives" / "preview removes
     // nothing" assertions cannot pass while these four tables are never touched.
     aiChange: ["ac_1", "ac_2"],
@@ -2842,6 +2846,21 @@ describe("eraseOrgData — moonshot wave-1 ledger cascades", () => {
 
     // Nothing survives: an erasure that leaves any of these behind is not an erasure.
     for (const name of WAVE1_LEDGERS) expect(ledgers.rows[name]).toEqual([]);
+  });
+
+  // FAIL-BEFORE (row 47): the OpenAI admin key's ciphertext lives in ProviderCredential, and an erase
+  // that skipped the table would leave the tenant's key recoverable-with-ENCRYPTION_KEY afterwards.
+  it("org scope: destroys the stored provider credential (the OpenAI admin key) and counts it", async () => {
+    const { prisma, ledgers } = fakeWave1ErasePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const outcome = await eraseOrgData({ orgSlug: "acme" });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.providerCredentialsDeleted).toBe(1);
+    expect(ledgers.rows.providerCredential).toEqual([]);
+    expect(prisma.providerCredential.findMany.mock.calls[0]![0].where).toEqual({ orgId: "org_1" });
   });
 
   it("scopes every sweep to the org (never a bare deleteMany over the whole table)", async () => {

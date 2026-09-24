@@ -61,6 +61,7 @@ const BLAST: readonly [string, string, string][] = [
   ["alertEventsDeleted", "Alert events", "Governance"],
   ["installationsDeleted", "Installations", "Secrets"],
   ["llmConfigsDeleted", "BYOM configs", "Secrets"],
+  ["providerCredentialsDeleted", "Provider keys", "Secrets"],
   ["apiTokensDeleted", "API tokens", "Secrets"],
 ];
 

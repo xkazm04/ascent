@@ -49,6 +49,7 @@ export const ERASE_LEDGER_KEYS = [
   "installationsDeleted",
   "orgMemoriesDeleted",
   "llmConfigsDeleted",
+  "providerCredentialsDeleted",
   "apiTokensDeleted",
   "alertEventsDeleted",
 ] as const;
