@@ -23,6 +23,7 @@ import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { probeRepository } from "@/lib/scan-probe";
 import { drainUntilDeadline } from "@/lib/pool";
+import { decodeImportReason, type ImportJobPolicy } from "@/lib/scan-import-policy";
 import { getRepoSchedule } from "@/lib/db/org-watch";
 import type { ScanProgress } from "@/lib/types";
 
@@ -205,6 +206,20 @@ async function runProbeJob(job: ScanJobRow, slug: string, ctx: OrgContext, summa
   }
 }
 
+/** The GitHub credential a rescore scans with. Every non-import row (and a legacy bare `import` one)
+ *  keeps the default: the org's installation token, or scanRepository's own env fallback when there is
+ *  none. An import row scans with the credential its request did, and a token-less one says so
+ *  EXPLICITLY, because an absent `token` alone falls back to the ambient operator PAT. */
+async function scanCredential(
+  policy: ImportJobPolicy | null,
+  slug: string,
+  ctx: OrgContext,
+): Promise<{ token?: string; noAmbientToken?: true }> {
+  if (!policy || policy.token === "install") return { token: await ctx.token(slug) };
+  if (policy.token === "ambient") return {};
+  return { noAmbientToken: true };
+}
+
 /**
  * The paid lane. Byte-for-byte the cron's money policy, moved not rewritten:
  *   • a broken installation token backs off 6h rather than skipping a whole cadence;
@@ -216,9 +231,25 @@ async function runProbeJob(job: ScanJobRow, slug: string, ctx: OrgContext, summa
  */
 async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, summary: DrainSummary, opts: DrainOptions): Promise<void> {
   const repo = job.repoFullName;
+  // An /api/org/import row carries the request's scan policy on its reason (scan-import-policy.ts):
+  // the import enqueues its whole batch and this worker finishes whatever its 300s budget left queued.
+  // Null for every other row, which keeps the default path below exactly as it was.
+  const importPolicy = decodeImportReason(job.reason);
+  // The ledger's actor names WHY the job exists; the policy flags are an implementation detail of it.
+  const actorReason = importPolicy ? "import" : job.reason;
+  if (importPolicy?.funnel) {
+    // The public funnel is metered against a per-REQUEST allowance (the caller's IP / viewer). No
+    // worker holds that request, so the job can be neither metered nor billed to credits here.
+    summary.skipped += 1;
+    await settleJob(job.id, { state: "skipped", error: "public-funnel import: the allowance is metered per request" });
+    return;
+  }
   opts.onRepo?.({ repo, stage: "start" });
 
-  if (await ctx.brokenInstall(slug)) {
+  // A broken installation only matters to a job that scans WITH it; a token-less or env-token import
+  // never asked for one, and skipping it as `no_token` would strand a scan that could run.
+  const usesInstall = !importPolicy || importPolicy.token === "install";
+  if (usesInstall && (await ctx.brokenInstall(slug))) {
     summary.skippedNoToken += 1;
     if (job.repoId) await advanceScheduleAfterFailure(job.repoId).catch(() => {});
     await recordScanOutcome(slug, repo, { ok: false, error: "installation token unavailable" }).catch(() => {});
@@ -227,7 +258,8 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
     return;
   }
 
-  const metered = slug.toLowerCase() !== "public" && !(await ctx.isByom(slug));
+  // A mock import is a free preview: no inference, so nothing to meter (the import route's own rule).
+  const metered = slug.toLowerCase() !== "public" && !importPolicy?.mock && !(await ctx.isByom(slug));
   // A REQUEUED row may already hold a credit. reapExpiredLeases returns a process-killed worker's job
   // to the queue by clearing state/claimedAt/claimedBy/leaseUntil — and deliberately NOT
   // `creditCharged`, because settleJob is the only path that clears it and it clears it only on a
@@ -248,7 +280,7 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
     // and the reason the job was enqueued for ("manual" from the dashboard, "cadence" from the cron,
     // "webhook" from a push) — the nearest true answer to "what spent this credit", and enough to tell
     // a scheduled rescan's spend apart from a user-triggered one on the same repo.
-    const actor = `queue:${job.reason}`;
+    const actor = `queue:${actorReason}`;
     const reservation = await reserveScanCredit(slug, repo, { actor });
     if (reservation.skip) {
       summary.skippedForCredits += 1;
@@ -263,17 +295,17 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   }
   const refundCredit = async () => {
     // Same repo, same actor as the debit — a `refund` row that names what it reverses.
-    await refundScanCredit(slug, charged, { actor: `queue:${job.reason}`, repoFullName: repo });
+    await refundScanCredit(slug, charged, { actor: `queue:${actorReason}`, repoFullName: repo });
     return charged;
   };
 
   let inferenceBilled = false;
   try {
-    const token = await ctx.token(slug);
     const [owner = "", name = ""] = repo.split("/");
     const prev = await getScanReportByCommit(owner, name, { orgSlug: slug }).catch(() => null);
     const report = await scanRepository(repo, {
-      token,
+      ...(await scanCredential(importPolicy, slug, ctx)),
+      ...(importPolicy?.mock ? { mock: true } : {}),
       orgSlug: slug,
       onProgress: opts.onScanProgress ? (p) => opts.onScanProgress?.(repo, p) : undefined,
     });
