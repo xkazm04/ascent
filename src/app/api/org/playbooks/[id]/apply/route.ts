@@ -2,8 +2,9 @@
 // Roll out an org-authored playbook by opening a DRAFT PR that seeds the playbook as a tracked
 // adoption doc (title, summary, steps as a checklist) into the target repo — the same change-delivery
 // mechanism the derived Practice Library already has via /api/practices/apply, now for first-party
-// playbooks. Same trust model: GitHub App installed + signed-in + org-owned. On success it also
-// records the adoption mark so the playbook's lift analytics light up.
+// playbooks. Same trust model: GitHub App installed + signed-in + org-owned. On success it records the
+// audit row and a `proposed` adoption-ledger row; the adoption MARK (and so "Adopted by N" and lift)
+// waits for the rescan that finds the file on the default branch (row 40).
 //
 // The write sequence itself lives in @/lib/org/playbook-apply, shared with the fleet `apply-batch`
 // sibling; this route owns only its gating and its one-status error mapping.

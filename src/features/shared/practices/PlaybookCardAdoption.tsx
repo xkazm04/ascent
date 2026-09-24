@@ -14,12 +14,15 @@ export function PlaybookAdoptionRow({
   slug,
   adoption,
   applied,
+  proposed,
 }: {
   playbook: PlaybookRow;
   slug: string;
   adoption: PlaybookAdoption | undefined;
   /** The card's live (optimistic) adopted-repo set. */
   applied: string[];
+  /** Repos with the playbook's draft PR open but not yet landed (row 40): never counted as adopted. */
+  proposed: string[];
 }) {
   // The repo set captured the last time this rollout was tracked (null = never tracked). Snapshotting
   // the scope lets us re-enable "Update initiative" when adoption grows beyond what was tracked, and
@@ -53,11 +56,25 @@ export function PlaybookAdoptionRow({
     }
   }
 
+  // Nothing adopted and nothing proposed: no row. A printed "Adopted by 0" reads as a failure when it
+  // only means "not rolled out yet" (row 40).
+  if (applied.length === 0 && proposed.length === 0) return null;
+
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-800 pt-3 type-body-sm">
-      <span className="font-mono text-slate-400">
-        Adopted by <span className="text-white">{applied.length}</span> repo{applied.length === 1 ? "" : "s"}
-      </span>
+      {applied.length > 0 && (
+        <span className="font-mono text-slate-400">
+          Adopted by <span className="text-white">{applied.length}</span> repo{applied.length === 1 ? "" : "s"}
+        </span>
+      )}
+      {proposed.length > 0 && (
+        <span
+          className="font-mono text-slate-500"
+          title={`Draft PR open in ${proposed.join(", ")}. A repo counts as adopted once a scan finds the playbook file on its default branch.`}
+        >
+          {proposed.length} draft PR{proposed.length === 1 ? "" : "s"} open
+        </span>
+      )}
       {lift != null && (
         // Treat a flat lift (0, or a sub-0.5 average rounded to 0) as NEUTRAL — no arrow, muted text —
         // so a zero never paints a green "▲ +0" that implies improvement where there was none. Use the

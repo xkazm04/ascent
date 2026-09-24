@@ -71,6 +71,9 @@ function fakePrisma(opts: {
         })),
       ),
     },
+    // Row 40: the open-playbook-PR read (ledger rows still `proposed`). None here; the proposed
+    // demotion is pinned in playbook-adoption.test.ts.
+    practiceAdoption: { findMany: vi.fn(async () => []) },
     repository: {
       findMany: vi.fn(async ({ where }: { where: { fullName: { in: string[] } } }) => {
         const wanted = new Set(where.fullName.in);

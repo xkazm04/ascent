@@ -159,7 +159,9 @@ export async function getPlaybookOrgSlug(id: string): Promise<string | null> {
 }
 
 /** Record that a playbook was applied to a repo (idempotent per playbook+repo). False if org/playbook
- *  unknown — defense-in-depth alongside the route's authz. */
+ *  unknown — defense-in-depth alongside the route's authz. The human "Mark applied" door and the loop's
+ *  verified-close stamp write through here; opening a playbook PR does NOT (row 40: a draft is
+ *  proposed until a rescan finds the file landed, see playbook-adoption.ts). */
 export async function applyPlaybook(
   orgSlug: string,
   playbookId: string,
@@ -220,84 +222,6 @@ export async function unapplyPlaybook(playbookId: string, repoFullName: string):
   await getPrisma().playbookApplication.deleteMany({ where: { playbookId, repoFullName } });
 }
 
-export interface PlaybookAdoption {
-  repos: number; // distinct repos that applied this playbook
-  appliedRepos: string[];
-  /** Avg dimension-score lift (the playbook's dim) in applied repos since they applied it; null when
-   *  not measurable (no post-application scan). `measured` is how many applications backed the number. */
-  lift: number | null;
-  measured: number;
-}
-
-/**
- * Adoption analytics per playbook: how many repos applied it, and the average dimension-score lift in
- * those repos since they applied it (current score − the score at apply time). Honest — only counts an
- * application toward `lift` when there's a scan after the apply date. Keyed by playbook id.
- */
-export async function getPlaybookAdoption(orgSlug: string): Promise<Record<string, PlaybookAdoption>> {
-  if (!isDbConfigured()) return {};
-  const prisma = getPrisma();
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return {};
-
-  const [playbooks, apps] = await Promise.all([
-    prisma.playbook.findMany({ where: { orgId }, select: { id: true, dimId: true } }),
-    prisma.playbookApplication.findMany({ where: { orgId }, select: { playbookId: true, repoFullName: true, appliedAt: true } }),
-  ]);
-  if (apps.length === 0) return {};
-  const dimByPlaybook = new Map(playbooks.map((p) => [p.id, p.dimId]));
-
-  const fullNames = [...new Set(apps.map((a) => a.repoFullName))];
-  const repos = await prisma.repository.findMany({ where: { orgId, fullName: { in: fullNames } }, select: { id: true, fullName: true } });
-  const repoIdByName = new Map(repos.map((r) => [r.fullName, r.id]));
-
-  // Per applied repo, the timeline of each dimension's score (oldest→newest), to find before/after.
-  const scanRows = await prisma.scan.findMany({
-    where: { repoId: { in: [...repoIdByName.values()] } },
-    select: { repoId: true, scannedAt: true, dimensions: { select: { dimId: true, score: true } } },
-    orderBy: { scannedAt: "asc" },
-  });
-  const timeline = new Map<string, Map<string, { at: Date; score: number }[]>>();
-  for (const s of scanRows) {
-    const byDim = timeline.get(s.repoId) ?? new Map<string, { at: Date; score: number }[]>();
-    timeline.set(s.repoId, byDim);
-    for (const d of s.dimensions) {
-      const arr = byDim.get(d.dimId) ?? [];
-      arr.push({ at: s.scannedAt, score: d.score });
-      byDim.set(d.dimId, arr);
-    }
-  }
-
-  const out: Record<string, PlaybookAdoption> = {};
-  const byPlaybook = new Map<string, typeof apps>();
-  for (const a of apps) {
-    const arr = byPlaybook.get(a.playbookId) ?? [];
-    arr.push(a);
-    byPlaybook.set(a.playbookId, arr);
-  }
-  for (const [pid, list] of byPlaybook) {
-    const dimId = dimByPlaybook.get(pid);
-    let liftSum = 0;
-    let measured = 0;
-    if (dimId) {
-      for (const a of list) {
-        const repoId = repoIdByName.get(a.repoFullName);
-        const series = repoId ? timeline.get(repoId)?.get(dimId) : undefined;
-        if (!series || series.length === 0) continue;
-        const baseline = [...series].reverse().find((p) => p.at <= a.appliedAt);
-        const current = series[series.length - 1];
-        if (baseline && current && current.at > baseline.at) {
-          liftSum += current.score - baseline.score;
-          measured += 1;
-        }
-      }
-    }
-    out[pid] = {
-      repos: new Set(list.map((a) => a.repoFullName)).size,
-      appliedRepos: [...new Set(list.map((a) => a.repoFullName))],
-      lift: measured > 0 ? Math.round(liftSum / measured) : null,
-      measured,
-    };
-  }
-  return out;
-}
+// Adoption analytics + the landed-PR stamp live in playbook-adoption.ts (row 40); re-exported here so
+// `@/lib/db` and every caller keep importing them from this module.
+export { getPlaybookAdoption, stampLandedPlaybook, LANDED_BY_SCAN, type PlaybookAdoption } from "@/lib/db/playbook-adoption";

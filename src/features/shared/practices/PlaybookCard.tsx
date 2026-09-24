@@ -76,7 +76,7 @@ export function PlaybookCard({
         </pre>
       </details>
 
-      <PlaybookAdoptionRow playbook={p} slug={slug} adoption={adoption} applied={c.applied} />
+      <PlaybookAdoptionRow playbook={p} slug={slug} adoption={adoption} applied={c.applied} proposed={c.proposed} />
 
       {c.applied.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -109,7 +109,7 @@ export function PlaybookCard({
         applied={c.applied}
         singleBusy={c.prBusy}
         onBusyChange={c.setBatchBusy}
-        onApplied={(repos) => c.setApplied((a) => [...new Set([...a, ...repos])])}
+        onApplied={(repos) => c.setProposed((a) => [...new Set([...a, ...repos])])}
       />
 
       {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect

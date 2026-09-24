@@ -25,6 +25,7 @@ import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getLatestHousePattern, getLatestHousePatterns } from "@/lib/db/house-pattern-versions";
 import { reconcileAdoption, tallyTransitions, type LedgerRow } from "@/lib/practices/reconcile";
+import { stampLandedPlaybook } from "@/lib/db/playbook-adoption";
 import type { RepoPracticeShape } from "@/lib/analyze/practice-shape";
 
 /** Where an adoption came from. `house` is the only source that is version-tracked. */
@@ -246,6 +247,7 @@ export async function reconcilePracticeAdoption(
     }));
 
     const transitions = reconcileAdoption(ledger, shape.artifacts, shape.truncated === true);
+    const rowById = new Map(rows.map((r) => [r.id, r]));
     const now = new Date();
     for (const t of transitions) {
       const base = { lastCheckedAt: now, lastScanId: scanId };
@@ -256,6 +258,13 @@ export async function reconcilePracticeAdoption(
           where: { id: t.id },
           data: { ...base, state: "adopted", adoptedHash: t.adoptedHash, adoptedOutline: t.adoptedOutline, adoptedAt: now, driftedAt: null },
         });
+        // Row 40: a playbook PR's FIRST landing is what earns the playbook's adoption mark (the PR
+        // route no longer stamps it at draft-open). Only the proposed -> adopted edge: a drifted row
+        // healing back must not re-create a mark someone removed. Never throws.
+        const prev = rowById.get(t.id);
+        if (prev?.state === "proposed" && prev.practiceId.startsWith("playbook:")) {
+          await stampLandedPlaybook(orgId, prev.practiceId.slice("playbook:".length), repoFullName);
+        }
       } else if (t.to === "drifted") {
         await prisma.practiceAdoption.update({ where: { id: t.id }, data: { ...base, state: "drifted", driftedAt: now } });
       } else {

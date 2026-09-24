@@ -1,6 +1,8 @@
 // POST   /api/org/playbooks/:id/repos { repo } -> mark a repo as having applied this playbook
 // DELETE /api/org/playbooks/:id/repos { repo } -> unmark it
 // The org is resolved from the playbook (per-row gate); member-level access. Feeds adoption analytics.
+// A mark on a repo whose playbook PR is still open reads as proposed until that PR's file lands (row 40,
+// getPlaybookAdoption): the open draft is the fresher fact about the repo.
 
 import { NextResponse } from "next/server";
 import { applyPlaybook, unapplyPlaybook } from "@/lib/db";

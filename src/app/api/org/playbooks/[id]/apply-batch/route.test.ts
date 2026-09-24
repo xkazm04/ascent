@@ -198,14 +198,15 @@ describe("POST /api/org/playbooks/[id]/apply-batch — the bound", () => {
     expect(mockOpenPr).toHaveBeenCalledTimes(2);
   });
 
-  it("mints ONE token for the whole gated batch and records adoption per repo", async () => {
+  it("mints ONE token for the whole gated batch and records NO adoption mark for an open draft", async () => {
     const res = await run({ repos: ["acme/app", "acme/api"] });
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.results.every((r: { ok: boolean }) => r.ok)).toBe(true);
     expect(mockToken).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(applyPlaybook)).toHaveBeenCalledTimes(2);
+    // Row 40: a draft PR is proposed; the mark waits for the rescan that finds the file landed.
+    expect(vi.mocked(applyPlaybook)).not.toHaveBeenCalled();
   });
 
   it("one repo failing yields {ok:false} for it while the rest still open", async () => {
@@ -222,8 +223,8 @@ describe("POST /api/org/playbooks/[id]/apply-batch — the bound", () => {
     const bad = json.results.filter((r: { ok: boolean }) => !r.ok);
     expect(bad).toHaveLength(1);
     expect(bad[0].error).toBe("boom");
-    // Only real PRs record an adoption mark.
-    expect(vi.mocked(applyPlaybook)).toHaveBeenCalledTimes(2);
+    // Row 40: not even the PRs that opened record an adoption mark; they are proposed until landed.
+    expect(vi.mocked(applyPlaybook)).not.toHaveBeenCalled();
   });
 });
 

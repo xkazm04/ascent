@@ -112,7 +112,7 @@ describe("POST /api/org/playbooks/[id]/apply — tenancy gate", () => {
 });
 
 describe("POST /api/org/playbooks/[id]/apply — authorized happy path", () => {
-  it("writes the draft PR for the in-org repo and records the adoption + audit", async () => {
+  it("writes the draft PR for the in-org repo and records the audit, but NOT an adoption mark", async () => {
     const res = await apply("acme/repo");
 
     expect(res.status).not.toBe(403);
@@ -123,8 +123,9 @@ describe("POST /api/org/playbooks/[id]/apply — authorized happy path", () => {
     expect(prArg.owner).toBe("acme");
     expect(prArg.repo).toBe("repo");
     expect(prArg.path).toMatch(/^docs\/playbooks\/.+\.md$/);
-    // Adoption mark + audit fire exactly once on success.
-    expect(mockApply).toHaveBeenCalledTimes(1);
+    // Row 40: an open draft is PROPOSED, not adopted. The mark is stamped later, by the rescan that
+    // finds the playbook file on the default branch (reconcilePracticeAdoption); the audit still fires.
+    expect(mockApply).not.toHaveBeenCalled();
     expect(mockAudit).toHaveBeenCalledTimes(1);
     expect(mockAudit.mock.calls[0][0]).toBe("playbook.pr_opened");
 

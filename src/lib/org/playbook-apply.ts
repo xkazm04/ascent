@@ -1,13 +1,13 @@
 // The shared "open a draft PR seeding one playbook into one repo" write pipeline, used by both
 // /api/org/playbooks/[id]/apply (single) and /api/org/playbooks/[id]/apply-batch (fleet fan-out).
 // Mirrors src/lib/practices/apply.ts exactly in intent: the customer-repo WRITE sequence lives in one
-// place so branch/path naming, the committed body, the adoption mark and the audit row can't drift
+// place so branch/path naming, the committed body, the adoption ledger row and the audit row can't drift
 // between the two routes. Each route keeps its OWN auth/tenant gating and HTTP error mapping (which
 // legitimately differ — a batch reports per-repo, a single call maps to one status). Errors propagate.
 
 import { fetchRepoContext } from "@/lib/github/source";
 import { openDraftPr, type OpenPrResult } from "@/lib/github/write";
-import { applyPlaybook, getOrgId, recordOrgAudit, type PlaybookRow } from "@/lib/db";
+import { getOrgId, recordOrgAudit, type PlaybookRow } from "@/lib/db";
 import { recordProposedAdoption } from "@/lib/db/practice-adoption";
 import { contentDigest } from "@/lib/registry/parse";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
@@ -20,7 +20,12 @@ import { slugify } from "@/lib/slug";
 const slug = (s: string) => slugify(s, 60, "playbook");
 
 /**
- * Open the playbook's draft PR into `parsed`, then record the adoption mark + audit row.
+ * Open the playbook's draft PR into `parsed`, then record the audit row + the `proposed` ledger row.
+ *
+ * It does NOT stamp the playbook's adoption mark (row 40). An open draft is proposed, not adopted: the
+ * mark is written when a rescan finds the committed file on the default branch
+ * (reconcilePracticeAdoption -> stampLandedPlaybook), so a draft nobody merges never reaches "Adopted
+ * by N" or the lift baseline.
  *
  * The bookkeeping after the PR is BEST-EFFORT and deliberately swallowed: by then the PR exists on
  * GitHub, so surfacing a bookkeeping failure as an error sends the caller to retry and open a
@@ -67,7 +72,6 @@ export async function applyPlaybookToRepo(input: {
   });
 
   try {
-    await applyPlaybook(org, id, ctxRepo.fullName, actorLogin);
     await recordOrgAudit(
       "playbook.pr_opened",
       org,
@@ -76,15 +80,16 @@ export async function applyPlaybookToRepo(input: {
     );
   } catch (bookkeepErr) {
     console.error(
-      "[playbooks/apply] PR opened but adoption/audit bookkeeping failed",
+      "[playbooks/apply] PR opened but the audit bookkeeping failed",
       bookkeepErr instanceof Error ? bookkeepErr.message : bookkeepErr,
     );
   }
 
-  // MOONSHOT #33 — an ADOPTION LEDGER row beside the existing adoption MARK. The mark records that
-  // this repo was offered the playbook; the ledger row records whether the committed file is still
-  // there and still the shape it landed as. Playbook PRs bypass `ImprovementPr` entirely, which is why
-  // the gap this closes is merge/DRIFT detection rather than "untracked" — the mark was never missing.
+  // MOONSHOT #33 — an ADOPTION LEDGER row. It records that this repo was offered the playbook
+  // (`proposed`), and later whether the committed file landed and is still the shape it landed as.
+  // Since row 40 it is also the ONLY record a PR open writes: the adoption mark follows the ledger's
+  // first landing. Playbook PRs bypass `ImprovementPr` entirely, so the file's presence on the default
+  // branch is the merge evidence.
   // `playbook:<id>` namespaces the id away from the nine catalog practices; `patternVersion` is null
   // because an authored playbook has no mined house pattern to be a version of.
   //

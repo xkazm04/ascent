@@ -8,6 +8,9 @@ import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
 export function usePlaybookCard({ playbook: p, adoption }: { playbook: PlaybookRow; adoption: PlaybookAdoption | undefined }) {
   const [applied, setApplied] = useState<string[]>(adoption?.appliedRepos ?? []);
+  // Repos with this playbook's draft PR open but not yet landed (row 40). Kept apart from `applied`:
+  // an open draft is proposed, and only the rescan that finds the file makes it adopted.
+  const [proposed, setProposed] = useState<string[]>(adoption?.proposedRepos ?? []);
   const [pick, setPick] = useState("");
   const [prBusy, setPrBusy] = useState(false);
   const [prResult, setPrResult] = useState<{ url: string; reused: boolean } | null>(null);
@@ -50,7 +53,8 @@ export function usePlaybookCard({ playbook: p, adoption }: { playbook: PlaybookR
     }
   }
 
-  // Open a draft PR seeding the playbook into the picked repo (the route records adoption too).
+  // Open a draft PR seeding the playbook into the picked repo. The repo is PROPOSED, not adopted: the
+  // route no longer stamps the adoption mark on a draft (row 40).
   async function openPr() {
     const repo = pick;
     if (!repo || prBusy) return;
@@ -66,7 +70,7 @@ export function usePlaybookCard({ playbook: p, adoption }: { playbook: PlaybookR
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
       setPrResult({ url: data.url, reused: data.reused });
-      setApplied((a) => (a.includes(repo) ? a : [...a, repo]));
+      setProposed((a) => (a.includes(repo) ? a : [...a, repo]));
       setPick("");
     } catch (e) {
       setPrError(e instanceof Error ? e.message : "Failed to open PR.");
@@ -98,7 +102,7 @@ export function usePlaybookCard({ playbook: p, adoption }: { playbook: PlaybookR
   }
 
   return {
-    applied, setApplied, pick, setPick, prBusy, prResult, prError, confirmingPr, setConfirmingPr,
+    applied, setApplied, proposed, setProposed, pick, setPick, prBusy, prResult, prError, confirmingPr, setConfirmingPr,
     markError, batchBusy, setBatchBusy, apply, openPr, unapply,
   };
 }
