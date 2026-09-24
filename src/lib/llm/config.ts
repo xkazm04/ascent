@@ -156,14 +156,16 @@ export function withLlmTimeout(
 }
 
 /**
- * Tech-stack prompt enrichment (Feature 3a, Option B) — OFF by default. When TECH_STACK_PROMPT=1|true,
- * the detected stack is added as a short block to the assessment user message. Gated because adding to
- * the prompt can move calibrated scores; roll out only after the bench shows median drift < 2 points
- * (docs/features/scanning/calibration.md). Unset = zero prompt change = calibration untouched (the display-only path).
+ * Tech-stack prompt enrichment (Feature 3a): ON by default since rubric r21. The detected stack rides
+ * the assessment user message as a short DETECTED TECH STACK block, so the model can flag a
+ * stack-vs-evidence mismatch ("claims a Python backend, zero tests") against the same stack the report
+ * header shows. It was gated OFF through r20 to keep calibrated scores still; turning it on is the r21
+ * bump (src/lib/maturity/model.ts). TECH_STACK_PROMPT=0|false|off|no is the kill switch that restores
+ * the r20 prompt. Not a dangerous flag (it only shortens the prompt), so it carries no production floor.
  */
 export function techStackPromptEnabled(): boolean {
   const v = (process.env.TECH_STACK_PROMPT ?? "").trim().toLowerCase();
-  return v === "1" || v === "true";
+  return !(v === "0" || v === "false" || v === "off" || v === "no");
 }
 
 // ---------------------------------------------------------------------------

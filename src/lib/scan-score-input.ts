@@ -71,7 +71,7 @@ export interface ScoreInputPhaseResult {
   archetype: RepoArchetype;
   /** Non-null when the rubric is known to under-read this stack — also becomes a report caveat. */
   stackFit: StackFit | null;
-  /** Always attached to the report; only in the PROMPT when the gated flag is on. */
+  /** Always attached to the report; in the PROMPT too unless the kill switch is thrown or it is empty. */
   techStack: TechStack;
   scoreInput: LlmScoreInput;
   /** Caveats raised by the signal detectors themselves — the seed of the report's warnings. */
@@ -157,9 +157,13 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   // once and reused for the user-facing warning later. [Tiger P0-2]
   const stackFit = detectStackFit(snapshot);
   // Tech-stack detection (Feature 3a): computed once here from the already-fetched manifests/tree.
-  // Always attached to the report (display/persist); fed into the PROMPT only when the gated
-  // TECH_STACK_PROMPT flag is on (Option B) — default off keeps scans byte-identical.
+  // Always attached to the report (display/persist), and fed into the PROMPT by default since r21 so
+  // the model reads the same stack the report header shows. Not sent when the TECH_STACK_PROMPT=0 kill
+  // switch is thrown, nor when extraction found no language and no framework: that block would read
+  // "unknown / none detected", which is prompt length without evidence.
   const techStack = extractTechStack(snapshot);
+  const sendTechStack =
+    techStackPromptEnabled() && (techStack.languages.length > 0 || techStack.frameworks.length > 0);
 
   // Standing decisions already made about this repo (accepted/dismissed/snoozed findings and WHY).
   // Best-effort: a decision store that's unreachable must never fail a scan, and an unscoped
@@ -203,8 +207,8 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
     securityAssessment,
     // Name the stack the rubric under-reads so the model weights the affected dimensions accordingly.
     stackFit,
-    // Option B (gated): include the detected stack in the prompt only when explicitly enabled.
-    ...(techStackPromptEnabled() ? { techStack } : {}),
+    // The detected stack (on by default; see sendTechStack above).
+    ...(sendTechStack ? { techStack } : {}),
   };
 
   return {

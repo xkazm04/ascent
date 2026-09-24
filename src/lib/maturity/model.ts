@@ -256,7 +256,22 @@ import type {
 // lefthook. The corpus gained the `gitlab-native` fixture so the pin sees this class: under r19's
 // detector it hashes 2800f3c9..., under r20's 3544247c.... No point value, weight, band, blend,
 // guardband, lens or system-prompt text moved: EXPECTED_RUBRIC_HASH in model.test.ts is unchanged.
-export const SCORING_RUBRIC_VERSION = "r20";
+// r21 (2026-09-24, backlog develop-2026-09-17 row 22): THE MODEL READS THE STACK THE REPORT SHOWS.
+// extractTechStack always ran and the report header always showed its languages and frameworks, but
+// LlmScoreInput.techStack was set only under TECH_STACK_PROMPT=1, so on every default scan the
+// model wrote the roadmap and the discrepancy audit blind to the stack beside them (the "claims a
+// Python backend, zero tests" mismatch the field exists for). techStackPromptEnabled() now defaults
+// ON, and buildScanScoreInput sends the stack whenever extraction found a language or framework.
+// The change is a USER-message block (the r13 class: a changed model input): DETECTED TECH STACK,
+// ~260 characters of instruction and labels plus the stack values (~300-350 characters, ~75-90
+// tokens), after the STACK-FIT caveat. The system prompt is byte-identical, so the provider prompt
+// cache is unaffected. NOTHING PRICED in the deterministic layer; the llmScore half of every blended
+// dimension can move, bounded by the unchanged +/-6 guardband (G5: more evidence in the facts, not
+// more latitude). TECH_STACK_PROMPT=0|false|off|no restores the r20 prompt. All ten corpus fixtures
+// carry a TypeScript stack, so every userSha moved; under r20's prompt the corpus hashes
+// 3544247c..., under r21's 485aac60.... No weight, band, blend, guardband, lens or system-prompt
+// text moved: EXPECTED_RUBRIC_HASH in model.test.ts is unchanged.
+export const SCORING_RUBRIC_VERSION = "r21";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

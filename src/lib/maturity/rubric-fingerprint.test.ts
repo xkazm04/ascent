@@ -60,8 +60,8 @@ describe("rubricFingerprint - deterministic", () => {
     expect(b).toBe(a);
   });
 
-  it("refuses to hash with TECH_STACK_PROMPT on (a prompt no production scan sends)", async () => {
-    vi.stubEnv("TECH_STACK_PROMPT", "1");
+  it("refuses to hash with the TECH_STACK_PROMPT=0 kill switch thrown (a prompt no default scan sends)", async () => {
+    vi.stubEnv("TECH_STACK_PROMPT", "0");
     await expect(rubricFingerprint(RUBRIC_CORPUS)).rejects.toThrow(/TECH_STACK_PROMPT/);
   });
 });

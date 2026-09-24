@@ -73,10 +73,10 @@ export interface LlmScoreInput {
    *  and the roadmap/discrepancy audit to the stack instead of penalizing absent web conventions. Null
    *  for a full-fit (web/service) repo — the common case. */
   stackFit?: StackFit | null;
-  /** Detected tech stack (Feature 3a, Option B) — present ONLY when the gated prompt-enrichment flag is
-   *  on (TECH_STACK_PROMPT). Adds a short "DETECTED TECH STACK" block to the user message so the model
-   *  can flag stack-vs-evidence mismatches (e.g. "claims a Python backend, zero tests"). Undefined by
-   *  default → zero prompt change → calibration untouched. Gated rollout: bench < 2pt drift first. */
+  /** Detected tech stack (Feature 3a). Set by the scan by default since r21 (TECH_STACK_PROMPT=0 is the
+   *  kill switch) whenever extraction found a language or framework. Adds a short "DETECTED TECH STACK"
+   *  block to the user message so the model can flag stack-vs-evidence mismatches (e.g. "claims a Python
+   *  backend, zero tests"). Undefined → no block (the r20 prompt). */
   techStack?: TechStack | null;
 }
 

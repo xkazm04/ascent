@@ -15,8 +15,9 @@
 // for a tree, e.g. the truncated-tree probe). A change there still needs the bump decision by hand.
 //
 // DETERMINISM. One clock (RUBRIC_NOW), no network (no decisionSlug, so the decision/craft store is
-// never read), and TECH_STACK_PROMPT must be OFF (the production default) - the fingerprint refuses to
-// run otherwise rather than hash a prompt no production scan sends.
+// never read), and TECH_STACK_PROMPT must be at its production default (ON since r21, so the hash
+// covers the DETECTED TECH STACK block) - the fingerprint refuses to run with the kill switch thrown
+// rather than hash a prompt no default scan sends.
 
 import { createHash } from "node:crypto";
 import { buildScanScoreInput, type ScoreInputPhaseResult } from "@/lib/scan-score-input";
@@ -34,8 +35,8 @@ import { RUBRIC_NOW, type RubricFixture } from "./rubric-corpus";
  * the corpus itself changed (a fixture added or edited), never when the pipeline did.
  */
 export const PINNED_RUBRIC_FINGERPRINT = {
-  version: "r20",
-  sha256: "3544247cc3999569fcc4f7450ac8edd0e0049a50c41164b9b3193398a9f396be",
+  version: "r21",
+  sha256: "485aac605281a8bfe3e086bdd1f0577c90b7644980c260bb5ab9bc9e6b9b95ea",
 } as const;
 
 /** The pipeline stages, injectable so a test can seed a violation and watch the pin see it. */
@@ -70,8 +71,8 @@ export async function traceCorpus(
   corpus: readonly RubricFixture[],
   stages: FingerprintStages = DEFAULT_STAGES,
 ): Promise<FixtureTrace[]> {
-  if (techStackPromptEnabled())
-    throw new Error("rubricFingerprint: TECH_STACK_PROMPT must be off (the production default) - stub it in the test.");
+  if (!techStackPromptEnabled())
+    throw new Error("rubricFingerprint: TECH_STACK_PROMPT must be at its default (on) - stub it empty in the test.");
   const traces: FixtureTrace[] = [];
   for (const fixture of corpus) {
     const phase = await stages.scoreInput({
