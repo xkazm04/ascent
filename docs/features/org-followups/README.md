@@ -145,11 +145,16 @@ the merge.
 | Backlog row history | **timeline on expand** (`FollowupHistory`, `GET /api/recommendations/:id/events`) | the archive must say HOW a row closed (trailer vs no-longer-raised) or the loop isn't trusted |
 
 The prompt modal `FollowupsPromptModal` (brand `Modal`, `reading` width): the prompt in a `<pre>`, **Copy
-prompt**, and **Hand off** — `POST /api/org/followups/handoff { org, ids }` marks the *open* ids
-`in_progress` with a timeline note ("Handed off: fix prompt generated from the Follow-ups
-ledger"), then `router.refresh()`. Already-handed-off items are included in the prompt and not
-re-marked; closed items are skipped and reported. Tenancy: `requireOrgAccess(org)`, every id must
-belong to the org (whole-request 403 otherwise), public funnel refused, ≤ 50 ids per hand-off.
+prompt**, and **Hand off**: `POST /api/org/followups/handoff { org, ids }` claims the *open* ids
+through the [one claim path](#one-claim-path) with a timeline note ("Handed off: fix prompt
+generated from the Follow-ups ledger"), then `router.refresh()`. It is a claim like any other:
+executor `human`, no lease (the sweep never reclaims it), `claimActor` = the viewer's login (or
+`browser hand-off` when no login resolves), one `followup.claim` audit row, so the row's claim line
+reads "claimed by <login>" after a hand-off. Already-handed-off items are included in the prompt and
+not re-marked; closed or held items are skipped and reported as `{ id, reason }` (`held` /
+`not-open`). Tenancy: `requireOrgAccess(org)`, every id must belong to the org (whole-request 403
+otherwise, with nothing claimed: `claimFollowups`' `allOrNothingTenancy`), public funnel refused,
+≤ 50 ids per hand-off.
 
 Row vocabulary (`FollowupChips.tsx`): impact/effort as one-letter chips (`IMPACT_CLASS` /
 `EFFORT_CLASS`), status pill (`open` · `handed off` with the live-dot · `resolved` · `dismissed`),
