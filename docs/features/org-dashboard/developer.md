@@ -3,9 +3,10 @@
 _Status: **consolidated (C1 complete)**. The prototype round is over: **Companion won**, the other two
 directions are deleted, and the surface has moved from a `?tab=care` panel to the personalized route
 `/org/developer`. The git-side half of the read model is **live** (the viewer's own slice of the
-contributor snapshot + the open gaps of their repos); the care-loop half is still an honest empty state
-until C3 ships the personal tables, except sessions per week, which since 2026-09-24 is measured from
-the viewer's own agent telemetry (see "Filled from your own telemetry")._
+contributor snapshot + the open gaps of their repos). Since 2026-09-24 the care-loop half is the
+viewer's **own share**, stored by `POST /api/me/mentor/share` and read back only by them (see "Your
+share, stored for you only"); with no share it is an honest empty state, except sessions per week, which
+is measured from the viewer's own agent telemetry (see "Filled from your own telemetry")._
 
 The Developer page is where UC3 lands in the product (design:
 [`../../REGISTRY-AND-CARE-IMPL.md`](../../REGISTRY-AND-CARE-IMPL.md) §5, strategy:
@@ -147,7 +148,38 @@ The reason is typed (`careShapeEmptyReason`, `src/lib/org/care-shape-contract.ts
 the C3 share contract: every field's window (30 days), numerator and denominator in `CARE_SHAPE_SCOPE`,
 only interactively launched sessions counted (SDK, MCP and CI entrypoints are excluded), and
 `validateCareShapePayload`, which refuses unknown keys, ratios outside 0 to 100, another window, and
-a reason only the server may derive. No route calls it yet; `POST /api/me/mentor/share` is still owed.
+a reason only the server may derive. `POST /api/me/mentor/share` runs it on the share's `shape` section.
+
+### Your share, stored for you only
+
+Since 2026-09-24 (C3) the care loop has a data layer. `/api/me/mentor/share`
+(`src/app/api/me/mentor/share/route.ts`) is **owner-self** and nothing else:
+
+| Verb | Does |
+| --- | --- |
+| `POST` | Replaces your share with a validated snapshot `{ contract: 1, profile?, moves?, journal?, shape?, setup? }`. A section you leave out is not shared this time; nothing from an earlier push survives in it. |
+| `GET` | Returns your share and its `sharedAt` (an ISO string), or 404 when you have none. |
+| `DELETE` | Removes your share. The row is deleted, not hidden: there is no history table and no soft delete. 404 when there was nothing to remove. |
+
+- **Whose row is decided by the session only.** The route keys every query by `resolveViewerLogin()`,
+  the same resolution the page reads under, normalized. There is no id in the path, and a body that
+  names anyone (`login`, `email`, `user`, `owner` and similar keys, at any depth) is refused with 400.
+  So another login's `GET` or `DELETE` gets the same 404 as someone who never shared: nothing says
+  whether a share exists for anyone else.
+- **Strict at the door** (`validateCareShare`, `src/lib/org/care-share-contract.ts`). Known keys only;
+  every string and list has a cap; dates are parsed and stored as ISO strings; move states, categories
+  and journal kinds are enums; the shape section goes through `validateCareShapePayload`. A key naming
+  a transcript, prompt, diff, patch or file contents is refused with 400 **anywhere in the payload**, so
+  the privacy ledger's never-sent rows are a promise the server keeps by refusing. The raw body is
+  capped at 64 KB and refused with 413 before it is parsed. A move carries no `evidence`: fleet evidence
+  is ascent's to add (C4), and the page shows it as the `missing` void.
+- **One row per person, not per workspace.** `MentorShare` is keyed by your login, so the same care
+  memory follows you into every workspace you open this page in, and no org can read it.
+- **Read back on the next load.** `getDeveloperView` reads the share beside the contributor snapshot
+  and folds it in with `applyMentorShare` (`src/lib/org/care-share-view.ts`) **before** the telemetry
+  fold, so a field you shared wins over the value ascent measured (a guard test pins the order). The
+  privacy ledger lights the switchable rows the share actually carried; the never-sent rows stay locked.
+  A failed read degrades to "nothing shared", never an error page.
 
 ### Filled from your own telemetry
 
@@ -235,6 +267,10 @@ The line between them is enforced in two directions:
 | Contributors relation | `src/features/bought/contributors/ContributorsYouPointer.tsx`, `ContributorsCareSection.tsx`, `CareOrgAggregate.tsx` |
 | Own-telemetry session shape (pure fold + scope) | `src/lib/org/care-session-telemetry.ts` |
 | The viewer's own AgentSession read | `src/lib/db/agent-sessions-viewer.ts` |
+| Share route (owner-self GET / POST / DELETE) | `src/app/api/me/mentor/share/route.ts` |
+| Share body contract (pure) | `src/lib/org/care-share-contract.ts` |
+| Share into the view (pure fold + ledger) | `src/lib/org/care-share-view.ts` |
+| The viewer's own share read / write / delete | `src/lib/db/mentor-share.ts` (table `MentorShare`) |
 
 `developer-view.ts` is deliberately **pure** (types + constants + helpers) with the `@/lib/db` reads
 split into the `-load.ts` sibling, because the render is a client component and imports those helpers —
@@ -242,10 +278,14 @@ the same client/server boundary split as `skill-usage-load.ts`.
 
 ## Known gaps
 
-- **The care loop has no data layer.** There are no `PersonalMentorProfile` / `MentorMove` /
-  `MentorJournal` tables and no `POST /api/me/mentor/share` yet (C3), and no real floored org aggregate
-  (C4 — `getCareOrgAggregate` returns the honest empty aggregate keyed on the real contributor
-  population). The git-side half is live; nothing in the care half is fabricated.
+- **No real floored org aggregate** (C4). `getCareOrgAggregate` returns the honest empty aggregate
+  keyed on the real contributor population and reads no share, so shape bands, most-kept moves and
+  adoption counts stay empty even when people share.
+- **`npx ascent mentor share` cannot authenticate.** The route accepts the browser session only. The
+  only bearer tokens in the product (`org-api-tokens.ts`, the MCP door) are org-scoped and carry no
+  person, so accepting one here would let any holder write as anyone. A CLI share needs a per-user
+  credential that does not exist yet; until then nothing on a developer's machine can reach the route
+  without a browser session, and the page has no upload or delete control of its own.
 - **Most actions are unwired.** Share, Install mentor, Mark kept/dropped, Promote to registry and
   "author as registry skill" `console.info` their intent; the PR-opening bridge to the registry lands
   with C4. The one exception since 2026-09-05: **"Copy `npx ascent mentor init`" really writes the
