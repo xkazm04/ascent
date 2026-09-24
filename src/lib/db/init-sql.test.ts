@@ -236,6 +236,8 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
         "TransitionProgram.orgId",
         "User.email",
         "User.githubLogin",
+        // C3: one care share per developer login (backlog develop-2026-09-17 row 46).
+        "MentorShare.login",
       ].sort(),
     );
 

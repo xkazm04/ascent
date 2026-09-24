@@ -3094,3 +3094,21 @@ model Installation {
   @@unique([orgId, forge, externalId])
   @@index([orgId])
 }
+
+// C3 — the signed-in developer's own care share (backlog develop-2026-09-17 row 46), written ONLY by
+// `POST /api/me/mentor/share` for the login the route resolved from the session, and read back ONLY by
+// that login's `getDeveloperView`. Keyed by the normalized GitHub login, not an org: the care loop is
+// the person's memory across machines and workspaces, never an org's record of them.
+//
+// ONE row per login, a snapshot: a push replaces it, `DELETE /api/me/mentor/share` removes it whole.
+// No history table, no soft delete, so a deleted share leaves nothing behind. `payloadJson` is TEXT
+// (never jsonb — the schema's DSQL/PGlite safety contract) carrying the validated `CareSharePayload`;
+// by contract it holds no transcript, prompt, diff or file contents and never names the person.
+model MentorShare {
+  id          String   @id @default(uuid())
+  login       String   @unique // normalizeLogin() of the resolved viewer
+  payloadJson String // TEXT JSON CareSharePayload (no jsonb — DSQL/PGlite)
+  sharedAt    DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

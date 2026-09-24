@@ -2708,6 +2708,22 @@ CREATE UNIQUE INDEX "Installation_orgId_forge_externalId_key" ON "Installation"(
 -- CreateIndex
 CREATE INDEX "Installation_orgId_idx" ON "Installation"("orgId");
 
+-- C3: the signed-in developer's own care share, one snapshot per login. See the
+-- 20260924160000_add_mentor_share migration.
+CREATE TABLE "MentorShare" (
+    "id" TEXT NOT NULL,
+    "login" TEXT NOT NULL,
+    "payloadJson" TEXT NOT NULL,
+    "sharedAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "MentorShare_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "MentorShare_login_key" ON "MentorShare"("login");
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes
