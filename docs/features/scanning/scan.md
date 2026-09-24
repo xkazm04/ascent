@@ -578,7 +578,7 @@ threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
 - `buildScanWarnings` emits **one** caveat naming the failed reads in reader words ("GitHub signal
   reads FAILED during this scan (…), so the signals they feed are missing - this reflects failed
   reads, not controls the repository lacks"). It persists through `warningsJson` like every other
-  caveat; there is no dedicated column for the typed list yet.
+  caveat, and the typed list persists beside it (see the last bullet).
 - D9 checks whose only GitHub-side refutation came from a failed sensor (security policy from
   posture; SAST and dependency updates from the App inventory) return `score: null` with evidence
   "not observable: <sensor> read failed" and are **excluded** from the blend, through the same
@@ -600,6 +600,15 @@ threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
   parallel (measured on a modelled fixture: 268 ms → 134 ms); the outcome counters no longer block
   the hot path. The ingest emits "Reading GitHub signals…" at 52 before the enrichment await and
   "Analyzing signals…" at 62 after it, so the UI no longer claims to analyze during GitHub I/O.
+- **The typed list survives persistence (2026-09-24).** `scanRepository` now stamps
+  `report.sensorFailures` on every scan (`[]` when nothing threw), and `persistScanReport` writes it
+  to the nullable `Scan.sensorFailuresJson` column. `getScanReportByCommit` reads it back, so a
+  DB-tier gate hit (`lookupPersistedScanByCommit`, after the in-memory cache expires or on another
+  instance) still skips a bar whose read failed with "read FAILED" and still carries the gate caveat
+  naming it, instead of reading the null as "not read". A row written before the column (NULL, or
+  unparseable) leaves `sensorFailures` absent on the rebuilt report: unknown, never `[]`. Tests:
+  `src/lib/db/scan-sensor-failures.test.ts`, and the `sensorFailures` cases in
+  `scans-persist.test.ts` / `scans-read.test.ts`.
 
 `engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an
 explicit `?mock=1` demo look like, and neither of those is a failure. All three are nullable — a row
@@ -844,8 +853,7 @@ three workflows shows its first three in pick order.
   governance, security posture/exposure, deployments, the installed-App inventory and CI
   health, and warn. Every token-gated fold is additive, so an anonymous scan is a floor, not a
   different rubric. A *failed* token-gated read is reported separately from an empty one since
-  2026-09-05 (see "A failed sensor read is unknown, never zero"); the typed `sensorFailures` list
-  has no `Scan` column, so only the prose caveat survives persistence.
+  2026-09-05 (see "A failed sensor read is unknown, never zero").
 - **PR-only Apps are observed, not credited.** The inventory reads one page (≤100, `truncated`
   flags a floor) on the *scored* commit and on up to 3 recent merged PR heads. An App that posts
   suites only on pull-request heads now appears in `prHeadApps`, but no fold reads that list
