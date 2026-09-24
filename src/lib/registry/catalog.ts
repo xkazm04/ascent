@@ -148,15 +148,44 @@ export interface BuildCatalogInput {
   generatedBy?: string;
 }
 
+/** The per-entry keys this builder produces. Anything else on a committed entry belongs to someone else. */
+const OWNED_ENTRY_KEYS = {
+  skills: ["name", "version", "category", "path", "contentHash", "invokes30d", "lessons", "lessonsPath", "lessonsHash"],
+  practices: ["id", "dimension", "path", "contentHash", "starter"],
+  memory: ["kind", "slug", "path", "contentHash", "confidence", "namespace", "source"],
+} as const;
+
+/**
+ * The envelope-level carry below, one level down: an entry keeps the keys ANOTHER writer put on the
+ * committed entry at the same `path` (the path is the identity, as in the mirror rows). `adopters` is
+ * the case that matters: an operator script maintains it and nothing in the tree can re-derive it, so
+ * a write-back that rebuilt entries from scratch would erase it. An owned key is never carried: a
+ * `lessonsPath` this pass no longer produces means the LESSONS.md is gone.
+ */
+function carryEntries<T extends { path: string }>(entries: T[], previous: unknown, owned: readonly string[]): T[] {
+  if (!Array.isArray(previous) || previous.length === 0) return entries;
+  const byPath = new Map<string, Record<string, unknown>>();
+  for (const p of previous) {
+    if (p && typeof p === "object" && typeof (p as { path?: unknown }).path === "string") byPath.set((p as { path: string }).path, p);
+  }
+  return entries.map((e) => {
+    const old = byPath.get(e.path);
+    if (!old) return e;
+    const foreign = Object.fromEntries(Object.entries(old).filter(([k]) => !owned.includes(k)));
+    return { ...e, ...foreign };
+  });
+}
+
 /**
  * Build the envelope. With no entries this is exactly the seed `buildScaffoldFiles` commits — empty
  * arrays, zero counts, `generatedAt: null` — which keeps the scaffold deterministic (a timestamp
  * would make every re-run a diff).
  */
 export function buildCatalog(input: BuildCatalogInput): RegistryCatalog {
-  const skills = input.skills ?? [];
-  const practices = input.practices ?? [];
-  const memory = input.memory ?? [];
+  const prev = input.previous ?? null;
+  const skills = carryEntries(input.skills ?? [], prev?.skills, OWNED_ENTRY_KEYS.skills);
+  const practices = carryEntries(input.practices ?? [], prev?.practices, OWNED_ENTRY_KEYS.practices);
+  const memory = carryEntries(input.memory ?? [], prev?.memory, OWNED_ENTRY_KEYS.memory);
 
   // Everything the previous catalog carried that this builder has no opinion
   // about. Spread FIRST so the owned keys below win; a foreign key can never

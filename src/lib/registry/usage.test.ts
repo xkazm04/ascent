@@ -163,6 +163,22 @@ describe("buildCatalog — foreign keys", () => {
     expect(next.skills).toEqual([]);
   });
 
+  it("carries an entry's foreign keys forward by path, never a key it owns", () => {
+    // `adopters` is maintained by an operator script, not derivable from the tree; a write-back
+    // that rebuilt entries from scratch would erase it. An owned key (lessonsPath) that this pass
+    // no longer produces must NOT be resurrected from the old entry.
+    const previous = {
+      schema: "ascent-registry-catalog",
+      skills: [{ name: "lint", path: "skills/lint/SKILL.md", adopters: ["acme/web"], invokes30d: 99, lessonsPath: "skills/lint/LESSONS.md" }],
+      memory: [{ path: "memory/semantic/a.md", reviewedBy: "ops" }],
+    } as unknown as RegistryCatalog;
+    const lint = { name: "lint", version: null, category: "ci-cd", path: "skills/lint/SKILL.md", contentHash: "sha256-n1:aa", invokes30d: 1 };
+    const note = { kind: "semantic", slug: "a", path: "memory/semantic/a.md", contentHash: "sha256-n1:bb", confidence: 1, namespace: null, source: null };
+    const next = buildCatalog({ ...base, previous, skills: [lint], memory: [note] });
+    expect(next.skills[0]).toEqual({ ...lint, adopters: ["acme/web"] });
+    expect(next.memory[0]).toEqual({ ...note, reviewedBy: "ops" });
+  });
+
   it("is unchanged when there is no previous catalog", () => {
     const next = buildCatalog({ ...base });
     expect(next.schema).toBe("ascent-registry-catalog");
