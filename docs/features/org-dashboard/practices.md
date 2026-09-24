@@ -332,7 +332,7 @@ straight at the CI-gates practice and its exemplars.
 | `src/features/shared/practices/PracticeApply.tsx` | Preview + apply UI. |
 | `src/features/shared/practices/PracticePreviewKicker.tsx` | One-line house-vs-generic kicker above the previewed artifact. |
 | `src/app/api/org/playbooks/[id]/apply-batch/route.ts` | Playbook fleet rollout: admin-gated, org-scoped, capped at 25 repos/run. `dryRun: true` returns `{ repos, starter, skipped }` and opens 0 PRs. |
-| `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + adoption mark + audit). |
+| `src/lib/org/playbook-apply.ts` | The shared single-repo playbook write sequence (PR + audit + `proposed` ledger row; the adoption mark waits for the file to land). |
 | `src/features/shared/practices/PlaybookApplyBatch.tsx` | Playbook fleet-rollout UI (select, confirm, per-repo results). |
 | `src/features/shared/practices/promotePractice.ts` | Mined practice → playbook draft mapping (pure, bounded). |
 | `src/lib/org/playbook-templates.ts` | Leak-free per-dimension starters; `seedPlaybookCreate` prefills POST/form from `fromDim` or the briefing's ranked next move. |
@@ -525,10 +525,24 @@ that practice*, which is the same absence-not-v0 rule the ledger holds everywher
 must never render a null as "v0" or as "behind", and must not fill it from anything but
 `getLatestHousePattern`.
 
-Playbook applies stamp the same ledger under `playbook:<uuid>` beside the existing
-`PlaybookApplication` mark (playbook PRs bypass `ImprovementPr` entirely, so the file's presence in
-the default branch is the merge evidence). Adoption rows and pattern versions are strictly
-org-internal: no public report, leaderboard, shared corpus or cross-org read.
+Playbook applies stamp the same ledger under `playbook:<uuid>` (playbook PRs bypass `ImprovementPr`
+entirely, so the file's presence in the default branch is the merge evidence). Adoption rows and
+pattern versions are strictly org-internal: no public report, leaderboard, shared corpus or
+cross-org read.
+
+**A playbook is adopted when its PR lands, not when the draft opens** (2026-09-24). Opening a
+playbook PR (single or batch) writes only the audit row and the `proposed` ledger row; it no longer
+stamps the `PlaybookApplication` mark. The rescan that first finds the committed file on the default
+branch moves the ledger row `proposed` to `adopted`, and on that edge `stampLandedPlaybook`
+(`src/lib/db/playbook-adoption.ts`) writes the mark with `appliedBy: "scan"`, or leaves an existing
+mark exactly as it was. A drifted row healing back does not re-create a mark someone removed.
+`getPlaybookAdoption`, the one read behind every playbook count (the card, the rollout strip, the
+library summary, the briefing's proof line), treats a repo whose playbook PR is still `proposed` as
+proposed: it is left out of `repos`, `appliedRepos` and lift and listed in `proposedRepos`. A loop
+stamp (a verified close) still counts. Marks the PR route stamped at draft-open before this change
+are not deleted; the same read keeps them out of the count until their file lands. A manual mark on
+a repo with an open playbook PR also reads as proposed until then. The card shows "N draft PR(s)
+open" beside the adopted count and prints no count at all when nothing is adopted or proposed.
 
 ## Governance perimeter: advisory findings on the repo node (2026-09-17)
 
@@ -574,3 +588,7 @@ contradictions only. See [org-intelligence.md](./org-intelligence.md) for the st
 - (Closed 2026-08-30, #33.) ~~Registry practices are read-only.~~ A registry `PRACTICE.md` now applies
   through the same writer as every other practice (`buildRegistryArtifact` → `applyPracticeToRepo`).
   Still read-only in the direction that matters: ascent never writes back to the registry repo.
+- **A closed playbook PR stays proposed.** Playbook PRs bypass `ImprovementPr`, so nothing notices a
+  playbook PR closed without merging: its ledger row stays `proposed` and the repo keeps reading as
+  proposed (not adopted) on the card. Re-opening the PR and merging it, or the file landing another
+  way, moves it to adopted.
