@@ -2,7 +2,8 @@
 
 // The member roster table — role select, self-demotion confirm, remove confirm. Extracted from
 // MembersPanel.tsx (JSX region split, docs/ORG-TABS-REFACTOR.md) to keep the panel under the 200-LOC
-// cap.
+// cap. With `canManage` false (a non-owner) it is the same roster read-only: the role as text with
+// its hint on hover, and no Actions column.
 
 import type { OrgRole } from "@/lib/db/members";
 import { ROLES, ROLE_HINT } from "@/features/admin/members/memberRoles";
@@ -14,6 +15,7 @@ export function MembersTable({
   members,
   busy,
   selfLogin,
+  canManage,
   confirmRemove,
   confirmDowngrade,
   onRoleSelect,
@@ -26,6 +28,7 @@ export function MembersTable({
   members: Member[];
   busy: string | null;
   selfLogin: string | null;
+  canManage: boolean;
   confirmRemove: string | null;
   confirmDowngrade: { login: string; role: OrgRole } | null;
   onRoleSelect: (m: Member, role: OrgRole) => void;
@@ -43,7 +46,7 @@ export function MembersTable({
             <th className="px-4 py-2.5">Member</th>
             <th className="px-4 py-2.5">Role</th>
             <th className="px-4 py-2.5">Joined</th>
-            <th className="px-4 py-2.5 text-right">Actions</th>
+            {canManage && <th className="px-4 py-2.5 text-right">Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -57,20 +60,26 @@ export function MembersTable({
                 {m.name && <span className="ml-2 text-slate-500">{m.name}</span>}
               </td>
               <td className="px-4 py-2.5">
-                <select
-                  value={m.role}
-                  disabled={busy === m.login}
-                  onChange={(e) => onRoleSelect(m, e.target.value as OrgRole)}
-                  aria-label={`Role for ${m.login}`}
-                  title={ROLE_HINT[m.role]}
-                  className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 type-mono-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
-                >
-                  {ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
+                {!canManage ? (
+                  <span title={ROLE_HINT[m.role]} className="type-mono-sm text-slate-300">
+                    {m.role}
+                  </span>
+                ) : (
+                  <select
+                    value={m.role}
+                    disabled={busy === m.login}
+                    onChange={(e) => onRoleSelect(m, e.target.value as OrgRole)}
+                    aria-label={`Role for ${m.login}`}
+                    title={ROLE_HINT[m.role]}
+                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 type-mono-sm text-slate-200 outline-none focus:border-accent disabled:opacity-50"
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {confirmDowngrade?.login === m.login && (
                   <div className="mt-1.5 flex flex-wrap items-center gap-2 type-mono-sm">
                     <span className="text-orange-300">
@@ -99,35 +108,37 @@ export function MembersTable({
               <td className="px-4 py-2.5 type-mono-sm text-slate-500" title={absoluteMoment(m.createdAt)}>
                 {timeAgo(m.createdAt)}
               </td>
-              <td className="px-4 py-2.5 text-right">
-                {confirmRemove === m.login ? (
-                  <span className="inline-flex items-center justify-end gap-2 type-mono-sm">
-                    <span className="text-slate-400">Remove?</span>
+              {canManage && (
+                <td className="px-4 py-2.5 text-right">
+                  {confirmRemove === m.login ? (
+                    <span className="inline-flex items-center justify-end gap-2 type-mono-sm">
+                      <span className="text-slate-400">Remove?</span>
+                      <button
+                        onClick={() => onConfirmRemove(m.login)}
+                        disabled={busy === m.login}
+                        className="font-medium text-danger-soft transition hover:text-danger disabled:opacity-50"
+                      >
+                        confirm
+                      </button>
+                      <button
+                        onClick={onCancelRemove}
+                        disabled={busy === m.login}
+                        className="text-slate-500 transition hover:text-white disabled:opacity-50"
+                      >
+                        cancel
+                      </button>
+                    </span>
+                  ) : (
                     <button
-                      onClick={() => onConfirmRemove(m.login)}
+                      onClick={() => onRequestRemove(m.login)}
                       disabled={busy === m.login}
-                      className="font-medium text-danger-soft transition hover:text-danger disabled:opacity-50"
+                      className="type-mono-sm text-slate-500 transition hover:text-danger-soft disabled:opacity-50"
                     >
-                      confirm
+                      remove
                     </button>
-                    <button
-                      onClick={onCancelRemove}
-                      disabled={busy === m.login}
-                      className="text-slate-500 transition hover:text-white disabled:opacity-50"
-                    >
-                      cancel
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => onRequestRemove(m.login)}
-                    disabled={busy === m.login}
-                    className="type-mono-sm text-slate-500 transition hover:text-danger-soft disabled:opacity-50"
-                  >
-                    remove
-                  </button>
-                )}
-              </td>
+                  )}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

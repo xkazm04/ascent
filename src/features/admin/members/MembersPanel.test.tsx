@@ -45,7 +45,7 @@ const members = [
 ];
 
 function renderPanel() {
-  render(<MembersPanel slug="acme" initial={members} initialInvites={[]} selfLogin={null} />);
+  render(<MembersPanel slug="acme" initial={members} initialInvites={[]} selfLogin={null} canManage />);
 }
 
 describe("MembersPanel — optimistic rollback (DOM)", () => {
@@ -109,6 +109,7 @@ describe("MembersTable — the Joined cell speaks the house time vocabulary", ()
         initial={[{ login: "alice", name: null, role: "owner", createdAt: joined }]}
         initialInvites={[]}
         selfLogin="alice"
+        canManage
       />,
     );
     const cell = screen.getByText("3d ago");

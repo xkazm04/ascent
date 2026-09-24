@@ -1,6 +1,8 @@
-// Org dashboard "Members" tab — owner-only RBAC management. The org layout gates DB/auth/read
-// access for every tab; this tab adds the owner-role check (members list is sensitive) and hands the
-// data to the client panel for inline role changes + removal. SERVER component, filename PINNED
+// Org dashboard "Members" tab. The org layout gates DB/auth/read access for every tab; this tab adds
+// two role checks. Member and up see the roster (login, display name, role, joined); only an owner
+// gets the management surface (inline role changes, removal, invites). A viewer gets the refusal, and
+// a non-owner is never sent the pending invites, which carry invitee emails (backlog
+// develop-2026-09-17 row 4, operator decision 2026-09-24). SERVER component, filename PINNED
 // (docs/ORG-TABS-REFACTOR.md; see AuditTab.tsx for the worked example).
 //
 // Its old route (src/app/org/[slug]/members/page.tsx) is now a redirect().
@@ -15,10 +17,14 @@ export async function MembersTab({ slug }: { slug: string }) {
   if (!isDbConfigured()) {
     return <SectionEmpty>Member management requires a database (set DATABASE_URL).</SectionEmpty>;
   }
-  if (!(await hasOrgRole(slug, "owner"))) {
+  // Owner first, sequentially: the owner check is the one that may bootstrap an identity-verified
+  // owner on an ownerless org, and a non-owner then needs the member check alone.
+  const canManage = await hasOrgRole(slug, "owner");
+  if (!canManage && !(await hasOrgRole(slug, "member"))) {
     return (
       <SectionEmpty>
-        Only an owner of <span className="font-mono">{slug}</span> can view and manage members.
+        The member roster of <span className="font-mono">{slug}</span> is visible to members, admins and
+        owners. Your role here is read-only; ask an owner if you need it.
       </SectionEmpty>
     );
   }
@@ -29,7 +35,7 @@ export async function MembersTab({ slug }: { slug: string }) {
   // out with one unconfirmed select change (the invite page had the identical bug, fixed earlier).
   const [members, invites, selfLogin] = await Promise.all([
     listOrgMembers(slug),
-    listPendingInvites(slug),
+    canManage ? listPendingInvites(slug) : Promise.resolve([]),
     resolveViewerLogin(),
   ]);
   const initial = members.map((m) => ({
@@ -48,5 +54,13 @@ export async function MembersTab({ slug }: { slug: string }) {
     invitedBy: i.invitedBy,
     expiresAt: i.expiresAt,
   }));
-  return <MembersPanel slug={slug} initial={initial} initialInvites={initialInvites} selfLogin={selfLogin} />;
+  return (
+    <MembersPanel
+      slug={slug}
+      initial={initial}
+      initialInvites={initialInvites}
+      selfLogin={selfLogin}
+      canManage={canManage}
+    />
+  );
 }

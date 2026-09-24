@@ -1,7 +1,8 @@
 "use client";
 
-// Owner-only member management UI — the surface that makes the RBAC backend (Membership.role +
-// /api/org/members) usable without curl. Inline role change (optimistic POST) + remove (DELETE,
+// The member roster, and for an owner the management UI: the surface that makes the RBAC backend
+// (Membership.role + /api/org/members) usable without curl. A non-owner (`canManage` false) gets the
+// same roster read-only: no role editors, no remove, no invite form (backlog develop-2026-09-17 row 4). Inline role change (optimistic POST) + remove (DELETE,
 // refused for the last owner server-side). Owners can grant a teammate viewer/admin without sharing
 // the GitHub App installation. The "Invite a teammate" panel lives in the co-located MemberInvites.
 //
@@ -19,11 +20,14 @@ export function MembersPanel({
   initial,
   initialInvites,
   selfLogin,
+  canManage,
 }: {
   slug: string;
   initial: Member[];
   initialInvites: InviteRow[];
   selfLogin: string | null;
+  /** Owner-only: role editors, remove and invites. Required, so no caller gets them by omission. */
+  canManage: boolean;
 }) {
   const p = useMembersPanel(slug, initial, selfLogin);
 
@@ -34,8 +38,10 @@ export function MembersPanel({
         title="Members & access"
         description={
           <>
-            Who can act on <span className="font-mono">{slug}</span>, and at what role. Grant a
-            teammate access without sharing the GitHub App installation. Owner-only.
+            Who can act on <span className="font-mono">{slug}</span>, and at what role.{" "}
+            {canManage
+              ? "Grant a teammate access without sharing the GitHub App installation. Owner-only."
+              : "Only an owner can change roles, invite a teammate or remove a member."}
           </>
         }
       />
@@ -51,6 +57,7 @@ export function MembersPanel({
         members={p.members}
         busy={p.busy}
         selfLogin={selfLogin}
+        canManage={canManage}
         confirmRemove={p.confirmRemove}
         confirmDowngrade={p.confirmDowngrade}
         onRoleSelect={p.onRoleSelect}
@@ -71,11 +78,11 @@ export function MembersPanel({
           An owner reading the old line would wait for a teammate to appear by installing the App. */}
       <p className="mt-3 type-mono-sm text-slate-500">
         Roles: owner → admin → member → viewer. Everyone else joins by invite or by an owner granting
-        them a role here — installing the GitHub App does not grant one. The last owner can&apos;t be
+        them a role here; installing the GitHub App does not grant one. The last owner can&apos;t be
         removed.
       </p>
 
-      <MemberInvites slug={slug} initialInvites={initialInvites} />
+      {canManage && <MemberInvites slug={slug} initialInvites={initialInvites} />}
     </div>
   );
 }

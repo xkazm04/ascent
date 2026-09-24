@@ -132,8 +132,8 @@ export async function OrgShell({
     [summary, credit, myRole, usageThisMonth, navCounts, inFlightPrs] = await Promise.all([
       getOrgHeaderSummary(slug),
       slug === "public" ? Promise.resolve(null) : getCreditState(slug),
-      // MEM-6: the viewer's own role, so every member can see their access level (not just owners who
-      // can open the Members tab). Null for the public org / non-members.
+      // MEM-6: the viewer's own role, so everyone can see their access level (a viewer included, who
+      // cannot open the Members roster, which starts at member). Null for the public org / non-members.
       roleLogin && slug !== "public" ? getMembershipRole(slug, roleLogin).catch(() => null) : Promise.resolve(null),
       // Month-to-date metered scans, so the credits chip knows the plan's free allowance still covers
       // scans at balance 0 (and doesn't falsely warn "paused"). Free for the public org.
