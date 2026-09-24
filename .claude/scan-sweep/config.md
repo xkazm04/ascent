@@ -245,3 +245,18 @@ a parallel run has already swept an in-flight version bump into its own commit h
   3. **`src/lib/local/transport/pi.e2e.test.ts` drives a live local model** and failed once under
      the four-builder load (the model skipped the write tool); it passes alone in ~5 s. Name it in
      the brief next to `lane-deps-spawn.test.ts` as known load flake.
+
+- **2026-09-24 (backlog drain of develop-2026-09-17: 31 rows, 6 waves x 5 builders, all landed, every
+  integration green) - three things the next drain brief should carry.**
+  1. **Builders skipping the full suite worked.** Each ran its scoped tests plus every test importing a
+     changed module, and the coordinator ran the full suite once per wave: six integrations, zero red.
+     Waves of five instead of four and no mid-wave suite storm, so no watchdog stalls.
+  2. **New files escape `scripts/docs/feature-doc-map.json`.** 14 of 42 new source files matched no
+     `sourceGlob`, so the doc-sync hook would never have named their doc. Tell builders to add a glob
+     for any new file under the shared-surface lock, or check it at integration (a glob matcher that
+     handles `[slug]` brackets: an `indexOf("]")` array-end search broke on one).
+  3. **`selfHosted()` must never gate an authorization relaxation.** It infers `true` when billing is
+     unconfigured, which a managed deployment that lost its Polar token hits. Row 41's builder used it
+     to let the customer-repo door mint another owner's installation token, reopening the 2026-09-23
+     cross-tenant write on that deployment; fixed in `d822b737` with `selfHostedExplicit()`. Put this
+     in the brief for any row that touches tokens, tenancy or scope.
