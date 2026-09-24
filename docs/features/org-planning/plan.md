@@ -108,6 +108,17 @@ minting an installation token or opening PRs; the admin gate still runs so the s
 leak. Create also accepts `fromDim` / `fromRec` to prefill from the dimension template (the
 briefing's ranked next move when `fromRec` is set); see [practices.md](../org-dashboard/practices.md).
 
+**Playbooks reach the tracked fleet** (since 2026-09-24). Apply, apply-batch and the adoption mark
+(`POST`/`DELETE /api/org/playbooks/[id]/repos`) accept a repo in the playbook org's own namespace
+**or one the org tracks under another owner** (org `kiro` over `xkazm04/kp`), through
+`parseOrgRepo` in `src/lib/org/playbook-gate.ts`, which now asks `repoUnderOrg`: the same
+tracked-set predicate the admission routes use. A random owner the org does not track is still a
+400 before any installation lookup, and a batch with one such repo is refused whole. Apply and
+apply-batch then write through the one customer-repo door (`requirePrWriteTarget`, rule
+`tracked`): the PR lands in the repo's own `owner/name`, never the org slug's namespace, and the
+token is the gated org's installation on a hosted deployment or, on a self-hosted one, the
+installation of the repo's owner (a batch mints once per installation).
+
 ## Weekly digest (`?tab=digest`, Bought)
 
 The Briefing's fixed-window sibling, and the one page in the product designed to leave it: a lead
