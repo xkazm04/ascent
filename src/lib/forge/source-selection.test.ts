@@ -87,3 +87,41 @@ describe("pickFilesToFetch — GitLab CI files get a RESERVED quota so D9 can se
     expect(picked).toContain(".gitlab/ci/test.yml");
   });
 });
+
+// Backlog develop-2026-09-17 row 2: D6 reads the bodies of every CI config D3 already credits by
+// path, plus lefthook. A detector that reads a body the fetch never requests is dead code in
+// production (the pre-#13 `.ai/manifest.yaml` award), so the fetch has to follow the detector.
+describe("pickFilesToFetch: the other root CI configs and lefthook get the same reserved tail", () => {
+  const OTHER = [
+    "Jenkinsfile", ".circleci/config.yml", "azure-pipelines.yml", ".travis.yml",
+    "bitbucket-pipelines.yml", "lefthook.yml", ".lefthook.yaml",
+  ];
+
+  it("fetches every one of them even when high-signal files already fill MAX_FILES", () => {
+    const picked = pickFilesToFetch(saturated(OTHER));
+    for (const p of OTHER) expect(picked).toContain(p);
+  });
+
+  it("ranks them after the workflow tail and before memory", () => {
+    const picked = pickFilesToFetch([blob("README.md"), blob("Jenkinsfile"), blob(".github/workflows/ci.yml"), blob(".ai/memory/0001-a.md")]);
+    expect(picked.indexOf("Jenkinsfile")).toBeGreaterThan(picked.indexOf(".github/workflows/ci.yml"));
+    expect(picked.indexOf(".ai/memory/0001-a.md")).toBe(picked.length - 1);
+  });
+
+  it("guard: does not reach into nested copies or non-config files under .circleci", () => {
+    const picked = pickFilesToFetch(saturated(["vendor/lib/Jenkinsfile", ".circleci/README.md", "docs/lefthook.yml"]));
+    expect(picked).not.toContain("vendor/lib/Jenkinsfile");
+    expect(picked).not.toContain(".circleci/README.md");
+    expect(picked).not.toContain("docs/lefthook.yml");
+  });
+
+  it("guard: a tree with none of them picks exactly what it did", () => {
+    const ci = [".github/workflows/ci.yml", ".gitlab-ci.yml"];
+    const tree = saturated(ci);
+    expect(pickFilesToFetch(tree)).toEqual([
+      ...pickFilesToFetch(tree.filter((b) => !ci.includes(b.path))),
+      ".github/workflows/ci.yml",
+      ".gitlab-ci.yml",
+    ]);
+  });
+});

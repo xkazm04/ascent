@@ -241,7 +241,22 @@ import type {
 // that corpus still cannot reach, and it says so.
 // No weight, band, blend, guardband, threshold, lens or system-prompt text moved: EXPECTED_RUBRIC_HASH
 // in model.test.ts is unchanged.
-export const SCORING_RUBRIC_VERSION = "r19";
+// r20 (2026-09-24, backlog develop-2026-09-17 row 2): D6 READS THE CI FILES D3 ALREADY CREDITS. D6's
+// "enforced in CI" guardrail signal, its ratchet and its zero-warning gate searched only
+// `.github/workflows/*`, while D3 scores `.gitlab-ci.yml`, a `Jenkinsfile`, `.circleci/`, Azure,
+// Travis and Bitbucket configs as "CI pipeline present". A GitLab repo running `ruff check` in its
+// pipeline read as gated on D3 and "configured, not enforced" on D6 for the same job. RepoIndex now
+// keeps those bodies (plus `lefthook.yml`, credited under its own "enforced in a git hook" label) in
+// a D6-only haystack, searched AFTER Actions so an Actions repo's awards and citations are
+// byte-identical; and pickFilesToFetch fetches the root Jenkins/CircleCI/Azure/Travis/Bitbucket/lefthook
+// configs in the reserved CI tail, since a detector reading a body no fetch requests is dead code (the
+// same fetch also brings the D8 doctor-wiring read of `lefthook.yml` to life). PRICED: D6 rises by up
+// to 20 (guardrail 20, or 5 over a configured linter) + 15 (ratchet) + 5 (zero-warning) on a repo whose
+// only gate lives in one of those files, and D8 by 6 where `.ai/doctor.mjs` is wired only through
+// lefthook. The corpus gained the `gitlab-native` fixture so the pin sees this class: under r19's
+// detector it hashes 2800f3c9..., under r20's 3544247c.... No point value, weight, band, blend,
+// guardband, lens or system-prompt text moved: EXPECTED_RUBRIC_HASH in model.test.ts is unchanged.
+export const SCORING_RUBRIC_VERSION = "r20";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

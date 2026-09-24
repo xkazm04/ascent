@@ -330,4 +330,15 @@ export const RUBRIC_CORPUS: readonly RubricFixture[] = [
     prStats: null, governance: null, securityPosture: null, securityExposure: null,
     assessment: assess({ llm: { D2: 80, D5: 80 } }),
   },
+  {
+    id: "gitlab-native",
+    rule: "a lint gate that runs in GitLab CI, not Actions, is D6 enforcement, the way D3 already reads that file as a pipeline",
+    snapshot: snap("gitlab-native", {
+      "README.md": "# gitlab-native\nA Python service built and gated on GitLab.",
+      "pyproject.toml": '[project]\nname = "gitlab-native"\n',
+      ".gitlab-ci.yml": "stages: [lint, test]\nlint:\n  stage: lint\n  script:\n    - ruff check .\n    - mypy src\ntest:\n  stage: test\n  script:\n    - pytest\n",
+    }),
+    prStats: null, governance: null, securityPosture: null, securityExposure: null,
+    assessment: assess({ llm: { D6: 55 } }),
+  },
 ];

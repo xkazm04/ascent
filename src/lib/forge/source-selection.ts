@@ -21,6 +21,11 @@ const MAX_WORKFLOW_FILES = 24;
 // CODEOWNERS_PATH_RE and the exact names pickFilesToFetch requests, matched case-insensitively.
 const CODEOWNERS_PATH_RE = /^(?:\.github\/|docs\/)?codeowners$/i;
 
+/** Root-level CI configs outside Actions/GitLab, and the lefthook config: a dozen fixed root paths at
+ *  most, so the reserved step that fetches them needs no slice. D6 reads their bodies. */
+export const OTHER_CI_AND_HOOK_CONFIG_RE =
+  /^(jenkinsfile|\.circleci\/config\.ya?ml|azure-pipelines\.ya?ml|\.travis\.ya?ml|bitbucket-pipelines\.ya?ml|\.?lefthook\.ya?ml)$/i;
+
 // ── `.ai/memory` mirror (moonshot #14) ───────────────────────────────────────────────────────────
 // Repo-authored memory entries are fetched so the org can INDEX them (src/lib/memory/repo-memory-mirror.ts),
 // never so a scorer can read them. Two constants, exported because the pick guard and the quarantine
@@ -213,6 +218,13 @@ export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] 
     .filter((p) => /(^|\/)\.gitlab-ci\.ya?ml$/i.test(p) || /^\.gitlab\/ci\/.+\.(ya?ml)$/i.test(p))
     .slice(0, MAX_WORKFLOW_FILES)
     .forEach((p) => picked.add(p));
+
+  // The other ROOT CI configs D3 already credits as a pipeline by PATH (Jenkins, CircleCI, Azure,
+  // Travis, Bitbucket) plus lefthook, whose BODIES D6 reads for "enforced in CI / a git hook"
+  // (backlog develop-2026-09-17 row 2). Same reserved class and rank as GitLab above: a detector that
+  // reads a body no fetch requests is dead code in production. A tree without them picks exactly
+  // what it did.
+  paths.filter((p) => OTHER_CI_AND_HOOK_CONFIG_RE.test(p)).forEach((p) => picked.add(p));
 
   // 8. `.ai/memory/NNNN-*.md` — the repo's own agent-written memory entries (moonshot #14). LAST, and
   //    a RESERVED quota like workflows: these must never displace a manifest or a source sample from

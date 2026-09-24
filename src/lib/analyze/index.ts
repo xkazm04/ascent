@@ -26,6 +26,14 @@ import { gradedGuidanceNode, guidanceGraphFor } from "@/lib/analyze/guidance-gra
 // Analysis context — precomputed views over the snapshot for cheap querying.
 // ---------------------------------------------------------------------------
 
+/** The off-GitHub CI configs whose BODIES D6 reads: the files D3's OTHER_CI_PATH credits by path, and
+ *  GitLab's conventional `.gitlab/ci/*` includes. Root-level for the single-file systems, which is
+ *  what the fetch requests (source-selection.ts OTHER_CI_AND_HOOK_CONFIG_RE). */
+const OTHER_CI_BODY_PATH =
+  /(^|\/)\.gitlab-ci\.ya?ml$|^\.gitlab\/ci\/.+\.ya?ml$|^(jenkinsfile|\.circleci\/config\.ya?ml|azure-pipelines\.ya?ml|\.travis\.ya?ml|bitbucket-pipelines\.ya?ml)$/i;
+/** A git-hook config whose commands run before a push or commit lands: a gate, but not CI. */
+const HOOK_BODY_PATH = /^\.?lefthook\.ya?ml$/i;
+
 class RepoIndex {
   readonly paths: string[];
   readonly lowerPaths: string[];
@@ -34,6 +42,12 @@ class RepoIndex {
   /** The same workflow bodies `workflowText` concatenates, kept PER FILE so a signal fired by a
    *  workflow's body can name the workflow it came from. See `workflowMatch`. */
   readonly workflowFiles: { path: string; text: string }[];
+  /** Off-GitHub CI config bodies (GitLab and its includes, Jenkins, CircleCI, Azure, Travis,
+   *  Bitbucket), per file. Read ONLY by D6's enforcement signals via `enforcementMatch`: every other
+   *  consumer of `workflowFiles` parses Actions syntax and must not see them. */
+  readonly otherCiFiles: { path: string; text: string }[];
+  /** Git-hook config bodies (lefthook), per file. Same single consumer. */
+  readonly hookFiles: { path: string; text: string }[];
   readonly manifestText: string;
   private _pathText?: string;
   private _allText?: string;
@@ -50,6 +64,10 @@ class RepoIndex {
       .filter((f) => /^\.github\/workflows\/.+\.ya?ml$/i.test(f.path))
       .map((f) => ({ path: f.path, text: f.content.toLowerCase() }));
     this.workflowText = this.workflowFiles.map((f) => f.text).join("\n");
+    const bodies = (re: RegExp) =>
+      snap.files.filter((f) => re.test(f.path)).map((f) => ({ path: f.path, text: f.content.toLowerCase() }));
+    this.otherCiFiles = bodies(OTHER_CI_BODY_PATH);
+    this.hookFiles = bodies(HOOK_BODY_PATH);
 
     this.manifestText = snap.files
       .filter((f) =>
@@ -112,6 +130,18 @@ class RepoIndex {
    */
   workflowMatch(re: RegExp): string | undefined {
     return this.workflowFiles.find((f) => re.test(f.text))?.path;
+  }
+
+  /**
+   * Where a D6 enforcement command runs, and whether that place is a git hook rather than CI.
+   * Actions first, so an Actions repo's citation is exactly what `workflowMatch` gave it; then an
+   * off-GitHub CI config (the files D3 already credits as a pipeline by path); then lefthook.
+   */
+  enforcementMatch(re: RegExp): { path: string; hook: boolean } | undefined {
+    const ci = this.workflowMatch(re) ?? this.otherCiFiles.find((f) => re.test(f.text))?.path;
+    if (ci) return { path: ci, hook: false };
+    const hook = this.hookFiles.find((f) => re.test(f.text))?.path;
+    return hook ? { path: hook, hook: true } : undefined;
   }
 
   /** Every fetched workflow file's path, in tree order. */
@@ -779,15 +809,20 @@ const d6: Detector = (idx, snap) => {
   // linter config was found (the gap this closes), else a small top-up (both config + CI enforcement).
   // Resolved to the workflow FILE the gate runs in, not the blob — "enforced in CI" is a claim about
   // one job in one workflow, and that is the file a reader has to open to check it (SAM-L1-01).
-  const ciGuardrail = idx.workflowMatch(
+  // Read from every CI config D3 credits as a pipeline, not only Actions (backlog develop-2026-09-17
+  // row 2): a GitLab repo running `ruff check` read as gated on D3 and "configured, not enforced" here.
+  // A lefthook gate earns the same points under its own "git hook" label, never the CI one.
+  const ciGuardrail = idx.enforcementMatch(
     /cargo clippy|cargo fmt|rustfmt|go vet|staticcheck|golangci-lint|ruff (check|format)|\bmypy\b|pyright|\bty check\b|eslint|biome (check|ci|lint)|prettier --check|tsc\b[^\n]*--noemit|--no-?emit|npm run (lint|typecheck|check)|(pnpm|yarn) (lint|typecheck|check)|make (lint|fmt|format|check)|task (lint|check)|taplo|spotless|treefmt/,
   );
-  if (ciGuardrail)
+  if (ciGuardrail) {
+    const where = ciGuardrail.hook ? "in a git hook" : "in CI";
     s.add(
       linterConfigured ? 5 : 20,
-      linterConfigured ? "Guardrails also enforced in CI" : "Lint/format/type-check enforced in CI",
-      ciGuardrail,
+      linterConfigured ? `Guardrails also enforced ${where}` : `Lint/format/type-check enforced ${where}`,
+      ciGuardrail.path,
     );
+  }
 
   const tsconfigPath = idx.first(/(^|\/)tsconfig\.json$/);
   const tsconfig = idx.content("tsconfig.json") || "";
@@ -830,17 +865,23 @@ const d6: Detector = (idx, snap) => {
     /(^|\/)knip\.(json|jsonc|ts|js)$/,
   );
   const ratchetCi = RATCHET_TERMS.test(idx.workflowText);
-  if (ratchetScript || ratchetPath || ratchetCi)
+  // Off-Actions, the file is cited (the Actions wording above is kept byte-identical for Actions repos).
+  const ratchetElsewhere = ratchetCi ? undefined : idx.enforcementMatch(RATCHET_TERMS)?.path;
+  if (ratchetScript || ratchetPath || ratchetCi || ratchetElsewhere)
     s.add(
       15,
       "Quality ratchet / debt ceiling enforced",
-      ratchetScript ? `package.json script "${ratchetScript.name}"` : (ratchetPath ?? "enforced in CI workflow"),
+      ratchetScript
+        ? `package.json script "${ratchetScript.name}"`
+        : (ratchetPath ?? (ratchetCi ? "enforced in CI workflow" : ratchetElsewhere)),
     );
 
   // A linter that gates is not a linter that runs. `--max-warnings 0` / `-D warnings` is the cheapest
   // evidence that a warning fails the build rather than scrolling past in a log.
   const zeroWarnings =
-    ZERO_WARNING_GATE.test(idx.workflowText) || scripts.some((sc) => ZERO_WARNING_GATE.test(sc.body));
+    ZERO_WARNING_GATE.test(idx.workflowText) ||
+    idx.enforcementMatch(ZERO_WARNING_GATE) !== undefined ||
+    scripts.some((sc) => ZERO_WARNING_GATE.test(sc.body));
   if (zeroWarnings) s.add(5, "Lint/type gate fails on warnings (zero-warning policy)");
 
   // (Supply-chain security — SAST/SCA/secret/container scanning, SBOM, signing — is scored
