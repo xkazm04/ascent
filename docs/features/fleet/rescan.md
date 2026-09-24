@@ -188,13 +188,34 @@ dropped, it emits `queued { runId, queued, total }` — work still owed, which t
 finishes. `GET /api/org/scan/queue?org=&runId=` serves the poll behind "N queued — finishing in the
 background" (gate the org, then constrain the query by it, so a foreign run id is simply not found).
 
-`POST /api/org/import` keeps its own scan loop (it also meters the public-scan allowance); its claim
-moved onto the queue (`claimRepoWork` → `settleJob`). After a successful overflow reserve it stamps
-`creditCharged` on that row (`markJobCredit`) **before** inference, and settles `skipped` / `failed`
-/ `done` honestly — `creditRefunded` on a pre-inference refund, left standing on billed inference. A
-process kill at the 300s ceiling never runs `finally`; `reapExpiredLeases` returns the row to
-`queued` without clearing `creditCharged`, and the next `runRescoreJob` carries that credit instead
-of reserving again. Without the stamp, a killed import would double-debit.
+`POST /api/org/import` now has the same shape (2026-09-24): it enqueues one `rescore` job per repo
+under its run id **before** anything is scanned, drains its own jobs until the deadline, and leaves
+the rest `queued`. The run ends with the same `queued { runId, queued, total }` frame and a `queued`
+count on `result`, and the wizard's reattach poll (`GET /api/org/scan/queue`) now has real rows to
+follow. Before, a row was written only when a repo was claimed, so an import killed at 300s left no
+trace of the repos it never started. The drain body stays the import's own (it meters the public-scan
+allowance and attributes debits to the signed-in importer). After a successful overflow reserve it
+stamps `creditCharged` on that row (`markJobCredit`) **before** inference, and settles `skipped` /
+`failed` / `done` honestly: `creditRefunded` on a pre-inference refund, left standing on billed
+inference. A process kill at the 300s ceiling never runs `finally`; `reapExpiredLeases` returns the
+row to `queued` without clearing `creditCharged`, and the next `runRescoreJob` carries that credit
+instead of reserving again. One imported repo reserves one credit, whichever process finishes it.
+
+The background worker runs the queued tail without the request that created it, so an import row
+carries that request's scan policy on its `reason` (`import:<token>[+mock][+funnel]`,
+`src/lib/scan-import-policy.ts`), and `runRescoreJob` honors it:
+
+- **Credential.** `install` scans with the org's installation token, `ambient` with the env token (the
+  auth-off seeding path), and `none` sets `noAmbientToken`. Without it, a token-less anonymous import's
+  tail would fall back to the operator PAT. Only an `install` row can be skipped as `no_token`.
+- **Mock.** A preview import's tail stays a free mock scan and reserves no credit.
+- **Public funnel.** That allowance is metered per request, so the worker cannot finish such a row. The
+  import settles its own unreached funnel tail `skipped` and sends a `time_budget` notice; a funnel row
+  the worker still finds is settled `skipped` without a scan or a charge.
+
+A queued tail is also enrolled in the watchlist and schedule the caller asked for when the drain stops,
+because the worker does not know that choice. A bare `import` reason (a row written before the
+encoding) keeps the worker's default path.
 
 **Three skip reasons, kept apart (2026-09-06).** The worker emits `insufficient_credits`, `no_token`
 and `in_progress`. The `result` frame used to carry only the first and the third, and the client
@@ -254,9 +275,9 @@ nothing was billed"*. That premise only holds **before `scanRepository` returns*
   retry would re-run and re-bill the same inference.
 
 Since the queue landed the cron and `/api/org/scan` share **one** implementation (`runRescoreJob` in
-`src/lib/scan-queue-worker.ts`). The import keeps its own loop (public-scan allowance, below) but
-stamps the same `ScanJob.creditCharged` after reserve, so a 300s kill + reap cannot double-debit an
-import either. The held reservation is recorded on the job row rather than in a local variable.
+`src/lib/scan-queue-worker.ts`). The import drains its own jobs with its own body (public-scan
+allowance, below) but stamps the same `ScanJob.creditCharged` after reserve, so a 300s kill + reap
+cannot double-debit an import either, and its unreached tail runs through `runRescoreJob`. The held reservation is recorded on the job row rather than in a local variable.
 
 **And the retry now READS it back (2026-09-06).** Being attributable was only half the point: the
 row was written and never consulted, so the sequence this queue exists to survive — reserve, start
@@ -364,7 +385,7 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 | `src/app/api/cron/rescan/route.ts` | The rescore lane's seeder + worker. |
 | `src/app/api/cron/probe/route.ts` | The free control lane's seeder + worker (`maxDuration = 60`, hourly). |
 | `src/lib/db/scan-jobs.ts` | The queue: `enqueueScanJob`, `enqueueDueRescans`, `enqueueDueProbes`, `enqueueProbeJob`, `claimJob`, `claimJobById`, `claimRepoWork`, `markJobCredit`, `settleJob`, `reapExpiredLeases` (requeues without clearing `creditCharged`), `queueDepth`, `orgQueueDepth` (the null-honest read the Repositories tab renders), `listJobsForRun`. |
-| `src/lib/scan-queue-worker.ts` | `drainLane` — the money loop for the cron and the bulk scan. Import keeps its own loop but stamps `creditCharged` the same way, so a reaped import row is carried, not re-reserved. |
+| `src/lib/scan-queue-worker.ts` | `drainLane`: the money loop for the cron and the bulk scan. Import drains its own jobs with its own body but stamps `creditCharged` the same way, so a reaped import row is carried, not re-reserved; the import's queued tail runs here under the policy on its `reason`. |
 | `src/lib/scan-probe.ts` · `src/lib/scan-probe-controls.ts` | The credit-free runner and its pure `Governance`/`SecurityPosture`/repo-meta → control samplers. |
 | `src/lib/db/control-observations.ts` | `recordObservations`, `latestObservations`, `listObservationsSince` — the ledger's write side. |
 | `src/lib/cron-auth.ts` | Shared `requireCronAuth` gate for all cron routes. |
@@ -373,6 +394,7 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 | `src/lib/db/org-llm.ts` | `isByomActive`: BYOM detection to skip platform billing. |
 | `src/lib/pool.ts` | `mapPoolUntilDeadline` (array fan-out), `drainUntilDeadline` (supplier fan-out, for the queue), `fleetDeadlineAt`, `SCAN_CONCURRENCY`, `PROBE_CONCURRENCY`. |
 | `src/lib/scan-alerts.ts` | `checkAndAlertRegression` (see [alerts.md](./alerts.md)). |
+| `src/lib/scan-import-policy.ts` | `importJobReason` / `decodeImportReason`: the import request's credential, mock and public-funnel facts, carried on the job's `reason` for the worker. |
 
 ## Known gaps
 
@@ -390,6 +412,11 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
   `claude-cli` is local-only, so a rescan never uses it. **The probe lane is independent of
   `LLM_PROVIDER` entirely** — it runs no inference, so control freshness holds on a deployment with
   no model configured at all.
+- **The onboarding wizard does not yet follow an import's queued tail live.** When the stream's
+  `result` arrives, the wizard resolves every repo it never got a `repo` frame for to "not scanned",
+  although those repos are queued and the worker will scan them. A refresh re-attaches through the
+  queue poll and shows them finishing; the live stream does not. `claimRepoWork` in
+  `src/lib/db/scan-jobs.ts` has no product caller left since the import enqueues first.
 
 (The former gap about the bounded-concurrency worst-observed estimate is deleted: a pass that stops
 early no longer loses the repos it did not reach. They stay `queued` and the next pass takes them, so
