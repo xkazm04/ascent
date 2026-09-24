@@ -35,8 +35,8 @@ import { RUBRIC_NOW, type RubricFixture } from "./rubric-corpus";
  * the corpus itself changed (a fixture added or edited), never when the pipeline did.
  */
 export const PINNED_RUBRIC_FINGERPRINT = {
-  version: "r21",
-  sha256: "485aac605281a8bfe3e086bdd1f0577c90b7644980c260bb5ab9bc9e6b9b95ea",
+  version: "r22",
+  sha256: "6784f095efa1d9358e39c78cee5b9a88841a4ce65763a89a9af92f16b6cccd93",
 } as const;
 
 /** The pipeline stages, injectable so a test can seed a violation and watch the pin see it. */

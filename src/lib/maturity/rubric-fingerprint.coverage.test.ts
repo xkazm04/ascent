@@ -37,10 +37,15 @@ const CORPUS_CASES: { name: string; holds: (t: FixtureTrace) => boolean }[] = [
   { name: "guidance contradiction evidenced on D1", holds: (t) => (signal(t, "D1")?.facets ?? []).includes("contradiction") },
   { name: "derived-citation claim rejected", holds: (t) => (dim(t, "D1")?.evidence ?? []).some((e) => e.includes("(derived-citation)")) },
   { name: "platform fold observed", holds: (t) => t.phase.platformSignals?.source === "observed" },
+  { name: "default-branch CI health folded on D3", holds: (t) => labels(t, "D3").some((l) => l.startsWith("Default-branch CI")) },
   {
     name: "D6 enforcement read from off-GitHub CI",
     holds: (t) =>
       (signal(t, "D6")?.signals ?? []).some((s) => s.label.includes("enforced in CI") && s.detail === ".gitlab-ci.yml"),
+  },
+  {
+    name: "PR-head-only App credited (r22)",
+    holds: (t) => (signal(t, "D2")?.signals ?? []).some((s) => s.detail?.includes("recent PR heads") ?? false),
   },
 ];
 

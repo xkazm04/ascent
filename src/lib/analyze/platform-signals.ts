@@ -10,13 +10,17 @@
 //    commit. Folds: D4 (AI review / agent Apps installed, when the workflow scan found none),
 //    D3 (a non-Actions CI or a deploy platform posting suites), D2 (a coverage reporter wired in).
 //    D9's share of the inventory (code scanning, supply-chain scanners) lives in security/checks.ts,
-//    because D9 is the deterministic battery, not a Scorer detector.
+//    because D9 is the deterministic battery, not a Scorer detector. Since r22 (backlog row 42) the
+//    D2 and D4 folds also credit an App seen ONLY on recent merged PR heads (`prHeadAppsOf`), with the
+//    same award and the same one-per-capability rule; D3's CI and deploy folds read the scored commit
+//    alone, because a PR-only CI suite does not show the default branch builds and a PR-head deploy
+//    suite is a preview.
 //  • CI health (github/actions-health.ts) — recent default-branch Actions runs. Fold: D3.
 //
 // Every added Signal carries a `detail` with the concrete slugs / counts (BACKLOG B4: evidence must
 // be re-traceable, not a label). A crashed detector (`failed`) is never decorated (G3-08).
 //
-import { appsOf, type AppInventory, type AppSuite } from "@/lib/github/check-suites";
+import { appsOf, observedOn, prHeadAppsOf, type AppInventory, type AppSuite } from "@/lib/github/check-suites";
 import type { CiHealth } from "@/lib/github/actions-health";
 import type { DimensionSignals, PlatformFoldDim, PlatformSignalRecord, Signal } from "@/lib/types";
 import { PLATFORM_FOLD_DIMS } from "@/lib/analyze/platform-carry";
@@ -56,21 +60,28 @@ export function applyAppInventorySignals(
   const ci = appsOf(inventory, "ci");
   const deploy = appsOf(inventory, "deploy");
   const coverage = appsOf(inventory, "coverage");
+  // r22: the PR-gate Apps seen only on recent merged PR heads. Same award, paid once per capability
+  // together with the scored commit's (a category on both lists is one credit, not two).
+  const prReview = prHeadAppsOf(inventory, "ai-review");
+  const prCoverage = prHeadAppsOf(inventory, "coverage");
+  const anyReview = aiReview.length > 0 || prReview.length > 0;
+  const anyCoverage = coverage.length > 0 || prCoverage.length > 0;
   // A 200 with no scoreable Apps (or only sast/supply-chain ones, which D9 owns) changes nothing.
-  if (!aiReview.length && !ci.length && !deploy.length && !coverage.length) return signals;
+  if (!anyReview && !ci.length && !deploy.length && !anyCoverage) return signals;
 
   return signals.map((s) => {
     // Never decorate a crashed detector's placeholder score with real-looking evidence (G3-08) —
     // the same guard applyPrSignals / applyGovernanceSignals carry.
     if (s.failed) return s;
 
-    if (s.id === "D4" && aiReview.length) {
+    if (s.id === "D4" && anyReview) {
       // r9: an installed review App is an INSTANCE of the automated_review facet (scoring/claims.ts),
       // not a separate 25. If the detector already evidenced the facet this is confirmation; otherwise
       // it awards the facet's points and marks it, so a model claim for the same facet cannot double it.
       const facets = new Set(s.facets ?? []);
       const configured = facets.has("automated_review");
       if (!configured) facets.add("automated_review");
+      const seen = observedOn(aiReview, prReview);
       return {
         ...s,
         signalScore: configured ? s.signalScore : clamp(s.signalScore + facetPoints("automated_review")),
@@ -78,8 +89,8 @@ export function applyAppInventorySignals(
         signals: [
           ...s.signals,
           configured
-            ? { label: "AI review App also observed on the scored commit", detail: slugsOf(aiReview) }
-            : { label: "AI review/agent App installed", detail: `observed on the scored commit: ${slugsOf(aiReview)}` },
+            ? { label: `AI review App also observed on ${seen.where}`, detail: seen.slugs }
+            : { label: "AI review/agent App installed", detail: `observed on ${seen.where}: ${seen.slugs}` },
         ],
       };
     }
@@ -107,16 +118,18 @@ export function applyAppInventorySignals(
       return { ...s, signalScore: clamp(score), signals: [...s.signals, ...added] };
     }
 
-    if (s.id === "D2" && coverage.length) {
+    if (s.id === "D2" && anyCoverage) {
       const tracked = s.signals.some((x) => /coverage/i.test(x.label));
+      const seen = observedOn(coverage, prCoverage);
       return {
         ...s,
         signalScore: tracked ? s.signalScore : clamp(s.signalScore + 8),
         signals: [
           ...s.signals,
           tracked
-            ? { label: "Coverage reporter also observed on the scored commit", detail: slugsOf(coverage) }
-            : { label: "Coverage reporter wired", detail: slugsOf(coverage) },
+            ? { label: `Coverage reporter also observed on ${seen.where}`, detail: seen.slugs }
+            : // Bare slugs when the scored commit carried one (the r7 line); a PR-only reporter says where.
+              { label: "Coverage reporter wired", detail: coverage.length ? seen.slugs : `observed on ${seen.where}: ${seen.slugs}` },
         ],
       };
     }

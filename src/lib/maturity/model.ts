@@ -271,7 +271,24 @@ import type {
 // carry a TypeScript stack, so every userSha moved; under r20's prompt the corpus hashes
 // 3544247c..., under r21's 485aac60.... No weight, band, blend, guardband, lens or system-prompt
 // text moved: EXPECTED_RUBRIC_HASH in model.test.ts is unchanged.
-export const SCORING_RUBRIC_VERSION = "r21";
+// r22 (2026-09-24, backlog develop-2026-09-17 row 42): A PR-ONLY APP IS CREDITED. The App inventory
+// read only the scored default-branch commit, so default-setup CodeQL, Semgrep/Sonar, Codecov, Socket
+// or CodeRabbit posting suites only on `pull_request` events earned nothing: SAST 0 on D9 for a repo
+// that scans every PR. Row 12 (6e9a8f1d) made the inventory also read up to 3 recent merged PR heads
+// into `prHeadApps`, observed but uncredited. THE RULE: an App seen only on a PR head earns the SAME
+// award as on the scored commit, for the PR-gate categories only (ai-review -> the D4
+// automated_review facet, coverage -> D2 +8, sast -> the D9 SAST check 10, supply-chain -> D9
+// dependency-updates 6); a CI or deploy App seen only on a PR head earns nothing (the D3 CI award
+// means "the default branch builds", and a PR-head deploy suite is a preview). One award per
+// capability: a category on both lists is paid once, and a slug on both lists is named once, on
+// the scored commit (`prHeadAppsOf`, github/check-suites.ts). `prHeadTruncated` never removes
+// credit: the list is a floor. An inventory with no PR-head read scores byte-identically to r21.
+// The D9 carry replays the PR-head Apps (CarriedSecurityInputs widened), so a worktree rescan's D9
+// stays on the observed scan's ruler. PRICED: up to +25 D4, +8 D2 and the SAST/dependency-updates
+// lift on D9, token scans only. The corpus gained the `pr-only-apps` fixture so the pin sees the
+// class: under r21's rule it hashes c18467de..., under r22's 6784f095.... No weight, band, blend,
+// guardband, lens or system-prompt text moved: EXPECTED_RUBRIC_HASH in model.test.ts is unchanged.
+export const SCORING_RUBRIC_VERSION = "r22";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

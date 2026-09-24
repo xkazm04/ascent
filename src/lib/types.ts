@@ -991,7 +991,24 @@ export interface PlatformFoldDim {
 export interface CarriedSecurityInputs {
   governance: Governance | null;
   posture: SecurityPosture | null;
-  apps: { sha: string; apps: { slug: string; name: string; conclusion: string | null }[]; total: number; truncated: boolean } | null;
+  apps: {
+    sha: string;
+    apps: CarriedAppSuite[];
+    total: number;
+    truncated: boolean;
+    /** The PR-head half of the inventory (backlog rows 12/42): the battery credits a SAST or
+     *  supply-chain App seen only there since r22, so a replay that dropped it would lower D9. */
+    prHeadApps?: CarriedAppSuite[];
+    prHeadShas?: string[];
+    prHeadTruncated?: boolean;
+  } | null;
+}
+
+/** Structural copy of `AppSuite` (check-suites.ts) for the carried inventory. */
+interface CarriedAppSuite {
+  slug: string;
+  name: string;
+  conclusion: string | null;
 }
 
 export interface PlatformSignalRecord {

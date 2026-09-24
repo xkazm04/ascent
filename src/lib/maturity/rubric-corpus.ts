@@ -341,4 +341,29 @@ export const RUBRIC_CORPUS: readonly RubricFixture[] = [
     prStats: null, governance: null, securityPosture: null, securityExposure: null,
     assessment: assess({ llm: { D6: 55 } }),
   },
+  {
+    id: "pr-only-apps",
+    rule: "an App seen only on recent merged PR heads earns the PR-gate credits (D2 coverage, D4 review, D9 SAST) and nothing for CI or deploy, even from a truncated read",
+    snapshot: snap("pr-only-apps", {
+      "README.md": "# pr-only-apps\nIts scanners and reviewers post on pull requests, never on main.",
+      "package.json": JSON.stringify({ scripts: { test: "vitest run" }, devDependencies: { vitest: "3" } }),
+      ".github/workflows/ci.yml": "on: [push, pull_request]\njobs:\n  ci:\n    steps:\n      - run: npm test\n",
+    }),
+    prStats: null, governance: null, securityPosture: null, securityExposure: null,
+    appInventory: {
+      sha: "0000000000000000000000000000000000000000",
+      apps: [{ slug: "github-actions", name: "GitHub Actions", conclusion: "success" }],
+      total: 1,
+      truncated: false,
+      prHeadApps: [
+        { slug: "github-code-scanning", name: "GitHub Code Scanning", conclusion: "success" },
+        { slug: "codecov", name: "Codecov", conclusion: "success" },
+        { slug: "coderabbitai", name: "CodeRabbit", conclusion: "success" },
+        { slug: "vercel", name: "Vercel", conclusion: "success" },
+      ],
+      prHeadShas: ["1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222"],
+      prHeadTruncated: true,
+    },
+    assessment: assess(),
+  },
 ];

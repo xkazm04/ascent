@@ -6,8 +6,9 @@
 // The PR page ingestion already fetched carries each merged PR's head oid, so the heads are free; the
 // extra cost is at most PR_HEAD_INVENTORY_CAP concurrent check-suite calls.
 //
-// What this file pins is the INGEST half only: the PR-head Apps land in `prHeadApps`, beside the
-// scored commit's `apps`, and no score reads them yet (crediting them is a separate backlog row).
+// What this file pins is mostly the INGEST half: the PR-head Apps land in `prHeadApps`, beside the
+// scored commit's `apps`. The last case walks the join into the score: since r22 (row 42) a PR-only
+// SAST App is credited by the D9 battery (security/checks.pr-heads.test.ts pins the credit rule).
 
 import { describe, it, expect, vi } from "vitest";
 import { ingestRepository } from "./scan-ingest";
@@ -134,7 +135,7 @@ describe("ingestRepository: the App inventory observes recent PR heads", () => {
     expect(result.sensorFailures).toEqual(["appInventory"]);
   });
 
-  it("guard: a PR-only SAST App earns nothing yet (observed, not credited)", async () => {
+  it("a PR-only SAST App read at ingest is credited by the D9 battery (r22)", async () => {
     const score = async (heads: string[]) => {
       const { read } = inventoryReader({ sha1: [], pr1: ["github-code-scanning"] });
       const r = await ingest({ pullRequests: prs(heads), appInventory: read });
@@ -145,6 +146,7 @@ describe("ingestRepository: the App inventory observes recent PR heads", () => {
       });
       return scoreInput.securityAssessment!.checks.find((c) => c.id === "sast")!.score;
     };
-    expect(await score(["pr1"])).toBe(await score([]));
+    expect(await score([])).toBeNull(); // no workflows and no App: n/a, as before
+    expect(await score(["pr1"])).toBe(10);
   });
 });

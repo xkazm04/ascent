@@ -36,8 +36,8 @@ export interface AppInventory {
   /**
    * Apps whose suites were seen on a recent merged PR HEAD and NOT on the scored commit (backlog row
    * 12, 2026-09-24): the PR-only SAST / coverage Apps that post on `pull_request` events and never on
-   * the default branch. OBSERVATION ONLY: every fold reads `apps` above (via `appsOf`), so nothing is
-   * credited from this list yet. Absent = no PR head was read (no token, no PR page, no merged PR, or
+   * the default branch. Credited since r22 (backlog row 42) for the PR-gate categories only,
+   * through `prHeadAppsOf`; `appsOf` still reads the scored commit alone. Absent = no PR head was read (no token, no PR page, no merged PR, or
    * a forge without the read); present-and-empty = heads were read and added nothing new.
    */
   prHeadApps?: AppSuite[];
@@ -157,6 +157,42 @@ export function classifyApp(slug: string): AppCategory {
 export function appsOf(inv: AppInventory | null | undefined, category: AppCategory): AppSuite[] {
   if (!inv) return [];
   return inv.apps.filter((a) => classifyApp(a.slug) === category);
+}
+
+/**
+ * The categories an App seen only on a recent merged PR head is CREDITED for (r22, backlog row 42):
+ * the PR-gate tools, whose natural home is the pull request. A default-setup CodeQL, Semgrep, Socket,
+ * Codecov or CodeRabbit App posts on `pull_request` events and may never post on the default branch,
+ * yet it runs on every change that merges; it earns the same award as on the scored commit.
+ *
+ * Deliberately absent: `ci` (the D3 award is "a pipeline builds the default branch", which a PR-only
+ * suite does not show) and `deploy` (a PR-head deploy suite is a preview, not an automated deploy).
+ */
+const PR_HEAD_CREDITED: ReadonlySet<AppCategory> = new Set<AppCategory>(["ai-review", "sast", "coverage", "supply-chain"]);
+
+/**
+ * Distinct Apps of one category seen ONLY on recent PR heads, for the folds that credit them beside
+ * `appsOf`. Empty for a category PR heads are not credited for, for an inventory with no PR-head read,
+ * and for a malformed persisted list. A slug the scored commit lists is never repeated here (it is
+ * credited once, there), even on an inventory not built by `withPrHeadApps`. `prHeadTruncated` never
+ * removes anything: the list is a floor, and what it names still counts.
+ */
+export function prHeadAppsOf(inv: AppInventory | null | undefined, category: AppCategory): AppSuite[] {
+  if (!inv || !PR_HEAD_CREDITED.has(category) || !Array.isArray(inv.prHeadApps)) return [];
+  const onCommit = new Set(inv.apps.map((a) => a.slug));
+  return inv.prHeadApps.filter((a) => classifyApp(a.slug) === category && !onCommit.has(a.slug));
+}
+
+/**
+ * Where a credited set of Apps was observed, for its evidence line. With nothing on PR heads this is
+ * the r7 wording byte-for-byte (`the scored commit`, bare slugs); PR-head Apps are named apart so a
+ * reader can tell a PR-only App from one on the default branch.
+ */
+export function observedOn(commit: AppSuite[], prHead: AppSuite[]): { where: string; slugs: string } {
+  const list = (apps: AppSuite[]) => apps.map((a) => a.slug).join(", ");
+  if (!prHead.length) return { where: "the scored commit", slugs: list(commit) };
+  if (!commit.length) return { where: "recent PR heads", slugs: list(prHead) };
+  return { where: "the scored commit", slugs: `${list(commit)} · on recent PR heads: ${list(prHead)}` };
 }
 
 const API = githubApiBase();

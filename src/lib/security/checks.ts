@@ -16,10 +16,12 @@
 // score byte-identical, and an observed App can only raise or fill in a check, never lower one. No new
 // check was added for it — a fresh 0-default control would drag D9 for every token scan and open a
 // token-vs-anonymous downward divergence, which is exactly the asymmetry this enrichment exists to avoid.
+// Since r22 (backlog row 42) a SAST or supply-chain App seen ONLY on recent merged PR heads
+// (`prHeadAppsOf`) earns the same credit as one on the scored commit: those tools gate the pull request.
 
 import type { Governance, RepoSnapshot, ScanSensorId, SecurityAssessment, SecurityCheck, SecurityExposure, SecurityPosture } from "@/lib/types";
-import type { AppInventory } from "@/lib/github/check-suites";
-import { appsOf } from "@/lib/github/check-suites";
+import type { AppInventory, AppSuite } from "@/lib/github/check-suites";
+import { appsOf, prHeadAppsOf } from "@/lib/github/check-suites";
 import { hasDependencyBotCommits } from "@/lib/analyze";
 
 const clamp10 = (n: number) => Math.max(0, Math.min(10, n));
@@ -155,6 +157,16 @@ function dangerousWorkflow(wf: { path: string; content: string }[]): { score: nu
 /** Comma-joined App slugs, for evidence text. */
 const slugsOf = (apps: { slug: string }[]) => apps.map((a) => a.slug).join(", ");
 
+/** `the scored commit (a)`, `recent PR heads (b)`, or both: where the credited Apps were observed. The
+ *  scored-commit-only form is the r7 evidence byte-for-byte. */
+function appsWhere(commit: AppSuite[], prHead: AppSuite[]): string {
+  const parts = [
+    commit.length ? `the scored commit (${slugsOf(commit)})` : "",
+    prHead.length ? `recent PR heads (${slugsOf(prHead)})` : "",
+  ].filter(Boolean);
+  return parts.join(" and on ");
+}
+
 /**
  * SAST — static analysis wired into CI, graded by whether it runs on PR/push vs manual-only.
  *
@@ -170,8 +182,12 @@ function sast(
   snap: RepoSnapshot,
   apps: AppInventory | null = null,
 ): { score: number | null; evidence: string; remediation?: string } {
-  const sastApps = appsOf(apps, "sast");
-  const appEvidence = `Code scanning App active on the scored commit (${slugsOf(sastApps)}).`;
+  // r22: a scanner seen ONLY on recent merged PR heads is credited like one on the scored commit
+  // (default-setup CodeQL and the Semgrep/Sonar Apps post on `pull_request`, which is where they gate).
+  const commitSast = appsOf(apps, "sast");
+  const prSast = prHeadAppsOf(apps, "sast");
+  const sastApps = [...commitSast, ...prSast];
+  const appEvidence = `Code scanning App active on ${appsWhere(commitSast, prSast)}.`;
   // No GitHub Actions workflows to inspect → n/a (excluded), not a 0. A hard 0 here conflated "no SAST"
   // with "no GitHub-native CI to look in", flooring elite off-GitHub repos (govulncheck/CodeQL may run
   // on Gerrit/LUCI). Mirrors dangerous-workflow / token-permissions, which already go n/a without workflows.
@@ -189,7 +205,10 @@ function sast(
   const also = sastApps.length ? `; also ${slugsOf(sastApps)} App` : "";
   // Committed SAST that doesn't clearly gate PRs (6) plus an App that fires on the commit anyway is a
   // gating control by observation — take the 10 and drop the remediation with it.
-  if (!onPr && sastApps.length) return { score: 10, evidence: `SAST present but not clearly gating PRs${also} active on the scored commit.` };
+  if (!onPr && sastApps.length) {
+    const where = prSast.length ? `; also code scanning App active on ${appsWhere(commitSast, prSast)}` : `${also} active on the scored commit`;
+    return { score: 10, evidence: `SAST present but not clearly gating PRs${where}.` };
+  }
   return { score: onPr ? 10 : 6, evidence: onPr ? `SAST runs on PR/push${also}.` : "SAST present but not clearly gating PRs.", remediation: onPr ? undefined : "Run SAST on pull_request so it gates merges." };
 }
 
@@ -206,10 +225,11 @@ function dependencyUpdateTool(snap: RepoSnapshot, apps: AppInventory | null = nu
   // not OPEN update PRs, so it lands below a committed config or an observed bot — partial credit, and
   // the remediation stands: the repo still has nothing that proposes the upgrade.
   const chainApps = appsOf(apps, "supply-chain");
-  if (chainApps.length)
+  const prChainApps = prHeadAppsOf(apps, "supply-chain"); // r22: a PR-only scanner earns the same 6
+  if (chainApps.length || prChainApps.length)
     return {
       score: 6,
-      evidence: `Supply-chain scanner App active on the scored commit (${slugsOf(chainApps)}); no dependency-update config committed.`,
+      evidence: `Supply-chain scanner App active on ${appsWhere(chainApps, prChainApps)}; no dependency-update config committed.`,
       remediation: "Add a `.github/dependabot.yml` (or Renovate) config.",
     };
   return { score: 0, evidence: "No dependency-update tool committed.", remediation: "Add a `.github/dependabot.yml` (or Renovate) config." };
