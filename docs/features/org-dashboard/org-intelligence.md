@@ -229,7 +229,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Bought | Contributors | `org/[slug]/contributors` | `src/features/bought/contributors/` | AI champions, involvement table (withheld below 3 contributors), **Who to enable next** (`EnablementTargets`, moved here from Adoption 2026-08-19 — see below), an **Org resilience** module (fleet key-person exposure, repo-level only, names nobody), and the per-repo concentration / bus-factor table. **2026-09-05:** the \"You\" strip says attribution is *withheld* below the naming floor instead of \"no commits attributed\"; each section degrades on its own (`allSettled`), so one failed read no longer blanks the tab. **2026-09-08 (redesign Wave 1):** the tab now OPENS on a graphic — an AI-share `Distribution` with the viewer's own position marked — concentration is a `ConcentrationCurve` with the bus-factor knee above the per-repo table, champions are plotted in adoption × volume space, resilience leads with a per-repo top-share quartile strip, the care section leads with a `MatrixGrid` privacy ledger whose per-person column is a column of voids, and a contributor with no commits to take a share OF renders a **void, not a 0% bar**. See [Contributors, redesigned](#contributors-redesigned-the-distribution-is-plotted-wave-1-2026-09-08). |
 | Bought | Teams | `org/[slug]/teams` | `src/app/org/[slug]/teams/page.tsx` | Per-team (CODEOWNERS) Adoption×Rigor, dimension shape, AI-knowledge & champions, movers; the org's AI-knowledge leader + a suggested cross-team pairing. **2026-09-05:** per-section degradation; the Δ footnote derives from the period's `deltaLabel`; the AI% cell carries its contributor population in the row; the provenance stamp says \"captured fleet-wide\" under an active filter; the window goes through `orgWindowBounds`. |
 | Admin | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
-| Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers: Claude Code (measured, OTel push) and Copilot (seats-only, admin pull); OpenAI staged as planned. See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
+| Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers: Claude Code (measured, OTel push), Copilot (seats-only, admin pull) and OpenAI (allocated cost, admin pull with an owner-supplied Admin key). See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
 | Admin | Audit | `org/[slug]/audit` | `src/app/org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
 | Admin | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. **2026-09-23:** under the provider boundary matrix, a **Where each lane runs** card lists, per LLM lane (scans, Athena, board narrative, shared memory, lane summaries), the engine, model and whose account answers for this org, flags the two lanes a connected provider never carries, and adds an **If switched on** column for a saved-but-off provider. Owner-only like every card here; read-only. See [llm-providers](../scanning/llm-providers.md#settings-ui). |
 
@@ -1635,9 +1635,10 @@ Connects AI coding providers so the **AI delivery** views have a spend layer at 
 provider from the registry (`src/lib/integrations/providers.ts`), each declaring the best
 per-repo **fidelity** it can reach. **The connect surface is derived from the row, never from an id
 (2026-09-05):** `status: "available"` + `connectKind: "otel-push"` renders the Claude Code OTel setup,
-`"admin-pull"` renders `CopilotSetup` (a one-click owner **Sync now** against `POST
-/api/integrations/copilot/sync`, with the route's denied / not-configured / absent / unreachable
-branches rendered as remedies), and a `planned` row renders no surface. The status line under each
+`"admin-pull"` renders the panel `CONNECT_SETUP` names for the id: `CopilotSetup` for Copilot (a
+one-click owner **Sync now** against `POST /api/integrations/copilot/sync`, with the route's denied /
+not-configured / absent / unreachable branches rendered as remedies) and `OpenAISetup` for OpenAI
+(below), and a `planned` row renders no surface. The status line under each
 card is likewise keyed on the row: a seats-only provider reports **seats and peak engaged users**
 and never a dollar figure, so a synced Copilot org can no longer read "$0.00 over the last 35
 days". Before this the panel keyed on the literal `claude-code` id, so Copilot showed a green
@@ -1657,7 +1658,7 @@ them into org totals alongside repo or org records could count the same spend tw
 | Fidelity | Provider | What it means |
 | --- | --- | --- |
 | `measured` | Claude Code (available) | Spend attributed to the exact repo, via the OTel `git.repository` resource attribute. |
-| `allocated` | OpenAI · Codex (planned) | Reported above repo level; distributed by git-attributed AI volume. |
+| `allocated` | OpenAI · Codex (available, 2026-09-24) | Org daily cost from the Admin Costs API, reported above repo level; distributed by git-attributed AI volume. |
 | `seats-only` | GitHub Copilot (available, **W3b**) | Seats and daily engagement, **no spend**: GitHub exposes no per-seat price through any API. |
 
 **`seats-only` is not a lesser `allocated`; it is a different fact.** The Copilot connector stores
@@ -1770,6 +1771,45 @@ previously-invisible failure, called out in orange with the `git.repository` fix
 and a 202 on a payload it cannot parse would read to the collector as "delivered" while nothing
 ever persists. `/v1/logs` authenticates and 202-accepts without parsing; the token/cost signal
 lives in metrics; folding log events into usage is a later step.
+
+### OpenAI Admin Costs connector (2026-09-24)
+
+OpenAI is the connector that gives most orgs a cost source without deploying OTel to every
+developer machine. It is available, `allocated`, admin pull, with its **own** panel
+(`OpenAISetup`, never Copilot's GitHub App pull):
+
+- **Custody.** The owner pastes an organization **Admin key** (`sk-admin-...`; project and
+  service-account keys cannot read costs and are refused with 400). `PUT /api/integrations/openai`
+  stores it as `encryptSecret()` ciphertext in `ProviderCredential` and **refuses (409) when
+  `ENCRYPTION_KEY` is not configured** rather than store it in the clear. Every verb (GET, PUT,
+  DELETE) is owner-only; writes are same-origin. No response carries the key or its ciphertext:
+  the wire row `ProviderConnectionRow` has `hasCredential` and no field for either. Connect and
+  disconnect are audited (`integrations.openai.connect` / `.disconnect`) without the key; an org
+  erase destroys the row. An optional **project filter** (`proj_...` ids) limits the pull to the
+  projects Codex bills to; without it every OpenAI API cost in the organization counts, and the
+  panel says so before the first sync.
+- **Sync.** `POST /api/integrations/openai/sync` (owner-gated, mirrors the Copilot route) reads the
+  last 90 days of `GET /v1/organization/costs` in daily buckets and stores one `AiUsageRecord` per
+  day: `source=openai`, `scope=org`, `fidelity=allocated`, real `costCents` (a day's USD results
+  summed, then rounded once), `tokens` 0 (the Costs API reports money only), `mode: "replace"` so a
+  re-sync overwrites a day. These rows fold through the same `getOrgUsageRollup` as every other
+  source: an org-scope row with cost sets `hasAllocatedCost`, so Delivery's spend layer turns
+  **allocated** and the org total is distributed across repositories by git-attributed AI volume.
+  Non-USD results are counted and skipped, never converted.
+- **Bounded, and partial is recorded as partial.** Pages are capped (31 buckets per page, 4 pages)
+  and HTTP 429 gets a retry budget of 2 with a capped `Retry-After` wait. `complete` is true only when
+  OpenAI answers `has_more: false`. A pull that stops short after reading some days stores those
+  days, answers `partial: true` with the reason, stamps the connection `lastSyncStatus: "partial"`
+  with the span it covered, and audits `partial: true`; the panel's last-sync line reads **PARTIAL**.
+  A pull that read nothing answers from the typed failure (403 refused key, 429 rate-limited, 502
+  unreachable or malformed), stores nothing and records the sync as failed.
+- **Status line.** The card's line reports the last sync as org-level allocated cost. It shows no
+  dollar figure: that window selects rows by when they were written, and one sync rewrites 90 days,
+  so a "last 35 days" total would be mislabelled. The sync summary states the real span and total.
+
+The client is verified only against a recorded fixture of the published response shape
+(`src/lib/integrations/openai-costs.fixture.ts`, citing the OpenAI OpenAPI spec); no test calls the
+live API.
 
 ## The shared visual kit (`src/components/org/viz/`, 2026-09-08)
 
