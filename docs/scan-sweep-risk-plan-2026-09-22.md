@@ -81,4 +81,52 @@ The human rows were decided in session; each is now buildable as stated here, wh
 | 35 | Auto-watch repos newly granted on the install, as the finding says: only from the complete live GitHub list, only when the org already has a watchlist, at most 20 per event, hosted and self-hosted alike. This reverses the webhook's "added repos stay opt-in". |
 | 27 (follow-up) | The private session shape matches the viewer's own sessions by login OR an email the auth provider has confirmed for them; never anyone else's. |
 
+## Resolution on 2026-09-24: all 31 open rows landed
+
+Built in six waves of five builders on `master` (none pushed), each wave integrated on the combined tree with
+the full gate green (whole-tree `tsc`, the full vitest suite, eslint on every changed file, the
+contract-duplication check; `prisma validate` after the last wave). The register now reads **270 built of 270**.
+The code commit of each row (its doc commits follow it in history):
+
+| # | Commit | # | Commit | # | Commit | # | Commit |
+| ---: | --- | ---: | --- | ---: | --- | ---: | --- |
+| 1 | `f7175cd5` | 2 | `514b9309` | 4 | `ee060f0b` | 5 | `c605a770` |
+| 8 | `1eb84c67` | 12 | `6e9a8f1d` | 14 | `857c7dc2` | 16 | `f8c2560a` |
+| 20 | `60ca13ce` | 22 | `afed84cf` | 23 | `0b61ea19` | 25 | `fb0c8ccd` |
+| 26 | `51fd5c43` | 27 | `9a89381b` | 28 | `31c8d877` | 29 | `70dea1a9` |
+| 30 | `9e48ff5c` | 31 | `0f848b56` | 32 | `aa24f5fa` | 34 | `f3537055` |
+| 35 | `38bcbe76` | 37 | `743c509b` | 39 | `9fe8b68c` | 40 | `64234869` |
+| 41 | `8f2089b8` | 42 | `2b0913dc` | 43 | `45f42950` | 44 | `0bbbf124` |
+| 45 | `42f6609b` | 46 | `449f73db` | 47 | `22ac38cb` | 27 follow-up | `548d84bb` |
+
+Row 1 re-judged `wizard-flows`: the 2026-08-23 evidence is fixed, but the verdict stays `deviation` on new evidence
+(see the follow-ups). One coordinator fix landed at integration: `d822b737` makes the customer-repo door mint another
+owner's installation token only on a DECLARED self-host (`ASCENT_SELF_HOSTED=1`), never on the inferred one.
+
+**What a deploy of this range carries.** The rubric moved r19 -> r22 (rows 2, 22, 42): deployed together that is
+one cache-wide re-score, not three. Four additive migrations: `20260924120000_add_scan_dimension_unique` (on Aurora
+DSQL create the index by hand with `CREATE UNIQUE INDEX ASYNC`, then mark the migration applied; the header has the
+command), `20260924140000_add_scan_sensor_failures`, `20260924160000_add_mentor_share`,
+`20260924170000_add_provider_credential`.
+
+## Follow-ups the drain surfaced (not built)
+
+Each was found by a builder while landing its row, recorded as a Known gap in the named doc where it is
+user-visible, and is open work for a later pass:
+
+| From | Follow-up | Where it is recorded |
+| --- | --- | --- |
+| row 1 | `wizard-flows` still a deviation: the scan's `runId` lives only in one tab's sessionStorage, so a new tab or device does not see a running scan; an unreadable saved state silently starts fresh | `.ai/registry-map.json` |
+| row 26 | The onboarding wizard shows the queued import tail as "not scanned" until a refresh | `docs/features/fleet/rescan.md` |
+| row 28 | Unassessable observability and tests passport axes are still scored 0 (the CI/security hold could reuse `isRungHeld`) | this table |
+| row 32 | Athena's `handoff_followups` is a third claim path that still sets no claim columns | this table |
+| row 40 | A playbook PR closed without merging stays "proposed": nothing detects the close | `docs/features/org-dashboard/practices.md` |
+| row 46 | `npx ascent mentor share` has no per-person credential to send (every bearer token belongs to an org) | `docs/features/org-dashboard/developer.md` |
+| row 47 | Org erase never deletes `AiUsageRecord` rows, so an erased org's provider usage and cost history survives | this table |
+| row 47 | A partial OpenAI cost pull is marked on Integrations but not on Delivery | this table |
+| row 35 | A repo removed from the install and granted again, or scanned but never watched, is not auto-watched (no record of who unwatched) | `docs/features/github/github-app.md` |
+| row 2 | `.husky` hook bodies are not read; D3's CI signals are still Actions-only; local scans do not reserve bytes for non-Actions CI configs | `docs/features/scanning/scan.md` |
+| challenge 09-23b | `scans-persist.ts` drops a claimed row kept for `mock-scan` / `within-noise` from the ledger | this table |
+| rows 26, 32 | Dead after this drain: `claimRepoWork` (`src/lib/db/scan-jobs.ts`) and `handoffRecommendations` have no product caller | this table |
+
 Progress is recorded in scan-sweep history and commits. Preserve unrelated worktree edits; never push.
