@@ -151,6 +151,12 @@ describe("scanRepository — head sha threading (#6)", () => {
     expect(ref()).toBe("commitsha-zzz");
   });
 
+  it("stamps sensorFailures as a PROVEN empty list on a scan where no sensor threw (persisted as [], not unknown)", async () => {
+    const { source } = mockSource("treesha-aaa");
+    const report = await scanRepository("o/r", { source, mock: true, now: NOW });
+    expect(report.sensorFailures).toEqual([]);
+  });
+
   it("leaves the snapshot's own headSha and an unpinned ref when none is threaded", async () => {
     const { source, ref } = mockSource("treesha-aaa");
     const report = await scanRepository("o/r", { source, mock: true, now: NOW });

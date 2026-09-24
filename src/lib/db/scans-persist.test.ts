@@ -189,6 +189,8 @@ function makeReport(over: {
   resolvedFollowUpIds?: string[];
   /** Dimension scores on THIS scan — the after-side of the movement witness (2026-08-26). */
   dimensions?: ScanReport["dimensions"];
+  /** The GitHub sensors whose read THREW. Omitted = the key is absent, as on a hand-built/legacy report. */
+  sensorFailures?: ScanReport["sensorFailures"];
 } = {}): ScanReport {
   const roadmap = (over.roadmap ?? [{ dimension: "D1", title: "Add CI smoke tests" }]).map((r) => ({
     dimension: r.dimension,
@@ -231,6 +233,7 @@ function makeReport(over: {
     contributors: [],
     roadmap,
     ...(over.resolvedFollowUpIds ? { resolvedFollowUpIds: over.resolvedFollowUpIds } : {}),
+    ...(over.sensorFailures === undefined ? {} : { sensorFailures: over.sensorFailures }),
     scannedAt: over.scannedAt ?? "2026-06-18T00:00:00.000Z",
   } as unknown as ScanReport;
 }
@@ -1558,5 +1561,40 @@ describe("persistScanReport — the in-transaction audit row is signed", () => {
     } finally {
       delete process.env.AUDIT_SIGNING_SECRET;
     }
+  });
+});
+
+// Backlog develop-2026-09-17 row 30. The typed sensor-failure list (`ScanReport.sensorFailures`) had
+// no column, so a DB-tier gate hit rehydrated a report whose failed reads looked like legitimate
+// absence. Three states must reach the row distinctly: failures, a PROVEN empty list, and unknown.
+describe("persistScanReport — sensorFailures reaches the row (scan honesty survives the DB tier)", () => {
+  it("a scan whose governance read THREW persists the typed list", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_sensor", sensorFailures: ["governance", "securityPosture"] }));
+
+    expect(createdScans[0]!.sensorFailuresJson).toBe('["governance","securityPosture"]');
+  });
+
+  it("a live scan where nothing threw persists JSON [] (proven), not NULL", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_clean", sensorFailures: [] }));
+
+    expect(createdScans[0]!.sensorFailuresJson).toBe("[]");
+  });
+
+  it("a report that never carried the list persists NULL: unknown, which is not 'no failures'", async () => {
+    const { prisma, createdScans } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_unknown" }));
+
+    expect(createdScans[0]!.sensorFailuresJson).toBeNull();
   });
 });

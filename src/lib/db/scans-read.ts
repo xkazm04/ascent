@@ -42,6 +42,7 @@ import { asCraftAxis } from "@/lib/scoring/craft";
 import { reportPermalink } from "@/lib/ui";
 import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 import { digestToPoint, readDigestTail } from "@/lib/db/scan-digest";
+import { parseSensorFailures } from "@/lib/db/scan-sensor-failures";
 // The standing-regression rule itself is PURE and lives beside the other detectors in the alert
 // layer; this module only supplies it with persisted readings and, for the concerns it raises, the
 // evidence strings behind the two named scans.
@@ -1405,6 +1406,7 @@ async function loadScanReportByCommit(
   // page's fallback fetch can now be dropped since the reconstructed report carries the passport.
   const pp = parsePassportJson(scan.passportJson);
   const passport = pp ? applyPassportOverrides(pp, parsePassportOverrides(repo.passportOverridesJson)) : undefined;
+  const sensorFailures = parseSensorFailures(scan.sensorFailuresJson);
 
   return {
     repo: {
@@ -1462,6 +1464,10 @@ async function loadScanReportByCommit(
     ...(parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)
       ? { scoreIntegrity: parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)! }
       : {}),
+    // The typed list of GitHub sensors whose read THREW, so the gate on a DB-tier hit
+    // (lookupPersistedScanByCommit) still says "read FAILED" instead of scoring the null as absence.
+    // A NULL/unreadable column leaves the key ABSENT: unknown, never [] ("no sensor failed").
+    ...(sensorFailures ? { sensorFailures } : {}),
     scannedAt: scan.scannedAt.toISOString(),
     engine: {
       provider: scan.engineProvider as ProviderName,

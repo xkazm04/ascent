@@ -1262,9 +1262,10 @@ export interface ScanReport {
    *
    * A failed sensor and an absent finding are indistinguishable once both have collapsed to `null`,
    * and null is scored as ABSENCE almost everywhere downstream. This is the typed half of the honesty
-   * channel — the prose half is the matching `buildScanWarnings` caveat in `warnings`, which is what
-   * actually persists (`warningsJson`). Empty/absent = no sensor is KNOWN to have failed; on a report
-   * reconstructed from the DB it is simply unknown, which is why it is optional rather than defaulted.
+   * channel — the prose half is the matching `buildScanWarnings` caveat in `warnings` (`warningsJson`).
+   * Both persist: this list to `Scan.sensorFailuresJson`. A live scan always stamps it (`[]` = the reads
+   * ran and none threw); ABSENT means unknown (a row written before the column, or a hand-built
+   * report), which is why it is optional rather than defaulted.
    *
    * It is what makes `platformSignals` readable: an absent record plus `appInventory`/`ciHealth` here
    * means UNMEASURED (the read failed), while an absent record with no entry here means the scan

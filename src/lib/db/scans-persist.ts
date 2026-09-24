@@ -505,6 +505,10 @@ export async function persistScanReport(
             // floor on D2/D3/D4 that read exactly like a measured shortfall. Null = the question was
             // never asked, which is UNKNOWN and not "unavailable" — see PlatformSignalRecord.
             platformSignalsJson: report.platformSignals ? JSON.stringify(report.platformSignals) : null,
+            // The GitHub sensors whose read THREW (typed). Without it a DB-tier gate hit rehydrated a
+            // report whose failed reads looked like legitimate absence. `[]` is written as "[]" (the scan
+            // ran and nothing threw); a report that never carried the list stays NULL, which is UNKNOWN.
+            sensorFailuresJson: report.sensorFailures ? JSON.stringify(report.sensorFailures) : null,
             headline: report.headline,
             strengths: JSON.stringify(report.strengths),
             risks: JSON.stringify(report.risks),

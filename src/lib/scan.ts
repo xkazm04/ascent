@@ -390,10 +390,10 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   if (platformSignals) report.platformSignals = platformSignals;
   // The typed half of the sensor-failure channel. It is what makes an ABSENT `platformSignals` record
   // readable: with `appInventory`/`ciHealth` listed here the fold was UNMEASURED (the read failed);
-  // without them the scan looked and measured nothing. Stamped only when non-empty so a clean scan's
-  // report is byte-identical to what it was before. NOTE: `Scan` has no column for it, so only the
-  // prose caveat below survives persistence — see the report note for the doc/schema follow-up.
-  if (sensorFailures.length) report.sensorFailures = [...sensorFailures];
+  // without them the scan looked and measured nothing. Written unconditionally ([] on a clean scan,
+  // not omitted), for the same reason `degraded` is: it persists to `Scan.sensorFailuresJson`, and a
+  // row must be able to say "proven nothing threw" apart from "predates the column" (NULL = unknown).
+  report.sensorFailures = [...sensorFailures];
   // Surface non-fatal reliability caveats so the score is interpreted in context.
   const warnings = buildScanWarnings({
     detectorWarnings,

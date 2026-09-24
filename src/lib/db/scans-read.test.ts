@@ -114,6 +114,7 @@ import {
   scanContentKey,
   scanDedupKey,
 } from "./scans-read";
+import { evaluateGate } from "@/lib/scoring/gate";
 
 // ── Faked Prisma returning ONE scan row whose JSON columns we craft per-test ──────────────────────
 
@@ -132,6 +133,8 @@ function fakePrismaWithColumns(cols: {
   dimEvidence?: string | null;
   recExplore?: string | null;
   posture?: string;
+  /** Scan.sensorFailuresJson. Omitted = NULL, as on every row written before the column. */
+  sensorFailuresJson?: string | null;
 }) {
   const scan = {
     id: "scan_1",
@@ -156,6 +159,7 @@ function fakePrismaWithColumns(cols: {
     governance: cols.governance === undefined ? null : cols.governance,
     commitActivity: cols.commitActivity === undefined ? null : cols.commitActivity,
     discrepancies: cols.discrepancies === undefined ? "[]" : cols.discrepancies,
+    sensorFailuresJson: cols.sensorFailuresJson === undefined ? null : cols.sensorFailuresJson,
     dimensions: [
       {
         dimId: "ci",
@@ -401,6 +405,57 @@ describe("getScanReportByCommit — corrupt-row resilience (the load-bearing inv
     // The surrounding report still assembled with its non-JSON fields intact.
     expect(r.overallScore).toBe(70);
     expect(r.headline).toBe("ok");
+  });
+});
+
+// ── sensorFailures round-trips, so a DB-tier gate hit keeps the scan's honesty (row 30) ───────────
+// The persist half lives in scans-persist.test.ts (`sensorFailuresJson` written as '["governance"]',
+// '[]' or NULL). This half feeds those exact column values back through the reconstruction and then
+// through the REAL evaluateGate: the /api/gate DB hit (lookupPersistedScanByCommit) hands the gate
+// precisely this report, so the skip it produces is the one a CI caller reads.
+
+describe("getScanReportByCommit — sensorFailures survives persistence", () => {
+  const protectedBranch = { requireProtectedBranch: true } as const;
+  const governanceSkip = (r: Awaited<ReturnType<typeof reportWith>>) =>
+    evaluateGate(r, protectedBranch).skipped.find((s) => s.code === "governance");
+
+  it("a row that recorded a FAILED governance read rehydrates the typed list", async () => {
+    const r = await reportWith({ sensorFailuresJson: '["governance"]' });
+    expect(r.sensorFailures).toEqual(["governance"]);
+  });
+
+  it("the gate on the rehydrated report says the read FAILED, not that it was NOT READ", async () => {
+    const skip = governanceSkip(await reportWith({ sensorFailuresJson: '["governance"]' }));
+    expect(skip?.why).toContain("FAILED");
+    expect(skip?.why).not.toContain("NOT READ");
+  });
+
+  it("the gate's caveats on the rehydrated report name the failed read", async () => {
+    const res = evaluateGate(await reportWith({ sensorFailuresJson: '["governance"]' }), protectedBranch);
+    expect(res.caveats.join(" ")).toContain("branch governance");
+  });
+
+  it("a PROVEN empty list rehydrates as [] (distinct from unknown)", async () => {
+    const r = await reportWith({ sensorFailuresJson: "[]" });
+    expect(r.sensorFailures).toEqual([]);
+  });
+
+  it("guard: a legacy row (NULL column) rehydrates as UNKNOWN: the key is absent, never [] ('no failures')", async () => {
+    const r = await reportWith({});
+    expect(r.sensorFailures).toBeUndefined();
+    expect("sensorFailures" in r).toBe(false);
+  });
+
+  it("guard: a corrupt column is UNKNOWN too, and the report still rebuilds", async () => {
+    const r = await reportWith({ sensorFailuresJson: "{not json" });
+    expect(r.sensorFailures).toBeUndefined();
+    expect(r.overallScore).toBe(70);
+  });
+
+  it("guard: an unknown row still SKIPS the governance bar (not read), never passes it", async () => {
+    const res = evaluateGate(await reportWith({}), protectedBranch);
+    expect(res.skipped.find((s) => s.code === "governance")?.why).toContain("NOT READ");
+    expect(res.failures.some((f) => f.code === "governance")).toBe(false);
   });
 });
 
