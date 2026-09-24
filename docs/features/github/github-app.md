@@ -30,9 +30,13 @@ The App authenticates in two hops and caches the result:
 
 `githubAppFetch<T>(path, auth, init)` wraps calls with standard headers and throws
 `AppApiError` (carrying the HTTP status) on non-2xx. `isAppConfigured()` gates the whole
-feature on the env vars being present; `listInstallationReposResult(id)` pages through
-accessible repos and reports `truncated` when the walk hits the 50-page / 5000-repo cap
-before `total_count` is exhausted (`listInstallationRepos` is the thin array wrapper);
+feature on the env vars being present; `listInstallationReposResult(id, depth)` pages through
+accessible repos and reports `truncated` when the walk stops at its bound before `total_count`
+is exhausted. The `interactive` depth (the default, used by `GET /api/app/repos`) keeps the
+50-page / 5000-repo cap. The `reconcile` depth (the webhook's watch reconcile) walks up to 500
+pages / 50,000 repos and starts no new page once 180 s have elapsed, so the worst case is about
+210 s inside the webhook's 300 s `maxDuration` and at most 500 requests against the installation
+token's hourly rate limit (`listInstallationRepos` is the thin array wrapper);
 `verifyWebhook(rawBody, signature)` does the HMAC-SHA256 check against
 `GITHUB_APP_WEBHOOK_SECRET`.
 
@@ -50,7 +54,7 @@ talk to `githubApiBase()`.
 | --- | --- |
 | `installation` (created / deleted / suspended) | Sync stored installations (`upsertInstallation` / `removeInstallation`). |
 | `pull_request` (opened / synchronize / reopened / ready_for_review) | Run the PR maturity gate: score the PR head, diff vs base, post a Check Run + sticky comment (see [gate.md](../scanning/gate.md)). Falls back to the default branch when a fork head commit is unreachable. |
-| `installation_repositories` (added / removed) | The user changed *which* repos an installation can see. Deliberately **no payload-trusting fast path**: a deferred `reconcileInstallationRepos` re-lists the installation's live repos from GitHub and unwatches only what GitHub confirms is gone. |
+| `installation_repositories` (added / removed) | The user changed *which* repos an installation can see. Deliberately **no payload-trusting fast path**: a deferred `reconcileInstallationRepos` re-lists the installation's live repos from GitHub (at the `reconcile` depth, so installations past 5000 repos reconcile too) and unwatches only what GitHub confirms is gone. A listing that still comes back `truncated` skips the unwatch step entirely rather than treating a partial list as the live set. |
 | `check_run` (rerequested / requested_action `rescan`) | A "Re-run" click or GitHub's native rerequest — re-evaluate the gate for the PR the run is attached to, with no new push. |
 | `push` (default branch moved) | Re-scan **watched** repos (`runPushRescan`, DB-gated, **throttled**, see below) and alert on regressions (see [alerts.md](../fleet/alerts.md)). The same push also reaches the **registry lane** (`onRegistryPush`, a second `after()`). A push to the org's mapped registry sets `webhookHealthy` and re-indexes it. A fleet repo's push that touches `.ai/registry-map.json` or `.ai/manifest.yaml` re-sweeps that repo (see [org-registry](../org-registry/README.md#when-a-pass-runs-and-the-one-door-it-goes-through-2026-09-23)). A failure there is logged and never releases the delivery. |
 | `branch_protection_rule`, `repository_ruleset`, `repository` | Enqueue a **free control probe** of that repo (moonshot #10) **and** record a control *attribution* row (moonshot #1, below). A GitHub-confirmed `repository.deleted` (owner matches the installation) **unwatches that `fullName` only** — the same `reconcileWatchedRepos` drop used when a repo leaves the installation set. A forged owner mismatch does not unwatch. Archived stays watched. |
@@ -328,3 +332,8 @@ for, and failing would strand the id forever). See
   JSON + the `gh api` one-liner in the PR body) works with the permissions the App already has.
 - **`member` / `team` deliveries write no identity graph:** they only trigger a re-observation of the
   org's controls. Modelling org membership and scoped roles is a separate, unstarted item.
+- **Watch reconcile has a ceiling:** an installation whose listing cannot finish within the
+  `reconcile` bound (more than 50,000 repos, or a GitHub slow enough that 180 s does not cover every
+  page) still comes back `truncated`, and its access-change reconcile is skipped on every event, so
+  repos removed from such an installation stay watched. The skip is logged with the bound that
+  stopped the walk. There is no resumable listing across requests or a queued follow-up job.
