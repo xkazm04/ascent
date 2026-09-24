@@ -20,6 +20,7 @@ describe("wire-safe dates (structural guard)", () => {
     // + the standing runner's LoopPlanRecord and LoopDirectionRecord (spark theater-upgrade, WP3)
     // + RunnerKeptLessonRow (WP5), LoopPulse / LanePulse / RunnerPulse (WP4), LoopRunChronicleEntry (WP6a)
     // + RepoState (first-run-onboarding-wizard#B: the select step reads it off /api/app/repos).
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(71);
+    // + MentorShareRow (C3 care share, GET /api/me/mentor/share; backlog row 46).
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(72);
   });
 });

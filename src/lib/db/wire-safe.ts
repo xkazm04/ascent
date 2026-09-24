@@ -69,6 +69,7 @@ import type {
 // audit missed. See the note on WIRE_TYPES.
 import type { OrgBranding } from "@/lib/db/branding";
 import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
+import type { MentorShareRow } from "@/lib/db/mentor-share";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import type { ConformanceMapRow, ConformanceRow } from "@/lib/db/org-registry-conformance";
 import type { KnowledgeSubjectRow } from "@/lib/db/org-registry-subjects";
@@ -278,5 +279,8 @@ export const WIRE_TYPES = {
   // #11 — one metered model call. `createdAt` is the ISO string `listUsageEvents` maps it to.
   UsageEventRow: true satisfies WireSafe<UsageEventRow>,
   RepoState: true satisfies WireSafe<RepoState>,
+  // C3 (backlog row 46): GET /api/me/mentor/share returns it. `sharedAt` is the ISO string the reader
+  // maps; the nested share's move and journal dates are ISO strings by contract (care-share-contract).
+  MentorShareRow: true satisfies WireSafe<MentorShareRow>,
 } as const;
 
