@@ -65,4 +65,18 @@ Order: ascending recorded risk, then S before M before L, then descending impact
 | 46 | 6 | L | Human | Developer home (UC3 individual care) | Land C3 mentor-share so the care loop is not permanently an empty preview |
 | 47 | 6 | L | Human | Provider Integrations | Ship the planned OpenAI Codex admin-pull connector behind the existing allocated tier |
 
+## Operator decisions (2026-09-24)
+
+The human rows were decided in session; each is now buildable as stated here, which overrides the card where they differ.
+
+| # | Decision |
+| ---: | --- |
+| 1 | Re-judge: run `/conform` on First-Run Onboarding Wizard / `wizard-flows` and write the current verdict. |
+| 4 | Lower the roster GET to **member** (members, admins, owners read it); viewers stay refused. Writes and invites stay owner-only. |
+| 39 + 41 | Build both as one policy. 41: playbook apply, apply-batch and mark accept any repo already in the org's watched/admitted set, and still refuse a random owner. 39: on a hosted deployment a watch write must be org-owned or on the org's App installation; self-hosted keeps free-form watching (no credits at stake). |
+| 43 | The shared kiosk link gets a counts-only outcome summary (runs, verified closes, points in review); no repo names, commit text or lane logs. |
+| 45 | Stop selling a seat count instead of enforcing it: remove seats from the plan cards, the pricing matrix and the self-host pricing line, and say so in `billing.md`. |
+| 46 | Build C3 mentor-share (L, architecture; personal tables need a migration). |
+| 47 | Build the OpenAI Codex admin-pull cost connector (L, architecture); verified against a recorded fixture, not the live API. |
+
 Progress is recorded in scan-sweep history and commits. Preserve unrelated worktree edits; never push.
