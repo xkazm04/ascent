@@ -116,8 +116,10 @@ tracked-set predicate the admission routes use. A random owner the org does not 
 400 before any installation lookup, and a batch with one such repo is refused whole. Apply and
 apply-batch then write through the one customer-repo door (`requirePrWriteTarget`, rule
 `tracked`): the PR lands in the repo's own `owner/name`, never the org slug's namespace, and the
-token is the gated org's installation on a hosted deployment or, on a self-hosted one, the
-installation of the repo's owner (a batch mints once per installation).
+token is the gated org's installation on a hosted deployment or, on a deployment that DECLARES
+itself self-hosted (`ASCENT_SELF_HOSTED=1`), the installation of the repo's owner (a batch mints
+once per installation). A deployment that is only inferred self-hosted (the flag unset and no
+billing token) mints for the gated org, like a hosted one.
 
 ## Weekly digest (`?tab=digest`, Bought)
 

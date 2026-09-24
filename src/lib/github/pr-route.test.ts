@@ -148,6 +148,18 @@ describe("requirePrWriteTarget: whose installation mints a tracked foreign repo"
     expect(mockInstall.mock.calls).toEqual([["xkazm04"]]);
   });
 
+  // A managed deployment that lost its billing token INFERS self-hosted (selfHosted() fails open with a
+  // warning). An authorization relaxation must not ride that inference: only the explicit flag lets the
+  // door mint another account's installation token, or the ai-stance cross-tenant write reopens.
+  it("inferred self-host (flag unset, no billing): a tracked foreign repo still mints for the gated org", async () => {
+    vi.stubEnv("ASCENT_SELF_HOSTED", "");
+    vi.stubEnv("POLAR_ACCESS_TOKEN", "");
+    mockTracks.mockResolvedValue(true);
+    const target = await requirePrWriteTarget("kiro", "xkazm04/kp", "tracked");
+    expect(target).toMatchObject({ org: "kiro", owner: "xkazm04", token: "token-for-inst-kiro" });
+    expect(mockInstall.mock.calls).toEqual([["kiro"]]);
+  });
+
   it("guard: self-hosted owner-namespace and own-namespace coordinates still mint for the gated org", async () => {
     vi.stubEnv("ASCENT_SELF_HOSTED", "1");
     await requirePrWriteTarget("kiro", "kiro/site", "tracked");

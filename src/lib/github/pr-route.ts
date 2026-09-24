@@ -28,7 +28,7 @@ import { AppApiError, getInstallationToken } from "@/lib/github/app";
 import { GitHubError, parseRepoUrl, type ParsedRepo } from "@/lib/github/source";
 import { getInstallationIdForOwner, isDbConfigured } from "@/lib/db";
 import { orgTracksRepo } from "@/lib/db/org-admission";
-import { selfHosted } from "@/lib/env";
+import { selfHostedExplicit } from "@/lib/env";
 
 const WRITE_REJECTED = "GitHub rejected the write. Check the repo and base branch.";
 const NO_WRITE_SCOPE =
@@ -156,7 +156,10 @@ async function underOrg(org: string, parsed: ParsedRepo, rule: PrWriteRule): Pro
  */
 function installOwnerFor(org: string, c: PrWriteCoordinate): string {
   if (c.owner === org) return org;
-  return selfHosted() ? c.owner : org;
+  // EXPLICIT only: selfHosted() also answers true by inference when billing is unconfigured, which a
+  // managed deployment that lost its Polar token hits. Minting another account's installation token is
+  // an authorization relaxation, so it rides the operator's declaration, never the fail-open sniff.
+  return selfHostedExplicit() ? c.owner : org;
 }
 
 function toCoordinate(raw: string, parsed: ParsedRepo): PrWriteCoordinate {
