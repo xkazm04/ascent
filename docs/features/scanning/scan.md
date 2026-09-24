@@ -149,7 +149,8 @@ passing `installationId` while throttled gets `401` there and `429` on the strea
 - `meta: RepoMeta`: owner, name, stars, forks, language, default branch, **head SHA**.
 - `tree: RepoFile[]`: the full recursive git tree (`git/trees?recursive=1`, one call).
 - `files: FetchedFile[]`: a **budgeted sample** (≤ 50 files + a reserved quota of ≤ 24 CI
-  workflows, ≤ 14 KB each, 60 KB for CODEOWNERS, ≤ 280 KB total) chosen by
+  workflows, plus GitLab CI and the root Jenkins, CircleCI, Azure, Travis, Bitbucket and lefthook
+  configs, ≤ 14 KB each, 60 KB for CODEOWNERS, ≤ 280 KB total) chosen by
   `pickFilesToFetch`: agent-guidance files, manifests, configs, CI workflows, tests, and a
   sample of source. Public repos read from `raw.githubusercontent.com`; private repos use the
   Contents API. The budget is a **fixed constant, deliberately**: it is what makes two repos'
@@ -269,9 +270,9 @@ prompt already insists on for the model:
 
 | Signal | Points | What it reads |
 | --- | --- | --- |
-| `Lint/format/type-check enforced in CI` | 20 (or **+5** when a standalone linter config already scored) | lint/format/type commands in `.github/workflows/**` (`idx.workflowText`) |
-| `Quality ratchet / debt ceiling enforced` | 15 | a ratchet/ceiling/budget/`no-new-*`/suppression/baseline artifact: a **parsed `package.json` script** entry, a checked-in baseline (`.betterer.*`, `eslint-baseline.json`, `*-ceiling.json`, `knip.json`), or the same terms in a CI workflow |
-| `Lint/type gate fails on warnings (zero-warning policy)` | 5 | `--max-warnings 0`, `-D warnings`, `--deny warnings`, `--error-on-warnings`… in a workflow or a parsed script body |
+| `Lint/format/type-check enforced in CI` (or `... in a git hook`) | 20 (or **+5** when a standalone linter config already scored) | lint/format/type commands in a CI config (`idx.enforcementMatch`): `.github/workflows/**` first, then `.gitlab-ci.yml` / `.gitlab/ci/*`, a root `Jenkinsfile`, `.circleci/config.yml`, `azure-pipelines.yml`, `.travis.yml`, `bitbucket-pipelines.yml`; else `lefthook.yml`, which earns the same points under the *git hook* label (`r20`) |
+| `Quality ratchet / debt ceiling enforced` | 15 | a ratchet/ceiling/budget/`no-new-*`/suppression/baseline artifact: a **parsed `package.json` script** entry, a checked-in baseline (`.betterer.*`, `eslint-baseline.json`, `*-ceiling.json`, `knip.json`), or the same terms in any of those CI or hook configs (cited by file off Actions) |
+| `Lint/type gate fails on warnings (zero-warning policy)` | 5 | `--max-warnings 0`, `-D warnings`, `--deny warnings`, `--error-on-warnings`… in any of those CI or hook configs or a parsed script body |
 
 **Why the ratchet signal exists.** Measured over a 21-run campaign (2026-08): two repos gained ESLint
 import-boundary rules, a blocking ruff ignore-ceiling ratchet, a blocking TypeScript suppression
@@ -853,12 +854,13 @@ three workflows shows its first three in pick order.
   the provider that was supposed to answer, and is recorded **per row** as `Scan.engineDegraded` — but
   the tally rate is still all-time, so there is no way to ask "did degradations spike this week"
   without a real event table.
-- **D6 enforcement is read from GitHub Actions only.** The `Lint/format/type-check enforced in CI`
-  signal tests `idx.workflowText` (`.github/workflows/**`); a gate that lives in `.gitlab-ci.yml`, a
-  `Jenkinsfile`, `lefthook.yml` or a `pre-push` hook is invisible to it, even though D3 already
-  credits off-GitHub CI from its own evidence. The ratchet and zero-warning signals partly compensate
-  (both also read parsed `package.json` scripts), but a non-npm, non-Actions repo still reads as
-  "configured, not enforced".
+- **D6 does not read husky hook bodies, and D3's CI sub-signals are still Actions-only.** Since `r20`
+  D6's enforcement signals read GitLab, Jenkins, CircleCI, Azure, Travis and Bitbucket configs and
+  `lefthook.yml`. A gate that lives only in `.husky/pre-push` is still invisible (the path earns
+  `Pre-commit hooks`, but its body is never fetched), and D3's `CI runs tests` / `CI runs linting` /
+  `CI runs a build` still search `.github/workflows/**` only. The local worktree source also does not
+  exempt the off-Actions CI configs from its byte budget (`RESERVED_PICK_RE`), so a budget-bound worktree can
+  miss one a GitHub scan reads.
 - **Enforcement is worth +5 on top of presence, not more.** A linter that gates scores 25 where one
   that merely exists scores 20 — a ratio that says a config file is 80% of the value of a gate. That
   is a **rubric decision** (it would move weights, not add signals), so it is recorded here rather
