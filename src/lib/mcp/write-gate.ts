@@ -167,7 +167,20 @@ export interface WriteGateInput {
 /** The refusal, or `null` when the write may proceed. */
 export interface WriteDenial {
   denied: string;
+  /** WHICH rule refused, as a value. The sentence is for the caller; this is for code and tests. */
+  rule: WriteDenialRule;
 }
+
+/** The refusal vocabulary. One authority: the matrix oracle and any caller branch on these, never on `denied`. */
+export const WRITE_DENIAL_RULES = [
+  "unregistered-tool",
+  "missing-write-scope",
+  "missing-resource-scope",
+  "plan-closed",
+  "unattributable",
+  "daily-ceiling",
+] as const;
+export type WriteDenialRule = (typeof WRITE_DENIAL_RULES)[number];
 
 /**
  * Decide whether one write tool call may run. Pure.
@@ -178,33 +191,43 @@ export interface WriteDenial {
  * another org's data, and none of them can — every input here is about the caller itself.
  */
 export function assertWriteAllowed(input: WriteGateInput): WriteDenial | null {
-  const policy = WRITE_TOOL_POLICY[input.tool];
+  // OWN rows only. A bare index would resolve `constructor`, `toString` and every other
+  // Object.prototype name to a truthy non-row, which still refused (no scope can equal `undefined`)
+  // but refused as "The undefined scope is required" — the right verdict for the wrong reason. The
+  // exhaustive matrix in write-gate.matrix.test.ts found it; a verdict-only check could not have.
+  const policy = Object.prototype.hasOwnProperty.call(WRITE_TOOL_POLICY, input.tool)
+    ? WRITE_TOOL_POLICY[input.tool]
+    : undefined;
   // A tool with no policy row is refused even if the catalog marked it `mutates`. The structural test
   // makes that combination impossible to commit; this is the runtime half of the same rule, and it
   // fails CLOSED so a future half-finished write tool cannot write.
-  if (!policy) return { denied: `"${input.tool}" is not a registered write tool at this door.` };
+  if (!policy) return { rule: "unregistered-tool", denied: `"${input.tool}" is not a registered write tool at this door.` };
 
   const held = new Set(input.scopes);
   if (!held.has("telemetry:write")) {
     return {
+      rule: "missing-write-scope",
       denied: `Writing requires the telemetry:write scope, which this token does not hold. Reading the organization's data never implies permission to report back to it.`,
     };
   }
   if (!held.has(policy.resourceScope)) {
     return {
+      rule: "missing-resource-scope",
       denied: `"${input.tool}" writes evidence about a resource this token cannot read, so it also may not write it. The ${policy.resourceScope} scope is required.`,
     };
   }
   if (policy.planGate && !input.gates[policy.planGate]) {
     return {
+      rule: "plan-closed",
       denied: `"${input.tool}" writes to a resource this workspace's plan does not include, so there is nothing here to write to.`,
     };
   }
   if (!input.tokenId) {
-    return { denied: `A write must be attributable to a token, and this request carried none.` };
+    return { rule: "unattributable", denied: `A write must be attributable to a token, and this request carried none.` };
   }
   if (input.writesToday !== null && input.writesToday >= policy.perTokenDailyMax) {
     return {
+      rule: "daily-ceiling",
       denied: `This token has already made ${input.writesToday} ${input.tool} writes today, which is its daily ceiling of ${policy.perTokenDailyMax}. The ceiling exists so self-reported evidence cannot be inflated by volume; it resets daily, and nothing you have already reported is lost.`,
     };
   }
