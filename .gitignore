@@ -85,6 +85,7 @@ docs/harness/
 /.claude/skills/architect
 /.claude/skills/conform
 /.claude/skills/consult
+/.claude/skills/contest
 /.claude/skills/explorer
 /.claude/skills/maintain
 /.claude/skills/native-copy
@@ -99,6 +100,7 @@ docs/harness/
 /.claude/rules/ai-registry-access.md
 /.claude/rules/ai-registry-software-engineering.md
 /.claude/rules/ai-registry-localization.md
+/.ai/skill-runs.local.jsonl
 # END ai-registry linked skills
 
 # detached dev-server log (see docs/features/local-mode)
@@ -106,3 +108,6 @@ dev-server.log
 
 # Spark vault (local, never committed; the overlay vault path does not exist on this machine)
 .spark/
+
+# /contest arena and vault (entries are large and belong to no commit)
+.contest/
