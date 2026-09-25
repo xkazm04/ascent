@@ -24,9 +24,11 @@ embedded PGlite), not from a hand-written fixture:
   `GET /api/org/loop/<id>?org=<slug>` per run; plans, directions and lessons from
   `/api/org/loop/{plans,directions,lessons}`; drives from `/api/org/local/drive`. The run detail's
   `outcomes[].before/after` scans make it ~8 MB - slim it (drop the two scans, keep `diff`).
-- the live signal: sample `fixturePulseAt(ms, scenario)` from
+- the live signal: sample `fixturePulseAt(DEMO_EPOCH + s * 1000, scenario)` from
   `src/features/inflight/live/theater/theaterFixture.ts` through jiti with
-  `JITI_ALIAS='{"@/":"<repo>/src/"}'` - the product's own deterministic theater clock.
+  `JITI_ALIAS='{"@/":"<repo>/src/"}'` - the product's own deterministic theater clock. The argument
+  is ABSOLUTE epoch ms: passing `s * 1000` clamps the script to its first second and every frame is
+  the same pulse with a new `at` (shipped that way on 2026-09-25; assert the frames differ).
 - the wire contract: copy `src/lib/local/runner-types.ts` and `src/lib/local/arm.ts` verbatim.
 - current state: headless screenshots of `/theater/<slug>?demo=running`, and `?tab=live&view=`
   `ledger|cockpit|wall`.
@@ -44,3 +46,12 @@ The owner judges this repo's surfaces by these, in order:
   supplies measurements (load, errors, font floors, wall time, cost), never scores.
 
 ## Skill improvement log
+
+- 2026-09-25 (1.4.1, live-fleet-rounds): Claude Code's low-memory reaper killed the backgrounded
+  `run` at 26 min with ~14 interactive sessions open, and later the measurement pass. The seats died
+  with the runner (no record, no NOTES). Close idle sessions before a run, or have the owner run the
+  step in their own terminal.
+- 2026-09-25 (1.4.1, live-fleet-rounds): collect redacted `opus`/`claude`/`sonnet` where they were
+  the MATERIAL's arm keys (`a.key === "opus"`, a fixture arm `transport: "claude"`), turning
+  `var opus = ...` into `var [redacted] = ...` - valid JS that silently drops a footnote. With two
+  seats of one model the word identifies nobody; the host restored the four files from `entries/`.
