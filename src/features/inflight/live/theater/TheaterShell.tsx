@@ -28,6 +28,7 @@ import { useTheaterCues } from "./useTheaterCues";
 import { useTheaterDemo } from "./useTheaterDemo";
 import { feedStale, useTheaterPulse, type TheaterFeed } from "./useTheaterPulse";
 import { useTheaterSound, type SoundMode } from "./useTheaterSound";
+import { OnAirWall } from "./onair/OnAirWall";
 
 export type TheaterSource =
   | { kind: "org"; slug: string }
@@ -109,13 +110,30 @@ export function TheaterStage({ feed, source, sound, onToggleSound, cards, reduce
   );
 }
 
-export function TheaterShell({ source, soundPreselect = false, heroId = null }: { source: TheaterSource; soundPreselect?: boolean; heroId?: string | null }) {
+/** `classic` is the four-answer theater with its hero slot; `onair` is the desk's multiview wall (beta,
+ *  contest live-fleet-rounds) — the same transport, cues and sound, a different stage. */
+export type TheaterWall = "classic" | "onair";
+
+export function TheaterShell({
+  source,
+  soundPreselect = false,
+  heroId = null,
+  wall = "classic",
+}: {
+  source: TheaterSource;
+  soundPreselect?: boolean;
+  heroId?: string | null;
+  wall?: TheaterWall;
+}) {
   const sound = useTheaterSound(soundPreselect);
   const cues = useTheaterCues(sound.mode === "on");
   const reducedMotion = useReducedMotion();
-  const render: Render = (feed) => (
-    <TheaterStage feed={feed} source={source} sound={sound.mode} onToggleSound={sound.toggle} cards={cues.cards} reducedMotion={reducedMotion} heroId={heroId} />
-  );
+  const render: Render = (feed) =>
+    wall === "onair" ? (
+      <OnAirWall feed={feed} source={source} sound={sound.mode} onToggleSound={sound.toggle} cards={cues.cards} reducedMotion={reducedMotion} />
+    ) : (
+      <TheaterStage feed={feed} source={source} sound={sound.mode} onToggleSound={sound.toggle} cards={cues.cards} reducedMotion={reducedMotion} heroId={heroId} />
+    );
   if (source.kind === "demo") return <DemoFeed scenario={source.scenario} startAtS={source.startAtS} onArrivals={cues.push} render={render} />;
   return <LiveFeed url={pulseUrl(source)!} onArrivals={cues.push} render={render} />;
 }

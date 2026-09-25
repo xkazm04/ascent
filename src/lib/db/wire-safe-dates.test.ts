@@ -22,6 +22,7 @@ describe("wire-safe dates (structural guard)", () => {
     // + RepoState (first-run-onboarding-wizard#B: the select step reads it off /api/app/repos).
     // + MentorShareRow (C3 care share, GET /api/me/mentor/share; backlog row 46).
     // + ProviderConnectionRow (the OpenAI Costs connection, GET /api/integrations/openai; row 47).
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(73);
+    // + RoundLane (the Live desk's lane-grain rounds read, contest live-fleet-rounds).
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(74);
   });
 });

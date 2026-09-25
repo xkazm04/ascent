@@ -11,7 +11,8 @@
 // polls repeats its own gate, so a page that slipped through would still read nothing.
 //
 // Query: `?sound=1` preselects sound (a click still has to unlock it — the page says so); `?hero=<id>`
-// picks a hero from theaterHeroSlot.ts; `?demo=1|running|paused-spend|paused-session|idle|none`
+// picks a hero from theaterHeroSlot.ts; `?wall=onair` swaps the stage for the desk's multiview wall (a
+// beta from contest live-fleet-rounds, linked only from the desk); `?demo=1|running|paused-spend|paused-session|idle|none`
 // renders the FIXTURE on a deterministic clock (`&demoAt=<seconds>` starts it later). The demo reads no
 // org data at all — it is the same page for every slug — so it skips the gates, which is what lets the
 // prototype round run it on a box with no database.
@@ -34,12 +35,13 @@ export default async function TheaterPage({ params, searchParams }: { params: Pr
   const sp = await searchParams;
   const soundPreselect = one(sp, "sound") === "1";
   const heroId = one(sp, "hero") ?? null;
+  const wall = one(sp, "wall") === "onair" ? "onair" : "classic";
   const demo = one(sp, "demo");
   if (demo) {
     const startAtS = Math.max(0, Math.trunc(Number(one(sp, "demoAt"))) || 0);
-    return <TheaterShell source={{ kind: "demo", slug, scenario: demoScenario(demo), startAtS }} soundPreselect={soundPreselect} heroId={heroId} />;
+    return <TheaterShell source={{ kind: "demo", slug, scenario: demoScenario(demo), startAtS }} soundPreselect={soundPreselect} heroId={heroId} wall={wall} />;
   }
   const denied = await theaterGate(slug);
   if (denied) return denied;
-  return <TheaterShell source={{ kind: "org", slug }} soundPreselect={soundPreselect} heroId={heroId} />;
+  return <TheaterShell source={{ kind: "org", slug }} soundPreselect={soundPreselect} heroId={heroId} wall={wall} />;
 }

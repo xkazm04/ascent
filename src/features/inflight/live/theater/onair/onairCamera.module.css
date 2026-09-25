@@ -1,0 +1,61 @@
+/* The camera: a lane's live file map. Folders are quiet boxes, files are the desk's stage chips.
+   Ported from theater.css (base + ONE TONE, flattened). The density steps (d1…d4, cumulative) are set
+   on .cam by a measured fit, and keep the prototype's rule structure so they cascade exactly as there:
+   d1 tighter tiles · d2 no folder names · d3 label-less tiles (the lit one keeps its name) · d4 every label off. */
+.cam { position: relative; flex: 1 1 auto; min-height: 0; padding: calc(1.4 * var(--u)) calc(1.4 * var(--u)) max(30px, calc(3.8 * var(--u))); overflow: hidden; background: var(--panel); }
+[data-kind="pvw"] .cam { padding: calc(.7 * var(--u)); }
+.map { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-content: flex-start; gap: calc(.7 * var(--u)); height: 100%; overflow: hidden; }
+[data-kind="pvw"] .map { gap: calc(.45 * var(--u)); }
+.dir { position: relative; flex: 1 1 calc(16 * var(--u)); display: flex; flex-wrap: wrap; align-content: flex-start; gap: calc(.45 * var(--u)); padding: max(19px, calc(2.3 * var(--u))) calc(.6 * var(--u)) calc(.6 * var(--u)); border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel2); min-width: 0; }
+[data-kind="pgm"] .dir { padding-top: max(19px, calc(2.6 * var(--u))); flex-basis: calc(20 * var(--u)); }
+[data-kind="pvw"] .dir { padding: max(18px, calc(1.8 * var(--u))) calc(.4 * var(--u)) calc(.4 * var(--u)); flex-basis: calc(9 * var(--u)); gap: calc(.3 * var(--u)); }
+.dn { position: absolute; top: calc(.55 * var(--u)); left: calc(.7 * var(--u)); right: calc(.7 * var(--u)); font: 500 max(12px, calc(1.1 * var(--u)))/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-kind="pgm"] .dn { font-size: max(12px, calc(1.25 * var(--u))); }
+[data-kind="pvw"] .dn { top: max(3px, calc(.45 * var(--u))); }
+.f { flex: 1 1 auto; min-width: 0; max-width: 100%; font: 500 max(12px, calc(1.35 * var(--u)))/1 var(--mono); color: #7d8aa3; padding: calc(.75 * var(--u)) calc(.7 * var(--u)); border-radius: calc(.45 * var(--u)); background: var(--tile); border: 1px solid transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background-color .35s, border-color .35s, color .35s, box-shadow .35s; }
+.f i { font-style: normal; }
+[data-kind="pgm"] .f { font-size: max(12px, calc(1.65 * var(--u))); padding: calc(1.05 * var(--u)) calc(.9 * var(--u)); }
+[data-kind="pvw"] .f { font-size: max(12px, calc(1.1 * var(--u))); padding: calc(.4 * var(--u)) calc(.5 * var(--u)); }
+.f.r { background: var(--tiledone); border-color: transparent; color: #9dbbe6; }
+.f.e { background: var(--amberbg); border-color: rgba(243, 178, 58, .35); color: #f3cf86; }
+.f.lit { position: relative; z-index: 2; font-weight: 600; }
+.f.litRead { background: var(--blue2); border-color: var(--blue); color: #fff; box-shadow: none; }
+.f.litEdit { background: var(--amber); border-color: var(--amber); color: #1d1403; box-shadow: none; }
+.f.litWrite { background: var(--text); border-color: var(--text); color: #070b13; box-shadow: none; }
+.f.litLast { outline: 1px solid var(--line2); outline-offset: 1px; color: var(--text); }
+.f.from { outline: 1px dashed rgba(221, 229, 242, .35); outline-offset: 1px; }
+.f.flash { animation: chipin .45s ease-out 1; }
+@keyframes chipin { 0% { transform: scale(1.06); } 100% { transform: none; } }
+
+/* measured fit: density steps down only when the map would overflow its camera */
+[data-kind="pgm"] .d1 .f { font-size: max(12px, calc(1.35 * var(--u))); padding: calc(.7 * var(--u)) calc(.7 * var(--u)); }
+[data-kind="pgm"] .d1 .dir { padding-top: max(18px, calc(2.1 * var(--u))); }
+[data-kind="pvw"] .d1 .f { padding: max(2px, calc(.25 * var(--u))) calc(.4 * var(--u)); }
+[data-kind="pvw"] .d1 .map { gap: calc(.35 * var(--u)); }
+.d2 .dn { display: none; }
+.d2 .dir, [data-kind="pgm"] .d2 .dir, [data-kind="pvw"] .d2 .dir { padding-top: calc(.45 * var(--u)); }
+.d2 .f { padding-top: max(2px, calc(.25 * var(--u))); padding-bottom: max(2px, calc(.25 * var(--u))); }
+.d3 .f { flex: 0 0 max(18px, calc(2.8 * var(--u))); height: max(9px, calc(1.2 * var(--u))); padding: 0; }
+.d3 .f i { display: none; }
+.d3 .f.lit { flex: 0 1 auto; height: auto; padding: max(2px, calc(.25 * var(--u))) calc(.5 * var(--u)); }
+.d3 .f.lit i { display: inline; }
+.d4 .f.lit { flex: 0 0 max(18px, calc(2.8 * var(--u))); height: max(9px, calc(1.2 * var(--u))); padding: 0; }
+.d4 .f.lit i { display: none; }
+
+/* the trail from the previous file to the lit one */
+.trail { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; overflow: visible; }
+.trail line { stroke: rgba(147, 160, 184, .4); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.trail circle { fill: rgba(221, 229, 242, .45); }
+.draw line { animation: trail 1.1s ease-out 1 forwards; }
+@keyframes trail { 0% { stroke: rgba(255, 255, 255, .95); stroke-width: 4; } 100% { stroke: rgba(221, 229, 242, .35); stroke-width: 1.5; } }
+
+.camchip { position: absolute; right: calc(1 * var(--u)); bottom: calc(.8 * var(--u)); z-index: 3; font: 500 max(12px, calc(1.15 * var(--u)))/1 var(--mono); letter-spacing: .1em; color: var(--faint); background: var(--panel); border: 1px solid var(--line2); border-radius: 999px; padding: calc(.5 * var(--u)) calc(.8 * var(--u)); white-space: nowrap; }
+[data-kind="pvw"] .camchip { display: none; }
+.camchip b { color: var(--text2); }
+.camchip .st { margin-left: calc(.8 * var(--u)); }
+.camnote { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(.8 * var(--u)); text-align: center; padding: calc(2 * var(--u)); }
+.camnote b { font: 600 max(12px, calc(1.8 * var(--u)))/1 var(--mono); letter-spacing: .14em; color: var(--head); }
+[data-kind="pvw"] .camnote b { font-size: max(12px, calc(1.9 * var(--u))); }
+.camnote span { font: 500 max(12px, calc(1.6 * var(--u)))/1.5 var(--sans); color: var(--dim); }
+[data-kind="pvw"] .camnote span { font-size: max(12px, calc(1.3 * var(--u))); }
+.camnote span span.mono { font: 600 max(12px, calc(1.45 * var(--u)))/1.5 var(--mono); color: var(--text); }

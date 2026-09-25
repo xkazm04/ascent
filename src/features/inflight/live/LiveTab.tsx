@@ -6,6 +6,9 @@
 //                   object, a mode-switching right rail (inspect ⇄ run ⇄ outcome), and the run history.
 //   ?view=wall    → the Fleet Command WAR ROOM — cockpit link + stack selector + LiveWarRoom,
 //                   with its SSE fold, TV mode, wake lock and share link all intact.
+//   ?view=desk    → the DESK (beta, contest live-fleet-rounds): waiting-on-you, in flight, the rounds
+//                   as one flight log, the arm league and the next round, on one graphical page. Named
+//                   explicitly or not at all — it is never the default until it is battle proven.
 //   no view       → the Ledger when a standing runner exists (a continuous drive not yet ended), else
 //                   the Cockpit. The Theater is its own page (/theater/<slug>), linked from both.
 //
@@ -37,6 +40,7 @@ import type { GoalProgressView } from "@/components/org/shared/goalView";
 import type { ObservatorySeed } from "./observatory";
 import { liveViewHref } from "./LiveViewSwitch";
 import { LedgerTab } from "./ledger/LedgerTab";
+import { DeskTab } from "./desk/DeskTab";
 import { hasStandingRunner } from "./ledger/ledgerLoad";
 import { needsRunnerProbe, resolveLiveView } from "./ledger/ledgerView";
 
@@ -48,6 +52,7 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
   // fleet rollup, which it does not render.
   const view = resolveLiveView(requested, needsRunnerProbe(requested) ? await hasStandingRunner(slug) : false);
   if (view === "ledger") return <LedgerTab slug={slug} sp={sp} />;
+  if (view === "desk") return <DeskTab slug={slug} sp={sp} />;
   // Optional tech-stack scope (Feature 3b): a stack toggle on the live wall — scopes the seeded
   // standing AND the launched scan to that stack's repos, so "Frontend war room" runs only those.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);

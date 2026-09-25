@@ -1,0 +1,62 @@
+/* The top strip: the station bug + the four answers, as the desk's joined answers row.
+   Ported from theater.css (base + ONE TONE, flattened). Variables come from the wall root. */
+.strip { flex: 0 0 max(112px, calc(15 * var(--u))); display: grid; grid-template-columns: max(206px, calc(27 * var(--u))) .92fr 1.25fr 1.05fr 1.22fr; gap: 1px; min-height: 0; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.cell { background: var(--panel2); border: 0; border-radius: 0; padding: calc(1.4 * var(--u)) calc(1.8 * var(--u)); min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: calc(.55 * var(--u)); color: inherit; text-decoration: none; }
+
+/* the station bug */
+.brand { font: 400 max(13px, calc(1.3 * var(--u)))/1 var(--mono); letter-spacing: .3em; color: var(--blue); white-space: nowrap; }
+.brand .sep { margin: 0 .25em; color: var(--faint); }
+.brand .lv { color: var(--text); }
+.clock { font: 500 calc(4 * var(--u))/1 var(--mono); color: var(--text); font-variant-numeric: tabular-nums; margin-top: calc(.3 * var(--u)); white-space: nowrap; }
+.clockk { font: 500 max(12px, calc(1.1 * var(--u)))/1 var(--mono); letter-spacing: .14em; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-stale] .clock, [data-stale] .clockk { color: var(--amber); }
+.bugrow { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: calc(.8 * var(--u)); min-width: 0; }
+/* ON AIR is the desk's live-feed chip */
+.onair { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: calc(.7 * var(--u)); padding: calc(.55 * var(--u)) calc(1.2 * var(--u)); border: 1px solid var(--line2); border-radius: 999px; background: var(--panel); font: 500 max(12px, calc(1.45 * var(--u)))/1 var(--mono); letter-spacing: .1em; color: var(--faint); white-space: nowrap; overflow: hidden; }
+.lamp { flex: 0 0 auto; width: calc(.9 * var(--u)); height: calc(.9 * var(--u)); min-width: 8px; min-height: 8px; border-radius: 50%; background: var(--line2); }
+.onair[data-state="on"] { background: var(--panel); border-color: #27406a; color: #a9d0ff; box-shadow: none; }
+.onair[data-state="on"] .lamp { background: var(--green); }
+.onair[data-state="lost"] { color: var(--amber); border-color: rgba(243, 178, 58, .45); background: var(--amberbg); }
+.onair[data-state="lost"] .lamp { background: var(--amber); }
+/* one click back to the desk, always visible */
+.desk { flex: 0 0 auto; font: 500 max(12px, calc(1.2 * var(--u)))/1 var(--mono); letter-spacing: .06em; color: var(--text); text-decoration: none; white-space: nowrap; border: 1px solid var(--line2); background: var(--panel2); border-radius: calc(.6 * var(--u)); padding: calc(.55 * var(--u)) calc(.8 * var(--u)); cursor: pointer; }
+.desk:hover { border-color: var(--blue); color: #fff; background: #12203a; }
+
+/* an answer */
+.k { font: 500 max(12px, calc(1.2 * var(--u)))/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); white-space: nowrap; display: flex; align-items: center; }
+.h { font: 600 calc(3 * var(--u))/1.12 var(--sans); color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.s { font: 400 max(12px, calc(1.7 * var(--u)))/1.25 var(--sans); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s.mono { font-family: var(--mono); font-size: max(12px, calc(1.55 * var(--u))); color: var(--dim); }
+.cell[data-tone="warn"] .h { color: var(--amber); }
+.cell[data-tone="calm"] .h { color: var(--text2); }
+.cell[data-tone="muted"] .h { color: var(--dim); }
+.cell[data-tone="danger"] .h { color: var(--red); }
+.nowH b { color: var(--text); font-weight: 600; }
+.nowH span { color: var(--dim); font-weight: 500; }
+
+/* TODAY */
+.todayH { font: 500 max(12px, calc(2.1 * var(--u)))/1.1 var(--sans); color: var(--dim); display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.num { font: 600 calc(3.6 * var(--u))/1 var(--mono); color: var(--text); display: inline-block; font-variant-numeric: tabular-nums; }
+.num.v { color: var(--green); }
+.flip { animation: numflip .6s ease-out 1; }
+@keyframes numflip { 0% { transform: translateY(-35%); opacity: .2; } 100% { transform: none; opacity: 1; } }
+.todayH .sep { color: var(--faint); margin: 0 calc(.5 * var(--u)); }
+.money { display: flex; align-items: baseline; justify-content: space-between; gap: calc(1 * var(--u)); white-space: nowrap; min-width: 0; }
+.mk { font: 500 max(12px, calc(1.1 * var(--u)))/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.mv { font: 600 max(12px, calc(1.5 * var(--u)))/1 var(--mono); color: var(--text2); overflow: hidden; text-overflow: ellipsis; }
+.bar { flex: 0 0 auto; height: max(6px, calc(.6 * var(--u))); background: #1a2336; border-radius: 99px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: #8fb4e8; border-radius: 99px; }
+.bar[data-hot] i { background: var(--amber); }
+.tsub { font: 400 max(12px, calc(1.45 * var(--u)))/1.25 var(--sans); color: var(--green); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tsub[data-asof] { color: var(--amber); }
+
+/* NEEDS YOU: the desk's live ticket, not a hazard box */
+.callt { display: none; }
+.call { background: linear-gradient(180deg, rgba(243, 178, 58, .14), rgba(243, 178, 58, .04)), var(--panel2); border: 0; box-shadow: inset 0 0 0 1px rgba(243, 178, 58, .6); }
+a.call { cursor: pointer; }
+.call .callt { display: inline-block; background: transparent; color: var(--amber); border: 1px solid rgba(243, 178, 58, .6); border-radius: 999px; padding: calc(.3 * var(--u)) calc(.9 * var(--u)); margin-right: calc(.9 * var(--u)); letter-spacing: .14em; font-weight: 500; }
+.call .k { color: var(--amber); }
+.call .h { color: var(--amber); font-size: calc(2.6 * var(--u)); }
+.call .s { color: var(--dim); }
+a.call:hover { box-shadow: inset 0 0 0 1px var(--amber); }
+.ok .h { color: var(--dim); }

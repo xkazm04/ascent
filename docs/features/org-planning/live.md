@@ -3461,6 +3461,7 @@ names the next action. The empty states that merely restated the description wer
 | Ledger | `?tab=live&view=ledger` | the returning operator |
 | Cockpit | `?tab=live&view=cockpit` | setup, manual runs, the sky chart |
 | Wall | `?tab=live&view=wall` | the original war room, unchanged |
+| Desk (beta) | `?tab=live&view=desk` | the next-generation desk — named explicitly, never the default; see [The Desk and the On Air wall](#the-desk-and-the-on-air-wall-beta-2026-09-25) |
 
 `LiveTab` resolves the view with `resolveLiveView` (`ledger/ledgerView.ts`): an explicit `?view=` always
 wins; with none, the tab opens on the **Ledger when the org has a standing runner** (a continuous drive
@@ -5587,3 +5588,64 @@ link or form.
 
 Token validation is unchanged. The page calls `resolveLiveShare` first (signature, audience, expiry,
 per-link revocation, owner binding), and reads the summary afterwards for the **verified** org only.
+
+## The Desk and the On Air wall (beta, 2026-09-25)
+
+**Status: shipped behind the view switch, not a default.** A fourth Live view, `?tab=live&view=desk`,
+and a second theater stage, `/theater/<slug>?wall=onair`. Both are ports of the design the owner chose
+in the `/contest` round *live-fleet-rounds* (two Opus seats, six variants, no LLM judging): the owner
+rejected every first-round variant for text-heavy first screens and asked for one fusion — one
+variant's component style, another's round diagram, a third's multiview theater — and then for the
+theater to speak the desk's style. They stay behind the switch **until they are battle proven**; the
+Ledger and the Cockpit remain the defaults (`resolveLiveView` never picks `desk`).
+
+**The desk's rule: the first screen is a graphical overview.** Five sections, each with its own
+shape: *01 Waiting on you* (ticket cards: pending plans, repos paused on a breaker, runner-branch commits
+to merge, guard-rejected lanes, lessons waiting, a plan still `executing` after its run ended), *02 In
+flight* (the four answers, and one row per lane with the six-step stage track and a time-used bar, from
+the live pulse), *03 The rounds* (the flight log — every round, verified closes above the axis,
+reported $ below and dashed when not reported, one verdict mark per lane, chapters split at quiet
+gaps — over a paged table of the last rounds), *04 Arm league* (one card per arm: closes, verdict mix,
+$ per verified close with its n), *05 Next round setup* (a ticket prefilled from the newest round). No
+explanatory paragraphs on this screen: every caveat is an ⓘ tip on the label it qualifies. Text lives in
+the **inner layers** — round → lane → log, and one evidence page per waiting card — each a designed
+document with breadcrumbs, prev/next, `[` `]` and Esc.
+
+**What it deliberately does not do (beta).** It decides nothing: plan verdicts and repo resumes link to
+the Ledger's inbox, and *Next round setup* ends in **Continue in Cockpit** (the draft stays in the
+browser). Starting runs from the desk waits until the view is proven.
+
+**Data.** `DeskTab` (server) calls `loadDesk` once: the Ledger's whole load (`loadLedger`), the last 100
+rounds (`listLoopRuns`), their lanes at lane grain (`listRoundLanes`, `src/lib/db/loop-rounds.ts` —
+verdict, closes, cost, arm label; org-constrained, lean, and on the wire-safe list as `RoundLane`) and
+the pending lessons. Each read that fails is named and its section says "could not read". The round page
+reads `GET /api/org/loop/<id>` once. *In flight* polls the same pulse route as the theater. Honesty
+holds as everywhere on this tab: unreported cost is never $0, an unknown verdict is never "skipped", a
+stale pulse turns every liveness claim to "last heard" together.
+
+**The On Air wall** (`src/features/inflight/live/theater/onair/`) is the same `TheaterShell` — the same
+transport, cue controller, sound and gates — with a multiview stage: a program monitor whose camera is a
+live file map of the lane (read, edit, write lit as they happen, with a trail), three previews, a wire of
+events, small monitors for every other repo, and a lower third with the desk's stage track. Its four
+answers come from `headerModel()`, the classic header's own model, so the two stages cannot disagree;
+`nothingToReport` renders `TheaterEmpty` as the classic stage does. Lanes keep their monitor between
+pulses; a landing slate appears only while the cue controller's celebration is up (the cue budget holds)
+and never covers the CALL answer. It works with `?demo=` and the kiosk (no links, withheld prose).
+
+**The style is the prototype's stylesheet, not the nearest tokens.** Both halves are CSS modules carrying
+the prototype's values, with the font stacks defined once (`--desk-mono`/`--desk-sans`,
+`--onair-mono`/`--onair-sans`) so a switch to the app's Geist fonts is one line. The port was held to the
+prototype with the contest skill's computed-style contract: 0 type or surface deviations on the desk (14
+roles), its inner layers (3 roles) and the wall (16 roles); what remains is layout width inside the org
+shell's column and state that differs between the two captures.
+
+### Known gaps
+
+- **The desk's layer and tips render into `<body>`** through a portal, because the org shell's
+  transformed wrapper traps `position: fixed` inside the main column.
+- **The lane page shows the model, not the arm label**: the run detail carries the lane's `armId` only.
+- **Batch size is not recorded per round**, so the next-round ticket prefills it from the last runner's
+  dials or the engine default (5).
+- **The wall's NOW follows `headerModel`'s busiest lane**, which can differ from the lane on the sticky
+  program monitor.
+

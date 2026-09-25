@@ -30,6 +30,7 @@ vi.mock("../cockpit", () => ({ LiveCockpit: () => <div data-testid="cockpit" /> 
 vi.mock("../AutopilotBand", () => ({ AutopilotBand: () => <div data-testid="autopilot-band" /> }));
 vi.mock("./ledgerLoad", () => ({ hasStandingRunner: vi.fn(async () => h.runner) }));
 vi.mock("./LedgerTab", () => ({ LedgerTab: (p: { slug: string }) => <div data-testid="ledger">{p.slug}</div> }));
+vi.mock("../desk/DeskTab", () => ({ DeskTab: (p: { slug: string }) => <div data-testid="desk">{p.slug}</div> }));
 
 const { LiveTab } = await import("../LiveTab");
 const { hasStandingRunner } = await import("./ledgerLoad");
@@ -47,6 +48,9 @@ describe("resolveLiveView (pure)", () => {
     ["wall", true, "wall"],
     ["ledger", false, "ledger"],
     ["cockpit", true, "cockpit"],
+    // the desk is a beta: reachable by name, never chosen for the operator
+    ["desk", false, "desk"],
+    ["desk", true, "desk"],
     ["", true, "ledger"],
     ["", false, "cockpit"],
     ["nonsense", true, "ledger"],
@@ -56,11 +60,19 @@ describe("resolveLiveView (pure)", () => {
   });
 
   it("probes for a runner only when the URL leaves the choice open", () => {
-    expect(["wall", "ledger", "cockpit", "", "x"].map(needsRunnerProbe)).toEqual([false, false, false, true, true]);
+    expect(["wall", "ledger", "cockpit", "desk", "", "x"].map(needsRunnerProbe)).toEqual([false, false, false, false, true, true]);
   });
 });
 
 describe("LiveTab view routing", () => {
+  it("opens the Desk only when it is named, and never probes for a runner to do so", async () => {
+    h.runner = true;
+    await view({ view: "desk" });
+    expect(screen.getByTestId("desk")).toHaveTextContent("acme");
+    expect(screen.queryByTestId("ledger")).not.toBeInTheDocument();
+    expect(hasStandingRunner).not.toHaveBeenCalled();
+  });
+
   it("opens the Ledger by default when a standing runner exists", async () => {
     h.runner = true;
     await view({});

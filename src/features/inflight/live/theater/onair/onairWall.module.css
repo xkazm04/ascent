@@ -1,0 +1,88 @@
+/* The On Air wall — ported from the contest prototype (live-fleet-rounds-fuse, polish/variant-1,
+   theater.css), base rules with its "ONE TONE" layer flattened into final values.
+   One unit (--u) keeps every size proportional from 1280x800 to 3840x2160: min(1vh, .5625vw) is
+   1vmin on a 16:9 screen and a little narrower on 16:10. Type floor: every font size is max(12px, …).
+   State markers are data attributes (data-stale on the wall, data-kind / data-tone / data-blank on a
+   monitor) so the co-located modules share them without sharing class names. */
+.wall {
+  --u: min(1vh, .5625vw);
+  --g: calc(.8 * var(--u));
+  --bg: #060910; --panel: #0b101b; --panel2: #0f1624; --line: #1a2334; --line2: #243048;
+  --text: #dde5f2; --dim: #93a0b8; --faint: #62708a; --blue: #4d9dff; --blue2: #2a6fd6;
+  --amber: #f3b23a; --amberbg: rgba(243, 178, 58, .10); --green: #37cf8c; --red: #ff5f5f; --grey: #6d7891;
+  --live: #ff3b46; --white: #f2f6ff; --text2: #b9c4d8; --amberhi: #ffd88a; --cyan: #7fd6e8; --well: #070b14;
+  --r: calc(1.1 * var(--u)); --r2: calc(.8 * var(--u)); --head: #c9d6ee; --tile: #141d2f; --tiledone: #1b2c4a;
+  /* The two font stacks, once. Switching the wall to the app's Geist faces is these two lines. */
+  --onair-mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --onair-sans: Inter, "Segoe UI", system-ui, sans-serif;
+  --mono: var(--onair-mono);
+  --sans: var(--onair-sans);
+  position: fixed; inset: 0; z-index: 1;
+  display: flex; flex-direction: column; gap: var(--g); padding: var(--g);
+  background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 16px; line-height: normal;
+  overflow: hidden; -webkit-font-smoothing: antialiased;
+}
+.wall, .wall *, .wall *::before, .wall *::after { box-sizing: border-box; }
+.wall :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.mono { font-family: var(--mono); }
+
+/* reduced motion: end states only */
+.rm *, .rm *::before, .rm *::after { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .wall *, .wall *::before, .wall *::after { animation: none !important; transition: none !important; }
+}
+
+/* ── THE MONITOR GRID ── */
+.grid { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1.62fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: var(--g); }
+.slotPgm { grid-row: 1 / 3; grid-column: 1; }
+.slotPvw1 { grid-row: 1; grid-column: 2; }
+.slotPvw2 { grid-row: 1; grid-column: 3; }
+.slotPvw3 { grid-row: 2; grid-column: 2; }
+.slotWire { grid-row: 2; grid-column: 3; }
+/* before the first answer: one calm line where the grid will be */
+.hold { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: calc(2 * var(--u)); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); font: 500 max(12px, calc(2.2 * var(--u)))/1.3 var(--sans); color: var(--dim); }
+
+/* ── WIRE: the newest events ── */
+.wl { flex: 1 1 auto; min-height: 0; overflow: hidden; padding: calc(.6 * var(--u)) 0; }
+[data-stale] .wl { filter: grayscale(1) brightness(.5); }
+.we { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: baseline; gap: calc(1 * var(--u)); padding: calc(.8 * var(--u)) calc(1.6 * var(--u)); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.wt { font: 500 max(12px, calc(1.25 * var(--u)))/1 var(--mono); color: var(--faint); }
+.wk { font: 500 max(12px, calc(1.05 * var(--u)))/1 var(--mono); letter-spacing: .08em; padding: calc(.3 * var(--u)) calc(.8 * var(--u)); border-radius: 999px; border: 1px solid currentColor; }
+.wh { font: 500 max(13px, calc(1.6 * var(--u)))/1.15 var(--sans); color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.we[data-tone="good"] .wk { color: var(--green); }
+.we[data-tone="attention"] .wk { color: var(--amber); }
+.we[data-tone="bad"] .wk { color: var(--red); }
+.we[data-tone="info"] .wk { color: var(--blue); }
+.we[data-tone="attention"] .wh { color: var(--amber); }
+.old { opacity: .55; }
+.weNew { animation: wirein .6s ease-out 1; }
+@keyframes wirein { 0% { background: rgba(77, 157, 255, .14); } 100% { background: transparent; } }
+.weNone { color: var(--faint); font: 500 max(12px, calc(1.4 * var(--u)))/1.3 var(--sans); }
+
+/* ── SMALL MONITORS: every other repo of the fleet ── */
+.smalls { flex: 0 0 auto; display: grid; grid-template-columns: repeat(var(--cols, 8), minmax(0, 1fr)); grid-auto-rows: max(62px, calc(8.4 * var(--u))); gap: var(--g); }
+.sm { position: relative; background: var(--panel2); border: 1px solid var(--line2); border-radius: var(--r); padding: calc(.8 * var(--u)) calc(1 * var(--u)); display: flex; flex-direction: column; justify-content: center; gap: calc(.45 * var(--u)); overflow: hidden; min-width: 0; }
+.sm[data-tone="amber"] { background: linear-gradient(180deg, rgba(243, 178, 58, .14), rgba(243, 178, 58, .04)), var(--panel2); border-color: rgba(243, 178, 58, .6); }
+.sm[data-tone="green"] { background: linear-gradient(180deg, rgba(55, 207, 140, .14), rgba(55, 207, 140, .04)), var(--panel2); border-color: rgba(55, 207, 140, .6); }
+.smh { display: flex; align-items: center; gap: calc(.8 * var(--u)); min-width: 0; }
+.smh b { font: 600 max(14px, calc(2.2 * var(--u)))/1 var(--sans); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sms { font: 500 max(12px, calc(1.15 * var(--u)))/1 var(--mono); letter-spacing: .14em; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sm[data-tone="amber"] .sms { color: var(--amber); }
+.sm[data-tone="green"] .sms { color: var(--green); }
+.smu { font: 500 max(12px, calc(1.3 * var(--u)))/1.15 var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ns { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; flex-direction: column; gap: 3px; background: rgba(4, 6, 11, .93); font: 600 max(12px, calc(1.4 * var(--u)))/1.2 var(--mono); letter-spacing: .14em; color: var(--amber); text-align: center; }
+.ns small { font: 600 max(12px, calc(1.1 * var(--u)))/1.2 var(--mono); letter-spacing: .04em; color: var(--amberhi); }
+[data-stale] .ns { display: flex; }
+
+/* ── FOOTER: the honesty label, always on ── */
+.foot { flex: 0 0 auto; display: flex; align-items: center; gap: calc(1.6 * var(--u)); min-height: max(24px, calc(3.2 * var(--u))); padding: 0 calc(.4 * var(--u)); }
+.label { flex: 0 0 auto; max-width: 100%; font: 500 max(12px, calc(1.5 * var(--u)))/1.2 var(--mono); color: var(--dim); background: var(--panel); border: 1px solid var(--line2); border-radius: 999px; padding: calc(.55 * var(--u)) calc(1.1 * var(--u)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.label b { color: var(--amber); font-weight: 500; }
+.label .fr { color: var(--text); font-variant-numeric: tabular-nums; }
+.rt { margin-left: auto; font: 500 max(12px, calc(1.25 * var(--u)))/1 var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.rt b { color: var(--text2); font-weight: 600; }
+/* the wall's two controls, as the desk's pills (the prototype's replay controls are gone) */
+.ctl { flex: 0 0 auto; font: 500 max(12px, calc(1.25 * var(--u)))/1 var(--mono); letter-spacing: .06em; color: var(--text2); background: var(--panel); border: 1px solid var(--line2); border-radius: 999px; padding: calc(.55 * var(--u)) calc(1.1 * var(--u)); cursor: pointer; white-space: nowrap; }
+.ctl:hover { border-color: var(--blue); color: #fff; }
+.ctl[data-on] { color: var(--green); border-color: rgba(55, 207, 140, .5); }
+.ctl[data-armed] { color: var(--amber); border-color: rgba(243, 178, 58, .6); }

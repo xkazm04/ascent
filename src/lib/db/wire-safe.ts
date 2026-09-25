@@ -152,6 +152,7 @@ import type { RunnerKeptLessonRow } from "@/lib/db/loop-lessons-runner";
 // The ledger's chronicle row (WP6a) — a LoopRunSummary widened with seq, drive, plan mode and the
 // lanes' verified closes / landing times, all strings, numbers and nulls.
 import type { LoopRunChronicleEntry } from "@/lib/db/loop-runs-read";
+import type { RoundLane } from "@/lib/db/loop-rounds";
 // first-run-onboarding-wizard#B: a repo's watch/schedule/latest-scan state, merged into every
 // /api/app/repos row and read by the onboarding select step (repoStanding.ts). `scannedAt` comes off
 // Scan.scannedAt and getRepoStates `.toISOString()`s it.
@@ -246,6 +247,8 @@ export const WIRE_TYPES = {
   LanePulse: true satisfies WireSafe<LanePulse>,
   RunnerPulse: true satisfies WireSafe<RunnerPulse>,
   LoopRunChronicleEntry: true satisfies WireSafe<LoopRunChronicleEntry>,
+  // The Live desk (contest live-fleet-rounds): one lean row per lane for the flight log and arm league.
+  RoundLane: true satisfies WireSafe<RoundLane>,
   MemoryRow: true satisfies WireSafe<MemoryRow>,
   OpsState: true satisfies WireSafe<OpsState>,
   OrgBranding: true satisfies WireSafe<OrgBranding>,
