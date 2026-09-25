@@ -443,6 +443,21 @@ export function toolsForScopes(granted: readonly SkillTokenScope[]): McpToolDef[
   return MCP_TOOLS.filter((t) => t.scopes.every((s) => held.has(s)));
 }
 
+/** Which plan-gated families this workspace carries, one decision per family. */
+export type PlanGates = Record<McpPlanGate, boolean>;
+
+/**
+ * THE ADMISSION, for every door onto this catalog. A caller is admitted to a tool when it holds every
+ * scope the tool declares AND the workspace's plan carries the tool's family. The MCP route calls this
+ * for a token's scopes; Athena calls it for her own grant (`ATHENA_SCOPES`). A door may SUBTRACT from
+ * what this returns — Athena drops the writes — and no door computes admission of its own: a door
+ * that admitted by excluding named families would be offered, the day a new scoped read lands, a tool
+ * the MCP door refuses to every token without that scope. Pure.
+ */
+export function admitTools(granted: readonly SkillTokenScope[], plan: PlanGates): McpToolDef[] {
+  return toolsForScopes(granted).filter((t) => !t.planGate || plan[t.planGate]);
+}
+
 /** The wire shape of a tool — the catalog minus the server-side `scopes` field. */
 export function toWireTool(t: McpToolDef): Record<string, unknown> {
   return { name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema };

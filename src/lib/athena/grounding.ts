@@ -43,7 +43,8 @@
 // NOT fenced, because ascent authored it.
 
 import type { AthenaTool, ToolCall } from "@/lib/llm/leg";
-import { MCP_TOOLS } from "@/lib/mcp/tools";
+import type { SkillTokenScope } from "@/lib/db";
+import { admitTools, MCP_TOOLS } from "@/lib/mcp/tools";
 import { toolResultText, type ToolResult } from "@/lib/mcp/handlers";
 import { neutralize, wrapUntrusted } from "@/lib/llm/untrusted";
 
@@ -97,27 +98,33 @@ export interface AthenaGrounding {
 }
 
 /**
- * The catalog as the leg transports want it — the MCP definitions minus their server-side `scopes`.
+ * WHAT SHE MAY REACH, stated as a GRANT and not as a list of exclusions. Athena is admitted to the
+ * catalog by the MCP door's own admission (`admitTools`), holding these scopes: the door, and the two
+ * read resources. Everything else follows from the catalog's own markers, with no list kept here:
  *
- * Filtered on the tool's OWN `mutates` marker and `planGate` rather than on a list kept here: a write
- * tool added by a future lane is refused to Athena the moment it is marked, with no edit to this file
- * and no chance of the list being forgotten.
+ *   • no WRITE tool — every one needs `telemetry:write` (asserted in write-gate.test.ts), which she
+ *     does not hold;
+ *   • no WORK-QUEUE tool — `get_fix_brief` reads, but only rows a named holder holds, and this runner
+ *     has no principal to be one; `followups:write` is the catalog's marker for "needs a holder", and
+ *     she does not hold it either;
+ *   • no FUTURE scoped read — a tool a later lane puts behind a new resource scope is not hers until
+ *     that scope is written here, exactly as it is not a token's until an operator grants it.
  *
- * AND ON THE PRINCIPAL SCOPE, for the same structural reason. `mutates` catches the writes; it does
- * not catch `get_fix_brief`, which reads — but reads only rows a named HOLDER holds, and this runner
- * has no principal to be one (`runTool` fails it closed with "acts on this organization's work queue
- * on behalf of a named holder, and this call carried none"). Offering it was offering a tool whose
- * every invocation was a refusal: the model spends a turn on it, reports the capability as broken, and
- * the org's tokens paid for both. `followups:write` is the catalog's own marker for "this tool needs a
- * holder", so a future work tool disappears from here the moment it declares that scope.
+ * This used to be the reverse: the whole catalog minus `mutates`, minus `followups:write`. That held
+ * for every tool that existed and admitted every tool that did not — a read behind a scope no token
+ * of hers carries would have been offered to any member who can read the org.
  */
-const PRINCIPAL_SCOPE = "followups:write" as const;
+export const ATHENA_SCOPES: readonly SkillTokenScope[] = ["mcp:read", "memory:read", "skills:read"];
 
+/**
+ * The catalog as the leg transports want it — the MCP definitions minus their server-side `scopes`.
+ * The plan gates are the same predicates the MCP door resolves; the `mutates` filter is this door
+ * SUBTRACTING (a door may narrow what the shared admission returns, never widen it), kept so a write
+ * tool is refused here even if a future catalog entry were mis-scoped.
+ */
 export function athenaToolCatalog(opts: { memoryAllowed: boolean; skillsAllowed?: boolean }): AthenaTool[] {
-  const open = { memory: opts.memoryAllowed, skills: Boolean(opts.skillsAllowed) };
-  return MCP_TOOLS.filter((t) => !t.mutates)
-    .filter((t) => !t.scopes.includes(PRINCIPAL_SCOPE))
-    .filter((t) => !t.planGate || open[t.planGate])
+  return admitTools(ATHENA_SCOPES, { memory: opts.memoryAllowed, skills: Boolean(opts.skillsAllowed) })
+    .filter((t) => !t.mutates)
     .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
 }
 

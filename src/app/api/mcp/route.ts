@@ -57,7 +57,7 @@ import {
   validateHeaders,
   type JsonRpcRequest,
 } from "@/lib/mcp/protocol";
-import { MCP_TOOLS, TOOLS_CACHE_SCOPE, TOOLS_TTL_MS, toolsForScopes, toWireTool } from "@/lib/mcp/tools";
+import { admitTools, MCP_TOOLS, TOOLS_CACHE_SCOPE, TOOLS_TTL_MS, toolsForScopes, toWireTool } from "@/lib/mcp/tools";
 import { countTokenWritesToday, gateOpen, planRefusal, resolveMcpGates } from "@/app/api/mcp/gates";
 import { rateLimitKeyed, rateLimitRequest, tooManyRequests, GATE_RATE_LIMIT, MCP_RATE_LIMIT } from "@/lib/rate-limit";
 import { readCappedBody } from "@/lib/integrations/ingest-guard";
@@ -173,7 +173,8 @@ export async function POST(req: Request) {
   const gates = needsGates
     ? await resolveMcpGates(token.orgSlug)
     : { memory: false as boolean, skills: false as boolean };
-  const allowed = scoped.filter((t) => gateOpen(gates, t.planGate));
+  // The ONE admission (`admitTools`), shared with Athena's in-process door, so the two cannot drift.
+  const allowed = admitTools(scopes, gates);
 
   switch (body.method) {
     // MUST be implemented by every server in this revision: it is how a client selects a version
