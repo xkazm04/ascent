@@ -48,19 +48,19 @@ export const CAPABILITY_DIFF: DiffRow[] = [
   {
     label: "Scan history",
     cloud: `${FREE.retentionDays} days on Free, longer per tier`,
-    local: "Your disk, your policy — no floor",
+    local: "Your disk, your policy: no floor",
     gated: false,
   },
   {
     label: "Model",
     cloud: "Ours, or your own account on Team",
-    local: "Any provider — Ollama, vLLM, the Claude CLI you already pay for",
+    local: "Any provider: Ollama, vLLM, the Claude CLI you already pay for",
     gated: false,
   },
   {
     label: "Operation",
     cloud: "Managed database, registered GitHub App, cron, alerts, someone on call",
-    local: "Yours — which is the whole trade",
+    local: "Yours, which is the whole trade",
     gated: false,
   },
 ];
