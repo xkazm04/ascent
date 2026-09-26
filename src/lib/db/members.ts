@@ -318,10 +318,11 @@ export async function getAlertsWatermark(orgSlug: string, login: string): Promis
 }
 
 /**
- * Advance the member's watermark to `at` (they just looked). Returns false when there's no membership
- * to stamp — the same degraded path as getAlertsWatermark. Deliberately unconditional: the watermark
- * only ever moves forward in practice (it's stamped with `now` on an open), and an unconditional
- * update keeps this a single write with no read-modify-write race between two open tabs.
+ * Advance the member's watermark to `at` (what they were shown when they looked — `seenThrough`).
+ * Returns false when there's no membership to stamp — the same degraded path as getAlertsWatermark —
+ * or when the watermark already stands at or past `at`. Forward-only, because `at` is no longer the
+ * clock: a tab that fetched earlier and is opened later would otherwise move it back. The guard sits
+ * in the WHERE, so this stays a single write with no read-modify-write race between two open tabs.
  */
 export async function markAlertsSeen(orgSlug: string, login: string, at: Date = new Date()): Promise<boolean> {
   if (!isDbConfigured()) return false;
@@ -333,7 +334,7 @@ export async function markAlertsSeen(orgSlug: string, login: string, at: Date = 
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return false;
   const updated = await prisma.membership.updateMany({
-    where: { orgId, userId },
+    where: { orgId, userId, OR: [{ alertsSeenAt: null }, { alertsSeenAt: { lt: at } }] },
     data: { alertsSeenAt: at },
   });
   return updated.count > 0;

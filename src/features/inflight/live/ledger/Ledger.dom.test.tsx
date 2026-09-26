@@ -76,12 +76,14 @@ describe("Ledger", () => {
 
   it("stamps the anchor once after five visible seconds", () => {
     vi.useFakeTimers();
-    render(<Ledger data={ledgerData()} {...hrefs} />);
+    const data = ledgerData();
+    render(<Ledger data={data} {...hrefs} />);
     act(() => {
       vi.advanceTimersByTime(SEEN_DWELL_MS);
     });
     expect(client.stampLiveSeen).toHaveBeenCalledTimes(1);
-    expect(client.stampLiveSeen).toHaveBeenCalledWith("acme");
+    // Through the load the viewer is looking at, not the clock when the dwell elapsed.
+    expect(client.stampLiveSeen).toHaveBeenCalledWith("acme", data.now);
   });
 
   it("resumes a paused repo from the server's answer", async () => {

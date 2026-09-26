@@ -8,6 +8,7 @@
 // the anchor it is measured from was snapshotted at that load — so the presence stamp this view fires
 // after five visible seconds (`useSeenStamp`) moves the NEXT visit's anchor, never this one's card.
 
+import { useCallback } from "react";
 import { deriveBriefing } from "./briefingModel";
 import { Chronicle } from "./Chronicle";
 import { Directions } from "./Directions";
@@ -16,6 +17,7 @@ import { LedgerHeader } from "./LedgerHeader";
 import { NeedsYou } from "./NeedsYou";
 import { RunnerCard } from "./RunnerCard";
 import { RunnerLessons } from "./RunnerLessons";
+import { stampLiveSeen } from "./ledgerClient";
 import { useLedgerState } from "./useLedgerState";
 import { useSeenStamp } from "./useSeenStamp";
 import type { LedgerData } from "./ledgerTypes";
@@ -39,8 +41,11 @@ export function Ledger({ data, ledgerHref, cockpitHref }: LedgerProps) {
     lastRunner: data.lastRunner,
     failed: data.failed,
   });
-  // A briefing that could not be derived must not advance the anchor past deltas nobody saw.
-  useSeenStamp(data.slug, briefing?.kind !== "error");
+  // A briefing that could not be derived must not advance the anchor past deltas nobody saw. And the
+  // stamp is THROUGH this load, not "now": a ledger loaded in a background tab stamps when it is finally
+  // seen, and whatever finished in between was never on this screen.
+  const stampThroughLoad = useCallback((slug: string) => stampLiveSeen(slug, data.now), [data.now]);
+  useSeenStamp(data.slug, briefing?.kind !== "error", stampThroughLoad);
   const cardRunner = s.runner ?? data.lastRunner;
 
   return (

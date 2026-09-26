@@ -42,14 +42,15 @@ export async function getLiveSeenAt(orgSlug: string, login: string): Promise<{ s
   return { seenAt: m.liveSeenAt ? m.liveSeenAt.toISOString() : null };
 }
 
-/** Advance the viewer's own anchor to `at`. False when there is no membership to stamp. Unconditional
- *  and single-write, for the reason `markAlertsSeen` gives: two open tabs cannot race a read-modify-write. */
+/** Advance the viewer's own anchor to `at` (the moment the ledger they looked at was loaded). False
+ *  when there is no membership to stamp, or the anchor already stands at or past `at`. Forward-only
+ *  and single-write, for the reasons `markAlertsSeen` gives. */
 export async function markLiveSeen(orgSlug: string, login: string, at: Date = new Date()): Promise<boolean> {
   if (!isDbConfigured()) return false;
   const key = await membershipKey(orgSlug, login);
   if (!key) return false;
   const updated = await getPrisma().membership.updateMany({
-    where: { orgId: key.orgId, userId: key.userId },
+    where: { orgId: key.orgId, userId: key.userId, OR: [{ liveSeenAt: null }, { liveSeenAt: { lt: at } }] },
     data: { liveSeenAt: at },
   });
   return updated.count > 0;

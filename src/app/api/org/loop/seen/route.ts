@@ -1,9 +1,10 @@
 // THE LEDGER'S PRESENCE STAMP (spark theater-upgrade, 2026-09-18).
 //
-//   POST { org } → { ok: true, seen: boolean, seenAt? }
+//   POST { org, through? } → { ok: true, seen: boolean, seenAt? }
 //
-// Advances the CALLER'S OWN `Membership.liveSeenAt` to now — the anchor the ledger's "Since you last
-// looked" briefing is derived against. The `alertsSeenAt` stamp (`POST /api/org/alerts { seen: true }`)
+// Advances the CALLER'S OWN `Membership.liveSeenAt` to `through` — the moment the ledger the viewer is
+// looking at was loaded (`seenThrough`: clamped to now, now when absent) — the anchor the ledger's
+// "Since you last looked" briefing is derived against. The `alertsSeenAt` stamp (`POST /api/org/alerts { seen: true }`)
 // one surface over, and self-scoped the same way: the login comes from the session, never from the
 // body, so a caller can only ever move their own read state.
 //
@@ -21,6 +22,7 @@ import { PUBLIC_ORG, requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 import { markLiveSeen } from "@/lib/db/live-seen";
+import { seenThrough } from "@/lib/org/seen-through";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +30,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const xo = requireSameOrigin(request);
   if (xo) return xo;
-  const body = (await request.json().catch(() => ({}))) as { org?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { org?: unknown; through?: unknown };
   const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
   if (org === PUBLIC_ORG) return NextResponse.json({ ok: true, seen: false });
@@ -37,7 +39,8 @@ export async function POST(request: Request) {
 
   const login = await resolveViewerLogin().catch(() => null);
   if (!login) return NextResponse.json({ ok: true, seen: false });
-  const at = new Date();
+  // Through the moment the ledger was loaded, not now: the stamp can land hours after the load.
+  const at = seenThrough(body.through, new Date());
   const stamped = await markLiveSeen(org, login, at).catch(() => false);
   return NextResponse.json({ ok: true, seen: stamped, ...(stamped ? { seenAt: at.toISOString() } : {}) });
 }

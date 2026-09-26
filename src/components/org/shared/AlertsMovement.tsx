@@ -84,7 +84,9 @@ export function useOrgMovement(org: string) {
     fetch("/api/org/alerts", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ org, seen: true }),
+      // Seen THROUGH the newest movement listed, not "now": anything that moved after the mount fetch
+      // was never on screen and stays unread for the next look.
+      body: JSON.stringify({ org, seen: true, through: movement.items[0]?.at }),
     }).catch(() => {});
   }, [org, seen, movement]);
 

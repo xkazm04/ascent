@@ -87,7 +87,8 @@ describe("Alerts chip — movement count", () => {
   });
 
   it("opening advances the watermark once and clears the badge, keeping the list on screen", async () => {
-    const calls = mockApi(movement());
+    const shown = movement();
+    const calls = mockApi(shown);
     render(<AlertsControl org="acme" />);
     const bell = await screen.findByRole("button", { name: /Alerts/ });
     await waitFor(() => expect(bell).toHaveTextContent("2"));
@@ -96,6 +97,8 @@ describe("Alerts chip — movement count", () => {
     await waitFor(() => {
       const seen = calls.filter((c) => c.opts?.method === "POST" && String(c.opts.body).includes('"seen":true'));
       expect(seen).toHaveLength(1);
+      // Seen THROUGH the newest movement listed — not the server's clock when the popover opened.
+      expect(JSON.parse(String(seen[0]!.opts!.body)).through).toBe(shown.items[0]!.at);
     });
     // The badge clears (they've looked) but the list they came to read stays.
     await waitFor(() => expect(bell.textContent).toBe("🔔 Alerts"));

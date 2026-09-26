@@ -101,8 +101,9 @@ export async function revokeLesson(slug: string, id: string): Promise<RunnerKept
 
 // ── the presence stamp ───────────────────────────────────────────────────────────────────────────
 
-/** `POST /api/org/loop/seen { org }` — advance the viewer's own "since you last looked" anchor. */
-export async function stampLiveSeen(slug: string): Promise<boolean> {
-  const res = await post("/api/org/loop/seen", { org: slug });
+/** `POST /api/org/loop/seen { org, through }` — advance the viewer's own "since you last looked" anchor
+ *  to `through`, the moment the ledger on screen was loaded. */
+export async function stampLiveSeen(slug: string, through?: string): Promise<boolean> {
+  const res = await post("/api/org/loop/seen", { org: slug, through });
   return (await json<{ seen: boolean }>(res, "Could not record the visit")).seen === true;
 }

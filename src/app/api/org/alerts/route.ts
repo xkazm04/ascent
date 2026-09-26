@@ -4,7 +4,7 @@
 // POST /api/org/alerts { org, webhookUrl?, overallDrop?, dimensionDrop? } -> { ok, ... }  (admin)  set/clear sink + thresholds
 // POST /api/org/alerts { org, test: true }                       -> { ok, delivered }     (admin)  send a test alert
 // POST /api/org/alerts { org, resend: eventId }                  -> { ok, delivered }     (admin)  re-send an undelivered alert's stored text
-// POST /api/org/alerts { org, seen: true }                       -> { ok, seen }          (member) advance the viewer's watermark
+// POST /api/org/alerts { org, seen: true, through? }             -> { ok, seen }          (member) advance the viewer's watermark
 //
 // Per-org alert sink configuration — where regression alerts, low-credit pushes and the weekly
 // digest for this org are POSTed (Slack-compatible incoming webhook). Setting it routes the org's
@@ -35,6 +35,7 @@ import { buildTestAlertMessage, validateAlertWebhookUrl } from "@/lib/alerts";
 import { deliverAlert, type SinkRead } from "@/lib/alert-door";
 import { getAlertEventForResend } from "@/lib/db/alert-events";
 import { isResendable, sinkHealth, toHistoryEvent } from "@/lib/alert-sink-health";
+import { seenThrough } from "@/lib/org/seen-through";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -200,6 +201,7 @@ export async function POST(request: Request) {
     dimensionDrop?: unknown;
     test?: boolean;
     seen?: boolean;
+    through?: unknown;
     resend?: unknown;
   };
   if (!body.org) return NextResponse.json({ error: "Provide { org, webhookUrl }." }, { status: 400 });
@@ -213,7 +215,9 @@ export async function POST(request: Request) {
     const login = await resolveViewerLogin();
     // No viewer identity (auth-off / public org) → nothing to stamp; a clean no-op, not an error.
     if (!login) return NextResponse.json({ ok: true, seen: false });
-    const at = new Date();
+    // Through the newest movement the popover showed, not now: the list was fetched on mount and the
+    // popover can be opened much later (`seenThrough`).
+    const at = seenThrough(body.through, new Date());
     const stamped = await markAlertsSeen(body.org, login, at).catch(() => false);
     return NextResponse.json({ ok: true, seen: stamped, ...(stamped ? { seenAt: at.toISOString() } : {}) });
   }

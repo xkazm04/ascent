@@ -95,6 +95,10 @@ async function readAnchor(slug: string): Promise<string | null> {
 
 export async function loadLedger(slug: string): Promise<LedgerData> {
   const failed: LedgerRead[] = [];
+  // Read BEFORE the reads: `now` is also what the presence stamp claims the viewer saw through
+  // (`Ledger` -> `stampLiveSeen(slug, data.now)`), and a clock read after them would claim rows that
+  // landed during the load without their being in it.
+  const now = new Date().toISOString();
   const [isOwner, drives, seen, active, runs, pending, plans, directions, lessons] = await Promise.all([
     hasOrgRole(slug, "owner").catch(() => false),
     attempt("drives", failed, () => listDrives(slug)),
@@ -111,7 +115,7 @@ export async function loadLedger(slug: string): Promise<LedgerData> {
   const driveModes = Object.fromEntries((drives ?? []).map((d) => [d.id, d.mode ?? "bounded"]));
   return {
     slug,
-    now: new Date().toISOString(),
+    now,
     isOwner,
     selfHosted: selfHosted(),
     seenAt: seen,
