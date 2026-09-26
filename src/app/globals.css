@@ -696,6 +696,20 @@ html.snap-deck body::after {
   }
 }
 
+/* Print is a static frame of the whole page, and it matches no motion preference: a reader with JS on
+   who prints /about gets every armed-but-unrevealed block at opacity 0 (measured 15 of 15, plus 40 of
+   40 FleetGrid cells, before this rule). `.js-reveal` toggles off again as a block leaves the viewport,
+   so scrolling the page first does not help either. Resolve every reveal for print. `!important` is
+   what beats the inline opacity/transform framer writes onto `[data-reveal]` elements. */
+@media print {
+  .js-reveal,
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
 /* ── Mission Control: post-login fleet star-map (/launch) ────────────
    A cinematic entrance — each org is a constellation, each repo a star
    that brightens with its maturity and twinkles as scan data streams in. */

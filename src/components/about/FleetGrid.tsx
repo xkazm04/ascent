@@ -9,6 +9,7 @@ import { useRef, useState } from "react";
 import { motion, useInView, useReducedMotion } from "framer-motion";
 import { scoreHex, LEVEL_HEX } from "@/lib/ui";
 import { LEVELS, levelForScore } from "@/lib/maturity/model";
+import { useMounted } from "@/components/report/chartMotion";
 
 const SEGMENTS = ["Platform", "Web", "Mobile", "Services", "Legacy"] as const;
 type Seg = (typeof SEGMENTS)[number];
@@ -32,6 +33,12 @@ export function FleetGrid() {
   const [seg, setSeg] = useState<Seg | "All">("All");
   const [inspect, setInspect] = useState<(typeof REPOS)[number] | null>(null);
   const [pinned, setPinned] = useState(false);
+  // Same contract as deck/Reveal: the served frame is the RESOLVED heatmap. `initial={{ opacity: 0 }}`
+  // used to bake opacity:0 into all 40 cells of the SSR HTML, so no-JS, a failed hydration, and print
+  // got an empty grid. The hidden entry state is applied only after mount, and never under reduced
+  // motion, where the heatmap is the static composition rather than something to scroll to.
+  const armed = useMounted();
+  const resolved = !armed || inView || !!reduced;
 
   const shown = seg === "All" ? REPOS : REPOS.filter((r) => r.segment === seg);
   const dist = LEVELS.map((l) => ({ id: l.id, n: shown.filter((r) => levelForScore(r.score).id === l.id).length }));
@@ -86,10 +93,15 @@ export function FleetGrid() {
                 className={`focus-ring aspect-square rounded-[3px]${
                   isPinned ? " ring-2 ring-accent ring-offset-2 ring-offset-ink" : ""
                 }`}
+                data-reveal={dim ? undefined : ""}
                 style={{ backgroundColor: scoreHex(r.score) }}
-                initial={{ opacity: 0, scale: 0.4 }}
-                animate={inView ? { opacity: dim ? 0.1 : 0.92, scale: 1 } : { opacity: 0, scale: 0.4 }}
-                transition={{ duration: 0.35, delay: (col + row) * 0.025, ease: "easeOut" }}
+                initial={false}
+                animate={resolved ? { opacity: dim ? 0.1 : 0.92, scale: 1 } : { opacity: 0, scale: 0.4 }}
+                transition={
+                  resolved
+                    ? { duration: 0.35, delay: (col + row) * 0.025, ease: "easeOut" }
+                    : { duration: 0 }
+                }
                 whileHover={dim ? undefined : { scale: 1.16, opacity: 1 }}
                 onHoverStart={() => !dim && !pinned && setInspect(r)}
                 onHoverEnd={() => !dim && !pinned && setInspect(null)}

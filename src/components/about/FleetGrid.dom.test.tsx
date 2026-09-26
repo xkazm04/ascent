@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { FleetGrid } from "./FleetGrid";
 import { ChampionNetwork } from "./ChampionNetwork";
 import { RiskRadar } from "./RiskRadar";
@@ -118,5 +119,16 @@ describe("invented about/org diagrams carry Illustrative chrome", () => {
     const claimed = Number(illustrativeStamp().textContent?.match(/(\d+) sample repos/)?.[1]);
     expect(claimed).toBeGreaterThan(0);
     expect(screen.getByText(`${claimed} repos`)).toBeTruthy();
+  });
+});
+
+describe("FleetGrid served frame", () => {
+  // The heatmap is the X-ray's evidence, not decoration. Its SSR HTML used to carry opacity:0 on all 40
+  // cells (framer's `initial`), so no-JS, a failed hydration and print showed an empty grid.
+  it("server-renders every cell visible, with no baked-in opacity:0", () => {
+    const html = renderToStaticMarkup(<FleetGrid />);
+    const cells = html.match(/<button[^>]*aria-label="[^"]*maturity[^"]*"[^>]*>/g) ?? [];
+    expect(cells).toHaveLength(40);
+    for (const cell of cells) expect(cell).not.toMatch(/opacity\s*:\s*0(?![.\d])/);
   });
 });
