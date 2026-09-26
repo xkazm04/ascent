@@ -24,6 +24,9 @@ const eslintConfig = defineConfig([
     // duplicate warnings, so the gate failed for a reason no file in `src` could explain. The code
     // in a worktree is linted on its own branch, before it merges; here it is noise.
     ".claude/worktrees/**",
+    // The /contest arena and vault (git-ignored): contest seats' standalone prototypes, never product
+    // code. The first contest's multiview.js failed the pre-push gate from three copies of one file.
+    ".contest/**",
   ]),
   // Layering gate [A4] (registry: software-engineering/data-access/layering-rules): the raw Prisma
   // client module and its query machinery stay inside the data layer (src/lib/db). Everything above
