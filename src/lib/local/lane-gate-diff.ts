@@ -83,6 +83,22 @@ const FIXTURE_BASENAME = /\.snap$|(^|[.\-_])(fixture|fixtures|mock|mocks|snapsho
 const GATE_CONFIG_BASENAME =
   /^(vitest|jest|playwright|cypress|karma|ava|vite|babel|tsconfig[^/]*|jsconfig)\b.*\.(c|m)?(js|ts|json|mjs|cjs|mts|cts|yaml|yml)$|^\.?eslintrc(\..+)?$|^eslint\.config\.[cm]?[jt]s$|^tsconfig([.-][^/]+)?\.json$|^\.mocharc(\..+)?$|^(pytest\.ini|setup\.cfg|tox\.ini|pyproject\.toml|\.coveragerc|codecov\.ya?ml|sonar-project\.properties|\.pre-commit-config\.ya?ml|\.golangci\.ya?ml)$/;
 
+/**
+ * THE SAME CLASS, IN THE SHAPES THE FLEET'S OWN TREES CARRY. Measured 2026-09-27 against the
+ * gate-deciding files that exist in twelve target repositories: the list above caught 3 of 19. The
+ * misses were the Rust toolchain and lint pins, commit-hook runners other than husky, secret-scan and
+ * unused-code allowlists, and Python lint configs outside `pyproject.toml` — each a file whose edit
+ * turns a gate green without touching a test. `conftest.py` is here wherever it sits, because a
+ * root-level one is where a published benchmark's graded agent forged PASSED lines from a hook.
+ * Matched on the lowercased basename, like everything else here.
+ */
+const GATE_CONFIG_FLEET_BASENAME =
+  /^(rust-toolchain(\.toml)?|\.?clippy\.toml|\.?rustfmt\.toml|deny\.toml|nextest\.toml|\.?lefthook(-local)?\.ya?ml|\.gitleaks\.toml|\.gitleaksignore|knip\.jsonc?|\.?ruff\.toml|mypy\.ini|\.flake8|pyrightconfig\.json|conftest\.py|biome\.jsonc?|\.prettierrc(\..+)?|\.lintstagedrc(\..+)?|commitlint\.config\.[cm]?[jt]s|\.nycrc(\..+)?|\.c8rc(\..+)?|setuptests\.[cm]?[jt]sx?|(global|test)[.-]setup\.[cm]?[jt]s)$/;
+
+/** `.cargo/config.toml` can set the flags every Rust gate compiles with (`-A warnings` included). */
+const isCargoConfig = (segs: string[]): boolean =>
+  segs.length >= 2 && segs.at(-2) === ".cargo" && /^config(\.toml)?$/.test(segs.at(-1) ?? "");
+
 /** Directories that ARE the gate: CI definitions and commit hooks. */
 const GATE_DIR_PREFIX = [".github/workflows/", ".github/actions/", ".husky/", ".circleci/", ".gitlab/"];
 
@@ -114,7 +130,13 @@ export function classifyScoringSurface(path: string): ScoringSurface | null {
   // Fixtures first: `__fixtures__/foo.test.json` is a recorded expectation before it is a test.
   if (segs.slice(0, -1).some((s) => FIXTURE_DIR.has(s)) || FIXTURE_BASENAME.test(b)) return "fixture";
   if (TEST_BASENAME.test(b) || segs.slice(0, -1).some((s) => TEST_DIR.has(s))) return "test-file";
-  if (GATE_DIR_PREFIX.some((d) => p.startsWith(d)) || GATE_CONFIG_BASENAME.test(b)) return "gate-config";
+  if (
+    GATE_DIR_PREFIX.some((d) => p.startsWith(d)) ||
+    GATE_CONFIG_BASENAME.test(b) ||
+    GATE_CONFIG_FLEET_BASENAME.test(b) ||
+    isCargoConfig(segs)
+  )
+    return "gate-config";
   if (isVerifyDeclaration(p)) return "verify-command";
   return null;
 }

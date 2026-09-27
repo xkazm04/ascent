@@ -37,6 +37,20 @@ const SEEDED_VIOLATIONS: { path: string; surface: ScoringSurface }[] = [
   { path: ".github/workflows/ci.yml", surface: "gate-config" },
   { path: ".husky/pre-commit", surface: "gate-config" },
   { path: "pyproject.toml", surface: "gate-config" },
+  // ── the same class in the shapes the fleet's target repos carry (measured 2026-09-27: the rules
+  //    above caught 3 of the 19 such files that exist in those trees). Each is real somewhere.
+  { path: "rust-toolchain.toml", surface: "gate-config" },
+  { path: "src-tauri/deny.toml", surface: "gate-config" },
+  { path: "src-tauri/clippy.toml", surface: "gate-config" },
+  { path: "src-tauri/rustfmt.toml", surface: "gate-config" },
+  { path: "src-tauri/.cargo/config.toml", surface: "gate-config" },
+  { path: "lefthook.yml", surface: "gate-config" },
+  { path: ".gitleaks.toml", surface: "gate-config" },
+  { path: "knip.json", surface: "gate-config" },
+  { path: "ruff.toml", surface: "gate-config" },
+  // ── a root conftest can print PASSED lines from a hook; a setup file runs before every test
+  { path: "conftest.py", surface: "gate-config" },
+  { path: "src/setupTests.ts", surface: "gate-config" },
   // ── the verify command itself, wherever this repo's resolver reads it from (lane-verify.ts)
   { path: "package.json", surface: "verify-command" },
   { path: ".ai/manifest.yaml", surface: "verify-command" },
@@ -58,6 +72,11 @@ const INNOCENT = [
   "next.config.ts",
   "package-lock.json",
   "src/lib/report/compare.ts",
+  // near misses for the fleet-shaped rules: a config that is not cargo's, docs about a hook, a setup
+  // module that is application code
+  "crates/app/src/config.toml",
+  "docs/lefthook.md",
+  "src/lib/setup.ts",
 ];
 
 describe("classifyScoringSurface", () => {
