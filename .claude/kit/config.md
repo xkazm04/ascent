@@ -13,7 +13,7 @@ contest_seats: "claude:claude-opus-5-5@xhigh,claude:claude-sonnet-5-5@max"
 
 # kit overlay - ascent
 
-**State on 2026-09-29: setup track NOT started.** What exists: this overlay, `.claude/kit/kit.json`
+**State on 2026-09-29: setup track IN PROGRESS (see `Kit.md` in the vault for the phase).** What exists: this overlay, `.claude/kit/kit.json`
 (instrument config, verified: reachability walks 1,840 files from the app routes, divergence ranks
 29 feature modules), the `kit` skill linked from the registry, and the brand foundation seed
 `docs/design/BRAND-PRISM.md`. A session invoking `/kit init` starts at S0.
@@ -43,11 +43,14 @@ first ported surface and the visual reference; the kit contest (S5) must quote i
   (shell, shared, report, deck, landing, ui) is UI too and is measured as the system layer
   (`systemPrefix: components/`); a batch that touches `components/report` or `components/org` must
   add it to the ledger by hand at S0.
-- **Integrated-page shooter: NOT BUILT (S0.4 owed).** `scripts/proto-shot.mjs` and
-  `scripts/shot-landing.mjs` only screenshot the landing. The kit needs the real page in the real
-  shell on a recorded data tape, 1280x800 / 1920x1080 / 1440x3200, dark and light. Start from the
-  demo org (`DEMO_ORG_SLUG`, seeded by `scripts/seed-org.mjs`) and run `npx next dev -p 3011`:
-  **port 3000 on this machine is another product (KandiDate)**, so never point a shooter at it.
+- **Integrated-page shooter (built 2026-09-29):** `node scripts/kit/shoot.mjs --base http://localhost:3002
+  --themes altimeter,prism --sizes 1280x800,1920x1080,1440x3200 --routes "/org/kiro?tab=live" --out <dir>`.
+  Real route in the real shell, per theme (stored via localStorage `ascent-theme`; `?theme=prism` also
+  works), dismisses the setup drawer, exits 1 on page/console errors or an empty mount. It refuses
+  port 3000 (**another product, KandiDate, lives there**). Only ONE `next dev` can run per checkout:
+  if it says a server exists, use the URL it prints (3002 on 2026-09-29) instead of starting another.
+  The data tape is the seeded local DB (org `kiro`: repos kp, systedo-case; `scripts/seed-org.mjs`):
+  before/after pairs use the same DB, so a delta is code unless the DB moved.
 - Visual pass and style-contract capture/check live in the contest skill:
   `.claude/skills/contest/scripts/visual-pass.py`, `style-contract.py`.
 
@@ -94,6 +97,21 @@ Carried in from the landing contest (owner words, 2026-09-29 and the contest led
   comfortable; heavy content on its own surface).
 - Open question for S2, do not decide alone: how much of the landing's poster-scale expression
   survives into dashboards. The landing scales on a fixed 16:10 frame (`--U`); dashboards cannot.
+
+## Theme duality (the campaign's scaffolding)
+
+Two looks coexist until every route is covered, then one is retired (that is "ready to migrate"):
+
+- **altimeter** = the shipped look; the absence of `data-theme` on `<html>`.
+- **prism** = `html[data-theme="prism"]`, defined in `src/app/theme-prism.css` (token re-points) and,
+  for composed parts, in `src/app/kit.css` (`data-kit="<part>"` rules).
+- Switch: header tab switcher `ThemeSwitch` (both SiteHeader and OrgHeader), stored in localStorage
+  `ascent-theme`, restored pre-paint by `THEME_BOOT_SCRIPT` (`src/lib/theme/theme.ts`).
+- Rule for every batch: the Altimeter render must not regress (pair it); the Prism render is what the
+  owner gates. The token layer restyles ALL routes at once; batches migrate what tokens cannot reach
+  (literal hex, inline styles, hand-rolled look-alikes) and recompose surfaces from the kit.
+- Exit criteria to retire altimeter: coverage.json has every reachable module approved, and the owner
+  says so at a gate.
 
 ## Skill improvement log
 
