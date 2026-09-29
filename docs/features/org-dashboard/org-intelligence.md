@@ -3113,3 +3113,29 @@ The Overview's period row is a kit `Toolbar` with a `Segmented` range switch, th
 `Panel`s, and the org shared `Card`/`Tile`/`OrgTable`/`SectionHeader` delegate to `@/components/kit`.
 Altimeter renders as before; under the header's Prism theme the same markup takes the Prism expression
 (`src/app/kit.css`). See `docs/features/design-system/README.md`.
+
+### The Overview under the Prism theme (v2 composition, 2026-09-29)
+
+The tab has **two compositions chosen at its entry by theme**: `OverviewTab.tsx` awaits `getTheme()` and
+renders `OverviewTab.v1.tsx` (Altimeter, the shipped layout above, moved unchanged; pixel-identical at
+1920x1080 and 1440x3200) or `OverviewTab.v2.tsx` (Prism). Both take the inputs from `overviewInputs.ts`
+(period, window, scope promise, `?dim=`, query string) and render the same panels, so a deep link resolves
+identically in both. The data region picks `OverviewLedger` or `OverviewLedger.v2` inside `OverviewFleetPanel`.
+
+What v2 changes is structure, not colour:
+
+- **Order and hierarchy.** A `Masthead` leads (the org's level and score as one statement, with adoption,
+  rigor and coverage as figures and the maturity trend as its aside), then the Fix first band as a slot
+  under it (still its own Suspense boundary), the trajectory, the dimensions, the repo matrix, posture, fleet.
+- **Dimensions as spectral lines** (`DimensionLedger.v2`, `DimensionLedgerRow.v2`): three SDLC phases, nine
+  `DimensionLine`s. Hue names the dimension, the bar is the fleet average, the tick is the green floor. A
+  dimension no scored repo carries is **not judged** (an empty track and the words, decided by
+  `belowGreen.of === 0`). When no dimension has a movement baseline the section says so once instead of drawing
+  nine void marks.
+- **Repo matrix** (`DimensionMatrix.v2`): same cells, sort and detail modal as the heatmap
+  (`heatmapModel.ts`), drawn as scores with a hairline bar in the dimension's hue; a number below the green
+  floor turns warn (status keeps its meaning), an absent cell is the void, never a 0.
+- **Fleet** (`FleetRollup.v2`, `FleetGroup.v2`): ruled cohorts in one column instead of a two-column card grid.
+- **Shared, not duplicated:** `heatmapModel.ts` (sort/mean), `postureModel.ts`, `useFleetRollup.tsx`,
+  `trajectoryRead.ts`. **Known gap:** `OverviewTrajectoryCard` (v1) still carries its own copy of the
+  trajectory gate that `trajectoryRead.ts` states; a source-scan test pins the card's text, so v1 was left alone.
