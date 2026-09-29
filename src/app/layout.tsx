@@ -4,6 +4,7 @@ import { BRAND_INK, jsonLdScript, publicBaseUrl, siteDescription, SITE_TAGLINE }
 import { siteStructuredData } from "@/lib/site-jsonld";
 import { ModalRoot } from "@/components/ui/ModalRoot";
 import { DevInspector } from "./_dev-inspector/DevInspector";
+import { THEME_BOOT_SCRIPT } from "@/lib/theme/theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -53,7 +54,12 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // data-theme is set by the boot script before hydration (the stored look), so the server markup differs by design.
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         {/* SHELL-4: JSON-LD for the org + app. The payload is rubric-derived, but NOT static — it
             interpolates publicBaseUrl(), an env-derived value — so it goes through jsonLdScript,

@@ -1,0 +1,70 @@
+/* ── Theme "prism" — the candidate identity (docs/design/BRAND-PRISM.md) ─────────────────────────
+   Applied only under html[data-theme="prism"] (set by THEME_BOOT_SCRIPT / ThemeSwitch); the absence
+   of the attribute is the shipped "altimeter" look, untouched. Everything here is a TOKEN re-point:
+   Tailwind v4 utilities read `var(--color-*)`, so re-pointing the ramp restyles every route that
+   uses the stock slate/surface/accent utilities at once. What tokens cannot reach (literal hex in
+   inline styles, canvas art) is the measured remainder the kit batches migrate.
+
+   Palette (from the winner, variant A/1): Void #05060A, Graphite #151823, Ink #0A0C13,
+   Paper #F2EEE6, mute #A6ABBD, dim #7D8296, hairline = paper at 13%. Accent is PAPER, not a hue:
+   in Prism colour names a dimension (the Spectral Nine) and never decorates a control.
+   Status colours (danger / warn / success / tone-*) are deliberately NOT re-pointed: see
+   BRAND-PRISM.md, open conflict 1 (hue vs meaning). */
+html[data-theme="prism"] {
+  color-scheme: dark;
+  --color-accent: #f2eee6;
+  --color-accent-soft: #d6d4d0;
+  --color-ink: #05060a;
+  --color-on-accent: #07080c;
+  --color-surface: #151823;
+  --color-surface-strong: #0a0c13;
+  --color-divider: #262a37;
+  --color-tone-flat: #a6abbd;
+
+  --color-white: #f2eee6;
+  --color-slate-50: #f2eee6;
+  --color-slate-100: #ebe7df;
+  --color-slate-200: #dcd9d3;
+  --color-slate-300: #c3c4cb;
+  --color-slate-400: #a6abbd;
+  --color-slate-500: #8b90a4;
+  --color-slate-600: #7d8296;
+  --color-slate-700: #3a3e50;
+  --color-slate-800: #262a37;
+  --color-slate-900: #151823;
+  --color-slate-950: #0a0c13;
+
+  /* the Spectral Nine, one hue per dimension D1..D9, for kit parts and dimension marks */
+  --spec-1: #ff5a5f; --spec-2: #ff8a3d; --spec-3: #ffc247; --spec-4: #d4f15b; --spec-5: #62e59a;
+  --spec-6: #38d9d0; --spec-7: #4cb2ff; --spec-8: #7c83ff; --spec-9: #bc6dff;
+  --spec: linear-gradient(90deg, var(--spec-1), var(--spec-2), var(--spec-3), var(--spec-4), var(--spec-5), var(--spec-6), var(--spec-7), var(--spec-8), var(--spec-9));
+}
+
+html[data-theme="prism"] body {
+  background-color: #05060a;
+  color: #f2eee6;
+}
+
+html[data-theme="prism"] body::before {
+  background-image:
+    radial-gradient(ellipse 70% 60% at 60% -10%, rgba(124, 131, 255, 0.09), transparent 62%),
+    linear-gradient(180deg, #0a0c13 0%, #05060a 58%);
+}
+
+/* Prism's primary control: a paper block with the spectrum as its underline (winner .btn.primary). */
+html[data-theme="prism"] .bg-accent {
+  position: relative;
+  border-radius: 3px;
+}
+html[data-theme="prism"] button.bg-accent::after,
+html[data-theme="prism"] a.bg-accent::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 3px;
+  background: var(--spec);
+  border-radius: 0 0 3px 3px;
+  pointer-events: none;
+}
