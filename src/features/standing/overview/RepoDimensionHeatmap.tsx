@@ -15,33 +15,17 @@
 // An absent cell is now the kit's `missing` void: framed, empty, non-interactive, carrying the
 // shared caveat. It is not a zero, and it can no longer be read as one.
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Surface } from "@/components/ui";
 import { SectionHeader } from "@/components/org/shared/ui";
 import { DIMENSION_SHORT, heatCell, scoreHex } from "@/lib/ui";
 import { Legend } from "@/components/org/viz";
 import { HeatVoid } from "./HeatVoid";
+import { useHeatMatrix, type HeatRow } from "./heatmapModel";
 import { RepoDimensionModal, type HeatTarget } from "@/components/org/shared/RepoDimensionModal";
 
-export interface HeatRow {
-  name: string;
-  fullName: string;
-  dims: { dimId: string; score: number }[];
-}
-
-/** Column mean over the repos that HAVE the dimension (a legacy scan missing a dim is excluded from
- *  that column's average rather than dragging it down as a fake 0); null when no repo has it. */
-function columnAverages(rows: HeatRow[], dims: string[]): Record<string, number | null> {
-  const out: Record<string, number | null> = {};
-  for (const d of dims) {
-    const scores = rows.map((r) => r.dims.find((x) => x.dimId === d)?.score).filter((s): s is number => s != null);
-    out[d] = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
-  }
-  return out;
-}
-
-const dimScore = (r: HeatRow, d: string) => r.dims.find((x) => x.dimId === d)?.score;
+export type { HeatRow } from "./heatmapModel";
 
 export function RepoDimensionHeatmap({
   org,
@@ -59,19 +43,9 @@ export function RepoDimensionHeatmap({
   const [target, setTarget] = useState<HeatTarget | null>(null);
   // GC: column sort — a dimension header click ranks the fleet by that dimension, WEAKEST FIRST
   // (the actionable view: "who needs help on CI?"), a second click flips to strongest-first, a third
-  // restores the caller's default (overall maturity) order. Repos missing the dim sort as -1. A
-  // ?dim= deep-link seeds the same weakest-first sort so the linked-to column arrives pre-ranked.
-  const [sort, setSort] = useState<{ dim: string; dir: 1 | -1 } | null>(
-    initialSortDim && dims.includes(initialSortDim) ? { dim: initialSortDim, dir: 1 } : null,
-  );
-  const sorted = useMemo(() => {
-    if (!sort) return rows;
-    return [...rows].sort((a, b) => ((dimScore(a, sort.dim) ?? -1) - (dimScore(b, sort.dim) ?? -1)) * sort.dir);
-  }, [rows, sort]);
-  const cycleSort = (d: string) =>
-    setSort((s) => (s?.dim !== d ? { dim: d, dir: 1 } : s.dir === 1 ? { dim: d, dir: -1 } : null));
-  const avgs = columnAverages(rows, dims);
-  const hasMissing = rows.some((r) => dims.some((d) => dimScore(r, d) == null)) || dims.some((d) => avgs[d] == null);
+  // restores the caller's default (overall maturity) order. A ?dim= deep-link seeds the same sort.
+  // The sort/mean model is shared with the v2 matrix (heatmapModel.ts).
+  const { sort, sorted, avgs, cycleSort, hasMissing } = useHeatMatrix(rows, dims, initialSortDim);
   return (
     <Surface className="p-5">
       <SectionHeader

@@ -9,28 +9,15 @@
 // RepoCategoryRollupRow.tsx / RepoCategoryRollupGroup.tsx — both split out per
 // docs/ORG-TABS-REFACTOR.md to keep this file under the 200-LOC cap.
 
-import { useState } from "react";
 import { Surface } from "@/components/ui";
-import { SectionHeader, postureLabel } from "@/components/org/shared/ui";
+import { SectionHeader } from "@/components/org/shared/ui";
 import { fmtDelta, deltaHex, DIRECTION_TONE } from "@/components/ui/format";
 import { scoreHex } from "@/lib/ui";
-import { FilterMenu, type FilterOption } from "@/features/standing/overview/FilterMenu";
-import { StackRoleIcon } from "@/features/standing/overview/orgIcons";
-import {
-  applyFilters,
-  emptyFilters,
-  filtersActive,
-  posturesPresent,
-  rolesPresent,
-  levelsPresent,
-  summarize,
-  STACK_ROLE_LABEL,
-  type RepoTrajectory,
-  type RepoFilters,
-} from "@/features/standing/overview/repoTrajectory";
-import { MODES, dot, levelGlyph, buildGroups, agg } from "./repoCategoryRollupLogic";
+import { FilterMenu } from "@/features/standing/overview/FilterMenu";
+import type { RepoTrajectory } from "@/features/standing/overview/repoTrajectory";
+import { MODES } from "./repoCategoryRollupLogic";
 import { RepoCategoryRollupGroup } from "./RepoCategoryRollupGroup";
-import type { Mode } from "./repoCategoryRollupLogic";
+import { useFleetRollup } from "./useFleetRollup";
 
 export function RepoCategoryRollup({
   trajectories,
@@ -41,38 +28,8 @@ export function RepoCategoryRollup({
   periodTitle: string;
   orgSlug: string;
 }) {
-  const [mode, setMode] = useState<Mode>("type");
-  const [filters, setFilters] = useState<RepoFilters>(emptyFilters);
-
-  const toggle = (bucket: keyof RepoFilters, value: string) =>
-    setFilters((f) => {
-      const next: RepoFilters = { types: new Set(f.types), roles: new Set(f.roles), levels: new Set(f.levels) };
-      const set = next[bucket] as Set<string>;
-      if (set.has(value)) set.delete(value);
-      else set.add(value);
-      return next;
-    });
-  const clear = (bucket: keyof RepoFilters) => setFilters((f) => ({ ...f, [bucket]: new Set() }));
-
-  // Options come from the FULL set so the dropdowns don't shrink as you filter.
-  const typeOpts: FilterOption[] = posturesPresent(trajectories).map((p) => ({ value: p, label: postureLabel(p), leading: dot(p) }));
-  const stackOpts: FilterOption[] = rolesPresent(trajectories).map((role) => ({ value: role, label: STACK_ROLE_LABEL[role], leading: <StackRoleIcon role={role} size={14} /> }));
-  const levelOpts: FilterOption[] = levelsPresent(trajectories).map((l) => ({ value: l, label: l, leading: levelGlyph(l) }));
-
-  const filtered = applyFilters(trajectories, filters);
-  // Type and Stack: strongest cohort first. A group with no live-scored repo has NO average (see agg)
-  // — it sorts to the end rather than being coerced to 0, which would rank an unmeasured cohort as
-  // the worst one.
-  // Level: the ladder order, L1→L5, always. A level IS an ordinal — sorting level groups by their
-  // average put L3 above L1 above L2 whenever a small L1 cohort happened to out-average a larger L2
-  // one, which reads as the ladder being drawn wrong rather than as a ranking. The group key is the
-  // level id, so a plain string compare is the ladder.
-  const groups =
-    mode === "level"
-      ? buildGroups(mode, filtered).sort((a, b) => a.key.localeCompare(b.key))
-      : buildGroups(mode, filtered).sort((a, b) => (agg(b.rows).avg ?? -1) - (agg(a.rows).avg ?? -1));
-  const active = filtersActive(filters);
-  const fleet = summarize(filtered);
+  const { mode, setMode, filters, toggle, clear, typeOpts, stackOpts, levelOpts, filtered, groups, active, reset, fleet } =
+    useFleetRollup(trajectories);
 
   return (
     <Surface className="p-5">
@@ -161,7 +118,7 @@ export function RepoCategoryRollup({
         {active && (
           <button
             type="button"
-            onClick={() => setFilters(emptyFilters())}
+            onClick={reset}
             className="focus-ring type-label tracking-widest text-accent hover:text-white"
           >
             clear · {filtered.length} of {trajectories.length}

@@ -5,7 +5,8 @@
 // on the dimension ledger below it (LedgerDimensionRows).
 
 import Link from "next/link";
-import { postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
+import { postureLabel } from "@/components/org/shared/ui";
+import { postureShares } from "./postureModel";
 import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
 import { buildUrl, clearedTabScopedParams } from "@/lib/org/orgTabs";
 
@@ -21,29 +22,26 @@ export function PostureCompositionBar({
   postureCounts: Record<string, number>;
   search: string;
 }) {
-  const total = Math.max(1, POSTURE_ORDER.reduce((sum, p) => sum + (postureCounts[p] ?? 0), 0));
-  const pct = (n: number) => Math.round((n / total) * 100);
+  const { shares } = postureShares(postureCounts);
   return (
     <>
       <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-slate-800">
-        {POSTURE_ORDER.map((p) => {
-          const n = postureCounts[p] ?? 0;
+        {shares.map(({ posture: p, n, share, pct }) => {
           if (n === 0) return null;
           return (
             <Link
               key={p}
               href={postureHref(slug, p, search)}
               className="h-full transition-all hover:opacity-80"
-              style={{ width: `${(n / total) * 100}%`, backgroundColor: POSTURE_HEX[p] ?? "#64748b" }}
-              title={`View the ${n} ${postureLabel(p)} repo${n === 1 ? "" : "s"} (${pct(n)}%)`}
+              style={{ width: `${share * 100}%`, backgroundColor: POSTURE_HEX[p] ?? "#64748b" }}
+              title={`View the ${n} ${postureLabel(p)} repo${n === 1 ? "" : "s"} (${pct}%)`}
               aria-label={`View the ${n} ${postureLabel(p)} repositories`}
             />
           );
         })}
       </div>
       <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
-        {POSTURE_ORDER.map((p) => {
-          const n = postureCounts[p] ?? 0;
+        {shares.map(({ posture: p, n }) => {
           const chip = (
             <>
               <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: POSTURE_HEX[p] ?? "#64748b", opacity: n === 0 ? 0.35 : 1 }} />
