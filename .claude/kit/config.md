@@ -5,18 +5,20 @@ vault_subdir: Kit
 features_root: src/features
 entry: ""                      # multi-entry app: the instrument reads the entry LIST from .claude/kit/kit.json
 aliases: "@=src"
-kit_path: ""                   # empty -> setup track not finished (S6 promotes the kit)
-doctrine: ""
+kit_path: "src/components/kit"  # the promoted kit (v2 language printed into it; not yet approved by the owner at a gate)
+doctrine: "docs/design/KIT-V2-LANGUAGE.md"
 batch_builders: 5
 contest_seats: "claude:claude-opus-5-5@xhigh,claude:claude-sonnet-5-5@max"
 ---
 
 # kit overlay - ascent
 
-**State on 2026-09-29: setup track IN PROGRESS (see `Kit.md` in the vault for the phase).** What exists: this overlay, `.claude/kit/kit.json`
-(instrument config, verified: reachability walks 1,840 files from the app routes, divergence ranks
-29 feature modules), the `kit` skill linked from the registry, and the brand foundation seed
-`docs/design/BRAND-PRISM.md`. A session invoking `/kit init` starts at S0.
+**State on 2026-09-29 (end of the setup exercise):** kit v2 language, parts, theme duality and the redesign
+recipe exist and were exercised on `/org/kiro?tab=overview` and `?tab=live` (both pending the owner gate). Start a
+session from `docs/design/KIT-HANDOFF.md`; the recipe is `docs/design/KIT-REDESIGN-PROCESS.md`; the ledger and gate
+record live in `.contest/Contest/Kit/`. The S5 kit contest was skipped on purpose (the owner chose Prism through the
+landing contest). Setup steps S3 (ratchets, edit-time hook, path-scoped rule) and S4 (dead-override deletion, layer
+move) are NOT done: the theme duality replaced a foundation rewrite, so those wait for the retirement.
 
 **The campaign's job:** redesign every route of the app so it reads as ONE product with the brand
 the owner chose on 2026-09-29 (contest `landing-brand`, winner A/1 "Prism"), composed from a
