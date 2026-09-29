@@ -218,6 +218,11 @@ export function legKindUseCase(kind: LlmLegKind): string | undefined {
   }
 }
 
+/** Providers whose adapter reports `inputTokens` as the FRESH input only, with prompt-cache reads and
+ *  writes as separate classes (bedrock.ts, transports.ts, claude-cli.ts). Every other adapter
+ *  (openai, openrouter, gemini, gateway, codex-cli) reports a whole-prompt `prompt_tokens` figure. */
+const FRESH_ONLY_INPUT: ReadonlySet<ProviderName> = new Set<ProviderName>(["bedrock", "claude-cli"]);
+
 /** Build the tracklight /v1/events body for a tracked call. Exported for unit testing. */
 export function buildEventBody(ev: LlmCallTrack, project?: string): Record<string, unknown> {
   // A token count the provider did NOT report is OMITTED, never zero-filled. `input: 0, output: 0` is
@@ -225,10 +230,21 @@ export function buildEventBody(ev: LlmCallTrack, project?: string): Record<strin
   // call that failed before any was returned) used to read in the mirror as "this cost nothing" — the
   // exact class of confident-but-wrong number the cost surfaces exist to avoid. Absent means unknown.
   const usage: Record<string, number> = {};
-  if (ev.usage?.inputTokens != null) usage.input = Math.trunc(ev.usage.inputTokens);
+  if (ev.usage?.inputTokens != null) {
+    let input = Math.trunc(ev.usage.inputTokens);
+    // tracklight's `input` is the WHOLE prompt and `cached_input` a subset of it (it bills
+    // `input - cached_input` at the input rate). A fresh-only provider reports the cache classes BESIDE
+    // `inputTokens`, so add them back or a cache hit subtracts the fresh tokens away and never bills
+    // the cache writes. A provider whose count already includes them is left as reported.
+    if (FRESH_ONLY_INPUT.has(ev.provider)) {
+      input += Math.trunc(ev.usage.cacheReadTokens ?? 0) + Math.trunc(ev.usage.cacheWriteTokens ?? 0);
+    }
+    usage.input = input;
+  }
   if (ev.usage?.outputTokens != null) usage.output = Math.trunc(ev.usage.outputTokens);
-  // Bedrock surfaces a prompt-cache breakdown; the cache-READ class is what tracklight prices at
-  // the cached rate. (Cache WRITES have no distinct field in the event contract.)
+  // Bedrock and claude-cli surface a prompt-cache breakdown; the cache-READ class is what tracklight
+  // prices at the cached rate. Cache WRITES have no field of their own in the event contract, so they
+  // ride inside `input` (billed at the plain input rate: the price book has no write rate).
   if (ev.usage?.cacheReadTokens != null) usage.cached_input = Math.trunc(ev.usage.cacheReadTokens);
 
   const body: Record<string, unknown> = {

@@ -12,6 +12,7 @@ import {
   trackLlmCall,
   legKindUseCase,
 } from "./tracklight";
+import { billableInputTokens } from "./config";
 
 const LT_ENV = ["LIGHTTRACK_URL", "LIGHTTRACK_PROJECT", "LIGHTTRACK_KEY", "LIGHTTRACK_ENABLED"] as const;
 
@@ -86,7 +87,7 @@ describe("buildEventBody", () => {
     expect(body).toMatchObject({
       provider: "anthropic",
       model: "claude-sonnet-4-6",
-      usage: { input: 12000, output: 1500, cached_input: 8000 },
+      usage: { input: 20000, output: 1500, cached_input: 8000 }, // whole prompt: 12000 fresh + 8000 cached
       source: "ascent",
       operation: "chat",
       project_id: "proj-123",
@@ -142,6 +143,79 @@ describe("buildEventBody", () => {
   it("omits name rather than sending a placeholder when none is supplied", () => {
     const body = buildEventBody({ provider: "mock", model: "mock" });
     expect(body).not.toHaveProperty("name");
+  });
+});
+
+// tracklight's price book defines `input` as the WHOLE prompt with `cached_input` a SUBSET of it
+// (crates/core/src/event.rs, TokenUsage): it bills `input - cached_input` at the input rate and
+// `cached_input` at the cached rate. Bedrock and claude-cli report `inputTokens` as the FRESH input
+// only, with the cache classes beside it, so the mirror must add them back before sending.
+describe("buildEventBody cache accounting", () => {
+  // claude-sonnet-4-6 in tracklight's config/pricing.json ($ per MTok); the cached rate is 10% of
+  // input, the same ratio ascent's own meter uses (CACHE_READ_RATE).
+  const RATE = { input: 3, cached: 0.3, output: 15 };
+  const CALL = { inputTokens: 24, cacheReadTokens: 2048, cacheWriteTokens: 1500, outputTokens: 310 };
+
+  /** The tracklight price rule, applied to the emitted body's usage block only. */
+  function mirroredCostUsd(body: Record<string, unknown>): number {
+    const u = (body.usage ?? {}) as { input?: number; cached_input?: number; output?: number };
+    const input = u.input ?? 0;
+    const cached = u.cached_input ?? 0;
+    const output = u.output ?? 0;
+    return (Math.max(0, input - cached) * RATE.input + cached * RATE.cached + output * RATE.output) / 1_000_000;
+  }
+  /** Ascent's own meter cost basis for the same call (meter.ts costMicrosFor's formula, unrounded). */
+  function meterCostUsd(usage: typeof CALL): number {
+    return (billableInputTokens(usage) * RATE.input + usage.outputTokens * RATE.output) / 1_000_000;
+  }
+
+  it.each(["bedrock", "claude-cli"] as const)(
+    "%s: emits the whole prompt as input, with the cache-read subset as cached_input",
+    (provider) => {
+      const body = buildEventBody({ provider, model: "claude-sonnet-4-6", usage: CALL });
+      expect(body.usage).toEqual({ input: 24 + 2048 + 1500, output: 310, cached_input: 2048 });
+    },
+  );
+
+  it("prices a cache hit at ascent's own meter cost, less the cache-write premium tracklight has no rate for", () => {
+    const body = buildEventBody({ provider: "bedrock", model: "us.anthropic.claude-sonnet-4-6", usage: CALL });
+    // tracklight bills a cache write at the plain input rate; ascent bills it at 1.25x. That residual
+    // is the price book's missing write rate, not a token-accounting error.
+    const writePremium = (CALL.cacheWriteTokens * (1.25 - 1) * RATE.input) / 1_000_000;
+    expect(mirroredCostUsd(body) + writePremium).toBeCloseTo(meterCostUsd(CALL), 5); // billableInputTokens rounds to a whole token
+    expect(mirroredCostUsd(body)).toBeLessThan(meterCostUsd(CALL));
+    // Before the fix the fresh 24 tokens were subtracted away (saturating at 0) and the writes never
+    // billed: the mirror priced this call at about half of what the meter charged.
+    expect(mirroredCostUsd(body)).toBeGreaterThan(meterCostUsd(CALL) * 0.85);
+  });
+
+  it("leaves a no-cache call byte-identical", () => {
+    for (const provider of ["bedrock", "claude-cli"] as const) {
+      const body = buildEventBody({
+        provider,
+        model: "claude-sonnet-4-6",
+        usage: { inputTokens: 1200, outputTokens: 340 },
+      });
+      expect(JSON.stringify(body.usage)).toBe('{"input":1200,"output":340}');
+    }
+  });
+
+  it("does not add cache classes to a provider whose inputTokens is already the whole prompt", () => {
+    // OpenAI-style prompt_tokens includes cached tokens. No adapter reports cache fields today, but a
+    // future one that does must not be double counted by the fold.
+    for (const provider of ["openai", "openrouter", "gemini", "local"] as const) {
+      const body = buildEventBody({
+        provider,
+        model: "gpt-4o-mini",
+        usage: { inputTokens: 2000, outputTokens: 100, cacheReadTokens: 1500 },
+      });
+      expect(JSON.stringify(body.usage)).toBe('{"input":2000,"output":100,"cached_input":1500}');
+    }
+  });
+
+  it("does not invent a whole-prompt input when the provider reported no fresh input", () => {
+    const body = buildEventBody({ provider: "bedrock", model: "claude-sonnet-4-6", usage: { cacheReadTokens: 800 } });
+    expect(body.usage).toEqual({ cached_input: 800 });
   });
 });
 
