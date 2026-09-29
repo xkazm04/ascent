@@ -270,3 +270,14 @@ html[data-theme="prism"] [data-kit="plate"] [data-role="plate-name"] { font-fami
   html[data-theme="prism"] [data-kit="action"],
   html[data-theme="prism"] [data-kit="action"]::after { transition-duration: 0.001ms; }
 }
+
+/* D3b (found by the Overview redesign exercise): D3 converted only `.type-label`, but `.type-caption` and the
+   toolbar readout carry plain metadata text on every route (movement basis, scope notes, "Period · Last 90
+   days"). Mono is for evidence; these become sans in Prism. `type-mono-sm` stays mono (figures, ids, paths). */
+html[data-theme="prism"] .type-caption { font-family: var(--font-sans); }
+html[data-theme="prism"] [data-role="toolbar-readout"] {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 0.875rem;
+}

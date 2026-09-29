@@ -32,3 +32,5 @@ export { Plate } from "./Plate";
 export { SpectralRule, HonestyTag } from "./Marks";
 export type { HonestyKind } from "./Marks";
 export { PrimaryAction, GhostAction } from "./Actions";
+export { Masthead } from "./Masthead";
+export type { MastheadFigure } from "./Masthead";
