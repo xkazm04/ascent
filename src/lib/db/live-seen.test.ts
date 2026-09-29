@@ -54,7 +54,13 @@ describe("the live ledger anchor", () => {
   it("stamps exactly the caller's row and leaves every other member's anchor alone", async () => {
     const at = new Date("2026-09-18T12:00:00Z");
     expect(await markLiveSeen("acme", "alice", at)).toBe(true);
-    expect(h.updates).toEqual([{ where: { orgId: "org-acme", userId: "u-alice" }, data: { liveSeenAt: at } }]);
+    // The stamp only ever advances the anchor (a null or older one), so a slow tab cannot rewind it.
+    expect(h.updates).toEqual([
+      {
+        where: { orgId: "org-acme", userId: "u-alice", OR: [{ liveSeenAt: null }, { liveSeenAt: { lt: at } }] },
+        data: { liveSeenAt: at },
+      },
+    ]);
     expect(h.memberships.find((m) => m.userId === "u-bob")?.liveSeenAt?.toISOString()).toBe("2026-09-17T08:00:00.000Z");
   });
 
