@@ -7,7 +7,7 @@ import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from
 import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 import { demoOrgHref } from "@/lib/site";
-import { ThemeSwitch } from "@/components/theme/ThemeSwitch";
+import { ThemeSlot } from "@/components/theme/ThemeSlot";
 import { SiteFooterCore } from "@/components/SiteFooterCore";
 import { HEADER_INNER, HEADER_NAV, HEADER_SHELL, Logo, MarketingNavLinks } from "@/components/StaticNav";
 import { scoreHex } from "@/lib/ui";
@@ -171,7 +171,7 @@ export function SiteHeader() {
               404's StaticHeader via StaticNav so the two can't drift. */}
           <MarketingNavLinks />
           <OrgEntryLink />
-          <ThemeSwitch />
+          <ThemeSlot />
           <HeaderAccount />
         </nav>
       </div>
@@ -246,7 +246,7 @@ export function OrgHeader({
         <div className="flex items-center gap-2">
           {actions}
           {actions && <span aria-hidden className="hidden h-6 w-px bg-divider sm:block" />}
-          <ThemeSwitch />
+          <ThemeSlot />
           <HeaderAccount />
         </div>
       </div>

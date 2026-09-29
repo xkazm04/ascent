@@ -526,10 +526,14 @@ Two looks coexist until the redesign covers every route, then one is retired.
 
 - **Altimeter** is the shipped look and is the *absence* of a theme attribute. **Prism** is the
   candidate identity chosen in the `landing-brand` contest (`docs/design/BRAND-PRISM.md`).
-- The header carries an Altimeter / Prism tab switch (`ThemeSwitch`, in both `SiteHeader` and
-  `OrgHeader`). The choice is `localStorage["ascent-theme"]`, restored before first paint by an inline
-  script in the root layout's `<head>` (`src/lib/theme/theme.ts`); `?theme=prism|altimeter` sets it from
-  a link. The root `<html>` therefore carries `suppressHydrationWarning`.
+- The header carries an Altimeter / Prism tab switch (`ThemeSlot` reads the theme on the server and hands it to
+  the client `ThemeSwitch`, in both `SiteHeader` and `OrgHeader`). The choice is the **cookie**
+  `ascent-theme` (`getTheme()` in `src/lib/theme/server.ts`), so the server renders `<html data-theme>` and a
+  route may render a different LAYOUT per theme with no flash; `ThemeSwitch` writes the cookie and calls
+  `router.refresh()`. A blocking inline script in `<head>` (`src/lib/theme/theme.ts`) only handles a
+  `?theme=prism|altimeter` link and a one-time migration of the old localStorage value, reloading once when
+  the wanted look differs from what the server rendered (sessionStorage-guarded). Reading the cookie makes
+  previously static routes dynamic; that cost is duality scaffolding and goes when one theme is retired.
 - **Foundation layer** `src/app/theme-prism.css` re-points the colour tokens under
   `html[data-theme="prism"]` (slate ramp, surface, divider, accent = paper, ink) so every route restyles
   at once. Status colours are deliberately not re-pointed (BRAND-PRISM.md, open conflict 1). What tokens
@@ -540,8 +544,16 @@ Two looks coexist until the redesign covers every route, then one is retired.
   replaced), a `data-kit` hook and stable `data-role`s; the Prism expression lives in one stylesheet,
   `src/app/kit.css`. The org shared `Card`, `Tile`, `OrgTable` and `SectionHeader` now delegate to the kit,
   so ~180 importers compose from it. A local look-alike of a kit part is a finding.
+- **Kit v2 (2026-09-29, kit-1a):** the landing's structure printed into the kit, measured from its computed
+  styles (`docs/design/KIT-V2-LANGUAGE.md`, with the owner-veto decisions D1-D5). New parts: `Display`,
+  `Eyebrow`, `Lede`, `Caption`, `MonoPath`, `Frame`, `SectionHead`, `LevelNav` (+ client `EscBack`),
+  `DimensionLine`, `EvidencePanel`, `Plate`, `SpectralRule`, `HonestyTag`, `PrimaryAction`, `GhostAction`.
+  In Prism `.type-label` renders as the sentence-case eyebrow theme-wide, table heads and stat figures take the
+  v2 type roles, radii shrink to 3-4px, and the Prism theme adopts the landing's font stacks. Per-module
+  redesign recipe and the `<Module>.v2.tsx` chosen-at-the-entry convention: `docs/design/KIT-REDESIGN-PROCESS.md`.
 - **Specimen** `/kit` (development only; a production build returns 404) shows the type scale, muting
-  levels, Spectral Nine, status colours and every part in its states, synthetic data throughout.
+  levels, Spectral Nine, status colours and every part in its states, plus a v2-language section that sets each primitive beside a crop of the landing it is
+  measured from (`public/dev/kit-ref/`), synthetic data throughout.
 - Exercised on `/org/<slug>?tab=overview` and `?tab=live`. Not yet covered: every other route; the
   remaining literal-colour sites inside those two trees (counts in the kit vault's
   `prism-remainder-kit0.md`).

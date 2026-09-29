@@ -22,6 +22,14 @@ html[data-theme="prism"] {
   --color-tone-flat: #a6abbd;
 
   --color-white: #f2eee6;
+
+  /* The landing's own type stacks (KIT-V2-LANGUAGE.md decision D2): one family for the whole theme. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
+  --hair: rgba(242, 238, 230, 0.13);
+  --hair-strong: rgba(242, 238, 230, 0.32);
+  --ease-prism: cubic-bezier(0.2, 0.7, 0.1, 1);
   --color-slate-50: #f2eee6;
   --color-slate-100: #ebe7df;
   --color-slate-200: #dcd9d3;

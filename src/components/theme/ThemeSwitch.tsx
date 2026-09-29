@@ -1,33 +1,19 @@
 "use client";
 
-// Header tab switcher between the two coexisting looks. The <html data-theme> attribute (rendered by the
-// server from the cookie) is the source of truth; a change writes the cookie, mirrors it to localStorage,
-// flips the attribute for an instant repaint and asks the router to re-render server compositions, which
-// may choose a different layout per theme (`<Module>.v2.tsx`).
-import { useEffect, useState } from "react";
+// Header tab switcher between the two coexisting looks. `initial` is the theme the server rendered (from the
+// cookie); a change writes the cookie, flips the attribute for an instant repaint and asks the router to
+// re-render server compositions, which may choose a different layout per theme (`<Module>.v2.tsx`).
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { DEFAULT_THEME, THEMES, THEME_KEY, THEME_LABEL, isThemeId, themeCookieString, themeAttr, type ThemeId } from "@/lib/theme/theme";
+import { THEMES, THEME_LABEL, type ThemeId } from "@/lib/theme/theme";
+import { applyTheme } from "@/lib/theme/client";
 
-function current(): ThemeId {
-  const v = document.documentElement.dataset.theme;
-  return isThemeId(v) ? v : DEFAULT_THEME;
-}
-
-export function ThemeSwitch() {
+export function ThemeSwitch({ initial }: { initial: ThemeId }) {
   const router = useRouter();
-  const [theme, setTheme] = useState<ThemeId | null>(null);
-  useEffect(() => setTheme(current()), []);
+  const [theme, setTheme] = useState<ThemeId>(initial);
 
   const choose = (next: ThemeId) => {
-    const attr = themeAttr(next);
-    if (attr) document.documentElement.dataset.theme = attr;
-    else delete document.documentElement.dataset.theme;
-    document.cookie = themeCookieString(next);
-    try {
-      window.localStorage.setItem(THEME_KEY, next);
-    } catch {
-      /* storage blocked: the cookie alone carries the choice */
-    }
+    applyTheme(next);
     setTheme(next);
     router.refresh();
   };

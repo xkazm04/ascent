@@ -109,3 +109,164 @@ html[data-theme="prism"] [data-kit="chip"][data-dimension="6"] { --chip-hue: var
 html[data-theme="prism"] [data-kit="chip"][data-dimension="7"] { --chip-hue: var(--spec-7); }
 html[data-theme="prism"] [data-kit="chip"][data-dimension="8"] { --chip-hue: var(--spec-8); }
 html[data-theme="prism"] [data-kit="chip"][data-dimension="9"] { --chip-hue: var(--spec-9); }
+
+/* ══ KIT V2 (docs/design/KIT-V2-LANGUAGE.md) ═════════════════════════════════════════════════════
+   The landing's STRUCTURE, not its palette: type roles, shape, hairline containers. Everything is
+   scoped to html[data-theme="prism"]; the parts' Altimeter look stays in their utility classes.
+   Sizes are the language spec's dashboard steps (fixed rem, taken from the 1440 landing column). */
+
+/* Theme-wide rule D3: a mono uppercase label becomes the eyebrow (sans, sentence case, +0.02em). Unlayered,
+   so it beats per-site tracking-[..] and uppercase utilities; existing modules convert without edits. */
+html[data-theme="prism"] .type-label {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+html[data-theme="prism"] .uppercase.type-label,
+html[data-theme="prism"] .type-label.uppercase {
+  text-transform: none;
+}
+html[data-theme="prism"] [data-kit="eyebrow"]::before {
+  content: "";
+  display: inline-block;
+  width: 1.75rem;
+  height: 3px;
+  margin-right: 0.65rem;
+  vertical-align: middle;
+  border-radius: 2px;
+  background: var(--spec);
+}
+
+/* Display roles: light statement, heavy named phrase, tight tracking. */
+html[data-theme="prism"] [data-kit="display"] {
+  font-family: var(--font-display);
+  color: var(--color-white);
+}
+html[data-theme="prism"] [data-kit="display"] b {
+  font-weight: 600;
+}
+html[data-theme="prism"] [data-kit="display"][data-level="page"] {
+  font-size: 2.25rem; line-height: 1.05; font-weight: 300; letter-spacing: -0.03em;
+}
+html[data-theme="prism"] [data-kit="display"][data-level="section"] {
+  font-size: 1.5rem; line-height: 1.15; font-weight: 300; letter-spacing: -0.02em;
+}
+html[data-theme="prism"] [data-kit="display"][data-level="figure"] {
+  font-size: 1.75rem; line-height: 1; font-weight: 300; letter-spacing: -0.03em; font-variant-numeric: tabular-nums;
+}
+html[data-theme="prism"] [data-kit="display"][data-level="named"] {
+  font-size: 1.25rem; line-height: 1.2; font-weight: 600; letter-spacing: -0.01em;
+}
+html[data-theme="prism"] [data-kit="lede"] { color: #d6d4d0; line-height: 1.55; }
+html[data-theme="prism"] [data-kit="caption"] { color: var(--color-slate-400); }
+html[data-theme="prism"] [data-kit="caption"][data-tone="note"] { color: var(--color-slate-600); }
+
+/* Frame — a rule and space, no box. */
+html[data-theme="prism"] [data-kit="frame"] {
+  border-color: var(--hair);
+  background: transparent;
+  border-radius: 0;
+}
+
+/* Panel (upgrade): the landing's boxed object is 4px with a hairline, not a 16-24px card. */
+html[data-theme="prism"] [data-kit="panel"] {
+  border-radius: 4px;
+  border-color: var(--hair);
+}
+html[data-theme="prism"] [data-kit="panel"][data-tone="accent"]::before {
+  border-radius: 4px 4px 0 0;
+}
+html[data-theme="prism"] [data-kit="stat-strip"],
+html[data-theme="prism"] [data-kit="data-table"] {
+  border-radius: 4px;
+  border-color: var(--hair);
+}
+/* Stat figures take the figure role (light, tight); mono stays for units and ids. */
+html[data-theme="prism"] [data-kit="stat-tile"] .type-figure,
+html[data-theme="prism"] [data-kit="stat-tile"] .type-figure-lg {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  line-height: 1;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+}
+/* Table heads: 13px sans caption, mute, no caps (decision D3). */
+html[data-theme="prism"] [data-kit="data-table"] th,
+html[data-theme="prism"] [data-kit="data-table"] [data-role="data-table-head"] * {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-slate-400);
+}
+html[data-theme="prism"] [data-kit="list-row"] { border-color: var(--hair); }
+
+/* Controls: 3px radius everywhere; primary = paper block + spectrum underline; ghost = hairline. */
+html[data-theme="prism"] [data-kit="segmented"],
+html[data-theme="prism"] [data-kit="segmented"] > * { border-radius: 3px; }
+html[data-theme="prism"] [data-kit="segmented"] { border-color: var(--hair); }
+/* A control label is text, not evidence: sans (decision D3). */
+html[data-theme="prism"] [data-kit="segmented"] * { font-family: var(--font-sans); }
+html[data-theme="prism"] [data-kit="action"] {
+  border-radius: 3px;
+  letter-spacing: 0.005em;
+  transition: transform 0.25s var(--ease-prism), box-shadow 0.25s, background-color 0.25s, border-color 0.25s;
+}
+html[data-theme="prism"] [data-kit="action"][data-kind="primary"] {
+  position: relative;
+  padding: 0.55rem 1.1rem 0.6rem;
+  background-color: var(--color-white);
+  color: var(--color-on-accent);
+}
+html[data-theme="prism"] [data-kit="action"][data-kind="primary"]::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -4px;
+  height: 4px;
+  background: var(--spec);
+  border-radius: 0 0 3px 3px;
+  transition: height 0.25s var(--ease-prism), bottom 0.25s var(--ease-prism), filter 0.25s;
+}
+html[data-theme="prism"] [data-kit="action"][data-kind="primary"]:hover { transform: translateY(-1px); background-color: var(--color-white); }
+html[data-theme="prism"] [data-kit="action"][data-kind="primary"]:hover::after {
+  height: 6px; bottom: -6px; filter: drop-shadow(0 4px 10px rgba(124, 131, 255, 0.6));
+}
+html[data-theme="prism"] [data-kit="action"][data-kind="ghost"] {
+  border-color: var(--hair-strong);
+  color: var(--color-white);
+}
+html[data-theme="prism"] [data-kit="action"][data-kind="ghost"]:hover {
+  border-color: var(--color-white);
+  background-color: rgba(242, 238, 230, 0.06);
+}
+html[data-theme="prism"] [data-kit="level-nav"] a[data-role^="level-"] { border-color: var(--hair); border-radius: 3px; }
+html[data-theme="prism"] [data-kit="level-nav"] a[data-role^="level-"]:hover { border-color: var(--color-white); }
+
+/* Dimension line: a hue block that glows ONLY for the selected dimension, never as a resting decoration. */
+html[data-theme="prism"] [data-kit="dimension-line"] { border-color: var(--hair); }
+html[data-theme="prism"] [data-kit="dimension-line"][data-selected] [data-role="dimension-bar"] {
+  box-shadow: 0 0 12px currentColor;
+}
+html[data-theme="prism"] [data-kit="dimension-line"] [data-role="dimension-track"] { background: rgba(242, 238, 230, 0.08); }
+
+/* Evidence panel: hue border at 45%, hue glow at 15%, code well darker than the panel. */
+[data-kit="evidence-panel"] { border-color: color-mix(in srgb, var(--c) 45%, transparent); }
+html[data-theme="prism"] [data-kit="evidence-panel"] {
+  background: rgba(8, 9, 15, 0.86);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), 0 0 60px color-mix(in srgb, var(--c) 15%, transparent);
+}
+[data-kit="evidence-panel"] [data-role="evidence-code"] {
+  background: #04050a;
+  border-left: 2px solid var(--c);
+}
+
+/* Plate: a stylised evidence strip. */
+html[data-theme="prism"] [data-kit="plate"] [data-role="plate-name"] { font-family: var(--font-display); }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="prism"] [data-kit="action"],
+  html[data-theme="prism"] [data-kit="action"]::after { transition-duration: 0.001ms; }
+}

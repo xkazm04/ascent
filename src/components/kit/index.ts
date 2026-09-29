@@ -14,3 +14,21 @@ export { Segmented } from "./Segmented";
 export type { SegmentedOption } from "./Segmented";
 export { SettingRow } from "./SettingRow";
 export { DataTable, CELL, CELL_NUM, HEAD_CELL } from "./DataTable";
+
+// v2 language (docs/design/KIT-V2-LANGUAGE.md): type roles, structure, identity marks.
+export { Display, Eyebrow, Lede, Caption, MonoPath } from "./Type";
+export type { DisplayLevel } from "./Type";
+export { Frame } from "./Frame";
+export type { FrameEdge } from "./Frame";
+export { SectionHead } from "./SectionHead";
+export { LevelNav } from "./LevelNav";
+export type { Crumb, LevelLink } from "./LevelNav";
+export { EscBack } from "./LevelNav.client";
+export { DimensionLine } from "./DimensionLine";
+export type { DimensionId } from "./DimensionLine";
+export { EvidencePanel } from "./EvidencePanel";
+export type { EvidenceFact } from "./EvidencePanel";
+export { Plate } from "./Plate";
+export { SpectralRule, HonestyTag } from "./Marks";
+export type { HonestyKind } from "./Marks";
+export { PrimaryAction, GhostAction } from "./Actions";
