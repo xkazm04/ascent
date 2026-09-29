@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { reportPermalink, scoreGlyph, scoreHex } from "@/lib/ui";
 import { LEADER_MAX, ROW_H, type LiveRepo } from "@/components/org/shared/liveWarRoomShared";
+import { Panel } from "@/components/kit";
 
 export function Leaderboard({
   repos,
@@ -17,7 +18,7 @@ export function Leaderboard({
   const shown = repos.slice(0, LEADER_MAX);
   const overflow = Math.max(0, repos.length - LEADER_MAX);
   return (
-    <div className={`rounded-2xl border border-divider bg-surface/40 p-6 ${className}`}>
+    <Panel className={className}>
       <div className="flex items-center justify-between">
         <h3 className="type-mono-sm uppercase tracking-widest text-accent">Fleet leaderboard</h3>
         {readOnly ? (
@@ -77,6 +78,6 @@ export function Leaderboard({
         </ol>
       )}
       {overflow > 0 && <p className="mt-3 type-mono-sm text-slate-500">+{overflow} more repos</p>}
-    </div>
+    </Panel>
   );
 }

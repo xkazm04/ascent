@@ -11,6 +11,7 @@ import { scoreHex } from "@/lib/ui";
 import { DIRECTION_TONE, deltaHex, signedDelta, toneFor } from "@/components/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { WallPaceChip } from "@/features/inflight/live/WallPaceChip";
+import { Panel } from "@/components/kit";
 
 /** An attained goal is not a score — it is a reached target, so it takes the brand success token
  *  rather than a hand-picked emerald. Below attainment the meter keeps the score ramp; an unmeasured
@@ -51,7 +52,7 @@ export function GoalBanner({
   const toGoal = goal.current === null ? null : Math.max(0, goal.target - goal.current);
   const basisMarker = goalBasisMarker(goal);
   return (
-    <div className="mt-4 rounded-2xl border border-divider bg-surface-strong/40 p-4">
+    <Panel tone="strong" pad="none" className="mt-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="type-mono-sm uppercase tracking-widest text-accent">Goal</span>
@@ -98,6 +99,6 @@ export function GoalBanner({
           </span>
         )}
       </div>
-    </div>
+    </Panel>
   );
 }

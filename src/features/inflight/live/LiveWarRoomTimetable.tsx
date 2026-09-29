@@ -12,6 +12,7 @@ import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
 import { StateSwatch, stateTitle } from "@/components/org/viz";
 import type { FleetTimetable, TimetableRow } from "@/features/inflight/live/fleetTimetable";
 import { TimetableLedger } from "@/features/inflight/live/LiveWarRoomTimetableLedger";
+import { Panel } from "@/components/kit";
 
 /** What each timetable variant renders over. */
 export interface TimetableView {
@@ -95,15 +96,15 @@ export function FleetTimetablePanel({
 
   if (data.rows.length === 0) {
     return (
-      <div className="mt-4 rounded-2xl border border-divider bg-surface/40 p-6">
+      <Panel className="mt-4">
         <Kicker>Fleet evolution</Kicker>
         <p className="mt-2 type-body text-slate-400">No scan history yet. Scan some repositories and their score-over-time lands here.</p>
-      </div>
+      </Panel>
     );
   }
 
   return (
-    <div className="mt-4 rounded-2xl border border-divider bg-surface/40">
+    <Panel pad="none" className="mt-4">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-divider px-4 py-2.5">
         <h3 className="type-mono-sm uppercase tracking-widest text-accent">Fleet evolution</h3>
         <span className="hidden type-mono-sm text-slate-500 sm:inline">
@@ -128,6 +129,6 @@ export function FleetTimetablePanel({
         )}
       </header>
       <TimetableLedger {...view} />
-    </div>
+    </Panel>
   );
 }

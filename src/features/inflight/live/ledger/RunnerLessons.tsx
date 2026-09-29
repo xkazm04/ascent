@@ -12,6 +12,7 @@ import { fmtAgo, shortRepo } from "./ledgerFormat";
 import { revokeLesson } from "./ledgerClient";
 import { LEDGER_ANCHOR } from "./ledgerModel";
 import type { RunnerKeptLessonRow } from "./ledgerTypes";
+import { RowList } from "@/components/kit";
 
 const STATE: Record<string, { text: string; tone: string }> = {
   kept: { text: "in memory", tone: "text-success-soft" },
@@ -64,7 +65,7 @@ export function RunnerLessons({
       ) : lessons.length === 0 ? (
         <InlineEmpty>The runner has kept no lessons yet.</InlineEmpty>
       ) : (
-        <ul className="divide-y divide-divider rounded-2xl border border-divider">
+        <RowList>
           {lessons.map((l) => {
             const s = STATE[l.state] ?? STATE.kept!;
             return (
@@ -94,7 +95,7 @@ export function RunnerLessons({
               </li>
             );
           })}
-        </ul>
+        </RowList>
       )}
     </section>
   );

@@ -6,6 +6,7 @@ import { LedgerSectionHeader } from "./LedgerSectionHeader";
 import { DirectionRow } from "./DirectionRow";
 import { LEDGER_ANCHOR } from "./ledgerModel";
 import type { LoopDirectionRecord, LoopPlanRecord } from "./ledgerTypes";
+import { RowList } from "@/components/kit";
 
 const ORDER: Record<string, number> = { active: 0, exhausted: 1, done: 2, revoked: 3 };
 
@@ -41,11 +42,11 @@ export function Directions({
       ) : directions.length === 0 ? (
         <InlineEmpty>None yet — approving a plan in Needs you creates one.</InlineEmpty>
       ) : (
-        <ul className="divide-y divide-divider rounded-2xl border border-divider">
+        <RowList>
           {sortDirections(directions).map((d) => (
             <DirectionRow key={d.id} d={d} plans={plans.filter((p) => p.directionId === d.id)} now={now} isOwner={isOwner} onSettled={onSettled} />
           ))}
-        </ul>
+        </RowList>
       )}
     </section>
   );

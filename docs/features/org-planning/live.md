@@ -5649,3 +5649,11 @@ shell's column and state that differs between the two captures.
 - **The wall's NOW follows `headerModel`'s busiest lane**, which can differ from the lane on the sticky
   program monitor.
 
+
+## Live composes from the kit
+
+The view switch (Theater, Ledger, Cockpit, Desk) is a kit `Segmented` in its `soft` variant rendered as
+links, the autopilot band and the war-room panels, goal banner, timetable and headline strip are kit
+`Panel`s, and the ledger's chronicle, directions, runner and lessons lists use the kit `RowList`. Behaviour
+is unchanged; under the Prism theme the same markup takes the Prism expression. Theater, TV and canvas art
+are not migrated (their remaining literal colours are listed in the kit vault's `prism-remainder-kit0.md`).

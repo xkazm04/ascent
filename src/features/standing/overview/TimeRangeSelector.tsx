@@ -7,6 +7,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { Segmented } from "@/components/kit";
 import { PERIOD_COOKIE, RANGE_OPTIONS, serializePeriodCookie, type RangeKey } from "@/lib/window";
 
 export function TimeRangeSelector({ range, from, to }: { range: RangeKey; from?: string; to?: string }) {
@@ -52,24 +53,12 @@ export function TimeRangeSelector({ range, from, to }: { range: RangeKey; from?:
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="inline-flex items-center rounded-lg border border-slate-800 bg-slate-900/40 p-0.5">
-        {RANGE_OPTIONS.map((o) => {
-          const active = o.key === "custom" ? customOpen || range === "custom" : range === o.key && !customOpen;
-          return (
-            <button
-              key={o.key}
-              type="button"
-              onClick={() => selectPreset(o.key)}
-              aria-pressed={active}
-              className={`rounded-md px-2.5 py-1 type-mono-sm transition ${
-                active ? "bg-accent font-semibold text-[#04070e]" : "text-slate-400 hover:text-white"
-              }`}
-            >
-              {o.label}
-            </button>
-          );
-        })}
-      </div>
+      <Segmented
+        label="Period"
+        options={RANGE_OPTIONS.map((o) => ({ key: o.key, label: o.label }))}
+        value={RANGE_OPTIONS.find((o) => (o.key === "custom" ? customOpen || range === "custom" : range === o.key && !customOpen))?.key ?? null}
+        onSelect={(key) => selectPreset(key as RangeKey)}
+      />
       {(customOpen || range === "custom") && (
         <div className="flex items-center gap-1.5">
           <input

@@ -519,3 +519,30 @@ The alternative, sweeping 1,400 utilities, would have churned three hundred file
 it reads the overrides out of the stylesheet, measures every colour the app writes text in against the
 canvas, and fails if one drops under AA — a palette regression is one hex in a diff and damage spread
 over the whole product, so it is not a thing to catch in review.
+
+## Theme duality and the composition kit (2026-09-29, kit batch 0)
+
+Two looks coexist until the redesign covers every route, then one is retired.
+
+- **Altimeter** is the shipped look and is the *absence* of a theme attribute. **Prism** is the
+  candidate identity chosen in the `landing-brand` contest (`docs/design/BRAND-PRISM.md`).
+- The header carries an Altimeter / Prism tab switch (`ThemeSwitch`, in both `SiteHeader` and
+  `OrgHeader`). The choice is `localStorage["ascent-theme"]`, restored before first paint by an inline
+  script in the root layout's `<head>` (`src/lib/theme/theme.ts`); `?theme=prism|altimeter` sets it from
+  a link. The root `<html>` therefore carries `suppressHydrationWarning`.
+- **Foundation layer** `src/app/theme-prism.css` re-points the colour tokens under
+  `html[data-theme="prism"]` (slate ramp, surface, divider, accent = paper, ink) so every route restyles
+  at once. Status colours are deliberately not re-pointed (BRAND-PRISM.md, open conflict 1). What tokens
+  cannot reach is literal hex and inline styles: those are the migration backlog.
+- **Kit** `src/components/kit/`: `Panel`, `Section`, `StatStrip`/`StatTile`, `KeyValue`,
+  `ListRows`/`ListRow`/`RowList`, `ChipRow`/`Chip`, `Toolbar`/`ToolbarReadout`, `Segmented`,
+  `SettingRow`, `DataTable`. Each carries its Altimeter look as classes (unchanged from the primitive it
+  replaced), a `data-kit` hook and stable `data-role`s; the Prism expression lives in one stylesheet,
+  `src/app/kit.css`. The org shared `Card`, `Tile`, `OrgTable` and `SectionHeader` now delegate to the kit,
+  so ~180 importers compose from it. A local look-alike of a kit part is a finding.
+- **Specimen** `/kit` (development only; a production build returns 404) shows the type scale, muting
+  levels, Spectral Nine, status colours and every part in its states, synthetic data throughout.
+- Exercised on `/org/<slug>?tab=overview` and `?tab=live`. Not yet covered: every other route; the
+  remaining literal-colour sites inside those two trees (counts in the kit vault's
+  `prism-remainder-kit0.md`).
+- **Shooter** `scripts/kit/shoot.mjs` photographs a route per theme and size and fails on console errors.

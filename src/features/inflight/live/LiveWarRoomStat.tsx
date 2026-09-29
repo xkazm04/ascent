@@ -6,6 +6,7 @@ import { HEADLINE_SCALE, type WallScale } from "./warRoomScale";
 import { headlineAnnouncement } from "./warRoomAnnounce";
 import { useSettledAnnouncement } from "./useLiveWarRoomStat";
 import { Sparkline, StatCell } from "./LiveWarRoomStatParts";
+import { Panel } from "@/components/kit";
 
 /**
  * The wall's headline metrics as ONE command strip (2×2 on mobile, a divided 1×4 band on lg) instead
@@ -41,10 +42,7 @@ export function HeadlineStrip({
   const sz = HEADLINE_SCALE[scale];
   const announcement = useSettledAnnouncement(headlineAnnouncement(stats, deltas), running);
   return (
-    <section
-      aria-label="Fleet headline metrics"
-      className="mt-6 grid grid-cols-2 overflow-hidden rounded-2xl border border-divider bg-surface/40 lg:grid-cols-4"
-    >
+    <Panel role="region" aria-label="Fleet headline metrics" pad="none" className="mt-6 grid grid-cols-2 overflow-hidden lg:grid-cols-4">
       <StatCell
         label="Org maturity"
         value={stats.avgOverall}
@@ -89,6 +87,6 @@ export function HeadlineStrip({
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announcement}
       </p>
-    </section>
+    </Panel>
   );
 }

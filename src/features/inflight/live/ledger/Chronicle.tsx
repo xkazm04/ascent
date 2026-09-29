@@ -12,6 +12,7 @@ import { CHRONICLE_PAGE, appendPage, oldestSeq } from "./chronicleModel";
 import { fetchRunsPage } from "./ledgerClient";
 import { LEDGER_ANCHOR } from "./ledgerModel";
 import type { LoopPlanRecord, LoopRunChronicleEntry } from "./ledgerTypes";
+import { RowList } from "@/components/kit";
 
 export function Chronicle({
   slug,
@@ -68,11 +69,11 @@ export function Chronicle({
         <InlineEmpty>No run yet — the runner&apos;s or yours from the Cockpit starts the chronicle.</InlineEmpty>
       ) : (
         <>
-          <ul className="divide-y divide-divider rounded-2xl border border-divider">
+          <RowList>
             {runs.map((r) => (
               <ChronicleRow key={r.id} slug={slug} run={r} modes={modes} plans={plans} now={now} />
             ))}
-          </ul>
+          </RowList>
           {hasMore && cursor != null && (
             <button
               type="button"

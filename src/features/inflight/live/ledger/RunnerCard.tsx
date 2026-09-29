@@ -14,6 +14,7 @@ import { fmtIn, plural, shortRepo, shortSha } from "./ledgerFormat";
 import { LEDGER_ANCHOR, REPO_PAUSE_WORDS, RUNNER_BRANCH } from "./ledgerModel";
 import { RunnerMerge } from "./RunnerMerge";
 import type { DriveStatus, RunnerMergeResponse } from "./ledgerTypes";
+import { RowList } from "@/components/kit";
 
 export interface RunnerCardProps {
   slug: string;
@@ -51,7 +52,7 @@ export function RunnerCard({ slug, runner, live, ahead, now, isOwner, selfHosted
           </Link>
         </SectionEmpty>
       ) : (
-        <ul className="divide-y divide-divider rounded-2xl border border-divider">
+        <RowList>
           {repos.map((r) => {
             const n = ahead[r.repo];
             const lifts = fmtIn(r.pausedUntil, now);
@@ -88,7 +89,7 @@ export function RunnerCard({ slug, runner, live, ahead, now, isOwner, selfHosted
               </li>
             );
           })}
-        </ul>
+        </RowList>
       )}
     </section>
   );

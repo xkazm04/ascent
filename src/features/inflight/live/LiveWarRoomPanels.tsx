@@ -3,6 +3,7 @@ import { POSTURE_LABEL } from "@/components/org/shared/ui";
 import { reportPermalink, scoreHex } from "@/lib/ui";
 import { deltaHex, fmtDelta } from "@/components/ui";
 import { POSTURE_HEX, POSTURE_ORDER, postureBarPct, type Mover } from "@/components/org/shared/liveWarRoomShared";
+import { Panel } from "@/components/kit";
 
 export function PostureMix({
   counts,
@@ -29,7 +30,7 @@ export function PostureMix({
     color: POSTURE_HEX[p] ?? "var(--color-tone-flat)",
   }));
   return (
-    <div className="rounded-2xl border border-divider bg-surface/40 p-6">
+    <Panel>
       <div className="flex items-center justify-between">
         <h3 className="type-mono-sm uppercase tracking-widest text-accent">Posture mix</h3>
         {readOnly ? (
@@ -88,7 +89,7 @@ export function PostureMix({
           );
         })}
       </ul>
-    </div>
+    </Panel>
   );
 }
 
@@ -103,7 +104,7 @@ export function MoversTicker({
   readOnly?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-divider bg-surface/40 p-6">
+    <Panel>
       <div className="flex items-center justify-between">
         <h3 className="type-mono-sm uppercase tracking-widest text-accent">Live movers</h3>
         {running && <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden />}
@@ -158,6 +159,6 @@ export function MoversTicker({
           ))}
         </ul>
       )}
-    </div>
+    </Panel>
   );
 }

@@ -18,6 +18,7 @@
 //   - No skeletons anywhere: a waiting region is an empty reserved-height <OrgTabGap>.
 
 import { Suspense } from "react";
+import { Toolbar, ToolbarReadout } from "@/components/kit";
 import { TimeRangeSelector } from "./TimeRangeSelector";
 import { OverviewFixFirstGap, OverviewFixFirstPanel } from "./OverviewFixFirstPanel";
 import { OverviewFleetPanel } from "./OverviewFleetPanel";
@@ -81,17 +82,18 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
       {billingNotice}
 
       {/* Period control + active-scope readout (filtering lives in the view's header dropdowns). */}
-      <div data-tour="results-controls" className="flex flex-wrap items-center justify-between gap-3">
-        <span className="type-mono-sm uppercase tracking-widest text-slate-500">
-          Showing · {period.title}
-          <Suspense fallback={null}>
-            <OverviewScopeReadout scope={scope} />
-          </Suspense>
-        </span>
-        <div className="flex flex-wrap items-center gap-2">
-          <TimeRangeSelector range={period.key} from={period.from} to={period.to} />
-        </div>
-      </div>
+      <Toolbar
+        data-tour="results-controls"
+        left={
+          <ToolbarReadout>
+            Showing · {period.title}
+            <Suspense fallback={null}>
+              <OverviewScopeReadout scope={scope} />
+            </Suspense>
+          </ToolbarReadout>
+        }
+        right={<TimeRangeSelector range={period.key} from={period.from} to={period.to} />}
+      />
       {/* Caption-only: Overview's Type/Stack/Level filters live in the view headers, but this is
           still the rollup+movers surface, so the bar discloses the in-period split when `win.start`
           is set (all-time renders nothing). */}

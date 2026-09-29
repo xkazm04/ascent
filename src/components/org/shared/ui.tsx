@@ -8,7 +8,7 @@
 // cap (docs/ORG-TABS-REFACTOR.md). Both are re-exported below so every existing import of
 // "@/components/org/shared/ui" keeps resolving unchanged.
 import { EmptyState } from "@/components/EmptyState";
-import { Surface, Stat, SectionHeading } from "@/components/ui";
+import { DataTable, Panel, Section, StatTile } from "@/components/kit";
 
 // Re-exported from the brand kit so existing `@/components/org/ui` importers keep resolving them.
 export { deltaHex, signedDelta, fmtDelta, DIRECTION_TONE } from "@/components/ui";
@@ -45,15 +45,7 @@ export function Tile({
   /** Deep link to the stat's evidence (anchor or route); makes the whole cell clickable. */
   href?: string;
 }) {
-  const stat = <Stat label={label} value={value} sub={sub} color={color} delta={delta} deltaLabel={deltaLabel} goal={goal} />;
-  if (href) {
-    return (
-      <a href={href} className="focus-ring block bg-ink px-5 py-3.5 transition-colors hover:bg-slate-900">
-        {stat}
-      </a>
-    );
-  }
-  return <div className="bg-ink px-5 py-3.5">{stat}</div>;
+  return <StatTile label={label} value={value} sub={sub} color={color} delta={delta} deltaLabel={deltaLabel} goal={goal} href={href} />;
 }
 
 /**
@@ -62,9 +54,9 @@ export function Tile({
  */
 export function Card({ children, className = "", id }: { children: React.ReactNode; className?: string; id?: string }) {
   return (
-    <Surface id={id} className={`p-6 ${className}`}>
+    <Panel id={id} className={className}>
       {children}
-    </Surface>
+    </Panel>
   );
 }
 
@@ -88,15 +80,9 @@ export function OrgTable({
   caption?: string;
 }) {
   return (
-    <div className={`overflow-x-auto rounded-2xl border border-divider ${className}`}>
-      <table className="w-full type-body" style={{ minWidth: `${minWidth}px` }}>
-        {caption ? <caption className="sr-only">{caption}</caption> : null}
-        <thead className="bg-surface/60 type-label tracking-[0.2em] text-slate-500">{head}</thead>
-        <tbody className="divide-y divide-divider [&>tr]:transition-colors [&>tr:hover]:bg-surface/40">
-          {children}
-        </tbody>
-      </table>
-    </div>
+    <DataTable head={head} minWidth={minWidth} className={className} caption={caption}>
+      {children}
+    </DataTable>
   );
 }
 
@@ -120,7 +106,7 @@ export function SectionHeader({
   descriptionClassName?: string;
 }) {
   return (
-    <SectionHeading
+    <Section
       title={title}
       intro={description}
       right={right}

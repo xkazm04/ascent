@@ -13,6 +13,7 @@ import { runBadge, runLabel, type RunBadge } from "./chronicleModel";
 import { fetchRunDetail } from "./ledgerClient";
 import { fmtAgo, fmtDuration, fmtUsd, plural, shortRepo } from "./ledgerFormat";
 import type { LoopPlanRecord, LoopRunChronicleEntry } from "./ledgerTypes";
+import { RowList } from "@/components/kit";
 
 const BADGE: Record<RunBadge, { text: string; tone: string; title: string }> = {
   runner: { text: "runner", tone: "border-accent/50 text-accent", title: "Dispatched by the standing runner." },
@@ -101,11 +102,11 @@ export function ChronicleRow({
           )}
           {detail && detail.lanes.length === 0 && <p className="type-caption text-slate-500">This run wrote no lanes.</p>}
           {detail && detail.lanes.length > 0 && (
-            <ul className="divide-y divide-divider rounded-xl border border-divider">
+            <RowList radius="xl">
               {detail.lanes.map((l) => (
                 <ChronicleLane key={l.id} lane={l} plan={plans.find((p) => p.id === l.planId) ?? null} />
               ))}
-            </ul>
+            </RowList>
           )}
         </div>
       )}

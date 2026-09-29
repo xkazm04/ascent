@@ -6,6 +6,7 @@
 // values) — replacing the full-width "over time" card that spent a whole viewport row on one line.
 
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
+import { Panel } from "@/components/kit";
 import { scoreHex } from "@/lib/ui";
 
 export interface ScoreBadge {
@@ -36,7 +37,7 @@ export function OrgScoreBadges({
   trend?: { points: TrendPoint[]; label: string };
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-2xl border border-divider bg-surface/40 px-5 py-3.5">
+    <Panel pad="none" className="flex flex-wrap items-center gap-x-8 gap-y-3 px-5 py-3.5">
       {badges.map((b) => (
         <div key={b.label} className="flex flex-col gap-0.5">
           <span className="type-label tracking-widest text-slate-500">{b.label}</span>
@@ -88,6 +89,6 @@ export function OrgScoreBadges({
           <Sparkline points={trend.points} />
         </div>
       )}
-    </div>
+    </Panel>
   );
 }

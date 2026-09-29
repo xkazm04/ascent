@@ -10,6 +10,7 @@ import { useShipLoop } from "@/features/inflight/live/useShipLoop";
 import type { OpsState } from "@/lib/db";
 import type { OpsView } from "@/features/inflight/live/liveWarRoomOpsShared";
 import { ShipLoopPipeline } from "@/features/inflight/live/LiveWarRoomOpsPipeline";
+import { Panel } from "@/components/kit";
 
 /**
  * The ship-loop band. `initial` is the SSR snapshot; the hook's monitor poll advances it while the
@@ -65,7 +66,7 @@ export function ShipLoopBand({
   const view: OpsView = { state: s, busy: loop.busy, accept: loop.accept, reject: loop.reject, onVerify };
 
   return (
-    <div className="mt-4 rounded-2xl border border-divider bg-surface/40">
+    <Panel pad="none" className="mt-4">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-divider px-4 py-2.5">
         <h3 className="type-mono-sm uppercase tracking-widest text-accent">Ship loop</h3>
         <span className="hidden type-mono-sm text-slate-500 sm:inline">identify → triage → PR → merge → rescan → impact</span>
@@ -90,6 +91,6 @@ export function ShipLoopBand({
       </header>
       {loop.error && <p className="border-b border-divider px-4 py-2 type-mono-sm text-danger-soft">{loop.error}</p>}
       <ShipLoopPipeline {...view} />
-    </div>
+    </Panel>
   );
 }

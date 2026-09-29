@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AutopilotControls, AutopilotLog, type AutopilotJobView } from "./AutopilotBandParts";
+import { Panel } from "@/components/kit";
 
 interface PollPayload {
   enabled?: boolean;
@@ -82,7 +83,7 @@ export function AutopilotBand({ org, pairedRepos, enabled }: { org: string; pair
   };
 
   return (
-    <section aria-label="Local autopilot" className="rounded-xl border border-divider bg-surface/40 p-4">
+    <Panel role="region" aria-label="Local autopilot" radius="xl" pad="none" className="p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <span className="type-label tracking-[0.25em] text-accent">Autopilot · local</span>
@@ -102,6 +103,6 @@ export function AutopilotBand({ org, pairedRepos, enabled }: { org: string; pair
       </div>
       {error && <p className="mt-2 type-body-sm text-danger">{error}</p>}
       {job && <AutopilotLog job={job} />}
-    </section>
+    </Panel>
   );
 }

@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { Kicker } from "@/components/ui";
+import { ListRow, ListRows, Panel } from "@/components/kit";
 import { Legend, WhyChip, type VizState } from "@/components/org/viz";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { FixFirstImpactBar } from "./FixFirstImpactBar";
@@ -42,7 +42,7 @@ export function OverviewFixFirst({ items }: { items: FixFirstItem[] }) {
   const states = KIT_ORDER.filter((s) => present.has(s));
 
   return (
-    <div className="rounded-2xl border border-accent/25 bg-accent/[0.04] px-4 py-3">
+    <Panel tone="accent" pad="none" className="px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         <Kicker>Fix first</Kicker>
         <WhyChip
@@ -51,34 +51,25 @@ export function OverviewFixFirst({ items }: { items: FixFirstItem[] }) {
         />
       </div>
 
-      <ol className="mt-2.5 space-y-2">
+      <ListRows className="mt-2.5">
         {items.map((it, i) => (
-          <li key={it.key}>
-            <Link
-              href={it.href}
-              className="focus-ring group grid grid-cols-1 items-center gap-x-4 gap-y-1.5 rounded-md py-1 sm:grid-cols-[minmax(0,1fr)_16rem]"
-            >
-              <span className="flex min-w-0 items-start gap-3">
-                <span
-                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-accent/40 type-mono-sm text-accent"
-                  title="Triage precedence: a live regression, then a queue awaiting a decision, then a slipping goal. Not a ranking by projected gain."
-                >
-                  {i + 1}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate font-medium text-white group-hover:text-accent">{it.title}</span>
-                  <span className="block type-body-sm text-slate-400">
-                    {it.detail} <span className="font-mono text-accent/80">{it.cta}</span>
-                  </span>
-                </span>
-              </span>
-              <FixFirstImpactBar impact={it.impact} max={max} subject={it.title} />
-            </Link>
-          </li>
+          <ListRow
+            key={it.key}
+            href={it.href}
+            leading={i + 1}
+            leadingTitle="Triage precedence: a live regression, then a queue awaiting a decision, then a slipping goal. Not a ranking by projected gain."
+            title={it.title}
+            detail={
+              <>
+                {it.detail} <span className="font-mono text-accent/80">{it.cta}</span>
+              </>
+            }
+            trailing={<FixFirstImpactBar impact={it.impact} max={max} subject={it.title} />}
+          />
         ))}
-      </ol>
+      </ListRows>
 
       <Legend states={states} className="mt-3 border-t border-accent/15 pt-2.5" />
-    </div>
+    </Panel>
   );
 }

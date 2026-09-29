@@ -3105,3 +3105,11 @@ successful companion request still contributes its available data.
 Delivery shows an org-level Copilot seat count and source after a seats-only sync, even when
 cost is unavailable. Repository seat cells stay empty because the connector does not
 attribute seats to repositories; money figures remain empty.
+
+## Overview composes from the kit
+
+The Overview's period row is a kit `Toolbar` with a `Segmented` range switch, the Fix first band is a
+`Panel tone="accent"` over `ListRows`, the headline strip and the posture and dimension cards are
+`Panel`s, and the org shared `Card`/`Tile`/`OrgTable`/`SectionHeader` delegate to `@/components/kit`.
+Altimeter renders as before; under the header's Prism theme the same markup takes the Prism expression
+(`src/app/kit.css`). See `docs/features/design-system/README.md`.
