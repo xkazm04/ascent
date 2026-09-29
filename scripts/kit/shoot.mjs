@@ -1,7 +1,7 @@
 // Kit integrated-page shooter (S0.4): the REAL route inside the REAL shell, per theme and size.
 //   node scripts/kit/shoot.mjs --out <dir> [--base http://localhost:3011] [--themes altimeter,prism]
 //        [--sizes 1280x800,1920x1080,1440x3200] [--routes "/org/kiro?tab=live,/org/kiro?tab=overview"]
-// Theme is set through localStorage key `ascent-theme` before first paint. Fails loud (exit 1) on page
+// Theme is set through the `ascent-theme` cookie (the server reads it, so per-theme layouts render correctly). Fails loud (exit 1) on page
 // errors, console errors or an empty mount. Port 3000 on this machine is another product: never default to it.
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -20,7 +20,7 @@ const browser = await chromium.launch();
 let bad = 0;
 for (const theme of themes) for (const route of routes) for (const [w, h] of sizes) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h } });
-  await ctx.addInitScript((t) => { try { localStorage.setItem("ascent-theme", t); } catch {} }, theme);
+  await ctx.addCookies([{ name: "ascent-theme", value: theme, url: base }]);
   const page = await ctx.newPage();
   const errs = [];
   page.on("pageerror", (e) => errs.push(String(e)));

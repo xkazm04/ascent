@@ -4,7 +4,8 @@ import { BRAND_INK, jsonLdScript, publicBaseUrl, siteDescription, SITE_TAGLINE }
 import { siteStructuredData } from "@/lib/site-jsonld";
 import { ModalRoot } from "@/components/ui/ModalRoot";
 import { DevInspector } from "./_dev-inspector/DevInspector";
-import { THEME_BOOT_SCRIPT } from "@/lib/theme/theme";
+import { THEME_BOOT_SCRIPT, themeAttr } from "@/lib/theme/theme";
+import { getTheme } from "@/lib/theme/server";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -45,16 +46,18 @@ export const viewport: Viewport = {
 // (G8 numeric, anonymous) — never a product-level zero price.
 const STRUCTURED_DATA = siteStructuredData(BASE_URL);
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const theme = await getTheme();
   return (
     <html
+      data-theme={themeAttr(theme)}
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-      // data-theme is set by the boot script before hydration (the stored look), so the server markup differs by design.
+      // The boot script may rewrite nothing but the cookie; suppress only guards a ?theme= reload race.
       suppressHydrationWarning
     >
       <head>
