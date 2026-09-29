@@ -10,8 +10,10 @@
 // ONE genuinely slow data source (two rollup queries over every repo's scan history) — so the period
 // control and the scope readout above it paint without waiting on it.
 
+import type { ReactNode } from "react";
 import { OrgEmpty } from "@/components/org/shared/ui";
 import { OverviewLedger } from "./OverviewLedger";
+import { OverviewLedgerV2 } from "./OverviewLedger.v2";
 import { isOverviewScopedEmpty, OVERVIEW_SCOPED_EMPTY } from "./overviewEmpty";
 import { buildScoreBadges, buildTrendPoints } from "./overviewStanding";
 import { buildTrajectories } from "./repoTrajectory";
@@ -19,6 +21,7 @@ import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 import { orgTabHref } from "@/lib/org/orgTabs";
+import type { ThemeId } from "@/lib/theme/theme";
 
 export async function OverviewFleetPanel({
   slug,
@@ -28,6 +31,8 @@ export async function OverviewFleetPanel({
   comparisonLabel,
   sortDim,
   search,
+  theme = "altimeter",
+  fixFirst,
 }: {
   slug: string;
   /** The SHARED scope promise created once in OverviewTab and awaited in both boundaries — one
@@ -47,6 +52,10 @@ export async function OverviewFleetPanel({
   /** The tab's current query string, carried into the panels' deep links so a drill-in keeps the
    *  period + segment/stack scope the numbers were computed under. */
   search?: string;
+  /** Which composition renders. The entry resolves it once (getTheme); the default keeps v1 for any other caller. */
+  theme?: ThemeId;
+  /** v2 only: the "Fix first" band, slotted under the masthead. It carries its own Suspense boundary. */
+  fixFirst?: ReactNode;
 }) {
   const { segmentId, techGroupId } = await scope;
 
@@ -64,12 +73,15 @@ export async function OverviewFleetPanel({
   // printed a fake 0 fleet. Same copy either way — a way out, not a blank panel or a 0/0 strip.
   if (isOverviewScopedEmpty(rollup)) {
     return (
-      <OrgEmpty
-        title={OVERVIEW_SCOPED_EMPTY.title}
-        body={OVERVIEW_SCOPED_EMPTY.body}
-        href={orgTabHref(slug, "repositories")}
-        cta={OVERVIEW_SCOPED_EMPTY.cta}
-      />
+      <>
+        {theme === "prism" && fixFirst}
+        <OrgEmpty
+          title={OVERVIEW_SCOPED_EMPTY.title}
+          body={OVERVIEW_SCOPED_EMPTY.body}
+          href={orgTabHref(slug, "repositories")}
+          cta={OVERVIEW_SCOPED_EMPTY.cta}
+        />
+      </>
     );
   }
 
@@ -93,8 +105,10 @@ export async function OverviewFleetPanel({
   // The whole region is one client component (the fleet rollup and heatmap hold interaction state).
   // Everything it renders is derived HERE, on the server, and handed over serialised — nothing in
   // OverviewLedger awaits.
+  const Ledger = theme === "prism" ? OverviewLedgerV2 : OverviewLedger;
   return (
-    <OverviewLedger
+    <Ledger
+      {...(theme === "prism" ? { fixFirst } : {})}
       slug={slug}
       search={search ?? ""}
       periodTitle={periodTitle}

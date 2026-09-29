@@ -16,32 +16,26 @@
 //   - `stagger-children` on the wrapper cascades the direct children in. Do NOT also put
 //     `.animate-arrive-in` on a direct child — the cascade already animates it.
 //   - No skeletons anywhere: a waiting region is an empty reserved-height <OrgTabGap>.
+//   - THEME DUALITY (docs/design/KIT-REDESIGN-PROCESS.md): this entry resolves the inputs ONCE and picks the
+//     composition by theme, OverviewTab.v1.tsx (Altimeter, unchanged) or OverviewTab.v2.tsx (Prism). Both take
+//     the same inputs and render the same panels; nothing data-shaped is duplicated per theme.
 
-import { Suspense } from "react";
-import { Toolbar, ToolbarReadout } from "@/components/kit";
-import { TimeRangeSelector } from "./TimeRangeSelector";
-import { OverviewFixFirstGap, OverviewFixFirstPanel } from "./OverviewFixFirstPanel";
-import { OverviewFleetPanel } from "./OverviewFleetPanel";
-import { OverviewScopeReadout } from "./OverviewScopeReadout";
+import { OverviewTabV1 } from "./OverviewTab.v1";
+import { OverviewTabV2 } from "./OverviewTab.v2";
 import { resolveBillingReturn } from "./overviewBilling";
+import { resolveOverviewInputs, type OverviewSearchParams } from "./overviewInputs";
 import { PersonalOverview } from "@/components/org/PersonalOverview";
 import { BillingReturnNotice } from "@/components/org/shared/BillingReturnNotice";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { getOrgHeaderSummary } from "@/lib/db";
-import { resolveOrgScope } from "@/lib/org/scope";
-import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
+import { getTheme } from "@/lib/theme/server";
 
-type SearchParams = { [key: string]: string | string[] | undefined };
-
-export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams }) {
+export async function OverviewTab({ slug, sp }: { slug: string; sp: OverviewSearchParams }) {
   const billing = resolveBillingReturn(slug, sp);
   const billingNotice = billing ? <BillingReturnNotice status={billing.status} dismissHref={billing.dismissHref} /> : null;
 
-  // A PERSONAL workspace renders the individual overview — the watchlist lens over the shared public
-  // corpus — instead of the fleet rollup (whose reads would find nothing: a personal org holds
-  // pointer rows, never scans). One cheap read, deduped per request with the layout's identical call
-  // — the export is React-`cache()`d, so this really is free rather than a second round-trip.
+  // A PERSONAL workspace renders the individual overview (the watchlist lens over the shared public corpus)
+  // instead of the fleet rollup, whose reads would find nothing. One cheap read, deduped per request with
+  // the layout's identical call (the export is React-`cache()`d).
   const headerSummary = await getOrgHeaderSummary(slug);
   if (headerSummary?.kind === "personal") {
     return (
@@ -52,73 +46,10 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: SearchParams
     );
   }
 
-  // An explicit ?range= wins (shareable links stay authoritative); otherwise the remembered period
-  // cookie, then the default. Cookie-only — no database, so the period chrome never blocks.
-  const period = await resolveOrgWindow(sp);
-  // The one window shape the db layer queries with — half-open `{ start, endExclusive }`. Hand-writing
-  // the inclusive `{ start, end }` pair here is how the deprecated dialect kept spreading: a row in the
-  // window's final millisecond is matched by `lt: endExclusive` and missed by `lte: end`, so two tabs on
-  // the same period could disagree about a boundary row. Same rows, one convention.
-  const win = orgWindowBounds(period);
-
-  // Segment + tech-stack scope still applies via deep links (?segment= / ?stack= carried from other
-  // tabs); the in-view Type/Stack/Level dropdowns replace the old top-of-page selectors. Deliberately
-  // NOT awaited here — see the note at the top of the file.
-  const scope = resolveOrgScope(slug, sp);
-
-  // `?dim=` — the in-page deep link the dimension grid's ▦ affordance emits. Read from the URL, not
-  // from a query: it only seeds the heatmap's column sort. A bogus value is ignored downstream.
-  const dimParam = typeof sp.dim === "string" ? sp.dim : undefined;
-
-  // The tab's own query string, rebuilt from the resolved searchParams (a server component has no
-  // useSearchParams). Threaded into the panels so their deep links compose off the CURRENT scope
-  // rather than resetting it — the same rule buildUrl's docstring states for the client shell.
-  const search = new URLSearchParams(
-    Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" ? [[k, v] as [string, string]] : [])),
-  ).toString();
-
-  return (
-    <div className="stagger-children space-y-6">
-      {billingNotice}
-
-      {/* Period control + active-scope readout (filtering lives in the view's header dropdowns). */}
-      <Toolbar
-        data-tour="results-controls"
-        left={
-          <ToolbarReadout>
-            Showing · {period.title}
-            <Suspense fallback={null}>
-              <OverviewScopeReadout scope={scope} />
-            </Suspense>
-          </ToolbarReadout>
-        }
-        right={<TimeRangeSelector range={period.key} from={period.from} to={period.to} />}
-      />
-      {/* Caption-only: Overview's Type/Stack/Level filters live in the view headers, but this is
-          still the rollup+movers surface, so the bar discloses the in-period split when `win.start`
-          is set (all-time renders nothing). */}
-      <ScopeFilterBar segments={[]} segmentId={null} techGroups={[]} activeStack={null} window={win} />
-
-      {/* "Fix first" punch-list — its own boundary so its reads (movers + goals; findings ride the
-          rail badges' cache) stream independently and can never hold the fleet panel, per the
-          two-tier rule at the top of this file. Falls back to a reserved-height gap, not null: a
-          pending band must not read as "no priorities." Empty (deriveFixFirst = []) still
-          collapses — that is the resolved absence, not the wait. */}
-      <Suspense fallback={<OverviewFixFirstGap />}>
-        <OverviewFixFirstPanel slug={slug} win={win} scopeQuery={typeof sp.stack === "string" ? `stack=${sp.stack}` : undefined} />
-      </Suspense>
-
-      <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-        <OverviewFleetPanel
-          slug={slug}
-          scope={scope}
-          win={win}
-          periodTitle={period.title}
-          comparisonLabel={period.comparisonLabel}
-          sortDim={dimParam}
-          search={search}
-        />
-      </Suspense>
-    </div>
+  const [theme, inputs] = await Promise.all([getTheme(), resolveOverviewInputs(slug, sp)]);
+  return theme === "prism" ? (
+    <OverviewTabV2 slug={slug} billingNotice={billingNotice} i={inputs} />
+  ) : (
+    <OverviewTabV1 slug={slug} billingNotice={billingNotice} i={inputs} />
   );
 }
