@@ -960,8 +960,9 @@ in-flight** / **Stop drive** (**Stop runner** while a runner is on).
 
 The rail's choice is one ordered list in `CockpitRail.tsx`, and the order is the doctrine: a **live
 drive outranks everything**, because while it pulls, "is debt falling and how much rope is left" is
-the only question and its own runs come and go underneath it. `LiveCockpit.tsx` is layout only; the
-state machine is `useCockpit.ts`, which composes `useLoopRun` + `useDrive` and owns the mode.
+the only question and its own runs come and go underneath it. `LiveCockpit.tsx` is the **entry**: it
+picks a composition by theme (below); the state machine is `useCockpit.ts` (composing `useLoopRun` +
+`useDrive`, owning the mode) and the view state both compositions share is `useLiveCockpitView.ts`.
 
 **The cockpit's decision queues are their own tabs (2026-09-15).** Two rail items now sit under
 Live in In flight, both drawn by the shared `DecisionTable`:
@@ -972,6 +973,29 @@ Live in In flight, both drawn by the shared `DecisionTable`:
   the price list.
 
 The cockpit itself no longer renders lessons.
+
+### The Prism composition of the cockpit (v2, 2026-09-29)
+
+`LiveTab` (server) reads the theme cookie (`getTheme()`) and passes `theme` to `LiveCockpit`; `prism`
+renders `LiveCockpit.v2.tsx`, anything else the shipped `LiveCockpit.v1.tsx` (the body above, moved
+unchanged). Both compose the same panels from the same hooks, so a theme cannot change behaviour, only
+structure. What v2 changes:
+
+- **One dominant element.** A `Masthead` (statement "The fleet, **in adoption × rigor**", two figures:
+  repos in scope and the loop's state, both from `headerStatus`, the same model v1 prints as a caption)
+  with the view switch, gear, Wall and Stop as its aside. The sky sits on the page with no card
+  (`CockpitField bare`); the rail is a ruled column beside it, not a second card.
+- **Sections are Frames with a statement head**: the proposed batch (`CockpitBatchLedger.v2`, same
+  `CockpitBatchTable` body and polarity, each row's dimension named by hue via `DimensionMark`) and the
+  price list (`PriceListPanel.v2`, every rate still printed with its `n`).
+- **The outcome is two levels** (`OutcomeSection.v2`): a run strip on the page (newest first; a lift
+  the pair could not attribute is an em dash, never a 0) and the full matrix behind `#outcome` with a
+  breadcrumb, Back, Esc and focus moved into the level. While the level is open it is the only thing
+  on the page. Opening a run from the strip drifts the field (as the sheet column does) and opens the
+  level; the browser Back button closes it; `#outcome` deep-links.
+
+The matrix itself (`OutcomeSheet` and its cells), the rail's panels, the setup dialog and the drive
+panels are shared and still carry their Altimeter look; Prism restyles them only through tokens.
 
 ### The Observatory (sky chart)
 

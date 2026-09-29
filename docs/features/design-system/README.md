@@ -558,3 +558,10 @@ Two looks coexist until the redesign covers every route, then one is retired.
   remaining literal-colour sites inside those two trees (counts in the kit vault's
   `prism-remainder-kit0.md`).
 - **Shooter** `scripts/kit/shoot.mjs` photographs a route per theme and size and fails on console errors.
+
+**Additions from the live-tab redesign exercise (2026-09-29):** `useHashFlag(name)` holds one nested level in
+the URL hash (`#outcome`; the browser Back button closes it, a deep link opens it after hydration).
+`DimensionMark` names a dimension in a cell (mono id in its `--spec-n` hue, unknown ids stay un-hued).
+`LevelNav`'s `back`/`prev`/`next` accept `onClick` instead of `href` for a level on the same page (a button
+never scrolls). `scripts/kit/drive-live-v2.mjs` drives the level chrome; `scripts/kit/roles/live.json` is the
+Live cockpit's computed-style contract for `roles-check.mjs`.
