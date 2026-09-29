@@ -55,3 +55,4 @@ The owner judges this repo's surfaces by these, in order:
   the MATERIAL's arm keys (`a.key === "opus"`, a fixture arm `transport: "claude"`), turning
   `var opus = ...` into `var [redacted] = ...` - valid JS that silently drops a footnote. With two
   seats of one model the word identifies nobody; the host restored the four files from `entries/`.
+- 2026-09-29 (landing-brand): both seats hit the subscription session limit at ~45 min (of a 90 min ceiling) and were recorded `errored`, yet had left 5 of 6 variants on disk; `collect` scored them fine. Before rerunning an `errored` seat, check `entries/<seat>/variant-*` for partial work - `--force` would discard it. Also: port 3000 on this machine is another product (KandiDate); Ascent's dev server needs its own port for staging screenshots.
