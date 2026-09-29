@@ -18,12 +18,15 @@ export interface CockpitFieldProps {
   onOpen: (fullName: string) => void;
   listOpen: boolean;
   onToggleList: () => void;
+  /** No card around it: the Prism composition lets the sky sit on the page (a hairline, not a box). */
+  bare?: boolean;
 }
 
 export function CockpitField(props: CockpitFieldProps) {
-  const { bodies, selected, onSelect, scanning, drift, onOpen, listOpen, onToggleList } = props;
+  const { bodies, selected, onSelect, scanning, drift, onOpen, listOpen, onToggleList, bare = false } = props;
+  const Shell = bare ? "div" : Surface;
   return (
-    <Surface className="min-w-0 p-3">
+    <Shell className={bare ? "min-w-0" : "min-w-0 p-3"}>
       <ObservatoryField bodies={bodies} selected={selected} onSelect={onSelect} scanning={scanning} drift={drift} onBodyOpen={onOpen} />
       <div className="mt-2 border-t border-divider pt-2">
         <button
@@ -36,6 +39,6 @@ export function CockpitField(props: CockpitFieldProps) {
         </button>
         {listOpen && <ObservatoryList bodies={bodies} selected={selected} onSelect={onSelect} onOpen={onOpen} className="mt-2" />}
       </div>
-    </Surface>
+    </Shell>
   );
 }

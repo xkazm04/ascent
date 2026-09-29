@@ -1,0 +1,17 @@
+{
+  "route": "/org/kiro?tab=live&view=cockpit",
+  "roles": {
+    "page-statement": { "selector": "[data-role='cockpit-masthead'] [data-kit='display'][data-level='page']", "expect": { "fontSize": 36, "fontWeight": "300", "letterSpacing": [-1.2, -0.9], "textTransform": "none" } },
+    "page-named": { "selector": "[data-role='cockpit-masthead'] [data-role='display-named']", "expect": { "fontWeight": "600" } },
+    "masthead-figure": { "selector": "[data-role='cockpit-masthead'] [data-kit='display'][data-level='figure']", "expect": { "fontSize": 28, "fontWeight": "300" } },
+    "eyebrow": { "selector": "[data-kit='eyebrow']", "expect": { "fontSize": 14, "textTransform": "none", "letterSpacing": [0.2, 0.4] } },
+    "section-statement": { "selector": "[data-kit='section-head'] [data-kit='display'][data-level='section']", "expect": { "fontSize": 24, "fontWeight": "300" } },
+    "section-named": { "selector": "[data-kit='section-head'] [data-role='display-named']", "expect": { "fontWeight": "600" } },
+    "frame": { "selector": "[data-kit='frame']", "expect": { "borderTopWidth": 1, "borderRadius": 0 } },
+    "segmented": { "selector": "[data-kit='segmented']", "expect": { "borderRadius": 3 } },
+    "action-ghost": { "selector": "[data-role='cockpit-masthead'] [data-kit='action'][data-kind='ghost']", "expect": { "borderRadius": 3 } },
+    "dimension-mark": { "selector": "[data-role='dimension-mark']", "expect": { "fontFamily": "mono" } },
+    "batch-totals": { "selector": "[data-role='batch-totals']", "expect": { "fontFamily": "mono" } },
+    "rail": { "selector": "[data-role='cockpit-rail']", "expect": { "borderTopWidth": 0 } }
+  }
+}

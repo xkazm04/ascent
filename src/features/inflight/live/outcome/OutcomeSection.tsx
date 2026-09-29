@@ -8,14 +8,10 @@
 // The review gate lives here: an owner's ✓/✕ on a cell POSTs through `reviewLoopDeliverable`, then
 // the run's detail is refetched so the ruling renders from the store, not from a client guess.
 
-import Link from "next/link";
 import { Kicker } from "@/components/ui";
-import { orgTabHref } from "@/lib/org/orgTabs";
-import { DriveVerdict } from "../cockpit/CockpitDrivePanel";
-import { CockpitVerdicts } from "../cockpit/CockpitVerdicts";
 import type { DriveStatus } from "../cockpit/driveTypes";
 import type { LoopRunDetail } from "../cockpit/loopTypes";
-import { OutcomeSheet } from "./OutcomeSheet";
+import { OutcomeBody } from "./OutcomeBody";
 import { useOutcomeMatrix } from "./useOutcomeMatrix";
 import { takeaway } from "./outcomeText";
 
@@ -38,12 +34,7 @@ export interface OutcomeSectionProps {
 }
 
 export function OutcomeSection(p: OutcomeSectionProps) {
-  const { slug } = p;
   const { matrix, pending, onReview, reviewError } = useOutcomeMatrix(p);
-  // The agent's per-item account for the run on screen — shown only when the run recorded one, so an
-  // empty panel never sits under a full sheet.
-  const onScreen = p.openedDetail ?? p.liveDetail;
-  const itemOutcomes = onScreen?.itemOutcomes ?? [];
   return (
     <section aria-label="Loop outcome" className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-divider pb-2">
@@ -61,29 +52,7 @@ export function OutcomeSection(p: OutcomeSectionProps) {
           </span>
         )}
       </div>
-      {pending > 0 && (
-        <Link href={orgTabHref(slug, "proposals")} className="focus-ring inline-block rounded type-caption text-accent hover:text-white">
-          <span className="tabular-nums">{pending}</span> {pending === 1 ? "proposal awaits" : "proposals await"} review — decide them in Proposals →
-        </Link>
-      )}
-      {reviewError && <p className="type-caption text-danger">{reviewError}</p>}
-      {p.driveOutcome && <DriveVerdict drive={p.driveOutcome} onBack={p.onDismissDrive} />}
-      {matrix.columns.length === 0 ? (
-        <p className="type-body-sm rounded-2xl border border-dashed border-divider px-4 py-6 text-center text-slate-400">
-          No runs yet — select repos in the sky and start a run. Each run will land here as a column.
-        </p>
-      ) : (
-        <OutcomeSheet
-          matrix={matrix}
-          slug={slug}
-          selectedId={p.selectedId}
-          onOpen={p.onOpen}
-          canReview={p.canReview}
-          onReview={onReview}
-          nowMs={p.nowMs}
-        />
-      )}
-      {itemOutcomes.length > 0 && <CockpitVerdicts outcomes={itemOutcomes} titles={onScreen?.batchTitles} />}
+      <OutcomeBody p={p} matrix={matrix} pending={pending} onReview={onReview} reviewError={reviewError} />
     </section>
   );
 }
