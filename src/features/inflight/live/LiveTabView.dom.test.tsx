@@ -26,6 +26,7 @@ vi.mock("@/lib/db/members", () => ({ getMembershipRole: async () => "owner", rol
 vi.mock("@/lib/env", () => ({ selfHosted: () => true }));
 vi.mock("@/lib/local/agent", () => ({ autopilotEnabled: () => true }));
 vi.mock("@/lib/authz", () => ({ hasOrgRole: async () => true }));
+vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 vi.mock("@/lib/live-share", () => ({
   liveShareEnabled: () => false,
   verifyLiveShareToken: () => ({ org: "acme", jti: "j1", mintedBy: null }),

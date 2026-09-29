@@ -8,18 +8,15 @@
 // The review gate lives here: an owner's ✓/✕ on a cell POSTs through `reviewLoopDeliverable`, then
 // the run's detail is refetched so the ruling renders from the store, not from a client guess.
 
-import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { pendingLoopProposals } from "@/features/inflight/proposals/proposalsModel";
 import { DriveVerdict } from "../cockpit/CockpitDrivePanel";
 import { CockpitVerdicts } from "../cockpit/CockpitVerdicts";
 import type { DriveStatus } from "../cockpit/driveTypes";
-import { fetchLoopDetail, reviewLoopDeliverable } from "../cockpit/loopClient";
 import type { LoopRunDetail } from "../cockpit/loopTypes";
 import { OutcomeSheet } from "./OutcomeSheet";
-import { buildOutcomeMatrix, mergeRunDetails } from "./outcomeMatrix";
+import { useOutcomeMatrix } from "./useOutcomeMatrix";
 import { takeaway } from "./outcomeText";
 
 export interface OutcomeSectionProps {
@@ -41,31 +38,8 @@ export interface OutcomeSectionProps {
 }
 
 export function OutcomeSection(p: OutcomeSectionProps) {
-  // Details refetched after a review — freshest by construction, so they outrank every other source.
-  const [reviewed, setReviewed] = useState<Record<string, LoopRunDetail>>({});
-  const [reviewError, setReviewError] = useState<string | null>(null);
   const { slug } = p;
-  const onReview = useCallback(
-    async (runId: string, laneId: string, cover: string, verdict: "approved" | "dismissed") => {
-      try {
-        setReviewError(null);
-        await reviewLoopDeliverable(slug, laneId, cover, verdict);
-        const detail = await fetchLoopDetail(slug, runId);
-        setReviewed((prev) => ({ ...prev, [runId]: detail }));
-      } catch (err) {
-        setReviewError(err instanceof Error ? err.message : "Could not record the review.");
-      }
-    },
-    [slug],
-  );
-  const merged = useMemo(
-    () => mergeRunDetails(p.runDetails, p.openedDetail, p.liveDetail, ...Object.values(reviewed)),
-    [p.runDetails, p.openedDetail, p.liveDetail, reviewed],
-  );
-  const matrix = useMemo(() => buildOutcomeMatrix(merged), [merged]);
-  // The same pending set the Proposals tab lists — the sheet stays a reading, the ledger is where a
-  // batch of them is decided (2026-09-15).
-  const pending = useMemo(() => pendingLoopProposals(merged).length, [merged]);
+  const { matrix, pending, onReview, reviewError } = useOutcomeMatrix(p);
   // The agent's per-item account for the run on screen — shown only when the run recorded one, so an
   // empty panel never sits under a full sheet.
   const onScreen = p.openedDetail ?? p.liveDetail;

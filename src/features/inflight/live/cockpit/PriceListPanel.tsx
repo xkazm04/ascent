@@ -16,12 +16,11 @@
 // while a run is live (useLoopRun's poll discipline), and a price list is a standing summary that
 // should be there the moment the tab opens, run or no run.
 
-import { useEffect, useState } from "react";
 import { Kicker } from "@/components/ui";
 import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
 import { dimShort } from "@/lib/ui";
 import { fmtMicrosPerPoint } from "@/lib/local/lane-economics";
-import { fetchLoopPrices } from "./loopClient";
+import { usePriceList } from "./usePriceList";
 import type { RemediationPriceList } from "./loopTypes";
 
 export interface PriceListPanelProps {
@@ -31,24 +30,7 @@ export interface PriceListPanelProps {
 }
 
 export function PriceListPanel({ slug, initial = null }: PriceListPanelProps) {
-  const [prices, setPrices] = useState<RemediationPriceList | null>(initial);
-  const [loaded, setLoaded] = useState(initial != null);
-
-  useEffect(() => {
-    if (initial != null) return;
-    let alive = true;
-    void fetchLoopPrices(slug)
-      .then((p) => {
-        if (alive) setPrices(p);
-      })
-      .catch(() => null)
-      .finally(() => {
-        if (alive) setLoaded(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [slug, initial]);
+  const { prices, loaded } = usePriceList(slug, initial);
 
   // Nothing to say yet is not the same as nothing to price — say neither until the read lands.
   if (!loaded) return null;
@@ -99,7 +81,7 @@ export function PriceListPanel({ slug, initial = null }: PriceListPanelProps) {
 }
 
 /** The two caveats that make the table above honest, stated whenever they are non-zero. */
-function PriceListFooter({ prices }: { prices: RemediationPriceList }) {
+export function PriceListFooter({ prices }: { prices: RemediationPriceList }) {
   const parts = [
     prices.unproductiveMicros > 0
       ? `${fmtMicrosPerPoint(prices.unproductiveMicros)} spent without measured movement`

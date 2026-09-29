@@ -23,6 +23,7 @@ import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { LiveViewSwitch } from "../LiveViewSwitch";
 import { GearIcon } from "./CockpitGearIcon";
+import { headerStatus } from "./headerStatus";
 import { stoppingCaption, type LoopRunRecord } from "./loopTypes";
 
 export interface CockpitHeaderProps {
@@ -89,22 +90,17 @@ export function CockpitHeader({
         <Kicker tone="accent">Observatory</Kicker>
         <h2 className="mt-1 type-heading font-semibold tracking-tight text-slate-100">The fleet, in adoption × rigor</h2>
         <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 type-caption text-slate-500">
-          <span className="tabular-nums">{fleetCount} repos</span>
-          {driveCaption && (
-            <span className="inline-flex items-center gap-1.5 text-accent">
-              <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
-              <span className="tabular-nums">{driveCaption}</span>
-            </span>
-          )}
-          {live && active ? (
-            <span className="inline-flex items-center gap-1.5 text-accent">
-              <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
-              <span className="tabular-nums">
-                {laneCount} {laneCount === 1 ? "lane" : "lanes"} · cycle {active.cycle}/{active.maxCycles}
+          {headerStatus({ fleetCount, active, laneCount, live, driveCaption }).map((part) =>
+            part.live ? (
+              <span key={part.key} className="inline-flex items-center gap-1.5 text-accent">
+                <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
+                <span className="tabular-nums">{part.text}</span>
               </span>
-            </span>
-          ) : driveCaption ? null : (
-            <span>at rest</span>
+            ) : (
+              <span key={part.key} className={part.key === "fleet" ? "tabular-nums" : undefined}>
+                {part.text}
+              </span>
+            ),
           )}
         </p>
         {/* THE WIND-DOWN, NARRATED. A cooperative stop is minutes long, and a run that keeps reading

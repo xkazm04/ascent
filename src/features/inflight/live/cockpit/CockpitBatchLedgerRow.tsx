@@ -23,6 +23,7 @@ export function BatchLedgerRow({
   chips,
   points,
   detail,
+  dimMark,
 }: {
   row: BatchRow;
   pruned: boolean;
@@ -31,6 +32,8 @@ export function BatchLedgerRow({
   points: React.ReactNode;
   /** Replaces the note in the proposal cell (the broken row's inline re-pair). */
   detail?: React.ReactNode;
+  /** The dimension cell, when a composition names dimensions its own way (Prism v2). Absent = the plain id. */
+  dimMark?: (dimId: string, label: string) => React.ReactNode;
 }) {
   const muted = row.kind !== "item" || pruned;
   return (
@@ -54,9 +57,11 @@ export function BatchLedgerRow({
       </td>
       <td className="px-3 py-1.5 align-top">
         {row.kind === "item" ? (
-          <span className="whitespace-nowrap type-caption text-slate-400" title={row.item.dimLabel}>
-            {row.item.dimId}
-          </span>
+          (dimMark?.(row.item.dimId, row.item.dimLabel) ?? (
+            <span className="whitespace-nowrap type-caption text-slate-400" title={row.item.dimLabel}>
+              {row.item.dimId}
+            </span>
+          ))
         ) : (
           <span className="type-caption text-slate-600">—</span>
         )}

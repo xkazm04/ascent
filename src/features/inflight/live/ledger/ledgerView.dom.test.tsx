@@ -24,6 +24,7 @@ vi.mock("@/lib/db/loop-runs", () => ({ getActiveLoopRun: async () => null, listL
 vi.mock("@/lib/env", () => ({ selfHosted: () => true }));
 vi.mock("@/lib/local/agent", () => ({ autopilotEnabled: () => true }));
 vi.mock("@/lib/authz", () => ({ hasOrgRole: async () => true }));
+vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 vi.mock("@/lib/live-share", () => ({ liveShareEnabled: () => false }));
 vi.mock("../LiveWarRoom", () => ({ LiveWarRoom: () => <div data-testid="war-room" /> }));
 vi.mock("../cockpit", () => ({ LiveCockpit: () => <div data-testid="cockpit" /> }));

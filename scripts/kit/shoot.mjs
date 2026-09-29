@@ -29,6 +29,9 @@ for (const theme of themes) for (const route of routes) for (const [w, h] of siz
   await page.waitForTimeout(1800);
   const skip = page.getByRole("button", { name: "Skip setup" });
   if (await skip.count()) { await skip.first().click().catch(() => {}); await page.waitForTimeout(400); }
+  // Some org tabs land scrolled (Live: scrollY 384-385 on load, non-deterministic by 1px). The page has scroll-behavior:smooth and a mount-time scroll (~384px, animated), so pin with an INSTANT scroll or a pair diff is scroll, not code.
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  await page.waitForTimeout(250);
   const chars = await page.evaluate(() => document.querySelector("main")?.innerText.length ?? 0);
   const applied = await page.evaluate(() => document.documentElement.dataset.theme ?? "none");
   const file = `${out}/${slug(route)}--${theme}--${w}x${h}.png`;
