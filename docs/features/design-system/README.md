@@ -27,6 +27,7 @@ input state. A newly mounted `Defer` instance still applies its own arrival poli
 | --- | --- | --- |
 | Design System: UI Primitives & Deck | — | `src/components/ui/**`, `src/components/deck/**`, `src/components/ConfirmAction.tsx` |
 | Landing Page Prototypes | `/` | `src/components/landing/**` |
+| Prism landing (preview beside `/`) | `/?landing=prism` | `src/components/landing/prism/**` |
 | Marketing About Page | `/about` | `src/app/about`, `src/components/about/**` |
 | Marketing Org Page | `/about-org` | `src/app/about-org`, `src/components/about-org/**` |
 
@@ -149,6 +150,83 @@ crossing it changed neither level nor tagline. It now draws `AGENT_BAND`
 (`prototypes/shared/levelRamp.ts`): the L4 floor, labelled with the level it is the
 floor of, both read from `LEVELS`. `levelRamp.test.ts` pins that it stays a real band
 floor and is not the posture threshold.
+
+## The Prism landing (`/?landing=prism`, 2026-09-29)
+
+The winner of the `landing-brand` contest (variant A/1, "Prism"), ported next to the
+current deck and selected with `/?landing=prism`. **`/` is unchanged and remains the
+default**; the current landing carries no link to Prism, and Prism links back to `/`
+from its footer. `src/app/page.tsx` reads `searchParams` (a promise in this Next), wraps
+the FAQ JSON-LD around either landing, and marks the Prism variant `noindex` through
+`generateMetadata` until it replaces the default. Prism renders **without**
+`SiteHeader`/`SiteFooter`: it has its own top bar (the new mark and wordmark) and a
+foot carrying the legal links the app footer would have (Privacy, Terms).
+
+**What it is.** One act as an identity: white light enters a prism shaped like the
+letter A and leaves as nine lines, one per real dimension, each line's width being that
+dimension's weight. A Solo / Team / Org switch reweights them live. Three layers, each
+with a labelled way back: the page, a line's scene (`#/line/D3`), and one piece of
+evidence (`#/line/D3/2`). The URL hash is the source of truth, so browser Back, deep
+links, Esc, prev/next and `1`-`9` (from the top of the page) all walk the same layers.
+The page ends with its own `#brand` sheet on paper: mark construction, drawn wordmark,
+palette (Void, Graphite, Paper plus the Spectral Nine), type, the refraction motion
+principle and the illustration style.
+
+**What is real and what is drawn.** Levels, bands, dimension names and descriptions,
+per-lens weights, posture labels and the rubric version are read from
+`src/lib/maturity/model.ts` (`prismModel.ts`), never re-typed. Everything else is
+**invented and labelled where it renders**: the evidence excerpts, readings (0-100) and
+next steps (`prismEvidence.ts`, tagged `Illustrative`), the per-level "which lines burn"
+plates and the drawn motifs (`Stylised`), and the sample badge (`Illustrative badge`).
+None of it is a measured repository. The colour of a line always names a dimension.
+
+**Wiring is the deployment's, not the prototype's.** The server page passes
+`demoOrgHref()` for the org demo and `sourceRepoHref()` for the source link; with no
+`NEXT_PUBLIC_SOURCE_REPO_URL` the source links fall back to `/pricing#self-host`
+(the prototype's hard-coded GitHub URL is gone). "Scan a repository" is a link
+whose `href` is the deep link `/?landing=prism&scan=1` (it works before hydration and in a
+new tab) and whose plain click presses the **real `ScanModal`'s own trigger** (mounted
+hidden), so the sign-in wall, quota meter and consent flow are the current landing's and
+Escape closes it at once. Going through the URL instead would make Escape wait for a
+server render, because the deep link only closes once the page re-renders without
+`scan=1`. `PRISM_SCAN_HREF` in `prismLinks.ts` is the one place to change when Prism replaces `/`.
+
+**Motion.** The intro (2.7 s) is skippable by the button or any key, wheel or touch, and
+hands over by itself; labels appear from 72 % of it. `prefers-reduced-motion` starts
+already handed over, draws one still frame per layout, drops the SMIL motion paths from
+the line art and shortens the swap beats (the stylesheet also zeroes CSS
+animation/transition durations). The canvas pauses while a scene covers it, while the
+hero is off screen and while the tab is hidden.
+
+**Files** (`src/components/landing/prism/`):
+`PrismLanding.tsx` orchestrates; `engine/` is the canvas (`geometry.ts` pure layout,
+`glow.ts`, `light.ts`, `draw.ts`, `engine.ts`); `usePrismHero.ts` binds it to React;
+`useScene.ts` + `PrismScene*.tsx` are the nested layers; `PrismHero`, `PrismLadder`,
+`PrismMethod` (`PrismBench`, `PrismPosture`), `PrismBeyond`, `PrismBrand*`, `PrismLaunch`
+are the sections; `prism.css` is the winner's stylesheet scoped under `.prism-root`
+(custom properties, keyframes and svg ids are `prism-` prefixed; the root is an isolated
+stacking context so the app's modal host sits above it). Symbol ids `prism-mk` /
+`prism-wm` are the mark and wordmark.
+
+**Held to the winner by measurement, not by eye.** The port was checked against the
+winner's computed styles with `style-contract.py` (48 page roles at 1440x900, 1920x1080
+and 390x844, 20 scene roles, 8 evidence roles). The only deviations are 0.7 % `max-width`
+and 5 px padding differences that come from the app's `scrollbar-gutter: stable`
+narrowing the hero box by the scrollbar (the winner's file page had none); they are left
+as they are rather than absorbed by widening a tolerance. Every interaction above is
+driven in a browser (80 checks, 80 passing) and the pure parts, the server markup, the scene and the
+ladder are pinned by vitest under `src/components/landing/prism/`.
+
+**Known gaps.**
+- The hero canvas and the scene are browser-only: there is no server-rendered picture,
+  so a visitor without script gets the headline, the nine labels and the sections but an
+  empty prism.
+- The fonts are the prototype's system stacks (Segoe UI / SF Pro, Cascadia / SF Mono),
+  not the app's Geist; the identity is specified that way and no webfont ships.
+- The page's favicon and the app-wide header/OG images still show the current mark; the
+  new identity is applied to this landing only.
+- Not yet measured on real assistive technology: focus order and the modal scene are
+  covered by DOM tests and a scripted drive, not a screen-reader pass.
 
 ## The app type scale (`type-*`)
 

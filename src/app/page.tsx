@@ -1,10 +1,13 @@
 import { SiteFooter, SiteHeader } from "@/components/Brand";
+import type { Metadata } from "next";
 import { IndexLanding } from "@/components/landing/prototypes/IndexLanding";
+import { PrismLanding } from "@/components/landing/prism/PrismLanding";
+import { PRISM_SCAN_HREF } from "@/components/landing/prism/prismLinks";
 import { getPublicScanGallery, recordQuotaEvent } from "@/lib/db";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { isAuthConfigured } from "@/lib/auth";
 import { supabaseAuthConfigured } from "@/lib/env";
-import { jsonLdScript } from "@/lib/site";
+import { demoOrgHref, jsonLdScript, sourceRepoHref } from "@/lib/site";
 import { publicScanWallEnabled } from "@/lib/scan-gates";
 import { resolveFirstRun } from "@/lib/first-run";
 import { PLAN_FEATURES, planPriceLabel, type PlanId } from "@/lib/plans";
@@ -86,7 +89,17 @@ const FAQ_LD = {
   ],
 };
 
-export default async function Home() {
+/** `/?landing=prism` selects the Prism landing (the contest-winning brand and page) beside the current one. */
+type HomeSearch = Promise<{ [key: string]: string | string[] | undefined }>;
+const wantsPrism = (sp: Awaited<HomeSearch>) => sp.landing === "prism";
+
+// The preview variant stays out of search results until it replaces the default.
+export async function generateMetadata({ searchParams }: { searchParams: HomeSearch }): Promise<Metadata> {
+  return wantsPrism(await searchParams) ? { robots: { index: false, follow: true } } : {};
+}
+
+export default async function Home({ searchParams }: { searchParams: HomeSearch }) {
+  const prism = wantsPrism(await searchParams);
   // Cookieless visit counter — the top of the visit → signup → activation funnel (the other two
   // stages already come from kpi-metrics.ts; read back on GET /api/kpi). Fire-and-forget exactly
   // like the scan route's quota tallies: recordQuotaEvent no-ops when no DB is configured and
@@ -114,6 +127,20 @@ export default async function Home() {
   // Self-hosted vs cloud decides where the org CTAs point and whether the deck pitches self-hosting at
   // all (src/lib/first-run.ts — the same resolver /onboarding branches on, so the two agree).
   const firstRun = await resolveFirstRun();
+
+  if (prism) {
+    return (
+      <>
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(FAQ_LD) }} />
+        <PrismLanding
+          links={{ scan: PRISM_SCAN_HREF, org: demoOrgHref(), source: sourceRepoHref() }}
+          exampleRepos={exampleRepos}
+          auth={auth}
+          gated={gated}
+        />
+      </>
+    );
+  }
 
   return (
     <>
