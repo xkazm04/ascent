@@ -5,9 +5,25 @@
 import Link from "next/link";
 
 export type Crumb = { label: string; href?: string };
-export type LevelLink = { label: string; href: string };
+/** A level link is a real URL (`href`) or, for a level held in a hash on the SAME page, a handler (`onClick`): a button never scrolls. */
+export type LevelLink = { label: string; href?: string; onClick?: () => void };
 
 const BTN = "focus-ring inline-flex items-center gap-2 rounded-[3px] border border-divider px-3 py-1.5 type-body-sm font-semibold text-slate-200 hover:border-slate-400 hover:text-white";
+
+function LevelControl({ link, role, className, children, ...rest }: { link: LevelLink; role: string; className: string; children: React.ReactNode; "aria-label"?: string }) {
+  if (link.onClick) {
+    return (
+      <button type="button" onClick={link.onClick} data-role={role} className={className} {...rest}>
+        {children}
+      </button>
+    );
+  }
+  return (
+    <Link href={link.href ?? "#"} data-role={role} className={className} {...rest}>
+      {children}
+    </Link>
+  );
+}
 
 export function LevelNav({
   trail,
@@ -27,12 +43,12 @@ export function LevelNav({
   return (
     <nav aria-label="Level" data-kit="level-nav" data-role="level-nav" className={`flex flex-wrap items-center gap-x-4 gap-y-2 ${className}`}>
       {back && (
-        <Link href={back.href} data-role="level-back" className={BTN}>
+        <LevelControl link={back} role="level-back" className={BTN}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
             <path d="M14 8H3M7 4L3 8l4 4" />
           </svg>
           {back.label}
-        </Link>
+        </LevelControl>
       )}
       <ol data-role="level-crumbs" className="m-0 flex list-none flex-wrap items-center gap-2 p-0 type-body-sm text-slate-400">
         {trail.map((c, i) => {
@@ -55,14 +71,14 @@ export function LevelNav({
       {(prev || next) && (
         <span className="ml-auto flex items-center gap-2">
           {prev && (
-            <Link href={prev.href} data-role="level-prev" className={BTN} aria-label={`Previous: ${prev.label}`}>
+            <LevelControl link={prev} role="level-prev" className={BTN} aria-label={`Previous: ${prev.label}`}>
               &larr; {prev.label}
-            </Link>
+            </LevelControl>
           )}
           {next && (
-            <Link href={next.href} data-role="level-next" className={BTN} aria-label={`Next: ${next.label}`}>
+            <LevelControl link={next} role="level-next" className={BTN} aria-label={`Next: ${next.label}`}>
               {next.label} &rarr;
-            </Link>
+            </LevelControl>
           )}
         </span>
       )}

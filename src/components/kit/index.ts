@@ -34,3 +34,5 @@ export type { HonestyKind } from "./Marks";
 export { PrimaryAction, GhostAction } from "./Actions";
 export { Masthead } from "./Masthead";
 export type { MastheadFigure } from "./Masthead";
+export { useHashFlag } from "./useHashFlag";
+export { DimensionMark, parseDimension } from "./DimensionMark";
