@@ -8,13 +8,15 @@ import { GREEN_FLOOR, owedCount } from "./phaseStanding";
 
 export function DimensionLedger({ slug, readings, search }: { slug: string; readings: DimensionReading[]; search: string }) {
   const owed = owedCount(readings);
+  // When NO dimension has a movement baseline (a thin window), say so once instead of nine void marks.
+  const noBaseline = readings.length > 0 && readings.every((r) => r.delta === null);
   return (
     <Frame id="dimensions">
       <SectionHead
         eyebrow="Dimensions · fleet average"
         title="Three phases,"
         named="nine lines."
-        lede={`${owed.n} of ${owed.of} below green ${GREEN_FLOOR}. The tick on each line is the green floor; the line is the fleet average.`}
+        lede={`${owed.n} of ${owed.of} below green ${GREEN_FLOOR}. The tick on each line is the green floor; the line is the fleet average.${noBaseline ? " There is no movement baseline in this window, so no line shows a change." : ""}`}
       />
       {groupByPhase(readings).map((g) => (
         <section key={g.phase.id} className="mt-8" aria-label={g.phase.label}>
@@ -26,7 +28,7 @@ export function DimensionLedger({ slug, readings, search }: { slug: string; read
             {g.avg !== null && <span className="font-mono type-mono-sm tabular-nums text-slate-400">phase avg {g.avg}</span>}
           </div>
           {g.rows.map((r) => (
-            <DimensionLedgerRow key={r.dimId} r={r} slug={slug} search={search} />
+            <DimensionLedgerRow key={r.dimId} r={r} slug={slug} search={search} baselineNoted={noBaseline} />
           ))}
         </section>
       ))}

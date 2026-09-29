@@ -95,4 +95,17 @@ describe("OverviewLedgerV2", () => {
     const hueBar = low.querySelector<HTMLElement>("span > span");
     expect(hueBar?.style.background).toContain("--spec-2");
   });
+
+  it("says once that there is no movement baseline instead of drawing a void mark on every line", () => {
+    const { container } = render(<OverviewLedgerV2 {...base({ dimDeltas: null })} />);
+    expect(screen.getByText(/no movement baseline in this window/)).toBeTruthy();
+    expect(container.querySelectorAll('[aria-label$="no movement measurement in this window"]').length).toBe(0);
+  });
+
+  it("with a baseline, shows movement per line and never the no-baseline sentence", () => {
+    const { container } = render(<OverviewLedgerV2 {...base({ dimDeltas: [{ dimId: "D1", delta: 4, cohortSize: 2 }] })} />);
+    expect(screen.queryByText(/no movement baseline in this window/)).toBeNull();
+    expect(container.querySelectorAll('[aria-label$="no movement measurement in this window"]').length).toBe(0);
+    expect(within(container.querySelector('[data-dimension="1"]') as HTMLElement).getByText("▲4")).toBeTruthy();
+  });
 });

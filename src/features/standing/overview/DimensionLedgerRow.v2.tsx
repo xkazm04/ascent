@@ -12,7 +12,7 @@ import { GREEN_FLOOR } from "./phaseStanding";
 const LINK = "focus-ring rounded text-slate-400 transition hover:text-white";
 const shortLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "");
 
-export function DimensionLedgerRow({ r, slug, search }: { r: DimensionReading; slug: string; search: string }) {
+export function DimensionLedgerRow({ r, slug, search, baselineNoted = false }: { r: DimensionReading; slug: string; search: string; baselineNoted?: boolean }) {
   const judged = r.belowGreen.of > 0; // a dimension no scored repo carries is NOT JUDGED (the v1 ledger inferred this from an empty note, which misses a "strongest of N" reading)
   const heatHref = `${buildUrl(slug, { ...clearedTabScopedParams(), dim: r.dimId }, search)}#heatmap`;
   return (
@@ -39,9 +39,11 @@ export function DimensionLedgerRow({ r, slug, search }: { r: DimensionReading; s
             </span>
           )}
           {r.delta === null ? (
+            baselineNoted ? null : (
             <span role="img" aria-label={`${r.short}: no movement measurement in this window`} title={stateTitle("missing", `${r.short} movement`)}>
               <StateSwatch state="missing" size={11} />
             </span>
+            )
           ) : (
             r.delta !== 0 && (
               <span className="tabular-nums" style={{ color: deltaHex(r.delta) }}>
