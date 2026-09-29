@@ -65,7 +65,7 @@ const STEPS: readonly Step[] = [
   },
   {
     h: "Reading",
-    p: "A 0–100 index, a level on the five-step ladder, and a prioritised route to the next level.",
+    p: "A 0–100 index, a level on the five-step ladder, and a prioritized route to the next level.",
     glyph: (
       <svg viewBox="0 0 120 84">
         <rect x="4" y="30" width="112" height="10" rx="5" fill="rgba(242,238,230,.1)" />

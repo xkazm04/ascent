@@ -42,7 +42,7 @@ export function PrismBrandMark() {
             <path d="M84 528H516" strokeDasharray="4 5" opacity=".6" />
           </g>
           <g fontFamily="Cascadia Mono,Consolas,monospace" fontSize="14" fill="#f2c14e">
-            <text x="330" y="22">apex · 50,10</text>
+            <text x="330" y="22">apex · x50 y10</text>
             <text x="-50" y="296">entry</text>
             <text x="-50" y="316">62% down</text>
             <text x="-50" y="336">the left leg</text>

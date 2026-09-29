@@ -11,7 +11,7 @@ export function PrismBrand({ reduced }: { reduced: boolean }) {
         <div className="sec-head">
           <p className="eyebrow"><span className="sw"></span>Identity</p>
           <h2 id="brandTitle">One line in. <b>Nine lines out.</b></h2>
-          <p className="lede">The whole identity is the product&apos;s one act: white light enters, a prism separates it, and each colour can be read on its own. The mark is an A built as that prism, its crossbar the beam.</p>
+          <p className="lede">The whole identity is the product&apos;s one act: white light enters, a prism separates it, and each color can be read on its own. The mark is an A built as that prism, its crossbar the beam.</p>
         </div>
         <div className="bsheet">
           <PrismBrandMark />

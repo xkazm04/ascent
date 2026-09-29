@@ -38,7 +38,7 @@ export function PrismBrandWord() {
           <div key={d.id} style={{ background: d.hue }}><span>{d.id}<br />{d.hue}</span></div>
         ))}
       </div>
-      <p className="note" style={{ marginTop: 8 }}>The Spectral Nine: one hue per dimension, in wavelength order. Colour is never decoration; it always names a dimension.</p>
+      <p className="note" style={{ marginTop: 8 }}>The Spectral Nine: one hue per dimension, in wavelength order. Color is never decoration; it always names a dimension.</p>
     </div>
   );
 }
