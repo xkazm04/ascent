@@ -8,19 +8,15 @@
 // by absence; a pinned test (SettingsTab.test.tsx) asserts the non-owner render contains no `/erase/i`,
 // `/retention/i`, or `/manage billing/i`. Do not move this check behind any card render.
 //
+// THEME DUALITY: after the gate and the reads, the theme picks the composition (SettingsTab.v1.tsx Altimeter,
+// SettingsTab.v2.tsx Prism). Both take the same SettingsData and render the same cards.
+//
 // Its old route (src/app/org/[slug]/settings/page.tsx) is now a redirect().
 
-import { LlmProviderSettings } from "./LlmProviderSettings";
-import { OpenRouterByomSettings } from "./OpenRouterByomSettings";
-import { NebiusByomSettings } from "./NebiusByomSettings";
-import { ModelScorecard } from "./ModelScorecard";
-import { BYOM_ANCHOR } from "./modelScorecardViz";
-import { ProviderBoundaryCard } from "./ProviderBoundaryCard";
-import { LaneRoutingCard } from "./LaneRoutingCard";
-import { DataErasureCard } from "./DataErasureCard";
-import { RetentionCard } from "./RetentionCard";
-import { PlanControl } from "./PlanControl";
-import { OrgEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { settingsV1 } from "./SettingsTab.v1";
+import { settingsV2 } from "./SettingsTab.v2";
+import type { SettingsData } from "./settingsData";
+import { OrgEmpty } from "@/components/org/shared/ui";
 import { getCreditState, getOrgLlmConfig } from "@/lib/db";
 import { getOrgRetention } from "@/lib/db/retention";
 import { hasOrgRole } from "@/lib/authz";
@@ -28,6 +24,7 @@ import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { envBool } from "@/lib/env";
+import { getTheme } from "@/lib/theme/server";
 import { polarEnabled } from "@/lib/polar";
 import { loadLaneRouting } from "@/lib/llm/lane-routes-load";
 
@@ -36,59 +33,25 @@ export async function SettingsTab({ slug }: { slug: string }) {
     return <OrgEmpty title="Owner only" body="Organization settings are available to organization owners." href={orgTabHref(slug, "overview")} cta="← Overview" />;
   }
   const configRead = getOrgLlmConfig(slug);
-  const [config, credit, retention, laneRouting] = await Promise.all([
+  const [config, credit, retention, laneRouting, theme] = await Promise.all([
     configRead,
     getCreditState(slug).catch(() => null),
     getOrgRetention(slug).catch(() => null),
     // Where each LLM lane runs for this org, plus the "if switched on" preview of a saved provider.
     // Never throws: an unreadable state renders as "could not be read", not as a platform guess.
     configRead.then((c) => loadLaneRouting(slug, c)),
+    getTheme(),
   ]);
-
-  const planAllowed = planAllowsByom(credit?.plan);
-
-  return (
-    <div className="space-y-6">
-      <SectionHeader title="Settings" description="Owner only" />
-      {/* Polar customer portal is owner-only by this tab's gate (absent for everyone else). Free /
-          self-host omit the link via portalEnabled=false; the chip still names the current tier. */}
-      <PlanControl
-        org={slug}
-        plan={credit?.plan ?? "free"}
-        enabled={envBool("ASCENT_ALLOW_PLAN_CHANGES")}
-        portalEnabled={polarEnabled()}
-      />
-      {/* First sight is graphical (§2.2): the boundary/billing/plan comparison the two BYOM cards
-          below used to carry as a paragraph each, drawn once, above both. */}
-      <ProviderBoundaryCard config={config} planAllowed={planAllowed} />
-      <LaneRoutingCard routing={laneRouting} />
-      <LlmProviderSettings
-        slug={slug}
-        initial={config}
-        planAllowed={planAllowed}
-        encryptionConfigured={isEncryptionConfigured()}
-      />
-      {/* The scorecard's "Use ↑" links land here — the slugs it ranks are OpenRouter slugs. The anchor
-          is owned by the tab rather than the card so the card stays reusable and unaware of it. */}
-      <div id={BYOM_ANCHOR} className="scroll-mt-24">
-        <OpenRouterByomSettings
-          slug={slug}
-          initial={config}
-          planAllowed={planAllowed}
-          encryptionConfigured={isEncryptionConfigured()}
-        />
-      </div>
-      <NebiusByomSettings
-        slug={slug}
-        initial={config}
-        planAllowed={planAllowed}
-        encryptionConfigured={isEncryptionConfigured()}
-      />
-      <ModelScorecard />
-      {/* Retention then erasure: both owner-gated above, so a non-owner never renders either control
-          (rather than seeing them disabled). Save on RetentionCard never purges. */}
-      <RetentionCard slug={slug} initial={retention} />
-      <DataErasureCard slug={slug} />
-    </div>
-  );
+  const data: SettingsData = {
+    slug,
+    config,
+    retention,
+    laneRouting,
+    plan: credit?.plan ?? "free",
+    planAllowed: planAllowsByom(credit?.plan),
+    planChangesEnabled: envBool("ASCENT_ALLOW_PLAN_CHANGES"),
+    portalEnabled: polarEnabled(),
+    encryptionConfigured: isEncryptionConfigured(),
+  };
+  return theme === "prism" ? settingsV2(data) : settingsV1(data);
 }

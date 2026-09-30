@@ -19,6 +19,8 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/db/retention", () => ({ getOrgRetention: vi.fn(async () => null) }));
 vi.mock("@/lib/crypto/secret-box", () => ({ isEncryptionConfigured: () => true }));
+const { mockTheme } = vi.hoisted(() => ({ mockTheme: vi.fn(async () => "altimeter" as string) }));
+vi.mock("@/lib/theme/server", () => ({ getTheme: mockTheme }));
 vi.mock("@/lib/polar", () => ({ polarEnabled: vi.fn(() => true) }));
 vi.mock("@/lib/llm/lane-routes-load", () => ({ loadLaneRouting: mockLoadLanes }));
 
@@ -39,9 +41,10 @@ function findType(node: React.ReactNode, type: unknown): React.ReactElement | nu
     }
     return null;
   }
-  const el = node as React.ReactElement<{ children?: React.ReactNode }>;
+  const el = node as React.ReactElement<{ children?: React.ReactNode; control?: React.ReactNode }>;
   if (el.type === type) return el;
-  return findType(el.props?.children ?? null, type);
+  // SettingRow (Prism) carries its control in a prop, not in children.
+  return findType(el.props?.children ?? null, type) ?? findType(el.props?.control ?? null, type);
 }
 
 const GEMINI = { engine: "gemini", model: "gemini-3.8-flash" } as const;
@@ -58,7 +61,8 @@ beforeEach(() => {
   vi.mocked(polarEnabled).mockReturnValue(true);
 });
 
-describe("SettingsTab — data erasure placement", () => {
+describe.each(["altimeter", "prism"])("SettingsTab — data erasure placement" + " [%s]", (theme) => {
+  beforeEach(() => mockTheme.mockResolvedValue(theme));
   it("renders the erase control for an owner, scoped to this org", async () => {
     mockHasOrgRole.mockResolvedValue(true);
 
@@ -82,7 +86,8 @@ describe("SettingsTab — data erasure placement", () => {
   });
 });
 
-describe("SettingsTab — retention placement", () => {
+describe.each(["altimeter", "prism"])("SettingsTab — retention placement" + " [%s]", (theme) => {
+  beforeEach(() => mockTheme.mockResolvedValue(theme));
   it("renders the retention control for an owner, scoped to this org", async () => {
     mockHasOrgRole.mockResolvedValue(true);
 
@@ -105,7 +110,8 @@ describe("SettingsTab — retention placement", () => {
   });
 });
 
-describe("SettingsTab — Polar portal placement", () => {
+describe.each(["altimeter", "prism"])("SettingsTab — Polar portal placement" + " [%s]", (theme) => {
+  beforeEach(() => mockTheme.mockResolvedValue(theme));
   it("renders PlanControl for an owner with the Polar portal armed", async () => {
     mockHasOrgRole.mockResolvedValue(true);
 
@@ -138,7 +144,8 @@ describe("SettingsTab — Polar portal placement", () => {
   });
 });
 
-describe("SettingsTab: lane routing (llm-provider-abstraction#B)", () => {
+describe.each(["altimeter", "prism"])("SettingsTab: lane routing (llm-provider-abstraction#B)" + " [%s]", (theme) => {
+  beforeEach(() => mockTheme.mockResolvedValue(theme));
   async function renderLanes() {
     const card = findType(await renderTab(), LaneRoutingCard);
     expect(card).not.toBeNull();

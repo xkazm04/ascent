@@ -1,0 +1,12 @@
+{
+  "route": "/org/kiro?tab=settings",
+  "roles": {
+    "page-statement": { "selector": "[data-role='settings-v2'] [data-kit='masthead'] [data-kit='display'][data-level='page']", "expect": { "fontSize": [42, 48], "fontWeight": "300", "textTransform": "none" } },
+    "masthead-figure": { "selector": "[data-role='settings-v2'] [data-kit='masthead'] [data-kit='display'][data-level='figure']", "expect": { "fontSize": 28, "fontWeight": "300" } },
+    "eyebrow": { "selector": "[data-role='settings-v2'] [data-kit='eyebrow']", "expect": { "fontSize": 14, "textTransform": "none" } },
+    "section-statement": { "selector": "[data-role='settings-v2'] [data-kit='section-head'] [data-kit='display'][data-level='section']", "expect": { "fontSize": 24, "fontWeight": "300" } },
+    "section-named": { "selector": "[data-role='settings-v2'] [data-kit='section-head'] [data-role='display-named']", "expect": { "fontWeight": "600" } },
+    "frame": { "selector": "[data-role='settings-v2'] [data-kit='frame']", "expect": { "borderTopWidth": 1, "borderRadius": 0 } },
+    "flat-card": { "selector": "[data-role='settings-v2'] [data-kit='frame'] [data-kit='panel']", "expect": { "borderTopWidth": 0, "borderRadius": 0 } }
+  }
+}

@@ -374,3 +374,17 @@ html[data-theme="prism"] [data-kit="filter-menu"] [data-role="filter-menu-popup"
   background: color-mix(in srgb, var(--color-surface-strong) 96%, transparent);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
 }
+
+/* ── Settings tab (kit-3, 2026-09-30): cards inside a Frame lose their box; the Frame is the container ── */
+html[data-theme="prism"] [data-role="settings-v2"] [data-kit="frame"] [data-kit="panel"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+html[data-theme="prism"] [data-role="settings-v2"] [data-kit="frame"] [data-kit="panel"] + [data-kit="panel"],
+html[data-theme="prism"] [data-role="settings-v2"] [data-kit="setting-row"] {
+  border-color: var(--hair);
+}
+html[data-theme="prism"] [data-role="settings-v2"] [data-kit="setting-row"] { padding-block: 1rem; }
