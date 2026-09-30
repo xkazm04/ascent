@@ -83,4 +83,11 @@ describe("POST /api/org/segments/:id/repos — auth + per-row tenant resolution"
     await post("seg-1", { org: "acme", fullName: "acme/app", member: false });
     expect(mockSet).toHaveBeenCalledWith("acme", "seg-1", "acme/app", false);
   });
+
+  it("400s a missing or non-boolean member and a non-string repo name, and does not write", async () => {
+    expect((await post("seg-1", { org: "acme", fullName: "acme/app" })).status).toBe(400);
+    expect((await post("seg-1", { org: "acme", fullName: "acme/app", member: "false" })).status).toBe(400);
+    expect((await post("seg-1", { org: "acme", fullName: 12, member: true })).status).toBe(400);
+    expect(mockSet).not.toHaveBeenCalled();
+  });
 });

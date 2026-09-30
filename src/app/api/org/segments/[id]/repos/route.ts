@@ -14,13 +14,15 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const guard = dbGuard("Segments");
   if (guard) return guard;
   const { id } = await ctx.params;
-  const body = (await request.json().catch(() => ({}))) as { org?: string; fullName?: string; member?: boolean };
-  if (!body.org || !body.fullName) {
+  const body = (await request.json().catch(() => ({}))) as { org?: unknown; fullName?: unknown; member?: unknown };
+  // member must be a real boolean. Boolean(undefined) is false, so a body that forgot
+  // the field used to untag the repo and return 200. A numeric fullName threw on lookup.
+  if (typeof body.org !== "string" || !body.org.trim() || typeof body.fullName !== "string" || !body.fullName.trim() || typeof body.member !== "boolean") {
     return NextResponse.json({ error: "Provide { org, fullName, member }." }, { status: 400 });
   }
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;
-  const ok = await setRepoSegment(body.org, id, body.fullName, Boolean(body.member));
+  const ok = await setRepoSegment(body.org, id, body.fullName, body.member);
   if (!ok) return NextResponse.json({ error: "Unknown segment or repo for this org." }, { status: 404 });
-  return NextResponse.json({ ok: true, fullName: body.fullName, member: Boolean(body.member) });
+  return NextResponse.json({ ok: true, fullName: body.fullName, member: body.member });
 }
