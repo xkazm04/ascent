@@ -58,6 +58,7 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/plans", () => ({ planAllowsWhiteLabel: mockPlanAllowsWhiteLabel }));
 vi.mock("@/lib/db/org-impact", () => ({ getOrgImpactLedger: mockGetOrgImpactLedger }));
+vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 
 import { ExecutiveTab } from "./ExecutiveTab";
 import {

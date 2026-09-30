@@ -13,6 +13,8 @@ import { useBrandingSettings } from "./useBrandingSettings";
 export { accentContrastOnWhite, accentContrastOnDark, accentContrastWarning, MIN_ACCENT_CONTRAST } from "./brandingContrast";
 import { accentContrastWarning } from "./brandingContrast";
 
+export const ACCENT_HEX_LABEL = "Accent colour hex";
+
 export function BrandingSettings({ slug, initial }: { slug: string; initial: OrgBranding }) {
   const {
     brandName, setBrandName,
@@ -78,7 +80,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
               }}
               maxLength={7}
               placeholder="#rrggbb"
-              aria-label="Accent colour hex"
+              aria-label={ACCENT_HEX_LABEL}
               aria-describedby={contrastWarning ? "brand-accent-warning" : undefined}
               className={`${field} w-24`}
             />

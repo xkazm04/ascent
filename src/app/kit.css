@@ -635,6 +635,9 @@ html[data-theme="prism"] [data-role="executive-v2"] [data-role="dimension-label"
 }
 @media (max-width: 1360px) {
   html[data-theme="prism"] [data-role="executive-v2"] [data-role="masthead-aside"] {
-    padding-right: 3.25rem;
+    flex-basis: 100%;
+    margin-left: 0;
+    /* The pull tab is wider than 3.25rem once "Copy briefing for LLM" sits on this row. */
+    padding-right: 6.5rem;
   }
 }

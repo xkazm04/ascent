@@ -11,16 +11,16 @@
 // the origin every time someone fixed a typo in the name would make every measurement since the
 // start disappear — see startProgram's contract in src/lib/db/org-program.ts.
 
-import { useState } from "react";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { LEVELS } from "@/lib/maturity/model";
 import type { ProgramCadence, TransitionProgramRow } from "@/lib/db/org-program";
 import type { LevelId } from "@/lib/types";
-// The read view and the shared labels/classes live in co-located siblings (200-line cap); this file
-// keeps all the state and both fetches.
+// The read view and the shared labels/classes live in co-located siblings (200-line cap).
+// State and both fetches live in useProgramPanel, shared with the Prism composition.
 import { ProgramPanelSummary } from "./ProgramPanelSummary";
 import { CADENCE_LABEL, PROGRAM_ORIGIN_HINT, inputClass, labelClass } from "./programPanelConstants";
 import { WhyChip } from "@/components/org/viz";
+import { useProgramPanel } from "./useProgramPanel";
 
 export function ProgramPanel({
   slug,
@@ -33,57 +33,10 @@ export function ProgramPanel({
    *  rather than describe the origin in a sentence. Null ⇒ no "now" mark. */
   now?: number | null;
 }) {
-  const [program, setProgram] = useState(initial);
-  const [editing, setEditing] = useState(initial == null);
-  const [name, setName] = useState(initial?.name ?? "");
-  const [targetLevel, setTargetLevel] = useState(initial?.targetLevel ?? "L4");
-  const [targetDate, setTargetDate] = useState(initial?.targetDate?.slice(0, 10) ?? "");
-  const [cadence, setCadence] = useState<ProgramCadence>(initial?.cadence ?? "weekly");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/org/program", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, name: name.trim(), targetLevel, targetDate: targetDate || null, cadence }),
-      });
-      const json = (await res.json().catch(() => ({}))) as { program?: TransitionProgramRow; error?: string };
-      if (!res.ok) {
-        setError(json.error ?? "Couldn't save the programme.");
-        return;
-      }
-      setProgram(json.program ?? null);
-      setEditing(false);
-    } catch {
-      setError("Couldn't reach the server.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function patchStatus(status: "active" | "paused" | "achieved") {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/org/program", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, status }),
-      });
-      if (res.ok && program) setProgram({ ...program, status });
-      else if (!res.ok) setError("Couldn't update the programme.");
-    } catch {
-      setError("Couldn't reach the server.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const {
+    program, editing, setEditing, name, setName, targetLevel, setTargetLevel,
+    targetDate, setTargetDate, cadence, setCadence, busy, error, save, patchStatus,
+  } = useProgramPanel(slug, initial);
 
   return (
     // data-tour: the getting-started `program` step spotlights this control (GETTING_STARTED_ANCHORS).
