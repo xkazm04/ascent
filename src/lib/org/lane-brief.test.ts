@@ -128,16 +128,32 @@ it.each(["constructor", "toString", "__proto__", "future-category"])("ignores un
 });
 
 
-it("distinguishes an oversized matching playbook from an absent standard", () => {
+it("quotes a prefix of one storage-ceiling playbook instead of omitting the standard", () => {
   const { text, provenance } = buildLaneBrief(input({ playbooks: [{
     id: "large", title: "Detailed procedure", dimId: "D3", version: 1,
     summary: "Real procedure", steps: Array.from({ length: 20 }, () => "x".repeat(300)),
   }] }));
   expect(text).not.toContain("No playbook in this organization");
-  expect(text).toContain("1 matching entry omitted by the byte budget");
-  expect(provenance.omitted).toContainEqual({ kind: "playbook", why: "byte budget" });
-  expect(briefSummaryLine(provenance)).toContain("playbook omitted (byte budget)");
-  expect(provenance.sections.some((s) => s.kind === "playbook")).toBe(false);
+  expect(text).not.toContain("omitted by the byte budget");
+  expect(text).toContain("Detailed procedure");
+  expect(text).toContain("playbook large v1");
+  expect(text).toMatch(/… \(1 more, trimmed\)/);
+  const section = provenance.sections.find((s) => s.kind === "playbook");
+  expect(section).toMatchObject({ trimmed: true, refs: ["large@1"], count: 1 });
+  expect(provenance.omitted.some((o) => o.kind === "playbook")).toBe(false);
+  const block = text.split("\n\n").find((b) => b.includes("ACTIVE PLAYBOOKS")) ?? "";
+  const entry = block.split("\n").slice(1).join("\n").split("\n…")[0] ?? "";
+  expect(Buffer.byteLength(`${entry}\n`, "utf8")).toBeLessThanOrEqual(SECTION_MAX_BYTES.playbook);
+});
+
+it("cuts an oversized playbook on a code-point boundary", () => {
+  const { text } = buildLaneBrief(input({ playbooks: [{
+    id: "large", title: "T", dimId: "D3", version: 1,
+    summary: "s", steps: Array.from({ length: 20 }, () => "🚀".repeat(100)),
+  }] }));
+  expect(text).not.toContain("\uFFFD");
+  expect(text).toContain("🚀");
+  expect(text).toMatch(/trimmed/);
 });
 
 it("only attributes dimensions whose playbook entries were actually quoted", () => {

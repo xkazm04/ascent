@@ -4188,6 +4188,9 @@ in this organization covers D3", "No house pattern has been mined for D6 — you
 precedent, not matching one." An agent handed a bare heading reads it as "there is no standard";
 one told so explicitly can say so back. Truncation is per section, marked in the text
 (`… (n more, trimmed)`) and recorded in provenance, so a trimmed brief never reads as a complete one.
+A single entry larger than its section cap — one playbook at the storage ceiling is about 6.8 KB
+against the 4 KB playbook section — is quoted as a prefix of that entry with the same trim marker,
+not replaced by an omission notice.
 Two calls on the same input are byte-identical — a brief that reshuffles would make an A/B comparison
 of two lanes a comparison of two prompts. Memory text passes through the shared untrusted-content
 neutralizer first.

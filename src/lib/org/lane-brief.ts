@@ -107,16 +107,46 @@ const clean = (s: string, max: number): string => sanitizeAgentText(s).replace(/
  * Returns the kept lines plus the dropped count, so the caller can render the marker AND record
  * `trimmed` in provenance — the two must never disagree.
  */
+/** Prefix of `s` that fits in `maxBytes`, cut on a code-point boundary so a multi-byte
+ *  character is never split into U+FFFD. */
+function utf8Prefix(s: string, maxBytes: number): string {
+  if (maxBytes <= 0) return "";
+  let used = 0;
+  let i = 0;
+  for (const ch of s) {
+    const n = Buffer.byteLength(ch, "utf8");
+    if (used + n > maxBytes) break;
+    used += n;
+    i += ch.length;
+  }
+  return s.slice(0, i);
+}
+
 function capped(lines: readonly string[], max: number): { kept: string[]; dropped: number } {
   const kept: string[] = [];
   let used = 0;
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     const cost = byteLen(line) + 1;
-    if (used + cost > max) break;
+    if (used + cost > max) {
+      // The first entry can be larger than the section cap on its own: one playbook at the
+      // storage ceiling (20 steps × 300 chars) is ~6.8 KB against a 4 KB section. Dropping
+      // it used to replace the org's standard with "omitted by the byte budget". Quote a
+      // prefix and count the entry as trimmed. A later entry that does not fit still stops
+      // the walk, so a small higher-priority row is never skipped for a larger one after it.
+      if (kept.length === 0) {
+        const prefix = utf8Prefix(line, Math.max(0, max - 1));
+        if (prefix) {
+          kept.push(prefix);
+          return { kept, dropped: lines.length - i };
+        }
+      }
+      return { kept, dropped: lines.length - i };
+    }
     kept.push(line);
     used += cost;
   }
-  return { kept, dropped: lines.length - kept.length };
+  return { kept, dropped: 0 };
 }
 
 /** One rendered section, or null when there was nothing to render. */
