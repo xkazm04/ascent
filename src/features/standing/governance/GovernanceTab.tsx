@@ -4,18 +4,20 @@
 //
 // Everything below derives from one `buildGovernanceOverview` read (see GovernancePanel), so the tab
 // gets a single <Suspense> boundary rather than one per card — there is only one independent data
-// source here.
+// source here. The theme is read here, outside that boundary, and the panel picks the composition.
 
 import { Suspense } from "react";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { getTheme } from "@/lib/theme/server";
 import { GovernancePanel } from "./GovernancePanel";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-export function GovernanceTab({ slug, sp }: { slug: string; sp: SearchParams }) {
+export async function GovernanceTab({ slug, sp }: { slug: string; sp: SearchParams }) {
+  const theme = await getTheme();
   return (
     <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-      <GovernancePanel slug={slug} sp={sp} />
+      <GovernancePanel slug={slug} sp={sp} theme={theme} />
     </Suspense>
   );
 }

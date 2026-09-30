@@ -3159,3 +3159,22 @@ count, no status dot), scope and Export CSV on one toolbar, and a ruled list of 
 Security will migrate to it later. Sort, selection and bulk-tag share `useRepoLeaderboard` with Altimeter, which is
 unchanged (0 px). **Known gaps:** Context Health, Segments and the missing-repos panel still carry v1 markup
 under Prism CSS; the row has no score movement because the rollup row carries no per-repo delta.
+
+### Governance in Prism (kit-4, 2026-09-30)
+
+`GovernanceTab` reads `getTheme()` and `GovernancePanel` renders `GovernanceView.v1` (Altimeter, the shipped
+card layout, moved unchanged) or `GovernanceView.v2`. Both get one `buildGovernanceOverview` plus the owner check.
+Prism leads with a `Masthead`: the pass rate is the statement, passing / failing / scanned / not-judged are
+figures. Each figure's status is a glyph and a screen-reader word; the number stays paper. A repo that
+scored nothing is its own figure, never a zero inside the rate. An empty fleet says nothing is judged yet
+and draws no zero tiles.
+
+Sections are hairline `Frame`s: the policy as a ruled list plus `SettingRow`s over the same
+`useGatePolicyEditor` hook; fail conditions as rows (`VoidMark` where the fleet path cannot judge, the
+earned-zero note from `governanceReasons.ts` where it can); failing repos as `RepoRow`s with a paper score;
+the CI action as the one `EvidencePanel`. The evidence pack is a `StatStrip` of the same `evidenceFlow`
+(a stage that could not be read is a void). The control ledger keeps its `StateTrack` (no kit part draws a
+control over time) and lists observations in `DataTable`; an unreadable state is "not measured", not a dash.
+The stance, when unpublished, is the empty argument on a hairline grid. A published stance states each
+autonomy band in words (read, declared only, not judged) and lists repos as `RepoRow`s, without the
+green-to-red tier stripe. Roles: `scripts/kit/roles/governance.json`.
