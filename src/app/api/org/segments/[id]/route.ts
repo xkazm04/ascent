@@ -38,6 +38,11 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const data: { name?: string; color?: string | null } = {};
   if (typeof body.name === "string") data.name = body.name;
   if (typeof body.color === "string" || body.color === null) data.color = body.color;
+  // A body with neither field still reached segment.update and wrote segment.updated
+  // with an empty change list. There is nothing to store.
+  if (data.name === undefined && data.color === undefined) {
+    return NextResponse.json({ ok: true });
+  }
   try {
     await updateSegment(id, data);
     const actorLogin = await resolveViewerLogin();

@@ -124,6 +124,13 @@ describe("PATCH /api/org/segments/:id — member-gated, segment-derived tenant",
     expect(mockUpdate).not.toHaveBeenCalled();
     expect(mockAudit).not.toHaveBeenCalled();
   });
+
+  it("does not write or audit a patch that names no name or colour", async () => {
+    const res = await patch("seg-1", {});
+    expect(res.status).toBe(200);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
 });
 
 describe("DELETE /api/org/segments/:id — admin-gated destructive op", () => {
