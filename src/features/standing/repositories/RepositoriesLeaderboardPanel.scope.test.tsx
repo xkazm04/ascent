@@ -94,6 +94,12 @@ describe("RepositoriesLeaderboardPanel — segment scope", () => {
     expect(screen.getByRole("button", { name: /All repos/ })).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("puts the active segment on the CSV link beside the filtered table", async () => {
+    render(await RepositoriesLeaderboardPanel({ slug: "acme", sp: { segment: "s1" }, scope: scope() }));
+
+    expect(screen.getByRole("link", { name: "Export CSV" }).getAttribute("href")).toContain("segment=s1");
+  });
+
   it("keeps ?segment= on the posture chips so picking a posture does not drop the filter", async () => {
     render(await RepositoriesLeaderboardPanel({ slug: "acme", sp: { segment: "s1" }, scope: scope() }));
 

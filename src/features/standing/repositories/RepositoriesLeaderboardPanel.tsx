@@ -92,8 +92,13 @@ export async function RepositoriesLeaderboardPanel({
   // Renders nothing when the list is empty, so the tab is unchanged for a healthy fleet.
   const missing = await listMissingRepos(slug);
 
+  // The export threads the ACTIVE posture/stack/segment scope through, so "Export CSV" can never
+  // contradict the filtered table it sits next to (repositories-segments #3). Segment was the one
+  // of those three the link used to drop, so a segment-scoped table still downloaded the fleet.
+  const csvHref = `/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv${posture ? `&posture=${encodeURIComponent(posture)}` : ""}${segmentId ? `&segment=${encodeURIComponent(segmentId)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`;
+  const csvTitle = posture || segmentId || activeStack ? "Download the currently filtered repos as CSV" : "Download the full fleet as CSV";
+
   if (theme === "prism") {
-    const csvHref = `/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv${posture ? `&posture=${encodeURIComponent(posture)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`;
     return (
       <RepositoriesViewV2
         slug={slug}
@@ -127,11 +132,9 @@ export async function RepositoriesLeaderboardPanel({
           }
           right={
             <ScopeFilterBar {...barProps}>
-              {/* The export threads the ACTIVE posture/stack scope through, so "Export CSV" can never
-                  contradict the filtered table it sits next to (repositories-segments #3). */}
               <a
-                href={`/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv${posture ? `&posture=${encodeURIComponent(posture)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`}
-                title={posture || activeStack ? "Download the currently filtered repos as CSV" : "Download the full fleet as CSV"}
+                href={csvHref}
+                title={csvTitle}
                 className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
               >
                 Export CSV

@@ -8,6 +8,7 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   getOrgRollup: vi.fn(),
   getRepoSegmentMap: vi.fn(async () => ({ "acme/web": [{ id: "s1", name: "platform", color: "#3b9eff" }, { id: "s2", name: "legacy", color: "#f97316" }] })),
+  listSegments: vi.fn(async () => []),
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null) }));
 vi.mock("@/lib/org/scope", () => ({
@@ -19,7 +20,7 @@ vi.mock("@/lib/org/scope", () => ({
 }));
 
 import { GET } from "./route";
-import { getOrgRollup } from "@/lib/db";
+import { getOrgRollup, listSegments } from "@/lib/db";
 
 function repo(fullName: string, posture: string) {
   const name = fullName.split("/")[1]!;
@@ -60,6 +61,19 @@ describe("GET /api/org/repositories filters (#3)", () => {
   it("threads ?stack= into the rollup scope", async () => {
     await get("org=acme&format=csv&stack=frontend");
     expect(vi.mocked(getOrgRollup)).toHaveBeenCalledWith("acme", undefined, null, "tg1");
+  });
+
+  it("threads a segment the org owns into the rollup and ignores one it does not", async () => {
+    vi.mocked(getOrgRollup).mockClear();
+    vi.mocked(listSegments).mockResolvedValue([
+      { id: "s1", name: "platform", color: "#3b9eff", repoCount: 1, createdAt: "x" },
+    ]);
+    await get("org=acme&format=csv&segment=s1");
+    expect(vi.mocked(getOrgRollup)).toHaveBeenCalledWith("acme", undefined, "s1", null);
+
+    vi.mocked(getOrgRollup).mockClear();
+    await get("org=acme&format=csv&segment=nope");
+    expect(vi.mocked(getOrgRollup)).toHaveBeenCalledWith("acme", undefined, null, null);
   });
 
   it("carries segment memberships as a ;-joined column", async () => {

@@ -1,13 +1,13 @@
-// GET /api/org/repositories?org=<slug>[&format=csv][&posture=<id>][&stack=<key>]
+// GET /api/org/repositories?org=<slug>[&format=csv][&posture=<id>][&stack=<key>][&segment=<id>]
 // The org's repo leaderboard as data: JSON by default, or a CSV file download (format=csv) — the
 // "send my boss the fleet" export. Read-only; scoped to a readable org. Understands the SAME
-// posture/stack query params as the Repositories tab, so the export reflects exactly what the
+// posture/stack/segment query params as the Repositories tab, so the export reflects exactly what the
 // filtered tab shows (repositories-segments #3: it previously always exported the full fleet while
-// the header said "12 of 80 repos in At risk"). A bogus posture/stack falls back to the whole fleet,
-// matching the page's contract. The CSV also carries each repo's segment memberships.
+// the header said "12 of 80 repos in At risk"). A bogus posture/stack/segment falls back to the whole
+// fleet, matching the page's contract. The CSV also carries each repo's segment memberships.
 
 import { NextResponse } from "next/server";
-import { getOrgRollup, getRepoSegmentMap, isDbConfigured } from "@/lib/db";
+import { getOrgRollup, getRepoSegmentMap, isDbConfigured, listSegments } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { resolveStackScope } from "@/lib/org/scope";
 import { POSTURE_META } from "@/lib/maturity/model";
@@ -25,13 +25,17 @@ export async function GET(request: Request) {
   const denied = await requireOrgRead(org);
   if (denied) return denied;
 
-  // Same scoping the page applies: an optional tech-stack group (scopes the rollup itself) and an
-  // optional posture filter over each repo's latest scan. Unknown values → unscoped, like the page.
+  // Same scoping the page applies: an optional tech-stack group and an optional segment (both scope
+  // the rollup itself) plus an optional posture filter over each repo's latest scan. Unknown values
+  // → unscoped, like the page. A segment id is accepted only when this org owns it.
   const { techGroupId } = await resolveStackScope(org, { stack: searchParams.get("stack") ?? undefined });
+  const segmentParam = searchParams.get("segment");
+  const owned = segmentParam ? await listSegments(org) : null;
+  const segmentId = owned?.find((s) => s.id === segmentParam)?.id ?? null;
   const postureParam = searchParams.get("posture");
   const posture = postureParam && POSTURE_META.some((p) => p.id === postureParam) ? postureParam : null;
 
-  const rollup = await getOrgRollup(org, undefined, null, techGroupId);
+  const rollup = await getOrgRollup(org, undefined, segmentId, techGroupId);
   const all = rollup?.repos ?? [];
   const repos = posture ? all.filter((r) => r.latest?.posture === posture) : all;
 
