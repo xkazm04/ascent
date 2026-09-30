@@ -97,3 +97,29 @@ describe("RepoLeaderboard select-all under a filter", () => {
     expect(screen.getByRole("checkbox", { name: "Select acme/a" })).not.toBeChecked();
   });
 });
+
+function withCommits(fullName: string, commits: number[] | null): LeaderRow {
+  const base = row(fullName);
+  if (commits == null) return base;
+  return { ...base, activity: { commitsWeekly: commits, prsMerged: 0, prsTotal: 0, locChanged: 0 } };
+}
+
+describe("RepoLeaderboard activity sort", () => {
+  it("keeps an unmeasured repo behind a measured zero when the column is least-first", () => {
+    render(
+      <RepoLeaderboard
+        slug="acme"
+        rows={[withCommits("acme/none", null), withCommits("acme/zero", [0]), withCommits("acme/busy", [4])]}
+        segments={segments}
+        schedulable
+      />,
+    );
+    const header = screen.getByRole("button", { name: /^Commits/ });
+    fireEvent.click(header);
+    fireEvent.click(header);
+    const body = screen.getAllByRole("row").slice(1).map((r) => r.textContent ?? "");
+    const at = (name: string) => body.findIndex((t) => t.includes(name));
+    expect(at("acme/zero")).toBeLessThan(at("acme/busy"));
+    expect(at("acme/busy")).toBeLessThan(at("acme/none"));
+  });
+});

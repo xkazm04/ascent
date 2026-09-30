@@ -71,7 +71,8 @@ export type SortState = { key: SortKey; dir: 1 | -1 } | null;
 
 export const sum = (xs: number[]) => xs.reduce((t, n) => t + n, 0);
 
-/** Sort value for an activity column; a null-activity row sorts to -1 so it always trails a real one. */
+/** Sort value for an activity column. Null is -1, under every real total. The least-first
+ *  pass would put that -1 first; useRepoLeaderboard keeps a null row last in both directions. */
 export function activityValue(a: RepoActivity | null, key: SortKey): number {
   if (!a) return -1;
   if (key === "commits") return sum(a.commitsWeekly); // total over the ~1-month window (matches the shown number)

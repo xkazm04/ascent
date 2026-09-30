@@ -45,7 +45,15 @@ export function useRepoLeaderboard({ slug, rows, segments }: { slug: string; row
   const sortedRows = useMemo(() => {
     if (!sort) return rows;
     const d = sort.dir;
-    return [...rows].sort((x, y) => (activityValue(x.activity, sort.key) - activityValue(y.activity, sort.key)) * d);
+    // A missing activity blob sorts as -1 inside activityValue so the most-first pass trails it.
+    // Flipping the sign for least-first then puts that -1 ahead of a measured 0, so the "—" row
+    // leads the column. Missing stays last in both directions; measured numbers follow the click.
+    return [...rows].sort((x, y) => {
+      const xMissing = x.activity == null;
+      const yMissing = y.activity == null;
+      if (xMissing !== yMissing) return xMissing ? 1 : -1;
+      return (activityValue(x.activity, sort.key) - activityValue(y.activity, sort.key)) * d;
+    });
   }, [rows, sort]);
 
   // Selection is keyed by fullName so RE-SORTING never disturbs it (see the sort comment above) — but
