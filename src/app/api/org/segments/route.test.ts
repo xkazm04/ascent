@@ -126,6 +126,15 @@ describe("POST /api/org/segments — auth gate on create", () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it("logs an unexpected create failure and still returns 500", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockCreate.mockRejectedValue(new Error("db down"));
+    const res = await post({ org: "acme", name: "Platform" });
+    expect(res.status).toBe(500);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   it("400s a non-string name or colour instead of throwing", async () => {
     const byName = await post({ org: "acme", name: 12 });
     expect(byName.status).toBe(400);

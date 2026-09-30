@@ -101,6 +101,16 @@ describe("PATCH /api/org/segments/:id — member-gated, segment-derived tenant",
     expect(mockAudit.mock.calls[0][3]).toBe("alice");
   });
 
+  it("logs an unexpected update failure and still returns 500", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockUpdate.mockRejectedValueOnce(new Error("db down"));
+    const res = await patch("seg-1", { name: "Renamed" });
+    expect(res.status).toBe(500);
+    expect(spy).toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   it("maps P2002 (name clash) to 409 and P2025 (missing) to 404", async () => {
     mockUpdate.mockRejectedValueOnce({ code: "P2002" } as never);
     expect((await patch("seg-1", { name: "dup" })).status).toBe(409);
@@ -161,6 +171,16 @@ describe("DELETE /api/org/segments/:id — admin-gated destructive op", () => {
     expect(mockAudit.mock.calls[0][1]).toBe("acme");
     expect(mockAudit.mock.calls[0][2]).toEqual({ segmentId: "seg-1" });
     expect(mockAudit.mock.calls[0][3]).toBe("alice");
+  });
+
+  it("logs an unexpected delete failure and still returns 500", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockDelete.mockRejectedValueOnce(new Error("db down"));
+    const res = await del("seg-1");
+    expect(res.status).toBe(500);
+    expect(spy).toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("404s an unknown segment id before any admin check or delete", async () => {

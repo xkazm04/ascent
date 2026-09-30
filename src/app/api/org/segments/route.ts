@@ -72,6 +72,7 @@ export async function POST(request: Request) {
     if ((err as { code?: string }).code === "P2002") {
       return NextResponse.json({ error: "A segment with that name already exists." }, { status: 409 });
     }
+    console.error("[org/segments] create failed", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Failed to create segment." }, { status: 500 });
   }
 }

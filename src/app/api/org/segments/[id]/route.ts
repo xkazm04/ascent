@@ -52,6 +52,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Segment not found." }, { status: 404 });
     if ((err as { code?: string }).code === "P2002") return NextResponse.json({ error: "A segment with that name already exists." }, { status: 409 });
+    console.error("[org/segments] update failed", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Failed to update segment." }, { status: 500 });
   }
 }
@@ -67,6 +68,7 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
     return NextResponse.json({ ok: true });
   } catch (err) {
     if ((err as { code?: string }).code === "P2025") return NextResponse.json({ error: "Segment not found." }, { status: 404 });
+    console.error("[org/segments] delete failed", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Failed to delete segment." }, { status: 500 });
   }
 }
