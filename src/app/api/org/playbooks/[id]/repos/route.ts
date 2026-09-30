@@ -5,9 +5,9 @@
 // getPlaybookAdoption): the open draft is the fresher fact about the repo.
 
 import { NextResponse } from "next/server";
-import { applyPlaybook, unapplyPlaybook } from "@/lib/db";
+import { applyPlaybook, getPlaybook, unapplyPlaybook } from "@/lib/db";
 import { resolveViewerLogin } from "@/lib/access";
-import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
+import { archivedPlaybookRefusal, parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +26,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   // repo it tracks under another owner (row 41).
   const coord = await parseOrgRepo(body.repo, gated.org);
   if (coord instanceof Response) return coord;
+  const row = await getPlaybook(id);
+  const refused = archivedPlaybookRefusal(row);
+  if (refused) return refused;
   // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,
   // so this actor was recorded as null in production.
   const actorLogin = await resolveViewerLogin();

@@ -28,7 +28,7 @@ import { isAppConfigured, AppApiError } from "@/lib/github/app";
 import { getPlaybook, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
+import { archivedPlaybookRefusal, parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 import { classifyPrWriteError, requirePrWriteTarget } from "@/lib/github/pr-route";
 import { applyPlaybookToRepo } from "@/lib/org/playbook-apply";
 import { playbookApplyBatchDryRun } from "@/lib/org/playbook-brief";
@@ -96,7 +96,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const skipped = unique.length - batch.length;
 
   const playbook = await getPlaybook(id);
-  if (!playbook) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
+  const refused = archivedPlaybookRefusal(playbook);
+  if (refused || !playbook) return refused ?? NextResponse.json({ error: "Playbook not found." }, { status: 404 });
 
   // HITL preview: same admin / tenancy / cap as the write, zero GitHub writes. Must run before
   // requirePrWriteTarget so a dry-run cannot mint an installation token.

@@ -14,7 +14,7 @@ import { isAppConfigured } from "@/lib/github/app";
 import { getPlaybook, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
+import { archivedPlaybookRefusal, parseOrgRepo, resolvePlaybookOrg } from "@/lib/org/playbook-gate";
 import { mapPrWriteError, requirePrWriteTarget } from "@/lib/github/pr-route";
 import { applyPlaybookToRepo } from "@/lib/org/playbook-apply";
 
@@ -53,7 +53,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   if (parsed instanceof Response) return parsed;
 
   const playbook = await getPlaybook(id);
-  if (!playbook) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
+  const refused = archivedPlaybookRefusal(playbook);
+  if (refused || !playbook) return refused ?? NextResponse.json({ error: "Playbook not found." }, { status: 404 });
 
   try {
     // The one customer-repo write door: tenancy (`tracked`, the rule parseOrgRepo just applied), then

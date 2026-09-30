@@ -291,7 +291,8 @@ halves:
   whole fleet) in one action, mirroring the practices batch verbatim. Its bounds: the **admin**
   role (resolved from the playbook's own org; the single-repo `apply` stays member-level),
   every repo must belong to that org, its namespace or a repo it tracks (a foreign coordinate fails the whole batch, never
-  partially applies), **25 repos per call** after case-insensitive dedupe with the excess
+  partially applies), an **archived** playbook is refused with 409 on apply, apply-batch (including dry-run) and the
+  adoption mark (`listPlaybooks` already hid it; the write doors now match), **25 repos per call** after case-insensitive dedupe with the excess
   reported as `skipped`, and `SCAN_CONCURRENCY` lanes. One repo's failure never aborts the
   rest. `dryRun: true` is the HITL preview: it returns `{ repos, starter, skipped }` where
   `starter` is the exact `playbookStarterFile` bytes that would be committed, after the same

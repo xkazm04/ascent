@@ -53,7 +53,7 @@ vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
 // playbook-brief is pure (no IO) — let the real implementation run.
 
 import { POST } from "./route";
-import { applyPlaybook, getPlaybookOrgSlug, recordOrgAudit } from "@/lib/db";
+import { applyPlaybook, getPlaybook, getPlaybookOrgSlug, recordOrgAudit } from "@/lib/db";
 import { getInstallationToken, AppApiError } from "@/lib/github/app";
 import { openDraftPr } from "@/lib/github/write";
 import { requireOrgAccess } from "@/lib/authz";
@@ -83,6 +83,30 @@ beforeEach(() => {
   mockOrgSlug.mockResolvedValue("acme");
   mockRequireOrgAccess.mockResolvedValue(null);
   mockDraftPr.mockResolvedValue({ url: "https://github.com/acme/repo/pull/7", number: 7, branch: "b", reused: false });
+});
+
+describe("POST /api/org/playbooks/[id]/apply — archived standard", () => {
+  it("returns 409 and opens no PR when the playbook is archived", async () => {
+    vi.mocked(getPlaybook).mockResolvedValueOnce({
+      id: "pb_1",
+      title: "Tighten CI",
+      dimId: "D5",
+      summary: "s",
+      steps: ["lint"],
+      createdBy: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      version: 1,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archived: true,
+    });
+
+    const res = await apply("acme/repo");
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "This playbook is archived." });
+    expect(mockDraftPr).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/org/playbooks/[id]/apply — tenancy gate", () => {

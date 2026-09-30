@@ -5,7 +5,7 @@
 // or the order.
 
 import { NextResponse } from "next/server";
-import { getPlaybookOrgSlug, isDbConfigured } from "@/lib/db";
+import { getPlaybookOrgSlug, isDbConfigured, type PlaybookRow } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { parseRepoUrl } from "@/lib/github/source";
 import { repoUnderOrg } from "@/lib/github/pr-route";
@@ -53,4 +53,18 @@ export async function parseOrgRepo(
     return NextResponse.json({ error: `Repo must belong to ${org} or be one it tracks.` }, { status: 400 });
   }
   return { fullName, owner: parsed.owner, repo: parsed.repo };
+}
+
+/**
+ * The write doors (apply, apply-batch, mark-applied) share this refusal. `listPlaybooks` hides an
+ * archived row, but a caller who still has the id could otherwise open PRs and record adoption for
+ * a standard an admin withdrew. Null is 404 (same not-found contract as {@link resolvePlaybookOrg});
+ * archived is 409. Unmark is deliberately not this check — clearing a mark after withdrawal is cleanup.
+ */
+export function archivedPlaybookRefusal(playbook: Pick<PlaybookRow, "archived"> | null): Response | null {
+  if (!playbook) return NextResponse.json({ error: "Playbook not found." }, { status: 404 });
+  if (playbook.archived === true) {
+    return NextResponse.json({ error: "This playbook is archived." }, { status: 409 });
+  }
+  return null;
 }

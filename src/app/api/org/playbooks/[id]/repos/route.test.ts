@@ -14,6 +14,7 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/db", () => ({
   applyPlaybook: vi.fn(async () => true),
   unapplyPlaybook: vi.fn(async () => {}),
+  getPlaybook: vi.fn(async () => ({ id: "pb_1", archived: false })),
   getPlaybookOrgSlug: vi.fn(async () => "kiro"),
   isDbConfigured: () => true,
 }));
@@ -24,7 +25,7 @@ vi.mock("@/lib/db/org-admission", () => ({
 }));
 
 import { POST, DELETE } from "./route";
-import { applyPlaybook, unapplyPlaybook } from "@/lib/db";
+import { applyPlaybook, getPlaybook, unapplyPlaybook } from "@/lib/db";
 
 const ctx = { params: Promise.resolve({ id: "pb_1" }) };
 const req = (method: string, repo: string) =>
@@ -52,6 +53,14 @@ describe("playbook mark: the tracked set, not the owner string", () => {
   it("refuses a random owner with 400 and records nothing", async () => {
     const res = await POST(req("POST", "facebook/react"), ctx);
     expect(res.status).toBe(400);
+    expect(vi.mocked(applyPlaybook)).not.toHaveBeenCalled();
+  });
+
+  it("refuses to mark an archived playbook (409) and records nothing", async () => {
+    vi.mocked(getPlaybook).mockResolvedValueOnce({ id: "pb_1", archived: true } as never);
+    const res = await POST(req("POST", "kiro/site"), ctx);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "This playbook is archived." });
     expect(vi.mocked(applyPlaybook)).not.toHaveBeenCalled();
   });
 

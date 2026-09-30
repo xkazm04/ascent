@@ -121,6 +121,13 @@ itself self-hosted (`ASCENT_SELF_HOSTED=1`), the installation of the repo's owne
 once per installation). A deployment that is only inferred self-hosted (the flag unset and no
 billing token) mints for the gated org, like a hosted one.
 
+**Archived playbooks are withdrawn from rollout** (optimize sweep, 2026-09-30).
+`listPlaybooks` already hid `archived: true`. Apply, apply-batch (including
+`dryRun`) and `POST .../repos` now refuse that id with 409 before any PR or
+adoption stamp. `DELETE .../repos` still unmarks, so a repo can be cleared
+after the standard is withdrawn. `applyPlaybook` will not stamp an archived id
+either, which is what the loop's verified-close path calls.
+
 ## Weekly digest (`?tab=digest`, Bought)
 
 The Briefing's fixed-window sibling, and the one page in the product designed to leave it: a lead
@@ -291,6 +298,8 @@ law](../../ORG-UX-REDESIGN.md) §2 was applied here in full. `SectionHeader desc
 so the panel's refusals are unit-testable without a DOM (`leverageMoves.test.ts`,
 `impactView.test.ts`), with the render layer pinned separately in `LeverageBars.dom.test.tsx`,
 `briefingMarks.dom.test.tsx` and `ImpactLedger.dom.test.tsx`.
+
+**Prism composition.** On the Briefing tab, Prism (`getTheme() === "prism"`) renders `ExecutiveTab.v2`: a masthead (the fleet level is the statement, headline figures in paper with a glyph and a word), hairline frames, dimension lines for strengths, risks and shared gaps, a rung ladder for the transition programme, and form fields for that programme and for briefing branding. Altimeter keeps `ExecutiveTab.v1`. The public share page, the board PDF, and copy-for-LLM still use the shared briefing blocks. An unknown score is "not measured", not 0.
 
 **The two voids, which are the point.** Both used to be sentences and are now shapes that cannot be
 misread:

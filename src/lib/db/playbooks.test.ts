@@ -18,7 +18,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { getPlaybookAdoption, createPlaybook, getPlaybook } from "./playbooks";
+import { applyPlaybook, getPlaybookAdoption, createPlaybook, getPlaybook } from "./playbooks";
 
 // ---- fixture types (only the fields getPlaybookAdoption selects) ----
 interface PlaybookFx {
@@ -545,6 +545,27 @@ describe("createPlaybook — resolve-or-fail on an unknown org slug (G4-09)", ()
     expect(out).toBeNull();
     expect(upsert).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyPlaybook — archived standards are not stamped", () => {
+  it("looks up only a live row and does not upsert when the playbook is archived or missing", async () => {
+    const findFirst = vi.fn(async () => null);
+    const upsert = vi.fn();
+    mockGetPrisma.mockReturnValue({
+      organization: { findUnique: vi.fn(async () => ({ id: "org_1" })) },
+      playbook: { findFirst },
+      playbookApplication: { upsert },
+    });
+
+    const ok = await applyPlaybook("acme", "pb_1", "acme/web", "alice");
+
+    expect(ok).toBe(false);
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { id: "pb_1", orgId: "org_1", archived: false },
+      select: { id: true, version: true },
+    });
+    expect(upsert).not.toHaveBeenCalled();
   });
 });
 

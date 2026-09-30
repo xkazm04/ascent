@@ -19,6 +19,8 @@ export interface PlaybookRow {
   version: number;
   /** ISO of the last content edit. */
   updatedAt: string;
+  /** Present on a direct read. List reads omit archived rows, so they leave this false. */
+  archived?: boolean;
 }
 
 export interface PlaybookInput {
@@ -70,6 +72,7 @@ function toPlaybookRow(p: {
   createdAt: Date;
   version: number;
   updatedAt: Date;
+  archived?: boolean;
 }): PlaybookRow {
   return {
     id: p.id,
@@ -81,6 +84,7 @@ function toPlaybookRow(p: {
     createdAt: p.createdAt.toISOString(),
     version: p.version,
     updatedAt: p.updatedAt.toISOString(),
+    archived: p.archived === true,
   };
 }
 
@@ -172,7 +176,12 @@ export async function applyPlaybook(
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return false;
-  const pb = await prisma.playbook.findFirst({ where: { id: playbookId, orgId }, select: { id: true, version: true } });
+  // Archived standards are withdrawn: listPlaybooks already hides them, and a stamp here would
+  // put an adoption mark on a standard the library no longer offers.
+  const pb = await prisma.playbook.findFirst({
+    where: { id: playbookId, orgId, archived: false },
+    select: { id: true, version: true },
+  });
   if (!pb) return false;
   // Stamp the version adopted, so a repo on an older version is visible once the playbook is edited.
   await prisma.playbookApplication.upsert({

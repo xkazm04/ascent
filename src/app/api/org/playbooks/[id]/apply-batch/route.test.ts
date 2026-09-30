@@ -92,7 +92,7 @@ import { POST } from "./route";
 import { openDraftPr } from "@/lib/github/write";
 import { GitHubError } from "@/lib/github/source";
 import { getInstallationToken } from "@/lib/github/app";
-import { applyPlaybook, getInstallationIdForOwner } from "@/lib/db";
+import { applyPlaybook, getInstallationIdForOwner, getPlaybook } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
 import { applyPlaybookToRepo } from "@/lib/org/playbook-apply";
 import { playbookStarterFile } from "@/lib/org/playbook-brief";
@@ -225,6 +225,33 @@ describe("POST /api/org/playbooks/[id]/apply-batch — the bound", () => {
     expect(bad[0].error).toBe("boom");
     // Row 40: not even the PRs that opened record an adoption mark; they are proposed until landed.
     expect(vi.mocked(applyPlaybook)).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/org/playbooks/[id]/apply-batch — archived standard", () => {
+  it("returns 409 for a write and for a dry-run, and opens nothing", async () => {
+    const archived = {
+      id: "pb_1",
+      title: "Tighten CI",
+      dimId: "D2",
+      summary: "s",
+      steps: ["lint"],
+      createdBy: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      version: 1,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archived: true,
+    };
+    vi.mocked(getPlaybook).mockResolvedValueOnce(archived).mockResolvedValueOnce(archived);
+
+    const write = await run({ repos: ["acme/app"] });
+    const preview = await run({ repos: ["acme/app"], dryRun: true });
+
+    expect(write.status).toBe(409);
+    expect(preview.status).toBe(409);
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+    expect((await preview.json()).starter).toBeUndefined();
   });
 });
 
