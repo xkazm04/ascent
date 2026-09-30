@@ -18,9 +18,13 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const guard = dbGuard("Segments");
   if (guard) return guard;
   const { id } = await ctx.params;
-  const body = (await request.json().catch(() => ({}))) as { org?: string; fullNames?: string[]; member?: boolean };
-  if (!body.org || !Array.isArray(body.fullNames)) {
+  const body = (await request.json().catch(() => ({}))) as { org?: unknown; fullNames?: unknown; member?: unknown };
+  if (typeof body.org !== "string" || !body.org.trim() || !Array.isArray(body.fullNames)) {
     return NextResponse.json({ error: "Provide { org, fullNames[] }." }, { status: 400 });
+  }
+  // Omitted member still means tag. A string "false" used to pass `!== false` and tag the batch.
+  if (body.member !== undefined && typeof body.member !== "boolean") {
+    return NextResponse.json({ error: "member must be true or false." }, { status: 400 });
   }
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;

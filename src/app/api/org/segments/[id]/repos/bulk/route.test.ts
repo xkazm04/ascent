@@ -103,4 +103,11 @@ describe("POST /api/org/segments/:id/repos/bulk — auth + per-row tenant resolu
     expect(mockBulk).toHaveBeenCalledWith("acme", "seg-1", ["acme/a", "acme/b"], false);
     expect(mockAudit.mock.calls[0][2]).toMatchObject({ member: false, requested: 2 });
   });
+
+  it("400s a non-boolean member and a non-string org, and does not write", async () => {
+    expect((await post("seg-1", { org: "acme", fullNames: ["acme/a"], member: "false" })).status).toBe(400);
+    expect((await post("seg-1", { org: 12, fullNames: ["acme/a"] })).status).toBe(400);
+    expect(mockBulk).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
 });
