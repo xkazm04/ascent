@@ -154,6 +154,42 @@ describe("ensureOrgId — tenant resolution (correct id per slug)", () => {
     expect(b).toBe("org_b");
     expect(a).not.toBe(b);
   });
+
+  it("resolves a padded mixed-case slug to the stored row and does not create a twin", async () => {
+    const { prisma, create, findUnique } = fakePrisma([{ id: "org_acme", slug: "acme" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const id = await ensureOrgId("  Acme ");
+
+    expect(id).toBe("org_acme");
+    expect(create).not.toHaveBeenCalled();
+    expect(findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { slug: "acme" } }));
+  });
+
+  it("treats a second call in different casing as the same cache key", async () => {
+    const { prisma, findUnique } = fakePrisma([{ id: "org_acme", slug: "acme" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await ensureOrgId("acme");
+    const callsAfterFirst = findUnique.mock.calls.length;
+    const again = await ensureOrgId("ACME");
+
+    expect(again).toBe("org_acme");
+    expect(findUnique.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it("invalidateOrgIdCache drops the canonical key when handed mixed case", async () => {
+    const { prisma, findUnique } = fakePrisma([{ id: "org_acme", slug: "acme" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await ensureOrgId("acme");
+    const callsAfterFirst = findUnique.mock.calls.length;
+    invalidateOrgIdCache(" ACME ");
+    const again = await ensureOrgId("acme");
+
+    expect(again).toBe("org_acme");
+    expect(findUnique.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+  });
 });
 
 describe("ensureOrgId — cache hit within the re-verify window", () => {

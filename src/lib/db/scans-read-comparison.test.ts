@@ -18,6 +18,7 @@ vi.mock("@/lib/db/client", () => ({
 
 vi.mock("@/lib/db/scans-shared", () => ({
   DEFAULT_ORG_SLUG: "public",
+  canonicalOrgSlug: (slug: string) => slug.trim().toLowerCase(),
   canonicalRepoFullName: (owner: string, name: string) =>
     `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`,
   resolveOrgId: vi.fn(async () => "org_1"),

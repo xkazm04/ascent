@@ -53,6 +53,7 @@ vi.mock("@/lib/db/scans-read", async (importOriginal) => ({
 // uses the real P2002 classification (the persist path's cross-instance backstop depends on it).
 vi.mock("@/lib/db/scans-shared", () => ({
   DEFAULT_ORG_SLUG: "public",
+  canonicalOrgSlug: (slug: string) => slug.trim().toLowerCase(),
   canonicalRepoFullName: (owner: string, name: string) => `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`,
   ensureOrgId: vi.fn(async () => "org_1"),
   withRepoLock: <T,>(_key: string, fn: () => Promise<T>) => fn(),
@@ -68,6 +69,7 @@ vi.mock("@/lib/cache", () => ({
 }));
 
 import { persistScanReport } from "./scans-persist";
+import { ensureOrgId } from "./scans-shared";
 import { DEDUP_KEY_VERSION, scanContentKey } from "./scans-read";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { verifyAudit } from "./audit-integrity";
@@ -181,6 +183,8 @@ function makeReport(over: {
   engineProvider?: string;
   /** Scoring-instrument stamp on the report (HistoryPoint identity). */
   rubricVersion?: string;
+  /** Private repository. The public-org backstop must refuse these. */
+  isPrivate?: boolean;
   /** The mock floor FIRED (a model was requested and never answered) — the provenance flag. */
   engineDegraded?: boolean;
   /** The ScoreIntegrity record the engine computed for this scan. */
@@ -208,7 +212,7 @@ function makeReport(over: {
       url: "https://github.com/acme/widget",
       primaryLanguage: "TypeScript",
       stars: 5,
-      isPrivate: false,
+      isPrivate: over.isPrivate ?? false,
       headSha: over.headSha === undefined ? "sha_abc" : over.headSha,
     },
     overallScore: 70,
@@ -263,6 +267,29 @@ beforeEach(() => {
   mockFindScanByCommit.mockReset();
   mockFindScanByScannedAt.mockReset();
   mockFindScanByDedupKey.mockReset();
+});
+
+describe("persistScanReport — org slug is canonical before the private-repo refusal", () => {
+  it("refuses a private repo when the public slug is padded or mixed-case, and does not create an org", async () => {
+    const { prisma, scanCreate } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const res = await persistScanReport(makeReport({ isPrivate: true }), { orgSlug: " Public " });
+
+    expect(res).toBeNull();
+    expect(scanCreate).not.toHaveBeenCalled();
+    expect(ensureOrgId).not.toHaveBeenCalled();
+  });
+
+  it("resolves a padded mixed-case org slug on the canonical key", async () => {
+    const { prisma } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_existing" });
+
+    await persistScanReport(makeReport({ headSha: "sha_abc" }), { orgSlug: "  Acme " });
+
+    expect(ensureOrgId).toHaveBeenCalledWith("acme");
+  });
 });
 
 // ── CRITICAL #1: commit-SHA dedup gates billing ──────────────────────────────────────────────────

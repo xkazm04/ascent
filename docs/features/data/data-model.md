@@ -241,7 +241,10 @@ RepoContributor + RepoTeam) and is the heart of the data layer:
   a scan is durably persisted (post-commit, or after a resolved race), and only when the new
   report is newer, never rolled back by a delayed/replayed older scan.
 - **Atomic & race-safe**: the org id is resolved once per process and cached (`ensureOrgId`)
-  rather than upserting the shared `public` org row on every scan; the repo upsert runs
+  rather than upserting the shared `public` org row on every scan. The slug is trimmed and
+  lower-cased first (`canonicalOrgSlug`), the same form the rollup resolver uses, so a
+  mixed-case caller hits the stored organization and the public-org private-repo refusal
+  still sees `public`. The repo upsert runs
   through `upsertRacing` so a concurrent create loses with a `P2002` and re-reads the winner;
   every write is wrapped in `withRetry` so a DSQL serialization/OCC conflict is retried with
   exponential backoff + full jitter; the dedup + carry-forward read + write run under a

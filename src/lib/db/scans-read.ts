@@ -40,7 +40,7 @@ import { parsePlatformSignals, unmeasurablePlatformDims } from "@/lib/analyze/pl
 import { projectedGain } from "@/lib/scoring/engine";
 import { asCraftAxis } from "@/lib/scoring/craft";
 import { reportPermalink } from "@/lib/ui";
-import { canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
+import { canonicalOrgSlug, canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 import { digestToPoint, readDigestTail } from "@/lib/db/scan-digest";
 import { parseSensorFailures } from "@/lib/db/scan-sensor-failures";
 // The standing-regression rule itself is PURE and lives beside the other detectors in the alert
@@ -248,7 +248,7 @@ export async function getHeadHint(
   // simply skips the conditional request and runs a fresh scan, exactly as it does with no DB at all.
   return dbReadSafe(async () => {
     const prisma = getPrisma();
-    const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
+    const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
     const orgId = await resolveOrgId(orgSlug);
     if (!orgId) return null;
     const repo = await prisma.repository.findUnique({
@@ -274,7 +274,7 @@ export async function getRepoPassport(
   if (!isDbConfigured()) return null;
   return dbReadSafe(async () => {
     const prisma = getPrisma();
-    const orgId = await resolveOrgId(opts.orgSlug ?? DEFAULT_ORG_SLUG);
+    const orgId = await resolveOrgId(canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG));
     if (!orgId) return null;
     const repo = await prisma.repository.findUnique({
       where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
@@ -435,7 +435,7 @@ async function loadRepositoryHistory(
   opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean },
 ): Promise<RepositoryHistory | null> {
   const prisma = getPrisma();
-  const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
+  const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
   // Clamp to a positive bounded range: a NEGATIVE `take` makes Prisma return rows from the OTHER end,
   // so a caller passing limit<0 (a buggy/probing query param) would silently get the OLDEST scans
   // instead of the newest — and an unbounded large limit is a cheap heavy query. Coerce NaN to 30.
@@ -668,7 +668,7 @@ async function loadScanComparison(
   opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number },
 ): Promise<ScanComparison | null> {
   const prisma = getPrisma();
-  const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
+  const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
   // Clamp to a positive bounded range (scan-persistence-history #4): a NEGATIVE `take` makes Prisma
   // read from the OTHER end (oldest-first), so the diff would default `afterId` to the OLDEST scan and
   // target the wrong commit; NaN and an unbounded huge limit are also unhandled (a cheap heavy query).
@@ -972,7 +972,7 @@ export async function getLatestPlatformSignals(
 ): Promise<{ record: PlatformSignalRecord; scanId: string } | null> {
   if (!isDbConfigured()) return null;
   return dbReadSafe(async () => {
-    const orgId = await resolveOrgId(orgSlug);
+    const orgId = await resolveOrgId(canonicalOrgSlug(orgSlug));
     if (!orgId) return null;
     const prisma = getPrisma();
     const repo = await prisma.repository.findUnique({
@@ -1011,7 +1011,7 @@ export const PLATFORM_FOLD_LOOKBACK = 10;
 export async function getLatestUnmeasurableDims(orgSlug: string, fullName: string): Promise<string[]> {
   if (!isDbConfigured()) return [];
   return dbReadSafe(async () => {
-    const orgId = await resolveOrgId(orgSlug);
+    const orgId = await resolveOrgId(canonicalOrgSlug(orgSlug));
     if (!orgId) return [];
     const prisma = getPrisma();
     const repo = await prisma.repository.findUnique({
@@ -1060,7 +1060,7 @@ export async function getStandingRegressions(
 ): Promise<RepoStandingConcern[]> {
   if (!isDbConfigured()) return [];
   return dbReadSafe(async () => {
-    const orgId = await resolveOrgId(orgSlug);
+    const orgId = await resolveOrgId(canonicalOrgSlug(orgSlug));
     if (!orgId) return [];
     const prisma = getPrisma();
     const lookback = Math.max(2, Math.min(50, Math.trunc(opts.lookback ?? STANDING_REGRESSION_LOOKBACK) || STANDING_REGRESSION_LOOKBACK));
@@ -1156,7 +1156,7 @@ async function loadLatestRecommendations(
   opts: { orgSlug?: string },
 ): Promise<{ scanId: string; items: PersistedRecommendation[] } | null> {
   const prisma = getPrisma();
-  const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
+  const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
   const fullName = canonicalRepoFullName(owner, name);
 
   const orgId = await resolveOrgId(orgSlug);
@@ -1295,7 +1295,7 @@ async function loadScanReportByCommit(
   opts: { orgSlug?: string; headSha?: string },
 ): Promise<ScanReport | null> {
   const prisma = getPrisma();
-  const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
+  const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
   const headSha = opts.headSha;
   const fullName = canonicalRepoFullName(owner, name);
 

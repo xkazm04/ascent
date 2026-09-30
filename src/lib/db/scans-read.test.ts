@@ -94,6 +94,7 @@ vi.mock("@/lib/db/scans-shared", () => {
   });
   return {
     DEFAULT_ORG_SLUG: "public",
+    canonicalOrgSlug: (slug: string) => slug.trim().toLowerCase(),
     canonicalRepoFullName: (owner: string, name: string) =>
       `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`,
     resolveOrgId: vi.fn(async () => "org_1"),
@@ -114,6 +115,7 @@ import {
   scanContentKey,
   scanDedupKey,
 } from "./scans-read";
+import { resolveOrgId } from "./scans-shared";
 import { evaluateGate } from "@/lib/scoring/gate";
 
 // ── Faked Prisma returning ONE scan row whose JSON columns we craft per-test ──────────────────────
@@ -855,6 +857,26 @@ describe("getRepositoryHistory — includeCompacted", () => {
     expect(history).toBeNull();
     expect(prisma.scanDigest.findMany).not.toHaveBeenCalled();
     expect(prisma.scan.findMany).not.toHaveBeenCalled();
+  });
+
+  it("looks up a padded mixed-case org slug on the canonical row", async () => {
+    const prisma = historyPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await getRepositoryHistory("acme", "widget", { orgSlug: "  ACME-CORP " });
+
+    expect(resolveOrgId).toHaveBeenCalledWith("acme-corp");
+  });
+
+  it("still refuses a private repo when the public slug is padded or mixed-case", async () => {
+    const prisma = historyPrisma({ isPrivate: true });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const history = await getRepositoryHistory("acme", "widget", { orgSlug: " Public " });
+
+    expect(history).toBeNull();
+    expect(prisma.scan.findMany).not.toHaveBeenCalled();
+    expect(resolveOrgId).toHaveBeenCalledWith("public");
   });
 });
 

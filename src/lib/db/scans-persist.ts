@@ -10,6 +10,7 @@ import { cacheDelete, makeCacheKey } from "@/lib/cache";
 import { matchRecommendations } from "@/lib/report/recommendation-identity";
 import { decideInProgress, isRestated, keepNote, resolutionNote, type MovementEngines } from "@/lib/org/followups";
 import {
+  canonicalOrgSlug,
   canonicalRepoFullName,
   DEFAULT_ORG_SLUG,
   ensureOrgId,
@@ -120,7 +121,7 @@ export async function persistScanReport(
   // the op simply runs once, unchanged).
   return withDb(async () => {
   const prisma = getPrisma();
-  const orgSlug = opts.orgSlug ?? DEFAULT_ORG_SLUG;
+  const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
   const headSha = report.repo.headSha ?? null;
   // Which forge this report came from (moonshot #4), inferred from the repo's own web url — see
   // `forgeFromWebUrl` for why that inference is safe and what replaces it.

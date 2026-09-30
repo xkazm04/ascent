@@ -42,9 +42,10 @@ vi.mock("@/lib/db/client", () => ({
 vi.mock("@/lib/db/mode", () => ({ getDbMode: () => "static" }));
 
 // getPublicScanGallery resolves the public org id through scans-shared before touching the cached corpus;
-// provide the five exports scans-read imports at module load, with resolveOrgId under test control.
+// provide the exports scans-read imports at module load, with resolveOrgId under test control.
 vi.mock("@/lib/db/scans-shared", () => ({
   DEFAULT_ORG_SLUG: "public",
+  canonicalOrgSlug: (slug: string) => slug.trim().toLowerCase(),
   canonicalRepoFullName: (o: string, n: string) => `${o}/${n}`.toLowerCase(),
   parseStringArray: () => [],
   toPersistedRec: vi.fn(),

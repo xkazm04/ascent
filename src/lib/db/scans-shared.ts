@@ -34,6 +34,17 @@ export function canonicalRepoFullName(owner: string, name: string): string {
   return `${owner.trim().toLowerCase()}/${name.trim().toLowerCase()}`;
 }
 
+/**
+ * Canonical key for an organization slug. Rows are stored lower-cased (the GitHub-App install
+ * flow writes `login.toLowerCase()`), and the rollup resolver (`normalizeOrgSlug`) trims and
+ * lower-cases before every lookup. Scan read and write used the raw string, so a mixed-case
+ * caller missed the row, and `"Public"` failed the public-org private-repo check because it
+ * is not byte-equal to `"public"`. One door, the same form.
+ */
+export function canonicalOrgSlug(slug: string): string {
+  return slug.trim().toLowerCase();
+}
+
 // ── Concurrency safety for persistScanReport ───────────────────────────────────────────────
 // Two concurrent scans of the same repo (a double-click, a cron rescan batch) used to race: the
 // org/repo upserts could collide on a unique constraint and throw, and the carry-forward read +
@@ -90,7 +101,7 @@ const orgIdCache = new Map<string, { id: string; verifiedAt: number }>();
  * cache. Safe to call when persistence is off (the cache is simply empty).
  */
 export function invalidateOrgIdCache(orgSlug?: string): void {
-  if (orgSlug) orgIdCache.delete(orgSlug);
+  if (orgSlug) orgIdCache.delete(canonicalOrgSlug(orgSlug));
   else orgIdCache.clear();
 }
 
@@ -104,8 +115,9 @@ export function invalidateOrgIdCache(orgSlug?: string): void {
  * a fresh instance simply re-resolves on its first scan.
  */
 export async function ensureOrgId(orgSlug: string): Promise<string> {
+  const slug = canonicalOrgSlug(orgSlug);
   const prisma = getPrisma();
-  const cached = orgIdCache.get(orgSlug);
+  const cached = orgIdCache.get(slug);
   if (cached) {
     // Org ids are immutable, so within the re-verify window the cached id is trusted outright. Past
     // it, confirm the row still exists with a cheap PK read (not the hot-row write the cache removed)
@@ -120,33 +132,33 @@ export async function ensureOrgId(orgSlug: string): Promise<string> {
       cached.verifiedAt = Date.now();
       return cached.id;
     }
-    orgIdCache.delete(orgSlug);
+    orgIdCache.delete(slug);
   }
-  const name = orgSlug === DEFAULT_ORG_SLUG ? "Public Scans" : orgSlug;
+  const name = slug === DEFAULT_ORG_SLUG ? "Public Scans" : slug;
   // RC3-N1: the funnel org must carry kind "public" — the meter's skip decision reads the KIND
   // (usage-events.ts UNMETERED_ORG_KIND), and schema defaults kind to "org", so a stock deployment
   // whose funnel row was created before this stamp (or by the bare init.sql seed) would meter its
   // anonymous funnel. Stamped on create AND repaired on the existing path, same one-writer seam.
-  const funnel = orgSlug === DEFAULT_ORG_SLUG;
+  const funnel = slug === DEFAULT_ORG_SLUG;
   const id = await withRetry(
     () =>
       upsertRacing(
         async () => {
           const existing = await prisma.organization.findUnique({
-            where: { slug: orgSlug },
+            where: { slug },
             select: { id: true },
           });
           if (existing) {
             if (funnel) {
               await prisma.organization.updateMany({
-                where: { slug: orgSlug, NOT: { kind: "public" } },
+                where: { slug, NOT: { kind: "public" } },
                 data: { kind: "public" },
               });
             }
             return existing.id;
           }
           const created = await prisma.organization.create({
-            data: { slug: orgSlug, name, ...(funnel ? { kind: "public" } : {}) },
+            data: { slug, name, ...(funnel ? { kind: "public" } : {}) },
             select: { id: true },
           });
           return created.id;
@@ -154,16 +166,16 @@ export async function ensureOrgId(orgSlug: string): Promise<string> {
         // Lost the first-create race: read the row the winner just created.
         async () => {
           const row = await prisma.organization.findUnique({
-            where: { slug: orgSlug },
+            where: { slug },
             select: { id: true },
           });
-          if (!row) throw new Error(`[db] organization "${orgSlug}" missing after a unique conflict`);
+          if (!row) throw new Error(`[db] organization "${slug}" missing after a unique conflict`);
           return row.id;
         },
       ),
     { label: "persistScanReport:org" },
   );
-  orgIdCache.set(orgSlug, { id, verifiedAt: Date.now() });
+  orgIdCache.set(slug, { id, verifiedAt: Date.now() });
   return id;
 }
 
@@ -207,7 +219,7 @@ export function withRepoLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
  */
 export const resolveOrgId = cache(async (orgSlug: string): Promise<string | null> => {
   const org = await getPrisma().organization.findUnique({
-    where: { slug: orgSlug },
+    where: { slug: canonicalOrgSlug(orgSlug) },
     select: { id: true },
   });
   return org?.id ?? null;
