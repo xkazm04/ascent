@@ -16,6 +16,7 @@ import { resolveOrgScope } from "@/lib/org/scope";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { FleetTabs } from "./FleetTabs";
 import { SegmentsSection } from "./SegmentsSection";
+import { SegmentsSectionV2 } from "./SegmentsSection.v2";
 import { RepositoriesLeaderboardPanel } from "./RepositoriesLeaderboardPanel";
 import { ContextHealthPanel } from "./context-health/ContextHealthPanel";
 import { QueueDepthLine } from "./QueueDepthLine";
@@ -46,7 +47,7 @@ export async function RepositoriesTab({
       <div className="stagger-children space-y-6">
         <FleetTabs slug={slug} active="segments" theme={theme} />
         <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-          <SegmentsSection slug={slug} searchParams={sp} />
+          {theme === "prism" ? <SegmentsSectionV2 slug={slug} searchParams={sp} /> : <SegmentsSection slug={slug} searchParams={sp} />}
         </Suspense>
       </div>
     );

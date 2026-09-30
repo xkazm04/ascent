@@ -8,7 +8,7 @@ import type { OrgScope } from "@/lib/org/scope";
 import { FleetTabs } from "./FleetTabs";
 import { QueueDepthLine } from "./QueueDepthLine";
 import { RepositoriesLeaderboardPanel } from "./RepositoriesLeaderboardPanel";
-import { ContextHealthPanel } from "./context-health/ContextHealthPanel";
+import { ContextHealthPanelV2 } from "./context-health/ContextHealthPanel.v2";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -30,7 +30,7 @@ export function RepositoriesTabV2({ slug, sp, scope }: { slug: string; sp: Searc
         />
       </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
-        <ContextHealthPanel slug={slug} scope={scope} />
+        <ContextHealthPanelV2 slug={slug} scope={scope} />
       </Suspense>
     </div>
   );

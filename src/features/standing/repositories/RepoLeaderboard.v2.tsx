@@ -4,7 +4,7 @@
 // right) over a ruled list of kit RepoRows. It renders the state useRepoLeaderboard already computed for v1
 // (`v`), so sort cycle, selection and the bulk bar behave identically in both themes.
 import { HairlineList, Segmented, Toolbar } from "@/components/kit";
-import { RepoLeaderboardBulkBar } from "./RepoLeaderboardBulkBar";
+import { RepoLeaderboardBulkBarV2 } from "./RepoLeaderboardBulkBar.v2";
 import { RepoLeaderboardRowV2 } from "./RepoLeaderboardRow.v2";
 import type { SortKey } from "./RepoLeaderboardParts";
 import type { SegmentItem, useRepoLeaderboard } from "./useRepoLeaderboard";
@@ -77,7 +77,7 @@ export function RepoLeaderboardV2({
         ))}
       </HairlineList>
       {v.selected.size > 0 && hasSegments && (
-        <RepoLeaderboardBulkBar
+        <RepoLeaderboardBulkBarV2
           count={v.selected.size}
           segments={segments}
           target={v.target}

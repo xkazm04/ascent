@@ -6,7 +6,7 @@
 import { Chip, RepoRow, RepoRowCell, VoidMark } from "@/components/kit";
 import { techChips } from "@/lib/org/tech-stack";
 import { fmtCompact } from "@/lib/ui";
-import { ScheduleSelect } from "./ScheduleSelect";
+import { ScheduleSelectV2 } from "./ScheduleSelect.v2";
 import { RepoRescanButton } from "./RepoRescanButton";
 import { Sparkline } from "./Sparkline";
 import { relAge, sum, type RepoFreshness } from "./RepoLeaderboardParts";
@@ -97,7 +97,7 @@ export function RepoLeaderboardRowV2({
       }
       actions={
         <>
-          <ScheduleSelect org={slug} fullName={r.fullName} schedule={r.scanSchedule} disabled={!schedulable} disabledHint="Autoscan scheduling requires the GitHub App." />
+          <ScheduleSelectV2 org={slug} fullName={r.fullName} schedule={r.scanSchedule} disabled={!schedulable} disabledHint="Autoscan scheduling requires the GitHub App." />
           {r.watched ? (
             <RepoRescanButton org={slug} fullName={r.fullName} disabled={!schedulable} disabledHint="Rescanning requires the GitHub App." />
           ) : (

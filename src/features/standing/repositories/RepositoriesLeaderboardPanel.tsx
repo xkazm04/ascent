@@ -16,6 +16,7 @@ import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { RepoLeaderboard } from "./RepoLeaderboard";
 import { MissingReposPanel } from "./MissingReposPanel";
+import { MissingReposPanelV2 } from "./MissingReposPanel.v2";
 import { getOrgRollupShared, listMissingRepos } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
@@ -105,7 +106,7 @@ export async function RepositoriesLeaderboardPanel({
         csvHref={csvHref}
         scope={resolved}
         schedulable={schedulable}
-        missing={<MissingReposPanel org={slug} repos={missing} />}
+        missing={<MissingReposPanelV2 org={slug} repos={missing} />}
         queue={queue}
       />
     );
