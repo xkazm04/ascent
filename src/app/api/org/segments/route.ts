@@ -56,7 +56,9 @@ export async function POST(request: Request) {
       name: body.name,
       color: typeof body.color === "string" ? body.color : null,
     });
-    if (!created) return NextResponse.json({ error: "Failed to create segment." }, { status: 500 });
+    // createSegment returns null only when the org row is missing (the route already passed
+    // dbGuard). That is a 404, not a server failure.
+    if (!created) return NextResponse.json({ error: "No such organization." }, { status: 404 });
     // resolveViewerLogin, not getSession: the live stack is the Supabase wall.
     const actorLogin = await resolveViewerLogin();
     await recordOrgAudit(

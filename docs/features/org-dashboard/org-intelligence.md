@@ -1415,7 +1415,7 @@ consumed by another model, which gains nothing from prose we generated for it.
 | `/api/org/schedule` | `POST` | Set a repo's autoscan period off/daily/weekly/monthly (`setRepoSchedule`, computes `nextScanAt`). Drives the rescan [cron](../fleet/rescan.md). |
 | `/api/org/repos` | `GET` | List an org's public repos (onboarding picker). |
 | `/api/org/export` | `GET` | `kind=contributors\|delivery\|passports\|teams` as JSON or CSV (`format=csv`), gated by `requireOrgRead` and scoped by `segment`/`stack`. `kind=contributors` returns **403** below the 3-contributor naming floor rather than a header-only CSV: a CSV carries no scope marker once it leaves the app. |
-| `/api/org/segments` | `GET` / `POST` | List an org's segments (with repo counts) / create one (`listSegments` / `createSegment`). Create appends `segment.created`. A non-string name or colour is a 400. |
+| `/api/org/segments` | `GET` / `POST` | List an org's segments (with repo counts) / create one (`listSegments` / `createSegment`). Create appends `segment.created`. A non-string name or colour is a 400. An unknown org is a 404. |
 | `/api/org/segments/[id]` | `PATCH` / `DELETE` | Rename or recolor / delete a segment and its memberships (`updateSegment` / `deleteSegment`). Append `segment.updated` / `segment.deleted`. PATCH stays member-gated; DELETE stays admin-gated. A non-string name or colour is a 400. |
 | `/api/org/segments/[id]/repos` | `POST` | Tag/untag a repo into a segment (`setRepoSegment`, org-scoped). Not audited; bulk tag is. |
 | `/api/org/segments/[id]/repos/bulk` | `POST` | Bulk tag/untag many repos (`setRepoSegmentsBulk`, org-scoped). Appends `segment.bulk_tag` with counts, never the repo list. Denied or unknown-segment writes record nothing. |

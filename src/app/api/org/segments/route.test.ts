@@ -103,6 +103,14 @@ describe("POST /api/org/segments — auth gate on create", () => {
     expect(mockAudit).not.toHaveBeenCalled();
   });
 
+  it("404s an unknown org instead of reporting a server failure", async () => {
+    mockCreate.mockResolvedValue(null);
+    const res = await post({ org: "missing", name: "Platform" });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: string }).error).toMatch(/organization/i);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
   // repositories-segments 2026-07-16 #5: a malformed colour / over-long name is a 400, never a
   // silent rewrite (accent colour / truncated name) behind a 200 { ok }.
   it("400s a non-hex colour instead of silently recoloring to the brand accent", async () => {
