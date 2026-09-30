@@ -140,6 +140,16 @@ export async function ensureOrgId(orgSlug: string): Promise<string> {
   // whose funnel row was created before this stamp (or by the bare init.sql seed) would meter its
   // anonymous funnel. Stamped on create AND repaired on the existing path, same one-writer seam.
   const funnel = slug === DEFAULT_ORG_SLUG;
+  // RC3-N1 repair. The schema defaults kind to "org", so any path that observes an
+  // already-written funnel row — the read-first hit, and the loser of a create race —
+  // stamps kind "public" before the id is cached. A member org is left alone.
+  const repairFunnelKind = async () => {
+    if (!funnel) return;
+    await prisma.organization.updateMany({
+      where: { slug, NOT: { kind: "public" } },
+      data: { kind: "public" },
+    });
+  };
   const id = await withRetry(
     () =>
       upsertRacing(
@@ -149,12 +159,7 @@ export async function ensureOrgId(orgSlug: string): Promise<string> {
             select: { id: true },
           });
           if (existing) {
-            if (funnel) {
-              await prisma.organization.updateMany({
-                where: { slug, NOT: { kind: "public" } },
-                data: { kind: "public" },
-              });
-            }
+            await repairFunnelKind();
             return existing.id;
           }
           const created = await prisma.organization.create({
@@ -163,13 +168,15 @@ export async function ensureOrgId(orgSlug: string): Promise<string> {
           });
           return created.id;
         },
-        // Lost the first-create race: read the row the winner just created.
+        // Lost the first-create race: read the row the winner just created, and
+        // apply the same funnel-kind repair the read-first path does.
         async () => {
           const row = await prisma.organization.findUnique({
             where: { slug },
             select: { id: true },
           });
           if (!row) throw new Error(`[db] organization "${slug}" missing after a unique conflict`);
+          await repairFunnelKind();
           return row.id;
         },
       ),

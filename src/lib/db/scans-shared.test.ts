@@ -53,6 +53,8 @@ function fakePrisma(seed: Array<{ id: string; slug: string; name?: string }> = [
     },
   );
 
+  const updateMany = vi.fn(async () => ({ count: 0 }));
+
   const create = vi.fn(
     async ({ data }: { data: { slug: string; name: string } }) => {
       if (state.failCreateOnceWithP2002) {
@@ -78,11 +80,12 @@ function fakePrisma(seed: Array<{ id: string; slug: string; name?: string }> = [
 
   return {
     prisma: {
-      organization: { findUnique, create },
+      organization: { findUnique, create, updateMany },
     },
     rows,
     findUnique,
     create,
+    updateMany,
     state,
   };
 }
@@ -345,5 +348,20 @@ describe("ensureOrgId — first-create race (P2002) recovery via upsertRacing", 
     expect(matching).toHaveLength(1);
     expect(id).toBe(matching[0].id);
     expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs the public funnel kind when create loses the race", async () => {
+    const { prisma, state, updateMany } = fakePrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    state.failCreateOnceWithP2002 = true;
+
+    const id = await ensureOrgId(" Public ");
+
+    expect(id).toMatch(/^org_winner_/);
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { slug: "public", NOT: { kind: "public" } },
+      data: { kind: "public" },
+    });
   });
 });
