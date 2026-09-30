@@ -8,11 +8,12 @@
 // the resolved `sp` as props — it is no longer a route. Single <Suspense> boundary at the
 // OrgTabChunks call site: the tech-stack scope must resolve before getOrgPractices can be scoped by
 // it, so the reads are sequential/coupled rather than independent sources.
+//
+// Theme picks the composition after the reads: PracticesTab.v1 is the shipped markup, PracticesPageV2
+// is the Prism composition. Both receive the same PracticesPageData.
 
 import { getOrgPractices, getOrgRollupShared, getPlaybookAdoption, listOrgRepoNames, listPlaybooks } from "@/lib/db";
 import { getFoundationRollout } from "@/lib/db/org-foundation";
-import { FoundationRolloutPanel } from "./foundation/FoundationRolloutPanel";
-import { GuidanceCoherenceCard } from "./foundation/GuidanceCoherenceCard";
 import { buildCoherenceRows } from "./foundation/guidanceCoherenceModel";
 import { resolveStackScope } from "@/lib/org/scope";
 import { buildPracticeLibrarySummary, practiceLibraryMarkdown } from "@/lib/org/practice-library";
@@ -20,24 +21,15 @@ import { getOrgPracticeShapes, listOrgPracticeShapeRows } from "@/lib/db/org-pra
 import { minePracticeShapes } from "@/lib/org/practice-mining";
 import { syncHousePatternVersions } from "@/lib/db/house-pattern-versions";
 import { getPracticeAdoptionSummary } from "@/lib/db/practice-adoption";
-import { PracticeDriftStrip } from "@/features/shared/practices/PracticeDriftStrip";
-import { HousePattern } from "./HousePattern";
 import { DIMENSIONS } from "@/lib/maturity/model";
-import { Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { BAND } from "@/features/standing/adoption/AdoptionSpectrum";
+import { registryBlobBase, getRegistrySync } from "@/lib/org/registry-sync";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { CopyForLlm } from "@/components/CopyForLlm";
-import { PracticesView } from "@/features/shared/practices/PracticesView";
-import { RegistryPractices } from "@/features/shared/practices/RegistryPractices";
-import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
-import { getRegistrySync, registryBlobBase } from "@/lib/org/registry-sync";
+import { getTheme } from "@/lib/theme/server";
+import { PracticesPageV2 } from "./PracticesPage.v2";
+import { PracticesTabV1 } from "./PracticesTab.v1";
+import type { PracticesPageData } from "./practicesData";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
-
-// Library adoption is a NEUTRAL accent reading, not the red→green maturity ramp: a young library with
-// few adopted practices is an expected baseline, not a defect, so scoreHex would paint it alarm-red.
-// Same rationale — and the same imported constant — as the Adoption tab's BAND.some.
-const READING_HUE = BAND.some;
 
 export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   // Optional tech-stack scope (Feature 3b): the MINED library honors a ?stack= param. The page used
@@ -46,7 +38,7 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
   // clear it (docs/harness/biz-bug-scan-2026-06-29). The selector now renders, same as every sibling
   // tab. No segment selector here: getOrgPractices' segment scope isn't wired on this surface yet.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const [playbooks, adoption, repoOptions, practices, shapes, sync, shapeRows, foundationRows, rollup] = await Promise.all([
+  const [playbooks, adoption, repoOptions, practices, shapes, sync, shapeRows, foundationRows, rollup, theme] = await Promise.all([
     listPlaybooks(slug),
     getPlaybookAdoption(slug),
     // One column, one query. This used to be a full unscoped `getOrgRollup` whose ONLY consumed field
@@ -66,6 +58,7 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
     // The rollup is request-cached and scoped the same way the Repositories tab reads it.
     getFoundationRollout(slug),
     getOrgRollupShared(slug, undefined, null, techGroupId).catch(() => null),
+    getTheme(),
   ]);
   // MOONSHOT #33 — version the org's mined patterns from the read that already mined them, then read
   // the adoption ledger. `syncHousePatternVersions` writes only when the pattern's hash MOVED, so this
@@ -77,75 +70,32 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
   const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name }));
 
   const summary = buildPracticeLibrarySummary(slug, practices ?? [], playbooks ?? [], adoption);
-  const md = practiceLibraryMarkdown(summary);
-  const roll = summary.rollout;
-
-  return (
-    <div className="space-y-6">
-      <RegistrySyncStrip sync={sync} slug={slug} artifact="practices" />
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <ScopeFilterBar segments={[]} segmentId={null} techGroups={techGroups} activeStack={activeStack} />
-        <CopyForLlm text={md} label="Copy practice library brief for LLM" />
-      </div>
-
-      {/* W6 — above the generic catalog on purpose: an org's own shared structure is a better answer
-          than a template, so it should be the first thing read on this tab. */}
-      {mined && <HousePattern mined={mined} reposWithShape={shapes?.length ?? 0} />}
-
-      {/* The org's OWN agreed practices, straight out of the registry, above the generic catalog. */}
-      <RegistryPractices rows={shapeRows} registryBase={registryBlobBase(sync)} repoOptions={repoOptions} />
-
-      <div className={TILE_GRID}>
-        <Tile
-          label="Practices"
-          value={summary.total}
-          sub={`${summary.authored} authored · ${summary.mined} mined`}
-        />
-        <Tile
-          label="Fleet adoption"
-          value={summary.adoption ? `${summary.adoption.pct}%` : "—"}
-          sub={summary.adoption ? `${summary.adoption.strong}/${summary.adoption.measured} repo·practice pairs` : "no scored repos yet"}
-          color={summary.adoption ? READING_HUE : undefined}
-        />
-        <Tile
-          label="Could adopt"
-          value={summary.couldAdopt.repos}
-          sub={`repos below the bar on ${summary.couldAdopt.practices} practice${summary.couldAdopt.practices === 1 ? "" : "s"}`}
-        />
-        {/* The starter-PR projection is OPTIONAL (attached only to practices actually applied here) —
-            with none, this em-dashes rather than reporting a 0 that reads as "tried, nothing landed". */}
-        <Tile
-          label="PRs in flight"
-          value={roll ? roll.open : "—"}
-          sub={
-            roll
-              ? `${roll.merged} landed${roll.lift != null ? ` · +${roll.lift} avg lift` : ""}`
-              : "no starter PRs opened yet"
-          }
-          color={roll && roll.open > 0 ? READING_HUE : undefined}
-        />
-      </div>
-
-      {/* #33 — beneath the lift strip's tiles, not inside them: "what did this put in motion" and
-          "is it still there" are different readings on different bases. Renders nothing on an empty
-          ledger. */}
-      {adoptionLedger && <PracticeDriftStrip slug={slug} summary={adoptionLedger} />}
-
-      <PracticesView
-        slug={slug}
-        initialPlaybooks={playbooks ?? []}
-        practices={practices ?? []}
-        adoption={adoption}
-        dimOptions={dimOptions}
-        repoOptions={repoOptions}
-        rolloutSlot={
-          <>
-            <FoundationRolloutPanel slug={slug} rows={foundationRows} />
-            {rollup && rollup.repos.length > 0 && <GuidanceCoherenceCard rows={buildCoherenceRows(rollup.repos)} />}
-          </>
-        }
-      />
-    </div>
+  const data: PracticesPageData = {
+    slug,
+    sync,
+    techGroups,
+    activeStack,
+    brief: practiceLibraryMarkdown(summary),
+    mined,
+    reposWithShape: shapes?.length ?? 0,
+    shapeRows,
+    registryBase: registryBlobBase(sync),
+    repoOptions,
+    summary,
+    adoptionLedger,
+    playbooks: playbooks ?? [],
+    practices: practices ?? [],
+    adoption,
+    dimOptions,
+    foundationRows,
+    coherence: rollup && rollup.repos.length > 0 ? buildCoherenceRows(rollup.repos) : null,
+  };
+  return theme === "prism" ? (
+    <PracticesPageV2
+      data={data}
+      filters={<ScopeFilterBar segments={[]} segmentId={null} techGroups={techGroups} activeStack={activeStack} />}
+    />
+  ) : (
+    <PracticesTabV1 data={data} />
   );
 }

@@ -168,6 +168,10 @@ to the PR, labelled "Existing draft PR" when reused), or **Roll out to the fleet
 Errors surface inline. (Rewritten 2026-09-05; the previous text described the pre-tab card
 page.)
 
+### Prism composition (2026-09-30)
+
+Altimeter keeps the markup above (`PracticesTab.v1`). Prism renders `PracticesPage.v2`, composed from the kit: a masthead (the four tile readings, paper figures, a void where a reading was not measured), hairline frames, and dimension lines for the house pattern and the library. Opening a row replaces the tab with a level. A mined practice keeps `#practice-<id>`. An authored playbook uses `#playbook-<id>`. Esc and Back return to the library. A deep link still addresses a mined practice and still opens apply. The server paints the overview first, then the level opens after hydration, because a hash never reaches the server. Bulk apply stays on that level (`PracticeApply`, `PracticeApplyBatch`).
+
 ### The shared checklist and its measurement, in one place (2026-09-15)
 
 Right under the rollout matrix, `PracticesView` renders a `rolloutSlot` the server tab fills with

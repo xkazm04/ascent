@@ -6,21 +6,15 @@
 // shared PracticeDetailModal (opened from any row) and NewPracticeModal (opened by "+ New practice").
 // The server page fetches; this client wrapper owns the authored-playbook list (so a newly-created
 // practice appears without a reload), the selected detail row, and the create-modal flag.
+// Altimeter keeps this markup. Prism renders PracticesPageV2, which calls the same hook.
 
-import { useMemo, useState } from "react";
 import { SectionHeader, SectionEmpty } from "@/components/org/shared/ui";
-import { buildPracticeRows, summarizeRollout, type PracticeRow } from "./practiceRows";
 import { PracticeRolloutStrip } from "./PracticeRolloutStrip";
 import { PracticeDetailModal } from "./PracticeDetailModal";
 import { NewPracticeModal } from "./NewPracticeModal";
-import { usePracticeHash } from "./usePracticeHash";
-import { practiceToPlaybookDraft, type PlaybookDraft } from "./promotePractice";
+import { usePracticesLibrary } from "./usePracticesLibrary";
 import type { OrgPractice, PlaybookRow, PlaybookAdoption } from "@/lib/db";
-
-interface DimOption {
-  id: string;
-  label: string;
-}
+import type { PracticeDimOption } from "./practicesData";
 
 export function PracticesView({
   slug,
@@ -39,41 +33,11 @@ export function PracticesView({
   initialPlaybooks: PlaybookRow[];
   practices: OrgPractice[];
   adoption: Record<string, PlaybookAdoption>;
-  dimOptions: DimOption[];
+  dimOptions: PracticeDimOption[];
   repoOptions: string[];
 }) {
-  const [playbooks, setPlaybooks] = useState<PlaybookRow[]>(initialPlaybooks);
-  const [openRow, setOpenRow] = useState<PracticeRow | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  // G7-25: the prefill for the author form when a mined practice is promoted. Null = a blank "+ New
-  // practice". Held HERE (not in the modal) because the hand-off crosses two layer-2 dialogs: the
-  // detail modal closes and the author form opens in its place.
-  const [draft, setDraft] = useState<PlaybookDraft | null>(null);
-
-  const dimLabels = useMemo(() => new Map(dimOptions.map((d) => [d.id, d.label])), [dimOptions]);
-  const rows = useMemo(
-    () => buildPracticeRows(practices, playbooks, adoption, repoOptions.length),
-    [practices, playbooks, adoption, repoOptions.length],
-  );
-
-  const rollout = useMemo(() => summarizeRollout(rows), [rows]);
-
-  // `#practice-<id>` deep links (governance / briefing / initiatives / overview) land on the row AND
-  // open its apply flow — the destination those surfaces actually promised.
-  usePracticeHash(rows, setOpenRow);
-
-  // Optimistic remove for an authored playbook (DELETE is admin-gated); restore on failure so a 403
-  // can't leave a data-loss illusion — mirrors PlaybooksPanel.remove.
-  function removeAuthored(id: string) {
-    const prev = playbooks;
-    setPlaybooks((p) => p.filter((x) => x.id !== id));
-    setOpenRow(null);
-    void fetch(`/api/org/playbooks/${id}`, { method: "DELETE" })
-      .then((r) => {
-        if (!r.ok) setPlaybooks(prev);
-      })
-      .catch(() => setPlaybooks(prev));
-  }
+  const view = usePracticesLibrary({ initialPlaybooks, practices, adoption, dimOptions, repoOptions });
+  const { playbooks, rows, rollout, dimLabels, openRow, showCreate, draft } = view;
 
   return (
     <div className="space-y-5">
@@ -88,8 +52,8 @@ export function PracticesView({
         right={
           <button
             onClick={() => {
-              setDraft(null);
-              setShowCreate(true);
+              view.setDraft(null);
+              view.setShowCreate(true);
             }}
             className="focus-ring rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20"
           >
@@ -105,7 +69,7 @@ export function PracticesView({
           No practices yet. Author one with “+ New practice”, or scan this org&apos;s repos to mine some.
         </SectionEmpty>
       ) : (
-        <PracticeRolloutStrip rollout={rollout} rows={rows} fleetSize={repoOptions.length} onOpen={setOpenRow} />
+        <PracticeRolloutStrip rollout={rollout} rows={rows} fleetSize={repoOptions.length} onOpen={view.setOpenRow} />
       )}
       {rolloutSlot}
 
@@ -114,13 +78,9 @@ export function PracticesView({
         slug={slug}
         dimLabels={dimLabels}
         repoOptions={repoOptions}
-        onClose={() => setOpenRow(null)}
-        onRemoveAuthored={removeAuthored}
-        onPromoteMined={(p: OrgPractice) => {
-          setDraft(practiceToPlaybookDraft(p));
-          setOpenRow(null);
-          setShowCreate(true);
-        }}
+        onClose={() => view.setOpenRow(null)}
+        onRemoveAuthored={view.removeAuthored}
+        onPromoteMined={view.promoteMined}
       />
       <NewPracticeModal
         open={showCreate}
@@ -128,12 +88,12 @@ export function PracticesView({
         dimOptions={dimOptions}
         draft={draft}
         onClose={() => {
-          setShowCreate(false);
-          setDraft(null);
+          view.setShowCreate(false);
+          view.setDraft(null);
         }}
         onCreated={(next) => {
-          setPlaybooks(next);
-          setDraft(null);
+          view.setPlaybooks(next);
+          view.setDraft(null);
         }}
       />
     </div>

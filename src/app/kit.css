@@ -474,3 +474,71 @@ html[data-theme="prism"] [data-role="passports-v2"] button[aria-pressed="true"] 
     padding-right: 3.25rem;
   }
 }
+
+/* ── Practices tab (kit-5, 2026-09-30): v1 islands the level still hosts (apply form, playbook card,
+   registry strip, scope chips). Radius stays within 4px. Leftover mono caps become sentence case.
+   Status hues on those islands drop to paper; the words keep the meaning. The masthead aside clears
+   the shell's guided-setup tab at 1280. ── */
+html[data-theme="prism"] [data-role="practices-v2"] .text-slate-600 {
+  color: var(--color-slate-400);
+}
+html[data-theme="prism"] [data-role="practices-v2"] :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md):not([data-kit]) {
+  border-radius: 4px;
+}
+html[data-theme="prism"] [data-role="practices-v2"] :is(input, select, textarea) {
+  border-radius: 3px;
+  border-color: var(--hair-strong);
+}
+html[data-theme="prism"] [data-role="practices-v2"] .uppercase {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+}
+html[data-theme="prism"] [data-role="practices-v2"] :is(
+  .text-emerald-300, .text-emerald-400, .text-red-400, .text-orange-300, .text-orange-400, .text-amber-200, .text-amber-400, .text-danger
+) {
+  color: var(--color-slate-200);
+}
+@media (max-width: 1360px) {
+  html[data-theme="prism"] [data-role="practices-v2"] [data-role="masthead-aside"] {
+    flex-basis: 100%;
+    margin-left: 0;
+    padding-right: 3.25rem;
+  }
+}
+
+/* ── Delivery tab (kit-5, 2026-09-30): stat labels and domain islands the v2 frames still host
+   (trend multiples, activity chart, spend ribbon, ROI map, DORA). Sentence case, readable mute,
+   radius within 4px. Status hues on those islands drop to paper; the words keep the meaning.
+   The masthead aside clears the shell's guided-setup tab at 1280. ── */
+html[data-theme="prism"] [data-role="delivery-v2"] .text-slate-600 {
+  color: var(--color-slate-400);
+}
+html[data-theme="prism"] [data-role="delivery-v2"] :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md):not([data-kit]) {
+  border-radius: 4px;
+}
+html[data-theme="prism"] [data-role="delivery-v2"] .uppercase {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+}
+html[data-theme="prism"] [data-role="delivery-v2"] :is(
+  .text-emerald-300, .text-emerald-400, .text-lime-400, .text-red-400, .text-orange-300, .text-orange-400, .text-amber-200, .text-amber-400, .text-danger
+) {
+  color: var(--color-slate-200);
+}
+@media (max-width: 1360px) {
+  html[data-theme="prism"] [data-role="delivery-v2"] [data-role="masthead-aside"] {
+    flex-basis: 100%;
+    margin-left: 0;
+    padding-right: 3.25rem;
+  }
+}
+
+/* Practices: the shell's guided-setup tab covers the right edge through 1440, including
+   "Open in registry". Inset the composition so those actions stay readable. */
+@media (max-width: 1600px) {
+  html[data-theme="prism"] [data-role="practices-v2"] {
+    padding-right: 3.25rem;
+  }
+}

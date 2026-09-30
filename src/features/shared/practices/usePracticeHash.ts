@@ -40,7 +40,13 @@ export function usePracticeHash(rows: PracticeRow[], onOpen: (row: PracticeRow) 
     function apply() {
       const hash = window.location.hash;
       const id = practiceIdFromHash(hash);
-      if (!id || handled.current === hash) return;
+      // An empty fragment is not a practice link. Forgetting the last hash here lets a later visit
+      // to the same id open again, after Prism has cleared the fragment on close.
+      if (!id) {
+        if (hash === "" || hash === "#") handled.current = null;
+        return;
+      }
+      if (handled.current === hash) return;
       const row = rows.find((r) => r.source === "mined" && r.id === id);
       if (!row) return; // an unknown/stale practice id leaves the page exactly as it was
       handled.current = hash;
