@@ -202,6 +202,16 @@ describe("setRepoSegment — org-scoped tagging boundary", () => {
     expect(fp.deleteMany).not.toHaveBeenCalled();
   });
 
+  it("tags a padded mixed-case fullName against the stored canonical key", async () => {
+    const fp = fakePrisma({ ownerOrgId: "orgA", slugToId: { A: "orgA" }, repoFullNames: ["acme/repo"] });
+    mockGetPrisma.mockReturnValue(fp.prisma);
+
+    const ok = await setRepoSegment("A", "seg1", " Acme/Repo ", true);
+
+    expect(ok).toBe(true);
+    expect(fp.calls.repoFindUnique[0]!.where.orgId_fullName.fullName).toBe("acme/repo");
+  });
+
   it("untags via deleteMany on the happy path (member=false)", async () => {
     const fp = fakePrisma({ ownerOrgId: "orgA", slugToId: { A: "orgA" }, repoFullNames: ["acme/repo"] });
     mockGetPrisma.mockReturnValue(fp.prisma);
@@ -270,6 +280,21 @@ describe("setRepoSegmentsBulk — org-scoped bulk tagging boundary + count contr
     expect(fp.createMany).toHaveBeenCalledTimes(1);
     expect(fp.createMany.mock.calls[0]![0]).toMatchObject({ skipDuplicates: true });
     expect(fp.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("bulk-tags a padded mixed-case fullName against the stored canonical key", async () => {
+    const fp = fakePrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      repoFullNames: ["acme/repo"],
+      createCount: 1,
+    });
+    mockGetPrisma.mockReturnValue(fp.prisma);
+
+    const changed = await setRepoSegmentsBulk("A", "seg1", [" Acme/Repo "], true);
+
+    expect(changed).toBe(1);
+    expect(fp.calls.repoFindMany[0]!.where.fullName.in).toEqual(["acme/repo"]);
   });
 
   it("removes via deleteMany and returns res.count on the un-tag path", async () => {

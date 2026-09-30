@@ -9,6 +9,15 @@ import { postureFor } from "@/lib/maturity/model";
 import { getOrgRollup, type OrgRepoRow } from "@/lib/db/org";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { roundedMean } from "@/lib/db/org-shared";
+import { canonicalRepoFullName } from "@/lib/db/scans-shared";
+
+/** Repository.fullName is stored trimmed and lowercased on each side of the slash.
+ *  A tag lookup that keeps the caller's casing misses that row. */
+function canonicalJoinedFullName(fullName: string): string {
+  const slash = fullName.indexOf("/");
+  if (slash < 0) return fullName.trim().toLowerCase();
+  return canonicalRepoFullName(fullName.slice(0, slash), fullName.slice(slash + 1));
+}
 
 const DEFAULT_COLOR = "#3b9eff";
 export const SEGMENT_NAME_MAX = 60;
@@ -148,9 +157,10 @@ export async function setRepoSegment(
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return false;
+  const key = canonicalJoinedFullName(fullName);
   const [segment, repo] = await Promise.all([
     prisma.segment.findFirst({ where: { id: segmentId, orgId }, select: { id: true } }),
-    prisma.repository.findUnique({ where: { orgId_fullName: { orgId, fullName } }, select: { id: true } }),
+    prisma.repository.findUnique({ where: { orgId_fullName: { orgId, fullName: key } }, select: { id: true } }),
   ]);
   if (!segment || !repo) return false;
 
@@ -186,7 +196,7 @@ export async function setRepoSegmentsBulk(
   if (!orgId) return -1;
   const segment = await prisma.segment.findFirst({ where: { id: segmentId, orgId }, select: { id: true } });
   if (!segment) return -1;
-  const unique = [...new Set(fullNames.filter((f) => typeof f === "string"))];
+  const unique = [...new Set(fullNames.filter((f) => typeof f === "string").map(canonicalJoinedFullName))];
   if (unique.length === 0) return 0;
   const repos = await prisma.repository.findMany({
     where: { orgId, fullName: { in: unique } },
