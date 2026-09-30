@@ -665,3 +665,24 @@ html[data-theme="prism"] [data-role="skills-v2"] [data-kit="field-control"][type
     padding-right: 3.25rem;
   }
 }
+
+/* ── Registry tab (kit-8-registry): step titles wrap, "not started" is a word not a strike,
+   artifact numbers sit in the frame instead of nested cards, and the guided-setup tab
+   does not cover the column. Prism only. ── */
+html[data-theme="prism"] [data-role="registry-v2"] [data-role="ladder-label"] {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+html[data-theme="prism"] [data-role="registry-v2"] [data-kit="cell-mark"][data-state="missing"] {
+  text-decoration: none;
+}
+html[data-theme="prism"] [data-role="registry-v2"] [data-kit="stat-tile"] {
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+/* The guided-setup tab covers the right edge at every width, including 1920. */
+html[data-theme="prism"] [data-role="registry-v2"] {
+  padding-right: 3.25rem;
+}

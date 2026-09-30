@@ -1,32 +1,22 @@
-// Org dashboard "Registry" tab — the onboarding + tracking surface for the customer-owned registry
-// repo that becomes the source of truth for Skills, Practices and Memory
-// (docs/REGISTRY-AND-CARE-IMPL.md §4). First item in the `Shared` group: the other three tabs in that
-// group depend on this one being set up.
-//
-// SERVER component, filename PINNED as RegistryTab.tsx — same shell contract as SkillsTab / MemoryTab
-// (docs/ORG-TABS-REFACTOR.md). One data source (`getRegistryView`), so the single <Suspense> at the
-// OrgTabChunks call site is enough and no boundary is added here.
-//
-// It takes NO `sp`: the tab reads nothing from the URL. Selecting a shaped example state used to be
-// `?demo=`, which made a preview shareable and bookmarkable; it is React state inside
-// `RegistryPreviewShell` now. The real panel below stays server-rendered — it is passed as
-// `children`, so the preview branch is the only client cost.
-//
-// The switcher is a DEVELOPMENT affordance and is gated as one (`registryPreviewEnabled()`, opt-in via
-// `ASCENT_REGISTRY_PREVIEW` and hard-off in production): on a real deployment the first thing an
-// operator meets on an empty tab should be their own registry's invitation, not someone else's shaped
-// example. The `unmapped` condition stays on top of it — a mapped registry is never painted over.
+// Org dashboard "Registry" tab. Filename PINNED as RegistryTab.tsx. It takes no `sp`:
+// the tab reads nothing from the URL. Altimeter renders the previous panel; Prism renders
+// the kit composition. The preview switcher stays a development affordance, hard-off in
+// production, and only while the real status is unmapped.
 
-import { RegistryPanel } from "./RegistryPanel";
-import { RegistryPreviewShell } from "./RegistryPreviewShell";
+import { getTheme } from "@/lib/theme/server";
 import { registryPreviewEnabled } from "@/lib/env";
 import { getRegistryView } from "@/lib/org/registry-view";
+import { RegistryPanel as RegistryPanelV1 } from "./RegistryPanel.v1";
+import { RegistryPanelV2 } from "./RegistryPanel.v2";
+import { RegistryPreviewShell } from "./RegistryPreviewShell";
 
 export async function RegistryTab({ slug }: { slug: string }) {
-  const view = await getRegistryView(slug);
+  const [view, theme] = await Promise.all([getRegistryView(slug), getTheme()]);
+  const panel =
+    theme === "prism" ? <RegistryPanelV2 view={view} slug={slug} /> : <RegistryPanelV1 view={view} slug={slug} />;
   return (
-    <RegistryPreviewShell slug={slug} enabled={registryPreviewEnabled() && view.status === "unmapped"}>
-      <RegistryPanel view={view} slug={slug} />
+    <RegistryPreviewShell slug={slug} theme={theme} enabled={registryPreviewEnabled() && view.status === "unmapped"}>
+      {panel}
     </RegistryPreviewShell>
   );
 }
