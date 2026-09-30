@@ -6,10 +6,15 @@
 //   (c) the CAP — 25 per run, deduped case-insensitively first, over-cap reported as `skipped`;
 //   (d) isolation — one repo's failure never aborts the rest.
 //   (e) dry-run — `dryRun: true` returns `{ repos, starter, skipped }` and never calls
-//       applyPlaybookToRepo (no token mint, no PRs). Admin / tenancy / cap still run.
+//       applyPlaybookToRepo (no token mint, no PRs), including when the GitHub App is absent.
+//       Admin / tenancy / cap still run. A write without the App is still 503.
 // The GitHub App / DB / write boundaries are mocked: this asserts the gate, never the network.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const { mockIsAppConfigured } = vi.hoisted(() => ({
+  mockIsAppConfigured: vi.fn(() => true),
+}));
 
 vi.mock("next/server", () => ({
   NextResponse: class {
@@ -63,7 +68,7 @@ vi.mock("@/lib/github/app", () => ({
     }
   },
   getInstallationToken: vi.fn(async () => "installation-token"),
-  isAppConfigured: () => true,
+  isAppConfigured: mockIsAppConfigured,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -124,6 +129,8 @@ function run(body: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockIsAppConfigured.mockReset();
+  mockIsAppConfigured.mockReturnValue(true);
   mockRole.mockResolvedValue(null as never);
   mockToken.mockResolvedValue("installation-token");
   mockOpenPr.mockResolvedValue({ url: "https://github.com/pr/1", number: 1, reused: false } as never);
@@ -307,6 +314,29 @@ describe("POST /api/org/playbooks/[id]/apply-batch — dry-run", () => {
     expect(res.status).toBe(400);
     expect(String((await res.json()).error)).toMatch(/must belong to acme/i);
     expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  it("previews when the GitHub App is absent, and a write still 503s", async () => {
+    mockIsAppConfigured.mockReturnValue(false);
+
+    const preview = await run({ repos: ["acme/app"], dryRun: true });
+
+    expect(preview.status).toBe(200);
+    const json = await preview.json();
+    expect(json.starter).toBe(playbookStarterFile(PLAYBOOK_BRIEF, dimShort("D2")));
+    expect(json.repos).toEqual(["acme/app"]);
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+
+    const write = await run({ repos: ["acme/app"] });
+    const explicit = await run({ repos: ["acme/app"], dryRun: false });
+
+    expect(write.status).toBe(503);
+    expect(explicit.status).toBe(503);
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
   });
 
   it("dryRun: false keeps the write path (opens PRs)", async () => {

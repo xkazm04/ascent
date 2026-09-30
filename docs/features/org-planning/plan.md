@@ -105,7 +105,9 @@ same `v{n}` so the two artifacts stay in lockstep; callers pass `PlaybookRow.ver
 apply-batch (`POST /api/org/playbooks/[id]/apply-batch`) accepts `dryRun: true` and returns those
 exact starter bytes plus the capped unique repo list (`{ repos, starter, skipped }`) without
 minting an installation token or opening PRs; the admin gate still runs so the starter does not
-leak. Create also accepts `fromDim` / `fromRec` to prefill from the dimension template (the
+leak. The preview does not require the GitHub App — the starter bytes are computed locally —
+so a deployment with no App still gets the preview. `isAppConfigured()` runs only on the write
+path, which still returns 503 when the App is absent. Create also accepts `fromDim` / `fromRec` to prefill from the dimension template (the
 briefing's ranked next move when `fromRec` is set); see [practices.md](../org-dashboard/practices.md).
 
 **Playbooks reach the tracked fleet** (since 2026-09-24). Apply, apply-batch and the adoption mark

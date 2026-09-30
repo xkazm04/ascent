@@ -296,9 +296,11 @@ halves:
   reported as `skipped`, and `SCAN_CONCURRENCY` lanes. One repo's failure never aborts the
   rest. `dryRun: true` is the HITL preview: it returns `{ repos, starter, skipped }` where
   `starter` is the exact `playbookStarterFile` bytes that would be committed, after the same
-  admin / tenancy / cap gates, and it returns before `requirePrWriteTarget` so no installation
-  token is minted and `applyPlaybookToRepo` is never called. The write path is unchanged when
-  `dryRun` is absent or false. UI: `PlaybookApplyBatch.tsx`, behind the same `batchPrConfirm`
+  admin / tenancy / cap gates, and it returns before the GitHub App check and
+  `requirePrWriteTarget` so no installation token is minted and `applyPlaybookToRepo` is never
+  called. A deployment with no GitHub App can still preview; the 503 for a missing App applies
+  only when `dryRun` is absent or false. The write path is unchanged when `dryRun` is absent or
+  false and the App is configured. UI: `PlaybookApplyBatch.tsx`, behind the same `batchPrConfirm`
   dialog the practices rollout uses; the single-repo and batch paths are mutually locked. The
   write sequence itself is single-sourced in `src/lib/org/playbook-apply.ts`, shared with the
   single route.

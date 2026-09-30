@@ -18,8 +18,10 @@
 //      hundreds of PRs, and a bigger rollout is an explicit, repeated, re-confirmed act.
 //   4. CONCURRENCY. SCAN_CONCURRENCY lanes, so a big fleet doesn't hammer GitHub or trip maxDuration.
 //   5. DRY-RUN. `dryRun: true` returns the exact `playbookStarterFile` bytes + the capped repo list
-//      BEFORE `requirePrWriteTarget` / token mint / `applyPlaybookToRepo`. The admin gate still
-//      runs — starter bytes are org-authored, not public. Absent / false keeps the write path.
+//      BEFORE the GitHub App check, `requirePrWriteTarget`, token mint and `applyPlaybookToRepo`.
+//      The starter is computed locally, so a deployment with no App can still preview. The admin
+//      gate still runs — starter bytes are org-authored, not public. Absent / false keeps the
+//      write path, which 503s when the App is not configured.
 // One bad repo never aborts the rest: the per-repo worker owns its errors and the response is a 200
 // whatever the mix.
 
@@ -47,12 +49,6 @@ const MAX_BATCH = 25;
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   if (!isDbConfigured()) return NextResponse.json({ error: "Playbooks require a database." }, { status: 503 });
-  if (!isAppConfigured()) {
-    return NextResponse.json(
-      { error: "Opening PRs needs the GitHub App installed with contents + pull-request write access." },
-      { status: 503 },
-    );
-  }
   const actorLogin = await resolveViewerLogin();
   if ((authGateEnabled() || isAuthConfigured()) && !actorLogin) {
     return NextResponse.json({ error: "Sign in to open starter PRs." }, { status: 401 });
@@ -100,7 +96,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   if (refused || !playbook) return refused ?? NextResponse.json({ error: "Playbook not found." }, { status: 404 });
 
   // HITL preview: same admin / tenancy / cap as the write, zero GitHub writes. Must run before
-  // requirePrWriteTarget so a dry-run cannot mint an installation token.
+  // requirePrWriteTarget so a dry-run cannot mint an installation token, and before the App
+  // check: the starter bytes are computed locally, so a deployment with no GitHub App can still
+  // preview what it would commit.
   if (body.dryRun === true) {
     return NextResponse.json(
       playbookApplyBatchDryRun(
@@ -109,6 +107,13 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
         batch.map((p) => p.fullName),
         skipped,
       ),
+    );
+  }
+
+  if (!isAppConfigured()) {
+    return NextResponse.json(
+      { error: "Opening PRs needs the GitHub App installed with contents + pull-request write access." },
+      { status: 503 },
     );
   }
 
