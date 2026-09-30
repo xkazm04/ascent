@@ -256,9 +256,13 @@ export async function getHeadHint(
     if (!orgId) return null;
     const repo = await prisma.repository.findUnique({
       where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
-      select: { headSha: true, headEtag: true },
+      select: { headSha: true, headEtag: true, isPrivate: true },
     });
-    if (!repo?.headSha) return null;
+    if (!repo) return null;
+    // Same public-org private-repo refusal as the report readers. A legacy private row under
+    // the shared public org must not hand its head sha to the anonymous conditional-scan path.
+    if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
+    if (!repo.headSha) return null;
     return { headSha: repo.headSha, etag: repo.headEtag ?? null };
   }, null);
 }
@@ -266,8 +270,8 @@ export async function getHeadHint(
 /**
  * The stored App Readiness Passport for a repo's latest scan (or a specific commit). Reads the persisted
  * JSON — the passport is derived from a snapshot the read path doesn't have, so it can only be served
- * from storage. Null when off / unknown repo / no scan / no passport. Gating is the CALLER's job (the
- * passport is as sensitive as the report for a private repo) — pass the owning org slug.
+ * from storage. Null when off / unknown repo / no scan / no passport. A private repo under the shared
+ * public org is refused here, the same door the report readers use; callers still pass the owning org.
  */
 export async function getRepoPassport(
   owner: string,
@@ -277,13 +281,15 @@ export async function getRepoPassport(
   if (!isDbConfigured()) return null;
   return dbReadSafe(async () => {
     const prisma = getPrisma();
-    const orgId = await resolveOrgId(canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG));
+    const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
+    const orgId = await resolveOrgId(orgSlug);
     if (!orgId) return null;
     const repo = await prisma.repository.findUnique({
       where: { orgId_fullName: { orgId, fullName: canonicalRepoFullName(owner, name) } },
-      select: { id: true, passportOverridesJson: true },
+      select: { id: true, passportOverridesJson: true, isPrivate: true },
     });
     if (!repo) return null;
+    if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
     const scan = await prisma.scan.findFirst({
       where: { repoId: repo.id, ...(opts.headSha ? { headSha: opts.headSha } : {}) },
       orderBy: SCAN_ORDER,
@@ -688,8 +694,9 @@ async function loadScanComparison(
   // Defense-in-depth (cross-tenant disclosure): never serve a PRIVATE repo's comparison (overall +
   // per-dimension scores, evidence, gaps, recommendations) out of the shared public org — that org is
   // the anonymous read surface, and an unauthorized visitor resolves to it via readableOrgForOwner.
-  // Mirrors the identical guard in getRepositoryHistory, getScanReportByCommit, and
-  // getLatestRecommendations — every public-org reader that resolves org→repo→scan carries it.
+  // Mirrors the identical guard on every other public-org reader that resolves org→repo
+  // (history, report, recommendations, head hint, passport, platform signals,
+  // unmeasurable dims, standing regressions).
   // Backstops a legacy pre-guard row.
   if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
 
@@ -975,14 +982,16 @@ export async function getLatestPlatformSignals(
 ): Promise<{ record: PlatformSignalRecord; scanId: string } | null> {
   if (!isDbConfigured()) return null;
   return dbReadSafe(async () => {
-    const orgId = await resolveOrgId(canonicalOrgSlug(orgSlug));
+    const slug = canonicalOrgSlug(orgSlug);
+    const orgId = await resolveOrgId(slug);
     if (!orgId) return null;
     const prisma = getPrisma();
     const repo = await prisma.repository.findUnique({
       where: { orgId_fullName: { orgId, fullName: fullName.toLowerCase() } },
-      select: { id: true },
+      select: { id: true, isPrivate: true },
     });
     if (!repo) return null;
+    if (slug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
     const rows = await prisma.scan.findMany({
       where: { repoId: repo.id, platformSignalsJson: { not: null } },
       orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
@@ -1014,14 +1023,16 @@ export const PLATFORM_FOLD_LOOKBACK = 10;
 export async function getLatestUnmeasurableDims(orgSlug: string, fullName: string): Promise<string[]> {
   if (!isDbConfigured()) return [];
   return dbReadSafe(async () => {
-    const orgId = await resolveOrgId(canonicalOrgSlug(orgSlug));
+    const slug = canonicalOrgSlug(orgSlug);
+    const orgId = await resolveOrgId(slug);
     if (!orgId) return [];
     const prisma = getPrisma();
     const repo = await prisma.repository.findUnique({
       where: { orgId_fullName: { orgId, fullName: fullName.toLowerCase() } },
-      select: { id: true },
+      select: { id: true, isPrivate: true },
     });
     if (!repo) return [];
+    if (slug === DEFAULT_ORG_SLUG && repo.isPrivate) return [];
     const row = await prisma.scan.findFirst({
       where: { repoId: repo.id },
       orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
@@ -1063,12 +1074,13 @@ export async function getStandingRegressions(
 ): Promise<RepoStandingConcern[]> {
   if (!isDbConfigured()) return [];
   return dbReadSafe(async () => {
-    const orgId = await resolveOrgId(canonicalOrgSlug(orgSlug));
+    const slug = canonicalOrgSlug(orgSlug);
+    const orgId = await resolveOrgId(slug);
     if (!orgId) return [];
     const prisma = getPrisma();
     const lookback = Math.max(2, Math.min(50, Math.trunc(opts.lookback ?? STANDING_REGRESSION_LOOKBACK) || STANDING_REGRESSION_LOOKBACK));
     const repos = await prisma.repository.findMany({
-      where: { orgId },
+      where: { orgId, ...(slug === DEFAULT_ORG_SLUG ? { isPrivate: false } : {}) },
       select: {
         fullName: true,
         name: true,

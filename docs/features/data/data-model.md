@@ -254,6 +254,11 @@ RepoContributor + RepoTeam) and is the heart of the data layer:
   half-written scan on a mid-way crash). A cross-instance same-commit race that still slips
   past the lock is caught by `@@unique([repoId, headSha])`, or, for a sha-less report, by
   `@@unique([repoId, dedupKey])` (`P2002` → re-read the winner and treat it as a dedup).
+- **Public-org reads of a private repo** return nothing: history, comparison, the report,
+  recommendations, the head hint, the passport, the platform-signal carry, the
+  unmeasurable-dimension list, and standing regressions (the public org's query
+  excludes private repos). A member org is unchanged. This is the same refusal persist
+  already applies before it will write a private repo into the shared public org.
 - Returns a `PersistResult { scanId, deduped, upgraded?, headSha }`.
 
 Other key functions (from the sibling modules, re-exported through the `scans.ts` barrel):

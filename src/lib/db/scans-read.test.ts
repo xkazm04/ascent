@@ -108,9 +108,14 @@ import {
   DEDUP_KEY_VERSION,
   findScanByDedupKey,
   findScanByScannedAt,
+  getHeadHint,
+  getLatestPlatformSignals,
   getLatestRecommendations,
+  getLatestUnmeasurableDims,
+  getRepoPassport,
   getRepositoryHistory,
   getScanReportByCommit,
+  getStandingRegressions,
   isCompactedPointId,
   scanContentKey,
   scanDedupKey,
@@ -516,6 +521,68 @@ describe("getLatestRecommendations — public-org private-repo guard", () => {
 
     expect(res).not.toBeNull();
     expect(prisma.scan.findFirst).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Head hint, passport, platform-signal carry, and unmeasurable dims resolve org → repo → scan
+// and shipped without the public-org private-repo refusal the four readers above already have.
+describe("public-org private-repo guard on the remaining org→repo readers", () => {
+  function lookupPrisma(isPrivate: boolean) {
+    return {
+      repository: {
+        findUnique: vi.fn(async () => ({
+          id: "repo_1",
+          isPrivate,
+          headSha: "sha_abc",
+          headEtag: "etag_1",
+          passportOverridesJson: null,
+        })),
+      },
+      scan: {
+        findMany: vi.fn(async () => []),
+        findFirst: vi.fn(async () => ({ passportJson: null, platformSignalsJson: null })),
+      },
+    };
+  }
+
+  it("refuses a private repo under the public org before reading the scan", async () => {
+    const prisma = lookupPrisma(true);
+    mockGetPrisma.mockReturnValue(prisma);
+
+    await expect(getLatestPlatformSignals("public", "acme/widget")).resolves.toBeNull();
+    await expect(getLatestPlatformSignals(" Public ", "acme/widget")).resolves.toBeNull();
+    await expect(getLatestUnmeasurableDims("public", "acme/widget")).resolves.toEqual([]);
+    await expect(getHeadHint("acme", "widget")).resolves.toBeNull();
+    await expect(getHeadHint("acme", "widget", { orgSlug: " Public " })).resolves.toBeNull();
+    await expect(getRepoPassport("acme", "widget")).resolves.toBeNull();
+
+    expect(prisma.scan.findMany).not.toHaveBeenCalled();
+    expect(prisma.scan.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("still reads a public repo, and a private repo under a member org", async () => {
+    const publicRepo = lookupPrisma(false);
+    mockGetPrisma.mockReturnValue(publicRepo);
+    await expect(getHeadHint("acme", "widget")).resolves.toEqual({ headSha: "sha_abc", etag: "etag_1" });
+
+    const member = lookupPrisma(true);
+    mockGetPrisma.mockReturnValue(member);
+    await getLatestPlatformSignals("acme-corp", "acme/widget");
+    await getLatestUnmeasurableDims("acme-corp", "acme/widget");
+    await getRepoPassport("acme", "widget", { orgSlug: "acme-corp" });
+    expect(member.scan.findMany).toHaveBeenCalledTimes(1);
+    expect(member.scan.findFirst).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops private repos from the public org's standing-regression scan", async () => {
+    const findMany = vi.fn(async () => []);
+    mockGetPrisma.mockReturnValue({ repository: { findMany } });
+
+    await getStandingRegressions(" Public ");
+    await getStandingRegressions("acme-corp");
+
+    expect(findMany.mock.calls[0]![0].where).toEqual({ orgId: "org_1", isPrivate: false });
+    expect(findMany.mock.calls[1]![0].where).toEqual({ orgId: "org_1" });
   });
 });
 
