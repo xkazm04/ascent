@@ -70,7 +70,7 @@ export function OutcomeProjectRow({
       {columns.map((col) => {
         const cell = project.headerCells[col.id];
         return (
-          <td key={col.id} className="border-b border-l border-divider bg-surface/60 px-2 py-2 align-top">
+          <td key={col.id} data-run-start={cell ? "" : undefined} className="border-b border-l border-divider bg-surface/60 px-2 py-2 align-top">
             {!cell ? null : (
               <span className="flex items-baseline justify-between gap-2">
                 {cellInFlight(cell) ? <CellLive cell={cell} /> : <CellVerdict cell={cell} />}

@@ -2,7 +2,7 @@
 // stays under the 200-LOC cap for src/features (AGENTS.md). Pure relocation: same tiles, same
 // naming-floor branches, same deep links. Server-safe (no hooks, no handlers).
 
-import { Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { StatStrip, StatTile as Tile } from "@/components/kit";
 import { scoreHex } from "@/lib/ui";
 import type { ContributorInsights } from "@/lib/db";
 
@@ -10,7 +10,7 @@ import type { ContributorInsights } from "@/lib/db";
  *  key-person stat jumps straight to the concentration table + decisions. */
 export function ContributorsTiles({ insights }: { insights: ContributorInsights }) {
   return (
-    <div className={`mt-6 ${TILE_GRID}`}>
+    <StatStrip className="mt-6">
       <Tile label="Contributors" value={insights.totalContributors} sub="humans, recent activity" href="#individuals" />
       {/* Below the naming floor a percentage is the wrong unit: "100% AI-active" for a two-person
           org is one person, stated as a fleet-wide claim (and colored green as if it were an
@@ -26,6 +26,6 @@ export function ContributorsTiles({ insights }: { insights: ContributorInsights 
         <Tile label="Org AI commit share" value={`${insights.orgAiShare}%`} sub="commit-weighted (a very small sample)" />
       )}
       <Tile label="Solo-maintainer repos" value={insights.soloMaintainerCount} sub="1 author or ≥80% concentration" color={insights.soloMaintainerCount > 0 ? "var(--color-warn)" : undefined} href="#concentration" />
-    </div>
+    </StatStrip>
   );
 }

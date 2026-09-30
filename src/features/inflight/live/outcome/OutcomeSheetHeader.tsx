@@ -43,6 +43,7 @@ export function OutcomeSheetHeader(p: OutcomeSheetHeaderProps) {
             <th
               key={col.id}
               scope="col"
+              data-run-start
               ref={latest ? p.latestRef : undefined}
               className={`relative border-b border-l border-divider p-0 text-left align-bottom ${latest ? "bg-surface/40" : "bg-ink"}`}
             >

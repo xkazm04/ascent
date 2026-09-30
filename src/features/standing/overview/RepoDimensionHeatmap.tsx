@@ -18,7 +18,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Surface } from "@/components/ui";
-import { VoidMark } from "@/components/kit";
+import { DataTable, VoidMark } from "@/components/kit";
 import { SectionHeader } from "@/components/org/shared/ui";
 import { DIMENSION_SHORT, heatCell, scoreHex } from "@/lib/ui";
 import { Legend } from "@/components/org/viz";
@@ -53,106 +53,107 @@ export function RepoDimensionHeatmap({
         title="Dimension heatmap"
         description={`${rows.length} repos × ${dims.length} dimensions`}
       />
-      <div className="mt-4 overflow-x-auto">
-        <table className="min-w-[640px]">
-          <thead>
-            <tr className="type-mono-sm uppercase tracking-widest text-slate-500">
-              <th className="px-2 py-1 text-left" />
-              {dims.map((d) => {
-                const active = sort?.dim === d;
-                return (
-                  <th
-                    key={d}
-                    scope="col"
-                    aria-sort={active ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
-                    className="px-2 py-1 text-center"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => cycleSort(d)}
-                      title={`Sort by ${d}: weakest first, again for strongest, again to reset`}
-                      className={`focus-ring rounded px-1 uppercase tracking-widest transition hover:text-accent ${active ? "text-accent" : ""}`}
-                    >
-                      {DIMENSION_SHORT[d as keyof typeof DIMENSION_SHORT] ?? d}
-                      {active ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
-                    </button>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r) => {
-              const byId = Object.fromEntries(r.dims.map((d) => [d.dimId, d.score]));
+      <DataTable
+        variant="plain"
+        className="mt-4"
+        tableClassName=""
+        caption="Repository by dimension scores"
+        head={
+          <tr className="type-mono-sm uppercase tracking-widest text-slate-500">
+            <th className="px-2 py-1 text-left" />
+            {dims.map((d) => {
+              const active = sort?.dim === d;
               return (
-                <tr key={r.fullName}>
-                  <th scope="row" className="px-2 py-1 text-left type-mono-sm font-normal">
-                    {/* GA: the row label opens the repo's stored report (cells stay the dim drill-in). */}
-                    <Link
-                      href={`/report/${r.fullName}`}
-                      title={`View ${r.fullName}'s latest report`}
-                      className="focus-ring text-slate-300 transition hover:text-accent"
-                    >
-                      {r.name}
-                    </Link>
-                  </th>
-                  {dims.map((d) => {
-                    const v = byId[d];
-                    // The void. Not a button: there is no per-dimension detail to open for a
-                    // measurement that was never taken, and an enabled control here would promise one.
-                    if (v == null)
-                      return (
-                        <td key={d} className="px-1 py-1">
-                          <VoidMark boxed subject={`${r.name} · ${d}`} label={`${r.name} ${d}: no measurement`} />
-                        </td>
-                      );
-                    const cell = heatCell(v, 0.25 + (v / 100) * 0.75);
-                    return (
-                      <td key={d} className="px-1 py-1">
-                        <button
-                          type="button"
-                          onClick={() => setTarget({ fullName: r.fullName, name: r.name, dimId: d })}
-                          className="focus-ring mx-auto flex h-7 w-9 items-center justify-center rounded type-mono-sm transition hover:ring-2 hover:ring-accent/60"
-                          style={{ backgroundColor: cell.fill, color: cell.text }}
-                          title={`${r.name} · ${d}: ${v} (click for detail)`}
-                          aria-label={`${r.name} ${d} score ${v}, open detail`}
-                        >
-                          {v}
-                        </button>
-                      </td>
-                    );
-                  })}
-                </tr>
+                <th
+                  key={d}
+                  scope="col"
+                  aria-sort={active ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
+                  className="px-2 py-1 text-center"
+                >
+                  <button
+                    type="button"
+                    onClick={() => cycleSort(d)}
+                    title={`Sort by ${d}: weakest first, again for strongest, again to reset`}
+                    className={`focus-ring rounded px-1 uppercase tracking-widest transition hover:text-accent ${active ? "text-accent" : ""}`}
+                  >
+                    {DIMENSION_SHORT[d as keyof typeof DIMENSION_SHORT] ?? d}
+                    {active ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
+                  </button>
+                </th>
               );
             })}
-          </tbody>
-          {/* GC: fleet average per column — makes the weak dimensions readable at a glance without
-              scanning every row. Numbers-only (colored by score), visually set off by a top rule. */}
-          <tfoot>
-            <tr className="border-t border-slate-800">
-              <th scope="row" className="px-2 pt-2 text-left type-label tracking-widest text-slate-500">
-                Fleet avg
+          </tr>
+        }
+        // GC: fleet average per column: makes the weak dimensions readable at a glance without scanning every
+        // row. Numbers only (colored by score), set off by the foot rule.
+        foot={
+          <tr>
+            <th scope="row" className="px-2 pt-2 text-left type-label tracking-widest text-slate-500">
+              Fleet avg
+            </th>
+            {dims.map((d) => {
+              const v = avgs[d];
+              return (
+                <td key={d} className="px-1 pt-2 text-center">
+                  {v == null ? (
+                    // No repo in view carries this dimension — the same void the body cells draw,
+                    // never the em dash a reader mistakes for a floor of zero.
+                    <VoidMark subject={`Fleet average · ${d}`} label={`No fleet average for ${d}`} />
+                  ) : (
+                    <span className="type-mono-sm font-semibold tabular-nums" style={{ color: scoreHex(v) }} title={`Fleet average for ${d}: ${v}`}>
+                      {v}
+                    </span>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+        }
+      >
+        {sorted.map((r) => {
+          const byId = Object.fromEntries(r.dims.map((d) => [d.dimId, d.score]));
+          return (
+            <tr key={r.fullName}>
+              <th scope="row" className="px-2 py-1 text-left type-mono-sm font-normal">
+                {/* GA: the row label opens the repo's stored report (cells stay the dim drill-in). */}
+                <Link
+                  href={`/report/${r.fullName}`}
+                  title={`View ${r.fullName}'s latest report`}
+                  className="focus-ring text-slate-300 transition hover:text-accent"
+                >
+                  {r.name}
+                </Link>
               </th>
               {dims.map((d) => {
-                const v = avgs[d];
+                const v = byId[d];
+                // The void. Not a button: there is no per-dimension detail to open for a
+                // measurement that was never taken, and an enabled control here would promise one.
+                if (v == null)
+                  return (
+                    <td key={d} className="px-1 py-1">
+                      <VoidMark boxed subject={`${r.name} · ${d}`} label={`${r.name} ${d}: no measurement`} />
+                    </td>
+                  );
+                const cell = heatCell(v, 0.25 + (v / 100) * 0.75);
                 return (
-                  <td key={d} className="px-1 pt-2 text-center">
-                    {v == null ? (
-                      // No repo in view carries this dimension — the same void the body cells draw,
-                      // never the em dash a reader mistakes for a floor of zero.
-                      <VoidMark subject={`Fleet average · ${d}`} label={`No fleet average for ${d}`} />
-                    ) : (
-                      <span className="type-mono-sm font-semibold tabular-nums" style={{ color: scoreHex(v) }} title={`Fleet average for ${d}: ${v}`}>
-                        {v}
-                      </span>
-                    )}
+                  <td key={d} className="px-1 py-1">
+                    <button
+                      type="button"
+                      onClick={() => setTarget({ fullName: r.fullName, name: r.name, dimId: d })}
+                      className="focus-ring mx-auto flex h-7 w-9 items-center justify-center rounded type-mono-sm transition hover:ring-2 hover:ring-accent/60"
+                      style={{ backgroundColor: cell.fill, color: cell.text }}
+                      title={`${r.name} · ${d}: ${v} (click for detail)`}
+                      aria-label={`${r.name} ${d} score ${v}, open detail`}
+                    >
+                      {v}
+                    </button>
                   </td>
                 );
               })}
             </tr>
-          </tfoot>
-        </table>
-      </div>
+          );
+        })}
+      </DataTable>
       {/* Only what the grid actually contains: a fleet with every dimension scored gets no legend. */}
       <Legend states={hasMissing ? ["measured", "missing"] : []} className="mt-3" />
       <RepoDimensionModal org={org} target={target} onClose={() => setTarget(null)} />

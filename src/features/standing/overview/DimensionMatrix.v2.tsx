@@ -1,9 +1,10 @@
 "use client";
 
 // v2 repo × dimension matrix: the same cells, sort and detail modal as the Altimeter heatmap (heatmapModel),
-// re-expressed as spectral marks. A column header carries its dimension's hue; a cell is the score in figures
-// with a hairline bar in that dimension's hue (width = score). Below the green floor the NUMBER turns warn:
-// status keeps its meaning, hue keeps naming the dimension. An absent measurement is the void, never a zero.
+// re-expressed as spectral marks. A column header carries its dimension's hue; a cell is the score in figures,
+// and its hairline bar (width = score, that dimension's hue) draws only in the sorted column and under the
+// pointer. Below the green floor status travels by a glyph and a word, never by hue (the hue-versus-meaning
+// ruling): hue names the dimension. An absent measurement is the void, never a zero.
 import { useState } from "react";
 import Link from "next/link";
 import { CELL, DataTable, Frame, HEAD_CELL, SectionHead, VoidMark } from "@/components/kit";
@@ -15,7 +16,23 @@ import { GREEN_FLOOR } from "./phaseStanding";
 
 const hue = (d: string) => `var(--spec-${Number(d.slice(1))})`;
 const short = (d: string) => DIMENSION_SHORT[d as keyof typeof DIMENSION_SHORT] ?? d;
-const floorClass = (v: number) => (v < GREEN_FLOOR ? "text-warn" : "text-slate-100");
+/** Below the floor: a leading glyph and a screen-reader word; the number itself stays paper. */
+function Score({ v, className = "" }: { v: number; className?: string }) {
+  const low = v < GREEN_FLOOR;
+  return (
+    <span className={`font-mono type-mono-sm tabular-nums text-slate-100 ${low ? "font-semibold" : ""} ${className}`}>
+      {low && (
+        <>
+          <span aria-hidden data-role="below-floor" className="mr-1 text-[0.8em]">
+            ▾
+          </span>
+          <span className="sr-only">below the green floor: </span>
+        </>
+      )}
+      {v}
+    </span>
+  );
+}
 
 export function DimensionMatrix({ org, rows, dims, initialSortDim }: { org: string; rows: HeatRow[]; dims: string[]; initialSortDim?: string }) {
   const [target, setTarget] = useState<HeatTarget | null>(null);
@@ -31,6 +48,28 @@ export function DimensionMatrix({ org, rows, dims, initialSortDim }: { org: stri
       <DataTable
         className="mt-6"
         minWidth={640}
+        stickyFirstCol
+        foot={
+          <tr>
+            <th scope="row" className={`${CELL} text-left font-normal text-slate-400`}>
+              Fleet average
+            </th>
+            {dims.map((d) => {
+              const v = avgs[d];
+              return (
+                <td key={d} data-sorted={sort?.dim === d || undefined} className="px-1 py-3 text-center">
+                  {v == null ? (
+                    <VoidMark subject={`Fleet average · ${d}`} label={`No fleet average for ${d}`} />
+                  ) : (
+                    <span title={`Fleet average for ${d}: ${v}`}>
+                      <Score v={v} />
+                    </span>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+        }
         caption="Repository by dimension scores"
         head={
           <tr>
@@ -68,12 +107,12 @@ export function DimensionMatrix({ org, rows, dims, initialSortDim }: { org: stri
                 const v = byId[d];
                 if (v == null)
                   return (
-                    <td key={d} className="px-1 py-2 text-center">
+                    <td key={d} data-sorted={sort?.dim === d || undefined} className="px-1 py-2 text-center">
                       <VoidMark boxed subject={`${r.name} · ${d}`} label={`${r.name} ${d}: no measurement`} />
                     </td>
                   );
                 return (
-                  <td key={d} className="px-1 py-2">
+                  <td key={d} data-sorted={sort?.dim === d || undefined} className="px-1 py-2">
                     <button
                       type="button"
                       onClick={() => setTarget({ fullName: r.fullName, name: r.name, dimId: d })}
@@ -82,8 +121,8 @@ export function DimensionMatrix({ org, rows, dims, initialSortDim }: { org: stri
                       data-role="matrix-cell"
                       className="focus-ring mx-auto flex w-12 flex-col items-center gap-1 rounded-[3px] px-1 py-1 transition hover:bg-white/[0.06]"
                     >
-                      <span className={`font-mono type-mono-sm tabular-nums ${floorClass(v)}`}>{v}</span>
-                      <span aria-hidden className="block h-[3px] w-full rounded-[1px] bg-white/10">
+                      <Score v={v} />
+                      <span aria-hidden data-role="matrix-bar" data-high={v >= 85 || undefined} className="block h-[3px] w-full rounded-[1px] bg-white/10">
                         <span className="block h-full rounded-[1px]" style={{ width: `${v}%`, background: hue(d) }} />
                       </span>
                     </button>
@@ -93,25 +132,6 @@ export function DimensionMatrix({ org, rows, dims, initialSortDim }: { org: stri
             </tr>
           );
         })}
-        <tr>
-          <th scope="row" className={`${CELL} text-left font-normal text-slate-400`}>
-            Fleet average
-          </th>
-          {dims.map((d) => {
-            const v = avgs[d];
-            return (
-              <td key={d} className="px-1 py-3 text-center">
-                {v == null ? (
-                  <VoidMark subject={`Fleet average · ${d}`} label={`No fleet average for ${d}`} />
-                ) : (
-                  <span className={`font-mono type-mono-sm tabular-nums ${floorClass(v)}`} title={`Fleet average for ${d}: ${v}`}>
-                    {v}
-                  </span>
-                )}
-              </td>
-            );
-          })}
-        </tr>
       </DataTable>
       <Legend states={hasMissing ? ["measured", "missing"] : []} className="mt-3" />
       <RepoDimensionModal org={org} target={target} onClose={() => setTarget(null)} />

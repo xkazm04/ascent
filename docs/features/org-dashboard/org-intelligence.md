@@ -3125,20 +3125,29 @@ identically in both. The data region picks `OverviewLedger` or `OverviewLedger.v
 What v2 changes is structure, not colour:
 
 - **Order and hierarchy.** A `Masthead` leads (the org's level and score as one statement, with adoption,
-  rigor and coverage as figures and the maturity trend as its aside), then the Fix first band as a slot
+  rigor and coverage as figures and the maturity trend as its aside; each figure states its status by a
+  leading glyph and a screen-reader word, healthy / watch / at risk by maturity level, and the number stays
+  paper: hue names a dimension, never a status. The trend is the kit `Trend`, drawn against the level bands the
+  series touches, and says so in words below three scans instead of drawing a line), then the Fix first band as a slot
   under it (still its own Suspense boundary), the trajectory, the dimensions, the repo matrix, posture, fleet.
 - **Dimensions as spectral lines** (`DimensionLedger.v2`, `DimensionLedgerRow.v2`): three SDLC phases, nine
-  `DimensionLine`s. Hue names the dimension, the bar is the fleet average, the tick is the green floor. A
+  `DimensionLine`s. Hue names the dimension, the bar is the fleet average, the tick is the green floor, and a
+  dimension below the floor draws the gap up to it as a hatched span in its own hue. A
   dimension no scored repo carries is **not judged** (an empty track and the words, decided by
   `belowGreen.of === 0`). When no dimension has a movement baseline the section says so once instead of drawing
   nine void marks.
 - **Repo matrix** (`DimensionMatrix.v2`): same cells, sort and detail modal as the heatmap
-  (`heatmapModel.ts`), drawn as scores with a hairline bar in the dimension's hue; a number below the green
-  floor turns warn (status keeps its meaning), an absent cell is the void, never a 0.
+  (`heatmapModel.ts`), drawn as scores; the hairline bar in the dimension's hue shows only in the sorted column
+  and under the pointer. A score below the green floor carries a `▾` glyph and a screen-reader word (the number
+  stays paper, never a status hue), the Fleet average row is the table's `foot`, an absent cell is the void,
+  never a 0.
 - **Fleet** (`FleetRollup.v2`, `FleetGroup.v2`): ruled cohorts in one column instead of a two-column card grid.
 - **Shared, not duplicated:** `heatmapModel.ts` (sort/mean), `postureModel.ts`, `useFleetRollup.tsx`,
-  `trajectoryRead.ts`. **Known gap:** `OverviewTrajectoryCard` (v1) still carries its own copy of the
-  trajectory gate that `trajectoryRead.ts` states; a source-scan test pins the card's text, so v1 was left alone.
+  `trajectoryRead.ts` (v1's `OverviewTrajectoryCard` reads the same `trajectoryView` gate).
+- **Table chrome elsewhere (kit-3, 2026-09-30).** The Audit log and Members tables, the dimension heatmap and
+  the Delivery activity table twin are the kit `DataTable` (Prism gets the hairline band, 13px sans heads and
+  tabular figures; Altimeter keeps its rules, with a slightly smaller head type on Audit and Members). The
+  Contributors summary tiles and the Care adoption tiles are `StatStrip`/`StatTile`.
 
 ### Repositories in Prism (kit-3, first pass)
 

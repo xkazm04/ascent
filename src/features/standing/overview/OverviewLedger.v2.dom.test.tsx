@@ -88,11 +88,13 @@ describe("OverviewLedgerV2", () => {
     expect(screen.getByLabelText("api D2 score 40, open detail")).toBeTruthy();
   });
 
-  it("turns only the number warn below the green floor and keeps the hue on the dimension", () => {
+  it("marks a score below the green floor by glyph and word, never by a status hue, and keeps the hue on the dimension bar", () => {
     render(<OverviewLedgerV2 {...base()} />);
     const low = screen.getByLabelText("api D2 score 40, open detail");
-    expect(low.querySelector("span")?.className).toContain("text-warn");
-    const hueBar = low.querySelector<HTMLElement>("span > span");
+    expect(low.querySelector('[data-role="below-floor"]')).toBeTruthy();
+    expect(low.textContent).toContain("below the green floor");
+    expect(low.innerHTML).not.toContain("text-warn");
+    const hueBar = low.querySelector<HTMLElement>('[data-role="matrix-bar"] > span');
     expect(hueBar?.style.background).toContain("--spec-2");
   });
 

@@ -6,6 +6,7 @@
 //
 // Server-safe: static copy, no hooks. Data comes from selfHostPricingData.ts.
 
+import { DataTable } from "@/components/kit";
 import { Kicker, Surface } from "@/components/ui";
 import { DOCS_ARE_UPSTREAM, selfHostGuideHref } from "@/lib/site";
 import { CAPABILITY_DIFF, ONBOARDING_STEPS, SELF_HOST_LEDE } from "./selfHostPricingData";
@@ -42,8 +43,13 @@ export function SelfHostPricingBlueprint() {
           </span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[40rem] border-collapse type-body-sm">
-            <thead>
+          <DataTable
+            variant="plain"
+            size="sm"
+            minWidth={640}
+            tableClassName="w-full border-collapse"
+            caption="Capabilities on the hosted cloud plans versus this install"
+            head={
               <tr className="border-b border-divider text-slate-500">
                 <th scope="col" className={TH}>
                   Capability
@@ -55,42 +61,41 @@ export function SelfHostPricingBlueprint() {
                   This install
                 </th>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-divider">
-              {gated.map((row) => (
-                <tr key={row.label}>
-                  <th scope="row" className="px-4 py-2.5 text-left font-medium text-white">
-                    {row.label}
-                  </th>
-                  <td className="px-4 py-2.5 text-slate-400">
-                    <span className="rounded border border-divider px-1.5 py-0.5 type-caption text-slate-300">
-                      {row.cloud}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-slate-200">
-                    <span aria-hidden="true" className="text-accent">
-                      ✓
-                    </span>{" "}
-                    {row.local}
-                  </td>
-                </tr>
-              ))}
-              <tr className="bg-surface/60">
-                <td colSpan={3} className="px-4 py-2 type-label tracking-[0.2em] text-slate-500">
-                  Limits the tiers carry
+            }
+          >
+            {gated.map((row, i) => (
+              <tr key={row.label} className={i > 0 ? "border-t border-divider" : undefined}>
+                <th scope="row" className="px-4 py-2.5 text-left font-medium text-white">
+                  {row.label}
+                </th>
+                <td className="px-4 py-2.5 text-slate-400">
+                  <span className="rounded border border-divider px-1.5 py-0.5 type-caption text-slate-300">
+                    {row.cloud}
+                  </span>
+                </td>
+                <td className="px-4 py-2.5 font-mono text-slate-200">
+                  <span aria-hidden="true" className="text-accent">
+                    ✓
+                  </span>{" "}
+                  {row.local}
                 </td>
               </tr>
-              {ungated.map((row) => (
-                <tr key={row.label}>
-                  <th scope="row" className="px-4 py-2.5 text-left font-medium text-white">
-                    {row.label}
-                  </th>
-                  <td className="px-4 py-2.5 leading-relaxed text-slate-400">{row.cloud}</td>
-                  <td className="px-4 py-2.5 leading-relaxed text-slate-200">{row.local}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+            <tr className="border-t border-divider bg-surface/60">
+              <td colSpan={3} className="px-4 py-2 type-label tracking-[0.2em] text-slate-500">
+                Limits the tiers carry
+              </td>
+            </tr>
+            {ungated.map((row) => (
+              <tr key={row.label} className="border-t border-divider">
+                <th scope="row" className="px-4 py-2.5 text-left font-medium text-white">
+                  {row.label}
+                </th>
+                <td className="px-4 py-2.5 leading-relaxed text-slate-400">{row.cloud}</td>
+                <td className="px-4 py-2.5 leading-relaxed text-slate-200">{row.local}</td>
+              </tr>
+            ))}
+          </DataTable>
         </div>
       </Surface>
 

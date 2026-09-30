@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { SectionHeading } from "@/components/ui";
+import { DataTable } from "@/components/kit";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { ARCHETYPE_COLUMNS, AXIS_LABEL, TRACK_MAX, buildMatrixRows, pct } from "../shared/matrixData";
 
@@ -57,44 +58,46 @@ export function DimensionMatrix() {
           viewports and has no focusable descendants, so without tabindex a keyboard user could never
           scroll the Team/Org columns into view. role+label make the focus stop announce as a named
           region rather than a mystery tab stop. */}
-      <div className="focus-ring mt-8 overflow-x-auto" tabIndex={0} role="region" aria-labelledby="dimensions-heading">
-        <table className="w-full min-w-[40rem] text-left">
-          <caption className="sr-only">Per-dimension weighting across the Solo, Team, and Org archetype lenses.</caption>
-          <thead>
-            <tr className="border-b border-slate-700">
-              <th scope="col" className="pb-3 pr-4 type-label tracking-widest text-slate-500">Dimension</th>
-              {ARCHETYPE_COLUMNS.map((c) => (
-                <th key={c.key} scope="col" className="px-3 pb-3 type-label tracking-widest text-slate-400">
-                  {c.label} <span className="text-slate-600">· {c.sub}</span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {ROWS.map((r) => (
-              <tr key={r.id} className="border-b border-divider/70 last:border-0">
-                <th scope="row" className="py-3.5 pr-4 align-top">
-                  <span className="flex items-center gap-2">
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${r.axis === "adoption" ? "bg-accent" : "bg-slate-500"}`} title={AXIS_LABEL[r.axis]} />
-                    <span className="type-caption text-slate-600">{r.id}</span>
-                    <span className="type-body-sm font-semibold text-white">{r.name}</span>
-                  </span>
-                  {/* Render the dimension description as visible text (it was previously reachable only via
-                      the native `title` hover on the data cells — invisible to touch/keyboard/SR users). */}
-                  <span className="mt-1 block max-w-xs pl-4 type-note font-normal leading-snug text-slate-500 2xl:max-w-sm 2xl:type-body-sm">
-                    {r.description}
-                  </span>
-                </th>
-                {ARCHETYPE_COLUMNS.map((c) => (
-                  <td key={c.key} className="px-3 py-3.5 align-top">
-                    <CellBar w={r[c.key]} />
-                  </td>
-                ))}
-              </tr>
+      <DataTable
+        variant="plain"
+        className="mt-8"
+        minWidth={640}
+        tableClassName="w-full text-left"
+        labelledBy="dimensions-heading"
+        caption="Per-dimension weighting across the Solo, Team, and Org archetype lenses."
+        head={
+          <tr className="border-b border-slate-700">
+            <th scope="col" className="pb-3 pr-4 type-label tracking-widest text-slate-500">Dimension</th>
+            {ARCHETYPE_COLUMNS.map((c) => (
+              <th key={c.key} scope="col" className="px-3 pb-3 type-label tracking-widest text-slate-400">
+                {c.label} <span className="text-slate-600">· {c.sub}</span>
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </tr>
+        }
+      >
+        {ROWS.map((r) => (
+          <tr key={r.id} className="border-b border-divider/70 last:border-0">
+            <th scope="row" className="py-3.5 pr-4 align-top">
+              <span className="flex items-center gap-2">
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${r.axis === "adoption" ? "bg-accent" : "bg-slate-500"}`} title={AXIS_LABEL[r.axis]} />
+                <span className="type-caption text-slate-600">{r.id}</span>
+                <span className="type-body-sm font-semibold text-white">{r.name}</span>
+              </span>
+              {/* Render the dimension description as visible text (it was previously reachable only via
+                  the native `title` hover on the data cells — invisible to touch/keyboard/SR users). */}
+              <span className="mt-1 block max-w-xs pl-4 type-note font-normal leading-snug text-slate-500 2xl:max-w-sm 2xl:type-body-sm">
+                {r.description}
+              </span>
+            </th>
+            {ARCHETYPE_COLUMNS.map((c) => (
+              <td key={c.key} className="px-3 py-3.5 align-top">
+                <CellBar w={r[c.key]} />
+              </td>
+            ))}
+          </tr>
+        ))}
+      </DataTable>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 type-label tracking-widest text-slate-500">
         <span className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-accent" /> Adoption axis</span>

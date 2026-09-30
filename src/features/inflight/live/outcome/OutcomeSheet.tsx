@@ -65,7 +65,7 @@ export function OutcomeSheet({ matrix, slug, selectedId, onOpen, canReview, onRe
   const width = matrix.columns.reduce((n, c) => n + widthOf(c.id), widthOf(LABEL_COLUMN));
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-divider bg-ink">
+    <div data-kit="data-table" data-role="data-table" data-variant="sheet" className="overflow-x-auto rounded-2xl border border-divider bg-ink">
       <table className="table-fixed border-separate border-spacing-0 text-left" style={{ width }} aria-label="Outcome by gap and run">
         <colgroup>
           <col style={{ width: widthOf(LABEL_COLUMN) }} />

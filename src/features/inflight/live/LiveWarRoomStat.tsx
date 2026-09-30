@@ -7,6 +7,7 @@ import { headlineAnnouncement } from "./warRoomAnnounce";
 import { useSettledAnnouncement } from "./useLiveWarRoomStat";
 import { Sparkline, StatCell } from "./LiveWarRoomStatParts";
 import { Panel } from "@/components/kit";
+import { useIsPrism } from "@/lib/theme/useIsPrism";
 
 /**
  * The wall's headline metrics as ONE command strip (2×2 on mobile, a divided 1×4 band on lg) instead
@@ -38,6 +39,7 @@ export function HeadlineStrip({
    *  count stays the single live voice for the run. */
   running?: boolean;
 }) {
+  const prism = useIsPrism();
   const spark = (trend ?? []).slice(-12).map((p) => p.avg);
   const sz = HEADLINE_SCALE[scale];
   const announcement = useSettledAnnouncement(headlineAnnouncement(stats, deltas), running);
@@ -50,7 +52,7 @@ export function HeadlineStrip({
         delta={deltas?.overall}
         scale={scale}
       >
-        {spark.length >= 2 && <Sparkline points={spark} box={sz.spark} />}
+        {spark.length >= 2 && <Sparkline points={spark} box={sz.spark} fixedDomain={prism} />}
       </StatCell>
       <StatCell
         label="AI Adoption"

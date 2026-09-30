@@ -7,6 +7,7 @@
 import { scoreGlyph } from "@/lib/ui";
 import { DIRECTION_TONE, deltaHex, signedDelta, toneFor } from "@/components/ui";
 import { stateTitle } from "@/components/org/viz";
+import { bandDomain } from "@/components/kit";
 import { HEADLINE_SCALE, type WallScale } from "./warRoomScale";
 import { useTween } from "./useLiveWarRoomStat";
 
@@ -32,13 +33,16 @@ export function DeltaChip({ delta, size }: { delta: number; size: string }) {
 }
 
 /** Tiny single-series trend line: de-emphasis stroke, current point in the accent with a surface
- *  ring. No legend (one series — the cell label names it); the aria-label carries the values. */
-export function Sparkline({ points, box }: { points: number[]; box: { w: number; h: number } }) {
+ *  ring. No legend (one series — the cell label names it); the aria-label carries the values.
+ *  `fixedDomain` (Prism) draws against the level bands the series touches instead of its own min and max, so a
+ *  one-point wobble is not autoscaled into a cliff. */
+export function Sparkline({ points, box, fixedDomain = false }: { points: number[]; box: { w: number; h: number }; fixedDomain?: boolean }) {
   const W = box.w;
   const H = box.h;
   const P = 5; // padding so the 4px end-dot + its ring never clip
-  const min = Math.min(...points);
-  const max = Math.max(...points);
+  const dom = fixedDomain ? bandDomain(points) : null;
+  const min = dom ? dom.lo : Math.min(...points);
+  const max = dom ? dom.hi : Math.max(...points);
   const span = max - min;
   const x = (i: number) => P + (i / (points.length - 1)) * (W - 2 * P);
   // Flat series: draw a midline rather than dividing by zero.

@@ -52,7 +52,7 @@ export function OutcomeSheetCell({
   const title = [meta.label, meta.note, STATE_TITLE[cell.state], cell.headline, evidence].filter(Boolean).join(" — ");
 
   return (
-    <td className={`border-b border-l border-divider align-top ${dismissed ? "bg-ink" : STATE_TINT[cell.state]}`} title={title}>
+    <td data-run-start className={`border-b border-l border-divider align-top ${dismissed ? "bg-ink" : STATE_TINT[cell.state]}`} title={title}>
       <div className="flex items-baseline gap-1.5 px-2 py-1.5">
         <span aria-hidden className={`type-caption w-3 shrink-0 text-center ${down && !dismissed ? "text-warn" : "text-slate-500"}`}>
           {meta.glyph}

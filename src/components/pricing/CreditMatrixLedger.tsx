@@ -4,6 +4,7 @@
 // leading Cost column, so scanning DOWN the table the credit/free/included distinction is the first
 // thing the eye tracks. Closest sibling to DimensionMatrix — mono heads, tabular figures, no HUD chrome.
 
+import { DataTable } from "@/components/kit";
 import { motion } from "framer-motion";
 import { SectionHeading, Surface } from "@/components/ui";
 import { usePrefersReducedMotion } from "@/components/report/chartMotion";
@@ -26,11 +27,12 @@ export function CreditMatrixLedger() {
       <RuleBar />
 
       <Surface className="mt-6 overflow-x-auto">
-        <table className="w-full min-w-[52rem] border-collapse text-left">
-          <caption className="sr-only">
-            Which operations cost scan credits and which capabilities each package includes.
-          </caption>
-          <thead>
+        <DataTable
+          variant="plain"
+          minWidth={832}
+          tableClassName="w-full border-collapse text-left"
+          caption="Which operations cost scan credits and which capabilities each package includes."
+          head={
             <tr className="border-b border-divider">
               <th scope="col" className="px-5 py-4 type-label tracking-widest text-slate-500">
                 Operation
@@ -44,13 +46,12 @@ export function CreditMatrixLedger() {
                 </th>
               ))}
             </tr>
-          </thead>
-          <tbody>
-            {MATRIX_GROUPS.map((g) => (
-              <GroupBlock key={g.key} group={g} reduced={reduced} />
-            ))}
-          </tbody>
-        </table>
+          }
+        >
+          {MATRIX_GROUPS.map((g) => (
+            <GroupBlock key={g.key} group={g} reduced={reduced} />
+          ))}
+        </DataTable>
       </Surface>
 
       {/* The footnote the Planned marker obliges. Under the table, not in a tooltip: a caveat a

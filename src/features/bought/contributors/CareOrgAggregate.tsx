@@ -11,11 +11,11 @@
 // `CareOrgBands` moved to CareOrgBandStrips.tsx when it became a quartile strip; this file keeps the
 // tiles, the kept-moves cards, the ask themes and the outcomes table.
 
-import { Meter, OrgTable, SectionEmpty, TILE_LEDGER, Tile } from "@/components/org/shared/ui";
+import { Meter, OrgTable, SectionEmpty } from "@/components/org/shared/ui";
 import { deltaHex, fmtDelta } from "@/components/ui";
 import { CareAction, CareCategoryChip } from "@/features/developer/CareBits";
 import { type CareOrgView } from "@/lib/org/developer-view";
-import { HairlineList } from "@/components/kit";
+import { HairlineList, StatStrip, StatTile as Tile } from "@/components/kit";
 
 export function CareOrgSuppressed({ org }: { org: CareOrgView }) {
   // `population` is the git contributor snapshot (`totalContributors`), the same naming-floor
@@ -32,12 +32,12 @@ export function CareOrgSuppressed({ org }: { org: CareOrgView }) {
 export function CareOrgAdoptionTiles({ org }: { org: CareOrgView }) {
   const pct = (n: number) => (org.population ? Math.round((n / org.population) * 100) : 0);
   return (
-    <div className={`${TILE_LEDGER} mt-3 sm:grid-cols-2 lg:grid-cols-4`}>
+    <StatStrip className="mt-3">
       <Tile label="Developers" value={org.population} sub="in the git snapshot" />
       <Tile label="Mentor set up" value={org.adoption.setUp} sub={`${pct(org.adoption.setUp)}% of the workspace`} />
       <Tile label="Sharing an aggregate" value={org.adoption.sharing} sub={`${pct(org.adoption.sharing)}% — always their choice`} />
       <Tile label="Moves kept fleet-wide" value={org.topKeptMoves.reduce((a, m) => a + m.keptBy, 0)} sub="counts only" />
-    </div>
+    </StatStrip>
   );
 }
 

@@ -7,6 +7,7 @@
 import type { AuditLogEntry } from "@/lib/db";
 import { timeAgo } from "@/lib/ui";
 import { EmptyState } from "@/components/EmptyState";
+import { DataTable } from "@/components/kit";
 import { ActionBadge, Details, IntegrityBadge } from "./AuditLogCells";
 
 export function AuditLogTable({
@@ -72,47 +73,45 @@ export function AuditLogTable({
             body={loading ? "Loading…" : "No entries match this filter."}
           />
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-slate-800">
-            <table className="w-full min-w-[640px] type-body">
-              <thead className="bg-slate-900/60 type-mono-sm uppercase tracking-widest text-slate-500">
-                <tr>
-                  <th className="px-4 py-2 text-left">When</th>
-                  <th className="px-3 py-2 text-left">Action</th>
-                  <th className="px-3 py-2 text-left">Actor</th>
-                  {showIntegrity && <th className="px-3 py-2 text-left">Integrity</th>}
-                  <th className="px-4 py-2 text-left">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {entries.map((e) => (
-                  <tr key={e.id} className="align-top text-slate-300">
-                    <td className="whitespace-nowrap px-4 py-2 type-body-sm text-slate-400" title={e.at}>
-                      {timeAgo(e.at)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <ActionBadge action={e.action} />
-                    </td>
-                    <td className="px-3 py-2">
-                      <div
-                        className="max-w-[12rem] truncate type-mono-sm text-slate-400"
-                        title={e.actorId ?? undefined}
-                      >
-                        {e.actorId ?? "—"}
-                      </div>
-                    </td>
-                    {showIntegrity && (
-                      <td className="px-3 py-2">
-                        <IntegrityBadge verdict={e.integrity} />
-                      </td>
-                    )}
-                    <td className="max-w-[24rem] px-4 py-2">
-                      <Details entry={e} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            caption="Audit log entries"
+            head={
+              <tr>
+                <th className="px-4 py-2 text-left">When</th>
+                <th className="px-3 py-2 text-left">Action</th>
+                <th className="px-3 py-2 text-left">Actor</th>
+                {showIntegrity && <th className="px-3 py-2 text-left">Integrity</th>}
+                <th className="px-4 py-2 text-left">Details</th>
+              </tr>
+            }
+          >
+            {entries.map((e) => (
+              <tr key={e.id} className="align-top text-slate-300">
+                <td className="whitespace-nowrap px-4 py-2 type-body-sm text-slate-400" title={e.at}>
+                  {timeAgo(e.at)}
+                </td>
+                <td className="px-3 py-2">
+                  <ActionBadge action={e.action} />
+                </td>
+                <td className="px-3 py-2">
+                  <div
+                    className="max-w-[12rem] truncate type-mono-sm text-slate-400"
+                    title={e.actorId ?? undefined}
+                  >
+                    {e.actorId ?? "—"}
+                  </div>
+                </td>
+                {showIntegrity && (
+                  <td className="px-3 py-2">
+                    <IntegrityBadge verdict={e.integrity} />
+                  </td>
+                )}
+                <td className="max-w-[24rem] px-4 py-2">
+                  <Details entry={e} />
+                </td>
+              </tr>
+            ))}
+          </DataTable>
         )}
       </div>
 
