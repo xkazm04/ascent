@@ -126,20 +126,43 @@ export async function createPlaybook(
 export async function updatePlaybook(
   id: string,
   patch: Partial<PlaybookInput> & { archived?: boolean },
-): Promise<void> {
-  if (!isDbConfigured()) return;
+): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const prisma = getPrisma();
+  const current = await prisma.playbook.findUnique({
+    where: { id },
+    select: { title: true, dimId: true, summary: true, steps: true, archived: true },
+  });
+  if (!current) {
+    const missing = new Error("Playbook not found.") as Error & { code: string };
+    missing.code = "P2025";
+    throw missing;
+  }
   const data: Prisma.PlaybookUpdateInput = {};
   // Never persist a blank title (the PATCH route 400s first; this is the safety net for any other
   // caller) — a nameless playbook corrupts cards, initiative/PR titles, and branch slugs.
-  if (patch.title !== undefined && patch.title.trim()) data.title = oneLine(patch.title.trim()).slice(0, 200);
-  if (patch.dimId !== undefined) data.dimId = patch.dimId;
-  if (patch.summary !== undefined) data.summary = patch.summary.trim().slice(0, 1000);
-  if (patch.steps !== undefined) data.steps = cleanSteps(patch.steps);
-  if (patch.archived !== undefined) data.archived = patch.archived;
+  if (patch.title !== undefined && patch.title.trim()) {
+    const title = oneLine(patch.title.trim()).slice(0, 200);
+    if (title !== current.title) data.title = title;
+  }
+  if (patch.dimId !== undefined && patch.dimId !== current.dimId) data.dimId = patch.dimId;
+  if (patch.summary !== undefined) {
+    const summary = patch.summary.trim().slice(0, 1000);
+    if (summary !== current.summary) data.summary = summary;
+  }
+  if (patch.steps !== undefined) {
+    const steps = cleanSteps(patch.steps);
+    if (steps !== current.steps) data.steps = steps;
+  }
+  if (patch.archived !== undefined && patch.archived !== current.archived) data.archived = patch.archived;
   // A content edit (not an archive toggle) bumps the version — the change-history signal (PLAY-6).
-  const contentEdit = ["title", "dimId", "summary", "steps"].some((k) => patch[k as keyof typeof patch] !== undefined);
+  // The key must be present AND different: resubmitting the stored title used to increment anyway,
+  // and Prisma's @updatedAt then moved on a write that changed nothing.
+  const contentEdit = (["title", "dimId", "summary", "steps"] as const).some((k) => data[k] !== undefined);
   if (contentEdit) data.version = { increment: 1 };
-  await getPrisma().playbook.update({ where: { id }, data });
+  if (Object.keys(data).length === 0) return false;
+  await prisma.playbook.update({ where: { id }, data });
+  return true;
 }
 
 export async function deletePlaybook(id: string): Promise<void> {

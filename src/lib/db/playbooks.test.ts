@@ -18,7 +18,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { applyPlaybook, getPlaybookAdoption, createPlaybook, getPlaybook } from "./playbooks";
+import { applyPlaybook, getPlaybookAdoption, createPlaybook, getPlaybook, updatePlaybook } from "./playbooks";
 
 // ---- fixture types (only the fields getPlaybookAdoption selects) ----
 interface PlaybookFx {
@@ -545,6 +545,53 @@ describe("createPlaybook — resolve-or-fail on an unknown org slug (G4-09)", ()
     expect(out).toBeNull();
     expect(upsert).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe("updatePlaybook — unchanged content is not a new version", () => {
+  const row = {
+    title: "Tighten CI",
+    dimId: "D2",
+    summary: "s",
+    steps: JSON.stringify(["lint"]),
+    archived: false,
+  };
+
+  it("does not write when the sanitized title matches the stored row", async () => {
+    const update = vi.fn();
+    mockGetPrisma.mockReturnValue({
+      playbook: { findUnique: vi.fn(async () => row), update },
+    });
+
+    const wrote = await updatePlaybook("pb_1", { title: "  Tighten CI  " });
+
+    expect(wrote).toBe(false);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("increments version only when the title actually changes", async () => {
+    const update = vi.fn(async () => ({}));
+    mockGetPrisma.mockReturnValue({
+      playbook: { findUnique: vi.fn(async () => row), update },
+    });
+
+    const wrote = await updatePlaybook("pb_1", { title: "Tighten CI harder" });
+
+    expect(wrote).toBe(true);
+    expect(update).toHaveBeenCalledWith({
+      where: { id: "pb_1" },
+      data: { title: "Tighten CI harder", version: { increment: 1 } },
+    });
+  });
+
+  it("throws P2025 when the row is already gone", async () => {
+    const update = vi.fn();
+    mockGetPrisma.mockReturnValue({
+      playbook: { findUnique: vi.fn(async () => null), update },
+    });
+
+    await expect(updatePlaybook("missing", { title: "X" })).rejects.toMatchObject({ code: "P2025" });
+    expect(update).not.toHaveBeenCalled();
   });
 });
 

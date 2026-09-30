@@ -59,13 +59,16 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ error: "Provide at least one of { title, dimId, summary, steps, archived }." }, { status: 400 });
   }
   try {
-    await updatePlaybook(id, {
+    const wrote = await updatePlaybook(id, {
       title: body.title,
       dimId: body.dimId,
       summary: body.summary,
       steps: Array.isArray(body.steps) ? body.steps : undefined,
       archived: body.archived,
     });
+    // An identical patch is not an edit: updatePlaybook skips the write, and an audit row would
+    // claim a change that did not happen.
+    if (!wrote) return NextResponse.json({ ok: true });
     // PLAY-6: audit the change so a playbook edit leaves a trail (the org's standards have history).
     // Reuse the org the gate already resolved (no second getPlaybookOrgSlug round-trip).
     // resolveViewerLogin: the dormant custom-OAuth session is null under the ACTIVE Supabase wall,

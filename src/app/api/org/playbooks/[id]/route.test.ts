@@ -95,7 +95,7 @@ beforeEach(() => {
   mockGetPlaybookOrgSlug.mockResolvedValue("acme");
   mockRequireOrgAccess.mockResolvedValue(null); // member access granted
   mockRequireOrgRole.mockResolvedValue(null); // admin access granted
-  mockUpdatePlaybook.mockResolvedValue(undefined);
+  mockUpdatePlaybook.mockResolvedValue(true);
   mockGetPlaybook.mockResolvedValue({ id: "p1", title: "CI everywhere" });
   mockDeletePlaybook.mockResolvedValue(undefined);
   mockRecordAudit.mockResolvedValue(undefined);
@@ -209,6 +209,14 @@ describe("PATCH — version-bump branch (content edit vs archive toggle)", () =>
     expect(mixed.status).toBe(400);
 
     expect(mockUpdatePlaybook).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("does not audit an identical patch that updatePlaybook declines to write", async () => {
+    mockUpdatePlaybook.mockResolvedValue(false);
+    const res = await PATCH(patchReq({ title: "CI everywhere" }), ctx("p1"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
     expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 
