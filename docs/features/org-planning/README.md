@@ -17,7 +17,7 @@ Context-map group: **Org Planning & Execution** (`feature`).
 | Goals & Initiatives | `/org/[slug]/plan`, `/api/org/goals`, `/api/org/initiatives` | `src/components/org/plan/**` |
 | Backlog Management | `/org/[slug]/backlog`, `/api/org/backlog` | `src/components/org/backlog/**` |
 | Investment Simulator & Forecast | `/org/[slug]/plan`, `/api/org/simulate` | `src/lib/scoring/orgsim.ts`, `src/lib/maturity/forecast.ts` |
-| Playbooks | `/api/org/playbooks[/id][/repos][/apply]` | `src/lib/db/playbooks.ts`, `src/lib/org/playbook-brief.ts` |
+| Playbooks | `/api/org/playbooks[/id][/repos][/apply][/apply-batch]` | `src/lib/db/playbooks.ts`, `src/lib/org/playbook-brief.ts` |
 | Executive Briefing | `/org/[slug]/executive`, `/api/org/briefing/{pdf,share}` | `src/lib/org/briefing.ts`, `src/lib/pdf/briefing-document.tsx` |
 | — Proof section (2026-08-14) | practice-rollout proof on every briefing surface | `ExecBriefing.proof` + `briefingProofLine` (briefing.ts), `BriefingProofBanner.tsx` (tab + share page), PDF line, `## Proof` markdown section (fleet-wide, null when never applied) |
 | Live tab: loop cockpit ([live.md](live.md)) | `?tab=live` (the legacy `/org/[slug]/live` route is a `redirect()`), `/api/org/loop[/propose][/id]`, `/api/org/ops`, `/api/org/live-share` | `src/features/inflight/live/**`, `src/lib/local/loop-*.ts`, `src/lib/db/loop-runs*.ts`, `src/lib/live-share.ts` |
@@ -29,7 +29,9 @@ Context-map group: **Org Planning & Execution** (`feature`).
   "single-dimension only" claim has been corrected, but `rankFleetInvestments`
   (`Simulator.RankPanel.tsx`) and saved scenarios with 2-up compare
   (`Simulator.SavedScenarios.tsx`) are shipped and still undocumented.
-- **Undocumented surfaces:** Playbooks and the Executive Briefing (incl. PDF export
-  and share links) have no doc at all, just the routes and source roots above.
-  Playbooks has no dedicated page yet; it is embedded in the Practices UI.
-  (The Live tab and its war-room wall are now covered by [live.md](live.md).)
+- **Playbooks and the Executive Briefing are documented.** Playbooks (authored standards,
+  fleet rollout, dry-run, archive refusal) live in [practices.md](../org-dashboard/practices.md)
+  and [plan.md](plan.md). The briefing, including PDF export and share links, lives in
+  [org-intelligence.md](../org-dashboard/org-intelligence.md) under "Executive briefing".
+  Playbooks still has no dedicated page; it is embedded in the Practices UI.
+  (The Live tab and its war-room wall are covered by [live.md](live.md).)
