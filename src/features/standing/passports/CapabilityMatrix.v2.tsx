@@ -1,12 +1,12 @@
-// Prism capabilities. The three-axis grid stays (no kit matrix). The ledger is a DataTable.
-// A fleet with nothing declared shows a void, never 0%. No meter painted from a score hue.
-import { Legend, MatrixGrid } from "@/components/org/viz";
-import { DataTable, Frame, Lede, SectionHead, StatStrip, StatTile } from "@/components/kit";
+// Prism capabilities. The three-axis grid is CellMarks: a share is a number, an unjudged
+// cell says not measured. The ledger below stays a DataTable. No score hue.
+import { Caption, DataTable, Frame, Lede, SectionHead, StatStrip, StatTile } from "@/components/kit";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import { buildCapabilityMatrix, verifiedRatio, type CapabilityMatrixInput } from "./capabilityAgg";
 import { CapabilityLegendV2 } from "./CapabilityLegend.v2";
 import { CapabilityRowV2 } from "./CapabilityRow.v2";
-import { CAPABILITY_AXES, capabilityVizRows, capabilityVizStates } from "./capabilityViz";
+import { MarkGridV2 } from "./MarkGrid.v2";
+import { CAPABILITY_AXES, capabilityVizRows } from "./capabilityViz";
 
 export function CapabilityMatrixV2({ repos, rollout = [] }: { repos: CapabilityMatrixInput[]; rollout?: FoundationRolloutRow[] }) {
   const matrix = buildCapabilityMatrix(repos);
@@ -26,12 +26,15 @@ export function CapabilityMatrixV2({ repos, rollout = [] }: { repos: CapabilityM
         />
         {assessed > 0 && (
           <div className="mt-6">
-            <MatrixGrid
-              axes={[...CAPABILITY_AXES]}
+            <MarkGridV2
+              axes={CAPABILITY_AXES}
               rows={vizRows}
+              subject="Capability"
               title={`Capabilities across ${assessed} assessed ${assessed === 1 ? "repository" : "repositories"}`}
             />
-            <Legend states={capabilityVizStates(vizRows)} className="mt-3" />
+            <Caption className="mt-3">
+              Declared is a claim. A number is a judged share. Not measured is not a zero.
+            </Caption>
           </div>
         )}
       </Frame>

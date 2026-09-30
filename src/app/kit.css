@@ -573,3 +573,19 @@ html[data-theme="prism"] [data-kit="cell-mark"][data-state="missing"] { color: v
 html[data-theme="prism"] [data-kit="cell-mark"][data-state="unmeasured"] { color: var(--color-slate-500); font-style: italic; }
 html[data-theme="prism"] [data-kit="row-list"] > [data-kit="list-row"] > :is(button, a, div) { padding-inline: 0.75rem; padding-block: 0.5rem; }
 html[data-theme="prism"] [data-kit="row-list"] > [data-kit="list-row"][data-selected] { box-shadow: inset 2px 0 0 var(--color-white); }
+
+/* ── Passports docket (kit-6 second pass): a blocker sentence is the row. ListRow truncates its
+   title, which cuts the finding off in the column beside the quadrant chart. Wrap it. ── */
+html[data-theme="prism"] [data-role="passports-v2"] [data-kit="list-row"] [data-role="list-row-title"] {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+/* ── Practices pass 2 (kit-6): practice names include file paths. ListRow truncates the title,
+   which clips them in the library. Wrap on this surface only. ── */
+html[data-theme="prism"] [data-role="practices-v2"] [data-kit="list-row"] [data-role="list-row-title"] {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}

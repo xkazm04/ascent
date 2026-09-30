@@ -4,17 +4,45 @@
 // and the marks are paper: a hue no longer says automation versus production.
 import { useState } from "react";
 import { CreateIssueModal, type IssueDraft } from "@/components/github/CreateIssueModal";
-import { Caption, HairlineList } from "@/components/kit";
+import { Caption, HairlineList, ListRow } from "@/components/kit";
 import { Legend, WhyChip, type LegendExtra } from "@/components/org/viz";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import { draftFor } from "./blockerDraft";
-import { aggregateBlockers, scopeCounts } from "./passportBlockerAgg";
+import { aggregateBlockers, scopeCounts, type Agg } from "./passportBlockerAgg";
 import { PLACEHOLDER_LABEL, PLACEHOLDER_TITLE } from "./PlaceholderMark";
 import { RANK_HINT } from "./PassportBlockerPareto";
 import type { PassportRow } from "./PassportTable";
 
 const MAX_MARKS = 20;
 const MAX_SIDE = 8;
+
+/** Same id `draftFor` puts on the issue, so the open row can be marked selected. */
+const findingId = (a: Agg) => `${a.axis === "automation" ? "auto" : "prod"}.${a.code}`;
+
+function DocketDetail({ a }: { a: Agg }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span>{a.axis === "automation" ? "Automation" : "Production"}, {a.repos.length} open</span>
+      <span aria-hidden className="inline-flex max-w-28 flex-wrap gap-0.5">
+        {a.repos.slice(0, MAX_MARKS).map((r) => (
+          <span key={r.fullName} title={r.name} className="h-1.5 w-1.5 rounded-[1px] bg-slate-300" />
+        ))}
+        {a.declinedRepos.slice(0, MAX_SIDE).map((r) => (
+          <span key={`d:${r.fullName}`} title={`${r.name}: accepted by choice`} className="h-1.5 w-1.5 rounded-[1px] border border-slate-300" />
+        ))}
+        {a.dismissedRepos.slice(0, MAX_SIDE).map((r) => (
+          <span key={`x:${r.fullName}`} title={`${r.name}: decided by the team`} className="h-1.5 w-1.5 rounded-[1px] border border-dashed border-slate-300" />
+        ))}
+      </span>
+      {a.declinedRepos.length > 0 && (
+        <span title={`${a.declinedRepos.length} repo(s) declined this gap by choice: counted, never subtracted`}>+{a.declinedRepos.length} accepted</span>
+      )}
+      {a.dismissedRepos.length > 0 && (
+        <span title={`${a.dismissedRepos.length} repo(s) decided by the team: counted, never targeted`}>+{a.dismissedRepos.length} decided</span>
+      )}
+    </span>
+  );
+}
 
 const legend = (declined: boolean, decided: boolean): LegendExtra[] => [
   {
@@ -80,39 +108,13 @@ export function PassportBlockersV2({
       </div>
       <HairlineList className="mt-3">
         {top.map((a) => (
-          <li key={a.code}>
-            <button
-              type="button"
-              onClick={() => setDraft(draftFor(a, org, scopeLabel, rows.length))}
-              title="File this blocker as GitHub issues in the affected repos"
-              className="focus-ring flex w-full items-baseline gap-3 py-3 text-left"
-            >
-              <span className="min-w-0 flex-1 text-[0.9375rem] leading-snug text-slate-200">{a.label}</span>
-              <span className="shrink-0 type-caption text-slate-400">{a.axis === "automation" ? "Automation" : "Production"}</span>
-              <span aria-hidden className="flex max-w-28 shrink-0 flex-wrap justify-end gap-0.5">
-                {a.repos.slice(0, MAX_MARKS).map((r) => (
-                  <span key={r.fullName} title={r.name} className="h-1.5 w-1.5 rounded-[1px] bg-slate-300" />
-                ))}
-                {a.declinedRepos.slice(0, MAX_SIDE).map((r) => (
-                  <span key={`d:${r.fullName}`} title={`${r.name}: accepted by choice`} className="h-1.5 w-1.5 rounded-[1px] border border-slate-300" />
-                ))}
-                {a.dismissedRepos.slice(0, MAX_SIDE).map((r) => (
-                  <span key={`x:${r.fullName}`} title={`${r.name}: decided by the team`} className="h-1.5 w-1.5 rounded-[1px] border border-dashed border-slate-300" />
-                ))}
-              </span>
-              <span className="shrink-0 tabular-nums text-white">{a.repos.length}</span>
-              {a.declinedRepos.length > 0 && (
-                <span title={`${a.declinedRepos.length} repo(s) declined this gap by choice: counted, never subtracted`} className="type-caption tabular-nums text-slate-400">
-                  +{a.declinedRepos.length} accepted
-                </span>
-              )}
-              {a.dismissedRepos.length > 0 && (
-                <span title={`${a.dismissedRepos.length} repo(s) decided by the team: counted, never targeted`} className="type-caption tabular-nums text-slate-400">
-                  +{a.dismissedRepos.length} decided
-                </span>
-              )}
-            </button>
-          </li>
+          <ListRow
+            key={a.code}
+            onPress={() => setDraft(draftFor(a, org, scopeLabel, rows.length))}
+            selected={draft?.findingId === findingId(a)}
+            title={a.label}
+            detail={<DocketDetail a={a} />}
+          />
         ))}
       </HairlineList>
       <CreateIssueModal draft={draft} onClose={() => setDraft(null)} />

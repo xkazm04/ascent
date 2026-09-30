@@ -1120,7 +1120,7 @@ as a fix; placeholder-scan repos are counted and labelled ("incl. N placeholder 
 contribute nothing. Clicking a row narrows the register to the repos carrying that condition, and a
 chip clears it. The register itself stays unranked: the plan ranks conditions, not repos.
 
-Prism composes this tab from the kit (`PassportsTab.v2.tsx` and the co-located `*.v2.tsx` files) when `data-theme="prism"`: Baseline, Clearance, Capabilities, and Doctor checks. Altimeter keeps the previous markup. On that composition a score is paper type, a status is a glyph plus a word, and an unknown measurement is a void mark rather than a zero. Quadrant captions on the portfolio chart are 13px sans.
+Prism composes this tab from the kit (`PassportsTab.v2.tsx` and the co-located `*.v2.tsx` files) when `data-theme="prism"`: Baseline, Clearance, Capabilities, and Doctor checks. Altimeter keeps the previous markup. On that composition a score is paper type, a status is a glyph plus a word, and an unknown measurement is a void mark rather than a zero. Quadrant captions on the portfolio chart are 13px sans. The clearance register and each repo's tier rail are `Ladder` steps (reached, current, open, or not measured), not a score-colored band. Capability and doctor-check cells are `CellMark`s in a table: a judged share stays a number, and a cell that was not judged says not measured. Docket rows are pressable `ListRow`s.
 
 Since 2026-09-24 a repo whose CI rung is **held** (workflow files not read in full, so its next
 condition is `ci-unassessable`) joins the not-assessable count too, stated apart from the tokenless
@@ -1142,7 +1142,7 @@ row shows the mark beside the repo name, `PassportScatter` draws the point with 
 **`not-judged` hatch** and adds a legend row only when the plot contains one, and `PassportCard`
 shows it on its provenance line via an optional `engine` prop. Since the /org redesign a placeholder
 scan is drawn as one state everywhere on the tab: the hatch on the scatter point, the hatched band or
-perimeter edge on the Clearance ladder, and the `StateSwatch` inside `PlaceholderMark` itself. `passportBlockerAgg.scopeCounts()` lets the docket
+perimeter edge on the Altimeter clearance ladder, and the `StateSwatch` inside `PlaceholderMark` itself. Prism says the same fact as "not measured" on the clearance Ladder and the per-repo tier rail. `passportBlockerAgg.scopeCounts()` lets the docket
 state its predicate — "N repos · of which M from placeholder scans", suffix omitted at M = 0.
 **Labelled, never excluded:** dropping a placeholder row would shrink a real fleet problem, which is
 the same defect the 0.4.0 decline work fixed once already.
@@ -1366,9 +1366,9 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/lib/report/validate.ts` | `parseScanReport()` trust-boundary validation. |
 | `src/lib/ui.ts` | Color/glyph/format helpers shared across the report. |
 | `src/components/org/viz/` | The shared `/org` visual kit — the six-state epistemic vocabulary (`states.ts`) plus `Legend`, `StateSwatch`, `WhyChip`, `MatrixGrid`, `BandLadder`, … Every Passports graphic imports it; none re-defines a hatch, a dash or a state label. |
-| `src/features/standing/passports/controls/controlMatrixViz.ts` | Doctor checks as repo × check-family `MatrixGrid` rows. A family with no judged clause returns `not-judged`, which cannot render a value. |
-| `src/features/standing/passports/capabilityViz.ts` | The declared × proven × enforced grid, one row per capability, over assessed repos only. |
-| `src/features/standing/passports/autonomy/clearanceLadder.ts` | The clearance perimeter: nested `BandLadder` bands per tier, with placeholder-scanned clearances on the edge. |
+| `src/features/standing/passports/controls/controlMatrixViz.ts` | Doctor checks as repo × check-family rows. A family with no judged clause returns `not-judged`, which cannot render a value. Altimeter draws them with `MatrixGrid`. Prism draws the same rows as `CellMark`s (`MarkGrid.v2.tsx`). |
+| `src/features/standing/passports/capabilityViz.ts` | The declared × proven × enforced grid, one row per capability, over assessed repos only. Prism renders it through `MarkGrid.v2`, not a heat fill. |
+| `src/features/standing/passports/autonomy/clearanceLadder.ts` | The clearance perimeter: nested `BandLadder` bands per tier, with placeholder-scanned clearances on the edge. Prism maps those bands through `clearanceSteps.ts` onto a `Ladder` (T0 to T3, plus the placeholder edge). |
 | `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. `getPublicOrgScorecard` returns a tagged `{ kind: "ok" \| "empty" \| "unavailable" }` so a failed or empty read cannot collapse into a 404. `avgOverall` / `avgAdoption` / `avgRigor` are `null` when `verifiedCount === 0` (not `0`). |
 | `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. A null register omits the ranking lede and names persistence-off / read-failure; mock-only empty-verified stays the preview branch; never prints `0 public repos rated`. |
 | `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row, a `rubric rNN` chip every stale-rubric one. |

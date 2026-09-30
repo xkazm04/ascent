@@ -2,9 +2,10 @@
 
 // Prism doctor checks. Same fetch and the same four states as ControlMatrixPanel. Failing is a
 // count in paper. An error is a mark plus the words, not an amber panel.
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
-import { Frame, Lede, SectionHead, StatStrip, StatTile } from "@/components/kit";
+import { WhyChip } from "@/components/org/viz";
+import { Caption, Frame, Lede, SectionHead, StatStrip, StatTile } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
+import { MarkGridV2 } from "../MarkGrid.v2";
 import { ControlMatrixGridV2 } from "./ControlMatrixGrid.v2";
 import { controlVizModel } from "./controlMatrixViz";
 import { useControlMatrix } from "./useControlMatrix";
@@ -55,8 +56,8 @@ export function ControlMatrixPanelV2({ org }: { org: string }) {
       {!loading && !error && rows && rows.length > 0 && (
         <>
           <Frame aria-label="Doctor checks by repository and check family">
-            <MatrixGrid axes={viz.axes} rows={viz.rows} title="Doctor checks by repository and check family" />
-            <Legend states={viz.states} className="mt-3" />
+            <MarkGridV2 axes={viz.axes} rows={viz.rows} subject="Repository" title="Doctor checks by repository and check family" />
+            <Caption className="mt-3">A number is the share of judged clauses that passed. Not measured was not judged, and it is not a zero.</Caption>
           </Frame>
           <StatStrip cols={3}>
             <StatTile label="Repos reporting" value={reporting.length} sub={`${rows.length} have reported at all`} />

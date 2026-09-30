@@ -1,7 +1,8 @@
 // One clearance in Prism: a repo row for the credential, then the conditions as facts.
 // Status is a glyph and a word. The progress figure stays paper. A missing issue date is a void.
-import { Chip, GhostAction, KeyValue, RepoRow, RepoRowCell, VoidMark, type KeyValueItem } from "@/components/kit";
+import { Chip, GhostAction, KeyValue, Ladder, RepoRow, RepoRowCell, VoidMark, type KeyValueItem } from "@/components/kit";
 import { reportPermalink, timeAgo } from "@/lib/ui";
+import { tierRailSteps } from "./clearanceSteps";
 import { TIER_META, type AutonomyGate, type GateStatus, type RepoAutonomy } from "./autonomyModel";
 
 const GLYPH: Record<GateStatus, string> = { pass: "✓", partial: "·", fail: "×" };
@@ -76,7 +77,10 @@ export function ClearanceEntryV2({ repo }: { repo: RepoAutonomy }) {
         actions={<GhostAction href={reportPermalink(repo.fullName)}>Report</GhostAction>}
       />
       <li className="py-4">
-        <KeyValue layout="stack" items={facts(repo)} />
+        <Ladder label={`Tier rail for ${repo.name}`} steps={tierRailSteps(repo.tier, repo.engine)} />
+        <div className="mt-4">
+          <KeyValue layout="stack" items={facts(repo)} />
+        </div>
       </li>
     </>
   );

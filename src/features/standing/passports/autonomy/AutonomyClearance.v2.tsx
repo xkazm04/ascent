@@ -1,11 +1,10 @@
 "use client";
 
-// Prism clearance register. The nested bands stay the fleet picture (no kit equivalent). Tier tiles
-// are a stat strip with no tier hue. Each repo is a RepoRow, not a tinted card.
-import { BandLadder, Legend } from "@/components/org/viz";
-import { Caption, Frame, GhostAction, HairlineList, Lede, SectionHead, StatStrip, StatTile } from "@/components/kit";
+// Prism clearance register. Tiers are a Ladder: glyph, word, lightness. No score hue.
+// Tier tiles are a stat strip. Each repo is a RepoRow, and its rail is the same Ladder.
+import { Caption, Frame, GhostAction, HairlineList, Ladder, Lede, SectionHead, StatStrip, StatTile } from "@/components/kit";
 import { TIERS, TIER_META, type RepoAutonomy } from "./autonomyModel";
-import { clearanceStates } from "./clearanceLadder";
+import { clearanceLadderSteps } from "./clearanceSteps";
 import { ClearanceEntryV2 } from "./ClearanceEntry.v2";
 import { PromotionPlanV2 } from "./PromotionPlan.v2";
 import { useClearanceRegister } from "./useClearanceRegister";
@@ -34,10 +33,14 @@ export function AutonomyClearanceV2({ repos }: { repos: RepoAutonomy[] }) {
   return (
     <div className="space-y-10">
       <Frame aria-label="Clearances held across the fleet">
-        <SectionHead eyebrow="Autonomy clearance" title="Clearance" named="register." lede="Outermost band is the most permissive clearance." />
-        <div className="mx-auto mt-6 max-w-md">
-          <BandLadder bands={bands} edge={edge} title="Clearances held across the fleet" />
-          <Legend states={clearanceStates(bands, edge)} className="mt-3 justify-center" />
+        <SectionHead
+          eyebrow="Autonomy clearance"
+          title="Clearance"
+          named="register."
+          lede="Left to right: observe-only through scheduled autonomy."
+        />
+        <div className="mt-6">
+          <Ladder label="Clearances held across the fleet" steps={clearanceLadderSteps(bands, edge)} />
         </div>
       </Frame>
 
