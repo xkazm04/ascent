@@ -1644,6 +1644,8 @@ and never a dollar figure, so a synced Copilot org can no longer read "$0.00 ove
 days". Before this the panel keyed on the literal `claude-code` id, so Copilot showed a green
 "Available" badge with nothing to click while its finished sync route had no caller.
 
+**Prism composition (2026-09-30).** With `data-theme="prism"` the tab is a kit composition (`IntegrationsView.v2`): a masthead, a spend ladder (an unknown reading stays "not measured", never a zero), and one hairline Frame per integration opened from a list row. The hash is `#gitlab`, `#claude-code`, `#copilot`, or `#openai`, and Esc or Back returns to the list. Connection status is the words "connected" and "not configured" with a glyph, never a status hue. Fidelity is a word on a `CellMark` (seats-only is unmeasured, not a failed allocated). Altimeter keeps the card stack. The routes, the ingest-token mask (both surfaces stay masked until Reveal, and Copy still copies the working token), and the rule that a secret is never echoed from the server are unchanged.
+
 **Available capabilities are stored facts, not a roadmap (2026-09-17).** Claude Code's catalog
 row lists only what Test + OTel metrics persist: per-repo tokens and cost via the
 `git.repository` resource attribute (`parseOtlpMetrics` → `AiUsageRecord` `scope=repo`).
