@@ -604,3 +604,12 @@ Live cockpit's computed-style contract for `roles-check.mjs`.
   Specimen: `/kit`, "Patterns". Altimeter is unaffected.
 - **Tables and dimension lines:** `DataTable` is a top/bottom hairline band with 15px rows, paper hover/selected states and
   sans tabular figures; dimension lines get a visible floor mark. Masthead page statement scales 2.625rem (3rem >= 1600px).
+
+## Form field, pressable row, ladder (2026-09-30)
+
+- `FormField` + `Input` / `Select` / `Textarea`: a labelled control with a hint or an error. An error is a glyph and a
+  word (`role="alert"`), never colour alone. Prism squares the control to 4px and lights the border on focus.
+- `ListRow` takes `onPress` (the whole row becomes a button, client callers only) and `selected` (the open row).
+- `Ladder` and `CellMark`: status without hue. Tiers, bands and matrix cells say reached / current / open / not
+  measured (or met / partial / missing / not measured) as a glyph, a word and a lightness; unknown is hatched.
+  Use these instead of colouring a measured cell by score. Specimen: `/kit`, "Batch 4".

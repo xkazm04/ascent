@@ -46,6 +46,8 @@ const ROW = "focus-ring group grid grid-cols-1 items-center gap-x-4 gap-y-1.5 ro
 
 export function ListRow({
   href,
+  onPress,
+  selected,
   leading,
   leadingTitle,
   title,
@@ -53,6 +55,10 @@ export function ListRow({
   trailing,
 }: {
   href?: string;
+  /** Makes the whole row a button (a row that opens a detail level in place). Ignored when `href` is set. A handler can only be passed from a client component. */
+  onPress?: () => void;
+  /** Marks the row as the open one (`aria-current`, `data-selected`). */
+  selected?: boolean;
   leading?: React.ReactNode;
   /** Tooltip explaining the leading mark (e.g. what the rank means). */
   leadingTitle?: string;
@@ -84,11 +90,15 @@ export function ListRow({
     </>
   );
   return (
-    <li data-kit="list-row" data-role="list-row">
+    <li data-kit="list-row" data-role="list-row" data-selected={selected ? "" : undefined}>
       {href ? (
-        <Link href={href} className={`${ROW} ${cols}`}>
+        <Link href={href} className={`${ROW} ${cols}`} aria-current={selected ? "true" : undefined}>
           {body}
         </Link>
+      ) : onPress ? (
+        <button type="button" onClick={onPress} aria-current={selected ? "true" : undefined} className={`${ROW} ${cols} w-full text-left`}>
+          {body}
+        </button>
       ) : (
         <div className={`${ROW} ${cols}`}>{body}</div>
       )}

@@ -542,3 +542,34 @@ html[data-theme="prism"] [data-role="delivery-v2"] :is(
     padding-right: 3.25rem;
   }
 }
+
+
+/* ── Form field, pressable list row, ladder and cell mark (kit parts, 2026-09-30) ─────────────── */
+html[data-theme="prism"] [data-kit="field-control"] {
+  border-radius: 0.25rem;
+  border-color: var(--hair-strong);
+  background-color: rgba(242, 238, 230, 0.03);
+  font-family: var(--font-sans);
+}
+html[data-theme="prism"] [data-kit="field-control"]:hover { border-color: var(--color-slate-500); }
+html[data-theme="prism"] [data-kit="field-control"]:focus-visible { border-color: var(--color-white); }
+html[data-theme="prism"] [data-kit="form-field"][data-invalid] [data-kit="field-control"] { border-color: var(--color-white); box-shadow: inset 2px 0 0 var(--color-white); }
+html[data-theme="prism"] [data-kit="list-row"][data-selected] { box-shadow: inset 2px 0 0 var(--color-white); background: rgba(242, 238, 230, 0.05); }
+html[data-theme="prism"] [data-kit="list-row"] button:hover [data-role="list-row-title"] { color: var(--color-white); }
+/* Ladder: lightness carries the state (paper reached, dashed current, hairline open, hatched unmeasured). */
+[data-kit="ladder"] [data-state="reached"] { border-top-color: var(--color-white); }
+[data-kit="ladder"] [data-state="current"] { border-top-color: var(--color-slate-300); }
+html[data-theme="prism"] [data-kit="ladder"] [data-role="ladder-step"] { border-top-color: var(--hair-strong); }
+html[data-theme="prism"] [data-kit="ladder"] [data-state="reached"] { border-top-color: var(--color-white); }
+html[data-theme="prism"] [data-kit="ladder"] [data-state="current"] { border-top-style: dashed; border-top-color: var(--color-white); background: rgba(242, 238, 230, 0.04); }
+html[data-theme="prism"] [data-kit="ladder"] [data-state="open"] { border-top-color: var(--hair); }
+html[data-theme="prism"] [data-kit="ladder"] [data-state="unmeasured"] {
+  border-top-color: var(--hair);
+  background-image: repeating-linear-gradient(135deg, rgba(242, 238, 230, 0.06) 0 1px, transparent 1px 9px);
+}
+html[data-theme="prism"] [data-kit="cell-mark"][data-state="met"] { color: var(--color-white); }
+html[data-theme="prism"] [data-kit="cell-mark"][data-state="partial"] { color: var(--color-slate-300); }
+html[data-theme="prism"] [data-kit="cell-mark"][data-state="missing"] { color: var(--color-slate-400); text-decoration: line-through; text-decoration-color: var(--hair-strong); }
+html[data-theme="prism"] [data-kit="cell-mark"][data-state="unmeasured"] { color: var(--color-slate-500); font-style: italic; }
+html[data-theme="prism"] [data-kit="row-list"] > [data-kit="list-row"] > :is(button, a, div) { padding-inline: 0.75rem; padding-block: 0.5rem; }
+html[data-theme="prism"] [data-kit="row-list"] > [data-kit="list-row"][data-selected] { box-shadow: inset 2px 0 0 var(--color-white); }
