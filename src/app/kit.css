@@ -83,12 +83,36 @@ html[data-theme="prism"] [data-kit="list-row"] [data-role="list-row-mark"] {
   border-color: color-mix(in srgb, var(--color-white) 30%, transparent);
 }
 
-/* Data table — a hairline frame with the head as a quiet plate. */
+/* Data table — top and bottom hairlines, not a card (D5); the 15px row role; a quiet ruled head; paper (never a
+   hue) for hover and selection; figures in sans tabular numerals (mono is for evidence). Design review 2026-09-30. */
 html[data-theme="prism"] [data-kit="data-table"] {
-  border-radius: 0.5rem;
+  border-radius: 0;
+  border-width: 1px 0;
+  border-top-color: var(--hair-strong);
+  border-bottom-color: var(--hair);
 }
+html[data-theme="prism"] [data-kit="data-table"] table { font-size: 0.9375rem; line-height: 1.4; }
 html[data-theme="prism"] [data-kit="data-table"] [data-role="data-table-head"] {
-  background-color: color-mix(in srgb, var(--color-surface-strong) 80%, transparent);
+  background-color: transparent;
+}
+html[data-theme="prism"] [data-kit="data-table"] thead th {
+  padding: 0.5rem 1rem 0.625rem;
+  vertical-align: bottom;
+  border-bottom: 1px solid var(--hair-strong);
+}
+html[data-theme="prism"] [data-kit="data-table"] tbody td { padding-block: 0.625rem; }
+html[data-theme="prism"] [data-kit="data-table"] tbody tr:hover,
+html[data-theme="prism"] [data-kit="data-table"] tbody tr:focus-within {
+  background: rgba(242, 238, 230, 0.035);
+  box-shadow: inset 2px 0 0 var(--hair-strong);
+}
+html[data-theme="prism"] [data-kit="data-table"] tbody tr:is([aria-selected="true"], [data-selected]) {
+  background: rgba(242, 238, 230, 0.06);
+  box-shadow: inset 2px 0 0 var(--color-white);
+}
+html[data-theme="prism"] [data-kit="data-table"] .tabular-nums {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 /* Chips — square-cornered like the winner's controls; a dimension chip takes that dimension's hue. */
@@ -148,7 +172,10 @@ html[data-theme="prism"] [data-kit="display"] b {
   font-weight: 600;
 }
 html[data-theme="prism"] [data-kit="display"][data-level="page"] {
-  font-size: 2.25rem; line-height: 1.05; font-weight: 300; letter-spacing: -0.03em;
+  font-size: 2.625rem; line-height: 1.02; font-weight: 300; letter-spacing: -0.035em;
+}
+@media (min-width: 1600px) {
+  html[data-theme="prism"] [data-kit="display"][data-level="page"] { font-size: 3rem; }
 }
 html[data-theme="prism"] [data-kit="display"][data-level="section"] {
   font-size: 1.5rem; line-height: 1.15; font-weight: 300; letter-spacing: -0.02em;
@@ -251,14 +278,24 @@ html[data-theme="prism"] [data-kit="dimension-line"][data-selected] [data-role="
   box-shadow: 0 0 12px currentColor;
 }
 html[data-theme="prism"] [data-kit="dimension-line"] [data-role="dimension-track"] { background: rgba(242, 238, 230, 0.08); }
+/* Design review 2026-09-30: a visible floor, bars at rest a step quieter than a hovered/selected one, and the
+   value as a sans figure in paper. */
+html[data-theme="prism"] [data-kit="dimension-line"] [data-role="dimension-floor"] {
+  width: 2px; top: -3px; bottom: -3px; background: rgba(242, 238, 230, 0.72);
+}
+html[data-theme="prism"] [data-kit="dimension-line"] [data-role="dimension-bar"] { opacity: 0.78; }
+html[data-theme="prism"] [data-kit="dimension-line"]:is(:hover, :focus-within, [data-selected]) [data-role="dimension-bar"] { opacity: 1; }
+html[data-theme="prism"] [data-kit="dimension-line"] [data-role="dimension-value"] {
+  font-family: var(--font-sans); color: var(--color-white); min-width: 3ch; justify-content: flex-end;
+}
 
 /* Evidence panel: hue border at 45%, hue glow at 15%, code well darker than the panel. */
-[data-kit="evidence-panel"] { border-color: color-mix(in srgb, var(--c) 45%, transparent); }
+html[data-theme="prism"] [data-kit="evidence-panel"] { border-color: color-mix(in srgb, var(--c) 45%, transparent); }
 html[data-theme="prism"] [data-kit="evidence-panel"] {
   background: rgba(8, 9, 15, 0.86);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), 0 0 60px color-mix(in srgb, var(--c) 15%, transparent);
 }
-[data-kit="evidence-panel"] [data-role="evidence-code"] {
+html[data-theme="prism"] [data-kit="evidence-panel"] [data-role="evidence-code"] {
   background: #04050a;
   border-left: 2px solid var(--c);
 }
@@ -280,4 +317,60 @@ html[data-theme="prism"] [data-role="toolbar-readout"] {
   text-transform: none;
   letter-spacing: 0.02em;
   font-size: 0.875rem;
+}
+
+
+/* ── Background patterns (Prism) ─────────────────────────────────────────────────────────────────
+   `data-pattern="<name>"` on any kit part (Frame, Panel, Masthead via their `pattern` prop, or a plain
+   element). All are quiet (<= 7% paper), sit UNDER content, and each has a meaning so it never merely
+   decorates:
+     grid      measured space: a chart or table shell that has axes (32px ruler)
+     dots      a working surface that is not a measurement (settings, lists), 20px stipple
+     hatch     NOT MEASURED / unknown / stale: the honesty pattern, diagonal 45 degrees
+     spectral  the nine dimension columns of the brand mark under a 2px spectrum rule: a dominant section
+   Only background-image is touched, so a part's own fill and hairlines stay as they are. */
+html[data-theme="prism"] [data-pattern="grid"] {
+  background-image:
+    linear-gradient(to right, rgba(242, 238, 230, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(242, 238, 230, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+html[data-theme="prism"] [data-pattern="dots"] {
+  background-image: radial-gradient(rgba(242, 238, 230, 0.09) 1px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+html[data-theme="prism"] [data-pattern="hatch"] {
+  background-image: repeating-linear-gradient(135deg, rgba(242, 238, 230, 0.06) 0 1px, transparent 1px 9px);
+}
+html[data-theme="prism"] [data-pattern="spectral"] {
+  background-image:
+    repeating-linear-gradient(90deg, transparent 0 calc(11.11% - 1px), rgba(242, 238, 230, 0.05) calc(11.11% - 1px) 11.11%),
+    linear-gradient(90deg, var(--spec-1), var(--spec-2), var(--spec-3), var(--spec-4), var(--spec-5), var(--spec-6), var(--spec-7), var(--spec-8), var(--spec-9));
+  background-size: 100% 100%, 100% 2px;
+  background-repeat: no-repeat, no-repeat;
+  background-position: 0 0, 0 0;
+}
+@media print { html[data-theme="prism"] [data-pattern] { background-image: none; } }
+
+
+/* Masthead figures as a ruled readout, and the stat strip as hairline columns rather than a boxed grid. */
+html[data-theme="prism"] [data-role="masthead-figure"] + [data-role="masthead-figure"] {
+  border-left: 1px solid var(--hair);
+  padding-left: 1.5rem;
+}
+html[data-theme="prism"] [data-kit="stat-strip"] { border-radius: 0; border-color: var(--hair); background-color: var(--hair); }
+
+
+/* ── Extracted parts (2026-09-30): one Prism expression reaches every call site ───────────────── */
+html[data-theme="prism"] [data-kit="movement"] { font-family: var(--font-sans); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+html[data-theme="prism"] [data-kit="void-mark"] { color: var(--color-slate-500); }
+html[data-theme="prism"] [data-kit="void-mark"] svg { opacity: 0.9; }
+html[data-theme="prism"] [data-kit="hairline-list"] > * { border-color: var(--hair); }
+html[data-theme="prism"] [data-kit="hairline-grid"] { background-color: var(--hair); border-color: var(--hair); border-radius: 0; }
+html[data-theme="prism"] [data-kit="filter-menu"] button[aria-haspopup] { border-radius: 0.25rem; border-color: var(--hair-strong); }
+html[data-theme="prism"] [data-kit="filter-menu"] [data-role="filter-menu-popup"] {
+  border-radius: 0.375rem;
+  border-color: var(--hair-strong);
+  background: color-mix(in srgb, var(--color-surface-strong) 96%, transparent);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
 }

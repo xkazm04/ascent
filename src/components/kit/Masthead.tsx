@@ -3,6 +3,7 @@
 // dashboard form of the landing's stage headline: the surface's answer in display type first, the evidence in
 // smaller figures beside it. Server-safe. A figure the surface did not measure passes its own caveat in `detail`.
 import type { ReactNode } from "react";
+import type { KitPattern } from "./Frame";
 import { Caption, Display, Eyebrow, Lede } from "./Type";
 
 export interface MastheadFigure {
@@ -23,6 +24,7 @@ export function Masthead({
   lede,
   figures = [],
   aside,
+  pattern,
   className = "",
 }: {
   eyebrow?: ReactNode;
@@ -31,10 +33,12 @@ export function Masthead({
   lede?: ReactNode;
   figures?: MastheadFigure[];
   aside?: ReactNode;
+  /** Prism background pattern (`spectral` suits a masthead); no effect in Altimeter. */
+  pattern?: KitPattern;
   className?: string;
 }) {
   return (
-    <header data-kit="masthead" data-role="masthead" className={className}>
+    <header data-kit="masthead" data-role="masthead" data-pattern={pattern} className={className}>
       {eyebrow && <Eyebrow className="mb-3">{eyebrow}</Eyebrow>}
       <Display as="h1" level="page" named={named}>
         {statement}

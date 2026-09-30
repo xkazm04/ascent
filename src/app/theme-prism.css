@@ -19,7 +19,7 @@ html[data-theme="prism"] {
   --color-surface: #151823;
   --color-surface-strong: #0a0c13;
   --color-divider: #262a37;
-  --color-tone-flat: #a6abbd;
+  --color-tone-flat: #b7bbcc;
 
   --color-white: #f2eee6;
 
@@ -27,6 +27,10 @@ html[data-theme="prism"] {
   --font-sans: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
   --font-display: "Segoe UI Variable Display", "Segoe UI", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
+  /* the smallest permitted size rises 12 -> 13px in Prism: a 12px mono/sans caption on void was the
+     "not readable" complaint (2026-09-30), and the muted ramp above is lifted to >= 5.9:1 on graphite */
+  --text-micro: 0.8125rem;
+  --text-micro--line-height: 1.125rem;
   --hair: rgba(242, 238, 230, 0.13);
   --hair-strong: rgba(242, 238, 230, 0.32);
   --ease-prism: cubic-bezier(0.2, 0.7, 0.1, 1);
@@ -34,9 +38,9 @@ html[data-theme="prism"] {
   --color-slate-100: #ebe7df;
   --color-slate-200: #dcd9d3;
   --color-slate-300: #c3c4cb;
-  --color-slate-400: #a6abbd;
-  --color-slate-500: #8b90a4;
-  --color-slate-600: #7d8296;
+  --color-slate-400: #b7bbcc;
+  --color-slate-500: #a1a6ba;
+  --color-slate-600: #9196ab;
   --color-slate-700: #3a3e50;
   --color-slate-800: #262a37;
   --color-slate-900: #151823;
@@ -76,3 +80,28 @@ html[data-theme="prism"] a.bg-accent::after {
   border-radius: 0 0 3px 3px;
   pointer-events: none;
 }
+
+/* Muted text that is also faded (`text-slate-* opacity-40/50/60`, 90+ call sites) multiplies two
+   dimmings: the fade wins and the text lands under 3:1. In Prism a static fade on a slate text
+   element is floored at 0.85; disabled controls and state variants (hover:/group-hover:) keep theirs. */
+html[data-theme="prism"] :is([class*="text-slate-"]):is([class~="opacity-40"], [class~="opacity-50"], [class~="opacity-60"], [class~="opacity-70"]):not(:disabled, [aria-disabled="true"]) {
+  opacity: 0.85;
+}
+
+/* Page ground: a 48px hairline grid at 2.5% paper, fading out toward the bottom of the first screen
+   and a whisper of the spectrum at the very top. Structure, not decoration: it gives dense tables and
+   charts a ruler to sit on and costs nothing where the page is quiet. */
+html[data-theme="prism"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(242, 238, 230, 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(242, 238, 230, 0.028) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 70%);
+  mask-image: linear-gradient(180deg, #000 0%, transparent 70%);
+}
+@media print { html[data-theme="prism"] body::after { display: none; } }

@@ -22,7 +22,7 @@ export { DataTable, CELL, CELL_NUM, HEAD_CELL } from "./DataTable";
 export { Display, Eyebrow, Lede, Caption, MonoPath } from "./Type";
 export type { DisplayLevel } from "./Type";
 export { Frame } from "./Frame";
-export type { FrameEdge } from "./Frame";
+export type { FrameEdge, KitPattern } from "./Frame";
 export { SectionHead } from "./SectionHead";
 export { LevelNav } from "./LevelNav";
 export type { Crumb, LevelLink } from "./LevelNav";

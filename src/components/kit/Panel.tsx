@@ -3,6 +3,7 @@
 // (Fix first, callouts). Composes the brand Surface so the two can never drift; adds the data-kit hook
 // the Prism stylesheet (src/app/kit.css) styles.
 import { Surface } from "@/components/ui/Surface";
+import type { KitPattern } from "./Frame";
 
 export type PanelPad = "none" | "sm" | "md";
 const PAD: Record<PanelPad, string> = { none: "", sm: "p-5", md: "p-6" };
@@ -13,6 +14,7 @@ export function Panel({
   tone = "base",
   radius = "2xl",
   className = "",
+  pattern,
   id,
   role,
   "aria-label": ariaLabel,
@@ -26,6 +28,8 @@ export function Panel({
   /** `2xl` (default) or `xl` for the tighter in-band panels. */
   radius?: "xl" | "2xl";
   className?: string;
+  /** Prism background pattern; no effect in Altimeter. */
+  pattern?: KitPattern;
   id?: string;
   role?: React.AriaRole;
   "aria-label"?: string;
@@ -41,6 +45,7 @@ export function Panel({
         data-kit="panel"
         data-tone="accent"
         data-role="panel"
+        data-pattern={pattern}
         className={`${radius === "xl" ? "rounded-xl" : "rounded-2xl"} border border-accent/25 bg-accent/[0.04] ${PAD[pad]} ${className}`}
       >
         {children}
@@ -58,6 +63,7 @@ export function Panel({
       data-kit="panel"
       data-tone={tone}
       data-role="panel"
+      data-pattern={pattern}
       className={`${PAD[pad]} ${className}`}
     >
       {children}

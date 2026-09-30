@@ -73,6 +73,15 @@ export function KitV2() {
         <SpectralRule thickness={3} />
         <SpectralRule thickness={2} dimensions={[3, 5, 7]} />
       </Row>
+      <Row name="Patterns" note="Quiet background textures, each with a meaning: grid = measured, dots = working surface, hatch = not measured, spectral = dominant section.">
+        <div className="grid gap-3 sm:grid-cols-4">
+          {(["grid", "dots", "hatch", "spectral"] as const).map((p) => (
+            <Frame key={p} edge="both" pad="lg" pattern={p}>
+              <Caption>{p}</Caption>
+            </Frame>
+          ))}
+        </div>
+      </Row>
       <Row name="DimensionLine" note="Width is the value; hue names the dimension; unmeasured is an empty track; invented values carry a tag.">
         <div>
           <DimensionLine dimension={1} label="AI Tooling & Conventions" value={0.15} display="15%" />

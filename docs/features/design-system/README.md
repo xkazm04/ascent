@@ -571,3 +571,14 @@ the URL hash (`#outcome`; the browser Back button closes it, a deep link opens i
 `LevelNav`'s `back`/`prev`/`next` accept `onClick` instead of `href` for a level on the same page (a button
 never scrolls). `scripts/kit/drive-live-v2.mjs` drives the level chrome; `scripts/kit/roles/live.json` is the
 Live cockpit's computed-style contract for `roles-check.mjs`.
+
+
+## Prism readability and patterns (2026-09-30)
+
+- **Muted text:** in Prism the slate 400/500/600 ramp is lifted (>= 6.0:1 on graphite), `type-micro` is 13px, and a
+  static `opacity-40..70` on a `text-slate-*` element is floored at 0.85 so a fade never stacks on a mute.
+- **Background patterns:** a faint 48px page grid, and `data-pattern` = `grid | dots | hatch | spectral` on any kit part
+  (`pattern` prop on `Frame`, `Panel`, `Masthead`). `hatch` means not measured; `spectral` marks a dominant section.
+  Specimen: `/kit`, "Patterns". Altimeter is unaffected.
+- **Tables and dimension lines:** `DataTable` is a top/bottom hairline band with 15px rows, paper hover/selected states and
+  sans tabular figures; dimension lines get a visible floor mark. Masthead page statement scales 2.625rem (3rem >= 1600px).
