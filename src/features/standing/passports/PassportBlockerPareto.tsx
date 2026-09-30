@@ -29,42 +29,16 @@ import { Legend, WhyChip, type LegendExtra } from "@/components/org/viz";
 import { PassportBlockerShell } from "@/features/standing/passports/PassportBlockerShell";
 import { PLACEHOLDER_LABEL, PLACEHOLDER_TITLE } from "@/features/standing/passports/PlaceholderMark";
 import { CreateIssueModal, type IssueDraft } from "@/components/github/CreateIssueModal";
-import { AXIS_TONE, aggregateBlockers, scopeCounts, type Agg } from "@/features/standing/passports/passportBlockerAgg";
+import { AXIS_TONE, aggregateBlockers, scopeCounts } from "@/features/standing/passports/passportBlockerAgg";
 import type { PassportRow } from "@/features/standing/passports/PassportTable";
 import type { DecisionMap } from "@/lib/org/decision-map";
-import { reportPermalink } from "@/lib/ui";
+import { draftFor } from "./blockerDraft";
 
 // Mark budget per row, split across the two populations so a long open run cannot crowd the declined
 // marks off the row entirely (they are the smaller, more easily lost population, and they are the
 // point of this change). Overflow is implicit: the numeric counts beside the marks are always exact.
 const MAX_MARKS = 20;
 const MAX_DECLINED_MARKS = 8;
-
-/** The blocker → issue-draft translation: shared title/body, one target per affected repo with its
- *  report permalink as the per-repo footer. Links are absolute (issue bodies live on github.com). */
-function draftFor(a: Agg, org: string, scopeLabel: string, inView: number): IssueDraft {
-  const origin = window.location.origin;
-  return {
-    title: a.label.replace(/\.$/, ""),
-    // The finding id the issue route dedupes on (an open issue carrying this marker is relinked, not
-    // re-filed). `code` is the minted cause code on a 0.4.0 passport, or the normalized sentence on an
-    // older row - either is stable across rewordings, which is what a dedupe key needs.
-    findingId: `${a.axis === "automation" ? "auto" : "prod"}.${a.code}`,
-    context: `${a.axis} blocker · ${a.repos.length}/${inView} repos in view`,
-    body: [
-      `Ascent flagged a **${a.axis} readiness** blocker on this repository:`,
-      ``,
-      `> ${a.label}`,
-      ``,
-      `It affects ${a.repos.length} of the ${inView} repos in the "${scopeLabel}" view of the [${org} fleet passports](${origin}/org/${org}/passports).`,
-    ].join("\n"),
-    targets: a.repos.map((r) => ({
-      name: r.name,
-      fullName: r.fullName,
-      footer: `Ascent report for this repo: ${origin}${reportPermalink(r.fullName)}`,
-    })),
-  };
-}
 
 /** The docket's own marks at legend scale — the identical spans a row paints, so the legend cannot
  *  describe a mark the rows draw differently. Neutral-toned: a row's hairline carries its axis. */
@@ -98,7 +72,7 @@ const MARK_LEGEND = (anyDeclined: boolean, anyDismissed: boolean): LegendExtra[]
 ];
 
 /** The ranking basis, disclosed rather than asserted — it used to live only in a code comment. */
-const RANK_HINT =
+export const RANK_HINT =
   "Ranked by how many repositories each blocker affects (open, accepted or decided), so a gap every team has accepted keeps its true size. Somewhere to look next, not an order.";
 
 type ParetoProps = { rows: PassportRow[]; scopeLabel: string; org: string; max?: number; decisions?: DecisionMap };

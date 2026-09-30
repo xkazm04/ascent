@@ -16,6 +16,7 @@ vi.mock("@/lib/db", () => ({ getOrgRollup: (...a: unknown[]) => getOrgRollup(...
 vi.mock("@/lib/org/decision-map", () => ({ decisionMap: async () => ({}) }));
 vi.mock("@/lib/org/scope", () => ({ resolveOrgScope: async () => ({ segments: [], segmentId: null, techGroupId: null }) }));
 vi.mock("@/lib/org/passport-display", () => ({ passportStackChips: () => [] }));
+vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 vi.mock("./autonomy/autonomyModel", () => ({ deriveAutonomy: () => ({}) }));
 vi.mock("./PassportsSwitcher", () => ({ PassportsSwitcher: () => null }));
 

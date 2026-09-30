@@ -13,23 +13,25 @@
 //     props since it is no longer a route.
 //   - Its old route (src/app/org/[slug]/passports/page.tsx) is now a redirect().
 
-import { ExportCsvLink, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { ExportCsvLink } from "@/components/org/shared/ui";
 import { SegmentSelector } from "@/components/org/shared/SegmentSelector";
-import { PassportsSwitcher } from "./PassportsSwitcher";
 import { deriveAutonomy, type RepoAutonomy } from "./autonomy/autonomyModel";
 import { isPlaceholderEngine } from "./PlaceholderMark";
 import type { PassportRow } from "./PassportTable";
+import { passportsV1 } from "./PassportsTab.v1";
+import type { PassportsData } from "./passportData";
 import { getOrgRollup } from "@/lib/db";
 import { getFoundationRollout } from "@/lib/db/org-foundation";
 import { decisionMap } from "@/lib/org/decision-map";
 import { passportStackChips } from "@/lib/org/passport-display";
 import { resolveOrgScope } from "@/lib/org/scope";
+import { getTheme } from "@/lib/theme/server";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
 export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   const { segments, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
-  const [rollup, decisions, rollout] = await Promise.all([
+  const [rollup, decisions, rollout, theme] = await Promise.all([
     getOrgRollup(slug, undefined, segmentId, techGroupId),
     decisionMap(slug, "passports"),
     // Spec #35 handoff 2's promised report-back column (UAT `PRIYA-L1-05`). `getFoundationRollout`
@@ -37,6 +39,7 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
     // "where is the standard in and not in?" — was answered across three tabs with no cross-link and
     // the join living in her head. Read in the same parallel batch; it adds no round-trip depth.
     getFoundationRollout(slug),
+    getTheme(),
   ]);
 
   const withPassport = (rollup?.repos ?? []).filter((r) => r.passport);
@@ -118,23 +121,23 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
   // here would silently shrink the fleet to the subset that happens to look good.
   const capabilities = (rollup?.repos ?? []).map((r) => ({ fullName: r.fullName, name: r.name, manifest: r.manifest }));
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SectionHeader title="Readiness passports" />
-        <div className="flex flex-wrap items-center gap-2">
-          {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
-          {rows.length > 0 && <ExportCsvLink org={slug} kind="passports" segmentId={segmentId} className="shrink-0" />}
-        </div>
-      </div>
-
-      {rows.length === 0 ? (
-        <SectionEmpty>
-          No passports yet for this view. Passports are produced by scans, so scan some of this org&apos;s repositories (or widen the segment filter), and each scan adds its repo here.
-        </SectionEmpty>
-      ) : (
-        <PassportsSwitcher rows={rows} autonomy={autonomy} capabilities={capabilities} rollout={rollout} org={slug} decisions={decisions} />
-      )}
-    </div>
-  );
+  const data: PassportsData = {
+    slug,
+    rows,
+    autonomy,
+    capabilities,
+    rollout,
+    decisions,
+    scope: (
+      <>
+        {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
+        {rows.length > 0 && <ExportCsvLink org={slug} kind="passports" segmentId={segmentId} className="shrink-0" />}
+      </>
+    ),
+  };
+  if (theme === "prism") {
+    const { passportsV2 } = await import("./PassportsTab.v2");
+    return passportsV2(data);
+  }
+  return passportsV1(data);
 }

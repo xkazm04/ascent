@@ -14,21 +14,26 @@ const TONE: Record<string, { className: string; mark: string; word: string }> = 
   unchecked: { className: "border-b border-dashed border-slate-600 text-slate-500", mark: "—", word: "not judged" },
 };
 
+/** Spoken title for one cell. Shared so the Prism cell says the same sentence as this one. */
+export function controlCellTitle(label: string, cell: ControlCellState | null): string {
+  const tone = TONE[cell?.level ?? "unchecked"]!;
+  const since = sinceLabel(cell?.since ?? null);
+  if (!cell) return `${label}: this repository's last doctor run did not report this clause`;
+  return [
+    `${label}: ${tone.word}${cell.count > 1 ? ` (worst of ${cell.count} checks)` : ""}`,
+    cell.level === "unchecked" ? "this run did not judge this clause" : null,
+    since ? `since ${since}` : "since: unknown in the visible window",
+    cell.message || null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function ControlCell({ label, cell }: { label: string; cell: ControlCellState | null }) {
   // No cell at all = this repo's latest run never reported the clause. Same rendering as `unchecked`
   // on purpose: both mean "we have no result", and only one of them is a claim about the repo.
   const tone = TONE[cell?.level ?? "unchecked"]!;
-  const since = sinceLabel(cell?.since ?? null);
-  const title = !cell
-    ? `${label}: this repository's last doctor run did not report this clause`
-    : [
-        `${label}: ${tone.word}${cell.count > 1 ? ` (worst of ${cell.count} checks)` : ""}`,
-        cell.level === "unchecked" ? "this run did not judge this clause" : null,
-        since ? `since ${since}` : "since: unknown in the visible window",
-        cell.message || null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
+  const title = controlCellTitle(label, cell);
 
   return (
     <td className="px-3 py-2 text-center">

@@ -7,7 +7,6 @@
 // blockers and observed facts behind the numbers, so the next step is always one click away. Reuses the
 // OrgTable chrome; rows are plain serializable data passed from the server page.
 
-import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { OrgTable } from "@/components/org/shared/ui";
 import {
@@ -24,9 +23,9 @@ import { PassportRowDetail, type PassportDetail } from "@/features/standing/pass
 import { PassportTableHead } from "@/features/standing/passports/PassportTableHead";
 import { PlaceholderMark } from "@/features/standing/passports/PlaceholderMark";
 import type { PassportOwnerSet } from "@/features/standing/passports/OwnerSetCue";
-import { compareRows, type SortKey, type ThSort } from "@/features/standing/passports/passportTableSort";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import { scoreHex } from "@/lib/ui";
+import { usePassportTable } from "./usePassportTable";
 
 export interface PassportRow {
   fullName: string;
@@ -60,35 +59,7 @@ export function PassportTable({
   org: string;
   decisions: DecisionMap;
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("prodScore");
-  const [dir, setDir] = useState<"asc" | "desc">("desc");
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
-
-  // A scatter point click focuses its repo here: expand the row and bring it into view. `focus` is a
-  // fresh object per click, so re-clicking the same point re-scrolls.
-  useEffect(() => {
-    if (!focus) return;
-    // Respond to an external scatter-point focus by expanding that row and scrolling it into view —
-    // both are deliberate DOM-sync side-effects that belong in an effect.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setExpanded(focus.fullName);
-    rowRefs.current[focus.fullName]?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [focus]);
-
-  const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => compareRows(a, b, sortKey, dir));
-  }, [rows, sortKey, dir]);
-
-  function toggle(key: SortKey) {
-    if (key === sortKey) setDir((d) => (d === "asc" ? "desc" : "asc"));
-    else {
-      setSortKey(key);
-      setDir(key === "name" ? "asc" : "desc");
-    }
-  }
-
-  const sort: ThSort = { key: sortKey, dir, onSort: toggle };
+  const { sorted, sort, expanded, setExpanded, rowRefs } = usePassportTable(rows, focus);
 
   return (
     <OrgTable

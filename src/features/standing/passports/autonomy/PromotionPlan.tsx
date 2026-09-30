@@ -19,7 +19,7 @@ export interface PlanSelection {
 }
 
 /** The ranking basis, disclosed rather than asserted. */
-const RANK_HINT =
+export const RANK_HINT =
   "Alone: repos this condition is the last thing holding back, so fixing it promotes them. Carry it: repos that have it at all. Ties are ordered by condition, never by chance.";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

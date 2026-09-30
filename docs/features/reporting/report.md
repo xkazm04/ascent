@@ -1120,6 +1120,8 @@ as a fix; placeholder-scan repos are counted and labelled ("incl. N placeholder 
 contribute nothing. Clicking a row narrows the register to the repos carrying that condition, and a
 chip clears it. The register itself stays unranked: the plan ranks conditions, not repos.
 
+Prism composes this tab from the kit (`PassportsTab.v2.tsx` and the co-located `*.v2.tsx` files) when `data-theme="prism"`: Baseline, Clearance, Capabilities, and Doctor checks. Altimeter keeps the previous markup. On that composition a score is paper type, a status is a glyph plus a word, and an unknown measurement is a void mark rather than a zero. Quadrant captions on the portfolio chart are 13px sans.
+
 Since 2026-09-24 a repo whose CI rung is **held** (workflow files not read in full, so its next
 condition is `ci-unassessable`) joins the not-assessable count too, stated apart from the tokenless
 ones ("CI workflow files were not read in full"), and is never ranked on any row.

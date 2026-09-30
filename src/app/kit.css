@@ -412,3 +412,65 @@ html[data-theme="prism"] [data-role="settings-v2"] [data-kit="setting-row"] { pa
 html[data-theme="prism"] [data-role="matrix-cell"] [data-role="matrix-bar"] { opacity: 0; transition: opacity 0.25s var(--ease-prism); }
 html[data-theme="prism"] td[data-sorted] [data-role="matrix-bar"],
 html[data-theme="prism"] [data-role="matrix-cell"]:is(:hover, :focus-visible) [data-role="matrix-bar"] { opacity: 1; }
+
+/* ── Governance tab (kit-4, 2026-09-30): islands the v2 frames still host (policy sub-forms, stance
+   editor, verify button). Radius stays within 4px; muted meaning text stays at slate-400, not 600. ── */
+html[data-theme="prism"] [data-role="governance-v2"] .text-slate-600 {
+  color: var(--color-slate-400);
+}
+html[data-theme="prism"] [data-role="governance-v2"] :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md):not([data-kit]) {
+  border-radius: 4px;
+}
+html[data-theme="prism"] [data-role="governance-v2"] :is(input, select, textarea) {
+  border-radius: 3px;
+  border-color: var(--hair-strong);
+}
+/* Islands still written with mono caps and status-hue text (policy sub-forms, stance editor, verify).
+   Sentence case, and status stays in the words: the colour classes no longer paint the value. */
+html[data-theme="prism"] [data-role="governance-v2"] .uppercase {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+}
+html[data-theme="prism"] [data-role="governance-v2"] :is(
+  .text-emerald-300, .text-emerald-400, .text-red-400, .text-orange-300, .text-orange-400, .text-amber-200, .text-amber-400, .text-danger
+) {
+  color: var(--color-slate-200);
+}
+
+/* ── Passports (kit-4): quadrant-chart labels are 13px sans in Prism.
+   SVG text sits outside .type-label, so the theme-wide eyebrow rule never reaches it.
+   The rest is scoped to this tab: sentence-case stat labels, readable mute, radius within 4px,
+   and a pressed tier tile marked by lightness rather than a status hue. ── */
+html[data-theme="prism"] [data-role="passport-scatter"] text {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  fill: var(--color-slate-400);
+}
+html[data-theme="prism"] [data-role="passports-v2"] .uppercase {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+}
+html[data-theme="prism"] [data-role="passports-v2"] .text-slate-600 {
+  color: var(--color-slate-400);
+}
+html[data-theme="prism"] [data-role="passports-v2"] :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md):not([data-kit]) {
+  border-radius: 4px;
+}
+html[data-theme="prism"] [data-role="passports-v2"] button[aria-pressed="true"] [data-kit="stat-tile"] {
+  background-color: #0f172a;
+  box-shadow: inset 2px 0 0 var(--color-slate-300);
+}
+
+/* ── Governance tab (kit-4), narrow masthead: at 1280 the scope chips and the brief button share the
+   figure row and slide under the shell's guided-setup tab. Their own row stays inside the content width. ── */
+@media (max-width: 1360px) {
+  html[data-theme="prism"] [data-role="governance-v2"] [data-role="masthead-aside"] {
+    flex-basis: 100%;
+    margin-left: 0;
+    /* The shell's guided-setup tab is fixed on the viewport edge and covers this row at 1280. */
+    padding-right: 3.25rem;
+  }
+}

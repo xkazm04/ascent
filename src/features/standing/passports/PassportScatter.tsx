@@ -23,6 +23,7 @@ import {
 } from "@/lib/org/passport-display";
 import { Legend, VizDefs, stateFill, stateStroke, stateTitle, type LegendExtra } from "@/components/org/viz";
 import { PLACEHOLDER_LABEL } from "@/features/standing/passports/PlaceholderMark";
+import { PAPER_LEGEND, PaperPoint } from "./PassportScatterPaper";
 
 export interface ScatterPoint {
   name: string;
@@ -57,6 +58,7 @@ export function PassportScatter({
   active = null,
   onCohort,
   onPoint,
+  marks = "band",
 }: {
   points: ScatterPoint[];
   /** The active cohort filter — its quadrant is highlighted (null / "no-obs" highlight nothing). */
@@ -65,7 +67,10 @@ export function PassportScatter({
   onCohort?: (cohort: PassportCohort) => void;
   /** Point clicked — the parent focuses that repo's table row. */
   onPoint?: (name: string) => void;
+  /** `paper` draws no status hue. Altimeter omits it, so the default marks stay the band palette. */
+  marks?: "band" | "paper";
 }) {
+  const paper = marks === "paper";
   const splitX = px(PASSPORT_SPLIT);
   const splitY = py(PASSPORT_SPLIT);
   const notJudged = points.filter((p) => p.placeholder).length;
@@ -83,7 +88,7 @@ export function PassportScatter({
   ];
 
   return (
-    <div>
+    <div data-role="passport-scatter">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={ariaLabel}>
         <title>{ariaLabel}</title>
         <VizDefs />
@@ -95,9 +100,9 @@ export function PassportScatter({
             y={q.y}
             width={q.w}
             height={q.h}
-            fill={COHORT_META[q.id].color}
+            fill={paper ? "currentColor" : COHORT_META[q.id].color}
             fillOpacity={active === q.id ? 0.14 : q.restOpacity}
-            className="focus-ring cursor-pointer transition-[fill-opacity] duration-300 motion-reduce:transition-none"
+            className={paper ? "focus-ring cursor-pointer text-slate-300 transition-[fill-opacity] duration-300 motion-reduce:transition-none" : "focus-ring cursor-pointer transition-[fill-opacity] duration-300 motion-reduce:transition-none"}
             role="button"
             tabIndex={0}
             aria-pressed={active === q.id}
@@ -114,17 +119,19 @@ export function PassportScatter({
         <line x1={splitX} y1={PAD} x2={splitX} y2={H - PAD} stroke="var(--color-divider)" strokeDasharray="3 3" strokeOpacity={0.7} />
         <line x1={PAD} y1={splitY} x2={W - PAD} y2={splitY} stroke="var(--color-divider)" strokeDasharray="3 3" strokeOpacity={0.7} />
         {/* axis labels */}
-        <text x={W / 2} y={H - 8} textAnchor="middle" className="fill-slate-500" fontSize="11" fontFamily="monospace">Automation readiness →</text>
-        <text x={12} y={H / 2} textAnchor="middle" fontSize="11" fontFamily="monospace" className="fill-slate-500" transform={`rotate(-90 12 ${H / 2})`}>Production readiness →</text>
+        <text data-kind="axis" x={W / 2} y={H - 8} textAnchor="middle" className="fill-slate-500" fontSize="11" fontFamily="monospace">Automation readiness →</text>
+        <text data-kind="axis" x={12} y={H / 2} textAnchor="middle" fontSize="11" fontFamily="monospace" className="fill-slate-500" transform={`rotate(-90 12 ${H / 2})`}>Production readiness →</text>
         {/* quadrant captions */}
-        <text x={W - PAD - 4} y={PAD + 12} textAnchor="end" fontSize="9" fontFamily="monospace" className="pointer-events-none fill-emerald-500/70">ready to ship</text>
-        <text x={W - PAD - 4} y={H - PAD - 6} textAnchor="end" fontSize="9" fontFamily="monospace" className="pointer-events-none fill-orange-400/70">automatable, not prod-ready</text>
-        <text x={PAD + 4} y={PAD + 12} textAnchor="start" fontSize="9" fontFamily="monospace" className="pointer-events-none fill-slate-500">prod-grade, agent-hostile</text>
-        <text x={PAD + 4} y={H - PAD - 6} textAnchor="start" fontSize="9" fontFamily="monospace" className="pointer-events-none fill-slate-600">early</text>
+        <text data-kind="quad" x={W - PAD - 4} y={PAD + 12} textAnchor="end" fontSize="9" fontFamily="monospace" className={paper ? "pointer-events-none fill-slate-400" : "pointer-events-none fill-emerald-500/70"}>ready to ship</text>
+        <text data-kind="quad" x={W - PAD - 4} y={H - PAD - 6} textAnchor="end" fontSize="9" fontFamily="monospace" className={paper ? "pointer-events-none fill-slate-400" : "pointer-events-none fill-orange-400/70"}>{paper ? "not prod-ready" : "automatable, not prod-ready"}</text>
+        <text data-kind="quad" x={PAD + 4} y={PAD + 12} textAnchor="start" fontSize="9" fontFamily="monospace" className="pointer-events-none fill-slate-500">prod-grade, agent-hostile</text>
+        <text data-kind="quad" x={PAD + 4} y={H - PAD - 6} textAnchor="start" fontSize="9" fontFamily="monospace" className={paper ? "pointer-events-none fill-slate-400" : "pointer-events-none fill-slate-600"}>early</text>
         {/* points — stable order + stable keys so the opacity transition survives filter changes
             (re-sorting for z-order would re-key/move nodes and cut the animation; at 0.18 opacity a
             faded point barely occludes anyway) */}
-        {points.map((p) => (
+        {paper
+          ? points.map((p) => <PaperPoint key={p.name} p={p} cx={px(p.x)} cy={py(p.y)} onPoint={onPoint} />)
+          : points.map((p) => (
           <circle
             key={p.name}
             data-state={p.placeholder ? "not-judged" : "measured"}
@@ -153,7 +160,7 @@ export function PassportScatter({
       <Legend
         className="mt-2"
         states={points.some((p) => p.placeholder) ? ["not-judged"] : []}
-        extra={BAND_LEGEND}
+        extra={paper ? PAPER_LEGEND : BAND_LEGEND}
       />
     </div>
   );

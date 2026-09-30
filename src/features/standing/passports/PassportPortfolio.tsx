@@ -7,12 +7,13 @@
 // that repo's table row. Rows arrive fully hydrated from the server page (cached passports) — no
 // fetches.
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { PassportScatter, type ScatterPoint } from "@/features/standing/passports/PassportScatter";
+import { useEffect, useRef } from "react";
+import { PassportScatter } from "@/features/standing/passports/PassportScatter";
 import { PassportTable, type PassportRow } from "@/features/standing/passports/PassportTable";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import { PassportBlockerPareto } from "@/features/standing/passports/PassportBlockerPareto";
-import { COHORT_META, cohortOf, type PassportCohort } from "@/lib/org/passport-display";
+import { COHORT_META } from "@/lib/org/passport-display";
+import { usePassportCohort } from "./usePassportCohort";
 
 /** Replays the brand phase-in beat on `dep` change WITHOUT remounting children — a keyed remount
  *  would wipe the table's sort/expansion state, so instead the animation class is removed, a reflow
@@ -40,32 +41,7 @@ function PhaseReplay({ dep, className, children }: { dep: unknown; className?: s
 }
 
 export function PassportPortfolio({ rows, org, decisions }: { rows: PassportRow[]; org: string; decisions: DecisionMap }) {
-  const [filter, setFilter] = useState<PassportCohort | null>(null);
-  const [focus, setFocus] = useState<{ fullName: string } | null>(null);
-
-  const matches = (r: PassportRow) => filter === null || cohortOf(r.autoScore, r.prodScore) === filter;
-  const visible = useMemo(
-    () => rows.filter((r) => filter === null || cohortOf(r.autoScore, r.prodScore) === filter),
-    [rows, filter],
-  );
-
-  const points: ScatterPoint[] = rows.map((r) => ({
-    name: r.name,
-    x: r.autoScore,
-    y: r.prodScore,
-    band: r.band,
-    faded: !matches(r),
-    placeholder: r.placeholder,
-  }));
-
-  // A quadrant click toggles its cohort; re-clicking the active one (or the ✕ chip) clears it.
-  const toggle = (c: PassportCohort) => setFilter((cur) => (cur === c ? null : c));
-  const scopeLabel = filter === null ? "all passports" : COHORT_META[filter].label;
-
-  const onPoint = (name: string) => {
-    const row = rows.find((r) => r.name === name);
-    if (row) setFocus({ fullName: row.fullName });
-  };
+  const { filter, setFilter, focus, visible, points, toggle, scopeLabel, onPoint } = usePassportCohort(rows);
 
   return (
     <div className="space-y-6">

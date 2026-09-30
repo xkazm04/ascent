@@ -49,6 +49,7 @@ export function BlockerList({
   decisions,
   findings,
   declined,
+  plain = false,
 }: {
   title: string;
   items: string[];
@@ -56,6 +57,8 @@ export function BlockerList({
   org: string;
   fullName: string;
   decisions: DecisionMap;
+  /** Prism: status is a glyph and the sentence, not an orange mark, a green all-clear, or a fade. */
+  plain?: boolean;
   /** 0.4.0's minted findings for THIS axis, same sentences. Absent on a pre-0.4.0 stored passport,
    *  which keeps the legacy text key — there is no id to key on, and inventing one would orphan the
    *  very decisions this change exists to preserve. */
@@ -68,7 +71,7 @@ export function BlockerList({
     <div>
       <div className="type-label tracking-widest text-slate-500">{title}</div>
       {items.length === 0 ? (
-        <p className="mt-1.5 type-body-sm text-emerald-400/80">{allClear}</p>
+        <p className={plain ? "mt-1.5 type-body-sm text-slate-300" : "mt-1.5 type-body-sm text-emerald-400/80"}>{allClear}</p>
       ) : (
         <ul className="mt-1.5 space-y-2.5">
           {items.map((b) => {
@@ -80,9 +83,9 @@ export function BlockerList({
             const offerDecision = j !== null && (findings === undefined || isDeclinableFinding(finding?.id));
             const status = j?.source === "decision" ? (j.state as DecisionStatusUi) : "open";
             return (
-              <li key={b} className={`type-body-sm text-slate-300 ${j && !j.open ? "opacity-60" : ""}`}>
+              <li key={b} className={`type-body-sm text-slate-300 ${!plain && j && !j.open ? "opacity-60" : ""}`}>
                 <span className="flex gap-2">
-                  <span aria-hidden className="mt-0.5 shrink-0 text-orange-400">▸</span>
+                  <span aria-hidden className={plain ? "mt-0.5 shrink-0 text-slate-400" : "mt-0.5 shrink-0 text-orange-400"}>▸</span>
                   {b}
                 </span>
                 {offerDecision && (
@@ -110,20 +113,22 @@ export function BlockerList({
 /** The owner's accepted gaps (`passport.declined`, 0.4.0). Muted relative to the open blockers above —
  *  a decision is not a to-do — except when it needs re-confirming, which is the one state that wants
  *  the reader's eye. */
-export function DeclinedList({ items }: { items: DeclinedByChoice[] }) {
+export function DeclinedList({ items, plain = false }: { items: DeclinedByChoice[]; plain?: boolean }) {
   if (items.length === 0) return null;
   const stale = items.filter((d) => d.needsReconfirm).length;
   return (
     <div>
       <div className="type-label tracking-widest text-slate-500">
         Accepted by choice
-        {stale > 0 && <span className="ml-2 text-amber-400">{stale} need re-confirmation</span>}
+        {stale > 0 && (
+          <span className={plain ? "ml-2 text-slate-300" : "ml-2 text-amber-400"}>{stale} need re-confirmation</span>
+        )}
       </div>
       <ul className="mt-1.5 space-y-2.5">
         {items.map((d) => (
           <li key={d.path} className="type-body-sm">
             <span className="flex gap-2">
-              <span aria-hidden className={`mt-0.5 shrink-0 ${d.needsReconfirm ? "text-amber-400" : "text-slate-600"}`}>
+              <span aria-hidden className={`mt-0.5 shrink-0 ${plain ? "text-slate-400" : d.needsReconfirm ? "text-amber-400" : "text-slate-600"}`}>
                 {d.needsReconfirm ? "!" : "◇"}
               </span>
               <span className="min-w-0">
@@ -131,16 +136,16 @@ export function DeclinedList({ items }: { items: DeclinedByChoice[] }) {
                 {/* WHO decided, not just when. A decline is a decision record; one with no author is an
                     assertion nobody owns, and the actor used to live only in the audit row. An absent
                     author (a decline recorded before authorship was captured) reads as unknown. */}
-                <span className="type-caption text-slate-600"> · declined by {d.by ?? "unknown"}{d.at ? ` on ${d.at}` : ""}</span>
+                <span className={plain ? "type-caption text-slate-400" : "type-caption text-slate-600"}> · declined by {d.by ?? "unknown"}{d.at ? ` on ${d.at}` : ""}</span>
                 {d.needsReconfirm && (
-                  <span className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 font-mono type-micro uppercase tracking-widest text-amber-400">
+                  <span className={plain ? "ml-2 type-caption text-slate-300" : "ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 font-mono type-micro uppercase tracking-widest text-amber-400"}>
                     needs re-confirmation
                   </span>
                 )}
                 {d.blocker && <span className="mt-0.5 block text-slate-500">{d.blocker}</span>}
                 {d.reason && <span className="mt-0.5 block italic text-slate-500">&ldquo;{d.reason}&rdquo;</span>}
                 {d.needsReconfirm && (
-                  <span className="mt-1 block text-amber-400/90">
+                  <span className={plain ? "mt-1 block text-slate-300" : "mt-1 block text-amber-400/90"}>
                     {d.reconfirmReason} It is listed as an open blocker above until it is re-confirmed.
                   </span>
                 )}

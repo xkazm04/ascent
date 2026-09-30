@@ -15,36 +15,17 @@
 // ranked is the plan's list of CONDITIONS per transition (PromotionPlan.tsx), because "which one fix
 // lifts the most repos" is a fleet question no single card can answer.
 
-import { useMemo, useState } from "react";
 import { Kicker, SectionHeading } from "@/components/ui";
 import { SectionEmpty, TILE_LEDGER, Tile } from "@/components/org/shared/ui";
 import { BandLadder, Legend } from "@/components/org/viz";
-import { TIERS, TIER_META, tierHex, tierCounts, type AutonomyTier, type RepoAutonomy } from "./autonomyModel";
-import { clearanceBands, clearanceEdge, clearanceStates } from "./clearanceLadder";
+import { TIERS, TIER_META, tierHex, type RepoAutonomy } from "./autonomyModel";
+import { clearanceStates } from "./clearanceLadder";
 import { ClearanceCard } from "./ClearanceCard";
-import { PromotionPlan, type PlanSelection } from "./PromotionPlan";
-import { promotionPlan } from "./promotionPlanModel";
+import { PromotionPlan } from "./PromotionPlan";
+import { useClearanceRegister } from "./useClearanceRegister";
 
 export function AutonomyClearance({ repos }: { repos: RepoAutonomy[] }) {
-  const [filter, setFilter] = useState<AutonomyTier | null>(null);
-  const [condition, setCondition] = useState<PlanSelection | null>(null);
-  const counts = useMemo(() => tierCounts(repos), [repos]);
-  const plan = useMemo(() => promotionPlan(repos), [repos]);
-  const visible = useMemo(
-    () =>
-      repos.filter(
-        (r) => (filter === null || r.tier === filter) && (condition === null || condition.repos.includes(r.fullName)),
-      ),
-    [repos, filter, condition],
-  );
-  const bands = useMemo(() => clearanceBands(repos), [repos]);
-  const edge = useMemo(() => clearanceEdge(repos), [repos]);
-
-  // Register order: lowest clearance first — the un-cleared repos are the work, not the trophies.
-  const sorted = useMemo(
-    () => [...visible].sort((a, b) => a.tier - b.tier || b.nextProgress - a.nextProgress || a.name.localeCompare(b.name)),
-    [visible],
-  );
+  const { filter, setFilter, condition, setCondition, counts, plan, visible, bands, edge, sorted } = useClearanceRegister(repos);
 
   if (repos.length === 0) {
     return (
