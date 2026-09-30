@@ -227,6 +227,53 @@ beforeEach(() => {
 
 // ── parseStringArray (report.strengths / risks / dimension.evidence / roadmap.explore) ─────────────
 
+describe("getScanReportByCommit — contributors follow the newest scan, not the head sha", () => {
+  function prismaWithPeople() {
+    const prisma = fakePrismaWithColumns({});
+    prisma.repository.findUnique = vi.fn(async () => ({
+      id: "repo_1",
+      owner: "acme",
+      name: "widget",
+      url: "https://github.com/acme/widget",
+      stars: 5,
+      primaryLanguage: "TypeScript",
+      isPrivate: false,
+      headSha: "sha_abc",
+      contributors: [{ login: "octo", name: "Octo", commits: 4, aiCommits: 1, lastActiveAt: null }],
+    }));
+    return prisma;
+  }
+
+  it("blanks contributors on the head permalink once a newer scan has replaced the snapshot", async () => {
+    const prisma = prismaWithPeople();
+    const pinned = await prisma.scan.findFirst();
+    prisma.scan.findFirst = vi.fn()
+      .mockResolvedValueOnce(pinned)
+      .mockResolvedValueOnce({ id: "scan_newer" });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const report = await getScanReportByCommit("acme", "widget", { headSha: "sha_abc" });
+
+    expect(report!.contributors).toEqual([]);
+    expect(prisma.scan.findFirst).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps contributors when the pinned scan is still the newest row", async () => {
+    const prisma = prismaWithPeople();
+    const pinned = await prisma.scan.findFirst();
+    prisma.scan.findFirst = vi.fn()
+      .mockResolvedValueOnce(pinned)
+      .mockResolvedValueOnce({ id: pinned.id });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    const report = await getScanReportByCommit("acme", "widget", { headSha: "sha_abc" });
+
+    expect(report!.contributors).toEqual([
+      { login: "octo", name: "Octo", commits: 4, aiCommits: 1, lastActiveAt: undefined },
+    ]);
+  });
+});
+
 describe("getScanReportByCommit — parseStringArray resilience", () => {
   it("well-formed string array parses through unchanged", async () => {
     const r = await reportWith({ strengths: JSON.stringify(["a", "b", "c"]) });

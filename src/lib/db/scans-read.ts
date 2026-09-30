@@ -1364,13 +1364,21 @@ async function loadScanReportByCommit(
   }));
 
   // Contributors are stored as a per-repo LATEST-scan snapshot (persistScanReport replaces them
-  // wholesale on every scan), so they describe `scan` ONLY when `scan` is the latest. For an older
-  // pinned commit (a shared/permalinked @sha that isn't the current head) returning today's
-  // contributors — and the aiUsage headline derived from them — would make the snapshot silently
-  // assert wrong, time-shifted people. Surface them only when this scan is the latest; blank them for
-  // an older pin rather than claim stale data. (A faithful per-scan contributor history needs a
-  // ScanContributor join — tracked as a follow-up.)
-  const isLatestScan = !headSha || (repo.headSha != null && scan.headSha === repo.headSha);
+  // wholesale on every scan, including a sha-less one that does not move Repository.headSha), so
+  // they describe `scan` ONLY when `scan` is the newest row. An unpinned read already selected that
+  // row. A pinned @sha used to trust `scan.headSha === repo.headSha`, which stays true after a newer
+  // sha-less scan replaces the people — the permalink of the old head then showed the later scan's
+  // contributors. Compare ids instead. Blank an older pin rather than claim time-shifted people.
+  // (A faithful per-scan contributor history needs a ScanContributor join — tracked as a follow-up.)
+  let isLatestScan = !headSha;
+  if (!isLatestScan) {
+    const newest = await prisma.scan.findFirst({
+      where: { repoId: repo.id },
+      orderBy: SCAN_ORDER,
+      select: { id: true },
+    });
+    isLatestScan = newest?.id === scan.id;
+  }
   const contributors: Contributor[] = isLatestScan
     ? repo.contributors.map((c) => ({
         login: c.login,
