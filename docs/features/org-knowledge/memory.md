@@ -25,6 +25,8 @@ another author's private notes — the name is often the most revealing part of 
 private note, and an unscoped dropdown also offered a filter that then matched
 nothing for that viewer. Guarded by two cases in `src/lib/db/org-memory.test.ts`.
 
+Prism (`ascent-theme=prism`) renders `MemoryTab.v2` instead of the cards below. The reads, filters, write form, duplicate check, correct, archive, recall and reflect calls are the same. Coverage and trust figures stay in paper. A repo that never recorded a memory, a recall row excluded before scoring, and a reflection pass with no model read as not measured, not as zero. Opening a memory is a level at `#memory-<id>`, with Back and Esc. Altimeter stays on `MemoryTab.v1` (the cards, table and score colors described in the rest of this section).
+
 Above the memory list, `MemoryCoverageStrip`
 (`src/features/shared/memory/MemoryCoverageStrip.tsx`) opens on a `BudgetPack`
 (`@/components/org/viz`): covered-of-tracked repos as the fill, and the
@@ -904,7 +906,9 @@ only news once the other world exists.
 | `src/lib/llm/text.ts` | Shared "prompt in → text out" seam over the provider selection. |
 | `src/lib/llm/untrusted.ts` | The shared untrusted-content boundary. |
 | `src/features/shared/memory/memoryCheck.ts` | Client fetch helper + copy for the check verdict. |
-| `src/features/shared/memory/MemoryTab.tsx` | Tab composition (server). |
+| `src/features/shared/memory/MemoryTab.tsx` | Tab entry. Theme picks `MemoryTab.v1` (Altimeter) or `MemoryTab.v2` (Prism). |
+| `src/features/shared/memory/memoryView.ts` | Prism ladder and cell states (trust, coverage, recall factors, reflect). |
+| `src/features/shared/memory/MemoryPanel.v2.tsx` | Prism library: the same `useMemoryLibrary` hook, kit rows and the write form. |
 | `src/app/org/[slug]/memory/page.tsx` | Permanent redirect to `?tab=memory`. |
 | `src/features/shared/memory/MemoryCoverageStrip.tsx` | Fleet-wide freshness strip. |
 | `src/lib/standard/memory-read.ts` | Parses a repo's `.ai/memory/` entries. |

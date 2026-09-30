@@ -589,3 +589,52 @@ html[data-theme="prism"] [data-role="practices-v2"] [data-kit="list-row"] [data-
   text-overflow: clip;
   white-space: normal;
 }
+
+/* ── Memory tab (kit-7, 2026-09-30): the kit Stat label is mono caps. Sentence case, system sans.
+   Row titles are memory sentences and repo paths, so they wrap instead of clipping. The shell's
+   guided-setup tab covers the right edge through 1440. ── */
+html[data-theme="prism"] [data-role="memory-v2"] .uppercase {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+}
+html[data-theme="prism"] [data-role="memory-v2"] [data-kit="list-row"] [data-role="list-row-title"] {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+@media (max-width: 1600px) {
+  html[data-theme="prism"] [data-role="memory-v2"] {
+    padding-right: 3.25rem;
+  }
+}
+
+/* ── Executive briefing (kit-7): gap titles wrap, stat labels lose mono caps, status hues stay paper.
+   The guided-setup tab covers the masthead aside through 1360. ── */
+html[data-theme="prism"] [data-role="executive-v2"] :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md) {
+  border-radius: 0.25rem;
+}
+html[data-theme="prism"] [data-role="executive-v2"] .uppercase {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--font-sans);
+}
+html[data-theme="prism"] [data-role="executive-v2"] :is(.text-good, .text-bad, .text-warn, .text-emerald-300, .text-orange-300, .text-amber-200, .text-amber-300) {
+  color: var(--color-slate-200);
+}
+html[data-theme="prism"] [data-role="executive-v2"] .text-slate-600 {
+  color: var(--color-slate-400);
+}
+html[data-theme="prism"] [data-role="executive-v2"] [data-kit="dimension-line"] {
+  grid-template-columns: 2.5rem minmax(10rem, 1.2fr) minmax(6rem, 1fr) auto;
+}
+html[data-theme="prism"] [data-role="executive-v2"] [data-role="dimension-label"] {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+@media (max-width: 1360px) {
+  html[data-theme="prism"] [data-role="executive-v2"] [data-role="masthead-aside"] {
+    padding-right: 3.25rem;
+  }
+}
