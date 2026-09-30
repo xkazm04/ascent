@@ -242,7 +242,10 @@ export async function stampPlaybookApplications(
   if (ids.length === 0) return 0;
   let stamped = 0;
   for (const id of ids) {
-    const ok = await applyPlaybook(orgSlug, id, repoFullName, "loop").catch(() => false);
+    const ok = await applyPlaybook(orgSlug, id, repoFullName, "loop").catch((err) => {
+      console.error("[playbooks] adoption stamp failed", id, err);
+      return false;
+    });
     if (ok) stamped += 1;
   }
   return stamped;

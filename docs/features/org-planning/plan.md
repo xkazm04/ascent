@@ -134,7 +134,9 @@ billing token) mints for the gated org, like a hosted one.
 `dryRun`) and `POST .../repos` now refuse that id with 409 before any PR or
 adoption stamp. `DELETE .../repos` still unmarks, so a repo can be cleared
 after the standard is withdrawn. `applyPlaybook` will not stamp an archived id
-either, which is what the loop's verified-close path calls.
+either, which is what the loop's verified-close path calls. A stamp that throws
+is logged (`[playbooks] adoption stamp failed`) and counted as not stamped, so
+a database error is not a silent zero.
 
 ## Weekly digest (`?tab=digest`, Bought)
 

@@ -18,7 +18,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
-import { applyPlaybook, getPlaybookAdoption, createPlaybook, getPlaybook, updatePlaybook } from "./playbooks";
+import { applyPlaybook, getPlaybookAdoption, createPlaybook, getPlaybook, stampPlaybookApplications, updatePlaybook } from "./playbooks";
 
 // ---- fixture types (only the fields getPlaybookAdoption selects) ----
 interface PlaybookFx {
@@ -592,6 +592,22 @@ describe("updatePlaybook — unchanged content is not a new version", () => {
 
     await expect(updatePlaybook("missing", { title: "X" })).rejects.toMatchObject({ code: "P2025" });
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe("stampPlaybookApplications — a failed stamp is not a silent zero", () => {
+  it("logs the failure and counts that id as not stamped", async () => {
+    mockGetPrisma.mockImplementation(() => {
+      throw new Error("db down");
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const n = await stampPlaybookApplications("acme", "acme/web", ["pb_1", "pb_1"]);
+
+    expect(n).toBe(0);
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(String(err.mock.calls[0]?.[0])).toContain("adoption stamp failed");
+    err.mockRestore();
   });
 });
 
