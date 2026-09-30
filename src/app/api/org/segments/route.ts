@@ -35,8 +35,15 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const guard = dbGuard("Segments");
   if (guard) return guard;
-  const body = (await request.json().catch(() => ({}))) as { org?: string; name?: string; color?: string };
-  if (!body.org || !body.name?.trim()) {
+  const body = (await request.json().catch(() => ({}))) as { org?: unknown; name?: unknown; color?: unknown };
+  if (typeof body.org !== "string" || !body.org.trim()) {
+    return NextResponse.json({ error: "Provide { org, name }." }, { status: 400 });
+  }
+  // Validate before any trim. A numeric name used to throw inside `body.name?.trim()` and
+  // surface as a 500; segmentInputError answers that, and a blank string, with a 400.
+  const invalid = segmentInputError({ name: body.name, color: body.color });
+  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
+  if (typeof body.name !== "string") {
     return NextResponse.json({ error: "Provide { org, name }." }, { status: 400 });
   }
   const denied = await requireOrgAccess(body.org);
@@ -44,10 +51,11 @@ export async function POST(request: Request) {
   // repositories-segments #5: reject-with-400 instead of sanitize-and-continue — a malformed colour
   // was silently rewritten to the brand accent and an over-long name silently truncated, both behind
   // a 200 { ok } that told API callers their value was applied verbatim.
-  const invalid = segmentInputError({ name: body.name, color: body.color });
-  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
   try {
-    const created = await createSegment(body.org, { name: body.name, color: body.color });
+    const created = await createSegment(body.org, {
+      name: body.name,
+      color: typeof body.color === "string" ? body.color : null,
+    });
     if (!created) return NextResponse.json({ error: "Failed to create segment." }, { status: 500 });
     // resolveViewerLogin, not getSession: the live stack is the Supabase wall.
     const actorLogin = await resolveViewerLogin();

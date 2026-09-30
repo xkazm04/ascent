@@ -64,6 +64,10 @@ describe("segmentInputError", () => {
     expect(segmentInputError({ name: "   " })).toMatch(/empty/i);
     expect(segmentInputError({ name: "x".repeat(60) })).toBeNull(); // at the bound is fine
   });
+  it("rejects a non-string name or colour instead of throwing", () => {
+    expect(segmentInputError({ name: 12 })).toMatch(/text/i);
+    expect(segmentInputError({ color: 12 })).toMatch(/hex/i);
+  });
 });
 
 function summary(over: Partial<SegmentSummary>): SegmentSummary {

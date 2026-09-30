@@ -117,4 +117,13 @@ describe("POST /api/org/segments — auth gate on create", () => {
     expect(res.status).toBe(400);
     expect(mockCreate).not.toHaveBeenCalled();
   });
+
+  it("400s a non-string name or colour instead of throwing", async () => {
+    const byName = await post({ org: "acme", name: 12 });
+    expect(byName.status).toBe(400);
+    const byColor = await post({ org: "acme", name: "Platform", color: 12 });
+    expect(byColor.status).toBe(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
 });

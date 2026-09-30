@@ -36,14 +36,17 @@ export function normalizeColor(raw?: string | null): string {
  * The in-app UI constrains its inputs (palette swatches + maxLength), so a 400 here is automation-only.
  * Returns a human-readable error, or null when the input is acceptable.
  */
-export function segmentInputError(input: { name?: string | null; color?: string | null }): string | null {
+export function segmentInputError(input: { name?: unknown; color?: unknown }): string | null {
   if (input.name != null) {
+    if (typeof input.name !== "string") return "Segment name must be text.";
     const n = input.name.trim();
     if (!n) return "Segment name can't be empty.";
     if (n.length > NAME_MAX) return `Segment name must be ${NAME_MAX} characters or fewer.`;
   }
-  if (input.color != null && input.color !== "" && !SEGMENT_COLOR_RE.test(input.color.trim())) {
-    return "Segment colour must be a #rgb or #rrggbb hex.";
+  if (input.color != null && input.color !== "") {
+    if (typeof input.color !== "string" || !SEGMENT_COLOR_RE.test(input.color.trim())) {
+      return "Segment colour must be a #rgb or #rrggbb hex.";
+    }
   }
   return null;
 }

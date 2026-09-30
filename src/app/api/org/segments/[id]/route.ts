@@ -28,14 +28,18 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   const gated = await gate(id);
   if (gated instanceof Response) return gated;
-  const body = (await request.json().catch(() => ({}))) as { name?: string; color?: string };
+  const body = (await request.json().catch(() => ({}))) as { name?: unknown; color?: unknown };
   // repositories-segments #5: reject-with-400 instead of sanitize-and-continue — a PATCH with
   // { color: "rebeccapurple" } previously recolored the segment to the brand accent and returned
-  // { ok: true }; a 61+-char rename was truncated with no signal.
+  // { ok: true }; a 61+-char rename was truncated with no signal. A non-string name or colour
+  // used to throw inside that check and surface as a 500.
   const invalid = segmentInputError(body);
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
+  const data: { name?: string; color?: string | null } = {};
+  if (typeof body.name === "string") data.name = body.name;
+  if (typeof body.color === "string" || body.color === null) data.color = body.color;
   try {
-    await updateSegment(id, body);
+    await updateSegment(id, data);
     const actorLogin = await resolveViewerLogin();
     const changed = Object.keys(body).filter((k) => body[k as keyof typeof body] !== undefined);
     await recordOrgAudit("segment.updated", gated.org, { segmentId: id, changed }, actorLogin ?? undefined);
