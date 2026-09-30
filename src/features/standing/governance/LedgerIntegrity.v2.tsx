@@ -1,7 +1,7 @@
 // Chain status as a glyph and the existing sentence, not a green or red line. The verify button and
 // the CSV download are the same actions as the Altimeter strip.
 import { GhostAction } from "@/components/kit";
-import { VerifyLedgerButton } from "./VerifyLedgerButton";
+import { VerifyLedgerButtonV2 } from "./VerifyLedgerButton.v2";
 import { ledgerIntegrityLine } from "./ledgerIntegrity";
 import type { SealChain } from "@/lib/db/control-observations";
 
@@ -25,7 +25,7 @@ export function LedgerIntegrityV2({ slug, chain }: { slug: string; chain: SealCh
       </p>
       {line.detail ? <p className="mt-1 type-body-sm text-slate-400">{line.detail}</p> : null}
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <VerifyLedgerButton slug={slug} />
+        <VerifyLedgerButtonV2 slug={slug} />
         <GhostAction href={`/api/org/controls?org=${encodeURIComponent(slug)}&format=csv&limit=2000`}>
           Download observation rows (CSV)
         </GhostAction>

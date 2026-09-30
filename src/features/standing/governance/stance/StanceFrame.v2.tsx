@@ -3,7 +3,7 @@
 import { Caption, Frame, SectionHead } from "@/components/kit";
 import { getActiveOrgStance, getDraftOrgStance, isDbConfigured } from "@/lib/db";
 import { buildStanceOverview } from "@/lib/org/stance-overview";
-import { StanceEditor } from "./StanceEditor";
+import { StanceEditorV2 } from "./StanceEditor.v2";
 import { StanceEmptyV2 } from "./StanceEmpty.v2";
 import { StancePerimeterV2 } from "./StancePerimeter.v2";
 
@@ -18,19 +18,25 @@ export async function StanceFrameV2({ slug, canEdit }: { slug: string; canEdit: 
   const editorSeed = draft?.stance ?? active?.stance ?? null;
   return (
     <Frame aria-label="AI stance">
-      <SectionHead
-        eyebrow="AI stance"
-        title="Declared policy,"
-        named="not the enforced gate."
-        lede="The stance is read against observed git attribution and reported. The maturity gate above is the bar that can fail a change."
-      />
-      <div className="mt-6">
-        {overview ? <StancePerimeterV2 overview={overview} canEdit={canEdit} /> : <StanceEmptyV2 slug={slug} canEdit={canEdit} />}
-      </div>
+      {overview ? (
+        <>
+          <SectionHead
+            eyebrow="AI stance"
+            title="Declared policy,"
+            named="not the enforced gate."
+            lede="The stance is read against observed git attribution and reported. The maturity gate above is the bar that can fail a change."
+          />
+          <div className="mt-6">
+            <StancePerimeterV2 overview={overview} canEdit={canEdit} />
+          </div>
+        </>
+      ) : (
+        <StanceEmptyV2 slug={slug} canEdit={canEdit} />
+      )}
       {canEdit && (
         <div className="mt-8">
           {draft && <Caption className="mb-3">Unpublished draft in progress (v{draft.version})</Caption>}
-          <StanceEditor org={slug} initial={editorSeed} nextVersion={nextVersion} />
+          <StanceEditorV2 org={slug} initial={editorSeed} nextVersion={nextVersion} />
         </div>
       )}
     </Frame>

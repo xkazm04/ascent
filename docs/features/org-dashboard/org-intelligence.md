@@ -603,7 +603,7 @@ readable on narrow screens.
 Live cost (UAT 2026-08-30, `PRIYA-L1-02`): a platform lead who had just declared two required controls
 read **"A required control is failing — 0 repos"** beside five genuinely measured meter rows, while the
 per-repo CI gate was blocking PRs on exactly those controls. Those two rows now render
-**"not judged fleet-wide — the per-repo gate decides it"** with an em-dash in the count column instead
+**"not judged fleet-wide. The per-repo gate decides it"** in the count column instead
 of a 0-meter, and the card's all-clear empty state carries the same caveat when the org's stored bar
 actually declares one of them (`unjudgedBarsDeclared`). The set lives in
 `governanceReasons.ts` (`FLEET_UNJUDGED_REASONS`); `governance` and `provenance` are deliberately NOT
@@ -614,7 +614,7 @@ in it — the rollup carries the branch-protection fields and `aiGovernedRate` /
 true whether or not the reader had any stake in it, so the strongest version of the original finding —
 a lead who had *just* set two required controls — still read a sentence that did not acknowledge her
 bar. `unjudgedBarDeclaration(code, policy)` composes the escalation per row from the stored policy:
-the `control` row appends *"— you have declared 2 required controls; the per-repo gate enforces them"*
+the `control` row appends *": you have declared 2 required controls; the per-repo gate enforces them"*
 (the count is read from `requireChecks`, never written as a literal), and the `admission` row appends
 its own when `forbidAiAuthorship` is set. An org that has declared nothing under a row sees no
 escalation — an empty one would be worse than none.
@@ -3159,8 +3159,23 @@ The leaderboard region becomes `RepositoriesView.v2`: a `Masthead` (repo count a
 count, no status dot), scope and Export CSV on one toolbar, and a ruled list of the new kit **`RepoRow`**
 (`src/components/kit/RepoRow.tsx`; roles for name, stack, score, movement, chips, cells, actions). Passports and
 Security will migrate to it later. Sort, selection and bulk-tag share `useRepoLeaderboard` with Altimeter, which is
-unchanged (0 px). **Known gaps:** Context Health, Segments and the missing-repos panel still carry v1 markup
-under Prism CSS; the row has no score movement because the rollup row carries no per-repo delta.
+unchanged (0 px).
+
+Second pass (kit-6): Context Health, Segments, missing repos, the bulk bar, and the per-repo cadence
+select are Prism compositions. Altimeter still renders the v1 files.
+
+- Context half-life (`ContextHalfLife.v2`) is a `Frame` and `SectionHead`, a `StatStrip` of paper
+  figures (`VoidMark` when coverage or half-life was not measured; a dead-reference count of 0 stays 0),
+  decay bands as `CellMark`s, and urgent repos as a `HairlineList` of `ListRow`s.
+- Missing repos (`MissingReposPanel.v2`) are a `HairlineList` of `RepoRow`s. Unwatch is the same POST.
+- Cadence (`ScheduleSelect.v2`) and the bulk bar (`RepoLeaderboardBulkBar.v2`) are `FormField` plus
+  `Select`. Selection and add-to-segment stay on `useRepoLeaderboard`.
+- Segments (`SegmentsSection.v2`) keep the same reads. The manager, maturity table, and comparison are
+  frames. An unscanned cell is `CellMark` unmeasured. Dimension rows are `DimensionLine`s.
+
+The decay scatter is not redrawn: no kit chart plots it without a status hue. Segment colors stay,
+because recolor is stored. **Known gap:** a leaderboard row still has no score movement, because the
+rollup carries no per-repo delta.
 
 ### Governance in Prism (kit-4, 2026-09-30)
 
@@ -3171,12 +3186,21 @@ figures. Each figure's status is a glyph and a screen-reader word; the number st
 scored nothing is its own figure, never a zero inside the rate. An empty fleet says nothing is judged yet
 and draws no zero tiles.
 
-Sections are hairline `Frame`s: the policy as a ruled list plus `SettingRow`s over the same
-`useGatePolicyEditor` hook; fail conditions as rows (`VoidMark` where the fleet path cannot judge, the
-earned-zero note from `governanceReasons.ts` where it can); failing repos as `RepoRow`s with a paper score;
-the CI action as the one `EvidencePanel`. The evidence pack is a `StatStrip` of the same `evidenceFlow`
+Sections are hairline `Frame`s: the policy as a ruled list, then the owner editor on the same
+`useGatePolicyEditor` hook. Fail conditions are rows (`VoidMark` where the fleet path cannot judge, the
+earned-zero note from `governanceReasons.ts` where it can). Failing repos are `RepoRow`s with a paper score.
+The CI action is the one `EvidencePanel`. The evidence pack is a `StatStrip` of the same `evidenceFlow`
 (a stage that could not be read is a void). The control ledger keeps its `StateTrack` (no kit part draws a
 control over time) and lists observations in `DataTable`; an unreadable state is "not measured", not a dash.
-The stance, when unpublished, is the empty argument on a hairline grid. A published stance states each
-autonomy band in words (read, declared only, not judged) and lists repos as `RepoRow`s, without the
-green-to-red tier stripe. Roles: `scripts/kit/roles/governance.json`.
+
+**Second pass (2026-09-30).** Text, number, and select controls in the policy editor, including the
+dimension-floor, AI-governed rate, and required-control sub-forms, are `FormField` with `Input` or
+`Select`. Checkbox-only bars stay `SettingRow`s. The stance editor uses `FormField`, `Input`, and
+`Textarea` for the same hook. Ledger verify is a `GhostAction`; the result is a glyph and a word
+(intact, or not). An unpublished stance is one statement, "There is no line.", with the following
+sentence in the lede and the four-part hairline grid under it. A published stance draws the four
+autonomy bands as a `Ladder`: reached, current on the tightest band that has repos, open when the
+review is declared and no repo sits there, not measured when the stance takes no position. Repos
+remain `RepoRow`s. Three shared sentences no longer use an em dash, in both themes: the unread-chain
+detail from `ledgerIntegrityLine`, `FLEET_UNJUDGED_NOTE`, and the incomplete reason label
+("Scored nothing, not judged"). Roles: `scripts/kit/roles/governance.json`.

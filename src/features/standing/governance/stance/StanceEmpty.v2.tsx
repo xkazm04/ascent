@@ -1,6 +1,6 @@
-// No published stance. The four things a stance draws, as a hairline grid, then the instruction.
-// The editor sits under this frame, owned by StanceFrame.
-import { Eyebrow, HairlineGrid, Lede, SectionHead } from "@/components/kit";
+// No published stance. One statement, then the four things a stance draws. The editor sits
+// under this frame, owned by StanceFrame. The gate distinction lives in the lede.
+import { Eyebrow, HairlineGrid, SectionHead } from "@/components/kit";
 
 const BULLETS = [
   { label: "Checkpoint", text: "Which tools and models may cross into org code at all." },
@@ -15,13 +15,8 @@ export function StanceEmptyV2({ slug, canEdit }: { slug: string; canEdit: boolea
       <SectionHead
         eyebrow={`${slug}, perimeter undrawn`}
         title="There is no line."
-        named="Every repo is treated the same by every agent."
+        lede="Every repo is treated the same by every agent. Without a published stance the fleet has one undifferentiated risk surface: a docs PR and a migration get the same review, and nothing marks the paths that should never be agent-authored. Draw the perimeter once and every repo inherits a band. The maturity gate above is the bar that can fail a change. A published stance is declared policy, and it is not that bar."
       />
-      <Lede className="mt-3">
-        Without a published stance the fleet has one undifferentiated risk surface: a docs PR and a migration get the
-        same review, and nothing marks the paths that should never be agent-authored. Draw the perimeter once and every
-        repo inherits a band.
-      </Lede>
       <HairlineGrid className="mt-6 sm:grid-cols-2 lg:grid-cols-4">
         {BULLETS.map((b) => (
           <div key={b.label} className="bg-ink px-4 py-3.5">

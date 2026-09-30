@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  FLEET_UNJUDGED_NOTE,
   FLEET_UNJUDGED_REASONS,
   GOVERNANCE_FAIL_REASONS,
   earnedZeroNote,
@@ -33,6 +34,12 @@ describe("GOVERNANCE_FAIL_REASONS", () => {
 // carry no conformance ledger and no PR stats, so `control` (#16) and `admission` (#8) are skipped on
 // every repo, every time. governance.ts says so in a comment; the comment never reached the screen.
 describe("fleet-unjudged conditions", () => {
+  it("names the fleet limit and the scored-nothing label without an em dash", () => {
+    expect(FLEET_UNJUDGED_NOTE).toBe("not judged fleet-wide. The per-repo gate decides it");
+    expect(FLEET_UNJUDGED_NOTE).not.toMatch(/\u2014/);
+    expect(GOVERNANCE_FAIL_REASONS.find((r) => r.key === "incomplete")?.label).toBe("Scored nothing, not judged");
+  });
+
   it("marks exactly the two conditions the fleet path can never evaluate", () => {
     expect([...FLEET_UNJUDGED_REASONS].sort()).toEqual(["admission", "control"]);
   });

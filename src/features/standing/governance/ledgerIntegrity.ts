@@ -58,7 +58,7 @@ export function ledgerIntegrityLine(chain: SealChain | null): LedgerIntegrityVie
       tone: "unknown",
       detail:
         "A day is chained after it closes, on the daily schedule. Until the first one is, alteration of these rows " +
-        "is not detectable — this states that rather than showing a verified badge over nothing.",
+        "is not detectable. This states that rather than showing a verified badge over nothing.",
     };
   }
 

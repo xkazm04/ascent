@@ -47,6 +47,8 @@ describe("ledgerIntegrityLine", () => {
     const v = ledgerIntegrityLine(chain({ checks: [] }));
     expect(v.headline).toContain("no day chained yet");
     expect(v.tone).toBe("unknown");
+    expect(v.detail).toContain("not detectable");
+    expect(v.detail).not.toMatch(/\u2014/);
   });
 
   it("names the broken day and does not report it as verified", () => {

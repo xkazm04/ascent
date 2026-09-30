@@ -28,7 +28,7 @@ const FAIL_REASON_LABELS: Record<GateFailure["code"], string> = {
   // Not a gate failure: the repo scored nothing, so it was never judged. It has a bar because the
   // alternative is a card that omits it entirely and reads as an all-clear (the same reason the card's
   // empty state names this bucket by hand).
-  incomplete: "Scored nothing — not judged",
+  incomplete: "Scored nothing, not judged",
 };
 
 /**
@@ -52,7 +52,7 @@ const FAIL_REASON_LABELS: Record<GateFailure["code"], string> = {
 export const FLEET_UNJUDGED_REASONS = new Set<GateFailure["code"]>(["admission", "control"]);
 
 /** Where a condition IS judged, for the row that cannot be judged here. */
-export const FLEET_UNJUDGED_NOTE = "not judged fleet-wide — the per-repo gate decides it";
+export const FLEET_UNJUDGED_NOTE = "not judged fleet-wide. The per-repo gate decides it";
 
 /** Does the org's stored bar actually carry a criterion the fleet view cannot judge? */
 export function unjudgedBarsDeclared(p: GatePolicy | null): boolean {
