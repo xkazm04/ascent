@@ -170,7 +170,9 @@ page.)
 
 ### Prism composition (2026-09-30)
 
-Altimeter keeps the markup above (`PracticesTab.v1`). Prism renders `PracticesPage.v2`, composed from the kit: a masthead (the four tile readings, paper figures, a void where a reading was not measured), hairline frames, and dimension lines for the house pattern and the library. Opening a row replaces the tab with a level. A mined practice keeps `#practice-<id>`. An authored playbook uses `#playbook-<id>`. Esc and Back return to the library. A deep link still addresses a mined practice and still opens apply. The server paints the overview first, then the level opens after hydration, because a hash never reaches the server. Bulk apply stays on that level (`PracticeApply`, `PracticeApplyBatch`).
+Altimeter keeps the markup above (`PracticesTab.v1`). Prism renders `PracticesPage.v2`, composed from the kit: a masthead (the four tile readings, paper figures, a void where a reading was not measured), hairline frames, and dimension lines for the house pattern and the library. Opening a row replaces the tab with a level. A mined practice keeps `#practice-<id>`. An authored playbook uses `#playbook-<id>`. Esc and Back return to the library. A deep link still addresses a mined practice and still opens apply. The server paints the overview first, then the level opens after hydration, because a hash never reaches the server. Bulk apply stays on that level.
+
+A second pass (2026-09-30) replaces the leftover card and native controls on the Prism page only. The registry line is a hairline frame (`RegistrySyncStrip.v2`), not the shared card. Apply, registry copy, new-practice, and playbook fields use `FormField`. The coherence spread is a `Ladder` (each measured quantile is paper; repos with no score are hatched, not zero). Rollout stages and foundation cells are `CellMark`s: glyph and word, with a reported percent kept in paper. Unknown stays "not measured". A stage that was never applied uses the missing mark. Report-back that Ascent did not provision reads "Not provisioned" on that same mark.
 
 ### The shared checklist and its measurement, in one place (2026-09-15)
 

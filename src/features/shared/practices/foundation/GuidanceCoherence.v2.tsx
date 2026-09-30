@@ -1,5 +1,6 @@
-// Prism guidance coherence. The spread is five numbers (no kit distribution). Scores stay paper.
-import { Caption, Display, Frame, KeyValue, Lede, SectionHead, VoidMark } from "@/components/kit";
+// Prism guidance coherence. The spread is a ladder: each quantile is paper, unassessed is hatched.
+import { Caption, Display, Frame, Ladder, Lede, SectionHead, VoidMark } from "@/components/kit";
+import { coherenceLadderSteps } from "./coherenceLadder";
 import { coherenceSpread } from "./coherenceSpread";
 import { coherenceFleetSummary, orderByIncoherence, type RepoCoherenceRow } from "./guidanceCoherenceModel";
 import { CoherenceRepoV2 } from "./CoherenceRepo.v2";
@@ -45,15 +46,7 @@ export function GuidanceCoherenceV2({ rows }: { rows: RepoCoherenceRow[] }) {
       </div>
       {spread.five ? (
         <div className="mt-4">
-          <KeyValue
-            items={[
-              { key: "Minimum", value: String(spread.five.min) },
-              { key: "Lower quartile", value: String(spread.five.q1) },
-              { key: "Median", value: String(spread.five.median) },
-              { key: "Upper quartile", value: String(spread.five.q3) },
-              { key: "Maximum", value: String(spread.five.max) },
-            ]}
-          />
+          <Ladder label="Coherence spread" steps={coherenceLadderSteps(spread)} />
           <Caption>{spread.five.n} assessed repositories in the spread.</Caption>
         </div>
       ) : (

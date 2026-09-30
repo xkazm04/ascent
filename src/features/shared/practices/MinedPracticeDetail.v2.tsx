@@ -1,9 +1,9 @@
 "use client";
 
 // Mined practice, inside the Prism level. Adoption is a dimension line. The exemplar score stays
-// paper. Apply is the existing control: there is no form-field kit part.
+// paper. Apply uses the kit field.
 import { Caption, Chip, ChipRow, DimensionLine, Frame, GhostAction, KeyValue, MonoPath, VoidMark, parseDimension } from "@/components/kit";
-import { PracticeApply } from "./PracticeApply";
+import { PracticeApplyV2 } from "./PracticeApply.v2";
 import type { OrgPractice } from "@/lib/db";
 
 export function MinedPracticeDetailV2({ p, onPromote }: { p: OrgPractice; onPromote?: () => void }) {
@@ -60,7 +60,7 @@ export function MinedPracticeDetailV2({ p, onPromote }: { p: OrgPractice; onProm
           ))}
         </ul>
       </Frame>
-      <PracticeApply practiceId={p.id} gapRepos={p.gapRepoRefs} openPrs={p.openPrs} />
+      <PracticeApplyV2 practiceId={p.id} gapRepos={p.gapRepoRefs} openPrs={p.openPrs} />
     </div>
   );
 }

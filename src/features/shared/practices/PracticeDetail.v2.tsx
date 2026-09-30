@@ -1,10 +1,10 @@
 "use client";
 
 // The open practice is a level: the rest of the tab unmounts, Esc and Back return, prev/next walk
-// the library. Authored playbooks keep PlaybookCard (its form has no kit field).
+// the library. Authored playbooks use the kit fields.
 import { useEffect, useRef } from "react";
 import { Display, EscBack, Eyebrow, Lede, LevelNav, Panel } from "@/components/kit";
-import { PlaybookCard } from "./PlaybookCard";
+import { PlaybookCardV2 } from "./PlaybookCard.v2";
 import { MinedPracticeDetailV2 } from "./MinedPracticeDetail.v2";
 import { categoryLabel, type PracticeRow } from "./practiceRows";
 import type { OrgPractice } from "@/lib/db";
@@ -60,7 +60,7 @@ export function PracticeDetailV2({
         <MinedPracticeDetailV2 p={row.mined} onPromote={() => onPromoteMined(row.mined!)} />
       ) : row.authored ? (
         <Panel aria-label={row.label}>
-          <PlaybookCard
+          <PlaybookCardV2
             playbook={row.authored.playbook}
             slug={slug}
             dimLabel={dimLabels.get(row.dimId) ?? row.dimId}

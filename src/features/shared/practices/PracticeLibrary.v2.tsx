@@ -104,9 +104,7 @@ export function PracticeLibraryV2({
                 )}
                 <HairlineList>
                   {g.entries.map((entry) => (
-                    <li key={entry.row.key}>
-                      <PracticeRowV2 entry={entry} onOpen={onOpen} />
-                    </li>
+                    <PracticeRowV2 key={entry.row.key} entry={entry} onOpen={onOpen} />
                   ))}
                 </HairlineList>
               </div>

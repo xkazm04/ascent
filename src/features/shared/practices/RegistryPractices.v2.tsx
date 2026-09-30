@@ -4,7 +4,7 @@ import { Caption, DimensionMark, Frame, HairlineList, SectionHead, parseDimensio
 import { DIMENSIONS } from "@/lib/maturity/model";
 import type { PracticeShapeRow } from "@/lib/db/org-practice-shapes";
 import { OpenInRegistry, OriginTag, registryBlobHref } from "@/features/shared/registry/RegistryOriginTag";
-import { RegistryPracticeApply } from "./RegistryPracticeApply";
+import { RegistryPracticeApplyV2 } from "./RegistryPracticeApply.v2";
 
 function dimensionName(id: string): string {
   return DIMENSIONS.find((d) => d.id === id)?.name ?? id;
@@ -43,7 +43,7 @@ export function RegistryPracticesV2({
                   <OriginTag origin={r.origin} path={r.registryPath} />
                 </div>
                 {r.appliesWhen && <p className="mt-1 max-w-[62ch] text-slate-400">{r.appliesWhen}</p>}
-                <RegistryPracticeApply slug={r.slug} title={r.title || r.slug} repoOptions={repoOptions} />
+                <RegistryPracticeApplyV2 slug={r.slug} title={r.title || r.slug} repoOptions={repoOptions} />
               </div>
               <OpenInRegistry href={registryBlobHref(registryBase, r.registryPath)} />
             </li>

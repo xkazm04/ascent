@@ -3,8 +3,8 @@
 // Prism composition. The open practice replaces the page (a level). Otherwise: masthead, house
 // pattern, registry, ledger, library, foundation, coherence. One library hook.
 import type { ReactNode } from "react";
-import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
-import { NewPracticeModal } from "./NewPracticeModal";
+import { RegistrySyncStripV2 } from "./RegistrySyncStrip.v2";
+import { NewPracticeModalV2 } from "./NewPracticeModal.v2";
 import { HousePatternV2 } from "./HousePattern.v2";
 import { PracticeDetailV2 } from "./PracticeDetail.v2";
 import { PracticeDriftV2 } from "./PracticeDrift.v2";
@@ -42,7 +42,7 @@ export function PracticesPageV2({ data, filters }: { data: PracticesPageData; fi
         />
       ) : (
         <>
-          <RegistrySyncStrip sync={data.sync} slug={data.slug} artifact="practices" />
+          <RegistrySyncStripV2 sync={data.sync} slug={data.slug} artifact="practices" />
           <PracticesMastheadV2 data={data} filters={filters} />
           {data.mined && <HousePatternV2 mined={data.mined} reposWithShape={data.reposWithShape} />}
           <RegistryPracticesV2 rows={data.shapeRows} registryBase={data.registryBase} repoOptions={data.repoOptions} />
@@ -61,7 +61,7 @@ export function PracticesPageV2({ data, filters }: { data: PracticesPageData; fi
           {data.coherence && <GuidanceCoherenceV2 rows={data.coherence} />}
         </>
       )}
-      <NewPracticeModal
+      <NewPracticeModalV2
         open={view.showCreate}
         slug={data.slug}
         dimOptions={data.dimOptions}
