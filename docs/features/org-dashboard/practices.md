@@ -276,7 +276,9 @@ halves:
   rank 1 of `getOrgRecommendations` — the same row `briefingNextMove` prints on the
   executive page, PDF and markdown. The rec's title and dimension carry over; the
   checklist is the leak-free template for that dim, never LLM-authored (G4). An unknown
-  dim 400s; a blank title without a seed is still rejected. The author form prefills from
+  dim 400s; a blank title without a seed is still rejected. An unknown org slug is 404
+  (`No such organization.`); `createPlaybook` still returns null and inserts no
+  Organization row. The author form prefills from
   the same `PLAYBOOK_TEMPLATES` list (`NewPracticeModal`).
 - **Promote a mined practice into a playbook (G7-25).** A mined practice detail carries a
   "Save as playbook →" action that opens the author form pre-filled from the practice:

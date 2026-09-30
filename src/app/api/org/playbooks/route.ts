@@ -50,6 +50,9 @@ export async function POST(request: Request) {
   // so this actor was recorded as null in production.
   const actorLogin = await resolveViewerLogin();
   const created = await createPlaybook(body.org, seeded.input, actorLogin);
-  return NextResponse.json(created ?? { error: "Failed to create playbook." }, { status: created ? 200 : 500 });
+  // The route already 503s when the database is off. createPlaybook's remaining null is an unknown
+  // slug (G4-09): it inserts no Organization row. That is a missing tenant, not a server fault.
+  if (!created) return NextResponse.json({ error: "No such organization." }, { status: 404 });
+  return NextResponse.json(created);
 }
 

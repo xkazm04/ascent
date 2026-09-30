@@ -142,6 +142,13 @@ describe("POST /api/org/playbooks — unseeded", () => {
     expect(mockRequireOrgAccess).not.toHaveBeenCalled();
   });
 
+  it("returns 404 when the org slug does not exist, and does not invent a 500", async () => {
+    mockCreatePlaybook.mockResolvedValue(null);
+    const res = await post({ org: "nope", title: "Ours", dimId: "D3" });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "No such organization." });
+  });
+
   it("still creates from an explicit title+dimId", async () => {
     const res = await post({ org: "acme", title: "Ours", dimId: "D3", steps: ["a"] });
     expect(res.status).toBe(200);
