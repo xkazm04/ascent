@@ -279,7 +279,8 @@ halves:
   dim 400s; a blank title without a seed is still rejected. A non-string title, summary,
   or steps is 400 before the member gate (a number used to throw inside `.trim()`). The same
   check on PATCH used to let a numeric summary throw into a 500 and a non-array `steps` through
-  as an empty edit; both are now 400 before `updatePlaybook`. An unknown org slug is 404
+  as an empty edit; both are now 400 before `updatePlaybook`. A successful create records
+  `playbook.created` (the update and delete doors already audited). An unknown org slug is 404
   (`No such organization.`); `createPlaybook` still returns null and inserts no
   Organization row. The author form prefills from
   the same `PLAYBOOK_TEMPLATES` list (`NewPracticeModal`).

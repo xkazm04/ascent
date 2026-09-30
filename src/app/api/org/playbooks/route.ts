@@ -5,7 +5,7 @@
 // Org-authored best-practice playbooks (Direction #3). Read-gated list; member-gated create.
 
 import { NextResponse } from "next/server";
-import { createPlaybook, getOrgRecommendations, isDbConfigured, listPlaybooks } from "@/lib/db";
+import { createPlaybook, getOrgRecommendations, isDbConfigured, listPlaybooks, recordOrgAudit } from "@/lib/db";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 import { isDimensionId } from "@/lib/maturity/model";
@@ -73,6 +73,12 @@ export async function POST(request: Request) {
   // The route already 503s when the database is off. createPlaybook's remaining null is an unknown
   // slug (G4-09): it inserts no Organization row. That is a missing tenant, not a server fault.
   if (!created) return NextResponse.json({ error: "No such organization." }, { status: 404 });
+  await recordOrgAudit(
+    "playbook.created",
+    body.org,
+    { playbookId: created.id, title: seeded.input.title },
+    actorLogin ?? undefined,
+  );
   return NextResponse.json(created);
 }
 

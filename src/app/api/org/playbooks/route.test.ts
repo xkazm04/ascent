@@ -23,12 +23,14 @@ const {
   mockGetOrgRecommendations,
   mockRequireOrgAccess,
   mockResolveViewerLogin,
+  mockRecordAudit,
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockCreatePlaybook: vi.fn(),
   mockGetOrgRecommendations: vi.fn(),
   mockRequireOrgAccess: vi.fn(),
   mockResolveViewerLogin: vi.fn(),
+  mockRecordAudit: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -36,6 +38,7 @@ vi.mock("@/lib/db", () => ({
   createPlaybook: mockCreatePlaybook,
   listPlaybooks: vi.fn(),
   getOrgRecommendations: mockGetOrgRecommendations,
+  recordOrgAudit: mockRecordAudit,
 }));
 
 vi.mock("@/lib/authz", () => ({
@@ -69,6 +72,7 @@ beforeEach(() => {
   mockCreatePlaybook.mockResolvedValue({ id: "pb_1" });
   mockResolveViewerLogin.mockResolvedValue("alice");
   mockGetOrgRecommendations.mockResolvedValue([]);
+  mockRecordAudit.mockResolvedValue(true);
 });
 
 describe("POST /api/org/playbooks — fromDim seed", () => {
@@ -173,5 +177,18 @@ describe("POST /api/org/playbooks — unseeded", () => {
       { title: "Ours", dimId: "D3", summary: "", steps: ["a"] },
       "alice",
     );
+    expect(mockRecordAudit).toHaveBeenCalledWith(
+      "playbook.created",
+      "acme",
+      { playbookId: "pb_1", title: "Ours" },
+      "alice",
+    );
+  });
+
+  it("does not audit when the org slug does not exist", async () => {
+    mockCreatePlaybook.mockResolvedValue(null);
+    const res = await post({ org: "nope", title: "Ours", dimId: "D3" });
+    expect(res.status).toBe(404);
+    expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 });

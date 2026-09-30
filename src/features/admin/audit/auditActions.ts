@@ -70,6 +70,7 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "forge.installation.set", label: "Forge connected", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "forge.installation.cleared", label: "Forge disconnected", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "ai_stance.pr_opened", label: "AI policy PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { value: "playbook.created", label: "Playbook created", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.updated", label: "Playbook updated", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "playbook.deleted", label: "Playbook deleted", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
   // Segment fleet-slice mutations — create / rename / delete / bulk tag previously left no trail.
