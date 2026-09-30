@@ -35,6 +35,7 @@ export { Plate } from "./Plate";
 export { SpectralRule, HonestyTag } from "./Marks";
 export { Movement } from "./Movement";
 export { VoidMark } from "./VoidMark";
+export { RepoRow, RepoRowCell } from "./RepoRow";
 export type { HonestyKind } from "./Marks";
 export { PrimaryAction, GhostAction } from "./Actions";
 export { Masthead } from "./Masthead";

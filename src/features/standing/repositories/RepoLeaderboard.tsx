@@ -12,6 +12,8 @@ import { OrgTable } from "@/components/org/shared/ui";
 import { LeaderboardHead } from "./RepoLeaderboardParts";
 import { RepoLeaderboardRow } from "./RepoLeaderboardRow";
 import { RepoLeaderboardBulkBar } from "./RepoLeaderboardBulkBar";
+import { RepoLeaderboardV2 } from "./RepoLeaderboard.v2";
+import type { ThemeId } from "@/lib/theme/theme";
 import { useRepoLeaderboard, type LeaderRow, type SegmentItem } from "./useRepoLeaderboard";
 
 export function RepoLeaderboard({
@@ -19,12 +21,17 @@ export function RepoLeaderboard({
   rows,
   segments,
   schedulable,
+  theme = "altimeter",
 }: {
   slug: string;
   rows: LeaderRow[];
   segments: SegmentItem[];
   schedulable: boolean;
+  /** Picks the composition; both read the same useRepoLeaderboard state. */
+  theme?: ThemeId;
 }) {
+  const view = useRepoLeaderboard({ slug, rows, segments });
+  if (theme === "prism") return <RepoLeaderboardV2 slug={slug} rowCount={rows.length} segments={segments} schedulable={schedulable} v={view} />;
   const {
     sort,
     cycleSort,
@@ -40,7 +47,7 @@ export function RepoLeaderboard({
     toggleAll,
     addToSegment,
     clearSelected,
-  } = useRepoLeaderboard({ slug, rows, segments });
+  } = view;
 
   return (
     <>

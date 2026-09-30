@@ -1,0 +1,12 @@
+{
+  "route": "/org/kiro?tab=repositories",
+  "roles": {
+    "page-statement": { "selector": "[data-role='masthead'] [data-kit='display'][data-level='page']", "expect": { "fontSize": 36, "fontWeight": "300", "letterSpacing": [-1.2, -0.9], "textTransform": "none" }, "accept": ["fontSize", "letterSpacing"] },
+    "page-named": { "selector": "[data-role='masthead'] [data-role='display-named']", "expect": { "fontWeight": "600" } },
+    "masthead-figure": { "selector": "[data-role='masthead'] [data-kit='display'][data-level='figure']", "expect": { "fontSize": 28, "fontWeight": "300" } },
+    "eyebrow": { "selector": "[data-kit='eyebrow']", "expect": { "fontSize": 14, "textTransform": "none", "letterSpacing": [0.2, 0.4] } },
+    "repo-name": { "selector": "[data-role='repo-row-name']", "expect": { "fontWeight": "600", "textTransform": "none" } },
+    "repo-figure": { "selector": "[data-role='repo-row-figure']", "expect": { "fontSize": 28, "fontWeight": "300" } },
+    "repo-stack": { "selector": "[data-role='repo-row-stack']", "expect": { "fontSize": 13, "textTransform": "none" } }
+  }
+}

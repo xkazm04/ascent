@@ -6,12 +6,17 @@
 
 import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
+import { Segmented } from "@/components/kit";
+import type { ThemeId } from "@/lib/theme/theme";
 
-export function FleetTabs({ slug, active }: { slug: string; active: "repositories" | "segments" }) {
+export function FleetTabs({ slug, active, theme = "altimeter" }: { slug: string; active: "repositories" | "segments"; theme?: ThemeId }) {
   const tabs: { key: "repositories" | "segments"; href: string; label: string }[] = [
     { key: "repositories", href: orgTabHref(slug, "repositories"), label: "Repositories" },
     { key: "segments", href: orgTabHref(slug, "segments"), label: "Segments" },
   ];
+  if (theme === "prism") {
+    return <Segmented nav label="Fleet view" variant="soft" value={active} options={tabs.map((t) => ({ key: t.key, href: t.href, label: t.label }))} />;
+  }
   return (
     <div role="tablist" aria-label="Fleet view" className="flex items-center gap-1.5">
       {tabs.map((t) => {

@@ -19,6 +19,8 @@ import { SegmentsSection } from "./SegmentsSection";
 import { RepositoriesLeaderboardPanel } from "./RepositoriesLeaderboardPanel";
 import { ContextHealthPanel } from "./context-health/ContextHealthPanel";
 import { QueueDepthLine } from "./QueueDepthLine";
+import { RepositoriesTabV2 } from "./RepositoriesTab.v2";
+import { getTheme } from "@/lib/theme/server";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -37,10 +39,12 @@ export async function RepositoriesTab({
   // the layout's nav already hides it, this is the deep-link backstop.
   if (await isPersonalOrg(slug)) redirect(orgTabHref(slug, DEFAULT_ORG_TAB));
 
+  const theme = await getTheme();
+
   if (mode === "segments") {
     return (
       <div className="stagger-children space-y-6">
-        <FleetTabs slug={slug} active="segments" />
+        <FleetTabs slug={slug} active="segments" theme={theme} />
         <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
           <SegmentsSection slug={slug} searchParams={sp} />
         </Suspense>
@@ -53,6 +57,7 @@ export async function RepositoriesTab({
   // boundaries costs one lookup, and both panels then read one `getOrgRollupShared` at the same
   // (segmentId, techGroupId). Deliberately NOT awaited here.
   const scope = resolveOrgScope(slug, sp);
+  if (theme === "prism") return <RepositoriesTabV2 slug={slug} sp={sp} scope={scope} />;
 
   return (
     <div className="stagger-children space-y-6">

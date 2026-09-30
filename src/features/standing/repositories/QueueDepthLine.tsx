@@ -48,10 +48,10 @@ export function queueDepthSentence(depth: { rescore: { queued: number; oldestAge
   );
 }
 
-export async function QueueDepthLine({ slug }: { slug: string }) {
+export async function QueueDepthLine({ slug, className = "type-body-sm text-slate-500" }: { slug: string; className?: string }) {
   const depth = await orgQueueDepth(slug);
   return (
-    <p className="type-body-sm text-slate-500">
+    <p className={className}>
       {queueDepthSentence(depth)}
     </p>
   );

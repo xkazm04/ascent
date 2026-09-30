@@ -3139,3 +3139,14 @@ What v2 changes is structure, not colour:
 - **Shared, not duplicated:** `heatmapModel.ts` (sort/mean), `postureModel.ts`, `useFleetRollup.tsx`,
   `trajectoryRead.ts`. **Known gap:** `OverviewTrajectoryCard` (v1) still carries its own copy of the
   trajectory gate that `trajectoryRead.ts` states; a source-scan test pins the card's text, so v1 was left alone.
+
+### Repositories in Prism (kit-3, first pass)
+
+`RepositoriesTab` reads the theme once and, in Prism, renders `RepositoriesTab.v2` (same scope promise, same panels).
+The leaderboard region becomes `RepositoriesView.v2`: a `Masthead` (repo count as the statement; average score,
+4-week commits and merged PRs as figures, each a `VoidMark` when unmeasured), a posture `Segmented` nav (label plus
+count, no status dot), scope and Export CSV on one toolbar, and a ruled list of the new kit **`RepoRow`**
+(`src/components/kit/RepoRow.tsx`; roles for name, stack, score, movement, chips, cells, actions). Passports and
+Security will migrate to it later. Sort, selection and bulk-tag share `useRepoLeaderboard` with Altimeter, which is
+unchanged (0 px). **Known gaps:** Context Health, Segments and the missing-repos panel still carry v1 markup
+under Prism CSS; the row has no score movement because the rollup row carries no per-repo delta.

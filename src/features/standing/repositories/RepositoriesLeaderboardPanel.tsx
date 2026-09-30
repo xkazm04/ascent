@@ -8,6 +8,9 @@
 // point back here. Segment membership for the bulk bar rides the shared `resolveOrgScope` promise.
 
 import Link from "next/link";
+import type { ReactNode } from "react";
+import type { ThemeId } from "@/lib/theme/theme";
+import { RepositoriesViewV2 } from "./RepositoriesView.v2";
 import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
 import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
@@ -24,15 +27,22 @@ export async function RepositoriesLeaderboardPanel({
   slug,
   sp,
   scope,
+  theme = "altimeter",
+  queue,
 }: {
   slug: string;
   sp: SearchParams;
   /** SHARED promise created once in RepositoriesTab and awaited here and in Context Health. */
   scope: Promise<OrgScope>;
+  /** Picks the composition (the entry reads the cookie once). */
+  theme?: ThemeId;
+  /** Prism only: the queue-depth line, slotted into the toolbar region so it keeps its own Suspense boundary. */
+  queue?: ReactNode;
 }) {
   // Segment + tech-stack scope: the same SegmentSelector the rest of the dashboard uses. The two
   // filters compose (segment AND stack); a bogus id/key falls back to the whole fleet.
-  const { barProps, segments, segmentId, techGroupId, activeStack } = await scope;
+  const resolved = await scope;
+  const { barProps, segments, segmentId, techGroupId, activeStack } = resolved;
   // Request-scoped: Context Health below this panel asks for the SAME scoped rollup, and the tab used
   // to run two full ones per render. `getOrgRollupShared` normalizes null/undefined args so the two
   // calls key identically and collapse into one read.
@@ -80,6 +90,26 @@ export async function RepositoriesLeaderboardPanel({
   // Watched repos GitHub's last COMPLETE listing didn't contain (renamed/transferred/deleted/private).
   // Renders nothing when the list is empty, so the tab is unchanged for a healthy fleet.
   const missing = await listMissingRepos(slug);
+
+  if (theme === "prism") {
+    const csvHref = `/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv${posture ? `&posture=${encodeURIComponent(posture)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`;
+    return (
+      <RepositoriesViewV2
+        slug={slug}
+        rollup={rollup}
+        leaderboard={leaderboard}
+        visible={visible}
+        posture={posture}
+        postureCounts={postureCounts}
+        chipHref={chipHref}
+        csvHref={csvHref}
+        scope={resolved}
+        schedulable={schedulable}
+        missing={<MissingReposPanel org={slug} repos={missing} />}
+        queue={queue}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
