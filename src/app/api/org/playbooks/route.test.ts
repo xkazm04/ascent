@@ -133,6 +133,22 @@ describe("POST /api/org/playbooks — fromRec (ranked next move)", () => {
   });
 });
 
+describe("POST /api/org/playbooks — non-string fields", () => {
+  it.each([
+    [{ org: "acme", title: 12, dimId: "D3" }, "title must be a non-empty string."],
+    [{ org: "acme", fromDim: "D5", title: 12 }, "title must be a non-empty string."],
+    [{ org: "acme", title: "Ours", dimId: "D3", summary: 4 }, "summary must be a string."],
+    [{ org: "acme", title: "Ours", dimId: "D3", steps: "lint" }, "steps must be an array of strings."],
+    [{ org: "acme", title: "Ours", dimId: "D3", steps: ["ok", 1] }, "steps must be an array of strings."],
+  ] as const)("returns 400 (%s) and does not write", async (payload, error) => {
+    const res = await post(payload);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error });
+    expect(mockCreatePlaybook).not.toHaveBeenCalled();
+    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST /api/org/playbooks — unseeded", () => {
   it("still rejects a blank title", async () => {
     const res = await post({ org: "acme", title: "  ", dimId: "D5" });

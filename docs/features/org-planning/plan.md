@@ -109,7 +109,8 @@ leak. The preview does not require the GitHub App — the starter bytes are comp
 so a deployment with no App still gets the preview. `isAppConfigured()` runs only on the write
 path, which still returns 503 when the App is absent. Create also accepts `fromDim` / `fromRec` to prefill from the dimension template (the
 briefing's ranked next move when `fromRec` is set); an unknown org slug is 404
-(`No such organization.`), not 500. See [practices.md](../org-dashboard/practices.md).
+(`No such organization.`), not 500, and a non-string title, summary, or steps is 400
+before any write. See [practices.md](../org-dashboard/practices.md).
 
 **Playbooks reach the tracked fleet** (since 2026-09-24). Apply, apply-batch and the adoption mark
 (`POST`/`DELETE /api/org/playbooks/[id]/repos`) accept a repo in the playbook org's own namespace

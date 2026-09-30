@@ -276,7 +276,8 @@ halves:
   rank 1 of `getOrgRecommendations` — the same row `briefingNextMove` prints on the
   executive page, PDF and markdown. The rec's title and dimension carry over; the
   checklist is the leak-free template for that dim, never LLM-authored (G4). An unknown
-  dim 400s; a blank title without a seed is still rejected. An unknown org slug is 404
+  dim 400s; a blank title without a seed is still rejected. A non-string title, summary,
+  or steps is 400 before the member gate (a number used to throw inside `.trim()`). An unknown org slug is 404
   (`No such organization.`); `createPlaybook` still returns null and inserts no
   Organization row. The author form prefills from
   the same `PLAYBOOK_TEMPLATES` list (`NewPracticeModal`).

@@ -24,9 +24,29 @@ export async function GET(request: Request) {
   return NextResponse.json({ playbooks: playbooks ?? [] });
 }
 
+/** Non-string title/summary/steps throw inside `.trim()` (optional call does not skip a missing method). */
+function playbookCreateTextError(body: { title?: unknown; summary?: unknown; steps?: unknown }): string | null {
+  if (body.title !== undefined && typeof body.title !== "string") return "title must be a non-empty string.";
+  if (body.summary !== undefined && typeof body.summary !== "string") return "summary must be a string.";
+  if (
+    body.steps !== undefined &&
+    (!Array.isArray(body.steps) || body.steps.some((step) => typeof step !== "string"))
+  ) {
+    return "steps must be an array of strings.";
+  }
+  return null;
+}
+
 export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Playbooks require a database." }, { status: 503 });
-  const body = (await request.json().catch(() => ({}))) as PlaybookCreateBody & { org?: string };
+  const body = (await request.json().catch(() => ({}))) as PlaybookCreateBody & {
+    org?: string;
+    title?: unknown;
+    summary?: unknown;
+    steps?: unknown;
+  };
+  const textError = playbookCreateTextError(body);
+  if (textError) return NextResponse.json({ error: textError }, { status: 400 });
   const fromRec = body.fromRec === true;
   const fromDim = typeof body.fromDim === "string" && body.fromDim ? body.fromDim : undefined;
   if (!body.org || (!fromRec && !fromDim && (!body.title?.trim() || !body.dimId))) {
