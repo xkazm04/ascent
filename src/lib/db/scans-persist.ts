@@ -252,6 +252,11 @@ export async function persistScanReport(
   // first's committed scan — dedup catches an identical commit, and carry-forward reads a stable
   // snapshot. (Process-local + best-effort; cross-instance races fall back to the dedup + tx below.)
   return withRepoLock(repo.id, () => withRetry(async () => {
+    // One stamp for the content key, the movement witness, and the stored column. A report that
+    // carries its instrument (a reconstructed or replayed scan) keeps that stamp; a fresh scan that
+    // omits it is stamped with the rubric active at persist time. The key already read the report;
+    // the column and the witness used to ignore it and always write the constant.
+    const stampedRubric = report.engine.rubricVersion ?? SCORING_RUBRIC_VERSION;
     // Dedup: if this exact commit was already scored, reuse it — no second (metered) Scan row. The
     // repo's metadata + lastScanAt were already refreshed above (so the UI still shows "up to date").
     let upgradeOldScanId: string | null = null;
@@ -297,7 +302,7 @@ export async function persistScanReport(
         rigorScore: report.rigorScore,
         engineProvider: report.engine.provider,
         engineModel: report.engine.model,
-        rubricVersion: report.engine.rubricVersion ?? SCORING_RUBRIC_VERSION,
+        rubricVersion: stampedRubric,
         dimensions: report.dimensions.map((d) => ({ dimId: d.id, score: d.score })),
       });
       // The SAME identity, persisted: the read below is the fast path, and this key is what a CONCURRENT
@@ -373,8 +378,9 @@ export async function persistScanReport(
     const movementEngines: MovementEngines | null = previous
       ? {
           before: { engineProvider: previous.engineProvider, engineDegraded: previous.engineDegraded, rubricVersion: previous.rubricVersion },
-          // The rubric THIS row is stamped with below: the one active at persist time.
-          after: { engineProvider: report.engine.provider, engineDegraded: report.engine.degraded, rubricVersion: SCORING_RUBRIC_VERSION },
+          // The rubric THIS row is stamped with: the report's own stamp when it carries one, else the
+          // rubric active at persist time. The witness and the column share `stampedRubric`.
+          after: { engineProvider: report.engine.provider, engineDegraded: report.engine.degraded, rubricVersion: stampedRubric },
         }
       : null;
     const carryMatch = matchRecommendations(
@@ -482,11 +488,11 @@ export async function persistScanReport(
             confidence: report.confidence,
             engineProvider: report.engine.provider,
             engineModel: report.engine.model,
-            // Stamp the scoring rubric version active at persist time, so the cross-instance DB cache tier
-            // can detect a rubric bump per-row (persistedMatchesActiveIdentity) and re-score instead of
-            // serving a stale-rubric snapshot until the age gate. Provider/model already round-trip via
-            // engineProvider/engineModel; this completes the {provider, model, rubric} scoring identity.
-            rubricVersion: SCORING_RUBRIC_VERSION,
+            // The report's rubric when it carries one, else the rubric active at persist time. The cache
+            // tier (persistedMatchesActiveIdentity) and follow-up closure both read this column, so it
+            // has to name the instrument the row was actually scored under — the same value the content
+            // key used. Provider/model already round-trip via engineProvider/engineModel.
+            rubricVersion: stampedRubric,
             // Whose account the inference ran in (BYOM vs Ascent's platform account) — persisted so a
             // reloaded report's privacy chip keeps making the SAME claim the fresh scan made. `?? null`
             // keeps a report that never set it (a hand-built or legacy in-memory report) as UNKNOWN.

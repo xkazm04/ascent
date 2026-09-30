@@ -972,6 +972,10 @@ describe("persistScanReport — sha-less findScanByScannedAt dedup fallback", ()
     expect(createdScans[0]!.dedupKey).not.toBe(createdScans[1]!.dedupKey);
     expect(createdScans[0]!.dedupKey).toMatch(new RegExp(`^${DEDUP_KEY_VERSION}:[0-9a-f]{64}$`));
     expect(createdScans[1]!.dedupKey).toMatch(new RegExp(`^${DEDUP_KEY_VERSION}:[0-9a-f]{64}$`));
+    // The content key already distinguished rA from rB. The stored column used to ignore that and
+    // write the rubric active at persist time, so cache and gallery treated an old instrument as current.
+    expect(createdScans[0]!.rubricVersion).toBe("rA");
+    expect(createdScans[1]!.rubricVersion).toBe("rB");
   });
 
   it("MISS: a genuinely new sha-less report persists EXACTLY ONE row (deduped:false, headSha:null)", async () => {
@@ -1240,7 +1244,7 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
   // The ruler moving is not the repository moving: the previous scan's rubric rides into the movement
   // engines, so a dimension that rose only because the rubric was bumped cannot close the claim.
   it("NOT restated and the dimension ROSE, but across a RUBRIC bump → KEPT and copied forward naming both rubrics", async () => {
-    const { prisma, createdResolved, createdEvents } = fakePrisma({
+    const { prisma, createdResolved, createdEvents, createdScans } = fakePrisma({
       previousRecs: [prevInProgress()],
       previousDims: [{ dimId: "D2", score: 61 }],
       previousRubric: "r1",
@@ -1264,6 +1268,35 @@ describe("persistScanReport — follow-up feedback on in-progress rows", () => {
     const note = String(createdEvents[0]!.note);
     expect(note).toContain("r1 ");
     expect(note).toContain(SCORING_RUBRIC_VERSION);
+    // A report that omits its stamp is still the rubric active at persist time.
+    expect(createdScans[0]!.rubricVersion).toBe(SCORING_RUBRIC_VERSION);
+  });
+
+  it("NOT restated and the dimension ROSE under the report's own rubric → done, and the row stores that rubric", async () => {
+    // Same scores, same claim, previous stamp r9. When the report also carries r9 the movement is
+    // one ruler and the claim closes. Storing the active constant instead kept it open forever.
+    const { prisma, createdResolved, createdEvents, createdScans } = fakePrisma({
+      previousRecs: [prevInProgress()],
+      previousDims: [{ dimId: "D2", score: 61 }],
+      previousRubric: "r9",
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(
+      makeReport({
+        headSha: "sha_v3same",
+        roadmap: [],
+        resolvedFollowUpIds: ["rec_ip"],
+        rubricVersion: "r9",
+        dimensions: [{ id: "D2", name: "Automated Testing", weight: 0.15, score: 90, signalScore: 90, llmScore: 90, summary: "", evidence: [], strengths: [], gaps: [] }],
+      }),
+    );
+
+    expect(createdResolved).toHaveLength(1);
+    expect(createdResolved[0]).toMatchObject({ status: "done" });
+    expect(String(createdEvents[0]!.note)).toContain("Ascent-Resolves");
+    expect(createdScans[0]!.rubricVersion).toBe("r9");
   });
 
   it("RESTATED without a trailer → stays in progress on the new scan (carry-forward as before), nothing resolved", async () => {
