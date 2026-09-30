@@ -77,7 +77,18 @@ export function useRepoLeaderboard({ slug, rows, segments }: { slug: string; row
     setDone(null);
   }
   function toggleAll() {
-    setSelected((s) => (s.size === rows.length ? new Set() : new Set(rows.map((r) => r.fullName))));
+    // Compare the VISIBLE rows, not rawSelected.size. A posture filter keeps this component
+    // mounted, so the raw set still holds off-screen ticks. When that hidden count equals the
+    // visible length, the old check cleared the selection instead of selecting what is on screen,
+    // and an already-checked header replaced the raw set with only the visible names.
+    setSelected((s) => {
+      const visible = rows.map((r) => r.fullName);
+      const everyVisible = visible.length > 0 && visible.every((fn) => s.has(fn));
+      const next = new Set(s);
+      if (everyVisible) for (const fn of visible) next.delete(fn);
+      else for (const fn of visible) next.add(fn);
+      return next;
+    });
     setDone(null);
   }
 
