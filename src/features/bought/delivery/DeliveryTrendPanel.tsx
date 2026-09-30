@@ -47,6 +47,7 @@ export function DeliveryTrendPanel({
   unit,
   points,
   higherIsBetter = true,
+  plain = false,
 }: {
   label: string;
   /** The metric's definition — disclosed through the WhyChip, never printed as standing prose. */
@@ -55,6 +56,8 @@ export function DeliveryTrendPanel({
   points: TrendPanelPoint[];
   /** False for duration metrics (time-to-merge), where a FALLING line is the good news. */
   higherIsBetter?: boolean;
+  /** Prism: drop the card shell. Default keeps the Altimeter class string. */
+  plain?: boolean;
 }) {
   const present = points
     .map((p, i) => ({ ...p, i }))
@@ -78,7 +81,7 @@ export function DeliveryTrendPanel({
   const path = trendPath(points, x, y);
 
   return (
-    <div className="rounded-xl border border-divider bg-surface/40 p-4">
+    <div className={plain ? "border-t border-divider py-4" : "rounded-xl border border-divider bg-surface/40 p-4"}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="flex items-center gap-1.5">
           <span className="type-mono-sm uppercase tracking-widest text-slate-400">{label}</span>
@@ -147,7 +150,7 @@ export function DeliveryTrendPanel({
         </div>
       )}
 
-      <DeliveryTrendPanelFoot label={label} fmt={fmt} present={present} delta={delta} toneValue={toneValue} unit={unit} voids={voids} />
+      <DeliveryTrendPanelFoot label={label} fmt={fmt} present={present} delta={delta} toneValue={toneValue} unit={unit} voids={voids} paper={plain} />
     </div>
   );
 }

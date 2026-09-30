@@ -12,6 +12,11 @@ export const AiDeliveryModuleChunk = dynamic(
   { ssr: false },
 );
 
+export const AiDeliveryModuleV2Chunk = dynamic(
+  () => import("./ai/AiDeliveryModule.v2").then((m) => m.AiDeliveryModuleV2),
+  { ssr: false },
+);
+
 export const DeliveryActivityChartChunk = dynamic(
   () => import("./DeliveryActivityChart").then((m) => m.DeliveryActivityChart),
   { ssr: false },

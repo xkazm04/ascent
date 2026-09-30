@@ -18,6 +18,7 @@ export function DeliveryTrendPanelFoot({
   toneValue,
   unit,
   voids,
+  paper = false,
 }: {
   label: string;
   fmt: (v: number) => string;
@@ -26,19 +27,26 @@ export function DeliveryTrendPanelFoot({
   toneValue: number;
   unit: "%" | "h";
   voids: number;
+  /** Prism: paper number, no status hue. Default keeps the Altimeter delta color. */
+  paper?: boolean;
 }) {
   return (
     <>
       <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 type-mono-sm">
         {delta === null ? (
           <span className="text-slate-500">one measured day: no change to read</span>
+        ) : paper ? (
+          <span className="text-slate-200">
+            {fmtDelta(delta)}
+            {unit === "%" ? "pts" : "h"} across the period
+          </span>
         ) : (
           <span style={{ color: deltaHex(toneValue) }}>
             {fmtDelta(delta)}
             {unit === "%" ? "pts" : "h"} across the period
           </span>
         )}
-        <span className="text-slate-600">
+        <span className={paper ? "text-slate-400" : "text-slate-600"}>
           {present.length} measured
           {voids > 0 && (
             <>

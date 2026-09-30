@@ -3,20 +3,27 @@
 // reads in DeliveryCorePanel, so a slow trend query can't hold the rest of the tab hostage.
 
 import { SectionEmpty } from "@/components/org/shared/ui";
+import { Frame, Lede } from "@/components/kit";
 import { DeliveryTrendSection } from "./DeliveryTrendSection";
+import { DeliveryTrendV2 } from "./DeliveryTrend.v2";
 import { getOrgDeliveryTrend } from "@/lib/db/org-delivery-trend";
 import type { OrgScope } from "@/lib/org/scope";
 import type { ResolvedWindow } from "@/lib/window";
+import type { ThemeId } from "@/lib/theme/theme";
+
+const TREND_FAILED = "The delivery trend couldn't load right now. Try refreshing this page.";
 
 export async function DeliveryTrendDataPanel({
   slug,
   scope,
   period,
+  theme = "altimeter",
 }: {
   slug: string;
   /** The SHARED scope promise created once in DeliveryTab and awaited in both boundaries. */
   scope: Promise<OrgScope>;
   period: ResolvedWindow;
+  theme?: ThemeId;
 }) {
   const { segmentId, techGroupId } = await scope;
 
@@ -28,11 +35,14 @@ export async function DeliveryTrendDataPanel({
     trend = await getOrgDeliveryTrend(slug, period, segmentId, techGroupId);
   } catch (err) {
     console.error(`[delivery/${slug}] getOrgDeliveryTrend failed:`, err);
-    return <SectionEmpty>The delivery trend couldn&apos;t load right now. Try refreshing this page.</SectionEmpty>;
+    return theme === "prism" ? (
+      <Frame pad="sm"><Lede>{TREND_FAILED}</Lede></Frame>
+    ) : (
+      <SectionEmpty>{TREND_FAILED}</SectionEmpty>
+    );
   }
   if (!trend) return null;
 
-  return (
-    <DeliveryTrendSection trend={trend} range={period.key} from={period.from} to={period.to} periodTitle={period.title} />
-  );
+  const view = { trend, range: period.key, from: period.from, to: period.to, periodTitle: period.title };
+  return theme === "prism" ? <DeliveryTrendV2 {...view} /> : <DeliveryTrendSection {...view} />;
 }

@@ -1,16 +1,18 @@
 // G6-24: the commit-activity caption hardcoded "weeks" as a literal plural while the adjacent repo count
 // in the same sentence was already correctly conditional, so a single-week fleet read "...over 1 weeks."
 // This asserts the same conditional pluralization pattern used for `repos` is now applied to `weeks`.
+// Both compositions carry the caption: Altimeter in DeliveryCore.v1, Prism in DeliveryActivity.v2.
 
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-// Migrated with the tab into the ?tab= shell (docs/ORG-TABS-REFACTOR.md); the caption this pins now
-// lives in DeliveryCorePanel.tsx, not the old page.tsx.
-const SOURCE = fs.readFileSync(path.resolve(__dirname, "DeliveryCorePanel.tsx"), "utf8");
+const read = (name: string) => fs.readFileSync(path.resolve(__dirname, name), "utf8");
 
-describe("delivery commit-activity caption pluralization (G6-24)", () => {
+describe.each([
+  ["DeliveryCore.v1.tsx", read("DeliveryCore.v1.tsx")],
+  ["DeliveryActivity.v2.tsx", read("DeliveryActivity.v2.tsx")],
+])("delivery commit-activity caption pluralization (G6-24) in %s", (_name, SOURCE) => {
   it("no longer hardcodes an unconditional 'weeks' literal", () => {
     expect(SOURCE).not.toMatch(/\{activity\.weeks\} weeks\b/);
   });

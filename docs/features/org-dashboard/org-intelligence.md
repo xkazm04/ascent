@@ -2987,6 +2987,8 @@ per-metric definition moved from a standing `<p>` into a `WhyChip`. `DeliverySlo
 gated fit readouts a shape: the true slope angle in a goodness-signed colour, and a **hatched** mark
 with no numeral where `forecastInsufficiency` refuses to state one.
 
+**Prism composition (kit).** `DeliveryTab` reads `getTheme()` and renders `DeliveryTab.v2` when the theme is Prism. Altimeter keeps the previous markup (`*.v1`). Prism is a masthead, hairline frames, and kit tables. Hue is not a status color: figures stay paper, and status is a glyph plus a word. A figure that was not measured is a void, not a zero. Locked AI spend (fidelity `none`) stays empty, and spend-derived verdicts stay suppressed by the model. The trend, the activity chart, the spend ribbon, the ROI map, and the DORA marks stay domain drawings. The kit has no part for a broken series, a non-percent axis, or a pressable row.
+
 ## Known gaps
 
 - **One producer still emits `0` where it means "unmeasured"** (found 2026-09-08 by the /org
