@@ -220,7 +220,8 @@ RepoContributor + RepoTeam) and is the heart of the data layer:
   sha-less report (head resolution failed, or a reconstructed snapshot) has no commit to key
   on, so it falls back to `scannedAt` **plus a content check**: the timestamp narrows the
   candidate row, and the row is only reused when its content identity (`scanContentKey`:
-  score, level, axes, engine, and the per-dimension scores) matches the incoming report. Two
+  score, level, axes, engine, and the per-dimension scores, last-wins by dimId — the same
+  reduction the writer applies before nested create) matches the incoming report. Two
   genuinely different sha-less results computed in the same millisecond are therefore both
   persisted, and a replayed/reused clock value can't suppress a real re-score. That same identity
   is also PERSISTED as `Scan.dedupKey` (`scanDedupKey` = a hash of `scannedAt` + the content key)

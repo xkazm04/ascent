@@ -600,6 +600,20 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
     expect(scanContentKey(reversed)).toBe(scanContentKey(base));
   });
 
+  it("last-wins a duplicate dimId so the key matches the single row the writer stores", () => {
+    // Nested create keeps one ScanDimension per dimId (last write). A key that still lists the
+    // shadowed score treats that report as a different result from the row it just wrote.
+    const shadowed = {
+      ...base,
+      dimensions: [
+        { dimId: "D1", score: 40 },
+        { dimId: "D2", score: 55 },
+        { dimId: "D1", score: 90 },
+      ],
+    };
+    expect(scanContentKey(shadowed)).toBe(scanContentKey(base));
+  });
+
   it("CHANGES when the headline score changes", () => {
     expect(scanContentKey({ ...base, overallScore: 71 })).not.toBe(scanContentKey(base));
   });

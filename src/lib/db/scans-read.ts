@@ -94,12 +94,13 @@ export async function findScanByCommit(
  * apart from "two genuinely different scores computed in the same millisecond".
  *
  * Deliberately a plain canonical STRING, not a hash: dedup compares it for equality only, so a hash
- * would add collision risk and lose debuggability for nothing. Dimension scores are sorted by id so
- * the key is stable regardless of the order the detectors/LLM emitted them. `rubricVersion` rides
- * with the engine — it is the same instrument identity `HistoryPoint` already carries, so identical
- * scores under two rubrics are two results. A missing stamp canonicalizes to `""` so a legacy row
- * and a stamped row never compare equal by accident. Pure — the persist path derives it from the
- * in-memory report, the read path from the persisted row, and they must agree.
+ * would add collision risk and lose debuggability for nothing. Dimension scores last-win by dimId
+ * (the same reduction the nested create uses, so a shadowed duplicate matches the one ScanDimension
+ * the row actually stores) and are then sorted by id so emission order cannot change the key.
+ * `rubricVersion` rides with the engine — it is the same instrument identity `HistoryPoint` already
+ * carries, so identical scores under two rubrics are two results. A missing stamp canonicalizes to
+ * `""` so a legacy row and a stamped row never compare equal by accident. Pure — the persist path
+ * derives it from the in-memory report, the read path from the persisted row, and they must agree.
  */
 export function scanContentKey(input: {
   overallScore: number;
@@ -111,7 +112,9 @@ export function scanContentKey(input: {
   rubricVersion: string | null;
   dimensions: Array<{ dimId: string; score: number }>;
 }): string {
-  const dims = [...input.dimensions]
+  const byDimId = new Map<string, { dimId: string; score: number }>();
+  for (const d of input.dimensions) byDimId.set(d.dimId, d);
+  const dims = [...byDimId.values()]
     .sort((a, b) => a.dimId.localeCompare(b.dimId))
     .map((d) => `${d.dimId}:${d.score}`)
     .join(",");

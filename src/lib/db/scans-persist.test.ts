@@ -939,6 +939,47 @@ describe("persistScanReport — sha-less findScanByScannedAt dedup fallback", ()
     expect(res).toMatchObject({ deduped: false });
   });
 
+  it("a shadowed duplicate dimId dedups against the last-wins row already stored", async () => {
+    // The writer stores one ScanDimension per dimId. The content key used to keep both scores, so
+    // this replay missed the fast path and inserted a second metered row of the same stored graph.
+    const cleaned = scanContentKey({
+      overallScore: 70,
+      level: "L3",
+      adoptionScore: 60,
+      rigorScore: 80,
+      engineProvider: "anthropic",
+      engineModel: "claude",
+      rubricVersion: SCORING_RUBRIC_VERSION,
+      dimensions: [{ dimId: "D1", score: 55 }],
+    });
+    const { prisma, scanCreate } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByScannedAt.mockResolvedValue({
+      id: "scan_clean",
+      engineProvider: "anthropic",
+      contentKey: cleaned,
+    });
+    const dim = (score: number) => ({
+      id: "D1" as const,
+      name: "Discovery",
+      weight: 0.1,
+      score,
+      signalScore: score,
+      llmScore: score,
+      summary: "",
+      evidence: [] as string[],
+      strengths: [] as string[],
+      gaps: [] as string[],
+    });
+
+    const res = await persistScanReport(
+      makeReport({ headSha: null, dimensions: [dim(40), dim(55)] }),
+    );
+
+    expect(res).toMatchObject({ scanId: "scan_clean", deduped: true, headSha: null });
+    expect(scanCreate).not.toHaveBeenCalled();
+  });
+
   it("SAME scores, DIFFERENT rubricVersion at the same millisecond: both scans persist (two rows)", async () => {
     // HistoryPoint already treats rubricVersion as instrument identity. Without it in scanContentKey,
     // a sha-less persist of rubric A then same-ms rubric B with identical scores collapsed to one row.
