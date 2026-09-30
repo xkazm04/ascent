@@ -15,7 +15,6 @@
 
 /* Panel — a smaller radius and a lit top hairline: a plate, not a card. */
 html[data-theme="prism"] [data-kit="panel"] {
-  border-radius: 0.5rem;
   background-color: color-mix(in srgb, var(--color-surface) 78%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-white) 7%, transparent);
 }
@@ -33,7 +32,6 @@ html[data-theme="prism"] [data-kit="panel"][data-tone="accent"]::before {
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
-  border-radius: 0.5rem 0.5rem 0 0;
   background: var(--spec);
   opacity: 0.85;
   pointer-events: none;
@@ -59,23 +57,9 @@ html[data-theme="prism"] [data-kit="section"] .type-label::before {
   background: var(--spec);
 }
 
-/* Stat strip — a light figure on the void cell; the hairline bed stays. */
-html[data-theme="prism"] [data-kit="stat-strip"] {
-  border-radius: 0.5rem;
-}
-html[data-theme="prism"] [data-kit="stat-tile"] .type-figure {
-  font-weight: 300;
-  letter-spacing: -0.03em;
-}
-
 /* Segmented — a hairline frame, no fill; the active block already reads paper + spectrum underline. */
 html[data-theme="prism"] [data-kit="segmented"] {
-  border-radius: 0.375rem;
   background: transparent;
-  border-color: color-mix(in srgb, var(--color-white) 24%, transparent);
-}
-html[data-theme="prism"] [data-kit="segmented"] > * {
-  border-radius: 0.25rem;
 }
 
 /* List rows — the leading mark is a hairline ring in paper, the hovered title stays paper (accent IS paper). */
@@ -86,10 +70,7 @@ html[data-theme="prism"] [data-kit="list-row"] [data-role="list-row-mark"] {
 /* Data table — top and bottom hairlines, not a card (D5); the 15px row role; a quiet ruled head; paper (never a
    hue) for hover and selection; figures in sans tabular numerals (mono is for evidence). Design review 2026-09-30. */
 html[data-theme="prism"] [data-kit="data-table"] {
-  border-radius: 0;
   border-width: 1px 0;
-  border-top-color: var(--hair-strong);
-  border-bottom-color: var(--hair);
 }
 html[data-theme="prism"] [data-kit="data-table"] table { font-size: 0.9375rem; line-height: 1.4; }
 html[data-theme="prism"] [data-kit="data-table"] [data-role="data-table-head"] {
@@ -205,7 +186,6 @@ html[data-theme="prism"] [data-kit="panel"] {
 html[data-theme="prism"] [data-kit="panel"][data-tone="accent"]::before {
   border-radius: 4px 4px 0 0;
 }
-html[data-theme="prism"] [data-kit="stat-strip"],
 html[data-theme="prism"] [data-kit="data-table"] {
   border-radius: 4px;
   border-color: var(--hair);
