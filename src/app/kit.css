@@ -641,3 +641,27 @@ html[data-theme="prism"] [data-role="executive-v2"] [data-role="dimension-label"
     padding-right: 6.5rem;
   }
 }
+
+/* ── Skills tab (kit-8, 2026-09-30): skill names wrap; missing words are readable without a strike;
+   checkbox controls stay checks. The guided-setup tab covers the right edge through 1600. ── */
+html[data-theme="prism"] [data-role="skills-v2"] :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md) {
+  border-radius: 0.25rem;
+}
+html[data-theme="prism"] [data-role="skills-v2"] [data-kit="list-row"] [data-role="list-row-title"] {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+html[data-theme="prism"] [data-role="skills-v2"] [data-kit="cell-mark"][data-state="missing"] {
+  text-decoration: none;
+}
+html[data-theme="prism"] [data-role="skills-v2"] [data-kit="field-control"][type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+}
+@media (max-width: 1600px) {
+  html[data-theme="prism"] [data-role="skills-v2"] {
+    padding-right: 3.25rem;
+  }
+}

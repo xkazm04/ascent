@@ -1,0 +1,15 @@
+{
+  "route": "/org/kiro?tab=skills",
+  "roles": {
+    "page-statement": { "selector": "[data-role='skills-v2'] [data-kit='masthead'] [data-kit='display'][data-level='page']", "expect": { "fontSize": [42, 48], "fontWeight": "300", "textTransform": "none" } },
+    "page-named": { "selector": "[data-role='skills-v2'] [data-kit='masthead'] [data-role='display-named']", "expect": { "fontWeight": "600" } },
+    "eyebrow": { "selector": "[data-role='skills-v2'] [data-kit='eyebrow']", "expect": { "fontSize": 14, "textTransform": "none", "letterSpacing": [0.2, 0.4] } },
+    "section-statement": { "selector": "[data-role='skills-v2'] [data-kit='section-head'] [data-kit='display'][data-level='section']", "expect": { "fontSize": 24, "fontWeight": "300", "textTransform": "none" } },
+    "section-named": { "selector": "[data-role='skills-v2'] [data-kit='section-head'] [data-role='display-named']", "expect": { "fontWeight": "600" } },
+    "frame": { "selector": "[data-role='skills-v2'] [data-kit='frame']", "expect": { "borderTopWidth": 1, "borderRadius": 0 } },
+    "ladder": { "selector": "[data-role='skills-v2'] [data-kit='ladder']", "expect": { "textTransform": "none" } },
+    "list-title": { "selector": "[data-role='skills-v2'] [data-role='list-row-title']", "expect": { "textTransform": "none" } },
+    "form-label": { "selector": "[data-role='skills-v2'] [data-role='form-label']", "expect": { "textTransform": "none" } },
+    "cell-mark": { "selector": "[data-role='skills-v2'] [data-kit='cell-mark']", "expect": { "textTransform": "none" } }
+  }
+}
