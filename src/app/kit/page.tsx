@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/Brand";
 import { KitParts } from "./KitParts";
 import { KitV2 } from "./KitV2";
+import { KitBatch3 } from "./KitBatch3";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,7 @@ export default function KitSpecimen() {
         </section>
 
         <KitV2 />
+        <KitBatch3 />
 
         <KitParts />
       </main>

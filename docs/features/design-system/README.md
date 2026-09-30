@@ -553,7 +553,7 @@ Two looks coexist until the redesign covers every route, then one is retired.
   redesign recipe and the `<Module>.v2.tsx` chosen-at-the-entry convention: `docs/design/KIT-REDESIGN-PROCESS.md`.
 - **Specimen** `/kit` (development only; a production build returns 404) shows the type scale, muting
   levels, Spectral Nine, status colours and every part in its states, plus a v2-language section that sets each primitive beside a crop of the landing it is
-  measured from (`public/dev/kit-ref/`), synthetic data throughout.
+  measured from (`public/dev/kit-ref/`), synthetic data throughout, and a batch-3 section (`src/app/kit/KitBatch3.tsx`) for the table options, the shortfall span, masthead tone and `Trend`.
 - Exercised on `/org/<slug>?tab=overview` and `?tab=live`. Not yet covered: every other route; the
   remaining literal-colour sites inside those two trees (counts in the kit vault's
   `prism-remainder-kit0.md`).
@@ -562,8 +562,30 @@ Two looks coexist until the redesign covers every route, then one is retired.
   spoken sentence; `data-kit="movement"`), `VoidMark` (the `missing` StateSwatch under a role=img wrapper; `void-mark`),
   `FilterMenu` (the multi-select header dropdown, moved from `features/standing/overview`; `filter-menu`, popup role
   `filter-menu-popup`), `HairlineList` (open ruled list, `hairline-list`; the framed variant is `RowList radius="xl"`) and
-  `HairlineGrid` (re-exported from `ui`, now carries `hairline-grid`). Deferred: raw `<table>` chrome (differs from
-  `DataTable`), bespoke stat cells, the repo row. Candidate list: the extraction scope in the session scratchpad.
+  `HairlineGrid` (re-exported from `ui`, now carries `hairline-grid`).
+- **Kit batch 3 (2026-09-30):**
+  - `DataTable` options, all inert when unset: `density="compact"` (~32px rows), `foot` (a `<tfoot>`, Prism rules it
+    hair-strong with 600-weight figures), `stickyHead="scroll"|"page"` (`page` pins the head under the app header
+    while the page scrolls, from lg up), `stickyFirstCol`, `size="sm"`, `labelledBy` (a focusable named scroll region),
+    `headClassName`, `tableClassName`, and `variant`: `plain` (the caller draws frame, row rules and padding; the
+    kit supplies Prism head type and tabular figures) or `sheet` (a grid of runs: left rules show only on
+    `data-run-start` cells). Migrated onto it: Audit log, Members, Delivery activity table twin, the Live timetable
+    ledger, the Knowledge loom grid, the dimension heatmap, the pricing credit matrix and self-host blueprint, the
+    landing dimension matrix; `OutcomeSheet` is tagged `data-kit="data-table" data-variant="sheet"`. Contributors and
+    Care summary tiles are `StatStrip`/`StatTile`. Not migrated on purpose: the war-room `StatCell` (tweened,
+    wall-scale), the on-air Today cell and the desk Rounds figures (their own dark palette and CSS modules), and the
+    Skills lifecycle `Figure` (a chart caption, not a stat).
+  - **Hue-versus-meaning (ruled 2026-09-30, `docs/design/KIT-HANDOFF.md`):** hue names a dimension and nothing
+    else; status travels by glyph and word or by lightness. `DimensionLine` draws a hatched
+    `data-role="dimension-shortfall"` span from the value to the floor (Prism only) and desaturates a healthy bar at
+    85% or more; `MastheadFigure.tone` (`good|watch|risk`) renders `data-tone`, a leading glyph and a screen-reader
+    word with the value in paper (`color` still works for Altimeter callers); matrix cells draw their hue bar only in
+    the sorted column and under the pointer.
+  - **`Trend`** (`data-kit="trend"`): a 240x56 maturity trend against the level bands the series touches (padded
+    one band; `bandDomain`), hairline band edges with 13px labels, first and last values printed, and words instead
+    of a line below the forecast minimum (3 points). Used by the Prism Overview masthead; the Live headline
+    sparkline takes the same fixed domain in Prism only (`useIsPrism`).
+  - `kit.css` first-generation rules that a later rule overrode were deleted (0 changed pixels in the shot diff).
 
 **Additions from the live-tab redesign exercise (2026-09-29):** `useHashFlag(name)` holds one nested level in
 the URL hash (`#outcome`; the browser Back button closes it, a deep link opens it after hydration).

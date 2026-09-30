@@ -6,10 +6,21 @@ import type { ReactNode } from "react";
 import type { KitPattern } from "./Frame";
 import { Caption, Display, Eyebrow, Lede } from "./Type";
 
+export type MastheadTone = "good" | "watch" | "risk";
+// Status travels by glyph and word, never by hue (the hue-versus-meaning ruling, KIT-HANDOFF.md): a shape in
+// front of the value, its word for screen readers, and paper for the number itself.
+const TONE: Record<MastheadTone, { glyph: string; word: string }> = {
+  good: { glyph: "✓", word: "Healthy" },
+  watch: { glyph: "◆", word: "Watch" },
+  risk: { glyph: "▲", word: "At risk" },
+};
+
 export interface MastheadFigure {
   label: ReactNode;
   value: ReactNode;
-  /** Colour for the value (a status colour, never a decorative hue). */
+  /** Status of the value, drawn as `data-tone` + a leading glyph + a screen-reader word; the value stays paper. */
+  tone?: MastheadTone;
+  /** Colour for the value. Kept for Altimeter callers; a v2 caller passes `tone` instead (hue names a dimension). */
   color?: string;
   /** Beneath the value: movement with its basis, an exclusion note, a goal. */
   detail?: ReactNode;
@@ -50,7 +61,15 @@ export function Masthead({
             <div key={i} data-role="masthead-figure" className="min-w-0">
               <Caption>{f.label}</Caption>
               <Display as="div" level="figure" className="mt-1">
-                <span title={f.title} style={f.color ? { color: f.color } : undefined}>
+                <span title={f.title} data-tone={f.tone} style={f.color && !f.tone ? { color: f.color } : undefined}>
+                  {f.tone && (
+                    <>
+                      <span aria-hidden data-role="tone-glyph" className="mr-1.5 align-middle text-[0.45em]">
+                        {TONE[f.tone].glyph}
+                      </span>
+                      <span className="sr-only">{TONE[f.tone].word}: </span>
+                    </>
+                  )}
                   {f.value}
                 </span>
               </Display>

@@ -17,6 +17,9 @@ export type { FilterOption } from "./FilterMenu";
 export type { SegmentedOption } from "./Segmented";
 export { SettingRow } from "./SettingRow";
 export { DataTable, CELL, CELL_NUM, HEAD_CELL } from "./DataTable";
+export { Trend } from "./Trend";
+export { bandDomain } from "./trendDomain";
+export type { TrendDomain, TrendEdge } from "./trendDomain";
 
 // v2 language (docs/design/KIT-V2-LANGUAGE.md): type roles, structure, identity marks.
 export { Display, Eyebrow, Lede, Caption, MonoPath } from "./Type";
@@ -39,6 +42,6 @@ export { RepoRow, RepoRowCell } from "./RepoRow";
 export type { HonestyKind } from "./Marks";
 export { PrimaryAction, GhostAction } from "./Actions";
 export { Masthead } from "./Masthead";
-export type { MastheadFigure } from "./Masthead";
+export type { MastheadFigure, MastheadTone } from "./Masthead";
 export { useHashFlag } from "./useHashFlag";
 export { DimensionMark, parseDimension } from "./DimensionMark";

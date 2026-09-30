@@ -29,7 +29,9 @@ export function DimensionLine({
   href?: string;
   honesty?: HonestyKind;
   selected?: boolean;
-  /** 0..1: a reference mark on the track (e.g. the green floor). Drawn with `data-role="dimension-floor"`. */
+  /** 0..1: a reference mark on the track (e.g. the green floor). Drawn with `data-role="dimension-floor"`. Below
+   *  it, the gap from the value to the floor is a hatched span in the dimension's own hue
+   *  (`data-role="dimension-shortfall"`, Prism only): a shortfall is shown by pattern, never by a status hue. */
   floor?: number;
   /** A second line under the row (reading, movement, named affordances). It may hold links, so a row with a
    *  `detail` is never itself a link: `href` is ignored when `detail` is given. */
@@ -39,6 +41,8 @@ export function DimensionLine({
   className?: string;
 }) {
   const w = value === null ? 0 : Math.max(0, Math.min(1, value));
+  const hue = `var(--spec-${dimension}, var(--color-accent))`;
+  const fl = floor == null ? null : Math.max(0, Math.min(1, floor));
   const inner = (
     <>
       <span data-role="dimension-id" className="font-mono type-mono-sm" style={{ color: `var(--spec-${dimension}, var(--color-accent))` }}>
@@ -50,9 +54,17 @@ export function DimensionLine({
       <span aria-hidden data-role="dimension-track" className="relative h-1 w-full min-w-16 rounded-[2px] bg-slate-800">
         <span
           data-role="dimension-bar"
+          data-high={w >= 0.85 || undefined}
           className="absolute inset-y-0 left-0 rounded-[2px]"
-          style={{ width: `${w * 100}%`, background: `var(--spec-${dimension}, var(--color-accent))` }}
+          style={{ width: `${w * 100}%`, background: hue }}
         />
+        {fl != null && value !== null && w < fl && (
+          <span
+            data-role="dimension-shortfall"
+            className="absolute inset-y-0 hidden"
+            style={{ left: `${w * 100}%`, width: `${(fl - w) * 100}%`, opacity: 0.45, background: `repeating-linear-gradient(90deg, ${hue} 0 2px, transparent 2px 5px)` }}
+          />
+        )}
         {floor != null && (
           <span
             data-role="dimension-floor"

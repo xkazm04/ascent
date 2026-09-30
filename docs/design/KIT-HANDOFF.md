@@ -84,7 +84,7 @@ repo row), then `standing/governance`.
 
 | Decision | Recommendation | Blocked on it |
 | --- | --- | --- |
-| **Hue vs meaning** (BRAND-PRISM conflict 1). Evidence: on Overview D1 AI Tooling is red with a full bar at score 100, so a healthy page opens with an alarm; on Live, D1 red / D2 orange sit beside amber impact chips and green H/L chips on one row | Keep hue = dimension (the identity's rule); move status to a non-hue channel on any row that shows both (glyph + word, or lightness), and never draw a dimension in a status hue at full saturation on a healthy value | Every module that draws dimensions (Overview, Live, Passports, Repositories, Security, Adoption); owner must rule before those batches |
+| **Hue vs meaning: DECIDED 2026-09-30 by the Director on the owner's delegation** (BRAND-PRISM conflict 1); ruling below. Evidence: on Overview D1 AI Tooling is red with a full bar at score 100, so a healthy page opens with an alarm; on Live, D1 red / D2 orange sit beside amber impact chips and green H/L chips on one row | **Ruling:** hue = dimension only. Where a row shows both a dimension and a status, status travels by glyph + word or by lightness, never by hue; a dimension is never drawn in a status hue at full saturation on a healthy value. Built in kit batch 3: `DimensionLine` shortfall hatch and a desaturated healthy bar, `Masthead` figure `tone` (glyph + sr word, value stays paper), matrix hue bars only in the sorted column and on hover | Every module that draws dimensions (Overview, Live, Passports, Repositories, Security, Adoption); owner must rule before those batches |
 | **D1 fixed-frame unit stays landing-only**, dashboards use fixed rem roles | Accept; but the masthead at 2.25rem is modest at 1920 (right two thirds empty) so allow a `page` role of ~3rem above 1600px | Masthead scale; every page title |
 | **D2 system fonts in Prism** (Segoe/SF/Cascadia instead of Geist) | Accept for Prism; two-line undo. Measure per-OS render before retiring Altimeter | Font truth; anything measuring text width |
 | **D3 `.type-label` becomes a sentence-case eyebrow theme-wide; D3b captions and the toolbar readout become sans** | Accept both; grep for mono used as prose in each batch | Every label and caption |
@@ -92,6 +92,23 @@ repo row), then `standing/governance`.
 | **Poster scale vs dashboards** | Keep poster type on public pages and the landing; dashboards use roles only | Public route redesign |
 | **Warm paper vs cool slate** | Already Prism-only; check `globals.contrast.test.ts` before moving any token when Altimeter retires | Retirement |
 | **Import rule** (AGENTS.md vs code) | Adopt the wording in `KIT-REDESIGN-PROCESS.md` | Cleanliness only |
+
+### Hue-versus-meaning ruling (decided 2026-09-30)
+
+Decided by the Director on the owner's delegation; the owner may still overturn it at a gate. The rule and where
+it is built:
+
+1. **Hue names a dimension and nothing else.** Status colours (warn, danger, success, tone) never stand in for a
+   dimension, and a dimension hue never stands in for a status.
+2. **A row that shows both** carries status on a non-hue channel: a glyph and a word (`MastheadFigure.tone`,
+   the `▾` below-floor mark in `DimensionMatrix.v2`) or lightness. The number itself stays paper.
+3. **Never a dimension in a status hue at full saturation on a healthy value.** Prism desaturates a bar at 85% or
+   more (`data-high`, `filter: saturate(0.75)`), and a shortfall to the floor is a hatched span in the dimension's
+   own hue (`dimension-shortfall`), a pattern rather than an alarm colour.
+4. **Density of hue:** matrix cells draw the hue bar only in the sorted column and under the pointer.
+
+Follow-through owed by later batches: Live (impact and H/L chips beside D1/D2 lines), Passports, Repositories,
+Security and Adoption still pair status hues with dimension hues in places; migrate each as it is redesigned.
 
 ## First follow-ups: known defects of the two exercised routes
 

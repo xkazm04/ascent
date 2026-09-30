@@ -72,29 +72,59 @@ html[data-theme="prism"] [data-kit="list-row"] [data-role="list-row-mark"] {
 html[data-theme="prism"] [data-kit="data-table"] {
   border-width: 1px 0;
 }
-html[data-theme="prism"] [data-kit="data-table"] table { font-size: 0.9375rem; line-height: 1.4; }
+/* A plain table sits inside a surface that supplies the frame; one that passes its own `border` class keeps it. */
+html[data-theme="prism"] [data-kit="data-table"][data-variant="plain"]:not(.border) { border-width: 0; border-radius: 0; }
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant]) table { font-size: 0.9375rem; line-height: 1.4; }
 html[data-theme="prism"] [data-kit="data-table"] [data-role="data-table-head"] {
   background-color: transparent;
 }
-html[data-theme="prism"] [data-kit="data-table"] thead th {
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant]) thead th {
   padding: 0.5rem 1rem 0.625rem;
   vertical-align: bottom;
   border-bottom: 1px solid var(--hair-strong);
 }
-html[data-theme="prism"] [data-kit="data-table"] tbody td { padding-block: 0.625rem; }
-html[data-theme="prism"] [data-kit="data-table"] tbody tr:hover,
-html[data-theme="prism"] [data-kit="data-table"] tbody tr:focus-within {
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant]) tbody td { padding-block: 0.625rem; }
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant]) tbody tr:hover,
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant]) tbody tr:focus-within {
   background: rgba(242, 238, 230, 0.035);
   box-shadow: inset 2px 0 0 var(--hair-strong);
 }
-html[data-theme="prism"] [data-kit="data-table"] tbody tr:is([aria-selected="true"], [data-selected]) {
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant]) tbody tr:is([aria-selected="true"], [data-selected]) {
   background: rgba(242, 238, 230, 0.06);
   box-shadow: inset 2px 0 0 var(--color-white);
 }
-html[data-theme="prism"] [data-kit="data-table"] .tabular-nums {
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant="sheet"]) .tabular-nums {
   font-family: var(--font-sans);
   font-variant-numeric: tabular-nums lining-nums;
 }
+
+/* Data table options (DataTable props). Density, sticky head/first column are opt-in in BOTH themes (no caller sets
+   them until it asks); the foot and sheet expressions are Prism. */
+[data-kit="data-table"][data-density="compact"] :is(th, td) { padding-block: 0.3125rem; }
+html[data-theme="prism"] [data-kit="data-table"][data-density="compact"]:not([data-variant]) :is(thead th, tbody td) { padding-block: 0.34rem; }
+[data-kit="data-table"][data-sticky="page"] thead th {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 20;
+  background-color: var(--color-ink);
+  box-shadow: 0 1px 0 var(--hair-strong, var(--color-divider));
+}
+[data-kit="data-table"][data-sticky-first-col] :is(thead, tbody, tfoot) :is(th, td):first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: var(--color-ink);
+}
+[data-kit="data-table"][data-sticky-first-col] thead th:first-child { z-index: 21; }
+html[data-theme="prism"] [data-kit="data-table"] [data-role="data-table-foot"] { border-top-color: var(--hair-strong); }
+html[data-theme="prism"] [data-kit="data-table"] [data-role="data-table-foot"] td {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* Sheet: a grid of runs. The left rule of a cell shows only where a run starts (a cell that has content for
+   that run); an empty cell is space, so the sheet reads as blocks, not as a ruled spreadsheet. */
+html[data-theme="prism"] [data-kit="data-table"][data-variant="sheet"] :is(th, td):not([data-run-start]) { border-left-color: transparent; }
 
 /* Chips — square-cornered like the winner's controls; a dimension chip takes that dimension's hue. */
 html[data-theme="prism"] [data-kit="chip"] {
@@ -200,8 +230,9 @@ html[data-theme="prism"] [data-kit="stat-tile"] .type-figure-lg {
   letter-spacing: -0.03em;
 }
 /* Table heads: 13px sans caption, mute, no caps (decision D3). */
-html[data-theme="prism"] [data-kit="data-table"] th,
-html[data-theme="prism"] [data-kit="data-table"] [data-role="data-table-head"] * {
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant]) th,
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant="sheet"]) thead th,
+html[data-theme="prism"] [data-kit="data-table"]:not([data-variant]) [data-role="data-table-head"] * {
   font-family: var(--font-sans);
   text-transform: none;
   letter-spacing: 0.01em;
@@ -268,6 +299,13 @@ html[data-theme="prism"] [data-kit="dimension-line"]:is(:hover, :focus-within, [
 html[data-theme="prism"] [data-kit="dimension-line"] [data-role="dimension-value"] {
   font-family: var(--font-sans); color: var(--color-white); min-width: 3ch; justify-content: flex-end;
 }
+
+/* Hue-versus-meaning ruling (decided 2026-09-30, KIT-HANDOFF.md): hue names a dimension and nothing else. A
+   shortfall to the floor is a HATCHED span in the dimension's own hue (Altimeter keeps it `hidden`), and a
+   healthy full-height bar is desaturated a step so a dimension never shouts at full saturation on good news. */
+html[data-theme="prism"] [data-kit="dimension-line"] [data-role="dimension-shortfall"] { display: block; }
+html[data-theme="prism"] [data-role="dimension-bar"][data-high],
+html[data-theme="prism"] [data-role="matrix-bar"][data-high] { filter: saturate(0.75); }
 
 /* Evidence panel: hue border at 45%, hue glow at 15%, code well darker than the panel. */
 html[data-theme="prism"] [data-kit="evidence-panel"] { border-color: color-mix(in srgb, var(--c) 45%, transparent); }
@@ -368,3 +406,9 @@ html[data-theme="prism"] [data-role="settings-v2"] [data-kit="setting-row"] {
   border-color: var(--hair);
 }
 html[data-theme="prism"] [data-role="settings-v2"] [data-kit="setting-row"] { padding-block: 1rem; }
+
+/* Matrix cells (DimensionMatrix.v2): the hue bar draws only in the sorted column and under the pointer; every
+   other cell is its number alone, so nine hues do not compete on every row. Cells keep their height. */
+html[data-theme="prism"] [data-role="matrix-cell"] [data-role="matrix-bar"] { opacity: 0; transition: opacity 0.25s var(--ease-prism); }
+html[data-theme="prism"] td[data-sorted] [data-role="matrix-bar"],
+html[data-theme="prism"] [data-role="matrix-cell"]:is(:hover, :focus-visible) [data-role="matrix-bar"] { opacity: 1; }
