@@ -4,7 +4,7 @@
 // DELETE is destructive, so it requires admin.
 
 import { NextResponse } from "next/server";
-import { deletePlaybook, getPlaybook, isDbConfigured, recordOrgAudit, updatePlaybook } from "@/lib/db";
+import { deletePlaybook, getPlaybook, recordOrgAudit, updatePlaybook } from "@/lib/db";
 import { resolveViewerLogin } from "@/lib/access";
 import { isDimensionId } from "@/lib/maturity/model";
 import { resolvePlaybookOrg } from "@/lib/org/playbook-gate";
@@ -36,6 +36,16 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   // slug (playbooks 07-16 #1).
   if (body.title !== undefined && !(typeof body.title === "string" && body.title.trim())) {
     return NextResponse.json({ error: "title must be a non-empty string." }, { status: 400 });
+  }
+  // Same door as POST: a number has no `.trim()`, and updatePlaybook would throw that into a 500.
+  if (body.summary !== undefined && typeof body.summary !== "string") {
+    return NextResponse.json({ error: "summary must be a string." }, { status: 400 });
+  }
+  if (
+    body.steps !== undefined &&
+    (!Array.isArray(body.steps) || body.steps.some((step) => typeof step !== "string"))
+  ) {
+    return NextResponse.json({ error: "steps must be an array of strings." }, { status: 400 });
   }
   // An empty patch used to run a no-op Prisma update and still record a `playbook.updated` audit
   // with changed: [] — reject it before the write so the audit trail only holds real edits.

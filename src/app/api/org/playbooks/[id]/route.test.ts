@@ -196,10 +196,20 @@ describe("PATCH — version-bump branch (content edit vs archive toggle)", () =>
     expect(patch.steps).toBeUndefined();
   });
 
-  it("coerces a non-array steps to undefined so it is not persisted as junk", async () => {
-    await PATCH(patchReq({ steps: "not-an-array" }), ctx("p1"));
-    const [, patch] = mockUpdatePlaybook.mock.calls[0];
-    expect(patch.steps).toBeUndefined();
+  it("rejects a non-string summary or steps before any write", async () => {
+    const summary = await PATCH(patchReq({ summary: 4 }), ctx("p1"));
+    expect(summary.status).toBe(400);
+    expect(await summary.json()).toEqual({ error: "summary must be a string." });
+
+    const steps = await PATCH(patchReq({ steps: "not-an-array" }), ctx("p1"));
+    expect(steps.status).toBe(400);
+    expect(await steps.json()).toEqual({ error: "steps must be an array of strings." });
+
+    const mixed = await PATCH(patchReq({ steps: ["ok", 1] }), ctx("p1"));
+    expect(mixed.status).toBe(400);
+
+    expect(mockUpdatePlaybook).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 
   it("audits the edit on success", async () => {
