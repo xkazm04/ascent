@@ -2,6 +2,7 @@
 // under the 200-LOC cap (AGENTS.md). Server-safe. Declared-vs-observed only: the "undeclared" column
 // is PR attribution the stance never permitted, reported and never enforced.
 
+import { HairlineGrid } from "@/components/kit";
 import type { AiStance } from "@/lib/types";
 import type { UndeclaredTool } from "@/lib/org/stance-overview";
 
@@ -34,7 +35,7 @@ export function CheckpointStrip({ stance, undeclared }: { stance: AiStance; unde
     },
   ];
   return (
-    <div className="grid gap-px overflow-hidden rounded-2xl border border-divider bg-divider lg:grid-cols-3">
+    <HairlineGrid className="lg:grid-cols-3">
       {cols.map((col) => (
         <div key={col.key} className="bg-ink p-4">
           <div className="flex items-baseline justify-between gap-2">
@@ -59,6 +60,6 @@ export function CheckpointStrip({ stance, undeclared }: { stance: AiStance; unde
           </ul>
         </div>
       ))}
-    </div>
+    </HairlineGrid>
   );
 }

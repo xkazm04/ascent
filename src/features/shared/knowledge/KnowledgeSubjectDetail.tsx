@@ -13,6 +13,7 @@ import { isSurfaceShowcased } from "@/lib/org/surface-catalog";
 import { CellButton, StageChip } from "./KnowledgeShared";
 import { KnowledgeSubjectImpact } from "./KnowledgeSubjectImpact";
 import { STATE_LABEL, columnRepos, indexCells, readSignal } from "./knowledgeModel";
+import { RowList } from "@/components/kit";
 
 export function KnowledgeSubjectDetail({
   view,
@@ -79,7 +80,7 @@ export function KnowledgeSubjectDetail({
 
             <section className="space-y-2">
               <Kicker tone="muted">Fleet standing</Kicker>
-              <ul className="divide-y divide-divider rounded-xl border border-divider">
+              <RowList radius="xl">
                 {columnRepos(view.repos).map((r) => {
                   const cell = cells.get(subject.slug, r.repositoryId);
                   if (!cell) return null;
@@ -101,7 +102,7 @@ export function KnowledgeSubjectDetail({
                     </li>
                   );
                 })}
-              </ul>
+              </RowList>
               {/* An instruction the reader must follow to compose — it stays. The second half
                   ("evidence is in each cell's title") described an affordance that already ships:
                   CellButton puts the map's file:line evidence in its `title`. */}

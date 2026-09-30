@@ -6,7 +6,7 @@
 // values) — replacing the full-width "over time" card that spent a whole viewport row on one line.
 
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
-import { Panel } from "@/components/kit";
+import { Movement, Panel } from "@/components/kit";
 import { scoreHex } from "@/lib/ui";
 
 export interface ScoreBadge {
@@ -50,23 +50,15 @@ export function OrgScoreBadges({
               {b.value}
             </span>
             {b.sub && <span className="type-body-sm text-slate-400">{b.sub}</span>}
-            {b.delta != null && b.delta !== 0 && (
-              <span className="type-caption">
-                <span
-                  className={b.delta > 0 ? "text-emerald-400" : "text-red-400"}
-                  title="Cohort-matched movement: measured only over repositories scanned on both sides of the period"
-                  aria-hidden
-                >
-                  {b.delta > 0 ? "▲" : "▼"}
-                  {Math.abs(b.delta)}
-                </span>
-                {/* The basis, VISIBLE — not only in a tooltip, which is no disclosure on touch. */}
-                {b.deltaLabel && <span className="ml-1 text-slate-500">{b.deltaLabel}</span>}
-                <span className="sr-only">
-                  {b.delta > 0 ? "up" : "down"} {Math.abs(b.delta)} points {b.deltaLabel ?? "this period"}
-                </span>
-              </span>
-            )}
+            {/* The basis is VISIBLE (Movement prints it), not only in a tooltip, which is no disclosure on touch. */}
+            <Movement
+              delta={b.delta}
+              basis={b.deltaLabel}
+              title="Cohort-matched movement: measured only over repositories scanned on both sides of the period"
+              toneClass={(up) => (up ? "text-emerald-400" : "text-red-400")}
+              basisClass="text-slate-500"
+              className="type-caption"
+            />
             {b.note && (
               // The exclusion is disclosed beside the number it changed, not only in the tooltip:
               // a hover is not a disclosure on touch, and the cohort card in the same scroll prints

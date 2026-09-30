@@ -17,6 +17,7 @@ import type { DimensionId, DimensionResult } from "@/lib/types";
 import { scoreHex } from "@/lib/ui";
 import { Kicker, Modal, ModalBody, ModalFooter, ModalHeader, signedDelta } from "@/components/ui";
 import { pillClass } from "@/components/report/pill";
+import { HairlineList } from "@/components/kit";
 
 /** Mirrors WEAK_THRESHOLD in @/lib/onboarding/tracks — the score at/above which a dimension is a
  *  strength rather than an onboarding gap. Duplicated as a display hint only (the server re-derives
@@ -127,7 +128,7 @@ export function SkillDownload({
             session, including a <span className="text-slate-200">refinement</span> on a dimension that
             is already strong.
           </p>
-          <ul className="mt-4 divide-y divide-divider border-y border-divider">
+          <HairlineList className="mt-4">
             {dims.map((d) => {
               const checked = picked.includes(d.id);
               return (
@@ -158,7 +159,7 @@ export function SkillDownload({
                 </li>
               );
             })}
-          </ul>
+          </HairlineList>
         </ModalBody>
         <ModalFooter>
           <Kicker tone="muted">

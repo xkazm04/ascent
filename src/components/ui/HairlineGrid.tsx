@@ -4,7 +4,7 @@
 
 export function HairlineGrid({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`grid gap-px overflow-hidden rounded-2xl border border-divider bg-divider ${className}`}>
+    <div data-kit="hairline-grid" data-role="hairline-grid" className={`grid gap-px overflow-hidden rounded-2xl border border-divider bg-divider ${className}`}>
       {children}
     </div>
   );

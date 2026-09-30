@@ -7,6 +7,7 @@ import { SectionEmpty } from "@/components/org/shared/ui";
 import { CareCommand } from "./CareBits";
 import { timeAgo } from "@/lib/ui";
 import type { DeveloperView } from "@/lib/org/developer-view";
+import { HairlineList } from "@/components/kit";
 
 const KIND_LABEL: Record<string, string> = { retro: "session retro", weekly: "weekly", move: "move closed" };
 
@@ -26,7 +27,7 @@ export function CareJournal({ journal }: { journal: DeveloperView["journal"] }) 
   }
 
   return (
-    <div className="mt-3 divide-y divide-divider border-y border-divider">
+    <HairlineList as="div" className="mt-3">
       {journal.map((e, i) => (
         <article key={`${e.at}-${i}`} className="grid gap-1 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
           <div className="type-label tracking-widest text-slate-500">
@@ -36,6 +37,6 @@ export function CareJournal({ journal }: { journal: DeveloperView["journal"] }) 
           <p className="type-body text-slate-200">{e.line}</p>
         </article>
       ))}
-    </div>
+    </HairlineList>
   );
 }

@@ -24,6 +24,24 @@ export function RowList({ children, radius = "2xl", className = "" }: { children
   );
 }
 
+/** An open ruled list: hairlines between rows and along the top and bottom edge, no side frame or radius. */
+export function HairlineList({
+  children,
+  as: Tag = "ul",
+  className = "",
+  ...rest
+}: {
+  children: React.ReactNode;
+  as?: "ul" | "ol" | "div";
+  className?: string;
+} & Omit<React.HTMLAttributes<HTMLElement>, "className" | "children">) {
+  return (
+    <Tag data-kit="hairline-list" data-role="hairline-list" className={`divide-y divide-divider border-y border-divider ${className}`.trim()} {...rest}>
+      {children}
+    </Tag>
+  );
+}
+
 const ROW = "focus-ring group grid grid-cols-1 items-center gap-x-4 gap-y-1.5 rounded-md py-1";
 
 export function ListRow({

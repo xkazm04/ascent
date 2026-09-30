@@ -13,7 +13,7 @@ import { Surface } from "@/components/ui";
 import { SectionHeader } from "@/components/org/shared/ui";
 import { fmtDelta, deltaHex, DIRECTION_TONE } from "@/components/ui/format";
 import { scoreHex } from "@/lib/ui";
-import { FilterMenu } from "@/features/standing/overview/FilterMenu";
+import { FilterMenu } from "@/components/kit";
 import type { RepoTrajectory } from "@/features/standing/overview/repoTrajectory";
 import { MODES } from "./repoCategoryRollupLogic";
 import { RepoCategoryRollupGroup } from "./RepoCategoryRollupGroup";

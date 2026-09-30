@@ -18,10 +18,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Surface } from "@/components/ui";
+import { VoidMark } from "@/components/kit";
 import { SectionHeader } from "@/components/org/shared/ui";
 import { DIMENSION_SHORT, heatCell, scoreHex } from "@/lib/ui";
 import { Legend } from "@/components/org/viz";
-import { HeatVoid } from "./HeatVoid";
 import { useHeatMatrix, type HeatRow } from "./heatmapModel";
 import { RepoDimensionModal, type HeatTarget } from "@/components/org/shared/RepoDimensionModal";
 
@@ -103,7 +103,7 @@ export function RepoDimensionHeatmap({
                     if (v == null)
                       return (
                         <td key={d} className="px-1 py-1">
-                          <HeatVoid subject={`${r.name} · ${d}`} label={`${r.name} ${d}: no measurement`} />
+                          <VoidMark boxed subject={`${r.name} · ${d}`} label={`${r.name} ${d}: no measurement`} />
                         </td>
                       );
                     const cell = heatCell(v, 0.25 + (v / 100) * 0.75);
@@ -140,7 +140,7 @@ export function RepoDimensionHeatmap({
                     {v == null ? (
                       // No repo in view carries this dimension — the same void the body cells draw,
                       // never the em dash a reader mistakes for a floor of zero.
-                      <HeatVoid subject={`Fleet average · ${d}`} label={`No fleet average for ${d}`} boxed={false} />
+                      <VoidMark subject={`Fleet average · ${d}`} label={`No fleet average for ${d}`} />
                     ) : (
                       <span className="type-mono-sm font-semibold tabular-nums" style={{ color: scoreHex(v) }} title={`Fleet average for ${d}: ${v}`}>
                         {v}

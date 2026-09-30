@@ -3,7 +3,7 @@
 // THE REMEDIATION PRICE LIST, Prism composition (v2): a Frame headed by what the numbers mean, one hairline row per
 // (dimension, model) with the dimension named by hue. Every rate still carries its `n` and the caveat footer is the
 // same shared component, so no rate reads more certain than its sample. Data from `usePriceList`, shared with v1.
-import { Caption, DimensionMark, Frame, SectionHead } from "@/components/kit";
+import { Caption, DimensionMark, Frame, SectionHead, HairlineList } from "@/components/kit";
 import { fmtMicrosPerPoint } from "@/lib/local/lane-economics";
 import { dimShort } from "@/lib/ui";
 import { PriceListFooter, type PriceListPanelProps } from "./PriceListPanel";
@@ -26,7 +26,7 @@ export function PriceListPanelV2({ slug, initial = null }: PriceListPanelProps) 
           A price needs a lane with both scan ends and a recorded cost. None of the lanes read here had all three yet.
         </Caption>
       ) : (
-        <ul className="mt-6 divide-y divide-divider border-y border-divider" data-role="price-rows">
+        <HairlineList className="mt-6" data-role="price-rows">
           {prices.rows.map((row) => {
             const rate = fmtMicrosPerPoint(row.microsPerPoint);
             return (
@@ -51,7 +51,7 @@ export function PriceListPanelV2({ slug, initial = null }: PriceListPanelProps) 
               </li>
             );
           })}
-        </ul>
+        </HairlineList>
       )}
       <PriceListFooter prices={prices} />
     </Frame>

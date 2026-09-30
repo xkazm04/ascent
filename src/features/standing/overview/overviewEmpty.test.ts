@@ -74,8 +74,9 @@ describe("OverviewTrajectoryCard — thin-fit refusal is untouched", () => {
   const card = read("OverviewTrajectoryCard.tsx");
 
   it("still gates on composeTrajectory and prints the insufficiency, never a 0 slope", () => {
-    expect(card).toMatch(/composeTrajectory\(forecast\)/);
-    expect(card).toMatch(/read\.insufficiency/);
+    expect(card).toMatch(/trajectoryView\(forecast\)/);
+    expect(read("trajectoryRead.ts")).toMatch(/composeTrajectory\(forecast\)/);
+    expect(read("trajectoryRead.ts")).toMatch(/read\.insufficiency/);
     expect(card).not.toMatch(/slope:\s*0/);
   });
 });

@@ -24,7 +24,7 @@
 
 import { useMemo, useState } from "react";
 import { OrgTable, SectionEmpty } from "@/components/org/shared/ui";
-import { FilterMenu, type FilterOption } from "@/features/standing/overview/FilterMenu";
+import { FilterMenu, type FilterOption } from "@/components/kit";
 import { DecisionControl, type DecisionStatusUi } from "@/components/org/DecisionControl";
 
 /** One finding, already joined to whatever decision stands against it (the server does the join). */

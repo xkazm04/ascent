@@ -15,6 +15,7 @@ import { Meter, OrgTable, SectionEmpty, TILE_LEDGER, Tile } from "@/components/o
 import { deltaHex, fmtDelta } from "@/components/ui";
 import { CareAction, CareCategoryChip } from "@/features/developer/CareBits";
 import { type CareOrgView } from "@/lib/org/developer-view";
+import { HairlineList } from "@/components/kit";
 
 export function CareOrgSuppressed({ org }: { org: CareOrgView }) {
   // `population` is the git contributor snapshot (`totalContributors`), the same naming-floor
@@ -109,7 +110,7 @@ export function CareOrgAsks({ org }: { org: CareOrgView }) {
   }
   const max = Math.max(...org.asks.map((a) => a.count), 1);
   return (
-    <ol className="mt-3 divide-y divide-divider border-y border-divider">
+    <HairlineList as="ol" className="mt-3">
       {org.asks.map((a) => (
         <li key={a.theme} className="flex items-center gap-4 py-2.5">
           <span className="min-w-0 flex-1 type-body text-slate-200">&ldquo;{a.theme}&rdquo;</span>
@@ -117,7 +118,7 @@ export function CareOrgAsks({ org }: { org: CareOrgView }) {
           <span className="w-16 shrink-0 text-right type-mono-sm tabular-nums text-slate-400">{a.count}</span>
         </li>
       ))}
-    </ol>
+    </HairlineList>
   );
 }
 

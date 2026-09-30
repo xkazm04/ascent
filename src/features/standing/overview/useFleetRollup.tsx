@@ -5,7 +5,7 @@
 // rollup so the two cannot rank or filter differently. No markup here beyond the option glyphs.
 import { useState } from "react";
 import { postureLabel } from "@/components/org/shared/ui";
-import type { FilterOption } from "./FilterMenu";
+import type { FilterOption } from "@/components/kit";
 import { StackRoleIcon } from "./orgIcons";
 import {
   applyFilters,

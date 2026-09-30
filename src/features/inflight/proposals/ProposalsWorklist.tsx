@@ -14,7 +14,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { DecisionTable, type DecisionAction } from "@/components/org/shared/DecisionTable";
-import { FilterMenu } from "@/features/standing/overview/FilterMenu";
+import { FilterMenu } from "@/components/kit";
 import { FollowupsFilterBar } from "@/components/org/followups/FollowupsFilterBar";
 import { FollowupsPromptModal } from "@/components/org/followups/FollowupsPromptModal";
 import { dimensionSpread, emptyFilters, isSelectable, patchStatuses, type FollowUpFilters, type FollowUpRow } from "@/components/org/followups/followupsModel";

@@ -8,6 +8,7 @@
 import { deltaHex, fmtDelta } from "@/components/ui";
 import { timeAgo } from "@/lib/ui";
 import type { OutcomeColumn } from "./outcomeMatrix";
+import { HairlineList } from "@/components/kit";
 
 const MAX_ROWS = 8;
 const ROW = "grid grid-cols-[5.5rem_6rem_minmax(0,1fr)_auto] items-baseline gap-x-4";
@@ -24,7 +25,7 @@ export function OutcomeRunStrip({ columns, selectedId, nowMs, onOpen }: { column
         <span>What it did</span>
         <span>Lift</span>
       </div>
-      <ul className="divide-y divide-divider border-y border-divider">
+      <HairlineList >
         {shown.map(({ c, n }) => {
           const tone = c.phase === "error" ? "text-danger" : c.live ? "text-white" : "text-slate-400";
           return (
@@ -52,7 +53,7 @@ export function OutcomeRunStrip({ columns, selectedId, nowMs, onOpen }: { column
             </li>
           );
         })}
-      </ul>
+      </HairlineList>
       {rows.length > shown.length && <p className="mt-3 type-caption text-slate-500">{rows.length - shown.length} earlier runs are in the matrix.</p>}
     </div>
   );

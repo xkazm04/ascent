@@ -558,6 +558,12 @@ Two looks coexist until the redesign covers every route, then one is retired.
   remaining literal-colour sites inside those two trees (counts in the kit vault's
   `prism-remainder-kit0.md`).
 - **Shooter** `scripts/kit/shoot.mjs` photographs a route per theme and size and fails on console errors.
+- **Extracted look-alikes (2026-09-30, pure relocation, Altimeter unchanged):** `Movement` (signed delta arrow, basis and
+  spoken sentence; `data-kit="movement"`), `VoidMark` (the `missing` StateSwatch under a role=img wrapper; `void-mark`),
+  `FilterMenu` (the multi-select header dropdown, moved from `features/standing/overview`; `filter-menu`, popup role
+  `filter-menu-popup`), `HairlineList` (open ruled list, `hairline-list`; the framed variant is `RowList radius="xl"`) and
+  `HairlineGrid` (re-exported from `ui`, now carries `hairline-grid`). Deferred: raw `<table>` chrome (differs from
+  `DataTable`), bespoke stat cells, the repo row. Candidate list: the extraction scope in the session scratchpad.
 
 **Additions from the live-tab redesign exercise (2026-09-29):** `useHashFlag(name)` holds one nested level in
 the URL hash (`#outcome`; the browser Back button closes it, a deep link opens it after hydration).

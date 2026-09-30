@@ -9,10 +9,9 @@
 import Link from "next/link";
 import { reportPermalink } from "@/lib/ui";
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
-import { StateSwatch, stateTitle } from "@/components/org/viz";
 import type { FleetTimetable, TimetableRow } from "@/features/inflight/live/fleetTimetable";
 import { TimetableLedger } from "@/features/inflight/live/LiveWarRoomTimetableLedger";
-import { Panel } from "@/components/kit";
+import { Panel, VoidMark } from "@/components/kit";
 
 /** What each timetable variant renders over. */
 export interface TimetableView {
@@ -47,9 +46,7 @@ export function RepoCheck({ row, selected, onToggle, readOnly }: { row: Timetabl
  */
 export function NoScan({ subject }: { subject: string }) {
   return (
-    <span className="inline-flex align-middle" title={stateTitle("missing", subject)}>
-      <StateSwatch state="missing" size={12} />
-    </span>
+    <VoidMark subject={subject} className="align-middle" />
   );
 }
 

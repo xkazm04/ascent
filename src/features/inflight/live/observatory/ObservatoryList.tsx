@@ -12,6 +12,7 @@ import { useRef, useState } from "react";
 import { Kicker } from "@/components/ui";
 import { LEVEL_GLYPH, scoreGlyph } from "@/lib/ui";
 import { QUADRANT_LABEL, type ObservatoryBody } from "./observatoryModel";
+import { HairlineList } from "@/components/kit";
 
 function glyphFor(body: ObservatoryBody): string {
   if (body.level && /^L[1-5]$/.test(body.level)) return LEVEL_GLYPH[body.level as keyof typeof LEVEL_GLYPH];
@@ -59,7 +60,7 @@ export function ObservatoryList({ bodies, selected, onSelect, onOpen, className 
         <Kicker tone="muted">Fleet · {bodies.length} repos</Kicker>
         <Kicker tone="muted">{selected.size} selected</Kicker>
       </div>
-      <ul className="mt-2 divide-y divide-divider border-y border-divider" role="list">
+      <HairlineList className="mt-2" role="list">
         {bodies.map((b, i) => {
           const on = selected.has(b.fullName);
           return (
@@ -94,7 +95,7 @@ export function ObservatoryList({ bodies, selected, onSelect, onOpen, className 
             </li>
           );
         })}
-      </ul>
+      </HairlineList>
       {bodies.length === 0 && <p className="mt-3 type-mono-sm text-slate-500">No repos in this scope yet.</p>}
     </div>
   );

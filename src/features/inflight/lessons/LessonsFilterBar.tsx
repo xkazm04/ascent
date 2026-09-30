@@ -3,7 +3,7 @@
 // The Lessons ledger's filter chrome — the same FilterMenu dropdowns, search box and archive switch the
 // Proposals ledger uses, over a lesson's own facets (namespace, kind).
 
-import { FilterMenu, type FilterOption } from "@/features/standing/overview/FilterMenu";
+import { FilterMenu, type FilterOption } from "@/components/kit";
 import type { LoopLessonRow } from "@/features/inflight/live/cockpit/loopTypes";
 import { emptyLessonFilters, lessonFiltersActive, lessonNamespace, type LessonFilters } from "./lessonsModel";
 

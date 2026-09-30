@@ -10,6 +10,7 @@ import type { RegistryView } from "@/lib/org/registry-view";
 import { registrySteps, STEP_TONE, type RegistryStep } from "./registryModel";
 import { RegistryButton } from "./RegistryActions";
 import { RegistrySetupActions } from "./RegistrySetup";
+import { HairlineList } from "@/components/kit";
 
 const STATE_READ: Record<RegistryStep["state"], string> = {
   done: "done",
@@ -73,7 +74,7 @@ export function RegistryStepperIndex({
           Every step is done — the registry indexes itself, the fleet syncs against the catalog, and invokes are reporting back.
         </p>
       ) : (
-      <ol className="divide-y divide-divider border-y border-divider">
+      <HairlineList as="ol" >
         {shown.map((s) => (
           <Entry key={s.id} step={s}>
             {s.id === "choose" && s.state === "active" ? <RegistrySetupActions view={view} slug={slug} /> : null}
@@ -96,7 +97,7 @@ export function RegistryStepperIndex({
             ) : null}
           </Entry>
         ))}
-      </ol>
+      </HairlineList>
       )}
       {view.error ? (
         <p className="pt-2 type-body-sm text-warn">

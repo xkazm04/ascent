@@ -7,6 +7,7 @@
 // Repos whose pointer has not been read yet are counted, never listed as missing one.
 
 import type { FleetRosterEntry } from "@/lib/org/registry-view";
+import { RowList } from "@/components/kit";
 
 /** Enough rows to act on; the rest are counted rather than dropped silently. */
 export const ROSTER_CAP = 20;
@@ -56,7 +57,7 @@ export function RegistryFleetRoster({
       <p className="type-caption uppercase tracking-widest text-slate-500">
         Not pointing here · {todo.length}
       </p>
-      <ul className="divide-y divide-divider rounded-xl border border-divider">
+      <RowList radius="xl">
         {shown.map((e) => (
           <li key={e.repoFullName} data-roster-repo={e.repoFullName} className="flex flex-wrap items-baseline gap-x-2 gap-y-1 bg-surface/40 px-4 py-2 type-body-sm">
             <span className="font-mono text-slate-200">{e.repoFullName}</span>
@@ -68,7 +69,7 @@ export function RegistryFleetRoster({
             )}
           </li>
         ))}
-      </ul>
+      </RowList>
       {todo.length > shown.length ? (
         <p className="type-caption text-slate-500">and {todo.length - shown.length} more</p>
       ) : null}

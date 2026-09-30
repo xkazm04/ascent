@@ -18,6 +18,7 @@ import { StageChip } from "./KnowledgeShared";
 import { STAGE_ACTION, fmtCost, indexCells, sweepAge } from "./knowledgeModel";
 import type { KnowledgeActionsApi } from "./useKnowledgeActions";
 import type { KnowledgeSelectionApi } from "./useKnowledgeSelection";
+import { RowList } from "@/components/kit";
 
 /** (D) The demoted precondition line for the local door — disclosed on the chip, not printed. */
 const RUN_LOCAL_HINT =
@@ -35,7 +36,7 @@ const STATUS_TONE: Record<RegistryDispatchRow["status"], string> = {
 export function DispatchLedger({ rows, limit = 6 }: { rows: RegistryDispatchRow[]; limit?: number }) {
   if (!rows.length) return <p className="type-caption text-slate-600">No hand-offs yet.</p>;
   return (
-    <ul className="divide-y divide-divider rounded-xl border border-divider">
+    <RowList radius="xl">
       {rows.slice(0, limit).map((d) => (
         <li key={d.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 type-caption">
           <span className="type-mono-sm text-slate-200">{d.repoFullName.split("/").pop()}</span>
@@ -53,7 +54,7 @@ export function DispatchLedger({ rows, limit = 6 }: { rows: RegistryDispatchRow[
           <span className="ml-auto text-slate-600">{sweepAge(d.createdAt)}</span>
         </li>
       ))}
-    </ul>
+    </RowList>
   );
 }
 

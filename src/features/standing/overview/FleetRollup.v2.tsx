@@ -3,10 +3,9 @@
 // v2 fleet rollup: the same grouping, filters and figures as the Altimeter card (useFleetRollup), recomposed as
 // a ruled section. The mode switch is a Segmented, the shown set's summary is a row of figures with their
 // denominators in the tooltip, the cohorts stack as ruled groups (one column, level-ordered when grouped by level).
-import { Caption, Frame, SectionHead, Segmented } from "@/components/kit";
+import { Caption, FilterMenu, Frame, SectionHead, Segmented } from "@/components/kit";
 import { deltaHex, DIRECTION_TONE, fmtDelta } from "@/components/ui/format";
 import { scoreHex } from "@/lib/ui";
-import { FilterMenu } from "./FilterMenu";
 import { FleetGroup } from "./FleetGroup.v2";
 import { MODES } from "./repoCategoryRollupLogic";
 import type { RepoTrajectory } from "./repoTrajectory";

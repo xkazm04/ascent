@@ -6,11 +6,10 @@
 // status keeps its meaning, hue keeps naming the dimension. An absent measurement is the void, never a zero.
 import { useState } from "react";
 import Link from "next/link";
-import { CELL, DataTable, Frame, HEAD_CELL, SectionHead } from "@/components/kit";
+import { CELL, DataTable, Frame, HEAD_CELL, SectionHead, VoidMark } from "@/components/kit";
 import { RepoDimensionModal, type HeatTarget } from "@/components/org/shared/RepoDimensionModal";
 import { Legend } from "@/components/org/viz";
 import { DIMENSION_SHORT } from "@/lib/ui";
-import { HeatVoid } from "./HeatVoid";
 import { useHeatMatrix, type HeatRow } from "./heatmapModel";
 import { GREEN_FLOOR } from "./phaseStanding";
 
@@ -70,7 +69,7 @@ export function DimensionMatrix({ org, rows, dims, initialSortDim }: { org: stri
                 if (v == null)
                   return (
                     <td key={d} className="px-1 py-2 text-center">
-                      <HeatVoid subject={`${r.name} · ${d}`} label={`${r.name} ${d}: no measurement`} />
+                      <VoidMark boxed subject={`${r.name} · ${d}`} label={`${r.name} ${d}: no measurement`} />
                     </td>
                   );
                 return (
@@ -103,7 +102,7 @@ export function DimensionMatrix({ org, rows, dims, initialSortDim }: { org: stri
             return (
               <td key={d} className="px-1 py-3 text-center">
                 {v == null ? (
-                  <HeatVoid subject={`Fleet average · ${d}`} label={`No fleet average for ${d}`} boxed={false} />
+                  <VoidMark subject={`Fleet average · ${d}`} label={`No fleet average for ${d}`} />
                 ) : (
                   <span className={`font-mono type-mono-sm tabular-nums ${floorClass(v)}`} title={`Fleet average for ${d}: ${v}`}>
                     {v}

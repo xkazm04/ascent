@@ -1,7 +1,7 @@
 // One cohort of the v2 fleet rollup: a ruled group, not a card. The head names the cohort with its average as a
 // figure and its net move; the rows are the shared row (RepoCategoryRollupRow) separated by hairlines. A cohort
 // with no live-scored repo has NO average: it says so in words and draws no bar (never a 0).
-import { Display } from "@/components/kit";
+import { Display, HairlineList } from "@/components/kit";
 import { deltaHex, fmtDelta } from "@/components/ui/format";
 import { scoreHex } from "@/lib/ui";
 import { agg, type Group } from "./repoCategoryRollupLogic";
@@ -38,11 +38,11 @@ export function FleetGroup({ g, orgSlug }: { g: Group; orgSlug: string }) {
           </span>
         )}
       </div>
-      <div className="mt-2 divide-y divide-divider border-y border-divider">
+      <HairlineList as="div" className="mt-2">
         {rows.map((r) => (
           <RepoCategoryRollupRow key={r.fullName} r={r} orgSlug={orgSlug} />
         ))}
-      </div>
+      </HairlineList>
     </section>
   );
 }

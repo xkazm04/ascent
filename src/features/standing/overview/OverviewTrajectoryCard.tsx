@@ -20,16 +20,17 @@
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { Trajectory } from "./Trajectory";
-import { composeTrajectory, type Forecast } from "@/lib/maturity/forecast";
+import type { Forecast } from "@/lib/maturity/forecast";
+import { trajectoryView } from "./trajectoryRead";
 
 export function OverviewTrajectoryCard({ forecast }: { forecast: Forecast | null }) {
-  const read = composeTrajectory(forecast);
-  if (read.headline && forecast) return <Trajectory forecast={forecast} />;
-  if (read.insufficiency === null) return null;
+  const view = trajectoryView(forecast);
+  if (view.kind === "chart") return <Trajectory forecast={view.forecast} />;
+  if (view.kind === "none") return null;
   return (
     <Card>
       <SectionHeader size="sm" title="Trajectory" />
-      <p className="mt-3 type-body text-slate-300">{read.insufficiency}</p>
+      <p className="mt-3 type-body text-slate-300">{view.text}</p>
       <p className="mt-2 type-body-sm text-slate-500">
         Scan again over the coming weeks. The projection appears once there is enough spread to read a
         trend rather than noise.

@@ -2,25 +2,14 @@
 // the two axes and the coverage sit beside it as figures, the maturity trend as its aside. Same badges, same
 // honesty as the Altimeter strip: "—" is stated as no live score (never a 0), every delta carries its basis,
 // an exclusion note rides beside the number it changed.
-import { Caption, Masthead, type MastheadFigure } from "@/components/kit";
+import { Caption, Masthead, Movement as MovementMark, type MastheadFigure } from "@/components/kit";
 import { Sparkline, type TrendPoint } from "@/components/report/TrendChart";
-import { deltaHex } from "@/components/ui/format";
 import type { ScoreBadge } from "./OrgScoreBadges";
 
+const COHORT_TITLE = "Cohort-matched movement: measured only over repositories scanned on both sides of the period";
+
 function Movement({ b }: { b: ScoreBadge }) {
-  if (b.delta == null || b.delta === 0) return null;
-  return (
-    <span title="Cohort-matched movement: measured only over repositories scanned on both sides of the period">
-      <span aria-hidden style={{ color: deltaHex(b.delta) }}>
-        {b.delta > 0 ? "▲" : "▼"}
-        {Math.abs(b.delta)}
-      </span>
-      {b.deltaLabel && <span className="ml-1">{b.deltaLabel}</span>}
-      <span className="sr-only">
-        {b.delta > 0 ? "up" : "down"} {Math.abs(b.delta)} points {b.deltaLabel ?? "this period"}
-      </span>
-    </span>
-  );
+  return <MovementMark delta={b.delta} basis={b.deltaLabel} title={COHORT_TITLE} />;
 }
 
 function detailOf(b: ScoreBadge) {

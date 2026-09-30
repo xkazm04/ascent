@@ -9,6 +9,7 @@
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
+import { HairlineGrid } from "@/components/kit";
 import { OrgTable, Meter } from "@/components/org/shared/ui";
 import { scoreHex } from "@/lib/ui";
 import { fmtMoney, type AiDeliveryModel, type AiRepoRoi } from "./aiDeliveryModel";
@@ -99,7 +100,7 @@ export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: str
   return (
     <div className="space-y-4">
       {/* headline money ledger — the $-denominated tiles lock when spend is noCostSource (no provider). */}
-      <div className="grid gap-px overflow-hidden rounded-2xl border border-divider bg-divider sm:grid-cols-3 xl:grid-cols-6">
+      <HairlineGrid className="sm:grid-cols-3 xl:grid-cols-6">
         <Money label="AI spend / mo" value={fmtMoney(s.totalMonthlySpend)} sub={`${fmtMoney(s.annualSpend)}/yr · ${s.totalSeats} seats`} locked={noCostSource} />
         <Money label="AI reach" value={`${s.aiShareOfPRs}%`} sub="of merged PRs" color={scoreHex(s.aiShareOfPRs)} />
         <Money
@@ -111,7 +112,7 @@ export function AiRoiLedger({ model, slug }: { model: AiDeliveryModel; slug: str
         <Money label="Cost / AI PR" value={s.costPerAiPr == null ? "—" : `$${s.costPerAiPr.toLocaleString()}`} sub="fleet efficiency" locked={noCostSource} />
         <Money label="Idle spend / mo" value={s.idleSpend > 0 ? fmtMoney(s.idleSpend) : "$0"} sub="reclaim candidates" color={s.idleSpend > 0 ? "#f97316" : undefined} locked={noCostSource} />
         <Money label="Ungoverned / mo" value={s.ungovernedSpend > 0 ? fmtMoney(s.ungovernedSpend) : "$0"} sub="AI $ at risk" color={s.ungovernedSpend > 0 ? "#ef4444" : undefined} locked={noCostSource} />
-      </div>
+      </HairlineGrid>
 
       {/* the takeaway — in noCostSource mode state only the real (git) facts + a connect prompt, never fake $. */}
       {noCostSource ? (

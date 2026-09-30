@@ -16,6 +16,7 @@
 import { Kicker } from "@/components/ui";
 import { StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
 import type { UnenforceableClause } from "@/lib/org/admission";
+import { RowList } from "@/components/kit";
 
 /** The demoted claim (D): every clause here is `declared` and nothing compiles it into a control. */
 const DECLARED_ONLY_HINT =
@@ -39,7 +40,7 @@ export function UnenforceableClauses({ clauses }: { clauses: UnenforceableClause
         <Kicker tone="muted">What this stance cannot enforce · {clauses.length}</Kicker>
         <WhyChip label="declared only" hint={DECLARED_ONLY_HINT} />
       </div>
-      <ul className="divide-y divide-divider rounded-xl border border-divider bg-surface/40">
+      <RowList radius="xl" className="bg-surface/40">
         {clauses.map((c) => (
           <li key={c.clause} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5">
             <span className="self-center" title={stateTitle("declared", c.clause)}>
@@ -49,7 +50,7 @@ export function UnenforceableClauses({ clauses }: { clauses: UnenforceableClause
             <span className="flex-1 basis-64 type-body-sm text-slate-400">{c.why}</span>
           </li>
         ))}
-      </ul>
+      </RowList>
     </section>
   );
 }

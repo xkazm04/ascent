@@ -17,6 +17,7 @@ import { scoreHex } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { RegistryView } from "@/lib/org/registry-view";
 import { RegistryFleetRoster } from "./RegistryFleetRoster";
+import { RowList } from "@/components/kit";
 
 const SYNC_STATES = [
   { key: "inSync", label: "in_sync", hint: "hash matches the catalog" },
@@ -111,7 +112,7 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
           with the catalog yet.
         </p>
       ) : (
-        <ul className="divide-y divide-divider rounded-xl border border-divider">
+        <RowList radius="xl">
           {SYNC_STATES.map((s) => {
             const n = adoption[s.key];
             const pct = totalStates === 0 ? 0 : Math.round((n / totalStates) * 100);
@@ -125,7 +126,7 @@ export function RegistryFleetSync({ view, slug, layout = "stacked" }: { view: Re
               </li>
             );
           })}
-        </ul>
+        </RowList>
       )}
     </div>
   );

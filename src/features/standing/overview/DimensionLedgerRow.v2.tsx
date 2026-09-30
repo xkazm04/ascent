@@ -2,9 +2,8 @@
 // is the green floor. Under it, the reading and the two named affordances (where a click goes is stated before
 // the click). A dimension no repository scored is NOT JUDGED: an empty track and the words, never a bar.
 import Link from "next/link";
-import { DimensionLine, type DimensionId } from "@/components/kit";
+import { DimensionLine, Movement, VoidMark, type DimensionId } from "@/components/kit";
 import { StateSwatch, stateTitle } from "@/components/org/viz";
-import { deltaHex } from "@/components/ui/format";
 import { buildUrl, clearedTabScopedParams, orgTabHref } from "@/lib/org/orgTabs";
 import type { DimensionReading } from "./dimensionReading";
 import { GREEN_FLOOR } from "./phaseStanding";
@@ -40,17 +39,10 @@ export function DimensionLedgerRow({ r, slug, search, baselineNoted = false }: {
           )}
           {r.delta === null ? (
             baselineNoted ? null : (
-            <span role="img" aria-label={`${r.short}: no movement measurement in this window`} title={stateTitle("missing", `${r.short} movement`)}>
-              <StateSwatch state="missing" size={11} />
-            </span>
+            <VoidMark size={11} subject={`${r.short} movement`} label={`${r.short}: no movement measurement in this window`} />
             )
           ) : (
-            r.delta !== 0 && (
-              <span className="tabular-nums" style={{ color: deltaHex(r.delta) }}>
-                {r.delta > 0 ? "▲" : "▼"}
-                {Math.abs(r.delta)}
-              </span>
-            )
+            <Movement delta={r.delta} className="tabular-nums" />
           )}
           <span className="ml-auto flex flex-wrap items-center gap-x-4">
             {r.practice ? (
