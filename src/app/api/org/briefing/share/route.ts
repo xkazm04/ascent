@@ -49,6 +49,12 @@ export async function POST(request: Request) {
   const gate = await requireOrgOwnerPost<{ range?: string; from?: string; to?: string; segment?: string; stack?: string }>(request);
   if (gate instanceof NextResponse) return gate;
   const { org, body } = gate;
+  // The reader keeps only string scopes (verifyBriefingShareToken). A number or object here would
+  // be signed and then dropped, and the link would open on the whole fleet. Query-string callers
+  // cannot do this; a JSON body can.
+  if ((body.segment != null && typeof body.segment !== "string") || (body.stack != null && typeof body.stack !== "string")) {
+    return NextResponse.json({ error: "segment and stack must be strings." }, { status: 400 });
+  }
   // briefing-share #5: bind the link to the minting owner so it can be revoked by removing/demoting them
   // (a per-link kill switch the stateless token otherwise lacks). Only under the enforced Supabase wall,
   // where membership is the authoritative, seeded source of truth — other auth modes leave it unset and

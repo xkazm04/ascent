@@ -38,8 +38,11 @@ vi.mock("@/lib/db", () => ({
   recordAudit: vi.fn(async () => true),
 }));
 
-import { GET } from "./route";
+import { GET, POST } from "./route";
 import { NextResponse } from "next/server";
+import { requireOrgOwnerPost } from "@/lib/api/orgPost";
+import { signBriefingShareToken } from "@/lib/briefing-share";
+import { buildExecBriefing } from "@/lib/org/briefing";
 
 const call = (qs: string) => GET(new Request(`http://localhost/api/org/briefing/share${qs}`));
 
@@ -80,5 +83,31 @@ describe("listing the briefing share grants an org has issued", () => {
     expect(listBriefingShareGrants).toHaveBeenLastCalledWith("acme", { limit: undefined });
     await call("?org=acme&limit=abc");
     expect(listBriefingShareGrants).toHaveBeenLastCalledWith("acme", { limit: undefined });
+  });
+});
+
+describe("minting a briefing share link", () => {
+  const mint = (body: unknown) =>
+    POST(new Request("http://localhost/api/org/briefing/share", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+
+  it("refuses a non-string segment or stack instead of signing a link that reads the whole fleet", async () => {
+    // verifyBriefingShareToken drops a non-string scope, so a numeric segment minted here
+    // would open as the whole organization. The PDF route never has this door: query
+    // params are strings.
+    vi.mocked(requireOrgOwnerPost).mockImplementation(async () => ({ org: "acme", body: { segment: 1 } }) as never);
+    const segmentRes = await mint({ segment: 1 });
+    expect(segmentRes.status).toBe(400);
+    vi.mocked(requireOrgOwnerPost).mockImplementation(async () => ({ org: "acme", body: { stack: 1 } }) as never);
+    const stackRes = await mint({ stack: 1 });
+    expect(stackRes.status).toBe(400);
+    expect(signBriefingShareToken).not.toHaveBeenCalled();
+    expect(buildExecBriefing).not.toHaveBeenCalled();
+
+    vi.mocked(requireOrgOwnerPost).mockImplementation(async () => ({ org: "acme", body: { segment: "seg_1", stack: "backend:python" } }) as never);
+    expect((await mint({ segment: "seg_1" })).status).not.toBe(400);
   });
 });

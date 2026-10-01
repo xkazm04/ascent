@@ -1278,6 +1278,9 @@ page enforces it on read and fails closed. The mint and every open are recorded 
 exist, and was it read" is answerable; the revocation state deliberately does **not** live in
 `AuditLog`, because `retentionAuditDays` purging a revocation row would silently un-revoke a link.
 
+A mint whose `segment` or `stack` is present and not a string is refused with 400 before a token
+is signed. The reader drops a non-string scope, so signing one would open the whole fleet.
+
 An owner drives both halves from the API:
 
 | Call | Does |
