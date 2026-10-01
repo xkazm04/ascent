@@ -37,11 +37,25 @@ beforeEach(() => {
 
 describe("GET /api/org/loop/plans", () => {
   it("lists the caller's org's plans with parsed filters, dropping unknown statuses", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await get("org=Acme&status=pending,bogus,approved&repo=acme/web&limit=20");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ plans: [{ id: "p1" }] });
     expect(gates.accessed).toEqual(["acme"]);
     expect(listLoopPlans).toHaveBeenCalledWith("acme", { status: ["pending", "approved"], repo: "acme/web", limit: 20 });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("logs a thrown plans read and answers 500", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    listLoopPlans.mockRejectedValueOnce(new Error("db down"));
+    const res = await get("org=acme");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Could not read the plans." });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("[loop/plans] read failed", "db down");
+    spy.mockRestore();
   });
 
   it("refuses a missing or public org, a denied caller, and a managed-cloud deployment", async () => {

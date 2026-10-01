@@ -31,7 +31,11 @@ export async function GET(request: Request) {
   const repo = url.searchParams.get("repo")?.trim() || undefined;
   const limitRaw = Number(url.searchParams.get("limit"));
   const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : undefined;
-  const plans = await listLoopPlans(org, { status, repo, limit }).catch(() => null);
-  if (!plans) return NextResponse.json({ error: "Could not read the plans." }, { status: 500 });
-  return NextResponse.json({ plans });
+  try {
+    const plans = await listLoopPlans(org, { status, repo, limit });
+    return NextResponse.json({ plans });
+  } catch (err) {
+    console.error("[loop/plans] read failed", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Could not read the plans." }, { status: 500 });
+  }
 }
