@@ -61,7 +61,10 @@ export async function POST(request: Request) {
   // stops chasing a link that is still live — the one lie this endpoint must never tell.
   try {
     await revokeBriefingShareLink(jti);
-  } catch {
+  } catch (err) {
+    // The 500 is the owner's signal to retry. Without a log the failure is only that JSON body,
+    // and the PDF render path already records its own unexpected failure the same way.
+    console.error("[briefing/share/revoke] ledger write failed", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Could not revoke the link. Try again." }, { status: 500 });
   }
   // The revocation itself lives in the permanent ledger; this row is the human record of WHO ended the

@@ -61,9 +61,12 @@ beforeEach(() => {
 
 describe("revoking one briefing share link", () => {
   it("bumps the ledger for that jti and records who did it", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     listBriefingShareGrants.mockImplementation(async () => [{ jti: "g1", mintedBy: "owner-a", mintedAt: "2026-08-01T00:00:00.000Z" }]);
     const res = await call({ org: "acme", jti: "g1" });
     expect(res.status).toBe(200);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
     expect(await res.json()).toEqual({ ok: true, jti: "g1" });
     expect(revokeBriefingShareLink).toHaveBeenCalledWith("g1");
     expect(recordAudit).toHaveBeenCalledWith(
@@ -118,11 +121,14 @@ describe("revoking one briefing share link", () => {
   });
 
   it("500s when the ledger write fails, instead of claiming the link is dead", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     revokeBriefingShareLink.mockImplementation(async () => {
       throw new Error("write failed");
     });
     const res = await call({ org: "acme", jti: "g1" });
     expect(res.status).toBe(500);
     expect(recordAudit).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledWith("[briefing/share/revoke] ledger write failed", "write failed");
+    spy.mockRestore();
   });
 });
