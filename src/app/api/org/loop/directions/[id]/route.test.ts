@@ -42,6 +42,7 @@ vi.mock("@/lib/db/loop-directions", () => ({
 
 import { POST } from "./route";
 import { GET } from "../route";
+import { getLoopDirectionOrgSlug } from "@/lib/db/loop-directions";
 
 const post = (id: string, body: unknown) =>
   POST(new Request(`http://localhost/api/org/loop/directions/${id}`, { method: "POST", body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
@@ -80,6 +81,19 @@ describe("POST /api/org/loop/directions/[id]", () => {
     expect(gates.audits).toEqual([]);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith("[loop/direction] settle failed", "db down");
+    spy.mockRestore();
+  });
+
+  it("answers a thrown lookup with a 500 and logs the message", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getLoopDirectionOrgSlug).mockRejectedValueOnce(new Error("db down"));
+    const failed = await post("d-acme", { action: "revoke" });
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ error: "The direction could not be read." });
+    expect(settleDirection).not.toHaveBeenCalled();
+    expect(gates.audits).toEqual([]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("[loop/direction] lookup failed", "db down");
     spy.mockRestore();
   });
 

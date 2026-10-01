@@ -26,7 +26,14 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   if (guard) return guard;
   const { id } = await ctx.params;
 
-  const org = await getLoopDirectionOrgSlug(id).catch(() => null);
+  let org: string | null;
+  try {
+    org = await getLoopDirectionOrgSlug(id);
+  } catch (err) {
+    // A missing row is a 404. A lookup that throws is a failed read, and the ledger shows this sentence.
+    console.error("[loop/direction] lookup failed", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "The direction could not be read." }, { status: 500 });
+  }
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "No such direction." }, { status: 404 });
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;

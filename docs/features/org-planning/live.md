@@ -2711,6 +2711,8 @@ them is shown the operator's note. Row ids and titles are stored alongside, alig
   direction left behind.
 - `POST /api/org/loop/directions/[id]` `{ action: "revoke" | "done" }` — resolve-then-gate at owner;
   only an `active` or `exhausted` direction (409 otherwise); audits `loop.direction_revoked|done`.
+  A missing row answers 404 with "No such direction." A lookup that throws answers 500 with
+  "The direction could not be read." and logs the message; the settle is not attempted.
 
 #### What it deliberately does not do
 
