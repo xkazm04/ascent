@@ -205,7 +205,9 @@ export function briefingFigureDigest(b: ExecBriefing): string {
     b.security ? [b.security.dimId, b.security.avg] : null,
     b.topGainers.map((x) => [x.name, x.dOverall]),
     b.topRegressions.map((x) => [x.name, x.dOverall]),
-    b.goals.map((g) => [g.label, g.current, g.target]),
+    // The goals card prints the meter, the pace and the ETA beside current/target
+    // (briefingGoalStats). A forecast can move those while the score stays put.
+    b.goals.map((g) => [g.label, g.current, g.target, g.pct, g.pctLabel, g.pace, g.etaDays, g.headline ?? null, g.confidence ?? null, g.basis ?? null, g.insufficiency ?? null]),
     // MC-B1: the basis and the refusal are load-bearing figures on the trajectory line — a briefing
     // whose fit fell below the presentability gate since the link was sent is a CHANGED briefing, and
     // a reader comparing the two must be told so.

@@ -219,6 +219,29 @@ describe("briefingFigureDigest — the figures the sender saw (#26)", () => {
     expect(briefingFigureDigest({ ...fixture, risks: [{ dimId: "D9", label: "Security", avg: 40 }] })).not.toBe(base);
   });
 
+  it("moves when the goal meter or pace the share page prints moves", () => {
+    // The goals card prints briefingGoalStats: the meter (pct), the pace and the ETA, not only
+    // current and target. Those three were the only goal fields in the fingerprint, so a pace
+    // flip on an unchanged score still read as "figures unchanged".
+    const goal = {
+      label: "L4 by Q4",
+      current: 62,
+      target: 75,
+      pct: 82,
+      pctBasis: "attainment" as const,
+      pctLabel: "of target",
+      pace: "on track",
+      etaDays: 40,
+      headline: "reaching the target",
+      confidence: 50,
+      basis: "fit over 9 days",
+      insufficiency: null,
+    };
+    const base = briefingFigureDigest({ ...fixture, goals: [goal] });
+    expect.soft(briefingFigureDigest({ ...fixture, goals: [{ ...goal, pct: 40 }] })).not.toBe(base);
+    expect.soft(briefingFigureDigest({ ...fixture, goals: [{ ...goal, pace: "behind", etaDays: 90 }] })).not.toBe(base);
+  });
+
   it("moves when the loop-proof line the share page prints moves", () => {
     // The banner prints briefingLoopProofLine beside the practice proof. The practice proof is
     // already in the fingerprint; this line was not, so "+12 points on branches" could appear
