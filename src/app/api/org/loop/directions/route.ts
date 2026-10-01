@@ -26,7 +26,11 @@ export async function GET(request: Request) {
     .map((s) => s.trim())
     .filter(isDirectionStatus);
   const repo = url.searchParams.get("repo")?.trim() || undefined;
-  const directions = await listLoopDirections(org, { status, repo }).catch(() => null);
-  if (!directions) return NextResponse.json({ error: "Could not read the directions." }, { status: 500 });
-  return NextResponse.json({ directions });
+  try {
+    const directions = await listLoopDirections(org, { status, repo });
+    return NextResponse.json({ directions });
+  } catch (err) {
+    console.error("[loop/directions] read failed", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Could not read the directions." }, { status: 500 });
+  }
 }

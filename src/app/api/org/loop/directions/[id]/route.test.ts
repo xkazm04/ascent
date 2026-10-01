@@ -42,7 +42,7 @@ vi.mock("@/lib/db/loop-directions", () => ({
 
 import { POST } from "./route";
 import { GET } from "../route";
-import { getLoopDirectionOrgSlug } from "@/lib/db/loop-directions";
+import { getLoopDirectionOrgSlug, listLoopDirections } from "@/lib/db/loop-directions";
 
 const post = (id: string, body: unknown) =>
   POST(new Request(`http://localhost/api/org/loop/directions/${id}`, { method: "POST", body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
@@ -108,7 +108,21 @@ describe("POST /api/org/loop/directions/[id]", () => {
 
 describe("GET /api/org/loop/directions", () => {
   it("lists the caller's org's directions", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await GET(new Request("http://localhost/api/org/loop/directions?org=acme&status=active"));
     expect(await res.json()).toEqual({ directions: [{ id: "d1" }] });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("logs a thrown directions read and answers 500", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(listLoopDirections).mockRejectedValueOnce(new Error("db down"));
+    const res = await GET(new Request("http://localhost/api/org/loop/directions?org=acme"));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Could not read the directions." });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("[loop/directions] read failed", "db down");
+    spy.mockRestore();
   });
 });
