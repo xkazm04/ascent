@@ -54,9 +54,15 @@ export async function GET(request: Request) {
   if (stackKey && !techGroupId) {
     return NextResponse.json({ error: "Unknown tech-stack scope for this organization." }, { status: 404 });
   }
-  const built = await buildExecBriefing(org, orgWindowBounds(period), period.title, segmentId, techGroupId).catch(
-    () => null,
-  );
+  // A thrown build is not an empty fleet. Both stay 404 — a board download must not surface a 500 —
+  // but the body and the log have to say which one happened, or the owner stops looking for the data.
+  let built: Awaited<ReturnType<typeof buildExecBriefing>>;
+  try {
+    built = await buildExecBriefing(org, orgWindowBounds(period), period.title, segmentId, techGroupId);
+  } catch (err) {
+    console.error("[briefing/pdf] build failed", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Could not build the briefing. Try again." }, { status: 404 });
+  }
   if (!built) {
     return NextResponse.json({ error: "No scanned repositories yet for this organization." }, { status: 404 });
   }

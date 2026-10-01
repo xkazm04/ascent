@@ -1153,7 +1153,9 @@ rollups above. **Three surfaces render the same `ExecBriefing`** and must never 
 Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[slug]/executive/page.tsx` is a redirect into the tab shell), the board PDF
 (`GET /api/org/briefing/pdf` → `src/lib/pdf/briefing-document.tsx`), and the "Copy for LLM"
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
-same builder against the token's window.
+same builder against the token's window. A PDF build that throws stays a 404, and the body says
+the briefing could not be built; only a builder that returns null says the organization has no
+scanned repositories. The thrown failure is logged.
 
 **White-label on the Briefing tab (Team+).** Stored `OrgBranding` — brand name, logo URL, accent
 colour — paints a compact header on the authenticated briefing when the viewer is an owner on a

@@ -135,12 +135,15 @@ describe("GET /api/org/briefing/pdf", () => {
   });
 
   it("404 (not a leak) when buildExecBriefing resolves null — no scanned repos", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockBuild.mockResolvedValue(null);
     const res = await get("acme");
 
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "No scanned repositories yet for this organization." });
+    expect(spy).not.toHaveBeenCalled();
     expect(mockRender).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("404 (fail closed, never whole-org) when ?stack= is supplied but the key doesn't resolve", async () => {
@@ -167,11 +170,15 @@ describe("GET /api/org/briefing/pdf", () => {
     expect(mockBuild).toHaveBeenCalledWith("acme", expect.anything(), expect.any(String), null, "tg_1");
   });
 
-  it("404 (not 500) when buildExecBriefing rejects — the route swallows the build error", async () => {
+  it("404 (not 500) when buildExecBriefing rejects — and does not call the fleet empty", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockBuild.mockRejectedValue(new Error("rollup db exploded"));
     const res = await get("acme");
     expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Could not build the briefing. Try again." });
+    expect(spy).toHaveBeenCalledWith("[briefing/pdf] build failed", "rollup db exploded");
     expect(mockRender).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   // ── G5-10: the window must be resolved the SAME way the Executive page resolves it ────────────
