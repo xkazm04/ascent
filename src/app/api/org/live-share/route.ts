@@ -23,8 +23,10 @@ export async function POST(request: Request) {
   }
   const crossOrigin = requireSameOrigin(request);
   if (crossOrigin) return crossOrigin;
-  const body = (await request.json().catch(() => ({}))) as { org?: string; view?: unknown };
-  if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
+  const body = (await request.json().catch(() => ({}))) as { org?: unknown; view?: unknown };
+  // A number is truthy, and `trim` inside the signer throws on it. Whitespace trims to nothing.
+  const org = typeof body.org === "string" ? body.org.trim() : "";
+  if (!org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
   const view = normalizeLiveShareView(body.view);
   if (!view) return NextResponse.json({ error: 'view must be "wall" or "theater".' }, { status: 400 });
   // live-war-room #2: the mint gate must be AT LEAST AS STRICT as the READ gate, and fail closed.
@@ -35,17 +37,17 @@ export async function POST(request: Request) {
   // a public link to a private fleet it refuses to SERVE. canReadOrg encapsulates every mode (Supabase
   // wall / dormant OAuth / auth-off), so requiring it first closes the mint hole and is a safe redundancy
   // under the stronger owner gate below.
-  if (!(await canReadOrg(body.org))) {
+  if (!(await canReadOrg(org))) {
     return NextResponse.json({ error: "You don't have access to this organization." }, { status: 403 });
   }
-  const denied = await requireOrgRole(body.org, "owner");
+  const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
   // Bind the link to the minting owner (owner-binding revocation, like briefing-share EXEC #5) so the
   // shared page honors it only while they keep owner access — removing/demoting them kills their links.
   // Set only under the enforced Supabase wall, the authoritative membership source; other modes leave it
   // unset and keep the prior unbound behavior.
   const mintedBy = authGateEnabled() ? (await getViewer())?.login : undefined;
-  const minted = signLiveShareToken(body.org, { mintedBy, view });
+  const minted = signLiveShareToken(org, { mintedBy, view });
   if (!minted) return NextResponse.json({ error: "Could not mint a share link." }, { status: 503 });
   return NextResponse.json({ token: minted.token, path: `/live/shared/${minted.token}`, expiresAt: minted.expiresAt, view });
 }

@@ -376,4 +376,19 @@ describe("POST /api/org/live-share — mint gate (#2)", () => {
     const res = await POST(req({}));
     expect(res.status).toBe(400);
   });
+
+  it.each([12, true])("refuses a non-string org (%s) with 400 before the gates", async (org) => {
+    const res = await POST(req({ org }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Provide { org }." });
+    expect(mockCanRead).not.toHaveBeenCalled();
+    expect(mockRole).not.toHaveBeenCalled();
+  });
+
+  it("refuses a whitespace-only org with 400 before the gates", async () => {
+    const res = await POST(req({ org: "   " }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Provide { org }." });
+    expect(mockCanRead).not.toHaveBeenCalled();
+  });
 });

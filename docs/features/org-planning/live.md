@@ -3387,6 +3387,7 @@ old shape, and **every token without it — including every one minted before it
 wall**. `POST /api/org/live-share` accepts `{ org, view? }` (anything but the two words is a 400) and
 answers `view`; the theater's **Share to a kiosk** control mints one (`useTvShareLink(slug, "theater")`).
 The org stamped in the token is that string trimmed and lowercased, the same slug the owner gate checks.
+A mint whose `org` is missing, blank, or not a string is refused with 400 before a token is signed.
 A blank string is not signed.
 `/live/shared/[token]` renders `TheaterShell` in kiosk mode when `view === "theater"`; the wall branch is
 unchanged.
