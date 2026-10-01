@@ -31,7 +31,9 @@ export async function GET(request: Request) {
   try {
     const pulse = await getLoopPulse(org);
     return NextResponse.json({ pulse }, { headers: NO_STORE });
-  } catch {
+  } catch (err) {
+    // The body stays the same sentence. The log is the only place the cause survives.
+    console.error("[loop/pulse] read failed", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "The pulse could not be read." }, { status: 500, headers: NO_STORE });
   }
 }

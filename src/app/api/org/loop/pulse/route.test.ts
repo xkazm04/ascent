@@ -31,6 +31,7 @@ beforeEach(() => {
 
 describe("GET /api/org/loop/pulse", () => {
   it("returns { pulse } for a member, uncacheable", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await get("org=Acme");
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
@@ -38,6 +39,8 @@ describe("GET /api/org/loop/pulse", () => {
     // The slug is canonicalized before the gate and the read see it.
     expect(requireOrgAccess).toHaveBeenCalledWith("acme");
     expect(getLoopPulse).toHaveBeenCalledWith("acme");
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("gates BEFORE reading — a non-member gets the gate's answer and no pulse is assembled", async () => {
@@ -54,15 +57,22 @@ describe("GET /api/org/loop/pulse", () => {
   });
 
   it("says { pulse: null } when there is nothing to report from", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(getLoopPulse).mockResolvedValue(null);
     expect(await (await get("org=acme")).json()).toEqual({ pulse: null });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("answers a failed read with a 500 — never a pulse of zeros a screen would render as an empty day", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(getLoopPulse).mockRejectedValue(new Error("db down"));
     const res = await get("org=acme");
     expect(res.status).toBe(500);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(await res.json()).not.toHaveProperty("pulse");
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("[loop/pulse] read failed", "db down");
+    spy.mockRestore();
   });
 });
