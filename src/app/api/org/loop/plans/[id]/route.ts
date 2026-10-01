@@ -36,6 +36,11 @@ import { readHeldDiff } from "@/lib/local/lane-adopt";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function readFailed(err: unknown, what: "lookup" | "read") {
+  console.error(`[loop/plan] ${what} failed`, err instanceof Error ? err.message : err);
+  return NextResponse.json({ error: "The plan could not be read." }, { status: 500 });
+}
+
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const xo = requireSameOrigin(request);
   if (xo) return xo;
@@ -43,7 +48,12 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   if (guard) return guard;
   const { id } = await ctx.params;
 
-  const org = await getLoopPlanOrgSlug(id).catch(() => null);
+  let org: string | null;
+  try {
+    org = await getLoopPlanOrgSlug(id);
+  } catch (err) {
+    return readFailed(err, "lookup");
+  }
   if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "No such plan." }, { status: 404 });
   const denied = await requireOrgRole(org, "owner");
   if (denied) return denied;
@@ -51,7 +61,12 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const parsed = parseDecisionBody(await request.json().catch(() => null));
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
-  const plan = await getLoopPlan(id).catch(() => null);
+  let plan;
+  try {
+    plan = await getLoopPlan(id);
+  } catch (err) {
+    return readFailed(err, "read");
+  }
   if (!plan) return NextResponse.json({ error: "No such plan." }, { status: 404 });
   if (plan.status !== "pending") {
     return NextResponse.json({ error: `This plan is already ${plan.status} — only a pending plan can be decided.` }, { status: 409 });
@@ -69,13 +84,23 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const missing = () => NextResponse.json({ error: "No such plan." }, { status: 404 });
 
-  const org = await getLoopPlanOrgSlug(id).catch(() => null);
+  let org: string | null;
+  try {
+    org = await getLoopPlanOrgSlug(id);
+  } catch (err) {
+    return readFailed(err, "lookup");
+  }
   if (!org || org === PUBLIC_ORG) return missing();
   const denied = await requireOrgRead(org);
   // A signed-out caller is told to sign in; anyone else who cannot read the org learns nothing.
   if (denied) return denied.status === 401 ? denied : missing();
 
-  const plan = await getLoopPlan(id).catch(() => null);
+  let plan;
+  try {
+    plan = await getLoopPlan(id);
+  } catch (err) {
+    return readFailed(err, "read");
+  }
   if (!plan) return missing();
   if (!plan.heldBranch) return NextResponse.json({ error: "This plan holds no work." }, { status: 404 });
   const pairedPath = await getRepoLocalPath(org, plan.repo).catch(() => null);

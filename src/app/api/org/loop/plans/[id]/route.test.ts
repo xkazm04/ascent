@@ -58,6 +58,7 @@ vi.mock("@/lib/db/loop-plan-decide", async () => {
 });
 
 import { GET, POST } from "./route";
+import { getLoopPlan, getLoopPlanOrgSlug } from "@/lib/db/loop-plans";
 
 const post = (id: string, body: unknown) =>
   POST(new Request(`http://localhost/api/org/loop/plans/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), {
@@ -90,6 +91,29 @@ describe("POST /api/org/loop/plans/[id]", () => {
     expect(res.status).toBe(403);
     expect(gates.roleOrgs).toEqual(["other:owner"]);
     expect(decided).toEqual([]);
+  });
+
+  it("answers a thrown plan lookup with a 500 and does not decide", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getLoopPlanOrgSlug).mockRejectedValueOnce(new Error("db down"));
+    const res = await post("p-acme", { decision: "approve", note: "" });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "The plan could not be read." });
+    expect(decided).toEqual([]);
+    expect(gates.roleOrgs).toEqual([]);
+    expect(spy).toHaveBeenCalledWith("[loop/plan] lookup failed", "db down");
+    spy.mockRestore();
+  });
+
+  it("answers a thrown plan read with a 500 and does not decide", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getLoopPlan).mockRejectedValueOnce(new Error("db down"));
+    const res = await post("p-acme", { decision: "approve", note: "" });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "The plan could not be read." });
+    expect(decided).toEqual([]);
+    expect(spy).toHaveBeenCalledWith("[loop/plan] read failed", "db down");
+    spy.mockRestore();
   });
 
   it("404s an unknown plan before any gate or body is read", async () => {
@@ -141,6 +165,28 @@ describe("GET /api/org/loop/plans/[id] — the held diff", () => {
     expect(res.status).toBe(404);
     expect(gates.roleOrgs).toEqual(["other:read"]);
     expect(gitReads).toEqual([]);
+  });
+
+  it("answers a thrown lookup with a 500 before git", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getLoopPlanOrgSlug).mockRejectedValueOnce(new Error("db down"));
+    const res = await get("p1");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "The plan could not be read." });
+    expect(gitReads).toEqual([]);
+    expect(spy).toHaveBeenCalledWith("[loop/plan] lookup failed", "db down");
+    spy.mockRestore();
+  });
+
+  it("answers a thrown plan read with a 500 before git", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getLoopPlan).mockRejectedValueOnce(new Error("db down"));
+    const res = await get("p1");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "The plan could not be read." });
+    expect(gitReads).toEqual([]);
+    expect(spy).toHaveBeenCalledWith("[loop/plan] read failed", "db down");
+    spy.mockRestore();
   });
 
   it("404s a plan that holds no branch, and is the selfHostGuard's 404 off a self-hosted deployment", async () => {

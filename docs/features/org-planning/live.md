@@ -2708,7 +2708,9 @@ them is shown the operator's note. Row ids and titles are stored alongside, alig
   Every verdict stamps `decidedBy`/`decidedAt`/`decisionNote` and audits
   `loop.plan_approved|rejected|revised`. **Never a phantom decision:** the plan's status moves last and
   conditionally; a failed write is a 500 with the plan still `pending`, a raced one a 409 with no
-  direction left behind.
+  direction left behind. A missing row answers 404 with "No such plan." A lookup or plan read that
+  throws answers 500 with "The plan could not be read." and logs the message. The verdict is not
+  attempted, and the held-diff read does not run git.
 - `POST /api/org/loop/directions/[id]` `{ action: "revoke" | "done" }` — resolve-then-gate at owner;
   only an `active` or `exhausted` direction (409 otherwise); audits `loop.direction_revoked|done`.
   A missing row answers 404 with "No such direction." A lookup that throws answers 500 with
