@@ -38,7 +38,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   let direction;
   try {
     direction = await settleDirection(id, action);
-  } catch {
+  } catch (err) {
+    console.error("[loop/direction] settle failed", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "The direction could not be updated." }, { status: 500 });
   }
   if (!direction) return NextResponse.json({ error: "This direction has already ended." }, { status: 409 });

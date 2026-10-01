@@ -56,16 +56,31 @@ beforeEach(() => {
 
 describe("POST /api/org/loop/directions/[id]", () => {
   it("revokes under the ROW's org at owner and audits it", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await post("d-acme", { action: "revoke" });
     expect(res.status).toBe(200);
     expect(gates.roleOrgs).toEqual(["acme:owner"]);
     expect(gates.audits).toEqual(["loop.direction_revoked"]);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("never touches another tenant's direction", async () => {
     gates.deny = "other";
     expect((await post("d-other", { action: "done" })).status).toBe(403);
     expect(settleDirection).not.toHaveBeenCalled();
+  });
+
+  it("500s when the settle throws, and does not record the direction as ended", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    settleDirection.mockRejectedValueOnce(new Error("db down"));
+    const res = await post("d-acme", { action: "revoke" });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "The direction could not be updated." });
+    expect(gates.audits).toEqual([]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("[loop/direction] settle failed", "db down");
+    spy.mockRestore();
   });
 
   it("404s an unknown id, 400s an unknown action, 409s an ended direction", async () => {
