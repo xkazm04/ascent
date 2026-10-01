@@ -98,6 +98,10 @@ export function signLiveShareToken(
   const opts: SignLiveShareOptions = typeof ttlOrOpts === "number" ? { ttlMs: ttlOrOpts } : ttlOrOpts;
   const secret = shareSecret();
   if (!secret) return null;
+  // Same slug the owner gate checks (`normalizeLogin`: trim, then lowercase). A padded mint must not
+  // sign a different org than the one that was authorized, and a blank slug is not a token.
+  const slug = org.trim().toLowerCase();
+  if (!slug) return null;
   // Only the UPPER bound is clamped: a caller may still request a short (or negative → already-expired) TTL.
   const ttl = Math.min(opts.ttlMs ?? DEFAULT_TTL_MS, MAX_TTL_MS);
   const expiresAt = Date.now() + ttl;
@@ -105,7 +109,7 @@ export function signLiveShareToken(
   const payload = Buffer.from(
     JSON.stringify({
       aud: DOMAIN,
-      org: org.toLowerCase(),
+      org: slug,
       jti,
       mintedBy: opts.mintedBy,
       exp: expiresAt,

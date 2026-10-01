@@ -3386,6 +3386,8 @@ A live-share token gains an optional **`view` claim** (`LiveShareView`: `"wall" 
 old shape, and **every token without it — including every one minted before it existed — renders the
 wall**. `POST /api/org/live-share` accepts `{ org, view? }` (anything but the two words is a 400) and
 answers `view`; the theater's **Share to a kiosk** control mints one (`useTvShareLink(slug, "theater")`).
+The org stamped in the token is that string trimmed and lowercased, the same slug the owner gate checks.
+A blank string is not signed.
 `/live/shared/[token]` renders `TheaterShell` in kiosk mode when `view === "theater"`; the wall branch is
 unchanged.
 

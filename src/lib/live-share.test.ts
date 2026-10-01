@@ -13,7 +13,7 @@ vi.mock("@/lib/auth", () => {
   const isSameOrigin = () => true;
   return {
     isSameOrigin,
-    requireSameOrigin: (req: Request) =>
+    requireSameOrigin: () =>
       isSameOrigin() ? null : new Response(JSON.stringify({ error: "Cross-origin request rejected." }), { status: 403 }),
   };
 });
@@ -263,7 +263,7 @@ describe("live-share token", () => {
       ["mixed case", "Acme-Corp"],
       ["all upper", "ACME-CORP"],
       ["already lower", "acme-corp"],
-      ["leading/trailing ws is NOT trimmed by mint (only lowercased)", "Acme-Corp"],
+      ["leading and trailing whitespace", "  Acme-Corp  "],
     ])("the verified token org == authz-canonical org (%s)", (_label, input) => {
       const minted = signLiveShareToken(input);
       expect(minted).not.toBeNull();
@@ -290,6 +290,11 @@ describe("live-share token", () => {
       expect(acme).toBe("acme");
       expect(evil).toBe("evilcorp");
       expect(acme).not.toBe(evil);
+    });
+
+    it("does not sign a blank org", () => {
+      expect(signLiveShareToken("")).toBeNull();
+      expect(signLiveShareToken("   ")).toBeNull();
     });
 
     it("the canonical (lowercase) slug round-trips unchanged — idempotent normalization", () => {
@@ -358,6 +363,13 @@ describe("POST /api/org/live-share — mint gate (#2)", () => {
     const json = (await res.json()) as { token: string; path: string };
     expect(verifyLiveShareToken(json.token)!.org).toBe("acme");
     expect(json.path).toContain("/live/shared/");
+  });
+
+  it("mints a padded org as the trimmed slug the owner gate checks", async () => {
+    const res = await POST(req({ org: "  Acme  " }));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { token: string };
+    expect(verifyLiveShareToken(json.token)!.org).toBe("acme");
   });
 
   it("rejects a missing org with 400", async () => {
