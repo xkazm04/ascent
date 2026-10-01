@@ -113,12 +113,29 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // org's brand mark instead of Ascent's. Entitlement is RE-CHECKED here like the PDF route — the brand
   // columns survive a plan downgrade, so applying them unconditionally would keep delivering a paid
   // feature after the org stopped paying for it.
-  const [briefing, rawBranding, credit] = await Promise.all([
-    buildExecBriefing(verified.org, shareWindow, period.title, verified.segment ?? null, techGroupId).catch(() => null),
+  // A thrown build is not an empty fleet. Both used to render "Nothing to show yet", so a board
+  // holding the link was told the organization had no scans when the read had failed.
+  const [built, rawBranding, credit] = await Promise.all([
+    buildExecBriefing(verified.org, shareWindow, period.title, verified.segment ?? null, techGroupId).then(
+      (briefing) => ({ ok: true as const, briefing }),
+      (err: unknown) => {
+        console.error("[briefing/share] build failed", err instanceof Error ? err.message : err);
+        return { ok: false as const };
+      },
+    ),
     getOrgBranding(verified.org).catch(() => null),
     getCreditState(verified.org).catch(() => null),
   ]);
   const branding = planAllowsWhiteLabel(credit?.plan) ? rawBranding : null;
+  if (!built.ok) {
+    return (
+      <Notice
+        title="Briefing unavailable"
+        body="This briefing could not be loaded just now. Ask the sender to try the link again."
+      />
+    );
+  }
+  const briefing = built.briefing;
   if (!briefing) {
     return <Notice title="Nothing to show yet" body={`No scanned repositories for ${verified.org} yet.`} />;
   }

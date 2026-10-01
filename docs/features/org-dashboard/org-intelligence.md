@@ -1155,7 +1155,9 @@ Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[sl
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
 same builder against the token's window. A PDF build that throws stays a 404, and the body says
 the briefing could not be built; only a builder that returns null says the organization has no
-scanned repositories. The thrown failure is logged.
+scanned repositories. The share page makes the same split: a thrown build says the briefing
+could not be loaded, and a null build still says nothing has been scanned. Both thrown
+failures are logged.
 
 **White-label on the Briefing tab (Team+).** Stored `OrgBranding` — brand name, logo URL, accent
 colour — paints a compact header on the authenticated briefing when the viewer is an owner on a
