@@ -219,6 +219,17 @@ describe("briefingFigureDigest — the figures the sender saw (#26)", () => {
     expect(briefingFigureDigest({ ...fixture, risks: [{ dimId: "D9", label: "Security", avg: 40 }] })).not.toBe(base);
   });
 
+  it("moves when a mover's level pair on the share page changes", () => {
+    // MoveRow prints "L2→L3" beside the score delta whenever the levels differ.
+    // The fingerprint kept the name and the delta only, so a level crossing
+    // with the same delta still read as "figures unchanged".
+    const gainer = { name: "api", dOverall: 6, levelFrom: "L2", levelTo: "L3" };
+    const regressed = { name: "web", dOverall: -4, levelFrom: "L3", levelTo: "L2" };
+    const base = briefingFigureDigest({ ...fixture, topGainers: [gainer], topRegressions: [regressed] });
+    expect.soft(briefingFigureDigest({ ...fixture, topGainers: [{ ...gainer, levelFrom: "L3", levelTo: "L4" }], topRegressions: [regressed] })).not.toBe(base);
+    expect.soft(briefingFigureDigest({ ...fixture, topGainers: [gainer], topRegressions: [{ ...regressed, levelFrom: "L4", levelTo: "L3" }] })).not.toBe(base);
+  });
+
   it("moves when the goal meter or pace the share page prints moves", () => {
     // The goals card prints briefingGoalStats: the meter (pct), the pace and the ETA, not only
     // current and target. Those three were the only goal fields in the fingerprint, so a pace

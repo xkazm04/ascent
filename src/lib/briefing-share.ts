@@ -203,8 +203,9 @@ export function briefingFigureDigest(b: ExecBriefing): string {
     b.strengths.map((d) => [d.dimId, d.avg]),
     b.risks.map((d) => [d.dimId, d.avg]),
     b.security ? [b.security.dimId, b.security.avg] : null,
-    b.topGainers.map((x) => [x.name, x.dOverall]),
-    b.topRegressions.map((x) => [x.name, x.dOverall]),
+    // MoveRow prints the level pair beside the delta whenever the two levels differ.
+    b.topGainers.map((x) => [x.name, x.dOverall, x.levelFrom, x.levelTo]),
+    b.topRegressions.map((x) => [x.name, x.dOverall, x.levelFrom, x.levelTo]),
     // The goals card prints the meter, the pace and the ETA beside current/target
     // (briefingGoalStats). A forecast can move those while the score stays put.
     b.goals.map((g) => [g.label, g.current, g.target, g.pct, g.pctLabel, g.pace, g.etaDays, g.headline ?? null, g.confidence ?? null, g.basis ?? null, g.insufficiency ?? null]),

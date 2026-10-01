@@ -1307,9 +1307,10 @@ and it goes stale invisibly. Now that the window is frozen as absolute instants,
 excluded from the rollup — what still moves under a recipient is the benchmark corpus, goals,
 recommendations, the practice proof, the loop-proof line (lanes, verified branch points, merged
 loop PRs — printed on the same banner), the repo set, and retention deleting scans inside the
-window. The digest catches all of those, and a goal contributes its meter, pace and ETA along
-with its current and target, because the goals card prints them. A pinned scan set would catch
-none of them. A token minted before
+window. The digest catches all of those. A goal contributes its meter, pace and ETA along
+with its current and target, because the goals card prints them. A mover contributes its level
+pair along with its score delta, because the movement row prints the pair when the levels
+differ. A pinned scan set would catch none of them. A token minted before
 this change carries no fingerprint and reads as *unverifiable*, never as "unchanged".
 
 **One ranked source for "what to do next" (G5-02).** The briefing carries
