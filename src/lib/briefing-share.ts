@@ -212,6 +212,10 @@ export function briefingFigureDigest(b: ExecBriefing): string {
     b.forecastHeadline, b.forecastConfidence, b.forecastBasis ?? null, b.forecastInsufficiency ?? null,
     b.engineMix.map((e) => [e.provider, e.count]),
     b.proof ? [b.proof.open, b.proof.merged, b.proof.lift, b.proof.liftPractices] : null,
+    // The share page prints this on the same banner as the practice proof (BriefingProofBanner).
+    // A lane that finishes its rescan, or a branch row that retires into a merge, changes the
+    // line while the frozen window stays put — the same drift the practice proof is here to catch.
+    b.loopProof ? [b.loopProof.lanes, b.loopProof.points, b.loopProof.merged] : null,
     (b.recommendations ?? []).map((r) => r.title),
   ];
   return createHash("sha256").update(JSON.stringify(projection)).digest("hex").slice(0, 16);

@@ -219,6 +219,16 @@ describe("briefingFigureDigest — the figures the sender saw (#26)", () => {
     expect(briefingFigureDigest({ ...fixture, risks: [{ dimId: "D9", label: "Security", avg: 40 }] })).not.toBe(base);
   });
 
+  it("moves when the loop-proof line the share page prints moves", () => {
+    // The banner prints briefingLoopProofLine beside the practice proof. The practice proof is
+    // already in the fingerprint; this line was not, so "+12 points on branches" could appear
+    // under "figures unchanged".
+    const base = briefingFigureDigest(fixture);
+    const withLoop = { ...fixture, loopProof: { lanes: 2, points: 12, merged: 0 } };
+    expect.soft(briefingFigureDigest(withLoop)).not.toBe(base);
+    expect.soft(briefingFigureDigest({ ...withLoop, loopProof: { lanes: 2, points: 4, merged: 1 } })).not.toBe(briefingFigureDigest(withLoop));
+  });
+
   it("round-trips through the token and reads back as unchanged / changed / unverifiable", () => {
     const fig = briefingFigureDigest(fixture);
     const minted = signBriefingShareToken({ org: "acme", range: "90d", fig })!;

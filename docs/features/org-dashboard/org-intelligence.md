@@ -1305,8 +1305,9 @@ banner above the numbers. A snapshot was considered and rejected: it would be a 
 holding fleet-wide posture that both the retention floor and the erasure path would have to reach,
 and it goes stale invisibly. Now that the window is frozen as absolute instants, a re-scan is already
 excluded from the rollup — what still moves under a recipient is the benchmark corpus, goals,
-recommendations, the practice proof, the repo set, and retention deleting scans inside the window.
-The digest catches all of those; a pinned scan set would catch none of them. A token minted before
+recommendations, the practice proof, the loop-proof line (lanes, verified branch points, merged
+loop PRs — printed on the same banner), the repo set, and retention deleting scans inside the
+window. The digest catches all of those; a pinned scan set would catch none of them. A token minted before
 this change carries no fingerprint and reads as *unverifiable*, never as "unchanged".
 
 **One ranked source for "what to do next" (G5-02).** The briefing carries
