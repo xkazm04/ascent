@@ -38,8 +38,9 @@ export async function GET(request: Request) {
   let pulse: Awaited<ReturnType<typeof getLoopPulse>>;
   try {
     pulse = await getLoopPulse(access.claims.org);
-  } catch {
+  } catch (err) {
     // A failed read is a 500, never a pulse of zeros: the theater says "Reconnecting…" for this one.
+    console.error("[live/pulse] read failed", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "The pulse could not be read." }, { status: 500, headers: NO_STORE });
   }
   return NextResponse.json({ pulse: pulse ? kioskPulse(pulse) : null }, { headers: NO_STORE });

@@ -36,12 +36,15 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe("GET /api/live/pulse", () => {
   it("serves the org's pulse for a theater link — the org comes from the token", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     state.pulse = fixturePulse();
     const res = await get(theaterToken());
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(getLoopPulse).toHaveBeenCalledWith("acme");
     expect(((await res.json()) as { pulse: { org: string } }).pulse.org).toBe("acme");
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("strips every lane activity note, every repo note and every prose headline — paths and phases stay", async () => {
@@ -69,7 +72,10 @@ describe("GET /api/live/pulse", () => {
   });
 
   it("answers { pulse: null } when there is nothing to report", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await (await get(theaterToken())).json()).toEqual({ pulse: null });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("refuses a WALL link (every link minted before the theater) — it was never granted the runner", async () => {
@@ -106,8 +112,14 @@ describe("GET /api/live/pulse", () => {
   });
 
   it("a failed read is a 500, never a pulse of zeros", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(getLoopPulse).mockRejectedValueOnce(new Error("db down"));
-    expect((await get(theaterToken())).status).toBe(500);
+    const res = await get(theaterToken());
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "The pulse could not be read." });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith("[live/pulse] read failed", "db down");
+    spy.mockRestore();
   });
 
   it("answers 503 on a deployment with no database", async () => {
