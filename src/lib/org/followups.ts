@@ -279,6 +279,15 @@ const LANE_CAPABILITY_RULE: readonly string[] = [
   "- RESOLVED means the gap THIS item names is closed by THIS change: the specific thing it asks for. Not a plan to do it later, not a scheduled job that will do it, not documentation saying it should be done.",
   "- Worked example. Item: *nine GitHub Actions are pinned to floating tags; pin them to commit SHAs.* Resolving a tag to a SHA means asking GitHub what that tag points at right now, and you have no network — and inventing a SHA breaks the workflow rather than pinning it. Adding `.github/workflows/pin-actions.yml` to do the burn-down weekly is useful and you may add it. The nine actions are still unpinned, so the honest line is `SKIPPED: <id> - needs network: cannot resolve tags to SHAs offline; added a weekly pinning workflow instead`. It is NOT `RESOLVED`.",
   "",
+  // THE INTEGRITY GUARD, stated where the agent reads it (src/lib/local/lane-gate-diff.ts is the rule).
+  // Measured 2026-10-05: on a game repo the agent edited the same existing CI workflow and the same
+  // package.json that declares the verify command in two cycles running, and both were voided — it had
+  // never been told which edits discard a whole cycle. Naming them turns a repeated void into a skip.
+  "WHAT VOIDS A WHOLE CYCLE (the integrity guard diffs your work after you exit):",
+  "- MODIFYING or DELETING an EXISTING test file or fixture, an EXISTING CI workflow (`.github/workflows/*`), an existing hook or gate config (tsconfig, eslint / vitest / pytest config, pre-commit, lefthook), or the build/script manifest that declares the verify command (the package.json script block, build.gradle(.kts), Cargo.toml, Makefile). A voided cycle is discarded from the measurement and held for a human — all of it, not just that file.",
+  "- ADDING is allowed: new test files, a new workflow, a new hook, a new check script, new docs. Declaring the repository's real verify command in AGENTS.md / CLAUDE.md / `.ai/manifest.yaml` is allowed when that command passes on your result.",
+  "- If an item can only be closed by editing one of those existing files, emit `SKIPPED: <id> - needs a gate-surface edit: <file>` and move on.",
+  "",
 ];
 
 /**

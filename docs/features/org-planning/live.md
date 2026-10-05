@@ -4402,6 +4402,13 @@ gap, the next cycle armed the same item again, and the dimension churned — acr
 both repos churned D4 (agentic review, action pinning) with 40+ "closed" follow-ups and no sustained
 score movement. This is the single biggest reason the gap backlog did not drain. Two changes:
 
+**The integrity rule, in the same block (2026-10-05).** The lane brief now also names WHAT VOIDS A
+WHOLE CYCLE: modifying or deleting an existing test, fixture, CI workflow, hook or gate config, or the
+manifest that declares the verify command. It says that adding new ones (and declaring a real gate
+that passes) is allowed, and gives the skip line `SKIPPED: <id> - needs a gate-surface edit: <file>`.
+Measured: on a game repo two cycles running edited the same existing workflow and `package.json` and
+were both voided, because the agent had never been told which edits discard a cycle.
+
 **1. The capability rule, in the brief** (`buildFixPrompt`, `src/lib/org/followups.ts`, appended for
 `commitPolicy: "lane"` only — the human's paste-into-my-own-terminal agent *has* a shell and a
 network, and telling it otherwise would suppress work it can do). It states the grant plainly, names

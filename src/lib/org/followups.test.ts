@@ -244,6 +244,16 @@ describe("buildFixPrompt — the capability rule (lane only)", () => {
     expect(p.split("WHAT THIS SESSION CANNOT DO:")).toHaveLength(2);
   });
 
+  it("names what voids a whole cycle, and that ADDING is allowed — a repeated void becomes a skip", () => {
+    // Measured 2026-10-05: two cycles running edited the same existing workflow + package.json and voided.
+    const p = buildFixPrompt([item()], lane);
+    expect(p).toContain("WHAT VOIDS A WHOLE CYCLE");
+    expect(p).toContain("EXISTING CI workflow");
+    expect(p).toContain("ADDING is allowed");
+    expect(p).toContain("SKIPPED: <id> - needs a gate-surface edit:");
+    expect(buildFixPrompt([item()], ctx)).not.toContain("WHAT VOIDS A WHOLE CYCLE");
+  });
+
   it("is ABSENT from the human paste prompt, whose agent has a shell and a network", () => {
     const p = buildFixPrompt([item()], ctx);
     expect(p).not.toContain("WHAT THIS SESSION CANNOT DO:");
