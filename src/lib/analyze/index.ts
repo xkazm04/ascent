@@ -21,6 +21,16 @@ import { AI_TRAILER_SOURCE } from "./ai-tools";
 import { readManifestYaml } from "@/lib/standard/read";
 import { MEMORY_ENTRY_RE } from "@/lib/standard/memory-entry";
 import { gradedGuidanceNode, guidanceGraphFor } from "@/lib/analyze/guidance-graph";
+import {
+  AGENT_GUARDRAIL_PATHS,
+  NATIVE_FORMATTER_PATHS,
+  NATIVE_LINTER_BUILD_TEXT,
+  NATIVE_LINTER_PATHS,
+  buildFileZeroWarning,
+  firstOwn,
+  judgeHarness,
+  taskCardQueue,
+} from "./stack-native";
 
 // ---------------------------------------------------------------------------
 // Analysis context — precomputed views over the snapshot for cheap querying.
@@ -373,7 +383,10 @@ const NONCORE =
 // ADR / architecture-decision-record detection. ADRs count toward both D5 (Documentation) and D8
 // (AI Process — agent-readable runbooks/ADRs), so single-source the path convention here rather than
 // copy it into each detector (where one could be broadened and the other silently left behind).
-const ADR_PATH = /(adr|decisions?)\/.*\.(md|mdx)$/;
+// Anchored to a path SEGMENT: unanchored, `owner-decisions/x.md` (a folder of decisions ABOUT
+// something, not a decision log) matched. A single-file decision log (`DECISIONS.md`, `adr.md`) counts
+// too: it is the same record kept in one file, which is how a small repo keeps it.
+const ADR_PATH = /(^|\/)(adrs?|decisions?)\/.*\.(md|mdx)$|(^|\/)(decisions|decision-log|adr)\.mdx?$/;
 const ADR_HINT = /architecture-decision/;
 
 // D2 "assert nothing" penalty (G3-11): the fraction of a repo's total detected test files that must
@@ -783,6 +796,17 @@ function packageScripts(idx: RepoIndex): { name: string; body: string }[] {
 const RATCHET_TERMS =
   /ratchet|ceiling|(^|[^a-z])budget([^a-z]|$)|no-new-|suppressions?|type-coverage|betterer|\bknip\b|(lint|type|eslint|ruff|mypy|tsc|clippy)[-_.]?baseline/;
 
+/** Trees that hold DATA rather than gates: a ratchet-named file inside one is content, not a check. */
+const RATCHET_DATA_TREE = /(^|\/)(evidence|data|assets)\//i;
+/** A file named for a ratchet. "ratchet" has no everyday meaning in a codebase, so it stands alone. */
+const RATCHET_FILE = /(^|\/)[^/]*ratchet[^/]*\.[a-z]+$/;
+/** A file named for a CEILING counts only when the name says what debt it caps (`type-ceiling.json`,
+ *  `ruff_ignore_ceiling.py`): a bare "ceiling" is a game's boss stat or a room's geometry as often as
+ *  a gate — `tools/audit-boss-ceilings.py` is a balance audit that earned this award on a repo with no
+ *  gate at all (game-repo investigation, 2026-10-05). */
+const DEBT_CEILING_FILE =
+  /(^|\/)([^/]*(lint|type|ruff|mypy|clippy|suppress|ignore|warning|debt|todo|coverage|complex|bundle|quality|budget)[^/]*ceiling|([^/]*[-_.])?tsc?[-_.][^/]*ceiling|[^/]*ceiling[^/]*(lint|type|suppress|ignore|warning|debt|todo|coverage))[^/]*\.[a-z]+$/;
+
 /** A lint/type gate configured to FAIL rather than warn — the difference between a linter that runs
  *  and one that stops a merge. Cheap to state and impossible to fake with a config file alone. */
 const ZERO_WARNING_GATE = /--max-warnings[= ]*0|-d[= ]+warnings|--deny[= ]+warnings|-w[ ]+error|--strict-warnings|fail[-_]on[-_]warnings|--exit-non-zero-on-fix|--error-on-warnings/;
@@ -791,14 +815,26 @@ const d6: Detector = (idx, snap) => {
   const s = new Scorer();
   // Cite the config file that fired it (SAM-L1-01). A manifest-DEPENDENCY hit names nothing: there is
   // no standalone config to open, and pointing at package.json would misdescribe what matched.
-  const linterConfig = idx.first(
-    /(^|\/)(\.eslintrc|eslint\.config)\.[a-z]+$/,
-    /(^|\/)(ruff\.toml|biome\.json|\.golangci\.ya?ml|\.rubocop\.yml)$/,
-  );
-  const linterConfigured = Boolean(linterConfig) || /eslint|ruff|biome|golangci|rubocop|flake8/.test(idx.manifestText);
+  // The stack-native forms (clang-tidy, detekt, ktlint, .NET analyzers, SwiftLint, Checkstyle) feed the
+  // SAME award, after the JS/Python/Go ones so those repos keep their citation (analyze/stack-native.ts).
+  // Root `build.gradle.kts` is read beside the manifest blob rather than joined into it: joining would
+  // move D2/D3 on every Kotlin-DSL repo, and only this plugin check is in scope.
+  const linterConfig =
+    idx.first(
+      /(^|\/)(\.eslintrc|eslint\.config)\.[a-z]+$/,
+      /(^|\/)(ruff\.toml|biome\.json|\.golangci\.ya?ml|\.rubocop\.yml)$/,
+    ) ?? firstOwn(idx.lowerPaths, NATIVE_LINTER_PATHS);
+  const buildText = idx.manifestText + "\n" + (idx.content("build.gradle.kts") ?? "").toLowerCase();
+  const linterConfigured =
+    Boolean(linterConfig) ||
+    /eslint|ruff|biome|golangci|rubocop|flake8/.test(idx.manifestText) ||
+    NATIVE_LINTER_BUILD_TEXT.test(buildText);
   if (linterConfigured) s.add(20, "Linter configured", linterConfig);
 
-  const formatterConfig = idx.first(/(^|\/)\.prettierrc/, /(^|\/)(\.editorconfig)$/);
+  const formatterConfig =
+    idx.first(/(^|\/)\.prettierrc/) ??
+    firstOwn(idx.lowerPaths, NATIVE_FORMATTER_PATHS) ??
+    idx.first(/(^|\/)(\.editorconfig)$/);
   if (formatterConfig || /prettier|black|gofmt|rustfmt/.test(idx.manifestText))
     s.add(10, "Formatter configured", formatterConfig);
 
@@ -858,12 +894,18 @@ const d6: Detector = (idx, snap) => {
   // mapped onto no signal at all. Both signals below are ADDITIVE: no existing award moved.
   const scripts = packageScripts(idx);
   const ratchetScript = scripts.find((sc) => RATCHET_TERMS.test(sc.name) || RATCHET_TERMS.test(sc.body));
-  const ratchetPath = idx.first(
-    /(^|\/)[^/]*(ratchet|ceiling)[^/]*\.[a-z]+$/,
+  // A ratchet FILE counts only outside data trees: a game's `evidence/.../boss-hard-ceilings.json` is
+  // balance data that happens to say "ceiling", and it earned this award on a repo with no gate at all
+  // (game-repo investigation, 2026-10-05). Same exclusion family as D3's core-path filter, plus the
+  // data/evidence/assets trees (Unity keeps all of its content under `Assets/`).
+  const ratchetPaths = idx.lowerPaths.filter((p) => !NONCORE.test(p) && !VENDOR.test(p) && !RATCHET_DATA_TREE.test(p));
+  const ratchetPath = firstOwn(ratchetPaths, [
+    RATCHET_FILE,
+    DEBT_CEILING_FILE,
     /(^|\/)\.betterer\./,
     /(^|\/)[^/]*(lint|type|eslint|ruff|mypy|tsc|clippy)[-_.]?baseline\.(json|txt|ya?ml|toml)$/,
     /(^|\/)knip\.(json|jsonc|ts|js)$/,
-  );
+  ]);
   const ratchetCi = RATCHET_TERMS.test(idx.workflowText);
   // Off-Actions, the file is cited (the Actions wording above is kept byte-identical for Actions repos).
   const ratchetElsewhere = ratchetCi ? undefined : idx.enforcementMatch(RATCHET_TERMS)?.path;
@@ -878,11 +920,15 @@ const d6: Detector = (idx, snap) => {
 
   // A linter that gates is not a linter that runs. `--max-warnings 0` / `-D warnings` is the cheapest
   // evidence that a warning fails the build rather than scrolling past in a log.
+  // A compiler switch in a fetched build file is the same policy for C#, Kotlin, Android and Unreal; it
+  // is cited, while the CI/script branches keep their unsourced wording byte-identical.
   const zeroWarnings =
     ZERO_WARNING_GATE.test(idx.workflowText) ||
     idx.enforcementMatch(ZERO_WARNING_GATE) !== undefined ||
     scripts.some((sc) => ZERO_WARNING_GATE.test(sc.body));
-  if (zeroWarnings) s.add(5, "Lint/type gate fails on warnings (zero-warning policy)");
+  const zeroWarningBuildFile = zeroWarnings ? undefined : buildFileZeroWarning(snap.files);
+  if (zeroWarnings || zeroWarningBuildFile)
+    s.add(5, "Lint/type gate fails on warnings (zero-warning policy)", zeroWarningBuildFile);
 
   // (Supply-chain security — SAST/SCA/secret/container scanning, SBOM, signing — is scored
   // under D9, not here, so a security-heavy repo isn't double-counted.)
@@ -997,6 +1043,13 @@ const d8: Detector = (idx) => {
     /promptfoo|llm[\s-]?eval|golden[\s-]?test/.test(blob)
   )
     s.add(30, "AI-output eval / golden-test harness", evalPath);
+  else {
+    // An LLM-as-judge harness is the same practice without the vendor's directory name: judge scripts
+    // scoring output against a rubric, or a UAT folder that records verdicts. Two independent kinds of
+    // evidence, never one (analyze/stack-native.ts `judgeHarness`), so a lone `judge.ts` earns nothing.
+    const judged = judgeHarness(idx.lowerPaths);
+    if (judged) s.add(30, "AI-output eval harness (LLM-as-judge with rubric/verdicts)", judged.join(", "));
+  }
 
   // Structured prompt / agent / skill library. A committed `.claude/skills/` (or `.agents/skills/`)
   // is a mandatory, named skill library — the same high-signal harness as a prompts/ dir (P1-4).
@@ -1009,7 +1062,14 @@ const d8: Detector = (idx) => {
   if (libraryPath) s.add(25, "Structured prompt / agent / skill library", libraryPath);
 
   // Agent-readable operational docs / runbooks / ADRs.
-  const runbookPath = idx.first(/(^|\/)(runbooks?|docs\/agents?|docs\/runbooks?)\//, ADR_PATH, ADR_HINT);
+  // A single top-level runbook in docs/ (`docs/ORCHESTRATION.md`) is the same artifact as a runbooks/
+  // folder; it is tried last so the folder forms keep their citation.
+  const runbookPath = idx.first(
+    /(^|\/)(runbooks?|docs\/agents?|docs\/runbooks?)\//,
+    ADR_PATH,
+    ADR_HINT,
+    /(^|\/)docs\/(orchestration|runbook|playbook)\.md$/,
+  );
   if (runbookPath) s.add(20, "Agent-readable runbooks / ADRs", runbookPath);
 
   // AI contribution process (review gate / DoD). CONTRIBUTING.md's prose is a third trigger; when it
@@ -1021,13 +1081,25 @@ const d8: Detector = (idx) => {
     /(^|\/)(ai[-_]policy|ai[-_]tools|ai[-_]contributing)\.mdx?$/,
   );
   const contributingFired = /definition of done|ai[- ]generated|co-?authored|agent/.test(contributing);
+  // A versioned agent hook/permission config is the same process made executable: it governs every
+  // agent session rather than asking a contributor to read a policy. Folded into this row instead of a
+  // new one: one award however the process is evidenced, so no repo can stack it. Tree evidence only;
+  // a gitignored or registry-linked config is absent from the tree and earns nothing.
+  const guardrailPath = processPath || contributingFired ? undefined : idx.first(...AGENT_GUARDRAIL_PATHS);
   if (processPath || contributingFired)
     s.add(15, "AI contribution process (PR template / DoD / AI policy)", processPath ?? contributingPath);
+  else if (guardrailPath) s.add(15, "AI contribution process (versioned agent guardrails)", guardrailPath);
 
   // Structured tickets (Plan & Design): issue templates with acceptance criteria / DoD give an
   // agent a well-formed task to work from, not a one-line prompt.
   const issueTemplatePath = idx.first(/^\.github\/issue_template(\/|\.)/, /^\.github\/issue_template$/);
   if (issueTemplatePath) s.add(10, "Structured issue templates", issueTemplatePath);
+  else {
+    // A committed task-card queue is the same thing kept beside the code: three or more cards in one
+    // tasks/, cards/ or queue/ folder. Docs and sample trees excluded (a docs site's tasks/ is prose).
+    const queue = taskCardQueue(idx.lowerPaths.filter((p) => !NONCORE.test(p)));
+    if (queue) s.add(10, "Structured task-card queue", queue);
+  }
 
   // The `.ai/` standard's executable conformance + structured memory — scored by evidence of use.
   for (const g of aiStandardCached(idx).d8) s.add(g.points, g.label, g.detail);

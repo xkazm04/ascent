@@ -353,6 +353,10 @@ export function computeSecurityChecks(
   const blind = opts.platformUnobservable === true && gov == null && apps == null && posture == null;
   const provenance = opts.provenance ?? null;
   const failed = new Set(opts.failedSensors ?? []);
+  // The remediations the blind reading withheld, kept for the one case where they are all there is
+  // to say (`unmeasured` below). The absence they name IS visible on disk — no committed SECURITY.md,
+  // no Dependabot/Renovate config — only its GitHub-side refutation is not.
+  const unverified: string[] = [];
   const checks: SecurityCheck[] = POSTURE_SPEC.map((spec) => {
     let r = spec.run(snap, gov, posture, apps);
     // A read that FAILED, on a scan that could otherwise see GitHub. Same exclusion as `blind`, and
@@ -363,6 +367,7 @@ export function computeSecurityChecks(
     if (unread && !blind && spec.githubCanRefuteZero && r.score === 0) {
       r = { score: null, evidence: `${spec.name} not observable: ${spec.sensor} read failed (${r.evidence.replace(/\.$/, "")}; GitHub-side ${spec.githubCanRefuteZero} could not be read).` };
     } else if (blind && spec.githubCanRefuteZero && r.score === 0) {
+      if (r.remediation) unverified.push(`Unverified: ${r.remediation.replace(/\.$/, "")} — nothing committed, and the GitHub-side ${spec.githubCanRefuteZero} could not be read here.`);
       r = { score: null, evidence: `${spec.name} not measurable from a worktree (${r.evidence.replace(/\.$/, "")}; GitHub-side ${spec.githubCanRefuteZero} not readable here).` };
     } else if (provenance && spec.githubCanRefuteZero && r.score !== null) {
       r = { ...r, evidence: `${r.evidence.replace(/\.$/, "")} · ${provenance}.` };
@@ -378,6 +383,17 @@ export function computeSecurityChecks(
 
   const exposurePct = vuln.score === null ? null : Math.round(vuln.score * 10);
   const d9 = exposurePct === null ? posturePct : Math.round(0.8 * posturePct + 0.2 * exposurePct);
+  // NOTHING MEASURABLE. A blind reading of a repo with no workflows and no container files leaves no
+  // check applicable, and `posturePct` above falls to 0 for want of a denominator — a number about
+  // nothing, which the overall would then carry as a measured absence. Say so instead: the engine
+  // drops an unmeasured D9 and renormalizes. Gated on `blind` because a scan that could see GitHub
+  // and still found nothing applicable is a different claim (every refutable check scored there).
+  // A blind reading whose only applicable checks are the FILE-PRESENCE ones (a committed SECURITY.md,
+  // a Dependabot/Renovate config) is unmeasured too: every check GitHub could refute was excluded, so
+  // the denominator is just the files that happen to exist, and one SECURITY.md would read as D9 100.
+  // A measured blind D9 needs at least one check derived from CI or container definitions.
+  const observedBeyondFiles = checks.some((c, i) => c.score !== null && !POSTURE_SPEC[i]!.githubCanRefuteZero);
+  const unmeasured = blind && !observedBeyondFiles && exposurePct === null;
 
   // Evidence = every check's finding, in a machine-parseable-yet-readable form (the fleet register
   // parses `Name [group/risk]: score/10 — detail` back into the control grid). Gaps = the failing/
@@ -388,5 +404,9 @@ export function computeSecurityChecks(
     .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
     .map((c) => c.remediation!);
 
+  // Unmeasured: the scored list is necessarily empty (no check scored), so the withheld remediations
+  // take its place, each marked unverified. Safe to surface ONLY here, because an unmeasured D9 never
+  // reaches the blend and so can mint no follow-up; on a measured D9 they would become scored work.
+  if (unmeasured) return { d9, posture: posturePct, exposure: exposurePct, checks, evidence, gaps: unverified, unmeasured: true };
   return { d9, posture: posturePct, exposure: exposurePct, checks, evidence, gaps };
 }

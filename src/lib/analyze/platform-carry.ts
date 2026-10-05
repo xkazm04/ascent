@@ -86,7 +86,8 @@ export function platformSignalsUnavailable(): PlatformSignalRecord {
  *   - `carried`      — replayed from an earlier scan that did observe it (carryPlatformFold). A
  *                      measurement, borrowed and disclosed — so it is judgeable, not held out.
  *   - `unobservable` — the fold was unavailable AND nothing was carried. Nothing is known about this
- *                      dimension on this reading in EITHER direction.
+ *                      dimension on this reading in EITHER direction. Also D9 when the security
+ *                      battery found no applicable check on a blind reading (`securityUnobservable`).
  *
  * The consequence of the last state is the whole point: unmeasured is not the same as bad, so an
  * unobservable dimension must not be turned into a gap, a follow-up, or work. See green.ts (which
@@ -99,24 +100,33 @@ export function dimensionObservability(
   record: PlatformSignalRecord | null | undefined,
   dimId: string,
 ): DimensionObservability {
+  // D9 is the one dimension outside the folds that a reading can fail to see at all: its battery
+  // replaces the signal, and on a blind reading of a repo with nothing on disk to grade, no check
+  // applies (`securityUnobservable`, set by buildScanScoreInput from the battery's own verdict).
+  // A carried GitHub reading is not `carried` here — it reran the battery and measured.
+  if (dimId === "D9") return record?.securityUnobservable ? "unobservable" : "observed";
   if (!(PLATFORM_FOLD_DIMS as readonly string[]).includes(dimId)) return "observed";
   if (record?.source === "unavailable") return "unobservable";
   if (record?.source === "carried") return "carried";
   return "observed";
 }
 
+/** Every dimension `dimensionObservability` can ever answer `unobservable` for: the folds, plus D9. */
+const OBSERVABILITY_DIMS: readonly DimensionId[] = [...PLATFORM_FOLD_DIMS, "D9"];
+
 /**
  * The dimensions a consumer must NOT hold against the repo on this reading.
  *
- * Only `unavailable` produces any: an observed fold measured them, and a carried one reproduced a
- * measurement. `undefined` (a legacy row, a reconstructed snapshot) yields none — unknown provenance
- * is not evidence that a dimension was unmeasurable, and treating it as such would silently drop
- * three dimensions out of every historical green verdict.
+ * Only `unavailable` produces any fold dimension: an observed fold measured them, and a carried one
+ * reproduced a measurement. D9 joins only when the record says its battery had nothing to grade.
+ * `undefined` (a legacy row, a reconstructed snapshot) yields none — unknown provenance is not
+ * evidence that a dimension was unmeasurable, and treating it as such would silently drop three
+ * dimensions out of every historical green verdict.
  *
  * Derived from `dimensionObservability` rather than re-testing `source` so there is exactly one rule.
  */
 export function unmeasurablePlatformDims(record: PlatformSignalRecord | null | undefined): DimensionId[] {
-  return PLATFORM_FOLD_DIMS.filter((d) => dimensionObservability(record, d) === "unobservable");
+  return OBSERVABILITY_DIMS.filter((d) => dimensionObservability(record, d) === "unobservable");
 }
 
 /**
@@ -199,11 +209,12 @@ export function carriedSecurityInputs(record: PlatformSignalRecord | null | unde
  */
 export function platformFoldNote(record: PlatformSignalRecord | null | undefined, now: Date = new Date()): string | null {
   if (!record) return null;
-  if (record.source === "unavailable") return `${PLATFORM_FOLD_DIMS.join("/")} not measurable locally`;
+  if (record.source === "unavailable") return `${unmeasurablePlatformDims(record).join("/")} not measurable locally`;
   if (record.source !== "carried") return null;
   const age = platformFoldAge(record, now);
   const from = record.fromScanId ? `scan ${record.fromScanId}` : "an earlier scan";
-  return `platform signals from ${from}${age ? `, ${age}` : ""}${record.stale ? " · stale" : ""}`;
+  const d9 = record.securityUnobservable ? " · D9 not measurable locally" : "";
+  return `platform signals from ${from}${age ? `, ${age}` : ""}${record.stale ? " · stale" : ""}${d9}`;
 }
 
 /** Narrow a persisted JSON blob back to a record. Anything unrecognisable reads as UNKNOWN, never as
@@ -236,6 +247,7 @@ export function parsePlatformSignals(raw: string | null | undefined): PlatformSi
             },
           }
         : {}),
+      ...(rec.securityUnobservable === true ? { securityUnobservable: true as const } : {}),
     };
   } catch {
     return undefined;

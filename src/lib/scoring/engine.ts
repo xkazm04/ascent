@@ -30,7 +30,7 @@ import {
   weightsFor,
 } from "@/lib/maturity/model";
 import { applyDiscrepancyBudget, MAX_FLAGGED_DIMENSIONS } from "@/lib/scoring/discrepancy-policy";
-import { unmeasurablePlatformDims } from "@/lib/analyze/platform-carry";
+import { dimensionObservability, unmeasurablePlatformDims } from "@/lib/analyze/platform-carry";
 import { CLAIM_SCORED_DIMENSIONS, applyVerifiedClaims, verifyClaims, type VerifiedClaim } from "@/lib/scoring/claims";
 // Import only the path predicate needed to render guidance evidence.
 import { isGuidancePath } from "@/lib/analyze/context-health";
@@ -134,7 +134,13 @@ export function assembleReport(
   // ~9% of the headline. When the discrepancy channel blew its budget (a blanket "your detectors are
   // wrong" audit — the shape both a hallucination and a planted instruction produce) neither prose
   // lever fires: the report stays pinned to what was actually measured.
-  const d9Unmeasurable = !widenBudget.capped && hasD9VisibilityBlindSpot(assessment.discrepancies ?? []);
+  //
+  // D9 NOT MEASURED AT ALL — a different and prior fact. A blind reading whose security battery found
+  // no applicable check (`securityUnobservable`, see dimensionObservability) has no number to drop.
+  // It is dropped for that reason and the prose hatch is not recorded as having fired: it would have
+  // changed nothing, and `d9Unmeasurable` exists to attribute a step change the model caused.
+  const d9Unobservable = dimensionObservability(platformSignals, "D9") === "unobservable";
+  const d9Unmeasurable = !d9Unobservable && !widenBudget.capped && hasD9VisibilityBlindSpot(assessment.discrepancies ?? []);
   const lensW = weightsFor(archetype);
   const warnings: string[] = [];
   if (widenBudget.capped) {
@@ -150,6 +156,9 @@ export function assembleReport(
   // signal floor below (fine numerically) but the report must not then read as fully AI-validated
   // — see the partial-coverage warning after the blend.
   const llmMissing: DimensionId[] = [];
+  // Set when D9 reaches the blend loop and is dropped as unobservable, so the disclosure below names
+  // it only when there was a D9 to withhold.
+  let d9DroppedUnobservable = false;
 
   // Confidence-weighted blend: scale the LLM's pull by how much of the repo we actually inspected.
   // `coverage` (0..1) was computed and surfaced as report.confidence but never touched the math, so a
@@ -198,6 +207,21 @@ export function assembleReport(
     // exclude it so the overall + rigor axis renormalize over the dimensions we could measure, instead
     // of flooring the repo on a control it genuinely has. The LLM only marks it unmeasurable here; it
     // never raises the D9 number.
+    // D9 that this reading could not measure at all: blind to GitHub, and nothing on disk the battery
+    // can grade. Its 0 is the absence of a denominator, not a finding — so it leaves the overall the
+    // way a failed detector does, and it says what it could not verify instead of scoring it.
+    if (s.id === "D9" && d9Unobservable) {
+      d9DroppedUnobservable = true;
+      const unverified = s.gaps?.length ? ` Not verified on this reading: ${s.gaps.join(" ")}` : "";
+      const msg =
+        `Security (D9) was NOT MEASURED and is excluded from the score: this scan could not read GitHub ` +
+        `(no token, and no earlier GitHub scan to carry from) and the repository has nothing on disk the ` +
+        `security checks can grade (no workflows, no container files). D9 is renormalized out rather ` +
+        `than counted as 0, and no follow-up is raised for it.${unverified}`;
+      warnings.push(msg);
+      console.warn(`[engine] ${msg}`);
+      return [];
+    }
     if (s.id === "D9" && d9Unmeasurable) {
       const msg =
         `Security (D9) was treated as UNMEASURABLE and excluded from the score: the assessment flagged ` +
@@ -365,19 +389,29 @@ export function assembleReport(
     );
   }
 
+  // An unobservable D9 is owed no work from EITHER source. The coverage guarantee below never sees it
+  // (it is not in `dimensions`), but the model may still write a D9 row and the fallback ranks raw
+  // signals, where its placeholder 0 would top the list. Unlike a fold dimension, D9 here has no
+  // score at all, so a row on it is a task about a dimension this report never measured — the exact
+  // thing "unmeasured is not bad, and must not become work" forbids.
+  const roadmapSignals = d9DroppedUnobservable ? signals.filter((s) => s.id !== "D9") : signals;
   const modelRoadmap = assessment.roadmap.length
-    ? assessment.roadmap
+    ? (d9DroppedUnobservable ? assessment.roadmap.filter((r) => r.dimension !== "D9") : assessment.roadmap)
     // G3-09: rank the fallback roadmap by the BLENDED dimension scores the report actually shows,
     // not the raw signal scores — otherwise the roadmap's "biggest gap" can contradict the card
     // the reader is looking at.
-    : buildFallbackRoadmap(signals, overallScore, archetype, dimensions.map((d) => ({ id: d.id, score: d.score })));
+    : buildFallbackRoadmap(roadmapSignals, overallScore, archetype, dimensions.map((d) => ({ id: d.id, score: d.score })));
   // The dimensions this reading could not observe AT ALL and that still reached the blend. The
   // guarantee below owes them nothing (unmeasured is not a gap), and the same list is disclosed on
   // scoreIntegrity so a reader can tell "not measured" from "fine". Intersected with the scored set
   // for the same reason widenedDims is: naming a dimension that never reached the report would
   // overstate what this scan withheld judgment on.
   const scoredIds = new Set(dimensions.map((d) => d.id));
-  const unmeasuredDims = unmeasurablePlatformDims(platformSignals).filter((id) => scoredIds.has(id));
+  // D9 is the exception to the intersection: dropped BECAUSE it was unobservable, it is precisely the
+  // dimension this scan withheld judgment on, and naming it is what the integrity chip is for.
+  const unmeasuredDims = unmeasurablePlatformDims(platformSignals).filter(
+    (id) => scoredIds.has(id) || (id === "D9" && d9DroppedUnobservable),
+  );
   // The follow-up guarantee: every dimension still below the green band carries a next step, grounded
   // in its own gaps. Runs on BOTH branches — the fallback roadmap is top-3-by-upside and can leave a
   // below-green dimension uncovered just as the model can. See buildDimensionFollowUps.

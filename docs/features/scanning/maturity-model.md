@@ -78,6 +78,17 @@ discrepancy budget below was blown, so *nothing* widened), and `effectiveBlend` 
 prose, so anything anchoring a number must be able to attribute a move rather than report it as
 repository change.
 
+**D9 not measured is not the D9 hatch (2026-10-05).** A blind reading (no GitHub side, nothing
+carried) of a repo with nothing the security battery can grade (no workflows, no container files, no
+committed policy or update config) used to score D9 = 0 for want of a denominator. It is now
+`unobservable` (`PlatformSignalRecord.securityUnobservable`, read through `dimensionObservability`):
+the engine drops D9 and renormalizes the overall, lists it on `unmeasuredDims` (the one dimension
+listed there that is dropped rather than kept at its file-evidence number), and filters D9 rows out of
+the roadmap so an unmeasured dimension never becomes work. `d9Unmeasurable` stays `false` in that case:
+the prose hatch would have changed nothing, and that field exists to attribute a step the model
+caused. Score-moving for exactly those local scans, which is why it shipped as `r23`; the corpus's
+`blind-local` fixture is what makes the fingerprint see it (see §6).
+
 **Forecast presentability.** `forecastTrajectory` in `src/lib/maturity/forecast.ts` will fit a line
 through two scans a day apart; the *claim* is not presentable. `projectGoal` consults `isProjectable`
 before emitting a pace or ETA: a sub-gate fit is the neutral `tracking` with no date; a reached
@@ -284,7 +295,8 @@ and demonstrably leave a trail?
 
 #### D5: Documentation & Knowledge (9%)
 *Signals:* README size/sections, `/docs` or `/documentation`, ADRs
-(`docs/adr`, `decisions/`), `CHANGELOG.md`, `CONTRIBUTING.md`, API docs
+(`docs/adr`, `docs/adrs`, `decisions/`, matched as a path segment so `owner-decisions/` does not
+count, or a single-file log: `DECISIONS.md`, `decision-log.md`, `ADR.md`), `CHANGELOG.md`, `CONTRIBUTING.md`, API docs
 (OpenAPI/Swagger, typedoc), inline doc density, examples/, machine-readable docs.
 *LLM assessment:* are docs useful to a new dev *and* to an agent? Architecture clarity,
 freshness.
@@ -296,6 +308,19 @@ husky/lint-staged), `CODEOWNERS`, conventional-commit/commitlint config, PR temp
 Enforcement (a lint/type gate that runs, a quality ratchet, a zero-warning gate) is read from
 GitHub Actions, GitLab CI, a `Jenkinsfile`, CircleCI, Azure, Travis and Bitbucket configs, and
 `lefthook.yml` (labelled as a git hook, not CI) since `r20`.
+Stack-native forms feed the same awards (`src/lib/analyze/stack-native.ts`; third-party trees such as
+`ThirdParty/`, `vendor/` and `external/` excluded): **linter** `.clang-tidy`, `detekt.yml` /
+`detekt-config.yml` / `config/detekt/*.yml`, `.ktlint*`, `.globalconfig` / `stylecop.json` /
+`*.ruleset`, `.swiftlint.yml`, `checkstyle.xml` / `config/checkstyle/*`, or a ktlint/detekt/checkstyle
+plugin in a fetched build file; **formatter** `.clang-format`, `.swift-format` (one award with
+`.editorconfig`, never two); **zero-warning gate** `<TreatWarningsAsErrors>true`, Kotlin
+`allWarningsAsErrors`, Android `warningsAsErrors true`, Unreal `bWarningsAsErrors = true` /
+`DefaultWarningLevel = WarningLevel.Error`, read only from fetched files: root `build.gradle`,
+`build.gradle.kts` and `Directory.Build.props` are fetched, a `.csproj` never is, and an Unreal
+`*.Build.cs` / `*.Target.cs` only when the source sample picks it. A **ratchet file** must sit outside
+data, evidence, asset, fixture, docs and sample trees, and a `*ceiling*` name must say what debt it caps
+(`type-ceiling.json`, `ruff_ignore_ceiling.py`): a game's `boss-hard-ceilings.json` is balance data.
+`.editorconfig` with `ktlint_` keys is not read, because `.editorconfig` is not fetched.
 (Supply-chain security scanning moved to **D9**.)
 *LLM assessment:* are guardrails enforced (CI-wired) vs. merely present? Strictness.
 
@@ -311,6 +336,21 @@ the config (e.g., lots of AI config but no AI-attributed commits)?
 structured prompt/agent library (`prompts/`, `.claude/agents/`, multiple agent specs);
 agent-readable runbooks/ADRs; a structured contribution process (issue + PR templates,
 Definition-of-Done). PR-review discipline on AI-touched PRs folds in from GraphQL.
+Other forms of the same rows, each feeding an existing award (no row stacks):
+- **Eval (30):** an LLM-as-judge harness, on at least two independent kinds of tree evidence: a
+  `*judge*.{py,js,mjs,cjs,ts}` file or a `judge(s)/` directory (one kind, since "judge" is also a
+  domain word), a `*rubric*.{py,md,json,yaml}` file, and a `uat/` folder holding a rubric or verdict
+  file. One kind alone earns nothing; third-party trees are excluded.
+- **Runbooks / ADRs (20):** a single-file decision log (`DECISIONS.md`, `decision-log.md`, `ADR.md`)
+  or a top-level `docs/ORCHESTRATION.md` / `docs/RUNBOOK.md` / `docs/PLAYBOOK.md`.
+- **AI contribution process (15):** a versioned agent guardrail config at the root,
+  `.agents/hooks.json` or `.claude/settings.json` (not `settings.local.json`).
+- **Issue templates (10):** a task-card queue, three or more `.md` cards directly in one `tasks/`,
+  `cards/` or `queue/` folder outside docs and sample trees.
+
+All of these are tree evidence. A GitHub scan sees the pushed tree; a local scan lists
+`git ls-files -c -o --exclude-standard` (tracked plus untracked-but-not-ignored), so a gitignored or
+registry-linked skill or config is never evidence.
 *LLM assessment:* is AI produced and verified through a repeatable harness with review
 gates, or one-off prompting?
 
@@ -654,7 +694,7 @@ is not built.
 
 Every scan records the rubric version that produced it (`Scan.rubricVersion`, stamped via
 `src/lib/cache.ts`). It is one short monotonic token, defined in exactly one place:
-`src/lib/maturity/model.ts`. **Current: `r22`.**
+`src/lib/maturity/model.ts`. **Current: `r23`.**
 
 It exists so a cached score always carries the rubric that produced it. A score computed under an
 older rubric is not wrong, it is *not comparable* — so cache reuse, the org corpus, and cross-repo
@@ -689,7 +729,7 @@ reaching the model.
   is deliberately broader than the prompt: re-pinning without bumping is legitimate for a genuinely
   display-only change, but the reasoning belongs in the diff.
 - `rubric-fingerprint.test.ts` pins what the declaration cannot reach. A golden-fixture corpus
-  (`src/lib/maturity/rubric-corpus.ts`: eleven synthetic repos, one per honesty rule) runs through the
+  (`src/lib/maturity/rubric-corpus.ts`: thirteen synthetic repos, one per honesty rule) runs through the
   real pipeline (`buildScanScoreInput`, `buildAssessmentPrompt`, `assembleReport`) at a fixed clock
   with no network. The result is hashed on its full explanation object: signals, facets and labels,
   the system and user prompts, and the report's scores, evidence, roadmap dimensions and
@@ -706,6 +746,7 @@ hand.
 
 | Version | Change |
 | --- | --- |
+| `r23` (2026-10-05) | **Three score-moving changes, each now witnessed by the corpus.** All three had landed with both pins green because no fixture exercised them. (1) **D9 not measured:** a blind reading (worktree, no GitHub side, nothing carried) whose security battery has nothing to grade beyond file-presence checks (a committed `SECURITY.md`, an update config) drops D9 from the blend, renormalizes the overall, lists D9 on `scoreIntegrity.unmeasuredDims`, filters D9 rows out of the roadmap and tells the model D9 is NOT MEASURED. Before, the same repo scored D9 0, or 100 on a lone `SECURITY.md`. (2) **Stack-native D5/D6/D8 forms** (§3, D5/D6/D8): `.clang-tidy`, `.clang-format`, detekt, ktlint, .NET analyzer configs, SwiftLint and Checkstyle feed the linter and formatter awards; warnings-as-errors in a fetched build file feeds the zero-warning award; ratchet files in data trees and `*ceiling*` names that cap no debt stop earning the ratchet; a single-file decision log counts for D5 and D8; an LLM-as-judge harness, a top-level docs runbook, versioned agent hooks and a task-card queue feed existing D8 rows. No row was added and none stacks. The two new root fetches (`build.gradle.kts`, `Directory.Build.props`) are the network half of ingestion, which the corpus cannot reach. (3) **`dotnet test` / `dotnet build` keep their arguments** in the guidance arbiter, so a path-qualified command and a bare one now diverge on D1 instead of agreeing. Up to D6 +35, D8 +75 and D5 +15 on a non-JS repo carrying these forms, D6 −15 where a data file had earned the ratchet, and a D1 coherence penalty where dotnet commands disagree. The corpus gained `blind-local` and `dotnet-native`; reverting any one class changes the pinned hash. No weight, band, blend, guardband, lens or system-prompt text moved. |
 | `r22` (2026-09-24) | **A PR-only App is credited.** The installed-App inventory read only the scored default-branch commit, so default-setup CodeQL, Semgrep/Sonar, Codecov, Socket or CodeRabbit posting suites only on pull requests earned nothing (SAST 0 on D9 for a repo that scans every PR). The inventory also reads up to 3 recent merged PR heads into `prHeadApps`, and until now nothing read that list. Now an App seen only there earns the **same award** as on the scored commit, for the PR-gate categories only: AI review (D4 `automated_review`), coverage (D2 +8), code scanning (D9 SAST 10) and supply-chain (D9 dependency-updates 6). A CI or deploy App seen only on a PR head earns nothing: the D3 CI award means the default branch builds, and a PR-head deploy suite is a preview. One award per capability, and an App on both lists is named once, on the scored commit. A truncated PR-head read never removes credit. An inventory with no PR-head read scores exactly as under `r21`, and a worktree rescan replays the PR-head Apps in its carried D9 inputs. The corpus gained the `pr-only-apps` fixture so the pin sees this class. No weight, band, blend, guardband, lens or system-prompt text moved. |
 | `r21` (2026-09-24) | **The model reads the stack the report shows.** `extractTechStack` always ran and the report header always showed its languages and frameworks, but the stack reached the assessment prompt only under `TECH_STACK_PROMPT=1`, so every default scan wrote its roadmap and discrepancy audit blind to it. `techStackPromptEnabled()` now defaults on, and the scan sends the stack whenever extraction found a language or a framework (an all-unknown stack is not sent). The change is one user-message block, DETECTED TECH STACK, of roughly 300 to 350 characters (about 75 to 90 tokens); the system prompt is byte-identical, so the provider prompt cache is unaffected. Nothing in the deterministic layer is priced; the model's half of each blended dimension can move, inside the unchanged ±6 guardband (G5). `TECH_STACK_PROMPT=0` (or `false`, `off`, `no`) restores the r20 prompt. The rubric fingerprint now pins the default prompt and refuses to hash with the kill switch thrown. No point value, weight, band, blend, guardband, lens or system-prompt text moved. |
 | `r20` (2026-09-24) | **D6 reads the CI files D3 already credits.** D6's enforcement signals (guardrail enforced in CI, quality ratchet, zero-warning gate) searched only `.github/workflows/*`, while D3 scores `.gitlab-ci.yml`, a `Jenkinsfile`, `.circleci/`, Azure, Travis and Bitbucket configs as a pipeline. They now read those bodies too, after Actions, so an Actions repo keeps its exact awards and citations; a `lefthook.yml` gate earns the same points labelled *enforced in a git hook*. The scan now fetches the root Jenkins, CircleCI, Azure, Travis, Bitbucket and lefthook configs (GitLab was already fetched), which also brings the D8 doctor-wiring read of `lefthook.yml` to life. D6 rises by up to 40 (guardrail 20, or 5 over a configured linter, plus ratchet 15 and zero-warning 5) on a repo whose only gate lives in one of those files, and D8 by 6 where `.ai/doctor.mjs` is wired only through lefthook. The fixture corpus gained `gitlab-native` so the pin sees this class. No point value, weight, band, blend, guardband, lens or system-prompt text moved. |

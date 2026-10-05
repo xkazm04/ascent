@@ -110,7 +110,7 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   const carry = input.carriedPlatformSignals;
   const carried = observed.record == null && carry ? carryPlatformFold(preFold, carry, new Date(now)) : null;
   const baseSignals = carried?.signals ?? observed.signals;
-  const platformSignals =
+  const platformRecord =
     observed.record ??
     carried?.record ??
     // Declared local with nothing to carry: D2/D3/D4 were not measurable on this reading, and saying
@@ -145,9 +145,28 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
       ),
     },
   );
+  // A battery with NOTHING it could grade on a blind reading measured nothing, and the record is
+  // where that is said: it is the one persisted answer to "could this scan see this dimension"
+  // (dimensionObservability), so the engine drops D9 and `openBatch` will not arm it. The battery
+  // only says `unmeasured` when blind, and a blind reading always has a record (carried or
+  // unavailable) — the guard is for the type, not a case.
+  const platformSignals =
+    securityAssessment.unmeasured && platformRecord ? { ...platformRecord, securityUnobservable: true as const } : platformRecord;
+  // UNMEASURED D9: no number reaches the prompt. The battery's posture over file-presence checks alone
+  // (one SECURITY.md reads 100) is exactly the figure the drop exists to withhold, and a signal line
+  // beside the prompt's "NOT MEASURED" block would hand the model a number to narrate.
+  const d9Unmeasured = securityAssessment.unmeasured === true;
   const signals = baseSignals.map((s) =>
     s.id === "D9"
-      ? { ...s, signalScore: securityAssessment.d9, deterministic: true, gaps: securityAssessment.gaps, signals: securityAssessment.evidence.map((label) => ({ label })) }
+      ? {
+          ...s,
+          signalScore: d9Unmeasured ? 0 : securityAssessment.d9,
+          deterministic: true,
+          gaps: securityAssessment.gaps,
+          signals: d9Unmeasured
+            ? [{ label: "D9 not measured: nothing CI- or container-derived to grade on this reading" }]
+            : securityAssessment.evidence.map((label) => ({ label })),
+        }
       : s,
   );
   const archetype = classifyArchetype(snapshot);

@@ -51,6 +51,8 @@ export interface RubricFixture {
   securityExposure: SecurityExposure | null;
   appInventory?: AppInventory | null;
   ciHealth?: CiHealth | null;
+  /** A worktree/local reading: structurally blind to the GitHub side, with nothing carried. */
+  platformSignalsUnobservable?: boolean;
   /** The canned model answer this fixture is assembled against. */
   assessment: LlmAssessment;
 }
@@ -61,7 +63,7 @@ const DIMS: DimensionId[] = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9
 function snap(
   name: string,
   files: Record<string, string>,
-  opts: { listed?: string[]; commits?: CommitInfo[]; coverage?: number } = {},
+  opts: { listed?: string[]; commits?: CommitInfo[]; coverage?: number; language?: string } = {},
 ): RepoSnapshot {
   const fetched = Object.entries(files).map(([path, content]) => ({ path, content, bytes: content.length }));
   const paths = [...fetched.map((f) => f.path), ...(opts.listed ?? [])];
@@ -74,7 +76,7 @@ function snap(
       forks: 1,
       defaultBranch: "main",
       headSha: "0000000000000000000000000000000000000000",
-      primaryLanguage: "TypeScript",
+      primaryLanguage: opts.language ?? "TypeScript",
       pushedAt: "2026-09-18T00:00:00.000Z",
     },
     tree: paths.map((path) => ({ path, type: "blob" as const })),
@@ -365,5 +367,59 @@ export const RUBRIC_CORPUS: readonly RubricFixture[] = [
       prHeadTruncated: true,
     },
     assessment: assess(),
+  },
+  {
+    id: "blind-local",
+    rule: "a worktree reading whose D9 battery can grade nothing beyond a committed SECURITY.md leaves D9 unmeasured: dropped and renormalized, not 100, and owed no roadmap row",
+    snapshot: snap("blind-local", {
+      "README.md": "# blind-local\nA small library scanned from a worktree: no CI, no containers.",
+      "SECURITY.md": "# Security\nReport vulnerabilities privately to security@example.test.",
+      "src/lib.ts": "export const add = (a: number, b: number) => a + b;\n",
+    }),
+    prStats: null, governance: null, securityPosture: null, securityExposure: null,
+    platformSignalsUnobservable: true,
+    assessment: assess({
+      roadmap: [
+        { title: "Add a security scanning workflow", dimension: "D9", impact: "high", effort: "low", rationale: "fixture" },
+        { title: "Write an architecture overview", dimension: "D5", impact: "medium", effort: "low", rationale: "fixture" },
+      ],
+    }),
+  },
+  {
+    id: "dotnet-native",
+    rule: "a .NET/C++ repo's own linter, formatter, warnings-as-errors, LLM-as-judge harness, single-file decision log, agent hooks and task cards earn the existing D5/D6/D8 awards, and a dotnet command keeps its solution path",
+    snapshot: snap(
+      "dotnet-native",
+      {
+        "README.md": "# dotnet-native\nA Unity game whose simulation core is a .NET library with a native C++ plugin.",
+        "AGENTS.md": [
+          "# Agent guide",
+          "",
+          "## Commands",
+          "- Build: `dotnet build shared/core-dotnet/Core.sln`",
+          "- Test: `dotnet test shared/core-dotnet`",
+          "",
+          "## Rules",
+          "- Never commit secrets; read SECURITY.md before touching save files.",
+          "- Every change needs a test; run the suite before pushing.",
+        ].join("\n"),
+        // An independent Claude note that drops the path: a bare `dotnet test` at this root fails (MSB1003).
+        "CLAUDE.md": "# Claude\n\nRun `dotnet test` before you push.\n",
+        "Directory.Build.props":
+          "<Project>\n  <PropertyGroup>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n    <Nullable>enable</Nullable>\n  </PropertyGroup>\n</Project>\n",
+      },
+      {
+        language: "C#",
+        listed: [
+          ".globalconfig", "native/.clang-format", "native/src/plugin.cpp", "shared/core-dotnet/Core.sln",
+          "shared/core-dotnet/Core.csproj", "scripts/judge.py", "uat/rubric.md", "docs/DECISIONS.md",
+          ".claude/settings.json", "tasks/001-save-slots.md", "tasks/002-boss-phases.md", "tasks/003-input-remap.md",
+          // A balance audit that says "ceiling": data about bosses, not a debt gate.
+          "tools/audit-boss-ceilings.py",
+        ],
+      },
+    ),
+    prStats: null, governance: null, securityPosture: null, securityExposure: null,
+    assessment: assess({ llm: { D6: 60, D8: 55 } }),
   },
 ];

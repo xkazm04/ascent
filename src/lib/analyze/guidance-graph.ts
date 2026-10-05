@@ -123,9 +123,12 @@ export function guidanceRankOf(path: string): number {
 const clip = (s: string): string => s.replace(/\s+/g, " ").trim().slice(0, GUIDANCE_QUOTE_MAX);
 
 /** Command shapes any build system produces. Deliberately a list of RUNNERS, not of tools: the key is
- *  derived from the verb, so `npm test`, `pytest -q` and `cargo test` all normalize to "test". */
+ *  derived from the verb, so `npm test`, `pytest -q` and `cargo test` all normalize to "test".
+ *  `dotnet test|build` keeps only arguments that are unmistakably arguments (long `--flag[=value]`, a path
+ *  with a slash, a .sln/.csproj; never a short flag, whose value cannot be told from prose): a bare `dotnet test` at a repo root whose solution lives in a subdirectory fails
+ *  with MSB1003, and a guidance doc that says `dotnet test shared/core-dotnet` meant the path. */
 const COMMAND_RE =
-  /\b((?:npm|pnpm|yarn|bun|npx)\s+(?:run\s+)?[\w:@./-]+|make\s+[\w:./-]+|pytest\b[^\n`]{0,40}|go\s+(?:test|build|vet)\b[^\n`]{0,40}|cargo\s+(?:test|build|check|fmt|clippy)\b[^\n`]{0,40}|mvn\s+[\w:.-]+|gradle\s+[\w:.-]+|poetry\s+run\s+[\w:.-]+|dotnet\s+(?:test|build)\b)/g;
+  /\b((?:npm|pnpm|yarn|bun|npx)\s+(?:run\s+)?[\w:@./-]+|make\s+[\w:./-]+|pytest\b[^\n`]{0,40}|go\s+(?:test|build|vet)\b[^\n`]{0,40}|cargo\s+(?:test|build|check|fmt|clippy)\b[^\n`]{0,40}|mvn\s+[\w:.-]+|gradle\s+[\w:.-]+|poetry\s+run\s+[\w:.-]+|dotnet\s+(?:test|build)\b(?:\s+(?:--[\w-]+(?:=[\w.\/:-]+)?|[\w.\/:-]+\.(?:sln|csproj|fsproj)|[\w.-]*[\/][\w.\/-]*))*)/g;
 
 /** Verb → capability key. First match wins, so `npm run test:build` keys on "test" deterministically. */
 const COMMAND_KEYS: readonly [RegExp, string][] = [
@@ -139,7 +142,12 @@ const COMMAND_KEYS: readonly [RegExp, string][] = [
 ];
 
 function commandKey(command: string): string | null {
-  const c = command.toLowerCase();
+  // Key on the VERB, never on a path argument: `dotnet build src/test/Harness.csproj` is a build.
+  const c = command
+    .split(/\s+/)
+    .filter((tok) => !/[\\/]|\.(sln|csproj|fsproj)$/i.test(tok))
+    .join(" ")
+    .toLowerCase();
   for (const [re, key] of COMMAND_KEYS) if (re.test(c)) return key;
   return null;
 }

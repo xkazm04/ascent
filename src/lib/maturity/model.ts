@@ -288,7 +288,39 @@ import type {
 // lift on D9, token scans only. The corpus gained the `pr-only-apps` fixture so the pin sees the
 // class: under r21's rule it hashes c18467de..., under r22's 6784f095.... No weight, band, blend,
 // guardband, lens or system-prompt text moved: EXPECTED_RUBRIC_HASH in model.test.ts is unchanged.
-export const SCORING_RUBRIC_VERSION = "r22";
+// r23 (2026-10-05): THREE SCORE-MOVING CHANGES, AND THE CORPUS NOW SEES EACH ONE. All three landed in
+// the working tree with both pins green, because no fixture exercised them (the r19 failure, caught
+// before the commit this time).
+//   • D9 NOT MEASURED (security/checks.ts, scan-score-input.ts, engine.ts, prompt.ts,
+//     platform-carry.ts). A blind reading (worktree, no GitHub side, nothing carried) whose battery
+//     has no applicable check beyond the FILE-PRESENCE ones (a committed SECURITY.md, an update
+//     config) is `unmeasured`: PlatformSignalRecord.securityUnobservable, D9 dropped from the blend
+//     and the overall renormalized, D9 listed on scoreIntegrity.unmeasuredDims, D9 rows filtered out
+//     of the roadmap, and the user prompt's security block says NOT MEASURED. Before, the same repo
+//     scored D9 0 for want of a denominator, or 100 on a lone SECURITY.md.
+//   • STACK-NATIVE D5/D6/D8 FORMS (analyze/index.ts, analyze/stack-native.ts). `.clang-tidy`,
+//     `.clang-format`, detekt, ktlint, `.globalconfig`/StyleCop/rulesets, SwiftLint and Checkstyle
+//     feed the existing linter/formatter awards; warnings-as-errors in a fetched build file feeds the
+//     zero-warning award; ratchet files in data trees and "ceiling" names that cap no debt stop
+//     earning the ratchet; ADR_PATH is segment-anchored and a single-file decision log counts (D5 and
+//     D8); an LLM-as-judge harness on two kinds of evidence, a top-level docs runbook, versioned agent
+//     hooks and a task-card queue feed the existing D8 rows. No row was added and none stacks. The
+//     two new root fetches (`build.gradle.kts`, `Directory.Build.props`, forge/source-selection.ts) are
+//     the network half of ingestion, which the corpus cannot reach by construction.
+//   • `dotnet test|build` KEEPS ITS ARGUMENTS (analyze/guidance-graph.ts COMMAND_RE): a path, a .sln
+//     or a long flag survives, so a guidance file naming `dotnet test shared/core-dotnet` and one
+//     saying a bare `dotnet test` (which fails at a root with no solution) now diverge on D1 instead of
+//     earning `commands_agree`.
+// PRICED: D9 leaves the overall on those blind scans; D6 by up to 35 and D8 by up to 75 on a non-JS
+// repo carrying these forms, D5 +15 for a single-file log; D1 coherence -25 where dotnet commands
+// disagree; D6 -15 where a data file or a balance audit had earned the ratchet. The corpus gained
+// `blind-local` and `dotnet-native` (the existing eleven hash exactly as under r22, 6784f095...).
+// Reverting one class at a time: without the D9 change the corpus hashes 533c7802..., without the
+// stack-native detectors fe196c61..., without the dotnet regex 138e9086..., under r22's whole
+// pipeline ecf59fce...; under r23's, c7190faa.... No weight, band, blend, guardband, lens or
+// system-prompt text moved (the security block is in the USER message): EXPECTED_RUBRIC_HASH in
+// model.test.ts is unchanged.
+export const SCORING_RUBRIC_VERSION = "r23";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;

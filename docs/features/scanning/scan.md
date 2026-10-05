@@ -597,6 +597,25 @@ as missing evidence rather than as a finding. **No score moves** — D4 keeps wh
 changes is what becomes work. See
 [the loop does not arm what it cannot verify](../org-planning/live.md#the-loop-does-not-arm-what-it-cannot-verify-2026-08-30).
 
+**D9 with nothing to grade is not measured, not 0 (2026-10-05).** The one dimension outside the folds
+a reading can fail to see entirely. On a blind reading (no GitHub side, nothing carried) the battery
+excludes SAST, dependency updates and security policy unless their evidence is committed, and a repo
+with no `.github/workflows` and no container files has every other check n/a too. The posture mean
+then had no denominator and fell to 0, and the overall carried that 0 as a measured absence (three
+real local scans, all D9 = 0). Now `computeSecurityChecks` returns `unmeasured: true` in exactly that
+case (blind, no CI- or container-derived check, exposure unknown — a committed `SECURITY.md` or update
+config alone does not count, because with every refutable check excluded it would be the whole
+denominator and one file would read D9 100), `buildScanScoreInput` withholds the battery's number from
+the prompt, stamps
+`securityUnobservable` on the platform record, and `dimensionObservability(record, "D9")` answers
+`unobservable`. Because the record is the persisted answer, everything that reads the rule sees it:
+the engine drops D9 and renormalizes the overall (named on `scoreIntegrity.unmeasuredDims`, so the
+integrity chip reads `D2, D3, D4, D9 not measured`), no D9 roadmap row survives from the model or
+the fallback, and `openBatch` will not arm one. The on-disk absences the blind reading withheld (no
+committed `SECURITY.md`, no Dependabot/Renovate config) come back as **unverified** notes in the
+engine's D9 warning, never as gaps. A scan that could see GitHub, or a blind one with any gradable
+CI or container file (one workflow, one Dockerfile), is measured exactly as before.
+
 ### A failed sensor read is unknown, never zero (2026-09-05)
 
 The token-gated enrichments (branch governance, security posture, dependency exposure, the

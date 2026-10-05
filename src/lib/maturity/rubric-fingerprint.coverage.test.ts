@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { SCORE_BLEND } from "./model";
 import { RUBRIC_CORPUS } from "./rubric-corpus";
 import { traceCorpus, type FixtureTrace } from "./rubric-fingerprint";
+import { parseCommands } from "@/lib/analyze/guidance-graph";
 import type { DimensionId } from "@/lib/types";
 
 const DIMS: DimensionId[] = ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"];
@@ -46,6 +47,46 @@ const CORPUS_CASES: { name: string; holds: (t: FixtureTrace) => boolean }[] = [
   {
     name: "PR-head-only App credited (r22)",
     holds: (t) => (signal(t, "D2")?.signals ?? []).some((s) => s.detail?.includes("recent PR heads") ?? false),
+  },
+  // A contradiction the model CITED is evidence worth zero; the detector-side facet alone is no longer
+  // unique to contradicting-guidance once dotnet-native's commands diverge too.
+  { name: "model-cited contradiction confirmed on D1", holds: (t) => (dim(t, "D1")?.evidence ?? []).some((e) => e.startsWith("Model confirmed contradiction")) },
+  {
+    name: "D9 not measured on a blind reading: dropped, listed (r23)",
+    holds: (t) => !dim(t, "D9") && (t.report.scoreIntegrity?.unmeasuredDims ?? []).includes("D9"),
+  },
+  {
+    name: "unmeasured D9 owed no roadmap row (r23)",
+    holds: (t) =>
+      t.fixture.assessment.roadmap.some((r) => r.dimension === "D9") &&
+      (t.report.scoreIntegrity?.unmeasuredDims ?? []).includes("D9") &&
+      !t.report.roadmap.some((i) => i.dimension === "D9"),
+  },
+  {
+    name: "D6 stack-native linter/formatter config (r23)",
+    holds: (t) =>
+      (signal(t, "D6")?.signals ?? []).some(
+        (s) => /^(Linter|Formatter) configured$/.test(s.label) && /(^|\/)(\.globalconfig|\.clang-format|\.clang-tidy)$/.test(s.detail ?? ""),
+      ),
+  },
+  {
+    name: "D6 zero-warning gate read from a build file (r23)",
+    holds: (t) => (signal(t, "D6")?.signals ?? []).some((s) => s.label.startsWith("Lint/type gate fails on warnings") && s.detail === "Directory.Build.props"),
+  },
+  { name: "D8 LLM-as-judge eval harness (r23)", holds: (t) => labels(t, "D8").some((l) => l.startsWith("AI-output eval harness (LLM-as-judge")) },
+  { name: "D8 versioned agent guardrails (r23)", holds: (t) => labels(t, "D8").includes("AI contribution process (versioned agent guardrails)") },
+  { name: "D8 task-card queue (r23)", holds: (t) => labels(t, "D8").includes("Structured task-card queue") },
+  {
+    name: "D5 single-file decision log (r23)",
+    holds: (t) =>
+      (signal(t, "D5")?.signals ?? []).some((s) => s.label === "Architecture Decision Records" && /(^|\/)(decisions|decision-log|adr)\.mdx?$/.test(s.detail ?? "")),
+  },
+  {
+    // The r22 command regex cut `dotnet test <path>` to `dotnet test`, so this divergence was agreement.
+    name: "dotnet command keeps its path argument and diverges (r23)",
+    holds: (t) =>
+      (signal(t, "D1")?.facets ?? []).includes("contradiction") &&
+      t.fixture.snapshot.files.some((f) => parseCommands(f.content).some((c) => /^dotnet (test|build) \S/.test(c.command))),
   },
 ];
 

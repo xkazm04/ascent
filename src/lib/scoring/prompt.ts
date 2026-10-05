@@ -66,6 +66,12 @@ function processBlock(prStats?: PrStats | null, governance?: Governance | null):
  */
 function securityBlock(a?: SecurityAssessment | null): string {
   if (!a) return "(unavailable — scanned without a token, so the security check battery didn't run; D9 falls back to file signals.)";
+  // Nothing was gradable, so there is no number to narrate — and "D9 = 0/100, FIXED" would ask the
+  // model to explain a measured absence the engine is about to drop. Every other scan's block is
+  // byte-identical to before.
+  if (a.unmeasured) {
+    return "Security (D9) = NOT MEASURED on this reading: the scan could not read GitHub and no security check had anything on disk to grade. D9 is excluded from the score; do not narrate a D9 number and do not propose D9 roadmap work.";
+  }
   const lines = a.checks
     .filter((c) => c.score !== null)
     .map((c) => `- [${c.score}/10] ${c.name} (${c.risk}): ${c.evidence}`);

@@ -889,12 +889,19 @@ export interface SecurityCheck {
 /** The deterministic Security (D9) assessment — the auditable check battery + its aggregate scores.
  *  `d9` is the final dimension score; `posture` and `exposure` are the two axes it combines. */
 export interface SecurityAssessment {
-  d9: number; // 0..100 — the deterministic D9 dimension score
+  d9: number; // 0..100 — the deterministic D9 dimension score (not shown to the model and not blended when `unmeasured`)
   posture: number; // 0..100 — control coverage (maturity)
   exposure: number | null; // 0..100 — inverse of current known vuln exposure; null when unknown
   checks: SecurityCheck[];
   evidence: string[];
+  /** The failing checks' remediations, worst-first. When `unmeasured`, the remediations of the checks
+   *  the blind reading EXCLUDED instead, each marked unverified — never a scored gap (see below). */
   gaps: string[];
+  /** A blind reading (no GitHub side, nothing carried) left the battery with no CI- or container-derived
+   *  check (at most the file-presence ones, which alone would read one SECURITY.md as 100), so `d9`
+   *  measures nothing. The engine drops D9 and renormalizes rather than counting a phantom 0.
+   *  Absent whenever any check scored — including every scan that could see GitHub. */
+  unmeasured?: true;
 }
 
 /** The two-axis posture (Adoption × Rigor) quadrant. */
@@ -934,8 +941,10 @@ export interface ScoreIntegrity {
    *  nothing to carry from an earlier GitHub scan (dimensionObservability, analyze/platform-carry.ts).
    *  Their scores are whatever the file evidence produced and are NOT adjusted here; what changes is
    *  that they are owed no manufactured follow-up, and that a reader can tell "not measured" from
-   *  "measured and fine". Absent — never an empty array — on a fully-observed scan and on any row
-   *  written before the field. */
+   *  "measured and fine". The one exception is D9: when its battery had no applicable check at all
+   *  (`PlatformSignalRecord.securityUnobservable`) there is no file-evidence number to keep, so it is
+   *  dropped from the overall and listed here. Absent — never an empty array — on a fully-observed
+   *  scan and on any row written before the field. */
   unmeasuredDims?: DimensionId[];
   /** The REALIZED blend weight actually applied (SCORE_BLEND × coverage), not the configured constant.
    *  A truncated or rate-limited ingest lowers this and shifts the score toward the deterministic
@@ -1026,6 +1035,11 @@ export interface PlatformSignalRecord {
    *  carry existed, and on `unavailable` — an absence the D9 comparability rule reads as "this end's
    *  D9 could not see GitHub", never as "the inputs were empty". */
   securityInputs?: CarriedSecurityInputs;
+  /** The D9 battery had no CI- or container-derived check on this reading: blind to GitHub, and no
+   *  workflows or container files on disk (a committed policy or update config alone does not count). D9 is then
+   *  `unobservable` (dimensionObservability) — dropped from the score, owed no follow-up, not armed.
+   *  Absent on every reading where any check scored, and on every row written before the field. */
+  securityUnobservable?: true;
 }
 
 // ---------------------------------------------------------------------------

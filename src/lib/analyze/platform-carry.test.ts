@@ -257,3 +257,29 @@ describe("the D9 security inputs ride the carry", () => {
     expect(securityObservability(undefined)).toBeNull();
   });
 });
+
+// D9 IS UNOBSERVABLE ONLY ON ITS BATTERY'S OWN VERDICT. A blind record alone says nothing about D9
+// (the file scan reads its committed evidence as well locally as through GitHub); a blind record
+// whose battery found NOTHING gradable does — and every reader of the rule must agree on it.
+describe("securityUnobservable — the D9 half of the observability rule", () => {
+  const blindEmpty: PlatformSignalRecord = { ...platformSignalsUnavailable(), securityUnobservable: true };
+
+  it("makes D9 unobservable and joins it to unmeasurablePlatformDims", () => {
+    expect(dimensionObservability(blindEmpty, "D9")).toBe("unobservable");
+    expect(unmeasurablePlatformDims(blindEmpty)).toEqual(["D2", "D3", "D4", "D9"]);
+    // The flag is about D9 only: the fold dimensions read exactly as before.
+    for (const d of PLATFORM_FOLD_DIMS) expect(dimensionObservability(blindEmpty, d)).toBe("unobservable");
+  });
+
+  it("names D9 in the provenance note, unavailable and carried alike", () => {
+    expect(platformFoldNote(blindEmpty)).toBe("D2/D3/D4/D9 not measurable locally");
+    const carried: PlatformSignalRecord = { source: "carried", observedAt: daysAgo(2), fromScanId: "s1", dims: [], securityUnobservable: true };
+    expect(platformFoldNote(carried, NOW)).toBe("platform signals from scan s1, 2d old · D9 not measurable locally");
+  });
+
+  it("round-trips through persistence, and is never manufactured for a row without it", () => {
+    expect(parsePlatformSignals(JSON.stringify(blindEmpty))).toEqual(blindEmpty);
+    expect(parsePlatformSignals(JSON.stringify(platformSignalsUnavailable()))?.securityUnobservable).toBeUndefined();
+    expect(parsePlatformSignals(JSON.stringify({ ...platformSignalsUnavailable(), securityUnobservable: "yes" }))?.securityUnobservable).toBeUndefined();
+  });
+});

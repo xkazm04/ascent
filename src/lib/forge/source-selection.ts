@@ -106,6 +106,11 @@ export function pickFilesToFetch(blobs: RepoFile[], subPath?: string): string[] 
     "cargo.toml",
     "pom.xml",
     "build.gradle",
+    // Root Kotlin-DSL build and the root MSBuild props: D6 reads them for a linter plugin
+    // (ktlint/detekt/checkstyle) and a compiler zero-warning switch (analyze/stack-native.ts). A tree
+    // without them picks exactly what it did.
+    "build.gradle.kts",
+    "directory.build.props",
     "gemfile",
     "composer.json",
     "tsconfig.json",
