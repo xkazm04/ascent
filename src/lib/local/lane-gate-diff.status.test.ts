@@ -171,6 +171,12 @@ describe("an added test under a gate-script-shaped path (2026-10-05)", () => {
     });
     expect(v.void).toBe(false);
   });
+  it("tools/check-changelog-test.cjs (a `-test` suffix, no exit) is a test by its own name too", () => {
+    const v = checkGateDiff([{ path: "tools/check-changelog-test.cjs", status: "A" }], {
+      addedText: { "tools/check-changelog-test.cjs": "const assert = require('node:assert');\nassert.ok(true);\n" },
+    });
+    expect(v.void).toBe(false);
+  });
   it("a bare scripts/test.mjs (which may BE the verify script) stays excluded", () => {
     const v = checkGateDiff([{ path: "scripts/test.mjs", status: "A" }], { addedText: { "scripts/test.mjs": "x();\n" } });
     expect(v.void).toBe(true);

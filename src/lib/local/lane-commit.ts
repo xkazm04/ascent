@@ -349,9 +349,17 @@ export function buildCommitMessage(input: LaneCommitInput, ids: readonly string[
  * agent's work; naming the paths keeps that an assertion rather than an assumption.
  */
 export async function commitAgentWork(input: LaneCommitInput): Promise<LaneCommitResult> {
-  const status = await runGit(input.dir, ["status", "--porcelain", "-z"]);
+  // RETRIED: a lane's whole session was lost to one `git status` that failed with NO output at all
+  // (measured 2026-10-05 on an LFS repo under memory pressure — a killed process, not a refusal). The
+  // tree is the agent's work; two more reads, a beat apart, are cheap next to discarding it.
+  let status = await runGit(input.dir, ["status", "--porcelain", "-z"]);
+  for (let attempt = 1; !status.ok && attempt < 3; attempt++) {
+    await new Promise((r) => setTimeout(r, 2_000 * attempt));
+    status = await runGit(input.dir, ["status", "--porcelain", "-z"]);
+  }
   if (!status.ok) {
-    return { committed: false, files: 0, resolved: [], summary: `Could not read the worktree, so nothing was committed: ${status.stderr || status.stdout}` };
+    const said = (status.stderr || status.stdout).trim() || "git exited with no output (the process was likely killed)";
+    return { committed: false, files: 0, resolved: [], summary: `Could not read the worktree after 3 attempts, so nothing was committed: ${said}` };
   }
   const paths = porcelainPaths(status.stdout);
   if (paths.length === 0) {
