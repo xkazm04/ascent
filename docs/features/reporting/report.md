@@ -1415,6 +1415,57 @@ anchored on the scan's real start, not on the new mount. The server half (the bo
 in `coalesceScan`, and why it must always close) is documented in
 [`docs/features/scanning/scan.md`](../scanning/scan.md#rejoining-a-live-scan-a-reload-does-not-pay-for-the-scan-twice).
 
+## Freshness is a state with a reason (2026-10-05)
+
+The report's only freshness signal used to be one muted relative-time string: identical in tone for a
+reading taken ten minutes ago and one taken seven months ago, and silent about whether the repository
+had moved off the commit that was scored. The scan pipeline, meanwhile, already held a precise opinion
+about when a reading stops counting (`scanMaxCacheAgeMs()`, default 7 days via
+`SCAN_MAX_CACHE_AGE_DAYS`), and the persisted-cache tier already refused to serve a report past it as
+current. The permalink serves one anyway, because it is the pinned artifact.
+
+`reportFreshnessState()` (`src/components/report/reportFreshness.ts`) is the pure state machine that
+closes the gap. Four tiers, each of which renders:
+
+| Tier | When | What the control says |
+| --- | --- | --- |
+| `current` | within half the belief window | exactly today's single muted "Scanned 10m ago" line, and nothing else |
+| `aging` | past half the window | the age in a warmer tone plus "past half of the 7-day window this product re-scans on" |
+| `stale` | past the window | the age un-muted plus "older than the 7-day window this product re-scans on, so it may no longer describe the repository as it is now" |
+| `unknown` | no timestamp, or a garbled one | "no recorded scan date, so its age cannot be stated" - never a silent `current` |
+
+The window is an **input**, not an import: `scanMaxCacheAgeMs()` reaches `@/lib/db`, so reading it
+inside a `"use client"` component would drag the DB client into the browser bundle. The permalink page
+reads it server-side and threads it down as `freshnessWindowMs` through `ReportView` and `ReportHeader`.
+One knob therefore moves both the re-scan gate and the label. With no window threaded (the live-scan
+path, which has no server pass) the control renders exactly its pre-existing single line.
+
+**Drift is orthogonal to age.** `Scan.headSha` is the commit the report scored and `Repository.headSha`
+is the head this product last saw, so the drift fact is two stored columns and no GitHub call:
+`getHeadHint` joins the permalink's existing concurrent read batch and degrades to `null`. When the two
+differ the control adds a clause reading `scored abc1234, last seen head def5678`. The wording is
+deliberate and load-bearing: `Repository.headSha` is a **remembered hint**, refreshed by whichever path
+last looked, so the surface may say *last seen head* and may never say *current head*. An unrecorded
+hint suppresses the clause entirely, because absence of a hint is not evidence that the repo moved.
+
+**One action, promoted, not duplicated.** A `stale` or drifted reading turns the existing Re-test
+control into the primary affordance and names what it would do ("Re-test to refresh this reading"). No
+second competing button is added, and `aging` / `unknown` deliberately do not promote: a near-fresh
+reading and an undated one are statements, not calls to spend a scan slot.
+
+**The claim travels further than the page.** Both unfurl surfaces now carry provenance:
+
+- `generateMetadata`'s description builder moved to `src/app/report/[owner]/[repo]/reportMetadata.ts`
+  and appends an as-of clause once a reading is `stale` ("Scanned as of 2025-08-01, which is older than
+  the 7-day window Ascent re-scans on") or states that the scan date is not recorded. A `current`
+  reading's description is byte-identical to the undated one it has always been, so the common case is
+  not made noisier to fix the misleading one; a cold or failed lookup is untouched.
+- `ReportShareCard` (`src/lib/og/report-card.tsx`), the 1200x630 artwork behind both the social unfurl
+  and the downloadable share card, prints `scanned YYYY-MM-DD` in its eyebrow - on the incomplete-scan
+  card too. A share card travels detached from its report, so a Slack unfurl of a seven-month-old
+  reading can no longer present the score as a present-tense fact. The never-scanned
+  `ReportShareCardFallback` is unchanged: it makes no score claim to date.
+
 ## Known gaps
 
 - **Textual, not semantic, diffing.** `norm()` collapses whitespace/case but won't equate
