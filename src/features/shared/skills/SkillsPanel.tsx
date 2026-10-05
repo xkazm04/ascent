@@ -13,6 +13,7 @@
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { SkillsFilterBar } from "@/features/shared/skills/SkillsFilterBar";
 import { SkillsLibraryTable } from "@/features/shared/skills/SkillsLibraryTable";
+import { SkillRetireSweep } from "@/features/shared/skills/SkillRetireSweep";
 import { SkillsLifecycle } from "@/features/shared/skills/SkillsLifecycle";
 import { useSkillsLibrary } from "@/features/shared/skills/useSkillsLibrary";
 import { unmirroredRegistryUsage, type SkillUsage } from "@/lib/org/skill-usage";
@@ -61,6 +62,16 @@ export function SkillsPanel({
 
       {/* First sight below the header is a shape, not a filter bar. */}
       <SkillsLifecycle skills={s.skills} usage={usage} fleetSize={repoOptions.length} />
+
+      {/* Review-then-retire for the prune candidates the dormancy model already named. Renders nothing
+          unless the library HAS one, so it is not a standing invitation to delete something. */}
+      <SkillRetireSweep
+        skills={s.skills}
+        usage={usage}
+        adoption={adoption}
+        isAdmin={isAdmin}
+        sweep={s.sweep}
+      />
 
       {unmirrored.length > 0 && (
         <div

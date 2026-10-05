@@ -9,6 +9,7 @@ import { useSkillsLibrary } from "./useSkillsLibrary";
 import { useSkillScene } from "./useSkillScene";
 import { SkillsFilterV2 } from "./SkillsFilter.v2";
 import { SkillsLifecycleV2 } from "./SkillsLifecycle.v2";
+import { SkillRetireSweep } from "./SkillRetireSweep";
 import { SkillsLibraryEmptyV2 } from "./SkillsLibraryEmpty.v2";
 import { SkillsRowsV2 } from "./SkillsRows.v2";
 import { SkillsUnmirroredV2 } from "./SkillsUnmirrored.v2";
@@ -80,6 +81,15 @@ export function SkillsPanelV2({
               lede={filtered ? `Showing ${s.skills.length} of ${initial.length}` : `${s.skills.length} skills, ${repoOptions.length} repos`}
             />
             <SkillsLifecycleV2 skills={s.skills} usage={usage} fleetSize={repoOptions.length} />
+            {/* The same sweep as the classic panel: one implementation, so the two themes cannot
+                disagree about which skills are prune candidates. */}
+            <SkillRetireSweep
+              skills={s.skills}
+              usage={usage}
+              adoption={adoption}
+              isAdmin={isAdmin}
+              sweep={s.sweep}
+            />
             <SkillsUnmirroredV2 rows={unmirroredRegistryUsage(usage)} />
             <SkillsFilterV2
               search={s.search}

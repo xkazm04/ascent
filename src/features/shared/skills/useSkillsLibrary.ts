@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SkillRow, SkillSort } from "@/lib/db";
+import type { SweepResult } from "./skillRetireModel";
 
 export function useSkillsLibrary({ slug, initial }: { slug: string; initial: SkillRow[] }) {
   const [skills, setSkills] = useState<SkillRow[]>(initial);
@@ -76,6 +77,28 @@ export function useSkillsLibrary({ slug, initial }: { slug: string; initial: Ski
     }
   }
 
+  /**
+   * The bulk retire door (POST /api/org/skills/retire), and its undo with `restore: true`. Unlike
+   * `archive` this does NOT update the list optimistically: the server re-derives eligibility, so the
+   * only honest count is the one it answers with, and the panel shows that number. The list is refetched
+   * once the call lands, which is also what makes a restored row reappear.
+   */
+  async function sweep(ids: string[], restore: boolean): Promise<SweepResult | null> {
+    setError(null);
+    const res = await fetch("/api/org/skills/retire", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ org: slug, ids, restore }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      setError((await res?.json().catch(() => ({})))?.error ?? "Couldn't retire those skills (admins only).");
+      return null;
+    }
+    const body = (await res.json().catch(() => null)) as SweepResult | null;
+    await refresh();
+    return body;
+  }
+
   return {
     skills,
     search,
@@ -89,5 +112,6 @@ export function useSkillsLibrary({ slug, initial }: { slug: string; initial: Ski
     loading,
     error,
     archive,
+    sweep,
   };
 }
