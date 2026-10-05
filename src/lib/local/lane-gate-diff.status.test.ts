@@ -163,3 +163,16 @@ describe("fixture directories: documentation and generator scripts (2026-10-05)"
     expect(checkGateDiff([{ path: "fixtures/make-clip.sh", status: "M" }]).void).toBe(true);
   });
 });
+
+describe("an added test under a gate-script-shaped path (2026-10-05)", () => {
+  it("tools/check-action-pins.test.mjs is a test by its own name — cleared when its text cannot end the run", () => {
+    const v = checkGateDiff([{ path: "tools/check-action-pins.test.mjs", status: "A" }], {
+      addedText: { "tools/check-action-pins.test.mjs": "import { test } from 'node:test';\ntest('pins', () => {});\n" },
+    });
+    expect(v.void).toBe(false);
+  });
+  it("a bare scripts/test.mjs (which may BE the verify script) stays excluded", () => {
+    const v = checkGateDiff([{ path: "scripts/test.mjs", status: "A" }], { addedText: { "scripts/test.mjs": "x();\n" } });
+    expect(v.void).toBe(true);
+  });
+});

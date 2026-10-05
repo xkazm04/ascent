@@ -227,7 +227,12 @@ export function isAddedGateScriptCandidate(path: string): boolean {
  *  by shape (`tests/conftest.py`, `e2e/playwright.config.ts`), which a test directory would otherwise
  *  let through as "a test". Takes a normalized path. */
 const isClearableTest = (p: string): boolean =>
-  classifyScoringSurface(p) === "test-file" && !isGateConfigShape(p) && !isVerifyDeclaration(p);
+  classifyScoringSurface(p) === "test-file" && !isGateConfigShape(p) && (!isVerifyDeclaration(p) || EXPLICIT_TEST_INFIX.test(base(p)));
+
+/** `name.test.mjs` / `name.spec.ts`: a test BY ITS OWN DECLARATION, even under a gate-script-shaped path
+ *  (`tools/check-action-pins.test.mjs`, the test for a new check script, measured 2026-10-05). A bare
+ *  `scripts/test.mjs` has no infix and may BE the verify script, so it stays excluded. */
+const EXPLICIT_TEST_INFIX = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
 /** Does this path, if ADDED, need its committed text read before it can be cleared? */
 export function needsAddedText(path: string): boolean {
