@@ -1,68 +1,58 @@
-// The five verbs of the operating loop, shared by every "The loop" variant on /about-org.
+// The six stages of the operating loop, shared by every "The loop" variant on /about-org.
 //
-// Hoisted out of the section component the moment a second variant needed the same content: the
-// steps are the section's ARGUMENT, and two copies of an argument drift. Each step names the module
-// that owns it and links into that module's real view in the demo org — same contract the questions
-// ledger keeps, so every claim on this page is one click from being falsified.
+// A VIEW of the one declared journey (`ORG_STAGES`, src/lib/org/orgJourney.ts), not a second
+// declaration of it: the step list, the order, the tab each step links to and the stop the loop
+// returns to are all read from there, and the module label beside each step is read from the rail
+// (`ORG_NAV_GROUPS`) by looking up the lane that holds the tab. Only the one-line `detail` copy is
+// authored here, keyed by stage id. Every claim on this page stays one click from being falsified.
 
+import { ORG_STAGES, type OrgStageId } from "@/lib/org/orgJourney";
 import { orgTabHref, type OrgTabId } from "@/lib/org/orgTabs";
 import { DEMO_ORG_SLUG } from "@/lib/site";
+import { orgGroupLabelFor } from "./orgModules";
 
 export interface LoopStep {
-  /** Printed ordinal, "01".."05". */
+  /** Printed ordinal, "01".."06". */
   n: string;
   title: string;
   detail: string;
-  /** The org-nav module group that owns this step. */
+  /** The org-nav module group that owns this step's tab. */
   module: string;
   tab: OrgTabId;
   /** Deep link into the demo org's real view for this step. */
   href: string;
 }
 
-const RAW: Array<Omit<LoopStep, "n" | "href">> = [
-  {
-    title: "Connect",
-    detail: "Install the GitHub App on the org. Ascent reads through the API; it never clones your code.",
-    module: "Govern",
-    tab: "settings",
-  },
-  {
-    title: "Scan",
-    detail: "Every watched repository is scored across the nine dimensions, then rescanned on a cadence you set.",
-    module: "Fleet",
-    tab: "repositories",
-  },
-  {
-    title: "Read",
-    detail: "The rollup says where the fleet stands, what moved, and which gaps are shared across teams.",
-    module: "Overview",
-    tab: "overview",
-  },
-  {
-    title: "Decide",
-    detail:
-      "The org-wide gaps — open in half the fleet — are practices to fix once; the ledger marks them so a batch is the right shape.",
-    module: "In flight",
-    tab: "proposals",
-  },
-  {
-    title: "Apply",
-    detail: "Tick a batch, get one fix prompt for your local agent, hand it off; the next scan closes what landed.",
-    module: "In flight",
-    tab: "proposals",
-  },
-];
+const DETAIL: Record<OrgStageId, string> = {
+  connect:
+    "Map your AI registry repo and install the GitHub App. Ascent reads through the API; it never clones your code.",
+  scan: "Every watched repository is scored across the nine dimensions, then rescanned on a cadence you set.",
+  read: "The rollup says where the fleet stands, what moved, and which gaps are shared across teams.",
+  decide:
+    "The org-wide gaps, open in half the fleet, are practices to fix once; the ledger marks them so a batch is the right shape.",
+  apply:
+    "The live loop turns a decision into commits on your repositories; the next scan closes what landed.",
+  measure:
+    "The Briefing reads what the cycle delivered, and the next read starts from it.",
+};
 
-export const LOOP_STEPS: LoopStep[] = RAW.map((s, i) => ({
-  ...s,
-  n: String(i + 1).padStart(2, "0"),
-  href: orgTabHref(DEMO_ORG_SLUG, s.tab),
-}));
+export const LOOP_STEPS: LoopStep[] = ORG_STAGES.map((stage, i) => {
+  const lane = orgGroupLabelFor(stage.entryTab);
+  if (!lane) throw new Error(`loopSteps: ${stage.id} enters on ${stage.entryTab}, which is not a rail tab`);
+  return {
+    n: String(i + 1).padStart(2, "0"),
+    title: stage.label,
+    detail: DETAIL[stage.id],
+    module: lane,
+    tab: stage.entryTab,
+    href: orgTabHref(DEMO_ORG_SLUG, stage.entryTab),
+  };
+});
 
 /**
- * The step the loop returns to — index 1 ("Scan"), not 0. Connecting happens once; measuring happens
- * every cycle, which is the whole reason this is drawn as a loop rather than a funnel. Every variant
- * reads the return edge from here so none of them can point the arrow at a different stop.
+ * The step the loop returns to: Read, not Connect or Scan. Connecting and the first scan happen once;
+ * reading, deciding, applying and measuring happen every cycle, which is the whole reason this is
+ * drawn as a loop rather than a funnel. Derived from the journey so no variant can point the arrow at a
+ * different stop.
  */
-export const LOOP_RETURN_INDEX = 1;
+export const LOOP_RETURN_INDEX = ORG_STAGES.findIndex((s) => s.id === "read");

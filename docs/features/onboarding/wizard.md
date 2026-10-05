@@ -296,7 +296,7 @@ pure UI state; only "Skip setup" writes.
   "Choose what's in scope". The three teach steps no task claims stay reachable in the teaching rail.
   **W1a (2026-08-14):** the `modules-nav` teach step ("The rail is the journey") now names the five
   journey sections: Standing · Shared · In flight · Bought · Admin, instead of the retired
-  data-type modules. Teach copy describes the shipping rail, so a regroup edits it in lockstep; see
+  data-type modules. Teach copy describes the shipping rail, so a regroup edits it in lockstep (`steps.test.ts` pins that the body names every `ORG_NAV_GROUPS` label; the retired "Chosen" lane and "Four questions" are gone, and the body now mentions the per-tab "Next:" link path); see
   [org-intelligence.md](../org-dashboard/org-intelligence.md#the-rail-is-grouped-by-the-journey-not-by-data-type-w1a-2026-08-14).
 - **A sixth step: name the programme (W1c, 2026-08-14).** The checklist used to end at "invite a
   teammate", exactly where the actual job starts. The `program` step (phase `program`, tab `plan`,

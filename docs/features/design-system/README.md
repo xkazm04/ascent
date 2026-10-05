@@ -425,10 +425,13 @@ constraints as a customer result. `FleetGrid.dom.test.tsx` pins the three stamps
 It is the cockpit's `LaneRail` shape (`src/features/inflight/live/cockpit/`): one
 rail with a stop per loop verb and repositories distributed around it, each
 mid-glide, with live occupancy per stop and the cycle's net lift in `fmtDelta`. The
-five steps live in one shared catalog (`loopSteps.ts`) with the return edge as a
-named index, so nothing can point the arrow at a different stop. The stop head, the
+six steps are a view of the declared journey (`ORG_STAGES`, `src/lib/org/orgJourney.ts`):
+`loopSteps.ts` takes the order, each step's tab and its rail lane label from there and
+from `ORG_NAV_GROUPS`, and the return edge is the index of the Read stage (Measure
+wraps back to Read, not Scan), so nothing can point the arrow at a different stop;
+`loopSteps.test.ts` pins it. The stop head, the
 lane rails and the drawn return arc all read positions from one `stopPct` over a
-fixed five-column grid, and the head shares the lanes' horizontal padding — which is
+grid with one column per step, and the head shares the lanes' horizontal padding — which is
 what lets the arc be *drawn* at every breakpoint instead of stated in words, the
 objection the earlier card-row version raised against drawing it.
 

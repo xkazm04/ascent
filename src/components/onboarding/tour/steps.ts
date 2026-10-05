@@ -59,7 +59,7 @@ export const ORG_TOUR_STEPS: TourStep[] = [
     anchor: "modules-nav",
     kicker: "Modules · 1",
     title: "The rail is the journey",
-    body: "Four questions, in the order you get asked them: Standing (where are we), Chosen (what we decided), In flight (what's moving now), Bought (what it delivered), plus Admin. Pick a section to reveal its modules.",
+    body: "The rail has five lanes: Standing (where are we), Shared (what the org publishes once), In flight (what’s moving now), Bought (what it delivered), plus Admin. Pick a lane to reveal its tabs. Each tab ends with a “Next:” link that walks the path Connect, Scan, Read, Decide, Apply, Measure.",
   },
   {
     id: "modules-briefing",
