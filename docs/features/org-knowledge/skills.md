@@ -474,6 +474,53 @@ read as `registry`. A last-use source still renders when the skill has never
 *run* (a web copy is a use with a client and no invocation). `SkillCard`
 exposes the same value as `data-last-used-source` on the usage row.
 
+### The retire sweep (2026-10-05)
+
+The prune verdict is now an **action**, not only a colour. `isPruneCandidate` had
+no product caller for two months: the library computed exactly which skills were
+honest prune candidates, `usageSummary.abandoned` counted them, the badge painted
+them, and the only way to act was a per-row `archive` text link reached by
+expanding one row at a time, which fired `DELETE` immediately with no statement of
+what it cost and no way back.
+
+`SkillRetireSweep` (`src/features/shared/skills/SkillRetireSweep.tsx`, mounted in
+both the classic and Prism panels) is a review-then-retire panel above the table.
+It renders **only** when the library has at least one candidate: an empty "0 to
+retire" card would be a standing invitation to go find something to delete.
+
+- **Scope.** `skillRetireModel.retireCandidates` selects through `isPruneCandidate`
+  and nothing else, so `unused` and `unmeasured` can never be offered, and a skill
+  with no usage row at all is not a candidate (absent data is the one thing the
+  classification refuses to act on). The panel says so in one line.
+- **Blast radius before the ask.** Each row shows the repos that recorded the skill
+  (`adoption[id].adoptedRepos`, already on the client), its last use with days
+  since, and the window the verdict was measured against (`windowDays`, not an
+  assumed 30). Nothing new is fetched for this.
+- **Preserved core.** A registry-origin candidate is *listed* with its reason (the
+  next index pass would restore it) and excluded from the posted set, matching what
+  the single-row affordance already does.
+- **Accounting.** The confirm quotes the count. The result line shows the count the
+  **server** answered with, and when the two differ it shows the difference plus the
+  skipped ids and their reasons, never the optimistic number.
+- **Undo.** Archive is a reversible flag, so the panel offers one restore for the
+  rest of its session.
+
+`POST /api/org/skills/retire { org, ids, restore? }` is admin + session only (no
+bearer path, mirroring the single archive) and passes the `edit` door of the one
+write-door table. The rule it exists to hold: **eligibility is re-derived
+server-side** from this server's own `listOrgSkills` + `getOrgSkillUsage` reads,
+and the posted `ids` are only a filter over that derivation. Three named refusals
+come back in `skipped`: `not-in-library` (a forged or cross-tenant id, since both
+reads are org-scoped), `not-a-prune-candidate` (the server's fold disagrees with
+the client) and `registry-origin`. A repeated id is de-duplicated rather than
+archived twice. A retire endpoint that retired what the client named would be a
+worse defect than the missing surface it replaced.
+
+Audit reuses the existing actions, so no new one was registered: each retired row
+writes `org_skill.archived` and each restore writes `org_skill.updated` with
+`archived: false`, both carrying `via: "sweep"` so the sweep's use is countable
+apart from the per-row link.
+
 ### Outcome tracking (score movement since adoption)
 
 `src/lib/org/skill-outcomes.ts` pairs, per adopted repo, the latest scan
@@ -582,7 +629,9 @@ replacement for the login wall.
 Most skills routes accept either a token or a session: create, list, get,
 patch, download, manifest, push, promote, events. Two write paths are
 session-only with no token-bearer path at all: archiving a skill (admin
-role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
+role required) and adopt/unadopt (member role). The bulk retire sweep
+(`POST /api/org/skills/retire`, admin role) joins that session-only set for the
+same reason: a machine credential never sweeps a library. All of `/api/org/tokens*`
 (minting, listing, revoking) is likewise session-only.
 
 ## API surface
@@ -600,6 +649,7 @@ role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
 | `/api/org/skills/[id]/adopt` | `POST`/`DELETE` | member session only | Adopt/unadopt against a repo. |
 | `/api/org/skills/[id]/download` | `GET`/`POST` | `skills:read` | Serve/copy the skill body; counts a use. |
 | `/api/org/skills/events` | `POST` | `telemetry:write` | Batch usage events (`invoke`/`download`/`sync`), sink A. |
+| `/api/org/skills/retire` | `POST` | admin session only | Bulk retire the prune candidates (`restore: true` undoes it); eligibility re-derived server-side. |
 | `/api/org/tokens` | `POST`/`GET` | member session only | Mint/list org API tokens. |
 | `/api/org/tokens/[id]` | `DELETE` | member session only | Revoke a token. |
 
@@ -639,7 +689,7 @@ typechecking until it has a row.
 | --- | --- | --- | --- |
 | `create` | `POST /api/org/skills` | yes | yes |
 | `promote` | `POST /api/org/skills/promote` | yes | yes |
-| `edit` | `PATCH`/`DELETE /api/org/skills/[id]` | yes | no (an edit replaces a row, it does not add one) |
+| `edit` | `PATCH`/`DELETE /api/org/skills/[id]`, `POST /api/org/skills/retire` | yes | no (an edit or an archive replaces a row, it does not add one) |
 | `push` | `POST /api/org/skills/push` | **no** (declared exception) | n/a |
 
 The answer is an enumerated decision, never a boolean, and the refusal body
@@ -1043,6 +1093,9 @@ as Trace.
 | `src/lib/registry/usage-samples.ts` | Registry `usage/` samples → per-skill `invoke` stats (pure). Unmirrored names are kept as `registry:<name>`, not dropped. |
 | `src/lib/db/org-skill-usage-samples.ts` | `OrgSkillUsageSample` snapshot read/upsert/purge. |
 | `scripts/ascent-skills.mjs` | The distributable: sync/push/list/status + `hooks` and `report`. |
+| `src/app/api/org/skills/retire/route.ts` | Bulk retire + restore; re-derives eligibility rather than trusting the posted ids. |
+| `src/features/shared/skills/skillRetireModel.ts` | The sweep's pure half: candidate set, blast radius labels, confirm + accounting lines. |
+| `src/features/shared/skills/SkillRetireSweep.tsx` | The review-then-retire panel (with `SkillRetireSweepRow.tsx`), mounted in both themes. |
 | `src/lib/org/registry-howto.ts` | Registry tab how-to lines: `report --to-registry` (no token) vs hosted push/events (token). |
 | `src/features/shared/registry/RegistryHowTo.tsx` | Renders that split; `ASCENT_TOKEN` is named only for sink A / MCP. |
 | `src/features/shared/registry/RegistrySetup.tsx` | Step 1: create/map, plus git-native vs hosted-mirror and the telemetry sink. |
