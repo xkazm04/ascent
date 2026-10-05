@@ -1,6 +1,6 @@
 # ADR 2026-09-14 — One path of use for the Org modules
 
-**Status:** Proposed — awaiting operator sign-off (goal `4ab0f17f`)
+**Status:** Accepted 2026-10-05 - journey B (operator sign-off, goal 4ab0f17f)
 **Deciders:** operator (CEO-level counsel), App Master ascent
 **Supersedes:** nothing. **Superseded by:** nothing.
 **Constrains:** `ORG_NAV_GROUPS` and every org tab's outbound links.
@@ -345,3 +345,15 @@ Nothing. It does not pick a journey, change a stage set, move a link, or touch t
 Status line. The two tables exist so that the open question is answered once, as a
 choice between A and B, and the next wave can derive 19–22 link edges from the
 answer instead of hand-picking them.
+
+---
+
+## Decision outcome 2026-10-05
+
+The operator chose **journey B**: a first-run path Connect -> Scan, walked once, then a returning loop Read -> Decide -> Apply -> Measure -> back to Read.
+
+- **Amends Decision point 1.** The stage set is six stages, not five verbs.
+- **Stage assignment** is the addendum's section 2 Journey B column, unchanged: Connect 5 (registry, members, integrations, pairing, settings); Scan 2 (repositories, passports); Read 4 (overview, tech-stacks, security, governance); Decide 4 (proposals, lessons, practices, skills); Apply 5 (live, memory, knowledge, surfaces, audit); Measure 6 (executive, digest, adoption, delivery, contributors, teams). Total 26.
+- **Next-move rule** is the entry tab of the next stage: Connect->repositories, Scan->overview, Read->proposals, Decide->live, Apply->executive, Measure->overview.
+- **Section 3 merge candidates** stay undecided.
+- **The code declaration** now lives in `src/lib/org/orgJourney.ts`.
