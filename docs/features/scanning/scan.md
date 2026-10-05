@@ -166,6 +166,24 @@ write as the backstop.
 - A `: ping` comment is emitted every ~15s so idle proxies don't drop the connection.
   The stream respects client disconnect via an `AbortSignal`, cancelling in-flight fetches.
 
+### The notify opt-in does not detach the run
+
+**A scan is owned by the HTTP request, and the "email me the report link" opt-in does not change
+that.** `request.signal` is threaded into `runScan`, the disconnect catch refunds the quota slot and
+any credit reservation, and the completion email is dispatched inside `start()` after the result
+frame. So closing the tab mid-scan yields no report, no persisted row and no email. The linger window
+(see "Rejoining a live scan") buys a reload a few seconds to come back; it is not a detached run.
+
+This is a **deliberate cost ceiling**, not an oversight: a run nobody is watching would keep spending
+GitHub rate limit and LLM budget. A detachable run was designed as a real change (a keeper-owned entry
+in `coalesceScan`, finalization handed to `after()` as the GitHub webhook path already does, re-attach
+over the existing coalesce join) and **rejected on 2026-10-05** in favour of keeping the ceiling and
+making the UI stop implying otherwise. `NotifyToggle` now states the tab-open requirement, and
+`NotifyToggle.dom.test.tsx` pins the honest wording while forbidding the old promise.
+
+If that trade is revisited, the card, its seven acceptance cases and its premise anchors are in
+`.claude/scan-history/challenge-2026-10-05-cards.json`.
+
 ## Pipeline stages
 
 `scanRepository` sequences four stages and emits progress between them.

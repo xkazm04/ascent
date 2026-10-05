@@ -73,3 +73,40 @@ describe("NotifyToggle — signed out", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+// challenge-2026-10-05 card 9 ("Detachable scan") was REJECTED: abort-on-disconnect stays as the cost
+// ceiling, so the copy must stop promising otherwise. The scan's abort signal is the client connection,
+// the disconnect catch refunds, and the email is dispatched inside the stream after the result frame -
+// so closing the tab yields nothing. These pin the honest claim AND forbid the old one, because the
+// defect was purely a sentence and a sentence is what will come back.
+describe("NotifyToggle - the opt-in never implies the tab can be closed", () => {
+  const notifyWording = () =>
+    (document.body.textContent ?? "").replace(/\s+/g, " ");
+
+  it("states the tab-open requirement once the box is checked", () => {
+    render(
+      <NotifyToggle signedIn viewerEmail="dev@example.com" notifyOn onNotifyChange={() => {}} auth="supabase" />,
+    );
+    expect(notifyWording()).toMatch(/keep this tab open/i);
+    expect(notifyWording()).toMatch(/closing it cancels the scan/i);
+  });
+
+  it("does not promise delivery without waiting, signed in or signed out", () => {
+    // The exact promises the server is built to refuse. A detached run would have to land first.
+    const broken = [/don't want to wait/i, /email you the report when it's ready/i, /instead of waiting/i];
+
+    const { unmount } = render(
+      <NotifyToggle signedIn viewerEmail="dev@example.com" notifyOn onNotifyChange={() => {}} auth="supabase" />,
+    );
+    for (const p of broken) expect(notifyWording()).not.toMatch(p);
+    // The label offers the LINK by email, not completion-without-the-tab.
+    expect(screen.getByRole("checkbox")).toBeInTheDocument();
+    expect(notifyWording()).toMatch(/email me the report link/i);
+    unmount();
+    document.body.innerHTML = "";
+
+    render(<NotifyToggle signedIn={false} notifyOn={false} onNotifyChange={() => {}} auth="supabase" />);
+    for (const p of broken) expect(notifyWording()).not.toMatch(p);
+    expect(notifyWording()).toMatch(/report link when it's ready/i);
+  });
+});
