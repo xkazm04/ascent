@@ -9,8 +9,11 @@ roadmap. The whole thing runs in a stateless serverless function and is fully de
 with **zero secrets** via the deterministic mock provider.
 
 Orchestration lives in `src/lib/scan.ts:scanRepository`. The two HTTP entry points
-(`/api/scan`, `/api/scan/stream`) are thin wrappers around it; everything else here is
-pure, testable TypeScript.
+(`/api/scan`, `/api/scan/stream`) are **protocol adapters** over one shared run sequence in
+`src/lib/scan-lifecycle.ts` (coordinate, scope, head and cache lookup, cached return, coalesce,
+classify, refund, cache and persist, salvage-on-failure); each owns only how it delivers the result
+(a JSON body plus `x-ascent-*` headers, or SSE frames) and where its pre-scan gates sit. Everything
+else here is pure, testable TypeScript.
 
 ## Entry points
 
@@ -123,6 +126,22 @@ reaching the stream already means a real scan. One deliberate exception: on `/ap
 an unauthenticated caller drive a GitHub ref resolve against a private repo), so an anonymous caller
 passing `installationId` while throttled gets `401` there and `429` on the stream.
 
+Everything *after* the gates is one sequence, not two that agree by inspection: `runScanLifecycle` in
+`src/lib/scan-lifecycle.ts` owns the run and takes each route's gate placement as the one declared
+slot between the free cached return and the scan. That closed three divergences the two hand-kept
+copies had already accumulated: the live SSE path parsed **GitHub** coordinates only (so every
+`gitlab:group/project` the scan form emits died at a `400` on the one path `/report` drives), it had
+no error salvage, and a coalesce joiner handed back the credit on one route and only the quota on the
+other. The refund ledger is now a single object naming the five no-delivery situations
+(`onCacheHit`, `onJoin`, `onDegrade`, `onDedup`, `onFailure`); its table is asserted in
+`src/lib/scan-lifecycle.test.ts` and, route by route, in `src/app/api/scan/gate-order.test.ts`.
+
+A **private** report is also re-tenanted under the repo owner's org before persistence on both
+entry points now, not on the JSON one only: a scan can read a private repo while the resolved org is
+still the shared `public` funnel (a body token, or the ambient operator PAT), and persisting that
+under `public` would publish it to every anonymous visitor. `scans-persist.ts` still refuses the
+write as the backstop.
+
 **SSE protocol** (`/api/scan/stream`): named events on the stream:
 
 - `progress`: `{ stage, message, pct, provider?, region?, fallback? }` where `stage` ∈
@@ -133,6 +152,11 @@ passing `installationId` while throttled gets `401` there and `429` on the strea
   degraded/low-coverage) leaves the job URL in the address bar so a reload cannot unfurl a
   cold permalink as a scored report. See [report.md](../reporting/report.md).
 - `result`: the final `ScanReport`.
+- `stale`: `{ fallback: "error" }`, emitted **before** a salvaged `result`. The live scan failed
+  (transient upstream / LLM / rate limit) and the repo's most recent persisted public report is being
+  served instead of a dead end, mirroring `/api/scan`'s `x-ascent-stale` + `x-ascent-fallback=error`
+  headers. Never on a client abort, never on a scoped scan, and never a private snapshot: the
+  lifecycle decides, so the two entry points cannot disagree. "Re-test" still forces a re-score.
 - `error`: `{ error, code? }`.
 - A `: ping` comment is emitted every ~15s so idle proxies don't drop the connection.
   The stream respects client disconnect via an `AbortSignal`, cancelling in-flight fetches.
@@ -796,6 +820,7 @@ still settling; the old run cannot evict the replacement when its cleanup finish
 | `src/lib/cache.ts` / `src/lib/scan-cache.ts` | In-memory LRU + tiered cache orchestration (incl. `lookupScopedScan`). |
 | `src/lib/scan-scope.ts` | Pure scope predicates: ref/sub-path validation, `isScopedScan`, the cache-key segment, the report caveat. Shared with the scan form. |
 | `src/lib/scan-scope-server.ts` | `resolveScanScope()`: validates + server-side-resolves a request's ref/sub-path for both scan routes. |
+| `src/lib/scan-lifecycle.ts` | `runScanLifecycle()`: the ONE post-gate run sequence both entry points execute, plus `resolveScanCoordinate` (forge routing), the refund ledger, `resolveScanTarget`, `latestPublicReport` / `salvageScanFailure` and `finalizeScanRun`. |
 | `src/lib/types.ts` | All domain types (`RepoSnapshot`, `DimensionSignals`, `LlmAssessment`, `ScanReport`, …). |
 
 ## Cited claims (r9, 2026-08-26)

@@ -9,6 +9,7 @@
         "src/lib/scan-cache.ts",
         "src/lib/scan-finalize.ts",
         "src/lib/scan-credit.ts",
+        "src/lib/scan-lifecycle.ts",
         "src/lib/analyze/**",
         "src/app/api/scan/**",
         "src/components/ScanForm.tsx",

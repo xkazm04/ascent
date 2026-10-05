@@ -276,7 +276,9 @@
             "src/components/scan/ScanScopeFields.dom.test.tsx",
             "src/lib/scan-compose.test.ts",
             "src/lib/scan-gates.wall-consistency.test.ts",
-            "src/lib/scan-ingest.test.ts"
+            "src/lib/scan-ingest.test.ts",
+            "src/lib/scan-lifecycle.ts",
+            "src/lib/scan-lifecycle.test.ts"
           ],
           "target": null,
           "apiRoutes": [
