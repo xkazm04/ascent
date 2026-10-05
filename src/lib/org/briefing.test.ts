@@ -5,6 +5,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { benchmarkCaption, briefingGoalLine, briefingGoalStats, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, fleetAdoptionRate, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type BriefingGoal, type ExecBriefing } from "./briefing";
+import { periodDeltaCaption } from "./briefingMovement";
+import { briefingFigureDigest } from "@/lib/briefing-share";
+import { buildScoreBadges } from "@/features/standing/overview/overviewStanding";
 import { composeGoal, forecastTrajectory, isProjectable, projectGoal } from "@/lib/maturity/forecast";
 import { GOAL_PCT_LABEL } from "@/lib/db/plan";
 import { briefing as pdfBriefing, text as pdfText } from "../pdf/briefing-document.test-helpers";
@@ -509,6 +512,9 @@ function rollup(over: Partial<Rollup> = {}): Rollup {
     forecast: null,
     baseline: null,
     deltas: null,
+    // The cohort-matched movement the briefing's period delta is read FROM. Default null: a fixture
+    // with no window has no cohort, and a delta invented for one would be the defect under test.
+    movement: null,
     ...over,
   } as Rollup;
 }
@@ -654,7 +660,7 @@ describe("buildExecBriefing — the rollup's denominator travels onto the briefi
   });
 });
 
-describe("buildExecBriefing — periodDelta (current − baseline)", () => {
+describe("buildExecBriefing — periodDelta (rollup.movement.overall)", () => {
   it("is null when the rollup has no baseline", async () => {
     mockRollup.mockResolvedValue(rollup({ baseline: null }));
     const b = (await buildExecBriefing("acme"))!;
@@ -662,22 +668,29 @@ describe("buildExecBriefing — periodDelta (current − baseline)", () => {
     expect(Number.isNaN(b.periodDelta as number)).toBe(false);
   });
 
-  it("equals avgOverall − baseline.avgOverall when a baseline exists", async () => {
+  it("equals the cohort-matched movement, NOT avgOverall − baseline.avgOverall", async () => {
+    // The two differ exactly when the population changed, which is the case the subtraction got
+    // wrong: mean(current) − mean(baseline) is 70 − 62 = 8 here, and the matched cohort moved 5.
     mockRollup.mockResolvedValue(
       rollup({
         avgOverall: 70,
         baseline: { asOf: "2026-05-01T00:00:00.000Z", repos: 6, avgOverall: 62, avgAdoption: 60, avgRigor: 64 },
+        deltas: { overall: 5, adoption: 3, rigor: 7 },
+        movement: { overall: 5, adoption: 3, rigor: 7, cohortSize: 6, onboarded: 2, departed: 0 },
       }),
     );
     const b = (await buildExecBriefing("acme"))!;
-    expect(b.periodDelta).toBe(8); // 70 - 62
+    expect(b.periodDelta).toBe(5);
+    expect(b.periodDelta).not.toBe(8);
   });
 
-  it("can be negative (a real slip is reported, not floored)", async () => {
+  it("can be negative (a real slip the cohort experienced is reported, not floored)", async () => {
     mockRollup.mockResolvedValue(
       rollup({
         avgOverall: 55,
         baseline: { asOf: "2026-05-01T00:00:00.000Z", repos: 6, avgOverall: 62, avgAdoption: 60, avgRigor: 64 },
+        deltas: { overall: -7, adoption: -2, rigor: -12 },
+        movement: { overall: -7, adoption: -2, rigor: -12, cohortSize: 6, onboarded: 0, departed: 0 },
       }),
     );
     expect((await buildExecBriefing("acme"))!.periodDelta).toBe(-7);
@@ -1639,5 +1652,136 @@ describe("briefingGoalLine — 2-day fit, 14-day fit, attainment-only (G4/G12)",
     expect(briefingGoalStats(twoDay)).not.toMatch(/ETA/);
     expect(briefingGoalStats(fourteenDay)).toMatch(/ETA ~/);
     expect(briefingGoalStats(attainment)).not.toMatch(/ETA/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COHORT-MATCHED PERIOD MOVEMENT (challenge card 2 — Executive Briefing, slot A)
+//
+// `periodDelta` and `valueRealized.pointsMoved` used to be
+// `rollup.avgOverall - rollup.baseline.avgOverall`: the mean of the CURRENT population minus the mean
+// of the BASELINE population. Onboard one low-scoring repository mid-period and the board PDF reported
+// a fleet that slipped by an amount no repository experienced. The cohort-matched figure was already
+// on the same rollup object (`rollup.movement`), already read by the Overview tab and the weekly
+// digest, and never read here — so the board-facing surface was the wrong one of the three.
+// ---------------------------------------------------------------------------
+describe("buildExecBriefing — the period delta is cohort-matched movement, not a difference of means", () => {
+  // 2 repos on both sides, unchanged at 60; 1 repo first scanned mid-window at 10.
+  // mean(current) = 43, mean(baseline) = 60 → the old subtraction returns -17. No repo moved.
+  const composition = () =>
+    rollup({
+      avgOverall: 43,
+      baseline: { asOf: "2026-05-01T00:00:00.000Z", repos: 2, avgOverall: 60, avgAdoption: 60, avgRigor: 60 },
+      deltas: { overall: 0, adoption: 0, rigor: 0 },
+      movement: { overall: 0, adoption: 0, rigor: 0, cohortSize: 2, onboarded: 1, departed: 0 },
+    });
+
+  it("reports 0 when no repository moved and one was onboarded mid-period", async () => {
+    mockRollup.mockResolvedValue(composition());
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.periodDelta).toBe(0);
+    // The arithmetic that used to be here, pinned as forbidden: 43 - 60.
+    expect(b.periodDelta).not.toBe(-17);
+  });
+
+  it("does not sell the composition change as value realized this period", async () => {
+    mockRollup.mockResolvedValue(composition());
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.valueRealized.pointsMoved).toBe(0);
+    expect(b.valueRealized.pointsMoved).not.toBe(-17);
+    // `valueRealizedLine` omits a 0, so the "value this period" line reports no movement at all.
+    expect(valueRealizedLine(b.valueRealized, b.realScoredCount) ?? "").not.toContain("fleet");
+  });
+
+  it("is null, never 0, when no repository has a scan on both sides of the window", async () => {
+    mockRollup.mockResolvedValue(
+      rollup({
+        avgOverall: 43,
+        baseline: { asOf: "2026-05-01T00:00:00.000Z", repos: 2, avgOverall: 60, avgAdoption: 60, avgRigor: 60 },
+        deltas: null,
+        movement: null,
+      }),
+    );
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.periodDelta).toBeNull();
+    expect(b.valueRealized.pointsMoved).toBeNull();
+    // Nothing to caption either — a delta badge over an empty cohort is not a measurement.
+    expect(periodDeltaCaption(b)).toBeNull();
+  });
+
+  it("carries the cohort qualifiers onto the briefing and into one caption", async () => {
+    mockRollup.mockResolvedValue(
+      rollup({
+        avgOverall: 66,
+        baseline: { asOf: "2026-05-01T00:00:00.000Z", repos: 8, avgOverall: 60, avgAdoption: 60, avgRigor: 60 },
+        deltas: { overall: 6, adoption: 4, rigor: 8 },
+        movement: { overall: 6, adoption: 4, rigor: 8, cohortSize: 8, onboarded: 0, departed: 0 },
+      }),
+    );
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.periodMovement).toEqual({ overall: 6, adoption: 4, rigor: 8, cohortSize: 8, onboarded: 0, departed: 0 });
+    expect(b.periodDelta).toBe(6);
+    const caption = periodDeltaCaption(b)!;
+    expect(caption).toContain("over 8 repositories scanned on both sides of this period");
+    // No composition change ⇒ no "0 onboarded" clause.
+    expect(caption).not.toContain("onboarded");
+    expect(caption).not.toContain("departed");
+    // The points figure's basis is the cohort too, not the live-scored set it used to name.
+    expect(valueRealizedLine(b.valueRealized, b.realScoredCount, b.periodMovement!.cohortSize)).toContain(
+      "across 8 repositories scanned on both sides of the period",
+    );
+    // The four renderers read that ONE caption: the markdown and the PDF print it here, the tile and
+    // the share page mount BriefingDeltaCaption (briefingCards.delta.dom.test.tsx).
+    expect(briefingMarkdown(b)).toContain(caption);
+    expect(pdfText(b)).toContain(caption);
+  });
+
+  it("states a composition change as its own figure beside the delta", async () => {
+    mockRollup.mockResolvedValue(
+      rollup({
+        avgOverall: 50,
+        baseline: { asOf: "2026-05-01T00:00:00.000Z", repos: 9, avgOverall: 60, avgAdoption: 60, avgRigor: 60 },
+        deltas: { overall: -2, adoption: 0, rigor: 0 },
+        movement: { overall: -2, adoption: 0, rigor: 0, cohortSize: 6, onboarded: 3, departed: 1 },
+      }),
+    );
+    const b = (await buildExecBriefing("acme"))!;
+    const caption = periodDeltaCaption(b)!;
+    expect(caption).toContain("over 6 repositories scanned on both sides of this period");
+    expect(caption).toContain("3 repositories onboarded");
+    expect(caption).toContain("1 repository departed");
+    expect(briefingMarkdown(b)).toContain(caption);
+    expect(pdfText(b)).toContain(caption);
+  });
+
+  it("agrees with the Overview tab's maturity delta over ONE rollup", async () => {
+    // The reconciliation case: Overview reads `r.deltas.overall` (cohort-matched); the briefing used
+    // to subtract population means, so the two tabs printed different numbers for the same window.
+    const r = composition();
+    mockRollup.mockResolvedValue(r);
+    const b = (await buildExecBriefing("acme"))!;
+    const overviewDelta = buildScoreBadges(r, "vs 90d ago")[0].delta;
+    expect(b.periodDelta).toBe(overviewDelta);
+  });
+
+  it("re-bases the share fingerprint when the cohort changes under a held score", () => {
+    const base: ExecBriefing = {
+      ...fixture,
+      periodMovement: { overall: 4, adoption: 4, rigor: 4, cohortSize: 8, onboarded: 0, departed: 0 },
+    };
+    const digest = briefingFigureDigest(base);
+    // Same scores, a different cohort behind them: a recipient must not be told "figures unchanged".
+    expect(briefingFigureDigest({ ...base, periodMovement: { ...base.periodMovement!, cohortSize: 4 } })).not.toBe(digest);
+    expect(briefingFigureDigest({ ...base, periodMovement: { ...base.periodMovement!, onboarded: 3 } })).not.toBe(digest);
+    expect(briefingFigureDigest({ ...base, periodMovement: { ...base.periodMovement!, departed: 2 } })).not.toBe(digest);
+  });
+
+  it("the share page mounts the caption too (the board-facing surface)", () => {
+    const src = readFileSync(join(process.cwd(), "src/app/share/briefing/[token]/page.tsx"), "utf8")
+      // Strip comments first: house rule for a source-scanning assertion — the prose beside a prop
+      // must never be what satisfies it.
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(src).toMatch(/movement=\{briefing\.periodMovement\}/);
   });
 });

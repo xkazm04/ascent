@@ -11,6 +11,7 @@ import { scoreHex } from "@/lib/ui";
 import { PRACTICES } from "@/lib/practices";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { PeriodDumbbell } from "./PeriodDumbbell";
+import { priorPeriodBasisNote } from "@/lib/org/briefingMovement";
 
 // The 1:1 dimension→practice map (same source the Overview panel and Plan tab use), so briefing
 // dimension rows can deep-link to the practice that lifts them.
@@ -109,14 +110,27 @@ type PriorPeriod = {
 export function PriorPeriodGrid({
   prior,
   now,
+  nowScoredCount,
+  priorScoredCount,
   showDimensions = false,
 }: {
   prior: PriorPeriod;
   now: { overall: number; adoption: number; rigor: number };
+  /** The live-scored denominator behind `now` (`ExecBriefing.realScoredCount`) and behind `prior`
+   *  (`priorPeriod.realScoredCount`). Both present and UNEQUAL ⇒ this block is differencing two
+   *  differently-populated windows, which is a standing comparison and not movement; it says so, with
+   *  both denominators. Optional: a fixture that knows neither makes no claim about the basis. */
+  nowScoredCount?: number;
+  priorScoredCount?: number;
   showDimensions?: boolean;
 }) {
+  // Unlike the headline period delta above it, this grid is end-state against end-state over two
+  // independently-populated windows — so when the populations differ it must not borrow the
+  // cohort-matched delta's vocabulary. One composer, shared with the briefing's other surfaces.
+  const basisNote = priorPeriodBasisNote(nowScoredCount, priorScoredCount);
   return (
     <>
+      {basisNote && <p className="mt-2 type-mono-sm leading-relaxed text-warn">{basisNote}</p>}
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         {([
           ["Overall", prior.overall, now.overall, prior.dOverall],

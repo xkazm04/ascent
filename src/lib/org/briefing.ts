@@ -16,6 +16,7 @@ import {
 } from "@/lib/db";
 import { getOrgEngineMix, getOrgRecsActioned, type EngineMixEntry } from "@/lib/db/org";
 import { hasFleetGrade } from "@/lib/db/org-shared";
+import type { CohortMovement } from "@/lib/db/org-rollup";
 import { getOrgPractices, getPlaybookAdoption, listPlaybooks } from "@/lib/db";
 import { buildPracticeLibrarySummary } from "@/lib/org/practice-library";
 import { getImprovementEvents, type ImprovementEvent } from "@/lib/db/improvement-events";
@@ -78,9 +79,10 @@ export interface ExecBriefing {
    *  basis of `maturity`: see {@link ExecBriefing.realScoredCount}. Read it through
    *  {@link coverageLine}. */
   coverage: { scanned: number; total: number };
-  /** The DENOMINATOR of every figure in `maturity` (and of `periodDelta` / `valueRealized.pointsMoved`,
-   *  which are differences of those means): scanned repos carrying a real graded score, mock
-   *  placeholders excluded, straight off `getOrgRollup.realScoredCount`.
+  /** The DENOMINATOR of every figure in `maturity`: scanned repos carrying a real graded score, mock
+   *  placeholders excluded, straight off `getOrgRollup.realScoredCount`. NOT the denominator of
+   *  `periodDelta` / `valueRealized.pointsMoved` - those are cohort-matched movement and carry their
+   *  own, smaller one ({@link ExecBriefing.periodMovement}'s `cohortSize`).
    *
    *  0 means the three averages are a division guard and NOT a grade — every renderer must land on
    *  its no-score path ({@link briefingHasScore} / {@link noScoreLine}). Required, not optional: a
@@ -91,8 +93,24 @@ export interface ExecBriefing {
    *  above, and therefore owed a disclosure wherever those averages are printed ({@link mockDisclosure}).
    *  `realScoredCount + mockCount === coverage.scanned`. */
   mockCount: number;
-  /** Overall-score delta vs the window's start, or null for all-time / no baseline. */
+  /** Overall-score COHORT-MATCHED movement vs the window's start: `periodMovement.overall`, measured
+   *  only over repositories scanned on BOTH sides of the window. Null for all-time, for no baseline,
+   *  and whenever no repository has a scan on both sides - never a 0 standing in for "unmeasurable".
+   *
+   *  It is deliberately NOT `avgOverall - baseline.avgOverall`: that subtraction folds composition
+   *  change into a number labelled as movement, so onboarding low-scoring repositories mid-period
+   *  reported a slip no repository experienced. Read its basis through `periodDeltaCaption`. */
   periodDelta: number | null;
+  /** The qualifiers {@link ExecBriefing.periodDelta} may not be rendered without: `cohortSize` (the
+   *  matched denominator the delta was measured over) and the composition change the matching
+   *  EXCLUDED (`onboarded` / `departed`), straight off `rollup.movement`. Null when there is no
+   *  cohort.
+   *
+   *  OPTIONAL for the same fixture-compatibility reason as `recommendations` / `proof`;
+   *  `buildExecBriefing` ALWAYS sets it. Absent is read as "no cohort known", so a renderer states no
+   *  denominator rather than guessing one - read it through `briefingPeriodMovement` /
+   *  `periodDeltaCaption` (./briefingMovement) rather than indexing it directly. */
+  periodMovement?: CohortMovement | null;
   /** End-state comparison against the immediately-preceding equal-length window (EXEC-4); null for
    *  all-time or when the prior window has no scans. Whole-fleet (not cohort-matched) — a "vs previous
    *  period" read across headline + dimensions. */
@@ -313,6 +331,7 @@ export async function buildExecBriefing(
       realScoredCount: 0,
       mockCount: rollup.mockCount,
       periodDelta: null,
+      periodMovement: null,
       priorPeriod: null,
       forecastHeadline: null,
       forecastConfidence: null,
@@ -411,7 +430,14 @@ export async function buildExecBriefing(
     // rather than inferred from a suspiciously round 0/100.
     realScoredCount: rollup.realScoredCount,
     mockCount: rollup.mockCount,
-    periodDelta: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
+    // The delta is the COHORT-MATCHED movement the rollup already computed, not
+    // `avgOverall - baseline.avgOverall`. The subtraction that used to be here differenced two
+    // differently-populated sets, so a mid-period onboarding wave printed a slip no repository
+    // experienced on the one artifact that leaves the building unedited. Null when no repository has a
+    // scan on both sides: unmeasurable, which is not 0. Overview and the weekly digest read the same
+    // figure, so the three surfaces can no longer disagree about one window.
+    periodDelta: rollup.movement ? rollup.movement.overall : null,
+    periodMovement: rollup.movement ?? null,
     priorPeriod,
     // ONE composition, shared with /trends and Delivery: the presentability gate decides whether this
     // briefing may state a trajectory at all, and when it may, the hedge travels WITH the claim.
@@ -437,7 +463,9 @@ export async function buildExecBriefing(
     valueRealized: {
       recsEngaged: recsActivity.engaged,
       recsActioned: recsActivity.actioned,
-      pointsMoved: rollup.baseline ? rollup.avgOverall - rollup.baseline.avgOverall : null,
+      // Same figure, same reason (it IS the period delta, sold as value realized): onboarding
+      // repositories is not value this period produced, in either direction.
+      pointsMoved: rollup.movement ? rollup.movement.overall : null,
       reposPromoted: movers?.levelChanges?.filter((m) => m.levelDelta > 0).length ?? 0,
     },
     benchmark: benchmark
@@ -513,4 +541,5 @@ export function buildLoopProof(events: readonly ImprovementEvent[]): ExecBriefin
 
 // Preserve the public module entry point while presentation lives separately.
 export { engineMixLabel, engineMixCaveat, briefingTrajectory, briefingTrajectoryNote, briefingGoal, briefingGoalLine, briefingGoalStats, valueRealizedLine, valueRealizedHeading, benchmarkCaption, movementLine, briefingHasScore, scoreValue, briefingLevelCaption, noScoreLine, scoreBasisLine, mockDisclosure, coverageLine, briefingLoopProofLine, briefingProofLine, briefingNextMove, nextMoveLine } from './briefing-format';
+export { briefingPeriodMovement, periodCompositionClause, periodDeltaCaption, priorPeriodBasisNote } from './briefingMovement';
 export { briefingMarkdown } from './briefing-markdown';

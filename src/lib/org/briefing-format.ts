@@ -100,7 +100,11 @@ export function briefingGoalLine(g: BriefingGoal): string {
  *  comparable across the period, 0 improved and 0 regressed", and the reader could not reconcile them:
  *  "A board member does not need to know the word 'cohort-matched'; they need the page not to
  *  contradict itself." The two numbers were never in conflict — only one of them stated its scope. */
-export function valueRealizedLine(vr: ExecBriefing["valueRealized"], liveScoredRepos?: number): string | null {
+export function valueRealizedLine(
+  vr: ExecBriefing["valueRealized"],
+  liveScoredRepos?: number,
+  cohortSize?: number | null,
+): string | null {
   const parts: string[] = [];
   if (vr.recsActioned > 0) parts.push(`${vr.recsActioned} recommendation${vr.recsActioned === 1 ? "" : "s"} completed`);
   else if (vr.recsEngaged > 0) parts.push(`${vr.recsEngaged} recommendation${vr.recsEngaged === 1 ? "" : "s"} actioned`);
@@ -109,10 +113,18 @@ export function valueRealizedLine(vr: ExecBriefing["valueRealized"], liveScoredR
     // `avgOverall − baseline.avgOverall`, and both of those are means over `realScoredCount`
     // (org-rollup.ts:320-326). Naming the scanned count here overstated the denominator by exactly
     // `mockCount`, on the one line a renewal conversation quotes.
+    //
+    // `pointsMoved` is now the COHORT-MATCHED movement (repos scanned on both sides of the window),
+    // not a difference of two population means, so `cohortSize` is its real denominator and overrides
+    // the live-scored one when the caller knows it. The live-scored phrasing stays as the fallback for
+    // a serialized briefing that predates `periodMovement`: naming a denominator the figure is not
+    // drawn from is exactly the defect this clause exists to prevent.
     const basis =
-      liveScoredRepos && liveScoredRepos > 0
-        ? ` across ${liveScoredRepos} live-scored repo${liveScoredRepos === 1 ? "" : "s"}`
-        : "";
+      cohortSize != null && cohortSize > 0
+        ? ` across ${cohortSize} repositor${cohortSize === 1 ? "y" : "ies"} scanned on both sides of the period`
+        : liveScoredRepos && liveScoredRepos > 0
+          ? ` across ${liveScoredRepos} live-scored repo${liveScoredRepos === 1 ? "" : "s"}`
+          : "";
     parts.push(`fleet ${vr.pointsMoved > 0 ? "+" : ""}${vr.pointsMoved} pts${basis}`);
   }
   if (vr.reposPromoted > 0) parts.push(`${vr.reposPromoted} repo${vr.reposPromoted === 1 ? "" : "s"} leveled up`);

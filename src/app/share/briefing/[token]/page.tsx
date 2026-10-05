@@ -186,6 +186,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           benchmark={benchmark}
           delta={briefing.periodDelta}
           deltaLabel={`vs ${briefing.periodTitle.toLowerCase()}`}
+          movement={briefing.periodMovement}
           realScoredCount={briefing.realScoredCount}
           className="mt-6"
         />
@@ -200,10 +201,12 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
             (leadership/renewal) is exactly the audience holding this link — carry it here like the
             exec page, the LLM markdown and the PDF do, so the three surfaces tell one story. */}
         {/* UAT DANA-L1-010 — heading follows the sign; the number is never hidden (G1). */}
-      {valueRealizedLine(briefing.valueRealized, briefing.realScoredCount) && (
+      {valueRealizedLine(briefing.valueRealized, briefing.realScoredCount, briefing.periodMovement?.cohortSize) && (
           <div className="mt-4 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
             <span className="type-mono-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
-            <span className="type-body text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.realScoredCount)}</span>
+            <span className="type-body text-slate-200">
+              {valueRealizedLine(briefing.valueRealized, briefing.realScoredCount, briefing.periodMovement?.cohortSize)}
+            </span>
           </div>
         )}
 
@@ -236,7 +239,12 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
         {priorPeriod && (
           <Card className="mt-6">
             <SectionHeader size="sm" title="vs previous period" />
-            <PriorPeriodGrid prior={priorPeriod} now={maturity} />
+            <PriorPeriodGrid
+              prior={priorPeriod}
+              now={maturity}
+              nowScoredCount={briefing.realScoredCount}
+              priorScoredCount={priorPeriod.realScoredCount}
+            />
           </Card>
         )}
 

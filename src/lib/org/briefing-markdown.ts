@@ -5,6 +5,7 @@ import { briefingHasScore, scoreBasisLine, noScoreLine, coverageLine, mockDisclo
   valueRealizedLine, valueRealizedHeading, benchmarkCaption, briefingTrajectory, briefingGoalLine,
   engineMixCaveat, engineMixLabel, movementLine, briefingProofLine, briefingLoopProofLine,
   briefingNextMove, nextMoveLine } from './briefing-format';
+import { periodDeltaCaption } from './briefingMovement';
 
 
 /**
@@ -29,13 +30,18 @@ export function briefingMarkdown(b: ExecBriefing): string {
     out.push(`- Overall maturity: **${b.maturity.overall}/100** (${b.maturity.levelId} ${b.maturity.levelName})${delta}`);
     out.push(`- AI Adoption: ${b.maturity.adoption}/100 · Engineering Rigor: ${b.maturity.rigor}/100`);
     out.push(`- Score basis: ${scoreBasisLine(b)}`);
+    // The delta's own basis, from the ONE composer the tile, the PDF and the share page read. This
+    // payload is pasted into an LLM, which will restate the delta as prose — an unqualified "-17 over
+    // the period" is laundered into a confident claim about repositories that were never compared.
+    const deltaBasis = periodDeltaCaption(b);
+    if (deltaBasis) out.push(`- Period delta basis: ${deltaBasis}`);
   } else {
     out.push(`- Overall maturity: — · ${noScoreLine(b)}`);
   }
   out.push(`- ${coverageLine(b)}`);
   const mockLine = mockDisclosure(b);
   if (mockLine) out.push(`- Provenance: ${mockLine}`);
-  const vline = valueRealizedLine(b.valueRealized, b.realScoredCount);
+  const vline = valueRealizedLine(b.valueRealized, b.realScoredCount, b.periodMovement?.cohortSize ?? null);
   if (vline) out.push(`- ${valueRealizedHeading(b.valueRealized)}: ${vline}`);
   if (b.adoptionRate != null) out.push(`- Fleet adoption: ${b.adoptionRate}% of scanned repos at a high AI-adoption posture`);
   if (b.benchmark?.percentile != null) {

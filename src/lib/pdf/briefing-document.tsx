@@ -8,6 +8,7 @@
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { ColumnHeading, DimLine, MoveLine, SectionHeading } from "./briefing-document-rows";
 import { benchmarkCaption, briefingGoalStats, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingNextMove, briefingProofLine, briefingTrajectoryNote, coverageLine, engineMixCaveat, engineMixLabel, mockDisclosure, movementLine, nextMoveLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
+import { periodDeltaCaption } from "@/lib/org/briefingMovement";
 import type { ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
 import { latin1Safe } from "./latin1";
@@ -87,6 +88,13 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
         {scored && b.periodDelta != null && (
           <Text style={styles.line}>Change vs {b.periodTitle} start: {b.periodDelta >= 0 ? "+" : ""}{b.periodDelta}</Text>
         )}
+        {/* The delta's BASIS, from the one composer every briefing surface reads. This figure is
+            cohort-matched movement (repos scanned on both sides of the window), and the cohort size is
+            what makes it readable: "+6" over 4 matched repositories of 60 prints identically to "+6"
+            over 58. The board PDF is the artifact most likely to be quoted without its page. */}
+        {scored && periodDeltaCaption(b) ? (
+          <Text style={baseStyles.meta}>{periodDeltaCaption(b)}</Text>
+        ) : null}
         {/* MC-B1 — this is THE artifact with the org's name on it, and it was the one printing
             "Trajectory: Climbing at +35/wk" off two scan days with the hedge deleted rather than
             replaced. It now reads the same composed line as the screen, the share page and the
@@ -116,9 +124,9 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
         {/* UAT DANA-L1-010 — the heading follows the SIGN. A fleet regression printed under the word
             "Value" is the tool not knowing which direction is good; the number itself is never hidden
             (G1), and it now carries the basis its neighbouring movement line is counted on. */}
-        {valueRealizedLine(b.valueRealized, b.realScoredCount) ? (
+        {valueRealizedLine(b.valueRealized, b.realScoredCount, b.periodMovement?.cohortSize) ? (
           <Text style={styles.line}>
-            {valueRealizedHeading(b.valueRealized)}: {valueRealizedLine(b.valueRealized, b.realScoredCount)}
+            {valueRealizedHeading(b.valueRealized)}: {valueRealizedLine(b.valueRealized, b.realScoredCount, b.periodMovement?.cohortSize)}
           </Text>
         ) : null}
         {b.adoptionRate != null ? (

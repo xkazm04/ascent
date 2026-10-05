@@ -15,7 +15,9 @@ import {
 } from "@/lib/org/briefing";
 
 export function executiveValue(briefing: ExecBriefing) {
-  const line = valueRealizedLine(briefing.valueRealized, briefing.realScoredCount);
+  // The third argument is the points figure's REAL denominator: `pointsMoved` is cohort-matched
+  // movement, so naming the live-scored set here would overstate what the delta was measured over.
+  const line = valueRealizedLine(briefing.valueRealized, briefing.realScoredCount, briefing.periodMovement?.cohortSize);
   const proof = briefingProofLine(briefing.proof);
   const loop = briefingLoopProofLine(briefing.loopProof);
   if (!line && !proof && !loop) return null;

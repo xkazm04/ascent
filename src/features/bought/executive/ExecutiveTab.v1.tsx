@@ -47,16 +47,19 @@ export function executiveV1(v: ExecutiveView) {
         benchmark={benchmark}
         delta={briefing.periodDelta}
         deltaLabel={period.comparisonLabel}
+        movement={briefing.periodMovement}
         realScoredCount={briefing.realScoredCount}
         orgSlug={slug}
       />
 
       <BriefingBasisNote briefing={briefing} />
 
-      {valueRealizedLine(briefing.valueRealized, briefing.realScoredCount) && (
+      {valueRealizedLine(briefing.valueRealized, briefing.realScoredCount, briefing.periodMovement?.cohortSize) && (
         <div className="rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
           <span className="type-mono-sm uppercase tracking-widest text-accent">{valueRealizedHeading(briefing.valueRealized)}</span>{" "}
-          <span className="type-body text-slate-200">{valueRealizedLine(briefing.valueRealized, briefing.realScoredCount)}</span>
+          <span className="type-body text-slate-200">
+            {valueRealizedLine(briefing.valueRealized, briefing.realScoredCount, briefing.periodMovement?.cohortSize)}
+          </span>
         </div>
       )}
 
@@ -73,7 +76,13 @@ export function executiveV1(v: ExecutiveView) {
       {briefing.priorPeriod && (
         <Card>
           <SectionHeader size="sm" title="vs previous period" />
-          <PriorPeriodGrid prior={briefing.priorPeriod} now={maturity} showDimensions />
+          <PriorPeriodGrid
+            prior={briefing.priorPeriod}
+            now={maturity}
+            nowScoredCount={briefing.realScoredCount}
+            priorScoredCount={briefing.priorPeriod.realScoredCount}
+            showDimensions
+          />
         </Card>
       )}
 

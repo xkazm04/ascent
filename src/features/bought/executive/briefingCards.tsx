@@ -9,96 +9,20 @@
 // exactly what the anonymous board link showed before this extraction; the exec page opts in. That way
 // a future edit to a shared block can't silently widen what the token-authenticated page exposes.
 
-import { Card, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { DimRow, practiceHref } from "./briefingShared";
-import { scoreHex } from "@/lib/ui";
-import { benchmarkCaption, type BriefingDim, type ExecBriefing } from "@/lib/org/briefing";
+import type { BriefingDim } from "@/lib/org/briefing";
 
 // Split across two files to stay under the 200-LOC cap (docs/ORG-TABS-REFACTOR.md); re-exported here
 // so this stays the ONE pinned import path for both the exec tab and the public
 // /share/briefing/[token] page.
 export { BriefingMovementCard, BriefingGoalsCard } from "./briefingCardsMovement";
+// Same reason, same contract: the headline tiles moved to a sibling when the period delta gained its
+// cohort caption, and this stays the ONE pinned import path for both pages.
+export { BriefingTiles } from "./BriefingTilesBlock";
 
 /** Compose an optional page-supplied spacing/layout class with the block's own base classes. */
 const cx = (extra: string, base: string) => (extra ? `${extra} ${base}` : base);
-
-/**
- * The four headline tiles (maturity, adoption, rigor, corpus percentile).
- *
- * `orgSlug` is the link switch: pass it and each tile becomes a deep link to the tab that explains it
- * (the exec page's behavior); leave it null and the tiles are static cells — the public share page must
- * not lead a board member into the authenticated app. `deltaLabel` is likewise exec-only (the share
- * page renders the delta badge with no "vs …" suffix, matching its frozen-window framing).
- */
-export function BriefingTiles({
-  maturity,
-  benchmark,
-  delta,
-  deltaLabel,
-  realScoredCount,
-  orgSlug = null,
-  className = "",
-}: {
-  maturity: ExecBriefing["maturity"];
-  benchmark: ExecBriefing["benchmark"];
-  delta?: number | null;
-  /** Exec-only suffix next to the delta badge, e.g. "vs 90d ago". */
-  deltaLabel?: string;
-  /**
-   * The LIVE-SCORED denominator behind the three maturity averages (`ExecBriefing.realScoredCount`).
-   *
-   * 0 ⇒ those averages are a division guard, not a grade (`getOrgRollup` states the contract on
-   * `avgOverall`), so the three tiles render "—" and the level caption is suppressed rather than
-   * printing "0 · L1 Ad hoc" for a fleet that has never been measured. Optional for
-   * fixture-compatibility (the `BriefingMove.fullName` precedent); both real call sites pass it, and
-   * absent is read as "scored", which is what every briefing did before the field existed.
-   */
-  realScoredCount?: number;
-  /** Non-null ⇒ tiles deep-link into the org dashboard. Null (the default) ⇒ static, public-safe. */
-  orgSlug?: string | null;
-  className?: string;
-}) {
-  const scored = realScoredCount == null || realScoredCount > 0;
-  /** The figure, or an em dash when there is no denominator to have averaged it over. */
-  const score = (n: number) => (scored ? n : "—");
-  return (
-    <div className={cx(className, TILE_GRID)}>
-      <Tile
-        label="Org maturity"
-        value={score(maturity.overall)}
-        sub={scored ? `${maturity.levelId} · ${maturity.levelName}` : "no live-scored repositories"}
-        color={scored ? scoreHex(maturity.overall) : undefined}
-        delta={scored ? (delta ?? undefined) : undefined}
-        deltaLabel={scored ? deltaLabel : undefined}
-        href={orgSlug ? `/org/${orgSlug}` : undefined}
-      />
-      <Tile
-        label="AI Adoption"
-        value={score(maturity.adoption)}
-        color={scored ? scoreHex(maturity.adoption) : undefined}
-        href={orgSlug ? `/org/${orgSlug}/adoption` : undefined}
-      />
-      <Tile
-        label="Engineering Rigor"
-        value={score(maturity.rigor)}
-        color={scored ? scoreHex(maturity.rigor) : undefined}
-        href={orgSlug ? `/org/${orgSlug}/delivery` : undefined}
-      />
-      {/* Direction 2 — the caption comes from the ONE composer (G12). This slot hand-rolled
-          "vs {corpusRepos} repos", so a SUPPRESSED percentile over a 1-repo corpus rendered
-          "— / vs 1 repos" in a headline slot with the org's name above it: the exact copy UAT
-          DANA-L1-011 rejected. That finding was marked resolved after the PDF was fixed and
-          inspected; the HTML tile it also described was never looked at. */}
-      <Tile
-        label="Corpus percentile"
-        value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"}
-        sub={benchmarkCaption(benchmark)}
-        color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined}
-        href={orgSlug ? "/leaderboard" : undefined}
-      />
-    </div>
-  );
-}
 
 /**
  * The side-by-side "Strengths" / "Weakest dimensions" pair.

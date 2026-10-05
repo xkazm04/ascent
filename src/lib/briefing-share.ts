@@ -194,6 +194,12 @@ export function briefingFigureDigest(b: ExecBriefing): string {
     // falsehood by the one mechanism that exists to prevent exactly that.
     b.realScoredCount, b.mockCount,
     b.periodDelta, b.adoptionRate, b.regressionCount,
+    // The delta's QUALIFIERS are figures too, and they are rendered beside it on this very page. A
+    // briefing whose matched cohort shrank, or that onboarded repositories since the link was sent,
+    // is a CHANGED briefing even when every score held: a recipient told "figures unchanged since this
+    // link was created" over a re-based delta is told a falsehood by the one mechanism built to
+    // prevent exactly that.
+    b.periodMovement ? [b.periodMovement.cohortSize, b.periodMovement.onboarded, b.periodMovement.departed] : null,
     b.movement.up, b.movement.down, b.movement.compared,
     b.valueRealized.recsEngaged, b.valueRealized.recsActioned, b.valueRealized.pointsMoved, b.valueRealized.reposPromoted,
     b.benchmark ? [b.benchmark.percentile, b.benchmark.corpusRepos, b.benchmark.corpusAvgOverall,
