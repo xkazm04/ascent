@@ -117,7 +117,12 @@ function agentLines(text: string): { id: string; kind: string; entrypoint: strin
  * `buildManifestReadout` fills it in at compose time. Never throws: a malformed manifest yields
  * `status: "unreadable"` with a note, and a malformed manifest must never fail a scan.
  */
-export function readManifestYaml(text: string | undefined): ManifestReadout {
+export function readManifestYaml(raw: string | undefined): ManifestReadout {
+  // CRLF → LF before any line-anchored read. A Windows checkout with `core.autocrlf` hands this reader
+  // `\r\n`, and every `$`-anchored line pattern below then misses: measured 2026-10-05, a manifest whose
+  // `ciHardPass` resolved to two rungs from `git show` resolved to NONE from the same file on disk, so
+  // the loop's guard read a repository's declared gate as absent.
+  const text = raw?.replace(/\r\n?/g, "\n");
   const notes: string[] = [];
   const note = (s: string) => {
     if (notes.length < MAX_NOTES) notes.push(s);

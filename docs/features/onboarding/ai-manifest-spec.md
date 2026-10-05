@@ -301,6 +301,12 @@ a *readout* — display-only, never scored beyond the two long-standing D1 award
 an LLM prompt. This is what completes principle 7: the repo declares, its own doctor proves, and the
 proof is then legible outside the repo without any of it being re-derived by a vendor.
 
+**Line endings are not part of the format (2026-10-05).** The reader (`readManifestYaml`,
+`src/lib/standard/read.ts`) normalizes CRLF to LF before any line-anchored read. A Windows checkout
+with `core.autocrlf` hands it `
+`; before this, every capability and control line missed, so a
+declared `ciHardPass` gate read as absent from disk while the same file from `git show` resolved.
+
 What a conformant reader takes from the file:
 
 | Read | From | Rule |
