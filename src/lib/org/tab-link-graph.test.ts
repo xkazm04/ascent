@@ -88,9 +88,10 @@ const DESIGNED_DEAD_ENDS = new Set(["followups"]);
  *  8 by ADR-0001 T2's "Repository admission" link (the credit-ceiling setup card links to
  *  `governance`), which drops `governance` out of the list. */
 const NO_INBOUND = ["digest", "tech-stacks", "passports", "lessons", "security", "memory", "members", "audit"];
-/** Tabs that link to no sibling, beyond the designed dead ends. Measured 2026-09-19: 7 (`lessons`
- *  replaces `surfaces`, which gained an outbound link since). */
-const NO_OUTBOUND = ["lessons", "security", "practices", "skills", "memory", "members", "audit"];
+/** Tabs that link to no sibling, beyond the designed dead ends. Measured 2026-10-05: 6 (`lessons`
+ *  replaced `surfaces`, which gained an outbound link; `practices` then gained one too - the sync
+ *  strip's `registry` link added by d4552ffb, which left this pin stale and this suite red). */
+const NO_OUTBOUND = ["lessons", "security", "skills", "memory", "members", "audit"];
 
 /**
  * Non-literal helper calls, each one a decision rather than an edge. Overview's Fix-first slot links
