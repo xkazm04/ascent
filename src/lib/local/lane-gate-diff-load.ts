@@ -68,10 +68,12 @@ export async function readGateDiffEvidence(args: {
       out.addedText = addedText;
     }
 
-    // The ladder is read for a guidance edit (did the command change?) and for an ADDED gate script
-    // (does either side's command run it?). Only the guidance files are swapped for `before`'s text.
+    // The ladder is read for a guidance edit (did the command change?) and for ANY changed gate script —
+    // added, modified or deleted — (does either side's command run it?). Reading it only for an added
+    // one left a modified, unreferenced script "could not be read" and voided (measured 2026-10-05).
+    // Only the guidance files are swapped for `before`'s text.
     const guidance = changedPaths.filter(needsVerifyLadder);
-    const addedScript = changedPaths.some((p) => statuses[p] === "A" && isAddedGateScriptCandidate(p));
+    const addedScript = changedPaths.some((p) => isAddedGateScriptCandidate(p));
     if (guidance.length > 0 || addedScript) out.verifyLadder = await ladderAcross(git, dir, before, guidance, statuses);
 
     // A changed (or first) declared gate is run on the committed tree, rung by rung, until one passes.

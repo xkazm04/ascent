@@ -75,9 +75,19 @@ describe("A — an ADDED gate script over a real lane commit", () => {
     expect(verdict.reason).toContain("runs it");
   });
 
-  it("a modified existing tools/check.mjs is void", async () => {
-    const { verdict } = await laneOver(
+  it("a modified tools/check.mjs that the `dotnet test` ladder never runs is NOT void (the ladder is read for it)", async () => {
+    // Measured 2026-10-05: the ladder was read only for an ADDED script, so this was "could not be read".
+    const { verdict, evidence } = await laneOver(
       { "AGENTS.md": "Run `dotnet test x/y` before pushing.\n", "tools/check.mjs": "a();\n" },
+      { "tools/check.mjs": "b();\n" },
+    );
+    expect(evidence.verifyLadder).toBeDefined();
+    expect(verdict.void).toBe(false);
+  });
+
+  it("a modified tools/check.mjs that the declared ladder RUNS is void", async () => {
+    const { verdict } = await laneOver(
+      { ".ai/manifest.yaml": manifest("node tools/check.mjs"), "tools/check.mjs": "a();\n" },
       { "tools/check.mjs": "b();\n" },
     );
     expect(verdict.void).toBe(true);
