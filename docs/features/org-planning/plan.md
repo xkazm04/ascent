@@ -94,6 +94,32 @@ Documented in [org-intelligence.md](../org-dashboard/org-intelligence.md) (W1c).
 
 ## Executive briefing, live wall, playbooks
 
+**The briefing's period delta is cohort-matched (2026-10-05).** `ExecBriefing.periodDelta` and
+`valueRealized.pointsMoved` are `rollup.movement.overall`: movement measured only over repositories
+scanned on **both** sides of the window, the same figure the Overview standing strip and the weekly
+digest already print for that window. They used to be `avgOverall - baseline.avgOverall`, a difference
+of two differently-populated means, so onboarding five low-scoring repositories mid-quarter reported a
+fleet that slipped by an amount no repository experienced (and onboarding strong ones manufactured a
+climb nobody earned), while the movers panel below the headline correctly showed zero regressions. Both
+figures are **null, never 0**, when no repository has a scan on both sides: the tiles then drop the
+delta badge, because a delta over an empty cohort is not a measurement.
+
+`ExecBriefing.periodMovement` carries that delta's qualifiers onto the briefing straight off
+`rollup.movement`: `cohortSize` (the matched denominator) plus the composition change the matching
+excluded (`onboarded` / `departed`). One composer writes the sentence, `periodDeltaCaption`
+(`src/lib/org/briefingMovement.ts`), and all four renderers read it: the Briefing tab's headline tiles
+(`BriefingDeltaCaption`, mounted by `BriefingTilesBlock`), the board PDF, the "Copy for LLM" markdown
+and the public share page. A composition clause appears only when something was excluded, never as
+"0 onboarded". The value-realized line names the same cohort as the points figure's basis rather than
+the live-scored set, which is a different (larger) denominator.
+
+Two consequences worth knowing. `priorPeriod` is still a whole-fleet end-state comparison, so when its
+`realScoredCount` differs from the briefing's, `PriorPeriodGrid` labels the block a **standing
+comparison, not movement**, carrying both denominators (`priorPeriodBasisNote`); equal denominators
+print nothing extra. And `briefingFigureDigest` now projects `cohortSize` / `onboarded` / `departed`,
+so a share link whose cohort changed under held scores reports "figures moved" instead of claiming the
+figures are unchanged. Already-issued links report that once, which is the safe direction.
+
 Unchanged by the retirement and documented where they live: the briefing and its PDF in
 [org-intelligence.md](../org-dashboard/org-intelligence.md); playbooks in
 [practices.md](../org-dashboard/practices.md); the live wall — and the loop cockpit that now fronts
