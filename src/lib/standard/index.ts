@@ -53,7 +53,14 @@ export function buildStandardFiles(report: ScanReport): GeneratedFile[] {
  * personalized onboarding skill (same scan, same tracks as `GET /api/report/skill`). The skill is a
  * LATER file so a pre-existing `.claude/skills/ascent-onboard/SKILL.md` 409-skips instead of aborting
  * the install. Spine collision on files[0] still means "already installed".
+ *
+ * The skill is rendered in Step 0 `reference` mode here, and ONLY here. In this lane the `.ai/` files
+ * land in the same commit series, so embedding their bodies in the skill shipped a verbatim second
+ * copy of every file the PR already carried (the doctor alone is ~30KB) - two authorities for one
+ * fact, which is the very thing the standard's principle 2 forbids. Reference mode points at the
+ * files instead. The markdown download keeps `embed`, because there it is the only copy the adopter
+ * gets. Reverting THIS call site restores the old byte-for-byte output.
  */
 export function buildFoundation(report: ScanReport): GeneratedFile[] {
-  return [...buildStandardFiles(report), buildOnboardingSkillFile(report)];
+  return [...buildStandardFiles(report), buildOnboardingSkillFile(report, undefined, "reference")];
 }
