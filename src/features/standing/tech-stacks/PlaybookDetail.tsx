@@ -9,6 +9,7 @@ import { ChangeTag, CoverageChip } from "@/features/standing/tech-stacks/analysi
 import { coverageOf, type DimInsight } from "@/features/standing/tech-stacks/fleetAnalysis";
 import type { AnalysisScope } from "@/features/standing/tech-stacks/analysisScope";
 import { buildPlaybook } from "@/features/standing/tech-stacks/transferPlaybook";
+import { buildUrl } from "@/lib/org/orgTabs";
 
 function Handoff({ href, children }: { href: string; children: React.ReactNode }) {
   return (
@@ -86,9 +87,10 @@ export function PlaybookDetail({ org, d, scope }: { org: string; d: DimInsight; 
             ))}
           </ul>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            {/* The gaps behind this playbook live in the Follow-ups ledger, where a batch becomes a
-                fix prompt (initiatives and the Plan tab were retired 2026-08-17). */}
-            <Handoff href={`/org/${org}?tab=followups&dim=${d.dimId}`}>work the {d.dimId} gaps in Follow-ups →</Handoff>
+            {/* The gaps behind this playbook live in the Proposals worklist, where a batch becomes a
+                fix prompt. Written against `proposals`, not the `followups` alias, so the link-graph
+                counts the edge (ADR 2026-09-14 §2); `dim` seeds the worklist's Dimension filter. */}
+            <Handoff href={buildUrl(org, { tab: "proposals", dim: d.dimId }, "")}>work the {d.dimId} gaps in Proposals →</Handoff>
           </div>
         </div>
       </div>

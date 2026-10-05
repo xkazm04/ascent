@@ -9,6 +9,8 @@
 
 import { resolveOrgScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { getTheme } from "@/lib/theme/server";
 import { DeliveryTabV1 } from "./DeliveryTab.v1";
 import { DeliveryTabV2 } from "./DeliveryTab.v2";
@@ -25,5 +27,10 @@ export async function DeliveryTab({ slug, sp }: { slug: string; sp: SearchParams
   // into Delivery instead of each tab inventing its own range.
   const [period, theme] = await Promise.all([resolveOrgWindow(sp), getTheme()]);
   const props = { slug, scope, period };
-  return theme === "prism" ? <DeliveryTabV2 {...props} /> : <DeliveryTabV1 {...props} />;
+  return (
+    <>
+      {theme === "prism" ? <DeliveryTabV2 {...props} /> : <DeliveryTabV1 {...props} />}
+      <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
+    </>
+  );
 }

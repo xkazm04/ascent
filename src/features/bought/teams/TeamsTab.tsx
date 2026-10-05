@@ -8,6 +8,8 @@
 
 import { Suspense } from "react";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { TeamsRollupPanel } from "./TeamsRollupPanel";
 
 export async function TeamsTab({ slug, sp }: { slug: string; sp: { [key: string]: string | string[] | undefined } }) {
@@ -16,6 +18,7 @@ export async function TeamsTab({ slug, sp }: { slug: string; sp: { [key: string]
       <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
         <TeamsRollupPanel slug={slug} sp={sp} />
       </Suspense>
+      <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </div>
   );
 }

@@ -10,6 +10,8 @@
 
 import { Suspense } from "react";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { AdoptionOverviewPanel } from "./AdoptionOverviewPanel";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -20,6 +22,7 @@ export async function AdoptionTab({ slug, sp }: { slug: string; sp: SearchParams
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
         <AdoptionOverviewPanel slug={slug} sp={sp} />
       </Suspense>
+      <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </div>
   );
 }

@@ -8,6 +8,8 @@
 
 import { Suspense } from "react";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { getTheme } from "@/lib/theme/server";
 import { GovernancePanel } from "./GovernancePanel";
 
@@ -16,8 +18,11 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 export async function GovernanceTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   const theme = await getTheme();
   return (
-    <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-      <GovernancePanel slug={slug} sp={sp} theme={theme} />
-    </Suspense>
+    <>
+      <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
+        <GovernancePanel slug={slug} sp={sp} theme={theme} />
+      </Suspense>
+      <NextMoveLink href={orgTabHref(slug, "proposals")} to="proposals" />
+    </>
   );
 }

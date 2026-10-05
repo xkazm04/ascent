@@ -91,6 +91,13 @@ module is busiest, so the test lists it as a conditional link rather than a perm
 removing a sibling link fails the test. To make it pass, update the pinned list, and that edit is
 where the count visibly changes.
 
+**Next-move links (org path of use, wave 1a, 2026-10-05).** Each Read and Measure tab ends on one
+named onward link, `<NextMoveLink>` (`src/components/org/shared/`), e.g. "Next: Read - Overview": Tech Stacks,
+Security and Governance go to Proposals; Briefing, Weekly digest, Adoption, Delivery, Contributors and Teams
+go back to Overview. The target is each tab's `nextMoveFor` in `src/lib/org/orgJourney.ts`, written
+as a literal `orgTabHref` so the graph counts it. Tech Stacks' and Delivery's dimension drill-ins now link to
+`proposals` (keeping `dim`) instead of the `followups` alias. The remaining stages follow in later waves.
+
 ### The transition programme (W1c, 2026-08-14)
 
 The org's **named, dated commitment**: one row per org (`TransitionProgram`, `orgId` unique),

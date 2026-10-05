@@ -10,6 +10,8 @@ import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { ContributorsInsightsPanel } from "./ContributorsInsightsPanel";
 import { ContributorsCareSection } from "./ContributorsCareSection";
 import { resolveViewerLogin } from "@/lib/access";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -28,6 +30,7 @@ export async function ContributorsTab({ slug, sp }: { slug: string; sp: SearchPa
       <Suspense fallback={null}>
         <ContributorsCareSection slug={slug} />
       </Suspense>
+      <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </div>
   );
 }

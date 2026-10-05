@@ -18,6 +18,7 @@ import { TechStacksAnalysisPanel } from "./TechStacksAnalysisPanel";
 import { DIMS, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { listTechStackGroups } from "@/lib/db";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export async function TechStacksTab({ slug }: { slug: string }) {
@@ -40,6 +41,7 @@ export async function TechStacksTab({ slug }: { slug: string }) {
           <TechStacksAnalysisPanel slug={slug} />
         </Suspense>
       </div>
+      <NextMoveLink href={orgTabHref(slug, "proposals")} to="proposals" />
     </div>
   );
 }

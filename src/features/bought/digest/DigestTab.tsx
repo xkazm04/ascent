@@ -18,6 +18,7 @@ import { weeklyDigestMarkdown } from "@/lib/org/digest-markdown";
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { chipButtonClass } from "@/components/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { DigestHeadline } from "./DigestHeadline";
 import { DigestDimensions } from "./DigestDimensions";
@@ -103,6 +104,7 @@ export async function DigestTab({ slug, sp }: { slug: string; sp: SearchParams }
           <p key={note}>{note}</p>
         ))}
       </div>
+      <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </div>
   );
 }

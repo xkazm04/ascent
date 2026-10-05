@@ -28,6 +28,8 @@ import { resolveStackScope } from "@/lib/org/scope";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { scoreHex } from "@/lib/ui";
 import { chipButtonClass } from "@/components/ui";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -162,6 +164,7 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
         {/* The grid says which controls fail; this is where you decide what to do about each one. */}
         <SecurityFindings org={slug} rows={sec.register} decisions={decisions} />
       </Card>
+      <NextMoveLink href={orgTabHref(slug, "proposals")} to="proposals" />
     </div>
   );
 }

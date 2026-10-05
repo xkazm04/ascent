@@ -12,6 +12,8 @@ import { resolveStackScope } from "@/lib/org/scope";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { getTheme } from "@/lib/theme/server";
 import { executiveV1 } from "./ExecutiveTab.v1";
 import { executiveV2, executiveEmptyV2 } from "./ExecutiveTab.v2";
@@ -55,5 +57,10 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
     md: briefingMarkdown(briefing),
     impact, program, canShare, branding, canBrand,
   };
-  return theme === "prism" ? executiveV2(view) : executiveV1(view);
+  return (
+    <>
+      {theme === "prism" ? executiveV2(view) : executiveV1(view)}
+      <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
+    </>
+  );
 }

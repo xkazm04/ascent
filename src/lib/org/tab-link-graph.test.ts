@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
-import { ORG_TAB_IDS, ORG_TABS_NOT_IN_NAV } from "./orgTabs";
+import { nextMoveFor, ORG_TAB_STAGE } from "./orgJourney";
+import { ORG_TAB_IDS, ORG_TABS_NOT_IN_NAV, type OrgTabId } from "./orgTabs";
 import { buildTabLinkGraph, extractTabLinks, owningTab, stripComments, type SourceFile } from "./tab-link-graph";
 
 const IDS: readonly string[] = ORG_TAB_IDS;
@@ -86,12 +87,14 @@ const DESIGNED_DEAD_ENDS = new Set(["followups"]);
 /** Tabs whose only entrance is the rail. Measured 2026-09-19 on master 9cfc541c2: 9 (`lessons`, newly
  *  added and not yet cross-linked, replaces `registry`, which gained a sibling link since); shrunk to
  *  8 by ADR-0001 T2's "Repository admission" link (the credit-ceiling setup card links to
- *  `governance`), which drops `governance` out of the list. */
+ *  `governance`), which drops `governance` out of the list. Org-path-of-use wave 1a: 8 -> 8 - its
+ *  links point at `overview` and `proposals`, and neither is a member. */
 const NO_INBOUND = ["digest", "tech-stacks", "passports", "lessons", "security", "memory", "members", "audit"];
 /** Tabs that link to no sibling, beyond the designed dead ends. Measured 2026-10-05: 6 (`lessons`
  *  replaced `surfaces`, which gained an outbound link; `practices` then gained one too - the sync
- *  strip's `registry` link added by d4552ffb, which left this pin stale and this suite red). */
-const NO_OUTBOUND = ["lessons", "security", "skills", "memory", "members", "audit"];
+ *  strip's `registry` link added by d4552ffb, which left this pin stale and this suite red). Shrunk to
+ *  5 by org-path-of-use wave 1a: the Read-stage next-move link to `proposals` drops `security`. */
+const NO_OUTBOUND = ["lessons", "skills", "memory", "members", "audit"];
 
 /**
  * Non-literal helper calls, each one a decision rather than an edge. Overview's Fix-first slot links
@@ -140,5 +143,49 @@ describe("the org cross-tab link graph", () => {
     expect(noInbound).toHaveLength(NO_INBOUND.length - 1);
     expect(noOutbound).not.toContain("audit");
     expect(noOutbound).toHaveLength(NO_OUTBOUND.length - 1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Org path of use, journey B (docs/adr/2026-09-14-org-path-of-use.md): every tab in a wave's stages
+// carries a link to its next move. The set is DERIVED from orgJourney, so a later wave widens it by
+// adding a stage to WAVE_STAGES, not by listing tabs.
+// ---------------------------------------------------------------------------------------------
+
+/** Wave 1a: the returning loop's Read and Measure stages. Add `decide`, `apply`, `scan`, `connect` later. */
+const WAVE_STAGES = new Set(["read", "measure"]);
+
+describe("journey next moves", () => {
+  const tree = readTree();
+  const graph = gaps(tree).graph;
+  const waveTabs = (Object.keys(ORG_TAB_STAGE) as OrgTabId[]).filter((id) => WAVE_STAGES.has(ORG_TAB_STAGE[id]!));
+
+  it("covers the ten Read and Measure tabs", () => {
+    expect(waveTabs).toHaveLength(10);
+  });
+
+  it.each(waveTabs)("%s links to its next move", (tab) => {
+    const target = nextMoveFor(tab);
+    expect(target).toBeDefined();
+    expect(graph.outbound[tab]).toContain(target);
+  });
+
+  // The edge alone is not enough for a tab with a second route to the same target: Tech Stacks' playbook
+  // drill-in also lands on `proposals` (dim-scoped), so removing the next-move link would leave the
+  // edge standing and the graph silent. Overview's own link predates NextMoveLink (verify-only).
+  const PREDATES_NEXT_MOVE_LINK = new Set<string>(["overview"]);
+  it.each(waveTabs.filter((t) => !PREDATES_NEXT_MOVE_LINK.has(t)))("%s renders a NextMoveLink to its next move", (tab) => {
+    const target = nextMoveFor(tab);
+    const rendered = tree.some(
+      (f) =>
+        owningTab(f.path, IDS) === tab &&
+        stripComments(f.source).includes(`<NextMoveLink href={orgTabHref(slug, "${target}")} to="${target}" />`),
+    );
+    expect(rendered).toBe(true);
+  });
+
+  it("a tab missing its link is noticed: seed the Measure tabs without theirs", () => {
+    const stripped = tree.filter((f) => owningTab(f.path, IDS) !== "teams");
+    expect(buildTabLinkGraph(stripped, IDS).outbound.teams).not.toContain("overview");
   });
 });
