@@ -37,6 +37,13 @@ describe("parseAgentEnvelope — the failure summary carries the CLI's words on 
     expect(parseAgentEnvelope("", { ...opts, stderr: "" }).summary).toBe("Agent exited (1) without a JSON envelope: (no output)");
   });
 
+  it("keeps the FULL result text beside the capped summary — a parser must see the message's tail", () => {
+    const long = "a".repeat(6_000) + "TAIL";
+    const env = parseAgentEnvelope(JSON.stringify({ result: long, is_error: false }), opts);
+    expect(env.summary).toHaveLength(4_000);
+    expect(env.resultText?.endsWith("TAIL")).toBe(true);
+  });
+
   it("leaves a successful envelope untouched", () => {
     const env = parseAgentEnvelope(JSON.stringify({ result: "done", is_error: false }), { ...opts, errorHint: "ignored" });
     expect(env).toMatchObject({ ok: true, summary: "done" });

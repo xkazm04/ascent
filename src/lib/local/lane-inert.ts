@@ -114,3 +114,24 @@ export function isInertPath(path: string): boolean {
 export function allInert(paths: readonly string[] | null | undefined): boolean {
   return Array.isArray(paths) && paths.length > 0 && paths.every((p) => isInertPath(p));
 }
+
+/**
+ * ISOLATED: a path no existing build, test or lint can reach even when it is code — the agent-facing
+ * declaration trees (`.ai/`, `.github/`, `.claude/{skills,agents,commands}/`) plus everything inert.
+ * Meaningful ONLY for a file the diff ADDED (an install never overwrites): a NEW script under `.ai/` is
+ * imported by nothing that exists, and a NEW workflow adds a CI job without touching an existing check.
+ * A modified file under the same trees is not isolated (an existing workflow IS a gate). Hooks
+ * directories and `.claude/settings*.json` execute code on every session and are never isolated.
+ */
+export function isIsolatedPath(path: string): boolean {
+  if (isInertPath(path)) return true;
+  const segs = path.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase().split("/").filter(Boolean);
+  if (segs.length < 2 || segs.slice(0, -1).includes("hooks")) return false;
+  if (segs[0] === ".ai" || segs[0] === ".github") return true;
+  return segs[0] === ".claude" && ["skills", "agents", "commands"].includes(segs[1]!);
+}
+
+/** True when there is at least one path and every one is isolated. Callers pass ADDED paths only. */
+export function allIsolated(paths: readonly string[] | null | undefined): boolean {
+  return Array.isArray(paths) && paths.length > 0 && paths.every((p) => isIsolatedPath(p));
+}

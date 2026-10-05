@@ -26,10 +26,17 @@ export const MICROS_PER_USD = 100 * 1_000_000;
  *  two, never a transcript in a DB column. */
 export const ERROR_TEXT_MAX = 2_048;
 
+/** The ceiling on `AgentEnvelope.resultText`: the plan contract's own block cap with room for prose. */
+export const RESULT_TEXT_MAX = 256 * 1024;
+
 export interface AgentEnvelope {
   ok: boolean;
   /** The session's final text (`.result`), or the failure reason — unchanged from the old behaviour. */
   summary: string;
+  /** The session's FULL final text on success, bounded at `RESULT_TEXT_MAX`; absent on a failure.
+   *  `summary` stays capped for the lane log and the row; a consumer that PARSES the answer (the
+   *  planner's contract block) reads this one, because the block sits at the END of the message. */
+  resultText?: string;
   /** The model the envelope itself reported, else the one we asked for. Never invented. */
   model: string | null;
   /** MICRO-CENTS. `null` when the envelope carried no finite `total_cost_usd`; that is not 0. */
@@ -158,7 +165,10 @@ export function parseAgentEnvelope(raw: string, opts: ParseEnvelopeOptions): Age
     const reason = str(result) ?? errorWordsOf(env) ?? str(opts.errorHint) ?? opts.stderr;
     return { ...measured, ok: false, summary: `Agent error (${subtype}): ${reason.trimStart().slice(0, 500)}` };
   }
-  return { ...measured, ok: true, summary: result.slice(0, 4_000) };
+  // `summary` is a log line; `resultText` is the answer. Measured 2026-10-05: a planning session's
+  // contract block sat past character 4,000 on every detailed plan, so the cut summary never closed
+  // its fence and every plan read as unreadable — every item parked as an architecture move.
+  return { ...measured, ok: true, summary: result.slice(0, 4_000), resultText: result.slice(0, RESULT_TEXT_MAX) };
 }
 
 /** The raw text as an envelope object, or null when it is not one. Never throws. */

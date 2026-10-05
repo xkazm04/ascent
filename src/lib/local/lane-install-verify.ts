@@ -92,7 +92,7 @@ export async function verifyInstall(
   },
 ): Promise<GuardOutcome> {
   await updateLane(io.laneId, { stage: "verifying" });
-  const outcome = await io.stage("verify", () => verifyResult(io.dir, io.baseline, io.verifyMs, undefined, io.written));
+  const outcome = await io.stage("verify", () => verifyResult(io.dir, io.baseline, io.verifyMs, undefined, io.written, { allAdded: true }));
   await updateLane(io.laneId, {
     stage: null,
     verifyVerdict: outcome.verdict,

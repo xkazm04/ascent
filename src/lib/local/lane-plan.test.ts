@@ -137,6 +137,15 @@ describe("planLane", () => {
     expect(input.parked).toMatchObject({ cls: "major", clsReason: "unreadable", plan: null });
   });
 
+  it("parses the FULL answer when a long plan pushes the block past the 4,000-char log summary", async () => {
+    // Measured 2026-10-05: every detailed plan's contract block started past char 4,000, so the capped
+    // summary never closed its fence and every item parked as an architecture move.
+    const long = "x".repeat(5_000) + "\n" + planText({});
+    const res = await run(() => ({ ok: true, summary: long.slice(0, 4_000), resultText: long })).outcome;
+    if (res.mode !== "execute") throw new Error(res.mode);
+    expect(res.execute.map((i) => i.id)).toEqual(["rec-a", "rec-b"]);
+  });
+
   it("a plan left in the CLI's plan file is recovered by ONE repair turn on the resumed session", async () => {
     // Measured 2026-10-05: under plan mode the final message only pointed at ~/.claude/plans/….md.
     const { outcome, calls } = run((o) =>

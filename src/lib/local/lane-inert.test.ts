@@ -3,7 +3,7 @@
 // happen, which is why each is pinned.
 
 import { describe, expect, it } from "vitest";
-import { allInert, isInertPath } from "@/lib/local/lane-inert";
+import { allInert, allIsolated, isInertPath, isIsolatedPath } from "@/lib/local/lane-inert";
 
 describe("isInertPath — documentation and declarations", () => {
   it.each([
@@ -101,4 +101,19 @@ describe("allInert", () => {
     expect(allInert(["README.md", ".github/pull_request_template.md", ".ai/manifest.yaml"])).toBe(true);
     expect(allInert(["README.md", ".github/workflows/ci.yml"])).toBe(false);
   });
+});
+
+describe("isIsolatedPath — new files nothing existing can reach", () => {
+  it.each([
+    [".ai/doctor.mjs", true],
+    [".github/workflows/ai-conformance.yml", true],
+    [".claude/skills/onboard/SKILL.md", true],
+    [".claude/settings.json", false],
+    [".claude/hooks/pre.mjs", false],
+    [".ai/hooks/run.mjs", false],
+    ["src/ai/doctor.ts", false],
+    ["Assets/Scripts/New.cs", false],
+    ["README.md", true],
+  ])("%s → %s", (p, want) => expect(isIsolatedPath(p)).toBe(want));
+  it("allIsolated is false on an empty list", () => expect(allIsolated([])).toBe(false));
 });

@@ -226,7 +226,8 @@ export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
     return { mode: "failed", message: PLAN_WROTE_MESSAGE };
   }
 
-  const text = result.summary ?? "";
+  // Parse the FULL answer, not the 4,000-character log summary: the contract block is the message's tail.
+  let text = result.resultText ?? result.summary ?? "";
   let plan = parsePlan(text);
   if (!result.ok && !plan) return { mode: "failed", message: `The planning session failed: ${firstLine(result.errorText || text)}` };
   // ONE REPAIR TURN when the session planned but did not end with the contract's block. Measured
@@ -250,7 +251,13 @@ export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
       await restoreWorktree(worktree, headBefore);
       return { mode: "failed", message: PLAN_WROTE_MESSAGE };
     }
-    plan = repaired ? parsePlan(repaired.summary ?? "") : null;
+    plan = repaired ? parsePlan(repaired.resultText ?? repaired.summary ?? "") : null;
+    // The repair turn's own words go on the row too: a second miss must be diagnosable from the ledger
+    // (which bound the block broke, or that the turn never answered), not only from a transcript.
+    text = `${text}
+
+--- repair turn${repaired?.ok === false ? " (failed)" : ""} ---
+${repaired?.summary ?? repaired?.errorText ?? "(no answer)"}`;
   }
 
   const directions = await loadDirections(org, repo);

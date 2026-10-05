@@ -28,7 +28,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { runGit } from "@/lib/local/git";
-import { allInert } from "@/lib/local/lane-inert";
+import { allInert, allIsolated } from "@/lib/local/lane-inert";
 import { detectToolchainChecks, type ToolchainCheck } from "@/lib/local/lane-toolchain";
 import {
   VERIFY_GUIDANCE_PATHS,
@@ -322,10 +322,16 @@ export async function verifyResult(
   timeoutMs: number,
   overrides: Partial<GuardDeps> = {},
   changedPaths?: readonly string[],
+  /** Every changed path was ADDED (an install never overwrites) — licenses the isolated reading. */
+  opts: { allAdded?: boolean } = {},
 ): Promise<GuardOutcome> {
+  const isolated = opts.allAdded === true && allIsolated(changedPaths);
   if (!baseline.resolved || baseline.passed == null) {
     if (allInert(changedPaths)) {
       return verifiedByConstruction(changedPaths!, "this repository declares no check the loop could resolve, so there was none to run");
+    }
+    if (isolated) {
+      return verifiedByConstruction(changedPaths!, "this repository declares no check the loop could resolve, so there was none to run", "added");
     }
     return {
       verdict: "skipped",
@@ -344,10 +350,11 @@ export async function verifyResult(
   // case where nothing extra may be said.
   const caveat = baseline.narrowedFrom ? narrowedCaveat(baseline.resolved, baseline.narrowedFrom) : null;
   if (!baseline.passed) {
-    if (allInert(changedPaths)) {
+    if (allInert(changedPaths) || isolated) {
       return verifiedByConstruction(
         changedPaths!,
         `\`${command}\` (from ${source}) did not pass on the pristine lane worktree, so there was no baseline to compare against here`,
+        allInert(changedPaths) ? "inert" : "added",
       );
     }
     // WHAT THIS NOTE MAY AND MAY NOT SAY. It may say the command did not pass on the pristine lane
@@ -429,16 +436,20 @@ const MAX_NAMED_PATHS = 5;
  * and `rung` are null because NOTHING RAN — the note leads with "Verified by construction" so no
  * reader takes it for a measured pass, and it says why the repository's own checks were not run.
  */
-function verifiedByConstruction(paths: readonly string[], whyNotRun: string): GuardOutcome {
+function verifiedByConstruction(paths: readonly string[], whyNotRun: string, how: "inert" | "added" = "inert"): GuardOutcome {
   const named = paths.slice(0, MAX_NAMED_PATHS).map((p) => `\`${p}\``).join(", ");
   const more = paths.length - MAX_NAMED_PATHS;
+  const what =
+    how === "inert"
+      ? "every changed path is documentation or a declaration that no build, test, lint or CI step reads"
+      : "every changed path is a NEW file in an agent-facing tree (`.ai/`, `.github/`, `.claude/` skills) that nothing existing imports or runs";
   return {
     verdict: "verified",
     command: null,
     rung: null,
     note:
-      `Verified by construction: every changed path is documentation or a declaration that no build, test, lint or CI step reads ` +
-      `(${named}${more > 0 ? ` +${more} more` : ""}), so this change cannot make the repository's checks worse. ` +
+      `Verified by construction: ${what} ` +
+      `(${named}${more > 0 ? ` +${more} more` : ""}), so this change cannot make the repository's existing checks worse. ` +
       `The repository's own checks were NOT run: ${whyNotRun}.`,
     reject: false,
   };

@@ -2329,11 +2329,24 @@ Two more fixes from the same campaign keep the runner honest about the branch it
   from (`refs/heads/ascent/runner` on a runner run), and checks the `.ai/` spine and practice starters
   there with `git cat-file -e`. Reading the checkout made a foundation landed on the runner branch
   invisible, so the same foundation lane armed every round and wrote nothing.
-- **An unreadable plan gets one repair turn.** Under `--permission-mode plan` the CLI hands the plan
-  to its own plan file and the final message only points at it, so a sound plan read as `unreadable`
-  and every item was parked as an architecture move. `planLane` now resumes the planning session once
-  with `PLAN_REPAIR_PROMPT` (the block alone, no investigation, 5-minute ceiling), re-takes the
-  clean-tree proof, and a second miss stays `unreadable`.
+- **The planner parses the FULL answer.** Every agent result was cut to 4,000 characters
+  (`agent-envelope.ts`, the lane-log `summary`), and the plan contract puts its block at the END of
+  the message. A detailed plan's block started past that point, so its fence never closed and every
+  item parked as an architecture move (three of three game repos, every planning lane). The envelope
+  now carries `resultText`, the full final text bounded at `RESULT_TEXT_MAX` (256 KB), and `planLane`
+  parses that; `summary` is unchanged for the log and the row. (The CLI's plan-file pointer in the
+  same messages looked like the cause and was not: a probe showed the block arrives in the message.)
+- **An unreadable plan still gets one repair turn.** `planLane` resumes the planning session once with
+  `PLAN_REPAIR_PROMPT` (the block alone, no investigation, 5-minute ceiling), re-takes the clean-tree
+  proof, and a second miss stays `unreadable`. The repair turn's answer is appended to `planText`, so
+  a second miss is diagnosable from the ledger.
+- **An install of new files in agent-facing trees is verified by construction.** When no check could
+  run, an install whose every file is NEW and under `.ai/`, `.github/` or `.claude/{skills,agents,
+  commands}/` (or inert) is `verified` with a note saying so (`isIsolatedPath`, `lane-inert.ts`). An
+  install never overwrites, so a new script under `.ai/` is imported by nothing that exists and a new
+  workflow adds a CI job without touching an existing check. Hooks directories and
+  `.claude/settings*.json` are never isolated, and a modified file under those trees is not either.
+  Measured: an Unreal repo with no runnable check could never land its foundation before this.
 
 #### Each iteration
 

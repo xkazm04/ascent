@@ -129,10 +129,25 @@ describe("an install lane", () => {
     expect(rescan).toHaveBeenCalledTimes(1);
   });
 
-  it("an install touching a NON-inert file on a no-check repo stays `skipped`", async () => {
-    install.mockImplementationOnce(async () => ({ ok: true, written: [".ai/doctor.mjs", "README.md"], skipped: [], committed: true, summary: "Installed 2 file(s)." }));
+  it("an install adding a file a build could reach (a source tree) on a no-check repo stays `skipped`", async () => {
+    install.mockImplementationOnce(async () => ({ ok: true, written: ["src/ai/doctor.ts", "README.md"], skipped: [], committed: true, summary: "Installed 2 file(s)." }));
     await run();
     expect(lastVerifyPatch()?.verifyVerdict).toBe("skipped");
+  });
+
+  it("an install of NEW files only in agent-facing trees is verified by construction (isolated, added)", async () => {
+    // Measured 2026-10-05: an Unreal repo with no runnable check could never land its foundation
+    // (`.ai/doctor.mjs`, a new workflow, a skill) — files no existing build imports or runs.
+    install.mockImplementationOnce(async () => ({
+      ok: true,
+      written: [".ai/doctor.mjs", ".ai/manifest.yaml", ".github/workflows/ai-conformance.yml", ".claude/skills/onboard/SKILL.md", "CONTEXT.md"],
+      skipped: [],
+      committed: true,
+      summary: "Installed 5 file(s).",
+    }));
+    await run();
+    expect(lastVerifyPatch()?.verifyVerdict).toBe("verified");
+    expect(String(lastVerifyPatch()?.verifyNote)).toMatch(/NEW file in an agent-facing tree/);
   });
 
   it("a REJECTED install resets the committed install, records the reversal, and does not rescan", async () => {
