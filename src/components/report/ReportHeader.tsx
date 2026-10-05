@@ -46,6 +46,8 @@ export function ReportHeader({
   onRetest,
   rescanning,
   installFoundation,
+  lastSeenHead,
+  freshnessWindowMs,
 }: {
   report: ScanReport;
   isMock: boolean;
@@ -56,6 +58,12 @@ export function ReportHeader({
    *  one-click ".ai/ foundation" install-PR button beside the skill download. The route re-checks
    *  access; this only spares everyone else a button that would 403. */
   installFoundation?: boolean;
+  /** The head this product LAST SAW for the repo, and the pipeline's own belief window - both
+   *  server-read on the permalink path and threaded straight to the freshness control, which turns
+   *  them into a stated tier and a drift clause. Absent on the live-scan path, where the control
+   *  renders its single muted line unchanged. */
+  lastSeenHead?: string | null;
+  freshnessWindowMs?: number | null;
 }) {
   const { repo } = report;
   const params = useSearchParams();
@@ -155,7 +163,13 @@ export function ReportHeader({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <FreshnessControl report={report} onRetest={onRetest} rescanning={rescanning} />
+          <FreshnessControl
+            report={report}
+            onRetest={onRetest}
+            rescanning={rescanning}
+            lastSeenHead={lastSeenHead}
+            freshnessWindowMs={freshnessWindowMs}
+          />
           {/* The durable address of the artifact the reader just waited for — first in the export row
               because it is the cheapest thing to hand over and the one the pricing page already sells
               (UAT SAM-L1-04, recurrence 3). Carries the level line, which is what the retired README

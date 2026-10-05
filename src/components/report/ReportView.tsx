@@ -42,6 +42,8 @@ export function ReportView({
   serverRecs,
   serverLifts,
   installFoundation,
+  lastSeenHead,
+  freshnessWindowMs,
 }: {
   report: ScanReport;
   onRetest?: () => void;
@@ -67,6 +69,10 @@ export function ReportView({
   /** Viewer is an org member of this non-public repo (the permalink path resolves it server-side) —
    *  forwarded to the header so the .ai/ foundation install-PR button can render. */
   installFoundation?: boolean;
+  /** Freshness provenance, server-read on the permalink path (see ReportHeader): the head last seen
+   *  for this repo and the belief window the scan pipeline enforces. Passed through untouched. */
+  lastSeenHead?: string | null;
+  freshnessWindowMs?: number | null;
 }) {
   const { repo } = report;
   const repoFull = `${repo.owner}/${repo.name}`;
@@ -219,6 +225,8 @@ export function ReportView({
         onRetest={onRetest}
         rescanning={rescanning}
         installFoundation={installFoundation}
+        lastSeenHead={lastSeenHead}
+        freshnessWindowMs={freshnessWindowMs}
       />
 
       {/* App Readiness Passport — the first thing seen: the two-axis trust scorecard for this codebase,

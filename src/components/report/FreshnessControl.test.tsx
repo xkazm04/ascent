@@ -83,3 +83,104 @@ describe("FreshnessControl Re-test — permalink stays on the durable path", () 
     expect(link.getAttribute("href")).not.toMatch(/[?&]repo=/);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Freshness as a STATE with a reason (challenge card 5). The control is the surface that publishes
+// the report's claim, so every tier must render and none may wear the fresh costume.
+
+const WEEK = 7 * 86_400_000;
+
+/** A report scanned `ms` ago, scored at `scoredSha`. */
+function aged(ms: number, scoredSha?: string): ScanReport {
+  return {
+    scannedAt: new Date(Date.now() - ms).toISOString(),
+    repo: { owner: "acme", name: "web", headSha: scoredSha },
+  } as unknown as ScanReport;
+}
+
+describe("FreshnessControl — a current reading renders today's muted line and nothing else", () => {
+  it("shows only Scanned 10m ago, with no reason and no drift clause", () => {
+    render(
+      <FreshnessControl report={aged(10 * 60_000, "abc1234")} lastSeenHead="abc1234" freshnessWindowMs={WEEK} />,
+    );
+    expect(screen.getByText("10m ago")).toBeInTheDocument();
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Scanned");
+    expect(text).not.toMatch(/last seen head/i);
+    expect(text).not.toMatch(/re-scans on/i);
+    expect(screen.getByRole("link", { name: "Re-test" })).toBeInTheDocument();
+  });
+
+  it("renders the same single line when no freshness props are threaded at all (live-scan path)", () => {
+    render(<FreshnessControl report={aged(10 * 60_000, "abc1234")} />);
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/re-scans on/i);
+    expect(text).not.toMatch(/last seen head/i);
+    expect(screen.getByRole("link", { name: "Re-test" })).toBeInTheDocument();
+  });
+});
+
+describe("FreshnessControl — a stale reading states its age in a non-muted tone, with the reason", () => {
+  it("states the reason and names the window the product re-scans on", () => {
+    render(<FreshnessControl report={aged(30 * 86_400_000, "abc1234")} lastSeenHead="abc1234" freshnessWindowMs={WEEK} />);
+    const reason = screen.getByTestId("freshness-reason");
+    expect(reason).toHaveTextContent(/7-day window/i);
+    expect(reason).toHaveTextContent(/re-scans on/i);
+    expect(reason.textContent ?? "").not.toContain("—");
+  });
+
+  it("drops the muted tone on the age itself", () => {
+    render(<FreshnessControl report={aged(30 * 86_400_000, "abc1234")} lastSeenHead="abc1234" freshnessWindowMs={WEEK} />);
+    const age = screen.getByTestId("freshness-age");
+    expect(age.className).not.toContain("text-slate-300");
+    expect(age.className).toMatch(/text-amber/);
+  });
+});
+
+describe("FreshnessControl — drift is stated as LAST SEEN, never as current", () => {
+  it("renders scored abc1234, last seen head def5678", () => {
+    render(<FreshnessControl report={aged(60_000, "abc1234")} lastSeenHead="def5678" freshnessWindowMs={WEEK} />);
+    const drift = screen.getByTestId("freshness-drift");
+    expect(drift).toHaveTextContent("scored abc1234");
+    expect(drift).toHaveTextContent("last seen head def5678");
+    expect(drift.textContent ?? "").not.toMatch(/current head/i);
+  });
+
+  it("renders no drift clause when the head hint was never recorded", () => {
+    render(<FreshnessControl report={aged(60_000, "abc1234")} lastSeenHead={null} freshnessWindowMs={WEEK} />);
+    expect(screen.queryByTestId("freshness-drift")).toBeNull();
+  });
+});
+
+describe("FreshnessControl — an unreadable scan date reads as unknown, not as fresh", () => {
+  it("states that no scan date was recorded", () => {
+    const report = { scannedAt: undefined, repo: { owner: "acme", name: "web" } } as unknown as ScanReport;
+    render(<FreshnessControl report={report} freshnessWindowMs={WEEK} />);
+    expect(screen.getByTestId("freshness-reason")).toHaveTextContent(/no recorded scan date/i);
+  });
+});
+
+describe("FreshnessControl — the one action stays one action", () => {
+  it("promotes the existing Re-test control and names what it would do, adding no second button", () => {
+    const onRetest = vi.fn();
+    render(
+      <FreshnessControl
+        report={aged(30 * 86_400_000, "abc1234")}
+        lastSeenHead="def5678"
+        freshnessWindowMs={WEEK}
+        onRetest={onRetest}
+      />,
+    );
+    const retest = screen.getByRole("button", { name: /refresh this reading/i });
+    expect(retest.className).toContain("text-accent");
+    // Exactly one affordance in the control itself (the confirm dialog's own buttons are mounted
+    // closed and carry their own names).
+    expect(screen.getAllByRole("button", { name: /re-test/i })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^scan /i })).toBeNull();
+  });
+
+  it("leaves the plain Re-test label on a current reading", () => {
+    render(<FreshnessControl report={aged(60_000, "abc1234")} lastSeenHead="abc1234" freshnessWindowMs={WEEK} onRetest={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Re-test" })).toBeInTheDocument();
+  });
+});
