@@ -157,6 +157,11 @@ write as the backstop.
   served instead of a dead end, mirroring `/api/scan`'s `x-ascent-stale` + `x-ascent-fallback=error`
   headers. Never on a client abort, never on a scoped scan, and never a private snapshot: the
   lifecycle decides, so the two entry points cannot disagree. "Re-test" still forces a re-score.
+- `joined`: `{ message }`, emitted the moment this connection ATTACHED to a run already under way
+  instead of starting one, followed by the `progress` frame that moves the bar off 0%. Two frames on
+  purpose: `joined` is the contract the client branches on to render its restored-work line, so the
+  copy can change without silently switching that UI off. Reachable from a plain RELOAD since the
+  linger window landed (see "Rejoining a live scan" below), not only from a second concurrent tab.
 - `error`: `{ error, code? }`.
 - A `: ping` comment is emitted every ~15s so idle proxies don't drop the connection.
   The stream respects client disconnect via an `AbortSignal`, cancelling in-flight fetches.
@@ -794,6 +799,43 @@ a shared scan never looks stalled to the second viewer. Abort is refcounted: the
 cancelled only when the last interested caller disconnects.
 A request arriving after that cancellation starts a new computation even if the old promise is
 still settling; the old run cannot evict the replacement when its cleanup finishes.
+
+### Rejoining a live scan (a reload does not pay for the scan twice)
+
+A reload closes the old SSE connection **strictly before** the new request opens, so the coalescer's
+refcount always passes through zero. That used to abort the shared run at that instant, which made the
+join path above unreachable from a reload: refresh `/report?repo=` four minutes into a six-minute scan
+and the whole run was discarded, then started again from zero. At the measured `claude-cli` median
+(360s) that is six more minutes of wall clock and a second inference bill for a page refresh.
+
+Two halves close it.
+
+**Server: a bounded linger window.** When the last waiter releases, `coalesceScan` no longer aborts; it
+schedules the abort `INFLIGHT_LINGER_MS` (**30s**, `src/lib/cache.ts`) later and leaves the entry
+joinable. A connection arriving inside the window cancels that timer and attaches to the run, is
+replayed the latest progress frame, and receives every frame after it. The window **always closes**: on
+expiry the run is aborted *and evicted*, so `inflightScanCount()` returns to zero and an abandoned tab
+cannot leak a six-minute scan. 30s is deliberately short for that reason - it covers a reload plus a
+slow page load and nothing longer. Setting the constant to 0 restores the old synchronous abort exactly.
+
+**Client: a resume anchor.** `src/components/report/scanResume.ts` keeps one `sessionStorage` slot
+naming the scan subject this tab started (repo, `fresh`, `ref`, `subPath` - a ref or a sub-path is a
+*different* scan, so it never matches) plus its real start time. TTL is `scanClientTimeoutMs()`: past
+the client's own give-up horizon there is nothing left to rejoin. A storage accessor that throws
+(private mode, blocked site data) reads as *no anchor*, so the degrade is an ordinary cold load.
+`useReportScan` writes the anchor at scan start, and on remount with a live anchor it **skips the cache
+peek** (which cannot hit - nothing is persisted mid-scan) and POSTs the stream directly. The anchor is
+cleared the moment the scan settles, success or failure, so the next visit cannot claim a rejoin of a
+run that no longer exists.
+
+**What the user sees.** The `joined` frame sets `resumed`, and the loading view renders a named
+restored-work line (`ScanResumeNotice`): the repo, how long the scan has really been running, and a
+**Start a fresh scan** control that retires the anchor and re-scores from scratch. The elapsed clock and
+the time-driven progress curve are anchored on the scan's real start, not on the new mount, so a rejoin
+does not reset to 0:00 and walk the bar backwards.
+
+One consequence worth stating: a run whose watchers all left keeps consuming inference for up to the
+window. That is the price of the rejoin, and it is what bounds the window's size.
 
 ## Key files
 

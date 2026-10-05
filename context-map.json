@@ -3065,7 +3065,11 @@
             "src/components/report/ReportNotices.dom.test.tsx",
             "src/components/report/ReportRescanBanner.dom.test.tsx",
             "src/components/report/ScoringTab.discovery.test.ts",
-            "src/components/report/useReportScan.dom.test.tsx"
+            "src/components/report/useReportScan.dom.test.tsx",
+            "src/components/report/scanResume.ts",
+            "src/components/report/scanResume.test.ts",
+            "src/components/report/ScanResumeNotice.tsx",
+            "src/components/report/ReportClientEmpty.tsx"
           ],
           "target": null,
           "apiRoutes": []
