@@ -30,7 +30,7 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   // re-scans rather than hydrating from a cached whole-repo reading.
   const ref = params.get("ref") ?? undefined;
   const subPath = params.get("path") ?? undefined;
-  const { state, progress, quota, rescan, attempt, persisted, retest, dismissRescan } = useReportScan(repo, initialFresh, {
+  const { state, progress, quota, rescan, attempt, persisted, resumed, resumedSince, retest, startFresh, dismissRescan } = useReportScan(repo, initialFresh, {
     notify,
     ref,
     subPath,
@@ -59,7 +59,11 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
     return <Empty title="No repository specified" message="Head back and enter a GitHub repo to scan." />;
   }
   if (state.status === "loading" || state.status === "idle") {
-    return <Loading repo={repo} progress={progress} />;
+    // `resumed` (the stream's `joined` frame): this tab reloaded into a scan that was already running,
+    // so the loading view says so, counts from the scan's real start, and offers the way out.
+    return (
+      <Loading repo={repo} progress={progress} resumed={resumed} startedAt={resumedSince} onStartFresh={startFresh} />
+    );
   }
   if (state.status === "error") {
     if (state.authRequired) return <SignInNotice next={signInNext} provider="supabase" />;

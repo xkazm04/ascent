@@ -9,6 +9,13 @@ import { parseSSE } from "@/lib/sse";
 import { type Progress } from "@/components/report/ReportClientStatus";
 import { formatResetAt, type QuotaScope } from "@/components/report/QuotaNotice";
 import { peekWasDurable, persistedFrameOk } from "@/components/report/liveScanPermalink";
+import {
+  clearScanAnchor,
+  defaultScanAnchorStore,
+  readScanAnchor,
+  scanAnchorSubject,
+  writeScanAnchor,
+} from "@/components/report/scanResume";
 
 /** A report salvaged from the last persisted scan because the monthly quota blocked a fresh one. */
 type Stale = { resetAt: number | null; scope: QuotaScope };
@@ -54,7 +61,16 @@ export interface ReportScan {
   /** True when THIS scan is in the durable store (SSE `persisted` ok, or a DB peek/salvage). The
    *  live-scan page rewrites `/report?repo=` to `/report/{owner}/{repo}` only then. */
   persisted: boolean;
+  /** This connection ATTACHED to a scan that was already running on the server rather than starting
+   *  one — set ONLY by the stream's explicit `joined` frame, never by matching a progress message. */
+  resumed: boolean;
+  /** When the rejoined scan actually started (from the resume anchor), so the loading clock and the
+   *  progress curve continue from there instead of resetting to 0:00 on the new mount. */
+  resumedSince: number | null;
   retest: () => void;
+  /** Abandon a rejoined run: retire the anchor and start a genuinely fresh scan. The visible exit the
+   *  restored-work notice needs — a rejoin the user did not want must be reversible. */
+  startFresh: () => void;
   dismissRescan: () => void;
 }
 
@@ -104,6 +120,14 @@ export function useReportScan(
     ok: false,
   });
   const persisted = persistEntry.key === persistKey && persistEntry.ok;
+  // Stored WITH the run it describes, like `persistEntry` above: a stale `resumed` must not outlive the
+  // scan whose `joined` frame set it (a "Start a fresh scan" would otherwise still read as a rejoin).
+  const [resumeEntry, setResumeEntry] = useState<{ key: string; startedAt: number | null }>({
+    key: persistKey,
+    startedAt: null,
+  });
+  const resumedSince = resumeEntry.key === persistKey ? resumeEntry.startedAt : null;
+  const resumed = resumedSince !== null;
 
   useEffect(() => {
     if (state.status === "done") reportRef.current = state.report;
@@ -120,6 +144,16 @@ export function useReportScan(
     // A re-test (retestNonce bumped) while a report is already shown keeps that report visible and
     // surfaces progress through `rescan`; a first load blanks to the full Loading checklist.
     const rescanMode = retestNonce > 0 && reportRef.current != null;
+
+    // THE RESUME ANCHOR (repo-report-shell-tabs #4). A reload of this page used to look like a cold
+    // first load: peek a cache that cannot hit (nothing is persisted mid-scan) and then start a SECOND
+    // full ingest + LLM run — the measured 360s claude-cli median, twice, for a refresh. A live anchor
+    // for THIS subject says this tab already started this scan, so go straight to the stream and let the
+    // server's coalescer (its linger window) hand back the run already under way.
+    const anchorStore = defaultScanAnchorStore();
+    const subject = scanAnchorSubject({ repo, fresh, ref, subPath });
+    const liveAnchor = readScanAnchor(anchorStore, subject, { now: Date.now(), ttlMs: scanClientTimeoutMs() });
+    const rejoining = liveAnchor !== null;
 
     const controller = new AbortController();
     const scanStartAt = Date.now();
@@ -152,6 +186,9 @@ export function useReportScan(
     // banner updates; otherwise the page-level state machine drives Loading/error/done.
     const settleDone = (report: ScanReport, stale?: Stale) => {
       if (cancelled) return;
+      // The scan is over: retire the anchor, or the next visit would claim a rejoin of a run that no
+      // longer exists and skip the peek that can now actually answer.
+      clearScanAnchor(anchorStore, subject);
       setPersistEntry({ key: persistKey, ok: durable });
       setState({ status: "done", report, stale });
       setRescan({ active: false, error: null, errorClass: {} });
@@ -160,6 +197,7 @@ export function useReportScan(
     // the branch it is in, and adding a class (credits) can't silently shift another's argument.
     const settleError = (message: string, cls: ScanErrorClass = {}) => {
       if (cancelled) return;
+      clearScanAnchor(anchorStore, subject); // a failed scan is just as settled as a finished one
       // The class rides along: the banner picks the CTA off it (sign in / credits / quota reset),
       // and only an unclassified failure keeps Retry — which is the only class Retry can clear.
       if (rescanMode) setRescan({ active: false, error: message, errorClass: cls });
@@ -179,7 +217,8 @@ export function useReportScan(
       // "Re-test" to force a fresh re-score). On a peek MISS the server hands back the head sha/etag it
       // resolved; forward them so the stream skips a duplicate head lookup.
       let peekHead: { headSha: string; headEtag: string | null } | null = null;
-      if (!fresh && !scoped) {
+      // `rejoining`: the run is still on the server, so the peek is a round-trip that cannot hit.
+      if (!fresh && !scoped && !rejoining) {
         try {
           const peek = await fetch(`/api/scan?url=${encodeURIComponent(repo)}&peek=1&recent=1`, {
             signal: controller.signal,
@@ -203,6 +242,10 @@ export function useReportScan(
           // Peek failed (offline, abort, etc.) — fall through to the streaming scan below.
         }
       }
+
+      // Written BEFORE the request goes out, so a reload during the POST itself is still covered. A
+      // rejoin KEEPS the original start time: that is what makes the loading clock honest.
+      writeScanAnchor(anchorStore, subject, liveAnchor?.startedAt ?? scanStartAt);
 
       try {
         const res = await fetch("/api/scan/stream", {
@@ -326,6 +369,10 @@ export function useReportScan(
               region: p.region ?? prev.region,
               fallback: p.fallback || prev.fallback,
             }));
+          } else if (event === "joined") {
+            // The server's EXPLICIT rejoin frame. A dedicated event, not a match on the progress
+            // message, so the copy can change without silently switching the UI contract off.
+            setResumeEntry({ key: persistKey, startedAt: liveAnchor?.startedAt ?? scanStartAt });
           } else if (event === "persisted") {
             if (persistedFrameOk(data)) durable = true;
           } else if (event === "result") {
@@ -401,7 +448,16 @@ export function useReportScan(
     rescan,
     attempt: retestNonce,
     persisted,
+    resumed,
+    resumedSince,
     retest: () => setRetestNonce((n) => n + 1),
+    startFresh: () => {
+      // Retire the anchor FIRST: the re-run below must read no anchor, or it would rejoin the very run
+      // the user just asked to abandon. The nonce bump implies `fresh`, which is what re-scores from
+      // scratch rather than serving the cached reading.
+      clearScanAnchor(defaultScanAnchorStore(), scanAnchorSubject({ repo, fresh, ref, subPath }));
+      setRetestNonce((n) => n + 1);
+    },
     dismissRescan: () => setRescan({ active: false, error: null, errorClass: {} }),
   };
 }

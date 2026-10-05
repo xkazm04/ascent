@@ -5,8 +5,8 @@
 // so "Connect GitHub" must be the primary action and the retry loop must not be offered. For a
 // transient failure (no `connect`), "Try again" stays the primary.
 
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ProviderName } from "@/lib/types";
 import { Empty, Loading } from "./ReportClientStatus";
 import { CTA_PRIMARY } from "@/lib/ui";
@@ -67,5 +67,40 @@ describe("the score step names the provider being queried — every provider", (
   it("falls back to the generic label only when no provider has been reported yet", () => {
     render(<Loading repo="acme/web" progress={{ stage: "score" }} />);
     expect(document.body.textContent).toContain("Scoring against the rubric");
+  });
+});
+
+// RESTORED WORK (repo-report-shell-tabs #4). When a reloaded tab rejoins the scan it started, the
+// loading view must SAY so — session-resume's resume-affordances rule: work that restores itself
+// without being asked carries a visible start-over exit, or the user cannot tell a rejoined six-minute
+// scan from a stuck one and has no way out of it. The elapsed clock must also count from the scan's
+// real start, not from this mount, or a rejoin under-reports the wait it is explaining.
+describe("Loading — the restored-work line for a rejoined scan", () => {
+  it("names the repo and the elapsed-since-start, and offers a start-over control", () => {
+    const onStartFresh = vi.fn();
+    render(
+      <Loading
+        repo="acme/web"
+        progress={{ stage: "score", message: "…", pct: 40, provider: "claude-cli" }}
+        resumed
+        startedAt={Date.now() - 125_000}
+        onStartFresh={onStartFresh}
+      />,
+    );
+
+    const notice = screen.getByTestId("scan-resumed");
+    expect(notice.textContent).toContain("acme/web");
+    // 125s in: the clock is anchored on the SCAN, not on this mount (which would read 0:00).
+    expect(notice.textContent).toMatch(/2m 5s|2:05/);
+
+    const fresh = screen.getByRole("button", { name: /start a fresh scan/i });
+    fireEvent.click(fresh);
+    expect(onStartFresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders neither the line nor the control for an ordinary first scan", () => {
+    render(<Loading repo="acme/web" progress={{ stage: "score", message: "…", pct: 40 }} />);
+    expect(screen.queryByTestId("scan-resumed")).toBeNull();
+    expect(screen.queryByRole("button", { name: /start a fresh scan/i })).toBeNull();
   });
 });

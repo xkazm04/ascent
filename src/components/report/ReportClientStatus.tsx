@@ -9,9 +9,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ProviderName, ScanProgress } from "@/lib/types";
-import { EmptyState } from "@/components/EmptyState";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { expectationCopy, formatDuration, scanEstimateMs, timeProgressPct } from "@/components/report/scanEstimate";
+import { ScanResumeNotice } from "@/components/report/ScanResumeNotice";
 
 export interface Progress {
   stage?: ScanProgress["stage"];
@@ -93,20 +93,25 @@ export function progressHeadline(progress: Progress): string {
 }
 
 /**
- * Mount-anchored elapsed-time clock in ms (ticks every 250ms). The clock starts at 0 (useState) and
- * is anchored on mount, so every host remounts per scan to reset it: Loading mounts/unmounts with the
- * loading phase, and the re-scan banner is keyed by attempt — no in-effect reset needed.
+ * Elapsed-time clock in ms (ticks every 250ms), anchored on mount by default. Every host remounts per
+ * scan to reset it: Loading mounts/unmounts with the loading phase, and the re-scan banner is keyed by
+ * attempt — no in-effect reset needed.
+ *
+ * `since` overrides the anchor with the scan's REAL start, which is what a REJOINED scan needs: a tab
+ * that reloaded four minutes into a six-minute run would otherwise restart the clock at 0:00 and
+ * under-report the wait — and the time-driven progress curve, which reads this clock, would walk the bar
+ * BACKWARDS from where the previous connection had it.
  */
-export function useElapsed(): number {
+export function useElapsed(since?: number | null): number {
   const startRef = useRef<number | null>(null);
-  const [elapsedMs, setElapsedMs] = useState(0);
+  const [elapsedMs, setElapsedMs] = useState(() => (since != null ? Math.max(0, Date.now() - since) : 0));
   useEffect(() => {
-    startRef.current = Date.now();
+    startRef.current = since ?? Date.now();
     const id = setInterval(() => {
       if (startRef.current != null) setElapsedMs(Date.now() - startRef.current);
     }, 250);
     return () => clearInterval(id);
-  }, []);
+  }, [since]);
   return elapsedMs;
 }
 
@@ -150,13 +155,29 @@ function StepIcon({ state }: { state: "done" | "active" | "pending" }) {
   );
 }
 
-export function Loading({ repo, progress }: { repo: string; progress: Progress }) {
+export function Loading({
+  repo,
+  progress,
+  resumed,
+  startedAt,
+  onStartFresh,
+}: {
+  repo: string;
+  progress: Progress;
+  /** This connection ATTACHED to a scan that was already running (the server's `joined` frame), rather
+   *  than starting one — see ScanResumeNotice for why that has to be visible and reversible. */
+  resumed?: boolean;
+  /** The rejoined scan's real start, from the resume anchor, so the clock and the bar continue from
+   *  where the lost connection left them instead of resetting to zero. */
+  startedAt?: number | null;
+  onStartFresh?: () => void;
+}) {
   const { done, activeIdx } = activeStep(progress);
   // Elapsed clock + time-driven percentage keep the bar honestly moving through the multi-minute
   // score stage, where the server's stage percentage sits frozen (see scanEstimate.ts). Loading
   // mounts when the scan starts and unmounts when it resolves, so the mount-anchored clock measures
-  // the whole scan (and a re-test remounts → resets).
-  const elapsedMs = useElapsed();
+  // the whole scan (and a re-test remounts → resets). A REJOINED scan anchors on its real start instead.
+  const elapsedMs = useElapsed(resumed ? (startedAt ?? null) : null);
   const displayPct = displayProgressPct(progress, elapsedMs, done);
   const headline = progressHeadline(progress);
 
@@ -212,6 +233,9 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
         })}
       </ul>
 
+      {/* A scan this tab rejoined says so, and offers the way out of it. */}
+      {resumed && <ScanResumeNotice repo={repo} elapsedMs={elapsedMs} onStartFresh={onStartFresh} />}
+
       {/* Honest time expectation — keyed off elapsed so it sets the "few minutes" expectation up
           front and owns it when a large repo runs long. Hidden once the model bailed (the fallback
           note below takes over). */}
@@ -240,52 +264,6 @@ export function Loading({ repo, progress }: { repo: string; progress: Progress }
   );
 }
 
-export function Empty({
-  title,
-  message,
-  repo,
-  connect,
-}: {
-  title: string;
-  message: string;
-  repo?: string;
-  /** The repo couldn't be read (404 / private) — offer the GitHub App connect path, since a retry with
-   *  the same input can't succeed. */
-  connect?: boolean;
-}) {
-  return (
-    <EmptyState
-      icon="🧭"
-      title={title}
-      body={message}
-      actions={
-        connect
-          ? // Permanent failure (404 / private): a retry with the same input can't succeed (see the
-            // `connect` doc above), so the one action that can actually resolve it leads, and the
-            // retry loop is replaced by a "different repo" path (repo-report-shell-tabs #4).
-            [
-              { label: "Private repo? Connect GitHub", href: "/onboarding", primary: true },
-              { label: "Scan a different repo", href: "/?scan=1" },
-              { label: "← Back home", href: "/" },
-            ]
-          : // Transient failure (timeout / interrupted / network): retry is the right primary.
-            [
-              // `fresh=1` is what makes this button ACTUALLY try again. On /report the plain
-              // `?repo=` href is the URL the user is already on, so the search params — and with
-              // them useReportScan's effect deps — never change and nothing re-runs. `fresh=1` both
-              // changes the URL and forces a re-score that bypasses the report cache.
-              ...(repo
-                ? [
-                    {
-                      label: "Try again",
-                      href: `/report?repo=${encodeURIComponent(repo)}&fresh=1`,
-                      primary: true,
-                    },
-                  ]
-                : []),
-              { label: "← Back home", href: "/" },
-            ]
-      }
-    />
-  );
-}
+// The empty/error state lives in its own file (ReportClientEmpty) so this one stays under the 300-LOC
+// cap; it is re-exported here because every call site imports `Empty` from this module.
+export { Empty } from "@/components/report/ReportClientEmpty";
