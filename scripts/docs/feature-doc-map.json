@@ -277,7 +277,8 @@
         "src/app/api/org/live-share/**",
         "src/lib/db/improvement-events.ts",
         "src/lib/db/org-impact.ts",
-        "src/lib/db/org-program.ts"
+        "src/lib/db/org-program.ts",
+        "src/lib/org/briefingMovement.ts"
       ]
     },
     {
