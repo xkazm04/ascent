@@ -167,6 +167,10 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   { value: "integrations.openai.connect", label: "OpenAI connected", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
   { value: "integrations.openai.disconnect", label: "OpenAI disconnected", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "integrations.openai.sync", label: "OpenAI synced", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
+  // A segment's DECLARED membership rule converged (scan-sweep challenge 2026-10-05). Violet like
+  // segment.bulk_tag: the same class of act, a many-row membership write, and the meta carries counts
+  // only (added / removed), never the repo list.
+  { value: "segment.rule_applied", label: "Segment rule applied", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
 ];
 
 export const ACTION_META: Record<string, { label: string; cls: string }> = Object.fromEntries(
