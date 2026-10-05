@@ -544,7 +544,9 @@
             "src/app/api/report/conformance/matrix/route.test.ts",
             "src/lib/standard/maintain.execution.test.ts",
             "src/lib/standard/guidance-parser-source.ts",
-            "src/lib/standard/memory-entry.ts"
+            "src/lib/standard/memory-entry.ts",
+            "src/lib/onboarding/step0.ts",
+            "src/lib/onboarding/step0.test.ts"
           ],
           "target": null,
           "apiRoutes": [

@@ -426,6 +426,7 @@ cluster, each repo a star:
 | `src/app/launch/page.tsx` | Post-OAuth cinematic entrance. |
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
 | `src/components/report/SkillDownload.tsx` | Report-header SKILL.md pill + `SkillDownloadList` for the wizard done step (one pill per scored repo). |
+| `src/lib/onboarding/step0.ts` | Step 0 of the generated skill, in two lanes: `reference` (the foundation PR and local install - a derived path/sha256/purpose table pointing at the files already committed) and `embed` (the markdown download - every body verbatim, each block stamped with the guidance-projection provenance header outside its fence). |
 | `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`GET /api/report/skill` and the foundation PR). Emits two instruction files with the same trackIds: `.claude/skills/ascent-onboard/SKILL.md` (Claude Code, kept; default download) and `.agents/skills/ascent-onboard/SKILL.md` (vendor-neutral, plus a one-line "also linked from Claude's path" header). `?format=json` returns both. Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |
 | `src/components/onboarding/OnboardingFlow.run.ts` | The pure run model: `RunState`/`initialRun()`/`runReducer`, the one row-settle rule (`rowSettled`, `runProgress`, `reportableRepos`), `runMode()` and the v2 snapshot codec (plan + consent; v1 still decodes). |
 
@@ -442,6 +443,29 @@ instruction files only. The adopt loop ends with `node .ai/doctor.mjs --json` po
 in-product matrix as `{origin}{orgTabHref(owner, "passports")}` so the agent's last step is
 observable in Ascent rather than stopping in CI logs. When no public origin is configured, that line
 is omitted, the same rule as the existing Ascent credit link.
+
+## Step 0 has two lanes: the PR points, the download embeds
+
+Step 0 of the generated skill is the `.ai/` foundation, and it is rendered by
+`renderStep0(files, mode, repo)` (`src/lib/onboarding/step0.ts`) in one of two modes:
+
+- **`reference`** - what `buildFoundation` passes, so the foundation PR (`/api/report/foundation/pr`,
+  the batch route) and the local install lane get it. The `.ai/` files land as real files in the same
+  change, so Step 0 is a derived table of path + `sha256` + purpose and the instruction to read them
+  there. The table comes from the passed `files`, so it cannot go stale against the generator.
+- **`embed`** (the default) - what `GET /api/report/skill` serves, in markdown and in `format=json`,
+  for both skill homes. There is no repo to point at, so every body stays fenced verbatim; each block
+  carries the guidance-projection provenance header outside its fence so the fenced body is byte-exact
+  and still comparable to its source.
+
+The PR lane used to embed too, which shipped `.ai/doctor.mjs` twice in one pull request (about 30KB of
+it) and pushed the always-loaded instruction file to 102,009 bytes. Reference mode brings it to 15,127
+bytes, 14.8% of the embed lane. Reverting the single `"reference"` argument in `buildFoundation`
+restores the old output byte for byte.
+
+A reference pointer can name a file the installer skipped (it never overwrites a path the repo already
+holds), so that lane also names a recovery download at `{origin}/api/report/skill?repo=owner/name`
+when `publicBaseUrl()` is set, and names no host when it is not - the same rule as the footer link.
 
 ## The stall watchdog and why it is 360s
 
