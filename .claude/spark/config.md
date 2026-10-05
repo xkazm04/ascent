@@ -314,3 +314,12 @@ Pasted verbatim into every builder brief:
   Obsidian root is `C:/Users/mkdol/Documents/Obsidian/ascent` (memory `fox-device-perfect-vault`) and
   `Spark/` was scaffolded there this run — the two vaults are not synced. Add the Fox path as a second
   candidate when this file is next committed cleanly (it was dirty under another session this run).
+- 2026-10-05 (game-theater-hardening): an "operate the loop on N repos" spark is a FIELD campaign, not a
+  design dialog — Phase 3 waves were skipped by design (the operator delegated every call), and the
+  method's value came from Phase 5's per-round diagnosis loop: each round's lane log read before the next
+  restart. Promote: for a campaign spark, the run log of `scripts/runner-rounds.mjs` IS the brief; read
+  every non-landing lane's log before touching code.
+- 2026-10-05: a dev server started from the Claude Code shell inherits `NoDefaultCurrentDirectoryInExePath=1`
+  and cannot spawn a `.bat` by bare name — start long-lived servers with `env -u NoDefaultCurrentDirectoryInExePath`.
+  And `next dev` hot-reloads `src/lib/**` under a LIVE runner: a half-written file 500s it. Edit with the
+  Edit tool, not shell heredocs (heredoc + python mangled `\n`, `\` and `\b` four times in one session).
