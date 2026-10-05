@@ -5,17 +5,21 @@
 // view). Like the rest of src/lib/db, every function is a no-op / null when DATABASE_URL is unset.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { postureFor } from "@/lib/maturity/model";
-import { getOrgRollup, type OrgRepoRow } from "@/lib/db/org";
+import { getOrgRollup } from "@/lib/db/org";
 import { getOrgId } from "@/lib/db/org-rollup";
-import { roundedMean } from "@/lib/db/org-shared";
 import { canonicalRepoFullName } from "@/lib/db/scans-shared";
+import {
+  compareScopes,
+  resolveComparePair,
+  summarizeScopedRepos,
+  type SegmentComparison,
+  type SegmentSummary,
+} from "@/lib/db/segments-compare";
 import {
   matchesRule,
   parseSegmentRule,
   segmentDrift,
   serializeSegmentRule,
-  type SegmentDrift,
   type SegmentMember,
   type SegmentMemberSource,
   type SegmentRule,
@@ -398,155 +402,39 @@ export async function applySegmentRule(orgSlug: string, segmentId: string): Prom
 
 // ── Segment-vs-segment comparison ─────────────────────────────────────────────
 
-/** One side of a comparison — a segment's (or the whole fleet's) headline maturity shape. */
-export interface SegmentSummary {
-  id: string | null; // null = the whole fleet (the comparison baseline)
-  name: string;
-  /** Repos in the FLEET-ROLLUP universe (watched OR has-scans) that belong to this segment — NOT every
-   *  tagged repo. (G4-08) `SegmentRow.repoCount` (listSegments, above) counts ALL tagged repos
-   *  regardless of watch/scan status, so the two can legitimately disagree for a segment with
-   *  tagged-but-unwatched/unscanned repos. Every UI rendering this repoCount must read it as "repos
-   *  scored in this rollup", not "repos tagged into this segment". */
-  repoCount: number;
-  scannedCount: number;
-  /** Mean latest overall score over this scope's SCANNED repos — **null when it has none**, which a
-   *  segment can genuinely be (every tagged repo watched but never scanned, or the scope is empty).
-   *  Same contract as {@link OrgRollup.avgOverall}, which is where the scoped variant reads it from. */
-  avgOverall: number | null;
-  avgAdoption: number | null;
-  avgRigor: number | null;
-  /**
-   * Posture id derived from avg adoption × rigor — **null when either input is**, because a
-   * classification computed from two absences is worse than a wrong number: it is a fabricated
-   * CATEGORICAL. `postureFor(0, 0)` returns a real posture ("dormant"/whatever the model floors to)
-   * and every surface renders it as a label with a colour, indistinguishable from a segment Ascent
-   * actually looked at and classified. A segment with no scanned repo has no posture.
-   */
-  posture: string | null;
-  dimAverages: { dimId: string; avg: number }[];
-  /** The segment's DECLARED membership, or null for a hand-kept list (and always null for the whole-fleet
-   *  baseline and for auto tech-stack groups, which are derived, not declared). */
-  rule: SegmentRule | null;
-  /** How far the tagged set is from the declaration: how many taggable repos match but are not tagged,
-   *  and how many RULE-OWNED rows no longer match. **null when there is no rule** — "undeclared" and
-   *  "declared and in sync" are different states and a reader must be able to tell them apart. */
-  drift: { toAdd: number; toRemove: number } | null;
-}
-
-export interface SegmentComparison {
-  a: SegmentSummary;
-  b: SegmentSummary;
-  /** a − b on the headline metrics — each **null when either side's average is**, because a delta
-   *  against a scope nobody scanned is not a delta. (`a.avgOverall` alone is not enough to tell:
-   *  a comparison needs both ends.) */
-  deltas: { overall: number | null; adoption: number | null; rigor: number | null };
-  /** Per-dimension a/b/delta over the union of dimensions either side is scored on.
-   *  A side with no average for that dimension is **null**, never 0 — absence is not a floor.
-   *  `delta` is null when either end is, same rule as the headline deltas. */
-  dimDeltas: { dimId: string; a: number | null; b: number | null; delta: number | null }[];
-}
-
 /**
- * The posture a scope's two axis means classify to — **null when either mean does not exist**.
- *
- * This is the one site where the mean-of-nothing bug produced something worse than a wrong number.
- * `postureFor` maps (adoption, rigor) onto a named quadrant, so feeding it the old `roundedMean`'s
- * two sentinel zeros handed an un-scanned segment a real posture id, which the Segments strip and the
- * comparison view then drew as a labelled, coloured classification — a judgement about a scope Ascent
- * never looked at. A fabricated numeral at least sits next to a `scannedCount: 0` that contradicts it;
- * a fabricated CATEGORY reads as a finding.
- *
- * Both of this file's summary producers route through here, so the two cannot disagree about when a
- * scope has a posture.
+ * The comparison shapes and their pure reducers live in src/lib/db/segments-compare.ts; this file
+ * re-exports them so every existing call site (`@/lib/db/segments`, and db/index.ts's barrel) keeps
+ * importing from exactly where it always did. AGENTS.md's split-behind-a-barrel pattern, as
+ * src/lib/db/org.ts and src/lib/db/scans.ts do it: the module was 636 lines and growing.
  */
-const postureOf = (adoption: number | null, rigor: number | null): string | null =>
-  adoption === null || rigor === null ? null : postureFor(adoption, rigor).id;
-
-/** `a − b`, but only when BOTH ends were measured. A subtraction needs two numbers; substituting a 0
- *  for the missing one silently reports the other side's whole score as the gap between them. */
-const subtractMeasured = (a: number | null, b: number | null): number | null => (a === null || b === null ? null : a - b);
-
-/** Pure: diff two segment summaries into headline + per-dimension deltas (a − b). Unit-tested. */
-export function buildSegmentComparison(a: SegmentSummary, b: SegmentSummary): SegmentComparison {
-  const aDim = new Map(a.dimAverages.map((d) => [d.dimId, d.avg]));
-  const bDim = new Map(b.dimAverages.map((d) => [d.dimId, d.avg]));
-  const dimIds = [...new Set([...aDim.keys(), ...bDim.keys()])].sort();
-  return {
-    a,
-    b,
-    deltas: {
-      overall: subtractMeasured(a.avgOverall, b.avgOverall),
-      adoption: subtractMeasured(a.avgAdoption, b.avgAdoption),
-      rigor: subtractMeasured(a.avgRigor, b.avgRigor),
-    },
-    dimDeltas: dimIds.map((dimId) => {
-      // `?? null`, not `?? 0`: Map.get is undefined when the side never scored this
-      // dimension, and a measured 0 is a real grade that must survive (0 is not nullish).
-      const av = aDim.get(dimId) ?? null;
-      const bv = bDim.get(dimId) ?? null;
-      return { dimId, a: av, b: bv, delta: subtractMeasured(av, bv) };
-    }),
-  };
-}
-
+export {
+  buildSegmentComparison,
+  compareScopes,
+  resolveComparePair,
+  summarizeScopedRepos,
+  type CompareScope,
+  type SegmentComparison,
+  type SegmentPoint,
+  type SegmentSummary,
+} from "@/lib/db/segments-compare";
 /**
- * Reduce an in-memory set of a scope's repos (already filtered out of ONE fleet rollup) to its
- * headline maturity summary — the same arithmetic summarizeScopedRollup derives from a scoped
- * getOrgRollup, but without issuing a per-scope fleet query. The repo set must be the fleet rollup's
- * rows (`watched OR has-scans`) filtered by the scope's membership, which is exactly what a scoped
- * getOrgRollup would return, so the numbers match the A/B comparison.
+ * The ONE set of reads every Segments-tab aggregate is derived from: the segments, one unscoped fleet
+ * rollup, every membership row, and (for the drift) the taggable universe.
  *
- * Shared by BOTH list surfaces that fan out over a scope collection — listSegmentSummaries (custom
- * segments) and listTechStackSummaries (auto tech groups, tech-groups.ts). Exported for that second
- * caller so the two comparison features keep reducing rollup rows through ONE implementation, exactly
- * as they share summarizeScopedRollup for the single-scope (A/B) path. `scope.id` is the summary's
- * id verbatim — a segment id for segments, the stable stack KEY for tech groups (null = whole fleet).
+ * Exists so the strip and the A/B comparison cannot each buy their own rollup. `drift: false` drops the
+ * taggable select for a caller that renders no drift line (compareSegments), which keeps the pair read
+ * strictly cheaper than the pair of scoped rollups it replaced.
  */
-export function summarizeScopedRepos(
-  scope: { id: string | null; name: string; rule?: SegmentRule | null; drift?: SegmentDrift | null },
-  repos: OrgRepoRow[],
-): SegmentSummary {
-  const scanned = repos.filter((r) => r.latest);
-  const dimSum: Record<string, { sum: number; n: number }> = {};
-  for (const r of scanned)
-    for (const d of r.latest!.dims) {
-      const entry = (dimSum[d.dimId] = dimSum[d.dimId] || { sum: 0, n: 0 });
-      entry.sum += d.score;
-      entry.n += 1;
-    }
-  const dimAverages = Object.keys(dimSum)
-    .sort()
-    .map((dimId) => {
-      const entry = dimSum[dimId]!; // safe: dimId comes from Object.keys(dimSum)
-      return { dimId, avg: Math.round(entry.sum / entry.n) };
-    });
-  const avgAdoption = roundedMean(scanned.map((r) => r.latest!.adoption));
-  const avgRigor = roundedMean(scanned.map((r) => r.latest!.rigor));
-  return {
-    id: scope.id,
-    name: scope.name,
-    repoCount: repos.length,
-    scannedCount: scanned.length,
-    avgOverall: roundedMean(scanned.map((r) => r.latest!.overall)),
-    avgAdoption,
-    avgRigor,
-    posture: postureOf(avgAdoption, avgRigor),
-    dimAverages,
-    rule: scope.rule ?? null,
-    // Counts, not lists: the card only ever renders "N repos match and are not tagged", and a wire row
-    // that carried the fullNames would grow with the fleet for no reader.
-    drift: scope.drift ? { toAdd: scope.drift.toAdd.length, toRemove: scope.drift.toRemove.length } : null,
-  };
-}
-
-/** Headline maturity summary for every segment of an org, newest first — the per-segment rollup strip
- *  on the comparison page. Fetches ONE fleet rollup + the repo→segment map, then derives each summary
- *  in memory by filtering the already-loaded repos — previously this ran a full getOrgRollup PER segment
- *  (K+ complete fleet-table scans on one page load, each 2-3 DB round trips, growing linearly with the
- *  user-created — so unbounded — segment count: a connection-pool / TTFB hazard on the Segments tab).
- *  The single A/B comparison (compareSegments) still uses the scoped getOrgRollup. */
-export async function listSegmentSummaries(orgSlug: string): Promise<SegmentSummary[] | null> {
-  if (!isDbConfigured()) return null;
+async function readSegmentsFleet(
+  orgSlug: string,
+  opts?: { drift?: boolean },
+): Promise<{
+  segs: SegmentRow[] | null;
+  rollup: Awaited<ReturnType<typeof getOrgRollup>>;
+  membersBySeg: Map<string, SegmentMember[]>;
+  taggable: TaggableRepo[];
+}> {
   const orgId = await getOrgId(orgSlug);
   const [segs, rollup, membersBySeg, taggable] = await Promise.all([
     listSegments(orgSlug),
@@ -554,83 +442,110 @@ export async function listSegmentSummaries(orgSlug: string): Promise<SegmentSumm
     orgId ? listSegmentMembers(orgId) : Promise.resolve(new Map<string, SegmentMember[]>()),
     // The drift inputs. One cheap indexed select over the same universe the rollup scores, so a
     // declared segment's drift is readable on this strip without a per-segment query.
-    listTaggableRepos(orgSlug),
+    opts?.drift === false ? Promise.resolve([] as TaggableRepo[]) : listTaggableRepos(orgSlug),
   ]);
-  if (!segs) return null;
-  if (!rollup) return []; // org missing / nothing to roll up — match the prior empty-out behaviour
-  return segs.map((s) => {
-    const members = membersBySeg.get(s.id) ?? [];
+  return { segs, rollup, membersBySeg, taggable };
+}
+
+type SegmentsFleet = Awaited<ReturnType<typeof readSegmentsFleet>>;
+
+/** The per-segment strip, derived from the one rollup. */
+function summariesOf(f: SegmentsFleet): SegmentSummary[] {
+  const repos = f.rollup?.repos ?? [];
+  return (f.segs ?? []).map((s) => {
+    const members = f.membersBySeg.get(s.id) ?? [];
     const tagged = new Set(members.map((m) => m.fullName));
-    const repos = rollup.repos.filter((r) => tagged.has(r.fullName));
     return summarizeScopedRepos(
-      { id: s.id, name: s.name, rule: s.rule, drift: segmentDrift({ rule: s.rule, repos: taggable, membership: members }) },
-      repos,
+      { id: s.id, name: s.name, rule: s.rule, drift: segmentDrift({ rule: s.rule, repos: f.taggable, membership: members }) },
+      repos.filter((r) => tagged.has(r.fullName)),
     );
   });
 }
 
-/**
- * Shared rollup→summary reducer behind summarizeSegment AND summarizeTechStack (tech-groups.ts):
- * scope getOrgRollup to a custom segment OR an auto tech-stack group (or neither = whole fleet), then
- * reduce it to the headline SegmentSummary. Both callers produced an identical mapping — only the
- * rollup scope and the id/name labels differed — so the reduction lives here once. Passing a null
- * scope id is equivalent to omitting it (techGroupScope/segmentScope treat null and undefined alike).
- */
-export async function summarizeScopedRollup(
-  orgSlug: string,
-  opts: { segmentId?: string | null; groupId?: string | null; id: string | null; name: string },
-): Promise<SegmentSummary | null> {
-  const rollup = await getOrgRollup(orgSlug, undefined, opts.segmentId ?? null, opts.groupId ?? null);
-  if (!rollup) return null;
-  return {
-    id: opts.id,
-    name: opts.name,
-    repoCount: rollup.repoCount,
-    scannedCount: rollup.scannedCount,
-    avgOverall: rollup.avgOverall,
-    avgAdoption: rollup.avgAdoption,
-    avgRigor: rollup.avgRigor,
-    posture: postureOf(rollup.avgAdoption, rollup.avgRigor),
-    dimAverages: rollup.dimAverages,
-    // The A/B comparison reads scores, not membership provenance: it never renders a drift line, and
-    // claiming "no rule" here would be a different lie than claiming no drift. Both null, deliberately.
-    rule: null,
-    drift: null,
-  };
+/** The A/B comparison, derived from the SAME rollup by partitioning it on the membership map. A null
+ *  `bId` is the whole-fleet baseline, which is the unpartitioned rollup — not an empty segment. */
+function comparisonOf(f: SegmentsFleet, pair: { aId: string | null; bId: string | null }): SegmentComparison | null {
+  if (!f.rollup || pair.aId === null) return null;
+  const seg = (id: string) => (f.segs ?? []).find((s) => s.id === id) ?? null;
+  const a = seg(pair.aId);
+  if (!a) return null;
+  const members = (id: string) => new Set((f.membersBySeg.get(id) ?? []).map((m) => m.fullName));
+  const b = pair.bId === null ? null : seg(pair.bId);
+  return compareScopes(
+    f.rollup.repos,
+    { id: a.id, name: a.name, members: members(a.id) },
+    b ? { id: b.id, name: b.name, members: members(b.id) } : { id: null, name: "Whole fleet" },
+  );
 }
 
-/** Reduce a segment (or the whole fleet, when `seg` is null) to its headline maturity summary. */
-function summarizeSegment(orgSlug: string, seg: { id: string; name: string } | null): Promise<SegmentSummary | null> {
-  return summarizeScopedRollup(orgSlug, { segmentId: seg?.id ?? null, id: seg?.id ?? null, name: seg?.name ?? "Whole fleet" });
+/** Headline maturity summary for every segment of an org, newest first — the per-segment rollup strip
+ *  on the comparison page. ONE fleet rollup + the repo→segment map, then every summary derived in memory
+ *  by filtering the already-loaded repos — this used to run a full getOrgRollup PER segment (K+ complete
+ *  fleet-table scans on one page load, growing linearly with the user-created, so unbounded, segment
+ *  count: a connection-pool / TTFB hazard). A surface that also draws the A/B comparison should call
+ *  {@link loadSegmentsView} instead, which shares this rollup with it. */
+export async function listSegmentSummaries(orgSlug: string): Promise<SegmentSummary[] | null> {
+  if (!isDbConfigured()) return null;
+  const f = await readSegmentsFleet(orgSlug);
+  if (!f.segs) return null;
+  if (!f.rollup) return []; // org missing / nothing to roll up — match the prior empty-out behaviour
+  return summariesOf(f);
 }
 
 /**
  * Compare two segments side by side (platform vs legacy). `bId` may be null to compare a segment
- * against the whole fleet. Reuses getOrgRollup's scoped averages, so the comparison stays a single
- * source of truth. Returns null when persistence is off, the org is unknown, or `aId` isn't a
- * segment of the org.
+ * against the whole fleet. Returns null when persistence is off, the org is unknown, there is nothing
+ * to roll up, or `aId` isn't a segment of the org.
+ *
+ * ONE fleet rollup, partitioned in memory. It used to be two — `summarizeSegment` per side, each a
+ * scoped `getOrgRollup` (both deleted 2026-10-05 along with `summarizeScopedRollup`, which they were
+ * the last callers of; tech-groups.ts made the same move for stacks on 2026-08-19) — on a tab that had
+ * already fetched the unscoped rollup for its per-segment strip. getOrgRollup's header documents why
+ * that mattered: a nested `take` does not bound the transfer, so the org's entire scan history crosses
+ * the wire per call. Prefer {@link loadSegmentsView} from a surface that needs the strip too: it pays
+ * for the rollup once for BOTH readings.
  */
-export async function compareSegments(
-  orgSlug: string,
-  aId: string,
-  bId: string | null,
-): Promise<SegmentComparison | null> {
+export async function compareSegments(orgSlug: string, aId: string, bId: string | null): Promise<SegmentComparison | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await getOrgId(orgSlug);
-  if (!orgId) return null;
-  const ids = bId ? [aId, bId] : [aId];
-  const segments = await getPrisma().segment.findMany({
-    where: { orgId, id: { in: ids } },
-    select: { id: true, name: true },
-  });
-  const a = segments.find((s) => s.id === aId);
-  if (!a) return null;
-  const b = bId ? segments.find((s) => s.id === bId) ?? null : null;
+  const f = await readSegmentsFleet(orgSlug, { drift: false });
+  if (!f.segs || !f.rollup) return null;
+  const pair = resolveComparePair(f.segs, aId, bId, { exact: true });
+  return comparisonOf(f, pair);
+}
 
-  const [sumA, sumB] = await Promise.all([
-    summarizeSegment(orgSlug, a),
-    summarizeSegment(orgSlug, b),
-  ]);
-  if (!sumA || !sumB) return null;
-  return buildSegmentComparison(sumA, sumB);
+/** Everything the Segments tab reads off the fleet: the per-segment strip AND the A/B comparison, both
+ *  reduced from the SAME rollup, plus the A/B ids that were actually resolved (so the picker renders
+ *  the pair being drawn rather than the pair that was asked for). */
+export interface SegmentsView {
+  summaries: SegmentSummary[];
+  comparison: SegmentComparison | null;
+  aId: string | null;
+  bId: string | null;
+}
+
+/**
+ * The Segments tab's one read.
+ *
+ * The tab shows two things off the same fleet — a summary per segment and one A/B comparison — and it
+ * used to buy the fleet three times to do it: `listSegmentSummaries` (one unscoped rollup) plus
+ * `compareSegments` (one scoped rollup per side). Three full `getOrgRollup` transfers for one screen,
+ * each carrying the org's entire scan history (org-rollup.ts' own header). This is the same screen for
+ * ONE rollup: partition it by the membership map the strip already needed.
+ *
+ * The A/B resolution lives here rather than in the view because the selection decides which slice is
+ * drawn: both Segments views had an identical copy of it (`?a=`/`?b=` with a fall-back to the first two
+ * segments) and a drift between the two would have meant two tabs comparing different pairs off the
+ * same URL. `null` when persistence is off or the org is unknown; an org with nothing to roll up gets
+ * empty summaries and no comparison, never a fabricated one.
+ */
+export async function loadSegmentsView(
+  orgSlug: string,
+  sel?: { a?: string | null; b?: string | null },
+): Promise<SegmentsView | null> {
+  if (!isDbConfigured()) return null;
+  const f = await readSegmentsFleet(orgSlug);
+  if (!f.segs) return null;
+  if (!f.rollup) return { summaries: [], comparison: null, aId: null, bId: null };
+  const pair = resolveComparePair(f.segs, sel?.a, sel?.b);
+  return { summaries: summariesOf(f), comparison: comparisonOf(f, pair), ...pair };
 }

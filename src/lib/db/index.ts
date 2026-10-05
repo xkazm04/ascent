@@ -187,6 +187,7 @@ export {
   listTaggableRepos,
   compareSegments,
   listSegmentSummaries,
+  loadSegmentsView,
   applySegmentRule,
   buildSegmentComparison,
   normalizeSegmentName,
@@ -195,7 +196,9 @@ export {
   type SegmentRow,
   type TaggableRepo,
   type SegmentSummary,
+  type SegmentPoint,
   type SegmentComparison,
+  type SegmentsView,
   type SegmentRuleApplied,
 } from "@/lib/db/segments";
 export {

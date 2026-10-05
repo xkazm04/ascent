@@ -59,6 +59,7 @@ import type {
   PublicScanGallery,
   RepositoryHistory,
   ScanDigestRow,
+  SegmentPoint,
   SegmentSummary,
   SkillAdoption,
   SkillRow,
@@ -270,6 +271,10 @@ export const WIRE_TYPES = {
   RepoAdmissionRow: true satisfies WireSafe<RepoAdmissionRow>,
   ForgeInstallationRow: true satisfies WireSafe<ForgeInstallationRow>,
   SegmentSummary: true satisfies WireSafe<SegmentSummary>,
+  // The population inside a SegmentSummary (the A/B comparison's per-repo marks). Scores and a
+  // fullName only: no scannedAt, because a Date on a wire row type is the mistake this guard exists
+  // for and `points` is read in a client component.
+  SegmentPoint: true satisfies WireSafe<SegmentPoint>,
   SignalContributionRow: true satisfies WireSafe<SignalContributionRow>,
   SkillAdoption: true satisfies WireSafe<SkillAdoption>,
   SkillLessonRow: true satisfies WireSafe<SkillLessonRow>,
