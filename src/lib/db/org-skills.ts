@@ -552,9 +552,10 @@ export async function listOrgSkillManifest(orgSlug: string): Promise<SkillManife
 }
 
 /** Outcome of a CLI/CI `push` (register-or-update by name). `conflict` carries the CURRENT server version
- *  so the client can rebase; `unchanged` means an identical body was re-pushed (idempotent, no bump). */
+ *  so the client can rebase; `unchanged` means an identical body was re-pushed (idempotent, no bump);
+ *  `archived` means the only row by that name is archived, so there is nothing a push may write. */
 export type SkillPushResult =
-  | { status: "created" | "updated" | "unchanged" | "conflict"; id: string; version: number };
+  | { status: "created" | "updated" | "unchanged" | "conflict" | "archived"; id: string; version: number };
 
 /**
  * Register a skill by name, or update the existing one with optimistic concurrency. When `baseVersion`
@@ -578,8 +579,18 @@ export async function pushOrgSkill(
   const name = cleanName(input.name);
   const existing = await prisma.orgSkill.findFirst({
     where: { orgId: org.id, name },
-    select: { id: true, version: true, contentHash: true },
+    // `archived` is SELECTED, not hoped for: the row's visibility is resolved here, where the row is,
+    // rather than re-derived by a caller that cannot see it.
+    select: { id: true, version: true, contentHash: true, archived: true },
   });
+  // An ARCHIVED name is not a free name and not an updatable row. Without this branch the push fell
+  // through to the update path and reported 200 `updated` with a bumped version, while listOrgSkills
+  // and listOrgSkillManifest (both `archived: false`) kept the skill invisible — a success that lands
+  // nowhere, and a version the server will never offer the client again. Unarchiving is a dashboard
+  // decision (PATCH `archived: false`), never a side effect of a CLI push.
+  if (existing?.archived) {
+    return { status: "archived", id: existing.id, version: existing.version };
+  }
   if (!existing) {
     const created = await prisma.orgSkill.create({
       data: {

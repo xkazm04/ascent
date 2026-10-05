@@ -22,12 +22,19 @@ const hash = (s: string) => contentDigest(s);
 /** The pre-`sha256-n1:` recipe: raw bytes, untagged. Only a row written before the change has one. */
 const legacyHash = (s: string) => createHash("sha256").update(s).digest("hex");
 
-function pushPrisma(existing: { id: string; version: number; contentHash: string } | null) {
-  const calls = { create: 0, update: [] as { where: unknown; data: Record<string, unknown> }[] };
+function pushPrisma(existing: { id: string; version: number; contentHash: string; archived?: boolean } | null) {
+  const calls = {
+    create: 0,
+    update: [] as { where: unknown; data: Record<string, unknown> }[],
+    findFirst: [] as { where: Record<string, unknown>; select: Record<string, boolean> }[],
+  };
   const prisma = {
     organization: { upsert: vi.fn(async () => ({ id: "org_acme" })) },
     orgSkill: {
-      findFirst: vi.fn(async () => existing),
+      findFirst: vi.fn(async (args: { where: Record<string, unknown>; select: Record<string, boolean> }) => {
+        calls.findFirst.push(args);
+        return existing;
+      }),
       create: vi.fn(async () => { calls.create++; return { id: "skill_new", version: 1 }; }),
       update: vi.fn(async (args: { where: unknown; data: Record<string, unknown> }) => {
         calls.update.push(args);
@@ -88,6 +95,26 @@ describe("pushOrgSkill", () => {
     const r = await pushOrgSkill("acme", input, { baseVersion: 4 });
     expect(r).toEqual({ status: "conflict", id: "s1", version: 5 });
     expect(calls.update).toHaveLength(0);
+  });
+
+  it("refuses an ARCHIVED name instead of writing a row no list or manifest shows", async () => {
+    // THE DEFECT this case was written for: the existence check looked a name up with no `archived`
+    // filter, while listOrgSkills and listOrgSkillManifest both filter `archived: false`. So a push to
+    // an archived name took the update branch — 200 `updated`, version bumped, content replaced — and
+    // the skill stayed invisible in every read path. The CLI recorded a version the server would never
+    // offer it again. The archived state is now read WHERE THE ROW IS RESOLVED, and the row is left
+    // exactly as it was.
+    const calls = pushPrisma({ id: "s1", version: 4, contentHash: hash("old body"), archived: true });
+    const r = await pushOrgSkill("acme", input);
+    expect(r).toEqual({ status: "archived", id: "s1", version: 4 });
+    expect(calls.update).toHaveLength(0);
+    expect(calls.create).toBe(0);
+  });
+
+  it("asks the row for its archived state (the select carries it, so the branch cannot be skipped)", async () => {
+    const calls = pushPrisma({ id: "s1", version: 4, contentHash: hash("the body") });
+    await pushOrgSkill("acme", input);
+    expect(calls.findFirst[0]!.select).toMatchObject({ archived: true });
   });
 
   it("updates + bumps version when the body changed and baseVersion matches", async () => {
