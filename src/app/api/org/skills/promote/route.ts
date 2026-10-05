@@ -12,21 +12,13 @@
 // the 404 below rather than leaking.
 
 import { NextResponse } from "next/server";
-import {
-  createOrgSkill,
-  getCreditState,
-  getScanReportByCommit,
-  isDbConfigured,
-  personalSkillCapReached,
-  recordOrgAudit,
-  workspaceAllowsSkills,
-  PERSONAL_SKILL_LIMIT,
-} from "@/lib/db";
+import { createOrgSkill, getScanReportByCommit, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { authorizeOrgApi, isDenied, principalLogin } from "@/lib/api-token-auth";
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
 import { parseRepoParam } from "@/lib/report/repoParam";
 import { buildPromotedSkill } from "@/lib/org/skill-promote";
+import { skillWriteDenial, skillWriteGate } from "@/lib/org/skill-write-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,16 +34,12 @@ export async function POST(request: Request) {
 
   const auth = await authorizeOrgApi(request, body.org, { scope: "skills:write", mode: "write" });
   if (isDenied(auth)) return auth.denied;
-  // Same entitlement chain as POST /api/org/skills — promotion is a create, not a back door around it.
-  const credit = await getCreditState(body.org).catch(() => null);
-  if (!(await workspaceAllowsSkills(body.org, credit?.plan))) {
-    return NextResponse.json({ error: "The Skills Library is a Team-plan feature." }, { status: 403 });
-  }
-  if (await personalSkillCapReached(body.org, credit?.plan)) {
-    return NextResponse.json(
-      { error: `Personal skills are capped at ${PERSONAL_SKILL_LIMIT}. Archive one to author another.` },
-      { status: 402 },
-    );
+  // The `promote` door of the ONE entitlement table — promotion GROWS the library, so it carries the
+  // same row as create (cap included), not a back door around it.
+  const gate = await skillWriteGate(body.org, "promote");
+  if (!gate.allowed) {
+    const denial = skillWriteDenial(gate);
+    return NextResponse.json(denial.body, { status: denial.status });
   }
 
   // Read gate on the SOURCE: resolve the owning org the caller may read, then scope the report fetch to

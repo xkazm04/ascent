@@ -2,7 +2,8 @@
 // authorization the route owns:
 //   - the owning org is resolved FROM the skill (getOrgSkillOrgSlug) then authorized — PATCH member,
 //     DELETE admin (the privilege boundary; flipping it would let any member archive the org's skills);
-//   - both writes additionally require a Team+ plan (403 otherwise, no write);
+//   - both writes additionally pass the ONE entitlement gate at its `edit` door (403 otherwise, no
+//     write) - whose row exempts the personal cap, since an edit replaces a row rather than adding one;
 //   - PATCH forwards a content patch (which drives the version bump) vs an archive-only toggle, and
 //     validates category AFTER the gate; DELETE soft-archives (archiveOrgSkill), never hard-deletes;
 //   - P2025 -> 404, P2002 -> 409, other -> 500.
@@ -24,7 +25,8 @@ const {
   mockIsDbConfigured,
   mockGetOrgSkillOrgSlug,
   mockGetCreditState,
-  mockWorkspaceAllowsSkills,
+  mockIsPersonalOrg,
+  mockGetPersonalUsage,
   mockUpdateOrgSkill,
   mockArchiveOrgSkill,
   mockRecordOrgAudit,
@@ -37,7 +39,8 @@ const {
   mockIsDbConfigured: vi.fn(),
   mockGetOrgSkillOrgSlug: vi.fn(),
   mockGetCreditState: vi.fn(),
-  mockWorkspaceAllowsSkills: vi.fn(),
+  mockIsPersonalOrg: vi.fn(),
+  mockGetPersonalUsage: vi.fn(),
   mockUpdateOrgSkill: vi.fn(),
   mockArchiveOrgSkill: vi.fn(),
   mockRecordOrgAudit: vi.fn(),
@@ -52,7 +55,9 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: mockIsDbConfigured,
   getOrgSkillOrgSlug: mockGetOrgSkillOrgSlug,
   getCreditState: mockGetCreditState,
-  workspaceAllowsSkills: mockWorkspaceAllowsSkills,
+  isPersonalOrg: mockIsPersonalOrg,
+  getPersonalUsage: mockGetPersonalUsage,
+  PERSONAL_SKILL_LIMIT: 10,
   updateOrgSkill: mockUpdateOrgSkill,
   archiveOrgSkill: mockArchiveOrgSkill,
   recordOrgAudit: mockRecordOrgAudit,
@@ -85,7 +90,8 @@ beforeEach(() => {
   mockResolveViewerLogin.mockResolvedValue("alice");
   mockRequireOrgRole.mockResolvedValue(null);
   mockGetCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
-  mockWorkspaceAllowsSkills.mockResolvedValue(true);
+  mockIsPersonalOrg.mockResolvedValue(false);
+  mockGetPersonalUsage.mockResolvedValue({ skills: { used: 0, limit: 10 } });
   mockUpdateOrgSkill.mockResolvedValue(undefined);
   mockArchiveOrgSkill.mockResolvedValue(undefined);
   mockRecordOrgAudit.mockResolvedValue(undefined);
@@ -114,12 +120,23 @@ describe("PATCH /api/org/skills/[id] — per-row gate + plan", () => {
     expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
   });
 
-  it("403 on a non-Team plan, no write", async () => {
+  it("403 plan-required on a non-Team plan, no write", async () => {
     mockGetCreditState.mockResolvedValue({ plan: "pro", balance: 0, unlimited: false });
-    mockWorkspaceAllowsSkills.mockResolvedValue(false);
     const res = await PATCH(patchReq({ name: "x" }), ctx("s1"));
     expect(res.status).toBe(403);
+    expect((await res.json()).decision).toBe("plan-required");
     expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
+  });
+
+  it("a personal workspace AT its cap may still edit (the edit door ignores the cap)", async () => {
+    mockGetCreditState.mockResolvedValue({ plan: "free", balance: 0, unlimited: false });
+    mockIsPersonalOrg.mockResolvedValue(true);
+    mockGetPersonalUsage.mockResolvedValue({ skills: { used: 10, limit: 10 } });
+    const res = await PATCH(patchReq({ description: "Still editable." }), ctx("s1"));
+    expect(res.status).toBe(200);
+    expect(mockUpdateOrgSkill).toHaveBeenCalledTimes(1);
+    // The cap read is not even reached for this door.
+    expect(mockGetPersonalUsage).not.toHaveBeenCalled();
   });
 
   it("404 for an unknown id, no gate/write", async () => {

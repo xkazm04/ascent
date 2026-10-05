@@ -7,19 +7,11 @@
 // with no block is wrapped from them, so every stored skill is a conformant SKILL.md.
 
 import { NextResponse } from "next/server";
-import {
-  createOrgSkill,
-  getCreditState,
-  isDbConfigured,
-  listOrgSkills,
-  personalSkillCapReached,
-  workspaceAllowsSkills,
-  PERSONAL_SKILL_LIMIT,
-  type SkillSort,
-} from "@/lib/db";
+import { createOrgSkill, isDbConfigured, listOrgSkills, type SkillSort } from "@/lib/db";
 import { authorizeOrgApi, isDenied, principalLogin } from "@/lib/api-token-auth";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
 import { reconcileSkillWrite } from "@/lib/org/skill-frontmatter";
+import { skillWriteDenial, skillWriteGate } from "@/lib/org/skill-write-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,18 +49,13 @@ export async function POST(request: Request) {
   }
   const auth = await authorizeOrgApi(request, body.org, { scope: "skills:write", mode: "write" });
   if (isDenied(auth)) return auth.denied;
-  // Entitlement: authoring an ORG's library is a Team-and-up feature (reads stay open to all members);
-  // a PERSONAL workspace authors free-with-limits (individual tier, decision 4) — capped below. This
-  // still applies to a `skills:write` token — the token supplies identity, not an entitlement bypass.
-  const credit = await getCreditState(body.org).catch(() => null);
-  if (!(await workspaceAllowsSkills(body.org, credit?.plan))) {
-    return NextResponse.json({ error: "The Skills Library is a Team-plan feature." }, { status: 403 });
-  }
-  if (await personalSkillCapReached(body.org, credit?.plan)) {
-    return NextResponse.json(
-      { error: `Personal skills are capped at ${PERSONAL_SKILL_LIMIT}. Archive one to author another.` },
-      { status: 402 },
-    );
+  // Entitlement: ONE decision for all four write doors (src/lib/org/skill-write-gate.ts), asked here at
+  // the `create` door — Team+ plan, or a personal workspace under its cap (402 at the cap). This still
+  // applies to a `skills:write` token: the token supplies identity, not an entitlement bypass.
+  const gate = await skillWriteGate(body.org, "create");
+  if (!gate.allowed) {
+    const denial = skillWriteDenial(gate);
+    return NextResponse.json(denial.body, { status: denial.status });
   }
   if (!isSkillCategory(body.category)) {
     return NextResponse.json({ error: `category must be one of: ${SKILL_CATEGORIES.join(", ")}.` }, { status: 400 });

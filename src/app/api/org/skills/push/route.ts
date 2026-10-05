@@ -1,6 +1,8 @@
 // POST /api/org/skills/push { org, name, content, category?, description?, tags?, baseVersion? }
 //   -> 200 { status: "created"|"updated"|"unchanged", id, version }
 //   -> 409 { status: "conflict", id, version, error }   (baseVersion is stale — rebase and retry)
+//   -> 409 { status: "archived", id, version, error }   (the only row by that name is archived)
+//   -> 403 { error, decision }                          (entitlement, named by src/lib/org/skill-write-gate.ts)
 // The write half of the sync loop: register a skill by name, or update the existing one. Optimistic
 // concurrency via `baseVersion` (the version the client last synced) means a stale local copy can't
 // clobber a newer server edit. Write-gated (token skills:write or session) AND Team+ — the token is
@@ -8,9 +10,9 @@
 // The body must satisfy the frontmatter contract; a valid block wins over the request's name/category.
 
 import { NextResponse } from "next/server";
-import { getCreditState, isDbConfigured, pushOrgSkill, recordOrgAudit } from "@/lib/db";
+import { isDbConfigured, pushOrgSkill, recordOrgAudit } from "@/lib/db";
 import { authorizeOrgApi, isDenied, principalLogin } from "@/lib/api-token-auth";
-import { planAllowsSkillsLibrary } from "@/lib/plans";
+import { skillWriteDenial, skillWriteGate } from "@/lib/org/skill-write-gate";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
 import { reconcileSkillWrite } from "@/lib/org/skill-frontmatter";
 
@@ -36,9 +38,13 @@ export async function POST(request: Request) {
   }
   const auth = await authorizeOrgApi(request, body.org, { scope: "skills:write", mode: "write" });
   if (isDenied(auth)) return auth.denied;
-  const credit = await getCreditState(body.org).catch(() => null);
-  if (!planAllowsSkillsLibrary(credit?.plan)) {
-    return NextResponse.json({ error: "The Skills Library is a Team-plan feature." }, { status: 403 });
+  // The ONE entitlement decision, at the `push` door. This door's row says the personal-workspace free
+  // path does NOT extend here (a declared exception, src/lib/org/skill-write-gate.ts), and the refusal
+  // carries its decision NAME so a CLI can tell "your plan" from "this door is Team-only".
+  const gate = await skillWriteGate(body.org, "push");
+  if (!gate.allowed) {
+    const denial = skillWriteDenial(gate);
+    return NextResponse.json(denial.body, { status: denial.status });
   }
 
   // The pushed FILE is the source of truth: a declared frontmatter block must validate (400 with the
@@ -67,6 +73,12 @@ export async function POST(request: Request) {
       { baseVersion, createdBy: actorLogin },
     );
     if (!result) return NextResponse.json({ error: "Failed to push skill." }, { status: 500 });
+    if (result.status === "archived") {
+      return NextResponse.json(
+        { ...result, error: `A skill named "${fm.fields.name}" is archived. Restore it before pushing.` },
+        { status: 409 },
+      );
+    }
     if (result.status === "conflict") {
       return NextResponse.json(
         { ...result, error: `Server has version ${result.version}; you pushed against ${baseVersion}. Pull and retry.` },

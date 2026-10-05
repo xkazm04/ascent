@@ -10,7 +10,6 @@
 import { NextResponse } from "next/server";
 import {
   archiveOrgSkill,
-  getCreditState,
   getOrgSkill,
   getOrgSkillOrgSlug,
   isDbConfigured,
@@ -20,21 +19,24 @@ import {
 import { requireOrgRole } from "@/lib/authz";
 import { authorizeOrgApi, isDenied, principalLogin, type OrgApiPrincipal } from "@/lib/api-token-auth";
 import { resolveViewerLogin } from "@/lib/access";
-import { workspaceAllowsSkills } from "@/lib/db";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
 import { reconcileSkillWrite } from "@/lib/org/skill-frontmatter";
+import { skillWriteDenial, skillWriteGate } from "@/lib/org/skill-write-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Plan gate shared by write paths — authoring the library is a Team-and-up feature. */
+/**
+ * The `edit` door of the ONE entitlement table (src/lib/org/skill-write-gate.ts), shared by PATCH and
+ * DELETE. Its row sets `capApplies: false` — an edit or an archive replaces a row, it does not grow the
+ * library, so a personal workspace AT its cap may still edit. That exemption is a cell in the table and
+ * a case in its test, not a sentence in this comment.
+ */
 async function planDenied(org: string): Promise<NextResponse | null> {
-  const credit = await getCreditState(org).catch(() => null);
-  // Team+ orgs, or a personal workspace (free-with-limits — edits/archives don't grow the library).
-  if (!(await workspaceAllowsSkills(org, credit?.plan))) {
-    return NextResponse.json({ error: "The Skills Library is a Team-plan feature." }, { status: 403 });
-  }
-  return null;
+  const gate = await skillWriteGate(org, "edit");
+  if (gate.allowed) return null;
+  const denial = skillWriteDenial(gate);
+  return NextResponse.json(denial.body, { status: denial.status });
 }
 
 export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {

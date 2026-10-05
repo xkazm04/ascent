@@ -1,8 +1,10 @@
 // Route test for /api/org/skills/promote (the promotion bridge). buildPromotedSkill is unit-tested
 // separately (src/lib/org/skill-promote.test.ts) and mocked here, so this file pins ONLY what the route
 // owns — the gate chain and its ORDER:
-//   DB-configured -> body/repo validation -> member gate -> Team+/personal plan gate -> personal cap ->
-//   SOURCE-repo read gate -> report exists -> create (409 on a repo already promoted).
+//   DB-configured -> body/repo validation -> member gate -> the ONE entitlement gate (promote door,
+//   cap included) -> SOURCE-repo read gate -> report exists -> create (409 on a repo already promoted).
+// src/lib/org/skill-write-gate.ts runs REAL here: only the db facts under it are mocked, so the promote
+// row of the door table is what decides.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -20,8 +22,8 @@ vi.mock("next/server", () => ({
 const {
   mockIsDbConfigured,
   mockGetCreditState,
-  mockWorkspaceAllowsSkills,
-  mockPersonalSkillCapReached,
+  mockIsPersonalOrg,
+  mockGetPersonalUsage,
   mockCreateOrgSkill,
   mockRecordOrgAudit,
   mockGetScanReportByCommit,
@@ -33,8 +35,8 @@ const {
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetCreditState: vi.fn(),
-  mockWorkspaceAllowsSkills: vi.fn(),
-  mockPersonalSkillCapReached: vi.fn(),
+  mockIsPersonalOrg: vi.fn(),
+  mockGetPersonalUsage: vi.fn(),
   mockCreateOrgSkill: vi.fn(),
   mockRecordOrgAudit: vi.fn(),
   mockGetScanReportByCommit: vi.fn(),
@@ -48,8 +50,8 @@ const {
 vi.mock("@/lib/db", () => ({
   isDbConfigured: mockIsDbConfigured,
   getCreditState: mockGetCreditState,
-  workspaceAllowsSkills: mockWorkspaceAllowsSkills,
-  personalSkillCapReached: mockPersonalSkillCapReached,
+  isPersonalOrg: mockIsPersonalOrg,
+  getPersonalUsage: mockGetPersonalUsage,
   createOrgSkill: mockCreateOrgSkill,
   recordOrgAudit: mockRecordOrgAudit,
   getScanReportByCommit: mockGetScanReportByCommit,
@@ -88,8 +90,8 @@ beforeEach(() => {
   mockAuthorizeOrgApi.mockResolvedValue({ principal: { via: "session", login: "alice" } });
   mockPrincipalLogin.mockResolvedValue("alice");
   mockGetCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
-  mockWorkspaceAllowsSkills.mockResolvedValue(true);
-  mockPersonalSkillCapReached.mockResolvedValue(false);
+  mockIsPersonalOrg.mockResolvedValue(false);
+  mockGetPersonalUsage.mockResolvedValue({ skills: { used: 0, limit: 10 } });
   mockReadableOrgForOwner.mockResolvedValue("acme");
   mockRequireOrgRead.mockResolvedValue(null);
   mockGetScanReportByCommit.mockResolvedValue({ repo: { owner: "acme", name: "api" } });
@@ -119,17 +121,21 @@ describe("POST /api/org/skills/promote", () => {
     expect(mockCreateOrgSkill).not.toHaveBeenCalled();
   });
 
-  it("403 on a workspace without the Skills Library, no write", async () => {
-    mockWorkspaceAllowsSkills.mockResolvedValue(false);
+  it("403 plan-required on a workspace without the Skills Library, no write", async () => {
+    mockGetCreditState.mockResolvedValue({ plan: "free", balance: 0, unlimited: false });
     const res = await POST(req(valid));
     expect(res.status).toBe(403);
+    expect((await res.json()).decision).toBe("plan-required");
     expect(mockCreateOrgSkill).not.toHaveBeenCalled();
   });
 
-  it("402 when a personal workspace is at its skill cap, no write", async () => {
-    mockPersonalSkillCapReached.mockResolvedValue(true);
+  it("402 cap-reached when a personal workspace is at its skill cap, no write", async () => {
+    mockGetCreditState.mockResolvedValue({ plan: "free", balance: 0, unlimited: false });
+    mockIsPersonalOrg.mockResolvedValue(true);
+    mockGetPersonalUsage.mockResolvedValue({ skills: { used: 10, limit: 10 } });
     const res = await POST(req(valid));
     expect(res.status).toBe(402);
+    expect((await res.json()).decision).toBe("cap-reached");
     expect(mockCreateOrgSkill).not.toHaveBeenCalled();
   });
 

@@ -1,10 +1,12 @@
 // Route test for /api/org/skills (Org Skills Library, Feature 2). Pins the create-path authorization
 // chain and its ORDER — the invariants the route alone owns:
-//   DB-configured -> body validation -> member gate -> Team+ plan gate -> category validation ->
-//   frontmatter contract -> create.
-// A non-member is denied (gate verbatim, no write); a non-Team plan is 403 (no write); a duplicate name
-// (P2002) maps to 409. GET is read-gated and returns the curated category list. next/server is faked as
-// a Response subclass; authz + db + auth are mocked; plans.ts runs REAL (driven by the mocked plan).
+//   DB-configured -> body validation -> member gate -> the ONE entitlement gate (create door) ->
+//   category validation -> frontmatter contract -> create.
+// A non-member is denied (gate verbatim, no write); a non-Team plan is 403 carrying its decision NAME
+// (no write); a personal workspace at its cap is 402 `cap-reached`; a duplicate name (P2002) maps to
+// 409. GET is read-gated and returns the curated category list. next/server is faked as a Response
+// subclass; authz + db + auth are mocked; plans.ts AND src/lib/org/skill-write-gate.ts run REAL, so the
+// create row of the door table is what decides here.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -24,8 +26,8 @@ const {
   mockListOrgSkills,
   mockCreateOrgSkill,
   mockGetCreditState,
-  mockWorkspaceAllowsSkills,
-  mockPersonalSkillCapReached,
+  mockIsPersonalOrg,
+  mockGetPersonalUsage,
   mockAuthorizeOrgApi,
   mockPrincipalLogin,
 } = vi.hoisted(() => ({
@@ -33,8 +35,8 @@ const {
   mockListOrgSkills: vi.fn(),
   mockCreateOrgSkill: vi.fn(),
   mockGetCreditState: vi.fn(),
-  mockWorkspaceAllowsSkills: vi.fn(),
-  mockPersonalSkillCapReached: vi.fn(),
+  mockIsPersonalOrg: vi.fn(),
+  mockGetPersonalUsage: vi.fn(),
   mockAuthorizeOrgApi: vi.fn(),
   mockPrincipalLogin: vi.fn(),
 }));
@@ -44,9 +46,9 @@ vi.mock("@/lib/db", () => ({
   listOrgSkills: mockListOrgSkills,
   createOrgSkill: mockCreateOrgSkill,
   getCreditState: mockGetCreditState,
-  workspaceAllowsSkills: mockWorkspaceAllowsSkills,
-  personalSkillCapReached: mockPersonalSkillCapReached,
-  PERSONAL_SKILL_LIMIT: 5,
+  isPersonalOrg: mockIsPersonalOrg,
+  getPersonalUsage: mockGetPersonalUsage,
+  PERSONAL_SKILL_LIMIT: 10,
 }));
 // isDenied is a pure type guard ("denied" in r) — kept real; only the network/identity calls are mocked.
 vi.mock("@/lib/api-token-auth", async (importOriginal) => {
@@ -76,8 +78,8 @@ beforeEach(() => {
   mockAuthorizeOrgApi.mockResolvedValue({ principal: { via: "session", login: "alice" } });
   mockPrincipalLogin.mockResolvedValue("alice");
   mockGetCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
-  mockWorkspaceAllowsSkills.mockResolvedValue(true);
-  mockPersonalSkillCapReached.mockResolvedValue(false);
+  mockIsPersonalOrg.mockResolvedValue(false);
+  mockGetPersonalUsage.mockResolvedValue({ skills: { used: 0, limit: 10 } });
   mockCreateOrgSkill.mockResolvedValue({ id: "skill_1" });
   mockListOrgSkills.mockResolvedValue([]);
 });
@@ -104,11 +106,23 @@ describe("POST /api/org/skills — auth chain + order", () => {
     expect(mockCreateOrgSkill).not.toHaveBeenCalled();
   });
 
-  it("403 on a non-Team plan (gate passed) and never writes", async () => {
+  it("403 on a non-Team plan (gate passed), naming the decision, and never writes", async () => {
     mockGetCreditState.mockResolvedValue({ plan: "free", balance: 0, unlimited: false });
-    mockWorkspaceAllowsSkills.mockResolvedValue(false);
     const res = await POST(postReq(valid));
     expect(res.status).toBe(403);
+    expect((await res.json()).decision).toBe("plan-required");
+    expect(mockCreateOrgSkill).not.toHaveBeenCalled();
+  });
+
+  it("402 cap-reached for a personal workspace at its limit (the create door carries the cap)", async () => {
+    mockGetCreditState.mockResolvedValue({ plan: "free", balance: 0, unlimited: false });
+    mockIsPersonalOrg.mockResolvedValue(true);
+    mockGetPersonalUsage.mockResolvedValue({ skills: { used: 10, limit: 10 } });
+    const res = await POST(postReq(valid));
+    expect(res.status).toBe(402);
+    const body = await res.json();
+    expect(body.decision).toBe("cap-reached");
+    expect(body.error).toMatch(/capped at 10/);
     expect(mockCreateOrgSkill).not.toHaveBeenCalled();
   });
 
