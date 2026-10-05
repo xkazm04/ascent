@@ -1427,7 +1427,29 @@ guidance files, `package.json`, `Makefile` / `justfile` / `Taskfile.yml` / `Carg
 `build.gradle`, and gate-shaped `scripts|bin|tools/{verify,check,ci,gate,lint,test}*`). Display is
 bounded to six paths and the remainder is **counted** in the reason (`+N more paths`), never hidden.
 
-`lane-gate-diff.test.ts` pins a `SEEDED_VIOLATIONS` table — 26 paths, each with the class it MUST
+**It voids weakening, not adding** (2026-10-05). Voiding every touch meant that on a repo with no
+tests and no CI (every game repo the standing runner was proved on) the loop could never credit a
+first test, a first workflow, a foundation install's `.ai/manifest.yaml` or better agent guidance:
+exactly the work that makes a repo AI-ready. The call site now reads each path's git status
+(`git diff --name-status --no-renames -z`, so a moved test is a delete plus an add and the delete
+still voids) and hands it to the guard with two more pieces of evidence, all gathered by
+`readGateDiffEvidence` (`lane-gate-diff-load.ts`). The rules: an **added** test file, or an added
+file under `.github/workflows/` / `.husky/` / the other CI-and-hook dirs, is cleared. An added test
+is cleared only once its committed text has been read and holds no run short-circuit (Go `TestMain`,
+`os._exit`, `sys.exit`, `pytest.exit`, `process.exit`, `System.exit` …), because a new test file can
+end the whole run green instead of failing a test. An added fixture or gate-config basename
+(`vitest.config.ts`, `tests/conftest.py`) still voids. `CLAUDE.md` / `AGENTS.md` / `CONTRIBUTING.md` /
+`.ai/manifest.yaml` void **only if the verify ladder resolved from them changed** between the
+lane's base and HEAD, and the reason then names `old -> new` (`(none resolved)` when one side
+declares nothing). Every modification or deletion, and any `package.json` / build file / gate
+script, voids as before. Each missing piece of evidence (unparseable status, unread text, a ladder
+that could not be resolved) is read as strict, and callers that pass bare names get the old guard
+unchanged. The reason now says how each class was touched (`test-file, deleted`,
+`gate-config, added`, `verify-command, modified, changing the verify command …`). The status-aware
+cases are pinned in `lane-gate-diff.status.test.ts`, and end to end over a real temp git repository
+in `lane-gate-diff-load.test.ts`.
+
+`lane-gate-diff.test.ts` pins a `SEEDED_VIOLATIONS` table — 37 paths, each with the class it MUST
 receive — asserted both through the classifier and one at a time through `checkGateDiff`. Loosening a
 rule does not make the guard quieter; it makes that file red. This exists because the repo has been
 bitten exactly once by a source-scanning guard that stopped matching and kept passing (AGENTS.md,

@@ -110,6 +110,7 @@ import { isLocalHalf, resolveLocalEndpoint } from "@/lib/local/endpoint";
 import { runAgentVia, type TransportRunOptions } from "@/lib/local/transport/run";
 import { transportTiming } from "@/lib/local/transport/profile";
 import { checkGateDiff } from "@/lib/local/lane-gate-diff";
+import { readGateDiffEvidence } from "@/lib/local/lane-gate-diff-load";
 // THE LANE-EXIT DOOR AND THE ADJUDICATION TAIL (challenge-2026-09-23). Every way this lane ends is a
 // word in `LANE_EXIT_KINDS`, and what each end owes — release, plan settle, terminal phase, progress —
 // is one row of `laneExitObligations`; `exitLane` is the only thing here that writes a terminal row.
@@ -1660,9 +1661,14 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // the arm that produced it, which is precisely the failure this guard exists to prevent. It does
     // not rescan, so nothing it changed becomes the repository's latest reading.
     if (commits > 0) {
-      const names = await git(["diff", "--name-only", `${before}..HEAD`]);
+      // --no-renames: with rename detection on (git's default) a MOVED test is listed by its new name
+      // only, and its deletion — the half that voids — would never reach the guard.
+      const names = await git(["diff", "--name-only", "--no-renames", `${before}..HEAD`]);
       const changedPaths = names.ok ? names.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : [];
-      const void_ = deps.gateDiff(changedPaths);
+      // The evidence that tells ADDING from WEAKENING (each path's status, an added test's text, the
+      // verify ladder before vs after). A read that fails leaves its field absent, which reads strict.
+      const evidence = await readGateDiffEvidence({ git, dir: worktree.dir, before, changedPaths });
+      const void_ = deps.gateDiff(changedPaths, evidence);
       if (void_.void) {
         const reason = void_.reason ?? "This lane edited the surface that scores it.";
         const shown = void_.paths.slice(0, 10).join(", ");
