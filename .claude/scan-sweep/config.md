@@ -260,3 +260,62 @@ a parallel run has already swept an in-flight version bump into its own commit h
      to let the customer-repo door mint another owner's installation token, reopening the 2026-09-23
      cross-tenant write on that deployment; fixed in `d822b737` with `selfHostedExplicit()`. Put this
      in the brief for any row that touches tokens, tenancy or scope.
+
+- **2026-10-05 (third `--challenge` run, challenge-2026-10-05: 11 of 12 landed, 0 integration
+  failures, 0 reverts, execution_score 0.73) - six things, four of them brief defects I own.**
+  1. **Establish the base-sha gate state BEFORE wave 1.** Two repo gates were ALREADY red at
+     `11716d51`: `src/lib/org/tab-link-graph.test.ts` (commit `d4552ffb` gave `practices` an
+     outbound link and never refreshed `NO_OUTBOUND`) and `scripts/context-map/check-map-drift.mjs`
+     (28.8% unmapped against a 10% budget, plus the map naming files that no longer exist - and
+     this run deleted none). Every builder in waves 1 and 2 independently spent time proving the
+     first one was foreign. One `npx vitest run` plus the drift check before dispatching costs six
+     minutes and saves that tax four times over. I fixed the pin (`23a72eae`) because a
+     permanently red guard makes every integration gate unreadable; the map drift is Lane C and
+     is the same debt as the open backlog's context-map row.
+  2. **Never put two cards from the SAME context in one wave, even when the shared-surface lock
+     covers the files.** I put cards 0 and 1 (both AI-Native Standard) in wave 3 on the theory
+     that the `mkdir` lock handled `context-map.json` and the spec doc. It did not: card 0 edited
+     two locked surfaces while card 1 held the lock, its doc section was never mirrored into
+     `SPEC_MD`, and the byte-identity drift guard went **red on HEAD** until card 1 repaired it in
+     `b4b055f2`. A builder repairing another builder's red mid-wave is an integration failure that
+     the integration gate cannot see, because it was fixed before the gate ran. Same-context pairs
+     go in different waves; that is what the A/B-never-share-a-wave rule was already for and I
+     applied it to write sets only.
+  3. **`git commit -F <file>` with a mis-pathed message file does NOT fail loudly here.** Card 1's
+     builder hit this: the commit took the shared INDEX and inherited `.git/COMMIT_EDITMSG` from the
+     previous commit, so `b3890392` carries card 5's subject and body, card 1's three code files AND
+     card 0's held-back `standard.test.ts` hunk - three cards in one mislabelled commit. Nothing was
+     lost and no foreign session's files were caught, but history now misattributes the work. I
+     attached a `git notes` correction rather than rewriting a shared branch. **Add to the builder
+     brief: verify the message file exists (`test -f`) before committing, and run
+     `git show --stat --format= HEAD` immediately after every commit to confirm the subject and the
+     file list are yours.** The brief already forbade bare `git commit`; it did not cover the
+     fallback path that produces the same damage.
+  4. **The em-dash rule needs to say WHICH text it governs.** The brief said "banned in product copy
+     and in prose" and every wave-1 builder read comments as exempt: 109 em dashes landed, **86 in
+     code comments**, ~21 in test `describe()` strings, 2 the `"-"`-style no-value glyph that 169
+     files already use at base, 1 in a server log line. **Zero in user-visible copy** - a real
+     improvement on the previous run, where ~12 in button labels and error strings cost three cards
+     their mark. Waves 2 and 3 went further than asked and wrote assertions FORBIDDING em dashes in
+     their own copy (`expect(state.reason).not.toContain(...)`), which is the right fix and should be
+     the instruction: pin the ban in a test on the surface you touch, and say plainly whether
+     comments are in scope.
+  5. **`npm run build` belongs in the integration gate, not outside it.** It is not in this
+     overlay's gate list, the suite cannot see the class, and this run added several client
+     components importing server-reaching modules. It compiled clean (33.4s, exit 0) - but card 5
+     only avoided the break because its dispatch warned it: `scanMaxCacheAgeMs()` reaches
+     `@/lib/db`, so importing it from a module a `"use client"` component imports would have dragged
+     Prisma into the browser bundle, passing `tsc` and all 17276 tests and failing only `next build`.
+     Cheap, and it is the only gate that sees it.
+  6. **Count LOC with `wc -l` semantics.** I first measured with `split("\n").length`, which is +1
+     on any file ending in a newline, and it reported nine files over cap where the repo's own
+     `(Get-Content).Count` check reports three. The three were pre-existing and untouched; the other
+     six sat at exactly 200 or 300. An off-by-one here invents violations and would have sent a
+     builder to extract a file that was already compliant.
+
+  Also measured, for the next run's planning: Fable as critic voided nothing across 12 cards and
+  re-verified ~110 premise anchors, and its four `revise` instructions were ALL LOC-cap collisions
+  it found by reading the receiving files - a check the scouts should run themselves, since every one
+  of the four was predictable from the write set. `idea_score` ambition 3.92 / grounding 5.00 /
+  falsifiability 4.42; the critic also marked four `impact: 8` cards as really 7, which matches the
+  run's outcome (the four are the four smallest).
