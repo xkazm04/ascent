@@ -1334,7 +1334,9 @@ exist, and was it read" is answerable; the revocation state deliberately does **
 A mint whose `segment` or `stack` is present and not a string is refused with 400 before a token
 is signed. The reader drops a non-string scope, so signing one would open the whole fleet.
 
-An owner drives both halves from the API:
+An owner drives both halves from the Briefing tab's **Issued share links** panel
+(`ShareLinkInventory`, owner-only, documented in [plan.md](../org-planning/plan.md)), which is the
+first caller in `src/` of either route. Both remain plain calls:
 
 | Call | Does |
 | --- | --- |

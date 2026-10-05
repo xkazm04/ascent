@@ -337,6 +337,30 @@ so the panel's refusals are unit-testable without a DOM (`leverageMoves.test.ts`
 
 **Prism composition.** On the Briefing tab, Prism (`getTheme() === "prism"`) renders `ExecutiveTab.v2`: a masthead (the fleet level is the statement, headline figures in paper with a glyph and a word), hairline frames, dimension lines for strengths, risks and shared gaps, a rung ladder for the transition programme, and form fields for that programme and for briefing branding. Altimeter keeps `ExecutiveTab.v1`. The public share page, the board PDF, and copy-for-LLM still use the shared briefing blocks. An unknown score is "not measured", not 0.
 
+**Issued share links are an inventory, not just an API.** The Briefing tab mounts
+`ShareLinkInventory` (`src/features/bought/executive/`) for owners only (`canShare`, already
+`briefingShareEnabled() && isOwner`), in both compositions. It is the first caller in `src/` of
+`GET /api/org/briefing/share` and `POST /api/org/briefing/share/revoke`: one row per grant, newest
+first, with its scope (whole org / segment / stack), minter, frozen window, expiry, open count and
+status, plus a Revoke control. Three refusals are the panel, pinned in `shareLinkRows.test.ts` and
+`ShareLinkInventory*.test.tsx`:
+
+- **Revoked and expired are different words**, and neither offers Revoke. A grant whose mint row
+  recorded no expiry is never shown as expired - telling an owner a still-openable link has expired
+  is the one answer that makes them stop revoking it.
+- **A ledger that could not be read is not an empty inventory.** The revocation lookup fails closed,
+  so a failed read would render every live grant as revoked; the panel says the inventory could not
+  be read, never "no links issued", and keeps revoke-by-id usable.
+- **Zero opens is phrased, never printed.** "Not opened yet", not a "0" that reads as health.
+- Revoking is two-step: the first click states that anyone holding the URL loses it and that this
+  cannot be undone; only the second one POSTs. The panel states that the list is bounded by audit
+  retention and is not the enforcement point, and accepts a pasted link id, so a grant older than
+  retention can still be killed (the endpoint deliberately does not require it to be listed).
+
+A link minted by the Share button is prepended on success through a window event
+(`publishMintedShareGrant`), because the mint control sits inside a server subtree that cannot pass a
+callback - so the URL has a durable home instead of existing only in the clipboard.
+
 **The two voids, which are the point.** Both used to be sentences and are now shapes that cannot be
 misread:
 
