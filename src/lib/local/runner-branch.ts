@@ -104,7 +104,41 @@ export async function mergeInBase(pairedPath: string, baseBranch: string): Promi
       ? { ok: true, changed: true, sha: base, note: `Fast-forwarded ${RUNNER_BRANCH} to ${baseBranch} (${short(base)}).` }
       : { ok: false, conflict: false, files: [], note: `Could not fast-forward ${RUNNER_BRANCH}: ${firstLine(moved)}` };
   }
+  // The runner carries nothing the base lacks IN CONTENT: every commit on it has a patch-equivalent on
+  // the base. That is what a REWRITTEN base looks like (a history filter gives every commit a new SHA,
+  // measured 2026-10-05 on a repo whose owner stopped tracking a directory: 502 commits each side, zero
+  // loop work, and a merge that conflicted in 27 files). Re-cutting the runner to the base loses nothing
+  // and needs no operator; any `+` (a commit the base does not carry) still merges, or pauses on conflict.
+  if (await carriesNothingOwn(pairedPath, base, runner)) {
+    const moved = await casRunner(pairedPath, base, runner);
+    return moved.ok
+      ? { ok: true, changed: true, sha: base, note: `${RUNNER_BRANCH} carried no work ${baseBranch} lacks (every commit has an equivalent there — the base was rewritten), so it was re-cut to ${baseBranch} (${short(base)}).` }
+      : { ok: false, conflict: false, files: [], note: `Could not re-cut ${RUNNER_BRANCH} to ${baseBranch}: ${firstLine(moved)}` };
+  }
   return mergeInWorktree(pairedPath, baseBranch, runner);
+}
+
+/**
+ * True only when git can PROVE the runner holds no work of its own, by either of two readings:
+ *  1. the runner's tip is a commit the BASE branch itself once pointed at (the base's reflog names it):
+ *     the runner is an old snapshot of the base, never landed on since its last fast-forward. This is
+ *     the reading that held on the measured repo, where the filter also rewrote patches (`git cherry`
+ *     found 172 commits with no equivalent, because they touched the directory it stopped tracking);
+ *  2. every commit on the runner not reachable from the base is patch-equivalent to one on it
+ *     (`git cherry` marks each `-`) — a rebase or a re-sign that left the patches intact.
+ * Any doubt — a git failure, an expired reflog, a `+` — is false, and the merge proceeds as before.
+ */
+async function carriesNothingOwn(cwd: string, base: string, runner: string): Promise<boolean> {
+  const baseRef = await runGit(cwd, ["for-each-ref", "--format=%(refname)", "--points-at", base, "refs/heads"]);
+  for (const ref of baseRef.ok ? lines(baseRef.stdout) : []) {
+    if (ref === RUNNER_REF) continue;
+    const log = await runGit(cwd, ["reflog", "show", "--format=%H", ref]);
+    if (log.ok && lines(log.stdout).includes(runner)) return true;
+  }
+  const r = await runGit(cwd, ["cherry", base, runner], { timeoutMs: CHECKOUT_TIMEOUT_MS });
+  if (!r.ok) return false;
+  const marks = lines(r.stdout);
+  return marks.length > 0 && marks.every((l) => l.startsWith("- "));
 }
 
 async function mergeInWorktree(pairedPath: string, baseBranch: string, runner: string): Promise<MergeInResult> {

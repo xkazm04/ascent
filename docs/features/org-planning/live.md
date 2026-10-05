@@ -2373,6 +2373,13 @@ refuses a race. No working copy sits behind it.
   --abort`, moves nothing, and pauses that repo as `branch-conflict` with the conflicting files in
   `note`. A merge commit uses the repo's own identity, falling back to `Ascent Runner` only when none is
   configured, and it runs the repo's own hooks.
+  **A rewritten base re-cuts instead (2026-10-05).** Before the temp-worktree merge, the runner is
+  re-cut to the base (a compare-and-swap, no checkout) when git can prove it holds no work of its own:
+  its tip is a commit the base branch itself once pointed at (the base's reflog names it), or every
+  commit on it has a patch-equivalent on the base (`git cherry` all `-`). Measured on a game repo
+  whose owner filtered a directory out of history: every SHA changed, the runner held zero loop work,
+  and the merge paused the repo on a 27-file conflict. The filter had rewritten the patches too, so
+  only the reflog reading held there. Any doubt (an expired reflog, a `+`) merges as before.
 - **Land, after every verified lane** (delivery `runner`, `landOnRunner`). The runner branch is
   fast-forwarded to the lane's tip only after `merge-base --is-ancestor <old> <new>` proves the move is
   a fast-forward. A non-fast-forward, such as the second of two A/B arms, is **refused and logged on the
