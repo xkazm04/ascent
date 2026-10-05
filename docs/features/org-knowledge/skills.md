@@ -228,10 +228,14 @@ Two routes exist specifically for a non-interactive client:
   version, the route returns `409` ("Server has version {version}; you
   pushed against {baseVersion}. Pull and retry.") without writing. If the
   content hash is unchanged, it reports `unchanged` without bumping the
-  version; otherwise it increments `version` by 1. Unlike every other
-  skills-write route, push gates directly on `planAllowsSkillsLibrary`
-  rather than the personal-workspace-inclusive `workspaceAllowsSkills`; the
-  CLI/CI push path does not extend the personal-workspace free tier.
+  version; otherwise it increments `version` by 1. If the only row by that
+  name is **archived**, the push is refused with `409 { status: "archived" }`
+  and the archived row is left untouched: restoring a skill is a dashboard
+  decision (`PATCH { archived: false }`), never a side effect of a CLI push.
+  Push is the one write door the personal-workspace free path does not reach,
+  and that exception is now a declared ROW in the door table
+  (`src/lib/org/skill-write-gate.ts`) rather than a different predicate copied
+  into this route: see *Tier gating* below.
 
 Those two routes are the hosted library path and they need an `askl_` token.
 Git-native usage does not use them: `ascent-skills report --to-registry`
@@ -591,7 +595,7 @@ role required) and adopt/unadopt (member role). All of `/api/org/tokens*`
 | `/api/org/skills/[id]` | `PATCH` | `skills:write` + plan | Edit; frontmatter reconciled with current values as fallback. |
 | `/api/org/skills/[id]` | `DELETE` | admin session only | Archive (soft-delete). |
 | `/api/org/skills/promote` | `POST` | `skills:write` + plan/cap + source-repo session read | Promote a repo's onboarding skill into the library. |
-| `/api/org/skills/push` | `POST` | `skills:write` + `planAllowsSkillsLibrary` (no personal path) | Create/update by name with optimistic-concurrency (`baseVersion`). |
+| `/api/org/skills/push` | `POST` | `skills:write` + `skillWriteGate(org, "push")` (no personal path) | Create/update by name with optimistic-concurrency (`baseVersion`); `409 archived` when the name's only row is archived. |
 | `/api/org/skills/manifest` | `GET` | `skills:read` | Lockfile-style index for sync clients. |
 | `/api/org/skills/[id]/adopt` | `POST`/`DELETE` | member session only | Adopt/unadopt against a repo. |
 | `/api/org/skills/[id]/download` | `GET`/`POST` | `skills:read` | Serve/copy the skill body; counts a use. |
@@ -622,18 +626,44 @@ alone.
 `planAllowsSkillsLibrary(plan)` in `src/lib/plans.ts` returns `true` only for
 `team` and `enterprise`; reads are open to all members regardless.
 
-Most write routes use `workspaceAllowsSkills(slug, plan)`
-(`src/lib/db/personal.ts`): `planAllowsSkillsLibrary(plan) ||
-isPersonalOrg(slug)`. A personal workspace can author/edit/promote/archive
-regardless of plan, capped at 10 non-archived skills
-(`PERSONAL_SKILL_LIMIT`); exceeding it returns 402 ("Personal skills are
-capped at 10. Archive one to author another."). A Team+ org has no such cap.
-With the dashboard form gone, the routes these gates guard are reached only
-by token-bearing callers.
+### One decision, four doors
 
-The **push** route is the one exception: it gates directly on
-`planAllowsSkillsLibrary`, not `workspaceAllowsSkills`: a personal workspace
-cannot use the CLI/CI push path.
+All four write doors ask **one** function: `skillWriteGate(org, door)` in
+`src/lib/org/skill-write-gate.ts`, where `door` is a member of the closed
+`SkillWriteDoor` union (`create` | `edit` | `promote` | `push`). The rule per
+door is a row in `SKILL_WRITE_DOORS`, a `Record` over that union, so a fifth
+write path cannot ship with an undeclared entitlement rule: the table stops
+typechecking until it has a row.
+
+| Door | Route | Personal free path | Personal cap applies |
+| --- | --- | --- | --- |
+| `create` | `POST /api/org/skills` | yes | yes |
+| `promote` | `POST /api/org/skills/promote` | yes | yes |
+| `edit` | `PATCH`/`DELETE /api/org/skills/[id]` | yes | no (an edit replaces a row, it does not add one) |
+| `push` | `POST /api/org/skills/push` | **no** (declared exception) | n/a |
+
+The answer is an enumerated decision, never a boolean, and the refusal body
+carries its name so a CLI can tell the three refusals apart:
+
+| Decision | Status | Meaning |
+| --- | --- | --- |
+| `plan-allows` | - | Team+ plan; no cap. |
+| `personal-allowance` | - | Personal workspace under its cap (carries `limit` and `remaining`). |
+| `plan-required` | 403 | The workspace's plan does not carry the library. |
+| `personal-door-closed` | 403 | This door is Team-only for a personal workspace (push). |
+| `cap-reached` | 402 | "Personal skills are capped at 10. Archive one to author another." |
+| `unknown-door` | 403 | Fail-closed: a door with no row refuses. |
+
+A personal workspace can author/edit/promote/archive regardless of plan,
+capped at 10 non-archived skills (`PERSONAL_SKILL_LIMIT`). A Team+ org has no
+such cap. With the dashboard form gone, the routes these gates guard are
+reached only by token-bearing callers, and a `skills:write` token supplies
+identity, not an entitlement bypass: the same door decides for a bearer
+principal and for a session.
+
+`workspaceAllowsSkills(slug, plan)` (`src/lib/db/personal.ts`) remains the
+read-side capability predicate for the MCP door and the Athena gate; the four
+write doors no longer call it directly.
 
 ## The agent door — MCP server (W5, 2026-08-14)
 
@@ -1046,3 +1076,4 @@ as Trace.
 | `src/features/shared/skills/ApiTokensPanel.tsx` | Token mint/list/revoke UI. |
 | `src/app/org/[slug]/skills/page.tsx` | Page composition. |
 | `src/lib/db/org-skill-pending-invokes.ts` | Held `registry:<name>` invokes from `report_skill_invoke`, and their attach on the next index pass. |
+| `src/lib/org/skill-write-gate.ts` | The ONE write-door entitlement decision: the closed `SkillWriteDoor` union, the `SKILL_WRITE_DOORS` rule table, the enumerated decision and its status mapping. |
