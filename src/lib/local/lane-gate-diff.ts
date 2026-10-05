@@ -296,6 +296,17 @@ function judgeChange(
     const why = declared && "refused" in declared ? `; not cleared: ${declared.refused}` : "";
     return `${how}, changing the verify command ${ladderText(ladder.before)} -> ${ladderText(ladder.after)}${why}`;
   }
+  // A MODIFIED or DELETED gate script that NO rung of either ladder runs is cleared too: the guard's
+  // verdict comes from the ladder alone, so editing a script nothing in it runs cannot flatter it.
+  // Measured 2026-10-05: the second lane to refine a pre-commit guard the first lane had added
+  // (`tools/guard/check.mjs`, gate `dotnet test …`) was voided for "modifying" it. Missing ladder
+  // evidence, or a ladder that runs the script, still voids — that is the weakening this guard is for.
+  if (s !== "A" && surface === "verify-command" && isGateScriptPath(p)) {
+    const ladder = opts.verifyLadder;
+    if (!ladder) return `${how}; the verify command could not be read, so it cannot be cleared`;
+    const runBy = rungReferencing(p, [ladder.before, ladder.after]);
+    return runBy ? `${how}, and the verify command \`${runBy}\` runs it` : null;
+  }
   if (s !== "A") return how;
   // An ADDED gate script is cleared when no rung of either ladder runs it (header) — or when a cleared
   // BOOTSTRAP runs it: with no prior gate there was nothing for it to flatter, and the script IS the

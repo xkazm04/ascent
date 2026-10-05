@@ -29,10 +29,17 @@ describe("A — an ADDED gate script is judged against the ladder that would run
     expect(v.void).toBe(true);
   });
 
-  it("a modified existing gate script voids exactly as before, ladder or not", () => {
+  it("a modified gate script NO ladder runs is cleared — editing it cannot flatter the verdict", () => {
+    // Measured 2026-10-05: a lane refining the pre-commit guard an earlier lane added was voided.
     const v = checkGateDiff([M("tools/check.mjs")], { verifyLadder: same("dotnet test x") });
-    expect(v.void).toBe(true);
-    expect(v.reason).toContain("verify-command, modified");
+    expect(v.void).toBe(false);
+  });
+
+  it("a modified gate script the ladder RUNS still voids, and so does one with no ladder evidence", () => {
+    const run = checkGateDiff([M("tools/check.mjs")], { verifyLadder: same("node tools/check.mjs") });
+    expect(run.void).toBe(true);
+    expect(run.reason).toContain("verify-command, modified");
+    expect(checkGateDiff([M("tools/check.mjs")]).void).toBe(true);
   });
 
   it("an added gate script with no ladder evidence is void (strict)", () => {

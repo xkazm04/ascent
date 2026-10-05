@@ -126,9 +126,19 @@ export const PLAN_WROTE_MESSAGE =
   "The planning session wrote to the worktree — its read-only policy did not hold; nothing was executed.";
 
 /** `git status --porcelain` lines, or null when git could not answer (which proves nothing). */
+/** The last `git status` failure in a worktree, so a failed inspection can say what git said. */
+const lastStatusError = new Map<string, string>();
+
 async function porcelain(dir: string): Promise<string[] | null> {
-  const res = await runGit(dir, ["status", "--porcelain"]);
-  return res.ok ? res.stdout.split("\n").filter((l) => l.trim()) : null;
+  // ONE RETRY: a transient index lock (a CLI or an editor indexer touching the tree as a session ends)
+  // failed a whole lane with no reason given. The second failure is kept, with git's own words.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await runGit(dir, ["status", "--porcelain"]);
+    if (res.ok) return res.stdout.split("\n").filter((l) => l.trim());
+    lastStatusError.set(dir, (res.stderr || res.stdout).split(/\r?\n/).find((l) => l.trim())?.trim() ?? "git gave no reason");
+    if (attempt === 0) await new Promise((r) => setTimeout(r, 2_000));
+  }
+  return null;
 }
 
 /** The worktree's HEAD sha, or null. A session that COMMITS leaves a clean tree and a moved HEAD. */
@@ -219,7 +229,12 @@ export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
   const headAfter = await headOf(worktree.dir);
   if (after === null || after.length > 0 || headAfter !== headBefore) {
     await restoreWorktree(worktree, headBefore);
-    if (after === null) return { mode: "failed", message: "The worktree could not be inspected after the planning session, so its read-only policy is unproven; nothing was executed." };
+    if (after === null) {
+      return {
+        mode: "failed",
+        message: `The worktree could not be inspected after the planning session (git: ${lastStatusError.get(worktree.dir) ?? "no reason"}), so its read-only policy is unproven; nothing was executed.`,
+      };
+    }
     if (before && before.length > 0) {
       return { mode: "failed", message: `The worktree was not clean before planning (${before.length} path(s) left by an earlier cycle), so the planning session's read-only policy could not be proven; nothing was executed.` };
     }

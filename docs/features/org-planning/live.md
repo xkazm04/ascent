@@ -1457,7 +1457,9 @@ standing runner; `lane-gate-diff-declare.ts`):
   `scripts|tools|bin/{verify,check,ci,gate,lint,test}*` file is now cleared when no rung of the before
   or after ladder names it (matched as a token on the path, the path without extension, the basename and
   the basename without extension, so `npm run check` still catches `tools/check.mjs`). Referenced, or
-  with no ladder to read, it voids. A modified or deleted gate script voids as before.
+  with no ladder to read, it voids. A modified or deleted gate script is judged the same way: cleared
+  when no rung of either ladder runs it (the next lane to refine that same guard script was voided for
+  "modifying" it), void when a rung runs it or the ladder cannot be read.
 - **A changed declared gate.** firetv rewrote `AGENTS.md` / `.ai/manifest.yaml` / `CONTRIBUTING.md` to
   declare its real gates. The lane's own verdict is measured with the command the cached baseline
   resolved, so a guidance edit that changes the resolved primary is cleared when all of these hold: the
