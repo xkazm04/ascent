@@ -285,7 +285,9 @@ Segments view doesn't pay for a rollup it won't render. It shows user-defined fl
    segment count, including zero.
 2. **Segment maturity** — per-segment rollup cards, once there is at least one segment. A card for a
    **declared** segment also carries its rule, its drift and an Apply control (see below).
-3. **Compare** — side-by-side segment-vs-segment (headline metrics + per-dimension Δ).
+3. **Compare** — side-by-side segment-vs-segment: headline metrics + per-dimension Δ as paired rows,
+   each side also drawn as its **population** of repos, and each dimension expanding to the repos behind
+   the gap (see below).
 
 The manager moved here from the main Repositories view on 2026-08-19. It used to sit above the
 leaderboard, which left this view with an empty state whose only advice was "go to the Repositories
@@ -357,6 +359,56 @@ converges a declared segment on a schedule or when a repo is onboarded, so the d
 honest signal and the operator is the loop. Making the rescan cron converge declared segments is the
 obvious next step and deliberately not in this change: an automatic reap of membership rows wants its
 own review.
+
+#### Compare segments as populations, for one fleet read instead of three (2026-10-05)
+
+The comparison used to be two dots per metric. A segment of 20 repos and a segment of 2 drew
+identically, and a 14-point gap on a dimension named no repo and offered no action, although the
+rollup the mean came from held every repo's per-dimension score the whole time.
+
+- **The producer keeps what it averaged.** `SegmentSummary.points` is one entry per SCANNED repo
+  (`{ fullName, overall, dims: [{ dimId, score }] }`), produced inside `summarizeScopedRepos` from the
+  rows it was already walking on its way to an average. `scannedCount === points.length` and
+  `avgOverall` is the rounded mean of `points.map(p => p.overall)`, so a surface can draw the marks and
+  the mean without the two readings being able to disagree. A dimension the latest scan did not grade is
+  ABSENT from `dims`, never a 0: `distributionRows` lists such a repo under "not scored on this
+  dimension" instead of ranking it at the bottom of a worst-first list it does not belong on.
+- **One fleet read, not three.** The tab shows the per-segment strip AND one A/B comparison off the same
+  fleet, and it used to buy that fleet three times: `listSegmentSummaries` (one unscoped
+  `getOrgRollup`) plus `compareSegments`, whose two `summarizeSegment` calls each ran a segment-scoped
+  one. `getOrgRollup`'s own header records why that was expensive: a nested `take` does not bound the
+  transfer, so the org's entire scan history crosses the wire per call. `loadSegmentsView(slug, { a, b })`
+  (`src/lib/db/segments.ts`) now fetches ONE rollup, partitions it by the membership map the strip
+  already needed, and returns both readings plus the resolved A/B pair. Measured 2026-10-05 as
+  rollup-shaped `repository.findMany` calls for one Segments view: **3 before, 1 after**
+  (`src/lib/db/segments.test.ts`). `summarizeScopedRollup` and `summarizeSegment` are deleted; segments
+  were their last caller, as `tech-groups.ts` noted when stacks made the same move on 2026-08-19.
+- **The split.** The comparison shapes and their pure reducers moved to `src/lib/db/segments-compare.ts`
+  (`SegmentPoint`, `SegmentSummary`, `SegmentComparison`, `summarizeScopedRepos`, `compareScopes`,
+  `resolveComparePair`); `segments.ts` re-exports them, so no call site or `db/index.ts` consumer
+  changed shape. The A/B selection from `?a=`/`?b=` moved into `resolveComparePair` because both
+  Segments views held an identical copy of it and a drift between them would have meant two tabs
+  comparing different pairs off the same URL.
+- **What the view draws.** `SegmentDistribution` is a server-safe strip: one thin tick per repo, the mean
+  as a ringed mark of a visibly different kind, and the n printed for both sides. A side with nothing
+  scanned draws no mark and prints no number; the absence is said in words ("no scanned repository") in
+  the visible label and the accessible name alike, and a one-repo side says "one scanned repo, not a
+  segment mean" rather than offering a mean of itself. Above 36 repos the tail is counted ("+N more"),
+  worst-first, rather than smeared as overlapping marks. The registry rules behind those choices are
+  `peer-benchmarking`'s population-vs-scalar-ranking and basis-disclosure.
+- **The gap becomes work.** Each dimension row expands (a `<details>`, so the drill-down costs no client
+  JS) into the trailing side's repos ranked worst-first on THAT dimension, each with its report link and,
+  **for a watched repo only**, the existing `RepoRescanButton` under the existing GitHub-App gate. That
+  watched-vs-tagged line is the same one `SegmentActions` states in its scan label: `POST /api/org/scan`
+  intersects its request with the watch list, so a Rescan on a tagged-but-unwatched repo would promise a
+  scan the route drops. No new path to spend a credit was added.
+- **One behaviour change to know about.** The comparison's averages now come from `summarizeScopedRepos`,
+  the same reducer the per-segment strip uses, rather than from a scoped `getOrgRollup`. For a fleet with
+  no mock scans the numbers are byte-identical (pinned as a regression assertion on the acceptance
+  fixture). For a fleet that has them, the comparison now INCLUDES mock-floor scans in its means exactly
+  as the strip beside it always has, where it previously excluded them as `getOrgRollup` does. The two
+  readings on this one screen now agree with each other; aligning both on the rollup's mock exclusion is
+  a separate call, because it would move the strip's and the tech-stack summaries' numbers too.
 
 ### Context half-life (the Repositories tab's context-layer lens, W4, real)
 

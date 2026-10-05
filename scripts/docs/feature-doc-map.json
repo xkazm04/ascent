@@ -198,6 +198,7 @@
         "src/lib/db/org-insights.ts",
         "src/lib/db/org-stance.ts",
         "src/lib/db/segments.ts",
+        "src/lib/db/segments-compare.ts",
         "src/lib/db/branding.ts",
         "src/lib/integrations/**",
         "src/app/api/org/invites/**",
