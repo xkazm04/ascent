@@ -3,8 +3,9 @@
 // only when the LAST interested caller disconnects — so one client navigating away can't kill a scan
 // the others still want.
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  INFLIGHT_LINGER_MS,
   activeScoringIdentity,
   coalesceScan,
   inflightScanCount,
@@ -28,25 +29,34 @@ function deferred<T>() {
 
 describe("coalesceScan — in-flight scan de-duplication (scan-pipeline #1)", () => {
   it("replaces an aborted run before it settles, retaining the replacement for later joiners", async () => {
-    const old = deferred<ScanReport>();
-    const replacement = deferred<ScanReport>();
-    const controller = new AbortController();
-    const first = coalesceScan("aborted-replacement", () => old.promise, controller.signal);
-    controller.abort();
-    const onJoin = vi.fn();
-    const factory = vi.fn(() => replacement.promise);
-    const second = coalesceScan("aborted-replacement", factory, undefined, onJoin);
-    old.resolve(fakeReport("old"));
-    await first;
-    const lateFactory = vi.fn(async () => fakeReport("unexpected"));
-    const third = coalesceScan("aborted-replacement", lateFactory);
-    replacement.resolve(fakeReport("replacement"));
-    const reports = await Promise.all([second, third]);
-    expect(factory).toHaveBeenCalledTimes(1);
-    expect(onJoin).not.toHaveBeenCalled();
-    expect(lateFactory).not.toHaveBeenCalled();
-    expect(reports).toEqual([fakeReport("replacement"), fakeReport("replacement")]);
-    expect(inflightScanCount()).toBe(0);
+    // The abort is no longer synchronous with the last release (the linger window below), so this
+    // guard is stated against a run whose window has EXPIRED — the only way an entry is doomed now.
+    vi.useFakeTimers();
+    try {
+      const old = deferred<ScanReport>();
+      const replacement = deferred<ScanReport>();
+      const controller = new AbortController();
+      const first = coalesceScan("aborted-replacement", () => old.promise, controller.signal);
+      controller.abort();
+      vi.advanceTimersByTime(INFLIGHT_LINGER_MS + 1); // nobody came back — the run is doomed
+      const onJoin = vi.fn();
+      const factory = vi.fn(() => replacement.promise);
+      const second = coalesceScan("aborted-replacement", factory, undefined, onJoin);
+      old.resolve(fakeReport("old"));
+      await first;
+      const lateFactory = vi.fn(async () => fakeReport("unexpected"));
+      const third = coalesceScan("aborted-replacement", lateFactory);
+      replacement.resolve(fakeReport("replacement"));
+      const reports = await Promise.all([second, third]);
+      expect(factory).toHaveBeenCalledTimes(1);
+      expect(onJoin).not.toHaveBeenCalled();
+      expect(lateFactory).not.toHaveBeenCalled();
+      expect(reports).toEqual([fakeReport("replacement"), fakeReport("replacement")]);
+      expect(inflightScanCount()).toBe(0);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it("runs the factory once for concurrent same-key calls and shares the result", async () => {
@@ -73,6 +83,7 @@ describe("coalesceScan — in-flight scan de-duplication (scan-pipeline #1)", ()
   });
 
   it("aborts the shared scan only when the LAST waiter aborts (refcount)", async () => {
+    vi.useFakeTimers(); // the last release now schedules the abort (linger window) rather than firing it
     const d = deferred<ScanReport>();
     let captured: AbortSignal | undefined;
     const factory = vi.fn((signal: AbortSignal) => {
@@ -89,13 +100,124 @@ describe("coalesceScan — in-flight scan de-duplication (scan-pipeline #1)", ()
     c1.abort();
     expect(captured?.aborted).toBe(false); // one interested caller remains → keep scanning
 
+    // Last caller gone: the shared scan is NOT killed on the spot any more — it lingers for a
+    // returning connection (see the linger suite below) and is aborted when that window expires.
     c2.abort();
-    expect(captured?.aborted).toBe(true); // last caller gone → shared scan aborted
+    expect(captured?.aborted).toBe(false);
+    vi.advanceTimersByTime(INFLIGHT_LINGER_MS + 1);
+    expect(captured?.aborted).toBe(true);
 
     d.reject(new Error("aborted"));
+    vi.clearAllTimers();
+    vi.useRealTimers();
     await expect(p1).rejects.toThrow();
     await expect(p2).rejects.toThrow();
     expect(inflightScanCount()).toBe(0);
+  });
+
+  // LINGER WINDOW (repo-report-shell-tabs #4). A RELOAD closes the old SSE connection strictly before
+  // the new request arrives, so the refcount always passes through zero — which used to abort the run
+  // instantly and throw away a multi-minute scan for a page refresh. The entry now survives a
+  // settled-to-zero refcount for a BOUNDED window so the returning connection joins the run already
+  // under way; the window must also always close, or an abandoned tab leaks a full scan.
+  describe("linger window for a returning connection", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    });
+
+    it("keeps the shared run alive and mapped when the LAST waiter releases", async () => {
+      const d = deferred<ScanReport>();
+      let captured: AbortSignal | undefined;
+      const factory = vi.fn((signal: AbortSignal) => {
+        captured = signal;
+        return d.promise;
+      });
+      const c = new AbortController();
+      const p = coalesceScan("linger1::llm", factory, c.signal);
+
+      c.abort(); // the tab reloaded: this connection is gone
+
+      expect(captured?.aborted).toBe(false); // the run is NOT discarded
+      expect(inflightScanCount()).toBe(1); // ...and it is still joinable
+
+      d.resolve(fakeReport("r"));
+      await expect(p).resolves.toEqual(fakeReport("r"));
+      expect(inflightScanCount()).toBe(0); // settle still evicts
+    });
+
+    it("hands a caller arriving inside the window the SAME run, replaying the last frame", async () => {
+      const d = deferred<ScanReport>();
+      let emit!: (p: ScanProgress) => void;
+      const factory = vi.fn((_s: AbortSignal, e: (p: ScanProgress) => void) => {
+        emit = e;
+        return d.promise;
+      });
+      const c = new AbortController();
+      const first = coalesceScan("linger2::llm", factory, c.signal, undefined, () => {});
+      const mid = { stage: "score", message: "scoring", pct: 55 } as ScanProgress;
+      emit(mid);
+
+      c.abort();
+      vi.advanceTimersByTime(1_500); // the reload round-trip, well inside the window
+
+      const onJoin = vi.fn();
+      const seen: ScanProgress[] = [];
+      const second = coalesceScan("linger2::llm", factory, undefined, onJoin, (p) => seen.push(p));
+
+      expect(onJoin).toHaveBeenCalledTimes(1); // it JOINED — its own quota slot is refundable
+      expect(seen).toEqual([mid]); // and it starts where the shared scan actually is
+      expect(factory).toHaveBeenCalledTimes(1); // one ingest + one LLM completion, not two
+
+      d.resolve(fakeReport("same"));
+      expect(await Promise.all([first, second])).toEqual([fakeReport("same"), fakeReport("same")]);
+      expect(inflightScanCount()).toBe(0);
+    });
+
+    it("a joiner inside the window cancels the pending abort for good (the window does not still fire)", async () => {
+      const d = deferred<ScanReport>();
+      let captured: AbortSignal | undefined;
+      const factory = vi.fn((signal: AbortSignal) => {
+        captured = signal;
+        return d.promise;
+      });
+      const c = new AbortController();
+      const first = coalesceScan("linger4::llm", factory, c.signal);
+      c.abort();
+      const second = coalesceScan("linger4::llm", factory);
+      expect(factory).toHaveBeenCalledTimes(1); // joined the lingering run rather than replacing it
+
+      vi.advanceTimersByTime(INFLIGHT_LINGER_MS * 3); // the cancelled timer must never fire
+
+      expect(captured?.aborted).toBe(false);
+      d.resolve(fakeReport("r"));
+      await Promise.all([first, second]);
+    });
+
+    it("aborts and EVICTS when nobody comes back before the window expires", async () => {
+      const d = deferred<ScanReport>();
+      let captured: AbortSignal | undefined;
+      const factory = vi.fn((signal: AbortSignal) => {
+        captured = signal;
+        return d.promise;
+      });
+      const c = new AbortController();
+      const p = coalesceScan("linger3::llm", factory, c.signal);
+      c.abort();
+      expect(inflightScanCount()).toBe(1);
+
+      vi.advanceTimersByTime(INFLIGHT_LINGER_MS + 1);
+
+      // The window ALWAYS closes: an abandoned tab must not leak a six-minute scan.
+      expect(captured?.aborted).toBe(true);
+      expect(inflightScanCount()).toBe(0);
+
+      d.reject(new Error("aborted"));
+      await expect(p).rejects.toThrow();
+    });
   });
 
   // Joiner metering (ambiguity-ui scan-pipeline-ingestion #4): the scan routes consume a monthly

@@ -3,7 +3,7 @@
 // own test to keep the two route copies from drifting. The stream is drained via response.text()
 // so the ReadableStream's start() runs to completion before we assert on cacheSet.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
@@ -16,12 +16,23 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn(), resolveScanAuth: vi.fn() }));
 vi.mock("@/lib/scan-cache", () => ({ lookupCachedScan: vi.fn() }));
-vi.mock("@/lib/cache", () => ({
-  cacheSet: vi.fn(),
-  // Passthrough: run the scan factory directly so these tests exercise the real cache-write path.
-  coalesceScan: (_key: string, factory: (s: AbortSignal) => Promise<unknown>) =>
-    factory(new AbortController().signal),
-}));
+// `real.on` switches this mock from the passthrough (every suite below, which exercises the real
+// cache-write path without a coalescer in the way) to the ACTUAL coalescer — which the rejoin suite at
+// the bottom needs, because the linger window IS the behaviour under test there.
+const coalescer = vi.hoisted(() => ({ on: false }));
+vi.mock("@/lib/cache", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/cache")>();
+  return {
+    cacheSet: vi.fn(),
+    cacheDelete: actual.cacheDelete,
+    inflightScanCount: actual.inflightScanCount,
+    // Passthrough: run the scan factory directly so these tests exercise the real cache-write path.
+    coalesceScan: (...args: Parameters<typeof actual.coalesceScan>) =>
+      coalescer.on
+        ? actual.coalesceScan(...args)
+        : args[1](new AbortController().signal, () => {}),
+  };
+});
 vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(() => false),
   persistScanReport: vi.fn(async () => ({ deduped: false })),
@@ -48,6 +59,19 @@ vi.mock("@/lib/scan-credit", () => ({
   refundScanCredit: vi.fn(async () => 5),
 }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, getViewer: vi.fn(async () => null) }));
+// The free monthly slot, overridden ONLY by the rejoin suite (which asserts the joiner's slot is handed
+// back). `quotaStub.refund` null means "use the real consume", so every other suite is untouched.
+const quotaStub = vi.hoisted(() => ({ refund: null as null | (() => Promise<void>) }));
+vi.mock("@/lib/scan-finalize", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/scan-finalize")>();
+  return {
+    ...actual,
+    consumeScanQuota: async (req: Request, opts: Parameters<typeof actual.consumeScanQuota>[1]) =>
+      quotaStub.refund
+        ? { blocked: null, quotaRemaining: 4, quotaResetAt: null, quotaScope: "anon" as const, refund: quotaStub.refund }
+        : actual.consumeScanQuota(req, opts),
+  };
+});
 
 import { POST } from "./route";
 import { scanRepository, resolveScanAuth } from "@/lib/scan";
@@ -323,5 +347,79 @@ describe("POST /api/scan/stream — persisted SSE frame (address-bar rewrite con
     mockScan.mockResolvedValue(reportWith("mock"));
     const text = await drainText({ url: "o/r", mock: false });
     expect(text).toMatch(/event: persisted\ndata: \{"ok":false\}/);
+  });
+});
+
+// ── A RELOADED TAB REJOINS ITS LIVE SCAN (repo-report-shell-tabs #4) ─────────────────────────────
+//
+// A reload closes the old SSE connection strictly BEFORE the new request arrives, so the coalescer's
+// refcount always passes through zero. It used to abort the shared run at that instant, which made the
+// join path unreachable from a reload and threw away a multi-minute scan for a page refresh. With the
+// linger window, these two SEQUENTIAL connections share one run: exactly one scanRepository call, the
+// returning connection gets the result, and its own quota slot is handed back because it bought nothing.
+
+describe("POST /api/scan/stream — a returning connection rejoins the lingering run", () => {
+  const openStream = (body: unknown, signal?: AbortSignal) =>
+    POST(
+      new Request("http://localhost/api/scan/stream", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        ...(signal ? { signal } : {}),
+      }),
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    coalescer.on = true;
+    quotaStub.refund = vi.fn(async () => {});
+    mockAuth.mockResolvedValue({ orgSlug: "public" });
+    mockMetered.mockReturnValue(false);
+    mockDbConfigured.mockReturnValue(false);
+    // A distinct key per run so the module-level in-flight map can't leak between tests.
+    mockLookup.mockResolvedValue(lookup(`o/r@rejoin-${Math.random()}::llm`));
+  });
+  afterEach(() => {
+    coalescer.on = false;
+    quotaStub.refund = null;
+  });
+
+  it("scans ONCE across a disconnect-then-reconnect pair, and refunds the joiner's slot", async () => {
+    let resolveScan!: (r: ScanReport) => void;
+    mockScan.mockImplementation(
+      () =>
+        new Promise<ScanReport>((res) => {
+          resolveScan = res;
+        }),
+    );
+    const report = {
+      ...reportWith("gemini"),
+      confidence: 0.9,
+      repo: { owner: "o", name: "r", headSha: "sha" },
+    } as unknown as ScanReport;
+
+    // Connection 1 opens and the scan starts.
+    const abandoned = new AbortController();
+    const res1 = await openStream({ url: "o/r" }, abandoned.signal);
+    const drain1 = res1.text();
+    await vi.waitFor(() => expect(mockScan).toHaveBeenCalledTimes(1));
+
+    // ...then the tab reloads: this connection dies mid-scan.
+    abandoned.abort();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Connection 2 arrives inside the linger window and must JOIN, not start a second scan.
+    const res2 = await openStream({ url: "o/r" });
+    const drain2 = res2.text();
+    resolveScan(report);
+    const text2 = await drain2;
+    await drain1;
+
+    expect(mockScan).toHaveBeenCalledTimes(1); // one ingest, one LLM completion — not two
+    expect(text2).toContain("event: joined"); // and the returning tab is TOLD it rejoined
+    expect(text2).toContain("event: result");
+    // "Meter on commit, not attempt": the joiner consumed a free monthly slot before coalescing and
+    // received the owner's computation, so that slot is handed back.
+    expect(quotaStub.refund).toHaveBeenCalledTimes(1);
   });
 });

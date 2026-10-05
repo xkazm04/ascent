@@ -217,11 +217,32 @@ export function cacheDelete(key: string): void {
 // Abort is REFCOUNTED so coalescing doesn't weaken the existing abort-on-disconnect optimization: the
 // shared scan is aborted only when the LAST interested caller disconnects. One client navigating away
 // can no longer kill a scan that other callers (or a still-open SSE stream) are still waiting on.
+//
+// That abort is also DEFERRED by a bounded linger window (INFLIGHT_LINGER_MS), because a reload closes
+// the old connection strictly before the new one opens: the refcount always passes through zero, so
+// without the window the returning tab could never join the run it started.
+
+/**
+ * How long a run whose last waiter left stays alive, waiting for that caller to come back.
+ *
+ * A RELOAD closes the old SSE connection strictly BEFORE the new request opens, so the refcount always
+ * passes through zero — which, when the abort fired at that instant, made the join path unreachable from
+ * a reload and threw away a multi-minute scan for a page refresh. The window is what a returning
+ * connection lands inside.
+ *
+ * It is DELIBERATELY short. A lingering run keeps burning inference with nobody watching, so the cost of
+ * an abandoned tab has to be bounded: 30s covers a reload plus a slow page load, and nothing longer.
+ * Set it to 0 and the abort is synchronous again, exactly as it was before the window existed (the
+ * documented rollback).
+ */
+export const INFLIGHT_LINGER_MS = 30_000;
 
 interface InflightScan {
   promise: Promise<ScanReport>;
   controller: AbortController;
   waiters: number;
+  /** The pending linger abort, or null when at least one caller is still interested. */
+  lingerTimer: ReturnType<typeof setTimeout> | null;
   /** Every interested caller's progress sink — the OWNER's factory emits once, all waiters receive it.
    *  A Set so a caller can be detached exactly once when its await settles. */
   listeners: Set<(p: ScanProgress) => void>;
@@ -235,11 +256,53 @@ export function inflightScanCount(): number {
   return inflightScans.size;
 }
 
+/** A returning caller arrived (or the run settled): stop the countdown to the abort. */
+function cancelLinger(e: InflightScan): void {
+  if (e.lingerTimer === null) return;
+  clearTimeout(e.lingerTimer);
+  e.lingerTimer = null;
+}
+
+/** The window closed with nobody watching: kill the run AND unmap it, so `inflightScanCount()` returns
+ *  to zero and no later caller can find a doomed entry. */
+function abortAndEvict(key: string, e: InflightScan, reason: unknown): void {
+  cancelLinger(e);
+  if (inflightScans.get(key) === e) inflightScans.delete(key);
+  e.controller.abort(reason);
+}
+
+/**
+ * The last interested caller left. Keep the run alive for INFLIGHT_LINGER_MS so the connection that is
+ * on its way back (a reload) can join it, then abort and evict.
+ *
+ * The window MUST close: without the timer firing, one abandoned tab leaks a full scan's worth of
+ * inference per visit. The timer is `unref`'d where the runtime supports it so a lingering window can
+ * never hold a Node process open on its own.
+ */
+function scheduleLingerAbort(key: string, e: InflightScan, reason: unknown): void {
+  if (e.lingerTimer !== null) return; // already counting down
+  if (INFLIGHT_LINGER_MS <= 0) {
+    abortAndEvict(key, e, reason);
+    return;
+  }
+  const timer = setTimeout(() => {
+    e.lingerTimer = null;
+    // A caller may have joined and left again in the meantime; only an entry that is still the live one
+    // AND still unwatched is abandoned.
+    if (e.waiters > 0 || inflightScans.get(key) !== e) return;
+    abortAndEvict(key, e, reason);
+  }, INFLIGHT_LINGER_MS);
+  (timer as unknown as { unref?: () => void }).unref?.();
+  e.lingerTimer = timer;
+}
+
 /**
  * Run `factory` for `key`, or — if an identical scan is already in flight — join it and await the same
  * result instead of starting a second one. `factory` receives an AbortSignal that fires only once
- * EVERY joined caller has aborted (refcounted), so a single disconnect can't cancel work others want.
- * The entry is evicted as soon as the run settles, so a later scan of the same commit starts fresh.
+ * EVERY joined caller has aborted (refcounted) AND the linger window has expired, so neither a single
+ * disconnect nor a RELOAD can cancel work a returning connection is coming back for.
+ * The entry is evicted as soon as the run settles (or the window closes), so a later scan of the same
+ * commit starts fresh.
  *
  * `onJoin` fires (synchronously, before awaiting) ONLY when this caller JOINED an already-in-flight
  * run rather than starting the computation. The metering routes need that distinction: both consume a
@@ -264,15 +327,19 @@ export function coalesceScan(
   onProgress?: (p: ScanProgress) => void,
 ): Promise<ScanReport> {
   let entry = inflightScans.get(key);
-  // All prior waiters left: cancellation is irreversible even if the old promise
-  // is still unwinding. A new caller needs a live computation, not that doomed run.
+  // All prior waiters left AND the linger window expired: cancellation is irreversible even if the old
+  // promise is still unwinding. A new caller needs a live computation, not that doomed run. (The
+  // expiring window also evicts, so this is a backstop for an entry aborted by any other route.)
   if (entry?.controller.signal.aborted) entry = undefined;
+  // This caller IS the returning connection the window was held open for: stop the pending abort.
+  if (entry) cancelLinger(entry);
   const joined = Boolean(entry);
   if (!entry) {
     const controller = new AbortController();
     const created: InflightScan = {
       controller,
       waiters: 0,
+      lingerTimer: null,
       listeners: new Set(),
       last: null,
       // Assigned below: the factory must not run until `created` (and this caller's listener) exist,
@@ -286,6 +353,7 @@ export function coalesceScan(
   if (onProgress) e.listeners.add(onProgress);
   if (!joined) {
     const evict = () => {
+      cancelLinger(e); // the run settled — a pending window has nothing left to abort
       if (inflightScans.get(key) === e) inflightScans.delete(key);
     };
     try {
@@ -328,8 +396,10 @@ export function coalesceScan(
     released = true;
     e.waiters -= 1;
     if (onProgress) e.listeners.delete(onProgress); // this caller left — stop feeding its (dead) stream
-    // Abort the shared scan only when no interested caller remains (and this is still the live entry).
-    if (e.waiters <= 0 && inflightScans.get(key) === e) e.controller.abort(signal?.reason);
+    // No interested caller remains. Do NOT abort here: a reload's new request has not arrived yet, and
+    // aborting now is what used to make a page refresh cost a second six-minute scan. Start the bounded
+    // linger window instead (see INFLIGHT_LINGER_MS) — it either gets joined, or it closes.
+    if (e.waiters <= 0 && inflightScans.get(key) === e) scheduleLingerAbort(key, e, signal?.reason);
   };
   if (signal) {
     if (signal.aborted) release();

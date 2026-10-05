@@ -225,7 +225,17 @@ export async function POST(request: Request) {
             // Tell the joiner immediately that it attached to a run already under way — the replayed
             // last frame may still be a stage or two behind, and an unexplained pause at 0% reads as a
             // broken scan.
-            onJoin: () => send("progress", { stage: "fetch", message: "Joining a scan already in progress…", pct: 5 }),
+            //
+            // TWO frames on purpose. `joined` is the CONTRACT: a dedicated event the client branches on
+            // to render its restored-work line, so this copy can be rewritten without silently switching
+            // that UI off (a message-string match is not a contract). The `progress` frame stays because
+            // it is what moves the bar off 0% for a client that does not know the event. Reaching here
+            // from a RELOAD is what coalesceScan's linger window made possible (src/lib/cache.ts); before
+            // it, only a second concurrent tab could ever get these frames.
+            onJoin: () => {
+              send("joined", { message: "Rejoined a scan already in progress" });
+              send("progress", { stage: "fetch", message: "Joining a scan already in progress…", pct: 5 });
+            },
             deliverCached: (report, source) => {
               send("progress", {
                 stage: "done",
