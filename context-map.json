@@ -528,6 +528,7 @@
             "src/components/report/SkillDownload.test.tsx",
             "src/app/api/report/foundation/pr/route.test.ts",
             "src/lib/standard/types.test.ts",
+            "src/lib/standard/doctor-readout.test.ts",
             "src/lib/standard/read.ts",
             "src/lib/standard/read.test.ts",
             "src/lib/standard/readout.ts",
