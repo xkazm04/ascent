@@ -133,6 +133,17 @@ export async function deliverLane(input: DeliverLaneInput, overrides: Partial<De
     await deps.log(input.laneId, reason).catch(() => null);
     return { mode, delivered: false, reason };
   }
+  // THE INTEGRITY GUARD'S VETO, the same standing as the guard's. A VOID lane edited the surface that
+  // scores it (lane-gate-diff.ts), and its log promises the commits "stay on <branch> for a human" —
+  // which delivery used to break, because only the verify verdict was read and a void lane's verdict
+  // can be `verified` (measured 2026-10-05: two void lanes fast-forwarded onto the runner branch).
+  if (lane.phase === "void" || lane.voidReason) {
+    const reason =
+      `Not delivering ${lane.branch}: the integrity guard voided this cycle (it changed the surface that scores it), so its ` +
+      `commits stay on ${lane.branch} for a human. A void lane is never landed and never opened as a PR.`;
+    await deps.log(input.laneId, reason).catch(() => null);
+    return { mode, delivered: false, reason };
+  }
   // A lane that committed nothing has nothing to deliver, and saying so would just repeat the "0
   // commit(s) landed this cycle" line the lane already carries.
   if (lane.commits === 0) return { mode, delivered: false, reason: null };

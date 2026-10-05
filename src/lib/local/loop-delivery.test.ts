@@ -201,6 +201,18 @@ describe("pr", () => {
   });
 });
 
+describe("a lane the integrity guard VOIDED", () => {
+  it("is never landed even with a `verified` verdict — its commits stay on its branch for a human", async () => {
+    // Measured 2026-10-05: two void lanes, each `verified` by the degradation guard, fast-forwarded onto
+    // the runner branch because delivery read only the verdict.
+    mocks.getLane.mockResolvedValue(lane({ verifyVerdict: "verified", commits: 1, phase: "void", voidReason: "Void — it changed the verify command" } as never));
+    const res = await deliverLane({ ...input, delivery: "land" }, deps);
+    expect(mocks.land).not.toHaveBeenCalled();
+    expect(res.delivered).toBe(false);
+    expect(res.reason).toContain("integrity guard voided");
+  });
+});
+
 describe("a lane the degradation guard REJECTED", () => {
   it("is never LANDED, whatever mode the run asked for", async () => {
     // The guard already stops such a lane before it commits, so in practice `commits === 0` would

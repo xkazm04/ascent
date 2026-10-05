@@ -5383,6 +5383,12 @@ all. Now:
   `git diff --name-only --no-renames <before>` plus untracked files; without `--no-renames` a
   `build.sh` renamed into `docs/build.md` would read as inert.
 
+**A void lane is never delivered either (2026-10-05).** `deliverLane` now refuses a lane whose phase
+is `void` (or that carries a `voidReason`) right after the `rejected` veto, in every delivery mode.
+The void path's log promises the commits "stay on <branch> for a human", and delivery broke that
+promise: it read only the verify verdict, and a void lane's verdict can be `verified`. Measured: two
+void lanes fast-forwarded onto `ascent/runner` in one round.
+
 `rejected` keeps its own explicit veto ahead of this, in **both** modes and whatever the run asked
 for. In practice a rejected lane also has `commits === 0`, which would turn it away anyway — but "in
 practice" is not the standard for the one code path that merges into a working copy or pushes to a
