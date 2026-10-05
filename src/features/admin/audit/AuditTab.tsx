@@ -13,6 +13,8 @@
 // Its leaf parts (AuditLogViewer, AuditLogCells) sit beside it in the same group folder.
 
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { AuditLogViewer } from "./AuditLogViewer";
 import { AuditHealthNotice } from "./AuditHealthNotice";
 import { getAuditLog } from "@/lib/db";
@@ -52,6 +54,7 @@ export async function AuditTab({ slug }: { slug: string }) {
       />
       <AuditHealthNotice health={health} />
       <AuditLogViewer org={slug} initial={page} />
+      <NextMoveLink href={orgTabHref(slug, "executive")} to="executive" />
     </div>
   );
 }

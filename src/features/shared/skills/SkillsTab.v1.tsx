@@ -19,6 +19,8 @@ import { getOrgSkillUsage } from "@/lib/org/skill-usage-load";
 import { getOrgSkillOutcomes } from "@/lib/org/skill-outcomes-load";
 import { getRegistrySync, registryBlobBase, type RegistrySync } from "@/lib/org/registry-sync";
 import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 /** The registry strip: one small read, its own boundary, and it never blocks the catalog. */
 async function SkillsRegistryStrip({ slug, sync }: { slug: string; sync: Promise<RegistrySync> }) {
@@ -83,6 +85,7 @@ export async function SkillsTabV1({ slug }: { slug: string }) {
       <Suspense fallback={<OrgTabGap minH="min-h-[14rem]" />}>
         <SkillsApiTokensData slug={slug} isMember={isMember} />
       </Suspense>
+      <NextMoveLink href={orgTabHref(slug, "live")} to="live" />
     </div>
   );
 }

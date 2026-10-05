@@ -3,6 +3,8 @@ import { Suspense } from "react";
 import { Defer } from "@/components/ui/Defer";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import {
   getOrgSkillAdoption,
   listOrgApiTokens,
@@ -71,6 +73,7 @@ export async function SkillsTabV2({ slug }: { slug: string }) {
       <Suspense fallback={<OrgTabGap minH="min-h-[14rem]" />}>
         <SkillsApiTokensData slug={slug} isMember={isMember} />
       </Suspense>
+      <NextMoveLink href={orgTabHref(slug, "live")} to="live" />
     </div>
   );
 }

@@ -8,6 +8,8 @@
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { isPersonalOrg } from "@/lib/db";
 import { listLoopLessons } from "@/lib/db/loop-lessons";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { LessonsWorklist } from "./LessonsWorklist";
 import { lessonCounts } from "./lessonsModel";
 
@@ -37,6 +39,7 @@ export async function LessonsTab({ slug }: { slug: string }) {
       ) : (
         <LessonsWorklist org={slug} initial={lessons} />
       )}
+      {lessons.length > 0 && <NextMoveLink href={orgTabHref(slug, "live")} to="live" />}
     </div>
   );
 }

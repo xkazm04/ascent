@@ -88,13 +88,16 @@ const DESIGNED_DEAD_ENDS = new Set(["followups"]);
  *  added and not yet cross-linked, replaces `registry`, which gained a sibling link since); shrunk to
  *  8 by ADR-0001 T2's "Repository admission" link (the credit-ceiling setup card links to
  *  `governance`), which drops `governance` out of the list. Org-path-of-use wave 1a: 8 -> 8 - its
- *  links point at `overview` and `proposals`, and neither is a member. */
+ *  links point at `overview` and `proposals`, and neither is a member. Wave 1b: 8 -> 8 - its links
+ *  point at `live` and `executive`, and neither is a member either. */
 const NO_INBOUND = ["digest", "tech-stacks", "passports", "lessons", "security", "memory", "members", "audit"];
 /** Tabs that link to no sibling, beyond the designed dead ends. Measured 2026-10-05: 6 (`lessons`
  *  replaced `surfaces`, which gained an outbound link; `practices` then gained one too - the sync
  *  strip's `registry` link added by d4552ffb, which left this pin stale and this suite red). Shrunk to
- *  5 by org-path-of-use wave 1a: the Read-stage next-move link to `proposals` drops `security`. */
-const NO_OUTBOUND = ["lessons", "skills", "memory", "members", "audit"];
+ *  5 by org-path-of-use wave 1a: the Read-stage next-move link to `proposals` drops `security`.
+ *  Shrunk to 1 by wave 1b: the Decide-stage link to `live` drops `lessons` and `skills`, the
+ *  Apply-stage link to `executive` drops `memory` and `audit`. `members` (Connect stage, wave 1c) stays. */
+const NO_OUTBOUND = ["members"];
 
 /**
  * Non-literal helper calls, each one a decision rather than an edge. Overview's Fix-first slot links
@@ -136,12 +139,12 @@ describe("the org cross-tab link graph", () => {
 
   // A matcher that stops matching reports a clean codebase in a voice indistinguishable from
   // success. Seed one new edge into the real tree and prove both pins notice it.
-  it("a seeded edge from audit to members moves both numbers", () => {
-    const seeded = [...tree, { path: "src/features/admin/audit/Seed.tsx", source: `orgTabHref(slug, "members")` }];
+  it("a seeded edge from members to audit moves both numbers", () => {
+    const seeded = [...tree, { path: "src/features/admin/members/Seed.tsx", source: `orgTabHref(slug, "audit")` }];
     const { noInbound, noOutbound } = gaps(seeded);
-    expect(noInbound).not.toContain("members");
+    expect(noInbound).not.toContain("audit");
     expect(noInbound).toHaveLength(NO_INBOUND.length - 1);
-    expect(noOutbound).not.toContain("audit");
+    expect(noOutbound).not.toContain("members");
     expect(noOutbound).toHaveLength(NO_OUTBOUND.length - 1);
   });
 });
@@ -152,16 +155,16 @@ describe("the org cross-tab link graph", () => {
 // adding a stage to WAVE_STAGES, not by listing tabs.
 // ---------------------------------------------------------------------------------------------
 
-/** Wave 1a: the returning loop's Read and Measure stages. Add `decide`, `apply`, `scan`, `connect` later. */
-const WAVE_STAGES = new Set(["read", "measure"]);
+/** Waves 1a + 1b: the returning loop's Read, Decide, Apply and Measure stages. Add `scan`, `connect` later. */
+const WAVE_STAGES = new Set(["read", "measure", "decide", "apply"]);
 
 describe("journey next moves", () => {
   const tree = readTree();
   const graph = gaps(tree).graph;
   const waveTabs = (Object.keys(ORG_TAB_STAGE) as OrgTabId[]).filter((id) => WAVE_STAGES.has(ORG_TAB_STAGE[id]!));
 
-  it("covers the ten Read and Measure tabs", () => {
-    expect(waveTabs).toHaveLength(10);
+  it("covers the nineteen Read, Decide, Apply and Measure tabs", () => {
+    expect(waveTabs).toHaveLength(19);
   });
 
   it.each(waveTabs)("%s links to its next move", (tab) => {
@@ -184,5 +187,14 @@ describe("journey next moves", () => {
   it("a tab missing its link is noticed: seed the Measure tabs without theirs", () => {
     const stripped = tree.filter((f) => owningTab(f.path, IDS) !== "teams");
     expect(buildTabLinkGraph(stripped, IDS).outbound.teams).not.toContain("overview");
+  });
+
+  // Audit's next-move link is its only edge to `executive`, so deleting just that render site (not the
+  // whole tab) must drop the edge from its outbound list: the graph notices a removed Apply link.
+  it("an Apply tab missing its link is noticed: seed audit with its link removed", () => {
+    const link = /<NextMoveLink href=\{orgTabHref\([\w.]+, "executive"\)\} to="executive" \/>/;
+    const stripped = tree.map((f) => (owningTab(f.path, IDS) === "audit" ? { ...f, source: f.source.replace(link, "") } : f));
+    expect(graph.outbound.audit).toContain("executive");
+    expect(buildTabLinkGraph(stripped, IDS).outbound.audit ?? []).not.toContain("executive");
   });
 });

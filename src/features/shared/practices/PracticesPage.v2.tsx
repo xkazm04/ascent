@@ -3,6 +3,8 @@
 // Prism composition. The open practice replaces the page (a level). Otherwise: masthead, house
 // pattern, registry, ledger, library, foundation, coherence. One library hook.
 import type { ReactNode } from "react";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { RegistrySyncStripV2 } from "./RegistrySyncStrip.v2";
 import { NewPracticeModalV2 } from "./NewPracticeModal.v2";
 import { HousePatternV2 } from "./HousePattern.v2";
@@ -59,6 +61,7 @@ export function PracticesPageV2({ data, filters }: { data: PracticesPageData; fi
           />
           <FoundationRolloutPanel slug={data.slug} rows={data.foundationRows} theme="prism" />
           {data.coherence && <GuidanceCoherenceV2 rows={data.coherence} />}
+          <NextMoveLink href={orgTabHref(data.slug, "live")} to="live" />
         </>
       )}
       <NewPracticeModalV2

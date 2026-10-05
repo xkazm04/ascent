@@ -98,6 +98,11 @@ go back to Overview. The target is each tab's `nextMoveFor` in `src/lib/org/orgJ
 as a literal `orgTabHref` so the graph counts it. Tech Stacks' and Delivery's dimension drill-ins now link to
 `proposals` (keeping `dim`) instead of the `followups` alias. The remaining stages follow in later waves.
 
+**Wave 1b (2026-10-05)** closes the returning loop. Decide tabs (Proposals, Lessons, Practices, Skills) end on
+"Next: Apply - Live"; Apply tabs (Live, Memory, Knowledge base, Surfaces, Audit) end on "Next: Measure -
+Briefing". The link is always visible and unscoped (a contextual link to the same tab is a second route, not the
+next move), and an empty state (Proposals, Lessons, Audit, Knowledge with nothing to show) renders no forward link.
+
 ### The transition programme (W1c, 2026-08-14)
 
 The org's **named, dated commitment**: one row per org (`TransitionProgram`, `orgId` unique),

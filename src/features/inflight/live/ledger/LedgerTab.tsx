@@ -3,6 +3,7 @@
 // ledger touches the db layer.
 
 import { liveViewHref } from "../LiveViewSwitch";
+import { LiveNextMove } from "../LiveNextMove";
 import { Ledger } from "./Ledger";
 import { loadLedger } from "./ledgerLoad";
 
@@ -10,5 +11,10 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 
 export async function LedgerTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   const data = await loadLedger(slug);
-  return <Ledger data={data} ledgerHref={liveViewHref(sp, "ledger")} cockpitHref={liveViewHref(sp, "cockpit")} />;
+  return (
+    <div className="space-y-4">
+      <Ledger data={data} ledgerHref={liveViewHref(sp, "ledger")} cockpitHref={liveViewHref(sp, "cockpit")} />
+      <LiveNextMove slug={slug} />
+    </div>
+  );
 }

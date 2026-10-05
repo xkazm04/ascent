@@ -30,6 +30,8 @@ import { resolveViewerLogin } from "@/lib/access";
 import { MEMORY_KINDS } from "@/lib/org/memory-kinds";
 import { getRegistrySync, registryBlobBase, type RegistrySync } from "@/lib/org/registry-sync";
 import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { resolveMemoryShared, type MemoryShared } from "./memoryTabLoad";
 
 /** The registry strip: one small read, its own boundary, and it never blocks the library. */
@@ -131,6 +133,7 @@ export async function MemoryTabV1({ slug }: { slug: string }) {
       <Suspense fallback={<OrgTabGap minH="min-h-[24rem]" />}>
         <MemoryRecallReflectData slug={slug} shared={shared} />
       </Suspense>
+      <NextMoveLink href={orgTabHref(slug, "executive")} to="executive" />
     </div>
   );
 }

@@ -21,6 +21,8 @@ import type { LoopRunDetail } from "@/lib/db/loop-runs-types";
 import { hasOrgRole } from "@/lib/authz";
 import { selfHosted } from "@/lib/env";
 import { resolveOrgScope } from "@/lib/org/scope";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { ProposalsWorklist } from "./ProposalsWorklist";
 import { mergeProposals, pendingLoopProposals } from "./proposalsModel";
 
@@ -83,6 +85,7 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
       ) : (
         <ProposalsWorklist org={slug} rows={rows} initialDim={initialDim} canReview={canReview} />
       )}
+      {rows.length > 0 && <NextMoveLink href={orgTabHref(slug, "live")} to="live" />}
     </div>
   );
 }

@@ -15,6 +15,8 @@
 // into its `.ai/registry-map.json`, and the sweep reads them. This tab is a mirror with a hand.
 
 import { Kicker } from "@/components/ui";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { registryPreviewEnabled } from "@/lib/env";
 import { getKnowledgeView } from "@/lib/org/knowledge-view";
 import { fixtureKnowledgeView } from "@/lib/org/knowledge-view.fixture";
@@ -95,5 +97,10 @@ export async function KnowledgeTab({ slug, sp = {} }: { slug: string; sp?: Searc
     );
   }
 
-  return <KnowledgeLoom view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />;
+  return (
+    <div className="space-y-4">
+      <KnowledgeLoom view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />
+      <NextMoveLink href={orgTabHref(slug, "executive")} to="executive" />
+    </div>
+  );
 }

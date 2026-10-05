@@ -40,6 +40,7 @@ import { liveShareEnabled } from "@/lib/live-share";
 import type { GoalProgressView } from "@/components/org/shared/goalView";
 import type { ObservatorySeed } from "./observatory";
 import { liveViewHref } from "./LiveViewSwitch";
+import { LiveNextMove } from "./LiveNextMove";
 import { LedgerTab } from "./ledger/LedgerTab";
 import { DeskTab } from "./desk/DeskTab";
 import { hasStandingRunner } from "./ledger/ledgerLoad";
@@ -129,6 +130,7 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
           attention={attention}
           canShare={canShare}
         />
+        <LiveNextMove slug={slug} />
       </div>
     );
   }
@@ -191,6 +193,7 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
         runnerRepos={runnerRepos}
         theme={theme}
       />
+      <LiveNextMove slug={slug} />
     </div>
   );
 }

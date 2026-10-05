@@ -7,6 +7,12 @@
 // here from nextMoveFor() would read as a "dynamic" site and never as an edge. The journey test
 // (tab-link-graph.test.ts) is what proves the literal the caller wrote is the one nextMoveFor names.
 //
+// Two rules decide where it goes:
+// (A) It is always visible and unscoped. A contextual or filtered link to the same tab (a dim-scoped
+//     drill-in, a conditional banner, a detail-panel link) is a second route and never stands in for it.
+// (B) An empty state (no data yet) renders no forward link: the next stage would be empty too. Its
+//     onward move is the stage that fills it (the Scan-entry links, wave 1c).
+//
 // Server-safe: links only, no hooks.
 
 import Link from "next/link";

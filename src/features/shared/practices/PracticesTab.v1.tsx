@@ -11,6 +11,8 @@ import { PracticeDriftStrip } from "./PracticeDriftStrip";
 import { PracticesView } from "./PracticesView";
 import { RegistryPractices } from "./RegistryPractices";
 import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import type { PracticesPageData } from "./practicesData";
 
 // Library adoption is a NEUTRAL accent reading, not the red→green maturity ramp: a young library with
@@ -87,6 +89,8 @@ export function PracticesTabV1({ data }: { data: PracticesPageData }) {
           </>
         }
       />
+
+      <NextMoveLink href={orgTabHref(data.slug, "live")} to="live" />
     </div>
   );
 }

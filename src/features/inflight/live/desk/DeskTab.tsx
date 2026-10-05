@@ -3,6 +3,7 @@
 // touches the db layer. `?view=desk`, behind the view switch as a beta (LiveViewSwitch.tsx).
 
 import { liveViewHref, onAirHref } from "../LiveViewSwitch";
+import { LiveNextMove } from "../LiveNextMove";
 import { Desk } from "./Desk";
 import { loadDesk } from "./deskLoad";
 
@@ -11,9 +12,12 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 export async function DeskTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   const data = await loadDesk(slug);
   return (
-    <Desk
-      data={data}
-      hrefs={{ ledger: liveViewHref(sp, "ledger"), cockpit: liveViewHref(sp, "cockpit"), desk: liveViewHref(sp, "desk"), onAir: onAirHref(slug) }}
-    />
+    <div className="space-y-4">
+      <Desk
+        data={data}
+        hrefs={{ ledger: liveViewHref(sp, "ledger"), cockpit: liveViewHref(sp, "cockpit"), desk: liveViewHref(sp, "desk"), onAir: onAirHref(slug) }}
+      />
+      <LiveNextMove slug={slug} />
+    </div>
   );
 }
