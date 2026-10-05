@@ -18,6 +18,7 @@ import { ImpactLedger } from "./ImpactLedger";
 import { ExecutiveSignalsStrip } from "./ExecutiveSignalsStrip";
 import { ExecutiveTrajectoryCard } from "./ExecutiveTrajectoryCard";
 import { BrandingSettings } from "./BrandingSettings";
+import { ShareLinkInventory } from "./ShareLinkInventory";
 import { OrgLeverageMoves } from "./OrgLeverageMoves";
 import { ProgramPanel } from "./ProgramPanel";
 import type { ExecutiveView } from "./executiveView";
@@ -98,6 +99,11 @@ export function executiveV1(v: ExecutiveView) {
       <BriefingMovementCard gainers={briefing.topGainers} regressions={briefing.topRegressions} reportLinks />
 
       <BriefingGoalsCard goals={briefing.goals} emptyText="No goals set." />
+
+      {/* Owner-only: the inventory of links this org has already published, and the control that
+          retires one. Sits beside the other owner controls rather than in the header row, because it is
+          a list to read, not a chip to click. */}
+      <ShareLinkInventory org={slug} canShare={canShare} />
 
       {canBrand && <BrandingSettings slug={slug} initial={branding ?? { brandName: null, brandColor: null, logoUrl: null }} />}
     </div>

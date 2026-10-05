@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { chipButtonClass } from "@/components/ui";
+import { publishMintedShareGrant } from "./useShareLinks";
 
 export function BriefingShareButton({
   org,
@@ -48,6 +49,18 @@ export function BriefingShareButton({
       // a hardcoded "14 days" that silently lied once the TTL was halved to 7d — the link was dead on day 8.
       const exp = typeof d.expiresAt === "number" ? new Date(d.expiresAt) : null;
       const expNote = exp ? `, expires ${exp.toLocaleDateString()}` : "";
+      // Hand the fresh grant to the issued-links inventory below, so the link has a durable home the
+      // moment it exists instead of only a clipboard entry. An event, not a prop: the inventory sits in
+      // a sibling subtree behind a SERVER component (ExecutiveTabActions), which cannot pass a callback.
+      if (typeof d.jti === "string") {
+        publishMintedShareGrant({
+          org,
+          jti: d.jti,
+          expiresAt: typeof d.expiresAt === "number" ? d.expiresAt : null,
+          segment: segment ?? null,
+          stack: stack ?? null,
+        });
+      }
       // Only claim "copied" when writeText actually RESOLVED. Clipboard writes routinely fail here:
       // Safari revokes transient user activation after the awaited fetch, permissions policy can deny,
       // and navigator.clipboard is undefined on non-secure origins. The old `?.…catch(() => {})`

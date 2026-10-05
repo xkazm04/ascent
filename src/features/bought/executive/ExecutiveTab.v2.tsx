@@ -10,6 +10,7 @@ import { executiveSignals, executiveTrajectory, executiveValue } from "./Executi
 import { impactLedgerV2 } from "./ImpactLedger.v2";
 import { leverageMovesV2 } from "./LeverageMoves.v2";
 import { ProgramPanelV2 } from "./ProgramPanel.v2";
+import { ShareLinkInventory } from "./ShareLinkInventory";
 import type { ExecutiveView } from "./executiveView";
 
 export function executiveEmptyV2() {
@@ -44,6 +45,8 @@ export function executiveV2(v: ExecutiveView) {
       {executiveDims(briefing.strengths, briefing.risks, briefing.security, v.slug)}
       {executiveMovement(briefing.topGainers, briefing.topRegressions)}
       {executiveGoals(briefing.goals)}
+      {/* Owner-only issued-share-link inventory, same component in both compositions. */}
+      <ShareLinkInventory org={v.slug} canShare={v.canShare} />
       {v.canBrand ? (
         <BrandingSettingsV2 slug={v.slug} initial={v.branding ?? { brandName: null, brandColor: null, logoUrl: null }} />
       ) : null}
