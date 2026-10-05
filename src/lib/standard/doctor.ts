@@ -12,7 +12,7 @@ import type { GeneratedFile } from "./types";
 
 const DOCTOR = `#!/usr/bin/env node
 // .ai/doctor.mjs - executable conformance for the .ai/ standard (reference impl, zero-dependency).
-// Usage: node .ai/doctor.mjs [--run] [--json]
+// Usage: node .ai/doctor.mjs [--run] [--json] [--verbose]
 //   --run   also executes capability commands to verify they actually pass, then writes each result
 //           back to .ai/manifest.yaml: "verified" flips to the run outcome (true on pass, false on
 //           fail — a stale true never outlives a broken command).
@@ -21,6 +21,8 @@ const DOCTOR = `#!/usr/bin/env node
 //           ASCENT_CONFORMANCE_TOKEN (or any secret) to a fork-PR workflow that runs --run: a malicious
 //           PR can rewrite a capability command to execute arbitrary code and exfiltrate those secrets.
 //           In CI, gate --run/reporting to trusted events (push, or same-repo PRs) only.
+//   --verbose  lists every PASSING check instead of collapsing them to one count. The failing and
+//           warning findings are always listed in full; --verbose only un-hides the quiet half.
 //   --json  prints a JSON summary and (when ASCENT_CONFORMANCE_URL + ASCENT_CONFORMANCE_TOKEN are
 //           set, e.g. in CI) POSTs it to Ascent — closing the adopt->verify->re-score loop.
 // Score semantics: the percentage is a weighted pass ratio over the SCORABLE findings THIS run
@@ -40,7 +42,13 @@ ${GUIDANCE_PARSER_SOURCE}
 
 const ROOT = process.cwd();
 const RUN = process.argv.includes('--run');
+const VERBOSE = process.argv.includes('--verbose');
 const findings = [];
+// The REMEDIATION hint travels BESIDE the finding, never inside it: findings[] is a published wire
+// contract (.ai/SPEC.md v0.3.0 - { check, level, message }), and a fix hint is a readout concern. An
+// index-parallel array keeps the payload byte-identical by construction rather than by remembering to
+// strip a field before serializing.
+const fixes = [];
 // Levels: 'pass' | 'warn' | 'fail' | 'unchecked'. 'unchecked' is a FIRST-CLASS outcome, not a
 // silence: a clause this runner declined to judge (its evidence was unavailable here) is reported
 // so the reader can tell "everything passed" from "we only looked at half of it". It carries no
@@ -50,8 +58,8 @@ const findings = [];
 // and a repo-specific subject (a capability name, a path) is slugged into the same charset.
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9._\\/-]/g, '-').slice(0, 100);
 const id = (s) => String(s).slice(0, 120);
-const add = (check, level, msg) => findings.push({ check: id(check), level: level, msg: msg });
-const check = (checkId, ok, label, miss) => add(checkId, ok ? 'pass' : miss, (ok ? '' : 'missing ') + label);
+const add = (check, level, msg, fix) => { findings.push({ check: id(check), level: level, msg: msg }); fixes.push(fix || ''); };
+const check = (checkId, ok, label, miss, fix) => add(checkId, ok ? 'pass' : miss, (ok ? '' : 'missing ') + label, ok ? '' : fix);
 
 // Is <alias> present in the hook text as a STANDALONE token? A naive hookText.includes(alias) gave FALSE
 // "wired" passes because short aliases are substrings of unrelated words: 'build:latest'.includes('test')
@@ -139,7 +147,8 @@ function setVerified(line, passed) {
 let specVersion = null;
 const path = '.ai/manifest.yaml';
 if (!existsSync(path)) {
-  add('manifest.missing', 'fail', 'missing .ai/manifest.yaml - run the Ascent onboarding skill to scaffold the standard');
+  add('manifest.missing', 'fail', 'missing .ai/manifest.yaml - run the Ascent onboarding skill to scaffold the standard',
+    'run the Ascent onboarding skill to scaffold .ai/, or copy .ai/ from a repo that already carries the standard');
 } else {
   const text = readFileSync(path, 'utf8');
 
@@ -148,15 +157,19 @@ if (!existsSync(path)) {
   const ver = kv(text, 'schemaVersion') || '0';
   specVersion = ver;
   if (schema === 'ai-manifest') add('structure', 'pass', 'manifest schema ok (' + schema + ' v' + ver + ')');
-  else add('structure', 'fail', 'manifest schema id is not "ai-manifest"');
-  if (ver.split('.')[0] !== '0') add('structure.schema-version', 'warn', 'manifest major v' + ver.split('.')[0] + ' is newer than this doctor (0.x) - update the doctor');
+  else add('structure', 'fail', 'manifest schema id is not "ai-manifest"',
+    'set the first field of .ai/manifest.yaml to: schema: ai-manifest');
+  if (ver.split('.')[0] !== '0') add('structure.schema-version', 'warn', 'manifest major v' + ver.split('.')[0] + ' is newer than this doctor (0.x) - update the doctor',
+    'regenerate .ai/doctor.mjs from Ascent so the runner understands this manifest major');
 
   // 2. pointers resolve - scope to the paths: block so a like-named capability (e.g. an "evals"
   // capability) can't shadow paths.evals via a naive first-match.
   const pathsBlock = block(text, 'paths');
   const ctxIndex = sub(pathsBlock, 'contextIndex') || '.ai/context-index.json';
-  check('pointer.contextindex', existsSync(ctxIndex), 'context index ' + ctxIndex, 'warn');
-  check('pointer.memory', existsSync(sub(pathsBlock, 'memory') || '.ai/memory/'), 'memory store', 'warn');
+  check('pointer.contextindex', existsSync(ctxIndex), 'context index ' + ctxIndex, 'warn',
+    'create ' + ctxIndex + ' (run: node .ai/maintain.mjs), or point paths.contextIndex at the file you have');
+  check('pointer.memory', existsSync(sub(pathsBlock, 'memory') || '.ai/memory/'), 'memory store', 'warn',
+    'create the memory directory ' + (sub(pathsBlock, 'memory') || '.ai/memory/') + ', or point paths.memory at the one you have');
   // Every OTHER pointer the manifest DECLARES must resolve too (guardrails, evals, whatever the repo
   // adds). We deliberately do NOT check for pointers that are absent: this doctor used to warn that
   // 'evals/' was missing on every fresh install, for a subsystem the standard never scaffolds - a
@@ -169,7 +182,8 @@ if (!existsSync(path)) {
     const key = m[1], val = m[2].trim().replace(/^"|"$/g, '');
     declared[key] = val;
     if (key === 'contextIndex' || key === 'memory') continue;
-    check('pointer.' + slug(key), existsSync(val), 'declared path ' + key + ' -> ' + val, 'warn');
+    check('pointer.' + slug(key), existsSync(val), 'declared path ' + key + ' -> ' + val, 'warn',
+      'create ' + val + ', or delete paths.' + key + ' from .ai/manifest.yaml - a declared pointer is enforced, an absent one is silent');
   }
 
   // 2b. GUARDRAILS - the invariants file is machine-checkable, so check the part a machine can: a
@@ -183,12 +197,14 @@ if (!existsSync(path)) {
       try {
         tracked = execSync('git ls-files -- ' + never.map((p) => JSON.stringify(p)).join(' '), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
       } catch { tracked = null; }
-      if (tracked) add('guardrail.never-commit', 'fail', 'GUARDRAIL VIOLATION: git tracks never-commit file(s): ' + tracked.split('\\n').slice(0, 5).join(', '));
+      if (tracked) add('guardrail.never-commit', 'fail', 'GUARDRAIL VIOLATION: git tracks never-commit file(s): ' + tracked.split('\\n').slice(0, 5).join(', '),
+        'git rm --cached ' + tracked.split('\\n')[0] + ', add the pattern to .gitignore, then ROTATE the secret - it is already in history');
       else if (tracked !== null) add('guardrail.never-commit', 'pass', 'no never-commit secret files are tracked (' + never.length + ' patterns)');
       // Git unavailable: this used to emit NOTHING, so a tarball run and a run that positively cleared
       // the hardest guardrail in the standard produced the same output. Say so instead - the reader is
       // entitled to know the secret check did not happen.
-      else add('guardrail.never-commit', 'unchecked', 'never-commit guardrail NOT checked (' + never.length + ' patterns): git is unavailable here (shallow tarball or no repository), so nothing could be compared against the index');
+      else add('guardrail.never-commit', 'unchecked', 'never-commit guardrail NOT checked (' + never.length + ' patterns): git is unavailable here (shallow tarball or no repository), so nothing could be compared against the index',
+        'run this check inside a git working tree (in CI: actions/checkout) so git ls-files can be compared against the index');
     }
   }
 
@@ -196,16 +212,19 @@ if (!existsSync(path)) {
   const caps = capabilities(text);
   const names = Object.keys(caps);
   if (names.length) add('capability.declared', 'pass', 'declares ' + names.length + ' capabilities: ' + names.join(', '));
-  else add('capability.declared', 'fail', 'no capabilities declared');
+  else add('capability.declared', 'fail', 'no capabilities declared',
+    'declare at least one command under capabilities: in .ai/manifest.yaml, for example a test entry whose command is npm test');
   const runResults = {};
   for (const n of names) {
-    if (/<.*>/.test(caps[n])) add('capability.' + slug(n), 'warn', 'capability "' + n + '" has a placeholder command - fill it in');
+    if (/<.*>/.test(caps[n])) add('capability.' + slug(n), 'warn', 'capability "' + n + '" has a placeholder command - fill it in',
+      'replace the placeholder on the "' + n + '" line of .ai/manifest.yaml with the command this repo actually runs');
     else if (RUN) {
       // 180000ms = the documented 180s per-capability budget (see the usage banner + the spec). A
       // timeout kill surfaces as e.signal — name it in the finding so a slow-but-green suite reads
       // as "hit the time limit", not as a silent, message-less failure.
       try { execSync(caps[n], { stdio: 'ignore', timeout: 180000 }); add('capability.' + slug(n) + '.run', 'pass', 'verified "' + n + '": ' + caps[n]); runResults[n] = true; }
-      catch (e) { add('capability.' + slug(n) + '.run', 'fail', 'capability "' + n + '" FAILED' + (e && e.signal ? ' (killed by ' + e.signal + ' - likely hit the 180s --run timeout)' : '') + ': ' + caps[n]); runResults[n] = false; }
+      catch (e) { add('capability.' + slug(n) + '.run', 'fail', 'capability "' + n + '" FAILED' + (e && e.signal ? ' (killed by ' + e.signal + ' - likely hit the 180s --run timeout)' : '') + ': ' + caps[n],
+        'run it yourself and fix it: ' + caps[n] + ' (or correct the command on the "' + n + '" line of .ai/manifest.yaml)'); runResults[n] = false; }
     }
   }
   // --run write-back: "verified" is a CLAIM this doctor PROVES, so flip each run capability's flag to
@@ -221,7 +240,8 @@ if (!existsSync(path)) {
     const updated = lines.join('\\n');
     if (updated !== text) {
       try { writeFileSync(path, updated); add('manifest.write-back', 'pass', 'manifest updated: ' + Object.keys(runResults).map(function (n) { return n + ' verified=' + runResults[n]; }).join(', ')); }
-      catch (e) { add('manifest.write-back', 'warn', 'could not write verified flags back to ' + path + ': ' + (e && e.message)); }
+      catch (e) { add('manifest.write-back', 'warn', 'could not write verified flags back to ' + path + ': ' + (e && e.message),
+        'make ' + path + ' writable (usually a read-only file flag or a CI checkout permission) and re-run with --run'); }
     }
   }
 
@@ -231,7 +251,8 @@ if (!existsSync(path)) {
   const hookFile = ['lefthook.yml', 'lefthook.yaml', '.pre-commit-config.yaml'].find(existsSync);
   const hasHusky = existsSync('.husky');
   if (prePush.length && !hookFile && !hasHusky) {
-    add('control.prepush', 'fail', 'prePush controls declared but NO local hook (lefthook/husky/pre-commit) - they only fire after push');
+    add('control.prepush', 'fail', 'prePush controls declared but NO local hook (lefthook/husky/pre-commit) - they only fire after push',
+      'install a local hook runner (lefthook, husky or pre-commit) and give its pre-push stage: node .ai/doctor.mjs');
   } else if (prePush.length) {
     let hookText = hookFile ? readFileSync(hookFile, 'utf8') : '';
     if (hasHusky) for (const f of readdirSync('.husky')) { try { hookText += '\\n' + readFileSync('.husky/' + f, 'utf8'); } catch {} }
@@ -241,13 +262,16 @@ if (!existsSync(path)) {
       if (!caps[c]) continue; // a missing capability is reported below; don't double-warn
       const al = ALIAS[c] || [c];
       if (!al.some((a) => wired(hookText, a)))
-        add('control.prepush.' + slug(c), 'warn', 'pre-push control "' + c + '" is backed but not found in your local hook (' + (hookFile || '.husky') + ') - it may only run in CI (too late). Wire it in.');
+        add('control.prepush.' + slug(c), 'warn', 'pre-push control "' + c + '" is backed but not found in your local hook (' + (hookFile || '.husky') + ') - it may only run in CI (too late). Wire it in.',
+          'add the "' + c + '" command to the pre-push stage of ' + (hookFile || '.husky') + ': ' + caps[c]);
     }
   }
-  for (const c of prePush) if (!caps[c]) add('control.prepush.' + slug(c) + '.backing', 'warn', 'pre-push control "' + c + '" has no backing capability yet - an onboarding track should add it');
+  for (const c of prePush) if (!caps[c]) add('control.prepush.' + slug(c) + '.backing', 'warn', 'pre-push control "' + c + '" has no backing capability yet - an onboarding track should add it',
+    'add a "' + c + '" entry under capabilities: in .ai/manifest.yaml, or drop it from controls.prePush');
   const ciHard = flow(text, 'ciHardPass');
   const hasCi = existsSync('.github/workflows') && readdirSync('.github/workflows').length > 0;
-  if (ciHard.length && !hasCi) add('control.ci', 'warn', 'ciHardPass controls declared but no CI workflows found');
+  if (ciHard.length && !hasCi) add('control.ci', 'warn', 'ciHardPass controls declared but no CI workflows found',
+    'add a workflow under .github/workflows/ that runs: node .ai/doctor.mjs --json');
 
   // 5. freshness - compare each source file's last COMMIT date against generatedAt, NOT its mtime.
   // A git checkout/clone (e.g. actions/checkout in CI, the doctor's primary runtime) rewrites every
@@ -269,7 +293,8 @@ if (!existsSync(path)) {
     // the existsSync guard below did) made a manifest with no provenance at all read exactly like one
     // whose provenance was checked and fresh, which is the whole point of check 5.
     if (/<.*>/.test(f)) {
-      add('freshness.' + slug(f), 'warn', 'generatedFrom is still a placeholder (' + f + ') - name the file these commands were derived from, or drift detection cannot run at all');
+      add('freshness.' + slug(f), 'warn', 'generatedFrom is still a placeholder (' + f + ') - name the file these commands were derived from, or drift detection cannot run at all',
+        'replace the ' + f + ' entry in generatedFrom with the file these commands came from (package.json, pyproject.toml, Gemfile, go.mod, ...)');
       continue;
     }
     // A NAMED file that is simply absent stays SILENT on purpose. It is tempting to warn (the
@@ -280,15 +305,18 @@ if (!existsSync(path)) {
     const cd = gen ? commitDate(f) : '';
     if (!cd) { uncomparable.push(f); continue; }
     if (cd > gen)
-      add('freshness.' + slug(f), 'warn', 'manifest may be stale: ' + f + ' changed after generatedAt (' + gen + ') - regenerate');
+      add('freshness.' + slug(f), 'warn', 'manifest may be stale: ' + f + ' changed after generatedAt (' + gen + ') - regenerate',
+        're-scan in Ascent to regenerate the manifest, or - once you have confirmed the commands still hold - set generatedAt to today');
   }
   if (uncomparable.length)
-    add('freshness.unchecked', 'unchecked', 'freshness NOT checked for ' + uncomparable.length + ' generatedFrom file(s) (' + (gen ? 'no commit date available - shallow clone or no git history' : 'manifest declares no generatedAt') + '): ' + uncomparable.slice(0, 5).join(', '));
+    add('freshness.unchecked', 'unchecked', 'freshness NOT checked for ' + uncomparable.length + ' generatedFrom file(s) (' + (gen ? 'no commit date available - shallow clone or no git history' : 'manifest declares no generatedAt') + '): ' + uncomparable.slice(0, 5).join(', '),
+      gen ? 'fetch history so commit dates resolve (git fetch --unshallow; in CI, actions/checkout with fetch-depth: 0)' : 'set generatedAt to an ISO date in .ai/manifest.yaml so drift has something to compare against');
   if (existsSync(ctxIndex)) {
     try {
       for (const m of (JSON.parse(readFileSync(ctxIndex, 'utf8')).modules || [])) {
         if (!m.context) continue;
-        if (!existsSync(m.context)) { add('context.' + slug(m.context), 'fail', 'context-index references missing ' + m.context); continue; }
+        if (!existsSync(m.context)) { add('context.' + slug(m.context), 'fail', 'context-index references missing ' + m.context,
+          'write ' + m.context + ', or remove its module entry from ' + ctxIndex); continue; }
         // A CONTEXT.md that is STILL THE SHIPPED TEMPLATE tells an agent nothing, yet a bare
         // existsSync passes it - the scaffold scoring itself green while empty. Detect the template's
         // own <placeholder> markers: its heading, or several angle-bracket tokens containing a space
@@ -296,9 +324,11 @@ if (!existsSync(path)) {
         const ctext = readFileSync(m.context, 'utf8');
         const marks = ctext.match(/<[^>\\n]*\\s[^>\\n]*>/g) || [];
         if (/^#\\s*CONTEXT:\\s*<module path>/m.test(ctext) || marks.length >= 3)
-          add('context.' + slug(m.context), 'warn', m.context + ' is still the unfilled template (<...> placeholders) - write the real context for ' + (m.path || m.id));
+          add('context.' + slug(m.context), 'warn', m.context + ' is still the unfilled template (<...> placeholders) - write the real context for ' + (m.path || m.id),
+            'replace every <...> placeholder in ' + m.context + ' with what this module owns, its key files and its boundaries');
       }
-    } catch { add('context.index', 'warn', 'context-index.json is not valid JSON'); }
+    } catch { add('context.index', 'warn', 'context-index.json is not valid JSON',
+      'fix the JSON syntax in ' + ctxIndex + ' - any JSON linter names the offset'); }
   }
   // 6. guidance projections - is every vendor guidance file still a projection of the canonical one?
   //
@@ -313,13 +343,15 @@ if (!existsSync(path)) {
   // reported as 'unchecked', which is a result rather than a silence.
   const guidance = parseGuidance(text);
   if (!guidance) {
-    add('guidance.unchecked', 'unchecked', 'no guidance block in the manifest - projection drift NOT checked (declare guidance.canonical + projections to enable it)');
+    add('guidance.unchecked', 'unchecked', 'no guidance block in the manifest - projection drift NOT checked (declare guidance.canonical + projections to enable it)',
+      'declare guidance.canonical (the one file you author) plus guidance.projections in .ai/manifest.yaml, then run: node .ai/maintain.mjs project');
   } else {
     const sha12 = (t) => createHash('sha256').update(t, 'utf8').digest('hex').slice(0, 12);
     const { canonical } = guidance;
     const canonicalOk = canonical && existsSync(canonical);
     if (!canonicalOk) {
-      add('guidance.canonical', 'fail', 'guidance.canonical does not resolve: ' + (canonical || '(not declared)'));
+      add('guidance.canonical', 'fail', 'guidance.canonical does not resolve: ' + (canonical || '(not declared)'),
+        'point guidance.canonical at the guidance file this repo actually authors (AGENTS.md, CLAUDE.md, ...)');
     } else {
       add('guidance.canonical', 'pass', 'canonical guidance is ' + canonical);
     }
@@ -336,14 +368,18 @@ if (!existsSync(path)) {
       return out.replace(/^(\\r?\\n)+/, '');
     };
     for (const p of declared) {
-      if (!existsSync(p)) { add('guidance.' + slug(p), 'fail', 'declared projection is missing: ' + p + ' - run: node .ai/maintain.mjs project'); continue; }
+      if (!existsSync(p)) { add('guidance.' + slug(p), 'fail', 'declared projection is missing: ' + p + ' - run: node .ai/maintain.mjs project',
+        'run: node .ai/maintain.mjs project (or drop ' + p + ' from guidance.projections if this repo does not ship it)'); continue; }
       const t = readFileSync(p, 'utf8');
       const h = t.match(HEADER);
-      if (!h) { add('guidance.' + slug(p), 'warn', p + ' is declared a projection but carries no generated-from header - run: node .ai/maintain.mjs project'); continue; }
+      if (!h) { add('guidance.' + slug(p), 'warn', p + ' is declared a projection but carries no generated-from header - run: node .ai/maintain.mjs project',
+        'run: node .ai/maintain.mjs project to stamp ' + p + ' with its generated-from header'); continue; }
       if (sha12(bodyOf(t)) !== h[3]) {
-        add('guidance.' + slug(p), 'fail', p + ' was HAND-EDITED (its body no longer matches its own hash) - edit ' + canonical + ' and re-run: node .ai/maintain.mjs project');
+        add('guidance.' + slug(p), 'fail', p + ' was HAND-EDITED (its body no longer matches its own hash) - edit ' + canonical + ' and re-run: node .ai/maintain.mjs project',
+          'move your edit from ' + p + ' into ' + canonical + ', then run: node .ai/maintain.mjs project');
       } else if (srcHash && h[2] !== srcHash) {
-        add('guidance.' + slug(p), 'warn', 'stale projection: ' + p + ' was generated from an older ' + canonical + ' - run: node .ai/maintain.mjs project');
+        add('guidance.' + slug(p), 'warn', 'stale projection: ' + p + ' was generated from an older ' + canonical + ' - run: node .ai/maintain.mjs project',
+          'run: node .ai/maintain.mjs project to re-project ' + p + ' from the current ' + canonical);
       } else {
         add('guidance.' + slug(p), 'pass', p + ' is in sync with ' + canonical);
       }
@@ -354,11 +390,13 @@ if (!existsSync(path)) {
     const KNOWN = ['CLAUDE.md', 'AGENTS.md', 'AGENT.md', '.cursorrules', '.windsurfrules', '.github/copilot-instructions.md'];
     for (const p of KNOWN) {
       if (!existsSync(p) || p === canonical || declared.indexOf(p) >= 0) continue;
-      add('guidance.' + slug(p), 'warn', p + ' is agent guidance but is neither the canonical source nor a declared projection - declare it under guidance.projections or delete it');
+      add('guidance.' + slug(p), 'warn', p + ' is agent guidance but is neither the canonical source nor a declared projection - declare it under guidance.projections or delete it',
+        'add ' + p + ' to guidance.projections in .ai/manifest.yaml and run: node .ai/maintain.mjs project, or delete ' + p);
     }
   }
 
-  if (/TODO/.test(text)) add('manifest.todo', 'warn', 'manifest still has TODO placeholders (purpose / secretsFrom / boundaries / agents)');
+  if (/TODO/.test(text)) add('manifest.todo', 'warn', 'manifest still has TODO placeholders (purpose / secretsFrom / boundaries / agents)',
+    'fill repo.purpose, secretsFrom, boundaries and agents in .ai/manifest.yaml - they are what an agent reads first');
 }
 
 // Weighted pass ratio over the SCORABLE findings this run emitted — the denominator varies with
@@ -374,16 +412,59 @@ if (!existsSync(path)) {
 const weight = { pass: 1, warn: 0.5, fail: 0 };
 const scored = findings.filter(f => f.level !== 'unchecked');
 const score = scored.length ? Math.round(100 * scored.reduce((a, f) => a + weight[f.level], 0) / scored.length) : 0;
-const icon = { pass: 'OK  ', warn: 'WARN', fail: 'FAIL', unchecked: 'SKIP' };
-console.log('\\n.ai conformance - ' + ROOT);
-for (const f of findings) console.log('  [' + icon[f.level] + '] ' + f.msg);
 const fails = findings.filter(f => f.level === 'fail').length;
 const warns = findings.filter(f => f.level === 'warn').length;
 const unchecked = findings.length - scored.length;
+
+// THE HUMAN READOUT. The severities are in the data; this block is the only place that decides what a
+// person at a terminal sees FIRST, and it is the one surface of this standard a maintainer acts on
+// directly (pre-push hook, merge gate). It is deliberately a presentation layer and nothing else:
+// nothing below recomputes 'score', 'fails', 'warns', 'unchecked' or 'scored', nothing below touches
+// the --json payload, and nothing below moves the exit code. Those are an adopter's CI contract.
+//
+// Shape: FAIL first, then WARN, then the clauses this run could not judge, then ONE collapsed count
+// for the passes (--verbose lists them). Every row carries its stable check id - the spec presents
+// that id as the way to follow one clause across runs, and it used to be withheld from the only
+// reader who cannot query the payload. Every fail and warn carries a 'fix:' line, so the report is a
+// plan rather than a verdict.
+const rows = findings.map(function (f, i) { return { f: f, fix: fixes[i] || '' }; });
+const atLevel = (lvl) => rows.filter((r) => r.f.level === lvl);
+const failRows = atLevel('fail'), warnRows = atLevel('warn'), skipRows = atLevel('unchecked'), passRows = atLevel('pass');
+const printRow = (marker, r) => {
+  console.log('  ' + marker + '  ' + r.f.check + '  ' + r.f.msg);
+  if (r.fix) console.log('        fix: ' + r.fix);
+};
+console.log('\\n.ai conformance - ' + ROOT);
+if (failRows.length) { console.log(''); for (const r of failRows) printRow('FAIL', r); }
+if (warnRows.length) { console.log(''); for (const r of warnRows) printRow('WARN', r); }
+if (skipRows.length) {
+  // The reason text travels with the row: an 'unchecked' finding whose reason is dropped is exactly
+  // the silence this level exists to replace. '[SKIP]' is kept verbatim - it is the marker adopters
+  // and Ascent's own suite already grep for.
+  console.log('\\n  [SKIP] ' + skipRows.length + ' clause(s) this run could not judge (they carry no weight in the score):');
+  for (const r of skipRows) printRow('SKIP', r);
+}
+if (passRows.length) {
+  console.log('');
+  if (VERBOSE) for (const r of passRows) printRow('PASS', r);
+  else console.log('  ' + passRows.length + ' checks passed');
+}
+
+// At most THREE next actions, fails before warns. Three because a list of thirty is the wall this
+// replaced: the point is the next thing to do, not a complete inventory (the blocks above are the
+// inventory). Each one quotes its check id so the reader can look the clause up in .ai/SPEC.md's
+// vocabulary table, or in Ascent's control matrix, instead of re-reading the sentence.
+const next = failRows.concat(warnRows).slice(0, 3);
+if (next.length) {
+  console.log('\\nNext - ' + next.length + ' of ' + (failRows.length + warnRows.length) + ':');
+  for (let i = 0; i < next.length; i++) console.log('  ' + (i + 1) + '. [' + next[i].f.check + '] ' + (next[i].fix || next[i].f.msg));
+}
+
 // 'unchecked' prints even at 0: "0 unchecked" is the statement that this run judged every clause it
 // knows about, which is exactly what a reader comparing two percentages needs to establish.
 console.log('\\nConformance: ' + score + '%  (' + fails + ' fail, ' + warns + ' warn, ' + unchecked + ' unchecked over ' + scored.length + ' scored)');
 if (!RUN) console.log('Tip: re-run with --run to execute and verify capability commands.');
+if (!VERBOSE && passRows.length) console.log('Tip: re-run with --verbose to list the ' + passRows.length + ' passing checks.');
 console.log('Then re-scan in Ascent to confirm the maturity delta.');
 
 // --json: machine-readable summary + optional auto-report to Ascent (the adopt->verify->re-score loop).

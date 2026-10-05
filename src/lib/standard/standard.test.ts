@@ -19,7 +19,7 @@ import {
 } from "./index";
 import { readManifestYaml } from "./read";
 import { isKnownCheckId, isValidCheckId, slugSubject } from "./check-ids";
-import { buildOnboardingSkill, ONBOARDING_SKILL_PATH } from "@/lib/onboarding/skill";
+import { buildOnboardingSkill, buildOnboardingSkillFile, ONBOARDING_SKILL_PATH } from "@/lib/onboarding/skill";
 import type { GeneratedFile } from "./types";
 import { levelForScore } from "@/lib/maturity/model";
 import type { ScanReport } from "@/lib/types";
@@ -379,7 +379,12 @@ describe("foundation", () => {
     expect(paths.indexOf(ONBOARDING_SKILL_PATH)).toBeGreaterThan(0);
     expect(paths.at(-1)).toBe(ONBOARDING_SKILL_PATH);
     const shipped = files.find((f) => f.path === ONBOARDING_SKILL_PATH)!;
-    expect(shipped.body).toBe(skill.body);
+    // Same scan, same tracks as the download - but Step 0 in `reference` mode, because the `.ai/`
+    // bodies land as real files in this very PR, and a second fenced copy of them inside the skill is
+    // what buildFoundation stopped shipping. src/lib/onboarding/step0.test.ts owns both lanes.
+    expect(shipped.body).toBe(buildOnboardingSkillFile(report, undefined, "reference").body);
+    expect(shipped.body).not.toBe(skill.body);
+    expect(buildOnboardingSkill(report, undefined, undefined, "reference").trackIds).toEqual(skill.trackIds);
     expect(shipped.lang).toBe("markdown");
     expect(buildStandardFiles(report).some((f) => f.path === ONBOARDING_SKILL_PATH)).toBe(false);
   });
@@ -642,9 +647,11 @@ describe("doctor check ids (the vocabulary the ledger keys on)", () => {
     // proof the conversion is complete rather than partial.
     const twoArg = body.match(/\badd\('(pass|warn|fail|unchecked)'/g) ?? [];
     expect(twoArg).toEqual([]);
-    // …and the definitions themselves take the id first.
-    expect(body).toContain("const add = (check, level, msg) =>");
-    expect(body).toContain("const check = (checkId, ok, label, miss) =>");
+    // …and the definitions themselves take the id first. The trailing `fix` is the READOUT's
+    // remediation hint (doctor-readout.test.ts owns its coverage); it is optional, so it never
+    // displaces the id from the first position, which is what this assertion protects.
+    expect(body).toContain("const add = (check, level, msg, fix) =>");
+    expect(body).toContain("const check = (checkId, ok, label, miss, fix) =>");
   });
 
   it("every literal id in the template is in the shared vocabulary", () => {
