@@ -357,3 +357,65 @@ The operator chose **journey B**: a first-run path Connect -> Scan, walked once,
 - **Next-move rule** is the entry tab of the next stage: Connect->repositories, Scan->overview, Read->proposals, Decide->live, Apply->executive, Measure->overview.
 - **Section 3 merge candidates** stay undecided.
 - **The code declaration** now lives in `src/lib/org/orgJourney.ts`.
+
+---
+
+## Rulings and retirement 2026-10-06
+
+Recorded after wave 2 (9d8347df). Reconcile result: before this section the ADR held no record of the placement rules or of the section 4 retirements (the last ADR commit is 62ce87ae, the 2026-10-05 decision outcome). Everything below was verified against master at 9d8347df, not carried over from the run briefs.
+
+### 1. Next-move placement rules
+
+The shipped statement is the header comment of `src/components/org/shared/NextMoveLink.tsx:7-20`. The rules are decisions of this ADR, in that wording.
+
+- **(A) The next-move link is always visible and unscoped.** A contextual, filtered or dim-scoped link to the same tab (a drill-in, a conditional banner, a detail-panel link) is a second route and never stands in for it.
+- **(B) A "no data yet" state, where the next stage would be empty too, renders no forward link.** Its onward move is the stage that fills it: Security and Executive link to `repositories`.
+
+Clarifications of B:
+
+- A filter or search that empties the view is NOT "no data". It keeps the link.
+- A catalog- or registry-backed tab (Surfaces, Practices, Skills, Memory) never is "no data". It keeps the link.
+- A Connect tab is configuration and always shows its link, except in an unavailable state (no database, owner-only, role refusal).
+- Live keeps its link in every `?view`, because the wall is a view of the Apply entry tab. Only TV mode, which fullscreens `<html>`, hides it (`src/features/inflight/live/LiveNextMove.tsx:5-12`).
+
+### 2. Rulings from wave 1c (135bd9f6)
+
+1. A Members viewer who is refused the read-only view gets no link. That is an unavailable state, like no database.
+2. The old OrgEmpty "<- Org overview" back link in the `!rollup` branch of Repositories stays. It is a back link in a near-unreachable no-database / no-org state, not a next move.
+3. The Scan predicate stands: `scannedCount > 0` OR an active segment/stack scope. A scoped view keeps the link, because under rule B an empty filter is not "no data".
+4. The Integrations Prism drill-in keeps the link (rule A, always visible).
+
+### 3. Section 4 drift, retired
+
+Each commit below was found with `git log -S` / `git show` and its diff read.
+
+| Item | Retired by | Evidence |
+| --- | --- | --- |
+| 1. Pre-W1a module labels in `loopSteps.ts` | 9d8347df | `loopSteps.ts` now maps `ORG_STAGES` to steps and takes each step's lane from `orgGroupLabelFor(stage.entryTab)` (`src/components/about-org/loopSteps.ts:39-43`), which looks the lane up in `ORG_NAV_GROUPS`. The hand-typed `Govern` / `Fleet` / `Overview` labels are deleted. |
+| 2. `proposals` as the target of two verbs | 9d8347df | Decide enters on `proposals`, Apply on `live` (`ORG_STAGES` in `src/lib/org/orgJourney.ts`). The loop has six steps, and each steps to a distinct tab. |
+| 3. The "Four questions ... Chosen" tour copy | 9d8347df | The `modules-nav` body in `src/components/onboarding/tour/steps.ts` now names Standing, Shared, In flight, Bought and Admin, and says each tab ends with a "Next:" link. |
+| 4. `followups` links in tech-stacks and delivery | 98af2737 (wave 1a), before wave 1c | `PlaybookDetail.tsx` (tech-stacks) and `AiRoiQuadrantActions.tsx` (delivery) now link to `proposals` through `buildUrl`, keeping `dim`. The diff removes both `tab=followups` hrefs. The only remaining `followups` sites in `src/` are the redirect in `src/app/org/[slug]/page.tsx` and the alias declaration in `orgTabs.ts`. |
+
+Item 3 has a second half, the tour reaching 3 of 26 on-rail tabs. **Ruling: that is not drift to retire.** The tour stays six steps. The path is walked through the "Next:" link every rail tab now ends on, and the `modules-nav` step says so.
+
+Guard tests that stop each item recurring:
+
+- `src/components/about-org/loopSteps.test.ts` (added in 9d8347df): items 1 and 2. One step per stage in order, no two steps on the same tab, `module` equals the label of the lane that holds the tab, and the loop returns to Read.
+- `src/components/onboarding/tour/steps.test.ts` (added in 9d8347df): item 3. The `modules-nav` body names every lane the rail has, and contains neither "Chosen" nor "Four questions".
+- `src/lib/org/tab-link-graph.test.ts`: the pins that every tab has an outbound link and the journey block that checks each tab links to `nextMoveFor(tab)` through a literal `NextMoveLink`. Item 4 is covered only indirectly: the journey block asserts each tab's outbound edges include `nextMoveFor(tab)`, which is never `followups`, but nothing in it fails if a new link to the `followups` alias appears. The guard for that is the comment at the top of `src/lib/org/orgJourney.ts`.
+
+### 4. Back-measure, 2026-10-06
+
+Measured on master at 9d8347df by running `src/lib/org/tab-link-graph.test.ts` (with `loopSteps.test.ts` and `tour/steps.test.ts`: 3 files, 88 tests, all passing; the pins in `tab-link-graph.test.ts` are asserted equal to the scan, so a pass is the measurement) and by reading `ORG_STAGES` and `ORG_TAB_STAGE` from `src/lib/org/orgJourney.ts` against `ORG_NAV_GROUPS` (6 stages; 26 on-rail tabs, every one assigned to a stage; stage sizes Connect 5, Scan 2, Read 4, Decide 4, Apply 5, Measure 6). The table in "How this gets back-measured" above is left as written.
+
+| Metric | Section 1 table (then) | Measured 2026-10-06 | Target | Met |
+| --- | ---: | ---: | ---: | --- |
+| Tabs with no inbound link from a sibling | 10 | 8 (`digest`, `tech-stacks`, `passports`, `lessons`, `security`, `memory`, `members`, `audit`) | 0 | **No** |
+| Tabs inside the declared journey | 5 of 27 | 26 of 26 on-rail | all on-rail | Yes |
+| Tabs with no outbound link to a sibling | 9 | 0 (`NO_OUTBOUND` is `[]`; `followups` is the designed dead end and is not counted) | at most 1 | Yes |
+
+The inbound target of 0 is NOT met. Waves 1a to 1c pointed every link at a stage entry tab (`registry`, `repositories`, `overview`, `proposals`, `live`, `executive`), and none of those was in the inbound gap list, so the count stayed at 8 across all three waves. The 8 remaining are the subject of the section 3 merge candidates, which stay undecided and go to the architecture review next.
+
+### What this section does not decide
+
+The section 3 merges, and any change of the stage set.

@@ -37,7 +37,7 @@ a write set to be authoritative about.
 | --- | --- | --- |
 | [0001-hosted-loop-dispatch](0001-hosted-loop-dispatch.md) | Proposed (2026-09-14) | Hosted loop dispatch: substrate, gate mapping and API contract. |
 | [2026-09-07-db-import-convention](2026-09-07-db-import-convention.md) | Accepted | Per-domain barrels under `src/lib/db/`; the root `index.ts` is frozen. |
-| [2026-09-14-org-path-of-use](2026-09-14-org-path-of-use.md) | Proposed | One path of use for the Org modules. |
+| [2026-09-14-org-path-of-use](2026-09-14-org-path-of-use.md) | Accepted (2026-10-05, journey B) | One path of use for the Org modules. |
 
 ## A note on citations
 
