@@ -251,6 +251,8 @@ describe("buildFixPrompt — the capability rule (lane only)", () => {
     expect(p).toContain("EXISTING CI workflow");
     expect(p).toContain("ADDING is allowed");
     expect(p).toContain("SKIPPED: <id> - needs a gate-surface edit:");
+    // Measured twice on one repo: a standalone check named `tools/*-test.cjs` with `process.exit`.
+    expect(p).toContain("A NEW test file must not end the process");
     expect(buildFixPrompt([item()], ctx)).not.toContain("WHAT VOIDS A WHOLE CYCLE");
   });
 

@@ -287,6 +287,7 @@ const LANE_CAPABILITY_RULE: readonly string[] = [
   "- MODIFYING or DELETING an EXISTING test file or fixture, an EXISTING CI workflow (`.github/workflows/*`), an existing hook or gate config (tsconfig, eslint / vitest / pytest config, pre-commit, lefthook), or the build/script manifest that declares the verify command (the package.json script block, build.gradle(.kts), Cargo.toml, Makefile). A voided cycle is discarded from the measurement and held for a human — all of it, not just that file.",
   "- ADDING is allowed: new test files, a new workflow, a new hook, a new check script, new docs. Declaring the repository's real verify command in AGENTS.md / CLAUDE.md / `.ai/manifest.yaml` is allowed when that command passes on your result.",
   "- If an item can only be closed by editing one of those existing files, emit `SKIPPED: <id> - needs a gate-surface edit: <file>` and move on.",
+  "- A NEW test file must not end the process (`process.exit`, `os.Exit`, `sys.exit`, `os._exit`, `Environment.Exit`): a test runner collecting it would stop early, and the cycle is voided. A standalone check script that exits with a status is not a test: name it without a test pattern (`tools/check-hint-drift.cjs`, not `tools/hint-drift-test.cjs` or `*.test.*`).",
   "",
 ];
 
