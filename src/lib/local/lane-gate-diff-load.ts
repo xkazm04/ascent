@@ -73,7 +73,8 @@ export async function readGateDiffEvidence(args: {
     // one left a modified, unreferenced script "could not be read" and voided (measured 2026-10-05).
     // Only the guidance files are swapped for `before`'s text.
     const guidance = changedPaths.filter(needsVerifyLadder);
-    const addedScript = changedPaths.some((p) => isAddedGateScriptCandidate(p));
+    // ...and for any changed gate CONFIG, so an added one no rung can read can be cleared (lane-gate-diff.ts).
+    const addedScript = changedPaths.some((p) => isAddedGateScriptCandidate(p) || classifyScoringSurface(p) === "gate-config");
     if (guidance.length > 0 || addedScript) out.verifyLadder = await ladderAcross(git, dir, before, guidance, statuses);
 
     // A changed (or first) declared gate is run on the committed tree, rung by rung, until one passes.

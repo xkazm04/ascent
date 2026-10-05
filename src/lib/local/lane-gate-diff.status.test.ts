@@ -182,3 +182,21 @@ describe("an added test under a gate-script-shaped path (2026-10-05)", () => {
     expect(v.void).toBe(true);
   });
 });
+
+describe("an ADDED gate config no rung of the ladder can read (2026-10-05)", () => {
+  const ladder = (cmd: string) => ({ before: [{ command: cmd, source: "x", rung: "primary" as const }], after: [{ command: cmd, source: "x", rung: "primary" as const }] });
+  it("eslint.config.mjs + ruff.toml on a `dotnet test` gate are cleared — the repo's first linters", () => {
+    const v = checkGateDiff([{ path: "eslint.config.mjs", status: "A" }, { path: "ruff.toml", status: "A" }], { verifyLadder: ladder("dotnet test shared/core-dotnet") });
+    expect(v.void).toBe(false);
+  });
+  it("the same eslint config on an `npm test` gate still voids — a reader of it runs", () => {
+    expect(checkGateDiff([{ path: "eslint.config.mjs", status: "A" }], { verifyLadder: ladder("npm test") }).void).toBe(true);
+  });
+  it("ruff.toml on a `pytest -q` gate still voids, and any added config with no ladder evidence voids", () => {
+    expect(checkGateDiff([{ path: "ruff.toml", status: "A" }], { verifyLadder: ladder("pytest -q") }).void).toBe(true);
+    expect(checkGateDiff([{ path: "eslint.config.mjs", status: "A" }]).void).toBe(true);
+  });
+  it("a MODIFIED config on an unrelated gate still voids", () => {
+    expect(checkGateDiff([{ path: "eslint.config.mjs", status: "M" }], { verifyLadder: ladder("dotnet test x") }).void).toBe(true);
+  });
+});

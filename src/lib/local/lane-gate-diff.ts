@@ -292,6 +292,27 @@ const ladderText = (l: readonly LadderRung[]): string =>
 type DeclaredJudgement = ReturnType<typeof judgeDeclaredGate> | null;
 
 /** HOW a path touched its class, for the reason — or null when the touch is cleared (header). */
+/** The runners that can read a gate config, by family, matched as whole tokens in a rung's command. */
+const CONFIG_READERS: readonly { config: RegExp; runners: RegExp }[] = [
+  {
+    config: /^(\.?eslintrc|eslint\.config|tsconfig|jsconfig|vitest|jest|playwright|cypress|karma|ava|vite|babel|biome|\.?prettierrc|\.lintstagedrc|commitlint|knip|\.nycrc|\.c8rc|\.mocharc)/,
+    runners: /(^|[\s;&|(])(npm|npx|pnpm|yarn|bun|node|deno|tsc|eslint|vitest|jest|playwright|prettier|biome)(\b|$)/,
+  },
+  {
+    config: /^(\.?ruff\.toml|mypy\.ini|\.flake8|pytest\.ini|setup\.cfg|tox\.ini|pyproject\.toml|\.coveragerc|pyrightconfig\.json|conftest\.py)$/,
+    runners: /(^|[\s;&|(])(python3?|py|pytest|ruff|mypy|flake8|tox|nox|uv|poetry|pip|pyright|coverage)(\b|$)/,
+  },
+  { config: /^(rust-toolchain(\.toml)?|\.?clippy\.toml|\.?rustfmt\.toml|deny\.toml|nextest\.toml)$/, runners: /(^|[\s;&|(])(cargo|rustc|rustup)(\b|$)/ },
+  { config: /^\.golangci\.ya?ml$/, runners: /(^|[\s;&|(])(go|golangci-lint)(\b|$)/ },
+];
+
+/** True only when the config belongs to a known family AND no rung of any ladder runs a reader of it. */
+function configUnreachable(p: string, ladders: readonly (readonly { command: string }[])[]): boolean {
+  const family = CONFIG_READERS.find((f) => f.config.test(base(p)));
+  if (!family) return false;
+  return ladders.every((ladder) => ladder.every((r) => !family.runners.test(r.command.toLowerCase())));
+}
+
 function judgeChange(
   p: string,
   surface: ScoringSurface,
@@ -334,6 +355,11 @@ function judgeChange(
     return runBy ? `added, and the verify command \`${runBy}\` runs it` : null;
   }
   if (surface === "gate-config" && isUnderGateDir(p)) return null;
+  // An ADDED gate config no rung can read: a repository whose gate is `dotnet test` gains its first ESLint
+  // or Ruff config for its tooling scripts (measured 2026-10-05) — exactly the linter a D6 gap asks
+  // for — and no rung of either ladder runs a toolchain that reads it, so it cannot narrow the check.
+  // Missing ladder evidence, or a rung whose toolchain could read it, still voids.
+  if (surface === "gate-config" && opts.verifyLadder && configUnreachable(p, [opts.verifyLadder.before, opts.verifyLadder.after])) return null;
   // An ADDED generator SCRIPT in a fixture directory (`fixtures/make-clip.sh`) is a tool that makes data,
   // not data a test asserts against; an added data file there still voids (an existing test may glob it).
   if (surface === "fixture" && FIXTURE_TOOL_EXT.test(p) && !segments(p).some((x) => x === "__mocks__" || x === "mocks")) return null;

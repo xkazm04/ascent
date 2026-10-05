@@ -1452,6 +1452,12 @@ in `lane-gate-diff-load.test.ts`.
 **Three gate-declaration moves are cleared on evidence** (2026-10-05, from three wrong voids on the
 standing runner; `lane-gate-diff-declare.ts`):
 
+- **An added gate config no rung can read.** A NEW gate config is cleared when it belongs to a known
+  toolchain family (JS: eslint / tsconfig / vitest / jest / prettier...; Python: ruff / mypy / pytest /
+  pyproject...; Rust; Go) and no rung of either ladder runs a reader of that family. Measured: a repo
+  gated on `dotnet test` added its first `eslint.config.mjs` and `ruff.toml` for its tooling scripts,
+  exactly the linter its D6 gap asked for, and was voided. Missing ladder evidence, a rung that could
+  read the config, and any MODIFIED config still void.
 - **Fixture documentation and generator scripts.** A `README`/`CHANGELOG`/`LICENSE` inside a fixture
   directory is not a scoring surface (no test asserts against it), and an ADDED shell-style generator
   (`.sh`, `.ps1`, `.bat`, `.cmd`) there is cleared: it makes data rather than being it. An added data
