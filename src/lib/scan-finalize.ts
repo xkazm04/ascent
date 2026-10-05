@@ -105,6 +105,17 @@ export interface ScanResultClass {
   partialPrSlice: boolean;
 }
 
+/**
+ * May this report be cached and persisted? Written over the classification's VALUES rather than an
+ * enumerated list of flags, so adding a vector to {@link ScanResultClass} / {@link classifyScanResult}
+ * closes persistence AND every caller that gates on authority (the stream route's completion email,
+ * via `finalizeScanRun`'s `willPersist`) with no edit at a single call site. Every field of
+ * `ScanResultClass` is, by construction, a "this report is poisoned" boolean.
+ */
+export function isAuthoritativeScanResult(cls: ScanResultClass): boolean {
+  return !Object.values(cls).some(Boolean);
+}
+
 /** Derive the cache-poisoning guards from a report. Identical in both scan routes. */
 export function classifyScanResult(report: ScanReport, mock: boolean): ScanResultClass {
   return {
@@ -152,12 +163,12 @@ export async function cacheAndPersistScan(
     persist?: boolean;
   },
 ): Promise<{ deduped: boolean; persistedOk: boolean; durable: boolean }> {
-  const { degradedToMock, lowCoverage, partialPrSlice } = cls;
   const { lookup, persist = true } = opts;
   // A truncated PR slice is the third poisoning vector, alongside a mock fallback and low coverage: its
   // D6/D7/D8 scores understate reality, so caching or persisting it would serve a deflated verdict to
   // every later reader of this commit. graphql.ts always documented this; nothing enforced it.
-  const authoritative = !degradedToMock && !lowCoverage && !partialPrSlice;
+  // Derived vector-agnostically so a FOURTH one needs no edit here (see isAuthoritativeScanResult).
+  const authoritative = isAuthoritativeScanResult(cls);
 
   if (lookup && authoritative) cacheSet(lookup.cacheKey, report);
 
