@@ -278,11 +278,13 @@ Segments view doesn't pay for a rollup it won't render. It shows user-defined fl
 (platform, mobile, legacy…), top to bottom:
 
 1. **Create & tag** (`RepoSegmentsPanel`) — the segment manager: create/rename/recolor/delete a
-   segment, auto-add every repo of a language or a CODEOWNERS team, and tag repos one by one. Team
+   segment, declare a membership rule ("every repo of this language / this CODEOWNERS team"), and tag
+   repos one by one. Team
    choices use the latest scanned ownership; when no team was found, the language picker stays available
    and the panel explains how to enable team choices. It renders at **any**
    segment count, including zero.
-2. **Segment maturity** — per-segment rollup cards, once there is at least one segment.
+2. **Segment maturity** — per-segment rollup cards, once there is at least one segment. A card for a
+   **declared** segment also carries its rule, its drift and an Apply control (see below).
 3. **Compare** — side-by-side segment-vs-segment (headline metrics + per-dimension Δ).
 
 The manager moved here from the main Repositories view on 2026-08-19. It used to sit above the
@@ -304,6 +306,57 @@ its tagging chip; that is "tagged" vs "scored," not a bug. Chips, rollup cards, 
 no average prints no scored count at all: never `0 scored` and never `0/N scanned`. Since 2026-08-19
 the two counts sit **on one screen** (chips above, cards below), so the labelling matters more, not
 less.
+
+#### Declared membership: a segment keeps a rule, not a snapshot (2026-10-05)
+
+A segment may carry a **rule** that says what belongs in it, and that rule is stored on the segment
+(`Segment.ruleJson`, `{ kind: "language" | "team", values: string[] }`). Before this, "auto-add every
+repo of this language" was a one-shot: the browser filtered its own props, POSTed the matching
+fullNames to the bulk-tag endpoint, and the server stored a list that had no idea it was ever meant to
+be "all Python repos". From that second on the segment was a frozen photograph of a predicate. A repo
+onboarded tomorrow never joined, a repo whose `primaryLanguage` flipped never left, and nothing on
+screen said so, while that stale set went on scoping `Scan segment` and the segment's autoscan cadence
+(`SegmentActions`) plus every `?segment=` reading on the Overview. The drift was spending credits on
+last month's fleet.
+
+Three pieces, and the middle one is the whole safety argument:
+
+- **The declaration.** `PUT /api/org/segments/:id/rule { kind, values }` stores it; `{ kind: null }`
+  clears it and the segment goes back to a hand-kept list. `SegmentRow.rule` and
+  `SegmentSummary.rule` carry it to the client. Validation is reject-with-400
+  (`segmentRuleInputError`, `src/lib/org/segmentRule.ts`), the same contract name and colour already
+  use, so a malformed rule is refused rather than silently rewritten.
+- **Row ownership.** `RepoSegment.source` is `"manual"` or `"rule"`. A convergence adds rule-owned
+  rows and deletes **only** rule-owned rows that no longer match. A repo tagged by hand into a ruled
+  segment survives every apply, whatever the rule says. This is not a nicety: once two writers share
+  one join table, last-write-wins is the absence of a policy, and the failure it produces is "a tag I
+  made by hand disappeared and nothing records who removed it". The delete is scoped to
+  `source: "rule"` in the query as well as in the id list, so even a wrong id list could not take a
+  manual row with it. A rule-owned row whose repo has left the taggable universe (no longer watched,
+  no scans) is also KEPT: absence from that universe is not evidence of a mismatch.
+- **Visible drift, explicit remedy.** `segmentDrift({ rule, repos, membership })` is pure, runs over
+  the taggable repos the Segments view already reads, and returns `{ toAdd, toRemove }` - or **null**
+  for a segment with no rule, which is a different answer from an empty drift. `SegmentRuleRow`
+  renders "N repos match this rule and are not tagged" plus an **Apply rule** button; a segment with
+  no rule renders nothing there, because "undeclared" must not read as "in sync". Convergence is
+  never automatic. That posture is copied from `reconcileListedRepos`
+  (`src/lib/db/org-watch.ts`): mark the drift, leave the remedy to a user who can judge it.
+
+`POST /api/org/segments/:id/rule` declares (when the body carries a rule) and then applies, so the
+one gesture the manager offers still ends in tagged repos. It is an `[id]` route, so it resolves the
+owning org from the row (`getSegmentOrgSlug`) and gates that, never a caller-supplied org beside a
+caller-supplied id. The apply writes one `segment.rule_applied` audit row carrying
+`{ segmentId, added, removed }` and **no repo list**, the same bound the bulk-tag route set.
+
+`applySegmentRule` returns `{ added, removed }`, or null when persistence is off, the org is unknown,
+the segment is not the org's, or it carries no rule. It is idempotent: a second apply computes an
+empty drift and issues no write at all.
+
+**Known gap.** A rule is applied only when someone presses Apply (or re-declares it). Nothing
+converges a declared segment on a schedule or when a repo is onboarded, so the drift line is the
+honest signal and the operator is the loop. Making the rescan cron converge declared segments is the
+obvious next step and deliberately not in this change: an automatic reap of membership rows wants its
+own review.
 
 ### Context half-life (the Repositories tab's context-layer lens, W4, real)
 
