@@ -8,6 +8,7 @@ import {
   segmentInputError,
   setRepoSegment,
   setRepoSegmentsBulk,
+  applySegmentRule,
   type SegmentSummary,
 } from "@/lib/db/segments";
 import { segmentScope } from "@/lib/db/org-shared";
@@ -829,5 +830,212 @@ describe("getRepoSegmentMap — inverts segment→repo rows into a sorted, dedup
 
     expect(await getRepoSegmentMap("ghost")).toEqual({}); // resolveOrgId → null short-circuits
     expect(mp.findManyCalls).toHaveLength(0);
+  });
+});
+
+// ── applySegmentRule — the convergence write, and the row-ownership rule that bounds it ───────────
+//
+// "Segments keep a rule, not a snapshot" (acceptance cases 2, 3 and 7). This is the only destructive
+// path in the segments layer: it DELETES membership rows. The whole safety of the feature rests on it
+// deleting only rows it owns (`source: "rule"`), so the ownership split is asserted here against a
+// fake that actually records which rows the deleteMany was scoped to, not just how many.
+
+/**
+ * A prisma fake for applySegmentRule: one owning org, a taggable repo universe (watched OR has-scans)
+ * with a primaryLanguage + teams per repo, and the segment's current membership rows WITH their
+ * `source`. `$transaction` runs the handed array, so the add and the reap are observed exactly as the
+ * production code batches them.
+ */
+function applyPrisma(opts: {
+  ownerOrgId: string;
+  slugToId: Record<string, string>;
+  ruleJson: string | null;
+  universe: { fullName: string; primaryLanguage: string | null; teams?: string[] }[];
+  rows: { fullName: string; source: string }[];
+}) {
+  const repoId = (fullName: string) => `repo_${fullName.replace(/[^a-z0-9]/gi, "_")}`;
+  const createMany = vi.fn(async (args: { data: { segmentId: string; repoId: string; source?: string }[] }) => ({
+    count: args.data.length,
+  }));
+  const deleteMany = vi.fn(
+    async (args: { where: { segmentId: string; source?: string; repoId?: { in: string[] } } }) => ({
+      count: args.where.repoId?.in.length ?? 0,
+    }),
+  );
+  const prisma = {
+    organization: {
+      findUnique: vi.fn(async ({ where }: { where: { slug: string } }) => {
+        const key = Object.keys(opts.slugToId).find((s) => s.toLowerCase() === where.slug.trim().toLowerCase());
+        const id = key ? opts.slugToId[key] : undefined;
+        return id ? { id } : null;
+      }),
+    },
+    segment: {
+      findFirst: vi.fn(async ({ where }: { where: { id: string; orgId: string } }) =>
+        where.orgId === opts.ownerOrgId ? { id: where.id, ruleJson: opts.ruleJson } : null,
+      ),
+    },
+    repository: {
+      findMany: vi.fn(async () =>
+        opts.universe.map((r) => ({
+          id: repoId(r.fullName),
+          fullName: r.fullName,
+          primaryLanguage: r.primaryLanguage,
+          teams: (r.teams ?? []).map((slug) => ({ slug })),
+        })),
+      ),
+    },
+    repoSegment: {
+      findMany: vi.fn(async () => opts.rows.map((r) => ({ repoId: repoId(r.fullName), source: r.source }))),
+      createMany,
+      deleteMany,
+    },
+    $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+  };
+  return { prisma, createMany, deleteMany, repoId };
+}
+
+const PY_RULE = JSON.stringify({ kind: "language", values: ["Python"] });
+
+describe("applySegmentRule", () => {
+  it("adds every matching untagged repo as RULE-owned and reports { added, removed }", async () => {
+    const ap = applyPrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      ruleJson: PY_RULE,
+      universe: [1, 2, 3, 4, 5].map((n) => ({ fullName: `a/py${n}`, primaryLanguage: "Python" })),
+      rows: [],
+    });
+    mockGetPrisma.mockReturnValue(ap.prisma);
+
+    const res = await applySegmentRule("A", "seg1");
+
+    expect(res).toEqual({ added: 5, removed: 0 });
+    expect(ap.createMany).toHaveBeenCalledTimes(1);
+    // Provenance is the point: every row this write creates is stamped "rule", so a later apply is
+    // allowed to reap it. A row created without a source would be indistinguishable from a hand-tag.
+    const created = ap.createMany.mock.calls[0]![0].data;
+    expect(created).toHaveLength(5);
+    expect(created.every((d) => d.source === "rule")).toBe(true);
+    expect(ap.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("is IDEMPOTENT: a second apply adds nothing, removes nothing and rewrites no row", async () => {
+    const ap = applyPrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      ruleJson: PY_RULE,
+      universe: [1, 2, 3, 4, 5].map((n) => ({ fullName: `a/py${n}`, primaryLanguage: "Python" })),
+      rows: [1, 2, 3, 4, 5].map((n) => ({ fullName: `a/py${n}`, source: "rule" })),
+    });
+    mockGetPrisma.mockReturnValue(ap.prisma);
+
+    expect(await applySegmentRule("A", "seg1")).toEqual({ added: 0, removed: 0 });
+    expect(ap.createMany).not.toHaveBeenCalled();
+    expect(ap.deleteMany).not.toHaveBeenCalled();
+    expect(ap.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  // The single most important assertion in this card: a convergence that reaped a human's tag would
+  // destroy hand-curated membership silently. Both halves in ONE test so neither can regress alone.
+  it("reaps a rule-owned row that no longer matches and KEEPS a hand-tagged row that never did", async () => {
+    const ap = applyPrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      ruleJson: PY_RULE,
+      universe: [
+        { fullName: "a/py1", primaryLanguage: "Python" },
+        { fullName: "a/was-python", primaryLanguage: "Go" }, // flipped language, rule-owned
+        { fullName: "a/by-hand", primaryLanguage: "Ruby" }, // a human put this here
+      ],
+      rows: [
+        { fullName: "a/py1", source: "rule" },
+        { fullName: "a/was-python", source: "rule" },
+        { fullName: "a/by-hand", source: "manual" },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(ap.prisma);
+
+    const res = await applySegmentRule("A", "seg1");
+
+    expect(res).toEqual({ added: 0, removed: 1 });
+    const where = ap.deleteMany.mock.calls[0]![0].where;
+    expect(where.repoId!.in).toEqual([ap.repoId("a/was-python")]);
+    expect(where.repoId!.in).not.toContain(ap.repoId("a/by-hand"));
+    // Defence in depth: the delete is itself scoped to rule-owned rows, so even a wrong id list
+    // could not take a manual row with it.
+    expect(where.source).toBe("rule");
+  });
+
+  it("never reaps a rule-owned row whose repo has left the taggable universe", async () => {
+    const ap = applyPrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      ruleJson: PY_RULE,
+      universe: [{ fullName: "a/py1", primaryLanguage: "Python" }],
+      rows: [
+        { fullName: "a/py1", source: "rule" },
+        { fullName: "a/archived", source: "rule" },
+      ],
+    });
+    mockGetPrisma.mockReturnValue(ap.prisma);
+
+    expect(await applySegmentRule("A", "seg1")).toEqual({ added: 0, removed: 0 });
+    expect(ap.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("CROSS-TENANT: another org's segment id -> null, and no write is reached", async () => {
+    const ap = applyPrisma({
+      ownerOrgId: "orgB",
+      slugToId: { A: "orgA" },
+      ruleJson: PY_RULE,
+      universe: [{ fullName: "a/py1", primaryLanguage: "Python" }],
+      rows: [],
+    });
+    mockGetPrisma.mockReturnValue(ap.prisma);
+
+    expect(await applySegmentRule("A", "seg1")).toBeNull();
+    expect(ap.createMany).not.toHaveBeenCalled();
+    expect(ap.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("an unknown org slug, or a segment with no rule, changes nothing and returns null (no throw)", async () => {
+    const unknownOrg = applyPrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      ruleJson: PY_RULE,
+      universe: [],
+      rows: [],
+    });
+    mockGetPrisma.mockReturnValue(unknownOrg.prisma);
+    expect(await applySegmentRule("ghost", "seg1")).toBeNull();
+
+    const noRule = applyPrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      ruleJson: null,
+      universe: [{ fullName: "a/py1", primaryLanguage: "Python" }],
+      rows: [],
+    });
+    mockGetPrisma.mockReturnValue(noRule.prisma);
+    expect(await applySegmentRule("A", "seg1")).toBeNull();
+    expect(noRule.createMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("setRepoSegmentsBulk — membership provenance", () => {
+  it("stamps hand/bulk tags as MANUAL by default, so a rule can never reap them", async () => {
+    const fp = fakePrisma({
+      ownerOrgId: "orgA",
+      slugToId: { A: "orgA" },
+      repoFullNames: ["acme/one"],
+      createCount: 1,
+    });
+    mockGetPrisma.mockReturnValue(fp.prisma);
+
+    await setRepoSegmentsBulk("A", "seg1", ["acme/one"], true);
+
+    const data = (fp.createMany.mock.calls[0]![0] as { data: { source?: string }[] }).data;
+    expect(data.every((d) => d.source === "manual")).toBe(true);
   });
 });

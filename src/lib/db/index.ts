@@ -187,6 +187,7 @@ export {
   listTaggableRepos,
   compareSegments,
   listSegmentSummaries,
+  applySegmentRule,
   buildSegmentComparison,
   normalizeSegmentName,
   normalizeColor,
@@ -195,6 +196,7 @@ export {
   type TaggableRepo,
   type SegmentSummary,
   type SegmentComparison,
+  type SegmentRuleApplied,
 } from "@/lib/db/segments";
 export {
   createGoal,

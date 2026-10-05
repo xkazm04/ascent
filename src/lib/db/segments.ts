@@ -10,6 +10,16 @@ import { getOrgRollup, type OrgRepoRow } from "@/lib/db/org";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { roundedMean } from "@/lib/db/org-shared";
 import { canonicalRepoFullName } from "@/lib/db/scans-shared";
+import {
+  matchesRule,
+  parseSegmentRule,
+  segmentDrift,
+  serializeSegmentRule,
+  type SegmentDrift,
+  type SegmentMember,
+  type SegmentMemberSource,
+  type SegmentRule,
+} from "@/lib/org/segmentRule";
 
 /** Repository.fullName is stored trimmed and lowercased on each side of the slash.
  *  A tag lookup that keeps the caller's casing misses that row. */
@@ -71,6 +81,10 @@ export interface SegmentRow {
    *  different repoCount here than on the Segments comparison tab — that's "tagged" vs "scored" repos,
    *  not a bug — so any UI surfacing both MUST label which one it's showing. */
   repoCount: number;
+  /** The segment's DECLARED membership, or null for a hand-kept list. A segment that carries one is
+   *  expected to CONVERGE toward it (applySegmentRule), so every surface that renders a segment can
+   *  say whether its tag set is a declaration or a snapshot. See src/lib/org/segmentRule.ts. */
+  rule: SegmentRule | null;
   createdAt: string;
 }
 
@@ -82,20 +96,21 @@ export async function listSegments(orgSlug: string): Promise<SegmentRow[] | null
   const segments = await getPrisma().segment.findMany({
     where: { orgId },
     orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, color: true, createdAt: true, _count: { select: { repos: true } } },
+    select: { id: true, name: true, color: true, ruleJson: true, createdAt: true, _count: { select: { repos: true } } },
   });
   return segments.map((s) => ({
     id: s.id,
     name: s.name,
     color: s.color,
     repoCount: s._count.repos,
+    rule: parseSegmentRule(s.ruleJson),
     createdAt: s.createdAt.toISOString(),
   }));
 }
 
 export async function createSegment(
   orgSlug: string,
-  input: { name: string; color?: string | null },
+  input: { name: string; color?: string | null; rule?: SegmentRule | null },
 ): Promise<{ id: string } | null> {
   if (!isDbConfigured()) return null;
   const prisma = getPrisma();
@@ -105,19 +120,30 @@ export async function createSegment(
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
   const created = await prisma.segment.create({
-    data: { orgId, name: normalizeSegmentName(input.name), color: normalizeColor(input.color) },
+    data: {
+      orgId,
+      name: normalizeSegmentName(input.name),
+      color: normalizeColor(input.color),
+      ...(input.rule !== undefined ? { ruleJson: serializeSegmentRule(input.rule) } : {}),
+    },
     select: { id: true },
   });
   return created;
 }
 
-export async function updateSegment(id: string, data: { name?: string; color?: string | null }): Promise<boolean> {
+export async function updateSegment(
+  id: string,
+  data: { name?: string; color?: string | null; rule?: SegmentRule | null },
+): Promise<boolean> {
   if (!isDbConfigured()) return false;
   await getPrisma().segment.update({
     where: { id },
     data: {
       ...(data.name != null ? { name: normalizeSegmentName(data.name) } : {}),
       ...("color" in data ? { color: normalizeColor(data.color) } : {}),
+      // `"rule" in data`, not a truthiness test: `rule: null` is the deliberate act of CLEARING the
+      // declaration (a segment going back to a hand-kept list), which must reach the column.
+      ...("rule" in data ? { ruleJson: serializeSegmentRule(data.rule ?? null) } : {}),
     },
   });
   return true;
@@ -168,7 +194,7 @@ export async function setRepoSegment(
     await prisma.repoSegment.upsert({
       where: { segmentId_repoId: { segmentId, repoId: repo.id } },
       update: {},
-      create: { segmentId, repoId: repo.id },
+      create: { segmentId, repoId: repo.id, source: "manual" },
     });
   } else {
     await prisma.repoSegment.deleteMany({ where: { segmentId, repoId: repo.id } });
@@ -189,6 +215,10 @@ export async function setRepoSegmentsBulk(
   segmentId: string,
   fullNames: string[],
   member: boolean,
+  /** Who owns the rows this call creates. Defaults to "manual", so every existing caller (the tagging
+   *  UI, the leaderboard's bulk bar) keeps writing rows a rule convergence may never reap. Only
+   *  applySegmentRule passes "rule". */
+  source: SegmentMemberSource = "manual",
 ): Promise<number> {
   if (!isDbConfigured()) return -1;
   const prisma = getPrisma();
@@ -205,7 +235,7 @@ export async function setRepoSegmentsBulk(
   if (repos.length === 0) return 0;
   if (member) {
     const res = await prisma.repoSegment.createMany({
-      data: repos.map((r) => ({ segmentId, repoId: r.id })),
+      data: repos.map((r) => ({ segmentId, repoId: r.id, source })),
       skipDuplicates: true,
     });
     return res.count;
@@ -264,6 +294,108 @@ export async function listTaggableRepos(orgSlug: string): Promise<TaggableRepo[]
   return repos.map((r) => ({ fullName: r.fullName, name: r.name, language: r.primaryLanguage ?? null, teams: r.teams.map((t) => t.slug) }));
 }
 
+// ── Declared membership: the rule, and the explicit convergence toward it ─────────────────────────
+
+/**
+ * Every membership row of an org's segments, grouped by segment, WITH its owner.
+ *
+ * getRepoSegmentMap (above) answers the UI's question — "which segments is this repo in?" — and
+ * deliberately carries no provenance, because the tagging chips do not care who wrote a row. Drift
+ * does: a rule may only reap rows it owns, so the drift reader needs the `source` column the chip
+ * reader has no business knowing about. Same single query, a different projection.
+ */
+async function listSegmentMembers(orgId: string): Promise<Map<string, SegmentMember[]>> {
+  const rows = await getPrisma().repoSegment.findMany({
+    where: { segment: { orgId } },
+    select: { segmentId: true, source: true, repo: { select: { fullName: true } } },
+  });
+  const out = new Map<string, SegmentMember[]>();
+  for (const r of rows) {
+    const list = out.get(r.segmentId) ?? [];
+    list.push({ fullName: r.repo.fullName, source: r.source === "rule" ? "rule" : "manual" });
+    out.set(r.segmentId, list);
+  }
+  return out;
+}
+
+/** The outcome of one convergence: how many membership rows it created and how many it reaped. */
+export interface SegmentRuleApplied {
+  added: number;
+  removed: number;
+}
+
+/**
+ * Converge a segment's membership toward its DECLARED rule — the one destructive path in this module.
+ *
+ * Adds every matching, untagged repo of the taggable universe as a `rule`-owned row and deletes ONLY
+ * `rule`-owned rows that no longer match. A hand-tagged row is never touched, whatever the rule says:
+ * once two writers share a join table, last-write-wins is the absence of a policy, and the policy here
+ * is per-row ownership (src/lib/org/segmentRule.ts). The delete is scoped to `source: "rule"` in the
+ * query as well as in the id list, so even a wrong id list could not take a manual row with it.
+ *
+ * Idempotent: a second apply computes an empty drift, issues no write at all (not even a no-op
+ * transaction) and returns { added: 0, removed: 0 }.
+ *
+ * Returns null — this module's established "nothing happened" — when persistence is off, the org is
+ * unknown, the segment is not the org's (the per-row tenant filter, so a caller cannot converge
+ * another tenant's segment), or the segment carries no rule to apply.
+ */
+export async function applySegmentRule(orgSlug: string, segmentId: string): Promise<SegmentRuleApplied | null> {
+  if (!isDbConfigured()) return null;
+  const prisma = getPrisma();
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const segment = await prisma.segment.findFirst({
+    where: { id: segmentId, orgId },
+    select: { id: true, ruleJson: true },
+  });
+  if (!segment) return null;
+  const rule = parseSegmentRule(segment.ruleJson);
+  if (!rule) return null;
+
+  // The SAME universe listTaggableRepos and getOrgRollup use (watched OR has-scans), so convergence can
+  // never tag a repo the segment rollups would then ignore.
+  const [repos, existing] = await Promise.all([
+    prisma.repository.findMany({
+      where: { orgId, OR: [{ watched: true }, { scans: { some: {} } }] },
+      select: { id: true, fullName: true, primaryLanguage: true, teams: { select: { slug: true } } },
+    }),
+    prisma.repoSegment.findMany({ where: { segmentId }, select: { repoId: true, source: true } }),
+  ]);
+  const ruleRepo = (r: { fullName: string; primaryLanguage: string | null; teams: { slug: string }[] }) => ({
+    fullName: r.fullName,
+    language: r.primaryLanguage,
+    teams: r.teams.map((t) => t.slug),
+  });
+  const byId = new Map(repos.map((r) => [r.id, r]));
+  const tagged = new Set(existing.map((e) => e.repoId));
+  const addIds = repos.filter((r) => !tagged.has(r.id) && matchesRule(ruleRepo(r), rule)).map((r) => r.id);
+  const removeIds = existing
+    .filter((e) => {
+      if (e.source !== "rule") return false; // a human put it there; the rule has no say
+      const repo = byId.get(e.repoId);
+      if (!repo) return false; // left the taggable universe: absence is not a mismatch
+      return !matchesRule(ruleRepo(repo), rule);
+    })
+    .map((e) => e.repoId);
+
+  if (addIds.length === 0 && removeIds.length === 0) return { added: 0, removed: 0 };
+  const ops = [];
+  if (addIds.length > 0) {
+    ops.push(
+      prisma.repoSegment.createMany({
+        data: addIds.map((repoId) => ({ segmentId, repoId, source: "rule" })),
+        skipDuplicates: true,
+      }),
+    );
+  }
+  if (removeIds.length > 0) {
+    ops.push(prisma.repoSegment.deleteMany({ where: { segmentId, source: "rule", repoId: { in: removeIds } } }));
+  }
+  await prisma.$transaction(ops);
+  return { added: addIds.length, removed: removeIds.length };
+}
+
 // ── Segment-vs-segment comparison ─────────────────────────────────────────────
 
 /** One side of a comparison — a segment's (or the whole fleet's) headline maturity shape. */
@@ -292,6 +424,13 @@ export interface SegmentSummary {
    */
   posture: string | null;
   dimAverages: { dimId: string; avg: number }[];
+  /** The segment's DECLARED membership, or null for a hand-kept list (and always null for the whole-fleet
+   *  baseline and for auto tech-stack groups, which are derived, not declared). */
+  rule: SegmentRule | null;
+  /** How far the tagged set is from the declaration: how many taggable repos match but are not tagged,
+   *  and how many RULE-OWNED rows no longer match. **null when there is no rule** — "undeclared" and
+   *  "declared and in sync" are different states and a reader must be able to tell them apart. */
+  drift: { toAdd: number; toRemove: number } | null;
 }
 
 export interface SegmentComparison {
@@ -363,7 +502,10 @@ export function buildSegmentComparison(a: SegmentSummary, b: SegmentSummary): Se
  * as they share summarizeScopedRollup for the single-scope (A/B) path. `scope.id` is the summary's
  * id verbatim — a segment id for segments, the stable stack KEY for tech groups (null = whole fleet).
  */
-export function summarizeScopedRepos(scope: { id: string | null; name: string }, repos: OrgRepoRow[]): SegmentSummary {
+export function summarizeScopedRepos(
+  scope: { id: string | null; name: string; rule?: SegmentRule | null; drift?: SegmentDrift | null },
+  repos: OrgRepoRow[],
+): SegmentSummary {
   const scanned = repos.filter((r) => r.latest);
   const dimSum: Record<string, { sum: number; n: number }> = {};
   for (const r of scanned)
@@ -390,6 +532,10 @@ export function summarizeScopedRepos(scope: { id: string | null; name: string },
     avgRigor,
     posture: postureOf(avgAdoption, avgRigor),
     dimAverages,
+    rule: scope.rule ?? null,
+    // Counts, not lists: the card only ever renders "N repos match and are not tagged", and a wire row
+    // that carried the fullNames would grow with the fleet for no reader.
+    drift: scope.drift ? { toAdd: scope.drift.toAdd.length, toRemove: scope.drift.toRemove.length } : null,
   };
 }
 
@@ -401,26 +547,25 @@ export function summarizeScopedRepos(scope: { id: string | null; name: string },
  *  The single A/B comparison (compareSegments) still uses the scoped getOrgRollup. */
 export async function listSegmentSummaries(orgSlug: string): Promise<SegmentSummary[] | null> {
   if (!isDbConfigured()) return null;
-  const [segs, rollup, segMap] = await Promise.all([
+  const orgId = await getOrgId(orgSlug);
+  const [segs, rollup, membersBySeg, taggable] = await Promise.all([
     listSegments(orgSlug),
     getOrgRollup(orgSlug),
-    getRepoSegmentMap(orgSlug),
+    orgId ? listSegmentMembers(orgId) : Promise.resolve(new Map<string, SegmentMember[]>()),
+    // The drift inputs. One cheap indexed select over the same universe the rollup scores, so a
+    // declared segment's drift is readable on this strip without a per-segment query.
+    listTaggableRepos(orgSlug),
   ]);
   if (!segs) return null;
   if (!rollup) return []; // org missing / nothing to roll up — match the prior empty-out behaviour
-  // Invert fullName → segments[] into segmentId → set of member fullNames.
-  const membersBySeg = new Map<string, Set<string>>();
-  for (const [fullName, list] of Object.entries(segMap)) {
-    for (const s of list) {
-      let set = membersBySeg.get(s.id);
-      if (!set) membersBySeg.set(s.id, (set = new Set()));
-      set.add(fullName);
-    }
-  }
   return segs.map((s) => {
-    const members = membersBySeg.get(s.id);
-    const repos = members ? rollup.repos.filter((r) => members.has(r.fullName)) : [];
-    return summarizeScopedRepos({ id: s.id, name: s.name }, repos);
+    const members = membersBySeg.get(s.id) ?? [];
+    const tagged = new Set(members.map((m) => m.fullName));
+    const repos = rollup.repos.filter((r) => tagged.has(r.fullName));
+    return summarizeScopedRepos(
+      { id: s.id, name: s.name, rule: s.rule, drift: segmentDrift({ rule: s.rule, repos: taggable, membership: members }) },
+      repos,
+    );
   });
 }
 
@@ -447,6 +592,10 @@ export async function summarizeScopedRollup(
     avgRigor: rollup.avgRigor,
     posture: postureOf(rollup.avgAdoption, rollup.avgRigor),
     dimAverages: rollup.dimAverages,
+    // The A/B comparison reads scores, not membership provenance: it never renders a drift line, and
+    // claiming "no rule" here would be a different lie than claiming no drift. Both null, deliberately.
+    rule: null,
+    drift: null,
   };
 }
 

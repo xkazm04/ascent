@@ -178,6 +178,7 @@ CREATE TABLE "Segment" (
     "orgId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "color" TEXT NOT NULL DEFAULT '#3b9eff',
+    "ruleJson" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Segment_pkey" PRIMARY KEY ("id")
@@ -188,6 +189,7 @@ CREATE TABLE "RepoSegment" (
     "id" TEXT NOT NULL,
     "segmentId" TEXT NOT NULL,
     "repoId" TEXT NOT NULL,
+    "source" TEXT NOT NULL DEFAULT 'manual',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "RepoSegment_pkey" PRIMARY KEY ("id")

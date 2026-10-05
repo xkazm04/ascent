@@ -403,6 +403,11 @@ model Segment {
   orgId     String
   name      String
   color     String   @default("#3b9eff") // accent hex for the chip
+  // The segment's DECLARED membership, as JSON { kind: "language" | "team", values: string[] } — null
+  // for a segment whose membership is a hand-kept list. A declaration is not a snapshot: convergence
+  // toward it is an explicit, audited apply (applySegmentRule), so the rule never mutates the fleet
+  // behind the user's back. See src/lib/org/segmentRule.ts.
+  ruleJson  String?
   createdAt DateTime @default(now())
 
   org   Organization  @relation(fields: [orgId], references: [id])
@@ -418,6 +423,12 @@ model RepoSegment {
   id        String   @id @default(uuid())
   segmentId String
   repoId    String
+  // WHO wrote this membership row: "manual" (a human tagged it, or a bulk tag they triggered) or
+  // "rule" (a convergence created it from Segment.ruleJson). Load-bearing, not informational: a rule
+  // apply may only ever reap rows it OWNS, so a hand-tag is permanent against the rule. Without this
+  // column an automated writer and a human writer are indistinguishable after the fact and the only
+  // available policy is last-write-wins.
+  source    String   @default("manual")
   createdAt DateTime @default(now())
 
   segment Segment    @relation(fields: [segmentId], references: [id])
