@@ -18,6 +18,7 @@ import {
   getSkillHistory,
   getRepositoryHistory,
   getLatestRecommendations,
+  getHeadHint,
   diffTrackSets,
   type RepositoryHistory,
 } from "@/lib/db";
@@ -26,7 +27,9 @@ import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { hasOrgRole, canReadOrg } from "@/lib/authz";
 import { PRACTICES } from "@/lib/practices";
 import { EMPTY_LIFTS, getOrgExpectedLifts } from "@/lib/outcomes/expected-lift-load";
+import { scanMaxCacheAgeMs } from "@/lib/scan-cache";
 import { parseRepoParam } from "./repoParam";
+import { reportMetadata } from "./reportMetadata";
 
 export const dynamic = "force-dynamic";
 
@@ -58,29 +61,15 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { owner, repo } = await params;
   const { name, sha } = parseRepoParam(repo);
-  const ref = `${owner}/${name}`;
   const orgSlug = await resolveReportOrg(owner, await searchParams);
   const read = await readPermalinkReport(owner, name, sha, orgSlug);
-  const report = read.kind === "ok" ? read.report : null;
-  const lookupFailed = read.kind === "unavailable";
-
-  const title = report
-    ? `${ref}: ${report.level.id} ${report.level.name} · Ascent`
-    : lookupFailed
-      ? `${ref}: report unavailable · Ascent`
-      : `No report yet for ${ref} · Ascent`;
-  const description = report
-    ? `${ref} scores ${report.overallScore}/100 (${report.level.id} ${report.level.name}) on Ascent's AI-native maturity index${sha ? ` at ${sha.slice(0, 7)}` : ""}.`
-    : lookupFailed
-      ? `Ascent could not load a scan for ${ref} right now. Try again in a moment.`
-      : `${ref} has not been scanned on Ascent yet.`;
-
-  return {
-    title,
-    description,
-    openGraph: { title, description, type: "website" },
-    twitter: { card: "summary_large_image", title, description },
-  };
+  // ./reportMetadata dates a stale reading: an unfurl is read by people who never open the app.
+  return reportMetadata({
+    ref: `${owner}/${name}`,
+    report: read.kind === "ok" ? read.report : null,
+    lookupFailed: read.kind === "unavailable",
+    sha,
+  });
 }
 
 export default async function ReportPermalink({
@@ -151,11 +140,14 @@ async function ReportPermalinkBody({
   // report never carries one), history and recommendations over HTTP a beat after paint, so the hero
   // popped in late. They call the SAME readers the three API routes compose, under the same org
   // resolution and the same access gate, so the served data is identical — just already in the HTML.
-  const [skillHistory, passport, history, recs] = await Promise.all([
+  // The fifth read is the FRESHNESS PROVENANCE: `Repository.headSha` (the head last seen) against the
+  // scan's own, which is the drift fact the masthead states. A DB read, so it costs no GitHub call.
+  const [skillHistory, passport, history, recs, headHint] = await Promise.all([
     getSkillHistory(repoRef).catch(() => []),
     getRepoPassport(owner, name, { orgSlug, headSha: sha }).catch(() => null),
     readReportHistory(owner, name, orgSlug),
     readReportRecommendations(owner, name),
+    readLastSeenHead(owner, name, orgSlug),
   ]);
   // Owner-only passport controls (P4): editable only for a non-public org-owned repo by an owner.
   const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
@@ -183,6 +175,8 @@ async function ReportPermalinkBody({
         serverRecs={recs.items}
         serverLifts={recs.lifts}
         installFoundation={canInstallFoundation}
+        lastSeenHead={headHint}
+        freshnessWindowMs={scanMaxCacheAgeMs()}
       />
       {passport && (
         <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
@@ -201,6 +195,12 @@ async function ReportPermalinkBody({
       )}
     </ReportErrorBoundary>
   );
+}
+
+/** The head last seen for this repo (the freshness drift clause). Wrapped, not `.catch()`-ed inline:
+ *  a throw while BUILDING the Promise.all array escapes it; null is the no-claim answer either way. */
+async function readLastSeenHead(owner: string, name: string, orgSlug: string): Promise<string | null> {
+  try { return (await getHeadHint(owner, name, { orgSlug }))?.headSha ?? null; } catch { return null; }
 }
 
 /**

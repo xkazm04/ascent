@@ -52,17 +52,30 @@ function ProvenanceBadge({ text, hex }: { text: string; hex: string }) {
 }
 
 /**
+ * WHEN the card was measured, for the eyebrow. A share card travels DETACHED from its report, so a
+ * dateless score reads as a present-tense fact about the repository however old the reading is; a
+ * Slack unfurl of a seven-month-old scan was the worst case of it. An unreadable timestamp says so
+ * rather than silently dropping the clause, which would look like a fresh card.
+ */
+function scanDateClause(scannedAt?: string | null): string {
+  const t = scannedAt ? new Date(scannedAt).getTime() : NaN;
+  if (!Number.isFinite(t)) return " · scan date not recorded";
+  return ` · scanned ${new Date(t).toISOString().slice(0, 10)}`;
+}
+
+/**
  * The data card for a persisted report. Returns a plain JSX tree for a `next/og` ImageResponse (no
  * hooks, no client state). `sha` is the caller's requested commit, shown as a 7-char eyebrow suffix.
  */
 export function ReportShareCard({ report, sha }: { report: ScanReport; sha?: string }) {
   const ref = `${report.repo.owner}/${report.repo.name}`;
+  const dated = scanDateClause(report.scannedAt);
 
   // An incomplete scan has no measurement to show — never draw its renormalized 0/L1 as a score.
   if (isIncompleteReport(report)) {
     return (
       <FallbackOgCard
-        eyebrow="Maturity report"
+        eyebrow={`Maturity report${dated}`}
         title={ref}
         tagline="This scan could not be completed — no dimension could be scored, so no maturity result is shown."
       />
@@ -100,6 +113,7 @@ export function ReportShareCard({ report, sha }: { report: ScanReport; sha?: str
         <div style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
           <div style={{ display: "flex", fontSize: 26, letterSpacing: 4, textTransform: "uppercase", color: "#3b9eff", fontFamily: "monospace" }}>
             Maturity report{sha ? ` · ${sha.slice(0, 7)}` : ""}
+            {dated}
           </div>
           <div style={{ display: "flex", fontSize: 60, fontWeight: 700, lineHeight: 1.05, color: "#ffffff" }}>{ref}</div>
           <div style={{ display: "flex", fontSize: 26, color: "#94a3b8" }}>
