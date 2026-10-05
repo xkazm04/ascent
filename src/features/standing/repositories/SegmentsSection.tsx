@@ -17,14 +17,8 @@ import { SegmentMaturityGrid } from "./SegmentMaturityGrid";
 import { SegmentsComparePanel } from "./SegmentsComparePanel";
 import { RepoSegmentsPanel } from "./RepoSegmentsPanel";
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
-import {
-  compareSegments,
-  getRepoSegmentMap,
-  listSegmentSummaries,
-  listSegments,
-  listTaggableRepos,
-  listWatchedRepos,
-} from "@/lib/db";
+import { isAppConfigured } from "@/lib/github/app";
+import { getRepoSegmentMap, listSegments, listTaggableRepos, listWatchedRepos, loadSegmentsView } from "@/lib/db";
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
@@ -37,13 +31,18 @@ export async function SegmentsSection({
 }) {
   const sp = searchParams;
 
-  const [summaries, segMap, watchedRepos, segments, taggableRepos] = await Promise.all([
-    listSegmentSummaries(slug).then((s) => s ?? []),
+  // ONE fleet rollup for BOTH readings on this tab. The strip and the A/B comparison used to fetch
+  // their own (listSegmentSummaries + two scoped rollups inside compareSegments = three full transfers
+  // of the org's scan history for one screen); loadSegmentsView partitions a single rollup and resolves
+  // the ?a=/?b= pair itself, so the picker below renders the pair that was actually drawn.
+  const [view, segMap, watchedRepos, segments, taggableRepos] = await Promise.all([
+    loadSegmentsView(slug, { a: first(sp.a), b: first(sp.b) }),
     getRepoSegmentMap(slug),
     listWatchedRepos(slug),
     listSegments(slug).then((s) => s ?? []),
     listTaggableRepos(slug),
   ]);
+  const summaries = view?.summaries ?? [];
   // Invert the repo→segments map into segment id → tagged repo fullNames, so each card can scan or
   // schedule exactly its slice.
   const reposBySegment: Record<string, string[]> = {};
@@ -80,16 +79,12 @@ export async function SegmentsSection({
   }
 
   const options = summaries.filter((s) => s.id).map((s) => ({ id: s.id as string, name: s.name }));
-  const ids = new Set(options.map((o) => o.id));
-
-  // Resolve the A/B selection from the URL, defaulting to the first two segments (B = whole fleet
-  // when there's only one segment to compare against the org baseline).
-  const aParam = first(sp.a);
-  const bParam = first(sp.b);
-  const aId = aParam && ids.has(aParam) ? aParam : options[0]!.id; // safe: summaries non-empty above, each maps to an option
-  const bId = bParam && ids.has(bParam) && bParam !== aId ? bParam : options.find((o) => o.id !== aId)?.id ?? null;
-
-  const comparison = await compareSegments(slug, aId, bId);
+  // The A/B resolution moved into the producer (resolveComparePair), because the selection decides
+  // which slice of the one rollup is reduced. Both Segments views had an identical copy of it.
+  const aId = view?.aId ?? options[0]!.id; // safe: summaries non-empty above, each maps to an option
+  const bId = view?.bId ?? null;
+  const comparison = view?.comparison ?? null;
+  const schedulable = isAppConfigured();
 
   return (
     <>
@@ -126,6 +121,9 @@ export async function SegmentsSection({
         bId={bId}
         comparison={comparison}
         taggedById={Object.fromEntries(segments.map((s) => [s.id, s.repoCount]))}
+        org={slug}
+        watched={watched}
+        schedulable={schedulable}
       />
     </>
   );

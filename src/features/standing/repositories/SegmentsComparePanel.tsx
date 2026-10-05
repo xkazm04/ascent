@@ -14,7 +14,9 @@
 
 import { SegmentComparePicker } from "./SegmentComparePicker";
 import { SegmentDumbbell } from "./SegmentDumbbell";
-import { dimensionPairs, headlinePairs, pairedStates } from "./segmentViz";
+import { SegmentDistribution, SegmentDistributionRow } from "./SegmentDistribution";
+import { SegmentGapLaggards } from "./SegmentGapLaggards";
+import { dimensionPairs, distributionRows, headlinePairs, pairedStates, trailingSide } from "./segmentViz";
 import { postureText } from "./SegmentCard";
 import { Card, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta } from "@/components/org/shared/ui";
 import { Legend, WhyChip } from "@/components/org/viz";
@@ -33,6 +35,9 @@ export function SegmentsComparePanel({
   bId,
   comparison,
   taggedById = {},
+  org,
+  watched,
+  schedulable = false,
 }: {
   options: { id: string; name: string }[];
   aId: string;
@@ -40,6 +45,12 @@ export function SegmentsComparePanel({
   comparison: SegmentComparison | null;
   /** listSegments tagged counts, keyed by segment id. Fleet (id null) has no tag universe. */
   taggedById?: Record<string, number>;
+  org: string;
+  /** The org's watch list — what POST /api/org/scan would actually scan. A laggard outside it gets the
+   *  report link only, the same intersection SegmentActions states in its own label. */
+  watched: ReadonlySet<string>;
+  /** isAppConfigured(), threaded from the server section exactly as the leaderboard threads it. */
+  schedulable?: boolean;
 }) {
   if (!comparison) {
     return (
@@ -59,6 +70,10 @@ export function SegmentsComparePanel({
   const dRigor = comparison.deltas.rigor;
   const headline = headlinePairs(comparison);
   const dims = dimensionPairs(comparison, shortDim);
+  // [overall, ...one per dimension] — the headline card draws the first, the dimension card the rest.
+  const distRows = distributionRows(comparison, shortDim);
+  const overallRow = distRows[0]!; // safe: distributionRows always emits the overall row first
+  const dimRows = distRows.slice(1);
   const aName = comparison.a.name;
   const bName = comparison.b.name;
   const taggedOf = (id: string | null) => (id != null && taggedById[id] != null ? taggedById[id]! : null);
@@ -82,6 +97,10 @@ export function SegmentsComparePanel({
           right={<WhyChip hint={SENTINEL_HINT} label="why a side can be blank" align="end" />}
         />
         <SegmentDumbbell className="mt-2 max-w-xl" rows={headline} aName={aName} bName={bName} title="Headline metrics" />
+        {/* The same two sides as POPULATIONS: one mark per repo, the mean marked as a mean, and the n
+            each side rests on printed — so a tight cluster and one repo dragging a mean of three can
+            never read as the same slice (registry: peer-benchmarking). */}
+        <SegmentDistribution className="mt-4 max-w-xl" rows={[overallRow]} title="Overall, per repo" />
         <Legend states={pairedStates(headline)} className="mt-3" />
       </Card>
 
@@ -120,8 +139,30 @@ export function SegmentsComparePanel({
       )}
 
       <Card className="mt-4">
-        <SectionHeader size="sm" title="By dimension" />
+        <SectionHeader size="sm" title="By dimension" description="Open a dimension to see the shape of each side and the repos behind the gap" />
         <SegmentDumbbell className="mt-2 max-w-xl" rows={dims} aName={aName} bName={bName} title="By dimension" />
+        {/* A gap stops being a readout here: the trailing side's own repos, worst-first on THIS
+            dimension, with the actions that already exist for them. `<details>` so the drill-down costs
+            no client JS on a tab that is otherwise a server render. */}
+        <div className="mt-3 max-w-xl divide-y divide-slate-800/70">
+          {dimRows.map((row) => {
+            const trailing = trailingSide(row);
+            return (
+              <details key={row.id} data-dim={row.id} className="py-2">
+                <summary className="cursor-pointer type-body-sm text-slate-300 hover:text-white">
+                  {`${row.label} · ${aName} ${row.a.mean ?? "—"} vs ${bName} ${row.b.mean ?? "—"}`}
+                  {row.delta != null && <span className="ml-2 type-mono-sm" style={{ color: deltaHex(row.delta) }}>{fmtDelta(row.delta)}</span>}
+                </summary>
+                <div className="mt-2 space-y-3">
+                  <SegmentDistributionRow row={row} />
+                  {trailing && (
+                    <SegmentGapLaggards org={org} side={trailing} metricLabel={row.label} watched={watched} schedulable={schedulable} />
+                  )}
+                </div>
+              </details>
+            );
+          })}
+        </div>
       </Card>
     </div>
   );

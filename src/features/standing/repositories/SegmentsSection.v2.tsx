@@ -1,6 +1,6 @@
 // Prism Segments view. Same reads as SegmentsSection; the markup is the kit composition.
 import { Frame, Lede } from "@/components/kit";
-import { compareSegments, getRepoSegmentMap, listSegmentSummaries, listSegments, listTaggableRepos, listWatchedRepos } from "@/lib/db";
+import { getRepoSegmentMap, listSegments, listTaggableRepos, listWatchedRepos, loadSegmentsView } from "@/lib/db";
 import { RepoSegmentsPanelV2 } from "./RepoSegmentsPanel.v2";
 import { SegmentMaturityV2 } from "./SegmentMaturity.v2";
 import { SegmentsCompareV2 } from "./SegmentsCompare.v2";
@@ -17,13 +17,15 @@ export async function SegmentsSectionV2({
   slug: string;
   searchParams: { [key: string]: string | string[] | undefined };
 }) {
-  const [summaries, segMap, watchedRepos, segments, taggableRepos] = await Promise.all([
-    listSegmentSummaries(slug).then((s) => s ?? []),
+  // Same single-rollup read as SegmentsSection: the strip and the comparison share one getOrgRollup.
+  const [view, segMap, watchedRepos, segments, taggableRepos] = await Promise.all([
+    loadSegmentsView(slug, { a: first(searchParams.a), b: first(searchParams.b) }),
     getRepoSegmentMap(slug),
     listWatchedRepos(slug),
     listSegments(slug).then((s) => s ?? []),
     listTaggableRepos(slug),
   ]);
+  const summaries = view?.summaries ?? [];
   const reposBySegment: Record<string, string[]> = {};
   for (const [fullName, segs] of Object.entries(segMap)) {
     for (const seg of segs) (reposBySegment[seg.id] ??= []).push(fullName);
@@ -45,12 +47,9 @@ export async function SegmentsSectionV2({
   }
 
   const options = summaries.filter((s) => s.id).map((s) => ({ id: s.id as string, name: s.name }));
-  const ids = new Set(options.map((o) => o.id));
-  const aParam = first(searchParams.a);
-  const bParam = first(searchParams.b);
-  const aId = aParam && ids.has(aParam) ? aParam : options[0]!.id;
-  const bId = bParam && ids.has(bParam) && bParam !== aId ? bParam : options.find((o) => o.id !== aId)?.id ?? null;
-  const comparison = await compareSegments(slug, aId, bId);
+  const aId = view?.aId ?? options[0]!.id;
+  const bId = view?.bId ?? null;
+  const comparison = view?.comparison ?? null;
 
   return (
     <div className="space-y-8">

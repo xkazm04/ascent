@@ -29,11 +29,17 @@ const summary = (over: Partial<SegmentSummary> & { name: string }): SegmentSumma
     avgRigor: 65,
     posture: "balanced",
     dimAverages: [],
+    // The producer always emits the population behind the averages (`summarizeScopedRepos`), so a
+    // fixture without it is not a shape this panel can ever be handed.
+    points: [
+      { fullName: "a/x", overall: 50, dims: [] },
+      { fullName: "a/y", overall: 70, dims: [] },
+    ],
     ...over,
   }) as SegmentSummary;
 
 const unscanned = (name: string): SegmentSummary =>
-  summary({ name, scannedCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null, posture: null });
+  summary({ name, scannedCount: 0, avgOverall: null, avgAdoption: null, avgRigor: null, posture: null, points: [] });
 
 describe("taggedScoredLabel", () => {
   it("labels tagged alone when there is no score, never 0 scored", () => {
@@ -104,6 +110,8 @@ describe("chips, cards, and compare tiles", () => {
         bId="new"
         comparison={comparison}
         taggedById={{ platform: 5, new: 4 }}
+        org="acme"
+        watched={new Set(["a/x"])}
       />,
     );
     expect(screen.getByText(/5 tagged · 2 scored/)).toBeInTheDocument();
