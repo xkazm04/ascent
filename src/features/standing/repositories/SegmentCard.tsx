@@ -3,6 +3,7 @@
 // of SegmentsSection.tsx so that file stays under the 200-LOC cap (AGENTS.md).
 
 import { SegmentActions } from "./SegmentActions";
+import { SegmentRuleRow } from "./SegmentRuleRow";
 import { POSTURE_LABEL } from "@/components/org/shared/ui";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
@@ -53,6 +54,9 @@ export function SegmentCard({ s, org, repos, taggedCount }: { s: SegmentSummary;
       <div className="mt-1 type-mono-sm text-slate-600" title={SCORED_COUNT_HINT}>
         {taggedScoredLabel(taggedCount, score === null ? null : s.scannedCount)}
       </div>
+      {/* A DECLARED segment also shows its rule and how far the tagged set has drifted from it. A
+          segment with no rule shows nothing here: "undeclared" must not read as "in sync". */}
+      {s.id && s.rule && <SegmentRuleRow org={org} segmentId={s.id} rule={s.rule} drift={s.drift} />}
       {s.id && <SegmentActions org={org} segmentId={s.id} repos={repos} taggedCount={taggedCount} />}
     </div>
   );

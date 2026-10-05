@@ -10,17 +10,35 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, within, waitFor, fireEvent } from "@testing-library/react";
 
-// The bulk-tag network call is the seam under test: make it return a server "changed" count that the
-// client's optimistic guess deliberately won't match, then assert the chip reconciles to the server's.
-const bulkTagRepos = vi.fn();
-vi.mock("@/lib/org/segment-actions", () => ({
-  bulkTagRepos: (...args: unknown[]) => bulkTagRepos(...args),
-}));
+// The declare-and-apply network call is the seam under test: make it return a server `added` count that
+// the client's optimistic guess deliberately won't match, then assert the chip reconciles to the server's.
+//
+// Auto-add used to POST a browser-computed list of fullNames to the bulk-tag endpoint. It now DECLARES
+// the rule on the segment (POST /api/org/segments/:id/rule) and lets the server converge, so the seam is
+// fetch and the assertion is on the declared RULE rather than on a snapshot of names. Reconciliation is
+// unchanged and is still what this file pins: the chip must settle on the server's count.
+
 
 import { RepoSegmentsPanel } from "@/features/standing/repositories/RepoSegmentsPanel";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 beforeEach(() => vi.clearAllMocks());
+
+/** Stub fetch so POST /api/org/segments/:id/rule reports `added` rows created, and record the body. */
+function stubApply(added: number) {
+  const calls: { url: string; body: { org?: string; kind?: string; values?: string[] } }[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return Response.json({ ok: true, added, removed: 0 });
+    }),
+  );
+  return calls;
+}
 
 const REPOS = ["a/r1", "a/r2", "a/r3", "a/r4", "a/r5"].map((fullName) => ({
   fullName,
@@ -47,7 +65,7 @@ function chip() {
 
 describe("RepoSegmentsPanel — auto-add reconciles the count with the server (DOM)", () => {
   it("bulk-tags only repos attributed to the selected CODEOWNERS team", async () => {
-    bulkTagRepos.mockResolvedValue(2);
+    const calls = stubApply(2);
     render(
       <RepoSegmentsPanel
         slug="acme"
@@ -67,15 +85,16 @@ describe("RepoSegmentsPanel — auto-add reconciles the count with the server (D
     fireEvent.click(screen.getByRole("button", { name: "Add all" }));
 
     await waitFor(() => expect(within(chip()).getByText("2 tagged")).toBeInTheDocument());
-    expect(bulkTagRepos).toHaveBeenCalledWith("seg1", {
-      org: "acme", fullNames: ["a/r1", "a/r2"], member: true,
-    });
+    // The TEAM is declared, not the two fullNames this render happened to match.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("/api/org/segments/seg1/rule");
+    expect(calls[0]!.body).toEqual({ org: "acme", kind: "team", values: ["@acme/platform"] });
   });
 
   it("corrects an over-optimistic count down to the server's 'changed' total", async () => {
     // 5 untagged TS repos → the client optimistically counts +5. The server reports only 4 rows created
-    // (one repo isn't the org's / was already tagged). The chip must settle on 4, never the optimistic 5.
-    bulkTagRepos.mockResolvedValue(4);
+    // (the server's taggable universe disagrees, or one was already tagged). The chip settles on 4, never 5.
+    const calls = stubApply(4);
     renderPanel();
 
     expect(within(chip()).getByText("0 tagged")).toBeInTheDocument(); // starts at 0 tagged
@@ -86,15 +105,11 @@ describe("RepoSegmentsPanel — auto-add reconciles the count with the server (D
 
     await waitFor(() => expect(within(chip()).getByText("4 tagged")).toBeInTheDocument());
     expect(within(chip()).queryByText("5 tagged")).toBeNull(); // NOT the over-optimistic client guess
-    expect(bulkTagRepos).toHaveBeenCalledWith("seg1", {
-      org: "acme",
-      fullNames: REPOS.map((r) => r.fullName),
-      member: true,
-    });
+    expect(calls[0]!.body).toEqual({ org: "acme", kind: "language", values: ["TypeScript"] });
   });
 
   it("keeps the optimistic count when the server confirms every tag (no spurious correction)", async () => {
-    bulkTagRepos.mockResolvedValue(5); // all 5 created — client guess was right
+    stubApply(5); // all 5 created — client guess was right
     renderPanel();
 
     fireEvent.change(screen.getByLabelText("Auto-add language"), { target: { value: "TypeScript" } });
