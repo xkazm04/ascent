@@ -1449,6 +1449,44 @@ unchanged. The reason now says how each class was touched (`test-file, deleted`,
 cases are pinned in `lane-gate-diff.status.test.ts`, and end to end over a real temp git repository
 in `lane-gate-diff-load.test.ts`.
 
+**Three gate-declaration moves are cleared on evidence** (2026-10-05, from three wrong voids on the
+standing runner; `lane-gate-diff-declare.ts`):
+
+- **An added gate script nothing runs.** garden-vr added `tools/guard/check.mjs`; the name alone voided
+  it, though the resolved command (`dotnet test shared/core-dotnet`) never runs it. An **added**
+  `scripts|tools|bin/{verify,check,ci,gate,lint,test}*` file is now cleared when no rung of the before
+  or after ladder names it (matched as a token on the path, the path without extension, the basename and
+  the basename without extension, so `npm run check` still catches `tools/check.mjs`). Referenced, or
+  with no ladder to read, it voids. A modified or deleted gate script voids as before.
+- **A changed declared gate.** firetv rewrote `AGENTS.md` / `.ai/manifest.yaml` / `CONTRIBUTING.md` to
+  declare its real gates. The lane's own verdict is measured with the command the cached baseline
+  resolved, so a guidance edit that changes the resolved primary is cleared when all of these hold: the
+  lane's verdict (`verified`, or `baseline-unavailable`) was reached with the **old** primary, the new
+  primary is not vacuous (`echo`, `true`, `exit`, `:`, `rem`, `cd`/`ls`/`dir`), and the new primary
+  **passes once on the lane's committed tree** under the lane's verify timeout. Otherwise it voids, and
+  the reason says why (`not cleared: the newly declared gate does not pass here …`). A removed gate,
+  a narrowed verdict, or a change to the fallback rungs alone still voids.
+- **A bootstrap: the first gate.** mage-arena (Unreal, no resolvable check) declared its first gate.
+  No gate to a gate weakens nothing, and without this a no-check repository could never get one through
+  the loop. When nothing resolved before, the lane's verdict was the no-check one (`skipped`, or verified
+  by construction), and the new primary is not vacuous, the new ladder's rungs run in order until one
+  passes (a primary needing an uninstalled tool such as `gitleaks` falls through to its narrower rung, which
+  is named). If none passes it voids. When one passes, the lane's `skipped` is **upgraded to `verified`**
+  in the guard's own columns (`verifyCommand` = the passing command, `verifyRung` as the ladder names it,
+  a `verifyNote` starting `Verified against the gate this lane DECLARED (bootstrap):`) before delivery
+  reads the row. Only `skipped` is upgraded, never `baseline-unavailable` or `rejected`. A gate script
+  the lane **added** and the new ladder runs (`tools/lint.mjs` behind `node tools/lint.mjs`) is cleared
+  with a cleared bootstrap, because it is the new gate and there was no prior gate for it to flatter. A
+  **modified** or deleted one still voids.
+
+A cleared change is never silent. The lane log carries `Gate changed: \`X\` -> \`Y\` (declared in …);
+this lane was verified against \`X\`, \`Y\` passes on its tree, and every later run is verified against
+\`Y\` — review it when merging the runner branch.`, or `Gate declared: …` for a bootstrap. The merge of
+the runner branch is the human review (see [Plan first, and only architecture waits](#plan-first-and-only-architecture-waits-2026-09-18)).
+It is a log line, not a deliverable: the deliverables column is rewritten when the rescan is
+adjudicated, so a row added at the guard would vanish. Pinned in `lane-gate-diff.declare.test.ts`,
+`lane-gate-diff-load.declare.test.ts` (real repos, real command runs) and `loop-lane.gate-declare.test.ts`.
+
 `lane-gate-diff.test.ts` pins a `SEEDED_VIOLATIONS` table — 37 paths, each with the class it MUST
 receive — asserted both through the classifier and one at a time through `checkGateDiff`. Loosening a
 rule does not make the guard quieter; it makes that file red. This exists because the repo has been

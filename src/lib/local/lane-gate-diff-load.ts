@@ -5,16 +5,25 @@
 // text of an added test, and the verify ladder as it resolved before and after the lane. This module
 // gathers it, and every way it can fail degrades to an ABSENT field, which the guard reads as strict.
 // So a broken read can only void more lanes, never fewer.
+//
+// ONE READ RUNS A COMMAND. When a guidance edit changed the resolved verify command (or declared the
+// first one) and every other condition for clearing it holds (`declaredGateCommands`), the NEW gate
+// is run on the lane's committed tree, under the lane's own verify timeout — its primary only for a
+// change, its rungs in order until one passes for a bootstrap. That is the same repo-authored execution the
+// degradation guard already performs in this worktree (lane-guard.ts header), not a new capability.
 
-import { readVerifyInputs } from "@/lib/local/lane-guard";
+import { readVerifyInputs, runVerifyCommand, type VerifyRun } from "@/lib/local/lane-guard";
 import { resolveVerifyLadder, VERIFY_GUIDANCE_PATHS, VERIFY_MANIFEST_PATH } from "@/lib/local/lane-verify";
 import {
   classifyScoringSurface,
+  isAddedGateScriptCandidate,
   needsAddedText,
   needsVerifyLadder,
   parseNameStatus,
   type GateDiffOptions,
+  type LaneVerdictEvidence,
 } from "@/lib/local/lane-gate-diff";
+import { declaredGateCommands, type DeclaredGateRun } from "@/lib/local/lane-gate-diff-declare";
 
 type Git = (args: readonly string[]) => Promise<{ ok: boolean; stdout: string }>;
 
@@ -25,18 +34,24 @@ const lc = (p: string): string => p.replace(/\\/g, "/").replace(/^\.\//, "").toL
 
 /**
  * Gather the evidence for `checkGateDiff(changedPaths, evidence)`. `before` is the lane's base commit;
- * `dir` is its worktree, whose HEAD carries the lane's commits. Never throws.
+ * `dir` is its worktree, whose HEAD carries the lane's commits. `laneVerdict` is the lane's own guard
+ * verdict and command, and `verifyMs` its verify timeout; without both a changed gate stays void.
+ * Never throws.
  */
 export async function readGateDiffEvidence(args: {
   git: Git;
   dir: string;
   before: string;
   changedPaths: readonly string[];
+  laneVerdict?: LaneVerdictEvidence | null;
+  verifyMs?: number;
+  /** Test seam; the degradation guard's own runner by default. */
+  run?: (dir: string, command: string, timeoutMs: number) => Promise<VerifyRun>;
 }): Promise<GateDiffOptions> {
-  const { git, dir, before, changedPaths } = args;
+  const { git, dir, before, changedPaths, laneVerdict = null, verifyMs = 0 } = args;
   // Nothing on the scoring surface: nothing to clear, so no reads at all.
   if (!changedPaths.some((p) => classifyScoringSurface(p))) return {};
-  const out: GateDiffOptions = {};
+  const out: GateDiffOptions = laneVerdict ? { laneVerdict } : {};
   try {
     // --no-renames: a MOVED test reads as a delete plus an add, and the delete still voids.
     const ns = await git(["diff", "--name-status", "--no-renames", "-z", `${before}..HEAD`]);
@@ -53,8 +68,25 @@ export async function readGateDiffEvidence(args: {
       out.addedText = addedText;
     }
 
+    // The ladder is read for a guidance edit (did the command change?) and for an ADDED gate script
+    // (does either side's command run it?). Only the guidance files are swapped for `before`'s text.
     const guidance = changedPaths.filter(needsVerifyLadder);
-    if (guidance.length > 0) out.verifyLadder = await ladderAcross(git, dir, before, guidance, statuses);
+    const addedScript = changedPaths.some((p) => statuses[p] === "A" && isAddedGateScriptCandidate(p));
+    if (guidance.length > 0 || addedScript) out.verifyLadder = await ladderAcross(git, dir, before, guidance, statuses);
+
+    // A changed (or first) declared gate is run on the committed tree, rung by rung, until one passes.
+    // The runner is resolved HERE, inside the try, so a caller that never needs it never touches it.
+    const toRun = guidance.length > 0 && out.verifyLadder ? declaredGateCommands(out.verifyLadder, laneVerdict) : [];
+    if (toRun.length > 0 && verifyMs > 0) {
+      const run = args.run ?? runVerifyCommand;
+      const runs: DeclaredGateRun[] = [];
+      for (const { command, rung } of toRun) {
+        const r = await run(dir, command, verifyMs).catch((): VerifyRun => ({ ok: false, output: "", timedOut: false }));
+        runs.push({ command, rung, ok: r.ok, timedOut: r.timedOut });
+        if (r.ok) break;
+      }
+      out.declaredGateRuns = runs;
+    }
   } catch {
     // Whatever was gathered stands; whatever was not is absent, which is strict.
   }

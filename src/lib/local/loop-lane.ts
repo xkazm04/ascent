@@ -111,6 +111,7 @@ import { runAgentVia, type TransportRunOptions } from "@/lib/local/transport/run
 import { transportTiming } from "@/lib/local/transport/profile";
 import { checkGateDiff } from "@/lib/local/lane-gate-diff";
 import { readGateDiffEvidence } from "@/lib/local/lane-gate-diff-load";
+import { bootstrapVerifyNote, gateChangeSentence } from "@/lib/local/lane-gate-diff-declare";
 // THE LANE-EXIT DOOR AND THE ADJUDICATION TAIL (challenge-2026-09-23). Every way this lane ends is a
 // word in `LANE_EXIT_KINDS`, and what each end owes — release, plan settle, terminal phase, progress —
 // is one row of `laneExitObligations`; `exitLane` is the only thing here that writes a terminal row.
@@ -978,6 +979,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
   let directionFence: string[] | null = null;
   let directed: DirectedBatch | null = null;
   let verdict: string | null = null;
+  /** The command that verdict was reached with — the integrity guard clears a changed declared gate
+   *  only when this lane was measured with the OLD one (lane-gate-diff-declare.ts). */
+  let verdictCommand: string | null = null;
   /** The held commits this lane ADOPTED instead of running a session — null on every other lane. */
   let adopted: { commits: number; branch: string } | null = null;
 
@@ -1180,6 +1184,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
           git,
         });
         verdict = outcome.verdict;
+        verdictCommand = outcome.command;
         if (outcome.reject) {
           return exitLane(ctx, "guard-rejected", {
             why: `loop cycle ${cycle}'s ${kind} install was reversed by the degradation guard, so nothing adjudicated the claim`,
@@ -1524,6 +1529,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         const changedPaths = await laneChangedPaths(git, before);
         const outcome = await watch.stage("verify", () => verifyResult(worktree.dir, baseline, verifyMs, undefined, changedPaths));
         verdict = outcome.verdict;
+        verdictCommand = outcome.command;
         await updateLane(laneId, {
           stage: null,
           verifyVerdict: outcome.verdict,
@@ -1667,8 +1673,32 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       const changedPaths = names.ok ? names.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : [];
       // The evidence that tells ADDING from WEAKENING (each path's status, an added test's text, the
       // verify ladder before vs after). A read that fails leaves its field absent, which reads strict.
-      const evidence = await readGateDiffEvidence({ git, dir: worktree.dir, before, changedPaths });
+      // A changed declared gate is run once here (lane-gate-diff-declare.ts), so the read sits under
+      // the watchdog as a `verify` stage: it can take as long as the lane's own verify budget.
+      const laneVerdict = verdict ? { verdict, command: verdictCommand } : null;
+      const evidence = await watch.stage("verify", () =>
+        readGateDiffEvidence({ git, dir: worktree.dir, before, changedPaths, laneVerdict, verifyMs }),
+      );
       const void_ = deps.gateDiff(changedPaths, evidence);
+      if (!void_.void && void_.gateChange) {
+        // A CLEARED GATE CHANGE IS SAID OUT LOUD. The lane was measured with the old command and the
+        // new one passes on its tree, but every later run is verified against the new one — so the
+        // reviewer of the runner branch has to see it. Log only: the deliverables column is rewritten
+        // wholesale by the rescan's adjudication (lane-adjudicate.ts), so a row added here would vanish.
+        await appendLaneLog(laneId, gateChangeSentence(void_.gateChange));
+        // A BOOTSTRAP UPGRADES `skipped` — and only `skipped`. The lane had no gate to be measured by;
+        // it now has one, and that gate passed on the lane's committed result. Written to the same
+        // columns the guard writes, BEFORE the engine's delivery reads the row (loop-delivery.ts).
+        // Never `rejected` (it exited above) and never `baseline-unavailable` (that lane had a gate).
+        const gc = void_.gateChange;
+        if (gc.measured === "bootstrap" && verdict === "skipped") {
+          const note = bootstrapVerifyNote(gc);
+          verdict = "verified";
+          verdictCommand = gc.passed;
+          await updateLane(laneId, { verifyVerdict: "verified", verifyCommand: gc.passed, verifyRung: gc.rung, verifyNote: note });
+          await appendLaneLog(laneId, note);
+        }
+      }
       if (void_.void) {
         const reason = void_.reason ?? "This lane edited the surface that scores it.";
         const shown = void_.paths.slice(0, 10).join(", ");

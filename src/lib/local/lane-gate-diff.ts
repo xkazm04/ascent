@@ -37,8 +37,36 @@
 //     script (a script BODY can change while its name stays put) — voids exactly as before. A path
 //     whose status is unknown is a modification: a caller that passes bare names gets the strict guard.
 //
+// THREE DECLARATION MOVES ARE CLEARED ON EVIDENCE (2026-10-05, later the same day). The standing runner
+// voided lanes that could not have flattered themselves (`lane-gate-diff-declare.ts` has all three):
+//   • an ADDED gate script by name (`tools/guard/check.mjs`) is cleared when neither the before nor the
+//     after ladder's command text references it. A script nothing runs scores nothing. Referenced, or
+//     with no ladder to read, it voids; a modified or deleted one voids as before.
+//   • a guidance edit that CHANGES the resolved command is cleared when the lane's own verdict was
+//     reached with the OLD command, the new one is not vacuous, and the new one passes once on the
+//     lane's committed tree. The lane was not measured by its own edit, and declaring the real gate is
+//     the move that makes a repo AI-ready. The verdict carries the change (`gateChange`) so the call
+//     site logs it for whoever merges the runner branch. A removed gate, a narrowed verdict, or a new
+//     command that fails, times out or was never run still voids.
+//   • a guidance edit that declares the FIRST gate (nothing resolved before) — a BOOTSTRAP — is cleared
+//     when the lane's verdict was the no-check one, the new primary is not vacuous, and a rung of the
+//     new ladder passes on the committed tree. No gate to a gate weakens nothing, and without this a
+//     no-check repository could never acquire one through the loop. The call site upgrades `skipped`.
+//     An ADDED gate script the new ladder runs is cleared with it (it IS the new gate); a modified one
+//     still voids.
+//
 
 import type { ResolvedVerify } from "@/lib/local/lane-verify";
+import {
+  isGateScriptPath,
+  judgeDeclaredGate,
+  rungReferencing,
+  type DeclaredGateRun,
+  type GateChange,
+  type LaneVerdictEvidence,
+} from "@/lib/local/lane-gate-diff-declare";
+
+export type { DeclaredGateRun, GateChange, LaneVerdictEvidence } from "@/lib/local/lane-gate-diff-declare";
 
 /** Why a lane was voided. Printed verbatim in the ledger beside the lane. */
 export interface VoidVerdict {
@@ -47,6 +75,9 @@ export interface VoidVerdict {
   reason: string | null;
   /** The paths that triggered it, bounded for display. Empty when not void. */
   paths: string[];
+  /** Set only on a NOT-void verdict that cleared a change of the declared gate (header): the call
+   *  site logs it, so a cleared change is reviewed rather than silent. */
+  gateChange?: GateChange;
 }
 
 /**
@@ -140,9 +171,7 @@ function isVerifyDeclaration(p: string): boolean {
   // `.ai/manifest.yaml` — the repository's own machine-declared gate (lane-verify.ts step 1).
   if (segments(p)[0] === ".ai" && /manifest\.ya?ml$/.test(base(p))) return true;
   // A script the gate calls, by shape: `scripts/verify.mjs`, `scripts/check-contracts.sh`, `bin/ci.ps1`.
-  const dir = segments(p)[0];
-  if ((dir === "scripts" || dir === "bin" || dir === "tools") && /^(verify|check|ci|gate|lint|test)\b/.test(base(p))) return true;
-  return false;
+  return isGateScriptPath(p);
 }
 
 /** A gate-config file by SHAPE, wherever it sits — including inside a test directory, where the
@@ -175,6 +204,13 @@ export function classifyScoringSurface(path: string): ScoringSurface | null {
 export function needsVerifyLadder(path: string): boolean {
   const p = norm(path);
   return classifyScoringSurface(p) === "verify-command" && isVerifyGuidance(p);
+}
+
+/** A gate script by name (`tools/guard/check.mjs`) — if ADDED, cleared only against the verify
+ *  ladder, so the loader resolves one for it too. Takes a raw or normalized path. */
+export function isAddedGateScriptCandidate(path: string): boolean {
+  const p = norm(path);
+  return classifyScoringSurface(p) === "verify-command" && isGateScriptPath(p);
 }
 
 /** A test file that may be cleared when ADDED: not one that is a gate config or a verify declaration
@@ -217,6 +253,11 @@ export interface GateDiffOptions {
   addedText?: Readonly<Record<string, string | null>>;
   /** The verify ladder resolved at the lane's base and at its HEAD. Missing = could not resolve. */
   verifyLadder?: { before: readonly LadderRung[]; after: readonly LadderRung[] } | null;
+  /** The lane's own guard verdict and the command it ran. Missing = a changed gate cannot be cleared. */
+  laneVerdict?: LaneVerdictEvidence | null;
+  /** The NEW ladder's rungs as run on the lane's tree (primary only for a change; in order to the first pass for a
+   *  bootstrap). Missing = a changed or first gate cannot be cleared. */
+  declaredGateRuns?: readonly DeclaredGateRun[] | null;
 }
 
 /**
@@ -232,8 +273,18 @@ const ladderKey = (l: readonly LadderRung[]): string => JSON.stringify(l.map((r)
 const ladderText = (l: readonly LadderRung[]): string =>
   l.length === 0 ? "(none resolved)" : l.map((r) => `\`${r.command}\``).join(" | ");
 
+/** A changed declared gate, judged once per verdict: cleared with its change, or refused with why. */
+type DeclaredJudgement = ReturnType<typeof judgeDeclaredGate> | null;
+
 /** HOW a path touched its class, for the reason — or null when the touch is cleared (header). */
-function judgeChange(p: string, surface: ScoringSurface, status: string | null, text: string | null, opts: GateDiffOptions): string | null {
+function judgeChange(
+  p: string,
+  surface: ScoringSurface,
+  status: string | null,
+  text: string | null,
+  opts: GateDiffOptions,
+  declared: DeclaredJudgement,
+): string | null {
   const s = (status ?? "").trim().charAt(0).toUpperCase();
   const how = s === "A" ? "added" : s === "D" ? "deleted" : s ? "modified" : "changed";
 
@@ -241,9 +292,21 @@ function judgeChange(p: string, surface: ScoringSurface, status: string | null, 
     const ladder = opts.verifyLadder;
     if (!ladder) return `${how}; its resolved verify command could not be compared`;
     if (ladderKey(ladder.before) === ladderKey(ladder.after)) return null;
-    return `${how}, changing the verify command ${ladderText(ladder.before)} -> ${ladderText(ladder.after)}`;
+    if (declared && "change" in declared) return null;
+    const why = declared && "refused" in declared ? `; not cleared: ${declared.refused}` : "";
+    return `${how}, changing the verify command ${ladderText(ladder.before)} -> ${ladderText(ladder.after)}${why}`;
   }
   if (s !== "A") return how;
+  // An ADDED gate script is cleared when no rung of either ladder runs it (header) — or when a cleared
+  // BOOTSTRAP runs it: with no prior gate there was nothing for it to flatter, and the script IS the
+  // new gate, which has just passed on this tree. A modified or deleted one never reaches here.
+  if (surface === "verify-command" && isGateScriptPath(p)) {
+    const ladder = opts.verifyLadder;
+    if (!ladder) return "added; the verify command could not be read, so it cannot be cleared";
+    const runBy = rungReferencing(p, [ladder.before, ladder.after]);
+    if (runBy && declared && "change" in declared && declared.change.measured === "bootstrap") return null;
+    return runBy ? `added, and the verify command \`${runBy}\` runs it` : null;
+  }
   if (surface === "gate-config" && isUnderGateDir(p)) return null;
   if (isClearableTest(p)) {
     if (text == null) return "added; its text was not read, so it cannot be cleared";
@@ -259,6 +322,11 @@ function judgeChange(p: string, surface: ScoringSurface, status: string | null, 
  */
 export function checkGateDiff(changedPaths: ReadonlyArray<string | PathChange>, opts: GateDiffOptions = {}): VoidVerdict {
   const hits: { path: string; surface: ScoringSurface; how: string }[] = [];
+  const ladder = opts.verifyLadder;
+  const declared: DeclaredJudgement =
+    ladder && ladderKey(ladder.before) !== ladderKey(ladder.after) ? judgeDeclaredGate(ladder, opts.laneVerdict, opts.declaredGateRuns) : null;
+  /** The guidance paths a cleared gate change was declared in — named in `gateChange.files`. */
+  const declaredIn: string[] = [];
   // A path git gave a STATUS for is judged even when the name list missed it: a name list read with
   // rename detection on carries only a moved file's destination, and the deletion is what voids.
   const entries: (string | PathChange)[] = [...(changedPaths ?? [])];
@@ -272,10 +340,16 @@ export function checkGateDiff(changedPaths: ReadonlyArray<string | PathChange>, 
     if (!surface) continue;
     const status = typeof entry === "object" ? entry.status : (opts.statuses?.[raw] ?? opts.statuses?.[path] ?? null);
     const text = opts.addedText?.[raw] ?? opts.addedText?.[path] ?? null;
-    const how = judgeChange(norm(path), surface, status, text, opts);
+    const how = judgeChange(norm(path), surface, status, text, opts, declared);
     if (how) hits.push({ path, surface, how });
+    else if (declared && "change" in declared && surface === "verify-command" && isVerifyGuidance(norm(path))) declaredIn.push(path);
   }
-  if (hits.length === 0) return { void: false, reason: null, paths: [] };
+  if (hits.length === 0) {
+    const cleared = { void: false, reason: null, paths: [] };
+    return declared && "change" in declared && declaredIn.length > 0
+      ? { ...cleared, gateChange: { ...declared.change, files: declaredIn } }
+      : cleared;
+  }
 
   const shown = hits.slice(0, MAX_REPORTED_PATHS);
   const more = hits.length - shown.length;
