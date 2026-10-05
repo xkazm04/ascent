@@ -10,6 +10,8 @@
 // MembersTable.tsx (split to keep this file under the 200-LOC cap; docs/ORG-TABS-REFACTOR.md).
 
 import { SectionHeader } from "@/components/org/shared/ui";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { MemberInvites, type InviteRow } from "@/features/admin/members/MemberInvites";
 import { MembersTable } from "./MembersTable";
 import { useMembersPanel } from "./useMembersPanel";
@@ -83,6 +85,10 @@ export function MembersPanel({
       </p>
 
       {canManage && <MemberInvites slug={slug} initialInvites={initialInvites} />}
+
+      <div className="mt-6">
+        <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
+      </div>
     </div>
   );
 }

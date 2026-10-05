@@ -21,6 +21,7 @@ import { getOrgRollupShared, listMissingRepos } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
 import { orgTabHref } from "@/lib/org/orgTabs";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -65,6 +66,11 @@ export async function RepositoriesLeaderboardPanel({
   // implies a DB. When the App isn't configured, the cadence control renders disabled with a hint
   // rather than vanishing, so the capability stays discoverable.
   const schedulable = isAppConfigured();
+
+  // Rule B (NextMoveLink.tsx): Read would be empty too until a repository has been scanned, so the
+  // onward link waits for scanned data. A segment/stack scope that empties the view is a filter, not
+  // "no data yet", so a scoped view keeps the link.
+  const nextMove = rollup.scannedCount > 0 || segmentId || techGroupId ? <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" /> : null;
 
   const leaderboard = [...rollup.repos].sort((a, b) => (b.latest?.overall ?? -1) - (a.latest?.overall ?? -1));
 
@@ -113,6 +119,7 @@ export async function RepositoriesLeaderboardPanel({
         schedulable={schedulable}
         missing={<MissingReposPanelV2 org={slug} repos={missing} />}
         queue={queue}
+        nextMove={nextMove}
       />
     );
   }
@@ -166,6 +173,7 @@ export async function RepositoriesLeaderboardPanel({
         </div>
         <RepoLeaderboard slug={slug} rows={visible} segments={segments} schedulable={schedulable} />
       </div>
+      {nextMove}
     </div>
   );
 }

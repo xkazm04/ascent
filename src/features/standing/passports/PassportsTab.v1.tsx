@@ -7,7 +7,7 @@ import { PassportsSwitcher } from "./PassportsSwitcher";
 import type { PassportsData } from "./passportData";
 
 export function passportsV1(d: PassportsData): ReactNode {
-  const { slug, rows, autonomy, capabilities, rollout, decisions, scope } = d;
+  const { slug, rows, autonomy, capabilities, rollout, decisions, scope, nextMove } = d;
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -22,6 +22,7 @@ export function passportsV1(d: PassportsData): ReactNode {
       ) : (
         <PassportsSwitcher rows={rows} autonomy={autonomy} capabilities={capabilities} rollout={rollout} org={slug} decisions={decisions} />
       )}
+      {nextMove}
     </div>
   );
 }

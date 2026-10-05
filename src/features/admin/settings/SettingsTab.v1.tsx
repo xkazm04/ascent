@@ -13,6 +13,8 @@ import { RetentionCard } from "./RetentionCard";
 import { PlanControl } from "./PlanControl";
 import { SectionHeader } from "@/components/org/shared/ui";
 import type { SettingsData } from "./settingsData";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export function settingsV1(d: SettingsData) {
   const { slug, config, retention, laneRouting, planAllowed, encryptionConfigured } = d;
@@ -38,6 +40,7 @@ export function settingsV1(d: SettingsData) {
           control (rather than seeing them disabled). Save on RetentionCard never purges. */}
       <RetentionCard slug={slug} initial={retention} />
       <DataErasureCard slug={slug} />
+      <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
     </div>
   );
 }

@@ -25,6 +25,7 @@ export function RepositoriesViewV2({
   schedulable,
   missing,
   queue,
+  nextMove,
 }: {
   slug: string;
   rollup: OrgRollup;
@@ -38,6 +39,8 @@ export function RepositoriesViewV2({
   schedulable: boolean;
   missing: ReactNode;
   queue: ReactNode;
+  /** The onward link to Read, or null while the fleet has nothing scanned (decided by the panel). */
+  nextMove: ReactNode;
 }) {
   const act = fleetActivity(leaderboard);
   const avg = rollup.avgOverall;
@@ -80,6 +83,7 @@ export function RepositoriesViewV2({
         {missing}
         <RepoLeaderboard slug={slug} rows={visible} segments={scope.segments as SegmentItem[]} schedulable={schedulable} theme="prism" />
       </Frame>
+      {nextMove}
     </div>
   );
 }

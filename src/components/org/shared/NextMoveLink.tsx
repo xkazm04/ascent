@@ -10,8 +10,13 @@
 // Two rules decide where it goes:
 // (A) It is always visible and unscoped. A contextual or filtered link to the same tab (a dim-scoped
 //     drill-in, a conditional banner, a detail-panel link) is a second route and never stands in for it.
-// (B) An empty state (no data yet) renders no forward link: the next stage would be empty too. Its
-//     onward move is the stage that fills it (the Scan-entry links, wave 1c).
+// (B) "No data yet" (the state where the next stage would be empty too) renders no forward link; its
+//     onward move is the stage that fills it (Security and Executive link to `repositories`). A filter or
+//     search that empties the view is not that state, and a catalog- or registry-backed tab (Surfaces,
+//     Practices, Skills, Memory) never is: both keep the link. A Connect tab is configuration and always
+//     shows it, except in an unavailable state (no database, owner-only, role refusal).
+// Live keeps its link in every view (the wall is a view of the Apply entry tab, so it does not depend on
+// `?view`); only TV mode, which fullscreens <html>, hides it (LiveNextMove.tsx).
 //
 // Server-safe: links only, no hooks.
 

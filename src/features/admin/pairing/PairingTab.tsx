@@ -19,6 +19,7 @@ import { listLocalPairings } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { selfHosted } from "@/lib/env";
 import { orgTabHref } from "@/lib/org/orgTabs";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { getOrgRegistry } from "@/lib/db/org-registry";
 import { getRegistryCapabilities } from "@/lib/registry/capabilities";
 import { resolveLocalRegistry } from "@/lib/registry/local-source";
@@ -88,6 +89,7 @@ export async function PairingTab({ slug }: { slug: string }) {
       />
       <AddRepoForm org={slug} />
       <PairingList org={slug} initial={pairings} />
+      <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
     </div>
   );
 }

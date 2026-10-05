@@ -26,6 +26,8 @@ import { decisionMap } from "@/lib/org/decision-map";
 import { passportStackChips } from "@/lib/org/passport-display";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { getTheme } from "@/lib/theme/server";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -128,6 +130,9 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
     capabilities,
     rollout,
     decisions,
+    // Rule B (NextMoveLink.tsx): no link until the fleet has a scanned repository, since Read would be
+    // empty too. A segment scope that empties the view is a filter, not "no data yet", so it keeps it.
+    nextMove: rollup && (rollup.scannedCount > 0 || segmentId || techGroupId) ? <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" /> : null,
     scope: (
       <>
         {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}

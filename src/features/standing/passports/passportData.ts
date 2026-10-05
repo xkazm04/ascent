@@ -16,4 +16,6 @@ export interface PassportsData {
   decisions: DecisionMap;
   /** Segment selector and CSV export, rendered by the server entry. */
   scope: ReactNode;
+  /** The onward link to Read, or null while the fleet has nothing scanned. Built by the entry. */
+  nextMove: ReactNode;
 }

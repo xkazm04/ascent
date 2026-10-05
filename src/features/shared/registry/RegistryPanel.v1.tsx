@@ -20,6 +20,8 @@
 
 import { Dateline, Kicker, SectionHeading } from "@/components/ui";
 import { timeAgo } from "@/lib/ui";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import type { RegistryView } from "@/lib/org/registry-view";
 import { MODE_LABEL, SINK_LABEL, registryVerdict, shortSha } from "./registryModel";
 import { RegistryTreeMap } from "./RegistryTreeMap";
@@ -118,6 +120,8 @@ function UnmappedPanel({ view, slug }: { view: RegistryView; slug: string }) {
       </div>
 
       <RegistryActivity view={view} limit={10} />
+
+      <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
     </div>
   );
 }
@@ -161,6 +165,8 @@ function IdentifiedPanel({ view, slug }: { view: RegistryView; slug: string }) {
       <RegistryActivity view={view} limit={10} />
 
       <RegistryHowTo view={view} />
+
+      <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
     </div>
   );
 }

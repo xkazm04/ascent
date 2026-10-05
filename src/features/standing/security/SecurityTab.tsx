@@ -48,7 +48,12 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
   ]);
 
   if (!sec) {
-    return <SectionEmpty>No scanned repositories yet. Scan some of this org&apos;s repos to assess security.</SectionEmpty>;
+    return (
+      <div className="space-y-4">
+        <SectionEmpty>No scanned repositories yet. Scan some of this org&apos;s repos to assess security.</SectionEmpty>
+        <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
+      </div>
+    );
   }
 
   const md = securityMarkdown(sec, supply);

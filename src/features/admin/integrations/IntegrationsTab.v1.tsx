@@ -1,5 +1,7 @@
 // Altimeter composition, moved unchanged from IntegrationsTab. The entry calls this as a function.
 import { SectionHeader } from "@/components/org/shared/ui";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import type { ProviderIngestStatus } from "@/lib/db";
 import { ForgeInstallationCard } from "./ForgeInstallationCard";
 import { IntegrationsPanel } from "./IntegrationsPanel";
@@ -25,6 +27,7 @@ export function integrationsV1(data: IntegrationsData) {
         statuses={statuses}
         openai={data.openai}
       />
+      <NextMoveLink href={orgTabHref(data.slug, "repositories")} to="repositories" />
     </div>
   );
 }

@@ -15,7 +15,7 @@ import { ProgramPanelV2 } from "./ProgramPanel.v2";
 import { ShareLinkInventory } from "./ShareLinkInventory";
 import type { ExecutiveView } from "./executiveView";
 
-export function executiveEmptyV2() {
+export function executiveEmptyV2(slug: string) {
   return (
     <div data-role="executive-v2" className="space-y-10">
       <Frame>
@@ -25,6 +25,7 @@ export function executiveEmptyV2() {
           lede="Scan some of this org's repos to generate an executive briefing."
         />
       </Frame>
+      <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
     </div>
   );
 }

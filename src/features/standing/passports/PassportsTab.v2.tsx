@@ -6,7 +6,7 @@ import type { PassportsData } from "./passportData";
 import { PassportsSwitcherV2 } from "./PassportsSwitcher.v2";
 
 export function passportsV2(d: PassportsData) {
-  const { rows, scope } = d;
+  const { rows, scope, nextMove } = d;
   const n = rows.length;
   return (
     <div data-role="passports-v2" className="space-y-8">
@@ -28,6 +28,7 @@ export function passportsV2(d: PassportsData) {
       ) : (
         <PassportsSwitcherV2 {...d} />
       )}
+      {nextMove}
     </div>
   );
 }

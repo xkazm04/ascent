@@ -103,6 +103,14 @@ as a literal `orgTabHref` so the graph counts it. Tech Stacks' and Delivery's di
 Briefing". The link is always visible and unscoped (a contextual link to the same tab is a second route, not the
 next move), and an empty state (Proposals, Lessons, Audit, Knowledge with nothing to show) renders no forward link.
 
+**Wave 1c (2026-10-06)** adds the first-run stages. Connect tabs (Registry, Members, Integrations, Pairing,
+Settings) end on "Next: Scan - Repositories", in both themes, and drop it only in an unavailable state (no
+database, owner-only, role refusal). Scan tabs (Repositories, Passports) end on "Next: Read - Overview" once the
+fleet has a scanned repository; a segment or stack scope that empties the view keeps it. Security and Briefing
+carry the onward move of their empty state, "Next: Scan - Repositories". "No data yet" does not include a filter
+that empties the view or a catalog-backed tab (Surfaces, Practices, Skills, Memory), which keep the link. Live's
+link stays in every view and is hidden only while the page is fullscreen (TV mode). No tab is left without an exit.
+
 ### The transition programme (W1c, 2026-08-14)
 
 The org's **named, dated commitment**: one row per org (`TransitionProgram`, `orgId` unique),

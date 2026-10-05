@@ -4,6 +4,8 @@
 
 import { buildExecBriefing, briefingMarkdown } from "@/lib/org/briefing";
 import { SectionEmpty } from "@/components/org/shared/ui";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { getCreditState, getOrgBranding } from "@/lib/db";
 import { getOrgImpactLedger } from "@/lib/db/org-impact";
@@ -30,11 +32,14 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
 
   if (!briefing) {
     return theme === "prism" ? (
-      executiveEmptyV2()
+      executiveEmptyV2(slug)
     ) : (
-      <SectionEmpty>
-        No scanned repositories yet. Scan some of this org&apos;s repos to generate an executive briefing.
-      </SectionEmpty>
+      <div className="space-y-4">
+        <SectionEmpty>
+          No scanned repositories yet. Scan some of this org&apos;s repos to generate an executive briefing.
+        </SectionEmpty>
+        <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
+      </div>
     );
   }
 
