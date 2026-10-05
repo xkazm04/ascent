@@ -70,6 +70,12 @@ describe("consecutiveUnavailableBaseline — the run at the head of a repo's his
     expect(run?.lanes).toBe(2);
   });
 
+  it("SKIPS a lane verified BY CONSTRUCTION — an inert diff ran nothing, so it proves no baseline", () => {
+    const byConstruction: BaselineLaneRow = { ...lane("verified", "2026-08-30"), verifyCommand: null };
+    const run = consecutiveUnavailableBaseline([lane("baseline-unavailable", "2026-08-31"), byConstruction, lane("baseline-unavailable", "2026-08-29")]);
+    expect(run?.lanes).toBe(2);
+  });
+
   it("treats `skipped` as a break — the guard being off is not evidence the condition still holds", () => {
     expect(consecutiveUnavailableBaseline([lane("skipped", "2026-08-31"), lane("baseline-unavailable", "2026-08-30")])).toBeNull();
   });

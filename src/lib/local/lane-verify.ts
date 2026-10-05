@@ -36,7 +36,13 @@
 //      means — accepted here even though it may need state a clean checkout does not have.
 //   4. `package.json` scripts — the conventional names, last, because a script that exists is weaker
 //      evidence than a command the repository asked for in words.
-//   5. Nothing resolvable → the guard is SKIPPED, and it says so on the lane. Never a silent pass:
+//   5. A DETECTED toolchain check (`lane-toolchain.ts`) — the ONE exception to "nothing is invented"
+//      at this level, as `npx tsc --noEmit` is the one in the ladder below. A Gradle wrapper, a .NET
+//      solution with a tests project, a root `Cargo.toml` or `go.mod` licenses that toolchain's own
+//      headless test command. It ranks below every declared source, and its `source` says
+//      `detected: …` and names the evidence, so it is never presented as something the repository
+//      asked for. Without it every non-JS repository resolved to nothing.
+//   6. Nothing resolvable → the guard is SKIPPED, and it says so on the lane. Never a silent pass:
 //      "we could not check" and "we checked and it was fine" are different facts and a ledger that
 //      renders them the same way is lying.
 //
@@ -81,8 +87,9 @@ export interface ResolvedVerify {
   rung: VerifyRung;
 }
 
-/** The files the resolution reads, as text. All optional — a repository declaring none resolves to
- *  `null`, which is the SKIPPED verdict rather than a fallback command invented on its behalf. */
+/** The files the resolution reads, as text. All optional — a repository declaring none, with no
+ *  detected toolchain either, resolves to `null`: the SKIPPED verdict rather than a fallback command
+ *  invented on its behalf. */
 export interface VerifyInputs {
   manifestYaml?: string | null;
   /** Guidance documents in PRECEDENCE ORDER (CLAUDE.md, AGENTS.md, CONTRIBUTING.md). */
@@ -92,6 +99,10 @@ export interface VerifyInputs {
    *  only invented command, `npx tsc --noEmit` — see `TSC_NOEMIT`. Absent/false and the typecheck rung
    *  needs a declared script, exactly like every other rung. */
   hasTsconfig?: boolean;
+  /** Toolchain checks DETECTED on disk (`detectToolchainChecks`), each already carrying a
+   *  `detected: …` source. Consulted LAST, after `package.json` — evidence a toolchain exists is
+   *  weaker than any command the repository declared. */
+  toolchain?: readonly { command: string; source: string }[];
 }
 
 /** A command must not be run when the manifest reader redacted a secret out of it, or when it still
@@ -280,8 +291,16 @@ export function resolveVerifyCommand(inputs: VerifyInputs): ResolvedVerify | nul
     fromManifest(inputs.manifestYaml) ??
       fromCiShaped(inputs) ??
       fromGuidance(inputs.guidance) ??
-      fromPackageJson(inputs.packageJson),
+      fromPackageJson(inputs.packageJson) ??
+      fromToolchain(inputs.toolchain),
   );
+}
+
+/** The first detected check that is runnable — the same `RUNNABLE` refusal every declared source
+ *  passes through, so a detection can never smuggle a placeholder past it. */
+function fromToolchain(checks: VerifyInputs["toolchain"]): Unranked | null {
+  const hit = (checks ?? []).find((c) => RUNNABLE(c.command));
+  return hit ? { command: hit.command.trim(), source: hit.source } : null;
 }
 
 // ── THE NARROWING LADDER — the strongest check that CAN run in a worktree ─────────────────────
@@ -309,9 +328,11 @@ export function resolveVerifyCommand(inputs: VerifyInputs): ResolvedVerify | nul
 // and no typecheck script: a TypeScript project's typecheck command is not a vendor guess, it is what
 // the tsconfig means, and refusing to run it would leave the most common case in the fleet unguarded.
 //
-// THE LADDER ONLY EXISTS WHEN A PRIMARY DID. A repository that declares no check at all still gets
-// `skipped`, unchanged: narrowing is a DEGRADATION of a gate the repository asked for, not a gate
-// invented for a repository that asked for none.
+// THE LADDER ONLY EXISTS WHEN A PRIMARY DID. A repository with no declared check AND no detected
+// toolchain (resolution source 5 above) still gets `skipped`, unchanged: narrowing is a DEGRADATION
+// of a gate that resolved, never a substitute for one. A detected primary does get the narrowed rungs
+// its repository declares — a Gradle repo that also carries a `tsconfig.json` narrows to `tsc` exactly
+// like a declared one would.
 
 /** `package.json` script / manifest capability names for a typecheck, best first. `tsc` is included
  *  because a repo that names its script after the binary means the binary. */
@@ -359,8 +380,8 @@ function narrowedRung(inputs: VerifyInputs, rung: Exclude<VerifyRung, "primary">
  * THE LADDER, best first: the primary, then a typecheck, then a lint.
  *
  * The caller runs them IN ORDER on the pristine worktree and takes the FIRST that passes as the
- * baseline (`verifyBaseline`). Empty when the repository declares no primary command — narrowing
- * degrades a declared gate and never substitutes for one.
+ * baseline (`verifyBaseline`). Empty when no primary resolves (declared or detected) — narrowing
+ * degrades a resolved gate and never substitutes for one.
  *
  * Deduplicated by command: when the repository's primary IS its typecheck, the ladder is one rung
  * long and a failing primary is not re-run under a second name to fail identically.

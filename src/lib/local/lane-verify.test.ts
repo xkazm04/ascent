@@ -362,3 +362,43 @@ describe("the narrowed tag a sheet prints", () => {
     expect(narrowedRungTag("nonsense")).toBeNull();
   });
 });
+
+// ── THE DETECTED TOOLCHAIN — the resolver's last source ───────────────────────────────────────
+//
+// A detection is evidence a toolchain EXISTS, which is weaker than any command a repository declared.
+// So it must lose to every declared source, and when it does resolve it must say it was detected.
+describe("a detected toolchain check", () => {
+  const GRADLE = { command: "./gradlew :core:test --console=plain", source: "detected: Gradle wrapper + settings.gradle.kts (pure-JVM :core)" };
+
+  it("resolves a repository that declares nothing, carrying its `detected:` provenance", () => {
+    expect(resolveVerifyCommand({ toolchain: [GRADLE] })).toEqual({ ...GRADLE, rung: "primary" });
+  });
+
+  it("loses to a package.json test script — declared sources still win", () => {
+    const r = resolveVerifyCommand({ packageJson: JSON.stringify({ scripts: { test: "vitest run" } }), toolchain: [GRADLE] });
+    expect(r).toMatchObject({ command: "npm test", source: "package.json (scripts.test)" });
+  });
+
+  it("loses to the manifest and to a command quoted in guidance", () => {
+    expect(resolveVerifyCommand({ manifestYaml: CI_MANIFEST, toolchain: [GRADLE] })?.source).toContain(".ai/manifest.yaml");
+    const g = resolveVerifyCommand({ guidance: [{ path: "AGENTS.md", text: "Run `npm run test:unit` before pushing." }], toolchain: [GRADLE] });
+    expect(g).toMatchObject({ command: "npm run test:unit", source: "AGENTS.md (test)" });
+  });
+
+  it("is refused like any other command when it carries a placeholder", () => {
+    expect(resolveVerifyCommand({ toolchain: [{ command: "dotnet test <solution>", source: "detected: x" }] })).toBeNull();
+  });
+
+  it("is still `skipped` with no toolchain detected — an empty detection invents nothing", () => {
+    expect(resolveVerifyCommand({ toolchain: [] })).toBeNull();
+    expect(resolveVerifyLadder({ toolchain: [], hasTsconfig: true })).toEqual([]);
+  });
+
+  it("gets the narrowed rungs its repository declares, exactly like a declared primary", () => {
+    const ladder = resolveVerifyLadder({ toolchain: [GRADLE], hasTsconfig: true });
+    expect(ladder.map((r) => [r.rung, r.command])).toEqual([
+      ["primary", GRADLE.command],
+      ["typecheck", TSC_NOEMIT],
+    ]);
+  });
+});

@@ -61,6 +61,7 @@ import {
 // far as committing anything. See lane-guard.ts for why running a repo-authored command is bounded
 // the way it is.
 import { NO_VERIFY_BASELINE, verifyBaseline, verifyResult, verifyRejectionLesson, type VerifyBaseline } from "@/lib/local/lane-guard";
+import { GUARD_OFF_PATCH, installBaseline, laneChangedPaths, verifyInstall } from "@/lib/local/lane-install-verify";
 // A RED BASELINE IS THE LOOP'S OWN TOP-PRIORITY WORK. When the repository's own check was already
 // failing, the guard has nothing green to compare against and everything this lane commits is
 // unverifiable — so the brief LEADS with the repair and the operator gets a lesson saying the loop
@@ -1136,11 +1137,18 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // The DETERMINISTIC kinds, named explicitly rather than as "not backlog". A `craft` lane is an
     // AGENT lane — same session, different batch and brief — so a `kind !== "backlog"` test would
     // have silently routed it into the file installer and installed a practice starter instead.
+    // The degradation guard's switch and budget, shared by BOTH branches: an install lane is guarded too.
+    const guardOn = input.verify?.enabled !== false;
+    const verifyMs = verifyTimeoutMsOf(input.verify?.timeoutMs ?? null);
     if (kind === "foundation" || kind === "practice") {
       // The deterministic half of the loop. No agent session is spent: the files come out of the same
       // generator the cloud draft-PR doors use, and the rescan below adjudicates the result exactly as
       // it does an agent's commits — an install that changes nothing measurable closes nothing.
       await appendLaneLog(laneId, `Cycle ${cycle}: ${kind} lane — ${input.reason ?? "installing generated files."}`);
+      // A — THE BASELINE BEFORE THE INSTALL (lane-install-verify.ts). Without a verdict the runner
+      // never lands an install lane, and every round re-installs the same starter from the same base.
+      const guardIo = { laneId, dir: worktree.dir, verifyMs, stage: watch.stage.bind(watch) };
+      const baseline = guardOn ? await installBaseline(guardIo) : NO_VERIFY_BASELINE;
       const res = await watch.stage("install", () =>
         deps.install({
           dir: worktree.dir,
@@ -1157,6 +1165,27 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // Nothing landed, so there is nothing for a rescan to attribute. Release rather than leave a
         // claim nobody will adjudicate — the same contract every other non-rescanning path here has.
         return exitLane(ctx, "install-wrote-nothing", { why: `loop cycle ${cycle}'s ${kind} lane wrote nothing` });
+      }
+      // B — THE SAME VERDICT AN AGENT LANE GETS, judged over exactly the files the install committed.
+      if (guardOn) {
+        const outcome = await verifyInstall({
+          ...guardIo,
+          baseline,
+          written: res.written,
+          before,
+          branch: worktree.branch,
+          org,
+          repo,
+          git,
+        });
+        verdict = outcome.verdict;
+        if (outcome.reject) {
+          return exitLane(ctx, "guard-rejected", {
+            why: `loop cycle ${cycle}'s ${kind} install was reversed by the degradation guard, so nothing adjudicated the claim`,
+          });
+        }
+      } else {
+        await updateLane(laneId, GUARD_OFF_PATCH);
       }
     } else {
       await appendLaneLog(
@@ -1266,8 +1295,6 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       // re-measuring would ask a different question). This is also what decides whether the brief may
       // promise a safety net at all: the invitation to make a larger change is only honest when a
       // command actually resolved AND actually passed on the pristine tree.
-      const guardOn = input.verify?.enabled !== false;
-      const verifyMs = verifyTimeoutMsOf(input.verify?.timeoutMs ?? null);
       let baseline: VerifyBaseline = NO_VERIFY_BASELINE;
       if (guardOn) {
         // `baseline`, not `verifying`: the pristine-tree run and the after-session check are two stages
@@ -1490,7 +1517,11 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // THE STAGE THE EVIDENCE CAME FROM. Run cbe04a35's lane hit the verification cap and then
         // never settled; this race is what makes that a force-failed cycle instead of an eight-hour
         // silence, and `verify` is what lands in the row's `stage`.
-        const outcome = await watch.stage("verify", () => verifyResult(worktree.dir, baseline, verifyMs));
+        // THE DIFF THE VERDICT IS ABOUT: uncommitted edits plus any adopted commits since `before`. An
+        // all-inert diff turns a `skipped` / `baseline-unavailable` into verified-by-construction; an
+        // unreadable one passes nothing, and the verdict is exactly what it was before (lane-inert.ts).
+        const changedPaths = await laneChangedPaths(git, before);
+        const outcome = await watch.stage("verify", () => verifyResult(worktree.dir, baseline, verifyMs, undefined, changedPaths));
         verdict = outcome.verdict;
         await updateLane(laneId, {
           stage: null,
@@ -1540,12 +1571,7 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         // The operator turned the guard off. Recorded as `skipped` WITH the reason, never left null:
         // null is what a lane written before the guard existed carries, and "we did not check" must
         // not be able to masquerade as "there was nothing to check".
-        await updateLane(laneId, {
-          verifyVerdict: "skipped",
-          verifyCommand: null,
-          verifyRung: null,
-          verifyNote: "Verification SKIPPED: the degradation guard was switched off for this run. This lane's work is UNVERIFIED.",
-        });
+        await updateLane(laneId, GUARD_OFF_PATCH);
       }
 
       // THE LANE COMMITS. The worktree is an isolated scratch checkout nothing else writes to, so

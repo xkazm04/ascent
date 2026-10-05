@@ -28,6 +28,8 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { runGit } from "@/lib/local/git";
+import { allInert } from "@/lib/local/lane-inert";
+import { detectToolchainChecks, type ToolchainCheck } from "@/lib/local/lane-toolchain";
 import {
   VERIFY_GUIDANCE_PATHS,
   VERIFY_MANIFEST_PATH,
@@ -112,26 +114,30 @@ export function runVerifyCommand(cwd: string, command: string, timeoutMs: number
 }
 
 /** Read the declaration files the resolver consults. A file that is not there is simply absent — a
- *  repository is allowed to declare nothing, and that is the SKIPPED verdict, not an error. */
+ *  repository is allowed to declare nothing, and that is the SKIPPED verdict, not an error. The
+ *  detected toolchain rides along for the resolver's LAST source; a detection failure is an empty
+ *  list, never a thrown read. */
 export async function readVerifyInputs(dir: string): Promise<{
   manifestYaml: string | null;
   guidance: { path: string; text: string }[];
   packageJson: string | null;
   hasTsconfig: boolean;
+  toolchain: ToolchainCheck[];
 }> {
   const read = async (rel: string): Promise<string | null> =>
     readFile(path.join(dir, rel), "utf8").catch(() => null);
-  const [manifestYaml, packageJson, tsconfig] = await Promise.all([
+  const [manifestYaml, packageJson, tsconfig, toolchain] = await Promise.all([
     read(VERIFY_MANIFEST_PATH),
     read(VERIFY_PACKAGE_PATH),
     read(VERIFY_TSCONFIG_PATH),
+    detectToolchainChecks(dir).catch((): ToolchainCheck[] => []),
   ]);
   const guidance: { path: string; text: string }[] = [];
   for (const rel of VERIFY_GUIDANCE_PATHS) {
     const text = await read(rel);
     if (text) guidance.push({ path: rel, text });
   }
-  return { manifestYaml, guidance, packageJson, hasTsconfig: tsconfig != null };
+  return { manifestYaml, guidance, packageJson, hasTsconfig: tsconfig != null, toolchain };
 }
 
 /** Resolve the NARROWING LADDER this worktree's repository supports, reading it off disk: the
@@ -303,14 +309,24 @@ export interface GuardOutcome {
  *   • baseline passed, result failed  → `rejected`. The worktree's edits are discarded HERE, so the
  *     lane's own commit step finds a clean tree and there is nothing to commit even if a later caller
  *     forgets the flag. Belt and braces on the one path where a mistake would publish a regression.
+ *
+ * VERIFIED BY CONSTRUCTION (`lane-inert.ts`). When the verdict would be `skipped` or
+ * `baseline-unavailable` AND the caller passed `changedPaths` that are all inert, the comparison the
+ * guard could not run has nothing to compare: no file a check reads changed. That is `verified`, with a
+ * note that says the checks were NOT run and why. Only those two verdicts are upgraded — a passing
+ * baseline is still re-run (a measurement beats a theory about paths), so `rejected` never is.
  */
 export async function verifyResult(
   dir: string,
   baseline: VerifyBaseline,
   timeoutMs: number,
   overrides: Partial<GuardDeps> = {},
+  changedPaths?: readonly string[],
 ): Promise<GuardOutcome> {
   if (!baseline.resolved || baseline.passed == null) {
+    if (allInert(changedPaths)) {
+      return verifiedByConstruction(changedPaths!, "this repository declares no check the loop could resolve, so there was none to run");
+    }
     return {
       verdict: "skipped",
       command: null,
@@ -328,6 +344,12 @@ export async function verifyResult(
   // case where nothing extra may be said.
   const caveat = baseline.narrowedFrom ? narrowedCaveat(baseline.resolved, baseline.narrowedFrom) : null;
   if (!baseline.passed) {
+    if (allInert(changedPaths)) {
+      return verifiedByConstruction(
+        changedPaths!,
+        `\`${command}\` (from ${source}) did not pass on the pristine lane worktree, so there was no baseline to compare against here`,
+      );
+    }
     // WHAT THIS NOTE MAY AND MAY NOT SAY. It may say the command did not pass on the pristine lane
     // worktree. It may NOT say the repository's checks are failing — that is a different claim, this
     // measurement is not evidence for it, and asserting it cost fourteen lanes of manufactured repair
@@ -396,6 +418,29 @@ export async function verifyResult(
       `${discarded ? "The edits were discarded in the throwaway worktree" : "The edits could NOT be discarded — check the worktree"}; nothing was committed and nothing will be delivered. ` +
       `First failure:\n${firstFailureLines(run.output)}`,
     reject: true,
+  };
+}
+
+/** How many changed paths a by-construction note names before it counts the rest. */
+const MAX_NAMED_PATHS = 5;
+
+/**
+ * The `verified` a guard that could not run may still give: every changed path is inert. `command`
+ * and `rung` are null because NOTHING RAN — the note leads with "Verified by construction" so no
+ * reader takes it for a measured pass, and it says why the repository's own checks were not run.
+ */
+function verifiedByConstruction(paths: readonly string[], whyNotRun: string): GuardOutcome {
+  const named = paths.slice(0, MAX_NAMED_PATHS).map((p) => `\`${p}\``).join(", ");
+  const more = paths.length - MAX_NAMED_PATHS;
+  return {
+    verdict: "verified",
+    command: null,
+    rung: null,
+    note:
+      `Verified by construction: every changed path is documentation or a declaration that no build, test, lint or CI step reads ` +
+      `(${named}${more > 0 ? ` +${more} more` : ""}), so this change cannot make the repository's checks worse. ` +
+      `The repository's own checks were NOT run: ${whyNotRun}.`,
+    reject: false,
   };
 }
 

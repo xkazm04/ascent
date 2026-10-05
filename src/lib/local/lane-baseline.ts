@@ -141,7 +141,9 @@ export interface UnavailableBaselineRun {
  * to say so buys three more lanes of unverifiable commits.
  */
 export function consecutiveUnavailableBaseline(lanes: readonly BaselineLaneRow[]): UnavailableBaselineRun | null {
-  const known = lanes.filter((l) => l.verifyVerdict != null);
+  // A `verified` with no command is VERIFIED BY CONSTRUCTION (lane-inert.ts): an inert diff, judged
+  // without running anything, so it proves no baseline was established and must not end the streak.
+  const known = lanes.filter((l) => l.verifyVerdict != null && !(l.verifyVerdict === "verified" && l.verifyCommand == null));
   const head = known[0];
   if (!head || head.verifyVerdict !== "baseline-unavailable") return null;
   let n = 0;

@@ -4936,7 +4936,23 @@ consults, in this fixed order, reusing readers that already exist:
 4. **`package.json` scripts**, composite names first: `check:ci`, `ci`, `verify`, `check`, `test:ci`,
    `test` (`test` becomes `npm test`, everything else `npm run <name>`). Last, because a script that
    exists is weaker evidence than a command the repository asked for in words.
-5. **Nothing** → the guard is `skipped` and says so. Never a silent pass: *"we could not check"* and
+5. **A DETECTED toolchain check** (`src/lib/local/lane-toolchain.ts`, 2026-10-05) — the resolver's
+   one invention at this level, as `npx tsc --noEmit` is the ladder's. Read off **tracked files only**
+   (`git ls-files`, narrowed by pathspec; a bounded depth-3 walk when git cannot list), because a lane
+   worktree holds exactly the tracked files — so Unity's generated, untracked `.sln` licenses nothing.
+   At most one check, the first rule that applies: a **Gradle** wrapper (`gradlew` + its wrapper jar +
+   `settings.gradle(.kts)`) → `./gradlew :<module>:test --console=plain --no-daemon` for a pure-JVM module (no daemon, so nothing outlives the check holding files in a worktree Windows must delete) (tracked
+   `src/test/`, no `AndroidManifest.xml`, included in the settings; `core` preferred), else
+   `./gradlew test` (`.\gradlew.bat` on Windows — the explicit `.\` because cmd.exe does not search the
+   cwd when `NoDefaultCurrentDirectoryInExePath` is set); a **.NET** solution (depth ≤ 3) with a
+   `*Test*.csproj` in its subtree and no `ProjectSettings/`, `Assets/` or `.uproject` beside it →
+   `dotnet test "<sln>" --nologo`; a root **`Cargo.toml`** → `cargo test`; a root **`go.mod`** →
+   `go test ./...`. Nothing else — no Unity batchmode, no Unreal, no CMake, no pytest: only checks
+   that run headless from a clean checkout. It ranks **below every declared source**, and its source
+   reads `detected: …` naming the evidence, so no surface renders it as something the repository
+   asked for. Measured: `xkazm04/firetv` resolves to `.\gradlew.bat :core:test` (79 tests, 29 s, only
+   gitignored `build/` written); `xkazm04/mage-arena` (Unreal) resolves to nothing.
+6. **Nothing** → the guard is `skipped` and says so. Never a silent pass: *"we could not check"* and
    *"we checked and it was fine"* are different facts.
 
 **What the campaign repos resolve to under this order.** Neither declares `controls.ciHardPass`, so
@@ -4983,10 +4999,11 @@ PASSES** on the pristine tree as the baseline:
 | 4. — | Nothing passes → **`baseline-unavailable`**, exactly as before, with the note naming the narrower checks that were also tried. |
 
 The ladder is deduplicated by command (a primary that *is* the typecheck is never re-run under a
-second name to fail identically), and it **only exists when a primary resolved**: narrowing degrades a
-gate the repository asked for, it never invents one for a repository that declares none — that repo
-still gets `skipped`. `npx tsc --noEmit` is the ladder's one synthesized command and it needs its
-evidence, a `tsconfig.json` on disk; nothing else is hardcoded to a vendor's CLI.
+second name to fail identically), and it **only exists when a primary resolved** (declared, or
+detected under source 5): narrowing degrades a gate that resolved, it never substitutes for one — a
+repository with neither still gets `skipped`. `npx tsc --noEmit` is the ladder's one synthesized
+command and it needs its evidence, a `tsconfig.json` on disk; nothing else is hardcoded to a vendor's
+CLI.
 
 **What the campaign repos verify against now.** `xkazm04/systedo-case` and `xkazm04/kp` both declare a
 `typecheck` script, so both fall to rung 2 and are verified against **`npm run typecheck`** instead of
@@ -5279,6 +5296,30 @@ Both doors say it in one sentence: `unverifiedDeliveryReason`
 - `POST /api/org/loop/<id>/pr` — the one-click door a **human** presses — returns `409` carrying the
   same sentence. A rule that only bound the automatic path would be no rule at all: a human clicking
   "open a PR" is exactly how unverified work would otherwise reach a remote everyone can see.
+
+**Install lanes have a verdict too, and an inert diff is verified by construction (2026-10-05).**
+Proving the standing runner on three game repositories (Unity + .NET, Unreal C++, Kotlin/Gradle)
+showed two holes in this rule. A `foundation`/`practice` install never ran the guard, so it recorded
+no verdict and was never landed: every round re-installed the same starter from the same base. And a
+repository where no check resolves made every lane `skipped`, so the runner could not improve it at
+all. Now:
+
+- An install lane is guarded like an agent lane (`src/lib/local/lane-install-verify.ts`): the
+  baseline is measured **before** the install, the result after it over the files written, and a
+  rejection resets the lane branch to its pre-install commit (the install is already committed, so the
+  guard's discard could not reach it).
+- `verifyResult` takes the lane's changed paths. When the verdict would be `skipped` or
+  `baseline-unavailable` and **every** changed path is inert (`src/lib/local/lane-inert.ts`), the lane
+  is `verified` with `command` and `rung` null and a note that opens *"Verified by construction:"*,
+  names the paths and says the repository's checks were **not** run. Inert means positively known to
+  be documentation or a declaration that no build, test, lint or CI reads: `*.md`/`*.txt`/`*.rst`
+  outside source trees, `docs/**` documents and images, `LICENSE`, `CODEOWNERS`, issue and PR
+  templates, and `.ai/**` declarations. It is never a dotfile, a workflow, a hooks directory, a
+  `.claude/settings*.json`, a script or source extension, or anything under a source, test, fixture
+  or content tree (text inside a source tree is often embedded into the build). A passing baseline
+  still re-runs its command, and `rejected` is never upgraded. The agent lane's changed paths are
+  `git diff --name-only --no-renames <before>` plus untracked files; without `--no-renames` a
+  `build.sh` renamed into `docs/build.md` would read as inert.
 
 `rejected` keeps its own explicit veto ahead of this, in **both** modes and whatever the run asked
 for. In practice a rejected lane also has `commits === 0`, which would turn it away anyway — but "in
