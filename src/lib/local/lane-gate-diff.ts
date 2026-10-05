@@ -128,6 +128,13 @@ const FIXTURE_DIR = new Set([
   "baselines",
 ]);
 
+/** Documentation inside a fixture directory — never recorded expectations. */
+const FIXTURE_DOC_BASENAME = /^(readme|changelog|license)(\.(md|txt|rst))?$/;
+/** A generator script's extension — a tool that MAKES fixture data rather than being it. Shell-style
+ *  only: an importable module (`.py`, `.mjs`) in `__mocks__/` is auto-applied by jest to existing tests,
+ *  and a `conftest.py` hooks pytest, so those stay fixtures. */
+const FIXTURE_TOOL_EXT = /\.(sh|ps1|bat|cmd)$/;
+
 const FIXTURE_BASENAME = /\.snap$|(^|[.\-_])(fixture|fixtures|mock|mocks|snapshot|golden|baseline)\.[cm]?[jt]sx?$/;
 
 /**
@@ -193,6 +200,9 @@ export function classifyScoringSurface(path: string): ScoringSurface | null {
   const b = base(p);
 
   // Fixtures first: `__fixtures__/foo.test.json` is a recorded expectation before it is a test.
+  // A README / CHANGELOG inside a fixture directory documents the fixtures; no test asserts against it
+  // (measured 2026-10-05: a lane voided for editing `fixtures/README.md`). Everything else there is data.
+  if (segs.slice(0, -1).some((s) => FIXTURE_DIR.has(s)) && FIXTURE_DOC_BASENAME.test(b)) return null;
   if (segs.slice(0, -1).some((s) => FIXTURE_DIR.has(s)) || FIXTURE_BASENAME.test(b)) return "fixture";
   if (TEST_BASENAME.test(b) || segs.slice(0, -1).some((s) => TEST_DIR.has(s))) return "test-file";
   if (isUnderGateDir(p) || isGateConfigShape(p)) return "gate-config";
@@ -319,6 +329,9 @@ function judgeChange(
     return runBy ? `added, and the verify command \`${runBy}\` runs it` : null;
   }
   if (surface === "gate-config" && isUnderGateDir(p)) return null;
+  // An ADDED generator SCRIPT in a fixture directory (`fixtures/make-clip.sh`) is a tool that makes data,
+  // not data a test asserts against; an added data file there still voids (an existing test may glob it).
+  if (surface === "fixture" && FIXTURE_TOOL_EXT.test(p) && !segments(p).some((x) => x === "__mocks__" || x === "mocks")) return null;
   if (isClearableTest(p)) {
     if (text == null) return "added; its text was not read, so it cannot be cleared";
     return RUN_SHORT_CIRCUIT.test(text) ? "added, and it can end the test run early" : null;

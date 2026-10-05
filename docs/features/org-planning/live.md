@@ -1452,6 +1452,12 @@ in `lane-gate-diff-load.test.ts`.
 **Three gate-declaration moves are cleared on evidence** (2026-10-05, from three wrong voids on the
 standing runner; `lane-gate-diff-declare.ts`):
 
+- **Fixture documentation and generator scripts.** A `README`/`CHANGELOG`/`LICENSE` inside a fixture
+  directory is not a scoring surface (no test asserts against it), and an ADDED shell-style generator
+  (`.sh`, `.ps1`, `.bat`, `.cmd`) there is cleared: it makes data rather than being it. An added data
+  file, any importable module (a jest `__mocks__` file is auto-applied; a `conftest.py` hooks pytest)
+  and any MODIFIED fixture still void. Measured: a lane voided for editing `fixtures/README.md` and
+  adding `fixtures/make-clip.sh`.
 - **An added gate script nothing runs.** garden-vr added `tools/guard/check.mjs`; the name alone voided
   it, though the resolved command (`dotnet test shared/core-dotnet`) never runs it. An **added**
   `scripts|tools|bin/{verify,check,ci,gate,lint,test}*` file is now cleared when no rung of the before

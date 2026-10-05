@@ -148,3 +148,18 @@ describe("parseNameStatus", () => {
     expect(parseNameStatus("")).toEqual({});
   });
 });
+
+describe("fixture directories: documentation and generator scripts (2026-10-05)", () => {
+  it("a modified fixtures/README.md is not a scoring surface", () => {
+    expect(checkGateDiff([{ path: "fixtures/README.md", status: "M" }]).void).toBe(false);
+  });
+  it("an ADDED shell generator in a fixture dir is cleared; an added data file or a mock module still voids", () => {
+    expect(checkGateDiff([{ path: "fixtures/make-clip.sh", status: "A" }]).void).toBe(false);
+    expect(checkGateDiff([{ path: "fixtures/clip-03.json", status: "A" }]).void).toBe(true);
+    expect(checkGateDiff([{ path: "__mocks__/make.sh", status: "A" }]).void).toBe(true);
+    expect(checkGateDiff([{ path: "fixtures/gen.py", status: "A" }]).void).toBe(true);
+  });
+  it("a MODIFIED generator script in a fixture dir still voids", () => {
+    expect(checkGateDiff([{ path: "fixtures/make-clip.sh", status: "M" }]).void).toBe(true);
+  });
+});
