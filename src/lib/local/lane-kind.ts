@@ -50,6 +50,7 @@
 
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { runGit } from "@/lib/local/git";
 import { PRACTICES, type PracticeDef } from "@/lib/practices";
 import { buildArtifact } from "@/lib/practice-artifact";
 import type { FollowUpItem } from "@/lib/org/followups";
@@ -101,9 +102,22 @@ const exists = (abs: string): Promise<boolean> =>
     () => false,
   );
 
-/** True when the repo already carries the `.ai/` manifest spine. */
-export async function hasFoundation(dir: string): Promise<boolean> {
-  for (const spine of FOUNDATION_SPINES) if (await exists(resolve(dir, spine))) return true;
+/**
+ * Is `rel` present — in the working copy, or, given `ref`, in that commit's tree? The standing runner
+ * cuts every lane from its runner branch, not from the operator's checkout, so the question "does this
+ * repo already carry X" has to be asked of the branch the lane will build on. Measured 2026-10-05: a
+ * foundation landed on `ascent/runner` was invisible to a check of the checkout, so every round armed
+ * the same foundation lane, wrote nothing, and the repo backed off as dry.
+ */
+async function present(dir: string, rel: string, ref?: string | null): Promise<boolean> {
+  if (!ref) return exists(resolve(dir, rel));
+  const r = await runGit(dir, ["cat-file", "-e", `${ref}:${rel}`]);
+  return r.ok;
+}
+
+/** True when the repo (or, given `ref`, that commit) already carries the `.ai/` manifest spine. */
+export async function hasFoundation(dir: string, ref?: string | null): Promise<boolean> {
+  for (const spine of FOUNDATION_SPINES) if (await present(dir, spine, ref)) return true;
   return false;
 }
 
@@ -147,10 +161,12 @@ export async function proposeLaneKind(
   dir: string | null,
   loadItems: () => Promise<readonly FollowUpItem[]>,
   loadDispatchedPractices: () => Promise<ReadonlySet<string>>,
+  /** The commit the lane will be cut from, when that is not the checkout (the runner branch). */
+  ref?: string | null,
 ): Promise<LaneKindProposal> {
   if (!dir) return BACKLOG_LANE;
   try {
-    if (!(await hasFoundation(dir))) {
+    if (!(await hasFoundation(dir, ref))) {
       return {
         kind: "foundation",
         practiceId: null,
@@ -199,7 +215,7 @@ export async function proposeLaneKind(
     const practice = practiceForDimension(top.dimId);
     if (!practice) return backlogLane;
     const path = practiceArtifactPath(practice.id);
-    if (!path || (await exists(resolve(dir, path)))) return backlogLane;
+    if (!path || (await present(dir, path, ref))) return backlogLane;
     // THE FILE IS ABSENT — which is not the same fact as "it was never installed". Read the loop's own
     // history last, and only here, so nothing above pays for it.
     if ((await loadDispatchedPractices()).has(practice.id)) {

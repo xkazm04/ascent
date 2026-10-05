@@ -108,6 +108,23 @@ describe("the dry backoff ladder: 1 h → 4 h → 12 h, the last repeats", () =>
     expect(applyRunOutcome(s, undefined, NOW)).toBe("dry-backoff");
     expect(s.failureStreak).toBe(0);
   });
+
+  it("a deterministic install that LANDED verified is progress, not dry — it seeds the lanes after it", () => {
+    const s = repo("o/a", { dryStreak: 1 });
+    expect(applyRunOutcome(s, outcome({ landed: 1, installsLanded: 1 }), NOW)).toBeNull();
+    expect(s.dryStreak).toBe(0);
+  });
+
+  it("summarizeRunLanes counts an install only when it landed AND delivered an install", () => {
+    const sum = summarizeRunLanes([
+      { repoFullName: "o/a", phase: "done", error: null, log: [], closedIds: [], verifyVerdict: "verified", landedAt: "t", commits: 1, deliverables: [{ kind: "installed" }] },
+      { repoFullName: "o/b", phase: "done", error: null, log: [], closedIds: [], verifyVerdict: "verified", landedAt: null, commits: 1, deliverables: [{ kind: "installed" }] },
+      { repoFullName: "o/c", phase: "done", error: null, log: [], closedIds: [], verifyVerdict: "verified", landedAt: "t", commits: 1, deliverables: [{ kind: "noted" }] },
+    ]);
+    expect(sum.get("o/a")?.installsLanded).toBe(1);
+    expect(sum.get("o/b")?.installsLanded ?? 0).toBe(0);
+    expect(sum.get("o/c")?.installsLanded ?? 0).toBe(0);
+  });
 });
 
 describe("the repo-failures breaker", () => {

@@ -34,7 +34,7 @@ import { runGit } from "@/lib/local/git";
 import { modulePartition } from "@/lib/local/module-partition";
 import { parsePlan } from "@/lib/local/lane-plan-parse";
 import { splitPlan, type DirectionGrant, type ItemClass } from "@/lib/local/lane-plan-classify";
-import { buildPlanBlock, buildPlanningPrompt, type ReviseNote } from "@/lib/local/lane-plan-prompt";
+import { PLAN_CONTRACT, buildPlanBlock, buildPlanningPrompt, type ReviseNote } from "@/lib/local/lane-plan-prompt";
 import { isSplitArm, planArmOf, type Arm, type TransportId } from "@/lib/local/arm";
 // THE ONE PLACE AN ARM HALF IS JUDGED LOCAL. Resolved HERE for the planning half, and separately in
 // `loop-lane.ts` for the executing one: "Claude plans, a local model executes" is precisely the arm
@@ -171,6 +171,15 @@ async function loadRevise(org: string, repo: string, keys: string[]): Promise<{ 
   }
 }
 
+/** The repair turn only re-emits a plan the session already holds: minutes, not the full budget. */
+const PLAN_REPAIR_TIMEOUT_MS = 5 * 60_000;
+/** Sent on the RESUMED planning session when its final message carried no readable plan block. */
+export const PLAN_REPAIR_PROMPT = [
+  "Your plan could not be read: your final message did not end with the plan contract's fenced ```json block.",
+  "Do not investigate further and do not change any file. Reply with ONLY that block, built from the plan you already made, in exactly the shape the contract specified:",
+  PLAN_CONTRACT,
+].join("\n");
+
 /** Plan the lane's batch: one read-only session, one classified split, at most two persisted rows. */
 export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
   const { worktree, batch, org, repo } = input;
@@ -218,8 +227,31 @@ export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
   }
 
   const text = result.summary ?? "";
-  const plan = parsePlan(text);
+  let plan = parsePlan(text);
   if (!result.ok && !plan) return { mode: "failed", message: `The planning session failed: ${firstLine(result.errorText || text)}` };
+  // ONE REPAIR TURN when the session planned but did not end with the contract's block. Measured
+  // 2026-10-05: under `--permission-mode plan` the CLI hands the model's plan to its own plan FILE
+  // (~/.claude/plans/...) and the final message only points at it, so a sound plan read as "unreadable"
+  // and every item was parked as an architecture move: an unattended runner stalled on ordinary work.
+  // The same session is resumed (it holds the whole investigation) and asked for the block alone; the
+  // clean-tree proof is re-taken after it, and a second miss stays unreadable, exactly as before.
+  if (!plan) {
+    const { sessionId: _first, ...rest } = opts;
+    void _first;
+    const repairOpts: TransportRunOptions = {
+      ...rest,
+      prompt: PLAN_REPAIR_PROMPT,
+      resumeSessionId: sessionId,
+      timeoutMs: Math.min(opts.timeoutMs ?? PLAN_TIMEOUT_MS, PLAN_REPAIR_TIMEOUT_MS),
+    };
+    const repaired = await (planArm && input.runVia ? input.runVia(planArm.transport, repairOpts) : input.runAgent(repairOpts)).catch(() => null);
+    const afterRepair = await porcelain(worktree.dir);
+    if (afterRepair === null || afterRepair.length > 0 || (await headOf(worktree.dir)) !== headBefore) {
+      await restoreWorktree(worktree, headBefore);
+      return { mode: "failed", message: PLAN_WROTE_MESSAGE };
+    }
+    plan = repaired ? parsePlan(repaired.summary ?? "") : null;
+  }
 
   const directions = await loadDirections(org, repo);
   const split = splitPlan(plan, partition, directions, batch.map((b) => b.id));

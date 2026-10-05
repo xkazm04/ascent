@@ -2315,6 +2315,26 @@ repo's craft ladder when it has no gaps. The runner still measures the fleet aft
 (`measureDrive`, for display and for `DriveRunRecord.debtBefore/After`), but the measurement never
 decides whether it continues.
 
+**A landed install is progress too (2026-10-05).** A deterministic install (foundation, practice
+starter) that committed and **landed verified** resets the dry streak (`installsLanded`, counted
+by `summarizeRunLanes` from the lane's `installed` deliverable). It spends no agent session and closes
+nothing by design, so counting it dry paused every game repo within two rounds of the run that seeded
+it, and the runner sat idle. An install that wrote nothing, and an agent lane that closed nothing,
+are still dry. Commit-signal movement is deliberately **not** progress: the loop's own commit
+messages move D7, and a measure that rewarded that would let the runner farm it.
+
+Two more fixes from the same campaign keep the runner honest about the branch it builds on:
+
+- **The lane kind reads the runner branch.** `proposeLaneKind` takes the ref the lane will be cut
+  from (`refs/heads/ascent/runner` on a runner run), and checks the `.ai/` spine and practice starters
+  there with `git cat-file -e`. Reading the checkout made a foundation landed on the runner branch
+  invisible, so the same foundation lane armed every round and wrote nothing.
+- **An unreadable plan gets one repair turn.** Under `--permission-mode plan` the CLI hands the plan
+  to its own plan file and the final message only points at it, so a sound plan read as `unreadable`
+  and every item was parked as an architecture move. `planLane` now resumes the planning session once
+  with `PLAN_REPAIR_PROMPT` (the block alone, no investigation, 5-minute ceiling), re-takes the
+  clean-tree proof, and a second miss stays `unreadable`.
+
 #### Each iteration
 
 `planRunnerStep` decides, in this order: a **stop** wins over everything. Next, a **runner-wide

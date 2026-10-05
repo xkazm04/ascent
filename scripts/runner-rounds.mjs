@@ -53,7 +53,7 @@ if (CFG.repos.length === 0 && !CFG.resume) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stamp = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 
-async function api(pathname, init, tries = 5) {
+async function api(pathname, init, tries = 8) {
   let lastErr = null;
   for (let attempt = 1; attempt <= tries; attempt++) {
     try {
@@ -63,7 +63,8 @@ async function api(pathname, init, tries = 5) {
       return body;
     } catch (err) {
       lastErr = err;
-      const transient = /ECONNREFUSED|fetch failed|socket hang up|ETIMEDOUT/i.test(String(err));
+      // A 5xx is transient here too: `next dev` answers 500 while it recompiles a module mid-run.
+      const transient = /ECONNREFUSED|fetch failed|socket hang up|ETIMEDOUT|^Error: 5\d\d /i.test(String(err));
       if (!transient || attempt === tries) break;
       await sleep(3000 * attempt);
     }

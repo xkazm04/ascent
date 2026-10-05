@@ -139,6 +139,8 @@ export interface RepoRunOutcome {
   landed: number;
   /** Rows the rescan adjudicated closed — the runner's measure of progress. */
   verifiedCloses: number;
+  /** Deterministic installs (foundation / practice starter) that committed and LANDED verified. */
+  installsLanded?: number;
   /** The first failure's text, for the pause note. */
   lastError: string | null;
 }
@@ -153,6 +155,8 @@ export interface RunnerLaneView {
   verifyVerdict: string | null;
   landedAt: string | null;
   commits: number;
+  /** What the lane delivered; only `installed` is read here (an install lane's own deliverable). */
+  deliverables?: readonly { kind: string }[];
 }
 
 export function summarizeRunLanes(lanes: readonly RunnerLaneView[]): Map<string, RepoRunOutcome> {
@@ -165,6 +169,7 @@ export function summarizeRunLanes(lanes: readonly RunnerLaneView[]): Map<string,
       o.lastError ??= lane.error ?? (lane.verifyVerdict === "rejected" ? "the degradation guard rejected the lane" : null);
     }
     if (lane.landedAt) o.landed += 1;
+    if (lane.landedAt && lane.deliverables?.some((d) => d.kind === "installed")) o.installsLanded = (o.installsLanded ?? 0) + 1;
     o.verifiedCloses += lane.closedIds.length;
     out.set(lane.repoFullName, o);
   }
@@ -182,13 +187,19 @@ export function applyRunOutcome(s: RepoRunnerState, outcome: RepoRunOutcome | un
   const o = outcome ?? { lanes: 0, failed: 0, landed: 0, verifiedCloses: 0, lastError: null };
   if (o.landed > 0) s.failureStreak = 0;
   else if (o.lanes > 0 && o.failed === o.lanes) s.failureStreak += 1;
-  s.dryStreak = o.verifiedCloses > 0 ? 0 : s.dryStreak + 1;
+  // PROGRESS is a verified close — or a deterministic install that landed verified. An install spends no
+  // agent session and closes nothing by design (a starter is scaffolding the next lanes build on), so
+  // counting it dry backed a repo off for an hour on the round that seeded it (measured 2026-10-05: three
+  // game repos, all three paused within two rounds, the runner idle). An install that wrote nothing, and
+  // an agent lane that closed nothing, are still dry — nothing here lets a repo loop cheaply forever.
+  const progressed = o.verifiedCloses > 0 || (o.installsLanded ?? 0) > 0;
+  s.dryStreak = progressed ? 0 : s.dryStreak + 1;
   if (s.failureStreak >= REPO_FAILURE_STREAK) {
     const why = o.lastError ? ` Last: ${o.lastError.slice(0, 200)}` : "";
     pauseRepo(s, "repo-failures", null, `${s.failureStreak} runs in a row where every lane failed or was rejected by the guard.${why}`);
     return "repo-failures";
   }
-  if (o.verifiedCloses === 0) {
+  if (!progressed) {
     const wait = dryBackoffMs(s.dryStreak);
     pauseRepo(
       s,
@@ -198,7 +209,7 @@ export function applyRunOutcome(s: RepoRunnerState, outcome: RepoRunOutcome | un
     );
     return "dry-backoff";
   }
-  // A verified close ends a dry spell outright — including a backoff the repo was woken early from.
+  // Progress ends a dry spell outright — including a backoff the repo was woken early from.
   if (s.paused === "dry-backoff") {
     s.paused = null;
     s.pausedUntil = null;

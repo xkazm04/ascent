@@ -74,6 +74,7 @@ import {
 import { LANE_STOP_GRACE_MS, LANE_STOP_TERMINAL_MS, type LaneWatchdog } from "@/lib/local/lane-watchdog";
 import { createLoopWorktree, removeLoopWorktree, runStamp, type LoopWorktree } from "@/lib/local/loop-worktree";
 import { RUNNER_BRANCH } from "@/lib/local/runner-types";
+import { runGit } from "@/lib/local/git";
 
 /** One repo of a run: where it lives on disk, and what its FIRST cycle was armed to do. */
 interface LaneTargetPlan {
@@ -189,6 +190,13 @@ export interface StartLoopRunInput {
  * Arm a run and return its row immediately — the loop itself runs detached, and the UI polls
  * `/api/org/loop`. Throws with a human reason when it cannot start; every throw is a 409 at the route.
  */
+/** `refs/heads/<runner branch>` when it exists in `path`, else null (a first run has not created it). */
+async function runnerRefIfPresent(path: string): Promise<string | null> {
+  const ref = `refs/heads/${RUNNER_BRANCH}`;
+  const r = await runGit(path, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).catch(() => null);
+  return r?.ok ? ref : null;
+}
+
 export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRecord> {
   const org = input.org.trim().toLowerCase();
   if (!selfHosted()) throw new Error("The improvement loop only runs on a self-hosted deployment.");
@@ -242,6 +250,8 @@ export async function startLoopRun(input: StartLoopRunInput): Promise<LoopRunRec
       // The ONCE-PER-REPO gate on practice lanes. A failed read degrades to "nothing dispatched",
       // which is the same honest default every other unreadable-evidence path here takes.
       () => dispatchedPractices(org, repo).catch(() => new Set<string>()),
+      // A runner run cuts its lane from the runner branch, so that is the tree the proposal must read.
+      input.delivery === "runner" ? await runnerRefIfPresent(path) : null,
     );
     // A practice the rule DECLINED to re-raise becomes a lesson, so an operator looking at a backlog
     // lane on a repo with an obvious starter-shaped gap can see why. Written once per armed run and

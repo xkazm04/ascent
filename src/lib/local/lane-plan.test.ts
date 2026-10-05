@@ -137,6 +137,23 @@ describe("planLane", () => {
     expect(input.parked).toMatchObject({ cls: "major", clsReason: "unreadable", plan: null });
   });
 
+  it("a plan left in the CLI's plan file is recovered by ONE repair turn on the resumed session", async () => {
+    // Measured 2026-10-05: under plan mode the final message only pointed at ~/.claude/plans/….md.
+    const { outcome, calls } = run((o) =>
+      o.resumeSessionId
+        ? { ok: true, summary: planText({}) }
+        : { ok: true, summary: "I've written the plan to `C:\\Users\\me\\.claude\\plans\\ascent-plan-x.md`. Nothing changed." },
+    );
+    const res = await outcome;
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ resumeSessionId: calls[0]!.sessionId, permission: "plan" });
+    expect(calls[1]!.sessionId).toBeUndefined();
+    expect(calls[1]!.prompt).toContain("could not be read");
+    if (res.mode !== "execute") throw new Error(res.mode);
+    expect(res.execute.map((i) => i.id)).toEqual(["rec-a", "rec-b"]);
+    expect(res.parked).toEqual([]);
+  });
+
   it("a session that WROTE to the worktree fails the lane and the throwaway tree is restored", async () => {
     const res = await run(() => {
       writeFileSync(join(dir, "src/lib/db/a.ts"), "tampered\n", "utf8");
