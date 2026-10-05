@@ -1481,6 +1481,24 @@ standing runner; `lane-gate-diff-declare.ts`):
   with a cleared bootstrap, because it is the new gate and there was no prior gate for it to flatter. A
   **modified** or deleted one still voids.
 
+**One gate-repair turn when the declared gate fails on its own tree** (2026-10-05). A lane session has
+no shell, so it cannot run the gate it just wrote: measured on an Unreal repo, the agent bootstrapped
+`node tools/lint.mjs && node apps/vr/tools/check-pin.mjs`, the guard refused it ("does not pass here"),
+and the next lane started from the runner tip without that work and wrote another untested gate blind.
+Now, when the **only** thing voiding the lane is that refusal (the gate was eligible to run, did run,
+nothing passed, and the guard would clear the lane had it passed), the execution session is resumed
+**once** (`lane-gate-repair.ts`) with the failing command(s) and their first failure lines (about 1,500
+characters), told to fix the scripts without weakening them. The turn runs with the session's own
+transport, model and edit permission, for the agent dial capped at 10 minutes, and only when the lane's
+deadline leaves room for it and the gate's re-run. Its residue goes through the lane's commit path, and
+a repo that already had a gate is re-verified against the cached baseline first. Then the evidence is
+re-read and the guard re-judges. Cleared, the lane proceeds exactly as a first-time pass would (gate
+logged, `skipped` upgraded, rescan). Still failing, a failed turn, or a regression, it voids as before,
+with `One gate-repair turn was spent on it: …` and the second failure's lines in `voidReason`. A vacuous
+gate, a verdict reached with another command, any other surface hit, an adopting lane, or a session with
+no id never gets a turn. Both the attempt and its outcome are logged (`Gate repair: …`). Pinned in
+`lane-gate-repair.test.ts` and `loop-lane.gate-repair.test.ts`.
+
 A cleared change is never silent. The lane log carries `Gate changed: \`X\` -> \`Y\` (declared in …);
 this lane was verified against \`X\`, \`Y\` passes on its tree, and every later run is verified against
 \`Y\` — review it when merging the runner branch.`, or `Gate declared: …` for a bootstrap. The merge of

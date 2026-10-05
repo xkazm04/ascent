@@ -68,6 +68,9 @@ export interface LaneVerdictEvidence {
 export interface DeclaredGateRun extends Rung {
   ok: boolean;
   timedOut: boolean;
+  /** The run's bounded stdout+stderr — what a gate-repair turn is shown (lane-gate-repair.ts).
+   *  Absent from a caller that never captured it; nothing here judges by it. */
+  output?: string;
 }
 
 /** A cleared change of the declared gate — what the call site logs for the reviewer. */

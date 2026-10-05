@@ -111,6 +111,8 @@ import { runAgentVia, type TransportRunOptions } from "@/lib/local/transport/run
 import { transportTiming } from "@/lib/local/transport/profile";
 import { checkGateDiff } from "@/lib/local/lane-gate-diff";
 import { readGateDiffEvidence } from "@/lib/local/lane-gate-diff-load";
+import { gateRepairBudgetMs, repairDeclaredGate } from "@/lib/local/lane-gate-repair";
+import type { GuardOutcome } from "@/lib/local/lane-guard";
 import { bootstrapVerifyNote, gateChangeSentence } from "@/lib/local/lane-gate-diff-declare";
 // THE LANE-EXIT DOOR AND THE ADJUDICATION TAIL (challenge-2026-09-23). Every way this lane ends is a
 // word in `LANE_EXIT_KINDS`, and what each end owes — release, plan settle, terminal phase, progress —
@@ -954,6 +956,9 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       }),
     });
   input.onWatchdog?.(watch);
+  /** No later than the watchdog arms (its first stage), so time measured from here OVER-states the
+   *  elapsed share of the deadline — what a gate-repair turn's budget wants (lane-gate-repair.ts). */
+  const laneStartedAt = Date.now();
   /** Every git call this lane makes, raced against the deadline: `execFile`'s own timeout kills the
    *  child but cannot promise its callback (see git.ts), and this is where that promise is kept. */
   const git = (args: readonly string[]) => watch.stage("git", () => runGit(worktree.dir, args));
@@ -1015,6 +1020,14 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     const before = (await git(["rev-parse", "HEAD"])).stdout.trim();
     // The agent's own `RESOLVED: <id> - <what changed>` lines, kept for the deliverable headlines.
     let agentClaims: AgentClaim[] = [];
+    /** THE DOOR BACK INTO THIS CYCLE'S EXECUTION SESSION, for the one gate-repair turn the integrity
+     *  guard may ask for (lane-gate-repair.ts): the same transport, model, endpoint and edit permission,
+     *  bound where the session is dispatched. Null on an adopting lane or a deterministic kind. */
+    let gateRepairDoor: {
+      sessionId: string | null;
+      resume: (sessionId: string, prompt: string, timeoutMs: number) => Promise<AgentRunResult>;
+      reverify: (() => Promise<GuardOutcome>) | null;
+    } | null = null;
 
     // A FOUNDATION lane has no batch: the repo's backlog is not what it is answering. Every other
     // kind picks one, and a curated batch NAMES its rows, so the pick has to span the repo's whole
@@ -1460,6 +1473,20 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
         );
         const armed = new Set(batch.map((b) => b.id));
         agentClaims = parseClaimLines(result.summary).filter((c) => armed.has(c.id));
+        // The session's own id from its envelope (a resumed planning session may answer under a new
+        // one), else the planning session it resumed. The repair turn reuses these exact options.
+        const armedBaseline = baseline;
+        gateRepairDoor = {
+          sessionId: result.sessionId ?? resumeSessionId ?? null,
+          resume: (sid, prompt, timeoutMs) => {
+            const o: TransportRunOptions = { ...agentOpts, prompt, resumeSessionId: sid, timeoutMs };
+            return execTransport ? deps.runAgentVia(execTransport, o) : deps.runAgent(o);
+          },
+          reverify:
+            guardOn && armedBaseline.resolved != null
+              ? async () => verifyResult(worktree.dir, armedBaseline, verifyMs, undefined, await laneChangedPaths(git, before))
+              : null,
+        };
         // WHAT THE SESSION COST, recorded IMMEDIATELY — before the commit, the rescan or anything else
         // that can fail. A lane that dies three steps from here still carries its cost, which is the
         // half of the ledger that cannot be reconstructed from git afterwards. A FAILED session is
@@ -1608,7 +1635,8 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     }
 
     const countRes = await git(["rev-list", "--count", `${before}..HEAD`]);
-    const commits = countRes.ok ? Number(countRes.stdout.trim()) || 0 : 0;
+    // `let`: a gate-repair turn below may land one more.
+    let commits = countRes.ok ? Number(countRes.stdout.trim()) || 0 : 0;
     await appendLaneLog(laneId, `${commits} commit(s) landed this cycle.`);
     // A SESSION THAT WORKED AND DID NOT COMMIT IS NOT A SESSION THAT FOUND NOTHING, and until this
     // was added the lane could not tell them apart: both read "0 commit(s) landed this cycle", and
@@ -1679,7 +1707,59 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
       const evidence = await watch.stage("verify", () =>
         readGateDiffEvidence({ git, dir: worktree.dir, before, changedPaths, laneVerdict, verifyMs }),
       );
-      const void_ = deps.gateDiff(changedPaths, evidence);
+      let void_ = deps.gateDiff(changedPaths, evidence);
+      // ONE GATE-REPAIR TURN (lane-gate-repair.ts) when the ONLY thing voiding the lane is that the
+      // gate it declared does not pass on its own tree: the session never had a shell to run it, so it
+      // is resumed once with the failure output, its fix committed, and the guard re-judged. Any other
+      // refusal, an adopting lane, or too little time left before the deadline spends no turn.
+      if (void_.void && gateRepairDoor) {
+        const door = gateRepairDoor;
+        const repairMs = gateRepairBudgetMs({
+          remainingMs: watch.deadlineMs - (Date.now() - laneStartedAt),
+          agentTimeoutMs: input.agent?.timeoutMs ?? timing.agentMs,
+          verifyMs,
+          reverify: door.reverify != null,
+        });
+        const repaired = await repairDeclaredGate(
+          { sessionId: repairMs ? door.sessionId : null, changedPaths, evidence, verdict: void_, laneVerdict },
+          {
+            resume: (sid, prompt) => watch.stage("agent", () => door.resume(sid, prompt, repairMs ?? 0)),
+            reverify: door.reverify ? () => watch.stage("verify", door.reverify!) : null,
+            commit: async (summary, sessionFailed) => {
+              const c = await watch.stage("commit", () =>
+                deps.commitWork({ dir: worktree.dir, branch: worktree.branch, cycle, batch, summary, sessionFailed }),
+              );
+              await appendLaneLog(laneId, c.summary);
+              return c;
+            },
+            readEvidence: async (lv) => {
+              const again = await git(["diff", "--name-only", "--no-renames", `${before}..HEAD`]);
+              const paths = again.ok ? again.stdout.split("\n").map((l) => l.trim()).filter(Boolean) : [];
+              const ev = await watch.stage("verify", () =>
+                readGateDiffEvidence({ git, dir: worktree.dir, before, changedPaths: paths, laneVerdict: lv, verifyMs }),
+              );
+              return { changedPaths: paths, evidence: ev };
+            },
+            gateDiff: deps.gateDiff,
+            log: (line) => appendLaneLog(laneId, line),
+            isFatal: isLaneDeadlineError,
+          },
+        );
+        if (repaired.attempted) {
+          void_ = repaired.verdict;
+          const recount = await git(["rev-list", "--count", `${before}..HEAD`]);
+          if (recount.ok) commits = Number(recount.stdout.trim()) || commits;
+          if (repaired.session) await deps.chargePlanCost(ctx.planId, repaired.session.costMicros);
+          // The guard re-judged the repaired tree: its verdict is now the lane's, in the same columns.
+          const rv = repaired.reverified;
+          if (rv) {
+            verdict = rv.verdict;
+            verdictCommand = rv.command;
+            await updateLane(laneId, { verifyVerdict: rv.verdict, verifyCommand: rv.command, verifyNote: rv.note, verifyRung: rv.rung });
+            await appendLaneLog(laneId, rv.note);
+          }
+        }
+      }
       if (!void_.void && void_.gateChange) {
         // A CLEARED GATE CHANGE IS SAID OUT LOUD. The lane was measured with the old command and the
         // new one passes on its tree, but every later run is verified against the new one — so the

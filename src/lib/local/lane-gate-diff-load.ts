@@ -82,7 +82,7 @@ export async function readGateDiffEvidence(args: {
       const runs: DeclaredGateRun[] = [];
       for (const { command, rung } of toRun) {
         const r = await run(dir, command, verifyMs).catch((): VerifyRun => ({ ok: false, output: "", timedOut: false }));
-        runs.push({ command, rung, ok: r.ok, timedOut: r.timedOut });
+        runs.push({ command, rung, ok: r.ok, timedOut: r.timedOut, output: r.output });
         if (r.ok) break;
       }
       out.declaredGateRuns = runs;
