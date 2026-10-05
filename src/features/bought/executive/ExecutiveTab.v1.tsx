@@ -2,6 +2,8 @@
 // The public share page does not use this file.
 import { valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { orgTabHref } from "@/lib/org/orgTabs";
 import { PriorPeriodGrid } from "./briefingShared";
 import {
   BriefingBrandHeader,
@@ -106,6 +108,8 @@ export function executiveV1(v: ExecutiveView) {
       <ShareLinkInventory org={slug} canShare={canShare} />
 
       {canBrand && <BrandingSettings slug={slug} initial={branding ?? { brandName: null, brandColor: null, logoUrl: null }} />}
+
+      <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </div>
   );
 }

@@ -176,11 +176,8 @@ describe("journey next moves", () => {
   const PREDATES_NEXT_MOVE_LINK = new Set<string>(["overview"]);
   it.each(waveTabs.filter((t) => !PREDATES_NEXT_MOVE_LINK.has(t)))("%s renders a NextMoveLink to its next move", (tab) => {
     const target = nextMoveFor(tab);
-    const rendered = tree.some(
-      (f) =>
-        owningTab(f.path, IDS) === tab &&
-        stripComments(f.source).includes(`<NextMoveLink href={orgTabHref(slug, "${target}")} to="${target}" />`),
-    );
+    const site = new RegExp(`<NextMoveLink href=\\{orgTabHref\\([\\w.]+, "${target}"\\)\\} to="${target}" />`);
+    const rendered = tree.some((f) => owningTab(f.path, IDS) === tab && site.test(stripComments(f.source)));
     expect(rendered).toBe(true);
   });
 
