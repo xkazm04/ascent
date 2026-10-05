@@ -1403,6 +1403,18 @@ transient failure), and both surfaces branch on it:
 - **Upstream errors are opaque.** A GitHub network failure surfaces as a fixed sentence; the raw
   fetch error (which on a GHES deploy could name the internal API host) goes to the server log only.
 
+## Reloading mid-scan rejoins the run (2026-10-05)
+
+A reload of `/report?repo=` is no longer a cold first load. `useReportScan` keeps a short-lived resume
+anchor (`scanResume.ts`, one `sessionStorage` slot naming the exact scan subject plus its real start
+time), so on remount it skips the cache peek and goes straight to the stream, where the server's
+coalescer hands it the run already under way. The stream answers with a `joined` frame, and the loading
+view then renders `ScanResumeNotice`: the repo, how long the scan has really been running, and a
+**Start a fresh scan** control that retires the anchor and re-scores from scratch. The elapsed clock is
+anchored on the scan's real start, not on the new mount. The server half (the bounded 30s linger window
+in `coalesceScan`, and why it must always close) is documented in
+[`docs/features/scanning/scan.md`](../scanning/scan.md#rejoining-a-live-scan-a-reload-does-not-pay-for-the-scan-twice).
+
 ## Known gaps
 
 - **Textual, not semantic, diffing.** `norm()` collapses whitespace/case but won't equate
