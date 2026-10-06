@@ -12,7 +12,8 @@ describe("promoted surface library", () => {
     expect(response.status).toBe(308);
     const url = new URL(getRedirectUrl(response)!);
     expect(url.pathname).toBe("/org/studio");
-    expect(url.searchParams.getAll("tab")).toEqual(["surfaces"]);
+    expect(url.searchParams.getAll("tab")).toEqual(["knowledge"]);
+    expect(url.searchParams.getAll("section")).toEqual(["surfaces"]);
     expect(url.searchParams.get("subject")).toBe("table");
     expect(url.searchParams.get("technique")).toBe("pagination");
     expect(url.searchParams.get("range")).toBe("90d");
@@ -22,17 +23,16 @@ describe("promoted surface library", () => {
   });
 
   it("does not redirect the canonical tab or unrelated destinations", async () => {
-    for (const path of ["/org/studio", "/org/studio?tab=surfaces", "/org/studio?tab=knowledge", "/about?tab=knowledge-v2"]) {
+    for (const path of ["/org/studio", "/org/studio?tab=knowledge", "/org/studio?tab=knowledge&section=surfaces", "/about?tab=knowledge-v2"]) {
       const response = await unstable_getResponseFromNextConfig({ url: `https://ascent.test${path}`, nextConfig });
       expect(getRedirectUrl(response)).toBeNull();
     }
   });
 
-  it("has one surface navigation entry for org and personal workspaces", () => {
+  it("has no surfaces rail item: it is a section of Knowledge base, and the old id still resolves", () => {
     expect(isOrgTabId("knowledge-v2")).toBe(false);
-    expect(ORG_NAV_GROUPS.flatMap(g => g.items).filter(i => i.id === "surfaces")).toEqual([
-      { id: "surfaces", label: "UI surfaces" },
-    ]);
+    expect(isOrgTabId("surfaces")).toBe(true);
+    expect(ORG_NAV_GROUPS.flatMap(g => g.items).filter(i => i.id === "surfaces")).toEqual([]);
     expect(PERSONAL_TAB_IDS.has("surfaces")).toBe(true);
     expect(isMigratedOrgTab("surfaces")).toBe(true);
   });

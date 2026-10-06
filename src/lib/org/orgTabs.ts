@@ -55,7 +55,9 @@ export const ORG_TAB_IDS = [
   // is redirected by /org/[slug]/page.tsx to `/org/<slug>/<id>` — a route this tab never had, so
   // leaving it out 404s the rail link and blanks `?tab=knowledge`.
   "knowledge",
-  // Visual UI surface library: interactive studies and knowledge references.
+  // Visual UI surface library: interactive studies and knowledge references. Since 2026-10-06 an
+  // ALIAS, not a rail item: it is the `?tab=knowledge&section=surfaces` section of the Knowledge base,
+  // and the org page redirects `?tab=surfaces` there (see `orgTabAliasTarget`).
   "surfaces",
   // UC3 "individual care". A first-class id (label / a11y / href contract), but NEITHER a `?tab=`
   // panel NOR a rail item: it is the personalized route `/org/developer`, which every signed-in
@@ -80,6 +82,17 @@ export type OrgTabId = (typeof ORG_TAB_IDS)[number];
 
 // Built from the canonical array above — never re-listed — so it stays in lockstep with the union.
 const TAB_IDS: ReadonlySet<OrgTabId> = new Set(ORG_TAB_IDS);
+
+/**
+ * Ids that are aliases of another tab's view: the org page redirects them to `tab` (plus `extra`, a
+ * section param) with every other param riding along, so a link already in an inbox lands on the
+ * current view instead of the landing tab. Null for every id that renders as itself.
+ */
+export function orgTabAliasTarget(id: OrgTabId): { tab: OrgTabId; extra?: Record<string, string> } | null {
+  if (id === "followups") return { tab: "proposals" };
+  if (id === "surfaces") return { tab: "knowledge", extra: { section: "surfaces" } };
+  return null;
+}
 
 export function isOrgTabId(value: string | null | undefined): value is OrgTabId {
   return typeof value === "string" && TAB_IDS.has(value as OrgTabId);
@@ -180,9 +193,8 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
       // `knowledge/<domain>/`. LAST in the group because it is the only one with no per-repo
       // adoption state — reference, not fleet posture.
       { id: "knowledge", label: "Knowledge base" },
-      // The Knowledge base's ui-surfaces subjects rendered as live scenes. Last: it is reference
-      // about reference — a showcase of what the registry publishes, with no fleet state at all.
-      { id: "surfaces", label: "UI surfaces" },
+      // The UI surfaces gallery (the ui-surfaces subjects rendered as live scenes) is a SECTION of this
+      // tab (`?section=surfaces`), folded in 2026-10-06 — same Apply stage, closed two-node cycle.
     ],
   },
   {
@@ -233,6 +245,8 @@ export const ORG_TABS_NOT_IN_NAV: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "segments",
   // The former Follow-ups id — an alias the org page redirects to `proposals` (2026-09-15).
   "followups",
+  // The former UI surfaces tab — folded into the Knowledge base as `?section=surfaces` (2026-10-06).
+  "surfaces",
   // `developer` left the rail: the personalized route is reached from the HEADER identity menu (your
   // own name, on every page, signed in or not in an org), which is the one place a personal surface
   // belongs — it is not an org-scoped view and never was. Still a full id: label, href contract and
@@ -273,6 +287,7 @@ const LABELS: ReadonlyMap<OrgTabId, string> = new Map<OrgTabId, string>([
   ...ORG_NAV_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i.label] as [OrgTabId, string])),
   ["segments", "Segments"],
   ["followups", "Proposals"],
+  ["surfaces", "Knowledge base"],
   ["developer", "Developer"],
 ]);
 
@@ -317,6 +332,9 @@ export const TAB_SCOPED_PARAM_KEYS = [
   // UI surfaces: which technique's mechanism drawer is open (`subject` above is shared with the
   // Knowledge base — the same slug means the same subject on both tabs, but neither may inherit it).
   "technique",
+  // Knowledge base section switch (`surfaces` = the UI surfaces gallery). NOT `view`: Live reads `view`
+  // and it is deliberately not tab-scoped.
+  "section",
   // Search + list filters
   "q",
   "search",

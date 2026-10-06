@@ -217,8 +217,8 @@ describe("journey next moves", () => {
   const graph = gaps(tree).graph;
   const waveTabs = (Object.keys(ORG_TAB_STAGE) as OrgTabId[]).filter((id) => WAVE_STAGES.has(ORG_TAB_STAGE[id]!));
 
-  it("covers the twenty-six tabs of all six stages", () => {
-    expect(waveTabs).toHaveLength(26);
+  it("covers the twenty-five tabs of all six stages", () => {
+    expect(waveTabs).toHaveLength(25);
   });
 
   it.each(waveTabs)("%s links to its next move", (tab) => {

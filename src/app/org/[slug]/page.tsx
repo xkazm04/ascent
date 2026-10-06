@@ -5,7 +5,7 @@ import { countInFlightPrs, getOrgHeaderSummary } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { resolveLandingTab } from "@/lib/org/landing";
-import { buildUrl, isMigratedOrgTab, isOrgTabId, legacyOrgTabPath } from "@/lib/org/orgTabs";
+import { buildUrl, isMigratedOrgTab, isOrgTabId, legacyOrgTabPath, orgTabAliasTarget } from "@/lib/org/orgTabs";
 
 // Kept from the layout's contract: the tenant gate must never be cached.
 export const dynamic = "force-dynamic";
@@ -72,14 +72,16 @@ export default async function OrgDashboardPage({
   const landing = resolveLandingTab({ scannedCount: summary?.scannedCount ?? 0, inFlightPrs });
   const tab = isOrgTabId(raw) ? raw : landing;
 
-  // `followups` is the Proposals tab's former id (merged 2026-09-15). Redirect rather than render, so
-  // the rail lights the item the page shows and the URL a reader copies is the current one. Every
-  // other param (period, scope, `?dim=`) rides along.
-  if (tab === "followups") {
+  // An alias id: `followups` is the Proposals tab's former id (merged 2026-09-15), `surfaces` the
+  // Knowledge base's `?section=surfaces` (folded 2026-10-06). Redirect rather than render, so the rail
+  // lights the item the page shows and the URL a reader copies is the current one. Every other param
+  // (period, scope, `?dim=`, `?subject=`) rides along.
+  const alias = orgTabAliasTarget(tab);
+  if (alias) {
     const qs = new URLSearchParams(
       Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : Array.isArray(v) ? v.map((x) => [k, x]) : [])),
     );
-    redirect(buildUrl(slug, { tab: "proposals" }, qs.toString()));
+    redirect(buildUrl(slug, { tab: alias.tab, ...alias.extra }, qs.toString()));
   }
 
   // MIGRATION SEAM (delete with MIGRATED_ORG_TAB_IDS): a valid id whose panel isn't registered in

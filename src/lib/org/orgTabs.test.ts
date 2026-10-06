@@ -14,6 +14,7 @@ import {
   ORG_NAV_GROUPS,
   ORG_TAB_IDS,
   ORG_TABS_NOT_IN_NAV,
+  orgTabAliasTarget,
   orgTabHref,
   orgTabLabel,
   PERSONAL_TAB_IDS,
@@ -58,13 +59,12 @@ describe("org tab catalog", () => {
 
   // `shared` holds what the org publishes once and every repo consumes — the registry repo and the
   // three libraries it distributes. Governance (a reading of the fleet's controls) moved to Standing
-  // and Developer left the nav entirely, so a stray id drifting back in fails here. `surfaces` is
-  // LAST on purpose (spark ui-surfaces-showcase): the Knowledge base's ui-surfaces subjects as
-  // live scenes — reference about reference, the one item with no fleet state at all.
+  // and Developer left the nav entirely, so a stray id drifting back in fails here. `surfaces` left
+  // the rail on 2026-10-06: it is a section of the Knowledge base (`?section=surfaces`) and an alias id.
   it("scopes the Shared group to the registry and what it distributes", () => {
     const shared = ORG_NAV_GROUPS.find((g) => g.key === "shared");
-    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge", "surfaces"]);
-    expect(orgTabLabel("surfaces")).toBe("UI surfaces");
+    expect(shared?.items.map((i) => i.id)).toEqual(["registry", "practices", "skills", "memory", "knowledge"]);
+    expect(orgTabLabel("surfaces")).toBe("Knowledge base");
   });
 
   // Governance is an audit of where the fleet stands, not something the org distributes: it is the
@@ -96,6 +96,27 @@ describe("org tab catalog", () => {
     expect(orgTabLabel("followups")).toBe("Proposals");
     expect(orgTabHref("acme", "proposals")).toBe("/org/acme?tab=proposals");
     expect(orgTabHref("acme", "lessons")).toBe("/org/acme?tab=lessons");
+  });
+
+  // 2026-10-06: UI surfaces folded into the Knowledge base. Same shape as followups -> proposals: the id
+  // stays valid (so an old link redirects instead of falling to the landing tab) but leaves the rail.
+  it("maps the alias ids to the view that replaced them", () => {
+    expect(orgTabAliasTarget("followups")).toEqual({ tab: "proposals" });
+    expect(orgTabAliasTarget("surfaces")).toEqual({ tab: "knowledge", extra: { section: "surfaces" } });
+    expect(orgTabAliasTarget("knowledge")).toBeNull();
+    expect(orgTabAliasTarget("proposals")).toBeNull();
+    for (const id of ORG_TAB_IDS) {
+      const target = orgTabAliasTarget(id);
+      if (!target) continue;
+      expect(ORG_TABS_NOT_IN_NAV.has(id), id).toBe(true);
+      expect(orgTabAliasTarget(target.tab), `${id} must not chain through another alias`).toBeNull();
+    }
+  });
+
+  it("keeps surfaces a valid, off-rail id labelled as the tab it folded into", () => {
+    expect(isOrgTabId("surfaces")).toBe(true);
+    expect(navIds).not.toContain("surfaces");
+    expect(ORG_TABS_NOT_IN_NAV.has("surfaces")).toBe(true);
   });
 
   // The weekly digest is the Briefing's fixed-window sibling: same audience, same group, read over a
@@ -282,6 +303,8 @@ describe("TAB_SCOPED_PARAM_KEYS", () => {
       "subject",
       // UI surfaces: the open mechanism drawer. A tab switch must not carry a technique anywhere.
       "technique",
+      // Knowledge base section switch. Not `view` (Live reads it, and it is not tab-scoped).
+      "section",
       "q",
       "search",
       "posture",

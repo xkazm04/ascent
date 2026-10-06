@@ -63,7 +63,7 @@ const nextConfig: NextConfig = {
       {
         source: "/org/:slug",
         has: [{ type: "query", key: "tab", value: "knowledge-v2" }],
-        destination: "/org/:slug?tab=surfaces",
+        destination: "/org/:slug?tab=knowledge&section=surfaces",
         permanent: true,
       },
     ];

@@ -55,7 +55,6 @@ export const ORG_TAB_STAGE: Readonly<Partial<Record<OrgTabId, OrgStageId>>> = {
   live: "apply",
   memory: "apply",
   knowledge: "apply",
-  surfaces: "apply",
   audit: "apply",
   executive: "measure",
   digest: "measure",

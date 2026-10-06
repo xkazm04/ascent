@@ -28,7 +28,6 @@ const B_NEXT_MOVE: Record<string, string> = {
   skills: "live",
   memory: "executive",
   knowledge: "executive",
-  surfaces: "executive",
   members: "repositories",
   governance: "proposals",
   integrations: "repositories",
@@ -57,17 +56,17 @@ describe("org journey B declaration", () => {
     expect(ORG_STAGES.map((s) => s.firstRun)).toEqual([true, true, false, false, false, false]);
   });
 
-  it("pins the per-stage counts at 5/2/4/4/5/6", () => {
+  it("pins the per-stage counts at 5/2/4/4/4/6", () => {
     const counts = ORG_STAGES.map((s) => staged.filter((id) => ORG_TAB_STAGE[id] === s.id).length);
-    expect(counts).toEqual([5, 2, 4, 4, 5, 6]);
+    expect(counts).toEqual([5, 2, 4, 4, 4, 6]);
   });
 
   it("assigns each stage's entry tab to that stage", () => {
     for (const s of ORG_STAGES) expect(ORG_TAB_STAGE[s.entryTab]).toBe(s.id);
   });
 
-  it("matches the addendum's B next-move column for all 26 rows", () => {
-    expect(Object.keys(B_NEXT_MOVE)).toHaveLength(26);
+  it("matches the addendum's B next-move column for all 25 rows", () => {
+    expect(Object.keys(B_NEXT_MOVE)).toHaveLength(25);
     for (const [id, next] of Object.entries(B_NEXT_MOVE)) {
       expect(nextMoveFor(id as OrgTabId), id).toBe(next);
     }
