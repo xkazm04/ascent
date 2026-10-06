@@ -16,3 +16,8 @@ scripts/*.mjs text eol=lf
 # into CRLF, `$` then sits after a stray \r, and `loop-runs-arms.test.ts` fails while Linux CI is
 # green. The index already holds LF; this makes the working tree match it.
 prisma/migrations/**/migration.sql text eol=lf
+
+# Vitest writes snapshots with LF. Under core.autocrlf a Windows checkout holds this one as CRLF, so
+# every full suite run rewrote it back to LF and left the tree dirty. Pin the one file (the only
+# .snap in the repo) to LF so the suite is a no-op on it.
+src/lib/email/__snapshots__/digest-mail.test.ts.snap text eol=lf
