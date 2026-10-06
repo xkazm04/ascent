@@ -5,7 +5,7 @@
 // AbortController pattern shared with gemini/openai). No live AWS call: the SDK is mocked.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BedrockProvider, testBedrockConnection } from "./bedrock";
+import { BedrockProvider, DEFAULT_BEDROCK_REGION, isValidAwsRegion, resolveBedrockRegion, testBedrockConnection } from "./bedrock";
 import { ASSESSMENT_TOOL_NAME } from "./schema";
 import type { LlmScoreInput } from "@/lib/llm/provider";
 
@@ -212,5 +212,58 @@ describe("testBedrockConnection — exercises the forced tool schema, not a bare
     const res = await testBedrockConnection({ model: "legacy-model", region: "us-east-1" });
     expect(res.ok).toBe(false);
     expect(res.error).toContain("tool use");
+  });
+});
+
+// ── THE REGION GRAMMAR (security scan 2026-10-06, F3) ───────────────────────────────────────────
+//
+// The SDK interpolates the region into `https://bedrock-runtime.{Region}.amazonaws.com`, so an
+// unvalidated caller-supplied region picks the host this server signs a SigV4 request to. The refusal
+// lives in resolveBedrockRegion — the one function that owns the precedence — so the provider
+// constructor and the BYOM test door both inherit it and neither can read the value without it.
+
+describe("the AWS region grammar", () => {
+  it("accepts the real region shapes", () => {
+    for (const r of ["us-east-1", "us-west-2", "eu-central-1", "ap-southeast-2", "us-gov-west-1", "ca-central-1"]) {
+      expect(isValidAwsRegion(r)).toBe(true);
+    }
+  });
+
+  it("refuses the endpoint-template escapes an owner could type", () => {
+    // `example.com/` resolves to https://bedrock-runtime.example.com/.amazonaws.com — an outbound
+    // probe to a host the caller chose. `us-east-1/../x` is the same trick wearing a valid prefix.
+    for (const r of ["example.com/", "us-east-1/../x", "", "US-EAST-1", "us-east", "us-east-1.", "us_east_1", "us-east-1 "]) {
+      expect(isValidAwsRegion(r)).toBe(false);
+    }
+  });
+
+  it("resolveBedrockRegion throws on a non-conforming EXPLICIT region instead of handing it to the SDK", () => {
+    expect(() => resolveBedrockRegion("example.com/")).toThrow("Region must look like us-east-1.");
+    expect(() => resolveBedrockRegion("us-east-1/../x")).toThrow("Region must look like us-east-1.");
+    expect(() => new BedrockProvider({ region: "example.com/" })).toThrow("Region must look like us-east-1.");
+  });
+
+  it("keeps the env fallback precedence — explicit → BEDROCK_REGION → AWS_REGION → default", () => {
+    const saved = { b: process.env.BEDROCK_REGION, a: process.env.AWS_REGION };
+    try {
+      delete process.env.BEDROCK_REGION;
+      delete process.env.AWS_REGION;
+      expect(resolveBedrockRegion()).toBe(DEFAULT_BEDROCK_REGION);
+      process.env.AWS_REGION = "ap-south-1";
+      expect(resolveBedrockRegion()).toBe("ap-south-1");
+      process.env.BEDROCK_REGION = "eu-west-3";
+      expect(resolveBedrockRegion()).toBe("eu-west-3");
+      expect(resolveBedrockRegion("us-west-2")).toBe("us-west-2");
+    } finally {
+      if (saved.b === undefined) delete process.env.BEDROCK_REGION; else process.env.BEDROCK_REGION = saved.b;
+      if (saved.a === undefined) delete process.env.AWS_REGION; else process.env.AWS_REGION = saved.a;
+    }
+  });
+
+  it("testBedrockConnection answers { ok:false, error } rather than throwing out of its contract", async () => {
+    h.send = async () => ({ output: { message: { content: [{ text: "unused" }] } } });
+    const res = await testBedrockConnection({ model: "m", region: "example.com/" });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("Region must look like us-east-1.");
   });
 });

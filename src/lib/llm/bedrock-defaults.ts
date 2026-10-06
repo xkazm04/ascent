@@ -17,3 +17,27 @@ export const DEFAULT_BEDROCK_MODEL = "us.anthropic.claude-sonnet-4-6";
 
 /** Default Bedrock region. Override with BEDROCK_REGION (or AWS_REGION). */
 export const DEFAULT_BEDROCK_REGION = "us-east-1";
+
+/**
+ * The AWS region grammar: two letters, one or more lowercase words, a digit — `us-east-1`,
+ * `eu-central-1`, `ap-southeast-2`, `us-gov-west-1`.
+ *
+ * It exists because the AWS SDK INTERPOLATES the region into its endpoint template
+ * (`https://bedrock-runtime.{Region}.amazonaws.com`), so an unvalidated value lets whoever supplies
+ * it pick the host this server signs a request to — `example.com/` resolves to
+ * `https://bedrock-runtime.example.com/.amazonaws.com` (security scan 2026-10-06, F3). Anchored, and
+ * no character class that admits `.`, `/` or `..`, which is the whole point.
+ *
+ * Lives in this pure sibling, beside the two defaults, for the reason given above: the `"use client"`
+ * settings card may want to pre-validate the field, and `@/lib/llm/bedrock` re-exports the name so
+ * there is still exactly one definition.
+ */
+const AWS_REGION_RE = /^[a-z]{2}(-[a-z]+)+-\d$/;
+
+/** True when `region` conforms to the AWS region grammar. Rejects an empty string. */
+export function isValidAwsRegion(region: string): boolean {
+  return AWS_REGION_RE.test(region);
+}
+
+/** The one sentence every door shows for a malformed region, so the copy cannot drift. */
+export const REGION_FORMAT_ERROR = "Region must look like us-east-1.";

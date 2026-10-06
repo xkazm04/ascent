@@ -30,8 +30,13 @@ import {
 
 // Single-sourced in a PURE sibling so the `"use client"` org-settings card can import the same two
 // values without pulling this module's server-side dependency tree into the client bundle.
-export { DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION } from "@/lib/llm/bedrock-defaults";
-import { DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION } from "@/lib/llm/bedrock-defaults";
+export { DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION, isValidAwsRegion, REGION_FORMAT_ERROR } from "@/lib/llm/bedrock-defaults";
+import {
+  DEFAULT_BEDROCK_MODEL,
+  DEFAULT_BEDROCK_REGION,
+  isValidAwsRegion,
+  REGION_FORMAT_ERROR,
+} from "@/lib/llm/bedrock-defaults";
 
 /** Static AWS credentials for the BYOM path (Feature 1). Omitted = the default AWS credential chain
  *  (env / role / metadata), i.e. the platform's own Bedrock account. */
@@ -47,10 +52,27 @@ function resolveBedrockModel(opt?: string): string {
   return opt || process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL;
 }
 
-/** Bedrock region: explicit opt → BEDROCK_REGION → AWS_REGION → default. The single precedence used by
- *  both the provider constructor and the BYOM test-connection endpoint. */
-function resolveBedrockRegion(opt?: string): string {
-  return opt || process.env.BEDROCK_REGION || process.env.AWS_REGION || DEFAULT_BEDROCK_REGION;
+/**
+ * Bedrock region: explicit opt → BEDROCK_REGION → AWS_REGION → default. The single precedence used by
+ * both the provider constructor and the BYOM test-connection endpoint.
+ *
+ * An explicit opt is REFUSED when it does not conform to the AWS region grammar, rather than handed
+ * to the SDK, which would interpolate it into the endpoint template and let an org owner choose the
+ * host this server signs a SigV4 request to (security scan 2026-10-06, F3). The refusal lives HERE,
+ * in the one function that owns the precedence, so every caller inherits it and none can read the
+ * caller-supplied value without it.
+ *
+ * The env fallbacks are deliberately NOT validated: they are operator configuration, out of scope per
+ * SECURITY.md, and failing an operator's own typo closed in the provider constructor would take the
+ * whole scan path down rather than one request.
+ */
+export function resolveBedrockRegion(opt?: string): string {
+  const explicit = opt?.trim();
+  if (explicit) {
+    if (!isValidAwsRegion(explicit)) throw new Error(REGION_FORMAT_ERROR);
+    return explicit;
+  }
+  return process.env.BEDROCK_REGION || process.env.AWS_REGION || DEFAULT_BEDROCK_REGION;
 }
 
 /** SDK client config: region + BYOM creds when present (else the default credential chain). */
@@ -213,8 +235,11 @@ export async function testBedrockConnection(opts: {
   credentials?: BedrockCredentials;
 }): Promise<{ ok: boolean; error?: string }> {
   const model = resolveBedrockModel(opts.model);
-  const region = resolveBedrockRegion(opts.region);
   try {
+    // Inside the try: resolveBedrockRegion THROWS on a malformed explicit region, and this function's
+    // contract is { ok, error } — the caller-facing doors answer a 400 before ever getting here, so a
+    // throw escaping would turn a validation refusal into a 500.
+    const region = resolveBedrockRegion(opts.region);
     const { BedrockRuntimeClient, ConverseCommand } = await import("@aws-sdk/client-bedrock-runtime");
     const client = new BedrockRuntimeClient(bedrockClientConfig(region, opts.credentials));
     // Same cancellation wiring as assess() — a short timeout via the shared helper (no caller signal),

@@ -96,6 +96,15 @@ describe("POST /api/org/llm-provider — gate chain + order", () => {
   it("400 missing modelId", async () => {
     expect((await POST(post({ org: "acme" }))).status).toBe(400);
   });
+  // scan F3: a non-conforming region never reaches the store, so the read side never has to trust
+  // a stored value the AWS SDK would interpolate into its endpoint template.
+  it("400s a region that is not an AWS region, and saves nothing", async () => {
+    const res = await POST(post({ ...valid, region: "example.com/" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Region must look like us-east-1.");
+    expect(h.setOrgLlmConfig).not.toHaveBeenCalled();
+    expect(h.recordOrgAudit).not.toHaveBeenCalled();
+  });
   it("denies a non-owner verbatim", async () => {
     h.requireOrgRole.mockResolvedValue(Response.json({ error: "owner only" }, { status: 403 }));
     const res = await POST(post(valid));

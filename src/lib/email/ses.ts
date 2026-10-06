@@ -2,7 +2,12 @@ import type { EmailMessage, EmailResult, EmailSender, SendOptions } from "./type
 
 /** SES region precedence: SES_REGION → AWS_REGION → AWS_DEFAULT_REGION → us-east-1. Mirrors the
  *  resolveBedrockRegion precedence so the AWS story is consistent across providers. Exported so the
- *  precedence is pinned by a unit test rather than only exercised through a live SES client. */
+ *  precedence is pinned by a unit test rather than only exercised through a live SES client.
+ *
+ *  Deliberately carries NO isValidAwsRegion check, unlike resolveBedrockRegion: every source here is
+ *  operator ENV, and resolveBedrockRegion validates only its caller-supplied `opt` for exactly the
+ *  same reason (security scan 2026-10-06, F3). There is no request-supplied region on this path, so
+ *  there is nothing for a grammar to defend. */
 export function resolveSesRegion(): string {
   return (
     process.env.SES_REGION ||

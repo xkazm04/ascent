@@ -14,7 +14,7 @@ import { getStoredByomSecret } from "@/lib/db/org-llm";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
-import { testBedrockConnection } from "@/lib/llm/bedrock";
+import { isValidAwsRegion, REGION_FORMAT_ERROR, testBedrockConnection } from "@/lib/llm/bedrock";
 import { testOpenRouterConnection } from "@/lib/llm/openrouter";
 import { testNebiusConnection } from "@/lib/llm/nebius";
 import { isApiKeyByomKind, type ApiKeyByomKind } from "@/lib/llm/byom-kinds";
@@ -95,6 +95,15 @@ async function testBedrock(org: string, model: string, body: TestBody, storedReg
       { status: 400 },
     );
   }
+  // The region is checked BEFORE the credential lookup: it is a pure format question, and refusing it
+  // first means a malformed region never costs a decrypt. BOTH sources are checked — a region saved
+  // before this grammar existed is refused here too, which is the behaviour change the operator
+  // accepted when closing scan F3: it must be re-typed to be testable. A clean 400 at the door, never
+  // a 500 out of resolveBedrockRegion, and never a SigV4-signed call to a caller-chosen host.
+  const region = body.region?.trim() || storedRegion || undefined;
+  if (region !== undefined && !isValidAwsRegion(region)) {
+    return NextResponse.json({ error: REGION_FORMAT_ERROR }, { status: 400 });
+  }
   let credentials: { accessKeyId: string; secretAccessKey: string } | null =
     hasKeyId && hasSecret
       ? { accessKeyId: body.accessKeyId!.trim(), secretAccessKey: body.secretAccessKey!.trim() }
@@ -106,6 +115,5 @@ async function testBedrock(org: string, model: string, body: TestBody, storedReg
   if (!credentials) {
     return NextResponse.json({ error: "No credentials to test. Enter your AWS keys first." }, { status: 400 });
   }
-  const region = body.region?.trim() || storedRegion || undefined;
   return testBedrockConnection({ model, region, credentials });
 }

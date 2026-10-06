@@ -21,6 +21,9 @@ import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
+// The PURE sibling, not `@/lib/llm/bedrock`: this route needs two symbols, not the provider's
+// prompt/schema/config tree. `bedrock.ts` re-exports both, so there is one definition either way.
+import { isValidAwsRegion, REGION_FORMAT_ERROR } from "@/lib/llm/bedrock-defaults";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,6 +72,12 @@ export async function POST(request: Request) {
   if (!isEncryptionConfigured()) {
     return NextResponse.json({ error: "Secret encryption is not configured on this deployment (set ENCRYPTION_KEY)." }, { status: 409 });
   }
+  // A region is the SDK's endpoint template input, so a non-conforming one never reaches the store:
+  // refusing at save time is what keeps the read side from having to trust a stored value (scan F3).
+  const region = body.region?.trim();
+  if (region && !isValidAwsRegion(region)) {
+    return NextResponse.json({ error: REGION_FORMAT_ERROR }, { status: 400 });
+  }
   // resolveViewerLogin, not the dormant session: the custom-OAuth session is null under the ACTIVE
   // Supabase wall, so this actor/audit row was recorded as null in production.
   const actorLogin = await resolveViewerLogin();
@@ -78,7 +87,8 @@ export async function POST(request: Request) {
     {
       provider,
       modelId: body.modelId,
-      region: body.region,
+      region, // the TRIMMED, validated value, so what is stored is what the grammar accepted
+
       authMode: body.authMode,
       enabled: body.enabled,
       accessKeyId: body.accessKeyId,
@@ -92,7 +102,7 @@ export async function POST(request: Request) {
   await recordOrgAudit(
     "org.llm_provider.updated",
     body.org,
-    { provider, modelId: body.modelId.trim(), region: body.region ?? null, enabled: body.enabled ?? false, credsRotated: Boolean(body.accessKeyId || body.apiKey) },
+    { provider, modelId: body.modelId.trim(), region: region ?? null, enabled: body.enabled ?? false, credsRotated: Boolean(body.accessKeyId || body.apiKey) },
     actorLogin ?? undefined,
   );
   return NextResponse.json({ ok: true });

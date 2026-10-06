@@ -47,7 +47,12 @@ vi.mock("@/lib/db/org-llm", () => ({ getStoredByomSecret: h.getStoredByomSecret 
 vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: h.requireSameOrigin }));
 vi.mock("@/lib/crypto/secret-box", () => ({ isEncryptionConfigured: h.isEncryptionConfigured }));
-vi.mock("@/lib/llm/bedrock", () => ({ testBedrockConnection: h.testBedrockConnection }));
+// The REAL region grammar, with only the network call stubbed: a mocked isValidAwsRegion would prove
+// the route calls something rather than that `example.com/` is refused (scan F3).
+vi.mock("@/lib/llm/bedrock", async () => ({
+  ...(await vi.importActual<typeof import("@/lib/llm/bedrock-defaults")>("@/lib/llm/bedrock-defaults")),
+  testBedrockConnection: h.testBedrockConnection,
+}));
 vi.mock("@/lib/llm/openrouter", () => ({ testOpenRouterConnection: h.testOpenRouterConnection }));
 vi.mock("@/lib/llm/nebius", () => ({ testNebiusConnection: h.testNebiusConnection }));
 
@@ -100,6 +105,24 @@ describe("POST /api/org/llm-provider/test — gate chain", () => {
 
   it("400 without an org", async () => {
     expect((await POST(post({}))).status).toBe(400);
+    noProviderCalled();
+  });
+
+  // scan F3: `region` is the SDK's endpoint-template input, so a malformed one is a clean 400 at the
+  // door and the SigV4-signed call to a caller-chosen host is never made.
+  it("400s a body region that is not an AWS region, and calls no provider", async () => {
+    const res = await POST(post({ org: "acme", region: "example.com/" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Region must look like us-east-1.");
+    noProviderCalled();
+  });
+
+  it("400s a STORED region that does not conform, so a pre-grammar value cannot be tested either", async () => {
+    h.getOrgLlmConfig.mockResolvedValue({ ...BEDROCK_CONFIG, region: "us-east-1/../x" });
+    h.getStoredByomSecret.mockResolvedValue({ provider: "bedrock", credentials: { accessKeyId: "AKIA", secretAccessKey: "s" } });
+    const res = await POST(post({ org: "acme" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Region must look like us-east-1.");
     noProviderCalled();
   });
 
