@@ -24,7 +24,7 @@ import type { LegConnection } from "@/lib/llm/text";
 import type { ByomProviderParams } from "@/lib/db/org-llm";
 import type { ByomKind } from "@/lib/llm/byom-kinds";
 import { DEFAULT_GEMINI_MODEL, GeminiProvider } from "@/lib/llm/gemini";
-import { BedrockProvider, DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION, type BedrockCredentials } from "@/lib/llm/bedrock";
+import { BedrockProvider, DEFAULT_BEDROCK_MODEL, DEFAULT_BEDROCK_REGION, isValidAwsRegion, type BedrockCredentials } from "@/lib/llm/bedrock";
 import { DEFAULT_OPENAI_MODEL, OpenAiProvider } from "@/lib/llm/openai";
 import { DEFAULT_OPENROUTER_MODEL, OpenRouterProvider } from "@/lib/llm/openrouter";
 import { GatewayProvider } from "@/lib/llm/gateway";
@@ -315,6 +315,34 @@ export interface ByomDescriptor {
 }
 
 /**
+ * A STORED Bedrock region → the value both BYOM seams may use, or a refusal.
+ *
+ * `resolveBedrockRegion` closed F3 for the scan path because the provider constructor runs it; the
+ * text leg never did — it read `p.region ?? DEFAULT_BEDROCK_REGION` and handed that straight to
+ * `new BedrockRuntimeClient({ region })`, which interpolates the region into its endpoint template.
+ * A region saved before that fix, or written by any path that skipped validation, therefore still
+ * chose the host this server signs a SigV4 request to. This is the one place the BYOM mapping reads
+ * a stored region, so the check lives here and both arms inherit it.
+ *
+ * Absent (or blank) returns undefined, which keeps BOTH existing behaviours exactly: the scan path
+ * falls through to its env precedence, the leg to DEFAULT_BEDROCK_REGION. Anything non-conforming
+ * THROWS, naming the saved value and the remedy — the org owner typed it, so they can retype it.
+ *
+ * Operator ENV stays unvalidated here, as `resolveBedrockRegion`'s own header records.
+ */
+export function storedBedrockRegion(region: string | undefined): string | undefined {
+  const stored = region?.trim();
+  if (!stored) return undefined;
+  if (isValidAwsRegion(stored)) return stored;
+  // Bounded so a pathological saved value cannot turn the error into the payload.
+  const shown = stored.slice(0, 64);
+  throw new Error(
+    `The saved Bedrock region ${JSON.stringify(shown)} is not a valid AWS region (it must look like ` +
+      `us-east-1). Re-type the region in the organization's LLM provider settings and save again.`,
+  );
+}
+
+/**
  * An org's resolved BYOM params → its provider, for BOTH seams. Bedrock keeps inference in the org's
  * AWS boundary; OpenRouter routes to third-party upstreams on the org's own key; Nebius runs hosted
  * open-weight models in Nebius's datacenter on the org's own Token Factory key. This is the one
@@ -345,8 +373,16 @@ export function byomDescriptor(p: ByomProviderParams): ByomDescriptor {
         model: p.model,
         // The scan provider resolves an absent region through BEDROCK_REGION/AWS_REGION itself; the text
         // leg takes the default directly. Both behaviours are preserved exactly as they were.
-        scan: () => new BedrockProvider({ model: p.model, region: p.region, credentials: p.credentials }),
-        leg: (bind) => bind.bedrock(p.model, p.region ?? DEFAULT_BEDROCK_REGION, p.credentials),
+        // storedBedrockRegion runs INSIDE each arrow, not when the descriptor is built, so a bad saved
+        // region fails the call that would have used it and nothing else.
+        scan: () =>
+          new BedrockProvider({
+            model: p.model,
+            region: storedBedrockRegion(p.region),
+            credentials: p.credentials,
+          }),
+        leg: (bind) =>
+          bind.bedrock(p.model, storedBedrockRegion(p.region) ?? DEFAULT_BEDROCK_REGION, p.credentials),
       };
   }
 }

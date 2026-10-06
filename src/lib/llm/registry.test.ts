@@ -198,6 +198,79 @@ describe("BYOM — one byomDescriptor mapping serves both seams", () => {
   });
 });
 
+// F3's residual: resolveBedrockRegion closed the scan path (the provider constructor runs it), but the
+// text leg bound `p.region ?? DEFAULT_BEDROCK_REGION` straight into BedrockRuntimeClient, which
+// interpolates the region into its endpoint template. A region stored before that fix still chose the
+// host this server signs a SigV4 request to. storedBedrockRegion now gates BOTH arms.
+describe("F3 residual: a STORED bedrock region is validated on both BYOM arms", () => {
+  const BAD = "example.com/";
+  const bedrockParams = (region?: string) =>
+    ({
+      kind: "bedrock",
+      model: "eu.anthropic.claude-sonnet-4-6",
+      region,
+      credentials: { accessKeyId: "AKIA", secretAccessKey: "s" },
+    }) as const;
+
+  /** The text seam's transports, stubbed, so "never called" is observable. */
+  function stubBinders() {
+    const bedrock = vi.fn(() => ({ engine: "bedrock" }));
+    return {
+      bedrock,
+      binders: {
+        bedrock,
+        openrouter: vi.fn(),
+        nebius: vi.fn(),
+      } as unknown as Parameters<ReturnType<typeof byomDescriptor>["leg"]>[0],
+    };
+  }
+
+  it("a malformed stored region throws on the LEG and never reaches the bedrock transport", () => {
+    const { bedrock, binders } = stubBinders();
+    const d = byomDescriptor(bedrockParams(BAD));
+    expect(() => d.leg(binders)).toThrow(/example\.com\//);
+    expect(() => d.leg(binders)).toThrow(/Re-type/);
+    expect(bedrock).not.toHaveBeenCalled();
+  });
+
+  it("the same named error (not the bare format sentence) fires on the SCAN arm", () => {
+    const d = byomDescriptor(bedrockParams(BAD));
+    expect(() => d.scan()).toThrow(/The saved Bedrock region "example\.com\/" is not a valid AWS region/);
+    expect(() => d.scan()).toThrow(/Re-type/);
+  });
+
+  it("a valid stored region reaches the transport unchanged", () => {
+    const { bedrock, binders } = stubBinders();
+    byomDescriptor(bedrockParams("eu-west-1")).leg(binders);
+    expect(bedrock).toHaveBeenCalledWith(
+      "eu.anthropic.claude-sonnet-4-6",
+      "eu-west-1",
+      { accessKeyId: "AKIA", secretAccessKey: "s" },
+    );
+  });
+
+  it("an absent region keeps both old behaviours: the leg default, the scan env precedence", () => {
+    const { bedrock, binders } = stubBinders();
+    byomDescriptor(bedrockParams(undefined)).leg(binders);
+    expect(bedrock.mock.calls[0]?.[1]).toBe("us-east-1");
+
+    vi.stubEnv("BEDROCK_REGION", "ap-south-1");
+    expect((byomDescriptor(bedrockParams(undefined)).scan() as { region: string }).region).toBe("ap-south-1");
+  });
+
+  it("a pathological saved value appears CUT in the message, so the error stays bounded", () => {
+    const long = "x".repeat(200);
+    let message = "";
+    try {
+      byomDescriptor(bedrockParams(long)).leg(stubBinders().binders);
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toContain(`"${"x".repeat(64)}"`);
+    expect(message).not.toContain("x".repeat(65));
+  });
+});
+
 describe("guards — behaviour that held before the registry and must still hold", () => {
   it("guard: LLM_PROVIDER=mock -> no text engine, MockProvider for scans", async () => {
     vi.stubEnv("LLM_PROVIDER", "mock");
