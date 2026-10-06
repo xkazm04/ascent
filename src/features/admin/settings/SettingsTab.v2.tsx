@@ -15,6 +15,7 @@ import { DataErasureCard } from "./DataErasureCard";
 import { RetentionCard } from "./RetentionCard";
 import { SettingsMastheadV2, settingsAccountV2 } from "./SettingsSummary.v2";
 import type { SettingsData } from "./settingsData";
+import Link from "next/link";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
@@ -57,6 +58,12 @@ export function settingsV2(d: SettingsData) {
           <DataErasureCard slug={slug} />
         </div>
       </Frame>
+      {/* A second route to the same stage's Members tab; the next move below stays alone. */}
+      <nav aria-label="Related views" className="flex justify-end">
+        <Link href={orgTabHref(slug, "members")} className="focus-ring type-caption text-accent transition hover:text-white">
+          Members →
+        </Link>
+      </nav>
       <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
     </div>
   );

@@ -124,6 +124,10 @@ Knowledge base on "Org memory →" (data branch only), and Live on "Audit trail 
 ledger, desk; hidden in TV fullscreen with the next move). That leaves Members as the only tab with no sibling
 link into it (wave 3: Settings).
 
+**Inbound wave 3 (2026-10-06)** adds a plain "Members →" sibling link from Settings, in a "Related views" row above its
+next move in both compositions. settings -> members takes the no-inbound pin from 1 to 0, so every on-rail tab now
+has a sibling entrance as well as an exit.
+
 ### The transition programme (W1c, 2026-08-14)
 
 The org's **named, dated commitment**: one row per org (`TransitionProgram`, `orgId` unique),

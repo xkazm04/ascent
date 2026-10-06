@@ -13,6 +13,7 @@ import { RetentionCard } from "./RetentionCard";
 import { PlanControl } from "./PlanControl";
 import { SectionHeader } from "@/components/org/shared/ui";
 import type { SettingsData } from "./settingsData";
+import Link from "next/link";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
@@ -40,6 +41,12 @@ export function settingsV1(d: SettingsData) {
           control (rather than seeing them disabled). Save on RetentionCard never purges. */}
       <RetentionCard slug={slug} initial={retention} />
       <DataErasureCard slug={slug} />
+      {/* A second route to the same stage's Members tab; the next move below stays alone. */}
+      <nav aria-label="Related views" className="flex justify-end">
+        <Link href={orgTabHref(slug, "members")} className="focus-ring type-caption text-accent transition hover:text-white">
+          Members →
+        </Link>
+      </nav>
       <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
     </div>
   );

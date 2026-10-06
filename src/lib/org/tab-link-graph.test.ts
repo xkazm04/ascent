@@ -109,8 +109,9 @@ const DESIGNED_DEAD_ENDS = new Set(["followups"]);
  *  at `repositories` and `overview`, and neither is a member. Inbound wave 1: 8 -> 5 - second-route
  *  sibling links `executive` -> `digest`, `overview` -> `tech-stacks` and `overview` -> `security` drop
  *  those three. Inbound wave 2: 5 -> 1 - `repositories` -> `passports`, `proposals` -> `lessons`,
- *  `knowledge` -> `memory` and `live` -> `audit` drop those four; `members` (wave 3) is the last. */
-const NO_INBOUND = ["members"];
+ *  `knowledge` -> `memory` and `live` -> `audit` drop those four; `members` (wave 3) is the last.
+ *  Inbound wave 3: 1 -> 0 - settings -> members drops the last one; empty means every on-rail tab has a sibling entrance. */
+const NO_INBOUND: string[] = [];
 /** Tabs that link to no sibling, beyond the designed dead ends. Measured 2026-10-05: 6 (`lessons`
  *  replaced `surfaces`, which gained an outbound link; `practices` then gained one too - the sync
  *  strip's `registry` link added by d4552ffb, which left this pin stale and this suite red). Shrunk to
@@ -171,21 +172,22 @@ describe("the org cross-tab link graph", () => {
   });
 
   // A matcher that stops matching reports a clean codebase in a voice indistinguishable from
-  // success. NO_OUTBOUND is empty and `audit` now has Live's link, so first delete members' only outbound
-  // link and Live's link to audit (both reappear as gaps), then seed one new edge members -> audit and
-  // prove both lists shrink. The `bare` assertions are the fail-before: without the seed, nothing moves.
+  // success. NO_OUTBOUND and NO_INBOUND are empty, so first delete members' only outbound link, Live's
+  // link to audit and Settings' link to members (members and audit reappear as gaps), then seed one new
+  // edge members -> audit and prove both lists shrink. The `bare` assertions are the fail-before:
+  // without the seed, nothing moves.
   it("a seeded edge moves both numbers: members regains an exit, audit gains an entrance", () => {
-    const bare = withoutPlainLink(withoutLink(tree, "members", "repositories"), "live", "audit");
+    const bare = withoutPlainLink(withoutPlainLink(withoutLink(tree, "members", "repositories"), "live", "audit"), "settings", "members");
     expect(gaps(bare).noOutbound).toEqual(["members"]);
     expect(gaps(bare).noInbound).toEqual(["members", "audit"]);
     const seeded = [...bare, { path: "src/features/admin/members/Seed.tsx", source: `orgTabHref(slug, "audit")` }];
     const { noInbound, noOutbound } = gaps(seeded);
     expect(noInbound).not.toContain("audit");
-    expect(noInbound).toEqual(NO_INBOUND);
+    expect(noInbound).toEqual(["members"]);
     expect(noOutbound).toEqual([]);
   });
 
-  // Inbound wave 2: each new entrance is the target's ONLY inbound edge, so deleting its literal brings
+  // Inbound waves 2 and 3: each new entrance is the target's ONLY inbound edge, so deleting its literal brings
   // the target straight back into noInbound. A matcher that stopped matching would leave these green
   // and the pin above clean, so the removal is proved per edge.
   it.each([
@@ -193,6 +195,7 @@ describe("the org cross-tab link graph", () => {
     ["proposals", "lessons"],
     ["knowledge", "memory"],
     ["live", "audit"],
+    ["settings", "members"],
   ])("removing %s -> %s puts %s back in noInbound", (from, to) => {
     expect(gaps(tree).graph.inbound[to]).toEqual([from]);
     expect(gaps(withoutPlainLink(tree, from, to)).noInbound).toEqual([...NO_INBOUND, to].sort((a, b) => IDS.indexOf(a) - IDS.indexOf(b)));
@@ -313,5 +316,20 @@ describe("themed Connect tabs carry the link in every composition", () => {
     const f = tree.find((x) => x.path === file);
     expect(f).toBeDefined();
     expect((stripComments(f!.source).match(NEXT_MOVE_SITE("repositories")) ?? []).length).toBe(literals);
+  });
+});
+
+// Inbound wave 3. Settings' Members link is a plain `<Link>` in BOTH compositions; the graph edge
+// survives through either one, so the literal is counted per file to notice a single deletion.
+describe("Settings carries its Members sibling link in every composition", () => {
+  const tree = readTree();
+  const PLAIN_LINK = /<Link href=\{orgTabHref\(slug, "members"\)\}/g;
+  it.each([
+    "src/features/admin/settings/SettingsTab.v1.tsx",
+    "src/features/admin/settings/SettingsTab.v2.tsx",
+  ])("%s renders one plain Members link", (file) => {
+    const f = tree.find((x) => x.path === file);
+    expect(f).toBeDefined();
+    expect((stripComments(f!.source).match(PLAIN_LINK) ?? []).length).toBe(1);
   });
 });
