@@ -18,10 +18,11 @@ paired reading, that dimension has no delta.
 
 ## Navigation & org context
 
-The Shared group's **UI surfaces** (`?tab=surfaces`) uses the visual gallery and focused
-playgrounds developed as Knowledge base v2. The experimental `?tab=knowledge-v2` URL redirects
-to it with deep-link parameters preserved. The legacy showcase implementation and duplicate
-navigation entry are removed. See [the surfaces feature doc](../org-knowledge/surfaces.md).
+The Knowledge base's **UI surfaces** section (`?tab=knowledge&section=surfaces`) uses the visual
+gallery and focused playgrounds developed as Knowledge base v2. It was a rail tab until
+2026-10-06; `?tab=surfaces` and the experimental `?tab=knowledge-v2` URL now redirect to the section
+with deep-link parameters preserved. The legacy showcase implementation and duplicate navigation
+entry are removed. See [the surfaces feature doc](../org-knowledge/surfaces.md).
 
 `/org` (`src/app/org/page.tsx`) redirects to the active org's dashboard. Each
 `/org/[slug]/*` page renders inside `src/app/org/[slug]/layout.tsx`, which centralizes the
@@ -257,7 +258,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Shared | Skills | `org/[slug]/skills` | `src/app/org/[slug]/skills/` | Skill drift/dormancy views. |
 | Shared | Memory | `org/[slug]/memory` | `src/app/org/[slug]/memory/` | Shared Org Memory browser. |
 | Shared | Knowledge base | `org/[slug]?tab=knowledge` | `src/features/shared/knowledge/` | The registry's knowledge lane as the registry structures it (bundle → category → subcategory → subject) and the fleet's standing against it: one cell per subject × swept repo in an eleven-state vocabulary (four verdicts, seven classified absences), a subject reader, and the dispatch composer that hands a repo its next registry stage (populate → map → conform) as a brief or a local run. Reads `?domain=` and `?subject=`. Born inside the `?tab=` shell, so unlike its Shared siblings it has **no** `/org/[slug]/knowledge` route — which is exactly why its id must sit in `MIGRATED_ORG_TAB_IDS`. See [org-knowledge/knowledge-base.md](../org-knowledge/knowledge-base.md). |
-| Shared | UI surfaces | `org/[slug]?tab=surfaces` | `src/features/shared/surfaces/` | Visual gallery of 33 subjects with 14 interactive studies, category/search filters, local sample data and knowledge reference links. Supports subject/technique deep links. See [org-knowledge/surfaces.md](../org-knowledge/surfaces.md). |
+| Shared (section of Knowledge base) | UI surfaces | `org/[slug]?tab=knowledge&section=surfaces` (`?tab=surfaces` and `?tab=knowledge-v2` redirect here) | `src/features/shared/surfaces/` | Visual gallery of 33 subjects with 14 interactive studies, category/search filters, local sample data and knowledge reference links. Supports subject/technique deep links. See [org-knowledge/surfaces.md](../org-knowledge/surfaces.md). |
 | — (header menu) | Developer | `/org/developer` | `src/features/developer/` | UC3 individual care. Reached from the **header identity menu** (your own name), not from the org rail — it is not org-scoped, so it is in `ORG_TABS_NOT_IN_NAV`. Not a `?tab=` panel either: a static route personalized to the signed-in viewer (their commits and AI share, the open gaps of their repos, their private care loop). It renders the same `OrgShell` as every tab, with `activeTab="developer"`. The anonymized org aggregate lives in Contributors, under `CHAMPION_MIN_POP`, never a per-person row — see [developer.md](developer.md). |
 | Standing | Governance | `org/[slug]/governance` | `src/features/standing/governance/` | Governance rollups: gate tiles, the editable policy card, fail-reasons, failing repos, the CI snippet, the evidence pack, and the AI stance section. No standfirst under the title, and no "Cheapest path to green" card (both deleted 2026-08-19 — see below). Every panel opens on a shape since the Wave-1 redesign (2026-09-08 — see "Governance, redesigned" below). |
 | In flight | Live | `org/[slug]/live` | `src/app/org/[slug]/live/` | Live/war-room view. |

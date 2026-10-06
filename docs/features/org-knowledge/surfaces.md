@@ -1,23 +1,28 @@
 # UI surfaces
 
-**Status: CURRENT** (2026-09-09). The visual library developed as Knowledge base v2
-is now the sole UI surfaces implementation.
+**Status: CURRENT** (2026-10-06). The visual library developed as Knowledge base v2
+is the sole UI surfaces implementation, and since 2026-10-06 it is a **section of the Knowledge
+base tab**, not a tab of its own.
 
 ## Navigation and URLs
 
-**Shared > UI surfaces** opens `/org/<slug>?tab=surfaces`. The original Knowledge base
-remains a separate tab. The experimental Knowledge base v2 entry is removed from navigation
-and the tab catalog; `?tab=knowledge-v2` permanently redirects (308) to `?tab=surfaces`, preserving subject,
-technique, period and repeated query parameters.
+**Shared > Knowledge base > UI surfaces** opens `/org/<slug>?tab=knowledge&section=surfaces`. A
+`Subjects | UI surfaces` switch at the top of the Knowledge base tab moves between the registry's
+subjects (the default) and this gallery. UI surfaces left the rail on 2026-10-06 (26 -> 25 on-rail
+tabs; same Apply stage). `surfaces` stays a valid tab id as an alias: `?tab=surfaces` redirects
+(the org page, one hop) to `?tab=knowledge&section=surfaces`, and `?tab=knowledge-v2` permanently
+redirects (308, `next.config.ts`) straight to the same place, both preserving subject, technique,
+period, scope and repeated query parameters.
 
 | URL | View |
 | --- | --- |
-| `?tab=surfaces` | Visual gallery, category filters and search |
+| `?tab=knowledge&section=surfaces` | Visual gallery, category filters and search |
 | `&subject=<slug>` | Interactive study or reference-only subject |
 | `&subject=<slug>&technique=<slug>` | Study with reference techniques expanded and the requested technique highlighted |
 
 Unknown subjects return to the gallery with a notice. Unknown techniques show a notice
-inside the reference section. Tab switches clear subject and technique; links within the
+inside the reference section. `section` is a tab-scoped param, so a tab switch clears it along with
+subject and technique, and the section switch clears subject and technique; links within the
 library preserve cross-tab scope and period. Previous/next links follow the study order.
 Filters are local state and survive returning from a study while the library stays mounted.
 
@@ -55,6 +60,8 @@ submit before event handlers attach.
 
 ## Implementation and authoring
 
+- `src/features/shared/knowledge/KnowledgeSection.tsx` (+ `KnowledgeSectionSwitch.tsx`): the section host
+  and the `Subjects | UI surfaces` switch; renders the gallery view's single next-move link.
 - `src/features/shared/surfaces/SurfacesTab.tsx`: gallery, filtering and subject selection.
 - `Playground.tsx`: study frame, reset, reference disclosure and adjacent navigation.
 - `DataPlayground.tsx`, `DataCharts.tsx`, `DiffStudy.tsx`: data demonstrations.
@@ -63,6 +70,7 @@ submit before event handlers attach.
 - `src/lib/org/surface-catalog.ts`: taxonomy and study availability; shared with Knowledge base.
 - `src/lib/org/surface-studies.ts`: registry technique vocabulary for implemented studies.
 - `next.config.ts`: experimental URL compatibility redirect, before page rendering.
+- `src/lib/org/orgTabs.ts` `orgTabAliasTarget`: the `surfaces` -> `knowledge` + `section=surfaces` alias.
 
 To add a study, implement its playground and preview, add its description and reference
 techniques, and extend the catalog/interaction tests. Keep feature files at 200 lines or fewer.

@@ -18,7 +18,7 @@ its `.ai/registry-map.json`, and Ascent's sweep reads them. This tab is a mirror
 
 | Use case | Where it lives on the tab |
 | --- | --- |
-| **Map the registry into Ascent** — see the corpus as the registry lays it out | the row labels: categories and subcategories in the taxonomy's declared order, subject slugs verbatim; the subject reader (`use_when` triggers, laws, status, technique count, the golden path's real file path, a link into the registry repo, and — when the subject has a showcase — an `Open showcase →` link into `?tab=surfaces&subject=<slug>`; see [surfaces.md](surfaces.md)) |
+| **Map the registry into Ascent** — see the corpus as the registry lays it out | the row labels: categories and subcategories in the taxonomy's declared order, subject slugs verbatim; the subject reader (`use_when` triggers, laws, status, technique count, the golden path's real file path, a link into the registry repo, and — when the subject has a showcase — an `Open showcase →` link into `?tab=knowledge&section=surfaces&subject=<slug>`; see [surfaces.md](surfaces.md)) |
 | **Map Ascent projects into the registry** — scan → map → conform | the "off the loom" strip (repos with no map and their next act), the dispatch composer, the hand-off ledger; see [Dispatch](../org-registry/README.md#dispatching-a-registry-stage-to-a-repo) |
 | **Domain matrix** — which projects consume which topics of a domain | the loom itself: every subject of the selected bundle × every mapped repo |
 
@@ -26,7 +26,8 @@ its `.ai/registry-map.json`, and Ascent's sweep reads them. This tab is a mirror
 
 | Path | Role |
 | --- | --- |
-| `src/features/shared/knowledge/KnowledgeTab.tsx` | server tab; reads `?domain=` and `?subject=`; unmapped / error / empty notices; the dev-only preview shell |
+| `src/features/shared/knowledge/KnowledgeSection.tsx` (+ `KnowledgeSectionSwitch.tsx`) | the tab host: a `Subjects \| UI surfaces` switch; `?section=surfaces` swaps in the UI surfaces gallery ([surfaces.md](surfaces.md)), which was its own tab until 2026-10-06 (`?tab=surfaces` redirects here) |
+| `src/features/shared/knowledge/KnowledgeTab.tsx` | the Subjects view (server); reads `?domain=` and `?subject=`; unmapped / error / empty notices; the dev-only preview shell |
 | `KnowledgeLoom.tsx` (+ `KnowledgeLoomGrid.tsx`) | the client orchestrator and the matrix |
 | `KnowledgeCoverage.tsx` | **first sight**: the bundle coverage matrix (Mirrored × Routable × Judged, one row per bundle) |
 | `KnowledgeStateLegend.tsx` | the legend — each row is the kit's `StateSwatch` under the domain glyph |

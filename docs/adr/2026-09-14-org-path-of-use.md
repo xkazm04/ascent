@@ -611,3 +611,28 @@ that list, and the evidence that section 3's candidates were argued on an axis j
 does not use. The inbound target of 0 is shown to be reachable without a single merge; the
 merges therefore stand or fall on legibility, and that argument is the operator's to settle,
 not this review's.
+
+
+## Decision 2026-10-06 - Surfaces folds into Knowledge
+
+The operator answered the architecture review's operator-only questions (answer cbc12f58).
+
+- **Chosen: the same-stage fold.** `surfaces` folds into `knowledge`: the UI surfaces gallery is now the
+  `?tab=knowledge&section=surfaces` section of the Knowledge base, behind a `Subjects | UI surfaces`
+  switch. Both were Apply, and review (d) named it the strongest candidate and the only one with no
+  stage question.
+- **Counts.** On-rail 26 -> **25**. Apply 5 -> **4** (`live`, `memory`, `knowledge`, `audit`). Per-stage
+  sizes are now Connect 5, Scan 2, Read 4, Decide 4, Apply 4, Measure 6. The next-move literal for the
+  gallery view is the knowledge-owned `NextMoveLink` to `executive`; one link renders per view.
+- **`surfaces` is kept as a redirecting alias id**, the `followups` -> `proposals` precedent: it stays in
+  `ORG_TAB_IDS` (so `isOrgTabId` is true and old links redirect instead of falling to the landing tab),
+  leaves `ORG_NAV_GROUPS`, and joins `ORG_TABS_NOT_IN_NAV`. The org page redirects `?tab=surfaces` to
+  `?tab=knowledge&section=surfaces` through `orgTabAliasTarget`, and `?tab=knowledge-v2` redirects there in
+  one hop. `section` is a new tab-scoped param (`view` is Live's and is deliberately not tab-scoped).
+- **The three cross-stage merges from section 3 and review (d) are DROPPED**, not deferred: `skills` behind
+  `registry` (re-hosted form: behind `practices`), `memory` behind `registry` (re-hosted form: behind
+  `knowledge`) and `audit` behind `members`/`settings` (re-hosted form: behind `live`). Those tabs stay.
+- **The stage set is unchanged** (six stages) and **no seventh category is added** for reference and
+  record. The six `†` placements stand.
+- `NO_INBOUND` and `NO_OUTBOUND` remain `[]`. Earlier sections of this ADR state counts as measured on their
+  dates (26 on-rail and Apply 5 included); they are left as written and this section is the current count.
