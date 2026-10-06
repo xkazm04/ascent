@@ -7,10 +7,18 @@
 // shape and the item identities the notifier reads are in src/lib/org/runner-needs-you.ts. `runner` says
 // whether a live continuous drive exists at all, which is how the notifier knows whether to offer itself.
 //
-// Gated like every org read that sits under the loop: requireOrgAccess on the caller-supplied org, and
-// every read below is constrained BY that org (gate-then-constrain) — there is no id to swap.
+// Gated like every org read that sits under the loop: the public funnel org refused explicitly, then
+// requireOrgAccess on the caller-supplied org, and every read below is constrained BY that org
+// (gate-then-constrain) — there is no id to swap.
+//
+// The PUBLIC_ORG refusal is the same one `loop/pulse`, `loop/plans`, `loop/directions` and
+// `loop/route.ts` state, and for their reason: requireOrgAccess lets `public` through BY DESIGN (it is
+// the anonymous funnel), so a loop read that does not name the rule inherits an open door from a gate
+// that was never meant to close this one. It was the one member of the family that didn't say it
+// (security scan 2026-10-06, F4).
 
 import { NextResponse } from "next/server";
+import { PUBLIC_ORG } from "@/lib/auth";
 import { requireOrgAccess } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { listLoopPlans } from "@/lib/db/loop-plans";
@@ -24,8 +32,9 @@ export const dynamic = "force-dynamic";
 const DRIVES_SCANNED = 10;
 
 export async function GET(request: Request) {
-  const org = new URL(request.url).searchParams.get("org")?.trim();
-  if (!org) return NextResponse.json({ error: "Provide ?org=." }, { status: 400 });
+  // Normalized exactly as the pulse normalizes it, so `Public` and `public` are the same refusal.
+  const org = new URL(request.url).searchParams.get("org")?.trim().toLowerCase() ?? "";
+  if (!org || org === PUBLIC_ORG) return NextResponse.json({ error: "Provide ?org=." }, { status: 400 });
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
   const noDb = dbGuard("The runner's needs-you read", "The runner's needs-you read requires a database.");

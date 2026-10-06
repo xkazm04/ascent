@@ -7,6 +7,7 @@ vi.mock("next/server", () => ({
   NextResponse: { json: (body: unknown, init?: ResponseInit) => new Response(JSON.stringify(body), init) },
 }));
 const gate = vi.hoisted(() => ({ denied: null as Response | null, db: true }));
+vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public" }));
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => gate.denied) }));
 vi.mock("@/lib/api/orgPlan", () => ({
   dbGuard: () => (gate.db ? null : new Response(JSON.stringify({ error: "no db" }), { status: 503 })),
@@ -48,6 +49,17 @@ describe("GET /api/org/loop/needs-you", () => {
   it("400 without an org", async () => {
     expect((await get("")).status).toBe(400);
     expect(requireOrgAccess).not.toHaveBeenCalled();
+  });
+
+  // scan F4: requireOrgAccess lets the funnel org through by design, so every loop read states the
+  // rule itself. This was the one member of the family that didn't.
+  it("400s ?org=public before the gate, in any casing, and reads nothing", async () => {
+    for (const q of ["?org=public", "?org=Public", "?org=%20public%20"]) {
+      expect((await get(q)).status).toBe(400);
+    }
+    expect(requireOrgAccess).not.toHaveBeenCalled();
+    expect(listLoopPlans).not.toHaveBeenCalled();
+    expect(listDriveRows).not.toHaveBeenCalled();
   });
 
   it("503 on a deployment with no database, after the gate", async () => {

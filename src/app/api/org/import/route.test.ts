@@ -471,6 +471,21 @@ describe("POST /api/org/import — schedule validation (ambiguity-ui 2026-07-16 
     await runImport({ org: "public", repos: ["acme/web"], mock: true, watch: false });
     expect(mockScan).toHaveBeenCalledTimes(1);
   });
+
+  // scan F5: `repos?: string[]` is a claim about a parsed body, not a fact. A non-string element used
+  // to reach parseForgeUrl INSIDE the SSE start() callback and throw there — a torn stream, not a 400.
+  it("400s a repos[] whose elements are not strings, before the stream opens", async () => {
+    const res = await rawImport({ org: "public", repos: [1], mock: true });
+    expect(res.status).toBe(400);
+    const d = (await res.json()) as { error?: string };
+    expect(d.error).toMatch(/repos/i);
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+
+  it("keeps the string elements of a mixed repos[] and ignores the rest", async () => {
+    await runImport({ org: "public", repos: ["acme/web", 7, null], mock: true, watch: false });
+    expect(mockScan).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("POST /api/org/import — per-repo in-flight claim (no double-scan/charge)", () => {

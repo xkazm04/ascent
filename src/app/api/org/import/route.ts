@@ -112,6 +112,18 @@ export async function POST(request: Request) {
   const org = body.org ? normalizeOrgSlug(body.org) : undefined;
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
 
+  // ELEMENT TYPE, not just presence (security scan 2026-10-06, F5). `repos?: string[]` is a claim
+  // about a parsed JSON body, not a fact: a `{repos:[1]}` reached `parseForgeUrl` / `fn.includes("/")`
+  // INSIDE the SSE `start()` callback and threw there, so the caller got a torn stream instead of the
+  // 400 the coordinate validator would have produced two lines later. Same filter as the siblings at
+  // org/loop/route.ts and org/skills/retire/route.ts. A list that was supplied but is entirely
+  // non-strings is a 400 here — falling through to "list the whole org" would silently import
+  // something nobody asked for.
+  const repos = Array.isArray(body.repos) ? body.repos.filter((r): r is string => typeof r === "string") : [];
+  if (Array.isArray(body.repos) && body.repos.length > 0 && repos.length === 0) {
+    return NextResponse.json({ error: "'repos' must be a list of 'owner/name' strings." }, { status: 400 });
+  }
+
   // Bring this mutating, tenant-scoped route to parity with its siblings (/api/org/scan, /watch,
   // /schedule), which all call requireOrgAccess at the top. Import spends prepaid credits
   // (consumeScanCredit) and writes the watchlist/schedule/Repository rows of `org` — all tenant-
@@ -261,12 +273,12 @@ export async function POST(request: Request) {
       try {
         // 1. Resolve the repo list.
         let fullNames: { owner: string; name: string; fullName: string; url: string; forge?: "github" | "gitlab" }[];
-        if (body.repos?.length) {
+        if (repos.length) {
           // FORGE COORDINATES (moonshot #4). An entry may carry an explicit `<forge>:` prefix
           // (`gitlab:group/sub/project`) or a gitlab.com URL; anything else is a GitHub `owner/name`,
           // parsed exactly as before. The forge-prefixed `fullName` here is the SAME identity the
           // persist layer writes, so an imported GitLab project lands on one row, not two.
-          fullNames = body.repos.map((fn) => {
+          fullNames = repos.map((fn) => {
             const routed = parseForgeUrl(fn, gitlabHost);
             if (routed && routed.forge === "gitlab") {
               return {
