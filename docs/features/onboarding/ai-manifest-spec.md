@@ -303,8 +303,7 @@ proof is then legible outside the repo without any of it being re-derived by a v
 
 **Line endings are not part of the format (2026-10-05).** The reader (`readManifestYaml`,
 `src/lib/standard/read.ts`) normalizes CRLF to LF before any line-anchored read. A Windows checkout
-with `core.autocrlf` hands it `
-`; before this, every capability and control line missed, so a
+with `core.autocrlf` hands it `\r\n`; before this, every capability and control line missed, so a
 declared `ciHardPass` gate read as absent from disk while the same file from `git show` resolved.
 
 What a conformant reader takes from the file:
