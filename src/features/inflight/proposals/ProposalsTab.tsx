@@ -10,6 +10,7 @@
 // client-side), and the details of the recent loop runs — the same bounded read the Live tab makes,
 // done here in the server component rather than as N browser round trips.
 
+import Link from "next/link";
 import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { PersonalBacklog } from "@/components/org/PersonalBacklog";
@@ -85,6 +86,12 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
       ) : (
         <ProposalsWorklist org={slug} rows={rows} initialDim={initialDim} canReview={canReview} />
       )}
+      {/* A second route to the same stage's loop-lesson ledger; the next move below stays alone. */}
+      <nav aria-label="Related views" className="flex justify-end">
+        <Link href={orgTabHref(slug, "lessons")} className="focus-ring type-caption text-accent transition hover:text-white">
+          Loop lessons →
+        </Link>
+      </nav>
       {rows.length > 0 && <NextMoveLink href={orgTabHref(slug, "live")} to="live" />}
     </div>
   );

@@ -14,6 +14,7 @@
 // Ascent never judges conformance: the consumer computes, the repo's own `/conform` writes verdicts
 // into its `.ai/registry-map.json`, and the sweep reads them. This tab is a mirror with a hand.
 
+import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
@@ -100,6 +101,12 @@ export async function KnowledgeTab({ slug, sp = {} }: { slug: string; sp?: Searc
   return (
     <div className="space-y-4">
       <KnowledgeLoom view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />
+      {/* A second route to the same stage's org memory store; the next move below stays alone. */}
+      <nav aria-label="Related views" className="flex justify-end">
+        <Link href={orgTabHref(slug, "memory")} className="focus-ring type-caption text-accent transition hover:text-white">
+          Org memory →
+        </Link>
+      </nav>
       <NextMoveLink href={orgTabHref(slug, "executive")} to="executive" />
     </div>
   );

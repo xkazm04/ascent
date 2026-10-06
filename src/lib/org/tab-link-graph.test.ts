@@ -88,6 +88,13 @@ function withoutLink(tree: readonly SourceFile[], tab: string, target: string): 
   return tree.map((f) => (owningTab(f.path, IDS) === tab ? { ...f, source: f.source.replace(NEXT_MOVE_SITE(target), "") } : f));
 }
 
+/** The tree with the plain `<Link href={orgTabHref(slug, "<target>")} ...>label</Link>` sibling links to
+ *  `target` deleted from the files `tab` owns (the inbound waves use these, not `<NextMoveLink>`). */
+function withoutPlainLink(tree: readonly SourceFile[], tab: string, target: string): SourceFile[] {
+  const plain = new RegExp(`<Link href=\\{orgTabHref\\([\\w.]+, "${target}"\\)\\}[^>]*>[^<]*</Link>`, "g");
+  return tree.map((f) => (owningTab(f.path, IDS) === tab ? { ...f, source: f.source.replace(plain, "") } : f));
+}
+
 /** Off-rail ids: `segments` is a view inside Repositories, `developer` hangs off the header menu. */
 const OFF_RAIL = new Set<string>(ORG_TABS_NOT_IN_NAV);
 /** Follow-ups is the designed hand-off point to a local agent; it ends the path on purpose. */
@@ -101,8 +108,9 @@ const DESIGNED_DEAD_ENDS = new Set(["followups"]);
  *  point at `live` and `executive`, and neither is a member either. Wave 1c: 8 -> 8 - its links point
  *  at `repositories` and `overview`, and neither is a member. Inbound wave 1: 8 -> 5 - second-route
  *  sibling links `executive` -> `digest`, `overview` -> `tech-stacks` and `overview` -> `security` drop
- *  those three. */
-const NO_INBOUND = ["passports", "lessons", "memory", "members", "audit"];
+ *  those three. Inbound wave 2: 5 -> 1 - `repositories` -> `passports`, `proposals` -> `lessons`,
+ *  `knowledge` -> `memory` and `live` -> `audit` drop those four; `members` (wave 3) is the last. */
+const NO_INBOUND = ["members"];
 /** Tabs that link to no sibling, beyond the designed dead ends. Measured 2026-10-05: 6 (`lessons`
  *  replaced `surfaces`, which gained an outbound link; `practices` then gained one too - the sync
  *  strip's `registry` link added by d4552ffb, which left this pin stale and this suite red). Shrunk to
@@ -163,16 +171,31 @@ describe("the org cross-tab link graph", () => {
   });
 
   // A matcher that stops matching reports a clean codebase in a voice indistinguishable from
-  // success. NO_OUTBOUND is empty, so first delete members' only outbound link (it reappears as a gap),
-  // then seed one new edge from it to audit and prove both lists shrink.
+  // success. NO_OUTBOUND is empty and `audit` now has Live's link, so first delete members' only outbound
+  // link and Live's link to audit (both reappear as gaps), then seed one new edge members -> audit and
+  // prove both lists shrink. The `bare` assertions are the fail-before: without the seed, nothing moves.
   it("a seeded edge moves both numbers: members regains an exit, audit gains an entrance", () => {
-    const bare = withoutLink(tree, "members", "repositories");
+    const bare = withoutPlainLink(withoutLink(tree, "members", "repositories"), "live", "audit");
     expect(gaps(bare).noOutbound).toEqual(["members"]);
+    expect(gaps(bare).noInbound).toEqual(["members", "audit"]);
     const seeded = [...bare, { path: "src/features/admin/members/Seed.tsx", source: `orgTabHref(slug, "audit")` }];
     const { noInbound, noOutbound } = gaps(seeded);
     expect(noInbound).not.toContain("audit");
-    expect(noInbound).toHaveLength(NO_INBOUND.length - 1);
+    expect(noInbound).toEqual(NO_INBOUND);
     expect(noOutbound).toEqual([]);
+  });
+
+  // Inbound wave 2: each new entrance is the target's ONLY inbound edge, so deleting its literal brings
+  // the target straight back into noInbound. A matcher that stopped matching would leave these green
+  // and the pin above clean, so the removal is proved per edge.
+  it.each([
+    ["repositories", "passports"],
+    ["proposals", "lessons"],
+    ["knowledge", "memory"],
+    ["live", "audit"],
+  ])("removing %s -> %s puts %s back in noInbound", (from, to) => {
+    expect(gaps(tree).graph.inbound[to]).toEqual([from]);
+    expect(gaps(withoutPlainLink(tree, from, to)).noInbound).toEqual([...NO_INBOUND, to].sort((a, b) => IDS.indexOf(a) - IDS.indexOf(b)));
   });
 });
 

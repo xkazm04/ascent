@@ -72,6 +72,16 @@ export async function RepositoriesLeaderboardPanel({
   // "no data yet", so a scoped view keeps the link.
   const nextMove = rollup.scannedCount > 0 || segmentId || techGroupId ? <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" /> : null;
 
+  // A second route to the same stage's readiness matrix; the next move stays alone. Waits for scanned data like it.
+  const related =
+    rollup.scannedCount > 0 || segmentId || techGroupId ? (
+      <nav aria-label="Related views" className="flex justify-end">
+        <Link href={orgTabHref(slug, "passports")} className="focus-ring type-caption text-accent transition hover:text-white">
+          Repo passports →
+        </Link>
+      </nav>
+    ) : null;
+
   const leaderboard = [...rollup.repos].sort((a, b) => (b.latest?.overall ?? -1) - (a.latest?.overall ?? -1));
 
   // ?posture= filter (deep-linked from the Overview's posture bar): scope the leaderboard to
@@ -119,7 +129,12 @@ export async function RepositoriesLeaderboardPanel({
         schedulable={schedulable}
         missing={<MissingReposPanelV2 org={slug} repos={missing} />}
         queue={queue}
-        nextMove={nextMove}
+        nextMove={
+          <>
+            {related}
+            {nextMove}
+          </>
+        }
       />
     );
   }
@@ -173,6 +188,7 @@ export async function RepositoriesLeaderboardPanel({
         </div>
         <RepoLeaderboard slug={slug} rows={visible} segments={segments} schedulable={schedulable} />
       </div>
+      {related}
       {nextMove}
     </div>
   );

@@ -117,6 +117,13 @@ branch only; the scoped-empty state keeps its one exit), the "Fix first" band's 
 whether or not Security is the busiest module, and both Briefing compositions carry "Weekly digest →" above their
 next move (the no-scanned-repos state stays on "Next: Scan - Repositories" alone).
 
+**Inbound wave 2 (2026-10-06)** adds four more plain sibling links inside the same stage as their target, each in
+a "Related views" row above the host's next move: Repositories ends on "Repo passports →" (both compositions, shown
+once the fleet has scanned data or a scope is active, like its next move), Proposals on "Loop lessons →", the
+Knowledge base on "Org memory →" (data branch only), and Live on "Audit trail →" in all four views (wall, cockpit,
+ledger, desk; hidden in TV fullscreen with the next move). That leaves Members as the only tab with no sibling
+link into it (wave 3: Settings).
+
 ### The transition programme (W1c, 2026-08-14)
 
 The org's **named, dated commitment**: one row per org (`TransitionProgram`, `orgId` unique),
