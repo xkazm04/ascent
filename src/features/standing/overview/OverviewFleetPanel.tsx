@@ -10,6 +10,7 @@
 // ONE genuinely slow data source (two rollup queries over every repo's scan history) — so the period
 // control and the scope readout above it paint without waiting on it.
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { OrgEmpty } from "@/components/org/shared/ui";
 import { OverviewLedger } from "./OverviewLedger";
@@ -107,21 +108,30 @@ export async function OverviewFleetPanel({
   // OverviewLedger awaits.
   const Ledger = theme === "prism" ? OverviewLedgerV2 : OverviewLedger;
   return (
-    <Ledger
-      {...(theme === "prism" ? { fixFirst } : {})}
-      slug={slug}
-      search={search ?? ""}
-      periodTitle={periodTitle}
-      sortDim={sortDim}
-      badges={buildScoreBadges(rollup, comparisonLabel)}
-      trend={{ points: buildTrendPoints(rollup.trend), label: periodTitle }}
-      forecast={rollup.forecast}
-      postureCounts={rollup.postureCounts}
-      dims={rollup.dimAverages}
-      dimDeltas={rollup.dimDeltas ?? null}
-      deltaLabel={`vs ${periodTitle.toLowerCase()}`}
-      trajectories={trajectories}
-      heatmapRows={heatmapRows}
-    />
+    <>
+      <Ledger
+        {...(theme === "prism" ? { fixFirst } : {})}
+        slug={slug}
+        search={search ?? ""}
+        periodTitle={periodTitle}
+        sortDim={sortDim}
+        badges={buildScoreBadges(rollup, comparisonLabel)}
+        trend={{ points: buildTrendPoints(rollup.trend), label: periodTitle }}
+        forecast={rollup.forecast}
+        postureCounts={rollup.postureCounts}
+        dims={rollup.dimAverages}
+        dimDeltas={rollup.dimDeltas ?? null}
+        deltaLabel={`vs ${periodTitle.toLowerCase()}`}
+        trajectories={trajectories}
+        heatmapRows={heatmapRows}
+      />
+      {/* A second route to the Read stage's stack x dimension matrix; the data branch only, so the
+          scoped-empty state above keeps its one way out. */}
+      <nav aria-label="Related views" className="mt-4 flex justify-end">
+        <Link href={orgTabHref(slug, "tech-stacks")} className="focus-ring type-caption text-accent transition hover:text-white">
+          Tech stacks →
+        </Link>
+      </nav>
+    </>
   );
 }

@@ -111,6 +111,12 @@ carry the onward move of their empty state, "Next: Scan - Repositories". "No dat
 that empties the view or a catalog-backed tab (Surfaces, Practices, Skills, Memory), which keep the link. Live's
 link stays in every view and is hidden only while the page is fullscreen (TV mode). No tab is left without an exit.
 
+**Inbound wave 1 (2026-10-06)** adds three plain sibling links (not `<NextMoveLink>`, so they are second routes, not
+stage moves) for tabs the rail was the only way into. The Overview's fleet panel ends on "Tech stacks →" (data
+branch only; the scoped-empty state keeps its one exit), the "Fix first" band's header carries "Security register →"
+whether or not Security is the busiest module, and both Briefing compositions carry "Weekly digest →" above their
+next move (the no-scanned-repos state stays on "Next: Scan - Repositories" alone).
+
 ### The transition programme (W1c, 2026-08-14)
 
 The org's **named, dated commitment**: one row per org (`TransitionProgram`, `orgId` unique),

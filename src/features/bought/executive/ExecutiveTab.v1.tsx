@@ -2,6 +2,7 @@
 // The public share page does not use this file.
 import { valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
+import Link from "next/link";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { PriorPeriodGrid } from "./briefingShared";
@@ -109,6 +110,12 @@ export function executiveV1(v: ExecutiveView) {
 
       {canBrand && <BrandingSettings slug={slug} initial={branding ?? { brandName: null, brandColor: null, logoUrl: null }} />}
 
+      {/* A second route to the same stage's fixed-window sibling; the next move below stays alone. */}
+      <nav aria-label="Related views" className="flex justify-end">
+        <Link href={orgTabHref(slug, "digest")} className="focus-ring type-caption text-accent transition hover:text-white">
+          Weekly digest →
+        </Link>
+      </nav>
       <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </div>
   );

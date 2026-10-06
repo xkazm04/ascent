@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { ListRow, ListRows, Panel } from "@/components/kit";
 import { Legend, WhyChip, type VizState } from "@/components/org/viz";
@@ -5,6 +6,7 @@ import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { FixFirstImpactBar } from "./FixFirstImpactBar";
 import { IMPACT_UNIT, impactScaleMax } from "./fixFirstImpact";
 import type { FixFirstItem } from "@/features/standing/overview/fixFirst";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 // The Overview's "Fix first" band: up to three derived, triage-ordered priorities, each cell a deep
 // link to its evidence — the "so what do I do?" answer at the top of the landing page. Derivation
@@ -34,7 +36,7 @@ export function OverviewFixFirstGap() {
   return <OrgTabGap minH="min-h-[8rem]" />;
 }
 
-export function OverviewFixFirst({ items }: { items: FixFirstItem[] }) {
+export function OverviewFixFirst({ slug, items }: { slug: string; items: FixFirstItem[] }) {
   if (items.length === 0) return null;
   const impacts = items.map((i) => i.impact);
   const max = impactScaleMax(impacts);
@@ -49,6 +51,11 @@ export function OverviewFixFirst({ items }: { items: FixFirstItem[] }) {
           label="what the bars measure"
           hint={`Each bar is the projected gain in ${IMPACT_UNIT}, on one shared scale. A repository's regression is divided across the repositories compared this period before it may sit on a fleet scale. The numerals are triage precedence, not bar order.`}
         />
+        {/* A second route to the Read stage's risk register, whichever module is busiest today: the
+            rows below link to security only on the days it leads (fixFirst.ts). */}
+        <Link href={orgTabHref(slug, "security")} className="focus-ring type-caption ml-auto text-accent transition hover:text-white">
+          Security register →
+        </Link>
       </div>
 
       <ListRows className="mt-2.5">

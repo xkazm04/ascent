@@ -99,8 +99,10 @@ const DESIGNED_DEAD_ENDS = new Set(["followups"]);
  *  `governance`), which drops `governance` out of the list. Org-path-of-use wave 1a: 8 -> 8 - its
  *  links point at `overview` and `proposals`, and neither is a member. Wave 1b: 8 -> 8 - its links
  *  point at `live` and `executive`, and neither is a member either. Wave 1c: 8 -> 8 - its links point
- *  at `repositories` and `overview`, and neither is a member. */
-const NO_INBOUND = ["digest", "tech-stacks", "passports", "lessons", "security", "memory", "members", "audit"];
+ *  at `repositories` and `overview`, and neither is a member. Inbound wave 1: 8 -> 5 - second-route
+ *  sibling links `executive` -> `digest`, `overview` -> `tech-stacks` and `overview` -> `security` drop
+ *  those three. */
+const NO_INBOUND = ["passports", "lessons", "memory", "members", "audit"];
 /** Tabs that link to no sibling, beyond the designed dead ends. Measured 2026-10-05: 6 (`lessons`
  *  replaced `surfaces`, which gained an outbound link; `practices` then gained one too - the sync
  *  strip's `registry` link added by d4552ffb, which left this pin stale and this suite red). Shrunk to
@@ -113,7 +115,8 @@ const NO_OUTBOUND: string[] = [];
 /**
  * Non-literal helper calls, each one a decision rather than an edge. Overview's Fix-first slot links
  * to whichever findings module is busiest (security, teams, passports, contributors or practices) —
- * a conditional edge, so `security` and `passports` stay in NO_INBOUND. RepositoriesTab's is the
+ * a conditional edge the graph does not count (`passports` stays in NO_INBOUND; `security` left it
+ * through the unconditional Overview link added by inbound wave 1). RepositoriesTab's is the
  * personal-workspace redirect to the default tab, not a link at all.
  */
 const DYNAMIC_SITES = ["src/features/standing/overview/fixFirst.ts", "src/features/standing/repositories/RepositoriesTab.tsx"];
@@ -146,6 +149,17 @@ describe("the org cross-tab link graph", () => {
   it("the allowlists name real ids, and a declared dead end is not also counted as a gap", () => {
     for (const id of [...OFF_RAIL, ...DESIGNED_DEAD_ENDS, ...NO_INBOUND, ...NO_OUTBOUND]) expect(IDS).toContain(id);
     for (const id of DESIGNED_DEAD_ENDS) expect(NO_OUTBOUND).not.toContain(id);
+  });
+
+  // ADR item 4 / 98af2737: Follow-ups is the hand-off to a local agent, not a destination a sibling
+  // sends you to, so nothing links to the `followups` alias. Seed-proved below.
+  it("no tab links to the followups alias", () => {
+    expect(gaps(tree).graph.inbound["followups"] ?? []).toEqual([]);
+  });
+
+  it("a seeded link to followups is noticed", () => {
+    const seeded = [...tree, { path: "src/features/standing/overview/Seed.tsx", source: `orgTabHref(slug, "followups")` }];
+    expect(gaps(seeded).graph.inbound["followups"]).toEqual(["overview"]);
   });
 
   // A matcher that stops matching reports a clean codebase in a voice indistinguishable from

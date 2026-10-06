@@ -1,5 +1,6 @@
 // Prism composition of the Briefing tab. Altimeter stays in ExecutiveTab.v1. Share and PDF do not use this file.
 import { Frame, SectionHead } from "@/components/kit";
+import Link from "next/link";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { hasBriefingBrand } from "./briefingCards";
@@ -53,6 +54,12 @@ export function executiveV2(v: ExecutiveView) {
       {v.canBrand ? (
         <BrandingSettingsV2 slug={v.slug} initial={v.branding ?? { brandName: null, brandColor: null, logoUrl: null }} />
       ) : null}
+      {/* A second route to the same stage's fixed-window sibling; the next move below stays alone. */}
+      <nav aria-label="Related views" className="flex justify-end">
+        <Link href={orgTabHref(v.slug, "digest")} className="focus-ring type-caption text-accent transition hover:text-white">
+          Weekly digest →
+        </Link>
+      </nav>
       <NextMoveLink href={orgTabHref(v.slug, "overview")} to="overview" />
     </div>
   );

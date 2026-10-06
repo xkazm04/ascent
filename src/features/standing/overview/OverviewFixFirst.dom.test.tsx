@@ -24,7 +24,7 @@ const INPUTS: FixFirstInputs = {
 };
 
 const band = (inp: FixFirstInputs) => {
-  const { container } = render(<OverviewFixFirst items={deriveFixFirst("acme", inp)} />);
+  const { container } = render(<OverviewFixFirst slug="acme" items={deriveFixFirst("acme", inp)} />);
   return container;
 };
 
@@ -35,7 +35,7 @@ describe("OverviewFixFirst — the ranked impact band", () => {
   });
 
   it("reserves a quiet gap while pending, so a wait is not the empty punch-list", () => {
-    const empty = render(<OverviewFixFirst items={[]} />);
+    const empty = render(<OverviewFixFirst slug="acme" items={[]} />);
     expect(empty.container.firstChild).toBeNull();
 
     const pending = render(<OverviewFixFirstGap />);

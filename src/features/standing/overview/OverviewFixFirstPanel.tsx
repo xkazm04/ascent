@@ -60,5 +60,5 @@ export async function OverviewFixFirstPanel({
     scopeQuery,
   );
 
-  return <OverviewFixFirst items={items} />;
+  return <OverviewFixFirst slug={slug} items={items} />;
 }
