@@ -51,6 +51,9 @@ const PARTIAL_REASON: Record<OpenAIStop, string> = {
   denied: "OpenAI refused a later page; the later days were not pulled.",
 };
 
+// NO same-origin guard, deliberately: scripts and schedulers drive this pull, and they send no
+// `Origin` / `Sec-Fetch-Site`. Operator decision 2026-10-06 (security scan F1) — the sibling PUT and
+// DELETE on /api/integrations/openai are browser-only and DO carry the guard. Do not re-flag.
 export async function POST(request: Request) {
   if (!isDbConfigured()) {
     return NextResponse.json({ error: "The OpenAI connector requires a database." }, { status: 503 });

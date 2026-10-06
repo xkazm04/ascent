@@ -33,6 +33,7 @@ import {
   updateOrgSkill,
 } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
+import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { isPruneCandidate, type SkillUsage } from "@/lib/org/skill-usage";
 import { getOrgSkillUsage } from "@/lib/org/skill-usage-load";
@@ -53,6 +54,10 @@ interface Skip {
 const MAX_IDS = 200;
 
 export async function POST(request: Request) {
+  // CSRF first, before the DB probe and before any read: a destructive bulk sweep is browser-only
+  // (the panel is its only caller), so a request that cannot show this origin has no business here.
+  const xo = requireSameOrigin(request);
+  if (xo) return xo;
   if (!isDbConfigured()) return NextResponse.json({ error: "Skills require a database." }, { status: 503 });
 
   const body = (await request.json().catch(() => ({}))) as { org?: string; ids?: unknown; restore?: unknown };

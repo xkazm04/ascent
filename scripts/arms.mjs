@@ -99,8 +99,15 @@ async function api(pathname, init, tries = 5) {
   throw lastErr;
 }
 
+// `origin` is sent because POST /api/org/local/probe now carries this codebase's same-origin (CSRF)
+// guard (security scan F1, 2026-10-06). A browser sets this header itself; a Node caller must say it,
+// and `CFG.base` is by construction the origin the request is going to.
 const post = (pathname, body) =>
-  api(pathname, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  api(pathname, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: CFG.base },
+    body: JSON.stringify(body),
+  });
 
 // ── arm parsing ──────────────────────────────────────────────────────────────────────────────────
 

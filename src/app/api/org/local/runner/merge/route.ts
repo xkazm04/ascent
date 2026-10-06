@@ -30,6 +30,9 @@ import { noteRunnerAhead, runnerBaseFor } from "@/lib/local/runner-control";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// NO same-origin guard, deliberately: the campaign/runner scripts call this door, and they send no
+// `Origin` / `Sec-Fetch-Site`. Operator decision 2026-10-06 (security scan F1). The route is
+// self-hosted-only and owner-gated, which is what carries the weight here. Do not re-flag.
 export async function POST(request: Request) {
   const guard = selfHostGuard() ?? dbGuard("Runner merge", "Merging the runner branch requires a database.");
   if (guard) return guard;

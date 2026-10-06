@@ -21,10 +21,14 @@ vi.mock("next/server", () => ({
   },
 }));
 
-const gates = { selfHosted: true, role: null as unknown };
+const gates = { selfHosted: true, sameOrigin: true, role: null as unknown };
 const roleCalls: [string, string][] = [];
 
-vi.mock("@/lib/auth", () => ({ PUBLIC_ORG: "public" }));
+vi.mock("@/lib/auth", () => ({
+  PUBLIC_ORG: "public",
+  requireSameOrigin: () =>
+    gates.sameOrigin ? null : new Response(JSON.stringify({ error: "Cross-origin request rejected." }), { status: 403 }),
+}));
 vi.mock("@/lib/api/self-host", () => ({
   selfHostGuard: () => (gates.selfHosted ? null : new Response(JSON.stringify({ error: "Not found." }), { status: 404 })),
 }));
@@ -106,6 +110,7 @@ const SPLIT = {
 
 beforeEach(() => {
   gates.selfHosted = true;
+  gates.sameOrigin = true;
   gates.role = null;
   roleCalls.length = 0;
   probed.length = 0;
@@ -113,6 +118,15 @@ beforeEach(() => {
 });
 
 describe("the gate", () => {
+  it("refuses a cross-origin POST first — before the gates and before any probe (scan F1)", async () => {
+    gates.sameOrigin = false;
+    const res = await post({ org: "acme", arms: [HOSTED] });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe("Cross-origin request rejected.");
+    expect(roleCalls).toHaveLength(0);
+    expect(probed).toHaveLength(0);
+  });
+
   it("404s on managed cloud before it reads the body", async () => {
     gates.selfHosted = false;
     expect((await post({ org: "acme", arms: [HOSTED] })).status).toBe(404);

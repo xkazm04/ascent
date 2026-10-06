@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
 import { AppApiError, isAppConfigured } from "@/lib/github/app";
 import { getActiveOrgStance, getOrgId, isDbConfigured } from "@/lib/db";
-import { isAuthConfigured } from "@/lib/auth";
+import { isAuthConfigured, requireSameOrigin } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
 import { classifyPrWriteError, requirePrWriteTarget, type PrWriteCoordinate } from "@/lib/github/pr-route";
@@ -28,6 +28,9 @@ const MAX_BATCH = 25;
 type BatchResult = { repo: string; ok: boolean; url?: string; reused?: boolean; error?: string };
 
 export async function POST(request: Request) {
+  // CSRF first: a fleet-wide PR write has only one caller, the governance panel in a browser.
+  const xo = requireSameOrigin(request);
+  if (xo) return xo;
   if (!isAppConfigured()) {
     return NextResponse.json(
       { error: "Opening PRs needs the GitHub App installed with contents + pull-request write access." },

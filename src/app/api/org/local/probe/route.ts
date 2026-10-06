@@ -39,7 +39,7 @@
 // the machine is ready.
 
 import { NextResponse } from "next/server";
-import { PUBLIC_ORG } from "@/lib/auth";
+import { PUBLIC_ORG, requireSameOrigin } from "@/lib/auth";
 import { requireOrgRole } from "@/lib/authz";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { normalizeArmPolicy, normalizeArmSet, planArmOf, type Arm, type TransportId } from "@/lib/local/arm";
@@ -169,6 +169,10 @@ async function probeArms(arms: Arm[]): Promise<ArmProbeReply> {
 }
 
 export async function POST(request: Request) {
+  // CSRF first, ahead of the self-host 404: the cockpit is this route's only caller, and the probe
+  // spawns a subprocess with this deployment's environment.
+  const xo = requireSameOrigin(request);
+  if (xo) return xo;
   const guard = selfHostGuard();
   if (guard) return guard;
 

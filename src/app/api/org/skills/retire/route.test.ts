@@ -1,6 +1,7 @@
 // Route test for POST /api/org/skills/retire - the bulk retire sweep and its undo.
 //
 // The rails this pins, in the order they matter:
+//   - SAME-ORIGIN FIRST. A cross-origin POST is 403 before the gate and before any read (scan F1).
 //   - ADMIN ONLY. A member's call returns 403 and archives nothing (requireOrgRole, session-only,
 //     mirroring the single-row DELETE at /api/org/skills/[id]).
 //   - ELIGIBILITY IS RE-DERIVED SERVER-SIDE. The route never retires what the client named: it reads
@@ -39,7 +40,9 @@ const {
   mockRequireOrgRole,
   mockResolveViewerLogin,
   mockGetOrgSkillUsage,
+  xo,
 } = vi.hoisted(() => ({
+  xo: { sameOrigin: true },
   mockIsDbConfigured: vi.fn(),
   mockListOrgSkills: vi.fn(),
   mockGetOrgSkillOrgSlug: vi.fn(),
@@ -67,6 +70,10 @@ vi.mock("@/lib/db", () => ({
   PERSONAL_SKILL_LIMIT: 10,
 }));
 vi.mock("@/lib/authz", () => ({ requireOrgRole: mockRequireOrgRole }));
+vi.mock("@/lib/auth", () => ({
+  requireSameOrigin: () =>
+    xo.sameOrigin ? null : new Response(JSON.stringify({ error: "Cross-origin request rejected." }), { status: 403 }),
+}));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: mockResolveViewerLogin }));
 vi.mock("@/lib/org/skill-usage-load", () => ({ getOrgSkillUsage: mockGetOrgSkillUsage }));
 
@@ -88,6 +95,7 @@ function use(id: string, state: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  xo.sameOrigin = true;
   mockIsDbConfigured.mockReturnValue(true);
   mockRequireOrgRole.mockResolvedValue(null);
   mockResolveViewerLogin.mockResolvedValue("admin1");
@@ -107,6 +115,16 @@ beforeEach(() => {
 });
 
 describe("POST /api/org/skills/retire - the gate", () => {
+  it("refuses a cross-origin POST before the admin gate and before any read (scan F1)", async () => {
+    xo.sameOrigin = false;
+    const res = await POST(req({ org: "acme", ids: ["a1", "a2"] }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("Cross-origin request rejected.");
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
+    expect(mockListOrgSkills).not.toHaveBeenCalled();
+    expect(mockArchiveOrgSkill).not.toHaveBeenCalled();
+  });
+
   it("archives exactly the named eligible ids for an admin", async () => {
     const res = await POST(req({ org: "acme", ids: ["a1", "a3"] }));
     expect(res.status).toBe(200);

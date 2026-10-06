@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import { applySegmentRule, getSegmentOrgSlug, recordOrgAudit, updateSegment } from "@/lib/db";
 import { normalizeSegmentRule, segmentRuleInputError, type SegmentRule } from "@/lib/org/segmentRule";
 import { requireOrgAccess } from "@/lib/authz";
+import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { dbGuard } from "@/lib/api/orgPlan";
 
@@ -47,6 +48,9 @@ async function readRule(request: Request): Promise<{ rule?: SegmentRule | null }
 }
 
 export async function PUT(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  // CSRF first, on BOTH handlers: declaring and converging are browser-only writes.
+  const xo = requireSameOrigin(request);
+  if (xo) return xo;
   const { id } = await ctx.params;
   const gated = await gate(id);
   if (gated instanceof Response) return gated;
@@ -64,6 +68,8 @@ export async function PUT(request: Request, ctx: { params: Promise<{ id: string 
 }
 
 export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  const xo = requireSameOrigin(request);
+  if (xo) return xo;
   const { id } = await ctx.params;
   const gated = await gate(id);
   if (gated instanceof Response) return gated;

@@ -17,6 +17,7 @@ vi.mock("next/server", () => ({
 }));
 
 const h = vi.hoisted(() => ({
+  sameOrigin: true,
   requireOrgRole: vi.fn(),
   getInstallationIdForOwner: vi.fn(),
   getInstallationToken: vi.fn(),
@@ -52,7 +53,11 @@ vi.mock("@/lib/db", () => ({
   getOrgId: h.getOrgId,
   getInstallationIdForOwner: h.getInstallationIdForOwner,
 }));
-vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => true }));
+vi.mock("@/lib/auth", () => ({
+  isAuthConfigured: () => true,
+  requireSameOrigin: () =>
+    h.sameOrigin ? null : Response.json({ error: "Cross-origin request rejected." }, { status: 403 }),
+}));
 vi.mock("@/lib/access", () => ({
   authGateEnabled: () => true,
   resolveViewerLogin: h.resolveViewerLogin,
@@ -92,6 +97,7 @@ function run(body: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.sameOrigin = true;
   h.requireOrgRole.mockResolvedValue(null);
   h.getInstallationIdForOwner.mockImplementation(async (owner: string) => `inst-${owner}`);
   h.getInstallationToken.mockResolvedValue("installation-token");
@@ -110,6 +116,16 @@ beforeEach(() => {
 });
 
 describe("POST /api/org/ai-stance/apply-batch — admin + tenancy", () => {
+  it("refuses a cross-origin POST before the identity/admin gates and opens NO PR (scan F1)", async () => {
+    h.sameOrigin = false;
+    const res = await run({ org: "acme", repos: ["acme/a", "acme/b"] });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("Cross-origin request rejected.");
+    expect(h.resolveViewerLogin).not.toHaveBeenCalled();
+    expect(h.requireOrgRole).not.toHaveBeenCalled();
+    expect(h.openArtifactDraftPr).not.toHaveBeenCalled();
+  });
+
   it("DENIES a member (403) and opens NO PR", async () => {
     h.requireOrgRole.mockResolvedValue(
       Response.json({ error: "This action requires the admin role in this organization." }, { status: 403 }),

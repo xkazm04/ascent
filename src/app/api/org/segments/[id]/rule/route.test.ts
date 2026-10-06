@@ -31,6 +31,11 @@ vi.mock("@/lib/authz", () => ({
 vi.mock("@/lib/access", () => ({
   resolveViewerLogin: vi.fn(async () => "alice"),
 }));
+const xo = vi.hoisted(() => ({ sameOrigin: true }));
+vi.mock("@/lib/auth", () => ({
+  requireSameOrigin: () =>
+    xo.sameOrigin ? null : Response.json({ error: "Cross-origin request rejected." }, { status: 403 }),
+}));
 
 import { POST, PUT } from "./route";
 import { applySegmentRule, getSegmentOrgSlug, recordOrgAudit, updateSegment } from "@/lib/db";
@@ -53,10 +58,32 @@ const put = (id: string, body?: Record<string, unknown>) => PUT(req(id, "PUT", b
 
 beforeEach(() => {
   vi.clearAllMocks();
+  xo.sameOrigin = true;
   mockOrgSlug.mockResolvedValue("acme");
   mockAccess.mockResolvedValue(null);
   mockUpdate.mockResolvedValue(true);
   mockApply.mockResolvedValue({ added: 5, removed: 0 });
+});
+
+describe("/api/org/segments/:id/rule — same-origin first (scan F1)", () => {
+  it("refuses a cross-origin POST before resolving the row's org and before any write", async () => {
+    xo.sameOrigin = false;
+    const res = await post("seg-1", { kind: "language", values: ["Python"] });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("Cross-origin request rejected.");
+    expect(mockOrgSlug).not.toHaveBeenCalled();
+    expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  it("refuses a cross-origin PUT the same way", async () => {
+    xo.sameOrigin = false;
+    const res = await put("seg-1", { kind: "language", values: ["Python"] });
+    expect(res.status).toBe(403);
+    expect(mockOrgSlug).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/org/segments/:id/rule — declare and converge", () => {
