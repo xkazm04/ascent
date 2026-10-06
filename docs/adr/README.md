@@ -38,6 +38,7 @@ a write set to be authoritative about.
 | [0001-hosted-loop-dispatch](0001-hosted-loop-dispatch.md) | Proposed (2026-09-14) | Hosted loop dispatch: substrate, gate mapping and API contract. |
 | [2026-09-07-db-import-convention](2026-09-07-db-import-convention.md) | Accepted | Per-domain barrels under `src/lib/db/`; the root `index.ts` is frozen. |
 | [2026-09-14-org-path-of-use](2026-09-14-org-path-of-use.md) | Accepted (2026-10-05, journey B) | One path of use for the Org modules. |
+| [2026-10-06-autopilot-branch-disposition](2026-10-06-autopilot-branch-disposition.md) | Accepted (2026-10-06) | Drop 12 of 15 stale `autopilot/*` branches; salvage the 2 code runs by rebuild on master. |
 
 ## A note on citations
 
