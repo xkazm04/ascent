@@ -10,3 +10,9 @@
 # a gate can take: unable to go green on the author's own machine, and therefore
 # routed around rather than fixed.
 scripts/*.mjs text eol=lf
+
+# Prisma checksums each migration.sql byte-for-byte, and the migration tests read them with
+# line-anchored regexes (`/TEXT;$/`): under core.autocrlf a Windows checkout turns every line end
+# into CRLF, `$` then sits after a stray \r, and `loop-runs-arms.test.ts` fails while Linux CI is
+# green. The index already holds LF; this makes the working tree match it.
+prisma/migrations/**/migration.sql text eol=lf
