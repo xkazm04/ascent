@@ -13,6 +13,15 @@
 // enforces it (LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP, DRIVE_MAX_RUNS_CAP) rather than typed, so
 // the band cannot outlive the caps it advertises.
 //
+// Extended 2026-10-06: the band described the loop's practices without naming the two artifacts a
+// reader can go and look at — the `.ai/` foundation PR and the public gate endpoint. Both are named
+// from IMPORTED identifiers (FOUNDATION_BRANCH from standard/types, which is dependency-free so the
+// client bundle does not pull in pr.ts; GATE_API_PATH and the two statuses from scoring/gate-api), so a
+// rename in the owning module fails this build instead of leaving the landing quoting a dead branch or
+// route. Two facts the copy keeps straight: the local foundation lane writes files into a worktree, and
+// it is the cloud draft-PR door that cuts FOUNDATION_BRANCH; and nothing under src/lib/local/ requests
+// /api/gate — a drive is adjudicated by its own rescan, the gate is how the same bar reaches CI.
+//
 // Every card's copy is checked against docs/features/local-mode/README.md and src/lib/mcp/tools.ts;
 // keep it exactly true when either changes.
 
@@ -22,6 +31,8 @@ import { Kicker } from "@/components/ui";
 import { DOCS_ARE_UPSTREAM, selfHostGuideHref } from "@/lib/site";
 import { LOOP_CONCURRENCY_CAP, LOOP_MAX_CYCLES_CAP } from "@/lib/db/loop-runs-types";
 import { DRIVE_MAX_RUNS_CAP, type DrivePhase } from "@/lib/local/drive-types";
+import { FOUNDATION_BRANCH } from "@/lib/standard/types";
+import { GATE_API_PATH, GATE_FAIL_STATUS, GATE_PASS_STATUS } from "@/lib/scoring/gate-api";
 
 interface LocalFeature {
   term: string;
@@ -149,6 +160,34 @@ export function IndexLocal() {
             something decided it was finished. Self-hosted only, owner-gated, and it never pushes: what
             you get back is a branch.
           </p>
+
+          {/* The two named artifacts. Identifiers are imported, not typed — see the file header. */}
+          <dl className="mt-5 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-divider bg-ink/60 p-4">
+              <dt className="type-body-sm font-semibold text-white">
+                The <code className="type-mono-sm text-slate-200">.ai/</code> foundation PR
+              </dt>
+              <dd className="mt-2 type-body-sm leading-relaxed text-slate-400">
+                A repo with no contract for agents to read gets the foundation first. On a cloud org the
+                same files arrive as one draft PR, one commit per file, on{" "}
+                <code className="type-mono-sm text-slate-200">{FOUNDATION_BRANCH}</code>, so a re-run
+                updates that PR instead of opening another. A branch you read, never a write to yours.
+              </dd>
+            </div>
+            <div className="rounded-lg border border-divider bg-ink/60 p-4">
+              <dt className="type-body-sm font-semibold text-white">The gate API</dt>
+              <dd className="mt-2 type-body-sm leading-relaxed text-slate-400">
+                The same bar, where merges happen:{" "}
+                <code className="type-mono-sm text-slate-200">
+                  GET {GATE_API_PATH}/&lt;owner&gt;/&lt;repo&gt;
+                </code>{" "}
+                answers <span className="font-mono text-slate-300">{GATE_PASS_STATUS}</span> on a pass
+                and <span className="font-mono text-slate-300">{GATE_FAIL_STATUS}</span> on a fail, so a
+                plain <code className="type-mono-sm text-slate-200">curl --fail</code> line stops a
+                build. The drive is adjudicated by its own rescan; the gate is how the verdict reaches CI.
+              </dd>
+            </div>
+          </dl>
         </div>
 
         <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2">

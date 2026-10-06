@@ -121,7 +121,13 @@ Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
   and the three stop reasons typed against `DrivePhase` so a renamed phase fails the
   build here. The caps ARE the copy on purpose: the honest claim about this loop is
   that it is bounded and that a rescan, not the agent, decides whether anything
-  landed — printing the numbers is what makes that checkable.
+  landed — printing the numbers is what makes that checkable. Since 2026-10-06 the
+  band also names the two artifacts a reader can go and look at, again from imports:
+  the `.ai/` foundation PR branch (`FOUNDATION_BRANCH`, declared in dependency-free
+  `src/lib/standard/types.ts` and re-exported by `pr.ts`, so the client bundle never
+  pulls the GitHub delivery half) and the public gate API (`GATE_API_PATH` plus the
+  pass/fail statuses from `src/lib/scoring/gate-api.ts`). `IndexLocal.test.tsx`
+  asserts the rendered band against those imports.
 
 **Pricing (`IndexPricing`, deck id `pricing`, after the register when present)**:
 a numeric, anonymous snap of the hosted plans (G8/G11). Amounts and cadences

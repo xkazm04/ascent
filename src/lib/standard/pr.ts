@@ -16,10 +16,11 @@ import { AppApiError } from "@/lib/github/app";
 import { classifyPrWriteError } from "@/lib/github/pr-route";
 import { openDraftPr, type OpenPrResult } from "@/lib/github/write";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
-import type { GeneratedFile } from "./types";
+import { FOUNDATION_BRANCH, type GeneratedFile } from "./types";
 
-/** Branch every foundation PR is cut on — stable, so a re-run updates the same PR. */
-export const FOUNDATION_BRANCH = "ascent/ai-foundation";
+/** Branch every foundation PR is cut on — stable, so a re-run updates the same PR. Declared in
+ *  `./types` (dependency-free) and re-exported here, where callers have always imported it. */
+export { FOUNDATION_BRANCH };
 
 export interface FoundationPrResult extends OpenPrResult {
   /** Repo-relative paths actually committed to the branch, in scaffold order. */

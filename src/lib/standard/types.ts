@@ -124,3 +124,11 @@ export const MANIFEST_SCHEMA_VERSION = "0.3.0";
 
 /** Semver of the `.ai/guardrails.yaml` invariants schema (versioned independently of the spine). */
 export const GUARDRAILS_SCHEMA_VERSION = "0.1.0";
+
+/**
+ * Branch every foundation PR is cut on — stable, so a re-run UPDATES the same PR rather than opening
+ * a second one. Lives here, not in `./pr.ts`, because `pr.ts` is the GitHub delivery half (app client,
+ * write path, pool) and the client-bundled landing must be able to name the branch without importing
+ * it. `pr.ts` re-exports it, so every existing importer is unchanged.
+ */
+export const FOUNDATION_BRANCH = "ascent/ai-foundation";
