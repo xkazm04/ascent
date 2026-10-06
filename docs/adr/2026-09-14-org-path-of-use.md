@@ -419,3 +419,195 @@ The inbound target of 0 is NOT met. Waves 1a to 1c pointed every link at a stage
 ### What this section does not decide
 
 The section 3 merges, and any change of the stage set.
+
+---
+
+## Architecture review 2026-10-06 - the tabs with no inbound link
+
+Dispatched after the back-measure above: the inbound target of 0 is the journey's one
+unmet measure, and section 3's merge candidates were sent here. This section is an
+analysis. It writes no link, folds no tab, and changes no stage.
+
+### (a) The measurement
+
+Command run on this branch's base, `master` at 3854ad69, in the worktree:
+
+```
+npx vitest run src/lib/org/tab-link-graph.test.ts
+```
+
+Result: **1 file, 81 tests, all passing.** The `NO_INBOUND` pin is asserted equal to the
+scan of the real tree (`src/lib/org/tab-link-graph.test.ts:135`), so a pass **is** the
+measurement. The pinned list (`tab-link-graph.test.ts:103`), in `ORG_TAB_IDS` order:
+
+> `digest`, `tech-stacks`, `passports`, `lessons`, `security`, `memory`, `members`, `audit`
+
+Eight, unchanged from the 2026-10-06 back-measure, and identical to the list the brief
+predicted. `NO_OUTBOUND` is `[]` (`tab-link-graph.test.ts:111`): every on-rail tab has an
+exit, so this section is about entrances only.
+
+**The first finding is the shape of the list.** Journey B's six stage entry tabs are
+`registry`, `repositories`, `overview`, `proposals`, `live`, `executive`
+(`src/lib/org/orgJourney.ts:28-35`). **Not one of them is in the list**, and **none of the
+eight is an entry tab**. That is not a coincidence: the next-move rule points every tab at
+the entry tab of the next stage (`nextMoveFor`, `src/lib/org/orgJourney.ts:89-92`), so
+waves 1a-1c could only ever have fed the six entries. The eight remaining are exactly the
+**non-entry tabs that no sibling happens to mention** - the residue the next-move rule is
+structurally unable to reach. Waves 1a-1c did not under-deliver; they delivered a rule
+whose fixed points are the entry tabs.
+
+The consequence for this review: the inbound gap cannot be closed by any further
+application of the next-move rule. It needs either a *second* class of edge (a sibling
+link) or fewer tabs (a merge).
+
+### (b) The eight tabs
+
+Stage and entry-tab columns are read from `ORG_TAB_STAGE` and `ORG_STAGES`
+(`src/lib/org/orgJourney.ts:28-66`). "Out" is the tab's current outbound edge set as the
+graph reports it; the entry-tab target in each set is its next-move link. "NO_INBOUND
+after" counts the list shrinking as each row ships, in the table's order.
+
+| Tab | Stage | Entry tab? | Rec | Source or host | Files a follow-up wave would touch | NO_INBOUND after |
+| --- | --- | --- | --- | --- | --- | ---: |
+| `digest` - the trailing 7 calendar days as one pasteable page, the Briefing's fixed-window sibling (`src/features/bought/digest/DigestTab.tsx:1-7`). Out: `executive`, `overview`, `proposals`. | Measure | No (`executive` is) | **L** | `executive`, the Measure entry tab - same stage | `src/features/bought/executive/ExecutiveTab.v1.tsx` (beside the next move at `:112`) and `ExecutiveTab.v2.tsx` (`:56`); both compositions, or the link is theme-conditional | 7 |
+| `tech-stacks` - the stack x dimension heat matrix and the dimension analysis board (`src/features/standing/tech-stacks/TechStacksTab.tsx:1-2`). Out: `executive`, `practices`, `proposals`, `repositories`. | Read | No (`overview` is) | **L** | `overview`, the Read entry tab - same stage | `src/features/standing/overview/OverviewFleetPanel.tsx`, the fleet rollup both compositions render (`OverviewTab.v1.tsx:47`, `OverviewTab.v2.tsx:35`) - one edit covers both themes | 6 |
+| `passports` - every scanned repo's two readiness axes, the automation x production scatter, the blockers docket (`src/features/standing/passports/PassportsTab.tsx:1-9`). Out: `overview`, `practices`. | Scan | No (`repositories` is) | **L** | `repositories`, the Scan entry tab - same stage | `src/features/standing/repositories/RepositoriesLeaderboardPanel.tsx` (the header region at `:59`, beside the next move at `:73`) | 5 |
+| `lessons` - the loop agents' lesson candidates as a decision ledger (`src/features/inflight/lessons/LessonsTab.tsx:1-6`). Out: `live`. | Decide | No (`proposals` is) | **L** | `proposals`, the Decide entry tab - same stage | `src/features/inflight/proposals/ProposalsTab.tsx` (beside the next move at `:88`) | 4 |
+| `security` - one dense risk register: D9 per repo, gate verdict, branch rules, advisories, findings (`src/features/standing/security/SecurityTab.tsx:1-5`). Out: `proposals`, `repositories`. | Read | No (`overview` is) | **L** | `overview`, the Read entry tab - same stage | `src/features/standing/overview/OverviewFixFirstPanel.tsx` (the panel header, rendered at `OverviewTab.v1.tsx:43` / `OverviewTab.v2.tsx:46`) | 3 |
+| `memory` - the coverage strip, the browsable Shared Org Memory store, Recall/Reflect (`src/features/shared/memory/MemoryTab.tsx:1-3`). Out: `executive`. | Apply | No (`live` is) | **L** | `knowledge`, a named sibling in the **same stage** (Apply). Not `registry`: that is section 3's host and it is Connect - see (d) | `src/features/shared/knowledge/KnowledgeTab.tsx` (beside the next move at `:103`) | 2 |
+| `members` - the roster, and for an owner invites and role changes (`src/features/admin/members/MembersTab.tsx:1-6`). Out: `repositories`. | Connect | No (`registry` is) | **L** | `settings`, a named sibling in the **same stage** (Connect). Semantically closer than the entry tab: Registry maps a git repo, Settings administers the org | `src/features/admin/settings/SettingsTab.v1.tsx` (`:43`) and `SettingsTab.v2.tsx` (`:60`); both compositions | 1 |
+| `audit` - the searchable audit trail, 25 rows a page (`src/features/admin/audit/AuditTab.tsx:1-2`). Out: `executive`. | Apply | No (`live` is) | **L** | `live`, the Apply entry tab - same stage. The record of what the runner did, linked from where it is doing it | a co-located sibling of `src/features/inflight/live/LiveNextMove.tsx:10-16`, so the link reaches all four `?view=` views at once rather than one of them | **0** |
+
+Every row is **L**. No row is **M** and no row is **K**: none of the eight is isolated in a
+way a merge is needed to resolve, and keeping any of them unreachable from a sibling is
+exactly the state the ADR's own back-measure calls unmet.
+
+**How each link complies with the two rules** (`src/components/org/shared/NextMoveLink.tsx:10-19`):
+
+- **Rule A.** Each of these is a **second route**, not a next move. It never replaces the
+  host's `NextMoveLink`, which stays always-visible and unscoped where it already is. The
+  practical form: a plain `<Link href={orgTabHref(slug, "<id>")}>` in the host's content,
+  **never** a `<NextMoveLink>`. The journey render-site pin matches the literal
+  `<NextMoveLink href={orgTabHref(x, "t")} to="t" />` (`tab-link-graph.test.ts:83-84`), so
+  writing a sibling link with that component would make a second thing look like a stage
+  move to the measurement.
+- **Rule B.** Each link sits in the host's **data branch**, beside or below the existing
+  content, never in its "no data yet" branch. Where the host has a Scan-entry empty state -
+  Security and Executive both do (`tab-link-graph.test.ts:247`) - that branch is untouched,
+  so an empty Briefing still points at `repositories` and gains no link to an equally empty
+  Weekly digest.
+- One consequence for the wave, not for the rules: `NO_INBOUND` at
+  `tab-link-graph.test.ts:103` is the measurement, so each shipped link also shrinks that
+  array by one name. An edit that makes the suite pass **by widening the list** is the
+  failure mode the pin's own comment warns about.
+
+**Exactly one of the eight crosses a nav group:** `live` (In flight) -> `audit` (Admin).
+That is allowed - the lanes are the questions, the stages are the order (Decision point 4) -
+but it is named here so it is a decision and not a surprise. The other seven stay inside one
+lane, which is its own small evidence that the stage set and the lanes agree more than the
+addendum's `†` marks suggest.
+
+**One row is already half-true and must not be double-counted.** `security` has a
+*conditional* inbound edge from Overview's Fix-first punch-list, which links to whichever
+findings module is busiest (`src/features/standing/overview/fixFirst.ts`, declared as a
+dynamic site at `tab-link-graph.test.ts:119`). The graph does not count it, correctly - "a
+link that exists only on some days is not a path of use". The **L** row above makes that
+edge unconditional; it does not invent a relationship that was not there.
+
+### (c) What ships buys
+
+| If this ships | NO_INBOUND | On-rail tab count |
+| --- | ---: | ---: |
+| Nothing (today, 3854ad69) | 8 | 26 |
+| Every **L** row in (b) | **0** | 26 |
+| Every **L** row and every **M** row in (b) | **0** | 26 |
+
+The two numbers are the same because **(b) contains no M row**. That is this review's
+headline: **the inbound target of 0 is reachable entirely with link-only changes inside
+the already-accepted stage set.** No merge is required to meet any measure this ADR
+declared. Every merge still on the table is therefore a **tab-count and legibility**
+decision, argued on its own merits, and never a connectivity one.
+
+For completeness, if the section 3 merges were *also* taken in their re-hosted,
+same-stage form (see (d)) - all four of them - the on-rail count would fall 26 -> 22 and `NO_INBOUND` would
+stay 0 - the merged tabs leave the on-rail set, which is why a merge can never raise the
+number.
+
+### (d) Section 3's merge candidates, re-tested against journey B
+
+The addendum's section 3 predates the journey choice. Re-reading its four candidates
+against `ORG_TAB_STAGE` (`src/lib/org/orgJourney.ts:39-66`):
+
+| Candidate, as section 3 wrote it | Tab's stage | Host's stage | Crosses? |
+| --- | --- | --- | --- |
+| `surfaces` behind `knowledge` | Apply | Apply | **No** |
+| `skills` behind `registry` | **Decide** | **Connect** | **Yes - two stages** |
+| `memory` behind `registry` | **Apply** | **Connect** | **Yes - two stages** |
+| `audit` behind `members`, or both behind `settings` | **Apply** | **Connect** | **Yes** |
+
+Three of the four cross. And they cross toward the same host lane, which is the finding:
+section 3 clustered by **provenance** - what the registry distributes, who administers the
+org - while journey B assigns by **what the user is doing**. Those are different axes, so
+three candidates that read as obvious under the first read as stage violations under the
+second.
+
+Does that kill them, or is the stage set wrong? Both readings are available and only the
+operator can pick:
+
+- **The candidates are not killed, they are mis-hosted.** Each has a same-stage host that
+  keeps the merge's substance: `skills` behind `practices` (both Decide, both
+  registry-distributed artifacts a decision is taken about), `memory` behind `knowledge`
+  (both Apply, both registry-backed stores the agent consumes), `audit` behind `live` (both
+  Apply, the record and the act). Re-hosted, all four merges are same-stage, and shipping
+  all four takes the on-rail count 26 -> 22.
+- **Or the stage set is wrong for these ids.** The addendum marked `skills`, `memory`,
+  `knowledge`, `surfaces`, `members` and `audit` with a `†`: placed **by elimination**,
+  because no stage's verb describes what they render. Journey B did not dissolve that - it
+  distributed the same six orphans across Connect, Decide and Apply. A merge that wants to
+  cross a stage is, in substance, the argument that the elimination placement was wrong and
+  these ids are **reference and record**, not steps. The honest version of that argument is
+  not four merges; it is a seventh category, which is a stage-set change and re-opens the
+  2026-10-05 decision.
+
+This review does not pick between those. It records that **the choice is between re-hosting
+the merges inside journey B and adding a stage**, and that doing neither leaves section 3's
+candidates permanently unactionable - which is the state they have been in since
+2026-10-05.
+
+One candidate is unaffected by all of it: `surfaces` behind `knowledge` is same-stage,
+has the one-entrance-one-exit evidence section 3 recorded, and is not in `NO_INBOUND`
+(`knowledge` already links to it). It can be decided on its own, at any time, and nothing
+in this section depends on the answer.
+
+### (e) What an App Master may dispatch, and what only the operator may decide
+
+**Dispatchable now - link-only, inside the accepted stage set, each reversible by deleting
+one line.** None changes the tab count, the stage set, or any tab's scope. They are the
+eight **L** rows in (b), and the suggested wave split follows the stage, the way waves
+1a-1c did:
+
+1. **Read and Measure:** `overview` -> `tech-stacks`, `overview` -> `security`,
+   `executive` -> `digest`. (3 edges, 4 files.)
+2. **Scan, Decide and Apply:** `repositories` -> `passports`, `proposals` -> `lessons`,
+   `knowledge` -> `memory`, `live` -> `audit`. (4 edges, 4 files.)
+3. **Connect:** `settings` -> `members`. (1 edge, 2 files - both compositions.)
+
+Each wave also edits `NO_INBOUND` at `src/lib/org/tab-link-graph.test.ts:103`, downward.
+After wave 3 the array is empty and the ADR's third back-measure row is met.
+
+**Operator-only - these change the tab count or a tab's scope.**
+
+- Whether to merge `surfaces` behind `knowledge` (same stage; the strongest evidence).
+- Whether to re-host section 3's three cross-stage merges inside journey B
+  (`skills`->`practices`, `memory`->`knowledge`, `audit`->`live`), or to drop them.
+- Whether the six `†` ids are mis-staged and journey B needs a seventh category for
+  reference and record - a stage-set change, and a re-opening of the 2026-10-05 decision.
+
+### What this section does not decide
+
+Nothing about tab count or stage set. It picks no merge, adds no stage, moves no id between
+stages, and writes no link. It records one measured list, one recommendation per member of
+that list, and the evidence that section 3's candidates were argued on an axis journey B
+does not use. The inbound target of 0 is shown to be reachable without a single merge; the
+merges therefore stand or fall on legibility, and that argument is the operator's to settle,
+not this review's.
