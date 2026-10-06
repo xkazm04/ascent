@@ -31,8 +31,7 @@ import { PassportsTab } from "@/features/standing/passports/PassportsTab";
 import { SkillsTab } from "@/features/shared/skills/SkillsTab";
 import { MemoryTab } from "@/features/shared/memory/MemoryTab";
 import { RegistryTab } from "@/features/shared/registry/RegistryTab";
-import { KnowledgeTab } from "@/features/shared/knowledge/KnowledgeTab";
-import { SurfacesTab } from "@/features/shared/surfaces/SurfacesTab";
+import { KnowledgeSection } from "@/features/shared/knowledge/KnowledgeSection";
 import { RepositoriesTab } from "@/features/standing/repositories/RepositoriesTab";
 import { TechStacksTab } from "@/features/standing/tech-stacks/TechStacksTab";
 import { TeamsTab } from "@/features/bought/teams/TeamsTab";
@@ -149,17 +148,12 @@ export function OrgTabChunks({ slug, tab, sp }: { slug: string; tab: OrgTabId; s
         ) : null}
 
         {/* The registry's knowledge lane as the registry structures it, plus the fleet's standing
-            against it. Reads `?domain=` and `?subject=` (both tab-scoped). */}
+            against it. Reads `?domain=` and `?subject=` (both tab-scoped), and `?section=surfaces`
+            swaps in the UI surfaces gallery. `?tab=surfaces` is redirected here by the org page, so
+            this switch never sees that id. */}
         {tab === "knowledge" ? (
           <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-            <KnowledgeTab slug={slug} sp={sp} />
-          </Suspense>
-        ) : null}
-
-        {/* The visual surface collection, with subject and technique deep links. */}
-        {tab === "surfaces" ? (
-          <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
-            <SurfacesTab slug={slug} />
+            <KnowledgeSection slug={slug} sp={sp} />
           </Suspense>
         ) : null}
 

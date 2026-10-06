@@ -111,12 +111,12 @@ export function KnowledgeSubjectDetail({
 
             <section className="flex flex-wrap items-baseline justify-between gap-2 border-t border-divider pt-4">
               <span className="type-caption text-slate-500">{subject.file}</span>
-              {/* A ui-surfaces subject with a repo-shipped showcase deep-links into the UI surfaces tab
-                  (a full tab switch — the other tab-scoped params are cleared, `subject` is re-set). */}
+              {/* A ui-surfaces subject with a repo-shipped showcase deep-links into the UI surfaces section
+                  (a view switch — the other tab-scoped params are cleared, `section` and `subject` are re-set). */}
               {isSurfaceShowcased(subject.slug) ? (
                 <Link
                   className="focus-ring type-mono-sm text-accent hover:text-accent-soft"
-                  href={buildUrl(slug, { tab: "surfaces", ...clearedTabScopedParams(), subject: subject.slug }, "")}
+                  href={buildUrl(slug, { tab: "knowledge", ...clearedTabScopedParams(), section: "surfaces", subject: subject.slug }, "")}
                   data-open-showcase={subject.slug}
                 >
                   Open showcase →

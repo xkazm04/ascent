@@ -4,8 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
-import { buildUrl, clearedTabScopedParams, orgTabHref } from "@/lib/org/orgTabs";
+import { buildUrl, clearedTabScopedParams } from "@/lib/org/orgTabs";
 import { categories, descriptions, subjects } from "./catalog";
 import { SurfacePreview } from "./SurfacePreview";
 import styles from "./library.module.css";
@@ -31,7 +30,8 @@ export function SurfacesTab({ slug }: { slug: string }) {
       slug,
       {
         ...clearedTabScopedParams(),
-        tab: "surfaces",
+        tab: "knowledge",
+        section: "surfaces",
         subject,
       },
       sp.toString(),
@@ -165,7 +165,6 @@ export function SurfacesTab({ slug }: { slug: string }) {
           </footer>
         </>
       )}
-      <NextMoveLink href={orgTabHref(slug, "executive")} to="executive" />
     </div>
   );
 }
