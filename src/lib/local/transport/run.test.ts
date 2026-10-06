@@ -45,6 +45,10 @@ const armed = () => {
   vi.stubEnv("ASCENT_AUTOPILOT", "1");
   vi.stubEnv("CLAUDE_CLI_PATH", "");
   vi.stubEnv("CLAUDE_MODEL", "");
+  // The host may already carry part of the local block (a Claude Code session exports
+  // CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1): clear it so the cases that assert the block is
+  // absent test the code, not the machine. unstubAllEnvs() restores the originals in afterEach.
+  for (const k of CLAUDE_LOCAL_ENV_KEYS) vi.stubEnv(k, undefined);
   spawned.last = null;
   vi.mocked(spawn).mockClear();
   vi.mocked(killProcessTree).mockClear();
