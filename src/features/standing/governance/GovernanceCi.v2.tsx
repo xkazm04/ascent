@@ -2,13 +2,14 @@
 // page. The two marks are words: the server policy is enforced, the pasted parameters are a snapshot.
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { EvidencePanel, Frame, KeyValue, SectionHead } from "@/components/kit";
+import { GATE_API_PATH } from "@/lib/scoring/gate-api";
 
 const RECOPY =
   "Re-copy the snippet after you relax the org bar, or drop the parameters and let the workflow follow the server policy alone.";
 
 /** Break the gate URL on query seams, so a narrow column never splits a parameter name. */
 function GateUrl({ query }: { query: string }) {
-  const bits = `GET <ASCENT_URL>/api/gate/<owner>/<repo>?${query}`.split(/([?&])/);
+  const bits = `GET <ASCENT_URL>${GATE_API_PATH}/<owner>/<repo>?${query}`.split(/([?&])/);
   return (
     <span className="font-mono">
       {bits.map((bit, i) => (

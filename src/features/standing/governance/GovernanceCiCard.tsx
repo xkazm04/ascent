@@ -10,6 +10,7 @@
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { Legend, StateSwatch } from "@/components/org/viz";
 import { CopyForLlm } from "@/components/CopyForLlm";
+import { GATE_API_PATH } from "@/lib/scoring/gate-api";
 
 const CI_MARKS = [
   {
@@ -39,7 +40,7 @@ export function GovernanceCiCard({ gateQuery, snippet }: { gateQuery: string; sn
         <div>
           <div className="font-mono type-micro uppercase tracking-widest text-slate-500">Gate API</div>
           <pre className="mt-1 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3 font-mono type-micro text-slate-300">
-            GET &lt;ASCENT_URL&gt;/api/gate/&lt;owner&gt;/&lt;repo&gt;?{gateQuery}
+            GET &lt;ASCENT_URL&gt;{GATE_API_PATH}/&lt;owner&gt;/&lt;repo&gt;?{gateQuery}
             {"\n"}<span className="text-slate-500"># 200 = pass · 422 = fail · 503 = could not run (degraded / unmeasured skip; curl --fail)</span>
           </pre>
         </div>

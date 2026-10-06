@@ -6,6 +6,7 @@
 
 import { getOrgGatePolicy, getOrgRollup } from "@/lib/db";
 import { defaultGatePolicy, describeGatePolicy, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
+import { GATE_API_PATH, GATE_FAIL_STATUS, GATE_PASS_STATUS } from "@/lib/scoring/gate-api";
 
 export interface GovernanceFailure {
   name: string;
@@ -271,7 +272,9 @@ export function governanceMarkdown(o: GovernanceOverview): string {
   }
   out.push("");
   out.push("## Enforce in CI");
-  out.push(`- Gate API: GET <ASCENT_URL>/api/gate/<owner>/<repo>?${o.gateQuery}  (200 pass / 422 fail)`);
+  out.push(
+    `- Gate API: GET <ASCENT_URL>${GATE_API_PATH}/<owner>/<repo>?${o.gateQuery}  (${GATE_PASS_STATUS} pass / ${GATE_FAIL_STATUS} fail)`,
+  );
   out.push("- GitHub Action:");
   out.push("  ```yaml");
   // Single-sourced action preamble (ciActionYaml), indented two spaces for the fenced code block.

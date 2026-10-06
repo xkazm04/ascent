@@ -14,6 +14,7 @@ import { forgeFullName, resolveForge } from "@/lib/forge/registry";
 import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
 import { defaultGatePolicy, evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy, type GateSkip } from "@/lib/scoring/gate";
+import { GATE_FAIL_STATUS, GATE_PASS_STATUS } from "@/lib/scoring/gate-api";
 import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { orgSlugForRepo } from "@/lib/db/org-tenancy";
@@ -346,7 +347,7 @@ export async function GET(
     // the body knows why (and can retry), and always surface engine/confidence/warnings so any score —
     // healthy or degraded — is read in context (mirrors the web report's ReportNotices, which the
     // machine path lacked).
-    const status = degraded || unmeasured ? 503 : gate.pass ? 200 : 422;
+    const status = degraded || unmeasured ? 503 : gate.pass ? GATE_PASS_STATUS : GATE_FAIL_STATUS;
     return NextResponse.json(
       {
         repo: coordinate,

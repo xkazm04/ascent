@@ -76,6 +76,11 @@ describe("governanceMarkdown", () => {
     expect(md).toContain("Failing on: 2 below level · 3 dimension floor · 1 posture");
   });
 
+  it("states the public gate contract verbatim: path, query, 200 pass / 422 fail", () => {
+    // A literal, deliberately NOT the gate-api constants: this pins the bytes CI docs depend on.
+    expect(md).toContain("- Gate API: GET <ASCENT_URL>/api/gate/<owner>/<repo>?min_level=L3&min_dimension=40&no_ungoverned=1  (200 pass / 422 fail)");
+  });
+
   it("says nothing about unscorable scans when there are none, and names them when there are", () => {
     // Silent on a healthy fleet — an always-present "0 not judged" line is noise.
     expect(md).not.toContain("NOT JUDGED");

@@ -40,6 +40,11 @@ pass**, **`422` on fail**, and **`503` when the grade could not run** (degraded 
 or an explicitly requested skippable bar this token-less scan could not measure — see below)
 so `curl --fail` / CI can branch on the status alone.
 
+The path and the `200`/`422` pair are one dependency-free module, `src/lib/scoring/gate-api.ts`
+(`GATE_API_PATH`, `GATE_PASS_STATUS`, `GATE_FAIL_STATUS`). The route, the governance brief, the
+security `curl` snippets, the governance CI card and the landing band read it instead of typing the
+contract again. The `503` stays the route's own failure mode, outside that pair.
+
 | Query param | Effect |
 | --- | --- |
 | `ref` | Score this exact ref (PR head SHA / branch) instead of the default branch. |
@@ -470,6 +475,7 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | File | Role |
 | --- | --- |
 | `src/app/api/gate/[owner]/[repo]/route.ts` | Gate endpoint: score → resolve policy → 200/422/503. |
+| `src/lib/scoring/gate-api.ts` | Wire contract of the public endpoint: `GATE_API_PATH`, `GATE_PASS_STATUS` (200), `GATE_FAIL_STATUS` (422). No imports. |
 | `src/lib/scoring/gate.ts` | `evaluateGate()`, `explicitPolicyFromParams()`, `policyFromParams()`, `tightenGatePolicy()`, `describeGatePolicy()`, `sanitizeGatePolicy()`. |
 | `src/lib/scoring/gate-admission.ts` | `resolveAdmissionLayer()` / `loadCheckStates()`: the one IO seam both gate surfaces read the admission row and the conformance ledger through. |
 | `src/lib/org/admission.ts` | `compileStance()` / `admissionGateOverlay()`: the pure tier → tighten-only fragment. |

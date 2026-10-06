@@ -6,6 +6,7 @@
 import { getOrgDimensionGaps, getOrgGovernance, getOrgRollup, type OrgWindow } from "@/lib/db";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { DEFAULT_SECURITY_MIN } from "@/lib/scoring/gate";
+import { GATE_API_PATH } from "@/lib/scoring/gate-api";
 import type { OrgSupplyChain } from "@/lib/security/supply-chain";
 
 export interface SecurityRepo {
@@ -259,7 +260,7 @@ export function buildGateSnippet(o: SecurityOverview): string {
   return [
     `# Ascent security gate: non-zero exit when Security (D9) < ${o.securityGate.minSecurity} or the posture is "ungoverned".`,
     `# Add one line per repo to CI; set ASCENT_URL to this Ascent instance.`,
-    ...(failing.length > 0 ? failing : o.register.slice(0, 2)).map((r) => `curl -sf "$ASCENT_URL/api/gate/${r.fullName}?security=1"`),
+    ...(failing.length > 0 ? failing : o.register.slice(0, 2)).map((r) => `curl -sf "$ASCENT_URL${GATE_API_PATH}/${r.fullName}?security=1"`),
   ].join("\n");
 }
 
