@@ -12,6 +12,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { normalizeOrgSlug } from "@/lib/db/org-shared";
 import { degradedRead } from "@/lib/org/degraded-read";
 import { retentionCutoff } from "@/lib/plans";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
@@ -30,7 +31,9 @@ export function isGoalMetric(v: string): v is GoalMetric {
  * (unlike {@link getOrgId}, which only reads and returns null for an unknown slug). Shared by
  * createGoal and createInitiative, which previously repeated this identical upsert.
  */
-async function ensureOrg(orgSlug: string): Promise<{ id: string }> {
+async function ensureOrg(rawSlug: string): Promise<{ id: string }> {
+  // Org rows are persisted normalized and every read normalizes; never create one under a raw slug.
+  const orgSlug = normalizeOrgSlug(rawSlug);
   return getPrisma().organization.upsert({
     where: { slug: orgSlug },
     update: {},

@@ -290,6 +290,21 @@ describe("goals in the public org are read-only (operator decision 2026-10-07)",
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it.each(["Public", " public", "PUBLIC "])("POST refuses the variant %j with no authz call and no write", async (org) => {
+    const res = await postGoals({ org, label: "x", metric: "overall", target: 80 });
+    expect(res.status).toBe(403);
+    expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it.each(["Public", " public"])("PATCH and DELETE refuse a goal stored under %j and write nothing", async (org) => {
+    mockGoalOrg.mockResolvedValue(org);
+    expect((await patchGoal("goal-1", { label: "x" })).status).toBe(403);
+    expect((await deleteGoalReq("goal-1")).status).toBe(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
   it("PATCH answers 403 when the goal's resolved org is public, and writes nothing", async () => {
     mockGoalOrg.mockResolvedValue("public");
     const res = await patchGoal("goal-1", { label: "x" });

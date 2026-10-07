@@ -682,6 +682,15 @@ describe("parseTargetDate (via createGoal write) — valid ⇒ Date, junk ⇒ nu
   // goal-meter-no-baseline: creation is the ONLY moment the metric's starting value is knowable, so
   // it is captured on the row rather than reconstructed later from scan history (which would invent
   // a number and could make an in-flight goal read as regressed).
+  it("normalizes the org slug before upserting the org row", async () => {
+    const { prisma } = fakeCreateGoalPrisma();
+    mockGetPrisma.mockReturnValue(prisma);
+    await createGoal(" Acme ", { label: "G", metric: "overall", target: 70 });
+    expect(prisma.organization.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { slug: "acme" }, create: expect.objectContaining({ slug: "acme" }) }),
+    );
+  });
+
   describe("createGoal baseline capture", () => {
     it("stamps baselineValue with the fleet's current value on the metric, plus baselineAt", async () => {
       const { prisma, created } = fakeCreateGoalPrisma([
