@@ -16,6 +16,7 @@ import { ingestRepository } from "./scan-ingest";
 import { buildScanScoreInput } from "./scan-score-input";
 import { buildScanWarnings } from "./scan-compose";
 import { fetchSecurityExposure } from "@/lib/security/exposure";
+import { fetchSecurityPosture } from "@/lib/github/security-posture";
 import type { EnrichmentSource, Forge } from "@/lib/forge/types";
 import type { ParsedRepo, RepoSource } from "@/lib/github/source";
 import type { RepoSnapshot, SecurityPosture } from "@/lib/types";
@@ -383,5 +384,19 @@ describe("ingestRepository — OSV/lockfile read failures throw, they are not UN
     expect(ok.securityExposure).toEqual({
       known: true, source: "osv", critical: 0, high: 0, medium: 0, low: 0, scanned: 1,
     });
+  });
+});
+
+describe("a 502 from the advisory endpoint, through the real fetchSecurityPosture", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("is recorded as a sensor failure and the security-policy check is null, not 0", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) =>
+      new Response("[]", { status: url.includes("/security-advisories") ? 502 : 404 })));
+    const result = await ingest({ securityPosture: fetchSecurityPosture });
+    expect(result.sensorFailures).toContain("securityPosture");
+    const check = await securityCheck("security-policy", result);
+    expect(check.score).toBeNull();
+    expect(check.score).not.toBe(0);
   });
 });
