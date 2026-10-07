@@ -36,7 +36,7 @@ vi.mock("@/lib/db", () => ({
   getCreditState: h.getCreditState,
   recordOrgAudit: h.recordOrgAudit,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole, refusePublicOrgAdmin: () => null }));
 vi.mock("@/lib/auth", () => ({
   getSession: h.getSession,
   isSameOrigin: h.isSameOrigin,

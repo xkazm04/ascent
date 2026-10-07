@@ -6,6 +6,8 @@
 // and setOrgLlmConfig rejects any other). Owner-gated, same-origin, BYOM-plan gated, and fail-closed
 // without ENCRYPTION_KEY. The GET response NEVER includes the secret (only
 // `hasCredentials`); the secret is encrypted at rest and decrypted only at provider-construction time.
+// POST and DELETE refuse the shared "public" org (refusePublicOrgAdmin): requireOrgRole admits it for
+// any signed-in viewer, and nobody owns its provider config (security scan 2026-10-07, S3).
 
 import { NextResponse } from "next/server";
 import {
@@ -16,7 +18,7 @@ import {
   recordOrgAudit,
   setOrgLlmConfig,
 } from "@/lib/db";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { planAllowsByom } from "@/lib/plans";
@@ -61,7 +63,7 @@ export async function POST(request: Request) {
   if (!body.org || !body.modelId?.trim()) {
     return NextResponse.json({ error: "Provide { org, modelId }." }, { status: 400 });
   }
-  const denied = await requireOrgRole(body.org, "owner");
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "owner"));
   if (denied) return denied;
   // Enterprise-only entitlement (§8.4).
   const credit = await getCreditState(body.org).catch(() => null);
@@ -114,7 +116,7 @@ export async function DELETE(request: Request) {
   if (crossOriginDelete) return crossOriginDelete;
   const body = (await request.json().catch(() => ({}))) as { org?: string };
   if (!body.org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "owner");
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "owner"));
   if (denied) return denied;
   // Read the config BEFORE disabling: the audit row must name the provider that was actually
   // configured. It was hardcoded to "bedrock", so every OpenRouter disable was audited as a Bedrock

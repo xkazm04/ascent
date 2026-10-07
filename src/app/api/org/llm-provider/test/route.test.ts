@@ -44,7 +44,7 @@ vi.mock("@/lib/db", () => ({
   recordOrgLlmValidation: h.recordOrgLlmValidation,
 }));
 vi.mock("@/lib/db/org-llm", () => ({ getStoredByomSecret: h.getStoredByomSecret }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole, refusePublicOrgAdmin: () => null }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: h.requireSameOrigin }));
 vi.mock("@/lib/crypto/secret-box", () => ({ isEncryptionConfigured: h.isEncryptionConfigured }));
 // The REAL region grammar, with only the network call stubbed: a mocked isValidAwsRegion would prove

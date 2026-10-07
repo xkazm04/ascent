@@ -6,12 +6,14 @@
 // enabling), else the stored (decrypted) secret, supporting the save → test → enable flow. Runs ONE
 // cheap but SCHEMA-SHAPED provider call (see testBedrockConnection / json-mode-probe.ts: a bare ping green-checks configs that fail every
 // real scan) and stamps lastValidatedAt/Error. The secret is never echoed back; the error message is
-// sanitized + bounded.
+// sanitized + bounded. The shared "public" org is refused (refusePublicOrgAdmin): nobody owns its
+// provider config, so nobody may probe it or stamp its validation columns (security scan 2026-10-07).
 
 import { NextResponse } from "next/server";
 import { getCreditState, getOrgLlmConfig, isDbConfigured, recordOrgLlmValidation } from "@/lib/db";
 import { getStoredByomSecret } from "@/lib/db/org-llm";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
+import { refusePublicOrgAdmin } from "@/lib/authz";
 import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { isValidAwsRegion, REGION_FORMAT_ERROR, testBedrockConnection } from "@/lib/llm/bedrock";
@@ -36,6 +38,8 @@ export async function POST(request: Request) {
   const gate = await requireOrgOwnerPost<TestBody>(request);
   if (gate instanceof NextResponse) return gate;
   const { org, body } = gate;
+  const publicRefused = refusePublicOrgAdmin(org);
+  if (publicRefused) return publicRefused;
   const credit = await getCreditState(org).catch(() => null);
   if (!planAllowsByom(credit?.plan)) {
     return NextResponse.json({ error: "BYOM is an Enterprise-plan feature." }, { status: 403 });
