@@ -1,5 +1,8 @@
 # Ascent
 
+[![CI](https://github.com/xkazm04/ascent/actions/workflows/ci.yml/badge.svg)](https://github.com/xkazm04/ascent/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
+
 **Ascent scores how AI-native a team's engineering actually is.** Point it at a GitHub
 repository (or a whole org) and it returns a 0–100 score on a **5-level maturity ladder**
 across **9 weighted dimensions**, with the evidence behind every number and a prioritized
