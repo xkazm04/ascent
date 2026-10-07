@@ -17,11 +17,14 @@
 // by grantCredits — a -500 against a balance of 30 removes 30, and a debit against 0 removes nothing.
 // `appliedDelta` reports what actually landed (0 for the empty-balance debit), so an operator
 // reconciling against an external system can see under-application instead of a bare `ok: true`.
+//
+// The shared "public" org is refused (refusePublicOrgAdmin): requireOrgRole admits it for any
+// signed-in viewer, and nobody owns the funnel's balance (security scan 2026-10-07, S6).
 
 import { NextResponse } from "next/server";
 import { getCreditState, grantCredits, isDbConfigured } from "@/lib/db";
 import { sumManualGrants } from "@/lib/db/credits";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { creditGrantsEnabled } from "@/lib/env";
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Provide { org, amount }." }, { status: 400 });
   }
   // Owner-gated: only the org owner may change its balance.
-  const denied = await requireOrgRole(body.org, "owner");
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "owner"));
   if (denied) return denied;
 
   const amount = Math.trunc(body.amount);

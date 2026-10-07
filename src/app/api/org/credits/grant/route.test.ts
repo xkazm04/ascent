@@ -27,7 +27,7 @@ vi.mock("@/lib/db", () => ({
 // The route reads the org's already-minted total straight from the credits submodule (the db barrel
 // re-exports by name; entitlement.ts imports the submodule the same way), so mock it separately.
 vi.mock("@/lib/db/credits", () => ({ sumManualGrants: vi.fn(async () => 0) }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null), refusePublicOrgAdmin: () => null }));
 vi.mock("@/lib/auth", () => {
   const isSameOrigin = vi.fn(() => true);
   return {
