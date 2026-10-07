@@ -96,6 +96,11 @@ or the caller already has its own error door. Use `degradedRead` for a class B r
 - `src/lib/org/briefing-silent-catch.guard.test.ts` (`ba16c071`) does the same for the executive-briefing
   span. `.catch(() => <literal>)`, an empty catch, or a bare-return catch without a door fails, and a
   stale allowlist entry fails too.
+- `src/lib/scan-queue-silent-catch.guard.test.ts` does the same for the scan-queue and cron paths (both
+  `/api/cron/{rescan,probe}` routes, `db/scan-jobs.ts`, `scan-queue-worker.ts`), reusing the briefing
+  matcher. Silent sites before / after the sweep: 39 / 0 (cron routes 6 / 0, `scan-jobs.ts` 16 / 0,
+  `scan-queue-worker.ts` 17 / 0), allowlist empty. A failed cron step now answers null plus a named `errors`
+  entry, and `queueDepth` throws on a failed count instead of answering 0.
 - `src/lib/scan-read-door.test.ts` pins that each door reaches both a log and `reportHandledError`.
 - `*.unreachable.test.ts(x)` (permalink page, history, passport, recommendations) run the real readers
   over the real client wrappers with only Prisma faked, for both a `PrismaClientInitializationError` and

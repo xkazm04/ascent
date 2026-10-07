@@ -30,6 +30,7 @@ vi.mock("@/lib/db/scan-jobs", () => ({
   queueDepth: vi.fn(async () => ({ rescore: { queued: 0, oldestAgeMs: null }, probe: { queued: 0, oldestAgeMs: null } })),
   reapExpiredLeases: vi.fn(async () => 0),
 }));
+vi.mock("@/lib/db/control-observations", () => ({ sealAllPendingDays: vi.fn(async () => ({ sealed: 0 })) }));
 vi.mock("@/lib/github/app", () => ({ isAppConfigured: vi.fn(() => true) }));
 vi.mock("@/lib/scan-queue-worker", () => ({ drainLane: vi.fn() }));
 
@@ -183,5 +184,35 @@ describe("GET /api/cron/rescan — reap, seed, drain", () => {
 
     expect(out.truncated).toBe(true);
     expect((out.queueDepth as { queued: number }).queued).toBe(12);
+  });
+});
+
+// A failed step is NOT "nothing was due": it answers null, names itself in `errors`, reaches the
+// degraded-read door, and the pass still answers 200 (docs/adr/2026-10-07-failed-read-is-not-absence.md).
+describe("a failed step is reported, never fabricated as zero", () => {
+  const warn = () => vi.mocked(console.warn);
+
+  it.each([
+    ["enqueueDueRescans", "seeded", () => mockSeed.mockRejectedValue(new Error("db down"))],
+    ["reapExpiredLeases", "reaped", () => mockReap.mockRejectedValue(new Error("db down"))],
+    ["queueDepth", "queueDepth", () => mockDepth.mockRejectedValue(new Error("db down"))],
+  ])("%s failing answers null for %s, names the step, reaches the door", async (step, field, fail) => {
+    fail();
+    const res = await GET(req({ auth: `Bearer ${SECRET}` }));
+    const out = await body(res);
+
+    expect(res.status).toBe(200);
+    expect(out[field]).toBeNull();
+    expect(out.errors).toContain(`cron/rescan ${step} failed`);
+    expect(warn()).toHaveBeenCalledWith(`[degraded-read] cron/rescan ${step} failed`, "db down");
+    expect(mockDrain).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed ledger seal answers null and is named", async () => {
+    const sealer = await import("@/lib/db/control-observations");
+    vi.mocked(sealer.sealAllPendingDays).mockRejectedValue(new Error("seal down"));
+    const out = await body(await GET(req({ auth: `Bearer ${SECRET}` })));
+    expect(out.ledgerSeal).toBeNull();
+    expect(out.errors).toContain("cron/rescan sealAllPendingDays failed");
   });
 });

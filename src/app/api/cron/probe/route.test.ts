@@ -29,7 +29,7 @@ vi.mock("@/lib/scan-queue-worker", () => ({ drainLane: vi.fn() }));
 
 import { GET, maxDuration } from "./route";
 import { drainLane } from "@/lib/scan-queue-worker";
-import { enqueueDueProbes } from "@/lib/db/scan-jobs";
+import { enqueueDueProbes, queueDepth } from "@/lib/db/scan-jobs";
 import { PROBE_CONCURRENCY } from "@/lib/pool";
 
 const mockDrain = vi.mocked(drainLane);
@@ -122,5 +122,30 @@ describe("the lane is free", () => {
     const body = (await (await GET(req(`Bearer ${SECRET}`))).json()) as { queueDepth: unknown; done: number };
     expect(body.done).toBe(2);
     expect(body.queueDepth).toEqual({ queued: 3, oldestAgeMs: 1000 });
+  });
+});
+
+describe("a failed step is reported, never fabricated as zero", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  it("enqueueDueProbes failing answers seeded null, names the step, reaches the door, still 200", async () => {
+    mockSeed.mockRejectedValue(new Error("db down"));
+    const res = await GET(req(`Bearer ${SECRET}`));
+    const out = (await res.json()) as { seeded: unknown; errors: string[] };
+
+    expect(res.status).toBe(200);
+    expect(out.seeded).toBeNull();
+    expect(out.errors).toContain("cron/probe enqueueDueProbes failed");
+    expect(console.warn).toHaveBeenCalledWith("[degraded-read] cron/probe enqueueDueProbes failed", "db down");
+    expect(mockDrain).toHaveBeenCalledTimes(1);
+  });
+
+  it("queueDepth failing answers queueDepth null and names the step", async () => {
+    vi.mocked(queueDepth).mockRejectedValueOnce(new Error("db down"));
+    const out = (await (await GET(req(`Bearer ${SECRET}`))).json()) as { queueDepth: unknown; errors: string[] };
+    expect(out.queueDepth).toBeNull();
+    expect(out.errors).toContain("cron/probe queueDepth failed");
   });
 });

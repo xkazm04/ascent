@@ -26,6 +26,7 @@ const h = vi.hoisted(() => ({
   getRepoSchedule: vi.fn(),
   advanceToFullCadence: vi.fn(),
   advanceScheduleAfterFailure: vi.fn(),
+  recordScanOutcome: vi.fn(),
 }));
 
 vi.mock("@/lib/scan", () => ({ scanRepository: h.scanRepository }));
@@ -37,7 +38,7 @@ vi.mock("@/lib/db", () => ({
   getScanReportByCommit: vi.fn(async () => null),
   isByomActive: vi.fn(async () => false),
   persistScanReport: h.persistScanReport,
-  recordScanOutcome: vi.fn(async () => {}),
+  recordScanOutcome: h.recordScanOutcome,
 }));
 vi.mock("@/lib/db/scan-jobs", () => ({
   claimJob: h.claimJob,
@@ -106,6 +107,7 @@ beforeEach(() => {
   h.markJobCredit.mockResolvedValue(undefined);
   h.advanceToFullCadence.mockResolvedValue(undefined);
   h.advanceScheduleAfterFailure.mockResolvedValue(undefined);
+  h.recordScanOutcome.mockResolvedValue(undefined);
   h.probeRepository.mockResolvedValue({ fullName: "acme/api", written: 0, transitions: 0, unmeasurable: 0, present: true });
   h.scanRepository.mockResolvedValue(report());
 });
@@ -318,5 +320,33 @@ describe("a requeued job does not buy its credit twice", () => {
 
     expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true, { actor: "queue:import", repoFullName: "acme/api" });
     expect(h.settleJob).toHaveBeenCalledWith("job_1", expect.objectContaining({ state: "failed", creditRefunded: true }));
+  });
+});
+
+// Bookkeeping stays best-effort (a failed write never fails the job) but is no longer invisible: it
+// reaches the degraded-read door (docs/adr/2026-10-07-failed-read-is-not-absence.md).
+describe("failed bookkeeping reaches the door and the job still settles", () => {
+  it("a failed recordScanOutcome / advanceToFullCadence is warned, and the job still settles done", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.claimJob.mockResolvedValueOnce(job()).mockResolvedValue(null);
+    h.recordScanOutcome.mockRejectedValue(new Error("outcome down"));
+    h.advanceToFullCadence.mockRejectedValue(new Error("cadence down"));
+
+    const s = await drainLane("rescore", opts());
+
+    expect(s.done).toBe(1);
+    expect(h.settleJob.mock.calls[0]![1]).toMatchObject({ state: "done" });
+    expect(warn).toHaveBeenCalledWith("[degraded-read] queue-worker scan-outcome write (ok) failed", "outcome down");
+    expect(warn).toHaveBeenCalledWith("[degraded-read] queue-worker cadence advance failed", "cadence down");
+    warn.mockRestore();
+  });
+
+  it("a failed claim ends the drain with a warn, not silently", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.claimJob.mockRejectedValue(new Error("claim down"));
+    const s = await drainLane("rescore", opts());
+    expect(s.claimed).toBe(0);
+    expect(warn).toHaveBeenCalledWith("[degraded-read] queue-worker claim failed", "claim down");
+    warn.mockRestore();
   });
 });

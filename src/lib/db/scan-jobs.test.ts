@@ -34,7 +34,10 @@ import {
   idempotencyKeyFor,
   MAX_JOB_ATTEMPTS,
   orgQueueDepth,
+  listJobsForRun,
+  markJobCredit,
   queueDepth,
+  queuedJobsForRepos,
   reapExpiredLeases,
   settleJob,
 } from "./scan-jobs";
@@ -289,5 +292,58 @@ describe("orgQueueDepth refuses to fabricate an empty queue", () => {
     expect(depth!.rescore.oldestAgeMs).toBeGreaterThan(2.9 * 3_600_000);
     // An empty lane is never dated — the same never-zero rule `queueDepth` holds.
     expect(depth!.probe).toEqual({ queued: 0, oldestAgeMs: null });
+  });
+});
+
+// A failed best-effort read or write keeps its fallback AND reaches the degraded-read door
+// (docs/adr/2026-10-07-failed-read-is-not-absence.md); only queueDepth's count now throws.
+describe("failed bookkeeping reaches the door and keeps its fallback", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  it("a failed settleJob / markJobCredit write is swallowed but warned", async () => {
+    const update = vi.fn(async () => {
+      throw new Error("write down");
+    });
+    mockGetPrisma.mockReturnValue({ scanJob: { update } });
+    await expect(settleJob("job_1", { state: "done" })).resolves.toBeUndefined();
+    await expect(markJobCredit("job_1", true)).resolves.toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith("[degraded-read] scan-jobs settle write (settleJob) failed", "write down");
+    expect(console.warn).toHaveBeenCalledWith("[degraded-read] scan-jobs creditCharged write (markJobCredit) failed", "write down");
+  });
+
+  it("listJobsForRun and queuedJobsForRepos keep [] / an empty set on a failed read, with a warn", async () => {
+    const findMany = vi.fn(async () => {
+      throw new Error("read down");
+    });
+    mockGetPrisma.mockReturnValue({ scanJob: { findMany } });
+    expect(await listJobsForRun("acme", "run_1")).toEqual([]);
+    expect((await queuedJobsForRepos("org_1", ["acme/api"])).size).toBe(0);
+    expect(console.warn).toHaveBeenCalledWith("[degraded-read] scan-jobs run read (listJobsForRun) failed", "read down");
+    expect(console.warn).toHaveBeenCalledWith("[degraded-read] scan-jobs queued-tag read (queuedJobsForRepos) failed", "read down");
+  });
+
+  it("queueDepth THROWS on a failed count instead of answering a fabricated 0", async () => {
+    mockGetPrisma.mockReturnValue({
+      scanJob: {
+        count: vi.fn(async () => {
+          throw new Error("count down");
+        }),
+      },
+    });
+    await expect(queueDepth()).rejects.toThrow("count down");
+  });
+
+  it("orgQueueDepth stays null on a failed read, and warns", async () => {
+    mockGetPrisma.mockReturnValue({
+      scanJob: {
+        count: vi.fn(async () => {
+          throw new Error("count down");
+        }),
+      },
+    });
+    expect(await orgQueueDepth("acme")).toBeNull();
+    expect(console.warn).toHaveBeenCalledWith("[degraded-read] scan-jobs orgQueueDepth failed", "count down");
   });
 });
