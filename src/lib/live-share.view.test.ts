@@ -9,7 +9,7 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: () => null }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, getViewer: vi.fn(async () => null) }));
-vi.mock("@/lib/authz", () => ({ canReadOrg: vi.fn(async () => true), requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, canReadOrg: vi.fn(async () => true), requireOrgRole: vi.fn(async () => null) }));
 
 import { createHmac } from "node:crypto";
 import { normalizeLiveShareView, signLiveShareToken, verifyLiveShareToken } from "./live-share";
