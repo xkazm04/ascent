@@ -356,6 +356,10 @@ status, plus a Revoke control. Three refusals are the panel, pinned in `shareLin
   cannot be undone; only the second one POSTs. The panel states that the list is bounded by audit
   retention and is not the enforcement point, and accepts a pasted link id, so a grant older than
   retention can still be killed (the endpoint deliberately does not require it to be listed).
+- A revoke only ever ends a link of the org the owner is signed in to: the ledger key is the gated org plus
+  the link id, so pasting another org's id (it is readable in that org's plaintext token) writes a row
+  that org's link never reads. A per-client (segment-scoped) briefing shows one line in the Goals slot
+  instead of the account's goals and percentile (`accountFiguresNotice`, see org-intelligence.md).
 
 A link minted by the Share button is prepended on success through a window event
 (`publishMintedShareGrant`), because the mint control sits inside a server subtree that cannot pass a
