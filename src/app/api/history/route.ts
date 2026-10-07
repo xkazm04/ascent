@@ -15,6 +15,7 @@ import { DIMENSIONS } from "@/lib/maturity/model";
 import { csvTable } from "@/lib/export/csv";
 import { HISTORY_SCAN_CAP } from "@/lib/history/limits";
 import { safeFilenameSlug } from "@/lib/export/filename";
+import { reportHandledError } from "@/lib/api/respond";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,6 +110,9 @@ export async function GET(request: Request) {
       includeDimensions,
       limit,
       includeCompacted,
+      // An unreachable DB throws (caught below → 500) rather than answering "no scans" — an empty series
+      // reads as "Baseline established" on the trend panel, a false fact.
+      strict: true,
     });
     const payload =
       history ??
@@ -167,6 +171,7 @@ export async function GET(request: Request) {
     return NextResponse.json(payload, { headers });
   } catch (err) {
     console.error("[history] query failed", err);
+    reportHandledError(err, { status: 500, message: "Failed to load history." });
     return NextResponse.json({ error: "Failed to load history." }, { status: 500 });
   }
 }

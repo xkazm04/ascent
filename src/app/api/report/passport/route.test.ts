@@ -72,7 +72,7 @@ describe("GET /api/report/passport", () => {
     const res = await GET(req("?repo=acme/web@abc123"));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(samplePassport);
-    expect(h.getRepoPassport).toHaveBeenCalledWith("acme", "web", { orgSlug: "acme", headSha: "abc123" });
+    expect(h.getRepoPassport).toHaveBeenCalledWith("acme", "web", { orgSlug: "acme", headSha: "abc123", strict: true });
     expect(res.headers.get("content-disposition")).toBeNull(); // no download by default
   });
 

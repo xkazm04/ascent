@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getLatestRecommendations } from "@/lib/db";
 import { PUBLIC_ORG } from "@/lib/auth";
+import { reportHandledError } from "@/lib/api/respond";
 import { canReadOrg } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { getOrgExpectedLifts } from "@/lib/outcomes/expected-lift-load";
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
     // not a leak — getLatestRecommendations stays org-scoped either way.)
     const ownerOrg = parsed.owner.toLowerCase();
     const orgSlug = (await canReadOrg(ownerOrg)) ? ownerOrg : PUBLIC_ORG;
-    const result = await getLatestRecommendations(parsed.owner, parsed.repo, { orgSlug });
+    const result = await getLatestRecommendations(parsed.owner, parsed.repo, { orgSlug, strict: true });
     if (!result) return NextResponse.json({ scanId: null, items: [], sort: "priority" });
 
     const lifts = await getOrgExpectedLifts(orgSlug);
@@ -65,6 +66,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ ...result, items, sort });
   } catch (err) {
     console.error("[recommendations] query failed", err);
+    reportHandledError(err, { status: 500, message: "Failed to load recommendations." });
     return NextResponse.json({ error: "Failed to load recommendations." }, { status: 500 });
   }
 }

@@ -14,6 +14,7 @@ import { requireOrgRead } from "@/lib/authz";
 import { parseRepoParam } from "@/lib/report/repoParam";
 import { safeFilenameSegment } from "@/lib/export/filename";
 import { upgradePassport } from "@/lib/analyze/passport";
+import { reportHandledError } from "@/lib/api/respond";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,17 @@ export async function GET(request: Request) {
   const denied = await requireOrgRead(orgSlug);
   if (denied) return denied;
 
-  const passport = await getRepoPassport(parsed.owner, parsed.name, { orgSlug, headSha: parsed.sha }).catch(() => null);
+  // STRICT read: a configured-but-unreachable DB throws DbUnavailableError instead of resolving null, so an
+  // outage is a 500 (never the 404 "Scan it first" that would be a false fact, and never 503, which
+  // ReportView treats as the quiet no-database mode). A strict null is a passport that does not exist.
+  let passport: Awaited<ReturnType<typeof getRepoPassport>>;
+  try {
+    passport = await getRepoPassport(parsed.owner, parsed.name, { orgSlug, headSha: parsed.sha, strict: true });
+  } catch (err) {
+    console.error("[passport] read failed", err);
+    reportHandledError(err, { status: 500, message: "Failed to load the passport." });
+    return NextResponse.json({ error: "Failed to load the passport." }, { status: 500 });
+  }
   if (!passport) {
     return NextResponse.json(
       { error: "No passport for this repository yet. Scan it first, then export." },
