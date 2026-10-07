@@ -30,7 +30,7 @@ vi.mock("@/lib/db", () => ({
   revokeInvite: vi.fn(async () => ({ revoked: true, target: "invitee@example.test" })),
 }));
 
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null), refusePublicOrgAdmin: () => null }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat") }));
 vi.mock("@/lib/email/invite", () => ({ dispatchInviteEmail: vi.fn(async () => ({ ok: true, skipped: false })) }));

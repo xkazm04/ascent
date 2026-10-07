@@ -9,6 +9,9 @@
 // (token rotation + re-mail, same pending row).
 //
 // Owner-only: inviting/revoking/resending is an ownership-level action (mirrors /api/org/members).
+// Every verb, the GET included, refuses the shared "public" org (refusePublicOrgAdmin): requireOrgRole
+// admits it for any signed-in viewer, so the owner gate alone let anyone mint admin invite links to it,
+// mail them from this deployment, or read its invitee emails (security scan 2026-10-07, S5).
 // An invite carries a single-use token returned to the owner so they can share the /invite/[token]
 // link. Resend overwrites that token in place so two live links cannot both grant.
 //
@@ -24,7 +27,7 @@
 import { NextResponse } from "next/server";
 import { createInvite, isDbConfigured, listPendingInvites, recordOrgAudit, revokeInvite } from "@/lib/db";
 import { resendInvite, type PendingInvite } from "@/lib/db/invites";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
@@ -58,7 +61,7 @@ export async function GET(request: Request) {
   // internally, so the GATE was safe, but the raw string went on to the reads, the mutations and — the
   // part nothing else corrects — the `meta.org` of every invite audit row.
   const org = normalizeOrgSlug(rawOrg);
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
   return NextResponse.json({ invites: await listPendingInvites(org) });
 }
@@ -101,7 +104,7 @@ export async function POST(request: Request) {
   if (body.action === "resend") {
     if (!body.org || !body.id) return NextResponse.json({ error: "Provide { org, id }." }, { status: 400 });
     const org = normalizeOrgSlug(body.org);
-    const denied = await requireOrgRole(org, "owner");
+    const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
     if (denied) return denied;
     const actor = await resolveViewerLogin();
     const invite = await resendInvite(org, body.id);
@@ -141,7 +144,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "email must be a valid email address." }, { status: 400 });
   }
   const org = normalizeOrgSlug(body.org);
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
   // resolveViewerLogin, not getSession: the dormant custom-OAuth session is null under the ACTIVE
   // Supabase wall, so both `invitedBy` and the audit actor were recorded as null in production.
@@ -174,7 +177,7 @@ export async function DELETE(request: Request) {
   const org = normalizeOrgSlug(searchParams.get("org") ?? "");
   const id = searchParams.get("id");
   if (!org || !id) return NextResponse.json({ error: "Provide ?org=&id=." }, { status: 400 });
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
   const { revoked, target } = await revokeInvite(org, id);
   if (!revoked) return NextResponse.json({ error: "No such pending invite." }, { status: 404 });
