@@ -34,6 +34,7 @@ export function SkipNotices({ rows, notices = [] }: { rows: Record<string, ScanR
   const quota = counts.monthly_quota ?? 0;
   const inProgress = counts.in_progress ?? 0;
   const notScanned = counts.not_scanned ?? 0;
+  const queued = counts.queued ?? 0;
   // Batch-level notices with no per-row expression. `listing_truncated` only ever fires on a
   // server-side listing (the wizard always sends an explicit repo list), but surfacing it costs
   // nothing and silence would be the same failure this whole change is about.
@@ -58,6 +59,14 @@ export function SkipNotices({ rows, notices = [] }: { rows: Record<string, ScanR
         <Banner>
           {repos(inProgress)} <strong>already being scanned</strong> by another run, so this one left them
           alone (no double charge). Their results land on the dashboard when that run finishes.
+        </Banner>
+      )}
+      {queued > 0 && (
+        <Banner>
+          {queued === 1 ? "1 repository is" : `${queued} repositories are`} <strong>still scanning in the
+          background</strong>. This request ran out of time before reaching {queued === 1 ? "it" : "them"}; the
+          worker is finishing {queued === 1 ? "it" : "them"} and the results land on the dashboard as they
+          complete. Nothing is skipped and nothing extra is charged.
         </Banner>
       )}
       {notScanned > 0 && (

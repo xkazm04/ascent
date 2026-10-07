@@ -533,7 +533,10 @@ export function useOnboardingFlow({
             // gave none. The old unconditional "insufficient_credits" relabel is exactly how a
             // monthly-allowance stop became a prepaid-balance lie on the done screen.
             // The same `result` action also records a late-joined runId and moves to "done".
-            dispatch({ type: "result", runId: data?.runId, reason: leftoverSkipReason(seen) });
+            // A `queued` count on the result (or an uncountable one, null) means the 300 s budget ended
+            // with the tail still owed to the background worker: those rows are "queued", not skipped.
+            const owed = data?.queued === null || (data?.queued ?? 0) > 0;
+            dispatch({ type: "result", runId: data?.runId, reason: owed ? "queued" : leftoverSkipReason(seen) });
             // Preview-then-upgrade handoff: the mock rows are persisted, so record the one-shot flag
             // NOW (org + exact repo set). The dashboard header consumes it on mount and starts the
             // live scan there; a wizard refresh can't re-write it (the done phase never re-runs).
@@ -543,7 +546,11 @@ export function useOnboardingFlow({
                 picks.map((r) => r.fullName),
               );
             }
-            setAnnounce(`Scan complete. ${total} ${total === 1 ? "repository" : "repositories"}.`);
+            setAnnounce(
+              owed
+                ? "Scan running in the background. The rest are still scanning."
+                : `Scan complete. ${total} ${total === 1 ? "repository" : "repositories"}.`,
+            );
           },
           // An SSE `error` event can arrive and the stream still end "cleanly" (runImportScan resolves
           // ok:true), so the outcome handler below never runs — without advancing the phase here the

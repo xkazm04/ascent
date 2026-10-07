@@ -61,8 +61,9 @@ export interface ImportScanCallbacks {
     skipped?: string;
   }) => void;
   /** The stream finished successfully (terminal `result` event). Carries the server's `runId` (the
-   *  same handle the opening `queued` frame announced) for a client that joined late. */
-  onResult: (data?: { runId?: string }) => void;
+   *  same handle the opening `queued` frame announced) for a client that joined late, and `queued`: the
+   *  repos the 300 s budget left for the background worker (null = the route could not count them). */
+  onResult: (data?: { runId?: string; queued?: number | null }) => void;
   /** The opening `queued` frame: this run's IDENTITY plus its size, emitted before any repo is
    *  scanned. Optional so existing callers needn't handle it. The wizard stores the runId in its
    *  resume snapshot, so a refresh mid-scan can re-attach to the run through
@@ -167,7 +168,10 @@ export async function runImportScan(
             });
           }
         } else if (event === "result") {
-          cb.onResult({ runId: typeof data.runId === "string" ? data.runId : undefined });
+          cb.onResult({
+            runId: typeof data.runId === "string" ? data.runId : undefined,
+            queued: typeof data.queued === "number" || data.queued === null ? data.queued : undefined,
+          });
         } else if (event === "error") {
           cb.onError(String(data.error ?? "Scan failed."));
         }

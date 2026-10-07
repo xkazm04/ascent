@@ -4,6 +4,8 @@
 //   • "insufficient_credits" — the prepaid balance (plus included allowance) ran out mid-batch;
 //   • "monthly_quota"        — the FREE monthly public-scan allowance ran out (public funnel only);
 //   • "in_progress"          — another live run already holds the claim for this (org, repo).
+// A fourth is CLIENT-derived, from the `result` frame's `queued` count: "queued" - the 300 s budget
+// ended with the repo still queued for the background worker. It is neither a failure nor a skip.
 // …plus two batch-level `notice` reasons that are not per-repo at all ("too_many_repos",
 // "listing_truncated").
 //
@@ -16,7 +18,7 @@
 
 /** Reasons a row can carry. Unknown strings are tolerated (the server may add reasons) and fall
  *  through to the neutral "not scanned", which claims nothing rather than guessing wrong. */
-export const SKIP_REASONS = ["insufficient_credits", "monthly_quota", "in_progress", "not_scanned"] as const;
+export const SKIP_REASONS = ["insufficient_credits", "monthly_quota", "in_progress", "queued", "not_scanned"] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
 
 /** The short label a skipped ROW shows. Neutral for anything unrecognized. */
@@ -28,6 +30,8 @@ export function skipRowLabel(reason: string): string {
       return "skipped (monthly free scans used up)";
     case "in_progress":
       return "skipped (already being scanned)";
+    case "queued":
+      return "still scanning in the background";
     default:
       return "not scanned";
   }

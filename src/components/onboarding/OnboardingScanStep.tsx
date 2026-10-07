@@ -5,7 +5,7 @@ import { ScanExpectation } from "@/components/onboarding/OnboardingScanExpectati
 import { InvitePanel } from "@/components/onboarding/OnboardingInvitePanel";
 import { FoundationPanel } from "@/components/onboarding/OnboardingFoundationPanel";
 import { SkipNotices } from "@/components/onboarding/OnboardingSkipNotices";
-import type { ImportNotice } from "@/components/onboarding/skipReason";
+import { countSkips, type ImportNotice } from "@/components/onboarding/skipReason";
 import { ReconnectedNotice } from "@/components/onboarding/OnboardingReconnected";
 import { reportableRepos, rowSettled, runProgress } from "@/components/onboarding/OnboardingFlow.run";
 import type { ReattachState } from "@/components/onboarding/useImportReattach";
@@ -95,6 +95,8 @@ export function ScanStep({
   const errorCount = Object.values(rows).filter((r) => r.error).length;
   const scoredRepos = reportableRepos(rows);
   const reattached = Boolean(reattach && reattach.status !== "off");
+  // Repos the 300 s budget left for the background worker: the run is not complete while they are owed.
+  const stillQueued = countSkips(Object.values(rows)).queued ?? 0;
 
   // Direction 9 — which unsettled rows are actually in a scan lane right now. The import route emits
   // no "started" frame (only terminal `repo` frames), so this is inferred from the route's own pool
@@ -135,7 +137,7 @@ export function ScanStep({
             {errorCount > 0 ? "!" : "✓"}
           </span>
         )}
-        {phase === "done" ? "Scan complete" : "Scanning repositories"}
+        {phase === "done" ? (stillQueued > 0 ? "Scan running in the background" : "Scan complete") : "Scanning repositories"}
       </h2>
       <p className="mt-1 text-slate-400">
         {phase === "done"
