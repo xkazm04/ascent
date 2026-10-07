@@ -35,8 +35,8 @@ import { RUBRIC_NOW, type RubricFixture } from "./rubric-corpus";
  * the corpus itself changed (a fixture added or edited), never when the pipeline did.
  */
 export const PINNED_RUBRIC_FINGERPRINT = {
-  version: "r23",
-  sha256: "c7190faae08f5b28b26a4f16f4cbece34d2fc7a22203083ac695a230fdcbca6e",
+  version: "r24",
+  sha256: "821e392027e71ac578569b524288090c0b2c0d2f7df49289b26cf05689395319",
 } as const;
 
 /** The pipeline stages, injectable so a test can seed a violation and watch the pin see it. */
@@ -84,6 +84,7 @@ export async function traceCorpus(
       appInventory: fixture.appInventory ?? null,
       ciHealth: fixture.ciHealth ?? null,
       platformSignalsUnobservable: fixture.platformSignalsUnobservable,
+      sensorSkips: fixture.sensorSkips,
       now: RUBRIC_NOW,
     });
     const { system, user } = stages.prompt(phase.scoreInput);

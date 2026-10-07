@@ -348,11 +348,18 @@ export function computeSecurityChecks(
      * null) instead. A sensor that RAN and found nothing is not in this set and scores as before.
      */
     failedSensors?: Iterable<ScanSensorId>;
+    /**
+     * The sensors never ASKED because the scan had no token (src/lib/scan-ingest.ts `sensorSkips`).
+     * The third way a GitHub-side input is missing without the repo lacking the control: same
+     * exclusion as `failedSensors`, same trigger, evidence worded as a skip.
+     */
+    skippedSensors?: Iterable<ScanSensorId>;
   } = {},
 ): SecurityAssessment {
   const blind = opts.platformUnobservable === true && gov == null && apps == null && posture == null;
   const provenance = opts.provenance ?? null;
   const failed = new Set(opts.failedSensors ?? []);
+  const skipped = new Set(opts.skippedSensors ?? []);
   // The remediations the blind reading withheld, kept for the one case where they are all there is
   // to say (`unmeasured` below). The absence they name IS visible on disk — no committed SECURITY.md,
   // no Dependabot/Renovate config — only its GitHub-side refutation is not.
@@ -366,6 +373,8 @@ export function computeSecurityChecks(
     const unread = spec.sensor != null && failed.has(spec.sensor);
     if (unread && !blind && spec.githubCanRefuteZero && r.score === 0) {
       r = { score: null, evidence: `${spec.name} not observable: ${spec.sensor} read failed (${r.evidence.replace(/\.$/, "")}; GitHub-side ${spec.githubCanRefuteZero} could not be read).` };
+    } else if (spec.sensor != null && skipped.has(spec.sensor) && !blind && spec.githubCanRefuteZero && r.score === 0) {
+      r = { score: null, evidence: `${spec.name} not observable: the GitHub-side ${spec.githubCanRefuteZero} read was skipped because the scan had no token (${r.evidence.replace(/.$/, "")}).` };
     } else if (blind && spec.githubCanRefuteZero && r.score === 0) {
       if (r.remediation) unverified.push(`Unverified: ${r.remediation.replace(/\.$/, "")} — nothing committed, and the GitHub-side ${spec.githubCanRefuteZero} could not be read here.`);
       r = { score: null, evidence: `${spec.name} not measurable from a worktree (${r.evidence.replace(/\.$/, "")}; GitHub-side ${spec.githubCanRefuteZero} not readable here).` };

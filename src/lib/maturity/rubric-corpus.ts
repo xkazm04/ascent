@@ -33,6 +33,7 @@ import type {
   LlmRoadmapItem,
   PrStats,
   RepoSnapshot,
+  ScanSensorId,
   SecurityExposure,
   SecurityPosture,
 } from "@/lib/types";
@@ -53,6 +54,8 @@ export interface RubricFixture {
   ciHealth?: CiHealth | null;
   /** A worktree/local reading: structurally blind to the GitHub side, with nothing carried. */
   platformSignalsUnobservable?: boolean;
+  /** A token-less reading: the GitHub-side sensors that were skipped, not failed (r24). */
+  sensorSkips?: ScanSensorId[];
   /** The canned model answer this fixture is assembled against. */
   assessment: LlmAssessment;
 }
@@ -384,6 +387,18 @@ export const RUBRIC_CORPUS: readonly RubricFixture[] = [
         { title: "Write an architecture overview", dimension: "D5", impact: "medium", effort: "low", rationale: "fixture" },
       ],
     }),
+  },
+  {
+    id: "keyless-d9",
+    rule: "a token-less scan skipped the org-policy and App-inventory reads, so security-policy, SAST and dependency-updates are excluded, not scored 0, while a committed workflow-derived check still scores",
+    snapshot: snap("keyless-d9", {
+      "README.md": "# keyless-d9\nA small service scanned anonymously: no token, so nothing GitHub-side was read.",
+      "package.json": JSON.stringify({ scripts: { test: "vitest run" }, devDependencies: { vitest: "3" } }),
+      ".github/workflows/ci.yml": "on: [push, pull_request]\npermissions:\n  contents: read\njobs:\n  ci:\n    steps:\n      - run: npm test\n",
+    }),
+    prStats: null, governance: null, securityPosture: null, securityExposure: null,
+    sensorSkips: ["governance", "securityPosture", "securityExposure", "appInventory", "ciHealth", "deployments"],
+    assessment: assess(),
   },
   {
     id: "dotnet-native",

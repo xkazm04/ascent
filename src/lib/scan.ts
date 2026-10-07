@@ -229,7 +229,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   signal?.throwIfAborted();
 
   // ── Phase 1: ingest ───────────────────────────────────────────────────────────────────────────
-  const { snapshot, prStats, prPartial, prFetchFailed, sensorFailures, governance, securityPosture, securityExposure, appInventory, ciHealth, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
+  const { snapshot, prStats, prPartial, prFetchFailed, sensorFailures, sensorSkips, governance, securityPosture, securityExposure, appInventory, ciHealth, activityPromise, guidanceFreshnessPromise, aiChanges, deployments } =
     await ingestRepository({
       parsed,
       source,
@@ -276,6 +276,8 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     // Which of those enrichments FAILED rather than came back empty. The D9 battery excludes the
     // checks a failed sensor could have refuted instead of scoring them 0 (src/lib/security/checks.ts).
     sensorFailures,
+    // Which were never asked (no token) — excluded the same way, worded differently.
+    sensorSkips,
     now,
     // decisionOrgSlug (individual tier) points the standing-decision read at the TRIGGERING viewer's
     // personal org on the public funnel; org scans keep reading their own org via the orgSlug fallback.
@@ -407,6 +409,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     prPartial,
     prFetchFailed,
     sensorFailures,
+    sensorSkips,
     // The god-scan indicator: how much of the model's output ceiling this single assessment call
     // used. Measured from the usage the winning provider reported, against that provider's model.
     outputBudget: classifyOutputBudget(report.usage?.outputTokens, report.engine?.model),

@@ -47,6 +47,9 @@ export interface ScoreInputPhaseInput {
    *  check whose 0 only a failed sensor could have refuted is EXCLUDED rather than scored as absence.
    *  Empty/omitted ⇒ nothing is known to have failed and every check scores exactly as before. */
   sensorFailures?: readonly ScanSensorId[];
+  /** The sensors SKIPPED because the scan had no token (`IngestPhaseResult.sensorSkips`). Treated like
+   *  a failed read by the D9 battery — nobody looked — but reported separately. Omitted ⇒ none. */
+  sensorSkips?: readonly ScanSensorId[];
   /** The scan timestamp, resolved once by the caller so D7's recency bonus is deterministic. */
   now: string;
   /**
@@ -134,6 +137,11 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
     securityExposure,
     appInventory ?? carriedSecurity?.apps ?? null,
     {
+      skippedSensors: (input.sensorSkips ?? []).filter(
+        (id) =>
+          !(id === "securityPosture" && (securityPosture ?? carriedSecurity?.posture) != null) &&
+          !(id === "appInventory" && (appInventory ?? carriedSecurity?.apps) != null),
+      ),
       platformUnobservable: input.platformSignalsUnobservable === true && observed.record == null,
       provenance: carriedSecurity && carry ? `GitHub-side reading carried from scan ${carry.scanId}` : null,
       // A sensor that CARRIED a reading is not unread — drop it, so a carried posture/App inventory

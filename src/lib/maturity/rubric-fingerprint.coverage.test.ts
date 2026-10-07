@@ -82,6 +82,13 @@ const CORPUS_CASES: { name: string; holds: (t: FixtureTrace) => boolean }[] = [
       (signal(t, "D5")?.signals ?? []).some((s) => s.label === "Architecture Decision Records" && /(^|\/)(decisions|decision-log|adr)\.mdx?$/.test(s.detail ?? "")),
   },
   {
+    name: "keyless scan excludes the GitHub-refutable D9 checks it skipped (r24)",
+    holds: (t) =>
+      ["security-policy", "sast", "dependency-updates"].every((id) =>
+        t.phase.scoreInput.securityAssessment?.checks.some((c) => c.id === id && c.score === null && c.evidence.includes("had no token")),
+      ),
+  },
+  {
     // The r22 command regex cut `dotnet test <path>` to `dotnet test`, so this divergence was agreement.
     name: "dotnet command keeps its path argument and diverges (r23)",
     holds: (t) =>

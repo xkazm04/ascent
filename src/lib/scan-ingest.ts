@@ -89,6 +89,15 @@ export interface IngestPhaseResult {
    * loud. Ordered by SENSOR_ORDER (stable), never by which promise rejected first.
    */
   sensorFailures: ScanSensorId[];
+  /**
+   * The score-bearing sensors that were SKIPPED for want of a token — the third case beside a failed
+   * read (`sensorFailures`) and a blind worktree. A skip is NOT a failure and never joins that list
+   * (it persists to `Scan.sensorFailuresJson`, and a keyless scan is not a broken one); it exists so
+   * the D9 battery can tell "nobody looked" from "looked and found nothing". Only sensors the forge
+   * CAN answer appear: an absent enrichment member is the non-GitHub path and is left as it was.
+   * `pullRequests` is never listed (it has its own keyless caveat). Ordered by SENSOR_ORDER.
+   */
+  sensorSkips: ScanSensorId[];
 }
 
 /** Canonical report order for the sensors — so the warning text is stable across runs. */
@@ -249,6 +258,19 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // It reuses the `analyze` STAGE ID rather than introducing an `enrich` one: the stage union is a
   // closed type read by the fleet stream fold (src/lib/scan-stage.ts), the report status strip and
   // the cockpit lane, so a new id is a cross-cutting change rather than a progress-copy one.
+  // The token-less skips, recorded once from the same gates the branches above used.
+  const skippedSensors = new Set<ScanSensorId>();
+  if (!token) {
+    const askable: Partial<Record<ScanSensorId, unknown>> = {
+      governance: enrich.branchGovernance,
+      securityPosture: enrich.securityPosture,
+      securityExposure: enrich.securityExposure,
+      appInventory: enrich.appInventory,
+      ciHealth: enrich.ciHealth,
+      deployments: enrich.deployments,
+    };
+    for (const id of SENSOR_ORDER) if (askable[id]) skippedSensors.add(id);
+  }
   emit({ stage: "analyze", message: "Reading GitHub signals (pull requests, governance, security)…", pct: 52 });
   const [prResult, governance, securityPosture, securityExposure, appInventory, ciHealth, deployments] = await Promise.all([
     prPromise,
@@ -266,6 +288,7 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     prStats: prResult?.stats ?? null,
     // Read AFTER every enrichment promise has settled, so no rejection can land later than this line.
     sensorFailures: SENSOR_ORDER.filter((id) => failedSensors.has(id)),
+    sensorSkips: SENSOR_ORDER.filter((id) => skippedSensors.has(id)),
     // graphql.ts sets `partial` when the PR page came back truncated (null nodes / an `errors` array on a
     // 200). Such results must not be treated as authoritative or cached — so `prPartial` IS consumed by
     // the caller (the poisoning guard): it appends a reliability warning and stamps the typed

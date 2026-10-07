@@ -191,6 +191,9 @@ export interface ScanWarningsInput {
    * finding about the repository. `pullRequests` never appears here — it has `prFetchFailed` above.
    */
   sensorFailures?: readonly ScanSensorId[];
+  /** Sensors skipped because the scan had no token (`IngestPhaseResult.sensorSkips`); the keyless
+   *  caveat names the security reads among them. Not failures, so not persisted. */
+  sensorSkips?: readonly ScanSensorId[];
   /**
    * Prose caveat for a SCOPED scan (a non-default ref and/or a monorepo sub-path — see
    * `scopeWarning` in src/lib/scan-scope.ts), or null for an ordinary whole-repo default-branch scan.
@@ -236,6 +239,18 @@ export function buildScanWarnings(input: ScanWarningsInput): string[] {
     warnings.push(
       "Pull-request signals were skipped: they need a GitHub token (GraphQL has no anonymous access).",
     );
+    // The security reads skipped for the same reason. Without this line a keyless D9 reads as a
+    // finding (no org policy, no scanner, no update tool) about controls the scan never looked for.
+    const skips = input.sensorSkips ?? [];
+    const unread = [
+      skips.includes("securityPosture") ? "org security policy" : null,
+      skips.includes("appInventory") ? "installed-App inventory" : null,
+    ].filter((s): s is string => s != null);
+    if (unread.length) {
+      warnings.push(
+        `Security reads were skipped for want of a GitHub token (${unread.join(", ")}), so Security policy, SAST and Dependency updates that only GitHub could credit were excluded from the score rather than scored zero; controls committed to the repository still count.`,
+      );
+    }
   } else if (input.prFetchFailed) {
     // Failure is not empty success: a failed PR sensor must persist as a broken sensor, never read
     // as "this repository has no pull requests" (which deflates Review/Velocity/Delivery silently).

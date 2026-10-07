@@ -320,7 +320,26 @@ import type {
 // pipeline ecf59fce...; under r23's, c7190faa.... No weight, band, blend, guardband, lens or
 // system-prompt text moved (the security block is in the USER message): EXPECTED_RUBRIC_HASH in
 // model.test.ts is unchanged.
-export const SCORING_RUBRIC_VERSION = "r23";
+// r24 (2026-10-07): A TOKEN-LESS SCAN NO LONGER SCORES GITHUB-SIDE CONTROLS IT NEVER READ AS ABSENT.
+// With no token every GitHub enrichment in scan-ingest.ts is skipped and nothing recorded the skip, so
+// sensorFailures stayed empty and the D9 battery excluded nothing: security-policy (org policy), SAST
+// and dependency-updates (installed-App inventory) scored 0 with a remediation for controls nobody had
+// looked for. The skip is now a first-class result beside a failed read and a blind worktree:
+// IngestPhaseResult.sensorSkips (scan-ingest.ts, only for sensors the forge can answer; never merged
+// into sensorFailures or persisted), threaded through scan.ts and scan-score-input.ts into
+// computeSecurityChecks (security/checks.ts) as skippedSensors, with the failed-sensor trigger
+// (spec.sensor in the set, githubCanRefuteZero, score === 0) and a carried reading still winning.
+// A check that scored on files (a repo-local SECURITY.md, a committed workflow, dependabot.yml or
+// Renovate config) keeps its score. buildScanWarnings names the skipped security reads beside the PR
+// line. Not changed: r23's D9 "unmeasured" rule (blind worktrees only) and the non-GitHub-forge path.
+// PRICED: on a token-less scan with no SECURITY.md / update config / SAST workflow, those checks leave
+// the D9 denominator instead of scoring 0, so D9 rises by the weight they dragged (up to ~40 points
+// where all three were 0 and the rest scored); tokened scans are unchanged. The corpus gained
+// `keyless-d9`: the existing fixtures are tokened readings and pass no skips, so none moves (r23 hashed c7190faa...); with
+// the new fixture under r23's pipeline the corpus hashes bde8dc2f..., under r24's 
+// 821e3920....  No weight, band, blend, guardband, lens or system-prompt text moved: EXPECTED_RUBRIC_HASH
+// in model.test.ts is unchanged.
+export const SCORING_RUBRIC_VERSION = "r24";
 
 /** Blend factor: how much the LLM judgment counts vs. deterministic signals. */
 export const SCORE_BLEND = 0.6;
