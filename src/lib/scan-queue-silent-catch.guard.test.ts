@@ -1,4 +1,4 @@
-// GUARD: no silent catch in the scan-queue and cron paths (org-fleet-dashboard robustness-1). A failed
+// GUARD: no silent catch in the scan-queue, cron and org stream-route paths (org-fleet-dashboard robustness-1). A failed
 // queue read/write or cron step must not vanish into a fabricated 0, null or []: it reaches a door
 // (degradedRead / noteReadFailure, a console.warn plus reportHandledError) or sits on the allowlist
 // below with a reason. Class A/B/C: docs/adr/2026-10-07-failed-read-is-not-absence.md. Reuses the
@@ -16,6 +16,9 @@ const SOURCES = [
   "src/app/api/cron/probe/route.ts",
   "src/lib/db/scan-jobs.ts",
   "src/lib/scan-queue-worker.ts",
+  "src/app/api/org/import/route.ts",
+  "src/app/api/org/scan/route.ts",
+  "src/app/api/org/scan/queue/route.ts",
 ];
 
 interface Allowed {
@@ -26,9 +29,12 @@ interface Allowed {
   reason: string;
 }
 
-// Class C only. The 2026-10 sweep found 39 silent sites in these four files and every one was a
-// class A/B (fixed), so nothing is legitimately silent here yet.
-const ALLOWED: Allowed[] = [];
+// Class C only. The first sweep found 39 silent sites in the four queue/cron files, all class A/B (fixed).
+// The three org routes (import, scan, scan/queue) held 16: 13 class B (now through degradedRead) and these 3.
+const ALLOWED: Allowed[] = [
+  { file: "src/app/api/org/import/route.ts", shape: "catch-literal", count: 2, reason: "a quota-event telemetry write on the 429 path, and a request-body parse that becomes the 400 answer" },
+  { file: "src/app/api/org/scan/route.ts", shape: "catch-literal", count: 1, reason: "a request-body parse that becomes the 400 'Missing org' answer" },
+];
 
 const allowed = (file: string, shape: SilentShape) =>
   ALLOWED.filter((a) => a.file === file && a.shape === shape).reduce((n, a) => n + a.count, 0);

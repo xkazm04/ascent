@@ -20,7 +20,7 @@ import { checkScanEntitlement, orgNotFound, paymentRequired } from "@/lib/entitl
 import { drainLane } from "@/lib/scan-queue-worker";
 import { fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
-import { noteReadFailure } from "@/lib/org/degraded-read";
+import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +35,7 @@ export async function POST(request: Request) {
   if (!isAppConfigured() || !isDbConfigured()) {
     return NextResponse.json({ error: "Org scanning requires the GitHub App + a database." }, { status: 503 });
   }
+  // class C: an unparseable body becomes the 400 "Missing org" answer below
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
     repos?: string[];
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
   // as many as it allows and report the rest as skipped-for-credits rather than failing the whole run.
   // BYOM (Feature 1): when the org scans on its OWN Bedrock, inference is billed to its AWS account, so
   // the platform never charges a scan credit. Resolved once for the batch.
-  const byom = await isByomActive(org).catch(() => false);
+  const byom = await isByomActive(org).catch(degradedRead("org/scan BYOM probe (isByomActive)", false));
   const metered = org.toLowerCase() !== "public" && !byom;
   let scanList = repos;
   let skippedForCredits = 0;
@@ -230,7 +231,7 @@ export async function POST(request: Request) {
         }
         // Capture the team-standings decomposition as a durable output of this full org scan
         // (best-effort — a failure here must never break the scan or the SSE result).
-        await persistTeamStandings(org).catch(() => {});
+        await persistTeamStandings(org).catch(degradedRead("org/scan team standings (persistTeamStandings)", undefined));
         // skippedNoToken rides the result frame beside the other two skip reasons. Without it a fleet
         // whose GitHub App install is revoked/suspended skipped EVERY repo, the client's mid-run count
         // was then overwritten by `skippedForCredits` (0), and the run settled as a clean N/N with no

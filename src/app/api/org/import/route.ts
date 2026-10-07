@@ -66,7 +66,7 @@ import { drainUntilDeadline, fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/poo
 import { rateLimitRequestShared, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 import { SCHEDULES as SCAN_SCHEDULES } from "@/lib/org/repo-schedule";
-import { noteReadFailure } from "@/lib/org/degraded-read";
+import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,12 +92,13 @@ export async function POST(request: Request) {
   // Bulk scan = up to 100 GitHub ingests + (optionally) LLM completions per call. Rate-limit hard.
   const rl = await rateLimitRequestShared(request, ORG_IMPORT_RATE_LIMIT);
   if (!rl.ok) {
-    void recordQuotaEvent("rate_limit", "org-import").catch(() => {}); // QUOTA #2: observability on the bulk-import path
+    void recordQuotaEvent("rate_limit", "org-import").catch(() => {}); // class C: best-effort telemetry on the 429 path
     // Whole result, not just the delay: a bulk import refused by the FLEET ceiling is not the
     // operator's own overuse, and one refused because the shared store was unreachable counted
     // nothing at all. The body/headers name that scope so a CI import can tell the three apart.
     return tooManyRequests(rl);
   }
+  // class C: an unparseable body becomes the 400 "Missing org" answer below
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
     count?: number;
@@ -173,7 +174,7 @@ export async function POST(request: Request) {
     const supplied = body.installationId?.trim();
     const installationId = supplied && stored && supplied === String(stored) ? supplied : stored;
     if (installationId) {
-      const appToken = await getInstallationToken(installationId).catch(() => undefined);
+      const appToken = await getInstallationToken(installationId).catch(degradedRead("org/import installation token (getInstallationToken)", undefined));
       if (appToken) {
         token = appToken;
         appTokenMinted = true;
@@ -210,7 +211,7 @@ export async function POST(request: Request) {
   // BYOM (parity with /api/org/scan and /api/cron/rescan): when the org scans on its OWN Bedrock,
   // inference is billed to its AWS account, so the platform never charges a scan credit — without this
   // term a BYOM org's import reserved platform credits per repo (or truncated the batch at balance 0).
-  const byom = await isByomActive(org).catch(() => false);
+  const byom = await isByomActive(org).catch(degradedRead("org/import BYOM probe (isByomActive)", false));
   // G7-17. The PUBLIC FUNNEL: a real scan billed against the free monthly public-scan allowance
   // instead of prepaid credits, which is what let the onboarding wizard stop fabricating previews.
   //
@@ -235,7 +236,7 @@ export async function POST(request: Request) {
   // same reason `publicQuotaIdentity` below is: a cookie-scoped read inside the SSE `start()` returns
   // null, which would stamp every debit "system" and lose the person who actually ran the import. The
   // metered path already required a viewer at the wall above, so this is a real login in practice.
-  const importActor = metered ? ((await getViewer().catch(() => null))?.login ?? "system") : undefined;
+  const importActor = metered ? ((await getViewer().catch(degradedRead("org/import actor viewer (getViewer)", null)))?.login ?? "system") : undefined;
   let unlimited = true;
   // Scan capacity for a non-unlimited org = monthly FREE allowance left + prepaid credits. Capping on
   // credits alone wrongly skipped an org's INCLUDED free scans (a Free org with its 10 monthly scans
@@ -254,7 +255,7 @@ export async function POST(request: Request) {
   // returns null, which would silently bucket a signed-in caller as anonymous (and at the anonymous,
   // lower limit). The peek is non-consuming; each repo consumes its own slot in the lane below.
   const publicQuotaIdentity: QuotaIdentity | null = publicFunnel
-    ? { viewerId: (await getViewer().catch(() => null))?.id ?? null }
+    ? { viewerId: (await getViewer().catch(degradedRead("org/import quota viewer (getViewer)", null)))?.id ?? null }
     : null;
   let publicScanCapacity = Number.POSITIVE_INFINITY;
   if (publicQuotaIdentity) {
@@ -266,7 +267,7 @@ export async function POST(request: Request) {
   // take it so an imported project is not rewritten as gitlab.com.
   const gitlabHost = await getForgeInstallation(org, "gitlab")
     .then((row) => (row?.host ? hostFromBase(row.host) : undefined))
-    .catch(() => undefined);
+    .catch(degradedRead("org/import GitLab host (getForgeInstallation)", undefined));
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -333,7 +334,7 @@ export async function POST(request: Request) {
             await reconcileListedRepos(
               org,
               repos.map((r) => r.fullName),
-            ).catch(() => ({ marked: 0, cleared: 0 }));
+            ).catch(degradedRead("org/import listing reconcile (reconcileListedRepos)", { marked: 0, cleared: 0 }));
           }
         }
 
@@ -572,7 +573,7 @@ export async function POST(request: Request) {
               });
               // Only record an outcome once the repo row exists (watch=true upserts it above); the
               // public funnel (watch=false) may not have persisted a Repository row, so skip then.
-              if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(() => {});
+              if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(degradedRead("org/import scan outcome write (recordScanOutcome)", undefined));
               outcome = { state: "done", creditRefunded: refunded };
             } catch (err) {
               // Refund a PRE-inference failure only. Once scanRepository has returned a real report the
@@ -581,7 +582,7 @@ export async function POST(request: Request) {
               // the importer can see it paid for a repo whose report didn't land.
               const refunded = inferenceBilled ? false : await refundCredit();
               const msg = err instanceof Error ? err.message : "scan failed";
-              if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(() => {});
+              if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: msg }).catch(degradedRead("org/import scan outcome write (recordScanOutcome)", undefined));
               send("repo", { repo: r.fullName, error: msg, charged: inferenceBilled && reserved });
               outcome = { state: "failed", error: msg, creditRefunded: refunded };
             }
@@ -594,7 +595,7 @@ export async function POST(request: Request) {
             // from re-import until its lease expires; only a hard process kill relies on the reaper.
             // Best-effort by design: the settle is bookkeeping, and a failure here must not take down
             // an import whose scans already landed.
-            await settleJob(claim.id, outcome).catch(() => {});
+            await settleJob(claim.id, outcome).catch(degradedRead("org/import job settle (settleJob)", undefined));
           }
         });
 
@@ -606,7 +607,7 @@ export async function POST(request: Request) {
           // the tail cannot be finished off-request. Settle it rather than leave it owed, and disclose
           // it like every other batch cap.
           for (const { id } of tail) {
-            await settleJob(id, { state: "skipped", error: "public-funnel import: time budget reached" }).catch(() => {});
+            await settleJob(id, { state: "skipped", error: "public-funnel import: time budget reached" }).catch(degradedRead("org/import tail settle (settleJob)", undefined));
           }
           send("notice", { reason: "time_budget", scanning: fullNames.length - tail.length, skipped: tail.length });
         } else if (tail.length > 0 && watch) {
@@ -644,7 +645,7 @@ export async function POST(request: Request) {
         // Capture the team-standings decomposition as a durable output of this full org import
         // (best-effort — every scanned repo is persisted by now, so the rollup is fresh; a failure here
         // must never break the scan or the SSE result).
-        await persistTeamStandings(org).catch(() => {});
+        await persistTeamStandings(org).catch(degradedRead("org/import team standings (persistTeamStandings)", undefined));
         // `runId` again on the terminal frame (mirroring the sibling route), so a client that joined late
         // or missed the opening frame still learns the handle it would need to re-attach.
         send("result", {

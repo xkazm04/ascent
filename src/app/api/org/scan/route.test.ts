@@ -33,7 +33,7 @@ vi.mock("@/lib/db/scan-jobs", () => ({
   enqueueScanJob: vi.fn(),
   listJobsForRun: vi.fn(async () => []),
 }));
-vi.mock("@/lib/org/degraded-read", () => ({ noteReadFailure: vi.fn(), degradedRead: vi.fn() }));
+vi.mock("@/lib/org/degraded-read", () => ({ noteReadFailure: vi.fn(), degradedRead: vi.fn((_read: string, fallback: unknown) => () => fallback) }));
 vi.mock("@/lib/scan-queue-worker", () => ({ drainLane: vi.fn() }));
 vi.mock("@/lib/github/app", () => ({ isAppConfigured: () => true }));
 vi.mock("@/lib/authz", () => ({

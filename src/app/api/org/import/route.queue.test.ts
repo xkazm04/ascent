@@ -22,7 +22,7 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
-vi.mock("@/lib/org/degraded-read", () => ({ noteReadFailure: vi.fn(), degradedRead: vi.fn() }));
+vi.mock("@/lib/org/degraded-read", () => ({ noteReadFailure: vi.fn(), degradedRead: vi.fn((_read: string, fallback: unknown) => () => fallback) }));
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
 vi.mock("@/lib/pool", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pool")>();
