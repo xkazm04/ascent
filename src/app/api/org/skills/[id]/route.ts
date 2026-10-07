@@ -4,6 +4,9 @@
 // Per-row org gate: the owning org is resolved FROM the skill (getOrgSkillOrgSlug), then authorized.
 // GET/PATCH accept an `askl_` bearer (skills:read / skills:write) OR a session; PATCH is member-level +
 // Team+. DELETE is destructive (admin) and stays SESSION-only — a machine token never hard-archives.
+// PATCH never opens a second archive door below DELETE: the shared public org refuses it (no owner, as
+// DELETE refuses), and a body carrying `archived` (true OR false) must pass DELETE's own gate — admin
+// role + a session — so a token gets 403 naming DELETE and a plain member is refused.
 // A PATCH that touches `content` re-validates the frontmatter contract (400 + the specific errors when
 // a declared block is broken) and syncs name/description/category/tags FROM it.
 
@@ -39,6 +42,11 @@ async function planDenied(org: string): Promise<NextResponse | null> {
   return NextResponse.json(denial.body, { status: denial.status });
 }
 
+/** DELETE's own gate — public-org refusal, then the admin role. The archive door PATCH reuses. */
+async function archiveDoorDenied(org: string): Promise<NextResponse | null> {
+  return refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "admin"));
+}
+
 export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Skills require a database." }, { status: 503 });
   const { id } = await ctx.params;
@@ -56,10 +64,10 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   const org = await getOrgSkillOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
+  const publicRefusal = refusePublicOrgAdmin(org);
+  if (publicRefusal) return publicRefusal;
   const auth = await authorizeOrgApi(request, org, { scope: "skills:write", mode: "write" });
   if (isDenied(auth)) return auth.denied;
-  const planGate = await planDenied(org);
-  if (planGate) return planGate;
 
   const body = (await request.json().catch(() => ({}))) as {
     name?: string;
@@ -69,6 +77,15 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     tags?: string[];
     archived?: boolean;
   };
+  if (body.archived !== undefined) {
+    if (auth.principal.via === "token") {
+      return NextResponse.json({ error: "Archiving a skill is DELETE's door (admin session); a token may not." }, { status: 403 });
+    }
+    const archiveDenied = await archiveDoorDenied(org);
+    if (archiveDenied) return archiveDenied;
+  }
+  const planGate = await planDenied(org);
+  if (planGate) return planGate;
   if (body.category !== undefined && !isSkillCategory(body.category)) {
     return NextResponse.json({ error: `category must be one of: ${SKILL_CATEGORIES.join(", ")}.` }, { status: 400 });
   }
@@ -118,7 +135,7 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
   const org = await getOrgSkillOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
   // Destructive: session + admin only (no token path) — a machine credential never archives a skill.
-  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "admin"));
+  const denied = await archiveDoorDenied(org);
   if (denied) return denied;
   const planGate = await planDenied(org);
   if (planGate) return planGate;

@@ -35,6 +35,7 @@ const {
   mockPrincipalLogin,
   mockResolveViewerLogin,
   mockGetOrgSkill,
+  mockRefusePublicOrgAdmin,
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetOrgSkillOrgSlug: vi.fn(),
@@ -49,6 +50,7 @@ const {
   mockPrincipalLogin: vi.fn(),
   mockResolveViewerLogin: vi.fn(),
   mockGetOrgSkill: vi.fn(),
+  mockRefusePublicOrgAdmin: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -63,7 +65,7 @@ vi.mock("@/lib/db", () => ({
   recordOrgAudit: mockRecordOrgAudit,
   getOrgSkill: mockGetOrgSkill,
 }));
-vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: mockRequireOrgRole }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: mockRefusePublicOrgAdmin, requireOrgRole: mockRequireOrgRole }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: mockResolveViewerLogin }));
 // isDenied is a pure type guard ("denied" in r) — kept real; only the network/identity calls are mocked.
 vi.mock("@/lib/api-token-auth", async (importOriginal) => {
@@ -89,6 +91,7 @@ beforeEach(() => {
   mockPrincipalLogin.mockResolvedValue("alice");
   mockResolveViewerLogin.mockResolvedValue("alice");
   mockRequireOrgRole.mockResolvedValue(null);
+  mockRefusePublicOrgAdmin.mockReturnValue(null);
   mockGetCreditState.mockResolvedValue({ plan: "team", balance: 0, unlimited: false });
   mockIsPersonalOrg.mockResolvedValue(false);
   mockGetPersonalUsage.mockResolvedValue({ skills: { used: 0, limit: 10 } });
@@ -210,8 +213,9 @@ body`;
     });
   });
 
-  it("archive-only toggle forwards `archived` and NO content key", async () => {
+  it("an ADMIN session's archive-only toggle forwards `archived` and NO content key", async () => {
     await PATCH(patchReq({ archived: true }), ctx("s1"));
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("acme", "admin");
     const [, patch] = mockUpdateOrgSkill.mock.calls[0];
     expect(patch.archived).toBe(true);
     expect(patch.name).toBeUndefined();
@@ -234,6 +238,47 @@ body`;
     expect((await PATCH(patchReq({ name: "x" }), ctx("s1"))).status).toBe(409);
     mockUpdateOrgSkill.mockRejectedValueOnce(new Error("boom"));
     expect((await PATCH(patchReq({ name: "x" }), ctx("s1"))).status).toBe(500);
+  });
+});
+
+describe("PATCH — no archive door below DELETE", () => {
+  it("refuses {archived:true} from a member (DELETE's admin gate), no write", async () => {
+    mockRequireOrgRole.mockResolvedValue(Response.json({ error: "admin only" }, { status: 403 }));
+    expect((await PATCH(patchReq({ archived: true }), ctx("s1"))).status).toBe(403);
+    expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
+  });
+
+  it("refuses {archived:false} from a member too", async () => {
+    mockRequireOrgRole.mockResolvedValue(Response.json({ error: "admin only" }, { status: 403 }));
+    expect((await PATCH(patchReq({ archived: false }), ctx("s1"))).status).toBe(403);
+    expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
+  });
+
+  it("a skills:write TOKEN carrying `archived` gets 403 naming DELETE, no write", async () => {
+    mockAuthorizeOrgApi.mockResolvedValue({ principal: { via: "token", login: "token:ci", scopes: ["skills:write"] } });
+    const res = await PATCH(patchReq({ archived: true }), ctx("s1"));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/DELETE/);
+    expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
+  });
+
+  it("a token's ordinary content edit still succeeds", async () => {
+    mockAuthorizeOrgApi.mockResolvedValue({ principal: { via: "token", login: "token:ci", scopes: ["skills:write"] } });
+    expect((await PATCH(patchReq({ description: "d" }), ctx("s1"))).status).toBe(200);
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
+  });
+
+  it("refuses ANY patch on the shared public org before the auth gate, as DELETE does", async () => {
+    mockRefusePublicOrgAdmin.mockReturnValue(Response.json({ error: "public org" }, { status: 403 }));
+    const res = await PATCH(patchReq({ name: "x" }), ctx("s1"));
+    expect(res.status).toBe(403);
+    expect(mockAuthorizeOrgApi).not.toHaveBeenCalled();
+    expect(mockUpdateOrgSkill).not.toHaveBeenCalled();
+  });
+
+  it("a member's ordinary content edit on a normal org still succeeds", async () => {
+    expect((await PATCH(patchReq({ name: "x" }), ctx("s1"))).status).toBe(200);
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
   });
 });
 

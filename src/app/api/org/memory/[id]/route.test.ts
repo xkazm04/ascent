@@ -44,6 +44,7 @@ const {
   mockRequireOrgRole,
   mockRequireOrgRead,
   mockResolveViewerLogin,
+  mockRefusePublicOrgAdmin,
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
   mockGetOrgMemoryOrgSlug: vi.fn(),
@@ -58,6 +59,7 @@ const {
   mockRequireOrgRole: vi.fn(),
   mockRequireOrgRead: vi.fn(),
   mockResolveViewerLogin: vi.fn(),
+  mockRefusePublicOrgAdmin: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -71,7 +73,7 @@ vi.mock("@/lib/db", () => ({
   recordAudit: mockRecordAudit,
   getOrgId: mockGetOrgId,
 }));
-vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null,
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: mockRefusePublicOrgAdmin,
   requireOrgAccess: mockRequireOrgAccess,
   requireOrgRole: mockRequireOrgRole,
   requireOrgRead: mockRequireOrgRead,
@@ -116,6 +118,7 @@ beforeEach(() => {
   mockGetCreditState.mockResolvedValue({ plan: "team" });
   mockGetOrgId.mockResolvedValue("org_acme");
   mockResolveViewerLogin.mockResolvedValue("alice");
+  mockRefusePublicOrgAdmin.mockReturnValue(null);
 });
 
 describe("PATCH /api/org/memory/[id] — the author gate", () => {
@@ -145,6 +148,51 @@ describe("PATCH /api/org/memory/[id] — the author gate", () => {
     const res = await PATCH(patch({ content: "collaborative" }), ctx);
     expect(res.status).toBe(200);
     expect(mockUpdateOrgMemory).toHaveBeenCalled();
+  });
+});
+
+// security scan robustness-1: PATCH `archived` was a second archive door below DELETE's gate.
+describe("PATCH /api/org/memory/[id] — no archive door below DELETE", () => {
+  const ADMIN_ONLY = Response.json({ error: "admin only" }, { status: 403 });
+
+  it("refuses {archived:true} from a member (admin minimum), and writes nothing", async () => {
+    mockGetOrgMemory.mockResolvedValue(SHARED);
+    mockRequireOrgRole.mockResolvedValue(ADMIN_ONLY);
+    const res = await PATCH(patch({ archived: true }), ctx);
+    expect(res.status).toBe(403);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockUpdateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("refuses {archived:false} from a member too (un-archive is the same door)", async () => {
+    mockGetOrgMemory.mockResolvedValue(SHARED);
+    mockRequireOrgRole.mockResolvedValue(ADMIN_ONLY);
+    expect((await PATCH(patch({ archived: false }), ctx)).status).toBe(403);
+    expect(mockUpdateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("an admin's {archived:true} succeeds and forwards `archived`", async () => {
+    mockGetOrgMemory.mockResolvedValue(SHARED);
+    const res = await PATCH(patch({ archived: true }), ctx);
+    expect(res.status).toBe(200);
+    expect(mockUpdateOrgMemory).toHaveBeenCalledWith("mem_1", expect.objectContaining({ archived: true }));
+  });
+
+  it("refuses ANY patch on the shared public org, as DELETE does", async () => {
+    mockRefusePublicOrgAdmin.mockReturnValue(Response.json({ error: "public org" }, { status: 403 }));
+    mockGetOrgMemory.mockResolvedValue(SHARED);
+    const res = await PATCH(patch({ content: "edit" }), ctx);
+    expect(res.status).toBe(403);
+    expect(mockRefusePublicOrgAdmin).toHaveBeenCalledWith("acme");
+    expect(mockUpdateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("a member's ordinary content edit on a normal org still succeeds (member gate only)", async () => {
+    mockGetOrgMemory.mockResolvedValue(SHARED);
+    const res = await PATCH(patch({ content: "ok" }), ctx);
+    expect(res.status).toBe(200);
+    expect(mockRequireOrgAccess).toHaveBeenCalledWith("acme");
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
   });
 });
 

@@ -1,6 +1,6 @@
 // GET    /api/org/memory/:id                                      -> { memory }  (read-gated)
 // GET    /api/org/memory/:id?lineage=1           -> { memory, lineage, lineageHidden }  (read-gated)
-// PATCH  /api/org/memory/:id { content?, kind?, namespace?, ... } -> { ok }      (member + Team+)
+// PATCH  /api/org/memory/:id { content?, kind?, namespace?, ... } -> { ok }      (member + Team+; session only)
 // DELETE /api/org/memory/:id                                      -> { ok }      (admin · soft-archive)
 //
 // Per-row org gate: the owning org is resolved FROM the memory (getOrgMemoryOrgSlug), then authorized —
@@ -18,6 +18,9 @@
 // customer owns; PATCH or DELETE here would be reverted by the next index pass. The UI already hides
 // archive on those rows; the wire must refuse too (`409 registry-origin`), matching reflect/apply.
 // A write that reports success and does not survive is worse than a refusal.
+//
+// PATCH is no second archive door below DELETE: the shared public org refuses it (it has no owner,
+// as DELETE refuses), and a body carrying `archived` (true or false) takes DELETE's own minimum, admin.
 //
 // Both gates are `memoryWriteRefusal` in the db module, the one predicate the POST supersede door also
 // applies, so a correction cannot reach a row an edit may not.
@@ -115,8 +118,6 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
 
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const g = await gateWrite(id, "member");
-  if (g instanceof Response) return g;
   const body = (await request.json().catch(() => ({}))) as {
     content?: string;
     kind?: string;
@@ -127,6 +128,9 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     tags?: string[];
     archived?: boolean;
   };
+  // `archived` is the archive door: it takes DELETE's minimum (admin), not the member edit level.
+  const g = await gateWrite(id, body.archived !== undefined ? "admin" : "member", true);
+  if (g instanceof Response) return g;
   if (body.kind !== undefined && !isMemoryKind(body.kind)) {
     return NextResponse.json({ error: `kind must be one of: ${MEMORY_KINDS.join(", ")}.` }, { status: 400 });
   }
