@@ -307,6 +307,25 @@ reserved, and instead one allowance slot is consumed per repo and refunded throu
 actually charged, or a deduped/degraded public scan would silently burn a free slot. The flag is
 honoured only when no installation token was minted, so it can never buy a free private scan.
 
+**The shared `public` org takes no autoscan cadence and no bulk scan (operator decision 2026-10-07).**
+`public` has no owner, so a scan nobody asked for has nobody to charge: an import there is charged to the
+signing-in user's own public-scan allowance, and everything that would spend *without* a requester is
+closed. While an auth stack is live (`!authGateEnabled() && !isAuthConfigured()` is false - exactly where
+the import route's other public rules bind):
+
+- **the seeder skips it.** `/api/cron/rescan` passes `excludeOrgSlugs: ["public"]` through
+  `enqueueDueRescans` to `listDueRescanCandidates`, which applies it in the query's `where`. Public rows
+  that already carry a schedule stop seeding with no migration.
+- **`POST /api/org/schedule`** answers 403 for any cadence but `off` on `public` (`off` still succeeds,
+  so an existing schedule can be cleared).
+- **`POST /api/org/import`** into `public`, real or mock, defaults the schedule to `off`; an explicit
+  other cadence is a 400 and nothing calls `setRepoSchedule`. `watch` keeps its meaning.
+- **`POST /api/org/scan`** answers 403 for `public` before the watchlist is read or anything is enqueued
+  (no rate limiter or metering was added: the refusal replaces both). Rescan one repository from its
+  report page instead, which consumes the viewer's own allowance.
+
+An auth-off (local, demo, seeding) deployment and every tenant org keep today's behaviour.
+
 The caller is never charged silently: `/api/org/scan` and `/api/org/import` add `charged: <bool>`
 to the failing per-repo SSE `repo` event (alongside `error`), and the cron, which has no
 human watching, appends `(credit kept, inference already ran)` to that repo's entry in `errors`.

@@ -78,7 +78,11 @@ now has **two** real paths:
   whatever the body sets, charged to the caller's **own per-user public-scan allowance**
   (`publicQuotaIdentity` with the viewer id) - never unmetered and never an org's credits. There is no
   per-user wallet: "their own credits" means that allowance, and when it is spent the existing
-  `monthly_quota` wall applies. Mock imports, tenant orgs, BYOM, the App token path and auth-off
+  `monthly_quota` wall applies. `public` has no owner to pay for a recurring scan, so it takes **no
+  autoscan cadence**: the select step offers the autoscan opt-in on the App path only, `resolveImportPlan`
+  sends `watch: false` with no cadence but `off` for a `public` target (a stale opt-in from an earlier App
+  run cannot travel), and the route itself defaults the schedule to `off` and 400s any other cadence (see
+  [rescan.md](../fleet/rescan.md)). Tenant orgs, BYOM, the App token path and auth-off
   deployments are unchanged. Self-hosted and auth-off deployments keep importing under the handle.
 - **App path: real when credits allow.** Unchanged: `canRunRealScan` requires an installation *and*
   a credit read that settles with headroom. Everything else is a disclosed **preview** (deterministic
