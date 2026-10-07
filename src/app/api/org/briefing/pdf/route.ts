@@ -1,7 +1,7 @@
 // GET /api/org/briefing/pdf?org=slug[&range=90d&from=&to=]  -> application/pdf
 //
 // Server-renders the executive briefing as a board-ready PDF (Direction #5 phase 2). Read-gated by the
-// org (same as the Briefing page). 404 when the org has no scanned repos. Same ExecBriefing source as
+// org (same as the Briefing page). 404 when the org has no scanned repos; 503 when a read failed. Same ExecBriefing source as
 // the page + the "Copy for LLM" brief, so all three stay in lockstep.
 
 import { createElement, type ReactElement } from "react";
@@ -12,6 +12,8 @@ import { buildExecBriefing } from "@/lib/org/briefing";
 import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { requireOrgRead } from "@/lib/authz";
+import { respondError } from "@/lib/api/respond";
+import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { attachBriefingNarrative } from "@/lib/org/briefing-narrative";
 import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
@@ -50,18 +52,27 @@ export async function GET(request: Request) {
   // vs "requested but renamed/deleted/DB hiccup"), and passing it through would silently render the
   // WHOLE-org briefing under a URL the owner scoped down. Only `null-because-absent` stays unscoped.
   const stackKey = sp.get("stack");
-  const techGroupId = await getTechGroupIdByKey(org, stackKey).catch(() => null);
-  if (stackKey && !techGroupId) {
-    return NextResponse.json({ error: "Unknown tech-stack scope for this organization." }, { status: 404 });
+  // A FAILED read is not "no such scope": the first is a server fault (503, try again), the second a
+  // genuinely unresolvable key (404). Both fail closed; only the wording and status differ.
+  let techGroupId: string | null = null;
+  if (stackKey) {
+    try {
+      techGroupId = await getTechGroupIdByKey(org, stackKey);
+    } catch (err) {
+      return respondError(503, "Could not check the tech-stack scope just now. Try again.", { cause: err });
+    }
+    if (!techGroupId) {
+      return NextResponse.json({ error: "Unknown tech-stack scope for this organization." }, { status: 404 });
+    }
   }
-  // A thrown build is not an empty fleet. Both stay 404 — a board download must not surface a 500 —
-  // but the body and the log have to say which one happened, or the owner stops looking for the data.
+  // A thrown build is not an empty fleet: 503 (a server fault 5xx monitoring can count) with an honest
+  // body DownloadButton shows inline, versus 404 for a fleet that genuinely has no scans.
   let built: Awaited<ReturnType<typeof buildExecBriefing>>;
   try {
     built = await buildExecBriefing(org, orgWindowBounds(period), period.title, segmentId, techGroupId);
   } catch (err) {
     console.error("[briefing/pdf] build failed", err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: "Could not build the briefing. Try again." }, { status: 404 });
+    return respondError(503, "Could not build the briefing. Try again.", { cause: err });
   }
   if (!built) {
     return NextResponse.json({ error: "No scanned repositories yet for this organization." }, { status: 404 });
@@ -79,8 +90,8 @@ export async function GET(request: Request) {
   // logo, footer, filename) indefinitely after the org stopped paying for it. Mirror executive/page.tsx
   // — only apply branding when the CURRENT plan still allows white-label.
   const [rawBranding, credit] = await Promise.all([
-    getOrgBranding(org).catch(() => null),
-    getCreditState(org).catch(() => null),
+    getOrgBranding(org).catch(degradedRead("briefing pdf branding", null)),
+    getCreditState(org).catch(degradedRead("briefing pdf credit state", null)),
   ]);
   const branding = planAllowsWhiteLabel(credit?.plan) ? (rawBranding ?? undefined) : undefined;
   // SSRF: resolve the owner-supplied logo to image bytes OURSELVES under a strict guard and hand
@@ -96,10 +107,14 @@ export async function GET(request: Request) {
     // Try branded; on a bad logo fall back to an unbranded render. If THAT also fails (or there was no
     // branding), the rejection used to escape as an unhandled 500 with a raw stack — wrap the whole
     // thing so a render failure degrades to a clean error instead.
-    buffer = await render(brandingForRender).catch(() => (brandingForRender ? render(undefined) : Promise.reject(new Error("render failed"))));
+    buffer = await render(brandingForRender).catch((err: unknown) => {
+      if (!brandingForRender) throw err;
+      noteReadFailure("briefing pdf branded render (retrying unbranded)", err);
+      return render(undefined);
+    });
   } catch (err) {
     console.error("[briefing/pdf] render failed", err);
-    return NextResponse.json({ error: "Failed to render the briefing PDF." }, { status: 500 });
+    return respondError(500, "Failed to render the briefing PDF.", { cause: err });
   }
   // White-label the download name too: a branded org's export shouldn't reveal "ascent" in the filename.
   const brandSlug = branding?.brandName ? safeFilenameSegment(branding.brandName).toLowerCase().slice(0, 40) : "ascent";

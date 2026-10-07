@@ -170,11 +170,11 @@ describe("GET /api/org/briefing/pdf", () => {
     expect(mockBuild).toHaveBeenCalledWith("acme", expect.anything(), expect.any(String), null, "tg_1");
   });
 
-  it("404 (not 500) when buildExecBriefing rejects — and does not call the fleet empty", async () => {
+  it("503 (a server fault, not a 404) when buildExecBriefing rejects — and does not call the fleet empty", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockBuild.mockRejectedValue(new Error("rollup db exploded"));
     const res = await get("acme");
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "Could not build the briefing. Try again." });
     expect(spy).toHaveBeenCalledWith("[briefing/pdf] build failed", "rollup db exploded");
     expect(mockRender).not.toHaveBeenCalled();
