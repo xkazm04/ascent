@@ -25,6 +25,7 @@ import { MOCK_ENGINE } from "@/lib/maturity/attribution";
 import { composeGoal, composeTrajectory, forecastConfidenceNote } from "@/lib/maturity/forecast";
 import { DIMENSION_BY_ID, levelForScore } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
+import { degradedRead } from "@/lib/org/degraded-read";
 
 /** "trend confidence 30% · noisy" — the same hedge the exec page shows under the trajectory headline,
  *  so the board PDF and the shared read-only link can't present a low-R² projection as a firm headline.
@@ -311,22 +312,22 @@ export async function buildExecBriefing(
     getOrgRecsActioned(orgSlug, window, segmentId, techGroupId),
     // G5-02: the ranked next-move source moves ONTO the briefing so every renderer reads it from
     // here. Same args the exec page used when it queried this itself (top-5, same segment/stack
-    // scope). `.catch(() => null)` mirrors that page: a recommendations failure must degrade the
-    // section, never 500 the whole briefing/PDF.
-    getOrgRecommendations(orgSlug, 5, segmentId, techGroupId).catch(() => null),
+    // scope). a recommendations failure must degrade the
+    // section, never 500 the whole briefing/PDF; the degrade is logged and reported (degradedRead).
+    getOrgRecommendations(orgSlug, 5, segmentId, techGroupId).catch(degradedRead("briefing recommendations", null)),
     // The proof block's inputs — the same three reads the Practices tab makes, folded through
     // buildPracticeLibrarySummary. NOT segment-scoped (practices aren't); techGroupId matches the
     // practices surface's own scoping. Each degrades independently — a practices failure must cost
     // the proof section, never the briefing/PDF.
-    getOrgPractices(orgSlug, null, techGroupId).catch(() => null),
-    listPlaybooks(orgSlug).catch(() => null),
-    getPlaybookAdoption(orgSlug).catch(() => ({})),
+    getOrgPractices(orgSlug, null, techGroupId).catch(degradedRead("briefing practices", null)),
+    listPlaybooks(orgSlug).catch(degradedRead("briefing playbooks", null)),
+    getPlaybookAdoption(orgSlug).catch(degradedRead("briefing playbook adoption", {})),
     // The union read (moonshot #26). Degrades to [] independently, exactly like the practice reads
     // above: a loop failure costs the loop line, never the briefing or the PDF.
     getImprovementEvents(orgSlug, {
       start: window?.start ?? null,
       end: window?.endExclusive ?? window?.end ?? null,
-    }).catch(() => [] as ImprovementEvent[]),
+    }).catch(degradedRead("briefing improvement events", [] as ImprovementEvent[])),
   ]);
   if (!rollup || rollup.scannedCount === 0) return null;
   // A scanned all-mock fleet has real coverage but no grade. Keep the coverage and provenance while
