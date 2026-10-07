@@ -31,6 +31,7 @@ import { sealAllPendingDays } from "@/lib/db/control-observations";
 // at merge. Nothing else about these imports changes when they do.
 import { enqueueDueRescans, queueDepth, reapExpiredLeases } from "@/lib/db/scan-jobs";
 import { requireCronAuth } from "@/lib/cron-auth";
+import { noteReadFailure } from "@/lib/org/degraded-read";
 import { isAppConfigured } from "@/lib/github/app";
 import { drainLane } from "@/lib/scan-queue-worker";
 import { fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
@@ -51,6 +52,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ skipped: "GitHub App + database required." });
   }
 
+  // A failed step answers null (never 0: "nothing was due") and is NAMED here, then in `errors`. The pass
+  // still answers 200: one failed step never fails the rest. docs/adr/2026-10-07-failed-read-is-not-absence.md.
+  const stepErrors: string[] = [];
+
   // MOONSHOT #1 / MC-B14 — SEAL THE CONTROL LEDGER FIRST, before anything else this route does.
   //
   // It runs here rather than inside `/api/audit/verify` because sealing was a side effect of a READ:
@@ -68,18 +73,30 @@ export async function GET(request: Request) {
   // so a day is sealed long before it becomes purge-eligible. The condition that breaks it is a
   // sealing BACKLOG deeper than the retention horizon; `sealBacklogRemaining` is reported below and
   // by /api/audit/verify so it is observable rather than silent. See docs/features/data/retention.md.
-  const ledgerSeal = await sealAllPendingDays().catch(() => null);
+  const ledgerSeal = await sealAllPendingDays().catch((err) => {
+    noteReadFailure("cron/rescan sealAllPendingDays", err);
+    stepErrors.push("cron/rescan sealAllPendingDays failed");
+    return null;
+  });
 
   if (!isAppConfigured()) {
-    return NextResponse.json({ skipped: "GitHub App + database required.", ledgerSeal });
+    return NextResponse.json({ skipped: "GitHub App + database required.", ledgerSeal, errors: stepErrors });
   }
 
   // Reap first: a pass killed at the 300s ceiling leaves claimed rows behind, and a worker that never
   // came back must not strand its repo. Past MAX_JOB_ATTEMPTS the row fails rather than looping.
-  const reaped = await reapExpiredLeases().catch(() => 0);
+  const reaped = await reapExpiredLeases().catch((err) => {
+    noteReadFailure("cron/rescan reapExpiredLeases", err);
+    stepErrors.push("cron/rescan reapExpiredLeases failed");
+    return null;
+  });
   // Seed everything due. Idempotent per (org, repo, lane, ISO date), so a second pass on the same day
   // — or an overlapping invocation — adds nothing.
-  const seeded = await enqueueDueRescans().catch(() => 0);
+  const seeded = await enqueueDueRescans().catch((err) => {
+    noteReadFailure("cron/rescan enqueueDueRescans", err);
+    stepErrors.push("cron/rescan enqueueDueRescans failed");
+    return null;
+  });
 
   const summary = await drainLane("rescore", {
     concurrency: SCAN_CONCURRENCY,
@@ -89,7 +106,11 @@ export async function GET(request: Request) {
   // The honest remainder is the queue's own depth, read AFTER the drain — not a count this invocation
   // guesses at. A lane that stays deep across passes is an oversubscribed schedule, and this JSON body
   // is the only place a cron run can say so.
-  const depth = await queueDepth().catch(() => null);
+  const depth = await queueDepth().catch((err) => {
+    noteReadFailure("cron/rescan queueDepth", err);
+    stepErrors.push("cron/rescan queueDepth failed");
+    return null;
+  });
   if (summary.truncated) {
     console.warn(
       `[cron/rescan] time budget reached — ${summary.done} scanned this pass, ${depth?.rescore.queued ?? "?"} still queued for the next`,
@@ -107,6 +128,6 @@ export async function GET(request: Request) {
     skippedAlreadyClaimed: summary.skipped,
     truncated: summary.truncated,
     queueDepth: depth?.rescore ?? null,
-    errors: summary.errors,
+    errors: [...stepErrors, ...summary.errors],
   });
 }
