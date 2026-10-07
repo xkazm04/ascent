@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { isDbConfigured, recordOrgAudit, setOrgPlan } from "@/lib/db";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { isPlanId } from "@/lib/plans";
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   // Normalize the slug once up front (mirrors the checkout route) so the auth gate, the write, and the
   // audit lookup all resolve the same canonical org rather than mixing raw and lower-cased forms.
   const org = normalizeOrgSlug(body.org);
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
   if (body.plan !== "free" && !planChangesAllowed()) {
     return NextResponse.json(

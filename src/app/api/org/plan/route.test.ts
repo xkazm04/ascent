@@ -43,6 +43,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/authz", () => ({
   requireOrgRole: mockRequireOrgRole,
+  refusePublicOrgAdmin: () => null,
 }));
 
 vi.mock("@/lib/auth", () => ({
