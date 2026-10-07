@@ -220,18 +220,15 @@ seed one), so `requireOrgRole("public", "owner")` has no role to check and passe
 destroys or rewrites the public org's data, settings, membership or credentials must therefore also
 call `refusePublicOrgAdmin(org)`, which answers `403` for `public` (trimmed, case-insensitive) on
 every deployment, auth-off included. Erase, retention, llm-provider (and its probe), members,
-invites, credits/grant and tokens do (security scan 2026-10-07). `requireOrgRole`'s open default is
+invites, credits/grant and tokens do (security scan 2026-10-07), as do plan, segments, gate-policy, alerts rules, branding, admission (grants, rulesets, proposals), ai-stance (including ack/apply/apply-batch), integrations token and OpenAI, billing autorecharge/checkout/portal, forge installation, live-share and the skills/memory archive routes (follow-up O1-O12). The Settings and Members tabs render the non-owner view for `public`, and `acceptInvite` answers `not_found` for an invite to it. `requireOrgRole`'s open default is
 deliberate, because `hasOrgRole` callers read it on public orgs.
 
 ## Known gaps
 
-- **Other owner/admin routes still admit `public`.** Plan, gate-policy, branding, alerts rules,
-  admission, ai-stance, integrations, billing autorecharge, forge installation, live-share,
-  segments and the skills/memory archive routes rely on `requireOrgRole` or `requireOrgAccess`
-  alone, so a signed-in stranger can rewrite those settings on the public org. The Settings and
-  Members tabs also render their owner controls on `/org/public` (`hasOrgRole` is true there); the
-  refused routes now answer `403`. Listed with proposed fixes in
-  [`docs/security/scan-2026-10-07.md`](../../security/scan-2026-10-07.md).
+- **A few write routes on `public` are still open.** The program route (Executive Briefing, awaiting
+  the operator), `segments/[id]/repos`, `segments/[id]/rule`, the member-level `skills/[id]` and
+  `memory/[id]` PATCH, and the integrations sync routes still rely on the open `requireOrg*` default.
+  Listed in the follow-up of [`docs/security/scan-2026-10-07.md`](../../security/scan-2026-10-07.md).
 
 - **Some sign-in-moment product behavior still doesn't run in production.** The
   Supabase callback now seeds the watchlist (above), but three behaviors remain
