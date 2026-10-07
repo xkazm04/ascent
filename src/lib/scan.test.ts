@@ -13,6 +13,12 @@ import type { AssessOptions, LLMProvider, LlmScoreInput } from "@/lib/llm/provid
 import type { LlmCallTrack } from "@/lib/llm/tracklight";
 
 // ---------------------------------------------------------------------------
+const reportHandled = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/api/respond", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/api/respond")>()),
+  reportHandledError: reportHandled,
+}));
+
 // Auth-dependency harness for the resolveScanAuth cross-tenant gate suite.
 // resolveScanAuth authorizes BEFORE minting an installation token, via the single
 // shared gate canMintInstallationToken(owner) (authz.ts). A caller-supplied
@@ -661,11 +667,14 @@ describe("resolveScanAuth — authorize-before-mint cross-tenant gate (#4)", () 
   it("a failed mint for an authorized caller still refuses the operator PAT", async () => {
     authControl.canMintInstallationToken.mockResolvedValue(true);
     authControl.getInstallationIdForOwner.mockResolvedValue("owner-install-42");
-    authControl.getInstallationToken.mockRejectedValue(new Error("GitHub 503"));
+    const boom = new Error("GitHub 503");
+    authControl.getInstallationToken.mockRejectedValue(boom);
+    reportHandled.mockClear();
 
     const res = await resolveScanAuth(PARSED);
 
     expect(res).toEqual({ orgSlug: "public", noAmbientToken: true });
+    expect(reportHandled).toHaveBeenCalledWith(boom, expect.objectContaining({ message: expect.any(String) }));
   });
 
   it("auth-off (local/demo): the shared gate allows, so the owner's installation is used", async () => {

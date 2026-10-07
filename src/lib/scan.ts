@@ -32,6 +32,7 @@ import { runAssessmentPhase } from "@/lib/scan-assess";
 import { buildScanWarnings, captureScanEvalLog, composeScanReport } from "@/lib/scan-compose";
 import { classifyOutputBudget } from "@/lib/llm/output-budget";
 import { recordScanDegraded, recordScanFailure, recordScanStarted } from "@/lib/scan-outcome";
+import { reportHandledError } from "@/lib/api/respond";
 import { mirrorRepoMemory } from "@/lib/memory/repo-memory-mirror";
 
 // The LLM failure classifiers live with the resilience loop that consumes them; re-exported here so
@@ -159,8 +160,9 @@ export async function resolveScanAuth(
 
   try {
     return { token: await getInstallationToken(ownerInstallationId), orgSlug: parsed.owner.toLowerCase() };
-  } catch {
+  } catch (err) {
     // Mint failed for an authorized member — still never downgrade to the operator PAT.
+    reportHandledError(err, { message: "scan: installation token mint failed" });
     return { orgSlug: "public", noAmbientToken: true };
   }
 }
