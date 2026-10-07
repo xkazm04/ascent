@@ -66,6 +66,7 @@ import { drainUntilDeadline, fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/poo
 import { rateLimitRequestShared, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 import { SCHEDULES as SCAN_SCHEDULES } from "@/lib/org/repo-schedule";
+import { noteReadFailure } from "@/lib/org/degraded-read";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -606,13 +607,21 @@ export async function POST(request: Request) {
         }
         // The honest remainder is the run's own rows, read after the drain (the sibling route's rule),
         // so it also counts a contended repo whose claim went back to the queue.
-        const remaining = (await listJobsForRun(org, importRunId).catch(() => [])).filter(
-          (j) => j.state === "queued" || j.state === "claimed",
-        ).length;
-        if (remaining > 0) {
+        //
+        // A FAILED remainder read is not "nothing owed" (docs/adr/2026-10-07-failed-read-is-not-absence.md,
+        // class B through the door): the count is unknown, so it is null and the `queued` frame still goes
+        // out with the runId, so the client follows the run through the queue poll instead of settling.
+        let remaining: number | null;
+        try {
+          remaining = (await listJobsForRun(org, importRunId)).filter((j) => j.state === "queued" || j.state === "claimed").length;
+        } catch (err) {
+          noteReadFailure("org/import remainder read (listJobsForRun)", err);
+          remaining = null;
+        }
+        if (remaining === null || remaining > 0) {
           // Logged server-side too: `send` swallows writes on a torn-down stream, and a remainder that
           // only ever existed in a lost frame is exactly the silence this fixes.
-          console.warn(`[org/import] ${org}: ${scanned}/${fullNames.length} scanned this pass, ${remaining} left queued for the worker`);
+          console.warn(`[org/import] ${org}: ${scanned}/${fullNames.length} scanned this pass, ${remaining ?? "an unknown number"} left queued for the worker`);
           send("queued", { runId: importRunId, queued: remaining, total: fullNames.length });
         }
         // Capture the team-standings decomposition as a durable output of this full org import

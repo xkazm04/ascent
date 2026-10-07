@@ -20,6 +20,7 @@ import { checkScanEntitlement, orgNotFound, paymentRequired } from "@/lib/entitl
 import { drainLane } from "@/lib/scan-queue-worker";
 import { fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
+import { noteReadFailure } from "@/lib/org/degraded-read";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -196,13 +197,22 @@ export async function POST(request: Request) {
         // (work still owed) rather than `truncated` (work dropped), and the client polls instead of
         // re-driving the whole fleet — a continuation over already-scanned repos would dedupe-and-
         // refund but still burn the same wall clock and never reach the tail.
-        const remaining = (await listJobsForRun(org, runId).catch(() => [])).filter(
-          (j) => j.state === "queued" || j.state === "claimed",
-        ).length;
-        if (remaining > 0) {
+        //
+        // A FAILED remainder read is not "nothing owed" (docs/adr/2026-10-07-failed-read-is-not-absence.md,
+        // class B through the door): the count is unknown, so it is null and the `queued` frame still goes
+        // out with the runId. The client then follows the run through GET /api/org/scan/queue instead of
+        // settling it as finished while jobs may still be owed.
+        let remaining: number | null;
+        try {
+          remaining = (await listJobsForRun(org, runId)).filter((j) => j.state === "queued" || j.state === "claimed").length;
+        } catch (err) {
+          noteReadFailure("org/scan remainder read (listJobsForRun)", err);
+          remaining = null;
+        }
+        if (remaining === null || remaining > 0) {
           // Also log server-side: `send` swallows enqueue failures on a torn-down controller, and a
           // remainder that only ever existed in a lost frame is exactly the silence this fixes.
-          console.warn(`[org/scan] ${org}: ${scanned}/${total} scanned this pass, ${remaining} left queued for the worker`);
+          console.warn(`[org/scan] ${org}: ${scanned}/${total} scanned this pass, ${remaining ?? "an unknown number"} left queued for the worker`);
           send("queued", { runId, queued: remaining, total });
         }
         // Capture the team-standings decomposition as a durable output of this full org scan

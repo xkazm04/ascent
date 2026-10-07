@@ -22,6 +22,7 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn() }));
+vi.mock("@/lib/org/degraded-read", () => ({ noteReadFailure: vi.fn(), degradedRead: vi.fn() }));
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: vi.fn(async () => {}) }));
 vi.mock("@/lib/pool", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/pool")>();
@@ -103,7 +104,8 @@ vi.mock("@/lib/public-scan-quota", () => ({
 import { POST } from "./route";
 import { scanRepository } from "@/lib/scan";
 import { consumeScanCredit, setRepoSchedule, setRepoWatch } from "@/lib/db";
-import { claimJobById, enqueueScanJob } from "@/lib/db/scan-jobs";
+import { claimJobById, enqueueScanJob, listJobsForRun } from "@/lib/db/scan-jobs";
+import { noteReadFailure } from "@/lib/org/degraded-read";
 import { authGateEnabled } from "@/lib/access";
 import { decodeImportReason } from "@/lib/scan-import-policy";
 
@@ -185,5 +187,20 @@ describe("POST /api/org/import: enqueue the batch, drain to the deadline, leave 
     const events = await collect({ org: "acme", repos: REPOS, mock: false, watch: false, publicFunnel: true });
     expect(q.rows.map((r) => r.state)).toEqual(["done", "skipped", "skipped"]);
     expect(events.find((e) => e.event === "result")?.data).toMatchObject({ scanned: 1, queued: 0 });
+  });
+});
+
+describe("POST /api/org/import: a failed remainder read is not an empty remainder", () => {
+  it("goes through the door and sends the queued frame with the runId and queued: null", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(listJobsForRun).mockRejectedValueOnce(new Error("read down"));
+
+    const events = await collect({ org: "acme", repos: REPOS, mock: false, watch: false });
+
+    expect(vi.mocked(noteReadFailure)).toHaveBeenCalledWith(expect.stringContaining("listJobsForRun"), expect.any(Error));
+    const opening = events.find((e) => e.event === "queued")!;
+    const last = events.filter((e) => e.event === "queued").at(-1)!;
+    expect(last.data).toMatchObject({ runId: opening.data.runId, queued: null, total: 3 });
+    expect(events.find((e) => e.event === "result")?.data).toMatchObject({ runId: opening.data.runId, queued: null });
   });
 });

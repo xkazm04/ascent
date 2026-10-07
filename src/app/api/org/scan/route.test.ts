@@ -33,6 +33,7 @@ vi.mock("@/lib/db/scan-jobs", () => ({
   enqueueScanJob: vi.fn(),
   listJobsForRun: vi.fn(async () => []),
 }));
+vi.mock("@/lib/org/degraded-read", () => ({ noteReadFailure: vi.fn(), degradedRead: vi.fn() }));
 vi.mock("@/lib/scan-queue-worker", () => ({ drainLane: vi.fn() }));
 vi.mock("@/lib/github/app", () => ({ isAppConfigured: () => true }));
 vi.mock("@/lib/authz", () => ({
@@ -53,6 +54,7 @@ import { enqueueScanJob, listJobsForRun } from "@/lib/db/scan-jobs";
 import { drainLane } from "@/lib/scan-queue-worker";
 import { checkScanEntitlement } from "@/lib/entitlement";
 import { requireOrgAccess } from "@/lib/authz";
+import { noteReadFailure } from "@/lib/org/degraded-read";
 
 const mockList = vi.mocked(listWatchedRepos);
 const mockEnqueue = vi.mocked(enqueueScanJob);
@@ -208,6 +210,23 @@ describe("POST /api/org/scan — truncation is no longer loss", () => {
     const body = await runBulkScan();
     expect(body).not.toContain("event: queued");
     expect(frame(body, "result")).toMatchObject({ queued: 0, scanned: 1 });
+  });
+});
+
+describe("POST /api/org/scan — a failed remainder read is not an empty remainder", () => {
+  it("goes through the door and sends the queued frame with the runId and queued: null", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockJobsForRun.mockRejectedValue(new Error("read down"));
+
+    const body = await runBulkScan();
+
+    expect(noteReadFailure).toHaveBeenCalledWith(expect.stringContaining("listJobsForRun"), expect.any(Error));
+    const queued = frame(body, "queued");
+    expect(queued).toMatchObject({ queued: null, total: 1 });
+    expect(typeof queued!.runId).toBe("string");
+    // The result frame names the same run and does not claim "nothing is owed".
+    expect(frame(body, "result")).toMatchObject({ runId: queued!.runId, queued: null });
+    warn.mockRestore();
   });
 });
 
