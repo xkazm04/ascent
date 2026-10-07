@@ -204,3 +204,46 @@ describe("POST /api/org/import: a failed remainder read is not an empty remainde
     expect(events.find((e) => e.event === "result")?.data).toMatchObject({ runId: opening.data.runId, queued: null });
   });
 });
+
+describe("POST /api/org/import: a failed enqueue or claim is reported per repo, truthfully", () => {
+  const repoFrames = (events: Awaited<ReturnType<typeof collect>>) => events.filter((e) => e.event === "repo").map((e) => e.data);
+  const scanProgress = (events: Awaited<ReturnType<typeof collect>>) =>
+    events.filter((e) => e.event === "progress" && e.data.stage === "scan").map((e) => [e.data.repo, e.data.index, e.data.total]);
+
+  it("an enqueue that THROWS sends that repo's error frame, is traced, and counts as handled", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(enqueueScanJob).mockRejectedValueOnce(new Error("insert down"));
+    const events = await collect({ org: "acme", repos: ["acme/a", "acme/b"], mock: false, watch: false });
+    expect(repoFrames(events)).toContainEqual({ repo: "acme/a", error: "Could not queue this repository for scanning." });
+    expect(scanProgress(events)[0]).toEqual(["acme/a", 1, 2]);
+    expect(events.find((e) => e.event === "result")?.data).toMatchObject({ total: 2, scanned: 1 });
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("an enqueue that answers null sends the same error frame", async () => {
+    vi.mocked(enqueueScanJob).mockResolvedValueOnce(null as never);
+    const events = await collect({ org: "acme", repos: ["acme/a", "acme/b"], mock: false, watch: false });
+    expect(repoFrames(events)).toContainEqual({ repo: "acme/a", error: "Could not queue this repository for scanning." });
+  });
+
+  it("a claim that THROWS is an error frame, never `skipped: in_progress`, and skippedInProgress stays 0", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(claimJobById).mockRejectedValueOnce(new Error("update down"));
+    const events = await collect({ org: "acme", repos: ["acme/a", "acme/b"], mock: false, watch: false });
+    const frames = repoFrames(events);
+    expect(frames).toContainEqual({ repo: "acme/a", error: "Could not claim this repository for scanning." });
+    expect(frames.some((f) => f.skipped === "in_progress")).toBe(false);
+    expect(scanProgress(events)[0]).toEqual(["acme/a", 1, 2]);
+    expect(events.find((e) => e.event === "result")?.data).toMatchObject({ skippedInProgress: 0 });
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("a claim that answers null (a lost race) is still `skipped: in_progress`", async () => {
+    vi.mocked(claimJobById).mockResolvedValueOnce(null);
+    const events = await collect({ org: "acme", repos: ["acme/a", "acme/b"], mock: false, watch: false });
+    expect(repoFrames(events)).toContainEqual({ repo: "acme/a", skipped: "in_progress" });
+    expect(events.find((e) => e.event === "result")?.data).toMatchObject({ skippedInProgress: 1 });
+  });
+});

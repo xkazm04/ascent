@@ -127,20 +127,6 @@ export async function POST(request: Request) {
         // scanned, so the 300s ceiling can no longer lose work. `runId` groups the batch so the client
         // can poll exactly its own remainder (GET /api/org/scan/queue).
         const runId = randomUUID();
-        const jobs: { id: string; repo: string }[] = [];
-        for (const repo of scanList) {
-          const enq = await enqueueScanJob({
-            orgSlug: org,
-            repoFullName: repo.fullName,
-            lane: "rescore",
-            reason: "manual",
-            bucket: runId,
-            runId,
-            priority: JOB_PRIORITY.manual,
-          }).catch(() => null);
-          if (enq) jobs.push({ id: enq.id, repo: repo.fullName });
-        }
-
         // `done` is the progress-denominator index (repos handled, skips included); `scanned` is the
         // OUTCOME metric (repos an actual scan ran for). One variable used to serve both roles, so
         // claim-collision and mid-run credit skips were reported as `scanned` in the final result.
@@ -151,6 +137,33 @@ export async function POST(request: Request) {
           done += 1;
           send("progress", { stage: "scan", repo, index: done, total });
         };
+        const jobs: { id: string; repo: string }[] = [];
+        for (const repo of scanList) {
+          // A failed enqueue (it throws, or answers null) must not drop the repo from the run unseen: no row
+          // means nothing can scan or bill it, so it gets its own `repo` frame with an error and counts as
+          // handled, which keeps `done` reaching `total`.
+          let enq: Awaited<ReturnType<typeof enqueueScanJob>> | null = null;
+          try {
+            enq = await enqueueScanJob({
+              orgSlug: org,
+              repoFullName: repo.fullName,
+              lane: "rescore",
+              reason: "manual",
+              bucket: runId,
+              runId,
+              priority: JOB_PRIORITY.manual,
+            });
+          } catch (err) {
+            console.error(`[org/scan] ${org}: enqueue failed for ${repo.fullName}`, err instanceof Error ? err.message : err);
+          }
+          if (enq) {
+            jobs.push({ id: enq.id, repo: repo.fullName });
+          } else {
+            send("repo", { repo: repo.fullName, error: "Could not queue this repository for scanning." });
+            step(repo.fullName);
+          }
+        }
+
         const summary = await drainLane("rescore", {
           concurrency: SCAN_CONCURRENCY,
           deadlineAt: fleetDeadlineAt(invokedAt, maxDuration),

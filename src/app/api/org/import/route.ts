@@ -411,17 +411,23 @@ export async function POST(request: Request) {
           send("progress", { stage: "scan", repo, index: processed, total: fullNames.length });
         };
         for (const r of fullNames) {
-          const enq = await enqueueScanJob({
-            orgSlug: org,
-            repoFullName: r.fullName,
-            lane: "rescore",
-            reason,
-            // One bucket per import: a second import of the same repo is new work, not a collision
-            // with the settled row the first one left behind.
-            bucket: importRunId,
-            runId: importRunId,
-            priority: JOB_PRIORITY.manual,
-          }).catch(() => null);
+          let enq: Awaited<ReturnType<typeof enqueueScanJob>> | null = null;
+          try {
+            enq = await enqueueScanJob({
+              orgSlug: org,
+              repoFullName: r.fullName,
+              lane: "rescore",
+              reason,
+              // One bucket per import: a second import of the same repo is new work, not a collision
+              // with the settled row the first one left behind.
+              bucket: importRunId,
+              runId: importRunId,
+              priority: JOB_PRIORITY.manual,
+            });
+          } catch (err) {
+            // A throw and a null answer both end in the `repo` error frame below; the throw is also traced.
+            console.error(`[org/import] ${org}: enqueue failed for ${r.fullName}`, err instanceof Error ? err.message : err);
+          }
           if (enq) {
             pending.push({ id: enq.id, r });
           } else {
@@ -448,7 +454,18 @@ export async function POST(request: Request) {
           for (;;) {
             const next = unclaimed.shift();
             if (next === undefined) return null;
-            const claim = await claimJobById(next.id, workerId).catch(() => null);
+            // null is a LOST RACE (another run holds the repo): that alone is `in_progress`. A THROWN
+            // claim is a failed database write, and telling the user another run holds the repo would be
+            // false, so it gets its own `repo` error frame and counts as handled.
+            let claim: Awaited<ReturnType<typeof claimJobById>> | null = null;
+            try {
+              claim = await claimJobById(next.id, workerId);
+            } catch (err) {
+              console.error(`[org/import] ${org}: claim failed for ${next.r.fullName}`, err instanceof Error ? err.message : err);
+              send("repo", { repo: next.r.fullName, error: "Could not claim this repository for scanning." });
+              handled(next.r.fullName);
+              continue;
+            }
             if (claim) return { claim, r: next.r };
             send("repo", { repo: next.r.fullName, skipped: "in_progress" });
             skippedInProgress += 1;

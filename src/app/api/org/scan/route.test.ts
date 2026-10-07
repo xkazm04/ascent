@@ -230,6 +230,36 @@ describe("POST /api/org/scan — a failed remainder read is not an empty remaind
   });
 });
 
+describe("POST /api/org/scan — a repo that could not be queued is not dropped", () => {
+  const frames = (body: string, event: string) =>
+    body.split("\n\n").filter((f) => f.includes(`event: ${event}`)).map((f) => JSON.parse(f.match(/^data: (.+)$/m)![1]!) as Record<string, unknown>);
+
+  for (const [how, fail] of [
+    ["throws", () => mockEnqueue.mockRejectedValueOnce(new Error("insert down"))],
+    ["answers null", () => mockEnqueue.mockResolvedValueOnce(null as never)],
+  ] as const) {
+    it(`an enqueue that ${how} sends that repo's frame with an error and keeps done/total consistent`, async () => {
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockList.mockResolvedValue(watched("acme/a", "acme/b"));
+      fail(); // the FIRST repo (acme/a) fails; acme/b is queued
+      mockDrain.mockImplementation(async (_lane, opts) => {
+        expect(opts.jobs).toHaveLength(1);
+        opts.onRepo?.({ repo: "acme/b", stage: "done", level: "l2", overall: 50, posture: "balanced", adoption: 1, rigor: 1 } as never);
+        return summary({ done: 1 });
+      });
+
+      const body = await runBulkScan();
+
+      expect(frames(body, "repo")).toContainEqual({ repo: "acme/a", error: "Could not queue this repository for scanning." });
+      const idx = frames(body, "progress").filter((p) => p.stage === "scan").map((p) => [p.repo, p.index, p.total]);
+      expect(idx).toEqual([["acme/a", 1, 2], ["acme/b", 2, 2]]);
+      expect(frame(body, "result")).toMatchObject({ scanned: 1, total: 2 });
+      if (how === "throws") expect(err).toHaveBeenCalled();
+      err.mockRestore();
+    });
+  }
+});
+
 describe("POST /api/org/scan — credit capacity is still decided up front", () => {
   it("surfaces an out-of-credits error (not a silent 0/0 success) when the balance slices the list to empty", async () => {
     mockList.mockResolvedValue(watched("acme/a", "acme/b"));
