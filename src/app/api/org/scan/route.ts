@@ -21,6 +21,8 @@ import { drainLane } from "@/lib/scan-queue-worker";
 import { fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
+import { authGateEnabled } from "@/lib/access";
+import { isAuthConfigured } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,6 +57,20 @@ export async function POST(request: Request) {
   // repo's shared series (the lens invariant). Personal rescans ride the public report flow.
   const notFleet = await requireFleetOrg(org);
   if (notFleet) return notFleet;
+
+  // The shared "public" org has no owner, so nobody is charged for a bulk scan of it (operator decision
+  // 2026-10-07): refused here, before the watchlist is read or a job is enqueued. This replaces a rate
+  // limiter and per-viewer metering. Binds where the import route's public rules bind - an auth-off
+  // (local, demo, seeding) deployment is untouched.
+  if (org === "public" && (authGateEnabled() || isAuthConfigured())) {
+    return NextResponse.json(
+      {
+        error:
+          "The shared public organization has no owner, so nobody is charged for a bulk scan of it. Rescan one repository from its report page instead; that is charged to your own monthly public-scan allowance.",
+      },
+      { status: 403 },
+    );
+  }
 
   let repos = await listWatchedRepos(org);
   // Optional scope so "Scan all watched" isn't the only mode — both avoid burning the org's token
