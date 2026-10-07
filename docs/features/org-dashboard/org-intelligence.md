@@ -93,8 +93,8 @@ removing a sibling link fails the test. To make it pass, update the pinned list,
 where the count visibly changes.
 
 **Next-move links (org path of use, wave 1a, 2026-10-05).** Each Read and Measure tab ends on one
-named onward link, `<NextMoveLink>` (`src/components/org/shared/`), e.g. "Next: Read - Overview": Tech Stacks,
-Security and Governance go to Proposals; Briefing, Weekly digest, Adoption, Delivery, Contributors and Teams
+named onward link, `<NextMoveLink>` (`src/components/org/shared/`), e.g. "Next: Read - Overview": Overview, Tech Stacks,
+Security and Governance go to Proposals (Overview's was added on 2026-10-07 after council-lite round 1, in both themes, always visible and unscoped); Briefing, Weekly digest, Adoption, Delivery, Contributors and Teams
 go back to Overview. The target is each tab's `nextMoveFor` in `src/lib/org/orgJourney.ts`, written
 as a literal `orgTabHref` so the graph counts it. Tech Stacks' and Delivery's dimension drill-ins now link to
 `proposals` (keeping `dim`) instead of the `followups` alias. The remaining stages follow in later waves.

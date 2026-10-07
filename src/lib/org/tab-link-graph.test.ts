@@ -229,12 +229,20 @@ describe("journey next moves", () => {
 
   // The edge alone is not enough for a tab with a second route to the same target: Tech Stacks' playbook
   // drill-in also lands on `proposals` (dim-scoped), so removing the next-move link would leave the
-  // edge standing and the graph silent. Overview's own link predates NextMoveLink (verify-only).
-  const PREDATES_NEXT_MOVE_LINK = new Set<string>(["overview"]);
-  it.each(waveTabs.filter((t) => !PREDATES_NEXT_MOVE_LINK.has(t)))("%s renders a NextMoveLink to its next move", (tab) => {
+  // edge standing and the graph silent.
+  it.each(waveTabs)("%s renders a NextMoveLink to its next move", (tab) => {
     const target = nextMoveFor(tab);
     const rendered = tree.some((f) => owningTab(f.path, IDS) === tab && NEXT_MOVE_SITE(target!).test(stripComments(f.source)));
     expect(rendered).toBe(true);
+  });
+
+  // Overview has a second literal to `proposals` (fixFirst's goal-behind link), so the graph edge survives
+  // the removal; only the render-site check sees it.
+  it("an Overview missing its next-move literal is noticed: the edge stands, the render site does not", () => {
+    const stripped = withoutLink(tree, "overview", "proposals");
+    expect(buildTabLinkGraph(stripped, IDS).outbound.overview).toContain("proposals");
+    const rendered = stripped.some((f) => owningTab(f.path, IDS) === "overview" && NEXT_MOVE_SITE("proposals").test(stripComments(f.source)));
+    expect(rendered).toBe(false);
   });
 
   it("a tab missing its link is noticed: seed the Measure tabs without theirs", () => {

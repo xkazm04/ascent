@@ -11,7 +11,9 @@ import { OverviewFleetPanel } from "./OverviewFleetPanel";
 import { OverviewScopeReadout } from "./OverviewScopeReadout";
 import type { OverviewInputs } from "./overviewInputs";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { orgTabHref } from "@/lib/org/orgTabs";
 
 export function OverviewTabV2({ slug, billingNotice, i }: { slug: string; billingNotice: ReactNode; i: OverviewInputs }) {
   const { period, win, scope } = i;
@@ -48,6 +50,8 @@ export function OverviewTabV2({ slug, billingNotice, i }: { slug: string; billin
           }
         />
       </Suspense>
+
+      <NextMoveLink href={orgTabHref(slug, "proposals")} to="proposals" />
     </div>
   );
 }
