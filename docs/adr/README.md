@@ -39,6 +39,7 @@ a write set to be authoritative about.
 | [2026-09-07-db-import-convention](2026-09-07-db-import-convention.md) | Accepted | Per-domain barrels under `src/lib/db/`; the root `index.ts` is frozen. |
 | [2026-09-14-org-path-of-use](2026-09-14-org-path-of-use.md) | Accepted (2026-10-05, journey B) | One path of use for the Org modules. |
 | [2026-10-06-autopilot-branch-disposition](2026-10-06-autopilot-branch-disposition.md) | Accepted (2026-10-06) | Drop 12 of 15 stale `autopilot/*` branches; salvage the 2 code runs by rebuild on master. |
+| [2026-10-07-failed-read-is-not-absence](2026-10-07-failed-read-is-not-absence.md) | Accepted (2026-10-07, recorded after the fact) | A failed read is never shown as absence: class A fails visibly (`dbReadStrict`), class B degrades but reaches a door. |
 
 ## A note on citations
 
