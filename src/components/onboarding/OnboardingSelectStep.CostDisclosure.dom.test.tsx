@@ -30,6 +30,18 @@ describe("immediateScanCredits — the number behind the copy", () => {
   });
 });
 
+describe("the recurring autoscan opt-in is offered on the App path only", () => {
+  it("renders no autoscan checkbox on the public-handle path (where an import lands in the shared public org)", () => {
+    render(<ScanCostDisclosure count={2} sourceInstallId={null} credit={null} />);
+    expect(screen.queryByLabelText(/autoscan/i)).toBeNull();
+  });
+
+  it("renders it on the App path", () => {
+    render(<ScanCostDisclosure count={2} sourceInstallId="42" credit={null} />);
+    expect(screen.getByLabelText(/autoscan/i)).toBeTruthy();
+  });
+});
+
 describe("onboarding cost disclosure at the commit point", () => {
   it("states the credits the click draws NOW, beside the balance", () => {
     render(

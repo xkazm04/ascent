@@ -37,6 +37,16 @@ describe("resolveImportPlan — preview-then-upgrade (App path, real headroom)",
   });
 });
 
+describe("resolveImportPlan — the shared public org takes no autoscan cadence", () => {
+  it("never watches or schedules, even if a stale opt-in is set, and says 'off' explicitly", () => {
+    for (const watchOptIn of [false, true]) {
+      expect(
+        resolveImportPlan({ sourceInstallId: null, publicFunnel: true, canRunReal: true, previewFirst: true, watchOptIn, publicOrg: true }),
+      ).toEqual({ mock: false, watch: false, schedule: "off", upgradeAfter: false });
+    }
+  });
+});
+
 describe("resolveImportPlan — rows where no upgrade is ever owed", () => {
   it("no real headroom ⇒ plain disclosed preview, regardless of the toggle (nothing to upgrade to)", () => {
     expect(resolveImportPlan({ ...APP, canRunReal: false, previewFirst: true, watchOptIn: false })).toEqual({

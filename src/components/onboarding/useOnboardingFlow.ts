@@ -477,7 +477,7 @@ export function useOnboardingFlow({
     // the dashboard header (one-shot flag written in onResult below). The whole request matrix —
     // mock/watch/schedule and whether an upgrade is owed — is the pure resolveImportPlan, so the
     // disclosed choreography and the committed POST cannot drift.
-    const plan = resolveImportPlan({ canRunReal, publicFunnel, sourceInstallId, ...consent });
+    const plan = resolveImportPlan({ canRunReal, publicFunnel, sourceInstallId, publicOrg: dashboardOrg === "public", ...consent });
     // Recorded on the run (and so in the snapshot). An upgrade run IS a preview run (plan.mock), and
     // runMode() discloses it with the handoff copy instead of the "install the App / top up" recovery.
     const previewCause = !canRunReal && creditUnknown ? "credit_unknown" : null;

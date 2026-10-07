@@ -38,8 +38,13 @@ export function resolveImportPlan(args: {
   previewFirst: boolean;
   /** The select step's recurring weekly autoscan opt-in. */
   watchOptIn: boolean;
+  /** The import lands in the shared "public" org (importTarget.ts). It has no owner to charge, so it
+   *  takes no autoscan cadence: the select step offers no opt-in there, and a stale one (ticked on an
+   *  earlier App run) must not travel. The request says `schedule: "off"` outright. */
+  publicOrg?: boolean;
 }): ImportPlan {
-  const { canRunReal, publicFunnel, sourceInstallId, previewFirst, watchOptIn } = args;
+  const { canRunReal, publicFunnel, sourceInstallId, previewFirst, watchOptIn, publicOrg = false } = args;
+  if (publicOrg) return { mock: !canRunReal, watch: false, schedule: "off", upgradeAfter: false };
   const upgradeAfter = canRunReal && !publicFunnel && Boolean(sourceInstallId) && previewFirst;
   if (upgradeAfter) {
     return {

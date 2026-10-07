@@ -12,10 +12,12 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { useOnboardingFlow } from "./useOnboardingFlow";
 import { importOrg } from "./importTarget";
+import { resetAutoWatchOptIn, setAutoWatchOptIn } from "./OnboardingSelectStep.watchOptIn";
 
 afterEach(() => {
   vi.restoreAllMocks();
   sessionStorage.clear();
+  resetAutoWatchOptIn();
 });
 
 const REPOS = [
@@ -71,6 +73,15 @@ describe("useOnboardingFlow - signed-in non-member on the gated cloud", () => {
     hook.unmount();
   });
 
+  it("carries no cadence but 'off' and no watch, even with a stale autoscan opt-in from an earlier App run", async () => {
+    setAutoWatchOptIn(true);
+    const { posts, hook } = await scanHandle({ deployment: CLOUD_SIGNED_IN });
+    expect(posts[0]).toMatchObject({ org: "public", watch: false });
+    // watch:false omits the cadence (importScan), and the server defaults it to 'off' on public.
+    expect([undefined, "off"]).toContain(posts[0]!.schedule);
+    hook.unmount();
+  });
+
   it("keeps the handle for a signed-out viewer, self-hosted, and auth-off", async () => {
     for (const deployment of [
       { mode: "cloud", gated: true, signedIn: false },
@@ -97,6 +108,21 @@ describe("useOnboardingFlow - signed-in non-member on the gated cloud", () => {
     });
     expect(posts[0]).toMatchObject({ org: "vercel", installationId: "42" });
     expect(hook.result.current.dashboardOrg).toBe("vercel");
+    hook.unmount();
+  });
+
+  it("the App path still carries the weekly autoscan the user opted into", async () => {
+    setAutoWatchOptIn(true);
+    const posts = stubFetch();
+    const hook = renderHook(() => useOnboardingFlow({ deployment: CLOUD_SIGNED_IN }));
+    await act(async () => {
+      await hook.result.current.loadInstallationRepos("Vercel", "42");
+    });
+    await waitFor(() => expect(hook.result.current.repos).toHaveLength(2));
+    await act(async () => {
+      await hook.result.current.startScan();
+    });
+    expect(posts[0]).toMatchObject({ org: "vercel", watch: true, schedule: "weekly" });
     hook.unmount();
   });
 });
