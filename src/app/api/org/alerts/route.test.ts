@@ -24,7 +24,7 @@ vi.mock("@/lib/db", () => ({
   recordAlertEvent: vi.fn(async () => true),
 }));
 vi.mock("@/lib/db/alert-events", () => ({ getAlertEventForResend: vi.fn(async () => null) }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat") }));
 vi.mock("@/lib/alerts", async (orig) => ({

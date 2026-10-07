@@ -28,7 +28,7 @@ import {
   type AlertEventInput,
   type AlertEventKind,
 } from "@/lib/db";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { buildTestAlertMessage, validateAlertWebhookUrl } from "@/lib/alerts";
@@ -222,7 +222,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, seen: stamped, ...(stamped ? { seenAt: at.toISOString() } : {}) });
   }
 
-  const denied = await requireOrgRole(body.org, "admin");
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "admin"));
   if (denied) return denied;
 
   if (body.resend !== undefined) {
