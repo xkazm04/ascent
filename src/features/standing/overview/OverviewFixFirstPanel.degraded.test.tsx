@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { report, boom, fail } = vi.hoisted(() => {
+const { report, fail } = vi.hoisted(() => {
   const boom = new Error("db down");
   return { report: vi.fn(), boom, fail: vi.fn(async () => { throw boom; }) };
 });
