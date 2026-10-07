@@ -148,6 +148,8 @@ unavailable". Every other caller of those readers keeps the default degrade, unc
 **unconfigured** database (`isDbConfigured()` false: the keyless MVP) still answers the empty lookup
 and so still shows `ColdScanGate`: with no database there is no corpus to have missed.
 
+**The client fallback routes fail the same way.** When the permalink leaves history, passport or recommendations unresolved, `ReportView` fetches `/api/history`, `/api/report/passport` and `/api/recommendations`. Those routes now read with `strict: true` too, so a configured-but-unreachable database answers **500** (logged, and reported through `reportHandledError`) instead of a 404 "Scan it first", a 200 with empty scans ("Baseline established") or a 200 with `items: []`. 503 stays the no-database answer, which `ReportView` and `classifyHistoryResponse` treat as a quiet mode; a genuinely missing passport is still 404 and a reachable empty store still answers empty.
+
 **The sibling reads keep a failure distinguishable too.** The same request reads the passport, the
 history, the recommendations and the STD-6 skill history beside the report. A failed one of those
 used to become an empty *answer* (`[]` / `null`), which hid the section or stopped `ReportView`'s own
