@@ -207,7 +207,31 @@ What each stack gets differs, and the difference is intrinsic:
 > governed by the App's permissions, so `/user/orgs` may return less than a classic
 > OAuth token would.
 
+## Org gates and the shared `public` org (`src/lib/authz.ts`)
+
+Under the wall, every org gate resolves the viewer's role through one resolver
+(`viewerOrgRole`): a Membership row, or an identity-bound claim on an org with no owner yet.
+`requireOrgAccess` (member writes), `requireOrgRead`/`canReadOrg` (reads) and `requireOrgRole`
+(owner/admin actions) all **admit the shared `public` org for any signed-in viewer**. That is the
+free funnel: anyone may scan, import and watch public repos under it.
+
+It is not an ownership grant. Nobody holds a role in `public` (`ensureOwnerMembership` refuses to
+seed one), so `requireOrgRole("public", "owner")` has no role to check and passes. A route that
+destroys or rewrites the public org's data, settings, membership or credentials must therefore also
+call `refusePublicOrgAdmin(org)`, which answers `403` for `public` (trimmed, case-insensitive) on
+every deployment, auth-off included. Erase, retention, llm-provider (and its probe), members,
+invites, credits/grant and tokens do (security scan 2026-10-07). `requireOrgRole`'s open default is
+deliberate, because `hasOrgRole` callers read it on public orgs.
+
 ## Known gaps
+
+- **Other owner/admin routes still admit `public`.** Plan, gate-policy, branding, alerts rules,
+  admission, ai-stance, integrations, billing autorecharge, forge installation, live-share,
+  segments and the skills/memory archive routes rely on `requireOrgRole` or `requireOrgAccess`
+  alone, so a signed-in stranger can rewrite those settings on the public org. The Settings and
+  Members tabs also render their owner controls on `/org/public` (`hasOrgRole` is true there); the
+  refused routes now answer `403`. Listed with proposed fixes in
+  [`docs/security/scan-2026-10-07.md`](../../security/scan-2026-10-07.md).
 
 - **Some sign-in-moment product behavior still doesn't run in production.** The
   Supabase callback now seeds the watchlist (above), but three behaviors remain

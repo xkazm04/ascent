@@ -43,7 +43,10 @@ floors on the stored override (`null` inherit and `0` are never floored) and doe
 
 **Owner settings:** organization owners read and write the four override columns from Settings
 (`RetentionCard` on the owner-gated Settings tab; `GET`/`POST /api/org/retention`). A value below
-the floors is refused with `400`. Save updates the columns only; it never purges. The card requires
+the floors is refused with `400`. Save updates the columns only; it never purges. The shared
+`public` org is refused with `403` (`refusePublicOrgAdmin`, preview included): it has no owner, and
+`requireOrgRole` admits it for any signed-in viewer, so the owner gate alone could not keep a stranger
+from shortening the public corpus's window. The card requires
 a dry-run preview of the proposed policy (the same counters as `?dryRun=1` on `/api/cron/purge`,
 scoped to this org, with fleet-wide orphan/queue/quota sweeps skipped) before Save is enabled.
 
@@ -201,7 +204,11 @@ POST /api/org/erase  { "org": "acme", "preview": true, "includeAudit": true }
 ```
 
 The route follows the org-API convention (tenant in the body, no `[slug]` path segment) like every
-sibling under `src/app/api/org`. Three guards, in order:
+sibling under `src/app/api/org`. The shared `public` org is refused first, with `403`, preview
+included (`refusePublicOrgAdmin` in `src/lib/authz.ts`): `requireOrgRole` admits PUBLIC_ORG for any
+signed-in viewer because nobody holds a role in it, so before this refusal any free account could
+erase every public repo's scan series. Public scan history leaves only on the cron's timetable. For
+every other org, three guards, in order:
 
 1. **Same-origin** (`requireSameOrigin`): guards against CSRF. The session cookie is only `SameSite=Lax`, which
    does not stop a cross-site form POST, and a bare cross-site POST must never be able to erase a
