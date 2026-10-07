@@ -2,8 +2,8 @@
 //
 // Hosted cloud: ENCOURAGE the GitHub sign-in. Identity is what unlocks history, private repos and the
 // org dashboard, and a visitor who scans anonymously lands in a public-only corner of the product and
-// reads it as the product. The wizard stays reachable below — the public path is real — but the pitch
-// is the button. Self-hosted with a login wall: there is nothing to encourage, only a wall to pass,
+// reads it as the product. The wizard stays reachable below, but with the wall up a scan needs a
+// signed-in viewer, so the pitch is the button and the copy promises nothing signed-out. Self-hosted with a login wall: there is nothing to encourage, only a wall to pass,
 // so it renders the plain sign-in notice the org pages already use.
 //
 // Server component: no hooks. The sign-in buttons are client components it composes.
@@ -35,7 +35,7 @@ export function FirstRunSignIn({ mode, auth }: { mode: "cloud" | "self-hosted"; 
           <GitHubSignInButton next={NEXT} label="Sign in with GitHub" />
         ) : null}
         <span className="type-body-sm text-slate-500">
-          Or scan public repositories without an account, below — they don&apos;t persist to a dashboard of yours.
+          Once you&apos;re signed in you can also scan up to 10 repositories of any public organization.
         </span>
       </div>
     </Surface>
