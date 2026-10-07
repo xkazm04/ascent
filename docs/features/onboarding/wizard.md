@@ -24,7 +24,7 @@ keyed on `selfHosted()`:
 
 | Deployment | Signed out, wall on | Nothing set up | Otherwise |
 | --- | --- | --- | --- |
-| **Cloud** | `FirstRunSignIn` (cloud): a "Sign in with GitHub" panel ABOVE the wizard — the pitch is identity, the public path stays reachable beneath it | n/a (the wizard creates tenants) | the wizard |
+| **Cloud** | `FirstRunSignIn` (cloud): a "Sign in with GitHub" panel ABOVE the wizard — the pitch is identity; the panel promises nothing signed-out (with the wall up a scan needs a viewer) and says only that once signed in you can scan up to 10 repositories of any public organization | n/a (the wizard creates tenants) | the wizard |
 | **Self-hosted** | `SignInNotice` only — a wall to pass, nothing to sell | `SelfHostSetupPanel`: the `/onboarding` **skill** guide (run from Claude Code in the clone), with `?wizard=1` one click away for "just score a public org" | the wizard |
 
 "Nothing set up" (`resolveFirstRunSetup`, pure + tested) means: no `ASCENT_LOCAL_ORG` declared, no
@@ -65,6 +65,21 @@ now has **two** real paths:
   *Why this mattered:* the highest-intent first run in the funnel used to show deterministic numbers
   no model produced. Those rows land in the public corpus that the
   [public register](../reporting/report.md#the-public-register--org-scorecards-g7-05--g7-06) ranks.
+- **Hosted cloud, wall up (2026-10-07).** A **signed-out** visitor cannot scan: the wall answers 401 and
+  the wizard shows the existing "Sign in to run this scan" gate. A **signed-in non-member** scanning a
+  public handle they do not own (no installation) imports **into the shared `public` org**
+  (`importTarget.ts`, fed by the `deployment` prop `/onboarding` builds from `resolveFirstRun()`):
+  `POST /api/org/import` carries `org: "public"` and the picked `<handle>/<name>` repos (at most 10),
+  the per-repo Retry targets `public` the same way, and "View dashboard" opens `/org/public`. The
+  wizard creates no Membership and offers no admin action on `public`. The route enforces the rules for
+  a real (`mock:false`) import into `public` whenever an auth stack is live: no viewer is a 401
+  ("Sign in to scan a public organization.") before anything is listed or enqueued; more than 10 repos is
+  a 400 naming the cap (the listing mode is capped at 10); and the run is **always** the public funnel,
+  whatever the body sets, charged to the caller's **own per-user public-scan allowance**
+  (`publicQuotaIdentity` with the viewer id) - never unmetered and never an org's credits. There is no
+  per-user wallet: "their own credits" means that allowance, and when it is spent the existing
+  `monthly_quota` wall applies. Mock imports, tenant orgs, BYOM, the App token path and auth-off
+  deployments are unchanged. Self-hosted and auth-off deployments keep importing under the handle.
 - **App path: real when credits allow.** Unchanged: `canRunRealScan` requires an installation *and*
   a credit read that settles with headroom. Everything else is a disclosed **preview** (deterministic
   mock), so a credit-less org never dead-ends on a 402. The gate awaits the in-flight balance read and
@@ -188,6 +203,14 @@ rendered as "out of credits"; leftovers the stream never named were relabelled a
 reason now has its own row label and done-screen banner (`skipReason.ts`,
 `OnboardingSkipNotices.tsx`); leftovers take the reason of the last capping notice, else the neutral
 "not scanned"; `too_many_repos` and `listing_truncated` notices are surfaced instead of dropped.
+
+**A run with repos still queued is not shown as finished (2026-10-07).** When the 300 s budget ends
+with repos left for the background worker, the route's `result` frame carries `queued: N` (null when the
+remainder could not be read). The client now keeps it: those rows take the client-derived skip reason
+`queued` ("still scanning in the background", never "not scanned" or a credit skip), the heading reads
+"Scan running in the background" instead of "Scan complete", and a banner says how many are still
+scanning and that the results land on the dashboard. The wizard does not follow them: the resume
+snapshot is still dropped on done and the reattach poll is armed only for a rehydrated snapshot.
 
 **The scan step states how long it will take (2026-09-05).** `scanExpectation.ts` derives "Usually
 about N min for M repositories, 4 at a time" from the report's own calibration constants in
