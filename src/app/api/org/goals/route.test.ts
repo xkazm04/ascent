@@ -244,6 +244,62 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
   });
 });
 
+describe("goals in the public org are read-only (operator decision 2026-10-07)", () => {
+  it("POST answers 403 for the public org and writes nothing, before any authz call", async () => {
+    const res = await postGoals({ org: "public", label: "x", metric: "overall", target: 80 });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Goals in the public org are read-only." });
+    expect(mockAccess).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("PATCH answers 403 when the goal's resolved org is public, and writes nothing", async () => {
+    mockGoalOrg.mockResolvedValue("public");
+    const res = await patchGoal("goal-1", { label: "x" });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Goals in the public org are read-only." });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("DELETE answers 403 when the goal's resolved org is public, and deletes nothing", async () => {
+    mockGoalOrg.mockResolvedValue("public");
+    const res = await deleteGoalReq("goal-1");
+    expect(res.status).toBe(403);
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe("goals routes — DB-failure branches", () => {
+  it("GET lets a listGoals throw surface as a failure, never as an empty list", async () => {
+    mockList.mockRejectedValue(new Error("db down"));
+    await expect(getGoals("?org=acme")).rejects.toThrow("db down");
+  });
+
+  it("POST answers 500 when createGoal throws", async () => {
+    mockCreate.mockRejectedValue(new Error("db down"));
+    const res = await postGoals({ org: "acme", label: "x", metric: "overall", target: 80 });
+    expect(res.status).toBe(500);
+  });
+
+  it("POST answers 400 for GOAL_ALREADY_MET", async () => {
+    mockCreate.mockRejectedValue(Object.assign(new Error("already met"), { code: "GOAL_ALREADY_MET" }));
+    const res = await postGoals({ org: "acme", label: "x", metric: "overall", target: 80 });
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH answers 409 on GOAL_CONFLICT and 500 on any other failure", async () => {
+    mockUpdate.mockRejectedValueOnce(Object.assign(new Error("changed"), { code: "GOAL_CONFLICT" }));
+    expect((await patchGoal("goal-1", { label: "x" })).status).toBe(409);
+    mockUpdate.mockRejectedValueOnce(new Error("db down"));
+    expect((await patchGoal("goal-1", { label: "x" })).status).toBe(500);
+  });
+
+  it("DELETE answers 500 when deleteGoal throws", async () => {
+    mockDelete.mockRejectedValue(new Error("db down"));
+    expect((await deleteGoalReq("goal-1")).status).toBe(500);
+  });
+});
+
 describe("GET /api/org/goals — the read that stamps achievedAt", () => {
   it("rejects a missing ?org with 400 and never gates or lists", async () => {
     const res = await getGoals();

@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { createGoal, isGoalMetric, listGoals } from "@/lib/db";
 import { requireOrgAccess } from "@/lib/authz";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 import { createdResponse, dbGuard, invalidTargetDate, listOrgRoute } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
@@ -21,6 +22,8 @@ export async function POST(request: Request) {
   if (!body.org || !body.label || !body.metric || typeof body.target !== "number") {
     return NextResponse.json({ error: "Provide { org, label, metric, target }." }, { status: 400 });
   }
+  // The shared public org is read-only for goals: requireOrgAccess lets any signed-in viewer through it.
+  if (body.org === PUBLIC_ORG) return NextResponse.json({ error: "Goals in the public org are read-only." }, { status: 403 });
   const denied = await requireOrgAccess(body.org);
   if (denied) return denied;
   if (!isGoalMetric(body.metric)) {

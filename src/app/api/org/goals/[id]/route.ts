@@ -6,12 +6,19 @@ import { NextResponse } from "next/server";
 import { deleteGoal, getGoalOrgSlug, updateGoal } from "@/lib/db";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { invalidTargetDate, rowGate } from "@/lib/api/orgPlan";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 import { GOAL_STATUSES } from "@/lib/types";
 
 // Goal status whitelist — parity with the initiatives PATCH (which validates against REC_STATUSES).
 // updateGoal writes status verbatim, so without this gate any string ("banana", a spoofed
 // "achieved") would persist (goals-initiatives #1).
 const STATUSES = new Set<string>(GOAL_STATUSES);
+
+// Goals in the shared public org are read-only (operator decision 2026-10-07): requireOrgAccess and
+// requireOrgRole both pass any signed-in viewer through PUBLIC_ORG, so the refusal lives here.
+async function publicOrgReadOnly() {
+  return NextResponse.json({ error: "Goals in the public org are read-only." }, { status: 403 });
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +31,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     notFound: "Goal not found.",
     getOrgSlug: getGoalOrgSlug,
     id,
-    authorize: requireOrgAccess,
+    authorize: (org) => (org === PUBLIC_ORG ? publicOrgReadOnly() : requireOrgAccess(org)),
   });
   if (blocked) return blocked;
   // `expected` (optional) carries the values the editor last saw for the fields being changed, so
@@ -70,7 +77,7 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
     notFound: "Goal not found.",
     getOrgSlug: getGoalOrgSlug,
     id,
-    authorize: (org) => requireOrgRole(org, "admin"),
+    authorize: (org) => (org === PUBLIC_ORG ? publicOrgReadOnly() : requireOrgRole(org, "admin")),
   });
   if (blocked) return blocked;
   try {
