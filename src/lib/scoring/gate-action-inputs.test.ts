@@ -103,6 +103,16 @@ describe("action.yml carries every `ci` line describeGatePolicy emits", () => {
     expect(back).toContain(ciLine);
   });
 
+  it("forwards the PR head SHA (then github.sha) when ref is empty, never the default branch", () => {
+    // The step env, not the input default, resolves ref; an empty INPUT_REF would score the default branch.
+    const refEnv = /^\s+INPUT_REF: (.*)$/m.exec(stripComments(RAW))?.[1] ?? "";
+    expect(refEnv).toContain("inputs.ref");
+    expect(refEnv).toContain("github.event.pull_request.head.sha");
+    expect(refEnv).toContain("github.sha");
+    expect(refEnv.indexOf("inputs.ref")).toBeLessThan(refEnv.indexOf("github.event.pull_request.head.sha"));
+    expect(refEnv.indexOf("github.event.pull_request.head.sha")).toBeLessThan(refEnv.indexOf("github.sha }}"));
+  });
+
   it("guard: every new floor input defaults to empty, so a workflow that omits it forwards nothing", () => {
     for (let i = 1; i <= 8; i++) expect(shape.inputs.get(`min-d${i}`)).toBe("");
   });

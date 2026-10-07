@@ -7,11 +7,13 @@
 #   - uses: <owner>/ascent@v1
 #     with:
 #       ascent-url: ${{ vars.ASCENT_URL }}   # e.g. https://ascent.yourco.dev
+#       ref: ${{ github.event.pull_request.head.sha || github.sha }}   # what is scored; this is also the default
 #       min-level: L3
 #       min-d2: '50'                         # optional per-dimension floor (D1..D8; D9 is min-security)
 #       no-ungoverned: 'true'
 #
-# `repo` defaults to the workflow's own repository. Combine with the PR Check + comment posted by
+# `repo` defaults to the workflow's own repository; `ref` defaults to the PR head SHA on a pull_request
+# event and to github.sha otherwise (never the default branch). Combine with the PR Check + comment posted by
 # the Ascent GitHub App for inline feedback; this action is the hard merge gate.
 #
 # PRIVATE REPOSITORIES ARE NOT GATED BY THIS ACTION. /api/gate is unauthenticated by design (CI calls
@@ -33,7 +35,7 @@ inputs:
     required: false
     default: ""
   ref:
-    description: "Git ref to gate — branch, tag, or commit SHA. On a pull_request, set this to the PR head SHA to score what the PR changes (e.g. ${{ github.event.pull_request.head.sha }})."
+    description: "Git ref to gate — branch, tag, or commit SHA. Empty (the default) scores the PR head SHA on a pull_request event and github.sha otherwise, so a PR is judged on what it changes, not on the default branch."
     required: false
     default: ""
   min-level:
@@ -146,7 +148,9 @@ runs:
       env:
         ASCENT_URL: ${{ inputs.ascent-url }}
         INPUT_REPO: ${{ inputs.repo }}
-        INPUT_REF: ${{ inputs.ref }}
+        # `ref` is resolved HERE rather than in the input default: composite-action input defaults are not
+        # documented to accept the github context, whereas step env expressions are.
+        INPUT_REF: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
         INPUT_MIN_LEVEL: ${{ inputs.min-level }}
         INPUT_MIN_OVERALL: ${{ inputs.min-overall }}
         INPUT_MIN_DIMENSION: ${{ inputs.min-dimension }}

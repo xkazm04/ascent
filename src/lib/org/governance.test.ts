@@ -13,7 +13,7 @@ vi.mock("@/lib/db", () => ({
   getOrgGatePolicy: mockGetOrgGatePolicy,
 }));
 
-import { buildGovernanceOverview, governanceMarkdown, type GovernanceOverview } from "./governance";
+import { buildGovernanceOverview, ciActionYaml, governanceMarkdown, type GovernanceOverview } from "./governance";
 import { defaultGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
 
 describe("evaluateGateLite", () => {
@@ -65,6 +65,12 @@ const fixture: GovernanceOverview = {
   gateQuery: "min_level=L3&min_dimension=40&no_ungoverned=1",
   ciWith: ["min-level: L3", "min-dimension: '40'", "no-ungoverned: 'true'"],
 };
+
+describe("ciActionYaml", () => {
+  it("states the ref it scores: the PR head on a pull_request, github.sha otherwise", () => {
+    expect(ciActionYaml([])).toContain("    ref: ${{ github.event.pull_request.head.sha || github.sha }}");
+  });
+});
 
 describe("governanceMarkdown", () => {
   const md = governanceMarkdown(fixture);

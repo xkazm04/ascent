@@ -235,7 +235,7 @@ export async function buildGovernanceOverview(
  * input / changing the indent can't ship one stale config (the on-screen snippet vs the LLM brief).
  */
 export function ciActionYaml(withLines: string[]): string[] {
-  return ["- uses: <owner>/ascent@v1", "  with:", "    ascent-url: ${{ vars.ASCENT_URL }}", ...withLines.map((w) => `    ${w}`)];
+  return ["- uses: <owner>/ascent@v1", "  with:", "    ascent-url: ${{ vars.ASCENT_URL }}", "    ref: ${{ github.event.pull_request.head.sha || github.sha }}", ...withLines.map((w) => `    ${w}`)];
 }
 
 /** A governance markdown brief for the "Copy for LLM" action — policy, fleet status, failing repos,
