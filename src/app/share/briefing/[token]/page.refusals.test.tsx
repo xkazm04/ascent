@@ -143,9 +143,11 @@ describe("share page: refusal branches", () => {
     expect(mockBuild).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the revocation ledger is unreadable", async () => {
+  it("fails closed when the revocation ledger is unreadable, without calling the link revoked", async () => {
     sessions.fail = true;
-    expect((await open(mint().token))!.props.title).toBe("Link revoked");
+    const notice = await open(mint().token);
+    expect(notice!.props.title).toBe("Briefing unavailable");
+    expect(String(notice!.props.body)).not.toMatch(/revoked/i);
     expect(mockBuild).not.toHaveBeenCalled();
   });
 });

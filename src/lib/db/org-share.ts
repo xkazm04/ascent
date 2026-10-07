@@ -25,6 +25,7 @@
 import { getSessionVersion, bumpSessionVersion } from "@/lib/db/sessions";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getAuditLog } from "@/lib/db/scans-audit";
+import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
 // The briefing namespace has exactly ONE definition, and it lives in the pure token module because the
 // shared page needs it without importing the db layer. Importing it here (db -> pure lib, never the
 // reverse) keeps the string from being retyped, which is the failure the consolidation is guarding.
@@ -49,10 +50,22 @@ const liveShareRevocationKey = (jti: string) => `live-share:${jti}`;
  * whole difference between a supported mode and an outage.
  */
 async function isShareLinkRevoked(key: string): Promise<boolean> {
+  return (await readShareLinkState(key)) !== "live";
+}
+
+/**
+ * The three honest answers a ledger read can give. `isShareLinkRevoked` folds "unreadable" into "revoked"
+ * (fail closed); a caller that SHOWS a reader something needs the difference, because "this link was
+ * revoked" is a claim about the sender and "we could not check" is not.
+ */
+export type ShareLinkState = "live" | "revoked" | "unreadable";
+
+async function readShareLinkState(key: string): Promise<ShareLinkState> {
   try {
-    return (await getSessionVersion(key)) > 0;
-  } catch {
-    return true;
+    return (await getSessionVersion(key)) > 0 ? "revoked" : "live";
+  } catch (err) {
+    noteReadFailure("share-link revocation ledger", err);
+    return "unreadable";
   }
 }
 
@@ -74,11 +87,19 @@ export async function isLiveShareRevoked(jti: string): Promise<boolean> {
  * `jti` has no handle at all and stays governed by its TTL + `mintedBy` binding.
  */
 export async function isBriefingShareRevoked(org: string, jti: string): Promise<boolean> {
-  if (!jti) return false;
-  return (
-    (await isShareLinkRevoked(briefingShareRevocationKey(org, jti))) ||
-    (await isShareLinkRevoked(legacyBriefingShareRevocationKey(jti)))
-  );
+  return (await briefingShareLinkState(org, jti)) !== "live";
+}
+
+/**
+ * {@link isBriefingShareRevoked} with the failure kept distinguishable: "revoked" is a revocation row,
+ * "unreadable" is a ledger outage (logged and reported). Both are non-live, so a caller that only gates
+ * can treat `!== "live"` as closed; the shared page uses the difference to tell the reader the truth.
+ */
+export async function briefingShareLinkState(org: string, jti: string): Promise<ShareLinkState> {
+  if (!jti) return "live";
+  const scoped = await readShareLinkState(briefingShareRevocationKey(org, jti));
+  if (scoped !== "live") return scoped;
+  return readShareLinkState(legacyBriefingShareRevocationKey(jti));
 }
 
 /**
@@ -126,7 +147,10 @@ export async function revokedBriefingShareJtis(org: string, jtis: string[]): Pro
       select: { login: true },
     });
     return new Set(rows.map((r) => keyToJti.get(r.login)).filter((x): x is string => x != null));
-  } catch {
+  } catch (err) {
+    // Fail closed as a SET (above), but not silently: the owner's list will say "revoked" for links that
+    // may be live, so the outage has to leave a trace somewhere other than that list.
+    noteReadFailure("briefing share revocation list", err);
     return new Set(unique);
   }
 }
@@ -188,7 +212,7 @@ export async function listBriefingShareGrants(orgSlug: string, opts: { limit?: n
 
   // Opens are a separate action, so they need their own read. Ask for more rows than there are grants:
   // one link opened repeatedly by a board would otherwise crowd every other link's opens off the page.
-  const opened = await getAuditLog(orgSlug, { action: "briefing.share.opened", limit: 100 }).catch(() => null);
+  const opened = await getAuditLog(orgSlug, { action: "briefing.share.opened", limit: 100 }).catch(degradedRead("briefing share open counts", null));
   const openCount = new Map<string, { n: number; last: string }>();
   for (const row of opened?.entries ?? []) {
     const jti = metaString(row.meta, "jti");

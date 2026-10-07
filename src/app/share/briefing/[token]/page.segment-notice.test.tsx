@@ -14,7 +14,7 @@ vi.mock("@/lib/briefing-share", () => ({
   briefingFigureDigest: () => "stub-digest",
   shareIntegrity: () => "unverifiable" as const,
 }));
-vi.mock("@/lib/db/org-share", () => ({ isBriefingShareRevoked: async () => false }));
+vi.mock("@/lib/db/org-share", () => ({ briefingShareLinkState: async () => "live" }));
 vi.mock("@/lib/org/briefing", () => ({
   buildExecBriefing: mockBuildExecBriefing,
   engineMixLabel: () => "1 model",

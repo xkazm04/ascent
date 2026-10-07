@@ -16,12 +16,14 @@ import {
 import { ExecutiveTrajectoryCard } from "@/features/bought/executive/ExecutiveTrajectoryCard";
 import { buildExecBriefing, engineMixCaveat, engineMixLabel, mockDisclosure, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { briefingFigureDigest, shareIntegrity, verifyBriefingShareToken } from "@/lib/briefing-share";
-import { Notice, ShareFooter, ShareHeader } from "./shareChrome";
+import { Notice, ShareFooter, ShareHeader, tryAgainNotice } from "./shareChrome";
 import { inclusiveEnd, resolveWindow } from "@/lib/window";
 import { orgWindowBounds } from "@/lib/org/period";
 import { getCreditState, getOrgBranding, getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
 import type { OrgWindow } from "@/lib/db";
-import { isBriefingShareRevoked } from "@/lib/db/org-share";
+import { briefingShareLinkState } from "@/lib/db/org-share";
+import { reportHandledError } from "@/lib/api/respond";
+import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
 import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 
@@ -41,7 +43,14 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // demoting them kills their shared links instead of letting a stateless token outlive their authority.
   // Legacy / stateless tokens (no mintedBy) keep the prior behavior. Fail-closed on a lookup error.
   if (verified.mintedBy) {
-    const minterRole = await getMembershipRole(verified.org, verified.mintedBy).catch(() => null);
+    // A FAILED read is not "the sharer lost access": still closed, but honest try-again wording.
+    let minterRole: Awaited<ReturnType<typeof getMembershipRole>>;
+    try {
+      minterRole = await getMembershipRole(verified.org, verified.mintedBy);
+    } catch (err) {
+      noteReadFailure("briefing share minter role", err);
+      return tryAgainNotice();
+    }
     if (!roleAtLeast(minterRole, "owner")) {
       return (
         <Notice
@@ -57,7 +66,10 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // lookup error — a shared briefing this page cannot vouch for is not shown.
   // Through the shared lookup, not an inlined ledger read: it fails closed BY CONSTRUCTION, so
   // this page cannot be the caller that forgets the .catch and quietly serves a revoked link.
-  if (verified.jti && (await isBriefingShareRevoked(verified.org, verified.jti))) {
+  // `unreadable` (a ledger outage, already reported) stays closed but is not worded as a revocation.
+  const linkState = verified.jti ? await briefingShareLinkState(verified.org, verified.jti) : "live";
+  if (linkState === "unreadable") return tryAgainNotice();
+  if (linkState === "revoked") {
     return <Notice title="Link revoked" body="This shared briefing link has been revoked. Ask an org owner for a fresh one." />;
   }
 
@@ -100,7 +112,16 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // the owner deliberately narrowed must never widen to full-fleet numbers, so treat an unresolvable
   // key like an invalid token instead of proceeding unscoped.
   const stackKey = verified.stack ?? null;
-  const techGroupId = await getTechGroupIdByKey(verified.org, stackKey).catch(() => null);
+  let techGroupId: string | null = null;
+  if (stackKey) {
+    try {
+      techGroupId = await getTechGroupIdByKey(verified.org, stackKey);
+    } catch (err) {
+      // A failed read is not "the scope no longer exists": closed, but try-again wording.
+      noteReadFailure("briefing share stack scope", err);
+      return tryAgainNotice();
+    }
+  }
   if (stackKey && !techGroupId) {
     return (
       <Notice
@@ -120,11 +141,12 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
       (briefing) => ({ ok: true as const, briefing }),
       (err: unknown) => {
         console.error("[briefing/share] build failed", err instanceof Error ? err.message : err);
+        reportHandledError(err, { message: "briefing share build failed" });
         return { ok: false as const };
       },
     ),
-    getOrgBranding(verified.org).catch(() => null),
-    getCreditState(verified.org).catch(() => null),
+    getOrgBranding(verified.org).catch(degradedRead("briefing share branding", null)),
+    getCreditState(verified.org).catch(degradedRead("briefing share credit state", null)),
   ]);
   const branding = planAllowsWhiteLabel(credit?.plan) ? rawBranding : null;
   if (!built.ok) {
@@ -147,7 +169,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // #13: the record that this grant was opened — the "was the briefing read, and how many times"
   // answer a stateless token could never give. Swallowed on failure by recordAudit; never blocks the read.
   if (verified.jti) {
-    const orgId = await getOrgId(verified.org).catch(() => null);
+    const orgId = await getOrgId(verified.org).catch(degradedRead("briefing share audit org id", null));
     await recordAudit("briefing.share.opened", { jti: verified.jti, integrity }, { orgId: orgId ?? undefined });
   }
 

@@ -69,3 +69,8 @@ export function Notice({ title, body }: { title: string; body: string }) {
   );
 }
 
+
+/** A read this page depends on failed: the link is not shown, but the reader is told nothing false about it. */
+export const tryAgainNotice = () => (
+  <Notice title="Briefing unavailable" body="We couldn't verify this link just now. Try it again in a moment." />
+);

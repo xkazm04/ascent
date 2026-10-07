@@ -22,7 +22,7 @@ vi.mock("@/lib/briefing-share", () => ({
 // Explicit, so the revocation path is controlled by the test rather than resolved from a real
 // module that happens to answer "not revoked" when no database is configured. Fails closed in
 // production; these cases are the not-revoked branch.
-vi.mock("@/lib/db/org-share", () => ({ isBriefingShareRevoked: async () => false }));
+vi.mock("@/lib/db/org-share", () => ({ briefingShareLinkState: async () => "live" }));
 vi.mock("@/lib/org/briefing", () => ({
   buildExecBriefing: mockBuildExecBriefing,
   engineMixLabel: () => "1 model",
