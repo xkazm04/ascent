@@ -356,9 +356,29 @@ describe("buildGovernanceOverview", () => {
     expect(ov.gateQuery).toContain("min_security=50");
     expect(ov.gateQuery).toContain("require_protection=1");
     expect(ov.ciWith).toContain("min-security: '50'");
-    expect(ov.ciWith).toContain("require-protection: 'true'");
+    // The token-less /api/gate 503s on this bar, so the snippet must not carry it (see the next test).
+    expect(ov.ciWith).not.toContain("require-protection: 'true'");
     expect(ov.policyText).toContain("Default branch must be protected");
     expect(ov.policyText.some((t) => /D9.*≥\s*50/.test(t))).toBe(true);
+  });
+
+  it("never emits require-protection / min-ai-governed into the CI snippet, and says the App check enforces them", async () => {
+    mockGetOrgGatePolicy.mockResolvedValue({
+      minLevel: "L3",
+      requireProtectedBranch: true,
+      minAiGovernedRate: 90,
+    });
+    mockGetOrgRollup.mockResolvedValue(rollupOf(1, [PASS("ok")]));
+
+    const ov = (await buildGovernanceOverview("acme"))!;
+    const snippet = ciActionYaml(ov.ciWith).join("\n");
+    expect(snippet).not.toMatch(/^\s*require-protection:/m);
+    expect(snippet).not.toMatch(/^\s*min-ai-governed:/m);
+    expect(snippet).toContain("min-level: L3");
+    expect(snippet).toMatch(/^\s*# .*enforced by the Ascent GitHub App check run/m);
+    // The bars stay in the policy text and the query: only the CI projection drops them.
+    expect(ov.policyText).toContain("Default branch must be protected");
+    expect(ov.gateQuery).toContain("require_protection=1");
   });
 
   // ── Scope coherence with the adoption builder ───────────────────────────────

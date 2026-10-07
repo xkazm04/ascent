@@ -94,8 +94,16 @@ function gateQuery(p: GatePolicy): string {
   return q.toString();
 }
 
+/** Bars the token-less /api/gate cannot measure: it answers 503 when a request names them, so a snippet
+ *  that passed them would error on every run. The Ascent GitHub App check run (which holds a token)
+ *  enforces them instead; the action keeps the inputs for callers who run their own gate endpoint. */
+const APP_CHECK_ONLY_CI = ["require-protection", "min-ai-governed"];
+const APP_CHECK_COMMENT = "# require-protection / min-ai-governed are enforced by the Ascent GitHub App check run, not here";
+
 function ciWith(p: GatePolicy): string[] {
-  return describeGatePolicy(p).flatMap((c) => (c.ci ? [c.ci] : []));
+  const lines = describeGatePolicy(p).flatMap((c) => (c.ci ? [c.ci] : []));
+  const keep = lines.filter((l) => !APP_CHECK_ONLY_CI.includes(l.split(":")[0]));
+  return keep.length === lines.length ? keep : [...keep, APP_CHECK_COMMENT];
 }
 
 /**

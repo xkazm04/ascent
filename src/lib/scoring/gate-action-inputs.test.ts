@@ -90,6 +90,8 @@ describe("action.yml carries every `ci` line describeGatePolicy emits", () => {
   const shape = parseAction(RAW);
   const ciLines = describeGatePolicy(EVERY_CI_FIELD).flatMap((c) => (c.ci ? [c.ci] : []));
 
+  // Governance's CI snippet drops require-protection / min-ai-governed (the token-less endpoint 503s on
+  // them), but describeGatePolicy still emits them and the action keeps the inputs, so this pin holds.
   it("emits a ci line for all nine per-dimension floors", () => {
     for (let i = 1; i <= 8; i++) expect(ciLines).toContain(`min-d${i}: '${EVERY_CI_FIELD.minDimensionFor![`D${i}` as "D1"]}'`);
     expect(ciLines).toContain("min-security: '70'");
