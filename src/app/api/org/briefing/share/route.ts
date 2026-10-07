@@ -10,6 +10,7 @@ import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { requireOrgRole } from "@/lib/authz";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { briefingFigureDigest, briefingShareEnabled, freezeShareWindow, signBriefingShareToken } from "@/lib/briefing-share";
+import { degradedRead } from "@/lib/org/degraded-read";
 import { buildExecBriefing } from "@/lib/org/briefing";
 import { listBriefingShareGrants } from "@/lib/db/org-share";
 import { getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
   // therefore skips the fingerprint entirely (a whole-org digest for a stack-scoped link would report
   // "changed" forever). Any failure degrades to no fingerprint, i.e. the pre-existing behavior where the
   // page makes no integrity claim — never to a 500 on the mint.
-  const techGroupId = body.stack ? await getTechGroupIdByKey(orgKey, body.stack).catch(() => null) : null;
+  const techGroupId = body.stack ? await getTechGroupIdByKey(orgKey, body.stack).catch(degradedRead("briefing mint stack scope", null)) : null;
   const fingerprintable = !body.stack || techGroupId != null;
   const snapshot = fingerprintable
     ? await buildExecBriefing(
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
         undefined,
         body.segment ?? null,
         techGroupId,
-      ).catch(() => null)
+      ).catch(degradedRead("briefing mint fingerprint snapshot", null))
     : null;
   const fig = snapshot ? briefingFigureDigest(snapshot) : undefined;
   // EXEC #1: carry the per-client segment scope + the tech-stack scope (3b) into the signed token so the
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
   // floor, and reachable by the erasure path); the REVOCATION ledger deliberately is not (see
   // briefingShareRevocationKey — a purged revocation row would silently un-revoke a link). recordAudit
   // swallows its own failures: an audit hiccup must never withhold the link the owner asked for.
-  const orgId = await getOrgId(org).catch(() => null);
+  const orgId = await getOrgId(org).catch(degradedRead("briefing mint audit org id", null));
   await recordAudit(
     "briefing.share.minted",
     { jti: minted.jti, expiresAt: minted.expiresAt, window: win, segment: body.segment ?? null, stack: body.stack ?? null, fingerprinted: fig != null },

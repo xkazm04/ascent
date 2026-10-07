@@ -24,6 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign in to track your backlog." }, { status: 401 });
   }
 
+  // Silent by design: an unparseable request body is treated as empty and answered 400 by the validation below.
   const body = (await request.json().catch(() => ({}))) as {
     repo?: string;
     dimId?: string;

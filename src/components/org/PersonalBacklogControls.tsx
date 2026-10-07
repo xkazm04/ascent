@@ -24,9 +24,11 @@ async function postOverlay(key: OverlayKey, patch: { status?: RecStatus; targetD
       body: JSON.stringify({ ...key, ...patch }),
     });
     if (res.ok) return null;
+    // Silent by design: a non-JSON error body falls back to the generic message right below; the request itself already failed visibly.
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     return body.error ?? "Something went wrong. Try again.";
   } catch {
+    // Silent by design: a network failure is shown to the reader as the returned message.
     return "Network error. Try again.";
   }
 }

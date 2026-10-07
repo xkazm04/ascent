@@ -34,6 +34,7 @@
 // request-scoped reads. The React `cache()` sits OUTSIDE, on `getOrgFindings`, so a page that renders
 // the same findings it badges (the security register, the teams tab) collapses to one call per request.
 
+import { degradedRead } from "@/lib/org/degraded-read";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { getContributorInsights, getOrgPassportBlockers, getOrgTeamRollup, resolvedKeys } from "@/lib/db";
@@ -73,19 +74,19 @@ const NO_DERIVED = { security: 0, teams: 0, passports: 0, contributors: 0, pract
  */
 async function deriveFindings(orgSlug: string): Promise<Finding[]> {
   const [security, passportRepos, teams, contributors, adoptions] = await Promise.all([
-    buildSecurityOverview(orgSlug).catch(() => null),
+    buildSecurityOverview(orgSlug).catch(degradedRead("nav security findings", null)),
     // NOT getOrgRollup. This badge reads exactly one thing — each repo's readiness blockers — and the
     // full rollup was being bought to supply it: every repo's latest scan with its dimension rows,
     // governance/techStack/passport parsing, plus two unbounded scan sweeps for the trend and the
     // baseline cohort. The blockers live on Repository.passportJson and need no scan join at all, so
     // getOrgPassportBlockers reads three columns over the SAME repo set and produces the same list.
     // The saving lands on every tab, because this derivation runs in the org shell.
-    getOrgPassportBlockers(orgSlug).catch(() => []),
-    getOrgTeamRollup(orgSlug).catch(() => null),
-    getContributorInsights(orgSlug).catch(() => null),
+    getOrgPassportBlockers(orgSlug).catch(degradedRead("nav passport blockers", [])),
+    getOrgTeamRollup(orgSlug).catch(degradedRead("nav team rollup", null)),
+    getContributorInsights(orgSlug).catch(degradedRead("nav contributor insights", null)),
     // MOONSHOT #33 — the adoption ledger. A narrow indexed read (one table, org-scoped), so it costs
     // nothing like the rollups above; `.catch` to empty for the same reason as its siblings.
-    listPracticeAdoptions(orgSlug).catch(() => []),
+    listPracticeAdoptions(orgSlug).catch(degradedRead("nav practice adoptions", [])),
   ]);
 
   return [
@@ -120,7 +121,7 @@ export const getOrgFindings = cache((orgSlug: string): Promise<Finding[]> =>
 export const getOrgFindingCounts = cache(async (orgSlug: string) => {
   const [findings, resolved] = await Promise.all([
     getOrgFindings(orgSlug),
-    resolvedKeys(orgSlug).catch(() => new Map<string, Set<string>>()),
+    resolvedKeys(orgSlug).catch(degradedRead("nav resolved findings", new Map<string, Set<string>>())),
   ]);
   const counts = { ...NO_DERIVED };
   for (const f of findings) {
@@ -135,7 +136,7 @@ export const getOrgFindingCounts = cache(async (orgSlug: string) => {
 export async function getNavCounts(orgSlug: string): Promise<NavCounts | null> {
   const [stateful, derived] = await Promise.all([
     getOrgNavCounts(orgSlug),
-    getOrgFindingCounts(orgSlug).catch(() => ({ ...NO_DERIVED })),
+    getOrgFindingCounts(orgSlug).catch(degradedRead("nav finding counts", { ...NO_DERIVED })),
   ]);
   if (!stateful) return null;
   return { ...stateful, ...derived };

@@ -10,6 +10,8 @@
 import { NextResponse } from "next/server";
 import { getScanReportByCommit, getRepositoryHistory } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
+import { respondError } from "@/lib/api/respond";
+import { degradedRead } from "@/lib/org/degraded-read";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,10 +36,17 @@ export async function GET(request: Request) {
 
   // The latest scan (rich per-dim detail) + this dimension's score history run in parallel — a paid
   // drill-in earns the second query, and the modal reads both to answer "where is it" AND "which way".
-  const [report, history] = await Promise.all([
-    getScanReportByCommit(owner, name, { orgSlug: org }).catch(() => null),
-    getRepositoryHistory(owner, name, { orgSlug: org, limit: 12 }).catch(() => null),
+  // A FAILED read is not "no scan": the report read answers 503 (reported); the history read only draws
+  // the sparkline, so it degrades to an empty series with a door.
+  const [read, history] = await Promise.all([
+    getScanReportByCommit(owner, name, { orgSlug: org }).then(
+      (report) => ({ ok: true as const, report }),
+      (err: unknown) => ({ ok: false as const, err }),
+    ),
+    getRepositoryHistory(owner, name, { orgSlug: org, limit: 12 }).catch(degradedRead("repo-dimension history", null)),
   ]);
+  if (!read.ok) return respondError(503, "Couldn't load this repository's scan right now. Try again.", { cause: read.err });
+  const report = read.report;
   if (!report) {
     return NextResponse.json({ error: "No stored scan for this repository." }, { status: 404 });
   }

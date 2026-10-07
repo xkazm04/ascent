@@ -30,6 +30,7 @@
 
 import { NextResponse } from "next/server";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
+import { degradedRead } from "@/lib/org/degraded-read";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { listBriefingShareGrants, revokeBriefingShareLink } from "@/lib/db/org-share";
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
   // window, so "not in your org's list" can mean "your own link, minted before the retention horizon", and
   // refusing on that ambiguity would block an owner from killing a leaked link of their own. The org
   // binding is NOT this check: it is the ledger key below, which carries the gated org.
-  const known = await listBriefingShareGrants(org).catch(() => []);
+  const known = await listBriefingShareGrants(org).catch(degradedRead("briefing revoke grant lookup", []));
   const grant = known.find((g) => g.jti === jti) ?? null;
 
   // gate-then-constrain: the ledger row is keyed by the GATED org plus the jti, so an owner of org B
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
   // The revocation itself lives in the permanent ledger; this row is the human record of WHO ended the
   // grant and when. recordAudit swallows its own failures, so an audit hiccup cannot undo a completed
   // revocation — the safe direction, unlike the mint row where the reverse would be true.
-  const orgId = await getOrgId(org).catch(() => null);
+  const orgId = await getOrgId(org).catch(degradedRead("briefing revoke audit org id", null));
   await recordAudit(
     "briefing.share.revoked",
     { jti, mintedBy: grant?.mintedBy ?? null, mintedAt: grant?.mintedAt ?? null, grantFound: grant != null },

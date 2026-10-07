@@ -20,6 +20,7 @@
 // never triggers a scan.
 
 import { NextResponse } from "next/server";
+import { reportHandledError } from "@/lib/api/respond";
 import { getScanReportByCommit, isDbConfigured } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { requireOrgRead } from "@/lib/authz";
@@ -51,6 +52,7 @@ export async function GET(request: Request) {
     report = await getScanReportByCommit(parsed.owner, parsed.name, { headSha: parsed.sha, orgSlug });
   } catch (err) {
     console.error("[report/llm] report lookup failed", err);
+    reportHandledError(err, { message: "report/llm report lookup failed" });
     return NextResponse.json(
       { error: "Couldn't load this report right now. Please try again in a moment." },
       { status: 503 },

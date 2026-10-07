@@ -365,6 +365,31 @@ A link minted by the Share button is prepended on success through a window event
 (`publishMintedShareGrant`), because the mint control sits inside a server subtree that cannot pass a
 callback - so the URL has a durable home instead of existing only in the clipboard.
 
+**A failed read is not a fact (2026-10-07).** The share path, the PDF route and the briefing build used to
+turn a database error into a sentence about the world. They no longer do, and each is pinned by a test that
+makes the read fail:
+
+- **The shared page** (`/share/briefing/[token]`) separates "the read failed" from "the read returned none".
+  A failed minter-role, stack-scope or revocation-ledger read still fails closed, but the reader sees
+  **"Briefing unavailable - we couldn't verify this link just now, try it again in a moment"** (reported)
+  instead of "the person who shared this no longer has access", "the scope no longer exists" or "revoked".
+  A real non-owner minter, an unresolved stack key or a revocation row keep their specific wording.
+  `briefingShareLinkState()` (`src/lib/db/org-share.ts`) returns `live | revoked | unreadable`;
+  `isBriefingShareRevoked` still folds the last two into "closed".
+- **The PDF route** answers **503** (not 404) with the same `{ error }` body when the briefing build throws,
+  and 503 (not "Unknown tech-stack scope") when the stack-scope read fails; 404 stays for a fleet with no
+  scans and a key that resolved to none. `DownloadButton` already shows any non-OK `{ error }`.
+- **Best-effort reads keep degrading their section** (recommendations, practices, playbooks, adoption, loop
+  events on the briefing; impact ledger, programme, branding, credit on the tab) but every degrade now goes
+  through `degradedRead()` (`src/lib/org/degraded-read.ts`): a `console.warn` naming the read plus
+  `reportHandledError`. An absent proof block can still mean "never tried" or "the read failed"; the server
+  log now says which.
+- `src/lib/org/briefing-silent-catch.guard.test.ts` fails on any new silent catch shape in the span
+  (`.catch(() => <literal>)`, an empty `catch`, a bare-`return` catch) that is not allowlisted with a reason.
+- **Known gap:** the owner's grant list still shows every grant as revoked when the batched ledger read
+  fails (it fails closed as a set, and the panel says the inventory could not be read); that outage is now
+  reported but the rows are not marked individually.
+
 **The two voids, which are the point.** Both used to be sentences and are now shapes that cannot be
 misread:
 

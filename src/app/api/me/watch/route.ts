@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { getViewer } from "@/lib/access";
 import { countPersonalWatched, isDbConfigured, setRepoWatch, PERSONAL_WATCH_LIMIT } from "@/lib/db";
 import { ensureOwnerMembership } from "@/lib/db/members";
+import { noteReadFailure } from "@/lib/org/degraded-read";
 import { parseRepoUrl } from "@/lib/github/source";
 
 export const runtime = "nodejs";
@@ -37,7 +38,8 @@ async function verifyPublicRepo(owner: string, name: string): Promise<"ok" | "no
     if (!res.ok) return "upstream";
     const meta = (await res.json()) as { private?: boolean };
     return meta.private === false ? "ok" : "not_public";
-  } catch {
+  } catch (err) {
+    noteReadFailure("me/watch github visibility check", err);
     return "upstream";
   }
 }
@@ -54,6 +56,7 @@ export async function POST(request: Request) {
   }
   const slug = viewer.login.trim().toLowerCase();
 
+  // Silent by design: an unparseable request body is treated as empty and answered 400 by the validation below.
   const body = (await request.json().catch(() => ({}))) as { repo?: string; watched?: boolean };
   const parsed = body.repo ? parseRepoUrl(body.repo) : null;
   if (!parsed) {

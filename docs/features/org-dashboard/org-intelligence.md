@@ -838,6 +838,15 @@ Regression-pinned by `src/lib/db/org-passport-blockers.test.ts` (the query must 
 keep the rollup's repo set) and `src/lib/org/nav-counts.test.ts` (`getOrgRollup` is never called from
 the badge path).
 
+**A failed read is not "none" (2026-10-07 sweep).** Where an org-dashboard read used to fall back to a value a
+reader would take as a fact, it now says the read failed and reports it: `GET /api/org/repo-dimension`
+answers **503** "couldn't load this repository's scan" instead of 404 "No stored scan" (a failed history read
+only drops the sparkline), `POST /api/org/program` answers 503 instead of storing a null baseline it never
+revisits, and `GET /api/report/pdf` answers 503 instead of the Pro-plan 403 when the plan read fails. The nav
+badges, the Overview fix-first panel and the org page's unfurl description keep degrading to empty/neutral
+(a badge is chrome), but through `degradedRead()` so each failure is logged by name and reported. Note
+`deriveFindings` runs inside `unstable_cache`, so a degraded (zero) badge is cached for the findings TTL.
+
 **The passports badge keys on the judgment key (2026-09-23).** `getOrgPassportBlockers` also returns
 each repo's minted `findings[]` (id + sentence), still from the same three columns and still
 scan-free, so `passportFindings` keys a blocker through `passportJudgmentKey`

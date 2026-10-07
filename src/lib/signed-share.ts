@@ -41,6 +41,7 @@ export function verifyShareToken(token: string, secret: string | null): unknown 
   try {
     return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as unknown;
   } catch {
+    // Silent by design: a non-JSON payload is an invalid token, the expected answer to a hostile or mangled URL.
     return null;
   }
 }

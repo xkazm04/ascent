@@ -25,6 +25,8 @@
 // `overall` is carried per row and NEVER summed across repos, because overall scores are weighted
 // per-repo and their sum is not a quantity.
 
+import { degradedRead } from "@/lib/org/degraded-read";
+
 /** Where an improvement came from. */
 export type ImprovementSource = "practice-pr" | "loop";
 
@@ -208,7 +210,7 @@ export async function getImprovementEvents(
   const { getPrisma, isDbConfigured } = await import("@/lib/db/client");
   if (!isDbConfigured()) return [];
   const { getOrgBySlug } = await import("@/lib/db/org-shared");
-  const org = await getOrgBySlug(orgSlug).catch(() => null);
+  const org = await getOrgBySlug(orgSlug).catch(degradedRead("improvement events org lookup", null));
   if (!org) return [];
   const { listLaneImpactInputs } = await import("@/lib/db/loop-runs-read");
   const { PRACTICES } = await import("@/lib/practices");
@@ -240,8 +242,8 @@ export async function getImprovementEvents(
           loopLaneId: true,
         },
       })
-      .catch(() => []),
-    listLaneImpactInputs(orgSlug, window).catch(() => []),
+      .catch(degradedRead("improvement events merged PRs", [] as never[])),
+    listLaneImpactInputs(orgSlug, window).catch(degradedRead("improvement events lane impact", [] as never[])),
   ]);
 
   const prs: EventPrInput[] = prRows
@@ -312,6 +314,6 @@ export async function recordLoopPr(input: {
       // measurement already in flight.
       update: { prNumber: input.prNumber, prUrl: input.prUrl },
     })
-    .catch(() => null);
+    .catch(degradedRead("loop PR record", null));
   return row != null;
 }

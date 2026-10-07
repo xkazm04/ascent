@@ -161,6 +161,7 @@ function legacyCopy(text: string): boolean {
     ta.select();
     return document.execCommand("copy");
   } catch {
+    // Silent by design: a blocked execCommand copy reports false and the caller shows the manual-copy panel.
     return false;
   } finally {
     ta?.remove();

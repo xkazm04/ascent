@@ -4,6 +4,7 @@ import { OrgTabChunks } from "@/components/org/shell/OrgTabChunks";
 import { countInFlightPrs, getOrgHeaderSummary } from "@/lib/db";
 import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
+import { degradedRead } from "@/lib/org/degraded-read";
 import { resolveLandingTab } from "@/lib/org/landing";
 import { buildUrl, isMigratedOrgTab, isOrgTabId, legacyOrgTabPath, orgTabAliasTarget } from "@/lib/org/orgTabs";
 
@@ -23,7 +24,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   // JSON plus the trend + forecast queries to throw all of it away. Same repo set (watched OR
   // has-scans, unscoped) and the same `roundedMean` over latest overall scores, so the unfurl copy is
   // byte-identical — this is purely the second rollup the Overview stopped paying for.
-  const summary = (await canReadOrg(slug)) ? await getOrgHeaderSummary(slug).catch(() => null) : null;
+  const summary = (await canReadOrg(slug)) ? await getOrgHeaderSummary(slug).catch(degradedRead("org metadata header summary", null)) : null;
   const title = `${slug} · fleet maturity · Ascent`;
   const description =
     // `avgOverall !== null`: the average excludes mock placeholders, so an all-mock fleet has no

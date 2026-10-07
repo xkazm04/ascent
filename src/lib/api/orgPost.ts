@@ -30,6 +30,7 @@ export async function requireOrgOwnerPost<T = unknown>(
 ): Promise<{ org: string; body: T & { org?: string } } | NextResponse> {
   const crossOrigin = requireSameOrigin(request);
   if (crossOrigin) return crossOrigin;
+  // Silent by design: an unparseable request body is treated as empty and answered 400 by the validation below.
   const body = (await request.json().catch(() => ({}))) as T & { org?: string };
   if (!body.org) {
     return NextResponse.json({ error: opts?.missingOrgError ?? "Provide { org }." }, { status: 400 });

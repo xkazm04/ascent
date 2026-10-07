@@ -57,6 +57,7 @@ import {
 import type { ResolvedTextRunner } from "@/lib/llm/text";
 import { resolveTextRunnerForOrg } from "@/lib/llm/text-org";
 import { PROSE_STYLE_RULE, deEmDash } from "@/lib/llm/prose";
+import { noteReadFailure } from "@/lib/org/degraded-read";
 
 /** Bounded so a slow provider can't hold a PDF download open; well under the route's maxDuration.
  *  Handed to the seam, which applies it through the shared `withLlmTimeout`. */
@@ -331,7 +332,8 @@ async function requestNarrative(facts: string, orgSlug: string | null, signal?: 
     // Attribution (`meter.orgSlug`) and BYOM provenance are filled in by the seam from `orgSlug`, so
     // no `meter` context is passed here — supplying one would only re-state what it already knows.
     runner = await resolveTextRunnerForOrg(orgSlug, { legKind: "briefing", timeoutMs });
-  } catch {
+  } catch (err) {
+    noteReadFailure("briefing narrative runner resolution (BYOM credentials)", err);
     // THE FAIL-CLOSED CASE. The seam throws when this org's BYOM is active but its stored credentials
     // cannot be resolved. Swallowing it into the deterministic template is deliberate: the alternative
     // — retrying on the platform provider — would send a tenant's fleet data to a vendor it never
@@ -355,6 +357,7 @@ async function requestNarrative(facts: string, orgSlug: string | null, signal?: 
     // delete the feature. The gates below still judge the cleaned text.
     return text?.trim() ? deEmDash(text) : null;
   } catch {
+    // Silent by design: the seam has already metered the failure; the template paragraph is the floor.
     // Timeout, abort, transport error, a refusal the transport surfaced as a throw — one floor.
     // The seam has already metered the failure; nothing to record here.
     return null;

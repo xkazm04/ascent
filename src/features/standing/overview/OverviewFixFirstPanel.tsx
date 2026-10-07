@@ -1,4 +1,5 @@
 import { OverviewFixFirst } from "./OverviewFixFirst";
+import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
 import { deriveFixFirst } from "./fixFirst";
 import { getOrgMovers } from "@/lib/db/org-insights";
 import type { OrgWindow } from "@/lib/db/org-rollup";
@@ -34,10 +35,13 @@ export async function OverviewFixFirstPanel({
     // let a void bar read as "no scoring model". Flag the rejection so deriveFixFirst can name it.
     getOrgMovers(slug, win)
       .then((value) => ({ failed: false, value }))
-      .catch(() => ({ failed: true, value: null })),
-    listGoals(slug).catch(() => null),
-    getOrgFindings(slug).catch(() => []),
-    resolvedKeys(slug).catch(() => new Map<string, Set<string>>()),
+      .catch((err: unknown) => {
+        noteReadFailure("overview fix-first movers", err);
+        return { failed: true, value: null };
+      }),
+    listGoals(slug).catch(degradedRead("overview fix-first goals", null)),
+    getOrgFindings(slug).catch(degradedRead("overview fix-first findings", [])),
+    resolvedKeys(slug).catch(degradedRead("overview fix-first resolved findings", new Map<string, Set<string>>())),
   ]);
   const movers = moversRead.value;
 

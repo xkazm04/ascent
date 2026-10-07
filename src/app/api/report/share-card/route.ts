@@ -17,6 +17,7 @@
 
 import { createElement } from "react";
 import { NextResponse } from "next/server";
+import { reportHandledError } from "@/lib/api/respond";
 import { ImageResponse } from "next/og";
 import { getScanReportByCommit, isDbConfigured } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
     report = await getScanReportByCommit(parsed.owner, parsed.name, { headSha: parsed.sha, orgSlug });
   } catch (err) {
     console.error("[report/share-card] report lookup failed", err);
+    reportHandledError(err, { message: "report/share-card report lookup failed" });
     return NextResponse.json(
       { error: "Couldn't load this report right now. Please try again in a moment." },
       { status: 503 },
@@ -67,6 +69,7 @@ export async function GET(request: Request) {
     // A satori/render failure must not escape as an unhandled 500 with a raw stack — DownloadButton
     // renders `{ error }` inline, so give it something to say.
     console.error("[report/share-card] render failed", err);
+    reportHandledError(err, { message: "report/share-card render failed" });
     return NextResponse.json({ error: "Failed to render the share card." }, { status: 500 });
   }
 

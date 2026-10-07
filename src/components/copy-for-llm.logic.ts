@@ -48,6 +48,7 @@ export async function attemptCopy(
       ok = true;
     }
   } catch {
+    // Silent by design: a denied clipboard write falls through to the legacy copy, then to the manual-copy panel.
     ok = false;
   }
   if (!ok) ok = legacy(text); // insecure-context / older-browser fallback

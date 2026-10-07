@@ -76,11 +76,13 @@ export function RepoDimensionModal({
       setLoading(true);
       try {
         const r = await fetch(`/api/org/repo-dimension?${q}`);
+        // Silent by design: a non-JSON body leaves `d` null; the !r.ok branch below shows "Failed (status)".
         const d = (await r.json().catch(() => null)) as (DimData & { error?: string }) | null;
         if (cancelled) return;
         if (!r.ok) setError(d?.error ?? `Failed (${r.status}).`);
         else setData(d as DimData);
       } catch {
+        // Silent by design: a network failure is shown to the reader as "Network error."
         if (!cancelled) setError("Network error.");
       } finally {
         if (!cancelled) setLoading(false);

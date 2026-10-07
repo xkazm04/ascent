@@ -42,6 +42,7 @@ export function BriefingShareButton({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, range, from, to, segment: segment ?? undefined, stack: stack ?? undefined }),
       });
+      // Silent by design: a non-JSON body leaves `d` empty; the !res.ok branch below shows a generic message.
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error ?? "Couldn't create a share link.");
       const url = `${window.location.origin}${d.path}`;

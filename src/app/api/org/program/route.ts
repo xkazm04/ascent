@@ -26,6 +26,7 @@ import {
   startProgram,
   type ProgramBaseline,
 } from "@/lib/db/org-program";
+import { respondError } from "@/lib/api/respond";
 import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
 import { dbGuard, invalidTargetDate } from "@/lib/api/orgPlan";
 
@@ -48,6 +49,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const guard = dbGuard("The transition programme");
   if (guard) return guard;
+  // Silent by design: an unparseable request body is treated as empty and answered 400 by the validation below.
   const body = (await request.json().catch(() => ({}))) as {
     org?: string;
     name?: string;
@@ -78,7 +80,13 @@ export async function POST(request: Request) {
   const existing = await getOrgProgram(body.org);
   let baseline: ProgramBaseline | null = null;
   if (!existing) {
-    const summary = await getOrgHeaderSummary(body.org).catch(() => null);
+    // A failed read must not be stored as "no origin": the baseline is captured once and never revisited.
+    let summary: Awaited<ReturnType<typeof getOrgHeaderSummary>>;
+    try {
+      summary = await getOrgHeaderSummary(body.org);
+    } catch (err) {
+      return respondError(503, "Couldn't read the fleet's current standing to start the programme. Try again.", { cause: err });
+    }
     baseline =
       summary && summary.scannedCount > 0
         ? {
@@ -102,14 +110,15 @@ export async function POST(request: Request) {
     });
     if (!program) return NextResponse.json({ error: "Organization not found." }, { status: 404 });
     return NextResponse.json({ program }, { status: existing ? 200 : 201 });
-  } catch {
-    return NextResponse.json({ error: "Failed to save the programme." }, { status: 500 });
+  } catch (err) {
+    return respondError(500, "Failed to save the programme.", { cause: err });
   }
 }
 
 export async function PATCH(request: Request) {
   const guard = dbGuard("The transition programme");
   if (guard) return guard;
+  // Silent by design: an unparseable request body is treated as empty and answered 400 by the validation below.
   const body = (await request.json().catch(() => ({}))) as { org?: string; status?: string };
   if (!body.org || !body.status) return NextResponse.json({ error: "Provide { org, status }." }, { status: 400 });
   const denied = await requireOrgAccess(body.org);

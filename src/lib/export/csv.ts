@@ -23,6 +23,7 @@ export function csvField(v: unknown, alwaysQuote = false): string {
   try {
     s = v == null ? "" : String(v);
   } catch {
+    // Silent by design: a value whose String() throws becomes an empty cell; the export is total by contract.
     s = "";
   }
   // A pure signed number (integer, decimal, or scientific) can't be a formula — leave it intact.

@@ -7,6 +7,7 @@
 
 import { createElement, type ReactElement } from "react";
 import { NextResponse } from "next/server";
+import { reportHandledError, respondError } from "@/lib/api/respond";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { ReportDocument } from "@/lib/pdf/report-document";
 import { getCreditState, getScanReportByCommit, isDbConfigured } from "@/lib/db";
@@ -40,7 +41,13 @@ export async function GET(request: Request) {
   // public repo's report has always been free/unmetered (entitlement.ts mirrors the same exclusion for
   // scan credits), so only a REAL org's plan is checked here.
   if (orgSlug !== PUBLIC_ORG) {
-    const credit = await getCreditState(orgSlug).catch(() => null);
+    // A FAILED plan read is not "not on Pro": 503 try-again (reported), never the paywall wording.
+    let credit: Awaited<ReturnType<typeof getCreditState>>;
+    try {
+      credit = await getCreditState(orgSlug);
+    } catch (err) {
+      return respondError(503, "Couldn't check your plan right now. Please try again in a moment.", { cause: err });
+    }
     if (!planAllowsPdfExport(credit?.plan)) {
       return NextResponse.json({ error: "PDF export is a Pro-plan feature." }, { status: 403 });
     }
@@ -55,6 +62,7 @@ export async function GET(request: Request) {
     report = await getScanReportByCommit(parsed.owner, parsed.name, { headSha: parsed.sha, orgSlug });
   } catch (err) {
     console.error("[report/pdf] report lookup failed", err);
+    reportHandledError(err, { message: "report/pdf report lookup failed" });
     return NextResponse.json(
       { error: "Couldn't load this report right now. Please try again in a moment." },
       { status: 503 },
@@ -77,6 +85,7 @@ export async function GET(request: Request) {
     // A render failure (a malformed field, a @react-pdf edge case) must not escape as an unhandled 500
     // with a raw stack — return a clean error the client can show.
     console.error("[report/pdf] render failed", err);
+    reportHandledError(err, { message: "report/pdf render failed" });
     return NextResponse.json({ error: "Failed to render the PDF." }, { status: 500 });
   }
   // Sanitize every interpolated segment before it reaches the Content-Disposition header: owner/name
