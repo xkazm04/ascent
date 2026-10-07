@@ -1,11 +1,13 @@
 // DELETE /api/org/tokens/:id?org=   -> { ok }   soft-revoke an org API token (session, member-gated)
 // The revoke is scoped to ?org (requireOrgAccess + the org filter inside revokeOrgApiToken), so one org
 // can neither see nor revoke another's tokens. Soft-revoke: the row survives for the audit trail but
-// fails verification immediately.
+// fails verification immediately. The shared "public" org is refused (refusePublicOrgAdmin): any
+// signed-in viewer passes requireOrgAccess there, so without it a stranger could revoke anyone's
+// public-org token (security scan 2026-10-07, S7).
 
 import { NextResponse } from "next/server";
 import { isDbConfigured, recordOrgAudit, revokeOrgApiToken } from "@/lib/db";
-import { requireOrgAccess } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgAccess } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 
 export const runtime = "nodejs";
@@ -16,7 +18,7 @@ export async function DELETE(request: Request, ctx: { params: Promise<{ id: stri
   const { id } = await ctx.params;
   const org = new URL(request.url).searchParams.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
-  const denied = await requireOrgAccess(org);
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgAccess(org));
   if (denied) return denied;
   const ok = await revokeOrgApiToken(org, id);
   if (!ok) return NextResponse.json({ error: "Token not found." }, { status: 404 });
