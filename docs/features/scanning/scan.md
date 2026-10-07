@@ -680,6 +680,8 @@ threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
   `src/lib/db/scan-sensor-failures.test.ts`, and the `sensorFailures` cases in
   `scans-persist.test.ts` / `scans-read.test.ts`.
 
+**Keyless skips are not failures.** With no token the token-gated sensors are never asked; `IngestPhaseResult.sensorSkips` records which (only those the forge can answer), is not persisted, and feeds the D9 battery (checks only GitHub could refute are excluded, not scored 0) and the keyless warning, which names the skipped org-policy and App-inventory reads.
+
 `engineProvider = "mock"` cannot carry the second on its own: it is also what a keyless deploy and an
 explicit `?mock=1` demo look like, and neither of those is a failure. All three are nullable — a row
 written before the columns is **unknown**, which is deliberately not the same value as "not degraded"
