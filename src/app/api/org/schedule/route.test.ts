@@ -22,7 +22,11 @@ vi.mock("@/lib/authz", () => ({
   requireFleetOrg: vi.fn(async () => null),
 }));
 
+vi.mock("@/lib/auth", () => ({ isAuthConfigured: vi.fn(() => false) }));
+vi.mock("@/lib/access", () => ({ authGateEnabled: vi.fn(() => true) }));
+
 import { POST } from "./route";
+import { authGateEnabled } from "@/lib/access";
 import { setRepoSchedule, setWatchedSchedule } from "@/lib/db";
 import { requireOrgAccess, requireFleetOrg } from "@/lib/authz";
 
@@ -43,6 +47,41 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockAccess.mockResolvedValue(null);
   mockFleet.mockResolvedValue(null);
+  vi.mocked(authGateEnabled).mockReturnValue(true);
+});
+
+// The shared "public" org has no owner, so nobody is charged for a scheduled rescan there (operator
+// decision 2026-10-07). It takes no autoscan cadence while the auth stack is live; "off" still clears.
+describe("POST /api/org/schedule on the shared public org", () => {
+  it("403s any cadence but off, naming why, and writes nothing", async () => {
+    for (const body of [
+      { org: "public", fullName: "facebook/react", schedule: "weekly" },
+      { org: "public", schedule: "daily" },
+    ]) {
+      const res = await POST(post(body));
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: string }).error).toMatch(/no autoscan cadence.*nobody is charged/i);
+    }
+    expect(mockRepo).not.toHaveBeenCalled();
+    expect(mockWatched).not.toHaveBeenCalled();
+  });
+
+  it("still accepts off, so an existing schedule can be cleared", async () => {
+    expect((await POST(post({ org: "public", fullName: "facebook/react", schedule: "off" }))).status).toBe(200);
+    expect(mockRepo).toHaveBeenCalledWith("public", "facebook/react", "off");
+    expect((await POST(post({ org: "public", schedule: "off" }))).status).toBe(200);
+    expect(mockWatched).toHaveBeenCalledWith("public", "off", null);
+  });
+
+  it("leaves a tenant org's cadence unchanged", async () => {
+    expect((await POST(post({ org: "acme", fullName: "acme/web", schedule: "weekly" }))).status).toBe(200);
+  });
+
+  it("leaves an auth-off deployment unchanged", async () => {
+    vi.mocked(authGateEnabled).mockReturnValue(false);
+    expect((await POST(post({ org: "public", fullName: "facebook/react", schedule: "weekly" }))).status).toBe(200);
+    expect(mockRepo).toHaveBeenCalledWith("public", "facebook/react", "weekly");
+  });
 });
 
 describe("POST /api/org/schedule canonicalizes the org", () => {

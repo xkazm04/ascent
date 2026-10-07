@@ -8,6 +8,8 @@ import { isAppConfigured } from "@/lib/github/app";
 import { requireFleetOrg, requireOrgAccess } from "@/lib/authz";
 import { SCHEDULES } from "@/lib/org/repo-schedule";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
+import { authGateEnabled } from "@/lib/access";
+import { isAuthConfigured } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +47,15 @@ export async function POST(request: Request) {
   // public series (the lens invariant), so cadence stays a fleet capability.
   const notFleet = await requireFleetOrg(org);
   if (notFleet) return notFleet;
+  // The shared "public" org has no owner, so a scheduled rescan there has nobody to charge (operator
+  // decision 2026-10-07). It takes no cadence but "off" - which stays open so an existing schedule can be
+  // cleared. Binds where the import route's public rules bind: an auth-off deployment is untouched.
+  if (org === "public" && body.schedule !== "off" && (authGateEnabled() || isAuthConfigured())) {
+    return NextResponse.json(
+      { error: "The shared public organization takes no autoscan cadence, because nobody is charged for it. Only 'off' is accepted." },
+      { status: 403 },
+    );
+  }
   try {
     if (body.fullName) {
       await setRepoSchedule(org, body.fullName, body.schedule);
