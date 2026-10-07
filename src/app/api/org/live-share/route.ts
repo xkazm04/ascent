@@ -6,7 +6,7 @@
 // "theater", which makes the same kiosk URL render the standing runner's theater instead of the wall.
 
 import { NextResponse } from "next/server";
-import { requireOrgRole, canReadOrg } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole, canReadOrg } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { liveShareEnabled, normalizeLiveShareView, signLiveShareToken } from "@/lib/live-share";
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   if (!(await canReadOrg(org))) {
     return NextResponse.json({ error: "You don't have access to this organization." }, { status: 403 });
   }
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
   // Bind the link to the minting owner (owner-binding revocation, like briefing-share EXEC #5) so the
   // shared page honors it only while they keep owner access — removing/demoting them kills their links.
