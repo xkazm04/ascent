@@ -28,6 +28,7 @@ import { hasOrgRole, canReadOrg } from "@/lib/authz";
 import { PRACTICES } from "@/lib/practices";
 import { EMPTY_LIFTS, getOrgExpectedLifts } from "@/lib/outcomes/expected-lift-load";
 import { scanMaxCacheAgeMs } from "@/lib/scan-cache";
+import { reportHandledError } from "@/lib/api/respond";
 import { parseRepoParam } from "./repoParam";
 import { reportMetadata } from "./reportMetadata";
 
@@ -213,7 +214,15 @@ async function readLastSeenHead(owner: string, name: string, orgSlug: string): P
  */
 async function readReportHistory(owner: string, name: string, orgSlug: string): Promise<RepositoryHistory | null> {
   if ((authGateEnabled() || isAuthConfigured()) && !(await resolveViewerLogin().catch(() => null))) return null;
-  const history = await getRepositoryHistory(owner, name, { orgSlug }).catch(() => null);
+  let history: RepositoryHistory | null;
+  try {
+    history = await getRepositoryHistory(owner, name, { orgSlug });
+  } catch (err) {
+    // A thrown read is NOT "no history": null leaves ReportView's client fetch (and its
+    // "Couldn't load history" door) in charge, as the docstring above promises.
+    reportHandledError(err, { message: "report page: getRepositoryHistory failed" });
+    return null;
+  }
   return history ?? { repo: { owner, name, fullName: `${owner}/${name}` }, scans: [] };
 }
 
