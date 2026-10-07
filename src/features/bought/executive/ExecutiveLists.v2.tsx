@@ -25,11 +25,11 @@ export function executiveMovement(gainers: BriefingMove[], regressions: Briefing
   );
 }
 
-export function executiveGoals(goals: BriefingGoal[]) {
+export function executiveGoals(goals: BriefingGoal[], omittedNotice?: string | null) {
   if (goals.length === 0) {
     return (
       <Frame>
-        <SectionHead eyebrow="Goals" title="No goals set." />
+        <SectionHead eyebrow="Goals" title={omittedNotice ?? "No goals set."} />
       </Frame>
     );
   }

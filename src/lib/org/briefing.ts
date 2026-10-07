@@ -3,6 +3,7 @@
 // the "Copy for LLM" payload (paste into Claude Code / an LLM to get next actions). Pure assembly over
 // @/lib/db; no new queries. Powers /org/[slug]/executive and (Phase 5.2) the scheduled PDF digest.
 
+import { SEGMENT_ACCOUNT_FIGURES_NOTICE } from "./briefing-format";
 import {
   getOrgBenchmark,
   getOrgMovers,
@@ -186,6 +187,10 @@ export interface ExecBriefing {
   topGainers: BriefingMove[];
   topRegressions: BriefingMove[];
   goals: BriefingGoal[];
+  /** Set (to {@link SEGMENT_ACCOUNT_FIGURES_NOTICE}) when a SEGMENT scope omitted the account-wide
+   *  `goals` and `benchmark` above; every renderer prints it in their place. Null/absent = unscoped
+   *  briefing, nothing omitted. OPTIONAL for the fixture-compatibility reason as `recommendations`. */
+  accountFiguresNotice?: string | null;
   regressionCount: number;
   /** THE ONE RANKED SOURCE for "what to do next" (G5-02). The same top-N `getOrgRecommendations`
    *  list the exec page renders through `OrgLeverageMoves`, carried on the briefing so the screen,
@@ -290,11 +295,17 @@ export async function buildExecBriefing(
       }
     : undefined;
 
+  // A segment-scoped briefing is the per-client deliverable (PDF, share link). Goals and the corpus
+  // benchmark are whole-account figures, so it OMITS them (not scoped, not labelled: the reader is the
+  // reseller's client) and says so via accountFiguresNotice.
+  const segmentScoped = !!segmentId;
+  const accountFiguresNotice = segmentScoped ? SEGMENT_ACCOUNT_FIGURES_NOTICE : null;
   const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs, practices, playbooks, playbookAdoption, loopEvents] = await Promise.all([
     getOrgRollup(orgSlug, window, segmentId, techGroupId),
-    getOrgBenchmark(orgSlug),
+    // Account-wide reads (no segment parameter): a per-client briefing skips them, see below.
+    segmentScoped ? Promise.resolve(null) : getOrgBenchmark(orgSlug),
     getOrgMovers(orgSlug, window, segmentId, techGroupId),
-    listGoals(orgSlug),
+    segmentScoped ? Promise.resolve(null) : listGoals(orgSlug),
     priorWindow ? getOrgRollup(orgSlug, priorWindow, segmentId, techGroupId) : Promise.resolve(null),
     getOrgEngineMix(orgSlug, window, segmentId, techGroupId),
     getOrgRecsActioned(orgSlug, window, segmentId, techGroupId),
@@ -348,6 +359,7 @@ export async function buildExecBriefing(
       topGainers: [],
       topRegressions: [],
       goals: [],
+      accountFiguresNotice,
       regressionCount: 0,
       recommendations: [],
       proof: null,
@@ -488,6 +500,7 @@ export async function buildExecBriefing(
     security: security ? named(security) : null,
     topGainers: (movers?.gainers ?? []).slice(0, 3).map(moveRow),
     topRegressions: (movers?.regressers ?? []).slice(0, 3).map(moveRow),
+    accountFiguresNotice,
     goals: (goals ?? []).map((g) => {
       // ONE composition, shared with the GoalCard readout: the presentability gate decides whether
       // this briefing may state a pace/ETA at all, and when it may, the hedge travels WITH the claim.
@@ -540,6 +553,6 @@ export function buildLoopProof(events: readonly ImprovementEvent[]): ExecBriefin
 }
 
 // Preserve the public module entry point while presentation lives separately.
-export { engineMixLabel, engineMixCaveat, briefingTrajectory, briefingTrajectoryNote, briefingGoal, briefingGoalLine, briefingGoalStats, valueRealizedLine, valueRealizedHeading, benchmarkCaption, movementLine, briefingHasScore, scoreValue, briefingLevelCaption, noScoreLine, scoreBasisLine, mockDisclosure, coverageLine, briefingLoopProofLine, briefingProofLine, briefingNextMove, nextMoveLine } from './briefing-format';
+export { engineMixLabel, engineMixCaveat, briefingTrajectory, briefingTrajectoryNote, briefingGoal, briefingGoalLine, briefingGoalStats, valueRealizedLine, valueRealizedHeading, benchmarkCaption, movementLine, briefingHasScore, scoreValue, briefingLevelCaption, noScoreLine, scoreBasisLine, mockDisclosure, coverageLine, briefingLoopProofLine, briefingProofLine, briefingNextMove, nextMoveLine, SEGMENT_ACCOUNT_FIGURES_NOTICE } from './briefing-format';
 export { briefingPeriodMovement, periodCompositionClause, periodDeltaCaption, priorPeriodBasisNote } from './briefingMovement';
 export { briefingMarkdown } from './briefing-markdown';

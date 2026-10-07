@@ -1292,7 +1292,16 @@ to disagree with the server's bucket by a day).
 ## Executive briefing (`src/lib/org/briefing.ts`)
 
 `buildExecBriefing(org, window, periodTitle, segmentId, techGroupId)` is pure assembly over the
-rollups above. **Three surfaces render the same `ExecBriefing`** and must never disagree: the
+rollups above. **A segment-scoped (per-client) briefing omits the account-wide goals and corpus
+benchmark**: `listGoals` and `getOrgBenchmark` take no segment, so printing them put the whole
+account's goals in the PDF and share link a reseller hands a client. The build skips both reads
+(`goals: []`, `benchmark: null`) and sets `accountFiguresNotice`; the Briefing tab, the PDF, the share
+page and the markdown print that one line in the Goals slot, and the percentile tile is captioned
+"account-wide, not shown here". Omitted rather than labelled, because the reader is the client. A
+tech-stack-only scope is not a segment scope and still shows them (open question: its goals are
+account-wide too). Unscoped briefings are unchanged. Existing segment-scoped share links change
+figure fingerprint (goals and benchmark are in `briefingFigureDigest`), so they show the "Figures
+moved" banner once, the safe direction. **Three surfaces render the same `ExecBriefing`** and must never disagree: the
 Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[slug]/executive/page.tsx` is a redirect into the tab shell), the board PDF
 (`GET /api/org/briefing/pdf` → `src/lib/pdf/briefing-document.tsx`), and the "Copy for LLM"
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
@@ -1414,9 +1423,13 @@ exists on the test host.
 
 **Share links are per-grant, and say whether their figures still hold.** Every mint stamps a random
 `jti` (`signBriefingShareToken`, returned by `POST /api/org/briefing/share`), so one leaked link can
-be killed on its own by bumping `briefingShareRevocationKey(jti)` in the permanent SessionRevocation
-ledger — the pre-existing lever (demote the minter) revoked that person's *entire* set. The shared
-page enforces it on read and fails closed. The mint and every open are recorded as
+be killed on its own by bumping `briefingShareRevocationKey(org, jti)` (`briefing-share:<org>:<jti>`) in the
+permanent SessionRevocation ledger — the pre-existing lever (demote the minter) revoked that person's *entire* set. The shared
+page enforces it on read for the token's own org and fails closed. **The key carries the org because the
+`jti` is not a secret** (the token is plaintext base64url JSON), and a ledger keyed by `jti` alone let an
+owner of any org kill another org's link; the revoke route writes the *gated* org, so naming another org's
+`jti` writes a row that org's link never reads. Reads also honour the legacy unscoped key
+(`briefing-share:<jti>`), so a link revoked before the change stays dead; nothing writes it any more. The mint and every open are recorded as
 `briefing.share.minted` / `briefing.share.opened` audit rows carrying the `jti`, so "does this grant
 exist, and was it read" is answerable; the revocation state deliberately does **not** live in
 `AuditLog`, because `retentionAuditDays` purging a revocation row would silently un-revoke a link.
@@ -1431,7 +1444,7 @@ first caller in `src/` of either route. Both remain plain calls:
 | Call | Does |
 | --- | --- |
 | `GET /api/org/briefing/share?org=slug&limit=n` | Lists the grants issued — `jti`, minted-at/by, expiry, frozen window, segment/stack scope, open count, and whether each is `revoked` or `expired`. Reconstructed from the mint/open audit rows (`listBriefingShareGrants`, `src/lib/db/org-share.ts`), not a second store. |
-| `POST /api/org/briefing/share/revoke { org, jti }` | Kills that one grant by bumping its ledger key. Idempotent; 503 without a database and 500 on a failed write, because "revoked" must never be claimed over a write that didn't land. |
+| `POST /api/org/briefing/share/revoke { org, jti }` | Kills that one grant (in the gated org) by bumping its org-scoped ledger key. Idempotent; 503 without a database and 500 on a failed write, because "revoked" must never be claimed over a write that didn't land. |
 
 Both are gated exactly like the mint route: **any owner**, same-origin. Not members (revoking a
 colleague's live board link is a DoS), and not only the minter (that strands the org the day they

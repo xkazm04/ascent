@@ -38,7 +38,7 @@ export function executiveMasthead(v: ExecutiveView) {
     {
       label: "Corpus percentile",
       value: briefing.benchmark?.percentile == null ? "not measured" : briefing.benchmark.percentile,
-      detail: benchmarkCaption(briefing.benchmark),
+      detail: benchmarkCaption(briefing.benchmark, !!briefing.accountFiguresNotice),
     },
   ];
   return (

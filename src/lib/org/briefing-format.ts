@@ -8,6 +8,15 @@ import { goalNote, trajectoryNote, type GoalRead, type TrajectoryRead } from '@/
 import { providerLabel as engineLabel } from '@/lib/llm/config';
 
 
+/**
+ * The one line a SEGMENT-scoped (per-client) briefing prints where the account's goals and corpus
+ * percentile would be. Both reads are account-wide (listGoals / getOrgBenchmark take no segment), and a
+ * per-client briefing goes to the reseller's client, who must not see the account's other goals or a
+ * percentile over the whole fleet. They are OMITTED, not labelled, and this is the stated reason.
+ */
+export const SEGMENT_ACCOUNT_FIGURES_NOTICE =
+  "Account-wide goals and the corpus percentile are not shown on a per-client briefing.";
+
 /** "Claude CLI ×18, Mock ×2" — the period's scoring provenance, busiest engine first. */
 export function engineMixLabel(mix: EngineMixEntry[]): string {
   return mix.map((e) => `${engineLabel(e.provider)} ×${e.count}`).join(", ");
@@ -158,7 +167,9 @@ export function valueRealizedHeading(vr: ExecBriefing["valueRealized"]): string 
  * page with my org's name at the top."* A suppressed percentile now says why it is absent instead of
  * quoting the corpus that was too small to produce it.
  */
-export function benchmarkCaption(benchmark: ExecBriefing["benchmark"]): string {
+export function benchmarkCaption(benchmark: ExecBriefing["benchmark"], omitted = false): string {
+  // A per-client briefing omits the account-wide percentile on purpose; "no corpus yet" would misstate why.
+  if (omitted) return "account-wide, not shown here";
   if (!benchmark || benchmark.corpusRepos === 0) return "no corpus yet";
   if (benchmark.percentile == null) return "not enough peers to rank";
   return `vs ${benchmark.corpusRepos} repos in the public corpus`;

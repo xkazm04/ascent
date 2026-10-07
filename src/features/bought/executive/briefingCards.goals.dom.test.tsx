@@ -54,3 +54,11 @@ describe("BriefingGoalsCard — one composer (2-day / 14-day / attainment-only)"
     expect(briefingGoalStats(attainment)).not.toMatch(/ETA/);
   });
 });
+
+describe("BriefingGoalsCard — per-client briefing", () => {
+  it("shows the omitted-figures notice in the empty slot", () => {
+    const notice = "Account-wide goals and the corpus percentile are not shown on a per-client briefing.";
+    const { getByText } = render(<BriefingGoalsCard goals={[]} emptyText={notice} />);
+    expect(getByText(notice)).toBeTruthy();
+  });
+});

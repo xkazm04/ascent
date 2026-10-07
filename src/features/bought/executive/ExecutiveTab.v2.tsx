@@ -48,7 +48,7 @@ export function executiveV2(v: ExecutiveView) {
       {recs.length > 0 ? leverageMovesV2(recs, v.slug) : null}
       {executiveDims(briefing.strengths, briefing.risks, briefing.security, v.slug)}
       {executiveMovement(briefing.topGainers, briefing.topRegressions)}
-      {executiveGoals(briefing.goals)}
+      {executiveGoals(briefing.goals, briefing.accountFiguresNotice)}
       {/* Owner-only issued-share-link inventory, same component in both compositions. */}
       <ShareLinkInventory org={v.slug} canShare={v.canShare} />
       {v.canBrand ? (

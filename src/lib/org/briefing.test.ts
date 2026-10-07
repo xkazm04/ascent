@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { benchmarkCaption, briefingGoalLine, briefingGoalStats, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, fleetAdoptionRate, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine, type BriefingGoal, type ExecBriefing } from "./briefing";
+import { benchmarkCaption, briefingGoalLine, briefingGoalStats, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingMarkdown, briefingProofLine, briefingTrajectoryNote, buildLoopProof, coverageLine, engineMixCaveat, fleetAdoptionRate, mockDisclosure, movementLine, noScoreLine, scoreBasisLine, scoreValue, SEGMENT_ACCOUNT_FIGURES_NOTICE, valueRealizedHeading, valueRealizedLine, type BriefingGoal, type ExecBriefing } from "./briefing";
 import { periodDeltaCaption } from "./briefingMovement";
 import { briefingFigureDigest } from "@/lib/briefing-share";
 import { buildScoreBadges } from "@/features/standing/overview/overviewStanding";
@@ -1783,5 +1783,70 @@ describe("buildExecBriefing — the period delta is cohort-matched movement, not
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/^\s*\/\/.*$/gm, "");
     expect(src).toMatch(/movement=\{briefing\.periodMovement\}/);
+  });
+});
+
+// ── A per-client (segment-scoped) briefing omits the account-wide goals + benchmark ───────────────
+// listGoals / getOrgBenchmark take no segment, so a scoped briefing printed the WHOLE account's goals
+// and corpus percentile unlabeled, in the artifact (PDF, share link) that goes to a reseller's client.
+describe("buildExecBriefing — segment scope omits account-wide goals and benchmark", () => {
+  const benchmarkRow = {
+    corpusRepos: 240,
+    overallPercentile: 71,
+    corpusAvgOverall: 54,
+    corpusAvgAdoption: 50,
+    corpusAvgRigor: 58,
+    cohort: null,
+  };
+  const goalRow = { label: "Lift security", metric: "D9", current: 41, target: 70, pct: 22, pace: "behind", etaDays: 120 } as never;
+
+  it("a segment-scoped build has no goals or benchmark rows, carries the notice, and never reads them", async () => {
+    mockBenchmark.mockResolvedValue(benchmarkRow);
+    mockGoals.mockResolvedValue([goalRow]);
+    const b = (await buildExecBriefing("acme", undefined, "all time", "seg_1"))!;
+    expect(b.goals).toEqual([]);
+    expect(b.benchmark).toBeNull();
+    expect(b.accountFiguresNotice).toBe(SEGMENT_ACCOUNT_FIGURES_NOTICE);
+    expect(mockGoals).not.toHaveBeenCalled();
+    expect(mockBenchmark).not.toHaveBeenCalled();
+    // The segment's own figures are untouched.
+    expect(b.maturity.overall).toBe(70);
+  });
+
+  it("an unscoped build is unchanged: goals and benchmark present, no notice", async () => {
+    mockBenchmark.mockResolvedValue(benchmarkRow);
+    mockGoals.mockResolvedValue([goalRow]);
+    const b = (await buildExecBriefing("acme"))!;
+    expect(b.goals).toHaveLength(1);
+    expect(b.benchmark).toMatchObject({ percentile: 71 });
+    expect(b.accountFiguresNotice).toBeNull();
+    expect(mockGoals).toHaveBeenCalledWith("acme");
+  });
+
+  it("a tech-stack-only scope is not a segment scope: it keeps the account figures", async () => {
+    mockGoals.mockResolvedValue([goalRow]);
+    const b = (await buildExecBriefing("acme", undefined, "all time", null, "tg_1"))!;
+    expect(b.goals).toHaveLength(1);
+    expect(b.accountFiguresNotice).toBeNull();
+  });
+
+  it("the markdown prints the notice under Goals and no goal or percentile lines", async () => {
+    mockBenchmark.mockResolvedValue(benchmarkRow);
+    mockGoals.mockResolvedValue([goalRow]);
+    const md = briefingMarkdown((await buildExecBriefing("acme", undefined, "all time", "seg_1"))!);
+    expect(md).toContain(SEGMENT_ACCOUNT_FIGURES_NOTICE);
+    expect(md).not.toContain("Lift security");
+    expect(md).not.toContain("th percentile");
+    const unscoped = briefingMarkdown((await buildExecBriefing("acme"))!);
+    expect(unscoped).not.toContain(SEGMENT_ACCOUNT_FIGURES_NOTICE);
+    expect(unscoped).toContain("Lift security");
+  });
+
+  it("changes the figure fingerprint of a scoped briefing (the drift banner is the expected effect)", async () => {
+    mockBenchmark.mockResolvedValue(benchmarkRow);
+    mockGoals.mockResolvedValue([goalRow]);
+    const scoped = (await buildExecBriefing("acme", undefined, "all time", "seg_1"))!;
+    const before = briefingFigureDigest({ ...scoped, goals: [{ ...(await buildExecBriefing("acme"))!.goals[0] }], benchmark: (await buildExecBriefing("acme"))!.benchmark });
+    expect(briefingFigureDigest(scoped)).not.toBe(before);
   });
 });

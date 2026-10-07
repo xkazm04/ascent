@@ -188,6 +188,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           deltaLabel={`vs ${briefing.periodTitle.toLowerCase()}`}
           movement={briefing.periodMovement}
           realScoredCount={briefing.realScoredCount}
+          benchmarkOmitted={!!briefing.accountFiguresNotice}
           className="mt-6"
         />
 
@@ -263,7 +264,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           className="mt-6"
         />
 
-        <BriefingGoalsCard goals={briefing.goals} emptyText="No goals set for this org." className="mt-6" />
+        <BriefingGoalsCard goals={briefing.goals} emptyText={briefing.accountFiguresNotice ?? "No goals set for this org."} className="mt-6" />
       </main>
       <ShareFooter branding={branding} />
     </>

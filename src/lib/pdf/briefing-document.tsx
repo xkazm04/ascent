@@ -78,7 +78,7 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
             value={b.benchmark?.percentile != null ? `${b.benchmark.percentile}` : "—"}
             // UAT DANA-L1-011/-012 — never caption a suppressed percentile with the corpus that was
             // too small to produce it ("PERCENTILE — vs 1 repos" in a headline board tile).
-            sub={benchmarkCaption(b.benchmark)}
+            sub={benchmarkCaption(b.benchmark, !!b.accountFiguresNotice)}
             color={b.benchmark?.percentile != null ? scoreColor(b.benchmark.percentile) : FAINT}
           />
         </View>
@@ -226,6 +226,12 @@ export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefin
           </View>
         )}
 
+        {b.accountFiguresNotice ? (
+          <View>
+            <SectionHeading>Goals</SectionHeading>
+            <Text style={baseStyles.muted}>{latin1Safe(b.accountFiguresNotice)}</Text>
+          </View>
+        ) : null}
         {b.goals.length > 0 && (
           <View>
             <SectionHeading>Goals</SectionHeading>

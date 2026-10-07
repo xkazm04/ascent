@@ -54,6 +54,7 @@ export function executiveV1(v: ExecutiveView) {
         movement={briefing.periodMovement}
         realScoredCount={briefing.realScoredCount}
         orgSlug={slug}
+        benchmarkOmitted={!!briefing.accountFiguresNotice}
       />
 
       <BriefingBasisNote briefing={briefing} />
@@ -101,7 +102,7 @@ export function executiveV1(v: ExecutiveView) {
 
       <BriefingMovementCard gainers={briefing.topGainers} regressions={briefing.topRegressions} reportLinks />
 
-      <BriefingGoalsCard goals={briefing.goals} emptyText="No goals set." />
+      <BriefingGoalsCard goals={briefing.goals} emptyText={briefing.accountFiguresNotice ?? "No goals set."} />
 
       {/* Owner-only: the inventory of links this org has already published, and the control that
           retires one. Sits beside the other owner controls rather than in the header row, because it is

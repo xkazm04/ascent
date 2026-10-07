@@ -27,6 +27,7 @@ export function BriefingTiles({
   movement = null,
   realScoredCount,
   orgSlug = null,
+  benchmarkOmitted = false,
   className = "",
 }: {
   maturity: ExecBriefing["maturity"];
@@ -55,6 +56,8 @@ export function BriefingTiles({
   realScoredCount?: number;
   /** Non-null ⇒ tiles deep-link into the org dashboard. Null (the default) ⇒ static, public-safe. */
   orgSlug?: string | null;
+  /** A per-client briefing omitted the account-wide percentile on purpose; caption it so. */
+  benchmarkOmitted?: boolean;
   className?: string;
 }) {
   const scored = realScoredCount == null || realScoredCount > 0;
@@ -92,7 +95,7 @@ export function BriefingTiles({
         <Tile
           label="Corpus percentile"
           value={benchmark?.percentile != null ? `${benchmark.percentile}` : "—"}
-          sub={benchmarkCaption(benchmark)}
+          sub={benchmarkCaption(benchmark, benchmarkOmitted)}
           color={benchmark?.percentile != null ? scoreHex(benchmark.percentile) : undefined}
           href={orgSlug ? "/leaderboard" : undefined}
         />

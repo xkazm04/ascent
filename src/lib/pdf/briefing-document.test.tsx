@@ -12,6 +12,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { BriefingDocument } from "./briefing-document";
+import { SEGMENT_ACCOUNT_FIGURES_NOTICE } from "@/lib/org/briefing";
 
 // The `renderToBuffer` cases below drive the REAL @react-pdf pipeline (font registration, layout,
 // PDF serialization) rather than inspecting an element tree, so they are genuinely slow — they pass
@@ -294,5 +295,19 @@ describe("BriefingDocument — one goal composer (2-day / 14-day / attainment-on
     expect(ok).toContain("ETA ~16d");
     expect(ok).toContain("Progress since this goal was set");
     expect(ok).toContain("fit over 15 scan days across 14 days");
+  });
+});
+
+describe("BriefingDocument — a per-client briefing prints the notice, not the account's goals", () => {
+  it("renders the notice in the Goals slot and captions the omitted percentile", () => {
+    const scoped = { ...briefing(), goals: [], benchmark: null, accountFiguresNotice: SEGMENT_ACCOUNT_FIGURES_NOTICE };
+    const t = text(scoped);
+    expect(t).toContain(SEGMENT_ACCOUNT_FIGURES_NOTICE);
+    expect(t).toContain("account-wide, not shown here");
+    expect(t).not.toContain("no corpus yet");
+  });
+
+  it("prints no notice on an unscoped briefing", () => {
+    expect(text(briefing())).not.toContain(SEGMENT_ACCOUNT_FIGURES_NOTICE);
   });
 });

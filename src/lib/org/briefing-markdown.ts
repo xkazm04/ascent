@@ -92,7 +92,12 @@ export function briefingMarkdown(b: ExecBriefing): string {
     for (const m of b.topGainers) out.push(moveLine("▲", m));
     for (const m of b.topRegressions) out.push(moveLine("▼", m));
   }
-  if (b.goals.length) {
+  if (b.accountFiguresNotice) {
+    // A per-client briefing: the account-wide goals and percentile are omitted, and this says why.
+    out.push("");
+    out.push("## Goals");
+    out.push(`- ${b.accountFiguresNotice}`);
+  } else if (b.goals.length) {
     out.push("");
     out.push("## Goals");
     for (const g of b.goals) {
