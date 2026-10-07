@@ -80,6 +80,8 @@ const SCHEDULES = new Set<string>(SCAN_SCHEDULES);
 // caller could drive an unbounded batch. The `count` discovery path is already capped at 100; this
 // mirrors the sibling /api/org/watch route's MAX_BULK.
 const MAX_IMPORT_REPOS = 500;
+// The per-request cap for a real import into the shared "public" org (and its listing mode).
+const PUBLIC_IMPORT_MAX = 10;
 
 export async function POST(request: Request) {
   // Anchor the wall-clock budget at the START of the invocation (the sibling /api/org/scan's rule):
@@ -141,8 +143,30 @@ export async function POST(request: Request) {
   const notFleet = await requireFleetOrg(org);
   if (notFleet) return notFleet;
 
-  const count = Math.min(100, Math.max(1, body.count ?? 20));
   const mock = body.mock ?? true;
+  // "No auth stack is live at all" - the local/demo/seeding deployment. Defined up here (it is also the
+  // token discipline's escape hatch below) because the shared-public-org rules must not bind it.
+  const authOff = !authGateEnabled() && !isAuthConfigured();
+
+  // A REAL scan into the shared "public" org (the wizard's landing place for a signed-in user scanning a
+  // public organization they do not own - operator decision, ask d0eb7d6c, 2026-10-07). requireOrgAccess
+  // leaves "public" open to anyone, so the rules live here, before anything is listed, enqueued or
+  // scanned: a signed-in viewer is required, it is capped at PUBLIC_IMPORT_MAX repos per request, and it
+  // is always charged to the viewer's own public-scan allowance (publicFunnel below). Mock imports,
+  // tenant orgs and auth-off deployments are untouched.
+  const publicOrgReal = org === "public" && !mock && !authOff;
+  if (publicOrgReal) {
+    if (!(await getViewer().catch(degradedRead("org/import public viewer (getViewer)", null)))) {
+      return NextResponse.json({ error: "Sign in to scan a public organization." }, { status: 401 });
+    }
+    if (repos.length > PUBLIC_IMPORT_MAX) {
+      return NextResponse.json(
+        { error: `A public organization import takes at most ${PUBLIC_IMPORT_MAX} repositories per request.` },
+        { status: 400 },
+      );
+    }
+  }
+  const count = Math.min(publicOrgReal ? PUBLIC_IMPORT_MAX : 100, Math.max(1, body.count ?? 20));
   // DEFAULTS ARE OPT-OUT by design: a bare { org } import watches every imported repo and enrolls it
   // in WEEKLY recurring autoscans (a standing credit draw for metered orgs) — the onboarding funnel
   // wants a live, self-updating fleet, and the client echoes { watch, schedule } on the "found"
@@ -196,7 +220,6 @@ export async function POST(request: Request) {
   // The escape hatch used to be `!isAuthConfigured()`, the DORMANT predicate — true in production, so
   // the ambient PAT was handed to every scan and the confused deputy above was fully reachable. Key it
   // on "no auth stack is live at all" instead, which is what "auth-off local/demo" actually means.
-  const authOff = !authGateEnabled() && !isAuthConfigured();
   // `orgSlug` mirrors /api/org/scan: scanRepository resolves the LLM provider via
   // getProviderForOrg(opts.orgSlug) (BYOM orgs run on their OWN Bedrock) and reads the org's standing
   // decisions (decisionSlug defaults to orgSlug). Omitting it made every import run on the PLATFORM
@@ -224,7 +247,9 @@ export async function POST(request: Request) {
   //
   // Asking for it on a run that DID mint a token is simply ignored (it stays credit-metered) — the flag
   // can't be used to scan private repos for free.
-  const publicFunnel = body.publicFunnel === true && !mock && !appTokenMinted && !authOff;
+  // A real import into the shared "public" org is ALWAYS the funnel, whatever the body says: it is
+  // charged to the caller's own allowance, never run unmetered and never drawn from any org's credits.
+  const publicFunnel = (body.publicFunnel === true || publicOrgReal) && !mock && !appTokenMinted && !authOff;
   const metered = !mock && org !== "public" && !byom && !publicFunnel;
   // Supabase login wall on the PRIVATE/metered import path only — a real-inference import into a
   // tenant org is a gated "org feature". The free funnel (mock import, or the shared public org)
