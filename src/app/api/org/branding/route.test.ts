@@ -35,7 +35,7 @@ vi.mock("@/lib/db", () => ({
   setOrgBranding: h.setOrgBranding,
   recordOrgAudit: h.recordOrgAudit,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: h.requireOrgRole }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: h.requireSameOrigin }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: h.resolveViewerLogin }));
 vi.mock("@/lib/net/logo-fetch", () => ({ resolveSafeLogoDataUri: h.resolveSafeLogoDataUri }));

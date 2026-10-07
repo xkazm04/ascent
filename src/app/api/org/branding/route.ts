@@ -9,6 +9,7 @@ import { getCreditState, isDbConfigured, recordOrgAudit, setOrgBranding } from "
 import { resolveViewerLogin } from "@/lib/access";
 import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
 import { planAllowsWhiteLabel } from "@/lib/plans";
+import { refusePublicOrgAdmin } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 
 export const runtime = "nodejs";
@@ -30,6 +31,8 @@ export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Branding requires a database." }, { status: 503 });
   const gate = await requireOrgOwnerPost<{ brandName?: string; brandColor?: string; logoUrl?: string }>(request);
   if (gate instanceof NextResponse) return gate;
+  const noPublic = refusePublicOrgAdmin(gate.org);
+  if (noPublic) return noPublic;
   const { org, body } = gate;
 
   // Entitlement: briefing white-label is a Team-and-up feature (so a reseller on Team can brand the
