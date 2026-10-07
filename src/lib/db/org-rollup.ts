@@ -22,6 +22,7 @@ import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, se
 import { retentionCutoff } from "@/lib/plans";
 import { dayKeyInZone } from "@/lib/org/timezone";
 import { asOrgId, type OrgId } from "@/lib/org/ids";
+import { noteReadFailure } from "@/lib/org/degraded-read";
 import { parseTechStackJson } from "@/lib/analyze/tech-extract";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 import { parseContextHealthJson } from "@/lib/analyze/context-health";
@@ -789,9 +790,11 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   });
 
   // Two-speed freshness (moonshot #10), two cheap fleet-wide reads rather than a per-row query:
-  // the newest control observation per repo, and which repos have unsettled queue rows. Both degrade
-  // to "nothing known" on failure — an empty map renders as "—", which is the honest answer, and is
-  // also what an org that has never been probed genuinely looks like.
+  // the newest control observation per repo, and which repos have unsettled queue rows. Both are chrome
+  // tags on a row (nothing gates the rescan button on them; the Repositories tab's queue LINE reads
+  // orgQueueDepth, which is null-honest), so a failed read is class B: the sets stay empty and the tags
+  // do not render, but the failure reaches the door (docs/adr/2026-10-07-failed-read-is-not-absence.md)
+  // instead of vanishing. An empty set is also what a never-probed org genuinely looks like.
   //
   // Queued work is split by `ScanJob.lane` (already on the row: rescore | probe). A lumped boolean
   // made a free probe render as a paid rescore; `queued` stays the OR so existing tags keep working.
@@ -806,8 +809,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       _max: { observedAt: true },
     });
     for (const g of grouped) if (g._max.observedAt) controlsByRepo.set(g.repoFullName, g._max.observedAt.toISOString());
-  } catch {
-    // No observations table access / no rows — leave the map empty.
+  } catch (err) {
+    noteReadFailure("org rollup control observations (getOrgRollup)", err);
   }
   try {
     const pending = (await prisma.scanJob.findMany({
@@ -819,8 +822,8 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
       if (p.lane === "probe") queuedProbeRepos.add(p.repoFullName);
       else if (p.lane === "rescore") queuedRescoreRepos.add(p.repoFullName);
     }
-  } catch {
-    // Same: an unreadable queue means "we don't know of any queued work", not "there is none".
+  } catch (err) {
+    noteReadFailure("org rollup queued repos (getOrgRollup)", err);
   }
 
   const rows: OrgRepoRow[] = repos.map((r) => {

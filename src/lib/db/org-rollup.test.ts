@@ -1063,6 +1063,29 @@ describe("getOrgRollup — freshness.queued splits rescore vs probe", () => {
     expect(web.queued).toBe(web.queuedRescore || web.queuedProbe);
   });
 
+  it("an unreadable queue and controls table keep the tags off but reach the degraded-read door", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { prisma } = prismaWithJobs([]);
+    prisma.scanJob.findMany = vi.fn(async () => {
+      throw new Error("queue down");
+    });
+    mockGetPrisma.mockReturnValue({
+      ...prisma,
+      controlObservation: {
+        groupBy: vi.fn(async () => {
+          throw new Error("controls down");
+        }),
+      },
+    });
+
+    const res = await getOrgRollup("acme");
+
+    expect(res!.repos.find((r) => r.fullName === "acme/web")!.freshness).toMatchObject({ queued: false, queuedRescore: false, queuedProbe: false });
+    expect(warn).toHaveBeenCalledWith("[degraded-read] org rollup queued repos (getOrgRollup) failed", "queue down");
+    expect(warn).toHaveBeenCalledWith("[degraded-read] org rollup control observations (getOrgRollup) failed", "controls down");
+    warn.mockRestore();
+  });
+
   it("selects ScanJob.lane and only unsettled states — the split is derived, not a new column", async () => {
     const { prisma, scanJobFindMany } = prismaWithJobs([]);
     mockGetPrisma.mockReturnValue(prisma);
