@@ -13,7 +13,7 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null), refusePublicOrgAdmin: vi.fn(() => null) }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "owner-login") }));
 // Mock the erase itself, but keep the REAL ERASE_AUDIT_FORCE_ENV: the 409 body names that flag as the

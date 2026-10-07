@@ -34,9 +34,13 @@
 //                     400 before any authz work, so an accidental/replayed `{org}`-only POST from a
 //                     script cannot delete anything.
 //   3. owner role   — requireOrgRole(org, "owner"). Irreversible, so it is not a member action.
+//
+// The shared "public" org is refused outright (403), preview included, before any of the above can
+// matter: requireOrgRole admits PUBLIC_ORG for any signed-in viewer, so the owner gate alone let a
+// free account erase every public repo's scan series (security scan 2026-10-07, S1).
 
 import { NextResponse } from "next/server";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { eraseOrgData, ERASE_AUDIT_FORCE_ENV, type AuditDisposition, type EraseOutcome } from "@/lib/db/retention";
@@ -106,6 +110,8 @@ export async function POST(request: Request) {
   const repo = body.repo?.trim();
   const confirm = body.confirm?.trim();
   if (!org) return NextResponse.json({ error: "Provide { org, confirm }." }, { status: 400 });
+  const publicRefused = refusePublicOrgAdmin(org);
+  if (publicRefused) return publicRefused;
   if (badDisposition(body.auditDisposition)) {
     return NextResponse.json(
       { error: `auditDisposition must be one of: ${AUDIT_DISPOSITIONS.join(", ")}.` },
