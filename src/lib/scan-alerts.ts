@@ -28,6 +28,7 @@ import { deliverAlert, readAlertSink } from "@/lib/alert-door";
 import { getAuditLog, getOrgAlertThresholds, recordAudit, reportPermalink } from "@/lib/db";
 import { publicBaseUrl } from "@/lib/site";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
+import { degradeTo, reportDegradedRead } from "@/lib/scan-read-door";
 import { sameRuler } from "@/lib/maturity/attribution";
 // MOONSHOT #1 — the control ledger is the SOURCE for the control push; `ScanDiff` gains no
 // governance field, because a flip observed by a probe between two scans would never appear in one.
@@ -84,12 +85,14 @@ function doorScope(opts: { orgId?: string; orgSlug?: string; signal?: AbortSigna
  */
 async function orgLowBalanceThreshold(orgSlug: string): Promise<number> {
   try {
-    const page = await getAuditLog(orgSlug, { action: AUTO_RECHARGE_ACTION, limit: 1 }).catch(() => null);
+    const page = await getAuditLog(orgSlug, { action: AUTO_RECHARGE_ACTION, limit: 1 });
     const entry = page?.entries[0];
     if (!entry) return creditsAlertThreshold();
     const pref = normalizeAutoRecharge(entry.meta);
     return pref.enabled ? pref.threshold : creditsAlertThreshold();
-  } catch {
+  } catch (err) {
+    // The global line is the safe default — but say the org's own preference could not be read.
+    reportDegradedRead("scan alerts: org low-balance threshold", err);
     return creditsAlertThreshold();
   }
 }
@@ -115,7 +118,7 @@ export async function checkAndAlertRegression(
   // it needs no `prev` report to be meaningful, and gating it on "did the score regress" would have
   // silenced the branch-protection alert on every repo whose score happened to hold. Its own
   // never-throwing wrapper, so a ledger read can never fail a scan or suppress the regression path.
-  await alertControlTransitions(prev, fresh, opts).catch(() => {});
+  await alertControlTransitions(prev, fresh, opts).catch((err) => reportDegradedRead("scan alerts: alertControlTransitions", err));
 
   if (!prev) return { regressed: false, verdict: null, dispatched: false };
   // THE RULER CHANGING IS NOT THE REPO MOVING. A rubric bump re-scores every repository, and the first
@@ -137,7 +140,9 @@ export async function checkAndAlertRegression(
     const diff = diffReports(prev, fresh);
     // Per-org sensitivity, falling back to DEFAULT_THRESHOLDS per field when unset (best-effort —
     // a failed lookup just uses the defaults; alerting must never throw into the scan path).
-    const orgT = opts.orgSlug ? await getOrgAlertThresholds(opts.orgSlug).catch(() => null) : null;
+    const orgT = opts.orgSlug
+      ? await getOrgAlertThresholds(opts.orgSlug).catch(degradeTo("scan alerts: getOrgAlertThresholds", null))
+      : null;
     const verdict = detectRegression(diff, {
       overallDrop: orgT?.overallDrop ?? DEFAULT_THRESHOLDS.overallDrop,
       dimensionDrop: orgT?.dimensionDrop ?? DEFAULT_THRESHOLDS.dimensionDrop,
@@ -317,9 +322,13 @@ export async function alertControlTransitions(
   // this persist; baselines carry `transition: false` and are filtered out by the ledger itself, so a
   // first scan cannot fire thirteen "changes" the moment a repo is first observed.
   const since = prev?.scannedAt ?? fresh.scannedAt;
-  const rows = (await listObservationsSince(orgSlug, since, { transitionsOnly: true }).catch(() => [])).filter(
-    (r) => r.repoFullName === fullName,
-  );
+  // A failed ledger read raises nothing (no transitions to name) — and is reported, not mistaken for a
+  // quiet window by everyone including the operator.
+  const rows = (
+    await listObservationsSince(orgSlug, since, { transitionsOnly: true }).catch(
+      degradeTo("scan alerts: listObservationsSince", []),
+    )
+  ).filter((r) => r.repoFullName === fullName);
   const transitions = transitionsFromRows(rows);
   if (transitions.length === 0) return false;
 

@@ -1235,7 +1235,10 @@ function parseJson<T>(s: string | null | undefined): T | null {
   if (!s) return null;
   try {
     return JSON.parse(s) as T;
-  } catch {
+  } catch (err) {
+    // Every column read here was written by JSON.stringify, so a parse failure is damage: the field
+    // reads as absent (the shape guards below), and the log is what tells it apart from "never set".
+    console.warn("[scans-read] persisted JSON column unreadable; reading it as absent:", err);
     return null;
   }
 }

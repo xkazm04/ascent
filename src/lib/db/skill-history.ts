@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { listRepoProgressNotes } from "@/lib/db/repo-memory";
 import { getRepositoryHistory } from "@/lib/db/scans-read";
+import { reportHandledError } from "@/lib/api/respond";
 
 export interface SkillGenerationRow {
   id: string;
@@ -20,9 +21,18 @@ function parseTrackIds(raw: string): string[] {
   try {
     const v = JSON.parse(raw);
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
+  } catch (err) {
+    // A corrupt row reads as "no tracks" (the column is written by JSON.stringify below, so this is
+    // damage, not a format) — logged so the panel's "No open tracks" is not the only trace of it.
+    console.warn("[skill-history] SkillGeneration.trackIds unreadable; treating as no tracks:", err);
     return [];
   }
+}
+
+/** The door every best-effort read / write in this module reaches when it degrades. */
+function reportDegraded(what: string, err: unknown): void {
+  console.warn(`[skill-history] ${what} failed (degraded):`, err);
+  reportHandledError(err, { message: `skill-history: ${what} failed (degraded)` });
 }
 
 /**
@@ -56,8 +66,9 @@ export async function recordSkillGeneration(repoFullName: string, headSha: strin
       update: {}, // identical (repo, commit, track-set) already recorded — no-op, no duplicate row
       create: { id, repoFullName: fullName, headSha: headSha ?? null, trackIds: JSON.stringify(capped) },
     });
-  } catch {
-    /* history is best-effort */
+  } catch (err) {
+    // History is best-effort: the download must not depend on it — but the lost record is reported.
+    reportDegraded("recordSkillGeneration", err);
   }
 }
 
@@ -140,7 +151,11 @@ export async function getSkillGenerationOutcomes(
   const [owner, name] = repoFullName.split("/");
   const history =
     owner && name
-      ? await getRepositoryHistory(owner, name, { limit: 50, includeDimensions: false }).catch(() => null)
+      ? await getRepositoryHistory(owner, name, { limit: 50, includeDimensions: false }).catch((err: unknown) => {
+          // No scans to measure against: every verifiedDelta stays null ("—", unmeasured), never 0.
+          reportDegraded("getRepositoryHistory (verified delta)", err);
+          return null;
+        })
       : null;
   // Oldest-first, so "the FIRST scan after t" is a find, not a scan of the whole list.
   const scans = [...(history?.scans ?? [])].sort((a, b) => a.scannedAt.localeCompare(b.scannedAt));
@@ -213,7 +228,9 @@ export async function getLatestSkillGenerationOutcome(
     const last = (await getSkillGenerationOutcomes(repoFullName, org.id))[0];
     if (!last) return null;
     return { verifiedDelta: last.verifiedDelta, trackIds: last.trackIds, generatedAt: last.generatedAt };
-  } catch {
+  } catch (err) {
+    // Null renders as "no last run" — an absence, never a measured-zero delta — and is reported.
+    reportDegraded("getLatestSkillGenerationOutcome", err);
     return null;
   }
 }

@@ -74,7 +74,7 @@ function packageDeps(text: string): string[] {
     }
     return keys;
   } catch {
-    return [];
+    return []; // silent by design: a malformed package.json is a fact about the scanned repo, not a failed read
   }
 }
 
@@ -244,7 +244,7 @@ export function extractTechStack(snap: Pick<RepoSnapshot, "meta" | "tree" | "fil
       const json = JSON.parse(pkg) as Record<string, unknown>;
       if (json.main || json.module || json.exports || json.types) roles.add("library");
     } catch {
-      /* ignore */
+      /* silent by design: a malformed package.json in the scanned repo simply earns no library role */
     }
   }
 
@@ -282,7 +282,9 @@ export function parseTechStackJson(raw: string | null | undefined): TechStack | 
       ...(typeof v.backendLanguage === "string" ? { backendLanguage: v.backendLanguage } : {}),
       confidence: typeof v.confidence === "number" ? v.confidence : 0,
     };
-  } catch {
+  } catch (err) {
+    // "No tech", as documented — logged, because a persisted blob that is not JSON is damage.
+    console.warn("[tech-extract] persisted techStackJson unreadable; reading as no tech:", err);
     return null;
   }
 }

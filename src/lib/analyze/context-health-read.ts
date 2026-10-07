@@ -45,7 +45,9 @@ export function parseContextHealthJson(raw: string | null | undefined): ContextH
   try {
     const value: unknown = JSON.parse(raw);
     return contextHealth(value) ? value : null;
-  } catch {
+  } catch (err) {
+    // Unassessed, as documented — but a persisted blob that is not JSON is damage, so it is logged.
+    console.warn("[context-health] persisted contextHealthJson unreadable; reading as unassessed:", err);
     return null;
   }
 }

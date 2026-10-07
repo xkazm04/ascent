@@ -18,6 +18,7 @@ import { getViewer } from "@/lib/access";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { recordScanMemories } from "@/lib/memory/scan-feed";
 import { reconcilePracticeAdoption } from "@/lib/db/practice-adoption";
+import { degradeTo } from "@/lib/scan-read-door";
 import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
@@ -183,7 +184,7 @@ export async function cacheAndPersistScan(
     // `prev` before persisting). Best-effort — a failed read just yields a null baseline (first-scan no-op).
     const prev = await getScanReportByCommit(report.repo.owner, report.repo.name, {
       orgSlug: opts.orgSlug,
-    }).catch(() => null);
+    }).catch(degradeTo(`${opts.tag}: regression baseline (getScanReportByCommit)`, null));
     try {
       const persisted = await persistScanReport(report, { orgSlug: opts.orgSlug, headEtag: lookup?.etag ?? undefined });
       deduped = persisted?.deduped ?? false;
@@ -203,7 +204,7 @@ export async function cacheAndPersistScan(
     // with cron nor fail the scan.
     if (newRowWritten) {
       try {
-        const orgId = (await getOrgId(opts.orgSlug).catch(() => null)) ?? undefined;
+        const orgId = (await getOrgId(opts.orgSlug).catch(degradeTo(`${opts.tag}: getOrgId`, null))) ?? undefined;
         // MOONSHOT #33 — reconcile the repo's practice ADOPTION ledger against the census this scan
         // took (conflict ruling W2-#1: the hook lives here, not in scans-persist.ts). It runs after
         // the row is written and outside the persist try, so a projection failure can neither fail nor

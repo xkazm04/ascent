@@ -99,8 +99,11 @@ export function ReportView({
       try {
         const r = await fetch(`/api/report/passport?repo=${encodeURIComponent(repoFull)}`);
         if (active && r.ok) setFetchedPassport({ repo: repoFull, passport: (await r.json()) as AppPassport });
-      } catch {
-        // No stored passport (offline / no DB / not yet persisted) — the hero just doesn't render.
+        // 404 (no saved passport) / 503 (no DB) / 401-403 are answers; a 5xx is a failed read.
+        else if (r.status >= 500) console.warn(`[report] passport read failed (HTTP ${r.status}); the hero stays hidden`);
+      } catch (err) {
+        // Offline / transient — the hero just doesn't render, and the failure is logged, not dropped.
+        console.warn("[report] passport read failed; the hero stays hidden:", err);
       }
     })();
     return () => {
@@ -156,9 +159,11 @@ export function ReportView({
       try {
         const r = await fetch(`/api/recommendations?repo=${encodeURIComponent(repoRef)}`);
         if (active && r.ok) setRecs(((await r.json()).items ?? []) as PersistedRecommendation[]);
-      } catch {
+        else if (r.status >= 500) console.warn(`[report] recommendations read failed (HTTP ${r.status}); read-only roadmap`);
+      } catch (err) {
         // A recommendations failure leaves the read-only roadmap fallback (recs stays null); it is
         // deliberately NOT folded into histError, which is solely about the history/trend panel.
+        console.warn("[report] recommendations read failed; read-only roadmap:", err);
       }
     })();
     return () => {

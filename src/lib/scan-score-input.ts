@@ -19,6 +19,7 @@ import { computeSecurityChecks } from "@/lib/security/checks";
 import { techStackPromptEnabled } from "@/lib/llm/config";
 import { decisionsForRepo } from "@/lib/db";
 import { getCraftBuilt } from "@/lib/db/org-insights-craft";
+import { degradeTo } from "@/lib/scan-read-door";
 import type { LlmScoreInput } from "@/lib/llm/provider";
 import type {
   DimensionSignals,
@@ -210,8 +211,8 @@ export async function buildScanScoreInput(input: ScoreInputPhaseInput): Promise<
   // an empty list rather than failing its sibling.
   const repoFullName = `${snapshot.meta.owner}/${snapshot.meta.name}`;
   const [orgDecisions, craftBuilt] = await Promise.all([
-    decisionSlug ? decisionsForRepo(decisionSlug, repoFullName).catch(() => []) : Promise.resolve([]),
-    decisionSlug ? getCraftBuilt(decisionSlug, repoFullName).catch(() => []) : Promise.resolve([]),
+    decisionSlug ? decisionsForRepo(decisionSlug, repoFullName).catch(degradeTo("scan score input: decisionsForRepo", [])) : Promise.resolve([]),
+    decisionSlug ? getCraftBuilt(decisionSlug, repoFullName).catch(degradeTo("scan score input: getCraftBuilt", [])) : Promise.resolve([]),
   ]);
 
   const scoreInput: LlmScoreInput = {

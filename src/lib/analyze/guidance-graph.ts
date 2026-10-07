@@ -548,7 +548,9 @@ export function parseGuidanceGraphJson(raw: string | null | undefined): Guidance
       coherence: typeof v.coherence === "number" ? v.coherence : null,
       penalties: Array.isArray(v.penalties) ? v.penalties : [],
     };
-  } catch {
+  } catch (err) {
+    // "Not assessed", as documented — logged, because a persisted blob that is not JSON is damage.
+    console.warn("[guidance-graph] persisted guidanceGraphJson unreadable; reading as not assessed:", err);
     return null;
   }
 }

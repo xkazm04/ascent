@@ -9,6 +9,7 @@
 import type { SecurityExposure } from "@/lib/types";
 import { fetchWithTimeout, ghHeaders, githubRawBase } from "@/lib/github/host";
 import { mapPool } from "@/lib/pool";
+import { reportDegradedRead } from "@/lib/scan-read-door";
 import { parsePnpmDeps, parseCargoDeps, type OsvDep } from "./exposure-lockfiles";
 
 const RAW = githubRawBase();
@@ -104,7 +105,10 @@ type Sev = "critical" | "high" | "medium" | "low";
 async function fetchOsvSeverity(id: string, signal?: AbortSignal): Promise<Sev> {
   try {
     const res = await fetchWithTimeout(`${OSV_VULN}/${encodeURIComponent(id)}`, {}, TIMEOUT_MS, signal);
-    if (!res.ok) return "high";
+    if (!res.ok) {
+      reportDegradedRead(`OSV severity ${id} (counted high)`, new Error(`OSV vuln read failed: HTTP ${res.status}`));
+      return "high";
+    }
     const v = (await res.json()) as { database_specific?: { severity?: string }; severity?: { type: string; score: string }[] };
     const label = v.database_specific?.severity?.toUpperCase();
     if (label === "CRITICAL") return "critical";
@@ -120,7 +124,8 @@ async function fetchOsvSeverity(id: string, signal?: AbortSignal): Promise<Sev> 
       if (score > 0) return "low";
     }
     return "high";
-  } catch {
+  } catch (err) {
+    reportDegradedRead(`OSV severity ${id} (counted high)`, err);
     return "high";
   }
 }

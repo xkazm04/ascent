@@ -48,6 +48,7 @@ import {
 import { isScopedScan, scopeWarning } from "@/lib/scan-scope";
 import type { ResolvedScanScope } from "@/lib/scan-scope-server";
 import { getScanReportByCommit } from "@/lib/db";
+import { degradeTo } from "@/lib/scan-read-door";
 import {
   cacheAndPersistScan,
   classifyScanResult,
@@ -256,7 +257,9 @@ export async function latestPublicReport(
   token: string | undefined,
 ): Promise<ScanReport | null> {
   if (!parsed || token) return null;
-  const last = await getScanReportByCommit(parsed.owner, parsed.repo, {}).catch(() => null);
+  const last = await getScanReportByCommit(parsed.owner, parsed.repo, {}).catch(
+    degradeTo("scan: latestPublicReport (getScanReportByCommit)", null),
+  );
   return last && !last.repo.isPrivate ? last : null;
 }
 

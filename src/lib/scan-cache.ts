@@ -15,6 +15,7 @@
 import { resolveHead, type ParsedRepo } from "@/lib/github/source";
 import { activeScoringIdentity, cacheGet, cacheSet, headHintGet, headHintSet, makeCacheKey } from "@/lib/cache";
 import { getHeadHint, getScanReportByCommit } from "@/lib/db";
+import { degradeTo } from "@/lib/scan-read-door";
 import { scopeCacheSegment } from "@/lib/scan-scope";
 import type { ScanReport } from "@/lib/types";
 
@@ -164,7 +165,9 @@ export async function lookupCachedScan(opts: {
   // ALSO a miss when a provider/model swap means the current config wouldn't reproduce it
   // (persistedMatchesActiveIdentity) — the cross-instance twin of the identity in the in-memory key,
   // so a model change busts the DB tier too instead of serving the old model's score for up to 7 days.
-  const persisted = await getScanReportByCommit(owner, repo, { headSha, orgSlug }).catch(() => null);
+  const persisted = await getScanReportByCommit(owner, repo, { headSha, orgSlug }).catch(
+    degradeTo("scan cache: persisted tier (getScanReportByCommit)", null),
+  );
   if (persisted && isPersistedScanFresh(persisted.scannedAt) && persistedMatchesActiveIdentity(persisted, useLLM)) {
     cacheSet(cacheKey, persisted);
     return { cacheKey, headSha, etag, cached: persisted, source: "db" };
@@ -249,7 +252,9 @@ export async function lookupPersistedScanByCommit(opts: {
   orgSlug?: string;
 }): Promise<ScanReport | null> {
   const { owner, repo, headSha, useLLM, orgSlug = "public" } = opts;
-  const persisted = await getScanReportByCommit(owner, repo, { headSha, orgSlug }).catch(() => null);
+  const persisted = await getScanReportByCommit(owner, repo, { headSha, orgSlug }).catch(
+    degradeTo("scan cache: lookupPersistedScanByCommit", null),
+  );
   if (!persisted) return null;
   if (!isPersistedScanFresh(persisted.scannedAt)) return null;
   if (!persistedMatchesActiveIdentity(persisted, useLLM)) return null;

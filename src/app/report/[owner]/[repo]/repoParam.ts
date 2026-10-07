@@ -21,7 +21,7 @@ function decodeSegment(segment: string): string {
   try {
     return decodeURIComponent(segment);
   } catch {
-    return segment;
+    return segment; // silent by design: malformed user input, not a failed read — the raw segment is the answer
   }
 }
 

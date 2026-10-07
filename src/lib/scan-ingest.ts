@@ -110,6 +110,13 @@ const SENSOR_ORDER: readonly ScanSensorId[] = [
   "deployments",
 ];
 
+/** Enrichments whose failure is logged by the same recorder but is not a score-bearing sensor caveat. */
+type DisplayEnrichmentId = "commitActivity" | "guidanceFreshness" | "prHeadInventory";
+
+function isScoreBearingSensor(id: ScanSensorId | DisplayEnrichmentId): id is ScanSensorId {
+  return (SENSOR_ORDER as readonly string[]).includes(id);
+}
+
 /**
  * Fetch the snapshot plus the score-bearing enrichments (PR stats, governance, security posture and
  * exposure), and hand back the display-only commit-activity promise still unresolved so it keeps
@@ -131,11 +138,14 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   let prFetchFailed = false;
   // ONE recorder for every sensor below, so a new enrichment cannot be added with a silent
   // `.catch(() => null)`. It returns the same degraded value the catch already returned — the shape of
-  // the pipeline is unchanged — and only ADDS the fact that the read failed.
+  // the pipeline is unchanged — and only ADDS the fact that the read failed. A DISPLAY-ONLY enrichment
+  // (DisplayEnrichmentId) is logged by the same recorder but joins no sensorFailures caveat: its degraded
+  // value is already a typed unknown (no activity chart, per-file freshness unknown, prHeadTruncated),
+  // never an absence the scorer would read as "none".
   const failedSensors = new Set<ScanSensorId>();
-  const sensorFailed = <T>(id: ScanSensorId, degraded: T) => (err: unknown): T => {
+  const sensorFailed = <T>(id: ScanSensorId | DisplayEnrichmentId, degraded: T) => (err: unknown): T => {
     console.error(`[scan] ${id} read failed:`, err);
-    failedSensors.add(id);
+    if (isScoreBearingSensor(id)) failedSensors.add(id);
     return degraded;
   };
   const prPromise: Promise<{ stats: PrStats; partial: boolean; aiChanges: AiChangeRecord[]; prHeadShas?: string[] } | null> = token && enrich.pullRequests
@@ -186,7 +196,7 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
     ? enrich.securityExposure(parsed.owner, parsed.repo, snapshot.meta.headSha ?? snapshot.meta.defaultBranch, token, signal).catch(sensorFailed("securityExposure", null))
     : Promise.resolve(null);
   const activityPromise: Promise<number[] | null> = token && enrich.commitActivity
-    ? enrich.commitActivity(parsed.owner, parsed.repo, token, signal).catch(() => null)
+    ? enrich.commitActivity(parsed.owner, parsed.repo, token, signal).catch(sensorFailed("commitActivity", null))
     : Promise.resolve(null);
   // Deepening pass — the two platform-observed enrichments. Both are one bounded REST call, token-gated
   // like governance (rate-limit hygiene; the App's existing Checks:read covers suites on private repos,
@@ -212,7 +222,7 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
             .slice(0, PR_HEAD_INVENTORY_CAP);
           return Promise.all(shas.map(async (sha) => ({
             sha,
-            inventory: await readInventory(parsed.owner, parsed.repo, sha, token, signal).catch(() => null),
+            inventory: await readInventory(parsed.owner, parsed.repo, sha, token, signal).catch(sensorFailed("prHeadInventory", null)),
           })));
         }),
       ]).then(([scored, heads]) => (scored ? withPrHeadApps(scored, heads) : null))
@@ -245,7 +255,7 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
         snapshot.meta.headSha ?? pinnedRef ?? snapshot.meta.defaultBranch,
         guidancePaths,
         { token, signal },
-      ).catch(() => guidancePaths.map((path) => ({ path })))
+      ).catch(sensorFailed("guidanceFreshness", guidancePaths.map((path) => ({ path }))))
     : Promise.resolve([]);
 
   // THE FRAME TABLE. `fetch` → `tree` → `files` (45) → *this* → `analyze` (62) → `score` → `compose`

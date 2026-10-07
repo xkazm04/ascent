@@ -20,6 +20,15 @@ import {
 /** A report salvaged from the last persisted scan because the monthly quota blocked a fresh one. */
 type Stale = { resetAt: number | null; scope: QuotaScope };
 
+/** A 200 peek whose body is unreadable reads as a cache MISS (null → the live scan, or the quota wall),
+ *  which is the right fallback — logged, so a broken cache tier is not indistinguishable from a miss. */
+function peekBodyUnreadable(which: string): (err: unknown) => null {
+  return (err) => {
+    console.warn(`[report] ${which} body unreadable; treating it as a miss:`, err);
+    return null;
+  };
+}
+
 /**
  * How a scan failed, in the vocabulary the error surfaces branch on. Carried by BOTH the page-level
  * error state and the in-place re-scan banner, so a re-test that hits the sign-in wall, the monthly
@@ -225,7 +234,7 @@ export function useReportScan(
           });
           if (cancelled) return;
           if (peek.status === 200) {
-            const parsed = parseScanReport(await peek.json().catch(() => null));
+            const parsed = parseScanReport(await peek.json().catch(peekBodyUnreadable("cache peek")));
             if (cancelled) return;
             // Verify the peeked report is actually for the repo we asked about before rendering it.
             if (matchesRequestedRepo(parsed, repo)) {
@@ -237,9 +246,11 @@ export function useReportScan(
           }
           const hs = peek.headers.get("x-ascent-head-sha");
           if (hs) peekHead = { headSha: hs, headEtag: peek.headers.get("x-ascent-head-etag") };
-        } catch {
+        } catch (err) {
           if (cancelled) return;
-          // Peek failed (offline, abort, etc.) — fall through to the streaming scan below.
+          // Peek failed (offline, abort, etc.) — fall through to the streaming scan below, a cache MISS
+          // by degradation, so it is logged rather than indistinguishable from a real miss.
+          console.warn("[report] cache peek failed; running a live scan:", err);
         }
       }
 
@@ -268,6 +279,7 @@ export function useReportScan(
         });
         if (cancelled) return;
         if (!res.ok || !res.body) {
+          // silent by design: an unreadable refusal body still settles below on the HTTP status alone
           const data = (await res.json().catch(() => null)) as
             | { error?: string; code?: string; resetAt?: number; scope?: QuotaScope; balance?: number }
             | null;
@@ -306,7 +318,7 @@ export function useReportScan(
               });
               if (cancelled) return;
               if (peek.status === 200 && peek.headers.get("x-ascent-stale") === "true") {
-                const parsed = parseScanReport(await peek.json().catch(() => null));
+                const parsed = parseScanReport(await peek.json().catch(peekBodyUnreadable("salvage peek")));
                 if (cancelled) return;
                 if (matchesRequestedRepo(parsed, repo)) {
                   durable = peekWasDurable(peek.headers);
@@ -314,9 +326,10 @@ export function useReportScan(
                   return;
                 }
               }
-            } catch {
+            } catch (err) {
               if (cancelled) return;
-              // Salvage peek failed — fall through to the blocked wall below.
+              // Salvage peek failed — fall through to the blocked wall below (logged, not dropped).
+              console.warn("[report] salvage peek failed; showing the quota wall:", err);
             }
             settleError(
               data.error ??
@@ -439,6 +452,9 @@ export function useReportScan(
     };
     // `ref`/`subPath` are dependencies: changing the branch or sub-path in the URL is a different
     // scan subject, so the effect must re-run rather than keep showing the previous subject's report.
+    // `notify`/`email` are deliberately NOT: they travel with the FIRST scan only (retestNonce === 0),
+    // so toggling either must not re-run (and re-spend) the scan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see the line above: first-scan-only inputs
   }, [repo, fresh, retestNonce, ref, subPath, scoped, persistKey]);
 
   return {

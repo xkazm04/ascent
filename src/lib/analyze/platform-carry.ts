@@ -249,7 +249,9 @@ export function parsePlatformSignals(raw: string | null | undefined): PlatformSi
         : {}),
       ...(rec.securityUnobservable === true ? { securityUnobservable: true as const } : {}),
     };
-  } catch {
+  } catch (err) {
+    // UNKNOWN, as documented — logged, because a persisted blob that is not JSON is damage.
+    console.warn("[platform-carry] persisted platform-signal record unreadable; reading as unknown:", err);
     return undefined;
   }
 }

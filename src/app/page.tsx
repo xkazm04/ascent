@@ -12,6 +12,7 @@ import { publicScanWallEnabled } from "@/lib/scan-gates";
 import { resolveFirstRun } from "@/lib/first-run";
 import { PLAN_FEATURES, planPriceLabel, type PlanId } from "@/lib/plans";
 import { PUBLIC_SCAN_WINDOW_DAYS, publicScanAllowance } from "@/lib/public-scan-limit";
+import { degradeTo } from "@/lib/scan-read-door";
 
 /** "Starter ($5/mo)" — the tier's customer-facing NAME and price, both read from the plan model. */
 const paidTier = (id: PlanId) => `${PLAN_FEATURES[id].label} (${planPriceLabel(id).amount}/mo)`;
@@ -109,7 +110,7 @@ export default async function Home({ searchParams }: { searchParams: HomeSearch 
 
   // Live discovery rail + leaderboard from persisted public scans. Null when persistence is
   // off or nothing has been scored yet — the variants then keep their static examples.
-  const gallery = await getPublicScanGallery().catch(() => null);
+  const gallery = await getPublicScanGallery().catch(degradeTo("landing: getPublicScanGallery", null));
   const exampleRepos = gallery?.topAiNative.slice(0, 3).map((c) => c.fullName);
 
   // Which GitHub sign-in backend the hero's scan dialog should offer (mirrors SiteHeader's pick):

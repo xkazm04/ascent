@@ -80,8 +80,9 @@ export function ScanForm({
       .then((d) => {
         if (active && d) setViewer({ signedIn: Boolean(d.signedIn), email: d.email ?? null });
       })
-      .catch(() => {
-        /* no viewer info — the notify toggle simply stays hidden */
+      .catch((err) => {
+        // No viewer info — the notify toggle simply stays hidden; logged so the hidden toggle is explained.
+        console.warn("[scan form] viewer read failed; hiding the notify toggle:", err);
       });
     return () => {
       active = false;

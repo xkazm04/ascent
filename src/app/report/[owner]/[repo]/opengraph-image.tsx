@@ -3,6 +3,7 @@ import { getScanReportByCommit } from "@/lib/db";
 import { readableOrgForOwner } from "@/lib/auth";
 import { OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/og-brand";
 import { ReportShareCard, ReportShareCardFallback } from "@/lib/og/report-card";
+import { reportDegradedRead } from "@/lib/scan-read-door";
 import { parseRepoParam } from "./repoParam";
 
 // Per-repo social card for the report permalink — the image the page's generateMetadata advertises
@@ -25,12 +26,14 @@ export default async function Image({ params }: { params: Promise<{ owner: strin
   const { name, sha } = parseRepoParam(repo);
   const ref = `${owner}/${name}`;
 
-  // Best-effort: resolve the readable org + pinned/latest report. Any failure → static fallback.
+  // Best-effort: resolve the readable org + pinned/latest report. Any failure → static fallback, which
+  // names the repo and claims nothing about it — and the failure is reported, not dropped.
   const report = await (async () => {
     try {
       const orgSlug = await readableOrgForOwner(owner);
       return await getScanReportByCommit(owner, name, { headSha: sha, orgSlug });
-    } catch {
+    } catch (err) {
+      reportDegradedRead("report share card: getScanReportByCommit", err);
       return null;
     }
   })();

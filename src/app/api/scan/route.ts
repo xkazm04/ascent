@@ -335,6 +335,7 @@ function handleError(err: unknown) {
 
 export async function POST(request: Request) {
   try {
+    // silent by design: an unparseable body has no `url`, which answers 400 just below
     const body = (await request.json().catch(() => ({}))) as {
       url?: string;
       token?: string;

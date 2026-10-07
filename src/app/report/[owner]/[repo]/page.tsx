@@ -2,6 +2,11 @@
 // A persisted snapshot is served pinned (no re-scan). A true miss is ColdScanGate. A thrown
 // read is PermalinkReadError — never a live scan on a persistence blip. The co-located
 // opengraph-image.tsx makes it unfurl richly in Slack / X / GitHub.
+//
+// Every server read below separates a FAILED read from an empty answer, and every failure reaches a
+// door (src/lib/scan-read-door.ts). A failed read whose prop ReportView can fetch for itself stays
+// `undefined` so the client fetch and its own error door take over; `null` / `[]` are reserved for
+// what the store actually answered.
 
 import type { Metadata } from "next";
 import { Suspense } from "react";
@@ -9,9 +14,7 @@ import { ReportShell } from "@/components/report/ReportShell";
 import { ColdScanGate, PermalinkReadError } from "@/components/report/ColdScanGate";
 import { ReportClient } from "@/components/report/ReportClient";
 import { ReportView } from "@/components/report/ReportView";
-import { PassportCard } from "@/features/standing/passports/PassportCard";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
-import { Kicker } from "@/components/ui";
 import {
   getScanReportByCommit,
   getRepoPassport,
@@ -19,18 +22,17 @@ import {
   getRepositoryHistory,
   getLatestRecommendations,
   getHeadHint,
-  diffTrackSets,
   type RepositoryHistory,
 } from "@/lib/db";
 import { PUBLIC_ORG, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { hasOrgRole, canReadOrg } from "@/lib/authz";
-import { PRACTICES } from "@/lib/practices";
 import { EMPTY_LIFTS, getOrgExpectedLifts } from "@/lib/outcomes/expected-lift-load";
 import { scanMaxCacheAgeMs } from "@/lib/scan-cache";
-import { reportHandledError } from "@/lib/api/respond";
+import { degradeTo, reportDegradedRead, reportFailedRead } from "@/lib/scan-read-door";
 import { parseRepoParam } from "./repoParam";
 import { reportMetadata } from "./reportMetadata";
+import { PermalinkPanels, ReportMasthead } from "./PermalinkPanels";
 
 export const dynamic = "force-dynamic";
 
@@ -45,12 +47,16 @@ async function resolveReportOrg(owner: string, sp: { org?: string | string[] | u
   return readableOrgForOwner(owner);
 }
 
-/** Successful empty = never scanned. A throw = unavailable, not cold (G4). */
+/** Successful empty = never scanned. A throw = unavailable, not cold (G4) — and reported, so the
+ *  operator learns of the blip the reader was shown. */
 async function readPermalinkReport(owner: string, name: string, sha: string | undefined, orgSlug: string) {
   try {
     const report = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug });
     return report ? ({ kind: "ok" as const, report }) : ({ kind: "empty" as const });
-  } catch { return { kind: "unavailable" as const }; }
+  } catch (err) {
+    reportFailedRead("report permalink: getScanReportByCommit", err);
+    return { kind: "unavailable" as const };
+  }
 }
 
 export async function generateMetadata({
@@ -144,22 +150,26 @@ async function ReportPermalinkBody({
   // The fifth read is the FRESHNESS PROVENANCE: `Repository.headSha` (the head last seen) against the
   // scan's own, which is the drift fact the masthead states. A DB read, so it costs no GitHub call.
   const [skillHistory, passport, history, recs, headHint] = await Promise.all([
-    getSkillHistory(repoRef).catch(() => []),
-    getRepoPassport(owner, name, { orgSlug, headSha: sha }).catch(() => null),
+    // `undefined` = the read FAILED: the skill section says so, and ReportView's own passport fetch
+    // takes over. `[]` / `null` are the store's answers (none yet / proved none), never a failure.
+    readOrUnresolved("getSkillHistory", () => getSkillHistory(repoRef)),
+    readOrUnresolved("getRepoPassport", () => getRepoPassport(owner, name, { orgSlug, headSha: sha })),
     readReportHistory(owner, name, orgSlug),
     readReportRecommendations(owner, name),
     readLastSeenHead(owner, name, orgSlug),
   ]);
+  // The three role probes below are UX courtesy only (every route they unlock re-checks access), so a
+  // thrown probe degrades to "not permitted" — fail closed, and reported rather than dropped.
+  const hasRole = (role: "owner" | "admin" | "member") =>
+    hasOrgRole(orgSlug, role).catch(degradeTo(`report permalink: hasOrgRole(${role})`, false));
   // Owner-only passport controls (P4): editable only for a non-public org-owned repo by an owner.
-  const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "owner").catch(() => false));
+  const canEditPassport = Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasRole("owner"));
   // The .ai/passport.json PR route accepts ADMINS (unlike the owner-only overrides), so its button is
   // gated separately: an admin who is not an owner gets the PR affordance and not the override form.
-  const canFilePassportPr =
-    canEditPassport || (Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "admin").catch(() => false)));
+  const canFilePassportPr = canEditPassport || (Boolean(passport) && orgSlug !== PUBLIC_ORG && (await hasRole("admin")));
   // The .ai/ foundation install-PR button: any org MEMBER of a non-public repo (mirrors the route's
-  // requireOrgAccess — member-level, unlike the owner-only passport controls). UX courtesy only; the
-  // route re-checks access and the App installation before writing anything.
-  const canInstallFoundation = orgSlug !== PUBLIC_ORG && (await hasOrgRole(orgSlug, "member").catch(() => false));
+  // requireOrgAccess — member-level, unlike the owner-only passport controls).
+  const canInstallFoundation = orgSlug !== PUBLIC_ORG && (await hasRole("member"));
 
   return (
     // No onRetry: this is the pinned-permalink reader (deterministic, persisted data), so the boundary
@@ -179,29 +189,37 @@ async function ReportPermalinkBody({
         lastSeenHead={headHint}
         freshnessWindowMs={scanMaxCacheAgeMs()}
       />
-      {passport && (
-        <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
-          {/* The `engine` prop this branch passed is dropped: master's PassportCard cluster (declines
-              with identity, the autonomy verdict, PassportCardDeclined) is the landed implementation of
-              the same feature set and does not take one. Labelling a placeholder scan on the repo's own
-              page is therefore NOT on master — it survives only in the org portfolio, and is recorded as
-              an open item rather than silently carried by a prop the component would ignore. */}
-          <PassportCard passport={passport} repo={repoRef} canEdit={canEditPassport} canFilePr={canFilePassportPr} />
-        </div>
-      )}
-      {skillHistory.length > 0 && (
-        <div className="animate-fade-up" style={{ animationDelay: "200ms" }}>
-          <SkillHistorySection rows={skillHistory} />
-        </div>
-      )}
+      <PermalinkPanels
+        passport={passport}
+        repoRef={repoRef}
+        canEdit={canEditPassport}
+        canFilePr={canFilePassportPr}
+        skillHistory={skillHistory}
+      />
     </ReportErrorBoundary>
   );
+}
+
+/** One server read whose failure must stay distinguishable: a THROW is reported and resolves
+ *  `undefined` (not resolved), never the store's own empty answer. */
+async function readOrUnresolved<T>(read: string, fn: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await fn();
+  } catch (err) {
+    reportFailedRead(`report permalink: ${read}`, err);
+    return undefined;
+  }
 }
 
 /** The head last seen for this repo (the freshness drift clause). Wrapped, not `.catch()`-ed inline:
  *  a throw while BUILDING the Promise.all array escapes it; null is the no-claim answer either way. */
 async function readLastSeenHead(owner: string, name: string, orgSlug: string): Promise<string | null> {
-  try { return (await getHeadHint(owner, name, { orgSlug }))?.headSha ?? null; } catch { return null; }
+  try {
+    return (await getHeadHint(owner, name, { orgSlug }))?.headSha ?? null;
+  } catch (err) {
+    reportDegradedRead("report permalink: getHeadHint", err);
+    return null;
+  }
 }
 
 /**
@@ -213,14 +231,15 @@ async function readLastSeenHead(owner: string, name: string, orgSlug: string): P
  * rather than an absent prop.
  */
 async function readReportHistory(owner: string, name: string, orgSlug: string): Promise<RepositoryHistory | null> {
-  if ((authGateEnabled() || isAuthConfigured()) && !(await resolveViewerLogin().catch(() => null))) return null;
+  const gated = authGateEnabled() || isAuthConfigured();
+  if (gated && !(await resolveViewerLogin().catch(degradeTo("report permalink: resolveViewerLogin", null)))) return null;
   let history: RepositoryHistory | null;
   try {
     history = await getRepositoryHistory(owner, name, { orgSlug });
   } catch (err) {
     // A thrown read is NOT "no history": null leaves ReportView's client fetch (and its
     // "Couldn't load history" door) in charge, as the docstring above promises.
-    reportHandledError(err, { message: "report page: getRepositoryHistory failed" });
+    reportFailedRead("report permalink: getRepositoryHistory", err);
     return null;
   }
   return history ?? { repo: { owner, name, fullName: `${owner}/${name}` }, scans: [] };
@@ -233,75 +252,29 @@ async function readReportHistory(owner: string, name: string, orgSlug: string): 
  * via the dormant-session `readableOrgForOwner`, which under-permissions a private-org member and would
  * hand back an empty list where the client fetch found the real tracker.
  *
- * It also reads the org's measured lift map in the same pass. That map is what makes the roadmap's
- * measured basis reachable in-app at all: `ExpectedLiftBasis` and the measured-sort toggle existed,
- * were tested and were mounted, but nothing on this page ever read the ledger, so the clause could
- * only ever be seen through the raw JSON of `GET /api/recommendations`.
+ * It also reads the org's measured lift map in the same pass (`ExpectedLiftBasis` and the measured-sort
+ * toggle are unreachable in-app without it). `items: undefined` = a FAILED read (the access check or
+ * the rows): ReportView then fetches for itself, because `[]` is a real answer it would never refetch.
  */
 async function readReportRecommendations(owner: string, name: string) {
   const ownerOrg = owner.toLowerCase();
-  const orgSlug = (await canReadOrg(ownerOrg).catch(() => false)) ? ownerOrg : PUBLIC_ORG;
-  const [result, lifts] = await Promise.all([
-    getLatestRecommendations(owner, name, { orgSlug }).catch(() => null),
+  let orgSlug: string;
+  try {
+    orgSlug = (await canReadOrg(ownerOrg)) ? ownerOrg : PUBLIC_ORG;
+  } catch (err) {
+    // A thrown access check is not "may not read": answering under the public org instead would serve
+    // an empty roadmap where the client fetch finds the real tracker.
+    reportFailedRead("report permalink: canReadOrg", err);
+    return { items: undefined, lifts: undefined } as const;
+  }
+  const [items, lifts] = await Promise.all([
+    // No persisted scan (null) is the answer "no recommendations" ([]); a THROWN read stays undefined.
+    readOrUnresolved("getLatestRecommendations", async () => (await getLatestRecommendations(owner, name, { orgSlug }))?.items ?? []),
     // The org's measured lift map, read under the SAME org the rows were read under — the ledger is
     // tenant-local, so resolving it off the report's own (more conservative) orgSlug could pair one
     // org's rows with another's measurements. A failed read degrades to no map, which is exactly the
     // pre-existing rendering: no basis clause, no measured-sort toggle, no reordering (G4).
-    getOrgExpectedLifts(orgSlug).catch(() => EMPTY_LIFTS),
+    getOrgExpectedLifts(orgSlug).catch(degradeTo("report permalink: getOrgExpectedLifts", EMPTY_LIFTS)),
   ]);
-  return { items: result?.items ?? [], lifts };
-}
-
-/** Instant repo masthead — derived purely from the URL, so it paints with zero data dependency. Doubles
- *  as the Suspense fallback (with a calm "reading…" line, never a pulsing skeleton) and is replaced in
- *  place by ReportView's own header — which repeats the same Kicker + title at the same position — when
- *  the report streams in, so the title never jumps. */
-function ReportMasthead({ repoRef, loading = false }: { repoRef: string; loading?: boolean }) {
-  return (
-    <div className="animate-fade-up">
-      <Kicker tone="muted">Repository report</Kicker>
-      <h1 className="mt-2 type-heading font-bold text-white">{repoRef}</h1>
-      {loading && (
-        <p className="mt-2 flex items-center gap-2 type-body-sm text-slate-500">
-          <span aria-hidden className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-          Reading the latest scan…
-        </p>
-      )}
-    </div>
-  );
-}
-
-/** STD-6: a compact "onboarding skill over time" panel — most-recent track set + what changed since
- *  the prior generation — turning the one-off SKILL.md download into a visible, tracked program. */
-function SkillHistorySection({ rows }: { rows: { headSha: string | null; trackIds: string[]; generatedAt: string }[] }) {
-  const labelFor = (id: string) => PRACTICES.find((p) => p.id === id)?.label ?? id;
-  const latest = rows[0]!; // rows is non-empty (guarded by the caller)
-  const prev = rows[1];
-  const diff = prev ? diffTrackSets(prev.trackIds, latest.trackIds) : null;
-  return (
-    <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-      <h2 className="type-body font-semibold text-white">
-        Onboarding skill <span className="font-normal text-slate-500">· generated {rows.length}× · last {latest.generatedAt.slice(0, 10)}</span>
-      </h2>
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {latest.trackIds.length === 0 ? (
-          <span className="type-body-sm text-slate-500">No open tracks. The skill targeted no gaps at last generation.</span>
-        ) : (
-          latest.trackIds.map((id) => (
-            <span key={id} className="rounded-full border border-slate-700 bg-slate-950/40 px-2.5 py-0.5 type-mono-sm text-slate-300">
-              {labelFor(id)}
-            </span>
-          ))
-        )}
-      </div>
-      {diff && (diff.added.length > 0 || diff.dropped.length > 0) && (
-        <p className="mt-3 type-mono-sm">
-          {diff.added.length > 0 && <span className="text-emerald-300">+ {diff.added.map(labelFor).join(", ")}</span>}
-          {diff.added.length > 0 && diff.dropped.length > 0 && <span className="text-slate-600"> · </span>}
-          {diff.dropped.length > 0 && <span className="text-slate-500">✓ done: {diff.dropped.map(labelFor).join(", ")}</span>}
-          <span className="text-slate-600"> since the prior generation</span>
-        </p>
-      )}
-    </section>
-  );
+  return { items, lifts };
 }

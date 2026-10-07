@@ -780,7 +780,7 @@ function packageScripts(idx: RepoIndex): { name: string; body: string }[] {
       body: String(body ?? "").toLowerCase(),
     }));
   } catch {
-    return [];
+    return []; // silent by design: the scanned repo's malformed package.json has no scripts to read
   }
 }
 

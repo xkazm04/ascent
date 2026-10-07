@@ -31,6 +31,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
         body: JSON.stringify({ repo, watched: true }),
       });
       if (!res.ok) {
+        // silent by design: an unreadable error body still reaches the error state via the fallback copy
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         setTrackError(body.error ?? "Couldn't track the repo. Try again.");
         setTrack("idle");
@@ -48,7 +49,11 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
     fetch("/api/auth/viewer")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => active && setSignedIn(Boolean(d?.signedIn)))
-      .catch(() => active && setSignedIn(false));
+      .catch((err) => {
+        // Unknown viewer reads as signed out (the sign-in CTA), the safe default — logged, not silent.
+        console.warn("[report cta] viewer read failed; showing the signed-out CTA:", err);
+        if (active) setSignedIn(false);
+      });
     return () => {
       active = false;
     };

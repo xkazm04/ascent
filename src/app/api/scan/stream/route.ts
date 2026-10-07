@@ -38,6 +38,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
+  // silent by design: an unparseable body has no `url`, which the validation below answers with a 400
   const body = (await request.json().catch(() => ({}))) as {
     url?: string;
     mock?: boolean;

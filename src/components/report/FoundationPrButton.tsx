@@ -31,6 +31,7 @@ export function FoundationPrButton({ repo }: { repo: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repo }),
       });
+      // silent by design: an unreadable body still lands in the error state below (no url → "Failed (HTTP n)")
       const data = (await res.json().catch(() => ({}))) as {
         url?: string;
         number?: number;

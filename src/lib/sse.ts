@@ -26,7 +26,10 @@ export function parseSSE(block: string): SSEMessage {
   const dataStr = dataLines.length ? dataLines.join("\n").trim() : "";
   try {
     return { event, data: dataStr ? JSON.parse(dataStr) : null };
-  } catch {
+  } catch (err) {
+    // Consumers validate `data` at their trust boundary (a null result frame becomes a clean error),
+    // but the malformed payload itself would otherwise leave no trace.
+    console.warn(`[sse] malformed data on frame "${event}"; passing null:`, err);
     return { event, data: null };
   }
 }
@@ -65,7 +68,7 @@ export async function readSSE(
   } catch (error) {
     // A failed consumer has abandoned the response too. Reap its transport while
     // preserving the original read/callback failure if cancellation itself fails.
-    await reader.cancel(error).catch(() => {});
+    await reader.cancel(error).catch(() => {}); // silent by design: stream cancel; `error` is rethrown below
     throw error;
   } finally {
     reader.releaseLock();
