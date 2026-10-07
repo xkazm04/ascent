@@ -76,6 +76,25 @@ band ("behind the pace its deadline needs" now sends the reader to the Follow-up
 digest alerts. Goals duplicate the transition programme's single named commitment and are the next
 retirement candidate; when that happens those four readers lose a branch each, nothing else.
 
+**Operator decision, 2026-10-07 (ask e2e6531e): keep goals read-only and close the holes.** Restore
+the management UI or retire goals later, on usage evidence; no create/edit UI comes back now. Council
+lite round 1 found three holes in the half-state, closed as follows:
+
+- **Goal writes to the public org are refused.** `POST /api/org/goals` (body `org`) and
+  `PATCH`/`DELETE /api/org/goals/:id` (the goal's resolved org) answer 403 "Goals in the public org are
+  read-only." `requireOrgAccess`/`requireOrgRole` pass any signed-in viewer through `PUBLIC_ORG`, and
+  that wider question is left to a later security scan (`authz.ts` is untouched). GET is unchanged.
+- **A `closed` status** (`GOAL_STATUSES` = `active | achieved | closed`) lets an admin retire a lapsed
+  goal. Setting it, or moving a goal out of it, needs `requireOrgRole(org, "admin")`; members keep their
+  rights for every other field. `listGoals` filters closed goals out of its query, so the briefing, the
+  live wall, the overview's fix-first band and the digest stop reading them with no consumer change, and
+  the active/achieved transition never touches one. `status` is a String column: no migration.
+- **An empty Goals section is omitted.** With no goals and no `accountFiguresNotice`, the Briefing tab
+  (both compositions) and the share page render no Goals section, as the PDF and markdown already did;
+  the old "No goals set." line invited an action the product no longer offers. A notice still renders.
+
+`listGoals`' best-effort status write reports a failure through `noteReadFailure` (it stays best-effort).
+
 **A goal ETA is gated the same way a trajectory is.** `listGoals` carries the OLS `forecast` next to
 pace/ETA; presenters must run it through `composeGoal` (`src/lib/maturity/forecast.ts`) so an
 unmeasurable fit cannot print a bare "behind, ETA ~120d". The briefing markdown, board PDF and Goals
@@ -510,7 +529,8 @@ contract.
 - **Three orphaned reads** — `getOrgRework`, `getOrgGapAnalysis`, `getOrgDiscrepancies` — carry real
   data with no UI. Kept (tested) rather than deleted so a future home does not have to re-derive
   them; each is a decision, not an oversight.
-- **Goals have no management UI.** Deliberate half-state, see above.
+- **Goals have no management UI.** Deliberate half-state (operator decision 2026-10-07, see above); an
+  admin can close a goal over the API, and nothing in the app does.
 - (Closed 2026-08-14.) ~~Goal metrics are point-in-time.~~ Every `GoalProgress` row carries
   `series`, drawn by `GoalCard` (`src/components/org/shared/GoalTrend.tsx`).
 - (Closed 2026-09-17.) ~~Executive briefing fleet adoption used the mock-inclusive scanned set as
