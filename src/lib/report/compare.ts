@@ -8,6 +8,7 @@
 import type { ComparableScan } from "@/lib/db/scans";
 import type { DimensionId, LevelId, Posture } from "@/lib/types";
 import { DIMENSIONS, LEVEL_BY_ID, levelForScore, postureFor } from "@/lib/maturity/model";
+import { sameRuler } from "@/lib/maturity/attribution";
 import { diffScoreIntegrity } from "./compareIntegrity";
 
 import { matchRecommendations } from "./recommendation-identity";
@@ -145,6 +146,13 @@ export interface ScanDiff {
   adoption: AxisDelta;
   rigor: AxisDelta;
   posture: { before: Posture; after: Posture; changed: boolean };
+  /**
+   * The ruler the two ends were scored under. `same === false` is a PROVABLE rubric change: the level
+   * transition and every delta then include the bump and must not be read as the repository's own
+   * movement. `null` = an end records no rubric (unknown, which never refuses a pair — the alert
+   * lane's policy). Informational: no other field of the diff depends on it.
+   */
+  ruler: { before: string | null; after: string | null; same: boolean | null };
   /** Scoring levers that changed independently of the repository's detected evidence. */
   integrityDelta: string[];
   /** Ordered by the canonical model order (DIMENSIONS), dims absent from both omitted. */
@@ -491,6 +499,11 @@ export function diffScans(before: ComparableScan, after: ComparableScan): ScanDi
     },
     posture: { before: beforePosture, after: afterPosture, changed: beforePosture.id !== afterPosture.id },
     integrityDelta,
+    ruler: {
+      before: before.rubricVersion ?? null,
+      after: after.rubricVersion ?? null,
+      same: sameRuler(before.rubricVersion, after.rubricVersion),
+    },
     dimensions,
     recsMovedToDone,
     closedGapCount,

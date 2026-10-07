@@ -39,6 +39,7 @@ function mkScan(p: Partial<ComparableScan> & { id: string }): ComparableScan {
     posture: p.posture ?? "",
     confidence: p.confidence ?? 0.8,
     engineProvider: p.engineProvider ?? "mock",
+    ...(p.rubricVersion ? { rubricVersion: p.rubricVersion } : {}),
     headSha: p.headSha ?? null,
     ...(p.scoreIntegrity ? { scoreIntegrity: p.scoreIntegrity } : {}),
     dimensions: p.dimensions ?? dims(),
@@ -626,5 +627,29 @@ describe("movement lines are headlines — names, verbs, a cap — and the raw l
     expect(signalName("Found 18 test files")).toBe("found 18 test files");
     expect(signalName("Coverage tracking configured (codecov)")).toBe("coverage tracking configured");
     expect(signalName("A very long evidence sentence that keeps going well past the cap: detail").length).toBeLessThanOrEqual(40);
+  });
+});
+
+describe("diffScans — the ruler", () => {
+  const sameNumbers = { overallScore: 40, level: "L2", levelName: "Emerging" };
+  const base = { overallScore: 60, level: "L3", levelName: "Augmented" };
+
+  it("a cross-rubric pair carries ruler.same false and every existing field as it was", () => {
+    const crossing = diffScans(
+      mkScan({ id: "a", ...base, rubricVersion: "r17" }),
+      mkScan({ id: "b", ...sameNumbers, rubricVersion: "r18" }),
+    );
+    const unmarked = diffScans(mkScan({ id: "a", ...base }), mkScan({ id: "b", ...sameNumbers }));
+    expect(crossing.ruler).toEqual({ before: "r17", after: "r18", same: false });
+    const { ruler: _ruler, ...rest } = crossing;
+    const { ruler: _unmarked, ...restUnmarked } = unmarked;
+    expect(rest).toEqual(restUnmarked);
+    expect(rest.overall.delta).toBe(-20);
+    expect(rest.level.changed).toBe(true);
+  });
+
+  it("same rubric is same true; an end with no recorded rubric is same null", () => {
+    expect(diffScans(mkScan({ id: "a", rubricVersion: "r18" }), mkScan({ id: "b", rubricVersion: "r18" })).ruler).toEqual({ before: "r18", after: "r18", same: true });
+    expect(diffScans(mkScan({ id: "a" }), mkScan({ id: "b", rubricVersion: "r18" })).ruler).toEqual({ before: null, after: "r18", same: null });
   });
 });

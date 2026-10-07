@@ -30,6 +30,21 @@ export function WhatChanged({
 
   return (
     <div className="animate-fade-up space-y-6" data-testid="what-changed">
+      {/* The ruler first: a cross-rubric pair measured the rubric bump as well as the repository. */}
+      {diff.ruler.same === false && (
+        <div
+          role="note"
+          data-testid="rubric-changed"
+          className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 type-body-sm text-amber-100"
+        >
+          <p className="font-semibold">Scored under different rubrics</p>
+          <p className="mt-1">
+            These scans were scored under {diff.ruler.before} and {diff.ruler.after}. The level transition and the
+            deltas below include the rubric change, not the repository&apos;s movement alone.
+          </p>
+        </div>
+      )}
+
       {/* Headline — the two scans being compared + at-a-glance counts. */}
       <Surface radius="2xl" className="p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">

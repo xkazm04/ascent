@@ -42,6 +42,7 @@ function diff(over: Partial<ScanDiff> = {}): ScanDiff {
     rigor: { before: 50, after: 50, delta: 0 },
     posture: { before: posture, after: posture, changed: false },
     integrityDelta: [],
+    ruler: { before: "r18", after: "r18", same: true },
     dimensions: [],
     recsMovedToDone: [],
     closedGapCount: 0,
@@ -89,5 +90,34 @@ describe("WhatChanged — mixed-engine pairs are labelled", () => {
       />,
     );
     expect(screen.queryByTestId("mixed-engine-pair")).toBeNull();
+  });
+});
+
+describe("WhatChanged — a rubric change is disclosed first", () => {
+  it("a cross-rubric diff leads with the disclosure, ahead of the headline", () => {
+    render(
+      <WhatChanged
+        diff={diff({ ruler: { before: "r17", after: "r18", same: false } })}
+        before={scan({ id: "before", rubricVersion: "r17" })}
+        after={scan({ id: "after", rubricVersion: "r18" })}
+      />,
+    );
+    const root = screen.getByTestId("what-changed");
+    const note = screen.getByTestId("rubric-changed");
+    expect(root.firstElementChild).toBe(note);
+    expect(note).toHaveTextContent("r17");
+    expect(note).toHaveTextContent("r18");
+    expect(note).toHaveTextContent(/include the rubric change/i);
+    expect(note).toHaveTextContent(/not the repository/i);
+  });
+
+  it("says nothing about the ruler when it is the same or unknown", () => {
+    for (const same of [true, null]) {
+      const { unmount } = render(
+        <WhatChanged diff={diff({ ruler: { before: "r18", after: "r18", same } })} before={scan({ id: "b" })} after={scan({ id: "a" })} />,
+      );
+      expect(screen.queryByTestId("rubric-changed")).toBeNull();
+      unmount();
+    }
   });
 });
