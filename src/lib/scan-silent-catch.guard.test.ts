@@ -38,6 +38,9 @@ const EXTRA_PATHS = [
   "src/lib/scan-read-door.ts",
   "src/app/report/[owner]/[repo]/PermalinkPanels.tsx",
   "src/app/report/[owner]/[repo]/SkillHistorySection.tsx",
+  "src/app/api/history/route.ts",
+  "src/app/api/report/passport/route.ts",
+  "src/app/api/recommendations/route.ts",
 ];
 
 const DOOR_CALLS = new Set([
