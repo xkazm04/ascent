@@ -13,7 +13,7 @@ import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
 import { HISTORY_SCAN_CAP, historyCapNote } from "@/lib/history/limits";
 import { readableOrgForOwner } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
-import { fitTrendForecast } from "@/app/trends/forecast";
+import { fitTrendForecast, rubricTruncation } from "@/app/trends/forecast";
 import { SignInNotice } from "@/components/SignInNotice";
 import { LevelBadge } from "@/components/LevelBadge";
 import type { LevelId } from "@/lib/types";
@@ -187,7 +187,7 @@ export default async function TrendsPage({
         )}
 
         <div className="mt-8">
-          <TrajectoryPanel forecast={forecast} scanCount={history.scans.length} />
+          <TrajectoryPanel forecast={forecast} scanCount={history.scans.length} rubricRun={rubricTruncation(history.scans)} />
         </div>
 
         <div className="mt-8">

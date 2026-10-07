@@ -62,4 +62,13 @@ describe("TrajectoryPanel", () => {
     render(<TrajectoryPanel forecast={null} scanCount={1} />);
     expect(screen.getByText(/not enough history to project/i)).toBeTruthy();
   });
+
+  it("says the history UNDER THE CURRENT RUBRIC is too short, not that history is missing", () => {
+    render(
+      <TrajectoryPanel forecast={null} scanCount={5} rubricRun={{ used: 1, total: 5, rubric: "r18" }} />,
+    );
+    const note = screen.getByText(/history under the current rubric (r18) is too short/i);
+    expect(note.textContent).toContain("1 of 5");
+    expect(screen.queryByText(/a trend needs at least two scans/i)).toBeNull();
+  });
 });

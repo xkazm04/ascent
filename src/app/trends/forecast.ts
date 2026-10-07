@@ -17,6 +17,27 @@
 
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import type { HistoryPoint } from "@/lib/db/scans";
+import { sameRuler } from "@/lib/maturity/attribution";
+
+// THE RULER: a rubric bump re-scores the repository, so a line fit across one reads the bump as a
+// slope. The fit uses only the trailing run of points scored under the latest point's rubric, walking
+// back and stopping at the first PROVABLE change (sameRuler === false) — the same policy, and the same
+// consecutive-pair walk, as the timeline annotations and the alert lane. A null rubric never breaks it.
+function trailingRubricRun(scans: readonly HistoryPoint[]): HistoryPoint[] {
+  const newestFirst = [...scans].sort((a, b) => Date.parse(b.scannedAt) - Date.parse(a.scannedAt));
+  let end = 1;
+  while (end < newestFirst.length && sameRuler(newestFirst[end]!.rubricVersion, newestFirst[end - 1]!.rubricVersion) !== false) end++;
+  return newestFirst.slice(0, end);
+}
+
+/** When the fit was cut at a rubric change: how many points it used, of how many, and under which
+ *  rubric. Null when the whole history is one ruler. Lets the panel say WHY the history is short. */
+export function rubricTruncation(scans: readonly HistoryPoint[]): { used: number; total: number; rubric: string } | null {
+  const run = trailingRubricRun(scans);
+  if (run.length === scans.length) return null;
+  const rubric = run.find((p) => p.rubricVersion)?.rubricVersion ?? "the current rubric";
+  return { used: run.length, total: scans.length, rubric };
+}
 
 /**
  * Fit the repo's trajectory over its full history.
@@ -28,6 +49,9 @@ import type { HistoryPoint } from "@/lib/db/scans";
  * @param nowMs  the caller's "present" for anchoring the ETA (injected in tests).
  */
 export function fitTrendForecast(scans: readonly HistoryPoint[], nowMs?: number): Forecast | null {
-  const series = scans.map((s) => ({ date: s.scannedAt, value: s.overallScore, compacted: s.compacted }));
+  // A run of one point has no slope to read, whatever the series below would do with it.
+  const run = trailingRubricRun(scans);
+  if (run.length < 2) return null;
+  const series = run.map((s) => ({ date: s.scannedAt, value: s.overallScore, compacted: s.compacted }));
   return nowMs === undefined ? forecastTrajectory(series) : forecastTrajectory(series, 90, nowMs);
 }

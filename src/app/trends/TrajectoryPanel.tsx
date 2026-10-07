@@ -17,15 +17,19 @@ import { Card } from "@/components/org/shared/ui";
 import { Trajectory } from "@/features/standing/overview/Trajectory";
 import { forecastInsufficiency, type Forecast } from "@/lib/maturity/forecast";
 
+/** The fit was cut at a rubric change (see `rubricTruncation`): points used, of how many, under which rubric. */
+export type RubricRun = { used: number; total: number; rubric: string };
+
 /** The line that tells the reader exactly what the number above it was computed from. */
-function FitBasis({ scanCount, forecast }: { scanCount: number; forecast: Forecast | null }) {
+function FitBasis({ scanCount, forecast, rubricRun }: { scanCount: number; forecast: Forecast | null; rubricRun?: RubricRun | null }) {
   const span = forecast ? `${forecast.points} distinct scan ${forecast.points === 1 ? "day" : "days"} across ${forecast.spanDays} ${forecast.spanDays === 1 ? "day" : "days"}` : null;
   const compacted = forecast?.compactedPoints ?? 0;
   const unit = compacted > 0 ? "history points" : scanCount === 1 ? "scan" : "scans";
   return (
     <p className="mt-2 type-body-sm text-slate-500">
-      Fit over this repository&rsquo;s full recorded history: all {scanCount}{" "}
-      {unit}
+      {rubricRun
+        ? `Fit over the ${rubricRun.used} of ${rubricRun.total} history points scored under ${rubricRun.rubric}`
+        : <>Fit over this repository&rsquo;s full recorded history: all {scanCount}{" "}{unit}</>}
       {span ? ` (${span}${compacted > 0 ? `, ${compacted} of them compacted` : ""})` : ""}.
       {" "}It does not follow the 5d / 30d / 90d range toggle below.
     </p>
@@ -35,13 +39,20 @@ function FitBasis({ scanCount, forecast }: { scanCount: number; forecast: Foreca
 export function TrajectoryPanel({
   forecast,
   scanCount,
+  rubricRun,
 }: {
   /** Fit over the FULL history, never the displayed range. Null when < 2 distinct scan days. */
   forecast: Forecast | null;
   /** History rows the fit saw, including compacted summaries when present. */
   scanCount: number;
+  /** Set when the fit was cut at a rubric change: earlier points measured a different ruler. */
+  rubricRun?: RubricRun | null;
 }) {
-  const insufficient = forecastInsufficiency(forecast);
+  // A fit cut at a rubric change that is still too short says so in those terms: the history is not
+  // missing, it was scored under a different rubric and is not mixed in.
+  const insufficient = forecastInsufficiency(forecast) && rubricRun
+    ? `History under the current rubric (${rubricRun.rubric}) is too short to project: ${rubricRun.used} of ${rubricRun.total} history points were scored under it. Earlier points used a different rubric, so a line through them would measure the rubric, not the repository.`
+    : forecastInsufficiency(forecast);
 
   if (insufficient || !forecast) {
     return (
@@ -68,7 +79,7 @@ export function TrajectoryPanel({
       <div className="mt-2">
         <Trajectory forecast={forecast} />
       </div>
-      <FitBasis scanCount={scanCount} forecast={forecast} />
+      <FitBasis scanCount={scanCount} forecast={forecast} rubricRun={rubricRun} />
     </section>
   );
 }
