@@ -27,9 +27,12 @@ import { envBool } from "@/lib/env";
 import { getTheme } from "@/lib/theme/server";
 import { polarEnabled } from "@/lib/polar";
 import { loadLaneRouting } from "@/lib/llm/lane-routes-load";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 
 export async function SettingsTab({ slug }: { slug: string }) {
-  if (!(await hasOrgRole(slug, "owner"))) {
+  // The shared public org has no owner, yet hasOrgRole("public", "owner") is true for any signed-in viewer
+  // (the funnel has no owner to check); the admin routes behind these cards refuse it, so do not offer them.
+  if (slug.trim().toLowerCase() === PUBLIC_ORG || !(await hasOrgRole(slug, "owner"))) {
     return <OrgEmpty title="Owner only" body="Organization settings are available to organization owners." href={orgTabHref(slug, "overview")} cta="← Overview" />;
   }
   const configRead = getOrgLlmConfig(slug);

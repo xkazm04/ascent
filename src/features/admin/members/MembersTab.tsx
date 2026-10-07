@@ -12,6 +12,7 @@ import { MembersPanel } from "./MembersPanel";
 import { isDbConfigured, listOrgMembers, listPendingInvites } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 
 export async function MembersTab({ slug }: { slug: string }) {
   if (!isDbConfigured()) {
@@ -19,7 +20,9 @@ export async function MembersTab({ slug }: { slug: string }) {
   }
   // Owner first, sequentially: the owner check is the one that may bootstrap an identity-verified
   // owner on an ownerless org, and a non-owner then needs the member check alone.
-  const canManage = await hasOrgRole(slug, "owner");
+  // The shared public org has no owner (hasOrgRole is true for any signed-in viewer there), and the
+  // management routes refuse it: show the read-only roster, never the controls or the invites.
+  const canManage = slug.trim().toLowerCase() !== PUBLIC_ORG && (await hasOrgRole(slug, "owner"));
   if (!canManage && !(await hasOrgRole(slug, "member"))) {
     return (
       <SectionEmpty>
