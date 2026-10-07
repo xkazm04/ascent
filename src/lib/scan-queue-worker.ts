@@ -19,6 +19,7 @@ import {
 } from "@/lib/db";
 import { claimJob, claimJobById, markJobCredit, reapExpiredLeases, settleJob, type ScanJobRow, type ScanLane } from "@/lib/db/scan-jobs";
 import { getInstallationToken } from "@/lib/github/app";
+import { degradedRead } from "@/lib/org/degraded-read";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { probeRepository } from "@/lib/scan-probe";
@@ -84,8 +85,8 @@ class OrgContext {
 
   async token(slug: string): Promise<string | undefined> {
     if (this.tokens.has(slug)) return this.tokens.get(slug);
-    const id = await getInstallationIdForOwner(slug).catch(() => null);
-    const tok = id ? await getInstallationToken(id).catch(() => undefined) : undefined;
+    const id = await getInstallationIdForOwner(slug).catch(degradedRead("queue-worker installation lookup (token)", null));
+    const tok = id ? await getInstallationToken(id).catch(degradedRead("queue-worker installation token mint", undefined)) : undefined;
     this.tokens.set(slug, tok);
     return tok;
   }
@@ -93,7 +94,7 @@ class OrgContext {
   /** True when this org HAS an installation but the token mint failed — a likely-revoked install, to
    *  be distinguished from a public org that legitimately scans tokenless. */
   async brokenInstall(slug: string): Promise<boolean> {
-    const id = await getInstallationIdForOwner(slug).catch(() => null);
+    const id = await getInstallationIdForOwner(slug).catch(degradedRead("queue-worker installation lookup (brokenInstall)", null));
     if (!id) return false;
     return (await this.token(slug)) === undefined;
   }
@@ -101,7 +102,7 @@ class OrgContext {
   async isByom(slug: string): Promise<boolean> {
     const hit = this.byom.get(slug);
     if (hit !== undefined) return hit;
-    const v = await isByomActive(slug).catch(() => false);
+    const v = await isByomActive(slug).catch(degradedRead("queue-worker BYOM check", false));
     this.byom.set(slug, v);
     return v;
   }
@@ -115,7 +116,8 @@ class OrgContext {
     const { getPrisma, isDbConfigured } = await import("@/lib/db/client");
     let slug: string | null = null;
     if (isDbConfigured()) {
-      const row = await getPrisma().organization.findUnique({ where: { id: orgId }, select: { slug: true } }).catch(() => null);
+      const row = await getPrisma().organization.findUnique({ where: { id: orgId }, select: { slug: true } })
+        .catch(degradedRead("queue-worker org slug lookup", null));
       slug = row?.slug ?? null;
     }
     this.slugs.set(orgId, slug);
@@ -132,7 +134,7 @@ class OrgContext {
 export async function drainLane(lane: ScanLane, opts: DrainOptions): Promise<DrainSummary> {
   const summary = emptySummary();
   const workerId = opts.workerId ?? `w_${Math.random().toString(36).slice(2, 10)}`;
-  await reapExpiredLeases().catch(() => 0);
+  await reapExpiredLeases().catch(degradedRead("queue-worker lease reap (drainLane)", 0));
 
   const ctx = new OrgContext();
   const pending = opts.jobs ? [...opts.jobs] : null;
@@ -141,14 +143,14 @@ export async function drainLane(lane: ScanLane, opts: DrainOptions): Promise<Dra
       for (;;) {
         const next = pending.shift();
         if (next === undefined) return null;
-        const won = await claimJobById(next.id, workerId).catch(() => null);
+        const won = await claimJobById(next.id, workerId).catch(degradedRead("queue-worker claim by id", null));
         // A job another worker holds is not ours to run; move on rather than blocking this lane.
         if (won) return won;
         summary.skipped += 1;
         opts.onRepo?.({ repo: next.repo, stage: "skipped", reason: "in_progress" });
       }
     }
-    return claimJob(lane, workerId).catch(() => null);
+    return claimJob(lane, workerId).catch(degradedRead("queue-worker claim", null));
   };
 
   const { truncated } = await drainUntilDeadline(
@@ -177,9 +179,9 @@ export async function drainLane(lane: ScanLane, opts: DrainOptions): Promise<Dra
  *  off/unknown cadence), including its scanSlotAt anchoring. */
 async function settleCadence(job: ScanJobRow): Promise<void> {
   if (!job.repoId) return;
-  const schedule = await getRepoSchedule(job.repoId).catch(() => null);
+  const schedule = await getRepoSchedule(job.repoId).catch(degradedRead("queue-worker schedule read (settleCadence)", null));
   if (!schedule) return;
-  await advanceToFullCadence(job.repoId, schedule).catch(() => {});
+  await advanceToFullCadence(job.repoId, schedule).catch(degradedRead("queue-worker cadence advance", undefined));
 }
 
 async function runProbeJob(job: ScanJobRow, slug: string, ctx: OrgContext, summary: DrainSummary, opts: DrainOptions): Promise<void> {
@@ -251,8 +253,10 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   const usesInstall = !importPolicy || importPolicy.token === "install";
   if (usesInstall && (await ctx.brokenInstall(slug))) {
     summary.skippedNoToken += 1;
-    if (job.repoId) await advanceScheduleAfterFailure(job.repoId).catch(() => {});
-    await recordScanOutcome(slug, repo, { ok: false, error: "installation token unavailable" }).catch(() => {});
+    if (job.repoId) await advanceScheduleAfterFailure(job.repoId).catch(degradedRead("queue-worker schedule advance after failure", undefined));
+    await recordScanOutcome(slug, repo, { ok: false, error: "installation token unavailable" }).catch(
+      degradedRead("queue-worker scan-outcome write (no token)", undefined),
+    );
     await settleJob(job.id, { state: "skipped", error: "installation token unavailable" });
     opts.onRepo?.({ repo, stage: "skipped", reason: "no_token" });
     return;
@@ -302,7 +306,7 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   let inferenceBilled = false;
   try {
     const [owner = "", name = ""] = repo.split("/");
-    const prev = await getScanReportByCommit(owner, name, { orgSlug: slug }).catch(() => null);
+    const prev = await getScanReportByCommit(owner, name, { orgSlug: slug }).catch(degradedRead("queue-worker previous-report read", null));
     const report = await scanRepository(repo, {
       ...(await scanCredential(importPolicy, slug, ctx)),
       ...(importPolicy?.mock ? { mock: true } : {}),
@@ -314,11 +318,11 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
     let refunded = false;
     if (shouldRefundScan(report, persisted)) refunded = await refundCredit();
     if (persisted && !persisted.deduped) {
-      const orgId = (await getOrgId(slug).catch(() => null)) ?? undefined;
+      const orgId = (await getOrgId(slug).catch(degradedRead("queue-worker org lookup (regression alert)", null))) ?? undefined;
       await checkAndAlertRegression(prev, report, { orgId, orgSlug: slug });
     }
     await settleCadence(job);
-    await recordScanOutcome(slug, repo, { ok: true }).catch(() => {});
+    await recordScanOutcome(slug, repo, { ok: true }).catch(degradedRead("queue-worker scan-outcome write (ok)", undefined));
     await settleJob(job.id, {
       state: "done",
       creditRefunded: refunded,
@@ -337,8 +341,8 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   } catch (err) {
     const msg = err instanceof Error ? err.message : "scan failed";
     const refunded = inferenceBilled ? false : await refundCredit();
-    if (job.repoId) await advanceScheduleAfterFailure(job.repoId).catch(() => {});
-    await recordScanOutcome(slug, repo, { ok: false, error: msg }).catch(() => {});
+    if (job.repoId) await advanceScheduleAfterFailure(job.repoId).catch(degradedRead("queue-worker schedule advance after failure", undefined));
+    await recordScanOutcome(slug, repo, { ok: false, error: msg }).catch(degradedRead("queue-worker scan-outcome write (failed)", undefined));
     await settleJob(job.id, { state: "failed", error: msg, creditRefunded: refunded });
     summary.failed += 1;
     const kept = inferenceBilled && charged ? " (credit kept, inference already ran)" : "";

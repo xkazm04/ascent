@@ -18,6 +18,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
 
 export type ScanLane = "rescore" | "probe";
 export type ScanJobState = "queued" | "claimed" | "done" | "failed" | "skipped";
@@ -156,11 +157,11 @@ export async function resolveRepoJobRef(
   repoFullName: string,
 ): Promise<{ orgId: string; repoId: string | null } | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await getOrgId(orgSlug).catch(() => null);
+  const orgId = await getOrgId(orgSlug).catch(degradedRead("scan-jobs org lookup (resolveRepoJobRef)", null));
   if (!orgId) return null;
   const repo = await getPrisma()
     .repository.findUnique({ where: { orgId_fullName: { orgId, fullName: repoFullName } }, select: { id: true } })
-    .catch(() => null);
+    .catch(degradedRead("scan-jobs repository lookup (resolveRepoJobRef)", null));
   return { orgId, repoId: repo?.id ?? null };
 }
 
@@ -199,7 +200,7 @@ export async function enqueueScanJob(input: EnqueueInput): Promise<{ id: string;
     // rather than assuming means a genuine failure surfaces as null instead of a phantom job id.
     const existing = await prisma.scanJob
       .findUnique({ where: { idempotencyKey: key }, select: { id: true } })
-      .catch(() => null);
+      .catch(degradedRead("scan-jobs idempotency read-back (enqueueScanJob)", null));
     return existing ? { id: existing.id, created: false } : null;
   }
 }
@@ -242,7 +243,7 @@ export async function enqueueDueRescans(limit?: number): Promise<number> {
       lane: "rescore",
       reason: "cadence",
       priority: JOB_PRIORITY.cadence,
-    }).catch(() => null);
+    }).catch(degradedRead("scan-jobs enqueue of one due rescan", null));
     if (res?.created) created += 1;
   }
   return created;
@@ -267,7 +268,7 @@ export async function enqueueDueProbes(limit?: number): Promise<number> {
       lane: "probe",
       reason: "cadence",
       priority: JOB_PRIORITY.cadence,
-    }).catch(() => null);
+    }).catch(degradedRead("scan-jobs enqueue of one due probe", null));
     if (res?.created) created += 1;
   }
   return created;
@@ -353,7 +354,7 @@ export async function claimJobById(id: string, workerId: string): Promise<ScanJo
         where: { id },
         data: { state: "queued", claimedAt: null, claimedBy: null, leaseUntil: null, notBefore: peerLease },
       })
-      .catch(() => {});
+      .catch(degradedRead("scan-jobs peer-yield requeue (claimJobById)", undefined));
     return null;
   }
   return toRow(won);
@@ -395,7 +396,8 @@ export async function claimRepoWork(
  *  a lost variable — the retry reads it and must not call `reserveScanCredit` again. */
 export async function markJobCredit(id: string, charged: boolean): Promise<void> {
   if (!isDbConfigured()) return;
-  await getPrisma().scanJob.update({ where: { id }, data: { creditCharged: charged } }).catch(() => {});
+  await getPrisma().scanJob.update({ where: { id }, data: { creditCharged: charged } })
+    .catch(degradedRead("scan-jobs creditCharged write (markJobCredit)", undefined));
 }
 
 /** Settle a claimed job. The ONLY path that clears `creditCharged`, and the only writer of
@@ -415,7 +417,7 @@ export async function settleJob(id: string, out: JobOutcome): Promise<void> {
         ...(out.creditRefunded ? { creditCharged: false } : {}),
       },
     })
-    .catch(() => {});
+    .catch(degradedRead("scan-jobs settle write (settleJob)", undefined));
 }
 
 /**
@@ -458,17 +460,19 @@ export async function queueDepth(orgSlug?: string): Promise<Record<ScanLane, Lan
   const prisma = getPrisma();
   let orgId: string | null = null;
   if (orgSlug) {
-    orgId = await getOrgId(orgSlug).catch(() => null);
+    orgId = await getOrgId(orgSlug).catch(degradedRead("scan-jobs org lookup (queueDepth)", null));
     if (!orgId) return empty;
   }
   const now = Date.now();
   for (const lane of ["rescore", "probe"] as ScanLane[]) {
     const where = { lane, state: "queued", ...(orgId ? { orgId } : {}) };
-    const queued = await prisma.scanJob.count({ where }).catch(() => 0);
+    // A failed count THROWS: a fabricated 0 here read as "nothing is waiting". Both callers (the two cron
+    // routes) catch it, answer null and name the failure in the response body.
+    const queued = await prisma.scanJob.count({ where });
     const oldest = queued
       ? ((await prisma.scanJob
           .findFirst({ where, orderBy: { createdAt: "asc" }, select: { createdAt: true } })
-          .catch(() => null)) as { createdAt: Date } | null)
+          .catch(degradedRead("scan-jobs oldest-queued read (queueDepth)", null))) as { createdAt: Date } | null)
       : null;
     empty[lane] = { queued, oldestAgeMs: oldest ? now - oldest.createdAt.getTime() : null };
   }
@@ -478,10 +482,9 @@ export async function queueDepth(orgSlug?: string): Promise<Record<ScanLane, Lan
 /**
  * `queueDepth` for an OPERATOR SURFACE — null wherever the number would be a fiction.
  *
- * `queueDepth` above returns a fully-zeroed record without a database and swallows every count error
- * into a 0, which is exactly right for the two cron routes: they run only where the DB is configured,
- * and a JSON field that degrades to zero keeps their response shape stable. It is exactly wrong for a
- * dashboard line, because a reader cannot tell "nothing is waiting" from "the queue table could not
+ * `queueDepth` above returns a fully-zeroed record without a database and THROWS on a failed count
+ * (the two cron routes answer null and name the failure). A zero is wrong for a dashboard line too,
+ * because a reader cannot tell "nothing is waiting" from "the queue table could not
  * be read" — the aggregate-honesty rule this fleet's meters are built on.
  *
  * So: null without a database, null for an unknown org, and null when the read itself fails. A caller
@@ -490,7 +493,7 @@ export async function queueDepth(orgSlug?: string): Promise<Record<ScanLane, Lan
  */
 export async function orgQueueDepth(orgSlug: string): Promise<Record<ScanLane, LaneDepth> | null> {
   if (!isDbConfigured()) return null;
-  const orgId = await getOrgId(orgSlug).catch(() => null);
+  const orgId = await getOrgId(orgSlug).catch(degradedRead("scan-jobs org lookup (orgQueueDepth)", null));
   if (!orgId) return null;
   const prisma = getPrisma();
   const now = Date.now();
@@ -511,7 +514,8 @@ export async function orgQueueDepth(orgSlug: string): Promise<Record<ScanLane, L
         : null;
       out[lane] = { queued, oldestAgeMs: oldest ? now - oldest.createdAt.getTime() : null };
     }
-  } catch {
+  } catch (err) {
+    noteReadFailure("scan-jobs orgQueueDepth", err);
     return null;
   }
   return out;
@@ -524,11 +528,11 @@ export async function orgQueueDepth(orgSlug: string): Promise<Record<ScanLane, L
  */
 export async function listJobsForRun(orgSlug: string, runId: string): Promise<ScanJobRow[]> {
   if (!isDbConfigured()) return [];
-  const orgId = await getOrgId(orgSlug).catch(() => null);
+  const orgId = await getOrgId(orgSlug).catch(degradedRead("scan-jobs org lookup (listJobsForRun)", null));
   if (!orgId) return [];
   const rows = (await getPrisma()
     .scanJob.findMany({ where: { orgId, runId }, orderBy: { createdAt: "asc" } })
-    .catch(() => [])) as PrismaJob[];
+    .catch(degradedRead("scan-jobs run read (listJobsForRun)", []))) as PrismaJob[];
   return rows.map(toRow);
 }
 
@@ -541,7 +545,7 @@ export async function queuedJobsForRepos(orgId: string, fullNames: string[]): Pr
       where: { orgId, state: { in: UNSETTLED }, repoFullName: { in: fullNames } },
       select: { repoFullName: true },
     })
-    .catch(() => [])) as { repoFullName: string }[];
+    .catch(degradedRead("scan-jobs queued-tag read (queuedJobsForRepos)", []))) as { repoFullName: string }[];
   for (const r of rows) out.add(r.repoFullName);
   return out;
 }
