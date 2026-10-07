@@ -2,8 +2,8 @@
 // middleware at the project root / src/middleware.ts, and none exists), so auth must be enforced
 // per-handler: every mutating or token-minting org endpoint calls requireOrgAccess(). This mirrors
 // the read-side model in readableOrgForOwner — auth-off deployments are open (local/demo), the
-// shared "public" org is actable by anyone (the free funnel), and a real org requires a session
-// whose GitHub-App installations include it.
+// shared "public" org is actable by anyone (the free funnel: scan, import, watch) but administrable by
+// no one (refusePublicOrgAdmin), and a real org requires a real Membership under the login wall.
 
 import "server-only";
 
@@ -282,9 +282,19 @@ export async function hasOrgRole(org: string, min: OrgRole): Promise<boolean> {
  * (401/403) when the caller's role in `org` is below `min`, or null when allowed. Role resolution is
  * {@link viewerOrgRole}: an explicit Membership row wins, and an org with NO owner yet may be claimed
  * only by a viewer who is provably entitled to it (their own personal namespace, or a GitHub-confirmed
- * admin of the installed org). Auth-off deployments and PUBLIC_ORG are open, mirroring
- * requireOrgAccess. Use for owner/admin-only actions: billing/credit grants, member admin, destructive
- * deletes. For "any member may act" use requireOrgAccess; for reads use requireOrgRead.
+ * admin of the installed org). Auth-off deployments are open, mirroring requireOrgAccess.
+ *
+ * PUBLIC_ORG passes this gate at ANY `min`, owner included, for any signed-in viewer: nobody holds a
+ * role in the shared funnel org (ensureOwnerMembership refuses to seed one), so there is no role to
+ * check. This gate ON ITS OWN therefore does not protect an action that destroys or rewrites the
+ * public org's data, settings, membership or credentials; such a route must also call
+ * {@link refusePublicOrgAdmin}, as erase, retention, llm-provider, members, invites, credits/grant
+ * and tokens do. The open default is deliberate and unchanged, because hasOrgRole callers (the report
+ * permalink, the executive tab) read it on public orgs. Other owner/admin routes that still rely on
+ * this gate alone for public are listed in docs/security/scan-2026-10-07.md.
+ *
+ * Use for owner/admin-only actions: billing/credit grants, member admin, destructive deletes. For
+ * "any member may act" use requireOrgAccess; for reads use requireOrgRead.
  *
  * This used to read "an installation-owner (sessionOwnsOrg) is treated as owner and seeded as one".
  * That path was REMOVED with the retired custom-OAuth stack, and sessionOwnsOrg no longer participates
