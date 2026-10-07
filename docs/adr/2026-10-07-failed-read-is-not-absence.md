@@ -101,6 +101,7 @@ or the caller already has its own error door. Use `degradedRead` for a class B r
   matcher. Silent sites before / after the sweep: 39 / 0 (cron routes 6 / 0, `scan-jobs.ts` 16 / 0,
   `scan-queue-worker.ts` 17 / 0), allowlist empty. A failed cron step now answers null plus a named `errors`
   entry, and `queueDepth` throws on a failed count instead of answering 0.
+- The same guard also covers the three org stream/poll routes (`api/org/import`, `api/org/scan`, `api/org/scan/queue`): 16 silent sites before, 3 after, all class C and allowlisted (a quota-telemetry write and two request-body parses that become a 400). The other 13 are class B through `degradedRead`. `listJobsForRun` is class A (`dbReadStrict`): the queue poll answers 503 on a failed read, and the scan and import routes send `queued` with `queued: null` instead of settling. A failed enqueue or claim gets its own `repo` error frame. `org-rollup.ts`'s two queued/controls reads are class B through `noteReadFailure`.
 - `src/lib/scan-read-door.test.ts` pins that each door reaches both a log and `reportHandledError`.
 - `*.unreachable.test.ts(x)` (permalink page, history, passport, recommendations) run the real readers
   over the real client wrappers with only Prisma faked, for both a `PrismaClientInitializationError` and

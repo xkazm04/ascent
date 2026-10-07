@@ -324,8 +324,8 @@ later scan re-produces it.
   // across orgs — a persistently non-zero value on a short retention horizon is the condition
   // under which a day can be purged before it is ever sealed.
   ledgerSeal: { orgs: number, daysSealed: number, backlogRemaining: number } | null,
-  reaped: number,              // expired leases returned to the queue (or failed at max attempts)
-  seeded: number,              // NEW jobs the seeder enqueued this pass (idempotent, so often 0)
+  reaped: number | null,       // expired leases returned to the queue (or failed at max attempts); null = the step failed
+  seeded: number | null,       // NEW jobs the seeder enqueued this pass (idempotent, so often 0); null = the step failed
   claimed: number,             // jobs this invocation won
   scanned: number,             // jobs that completed a real scan
   failed: number,
@@ -334,9 +334,16 @@ later scan re-produces it.
   skippedNoToken: number,      // org's installation token could not be minted
   truncated: boolean,          // the wall-clock deadline stopped the drain early
   queueDepth: { queued: number, oldestAgeMs: number | null } | null,
-  errors: string[],            // "<fullName>: <message>" per failed scan
+  errors: string[],            // "<fullName>: <message>" per failed scan, plus one named entry per failed step
 }
 ```
+
+**A failed step answers `null` for its field and a named entry in `errors`** (e.g.
+`cron/rescan reapExpiredLeases failed`), never a `0` that would read as "nothing was due". The pass
+still answers 200: one failed step does not fail the rest. `queueDepth()` throws on a failed count
+(it no longer answers `0`), and the cron routes catch it, answer `queueDepth: null` and name the
+failure. Every such step also reaches the degraded-read door (`console.warn` plus
+`reportHandledError`). See [the ADR](../../adr/2026-10-07-failed-read-is-not-absence.md).
 
 `queueDepth` is read AFTER the drain and is the honest remainder — a supplier-driven drain cannot
 know what is still queued without claiming it, and claiming a row it will not run would be worse than
@@ -350,8 +357,8 @@ saw the number 400."* The **Repositories** tab now opens with one line above the
 *"Scan queue: 400 rescans waiting, oldest queued 3h ago."*
 
 It reads through `orgQueueDepth(slug)`, a deliberate sibling of `queueDepth()` rather than a reuse of
-it. `queueDepth` returns a fully-zeroed record without a database and swallows a failed count into a
-`0` — right for a cron body whose response shape must stay stable, and wrong for a dashboard, where a
+it. `queueDepth` returns a fully-zeroed record without a database (and now throws on a failed count) —
+right for a cron body that names the failure beside a null, and wrong for a dashboard, where a
 reader cannot tell "nothing is waiting" from "the queue table could not be read". `orgQueueDepth`
 returns **null** in all three of those cases and the line says
 *"Scan queue depth is unavailable — this deployment's job queue could not be read."* An empty queue
@@ -366,9 +373,22 @@ skippedInProgress, queued }`, preceded by `queued { runId, queued, total }` when
 the drain. **The `truncated` frame and its `remaining`/`repos` payload are gone** — they described
 work that had been dropped, and no work is dropped any more.
 
+**A failed remainder read is not an empty remainder.** If reading the run's rows fails after the drain,
+both `POST /api/org/scan` and `POST /api/org/import` still send `queued { runId, queued: null, total }`
+(and `result.queued: null`), so the client follows the run through the queue poll instead of settling it
+as finished. The failure reaches the degraded-read door. A repo whose enqueue fails (throws or answers
+null) gets its own `repo { error }` frame and counts as handled, so `done` still reaches `total`. On
+import, a claim that throws is a `repo { error }` frame; only a claim that answers null (a lost race)
+is `skipped: "in_progress"`.
+
 `GET /api/org/scan/queue?org=&runId=` returns
 `{ runId, total, queued, running, done, failed, skipped, pending, repos: [{ repo, state }] }`. It
 deliberately carries no ETA: nothing here can honestly say when the next cron pass runs.
+
+A failed read answers **503** `{ error }` (after `console.error` plus `reportHandledError`), never 200 with
+zero counts, since both followers (`useOrgScanButton`, `useImportReattach`) read `total: 0, pending: 0` as
+finished. A non-OK poll is no evidence: the scan button keeps its last count and the wizard shows
+"unavailable". `listJobsForRun` is class A and throws on a failed org lookup or run read.
 
 ## Who can be watched (`POST /api/org/watch`, since 2026-09-24)
 
