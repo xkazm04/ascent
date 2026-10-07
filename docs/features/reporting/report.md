@@ -359,6 +359,13 @@ half is replaced by the "need two scans" notice.
 
 ### Time axis (`src/lib/report/compare.ts` + `WhatChanged`)
 
+**The ruler.** `ScanDiff.ruler = { before, after, same }` carries the two ends' `rubricVersion` and
+`sameRuler` (`src/lib/maturity/attribution.ts`). `same === false` is a provable rubric change, and
+`WhatChanged` then leads with a "Scored under different rubrics" note: the level transition and the
+deltas include the rubric change, not the repository's movement alone. `null` (an end that records no
+rubric) never refuses or discloses anything: the alert lane's policy (`scan-alerts.ts`), so the chart,
+the compare page and the alert email agree. The field is additive; no other `diffScans` output depends on it.
+
 `diffScans(before, after)` is a pure diff engine returning a `ScanDiff`: overall/adoption/
 rigor `AxisDelta`s, a `LevelTransition`, posture change, per-dimension `DimensionDiff[]`,
 closed/opened gap counts, appeared/disappeared signal counts, recommendations moved to
@@ -378,7 +385,7 @@ change in what was measured is not an improvement or a regression, and the old p
 score-coloured bar was indistinguishable from a dimension that held steady.
 
 `WhatChanged` (`src/components/report/WhatChanged.tsx`, server) renders the diff as a
-story: signal-count badges, "why it moved" attribution, level/posture transitions, axis
+story: **a rubric-change disclosure first** (see below), signal-count badges, "why it moved" attribution, level/posture transitions, axis
 diff bars, per-dimension `DimensionDiffCard`s, and completed recommendations.
 `ScanComparePicker` (client) holds the scan pair **and** the exemplar selection entirely
 in the URL (`?a=&b=&against=`) so the comparison is shareable and back-button-safe. It
@@ -474,6 +481,12 @@ same signature, a rubric-versioned snapshot instead of the live corpus, no calle
 
 ## Trends / history
 
+**A failed read is not "never scanned".** `/trends` and `/report/compare` read strictly
+(`getRepositoryHistory` / `getScanComparison` with `strict: true`, via `readSafeOrStrict`; the default
+for every other caller is unchanged) and catch `DbUnavailableError`: an unreachable database renders
+"Scan history is unavailable right now … try again", never "No scans recorded yet" and never a 500. A repo
+that truly has no scans still gets "No scans recorded yet". Any other error propagates.
+
 - `GET /api/history?repo=owner/repo` → `RepositoryHistory` (repo + `HistoryPoint[]`).
   Requires `DATABASE_URL` (503 otherwise); org-scoped and session-gated when auth is on.
 - `DimensionTrends` (`src/components/report/DimensionTrends.tsx`) fetches history and
@@ -507,6 +520,14 @@ Below a shared sample floor the forecast is **suppressed, not annotated**:
 scan days) *and* `MIN_FORECAST_SPAN_DAYS` (14 days of calendar span). Many scans inside one week is
 still one week. Below either, the panel renders the reason instead of an ETA + confidence figure.
 
+**A rubric change cuts the fit.** A rubric bump re-scores the repository, so a line across one would read
+the bump as a slope. `fitTrendForecast` fits only the trailing run of points scored under the latest
+point's rubric, walking back and stopping at the first provable change (`sameRuler === false`; a point
+with no recorded rubric never breaks the run). A run shorter than the fit's two-day minimum returns null.
+`rubricTruncation` tells `TrajectoryPanel` the fit was cut, so when the remaining run is too short the
+panel says the history *under the current rubric* is too short to project (not that history is missing),
+and when it still fits, the basis line names "the N of M history points scored under rN".
+
 ### Timeline annotations
 
 `deriveTrendAnnotations` (`src/app/trends/annotations.ts`) derives markers from the scan series
@@ -516,6 +537,11 @@ detail, delta, sha, commitSha }`, rendered as a dated "Events on this timeline" 
 in-chart vertical rules on the overall chart and each `DimLine`. Markers are positioned by matching
 `at` against a point's timestamp, never by array index, since the chart slices by range and the
 annotation list does not.
+
+**A rubric change is its own marker.** A consecutive pair scored under provably different rubrics
+(`sameRuler === false`) emits no promotion, demotion or regression: one marker of kind `rubric`
+(label "r17 → r18") says the move there measures the rubric, not the repository. A pair with an end that
+records no rubric takes the ordinary path, the same policy as the alert lane.
 
 **Deploy markers** (kind `deploy`) come from persisted `Deployment` rows (the W4 GitHub Deployments
 ingest), never from "a scan happened". `getRepositoryDeployments` (`src/lib/db/repo-deployments.ts`)
