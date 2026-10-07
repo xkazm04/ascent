@@ -95,7 +95,8 @@ Notes, all read directly from the model:
   (`planAllowsWhiteLabel`, `planAllowsSkillsLibrary`, `planAllowsMemory`, `planAllowsByom`,
   `planAllowsPdfExport`) are thin aliases kept so call sites read in domain terms.
   - Current matrix: white-label briefings, skills library, shared org memory and BYOM at **Team and
-    up** (BYOM since 2026-08-19, Custom-only before that); PDF export at **Starter and up**. Hosted loop
+    up** (BYOM since 2026-08-19, Custom-only before that); PDF export at **Starter and up** (saved-report PDF only: the executive briefing PDF is deliberately
+    free on every tier, see [ADR 2026-10-07-briefing-pdf-free-on-every-tier](../../adr/2026-10-07-briefing-pdf-free-on-every-tier.md)). Hosted loop
     runs (`hostedLoop`, ADR-0001) are at **Team and up** at the gate but **`unlisted`**. A capability
     whose meta carries `unlisted: <reason>` is dropped from `PLAN_LISTED_CAPABILITY_ORDER`, which is
     what the plan cards, the credit matrix and the self-host diff read. So the gate exists before the

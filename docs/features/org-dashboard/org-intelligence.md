@@ -1312,7 +1312,7 @@ account-wide too). Unscoped briefings are unchanged. Existing segment-scoped sha
 figure fingerprint (goals and benchmark are in `briefingFigureDigest`), so they show the "Figures
 moved" banner once, the safe direction. **Three surfaces render the same `ExecBriefing`** and must never disagree: the
 Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[slug]/executive/page.tsx` is a redirect into the tab shell), the board PDF
-(`GET /api/org/briefing/pdf` → `src/lib/pdf/briefing-document.tsx`), and the "Copy for LLM"
+(`GET /api/org/briefing/pdf` → `src/lib/pdf/briefing-document.tsx`; read-gated only, deliberately free on every tier and outside `pdfExport`, per `docs/adr/2026-10-07-briefing-pdf-free-on-every-tier.md`), and the "Copy for LLM"
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
 same builder against the token's window. A PDF build that throws stays a 404, and the body says
 the briefing could not be built; only a builder that returns null says the organization has no

@@ -126,6 +126,8 @@ export const PLAN_CAPABILITIES: Record<PlanCapability, PlanCapabilityMeta> = {
   // The PRD's legacy "Private" tier (paid, usage-based private-repo scanning) is what originally
   // bundled PDF export; today's nearest equivalent is the lowest PAID plan, since Free is a real usage
   // tier now and gating any lower would mean no plan could ever unlock it (g1-02).
+  // Saved-report PDF only. The executive briefing PDF (/api/org/briefing/pdf) is deliberately OUTSIDE this
+  // capability and free on every tier: see docs/adr/2026-10-07-briefing-pdf-free-on-every-tier.md.
   pdfExport: {
     id: "pdfExport",
     minPlan: "pro",

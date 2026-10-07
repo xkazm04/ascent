@@ -31,6 +31,8 @@ export async function GET(request: Request) {
   const sp = new URL(request.url).searchParams;
   const org = sp.get("org");
   if (!org) return NextResponse.json({ error: "Missing ?org." }, { status: 400 });
+  // Read gate only, on purpose: the briefing PDF is deliberately outside pdfExport (planAllowsPdfExport) and
+  // free on every tier, unlike /api/report/pdf. See docs/adr/2026-10-07-briefing-pdf-free-on-every-tier.md.
   const denied = await requireOrgRead(org);
   if (denied) return denied;
 
