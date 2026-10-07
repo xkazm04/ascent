@@ -76,7 +76,11 @@ export function ScanForm({
   useEffect(() => {
     let active = true;
     fetch("/api/auth/viewer")
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        // The route always answers 200; anything else is a failed read, routed to the same door below.
+        if (!r.ok) throw new Error(`viewer read failed: HTTP ${r.status}`);
+        return r.json();
+      })
       .then((d) => {
         if (active && d) setViewer({ signedIn: Boolean(d.signedIn), email: d.email ?? null });
       })
