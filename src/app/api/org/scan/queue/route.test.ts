@@ -17,11 +17,13 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/db", () => ({ isDbConfigured: vi.fn(() => true) }));
 vi.mock("@/lib/db/scan-jobs", () => ({ listJobsForRun: vi.fn(async () => []) }));
+vi.mock("@/lib/api/respond", () => ({ reportHandledError: vi.fn() }));
 vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null) }));
 
 import { GET } from "./route";
 import { listJobsForRun } from "@/lib/db/scan-jobs";
 import { requireOrgAccess } from "@/lib/authz";
+import { reportHandledError } from "@/lib/api/respond";
 
 const mockJobs = vi.mocked(listJobsForRun);
 const mockGate = vi.mocked(requireOrgAccess);
@@ -75,5 +77,24 @@ describe("the poll's answer", () => {
   it("returns zeros — not an error — for a run with no jobs, so the poll can end cleanly", async () => {
     const out = (await (await get("?org=acme&runId=gone")).json()) as Record<string, number>;
     expect(out).toMatchObject({ total: 0, pending: 0 });
+  });
+});
+
+describe("a failed read is not an empty run", () => {
+  it("answers 503 with an error body (never 200 with zero counts), logs and reports it", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error("read down");
+    mockJobs.mockRejectedValue(failure);
+
+    const res = await get("?org=acme&runId=run_1");
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(503);
+    expect(body.error).toEqual(expect.any(String));
+    expect(body).not.toHaveProperty("pending");
+    expect(body).not.toHaveProperty("total");
+    expect(err).toHaveBeenCalled();
+    expect(reportHandledError).toHaveBeenCalledWith(failure, expect.objectContaining({ status: 503 }));
+    err.mockRestore();
   });
 });
