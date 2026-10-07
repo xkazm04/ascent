@@ -31,7 +31,7 @@ vi.mock("@/lib/db/retention", () => ({
   setOrgRetention: h.setOrgRetention,
   previewOrgRetention: h.previewOrgRetention,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole, refusePublicOrgAdmin: () => null }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: h.requireSameOrigin }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: h.resolveViewerLogin }));
 

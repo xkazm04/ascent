@@ -7,11 +7,13 @@
 // writes nothing. A save writes the columns only — it never purges. See docs/features/data/retention.md.
 //
 // Route shape: flat `/api/org/<verb>` with the tenant in the body / `?org=`, like erase/branding.
-// Guards: GET is owner-gated; POST is same-origin then owner (requireOrgOwnerPost).
+// Guards: GET is owner-gated; POST is same-origin then owner (requireOrgOwnerPost), and refuses the
+// shared "public" org outright (refusePublicOrgAdmin): requireOrgRole admits PUBLIC_ORG for any
+// signed-in viewer, and nobody owns the public corpus's retention window (security scan 2026-10-07, S2).
 
 import { NextResponse } from "next/server";
 import { isDbConfigured, recordOrgAudit } from "@/lib/db";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { resolveViewerLogin } from "@/lib/access";
 import { getOrgRetention, previewOrgRetention, setOrgRetention } from "@/lib/db/retention";
@@ -72,6 +74,8 @@ export async function POST(request: Request) {
   const gate = await requireOrgOwnerPost<Record<string, unknown>>(request, { missingOrgError: MISSING });
   if (gate instanceof NextResponse) return gate;
   const { org, body } = gate;
+  const publicRefused = refusePublicOrgAdmin(org);
+  if (publicRefused) return publicRefused;
 
   const parsed = parseOrgRetentionBody({
     retentionMaxScans: body.retentionMaxScans,
