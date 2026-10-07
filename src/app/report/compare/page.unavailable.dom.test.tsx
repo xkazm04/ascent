@@ -11,7 +11,9 @@ const h = vi.hoisted(() => ({ comparison: vi.fn() }));
 vi.mock("@/components/Brand", () => ({ SiteHeader: () => null, SiteFooter: () => null }));
 vi.mock("@/lib/signin-gate", () => ({ resolveSignInState: async () => ({ needsSignIn: false, provider: null, expired: false }) }));
 vi.mock("@/lib/auth", () => ({ readableOrgForOwner: async () => "acme" }));
-vi.mock("@/lib/db", () => ({ isDbConfigured: () => true, getScanComparison: h.comparison }));
+vi.mock("@/lib/db", () => ({
+  isDbConfigured: () => true,
+  getScanComparison: h.comparison }));
 vi.mock("@/lib/report/exemplar-load", () => ({
   loadSubjectFacets: async () => ({}),
   listExemplarOptions: async () => [],
@@ -19,8 +21,8 @@ vi.mock("@/lib/report/exemplar-load", () => ({
 vi.mock("@/components/report/ScanComparePicker", () => ({ ScanComparePicker: () => null }));
 
 import ComparePage from "@/app/report/compare/page";
-import { DbUnavailableError } from "@/lib/db/client";
 
+const { DbUnavailableError } = await vi.importActual<typeof import("@/lib/db/client")>("@/lib/db/client");
 const renderPage = async () => render(await ComparePage({ searchParams: Promise.resolve({ repo: "acme/web" }) }));
 
 beforeEach(() => {

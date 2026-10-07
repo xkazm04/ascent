@@ -10,12 +10,14 @@ const h = vi.hoisted(() => ({ history: vi.fn() }));
 vi.mock("@/components/report/ReportShell", () => ({ ReportShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock("@/lib/signin-gate", () => ({ resolveSignInState: async () => ({ needsSignIn: false, provider: null, expired: false }) }));
 vi.mock("@/lib/auth", () => ({ readableOrgForOwner: async () => "acme" }));
-vi.mock("@/lib/db", () => ({ isDbConfigured: () => true, getRepositoryHistory: h.history }));
+vi.mock("@/lib/db", () => ({
+  isDbConfigured: () => true,
+  getRepositoryHistory: h.history }));
 vi.mock("@/lib/db/repo-deployments", () => ({ getRepositoryDeployments: async () => [] }));
 
 import TrendsPage from "@/app/trends/page";
-import { DbUnavailableError } from "@/lib/db/client";
 
+const { DbUnavailableError } = await vi.importActual<typeof import("@/lib/db/client")>("@/lib/db/client");
 const renderPage = async () => render(await TrendsPage({ searchParams: Promise.resolve({ repo: "acme/web" }) }));
 
 beforeEach(() => {

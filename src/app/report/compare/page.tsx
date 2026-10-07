@@ -5,11 +5,11 @@ import { ScanComparePicker } from "@/components/report/ScanComparePicker";
 import { WhatChanged } from "@/components/report/WhatChanged";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getScanComparison, isDbConfigured } from "@/lib/db";
-import { DbUnavailableError } from "@/lib/db/client";
 import type { ScanComparison } from "@/lib/db/scans";
 import { readableOrgForOwner } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { SignInNotice } from "@/components/SignInNotice";
+import { isDbDown } from "@/app/trends/dbDown";
 import { diffScans } from "@/lib/report/compare";
 import { HEADER_ACTION_LINK_CLASS } from "@/components/report/pill";
 import { listExemplarOptions, loadSubjectFacets } from "@/lib/report/exemplar-load";
@@ -94,7 +94,7 @@ export default async function ComparePage({
       strict: true,
     });
   } catch (err) {
-    if (!(err instanceof DbUnavailableError)) throw err;
+    if (!isDbDown(err)) throw err;
     return (
       <Shell>
         <Notice

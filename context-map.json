@@ -2993,6 +2993,7 @@
             "src/components/report/DimensionTrends.dom.test.tsx",
             "src/lib/report/validate.test.ts",
             "src/app/trends/forecast.ts",
+            "src/app/trends/dbDown.ts",
             "src/app/trends/forecast.test.ts",
             "src/app/trends/forecast.ruler.test.ts",
             "src/app/trends/annotations.ts",

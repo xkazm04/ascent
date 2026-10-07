@@ -10,8 +10,8 @@ import { deriveDeployAnnotations, mergeTimelineEvents } from "@/app/trends/deplo
 import { getRepositoryDeployments } from "@/lib/db/repo-deployments";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
-import { DbUnavailableError } from "@/lib/db/client";
 import type { RepositoryHistory } from "@/lib/db/scans";
+import { isDbDown } from "@/app/trends/dbDown";
 import { HISTORY_SCAN_CAP, historyCapNote } from "@/lib/history/limits";
 import { readableOrgForOwner } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
@@ -111,7 +111,7 @@ export default async function TrendsPage({
       strict: true,
     });
   } catch (err) {
-    if (!(err instanceof DbUnavailableError)) throw err;
+    if (!isDbDown(err)) throw err;
     return (
       <Shell>
         <Notice
