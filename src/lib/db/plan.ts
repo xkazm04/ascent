@@ -12,6 +12,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { degradedRead } from "@/lib/org/degraded-read";
 import { retentionCutoff } from "@/lib/plans";
 import { DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { meanPerDayKey, projectGoal, type Forecast, type GoalPace, type GoalProjection, type SeriesPoint, type Trajectory } from "@/lib/maturity/forecast";
@@ -498,8 +499,8 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
   if (justAchieved.length || justRegressed.length) {
     const at = new Date(now);
     await Promise.all([
-      ...justAchieved.map((id) => prisma.goal.update({ where: { id }, data: { status: "achieved", achievedAt: at } }).catch(() => {})),
-      ...justRegressed.map((id) => prisma.goal.update({ where: { id }, data: { status: "active", achievedAt: null } }).catch(() => {})),
+      ...justAchieved.map((id) => prisma.goal.update({ where: { id }, data: { status: "achieved", achievedAt: at } }).catch(degradedRead("goal achieved-status write", undefined))),
+      ...justRegressed.map((id) => prisma.goal.update({ where: { id }, data: { status: "active", achievedAt: null } }).catch(degradedRead("goal active-status write", undefined))),
     ]);
   }
   return out;

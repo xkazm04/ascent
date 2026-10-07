@@ -142,6 +142,22 @@ describe("listGoals and the closed status", () => {
   });
 });
 
+describe("listGoals' best-effort status write", () => {
+  it("reports a failed achieved write through noteReadFailure and still returns the goals", async () => {
+    const { prisma } = fakePrisma({
+      goals: [{ id: "g1", target: 70, status: "active" }],
+      repos: [{ fullName: "acme/a", name: "a", overall: 80 }],
+    });
+    prisma.goal.update.mockRejectedValueOnce(new Error("write failed"));
+    mockGetPrisma.mockReturnValue(prisma);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const out = await listGoals(ORG_SLUG);
+    expect(out).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith("[degraded-read] goal achieved-status write failed", "write failed");
+    warn.mockRestore();
+  });
+});
+
 describe("listGoals achievedAt state-stamp (the persisted transition inside a read)", () => {
   it("reads the latest snapshot through flat scan queries without nested repository scans", async () => {
     const { prisma } = fakePrisma({ goals: [{ id: "g1", target: 80 }], repos: [
