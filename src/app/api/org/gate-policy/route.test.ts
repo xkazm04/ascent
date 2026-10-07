@@ -31,7 +31,7 @@ vi.mock("@/lib/db", () => ({
   getInstallationIdForOwner: vi.fn(async () => "42"),
   listWatchedRepos: vi.fn(async () => []),
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null), requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRead: vi.fn(async () => null), requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "owner-login") }));
 // describeGatePolicy stays REAL (importOriginal) so the audit row's human-readable bar is the exact

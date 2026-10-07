@@ -23,7 +23,7 @@ import {
   recordOrgAudit,
   setOrgGatePolicy,
 } from "@/lib/db";
-import { requireOrgRead } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { resolveViewerLogin } from "@/lib/access";
 import { describeGatePolicy, sanitizeGatePolicy, type GatePolicy } from "@/lib/scoring/gate";
@@ -198,6 +198,8 @@ export async function POST(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Gate policy requires a database." }, { status: 503 });
   const gate = await requireOrgOwnerPost<{ policy?: unknown }>(request, { missingOrgError: "Provide { org, policy }." });
   if (gate instanceof NextResponse) return gate;
+  const noPublic = refusePublicOrgAdmin(gate.org);
+  if (noPublic) return noPublic;
   const { org, body } = gate;
 
   // null clears (back to the archetype default); anything else is sanitized — an all-invalid object
