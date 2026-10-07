@@ -25,10 +25,10 @@ vi.mock("@/lib/access", () => ({ authGateEnabled: () => true, getViewer: vi.fn(a
 let enabled = true;
 vi.mock("@/lib/briefing-share", () => ({ briefingShareEnabled: () => enabled }));
 
-const revokeBriefingShareLink = vi.fn<(jti: string) => Promise<void>>(async () => {});
+const revokeBriefingShareLink = vi.fn<(org: string, jti: string) => Promise<void>>(async () => {});
 const listBriefingShareGrants = vi.fn<(org: string) => Promise<unknown[]>>(async () => []);
 vi.mock("@/lib/db/org-share", () => ({
-  revokeBriefingShareLink: (j: string) => revokeBriefingShareLink(j),
+  revokeBriefingShareLink: (o: string, j: string) => revokeBriefingShareLink(o, j),
   listBriefingShareGrants: (o: string) => listBriefingShareGrants(o),
 }));
 
@@ -68,7 +68,7 @@ describe("revoking one briefing share link", () => {
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
     expect(await res.json()).toEqual({ ok: true, jti: "g1" });
-    expect(revokeBriefingShareLink).toHaveBeenCalledWith("g1");
+    expect(revokeBriefingShareLink).toHaveBeenCalledWith("acme", "g1");
     expect(recordAudit).toHaveBeenCalledWith(
       "briefing.share.revoked",
       expect.objectContaining({ jti: "g1", mintedBy: "owner-a", grantFound: true }),
@@ -78,11 +78,21 @@ describe("revoking one briefing share link", () => {
 
   it("revokes a grant that is NOT in the audit-bounded list — the case that matters most", async () => {
     // A mint row aged out of retention while the token's TTL is still running. Refusing here would leave
-    // the owner with no way to kill a link they can prove is leaked.
+    // the owner with no way to kill a link they can prove is leaked. This is safe because the ledger key
+    // carries the gated org (next test): naming a jti that is not yours kills nothing of anyone else's.
     const res = await call({ org: "acme", jti: "ancient" });
     expect(res.status).toBe(200);
-    expect(revokeBriefingShareLink).toHaveBeenCalledWith("ancient");
+    expect(revokeBriefingShareLink).toHaveBeenCalledWith("acme", "ancient");
     expect(recordAudit).toHaveBeenCalledWith("briefing.share.revoked", expect.objectContaining({ grantFound: false }), expect.anything());
+  });
+
+  it("writes the revocation under the GATED org, never one taken from the jti or the body", async () => {
+    // Owner of org-b names a jti that belongs to org-a's link (it is readable in the plaintext token).
+    requireOrgOwnerPost.mockImplementation(async (req: Request) => ({ org: "org-b", body: await req.json() }) as unknown);
+    const res = await call({ org: "org-b", jti: "jti-of-org-a" });
+    expect(res.status).toBe(200);
+    expect(revokeBriefingShareLink).toHaveBeenCalledTimes(1);
+    expect(revokeBriefingShareLink).toHaveBeenCalledWith("org-b", "jti-of-org-a");
   });
 
   it("survives a failing grant lookup — it is a record, not a gate", async () => {
@@ -90,7 +100,7 @@ describe("revoking one briefing share link", () => {
       throw new Error("audit read down");
     });
     expect((await call({ org: "acme", jti: "g1" })).status).toBe(200);
-    expect(revokeBriefingShareLink).toHaveBeenCalledWith("g1");
+    expect(revokeBriefingShareLink).toHaveBeenCalledWith("acme", "g1");
   });
 
   it("is idempotent: revoking twice is still a success", async () => {

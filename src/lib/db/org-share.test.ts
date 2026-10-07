@@ -47,29 +47,69 @@ beforeEach(() => {
 describe("one namespace-aware lookup backs both link kinds", () => {
   it("keys each kind into its own namespace", async () => {
     await isLiveShareRevoked("j1");
-    await isBriefingShareRevoked("j1");
-    expect(getSessionVersion.mock.calls.map((c) => c[0])).toEqual(["live-share:j1", "briefing-share:j1"]);
+    await isBriefingShareRevoked("acme", "j1");
+    // The briefing read checks the org-scoped key, then the legacy unscoped one.
+    expect(getSessionVersion.mock.calls.map((c) => c[0])).toEqual(["live-share:j1", "briefing-share:acme:j1", "briefing-share:j1"]);
   });
 
   it("revokes into the same namespaces it reads", async () => {
     await revokeLiveShareLink("j2");
-    await revokeBriefingShareLink("j2");
-    expect(bumpSessionVersion.mock.calls.map((c) => c[0])).toEqual(["live-share:j2", "briefing-share:j2"]);
+    await revokeBriefingShareLink("acme", "j2");
+    // Writes only the org-scoped key, never the legacy one.
+    expect(bumpSessionVersion.mock.calls.map((c) => c[0])).toEqual(["live-share:j2", "briefing-share:acme:j2"]);
   });
 
   it("treats version > 0 as dead and 0 as live, per namespace", async () => {
-    getSessionVersion.mockImplementation(async (k: string) => (k === "briefing-share:dead" ? 3 : 0));
-    expect(await isBriefingShareRevoked("dead")).toBe(true);
-    expect(await isBriefingShareRevoked("alive")).toBe(false);
+    getSessionVersion.mockImplementation(async (k: string) => (k === "briefing-share:acme:dead" ? 3 : 0));
+    expect(await isBriefingShareRevoked("acme", "dead")).toBe(true);
+    expect(await isBriefingShareRevoked("acme", "alive")).toBe(false);
     // The same jti under the other namespace is a different grant entirely.
     expect(await isLiveShareRevoked("dead")).toBe(false);
   });
 
   it("ignores an empty jti without touching the ledger", async () => {
-    expect(await isBriefingShareRevoked("")).toBe(false);
-    await revokeBriefingShareLink("");
+    expect(await isBriefingShareRevoked("acme", "")).toBe(false);
+    await revokeBriefingShareLink("acme", "");
     expect(getSessionVersion).not.toHaveBeenCalled();
     expect(bumpSessionVersion).not.toHaveBeenCalled();
+  });
+});
+
+describe("revocation is bound to the grant's org", () => {
+  it("a revocation written for org B does not kill org A's link with the same jti", async () => {
+    // Only B's scoped row is dead; A's page reads A's scoped key (and the legacy one), neither of which is.
+    getSessionVersion.mockImplementation(async (k: string) => (k === "briefing-share:org-b:j" ? 1 : 0));
+    expect(await isBriefingShareRevoked("org-b", "j")).toBe(true);
+    expect(await isBriefingShareRevoked("org-a", "j")).toBe(false);
+  });
+
+  it("end to end over a real ledger: B revoking A's jti leaves A's link working; a same-org revoke kills it", async () => {
+    const ledger = new Map<string, number>();
+    bumpSessionVersion.mockImplementation(async (k: string) => {
+      ledger.set(k, (ledger.get(k) ?? 0) + 1);
+      return ledger.get(k)!;
+    });
+    getSessionVersion.mockImplementation(async (k: string) => ledger.get(k) ?? 0);
+    await revokeBriefingShareLink("org-b", "jti-a"); // an owner of org B, naming org A's jti
+    expect(await isBriefingShareRevoked("org-a", "jti-a")).toBe(false);
+    await revokeBriefingShareLink("org-a", "jti-a"); // an owner of org A
+    expect(await isBriefingShareRevoked("org-a", "jti-a")).toBe(true);
+  });
+
+  it("still honours a revocation written under the legacy unscoped key", async () => {
+    getSessionVersion.mockImplementation(async (k: string) => (k === "briefing-share:j" ? 2 : 0));
+    expect(await isBriefingShareRevoked("org-a", "j")).toBe(true);
+  });
+
+  it("the batched lookup scopes by org and also reads the legacy key", async () => {
+    findMany.mockImplementation(async () => [{ login: "briefing-share:legacy-jti" }, { login: "briefing-share:org-b:other" }]);
+    const dead = await revokedBriefingShareJtis("org-a", ["legacy-jti", "other"]);
+    expect(dead.has("legacy-jti")).toBe(true);
+    // org-b's row names "other", but org-a asked for org-a:other + legacy "other", neither of which is in the result.
+    expect(dead.has("other")).toBe(false);
+    const where = (findMany.mock.calls[0][0] as { where: { login: { in: string[] } } }).where.login.in;
+    expect(where).toContain("briefing-share:org-a:other");
+    expect(where).not.toContain("briefing-share:org-b:other");
   });
 });
 
@@ -78,7 +118,7 @@ describe("fail closed", () => {
     getSessionVersion.mockImplementation(async () => {
       throw new Error("ledger unreachable");
     });
-    expect(await isBriefingShareRevoked("j")).toBe(true);
+    expect(await isBriefingShareRevoked("acme", "j")).toBe(true);
     expect(await isLiveShareRevoked("j")).toBe(true);
   });
 
@@ -86,20 +126,20 @@ describe("fail closed", () => {
     findMany.mockImplementation(async () => {
       throw new Error("nope");
     });
-    expect([...(await revokedBriefingShareJtis(["a", "b"]))].sort()).toEqual(["a", "b"]);
+    expect([...(await revokedBriefingShareJtis("acme", ["a", "b"]))].sort()).toEqual(["a", "b"]);
   });
 
   it("still distinguishes 'no revocation authority' (no DB) from an outage", async () => {
     // No DB configured: getSessionVersion answers 0 and the link keeps its TTL-only behavior.
-    expect(await isBriefingShareRevoked("j")).toBe(false);
+    expect(await isBriefingShareRevoked("acme", "j")).toBe(false);
     dbConfigured = false;
-    expect((await revokedBriefingShareJtis(["a"])).size).toBe(0);
+    expect((await revokedBriefingShareJtis("acme", ["a"])).size).toBe(0);
     expect(findMany).not.toHaveBeenCalled();
   });
 
   it("matches revocation rows case-insensitively, as the writer lowercases", async () => {
-    findMany.mockImplementation(async () => [{ login: "briefing-share:abc-def" }]);
-    const dead = await revokedBriefingShareJtis(["ABC-DEF", "other"]);
+    findMany.mockImplementation(async () => [{ login: "briefing-share:acme:abc-def" }]);
+    const dead = await revokedBriefingShareJtis("acme", ["ABC-DEF", "other"]);
     expect(dead.has("ABC-DEF")).toBe(true);
     expect(dead.has("other")).toBe(false);
   });

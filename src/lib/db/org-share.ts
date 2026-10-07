@@ -28,7 +28,7 @@ import { getAuditLog } from "@/lib/db/scans-audit";
 // The briefing namespace has exactly ONE definition, and it lives in the pure token module because the
 // shared page needs it without importing the db layer. Importing it here (db -> pure lib, never the
 // reverse) keeps the string from being retyped, which is the failure the consolidation is guarding.
-import { briefingShareRevocationKey } from "@/lib/briefing-share";
+import { briefingShareRevocationKey, legacyBriefingShareRevocationKey } from "@/lib/briefing-share";
 
 /** Namespace prefix for live war-room links. The colon guarantees no collision with a GitHub login
  *  (logins are alphanumeric + hyphen only), which is what makes sharing the store safe. */
@@ -67,13 +67,18 @@ export async function isLiveShareRevoked(jti: string): Promise<boolean> {
 }
 
 /**
- * Has this specific briefing share link been revoked? Same mechanism, different namespace — see
- * {@link isShareLinkRevoked}. The shared page (/share/briefing/[token]) enforces this on read; a legacy
- * token carrying no `jti` has no handle at all and stays governed by its TTL + `mintedBy` binding.
+ * Has this briefing share link (the grant `jti` of the token minted for `org`) been revoked? Reads the
+ * org-scoped key AND the legacy unscoped one, so a link revoked before the key gained its org stays dead.
+ * Same mechanism, different namespace; see {@link isShareLinkRevoked}. The shared page
+ * (/share/briefing/[token]) enforces this on read with the token's own org; a legacy token carrying no
+ * `jti` has no handle at all and stays governed by its TTL + `mintedBy` binding.
  */
-export async function isBriefingShareRevoked(jti: string): Promise<boolean> {
+export async function isBriefingShareRevoked(org: string, jti: string): Promise<boolean> {
   if (!jti) return false;
-  return isShareLinkRevoked(briefingShareRevocationKey(jti));
+  return (
+    (await isShareLinkRevoked(briefingShareRevocationKey(org, jti))) ||
+    (await isShareLinkRevoked(legacyBriefingShareRevocationKey(jti)))
+  );
 }
 
 /**
@@ -86,14 +91,14 @@ export async function revokeLiveShareLink(jti: string): Promise<void> {
 }
 
 /**
- * Kill a single briefing share link by its `jti`. Unlike the pre-existing lever (demote the minter,
+ * Kill a single briefing share link by its `jti`, within `org` only (the caller's gated org). Unlike the pre-existing lever (demote the minter,
  * which killed every link they had ever issued), this ends exactly one grant. Throws on a write failure
  * so the revoke ENDPOINT can report the truth — an owner told "revoked" over a failed write would stop
  * chasing a link that is still live, which is worse than an error they can retry.
  */
-export async function revokeBriefingShareLink(jti: string): Promise<void> {
+export async function revokeBriefingShareLink(org: string, jti: string): Promise<void> {
   if (!jti) return;
-  await bumpSessionVersion(briefingShareRevocationKey(jti));
+  await bumpSessionVersion(briefingShareRevocationKey(org, jti));
 }
 
 /**
@@ -104,12 +109,17 @@ export async function revokeBriefingShareLink(jti: string): Promise<void> {
  * {@link isShareLinkRevoked}. A list that renders "active" over an unreadable ledger would invite an
  * owner to conclude a link they already killed is still live (or, worse, that the kill never landed).
  */
-export async function revokedBriefingShareJtis(jtis: string[]): Promise<Set<string>> {
+export async function revokedBriefingShareJtis(org: string, jtis: string[]): Promise<Set<string>> {
   const unique = [...new Set(jtis.filter(Boolean))];
   if (unique.length === 0 || !isDbConfigured()) return new Set();
   // bumpSessionVersion lowercases its key before writing, so the read must lowercase too or a
   // mixed-case jti would miss its own revocation row and read back as ACTIVE.
-  const keyToJti = new Map(unique.map((jti) => [briefingShareRevocationKey(jti).toLowerCase(), jti]));
+  // Both the org-scoped and the legacy key count, as on the single-grant read.
+  const keyToJti = new Map<string, string>();
+  for (const jti of unique) {
+    keyToJti.set(briefingShareRevocationKey(org, jti).toLowerCase(), jti);
+    keyToJti.set(legacyBriefingShareRevocationKey(jti).toLowerCase(), jti);
+  }
   try {
     const rows = await getPrisma().sessionRevocation.findMany({
       where: { login: { in: [...keyToJti.keys()] }, version: { gt: 0 } },
@@ -191,7 +201,7 @@ export async function listBriefingShareGrants(orgSlug: string, opts: { limit?: n
   const rows = minted.entries
     .map((row) => ({ row, jti: metaString(row.meta, "jti") }))
     .filter((x): x is { row: (typeof minted.entries)[number]; jti: string } => x.jti != null);
-  const revoked = await revokedBriefingShareJtis(rows.map((x) => x.jti));
+  const revoked = await revokedBriefingShareJtis(orgSlug, rows.map((x) => x.jti));
   const now = Date.now();
 
   return rows.map(({ row, jti }) => {

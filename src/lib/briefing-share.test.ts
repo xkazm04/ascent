@@ -10,6 +10,7 @@ import {
   briefingFigureDigest,
   briefingShareEnabled,
   briefingShareRevocationKey,
+  legacyBriefingShareRevocationKey,
   freezeShareWindow,
   shareIntegrity,
   signBriefingShareToken,
@@ -160,8 +161,13 @@ describe("each grant is minted with its own identity (#13)", () => {
   });
 
   it("namespaces the revocation key so it can never collide with a login or a live-share link", () => {
-    expect(briefingShareRevocationKey("abc")).toBe("briefing-share:abc");
-    expect(briefingShareRevocationKey("abc")).not.toBe("live-share:abc");
+    expect(briefingShareRevocationKey("acme", "abc")).toBe("briefing-share:acme:abc");
+    expect(briefingShareRevocationKey("acme", "abc")).not.toBe("live-share:abc");
+    // Bound to the grant's org: the same jti under another org is a different ledger row.
+    expect(briefingShareRevocationKey("other", "abc")).not.toBe(briefingShareRevocationKey("acme", "abc"));
+    // The pre-scoping key is still nameable (reads honour it) and never equals a scoped one.
+    expect(legacyBriefingShareRevocationKey("abc")).toBe("briefing-share:abc");
+    expect(legacyBriefingShareRevocationKey("abc")).not.toBe(briefingShareRevocationKey("acme", "abc"));
   });
 
   it("leaves a legacy token (no jti) verifying — it has no handle, so the predicate cannot touch it", () => {

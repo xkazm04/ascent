@@ -135,7 +135,10 @@ export function freezeShareWindow(p: { range?: string; from?: string; to?: strin
  * `lib/db/org-share.ts` chose for live-share links and for the same two reasons: it is a PERMANENT
  * ledger (AuditLog is swept by retentionAuditDays, and a purged revocation row would silently
  * un-revoke a link), and its arbitrary-string primary key can never collide with a real GitHub login,
- * because logins contain no colon. A version > 0 means "this grant is dead". Revoking one jti touches
+ * because logins contain no colon. The key carries the grant's ORG as well as its jti: the token is
+ * plaintext base64url JSON, so a jti is readable by anyone holding the link, and a ledger keyed by jti
+ * alone let any org's owner kill another org's link. Org-scoped, a revoke gated on org B writes a row the
+ * page for org A's token never reads. A version > 0 means "this grant is dead". Revoking one jti touches
  * no session and no other link — which is the whole point: the pre-existing lever revoked the
  * ISSUER's entire set. The owner-gated revoke endpoint that bumps this key is
  * POST /api/org/briefing/share/revoke.
@@ -145,7 +148,17 @@ export function freezeShareWindow(p: { range?: string; from?: string; to?: strin
  * LOOKUP is the opposite — it has exactly one implementation, `isBriefingShareRevoked` in
  * lib/db/org-share.ts, which imports this function so the namespace string is never retyped.
  */
-export function briefingShareRevocationKey(jti: string): string {
+export function briefingShareRevocationKey(org: string, jti: string): string {
+  return `briefing-share:${org}:${jti}`;
+}
+
+/**
+ * The UNSCOPED key the ledger used before revocation was bound to the grant's org
+ * (`briefing-share:<jti>`). Reads keep honouring it so a link revoked before the change stays dead, and
+ * nothing writes it any more. Its shape cannot collide with the org-scoped key: an org slug and a jti are
+ * both colon-free, so `briefing-share:<a>:<b>` and `briefing-share:<a>` are distinct rows.
+ */
+export function legacyBriefingShareRevocationKey(jti: string): string {
   return `briefing-share:${jti}`;
 }
 

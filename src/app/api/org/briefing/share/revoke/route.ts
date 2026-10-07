@@ -17,9 +17,16 @@
 //     available to do it. It also makes the owner-binding lever (demote the minter, killing their whole
 //     set) the only remaining option, which is the blunt instrument #13 exists to replace.
 //
-// The accepted trade-off is that one owner can revoke another owner's link. Owners can already mint
-// links over the same data, demote each other, and erase the org; a revoke is strictly less destructive
-// than any of those, it is recorded with the actor below, and its worst outcome is a re-mint.
+// The accepted trade-off is that one owner can revoke another owner's link IN THE SAME ORG. Owners can
+// already mint links over the same data, demote each other, and erase the org; a revoke is strictly less
+// destructive than any of those, it is recorded with the actor below, and its worst outcome is a re-mint.
+//
+// WHOSE LINK: only the gated org's. The ledger row is keyed by the org the gate authorized plus the jti
+// (briefingShareRevocationKey), and the shared page reads the key for the TOKEN's own org. A jti is NOT a
+// secret: the token is plaintext base64url JSON that carries it, so anyone holding or forwarded a link can
+// read its jti, and an owner of ANY org could previously name it here and kill another org's board link.
+// Now that revoke writes a row the other org's link never reads (gate-then-constrain, AGENTS.md "An [id]
+// route authorizes against the row's org").
 
 import { NextResponse } from "next/server";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
@@ -47,20 +54,20 @@ export async function POST(request: Request) {
   if (!jti) return NextResponse.json({ error: "Provide { org, jti }." }, { status: 400 });
 
   const actor = authGateEnabled() ? (await getViewer())?.login : undefined;
-  // Best-effort ownership check, used for the AUDIT RECORD and not as a gate. Why not a gate: the grant
-  // list is reconstructed from audit rows, which retention sweeps, while the token's own TTL can outlive
-  // that window — so "this jti is not in your org's list" means either "not yours" OR "your own link,
-  // minted before the retention horizon". Refusing on that ambiguity would block an owner from killing a
-  // leaked link of their own at exactly the moment it matters. Allowing it costs nothing an attacker
-  // could use: a jti is a random UUID disclosed only to the minting owner and inside that org's own audit
-  // trail, and revoking one only ever DISABLES a capability — it can never grant access to anything.
+  // Best-effort ownership check, used for the AUDIT RECORD and not as a gate. The grant list is
+  // reconstructed from audit rows, which retention sweeps, while the token's own TTL can outlive that
+  // window, so "not in your org's list" can mean "your own link, minted before the retention horizon", and
+  // refusing on that ambiguity would block an owner from killing a leaked link of their own. The org
+  // binding is NOT this check: it is the ledger key below, which carries the gated org.
   const known = await listBriefingShareGrants(org).catch(() => []);
   const grant = known.find((g) => g.jti === jti) ?? null;
 
+  // gate-then-constrain: the ledger row is keyed by the GATED org plus the jti, so an owner of org B
+  // naming org A's jti writes a row org A's link never reads. A jti alone is not a secret (see the header).
   // No catch: a failed ledger write must surface as a 500. An owner told "revoked" over a failed write
   // stops chasing a link that is still live — the one lie this endpoint must never tell.
   try {
-    await revokeBriefingShareLink(jti);
+    await revokeBriefingShareLink(org, jti);
   } catch (err) {
     // The 500 is the owner's signal to retry. Without a log the failure is only that JSON body,
     // and the PDF render path already records its own unexpected failure the same way.

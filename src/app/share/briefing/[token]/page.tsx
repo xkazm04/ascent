@@ -57,7 +57,7 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
   // lookup error — a shared briefing this page cannot vouch for is not shown.
   // Through the shared lookup, not an inlined ledger read: it fails closed BY CONSTRUCTION, so
   // this page cannot be the caller that forgets the .catch and quietly serves a revoked link.
-  if (verified.jti && (await isBriefingShareRevoked(verified.jti))) {
+  if (verified.jti && (await isBriefingShareRevoked(verified.org, verified.jti))) {
     return <Notice title="Link revoked" body="This shared briefing link has been revoked. Ask an org owner for a fresh one." />;
   }
 
