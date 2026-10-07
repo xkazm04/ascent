@@ -21,7 +21,7 @@ vi.mock("@/lib/db", async () => ({
   // The REAL validator (pure) so the 400 contract below exercises production rules, not a stub.
   segmentInputError: (await vi.importActual<typeof import("@/lib/db/segments")>("@/lib/db/segments")).segmentInputError,
 }));
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null,
   requireOrgAccess: vi.fn(async () => null),
   requireOrgRead: vi.fn(async () => null),
 }));

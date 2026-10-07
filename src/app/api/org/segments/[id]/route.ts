@@ -3,7 +3,7 @@
 
 import { NextResponse } from "next/server";
 import { deleteSegment, getSegmentOrgSlug, recordOrgAudit, segmentInputError, updateSegment } from "@/lib/db";
-import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 import type { OrgRole } from "@/lib/db/members";
 import { dbGuard } from "@/lib/api/orgPlan";
@@ -19,7 +19,7 @@ async function gate(id: string, min: OrgRole = "member"): Promise<{ org: string 
   if (guard) return guard;
   const org = await getSegmentOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Segment not found." }, { status: 404 });
-  const denied = min === "member" ? await requireOrgAccess(org) : await requireOrgRole(org, min);
+  const denied = refusePublicOrgAdmin(org) ?? (min === "member" ?  await requireOrgAccess(org) : await requireOrgRole(org, min));
   if (denied) return denied;
   return { org };
 }

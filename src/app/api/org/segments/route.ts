@@ -5,7 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { createSegment, getRepoSegmentMap, listSegments, recordOrgAudit, segmentInputError } from "@/lib/db";
-import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgAccess, requireOrgRead } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 import { dbGuard } from "@/lib/api/orgPlan";
 
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   if (typeof body.name !== "string") {
     return NextResponse.json({ error: "Provide { org, name }." }, { status: 400 });
   }
-  const denied = await requireOrgAccess(body.org);
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgAccess(body.org));
   if (denied) return denied;
   // repositories-segments #5: reject-with-400 instead of sanitize-and-continue — a malformed colour
   // was silently rewritten to the brand accent and an over-long name silently truncated, both behind
