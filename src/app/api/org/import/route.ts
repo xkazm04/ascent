@@ -178,7 +178,17 @@ export async function POST(request: Request) {
   if (body.schedule !== undefined && !SCHEDULES.has(body.schedule)) {
     return NextResponse.json({ error: "Invalid schedule (off|daily|weekly|monthly)." }, { status: 400 });
   }
-  const schedule = body.schedule ?? "weekly";
+  // The shared "public" org has no owner, so a recurring rescan there has nobody to charge (operator
+  // decision 2026-10-07): it takes no autoscan cadence, real or mock. Same binding as publicOrgReal
+  // minus the mock exemption - an auth-off deployment keeps the weekly default. Watch is untouched.
+  const publicOrgNoCadence = org === "public" && !authOff;
+  if (publicOrgNoCadence && body.schedule !== undefined && body.schedule !== "off") {
+    return NextResponse.json(
+      { error: "The shared public organization takes no autoscan cadence, because nobody is charged for it. Import with schedule 'off'." },
+      { status: 400 },
+    );
+  }
+  const schedule = body.schedule ?? (publicOrgNoCadence ? "off" : "weekly");
 
   // Mint an installation token (PRIVATE-repo access) ONLY for a caller with real standing in this org.
   //

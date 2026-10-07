@@ -4,7 +4,9 @@
 //   - it is ALWAYS charged to that viewer's own public-scan allowance - never unmetered, never a
 //     credit of any org - whether or not the body sets publicFunnel;
 //   - it is capped at 10 repos per request (400 naming the cap; the listing mode is capped to 10);
-//   - mock imports, tenant orgs and auth-off deployments are untouched.
+//   - mock imports, tenant orgs and auth-off deployments are untouched, except that the public org takes
+//     no autoscan cadence (nobody is charged for it): the schedule defaults to 'off', an explicit cadence
+//     is a 400, and nothing calls setRepoSchedule - real or mock, head or tail.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ScanReport } from "@/lib/types";
@@ -92,6 +94,7 @@ import { checkScanEntitlement } from "@/lib/entitlement";
 import { reserveScanCredit } from "@/lib/scan-credit";
 import { enqueueScanJob } from "@/lib/db/scan-jobs";
 import { consumePublicScanQuota } from "@/lib/public-scan-quota";
+import { setRepoSchedule, setRepoWatch } from "@/lib/db";
 
 const realReport = {
   engine: { provider: "anthropic", model: "m" },
@@ -173,6 +176,53 @@ describe("POST /api/org/import - real import into the shared public org", () => 
     const { res } = await post({ org: "public", repos: names(11), mock: true, watch: false });
     expect(res.status).toBe(200);
     expect(scanRepository).toHaveBeenCalledTimes(11);
+  });
+
+  it("writes no schedule for a real public import that names none (default off, watch kept)", async () => {
+    vi.mocked(getViewer).mockResolvedValue(viewer);
+    const { res } = await post({ org: "public", repos: names(2), mock: false, watch: true });
+    expect(res.status).toBe(200);
+    expect(setRepoWatch).toHaveBeenCalledTimes(2);
+    expect(setRepoSchedule).not.toHaveBeenCalled();
+  });
+
+  it("400s an explicit cadence into public, naming the rule, before any scan", async () => {
+    vi.mocked(getViewer).mockResolvedValue(viewer);
+    const { res, text } = await post({ org: "public", repos: names(2), mock: false, watch: true, schedule: "weekly" });
+    expect(res.status).toBe(400);
+    expect(text).toMatch(/no autoscan cadence.*nobody is charged/i);
+    expect(listOrgRepos).not.toHaveBeenCalled();
+    expect(enqueueScanJob).not.toHaveBeenCalled();
+    expect(scanRepository).not.toHaveBeenCalled();
+    expect(setRepoSchedule).not.toHaveBeenCalled();
+  });
+
+  it("accepts schedule 'off' explicitly", async () => {
+    vi.mocked(getViewer).mockResolvedValue(viewer);
+    expect((await post({ org: "public", repos: names(1), mock: false, schedule: "off" })).res.status).toBe(200);
+  });
+
+  it("writes no schedule for a MOCK public import with watch true", async () => {
+    const { res } = await post({ org: "public", repos: names(2), mock: true, watch: true });
+    expect(res.status).toBe(200);
+    expect(setRepoWatch).toHaveBeenCalledTimes(2);
+    expect(setRepoSchedule).not.toHaveBeenCalled();
+  });
+
+  it("still defaults a tenant import to weekly", async () => {
+    const { res } = await post({ org: "acme", repos: ["acme/a"], mock: true, watch: true });
+    expect(res.status).toBe(200);
+    expect(setRepoSchedule).toHaveBeenCalledWith("acme", "acme/a", "weekly");
+  });
+
+  it("leaves auth-off public on today's weekly default and accepts an explicit cadence", async () => {
+    vi.mocked(authGateEnabled).mockReturnValue(false);
+    vi.mocked(isAuthConfigured).mockReturnValue(false);
+    expect((await post({ org: "public", repos: ["facebook/a"], mock: true, watch: true })).res.status).toBe(200);
+    expect(setRepoSchedule).toHaveBeenCalledWith("public", "facebook/a", "weekly");
+    vi.mocked(setRepoSchedule).mockClear();
+    expect((await post({ org: "public", repos: ["facebook/b"], mock: true, watch: true, schedule: "daily" })).res.status).toBe(200);
+    expect(setRepoSchedule).toHaveBeenCalledWith("public", "facebook/b", "daily");
   });
 
   it("leaves an auth-off deployment unchanged: no viewer needed, no cap, unmetered", async () => {
