@@ -182,7 +182,9 @@ See "Correct a memory from its card" below.
 ### Archive
 
 An admin can archive a **hosted** memory (soft-delete: `archived: true`, never a hard
-delete) via `DELETE /api/org/memory/:id`. The UI removes it optimistically
+delete) via `DELETE /api/org/memory/:id`. `PATCH` is not a second door: the shared public
+org refuses every `PATCH` as it refuses `DELETE`, and a body carrying `archived` (true or
+false) needs the admin role, like `DELETE`. The UI removes it optimistically
 and rolls back on failure.
 
 A **registry-origin** row is a mirror of a file in a repo the customer owns. The
@@ -354,6 +356,20 @@ reader:
 | `llmUnavailable: true` | No model engine is available, so nothing was proposed; configure `LLM_PROVIDER`. Nothing was changed. |
 | `clusterCount: 0` | Nothing to consolidate: N memories compared, no family of three restated one subject. |
 | `clusterCount > 0`, no proposals | N families found, none worth rolling up: the model read them and declined. |
+
+## Write door for agents and CLIs
+
+`POST /api/org/memory` accepts an org API token with the **`memory:write`** scope
+(`Authorization: Bearer askl_…`, the same `authorizeOrgApi` seam as recall), so an
+agent or CLI can record memory without a cookie session. Neither `memory:read` nor
+`mcp:read` implies it, and the token form does not pre-check it. The author is the
+token's label (`token:<name>`) and the audit actor is the same. A token may write only
+`visibility: "shared"`: a request for `private` is a `400`, because a private note needs
+a person to own it. Everything after the gate is unchanged: the plan gate, the
+personal cap, kind and visibility validation, and the supersede refusal. A wrong org,
+a missing scope and a revoked token are `403`, `403` and `401`. Not covered: an MCP
+write tool, the check and reflect doors, and token access to `PATCH`/`DELETE` on
+`/api/org/memory/[id]`, which stay session-only.
 
 ## Recall: scoring and budget packing
 
@@ -727,12 +743,13 @@ kind is episodic" assumption is the scan feed's, not the store's.
 | Route | Method | Purpose |
 | --- | --- | --- |
 | `/api/org/memory` | `POST` | Create a memory (optionally as a supersede). |
+| `/api/org/memory` | `POST` | Write a memory (member session, or a `memory:write` token: shared only, author `token:<name>`; Team+). |
 | `/api/org/memory` | `GET` | List/filter/sort memories (`namespace`, `kind`, `source`, `search`, `sort`). `source` is an EXACT match, AND-ed into the same `where` as everything else so it composes with `visibilityScope` rather than widening it. |
 | `/api/org/memory/check` | `POST` | Write-intelligence pass: duplicate/supersede/novel verdict. |
 | `/api/org/memory/recall` | `GET`/`POST` | Score + budget-pack memories for agent context. |
 | `/api/org/memory/reflect` | `POST` | Propose consolidation clusters, or apply an approved one. |
 | `/api/org/memory/[id]` | `GET` | Fetch one memory (404s if the viewer can't see a private row). |
-| `/api/org/memory/[id]` | `PATCH` | Edit a memory (member, Team+); bumps `version`. 404s another author's private row. |
+| `/api/org/memory/[id]` | `PATCH` | Edit a memory (member, Team+; admin if the body carries `archived`; refused on the public org); bumps `version`. 404s another author's private row. |
 | `/api/org/memory/[id]` | `DELETE` | Archive a memory (admin-only, soft-delete). 404s another author's private row. |
 | `/api/org/memory/[id]/recall` | `POST` | Record a recall/use of a single memory. |
 | `/api/org/memory/[id]?lineage=1` | `GET` | The memory plus what it replaced: `{ memory, lineage, lineageHidden }`, newest first, within the viewer's visibility. |

@@ -19,6 +19,7 @@ const SCOPE_LABEL: Record<SkillTokenScope, string> = {
   "skills:write": "Push / update a hosted skill from a CLI",
   "telemetry:write": "Report per-repo usage (sink A); registry counters need no token",
   "memory:read": "Recall org memory",
+  "memory:write": "Write org memory from an agent or CLI",
   "mcp:read": "Agent door (MCP): read org standing",
   "followups:write": "Agent door (MCP): claim follow-ups and report attempts",
 };

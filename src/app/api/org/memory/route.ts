@@ -1,6 +1,6 @@
 // GET  /api/org/memory?org=&namespace=&kind=&search=&sort=  -> { memories, kinds, namespaces }  (read-gated)
 // POST /api/org/memory { org, content, kind?, namespace?, visibility?, source?, confidence?, tags?, supersedeId? }
-//                                                          -> { id }   (member + Team+ plan)
+//                                                          -> { id }   (member OR memory:write token; Team+ plan)
 //
 // Shared Org Memory (Memory-as-a-Service MVP). Reads are open to any member of the org; WRITING is the
 // gated capability (a memory nobody can read is worthless, so we never gate reads) — mirrors the Skills
@@ -12,6 +12,11 @@
 // the answer an unknown target gets), and a registry mirror is `409 registry-origin`, before the write
 // is called. It used to check `{ id, orgId }` alone, so a member could retire a colleague's private
 // note by id, or hide a mirror the index pass never restores.
+//
+// POST accepts an `askl_` bearer with the `memory:write` scope (authorizeOrgApi) OR a session, so an
+// agent or CLI can write memory. `memory:read` / `mcp:read` never imply it. The author is the token's
+// label (`token:<name>`), and a token may write only `visibility: "shared"` — a private note needs a
+// person to own it, so a token asking for "private" gets a 400. Every gate after the door is unchanged.
 //
 // The tenant boundary is enforced twice, deliberately: requireOrgRead/requireOrgAccess authorize the
 // slug, and every db query AND-s the resolved orgId. A client-supplied org is never trusted alone (§4.1).
@@ -28,7 +33,8 @@ import {
   recordAudit,
   type MemorySort,
 } from "@/lib/db";
-import { requireOrgAccess, requireOrgRead } from "@/lib/authz";
+import { requireOrgRead } from "@/lib/authz";
+import { authorizeOrgApi, isDenied, principalLogin } from "@/lib/api-token-auth";
 // resolveViewerLogin drives the `visibility='private'` filter (design doc §4.5) — a route file may only
 // export Next's own handler/config names, so the helper lives in lib/access beside getViewer.
 import { resolveViewerLogin } from "@/lib/access";
@@ -93,8 +99,9 @@ export async function POST(request: Request) {
   if (!body.org || !body.content?.trim()) {
     return NextResponse.json({ error: "Provide { org, content }." }, { status: 400 });
   }
-  const denied = await requireOrgAccess(body.org);
-  if (denied) return denied;
+  const auth = await authorizeOrgApi(request, body.org, { scope: "memory:write", mode: "write" });
+  if (isDenied(auth)) return auth.denied;
+  const viaToken = auth.principal.via === "token";
   // Entitlement: writing an ORG's memory is a Team-and-up feature (reads stay open to all members);
   // a PERSONAL workspace writes free-with-limits (individual tier, decision 4) — capped below.
   const credit = await getCreditState(body.org).catch(() => null);
@@ -114,7 +121,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "visibility must be 'shared' or 'private'." }, { status: 400 });
   }
 
-  const author = await resolveViewerLogin();
+  if (viaToken && body.visibility === "private") {
+    return NextResponse.json({ error: "A token may write only shared memory; a private note needs a person to own it." }, { status: 400 });
+  }
+
+  const author = await principalLogin(auth.principal);
   if (body.supersedeId) {
     const refusal = await supersedeTargetRefusal(body.org, body.supersedeId, author);
     if (refusal === "registry-origin") return NextResponse.json(REGISTRY_ORIGIN_REFUSAL, { status: 409 });
@@ -127,7 +138,7 @@ export async function POST(request: Request) {
         content: body.content,
         kind: body.kind,
         namespace: body.namespace,
-        visibility: body.visibility,
+        visibility: viaToken ? "shared" : body.visibility,
         source: body.source,
         confidence: body.confidence,
         tags: Array.isArray(body.tags) ? body.tags : undefined,

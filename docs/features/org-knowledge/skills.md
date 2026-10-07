@@ -610,7 +610,8 @@ mint another token). The raw value (`askl_` + 24 random bytes, base64url) is
 returned exactly once; only its SHA-256 hash and a 12-character display
 prefix are stored. Scopes: `skills:read`, `skills:write`,
 `telemetry:write`, `memory:read` (org-memory recall, see
-[memory.md](./memory.md)), `mcp:read`, `followups:write`. The mint form
+[memory.md](./memory.md)), `memory:write` (agent/CLI memory writes, shared only; never implied by
+`memory:read` or `mcp:read`, not pre-checked), `mcp:read`, `followups:write`. The mint form
 pre-checks `mcp:read` (the MCP door). An empty/invalid scope list defaults
 to `["mcp:read"]` (never a zero-scope token). `skills:read` is an explicit
 opt-in and is not implied by `mcp:read`. `DELETE
@@ -641,7 +642,7 @@ same reason: a machine credential never sweeps a library. All of `/api/org/token
 | `/api/org/skills` | `POST` | `skills:write` + plan/cap | Create a skill. |
 | `/api/org/skills` | `GET` | `skills:read` | List/filter/sort (`category`, `search`, `sort`). |
 | `/api/org/skills/[id]` | `GET` | `skills:read` | Fetch one skill. |
-| `/api/org/skills/[id]` | `PATCH` | `skills:write` + plan | Edit; frontmatter reconciled with current values as fallback. |
+| `/api/org/skills/[id]` | `PATCH` | `skills:write` + plan | Edit; frontmatter reconciled with current values as fallback. Refused on the public org. A body carrying `archived` (true or false) takes DELETE's gate: admin role, session only; a token gets 403. |
 | `/api/org/skills/[id]` | `DELETE` | admin session only | Archive (soft-delete). |
 | `/api/org/skills/promote` | `POST` | `skills:write` + plan/cap + source-repo session read | Promote a repo's onboarding skill into the library. |
 | `/api/org/skills/push` | `POST` | `skills:write` + `skillWriteGate(org, "push")` (no personal path) | Create/update by name with optimistic-concurrency (`baseVersion`); `409 archived` when the name's only row is archived. |

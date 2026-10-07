@@ -34,6 +34,7 @@ const {
   mockRequireOrgAccess,
   mockRequireOrgRead,
   mockResolveViewerLogin,
+  mockVerifyOrgApiToken,
   MockSupersedeError,
 } = vi.hoisted(() => {
   // Mirrors the real class: the route branches on `instanceof`, so the test must reject with THIS one.
@@ -51,6 +52,7 @@ const {
     mockRequireOrgAccess: vi.fn(),
     mockRequireOrgRead: vi.fn(),
     mockResolveViewerLogin: vi.fn(),
+    mockVerifyOrgApiToken: vi.fn(),
     MockSupersedeError,
   };
 });
@@ -66,6 +68,7 @@ vi.mock("@/lib/db", () => ({
   PERSONAL_MEMORY_LIMIT: 100,
   getOrgId: mockGetOrgId,
   recordAudit: mockRecordAudit,
+  verifyOrgApiToken: mockVerifyOrgApiToken,
   SupersedeTargetNotFoundError: MockSupersedeError,
 }));
 vi.mock("@/lib/authz", () => ({
@@ -232,6 +235,75 @@ describe("POST /api/org/memory — auth chain + order", () => {
     mockCreateOrgMemory.mockResolvedValue(null);
     const res = await POST(postReq(valid));
     expect(res.status).toBe(500);
+  });
+});
+
+// The agent/CLI door: authorizeOrgApi runs REAL (token verification is the only mocked edge), so scope,
+// org and revocation are exercised rather than assumed.
+describe("POST /api/org/memory — the memory:write token door", () => {
+  const tokenReq = (body: unknown) =>
+    new Request("http://t/api/org/memory", {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json", authorization: "Bearer askl_abc" },
+    });
+  const tok = (over: Record<string, unknown> = {}) => ({
+    tokenId: "t1",
+    name: "ci-agent",
+    orgSlug: "acme",
+    scopes: ["memory:write"],
+    ...over,
+  });
+
+  it("a memory:write token writes (200), author token:<name>, session gate never called", async () => {
+    mockVerifyOrgApiToken.mockResolvedValue(tok());
+    const res = await POST(tokenReq(valid));
+    expect(res.status).toBe(200);
+    expect(mockRequireOrgAccess).not.toHaveBeenCalled();
+    expect(mockCreateOrgMemory.mock.calls[0]![2]).toBe("token:ci-agent");
+    expect(mockCreateOrgMemory.mock.calls[0]![1]).toMatchObject({ visibility: "shared" });
+    expect(mockRecordAudit).toHaveBeenCalledWith(
+      "org_memory.created",
+      expect.anything(),
+      expect.objectContaining({ actorId: "token:ci-agent" }),
+    );
+  });
+
+  it("a memory:read-only token gets 403, no write", async () => {
+    mockVerifyOrgApiToken.mockResolvedValue(tok({ scopes: ["memory:read", "mcp:read"] }));
+    const res = await POST(tokenReq(valid));
+    expect(res.status).toBe(403);
+    expect(mockCreateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("a revoked/unknown token gets 401, no write", async () => {
+    mockVerifyOrgApiToken.mockResolvedValue(null);
+    const res = await POST(tokenReq(valid));
+    expect(res.status).toBe(401);
+    expect(mockCreateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("a token of another org gets 403, no write", async () => {
+    mockVerifyOrgApiToken.mockResolvedValue(tok({ orgSlug: "other" }));
+    const res = await POST(tokenReq(valid));
+    expect(res.status).toBe(403);
+    expect(mockCreateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("a token asking for visibility 'private' gets 400, no write", async () => {
+    mockVerifyOrgApiToken.mockResolvedValue(tok());
+    const res = await POST(tokenReq({ ...valid, visibility: "private" }));
+    expect(res.status).toBe(400);
+    expect(mockCreateOrgMemory).not.toHaveBeenCalled();
+  });
+
+  it("the session path is unchanged: member gate, viewer is the author, private allowed", async () => {
+    const res = await POST(postReq({ ...valid, visibility: "private" }));
+    expect(res.status).toBe(200);
+    expect(mockVerifyOrgApiToken).not.toHaveBeenCalled();
+    expect(mockRequireOrgAccess).toHaveBeenCalledWith("acme");
+    expect(mockCreateOrgMemory.mock.calls[0]![1]).toMatchObject({ visibility: "private" });
+    expect(mockCreateOrgMemory.mock.calls[0]![2]).toBe("alice");
   });
 });
 

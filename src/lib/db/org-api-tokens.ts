@@ -24,11 +24,17 @@ const TOKEN_PREFIX = "askl_";
 // because this is the first one that lets a token change a row an org's own people planned: it is
 // never implied by `mcp:read`. The door is not the resource. What it emphatically does NOT buy is
 // closure — no scope reaches `status: "done"`, which only a rescan of the default branch writes.
+//
+// `memory:write` is the write door the Org Memory summary promises an agent or CLI. Same rule as the
+// scopes above: neither `memory:read` nor `mcp:read` ever implies it — reading the org's memory is not
+// permission to author it — and it is not among the default picked scopes in the token form. It admits
+// POST /api/org/memory only (shared notes, author `token:<name>`); edits and archives stay session-only.
 export const SKILL_TOKEN_SCOPES = [
   "skills:read",
   "skills:write",
   "telemetry:write",
   "memory:read",
+  "memory:write",
   "mcp:read",
   "followups:write",
 ] as const;
