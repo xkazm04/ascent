@@ -9,6 +9,7 @@ import { GateStep } from "@/components/onboarding/OnboardingGateStep";
 import type { AuthMode } from "@/components/auth/SignInButtonFor";
 import { MAX_SELECT, type OrgCredit } from "@/components/onboarding/OnboardingFlow.model";
 import { useOnboardingFlow } from "@/components/onboarding/useOnboardingFlow";
+import type { OnboardingDeployment } from "@/components/onboarding/importTarget";
 
 // Re-exported so `OnboardingFlow`'s public API (the OrgCredit type) is unchanged for importers.
 export type { OrgCredit };
@@ -21,6 +22,7 @@ export function OnboardingFlow({
   auth = null,
   personalOrg = null,
   installUrl = null,
+  deployment = null,
 }: {
   hasInstallation?: boolean;
   installations?: Installation[];
@@ -35,6 +37,9 @@ export function OnboardingFlow({
   /** The GitHub App's public install URL (null when GITHUB_APP_SLUG is unset) — the access gate's
    *  "install the App" CTA; the retired /connect page used to host that link. */
   installUrl?: string | null;
+  /** The deployment facts /onboarding already resolved (first-run.ts), so a signed-in non-member on the
+   *  gated cloud scans a public handle INTO the shared "public" org instead of being refused by it. */
+  deployment?: OnboardingDeployment | null;
   /** Most-active org whose watchlist was pre-seeded at login; surfaced as a "dashboard ready" CTA. */
   seededOrg?: string;
 }) {
@@ -46,6 +51,7 @@ export function OnboardingFlow({
     setOrg,
     sourceLabel,
     sourceInstallId,
+    dashboardOrg,
     repos,
     selected,
     rows,
@@ -76,7 +82,7 @@ export function OnboardingFlow({
     resetRun,
     startScan,
     retryRepo,
-  } = useOnboardingFlow({ personalOrg });
+  } = useOnboardingFlow({ personalOrg, deployment });
 
   // Finding #4 (double-submission): `startScan` has no re-entrancy lock, and the "Scan {n} repos"
   // button stays mounted for the ~1 frame between a click and setPhase("scanning"), so a fast
@@ -184,7 +190,7 @@ export function OnboardingFlow({
         // Per-repo recovery on the done screen: re-runs ONE errored repo (money gate re-checked, other
         // rows untouched) instead of forcing "Scan another", which resets the whole run.
         onRetryRepo={retryRepo}
-        onViewDashboard={() => router.push(`/org/${encodeURIComponent(sourceLabel)}`)}
+        onViewDashboard={() => router.push(`/org/${encodeURIComponent(dashboardOrg)}`)}
         // resetRun clears the FULL per-run state — including the pre-scan credit snapshot, the
         // creditReady promise, preview flags, invite count, and the stream notices — so a second run
         // can't quote stale money numbers or arrive with "Invite your team" pre-ticked.

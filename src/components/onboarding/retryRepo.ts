@@ -22,6 +22,8 @@ import { rowSettled } from "@/components/onboarding/OnboardingFlow.run";
 export interface RepoRetryDeps {
   fullName: string;
   sourceLabel: string;
+  /** The org the retry POST targets - the source, or the shared "public" org (importTarget.ts). */
+  importOrg?: string;
   sourceInstallId: string | null;
   credit: OrgCredit | null;
   creditReady: { current: Promise<CreditRead> | null };
@@ -89,7 +91,7 @@ export async function runRepoRetry(deps: RepoRetryDeps): Promise<void> {
     const plan = resolveImportPlan({ canRunReal, publicFunnel, sourceInstallId, previewFirst, watchOptIn });
     const outcome = await runImportScan(
       {
-        org: sourceLabel,
+        org: deps.importOrg ?? sourceLabel,
         repos: [fullName],
         installationId: sourceInstallId ?? undefined,
         mock: plan.mock,

@@ -9,6 +9,7 @@ import type { RepoState } from "@/lib/db";
 import { runImportScan } from "@/components/onboarding/importScan";
 import { resolveScanMode, type CreditRead } from "@/components/onboarding/scanMode";
 import { runRepoRetry } from "@/components/onboarding/retryRepo";
+import { importOrg, type OnboardingDeployment } from "@/components/onboarding/importTarget";
 import { byProminence } from "@/components/onboarding/byProminence";
 import { getAutoWatchOptIn, resetAutoWatchOptIn } from "@/components/onboarding/OnboardingSelectStep.watchOptIn";
 import { getPreviewFirst, resetPreviewFirst } from "@/components/onboarding/OnboardingSelectStep.previewFirst";
@@ -46,7 +47,10 @@ import {
 // All wizard state, effects, and handlers for OnboardingFlow, relocated into a co-located hook so the
 // component file stays under the 300-LOC cap (AGENTS.md). Pure relocation — behavior, hook-call order,
 // and every closure are preserved exactly; the component consumes the returned bag unchanged.
-export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string | null } = {}) {
+export function useOnboardingFlow({
+  personalOrg = null,
+  deployment = null,
+}: { personalOrg?: string | null; deployment?: OnboardingDeployment | null } = {}) {
   const router = useRouter();
   const [org, setOrg] = useState("");
   const [sourceLabel, setSourceLabel] = useState("");
@@ -54,6 +58,9 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
   // threaded into the import POST so the server mints an installation token and can read private
   // repos; null for the public-handle path (token-less / GITHUB_TOKEN listing).
   const [sourceInstallId, setSourceInstallId] = useState<string | null>(null);
+  // The org the import POST targets and "View dashboard" opens: the source itself, except a signed-in
+  // viewer on the gated cloud scanning a public handle, whose run lands in the shared "public" org.
+  const dashboardOrg = importOrg(sourceLabel, sourceInstallId, deployment);
   const [repos, setRepos] = useState<OrgRepo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -478,7 +485,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     try {
       const outcome = await runImportScan(
         {
-          org: sourceLabel,
+          org: dashboardOrg,
           repos: picks.map((r) => r.fullName),
           // Pass the installation id (when this source came from the GitHub App) so the server
           // mints an installation token — required to read the private repos we just listed.
@@ -574,6 +581,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     runRepoRetry({
       fullName,
       sourceLabel,
+      importOrg: dashboardOrg,
       sourceInstallId,
       credit,
       creditReady,
@@ -633,6 +641,7 @@ export function useOnboardingFlow({ personalOrg = null }: { personalOrg?: string
     sourceLabel,
     sourceInstallId,
     setSourceInstallId,
+    dashboardOrg,
     repos,
     setRepos,
     selected,

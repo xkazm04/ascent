@@ -118,6 +118,7 @@ export default async function OnboardingPage({
               auth={firstRun.auth}
               personalOrg={personalOrg}
               installUrl={appInstallUrl()}
+              deployment={{ mode: firstRun.mode, gated: firstRun.gated, signedIn: firstRun.signedIn }}
             />
             {session && <SessionControls />}
           </>
