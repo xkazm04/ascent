@@ -4,6 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { deleteGoal, getGoalOrgSlug, updateGoal } from "@/lib/db";
+import { getGoalStatus } from "@/lib/db/plan";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
 import { invalidTargetDate, rowGate } from "@/lib/api/orgPlan";
 import { PUBLIC_ORG } from "@/lib/org-constants";
@@ -26,12 +27,16 @@ export const dynamic = "force-dynamic";
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   // Member-level write: resolve the goal's true org, then requireOrgAccess (not a body-supplied org).
+  let goalOrg = "";
   const blocked = await rowGate({
     resourceLabel: "Goals",
     notFound: "Goal not found.",
     getOrgSlug: getGoalOrgSlug,
     id,
-    authorize: (org) => (org === PUBLIC_ORG ? publicOrgReadOnly() : requireOrgAccess(org)),
+    authorize: (org) => {
+      goalOrg = org;
+      return org === PUBLIC_ORG ? publicOrgReadOnly() : requireOrgAccess(org);
+    },
   });
   if (blocked) return blocked;
   // `expected` (optional) carries the values the editor last saw for the fields being changed, so
@@ -46,6 +51,14 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   };
   if (body.status !== undefined && !STATUSES.has(body.status)) {
     return NextResponse.json({ error: `status must be one of: ${[...STATUSES].join(", ")}.` }, { status: 400 });
+  }
+  // Closing a goal, or reopening a closed one, is an admin act; members keep every other field.
+  if (body.status !== undefined) {
+    const closing = body.status === "closed";
+    if (closing || (await getGoalStatus(id)) === "closed") {
+      const denied = await requireOrgRole(goalOrg, "admin");
+      if (denied) return denied;
+    }
   }
   // Maturity metrics are always 0..100; reject an out-of-range target on update too (matches POST) so a
   // patched goal can't drift into >100% / permanently-"Behind" state.

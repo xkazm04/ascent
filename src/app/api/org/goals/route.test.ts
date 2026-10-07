@@ -29,6 +29,7 @@ vi.mock("@/lib/db", () => ({
   updateGoal: vi.fn(async () => {}),
   deleteGoal: vi.fn(async () => {}),
 }));
+vi.mock("@/lib/db/plan", () => ({ getGoalStatus: vi.fn(async () => "active") }));
 vi.mock("@/lib/authz", () => ({
   requireOrgAccess: vi.fn(async () => null),
   requireOrgRead: vi.fn(async () => null),
@@ -37,6 +38,7 @@ vi.mock("@/lib/authz", () => ({
 
 import { GET, POST } from "./route";
 import { PATCH as GOAL_PATCH, DELETE as GOAL_DELETE } from "./[id]/route";
+import { getGoalStatus } from "@/lib/db/plan";
 import { requireOrgAccess, requireOrgRead, requireOrgRole } from "@/lib/authz";
 import {
   createGoal,
@@ -56,6 +58,7 @@ const mockCreate = vi.mocked(createGoal);
 const mockGoalOrg = vi.mocked(getGoalOrgSlug);
 const mockUpdate = vi.mocked(updateGoal);
 const mockDelete = vi.mocked(deleteGoal);
+const mockStatus = vi.mocked(getGoalStatus);
 
 const FORBIDDEN = () => Response.json({ error: "You don't have access to this organization." }, { status: 403 });
 
@@ -95,6 +98,7 @@ beforeEach(() => {
   mockList.mockResolvedValue([]);
   mockCreate.mockResolvedValue({ id: "goal-new" } as Awaited<ReturnType<typeof createGoal>>);
   mockGoalOrg.mockResolvedValue("acme");
+  mockStatus.mockResolvedValue("active");
   mockUpdate.mockResolvedValue(undefined as Awaited<ReturnType<typeof updateGoal>>);
   mockDelete.mockResolvedValue(undefined as Awaited<ReturnType<typeof deleteGoal>>);
 });
@@ -241,6 +245,39 @@ describe("PATCH/DELETE /api/org/goals/:id — per-row tenant gate keys on the go
     expect(mockRole).not.toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenCalledTimes(1);
     expect(mockUpdate.mock.calls[0][0]).toBe("goal-1");
+  });
+});
+
+describe("the closed status is an admin act", () => {
+  const NEEDS_ADMIN = () => Response.json({ error: "This action requires the admin role in this organization." }, { status: 403 });
+
+  it("refuses a member's PATCH to 'closed' with no write", async () => {
+    mockRole.mockResolvedValue(NEEDS_ADMIN() as never);
+    const res = await patchGoal("goal-1", { status: "closed" });
+    expect(res.status).toBe(403);
+    expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin close a goal", async () => {
+    const res = await patchGoal("goal-1", { status: "closed" });
+    expect(res.status).toBe(200);
+    expect(mockRole).toHaveBeenCalledWith("acme", "admin");
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a member moving a goal OUT of closed, and lets an admin", async () => {
+    mockStatus.mockResolvedValue("closed");
+    mockRole.mockResolvedValueOnce(NEEDS_ADMIN() as never);
+    expect((await patchGoal("goal-1", { status: "active" })).status).toBe(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect((await patchGoal("goal-1", { status: "active" })).status).toBe(200);
+  });
+
+  it("keeps member rights for other fields and non-closed statuses (no admin check)", async () => {
+    expect((await patchGoal("goal-1", { label: "renamed" })).status).toBe(200);
+    expect((await patchGoal("goal-1", { status: "achieved" })).status).toBe(200);
+    expect(mockRole).not.toHaveBeenCalled();
   });
 });
 

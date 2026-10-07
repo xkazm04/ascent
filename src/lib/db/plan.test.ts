@@ -94,7 +94,10 @@ function fakePrisma(opts: { goals: GoalSeed[]; repos?: RepoSeed[] }) {
       findMany: vi.fn(async () => repoRows),
     },
     goal: {
-      findMany: vi.fn(async () => goalRows),
+      findMany: vi.fn(async (q?: { where?: { status?: { not?: string } } }) => {
+        const not = q?.where?.status?.not;
+        return not ? goalRows.filter((g) => g.status !== not) : goalRows;
+      }),
       update: vi.fn(async ({ where, data }: { where: { id: string }; data: { status?: string; achievedAt?: Date } }) => {
         goalUpdates.push({ id: where.id, data });
         return { id: where.id };
@@ -118,6 +121,25 @@ beforeEach(() => {
   mockIsDbConfigured.mockReset();
   mockGetPrisma.mockReset();
   mockIsDbConfigured.mockReturnValue(true);
+});
+
+describe("listGoals and the closed status", () => {
+  it("omits a closed goal and never flips or writes its status, even when its target is met", async () => {
+    const { prisma, goalUpdates } = fakePrisma({
+      goals: [
+        { id: "g_closed", target: 70, status: "closed" },
+        { id: "g_open", target: 90, status: "active" },
+      ],
+      repos: [{ fullName: "acme/a", name: "a", overall: 80 }],
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    const out = (await listGoals(ORG_SLUG))!;
+    expect(out.map((g) => g.id)).toEqual(["g_open"]);
+    expect(prisma.goal.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { orgId: ORG_ID, status: { not: "closed" } },
+    }));
+    expect(goalUpdates).toEqual([]);
+  });
 });
 
 describe("listGoals achievedAt state-stamp (the persisted transition inside a read)", () => {

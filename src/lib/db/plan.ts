@@ -408,7 +408,7 @@ export async function listGoals(orgSlug: string): Promise<GoalProgress[] | null>
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
   const [goals, snap, orgRow] = await Promise.all([
-    prisma.goal.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
+    prisma.goal.findMany({ where: { orgId, status: { not: "closed" } }, orderBy: { createdAt: "desc" } }),
     fleetSnapshot(orgId),
     prisma.organization.findUnique({ where: { id: orgId }, select: { plan: true } }),
   ]);
@@ -571,6 +571,13 @@ async function ownerOrgSlug(find: () => Promise<{ org: { slug: string } } | null
   if (!isDbConfigured()) return null;
   const row = await find();
   return row?.org.slug ?? null;
+}
+
+/** A goal's stored status (null = unknown id / no DB) — lets the PATCH route authorize a move out of "closed". */
+export async function getGoalStatus(id: string): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const row = await getPrisma().goal.findUnique({ where: { id }, select: { status: true } });
+  return row?.status ?? null;
 }
 
 /** The owning org's slug for a goal id (for the per-row tenant gate on /api/org/goals/:id). Null = unknown id. */

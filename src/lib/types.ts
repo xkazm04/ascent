@@ -39,11 +39,14 @@ export type RecStatus = "open" | "in_progress" | "done" | "dismissed";
 export const REC_STATUSES: RecStatus[] = ["open", "in_progress", "done", "dismissed"];
 
 /** The full goal status vocabulary. `listGoals` owns the active<->achieved transition (current vs
- *  target); the PATCH route accepts an explicit override but only within this set. There is no
- *  "archived" state — nothing ever sets it, so no surface may filter on it (goals-initiatives #1). */
-export type GoalStatus = "active" | "achieved";
+ *  target) and never touches a closed goal; the PATCH route accepts an explicit override but only
+ *  within this set. "closed" retires a goal (typically a lapsed one) without deleting its history:
+ *  only an org admin may set it or move a goal out of it, and `listGoals` omits closed goals, so
+ *  every consumer stops reading them. There is no "archived" state — nothing ever sets it, so no
+ *  surface may filter on it (goals-initiatives #1). */
+export type GoalStatus = "active" | "achieved" | "closed";
 
-export const GOAL_STATUSES: GoalStatus[] = ["active", "achieved"];
+export const GOAL_STATUSES: GoalStatus[] = ["active", "achieved", "closed"];
 
 /** What a RecommendationEvent records: a status change, a (re)assignment, a due-date change, or a
  *  standalone note (a comment that arrived with a patch that changed no field — notes are never
