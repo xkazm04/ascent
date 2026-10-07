@@ -662,6 +662,12 @@ threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
   the value to `null`. Until this, those failures were swallowed into the same UNKNOWN a missing
   lockfile produces, so the scan published "no lockfile / no alert access" for a read that did
   not run (G4: a failed read is not empty findings).
+- **`fetchSecurityPosture` rejects on a failed read** (r25). A network error or timeout, an
+  advisory status other than 200/404, a malformed 200 body, or an org-policy probe that threw or
+  answered other than 200/404 with no path answering 200 all reject, so ingest records
+  `securityPosture` on `sensorFailures` and the security-policy check is `score: null`. A 404 stays a
+  real zero / false. Until this the function resolved `null` on every failure and D9 published a
+  false "No security policy" 0.
 - Governance and platform folds are not given partial credit; the caveat is the record. An absent
   `platformSignals` record **plus** `appInventory`/`ciHealth` in `sensorFailures` means
   *unmeasured*; an absent record with nothing listed means the scan looked and measured nothing.
