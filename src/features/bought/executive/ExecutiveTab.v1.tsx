@@ -102,7 +102,11 @@ export function executiveV1(v: ExecutiveView) {
 
       <BriefingMovementCard gainers={briefing.topGainers} regressions={briefing.topRegressions} reportLinks />
 
-      <BriefingGoalsCard goals={briefing.goals} emptyText={briefing.accountFiguresNotice ?? "No goals set."} />
+      {/* Goals are read-only (no create/edit UI): with none and no notice there is nothing to say, so the
+          section is omitted like the PDF and markdown do, rather than inviting an action that is gone. */}
+      {(briefing.goals.length > 0 || briefing.accountFiguresNotice) && (
+        <BriefingGoalsCard goals={briefing.goals} emptyText={briefing.accountFiguresNotice} />
+      )}
 
       {/* Owner-only: the inventory of links this org has already published, and the control that
           retires one. Sits beside the other owner controls rather than in the header row, because it is

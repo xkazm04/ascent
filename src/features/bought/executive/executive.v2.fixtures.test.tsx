@@ -82,6 +82,12 @@ describe("executive prism fixtures", () => {
     expect(zero).not.toContain("not measured");
   });
 
+  it("omits the Goals section with no goals and no notice, and still prints a notice", () => {
+    expect(executiveGoals([])).toBeNull();
+    expect(executiveGoals([], null)).toBeNull();
+    expect(html(executiveGoals([], "Account figures omitted."))).toContain("Account figures omitted.");
+  });
+
   it("renders the previous window in paper figures", () => {
     const markup = html(executivePrior(
       {

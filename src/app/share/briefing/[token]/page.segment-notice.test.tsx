@@ -88,11 +88,11 @@ describe("share page — segment-scoped link", () => {
     expect(find(el, BriefingTiles)!.props.benchmarkOmitted).toBe(true);
   });
 
-  it("an unscoped link keeps the plain empty text and the normal percentile caption", async () => {
+  it("an unscoped link with no goals omits the Goals section and keeps the normal percentile caption", async () => {
     mockVerify.mockReturnValue({ org: "acme", range: "90d", winStart: null, winEnd: null });
     mockBuildExecBriefing.mockResolvedValue(briefing());
     const el = (await SharedBriefingPage({ params: Promise.resolve({ token: "t" }) })) as React.ReactElement;
-    expect(find(el, BriefingGoalsCard)!.props.emptyText).toBe("No goals set for this org.");
+    expect(find(el, BriefingGoalsCard)).toBeNull();
     expect(find(el, BriefingTiles)!.props.benchmarkOmitted).toBe(false);
   });
 });

@@ -27,9 +27,11 @@ export function executiveMovement(gainers: BriefingMove[], regressions: Briefing
 
 export function executiveGoals(goals: BriefingGoal[], omittedNotice?: string | null) {
   if (goals.length === 0) {
+    // No goals and no notice: omit the section (goals are read-only; there is no action to invite).
+    if (!omittedNotice) return null;
     return (
       <Frame>
-        <SectionHead eyebrow="Goals" title={omittedNotice ?? "No goals set."} />
+        <SectionHead eyebrow="Goals" title={omittedNotice} />
       </Frame>
     );
   }

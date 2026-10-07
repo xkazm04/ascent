@@ -286,7 +286,10 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           className="mt-6"
         />
 
-        <BriefingGoalsCard goals={briefing.goals} emptyText={briefing.accountFiguresNotice ?? "No goals set for this org."} className="mt-6" />
+        {/* No goals and no notice: omit the section (goals are read-only; nothing to invite). */}
+        {(briefing.goals.length > 0 || briefing.accountFiguresNotice) && (
+          <BriefingGoalsCard goals={briefing.goals} emptyText={briefing.accountFiguresNotice} className="mt-6" />
+        )}
       </main>
       <ShareFooter branding={branding} />
     </>
