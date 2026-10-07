@@ -16,6 +16,7 @@ const TONE: Record<TrendAnnotation["kind"], { color: string; glyph: string; word
   promotion: { color: "#34d399", glyph: "▲", word: "Promotion" },
   demotion: { color: "#f87171", glyph: "▼", word: "Demotion" },
   regression: { color: "#fbbf24", glyph: "!", word: "Regression" },
+  rubric: { color: "#94a3b8", glyph: "≠", word: "Rubric" },
   // The colour is per marker (red when a deployment in its window failed); see toneFor.
   deploy: { color: deployColor(undefined), glyph: "◆", word: "Deploy" },
 };

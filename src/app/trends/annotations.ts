@@ -9,6 +9,12 @@
 //                        previous scan, the SAME threshold the alerting path uses to call something a
 //                        regression, so the chart and the alert email never disagree about what counts
 //
+// THE RULER: a consecutive pair scored under two provably different rubrics (`sameRuler === false`)
+// measured the rubric bump, not the repository, so it never becomes a promotion, demotion or
+// regression. It becomes one marker of kind "rubric" instead. Only a provable false refuses a pair; a
+// pair with an end that records no rubric (null) takes the ordinary path, exactly as the alert lane
+// does (scan-alerts.ts), so the chart and the alert email agree.
+//
 // DEPLOY MARKERS (kind "deploy") are NOT derived here: they come from persisted `Deployment` rows
 // (the W4 GitHub Deployments ingest), pinned onto this same shape by `deployAnnotations.ts`. A
 // marker derived from "a scan happened" is still never a deploy; only a stored deployment is.
@@ -17,8 +23,9 @@
 
 import { DEFAULT_THRESHOLDS } from "@/lib/alerts";
 import type { HistoryPoint } from "@/lib/db/scans";
+import { sameRuler } from "@/lib/maturity/attribution";
 
-export type TrendAnnotationKind = "promotion" | "demotion" | "regression" | "deploy";
+export type TrendAnnotationKind = "promotion" | "demotion" | "regression" | "rubric" | "deploy";
 
 /**
  * One marker pinned to a point on the trend timeline.
@@ -73,6 +80,15 @@ export function deriveTrendAnnotations(
     const sha = now.headSha ? now.headSha.slice(0, 7) : null;
     const base = { at: now.scannedAt, scanId: now.id, delta, sha, commitSha: now.headSha };
 
+    if (sameRuler(prev.rubricVersion, now.rubricVersion) === false) {
+      out.push({
+        ...base,
+        kind: "rubric",
+        label: `${prev.rubricVersion} → ${now.rubricVersion}`,
+        detail: `Scoring rubric changed from ${prev.rubricVersion} to ${now.rubricVersion}${sha ? ` at ${sha}` : ""}: the ${signed(delta)} point move here measures the rubric, not the repository.`,
+      });
+      continue;
+    }
     if (now.level !== prev.level) {
       const promoted = now.overallScore > prev.overallScore;
       out.push({
