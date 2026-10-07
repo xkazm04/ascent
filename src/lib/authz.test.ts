@@ -82,6 +82,7 @@ import {
   canMintInstallationToken,
   canReadOrg,
   openOrgDashboardsEnabled,
+  refusePublicOrgAdmin,
   requireOrgAccess,
   requireOrgRead,
   requireOrgRole,
@@ -483,5 +484,25 @@ describe("requireOrgAccess + canReadOrg under the Supabase login wall (cross-ten
   it("public stays readable + writable under the wall", async () => {
     expect(await canReadOrg("public")).toBe(true);
     expect(await requireOrgAccess("public")).toBeNull();
+  });
+});
+
+describe("refusePublicOrgAdmin (2026-10-07: nobody may administer the shared public org)", () => {
+  it.each(["public", "Public", " PUBLIC "])("refuses %j with a 403 and a plain error", async (org) => {
+    const res = refusePublicOrgAdmin(org);
+    expect(res?.status).toBe(403);
+    expect(await res?.json()).toEqual({ error: expect.stringMatching(/public org/i) });
+  });
+
+  it("passes every other org through, including one whose name merely contains public", () => {
+    for (const org of ["acme", "public-ish", "publicorg", ""]) expect(refusePublicOrgAdmin(org)).toBeNull();
+  });
+
+  it("leaves requireOrgRole's default unchanged: PUBLIC_ORG still passes the gate itself", async () => {
+    mockAuthGateEnabled.mockReturnValue(true);
+    mockRequireViewer.mockResolvedValue(null);
+    mockGetViewer.mockResolvedValue({ id: "v", login: "stranger" });
+    mockGetMembershipRole.mockResolvedValue(null);
+    expect(await requireOrgRole("public", "owner")).toBeNull();
   });
 });

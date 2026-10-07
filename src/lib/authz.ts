@@ -322,3 +322,25 @@ export async function requireOrgRole(org: string, min: OrgRole): Promise<NextRes
   // Fully auth-off (local / demo / e2e): open.
   return null;
 }
+
+/**
+ * Refuse an owner/admin action on the shared "public" org. Returns a 403 NextResponse when `org` is
+ * PUBLIC_ORG (trimmed, case-insensitive), or null for every other org.
+ *
+ * requireOrgRole and requireOrgAccess both admit PUBLIC_ORG for any signed-in viewer, because it is
+ * the free funnel that anyone may scan into. That is right for scanning and wrong for administering:
+ * before this helper, any free account passed requireOrgRole("public", "owner") and could erase every
+ * public repo's scan series, rewrite its retention policy, set its LLM provider, grant itself owner,
+ * or revoke other people's public-org API tokens. Call it before the role gate in any route that
+ * destroys or rewrites public-org data, settings, membership or credentials.
+ *
+ * Unconditional, auth-off included: the public org has no owner on any deployment, so no request
+ * can speak for it. An operator who must purge it does so through the retention cron or the database.
+ */
+export function refusePublicOrgAdmin(org: string): NextResponse | null {
+  if (normalizeLogin(org) !== PUBLIC_ORG) return null;
+  return NextResponse.json(
+    { error: "The shared public org has no owner, so its data, settings and members can't be changed here." },
+    { status: 403 },
+  );
+}
