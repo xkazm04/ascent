@@ -668,6 +668,41 @@ threw on `IngestPhaseResult.sensorFailures` (typed `ScanSensorId[]`, carried on
   `securityPosture` on `sensorFailures` and the security-policy check is `score: null`. A 404 stays a
   real zero / false. Until this the function resolved `null` on every failure and D9 published a
   false "No security policy" 0.
+- **The display-only enrichments use the same recorder** (2026-10-07). Commit activity, guidance
+  freshness and the PR-head App inventory used a bare `.catch(() => null)`, which the module's own
+  comment forbids. Their failures now go through `sensorFailed` and are logged. They do **not** join
+  `sensorFailures` (no caveat, no score change): their degraded value is already a typed unknown
+  (no activity chart, per-file freshness unknown, `prHeadTruncated`), not an absence the scorer
+  reads as "none".
+
+### Every failed read in the scan span reaches a door (2026-10-07)
+
+Two council rounds each found a catch that turned a failed read into a successful answer and told
+nobody. Round 2 found the next sibling of round 1's defect, so the whole span (the four
+context-map contexts the council reviews) was swept for the shape. Every catch site is in one of
+three classes:
+
+- **The failure becomes a visible state.** On the report permalink, a failed read renders
+  `PermalinkReadError` or "couldn't load", or it leaves a prop unresolved so the client fetch takes
+  over. It is reported with `reportFailedRead` (`src/lib/scan-read-door.ts`). See
+  [report.md](../reporting/report.md#cold-permalink-coldscangate--coldscanteaser).
+- **A best-effort degrade keeps its value and gains a door.** These are the cache tiers (a thrown
+  persisted read is a cache miss), the regression baseline, the latest-public-report salvage, org
+  decisions and craft for the prompt (an empty list is *omitted* from the prompt, never sent as "none"),
+  the alert side paths, the OSV per-vuln severity (counted `high`), the landing gallery, and
+  persisted-JSON parsers that read a corrupt blob as "not assessed". Server code reports through
+  `degradeTo` / `reportDegradedRead`, which log plus `reportHandledError`. Pure and client modules,
+  which cannot import `respond.ts`, log with `console.warn`.
+- **Legitimately silent, with a one-line reason.** These are a request-body parse that then answers
+  400, an SSE controller or reader that is already closed, browser storage, a best-effort telemetry
+  tally, an unreadable error-response body that still lands in the error state, and a scanned repo's
+  own malformed `package.json`, which is a fact about the repo and not a failed read.
+
+`src/lib/scan-silent-catch.guard.test.ts` holds the line. It derives the span from
+`context-map.json` and parses each source with the TypeScript compiler, so comments and strings cannot
+satisfy it. It then fails on any silent catch that is not on its allowlist, which records a reason
+for each entry. A silent catch is one of three shapes: `.catch(() => null | [] | {} | false |
+undefined | EMPTY_*)`, an empty `catch {}`, or a `catch { return … }` with no door.
 - Governance and platform folds are not given partial credit; the caveat is the record. An absent
   `platformSignals` record **plus** `appInventory`/`ciHealth` in `sensorFailures` means
   *unmeasured*; an absent record with nothing listed means the scan looked and measured nothing.
