@@ -49,7 +49,7 @@ vi.mock("@/lib/db/org-settings", () => ({
     return true;
   }),
 }));
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null,
   requireOrgRead: vi.fn(async () => null),
   requireOrgRole: vi.fn(async () => null),
 }));

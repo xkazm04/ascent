@@ -21,7 +21,7 @@ import { NextResponse } from "next/server";
 import { creditsForProduct, getPolar, planForProduct, polarEnabled } from "@/lib/polar";
 import { getOrgId, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { requireSameOrigin } from "@/lib/auth";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { publicBaseUrl } from "@/lib/site";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
@@ -66,7 +66,7 @@ export async function GET(request: Request) {
   // get a 404-vs-303 existence oracle). Minting a hosted Polar session is an external, billable
   // state change bound to this org — same owner tier as /api/org/plan and credit grants. Auth-off
   // (local / demo / e2e) stays open via requireOrgRole, so the documented gift/seed path is unblocked.
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
   // Fail fast on a target that can never receive the credits — a typo'd/nonexistent slug would create
   // a real paid checkout whose fulfilment then can't bind to an org (pay-into-a-void). Cheap DB read

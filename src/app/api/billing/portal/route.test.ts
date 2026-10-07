@@ -33,7 +33,7 @@ vi.mock("@/lib/auth", () => {
     ),
   };
 });
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/site", () => ({ publicBaseUrl: vi.fn(() => "https://ascent.test") }));
 
 import { GET } from "./route";

@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import { polarCustomerPortalUrl, polarEnabled } from "@/lib/polar";
 import { getOrgId, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { requireSameOrigin } from "@/lib/auth";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { publicBaseUrl } from "@/lib/site";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
 
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
   const crossOrigin = requireSameOrigin(request);
   if (crossOrigin) return crossOrigin;
   if (!org) return NextResponse.json({ error: "Missing org." }, { status: 400 });
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
   if (isDbConfigured()) {
     let orgId: string | null;

@@ -27,7 +27,7 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getOrgAutoRecharge, setOrgAutoRecharge } from "@/lib/db/org-settings";
-import { requireOrgRead, requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRead, requireOrgRole } from "@/lib/authz";
 import { isSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import {
@@ -82,7 +82,7 @@ export async function PUT(request: Request) {
   const org = typeof body.org === "string" ? body.org.trim() : "";
   if (!org) return NextResponse.json({ error: "Provide { org }." }, { status: 400 });
   // Owner-gated: same tier as the credit grant / plan endpoints — this governs a billing prompt.
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
 
   // Reject an out-of-range threshold LOUDLY instead of silently clamping it: a 400 tells the owner their
