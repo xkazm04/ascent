@@ -22,7 +22,7 @@
 # (never a false "below the bar" failure). Gate a private repo with the Ascent GitHub App's CHECK RUN
 # instead: install the App on the repository and require its check in your branch-protection rules.
 name: "Ascent maturity gate"
-description: "Fail CI when a repository is below the AI-native maturity bar (scored by Ascent). The security floor (min-security) gates a fully deterministic signal — an LLM cannot move it."
+description: "Fail CI when a repository is below the AI-native maturity bar (scored by Ascent). The security floor (min-security) gates a fully deterministic signal — an LLM cannot make it pass: a missing Security (D9) score fails the floor closed."
 branding:
   icon: "trending-up"
   color: "green"

@@ -33,6 +33,11 @@ no workflow file; an org-level `SECURITY.md` lives in the org's `.github` repo),
 treated as **unmeasurable** and renormalized out rather than counted as a measured 0. The
 model can mark D9 n/a this way; it can never raise a measured D9 sub-check score.
 
+That exception **fails closed at the gate**: a configured floor on a dimension the report does not
+carry (D9 dropped this way, or any `min_d<N>` dimension absent from the scan) is a `dimension`
+failure ("not measured in this scan: failing the floor (fail-closed)"), never a silent skip. So a
+model can still make D9 unmeasurable, but it can no longer make the security floor *pass* by doing so.
+
 ## Gate API (`src/app/api/gate/[owner]/[repo]/route.ts`)
 
 `GET /api/gate/:owner/:repo` scores the repo and evaluates a policy, returning **`200` on

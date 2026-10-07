@@ -620,6 +620,21 @@ function evaluateNormalized(g: NormalizedGate, pol: GatePolicy): { failures: Gat
         });
       }
     }
+    // A floor on a dimension the report does not carry at all is NOT a pass: the loop above only visits
+    // dims that exist, so an engine that drops a dim (D9 when its signal is unmeasurable) would
+    // otherwise skip the floor silently. Same fail-closed rule as an unscored (NaN) dim.
+    const present = new Set(g.dims.map((d) => d.id));
+    for (const [id, floor] of Object.entries(floors)) {
+      if (typeof floor !== "number" || floor <= 0 || present.has(id)) continue;
+      const label = DIMENSION_BY_ID[id as DimensionId]?.name ?? id;
+      failures.push({
+        code: "dimension",
+        message:
+          id === SECURITY_DIM
+            ? `${id} ${label} (the security floor) was not measured in this scan: failing the ${floor} floor (fail-closed).`
+            : `${id} ${label} was not measured in this scan: failing the ${floor} floor (fail-closed).`,
+      });
+    }
   }
   if (pol.forbidPostures?.some((p) => p === g.posture.id)) {
     failures.push({ code: "posture", message: `Posture "${g.posture.label}" is not permitted by the gate.` });

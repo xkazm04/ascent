@@ -84,6 +84,31 @@ describe("empty/zero security floor + fail-closed dimensions (CIGATE #2, #3)", (
   });
 });
 
+describe("a missing dimension fails its floor (fail-closed)", () => {
+  const withoutD9 = (): ScanReport => {
+    const r = report({ d9: 80 });
+    return { ...r, dimensions: r.dimensions.filter((d) => d.id !== "D9") } as ScanReport;
+  };
+
+  it("a report without D9 and min-security set gives pass:false with a not-measured failure", () => {
+    const pol = policyFromParams(new URLSearchParams("min_security=50"), "org");
+    const res = evaluateGate(withoutD9(), pol);
+    expect(res.pass).toBe(false);
+    expect(res.failures.some((f) => f.code === "dimension" && f.message.includes("D9") && /security floor/.test(f.message) && /not measured in this scan/.test(f.message))).toBe(true);
+  });
+
+  it("the same report without the floor is unchanged", () => {
+    expect(evaluateGate(withoutD9(), { minOverall: 40 }).pass).toBe(true);
+    expect(evaluateGate(withoutD9(), { minOverall: 40, minDimensionFor: { D1: 50 } }).pass).toBe(true);
+  });
+
+  it("a report with D9 present behaves as before", () => {
+    const pol = policyFromParams(new URLSearchParams("min_security=50"), "org");
+    expect(evaluateGate(report({ d9: 60 }), pol).pass).toBe(true);
+    expect(evaluateGate(report({ d9: 40 }), pol).failures.some((f) => /below the required 50/.test(f.message))).toBe(true);
+  });
+});
+
 // The tighten-only overlay the unauthenticated gate endpoint uses so a query param can raise but
 // never lower a persisted org policy (ambiguity-ui 2026-07-16 ci-gate #1). explicitPolicyFromParams
 // carries ONLY what the URL requests (no archetype padding); tightenGatePolicy keeps the strictest
