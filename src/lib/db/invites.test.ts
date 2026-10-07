@@ -306,3 +306,44 @@ describe("listPendingInvites never re-broadcasts the token", () => {
     expect(JSON.stringify(listed)).not.toContain("secret_capability");
   });
 });
+
+describe("acceptInvite — an invite to the shared public org grants nothing (security scan 2026-10-07)", () => {
+  it.each(["public", "Public"])("refuses a pending %j invite as not_found: no grant, invite not consumed", async (slug) => {
+    const { prisma, statusFlips } = fakeInvitePrisma({ role: "admin" });
+    prisma.invite.findUnique.mockResolvedValue({
+      id: "inv_pub",
+      status: "pending",
+      expiresAt: new Date(Date.now() + 60_000),
+      role: "admin",
+      githubLogin: null,
+      email: null,
+      org: { slug },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockGetMembershipRole.mockResolvedValue(null);
+
+    const res = await acceptInvite("tok", { login: "Stranger" });
+
+    expect(res).toEqual({ ok: false, reason: "not_found" });
+    expect(mockSetMembershipRole).not.toHaveBeenCalled();
+    expect(statusFlips).toEqual([]);
+  });
+});
+
+describe("peekInvite — a pre-fix invite to the shared public org is not offered", () => {
+  it("answers not_found for a pending public invite", async () => {
+    const { prisma } = fakeInvitePrisma({ role: "admin" });
+    prisma.invite.findUnique.mockResolvedValue({
+      id: "inv_pub",
+      status: "pending",
+      expiresAt: new Date(Date.now() + 60_000),
+      role: "admin",
+      githubLogin: null,
+      email: null,
+      org: { slug: "public" },
+    });
+    mockGetPrisma.mockReturnValue(prisma);
+
+    expect(await peekInvite("tok")).toEqual({ ok: false, reason: "not_found" });
+  });
+});

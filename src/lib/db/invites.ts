@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { coerceStoredRole, getMembershipRole, roleAtLeast, setMembershipRole, type OrgRole } from "@/lib/db/members";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -87,6 +88,7 @@ export async function peekInvite(token: string): Promise<InvitePeek> {
     select: { status: true, expiresAt: true, role: true, githubLogin: true, email: true, org: { select: { slug: true } } },
   });
   if (!invite) return { ok: false, reason: "not_found" };
+  if (invite.org.slug.trim().toLowerCase() === PUBLIC_ORG) return { ok: false, reason: "not_found" }; // see acceptInvite
   if (invite.status !== "pending") return { ok: false, reason: "used" };
   if (invite.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
   return {
@@ -183,6 +185,10 @@ export async function acceptInvite(token: string, identity: AcceptIdentity): Pro
     select: { id: true, status: true, expiresAt: true, role: true, githubLogin: true, email: true, org: { select: { slug: true } } },
   });
   if (!invite) return { ok: false, reason: "not_found" };
+  // The shared public org has no owner and mints no invites (refusePublicOrgAdmin on the create route),
+  // but an invite minted before that gate can still be redeemed: the org here comes from the token.
+  // Treat it as absent so nothing is granted and the row is not consumed (security scan 2026-10-07).
+  if (invite.org.slug.trim().toLowerCase() === PUBLIC_ORG) return { ok: false, reason: "not_found" };
   if (invite.status !== "pending") return { ok: false, reason: "used" };
   if (invite.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
   if (invite.githubLogin) {
