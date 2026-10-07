@@ -37,7 +37,7 @@ vi.mock("@/lib/db", () => ({
   publishOrgStance: h.publishOrgStance,
   recordOrgAudit: h.recordOrgAudit,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRead: h.requireOrgRead, requireOrgRole: h.requireOrgRole }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRead: h.requireOrgRead, requireOrgRole: h.requireOrgRole }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: h.requireSameOrigin }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: h.resolveViewerLogin }));
 

@@ -12,7 +12,7 @@ import { AppApiError, isAppConfigured } from "@/lib/github/app";
 import { getActiveOrgStance, getOrgId, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured, requireSameOrigin } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { classifyPrWriteError, requirePrWriteTarget, type PrWriteCoordinate } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import { applyStanceToRepo } from "@/lib/org/stance-apply";
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const denied = await requireOrgRole(org, "admin");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "admin"));
   if (denied) return denied;
 
   const active = await getActiveOrgStance(org);

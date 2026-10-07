@@ -45,7 +45,7 @@ vi.mock("@/lib/access", () => ({
   authGateEnabled: () => true,
   resolveViewerLogin: h.resolveViewerLogin,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: h.requireOrgRole }));
 // The REAL pr-route composer runs: the installation lookup and the token mint are the boundary this
 // file asserts on, so a cross-tenant mint is visible as a call with the wrong org.
 

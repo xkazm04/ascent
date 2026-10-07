@@ -62,7 +62,7 @@ vi.mock("@/lib/access", () => ({
   authGateEnabled: () => true,
   resolveViewerLogin: h.resolveViewerLogin,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: h.requireOrgRole }));
 // The REAL pr-route composer runs, so the installation lookup is asserted by the org it was asked for.
 
 import { POST } from "./route";

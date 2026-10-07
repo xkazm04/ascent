@@ -26,7 +26,7 @@ import { isAppConfigured } from "@/lib/github/app";
 import { getActiveOrgStance, getOrgId, isDbConfigured } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { mapPrWriteError, requirePrWriteTarget, resolvePrWriteCoordinate } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
   }
   const org = body.org.toLowerCase();
 
-  const denied = await requireOrgRole(org, "admin");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "admin"));
   if (denied) return denied;
 
   // TENANCY, before the preview and before any installation lookup: the repo must sit in the gated

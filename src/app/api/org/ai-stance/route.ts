@@ -20,7 +20,7 @@ import {
   recordOrgAudit,
   saveOrgStanceDraft,
 } from "@/lib/db";
-import { requireOrgRead } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { resolveViewerLogin } from "@/lib/access";
 import type { AiStance } from "@/lib/types";
@@ -60,6 +60,8 @@ export async function POST(request: Request) {
     missingOrgError: "Provide { org, action, stance }.",
   });
   if (gate instanceof NextResponse) return gate;
+  const noPublic = refusePublicOrgAdmin(gate.org);
+  if (noPublic) return noPublic;
   const { org, body } = gate;
 
   const action = body.action === "publish" ? "publish" : body.action === "draft" ? "draft" : null;

@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server";
 import { ackOrgStance, getActiveOrgStance, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { requireSameOrigin } from "@/lib/auth";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 import { parseRepoUrl } from "@/lib/github/source";
 
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   }
   const parsed = parseRepoUrl(body.repo);
   if (!parsed) return NextResponse.json({ error: "repo must be 'owner/name'." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "admin");
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "admin"));
   if (denied) return denied;
 
   const active = await getActiveOrgStance(body.org);
