@@ -16,7 +16,7 @@
 // Also: truncation stops being data loss. A fleet run that hits its 300s ceiling leaves the remainder
 // as `queued` rows, and the next cron pass finishes exactly those.
 
-import { getPrisma, isDbConfigured } from "@/lib/db/client";
+import { dbReadStrict, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
 
@@ -522,18 +522,24 @@ export async function orgQueueDepth(orgSlug: string): Promise<Record<ScanLane, L
 }
 
 /**
- * One interactive run's jobs. GATE-THEN-CONSTRAIN: the caller gates `orgSlug`, and the resolved org id
+ * One interactive run's jobs. THROWS on a failed read (class A). GATE-THEN-CONSTRAIN: the caller gates `orgSlug`, and the resolved org id
  * is passed into the query BESIDE `runId`, so a runId belonging to another org is simply not found
  * rather than being authorized by the caller-supplied pair.
  */
 export async function listJobsForRun(orgSlug: string, runId: string): Promise<ScanJobRow[]> {
   if (!isDbConfigured()) return [];
-  const orgId = await getOrgId(orgSlug).catch(degradedRead("scan-jobs org lookup (listJobsForRun)", null));
-  if (!orgId) return [];
-  const rows = (await getPrisma()
-    .scanJob.findMany({ where: { orgId, runId }, orderBy: { createdAt: "asc" } })
-    .catch(degradedRead("scan-jobs run read (listJobsForRun)", []))) as PrismaJob[];
-  return rows.map(toRow);
+  // CLASS A (docs/adr/2026-10-07-failed-read-is-not-absence.md): every caller turns this list into a
+  // fact about the run ("nothing is owed", "total 0, pending 0"), so a failed org lookup or run read
+  // THROWS. Only an unconfigured database or an unknown org answers the empty list.
+  return dbReadStrict(async () => {
+    const orgId = await getOrgId(orgSlug);
+    if (!orgId) return [];
+    const rows = (await getPrisma().scanJob.findMany({
+      where: { orgId, runId },
+      orderBy: { createdAt: "asc" },
+    })) as PrismaJob[];
+    return rows.map(toRow);
+  });
 }
 
 /** The unsettled jobs for a set of repo full names — the Repositories tab's "queued" tag. */

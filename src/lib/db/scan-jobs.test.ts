@@ -20,7 +20,10 @@ const { mockIsDbConfigured, mockGetPrisma, mockGetOrgId, mockListDueProbeCandida
   mockListDueProbeCandidates: vi.fn(),
 }));
 
-vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrisma: mockGetPrisma }));
+vi.mock("@/lib/db/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/db/client")>("@/lib/db/client");
+  return { dbReadStrict: actual.dbReadStrict, isDbConfigured: mockIsDbConfigured, getPrisma: mockGetPrisma };
+});
 vi.mock("@/lib/db/org-rollup", () => ({ getOrgId: mockGetOrgId }));
 vi.mock("@/lib/db/org-watch", () => ({
   listDueProbeCandidates: mockListDueProbeCandidates,
@@ -295,6 +298,35 @@ describe("orgQueueDepth refuses to fabricate an empty queue", () => {
   });
 });
 
+// listJobsForRun is class A: every caller reads its list as a fact about the run, so a failed read throws.
+describe("listJobsForRun fails visibly", () => {
+  it("THROWS when the run read fails, never [] (a [] reads as 'nothing is owed')", async () => {
+    mockGetPrisma.mockReturnValue({ scanJob: { findMany: vi.fn(async () => { throw new Error("read down"); }) } });
+    await expect(listJobsForRun("acme", "run_1")).rejects.toThrow("read down");
+  });
+
+  it("THROWS when the org lookup fails, never [] (that would read as an unknown org)", async () => {
+    mockGetOrgId.mockRejectedValue(new Error("org lookup down"));
+    mockGetPrisma.mockReturnValue({ scanJob: { findMany: vi.fn() } });
+    await expect(listJobsForRun("acme", "run_1")).rejects.toThrow("org lookup down");
+  });
+
+  it("answers [] for an unconfigured database and for an unknown org", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await listJobsForRun("acme", "run_1")).toEqual([]);
+    mockIsDbConfigured.mockReturnValue(true);
+    mockGetOrgId.mockResolvedValue(null);
+    expect(await listJobsForRun("ghost", "run_1")).toEqual([]);
+  });
+
+  it("returns the run's rows, constrained by the resolved org id", async () => {
+    const findMany = vi.fn(async () => []);
+    mockGetPrisma.mockReturnValue({ scanJob: { findMany } });
+    await listJobsForRun("acme", "run_1");
+    expect(findMany.mock.calls[0]![0].where).toEqual({ orgId: "org_1", runId: "run_1" });
+  });
+});
+
 // A failed best-effort read or write keeps its fallback AND reaches the degraded-read door
 // (docs/adr/2026-10-07-failed-read-is-not-absence.md); only queueDepth's count now throws.
 describe("failed bookkeeping reaches the door and keeps its fallback", () => {
@@ -313,14 +345,12 @@ describe("failed bookkeeping reaches the door and keeps its fallback", () => {
     expect(console.warn).toHaveBeenCalledWith("[degraded-read] scan-jobs creditCharged write (markJobCredit) failed", "write down");
   });
 
-  it("listJobsForRun and queuedJobsForRepos keep [] / an empty set on a failed read, with a warn", async () => {
+  it("queuedJobsForRepos keeps an empty set on a failed read, with a warn", async () => {
     const findMany = vi.fn(async () => {
       throw new Error("read down");
     });
     mockGetPrisma.mockReturnValue({ scanJob: { findMany } });
-    expect(await listJobsForRun("acme", "run_1")).toEqual([]);
     expect((await queuedJobsForRepos("org_1", ["acme/api"])).size).toBe(0);
-    expect(console.warn).toHaveBeenCalledWith("[degraded-read] scan-jobs run read (listJobsForRun) failed", "read down");
     expect(console.warn).toHaveBeenCalledWith("[degraded-read] scan-jobs queued-tag read (queuedJobsForRepos) failed", "read down");
   });
 
