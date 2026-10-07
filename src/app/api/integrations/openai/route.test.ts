@@ -38,7 +38,7 @@ vi.mock("@/lib/db/client", () => ({
 vi.mock("@/lib/db", () => ({ isDbConfigured: () => true }));
 vi.mock("@/lib/db/org-rollup", () => ({ getOrgId: async () => "org_1" }));
 vi.mock("@/lib/db/scans-audit", () => ({ recordAudit: vi.fn(async () => true) }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octo") }));
 

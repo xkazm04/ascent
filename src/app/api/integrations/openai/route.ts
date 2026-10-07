@@ -18,7 +18,7 @@ import {
   getProviderConnection,
   setProviderConnection,
 } from "@/lib/db/provider-credentials";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
@@ -65,7 +65,7 @@ export async function PUT(request: Request) {
   if (crossOrigin) return crossOrigin;
   const body = (await request.json().catch(() => ({}))) as { org?: string; adminKey?: unknown; projectIds?: unknown };
   if (!body.org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "owner");
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "owner"));
   if (denied) return denied;
 
   const adminKey = readAdminKey(body.adminKey);
@@ -108,7 +108,7 @@ export async function DELETE(request: Request) {
   if (crossOrigin) return crossOrigin;
   const body = (await request.json().catch(() => ({}))) as { org?: string };
   if (!body.org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "owner");
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "owner"));
   if (denied) return denied;
   const actorId = (await resolveViewerLogin()) ?? undefined;
   const ok = await deleteProviderConnection(body.org, "openai", actorId ? { actorId } : {});

@@ -16,7 +16,7 @@
 import { NextResponse } from "next/server";
 import { bumpIngestTokenEpoch, isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { ingestToken, isIngestConfigured } from "@/lib/integrations/ingest-token";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   // An explicit intent flag, so a stray POST can't revoke a fleet's telemetry by accident.
   if (body.rotate !== true) return NextResponse.json({ error: "Set { rotate: true } to confirm regeneration." }, { status: 400 });
 
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
 
   if (!isIngestConfigured()) {

@@ -13,7 +13,7 @@ vi.mock("@/lib/db", () => ({
   bumpIngestTokenEpoch: vi.fn(async () => 1),
   recordOrgAudit: vi.fn(async () => true),
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: vi.fn(async () => null) }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "owner-login") }));
 
