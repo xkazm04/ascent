@@ -22,7 +22,7 @@ vi.mock("@/lib/auth", () => {
 vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, getViewer: vi.fn(async () => null) }));
 // The two authz gates the route consults: canReadOrg models the READ path; requireOrgRole the owner gate
 // (OPEN — returns null — in an auth-off box, which is exactly the hole under test).
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null,
   canReadOrg: vi.fn(async () => true),
   requireOrgRole: vi.fn(async () => null),
 }));
