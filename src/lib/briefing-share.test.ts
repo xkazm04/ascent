@@ -178,6 +178,50 @@ describe("each grant is minted with its own identity (#13)", () => {
   });
 });
 
+// ── Token codec: round trip and tamper rejection ──────────────────────────────────────────────────
+describe("briefing share token codec", () => {
+  it("round-trips every field it signs", () => {
+    const minted = signBriefingShareToken({ org: "acme", range: "30d", segment: "seg_1", stack: "frontend", mintedBy: "owner-a" })!;
+    expect(verifyBriefingShareToken(minted.token)).toMatchObject({
+      org: "acme", range: "30d", segment: "seg_1", stack: "frontend", mintedBy: "owner-a", jti: minted.jti,
+    });
+  });
+
+  it("rejects a flipped signature character", () => {
+    const { token } = signBriefingShareToken({ org: "acme", range: "30d" })!;
+    const bad = token.slice(0, -1) + (token.endsWith("A") ? "B" : "A");
+    expect(verifyBriefingShareToken(bad)).toBeNull();
+  });
+
+  it("rejects a payload edited under the original signature", () => {
+    const { token } = signBriefingShareToken({ org: "acme", range: "30d" })!;
+    const [payload, sig] = token.split(".");
+    const edited = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    edited.org = "victim-org";
+    const forged = `${Buffer.from(JSON.stringify(edited)).toString("base64url")}.${sig}`;
+    expect(verifyBriefingShareToken(forged)).toBeNull();
+  });
+
+  it("rejects a token signed with another secret, and one read with no secret configured", () => {
+    const { token } = signBriefingShareToken({ org: "acme", range: "30d" })!;
+    process.env.BRIEFING_SHARE_SECRET = "a-different-secret";
+    expect(verifyBriefingShareToken(token)).toBeNull();
+    delete process.env.BRIEFING_SHARE_SECRET;
+    expect(verifyBriefingShareToken(token)).toBeNull();
+  });
+
+  it("rejects an expired token even with a valid signature", () => {
+    expect(verifyBriefingShareToken(mintLegacyToken({ org: "acme", range: "30d", exp: Date.now() - 1000 }))).toBeNull();
+  });
+
+  it("rejects malformed framing: empty, no dot, empty payload, non-JSON payload", () => {
+    for (const t of ["", "nodot", ".sigonly", "payload."]) expect(verifyBriefingShareToken(t)).toBeNull();
+    const encoded = Buffer.from("not json").toString("base64url");
+    const sig = createHmac("sha256", "test-share-secret-abc").update(encoded).digest("base64url");
+    expect(verifyBriefingShareToken(`${encoded}.${sig}`)).toBeNull();
+  });
+});
+
 // ── Content integrity (share-link-reruns-builder #26) ─────────────────────────────────────────
 // The shared page re-runs the builder, so the recipient's numbers can move under them. The token now
 // carries a fingerprint of the figures the SENDER saw so the page can say whether they still match.
