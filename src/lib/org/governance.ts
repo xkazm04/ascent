@@ -102,7 +102,7 @@ const APP_CHECK_COMMENT = "# require-protection / min-ai-governed are enforced b
 
 function ciWith(p: GatePolicy): string[] {
   const lines = describeGatePolicy(p).flatMap((c) => (c.ci ? [c.ci] : []));
-  const keep = lines.filter((l) => !APP_CHECK_ONLY_CI.includes(l.split(":")[0]));
+  const keep = lines.filter((l) => !APP_CHECK_ONLY_CI.includes(l.split(":")[0] ?? ""));
   return keep.length === lines.length ? keep : [...keep, APP_CHECK_COMMENT];
 }
 
