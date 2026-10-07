@@ -33,6 +33,7 @@ vi.mock("@/lib/db/org-watch", () => ({
 import {
   claimJobById,
   enqueueDueProbes,
+  enqueueDueRescans,
   enqueueScanJob,
   idempotencyKeyFor,
   MAX_JOB_ATTEMPTS,
@@ -375,5 +376,15 @@ describe("failed bookkeeping reaches the door and keeps its fallback", () => {
     });
     expect(await orgQueueDepth("acme")).toBeNull();
     expect(console.warn).toHaveBeenCalledWith("[degraded-read] scan-jobs orgQueueDepth failed", "count down");
+  });
+});
+
+describe("enqueueDueRescans org exclusion", () => {
+  it("hands excludeOrgSlugs to the candidate read, so excluded orgs are never enqueued", async () => {
+    const { listDueRescanCandidates } = await import("@/lib/db/org-watch");
+    const read = vi.mocked(listDueRescanCandidates);
+    read.mockClear();
+    await enqueueDueRescans(undefined, { excludeOrgSlugs: ["public"] });
+    expect(read).toHaveBeenCalledWith(undefined, { excludeOrgSlugs: ["public"] });
   });
 });

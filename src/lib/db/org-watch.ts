@@ -337,11 +337,23 @@ export async function listDueRescans(limit = 100): Promise<DueRescan[]> {
  *
  * Same due predicate and the same round-robin interleave, so seeding order still spreads across orgs.
  */
-export async function listDueRescanCandidates(limit?: number): Promise<DueRescan[]> {
+export async function listDueRescanCandidates(
+  limit?: number,
+  opts: { excludeOrgSlugs?: readonly string[] } = {},
+): Promise<DueRescan[]> {
   if (!isDbConfigured()) return [];
   const prisma = getPrisma();
+  // `excludeOrgSlugs` is the CALLER's decision (the cron route, which can read the auth stack; this layer
+  // cannot): the shared "public" org has no owner, so a scheduled rescan there has nobody to charge.
+  // Applied in the where, so rows that already carry a schedule stop seeding with no migration.
+  const exclude = opts.excludeOrgSlugs ?? [];
   const due = await prisma.repository.findMany({
-    where: { watched: true, scanSchedule: { not: "off" }, nextScanAt: { lte: new Date() }, org: { kind: { not: "personal" } } },
+    where: {
+      watched: true,
+      scanSchedule: { not: "off" },
+      nextScanAt: { lte: new Date() },
+      org: { kind: { not: "personal" }, ...(exclude.length > 0 ? { slug: { notIn: [...exclude] } } : {}) },
+    },
     select: { id: true, fullName: true, scanSchedule: true, org: { select: { slug: true } } },
     orderBy: { nextScanAt: "asc" },
     ...(limit ? { take: limit * 4 } : {}),

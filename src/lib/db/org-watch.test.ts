@@ -38,6 +38,7 @@ import {
   advanceToFullCadence,
   claimRescan,
   listDueProbeCandidates,
+  listDueRescanCandidates,
   listDueRescans,
   nextSlotFrom,
   recordConformance,
@@ -854,5 +855,29 @@ describe("setWatchedSchedule canonicalizes the slug it looks up", () => {
     await setWatchedSchedule("  AcMe ", "weekly");
 
     expect(findUnique).toHaveBeenCalledWith({ where: { slug: "acme" }, select: { id: true } });
+  });
+});
+
+// ── listDueRescanCandidates: the seeder's org exclusion ─────────────────────────────────────
+//
+// The shared "public" org has no owner, so a scheduled rescan there has nobody to charge. The cron
+// decides whether that rule binds and passes the slugs down; the db layer only applies them.
+
+describe("listDueRescanCandidates excludeOrgSlugs", () => {
+  it("filters the excluded org slugs in the query's where, so such rows never seed", async () => {
+    const { prisma, findMany } = fakePrismaWithDue([{ id: "t1", fullName: "acme/api", org: "acme" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+    await listDueRescanCandidates(undefined, { excludeOrgSlugs: ["public"] });
+    const where = (findMany.mock.calls[0]![0] as { where: { org: Record<string, unknown> } }).where;
+    expect(where.org).toMatchObject({ kind: { not: "personal" }, slug: { notIn: ["public"] } });
+  });
+
+  it("adds no slug filter when nothing is excluded (auth-off deployments keep today's behaviour)", async () => {
+    const { prisma, findMany } = fakePrismaWithDue([{ id: "p1", fullName: "facebook/react", org: "public" }]);
+    mockGetPrisma.mockReturnValue(prisma);
+    const out = await listDueRescanCandidates();
+    const where = (findMany.mock.calls[0]![0] as { where: { org: Record<string, unknown> } }).where;
+    expect(where.org).not.toHaveProperty("slug");
+    expect(out.map((r) => r.orgSlug)).toEqual(["public"]);
   });
 });

@@ -33,6 +33,8 @@ import { enqueueDueRescans, queueDepth, reapExpiredLeases } from "@/lib/db/scan-
 import { requireCronAuth } from "@/lib/cron-auth";
 import { noteReadFailure } from "@/lib/org/degraded-read";
 import { isAppConfigured } from "@/lib/github/app";
+import { authGateEnabled } from "@/lib/access";
+import { isAuthConfigured } from "@/lib/auth";
 import { drainLane } from "@/lib/scan-queue-worker";
 import { fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
 
@@ -92,7 +94,13 @@ export async function GET(request: Request) {
   });
   // Seed everything due. Idempotent per (org, repo, lane, ISO date), so a second pass on the same day
   // — or an overlapping invocation — adds nothing.
-  const seeded = await enqueueDueRescans().catch((err) => {
+  //
+  // The shared "public" org has no owner, so a scheduled rescan there has nobody to charge (operator
+  // decision 2026-10-07): it takes no autoscan cadence. The rule binds exactly where the import route's
+  // public rules do - the auth stack is live - and an auth-off (local, demo, seeding) deployment keeps
+  // seeding it. Rows that already carry a schedule simply stop seeding; no migration.
+  const authOff = !authGateEnabled() && !isAuthConfigured();
+  const seeded = await enqueueDueRescans(undefined, { excludeOrgSlugs: authOff ? [] : ["public"] }).catch((err) => {
     noteReadFailure("cron/rescan enqueueDueRescans", err);
     stepErrors.push("cron/rescan enqueueDueRescans failed");
     return null;

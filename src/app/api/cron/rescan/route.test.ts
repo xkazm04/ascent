@@ -138,7 +138,7 @@ describe("GET /api/cron/rescan — reap, seed, drain", () => {
   it("seeds EVERYTHING due — no 100-per-pass cap, because the queue now holds the backlog", async () => {
     await GET(req({ auth: `Bearer ${SECRET}` }));
     // A limit argument would reintroduce the cap this change exists to remove.
-    expect(mockSeed).toHaveBeenCalledWith();
+    expect(mockSeed.mock.calls[0]![0]).toBeUndefined(); // no limit; the second argument is the public-org option (route.publicOrg.test.ts)
   });
 
   it("drains the RESCORE lane at the scan concurrency, inside the invocation's own budget", async () => {

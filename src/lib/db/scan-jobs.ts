@@ -230,10 +230,13 @@ export async function enqueueProbeJob(
  *
  * The bucket is the ISO date, so re-seeding within the same day is a no-op for a repo already queued.
  */
-export async function enqueueDueRescans(limit?: number): Promise<number> {
+export async function enqueueDueRescans(
+  limit?: number,
+  opts: { excludeOrgSlugs?: readonly string[] } = {},
+): Promise<number> {
   if (!isDbConfigured()) return 0;
   const { listDueRescanCandidates } = await import("@/lib/db/org-watch");
-  const due = await listDueRescanCandidates(limit);
+  const due = await listDueRescanCandidates(limit, opts);
   let created = 0;
   for (const r of due) {
     const res = await enqueueScanJob({
