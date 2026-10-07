@@ -135,6 +135,35 @@ invited a metered live scan of a repo that may already have a snapshot. A thrown
 successful empty lookup is still `ColdScanGate`. A snapshot still renders `ReportView`. Three
 outcomes, matching `generateMetadata` and the PDF/LLM 503-vs-404 split.
 
+**A DB outage is not "never scanned" either (2026-10-07).** The rule above only covered a read
+that *threw*. The reader beneath it wraps its query in `dbReadSafe`, which resolves `null` when the
+database is configured but **unreachable** (connection refused, "Can't reach database server", an
+auth-expiry whose reconnect also fails), so an outage still reached `ColdScanGate`: "This repository
+hasn't been scanned on Ascent yet" plus **Scan now**. The permalink now passes `strict: true` to
+`getScanReportByCommit`, `getRepositoryHistory`, `getRepoPassport` and `getLatestRecommendations`
+(`src/lib/db/scans-read.ts`). That routes the read through `dbReadStrict` (`src/lib/db/client.ts`),
+which throws a typed `DbUnavailableError` where `dbReadSafe` would degrade. A DB outage on a permalink
+therefore says **the report could not load** (`PermalinkReadError`), and its unfurl says "report
+unavailable". Every other caller of those readers keeps the default degrade, unchanged. An
+**unconfigured** database (`isDbConfigured()` false: the keyless MVP) still answers the empty lookup
+and so still shows `ColdScanGate`: with no database there is no corpus to have missed.
+
+**The sibling reads keep a failure distinguishable too.** The same request reads the passport, the
+history, the recommendations and the STD-6 skill history beside the report. A failed one of those
+used to become an empty *answer* (`[]` / `null`), which hid the section or stopped `ReportView`'s own
+fetch. Now:
+
+- A failed **passport**, **history** or **recommendations** read leaves its prop unresolved, so
+  `ReportView` runs its client fetch and that fetch's own error handling. A failed history read sends
+  `null`, which `ReportView` already refetches; the passport and recommendations reads send
+  `undefined`, because `null` / `[]` there are answers it never refetches.
+- A failed **skill-history** read renders "Couldn't load the skill history just now" instead of
+  hiding the section, which would read like a repo that never generated a skill.
+- Every failure is reported (`src/lib/scan-read-door.ts`: `console.error` plus `reportHandledError`).
+  That includes the thrown report read itself, which used to reach the user and nobody else.
+- The best-effort reads that degrade by design keep their fallback and are logged and reported:
+  the head hint, the lift map, the role probes (fail closed), and the share card's static fallback.
+
 Under the CTA, `ColdScanTeaser` shows **what a scan produces**, derived from the maturity model: the
 `DIMENSIONS` chips, the `LEVELS` ladder (all five, none marked), and the terms: free for public
 repos, no account, minutes not seconds, a capped free monthly allowance that ends in a sign-in prompt,
@@ -1326,7 +1355,9 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
 | `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, `firstStep` when present, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document, a Demo scoring box plus "Scored by … coverage N%" line in the **body** when the engine is mock so provenance is not a footer footnote (G9), counted evidence as its own lines under each dimension (G2), and a "Flagged for review" section listing each LLM-vs-detector discrepancy with its recorded outcome so a board PDF cannot hide disagreement the in-app report shows (G1). |
 | `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |
-| `src/app/report/[owner]/[repo]/page.tsx` | Shareable permalink. Pinned snapshot, `ColdScanGate` on a true miss, or `PermalinkReadError` on a thrown read (G4: a blip is not never-scanned). `generateMetadata` claims a score only for a persisted snapshot; a cold or failed lookup does not unfurl as a maturity report. |
+| `src/app/report/[owner]/[repo]/page.tsx` | Shareable permalink. Pinned snapshot, `ColdScanGate` on a true miss, or `PermalinkReadError` on a thrown read **or a configured-but-unreachable DB** (strict readers; G4: a blip is not never-scanned). A failed sibling read (passport / history / recommendations) stays unresolved for `ReportView`'s client fetch; a failed skill-history read says it could not load. `generateMetadata` claims a score only for a persisted snapshot; a cold or failed lookup does not unfurl as a maturity report. |
+| `src/app/report/[owner]/[repo]/PermalinkPanels.tsx`, `SkillHistorySection.tsx` | The permalink's passport card, STD-6 skill-history panel (plus its "couldn't load" state) and instant masthead, extracted from `page.tsx`. |
+| `src/lib/scan-read-door.ts` | The doors a failed read reaches across the scan / report span: `reportFailedRead` (a failure the caller surfaces), `reportDegradedRead` / `degradeTo` (a best-effort degrade). Log plus `reportHandledError`. |
 | `src/components/report/ColdScanGate.tsx` | Cold-permalink `Scan now` gate, plus `PermalinkReadError` for a thrown snapshot read (reload / home, no live scan). |
 | `src/components/report/ReportPermalinkShare.tsx` | The header's Permalink control: the canonical URL, the commit-pinned URL, and the README markdown carrying the level line. |
 | `src/components/report/discrepancyOutcome.ts` | Derives one outcome word per "Flagged for review" row from `report.scoreIntegrity` (pure; no stored second copy to drift). |

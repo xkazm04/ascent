@@ -348,6 +348,45 @@ export async function dbReadSafe<T>(fn: () => Promise<T>, fallback: T): Promise<
   }
 }
 
+/**
+ * A CONFIGURED database that could not be reached, raised by {@link dbReadStrict} exactly where
+ * {@link dbReadSafe} would degrade to its fallback. Typed so a caller can tell "the store is down" from
+ * "the store answered: no row" — the two answers dbReadSafe deliberately makes identical. The original
+ * driver error is kept as `cause`.
+ */
+export class DbUnavailableError extends Error {
+  readonly code = "DB_UNAVAILABLE";
+  constructor(cause: unknown) {
+    super(`database unreachable: ${errorInfo(cause).message}`, { cause });
+    this.name = "DbUnavailableError";
+  }
+}
+
+/**
+ * The opt-in STRICT twin of {@link dbReadSafe}: the same auth-expiry recovery (reconnect, retry the read
+ * ONCE) and the same pass-through of a live-DB query error, but a configured-but-unreachable database
+ * THROWS a {@link DbUnavailableError} instead of resolving a fallback. For the one kind of caller whose
+ * fallback is a false fact — the report permalink, where a null report reads as "never scanned" and
+ * offers a metered live scan (G4). dbReadSafe itself is unchanged for every existing caller.
+ */
+export async function dbReadStrict<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (isAuthExpiryError(err)) {
+      try {
+        await reconnectDb();
+        return await fn();
+      } catch (retryErr) {
+        if (isDbUnavailableError(retryErr)) throw new DbUnavailableError(retryErr);
+        throw retryErr;
+      }
+    }
+    if (isDbUnavailableError(err)) throw new DbUnavailableError(err);
+    throw err;
+  }
+}
+
 // ── Serialization-conflict retry (DSQL optimistic concurrency) ─────────────────────────────
 
 /** Tunables for {@link withRetry}. All optional; `sleep`/`random` exist so tests stay deterministic. */

@@ -48,10 +48,12 @@ async function resolveReportOrg(owner: string, sp: { org?: string | string[] | u
 }
 
 /** Successful empty = never scanned. A throw = unavailable, not cold (G4) — and reported, so the
- *  operator learns of the blip the reader was shown. */
+ *  operator learns of the blip the reader was shown. `strict` makes a CONFIGURED-but-unreachable DB a
+ *  throw too (the default reader resolves it null, which would read as "never scanned" and offer a
+ *  metered Scan now). An UNCONFIGURED DB (the keyless MVP) still answers null: there is no corpus. */
 async function readPermalinkReport(owner: string, name: string, sha: string | undefined, orgSlug: string) {
   try {
-    const report = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug });
+    const report = await getScanReportByCommit(owner, name, { headSha: sha, orgSlug, strict: true });
     return report ? ({ kind: "ok" as const, report }) : ({ kind: "empty" as const });
   } catch (err) {
     reportFailedRead("report permalink: getScanReportByCommit", err);
@@ -153,7 +155,7 @@ async function ReportPermalinkBody({
     // `undefined` = the read FAILED: the skill section says so, and ReportView's own passport fetch
     // takes over. `[]` / `null` are the store's answers (none yet / proved none), never a failure.
     readOrUnresolved("getSkillHistory", () => getSkillHistory(repoRef)),
-    readOrUnresolved("getRepoPassport", () => getRepoPassport(owner, name, { orgSlug, headSha: sha })),
+    readOrUnresolved("getRepoPassport", () => getRepoPassport(owner, name, { orgSlug, headSha: sha, strict: true })),
     readReportHistory(owner, name, orgSlug),
     readReportRecommendations(owner, name),
     readLastSeenHead(owner, name, orgSlug),
@@ -235,7 +237,8 @@ async function readReportHistory(owner: string, name: string, orgSlug: string): 
   if (gated && !(await resolveViewerLogin().catch(degradeTo("report permalink: resolveViewerLogin", null)))) return null;
   let history: RepositoryHistory | null;
   try {
-    history = await getRepositoryHistory(owner, name, { orgSlug });
+    // strict: an unreachable DB throws here (→ null below) instead of resolving the empty history.
+    history = await getRepositoryHistory(owner, name, { orgSlug, strict: true });
   } catch (err) {
     // A thrown read is NOT "no history": null leaves ReportView's client fetch (and its
     // "Couldn't load history" door) in charge, as the docstring above promises.
@@ -269,7 +272,7 @@ async function readReportRecommendations(owner: string, name: string) {
   }
   const [items, lifts] = await Promise.all([
     // No persisted scan (null) is the answer "no recommendations" ([]); a THROWN read stays undefined.
-    readOrUnresolved("getLatestRecommendations", async () => (await getLatestRecommendations(owner, name, { orgSlug }))?.items ?? []),
+    readOrUnresolved("getLatestRecommendations", async () => (await getLatestRecommendations(owner, name, { orgSlug, strict: true }))?.items ?? []),
     // The org's measured lift map, read under the SAME org the rows were read under — the ledger is
     // tenant-local, so resolving it off the report's own (more conservative) orgSlug could pair one
     // org's rows with another's measurements. A failed read degrades to no map, which is exactly the

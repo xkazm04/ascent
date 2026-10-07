@@ -25,7 +25,7 @@ import type {
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
-import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
+import { dbReadSafe, dbReadStrict, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getDbMode, type DbMode } from "@/lib/db/mode";
 import {
   SCORING_RUBRIC_VERSION,
@@ -276,10 +276,10 @@ export async function getHeadHint(
 export async function getRepoPassport(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; headSha?: string } = {},
+  opts: { orgSlug?: string; headSha?: string; strict?: boolean } = {},
 ): Promise<AppPassport | null> {
   if (!isDbConfigured()) return null;
-  return dbReadSafe(async () => {
+  return readSafeOrStrict(opts.strict, async () => {
     const prisma = getPrisma();
     const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
     const orgId = await resolveOrgId(orgSlug);
@@ -424,7 +424,7 @@ function withoutDimensions(p: HistoryPoint): HistoryPoint {
 export async function getRepositoryHistory(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean } = {},
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean; strict?: boolean } = {},
 ): Promise<RepositoryHistory | null> {
   if (!isDbConfigured()) return null;
   // DB-DOWN DEGRADE, deliberately uniform (scan-persistence-history 07-16 #4): every reader in this
@@ -435,7 +435,20 @@ export async function getRepositoryHistory(
   // comparison pages while the landing page degraded gracefully — the SAME outage, two symptoms.
   // All four remaining readers now degrade to null identically. A query error against a LIVE DB
   // still propagates (dbReadSafe only swallows the unreachable class).
-  return dbReadSafe(() => loadRepositoryHistory(owner, name, opts), null);
+  // `strict` (opt-in; see readSafeOrStrict) throws DbUnavailableError instead, for a caller that must
+  // not answer an outage as "no history".
+  return readSafeOrStrict(opts.strict, () => loadRepositoryHistory(owner, name, opts), null);
+}
+
+/**
+ * The read wrapper a reader's `strict` option selects. Default (every existing caller): dbReadSafe, which
+ * degrades a configured-but-UNREACHABLE database to `fallback`. `strict: true`: dbReadStrict, which
+ * throws a typed DbUnavailableError there instead — for a caller whose fallback would be a false fact
+ * (the report permalink: a null report reads as "never scanned"). An UNCONFIGURED database never gets
+ * here: each reader answers its documented "persistence off" value before choosing a wrapper.
+ */
+function readSafeOrStrict<T>(strict: boolean | undefined, fn: () => Promise<T>, fallback: T): Promise<T> {
+  return strict ? dbReadStrict(fn) : dbReadSafe(fn, fallback);
 }
 
 async function loadRepositoryHistory(
@@ -1157,12 +1170,12 @@ const STANDING_EVIDENCE_CAP = 3;
 export async function getLatestRecommendations(
   owner: string,
   name: string,
-  opts: { orgSlug?: string } = {},
+  opts: { orgSlug?: string; strict?: boolean } = {},
 ): Promise<{ scanId: string; items: PersistedRecommendation[] } | null> {
   if (!isDbConfigured()) return null;
   // DB-down degrades to null like every other reader here — see getRepositoryHistory
-  // (scan-persistence-history 07-16 #4); callers already render the null fallback.
-  return dbReadSafe(() => loadLatestRecommendations(owner, name, opts), null);
+  // (scan-persistence-history 07-16 #4); callers already render the null fallback. `strict` throws.
+  return readSafeOrStrict(opts.strict, () => loadLatestRecommendations(owner, name, opts), null);
 }
 
 async function loadLatestRecommendations(
@@ -1294,17 +1307,22 @@ const POSTURE_BY_ID: Record<string, ReturnType<typeof postureFor>> = Object.from
  * Rebuild a full ScanReport from a persisted scan — the pinned snapshot behind a
  * `/report/{owner}/{repo}@{headSha}` permalink. With `headSha`, returns that exact commit's
  * scan; without it, the most recent. Returns null when persistence is off or nothing matches.
+ *
+ * `strict: true` throws a typed DbUnavailableError when the database is configured but unreachable,
+ * instead of resolving null. The permalink passes it: there, null means "never scanned" and the page
+ * offers a metered Scan now, so an outage must render PermalinkReadError instead (G4).
  */
 export async function getScanReportByCommit(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; headSha?: string } = {},
+  opts: { orgSlug?: string; headSha?: string; strict?: boolean } = {},
 ): Promise<ScanReport | null> {
   if (!isDbConfigured()) return null;
   // DB-down degrades to null like every other reader here — see getRepositoryHistory
-  // (scan-persistence-history 07-16 #4): a report permalink renders its "not scanned" fallback
-  // during a DB blip instead of hard-500ing; callers already handle null.
-  return dbReadSafe(() => loadScanReportByCommit(owner, name, opts), null);
+  // (scan-persistence-history 07-16 #4): the cache tiers, the salvage path and the regression baseline
+  // all read a blip as "nothing persisted" and carry on. A caller that cannot (the permalink) opts in
+  // to `strict`.
+  return readSafeOrStrict(opts.strict, () => loadScanReportByCommit(owner, name, opts), null);
 }
 
 async function loadScanReportByCommit(

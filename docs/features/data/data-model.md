@@ -296,12 +296,27 @@ in that precedence) for an honest "served live from …" UI indicator.
 > can instead run an embedded in-process PGlite via a driver adapter (`instrumentation.ts`),
 > which overrides the datasource URL entirely. See [ARCHITECTURE.md](../../ARCHITECTURE.md) §3-4.
 
+**Reads against an unreachable database: degrade by default, strict on request (2026-10-07).**
+Most readers wrap their query in `dbReadSafe(fn, fallback)`. It recovers an auth expiry once with a
+reconnect, re-throws a live-DB query error, and resolves `fallback` (with a `console.warn`) when the
+database is **configured but unreachable**. That keeps a DB-down deployment rendering the keyless
+experience instead of 500-ing, and its behaviour is unchanged. A caller whose fallback would be a
+false fact opts into the strict twin instead. `dbReadStrict(fn)` has the same recovery and the same
+re-throw, but throws a typed `DbUnavailableError` (`code: "DB_UNAVAILABLE"`, original error as `cause`)
+where `dbReadSafe` would degrade. The scan readers `getScanReportByCommit`, `getRepositoryHistory`,
+`getRepoPassport` and `getLatestRecommendations` expose it as `{ strict: true }`; without the option
+they degrade exactly as before. The report permalink is the caller: there, a `null` report reads as
+"never scanned" and offers a metered Scan now (see
+[report.md](../reporting/report.md#cold-permalink-coldscangate--coldscanteaser)). An **unconfigured**
+database (`isDbConfigured()` false) never reaches either wrapper. Each reader returns its documented
+"persistence off" value first, so the keyless MVP still reads as empty.
+
 ## Key files
 
 | File | Role |
 | --- | --- |
 | `prisma/schema.prisma` | The 87-model schema (DSQL-safe). |
-| `src/lib/db/client.ts` | Lazy Prisma singleton, DSQL token refresh/retry, `isDbConfigured()`. |
+| `src/lib/db/client.ts` | Lazy Prisma singleton, DSQL token refresh/retry, `isDbConfigured()`, `dbReadSafe` (degrade an unreachable DB) and its opt-in strict twin `dbReadStrict` / `DbUnavailableError`. |
 | `src/lib/db/mode.ts` | Reports the live backend (`dsql`\|`postgres`\|`pglite`\|`disabled`). |
 | `src/lib/db/index.ts` | Barrel re-export of the data layer. |
 | `src/lib/db/scans.ts` | Thin barrel re-exporting the scans-* sub-modules. |
