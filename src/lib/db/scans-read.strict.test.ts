@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The opt-in `strict` option on the four readers the report permalink composes (robustness-2).
+// The opt-in `strict` option on the readers the report permalink and the trends/compare pages compose (robustness-2).
 //
 // Without it, each reader keeps its documented DB-down degrade (null) — unchanged for every existing
 // caller (cache tiers, salvage, org repo-dimension routes, badge/gate). With it, a configured-but-
@@ -21,6 +21,7 @@ import {
   getLatestRecommendations,
   getRepoPassport,
   getRepositoryHistory,
+  getScanComparison,
   getScanReportByCommit,
 } from "@/lib/db/scans-read";
 
@@ -38,6 +39,7 @@ function prismaThrowing(make: () => unknown) {
 const READERS: [string, (strict?: boolean) => Promise<unknown>][] = [
   ["getScanReportByCommit", (strict) => getScanReportByCommit("acme", "web", { orgSlug: "acme", strict })],
   ["getRepositoryHistory", (strict) => getRepositoryHistory("acme", "web", { orgSlug: "acme", strict })],
+  ["getScanComparison", (strict) => getScanComparison("acme", "web", { orgSlug: "acme", strict })],
   ["getRepoPassport", (strict) => getRepoPassport("acme", "web", { orgSlug: "acme", strict })],
   ["getLatestRecommendations", (strict) => getLatestRecommendations("acme", "web", { orgSlug: "acme", strict })],
 ];

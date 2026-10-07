@@ -10,6 +10,8 @@ import { deriveDeployAnnotations, mergeTimelineEvents } from "@/app/trends/deplo
 import { getRepositoryDeployments } from "@/lib/db/repo-deployments";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
+import { DbUnavailableError } from "@/lib/db/client";
+import type { RepositoryHistory } from "@/lib/db/scans";
 import { HISTORY_SCAN_CAP, historyCapNote } from "@/lib/history/limits";
 import { readableOrgForOwner } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
@@ -97,12 +99,29 @@ export default async function TrendsPage({
   // repo moved over time", so it is the one that should not silently begin at whatever date the
   // purge job last reached. A compacted point is labelled on the chart, carries no permalink, and
   // extends the series without ever pretending to be a scan.
-  const history = await getRepositoryHistory(parsed.owner, parsed.repo, {
-    limit: HISTORY_SCAN_CAP,
-    orgSlug,
-    includeDimensions: false,
-    includeCompacted: true,
-  });
+  // STRICT: an unreachable database must not read as "No scans recorded yet" (the refusal /api/history
+  // makes too); it gets its own honest notice, never a 500.
+  let history: RepositoryHistory | null;
+  try {
+    history = await getRepositoryHistory(parsed.owner, parsed.repo, {
+      limit: HISTORY_SCAN_CAP,
+      orgSlug,
+      includeDimensions: false,
+      includeCompacted: true,
+      strict: true,
+    });
+  } catch (err) {
+    if (!(err instanceof DbUnavailableError)) throw err;
+    return (
+      <Shell>
+        <Notice
+          title="Scan history is unavailable right now"
+          body={`We could not read the scan history for ${parsed.owner}/${parsed.repo}. Try again in a moment.`}
+          repo={`${parsed.owner}/${parsed.repo}`}
+        />
+      </Shell>
+    );
+  }
   if (!history || history.scans.length === 0) {
     return (
       <Shell>

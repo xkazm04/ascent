@@ -5,6 +5,8 @@ import { ScanComparePicker } from "@/components/report/ScanComparePicker";
 import { WhatChanged } from "@/components/report/WhatChanged";
 import { parseRepoUrl } from "@/lib/github/source";
 import { getScanComparison, isDbConfigured } from "@/lib/db";
+import { DbUnavailableError } from "@/lib/db/client";
+import type { ScanComparison } from "@/lib/db/scans";
 import { readableOrgForOwner } from "@/lib/auth";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { SignInNotice } from "@/components/SignInNotice";
@@ -80,12 +82,29 @@ export default async function ComparePage({
   }
 
   const orgSlug = await readableOrgForOwner(parsed.owner);
-  const comparison = await getScanComparison(parsed.owner, parsed.repo, {
-    orgSlug,
-    afterId: a,
-    beforeId: b,
-    limit: 60,
-  });
+  // STRICT: an unreachable database must not read as "No scans recorded yet" (the refusal /api/history
+  // makes too); it gets its own honest notice, never a 500.
+  let comparison: ScanComparison | null;
+  try {
+    comparison = await getScanComparison(parsed.owner, parsed.repo, {
+      orgSlug,
+      afterId: a,
+      beforeId: b,
+      limit: 60,
+      strict: true,
+    });
+  } catch (err) {
+    if (!(err instanceof DbUnavailableError)) throw err;
+    return (
+      <Shell>
+        <Notice
+          title="Scan history is unavailable right now"
+          body={`We could not read the scan history for ${parsed.owner}/${parsed.repo}. Try again in a moment.`}
+          repo={`${parsed.owner}/${parsed.repo}`}
+        />
+      </Shell>
+    );
+  }
 
   // `after` is null only when no scans exist, so it rides the same guard — and the exemplar axis then
   // has a subject scan without needing the pair.

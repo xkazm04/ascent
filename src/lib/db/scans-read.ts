@@ -676,12 +676,14 @@ async function loadComparableScan(
 export async function getScanComparison(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number } = {},
+  opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number; strict?: boolean } = {},
 ): Promise<ScanComparison | null> {
   if (!isDbConfigured()) return null;
   // DB-down degrades to null like every other reader here — see getRepositoryHistory
-  // (scan-persistence-history 07-16 #4); callers already render the null fallback.
-  return dbReadSafe(() => loadScanComparison(owner, name, opts), null);
+  // (scan-persistence-history 07-16 #4); callers already render the null fallback. `strict` (opt-in,
+  // see readSafeOrStrict) throws DbUnavailableError instead, for the compare page, whose null reads as
+  // "no scans recorded yet".
+  return readSafeOrStrict(opts.strict, () => loadScanComparison(owner, name, opts), null);
 }
 
 async function loadScanComparison(
