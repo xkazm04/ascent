@@ -17,7 +17,7 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null), refusePublicOrgAdmin: () => null }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "owner-actor") }));
 // requireSameOrigin is the canonical reject-or-null wrapper the route now calls; the mock mirrors its
 // real contract (null when same-origin, else the 403 rejection) so tests keep driving behavior via the

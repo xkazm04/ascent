@@ -11,10 +11,14 @@
 // trail). Role resolution is authz.viewerOrgRole: a Membership row, or — for an org that has no owner
 // yet — an identity-verified claim (the viewer's own personal namespace, or a GitHub-confirmed admin
 // of the installed org). Merely holding the installation no longer confers owner.
+//
+// Writes refuse the shared "public" org (refusePublicOrgAdmin), self-leave included: requireOrgRole
+// admits PUBLIC_ORG for any signed-in viewer, so the owner gate alone let anyone grant themselves owner
+// of it or remove anyone else (security scan 2026-10-07, S4). The public org has no members to manage.
 
 import { NextResponse } from "next/server";
 import { getMembershipRole, isDbConfigured, listOrgMembers, recordOrgAudit, removeMembership, setMembershipRole } from "@/lib/db";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { isOrgRole, normalizeLogin } from "@/lib/db/members";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
@@ -60,7 +64,7 @@ export async function POST(request: Request) {
   if (!GITHUB_LOGIN.test(login)) {
     return NextResponse.json({ error: "login must be a valid GitHub login." }, { status: 400 });
   }
-  const denied = await requireOrgRole(org, "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
   if (denied) return denied;
   // Capture the prior role for the audit trail before the upsert overwrites it.
   const prevRole = await getMembershipRole(org, login).catch(() => null);
@@ -99,7 +103,7 @@ export async function DELETE(request: Request) {
   }
   const actor = await resolveViewerLogin();
   const selfLeave = actor != null && normalizeLogin(actor) === normalizeLogin(login);
-  const denied = await requireOrgRole(org, selfLeave ? "viewer" : "owner");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, selfLeave ? "viewer" : "owner"));
   if (denied) return denied;
   const outcome = await removeMembership(org, login);
   if (outcome === "not_found") return NextResponse.json({ error: "No such member." }, { status: 404 });

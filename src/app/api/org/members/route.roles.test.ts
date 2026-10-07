@@ -15,7 +15,7 @@ vi.mock("next/server", () => ({
     }
   },
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn() }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(), refusePublicOrgAdmin: () => null }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 vi.mock("@/lib/db/members", async (orig) => {
