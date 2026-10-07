@@ -58,7 +58,7 @@ export interface PrGateHooks {
  * changes, and posts a Check Run (the merge status) + a sticky comment. Deterministic (mock) so
  * it's fast and free of LLM spend; both scans use the same engine + token, so the diff is clean.
  *
- * Never throws: every failure path posts a neutral "could not run" check (once a token exists) and
+ * Never throws: every failure path posts a failing "could not run" check (once a token exists) and
  * fires `onRetryable`.
  */
 export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promise<void> {
@@ -70,7 +70,7 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
       console.warn("[pr-gate] onRetryable hook failed", err instanceof Error ? err.message : err);
     }
   };
-  // Hoisted so the catch can post a neutral check on the SAME token when a failure happens after mint.
+  // Hoisted so the catch can post the failing check on the SAME token when a failure happens after mint.
   let token: string | undefined;
   try {
     if (hooks.confirmOwner && !(await hooks.confirmOwner(installationId, owner))) {
@@ -91,7 +91,7 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     // trade-off (github-app-installation-webhooks 2026-07-16 #3): a default-branch verdict structurally
     // cannot fail on anything the PR itself changes (a fork PR deleting the test suite would sail
     // through, and a red default branch would block an innocent fork PR). scoredHead therefore threads
-    // into buildGateComment below, which posts the fallback as a NEUTRAL check that says plainly it
+    // into buildGateComment below, which posts the fallback as a FAILING check that says plainly it
     // scored the default branch — a required-status consumer must treat fallback verdicts as
     // non-authoritative, never as a pass/fail on the PR's own tree.
     let headReport;
@@ -111,13 +111,13 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     // only that we could not READ the bar. Swallowing it published a green Check Run scored against the
     // archetype default — silently relaxing the merge gate for the duration of a DB blip, on the one
     // status that actually blocks merges. Letting it propagate reaches the outer catch, which posts the
-    // neutral "could not run" check and releases the delivery so GitHub's redelivery retries.
+    // failing "could not run" check and releases the delivery so GitHub's redelivery retries.
     // TENANCY, not the owner login: the org whose bar applies is the one that TRACKS this repository
     // (the same fix `repoUnderOrg` carries). An org named for its team — watching repos under a
     // personal account — resolved to nothing here, and nothing reads as "no bar configured", so the
     // merge-blocking check enforced the archetype default while the org believed its bar was live.
     // The owner-login match stays the fast path, so the common deployment is unchanged. A throw
-    // reaches the outer catch, which posts the neutral "could not run" check — the same fail-closed
+    // reaches the outer catch, which posts the failing "could not run" check — the same fail-closed
     // treatment the policy read itself gets, and for the same reason.
     const orgSlug = await orgSlugForRepo(owner, fullName);
     const orgPolicy = (await getOrgGatePolicy(orgSlug)) ?? undefined;
@@ -129,7 +129,7 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     //
     // Not `.catch(() => …)`, for the same reason the org-policy read above is not: resolveAdmissionLayer
     // returns an empty overlay without throwing for every legitimate absence, so a throw reaches the
-    // outer catch, posts the neutral "could not run" check and releases the delivery for a retry —
+    // outer catch, posts the failing "could not run" check and releases the delivery for a retry —
     // never a green check scored against a bar we could not read.
     const admissionLayer = await resolveAdmissionLayer(orgSlug, fullName);
     const base = orgPolicy ?? defaultGatePolicy(headReport.archetype);
@@ -176,9 +176,9 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
 
     // GATE-3 / ci-gate-status-checks #3: the Check Run IS the required merge status — a swallowed failure
     // here leaves it permanently pending. createCheckRun now retries transient GitHub errors internally;
-    // if it STILL rejects, let it THROW (no inline .catch) so the outer catch posts the neutral "could not
+    // if it STILL rejects, let it THROW (no inline .catch) so the outer catch posts the failing "could not
     // run" check AND releases the delivery for a redelivery retry. Silently logging it (the old behavior)
-    // returned normally, skipping both the neutral fallback and the release — the exact silent hole.
+    // returned normally, skipping both the failing fallback and the release — the exact silent hole.
     await createCheckRun({
       token,
       owner,
@@ -192,26 +192,29 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     });
 
     // The sticky comment is best-effort narrative (not the merge gate) — a failure here is logged and
-    // swallowed so it doesn't spuriously trip the neutral-check fallback; the redelivery retry reposts it.
+    // swallowed so it doesn't spuriously trip the failing-check fallback; the redelivery retry reposts it.
     await upsertStickyComment({ token, owner, repo, prNumber, marker: GATE_COMMENT_MARKER, body: comment.commentBody }).catch(
       (err) => console.error("[pr-gate] sticky comment failed", err instanceof Error ? err.message : err),
     );
   } catch (err) {
     console.error("[pr-gate] PR gate failed", err instanceof Error ? err.message : err);
     // GATE-3: a hard failure must NOT leave a *required* check silently absent (it would block merge
-    // forever with no explanation). Post a neutral "couldn't evaluate" check (with a Re-run button) so
-    // the author sees a reason and has recourse. Best-effort — only possible once a token was minted.
+    // forever with no explanation). Post a FAILING "no verdict" check (with a Re-run button) so the author
+    // sees a reason and has recourse. Failure, not neutral: GitHub treats neutral as satisfying a
+    // required check, so a neutral here would let an unevaluated PR merge.
+    // Best-effort — only possible once a token was minted.
     if (token) {
       await createCheckRun({
         token,
         owner,
         repo,
         headSha,
-        conclusion: "neutral",
-        title: "Maturity gate could not run",
-        summary: "Ascent couldn't evaluate this PR's maturity (a transient error). Re-run the check, or push a new commit.",
+        conclusion: "failure",
+        title: "Maturity gate could not run: no verdict",
+        summary:
+          "Ascent produced no verdict for this PR (a transient error), so the required check fails closed. This is not a score failure: re-run the check, or push a new commit, to clear it.",
         actions: RERUN_ACTION,
-      }).catch((e) => console.error("[pr-gate] neutral check failed", e instanceof Error ? e.message : e));
+      }).catch((e) => console.error("[pr-gate] fallback check failed", e instanceof Error ? e.message : e));
     }
     // The deferred gate failed after we already 2xx'd — release the delivery so a redelivery retries.
     await retryable();

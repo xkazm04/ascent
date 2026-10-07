@@ -104,8 +104,8 @@ policy parameter being present, not on any query string at all (older logs over-
 looked up through `orgSlugForRepo` (`src/lib/db/org-tenancy.ts`): the owner-login match is the fast
 path, else the `Repository` tenancy row; the shared public org and personal workspaces are never
 chosen, and when more than one real tenant tracks the repo the resolver refuses to guess and falls
-back to the owner login. A failed resolve is treated like a failed policy read (503 here, neutral
-check in App mode). The endpoint **writes nothing** but its own scan caches: the admission read is
+back to the owner login. A failed resolve is treated like a failed policy read (503 here, a failing
+"no verdict" check in App mode). The endpoint **writes nothing** but its own scan caches: the admission read is
 the non-seeding `readRepoAdmission`; the seeding reader stays with the authenticated propose /
 ruleset routes and the MCP admission tools.
 
@@ -168,7 +168,7 @@ throwing* for every legitimate unset case (no DB, unknown org, unset or unparsea
 so a rejection means only that the bar is **unknown**, and gating on the archetype default
 there would silently relax an org's configured merge bar for the length of a DB blip. Both
 consumers now fail closed: the endpoint returns **`503`** with no verdict at all, and
-`runPrGate` lets the error reach its outer catch, which posts the neutral "could not run"
+`runPrGate` lets the error reach its outer catch, which posts the failing "could not run: no verdict"
 check and releases the delivery for GitHub to redeliver.
 
 ### Incomplete scans fail closed (one honest failure)
@@ -369,19 +369,24 @@ using the installation token (see [github-app.md](../github/github-app.md)).
 | --- | --- | --- |
 | `runPrGate()` | `src/lib/github/pr-gate.ts` | The single check-writing path: score the PR head, diff it against the base, post the Check Run + sticky comment. Shared by the webhook (PR events, the "Re-run" button) and the org gate-policy sweep. |
 | `buildGateComment()` | `src/lib/scoring/gate-comment.ts` | **Pure** builder → `{ conclusion, title, summary, commentBody }`. Includes verdict, level, overall, posture, archetype lens, adoption/rigor, an optional baseline delta phrase ("overall +5 · L2 → L3"), failures, a per-failing-dimension table, top-3 roadmap prompts, the scoring path, and the applied policy. The comment body carries a hidden `<!-- ascent-maturity-gate -->` marker, a **link to the full report** (`reportUrl`, comment only, since the Check Run already has the same destination as `details_url`), and, when a D9 floor is enforced, a note that the floor is deterministic. |
-| `createCheckRun()` | `src/lib/github/checks.ts` | Creates a GitHub **Check Run** on the head SHA (the status that can block merge) with `conclusion` success/failure/neutral, title, markdown summary, a deep link to the report, and a "Re-run" action. |
+| `createCheckRun()` | `src/lib/github/checks.ts` | Creates a GitHub **Check Run** on the head SHA (the status that can block merge) with `conclusion` success/failure (the gate never posts `neutral`, see below), title, markdown summary, a deep link to the report, and a "Re-run" action. |
 | `upsertStickyComment()` | `src/lib/github/checks.ts` | Finds the marker by scanning **forward to the end of the thread** and **updates in place** (or creates one), so re-runs don't stack duplicates. |
 
-Two verdicts are deliberately **`neutral`** rather than pass/fail, because a required status
-must never assert something it didn't measure:
+**The gate never posts `neutral`.** GitHub treats a check run concluding `success`, `neutral` or
+`skipped` as satisfying a required status check (see "About status checks" in GitHub's protected
+branches documentation, https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-status-checks-before-merging;
+stated here as a claim, not fetched). So a verdict the gate could not produce must be `failure`, or a
+required check would pass what it never measured. Two cases fail closed:
 
 - **Fork PRs** whose head commit isn't reachable via the base repo's tree API: the gate falls
   back to scoring the **default branch**, and says so in the title, the summary, and a
-  blockquote. Such a verdict structurally cannot reflect the PR's own changes; treat it as
-  non-authoritative.
-- **A hard failure**: rather than leave a required check silently absent (blocking merge
-  forever with no explanation), the gate posts "Maturity gate could not run" with a Re-run
-  button.
+  blockquote. Such a verdict structurally cannot reflect the PR's own changes, so the check
+  posts `failure` (the default branch's numbers stay informational) and the summary says that a
+  re-run or a new push retries.
+- **A hard failure** (scan, policy read, tenant resolve, check write): the gate posts
+  "Maturity gate could not run: no verdict" as a `failure`, with a summary saying this is not a
+  score failure and that a re-run clears it, plus the Re-run button. A failure is loud and has
+  recourse; a missing or green check would not.
 
 ### Per-dimension floors
 

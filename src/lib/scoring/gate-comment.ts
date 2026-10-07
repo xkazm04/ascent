@@ -43,7 +43,7 @@ const MAX_SKIP_LINES = 8;
 const MAX_CAVEAT_LINES = 6;
 
 export interface GateComment {
-  /** GitHub Check Run conclusion. `neutral` = the verdict is non-authoritative (PR head not scored). */
+  /** GitHub Check Run conclusion. A default-branch fallback (PR head not scored) posts `failure`: GitHub treats `neutral` as satisfying a required check, so it would let an unscored PR merge. */
   conclusion: "success" | "failure" | "neutral";
   /** Short check-run title (≤ ~80 chars), e.g. "Passed — L3 Augmented (58/100)". */
   title: string;
@@ -77,9 +77,9 @@ export interface GateCommentOptions {
   /**
    * Whether the report actually scored the PR HEAD ref. `false` = the head was unreachable (typical
    * for fork PRs) and the report describes the DEFAULT BRANCH instead — a verdict that structurally
-   * cannot reflect anything the PR changes. The check then posts as `neutral` with an explicit
-   * "default-branch verdict, PR head not scored" framing so a required-status consumer never treats
-   * it as an authoritative pass/fail on the PR (github-app-installation-webhooks 2026-07-16 #3).
+   * cannot reflect anything the PR changes. The check then posts as `failure` (fail closed: a required
+   * check must not pass what it did not measure) with an explicit "default-branch verdict, PR head
+   * not scored" framing, so nobody reads it as an authoritative pass/fail on the PR (github-app-installation-webhooks 2026-07-16 #3).
    * Defaults to true (the normal head-scored path).
    */
   scoredHead?: boolean;
@@ -111,8 +111,9 @@ export function buildGateComment(
   const { level, overallScore, posture, archetype } = report;
   const pass = gate.pass;
   // A fallback (default-branch) verdict must never post as a confident success/failure on the PR:
-  // it is `neutral`, and every headline surface says what it actually scored.
-  const conclusion: GateComment["conclusion"] = scoredHead ? (pass ? "success" : "failure") : "neutral";
+  // it can never be a success, and GitHub counts `neutral` as satisfying a required check, so it is a
+  // `failure` (fail closed); every headline surface says what it actually scored.
+  const conclusion: GateComment["conclusion"] = scoredHead ? (pass ? "success" : "failure") : "failure";
   const verdict = pass ? "Passed" : "Failed";
   // An INCOMPLETE scan scored nothing, so `level`/`overallScore` are the renormalized 0 / L1 floor and
   // NOT a reading (see isIncompleteReport). Printing "Failed: L1 Emerging (0/100)" states a measurement
@@ -144,7 +145,8 @@ export function buildGateComment(
     lines.push(
       "> ⚠️ **The PR head was unreachable (typical for fork PRs), so this scored the DEFAULT BRANCH " +
         "instead.** This verdict does not reflect the PR's own changes; treat it as non-authoritative " +
-        "for merge decisions.",
+        "for merge decisions. The check fails closed because the PR itself was not scored; re-run the check " +
+        "or push a new commit to retry.",
     );
   }
   lines.push("");

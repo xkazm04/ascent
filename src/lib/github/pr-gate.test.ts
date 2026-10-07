@@ -3,11 +3,11 @@
 // despite owning every decision that can leave a REQUIRED status wrong or missing:
 //
 //   • the fork-PR fallback (head unreachable → score the default branch) must post as NON-authoritative;
-//   • a hard failure must still post a neutral "could not run" check, never leave the check absent —
+//   • a hard failure must still post a failing "could not run" check, never leave the check absent —
 //     GitHub only redelivers on a non-2xx and the webhook already 2xx'd, so a silent exit blocks merge
 //     forever with no explanation;
 //   • every abort/failure path must fire onRetryable so a held delivery claim is released for retry;
-//   • the sticky comment is best-effort NARRATIVE and must not trip the neutral-check fallback;
+//   • the sticky comment is best-effort NARRATIVE and must not trip the failing-check fallback;
 //   • the org's persisted bar must be honored, and a FAILED read of it must not publish a verdict
 //     scored against the weaker archetype default.
 //
@@ -205,7 +205,7 @@ describe("runPrGate — a fork PR's unreachable head is non-authoritative, never
 });
 
 describe("runPrGate — a required check is never left silently absent", () => {
-  it("posts the neutral 'could not run' check and releases the delivery when the gate throws", async () => {
+  it("posts the failing 'could not run' check and releases the delivery when the gate throws", async () => {
     mockScan.mockRejectedValue(new Error("github is down"));
     const onRetryable = vi.fn();
 
@@ -213,23 +213,23 @@ describe("runPrGate — a required check is never left silently absent", () => {
 
     expect(mockCheck).toHaveBeenCalledTimes(1);
     expect(mockCheck).toHaveBeenCalledWith(
-      expect.objectContaining({ conclusion: "neutral", title: "Maturity gate could not run", actions: RERUN_ACTION }),
+      expect.objectContaining({ conclusion: "failure", title: "Maturity gate could not run: no verdict", actions: RERUN_ACTION, summary: expect.stringMatching(/not a score failure.*re-run/i) }),
     );
     expect(onRetryable).toHaveBeenCalledTimes(1); // GitHub redelivers only if we let go of the claim
   });
 
-  it("falls back to neutral when the VERDICT check write itself fails after its retries", async () => {
+  it("falls back to a failing check when the VERDICT check write itself fails after its retries", async () => {
     mockCheck.mockRejectedValueOnce(new Error("500 from GitHub")).mockResolvedValue({ url: "u", id: 2 });
     const onRetryable = vi.fn();
 
     await runPrGate(REF, { onRetryable });
 
     expect(mockCheck).toHaveBeenCalledTimes(2);
-    expect(mockCheck).toHaveBeenLastCalledWith(expect.objectContaining({ conclusion: "neutral" }));
+    expect(mockCheck).toHaveBeenLastCalledWith(expect.objectContaining({ conclusion: "failure" }));
     expect(onRetryable).toHaveBeenCalledTimes(1);
   });
 
-  it("a failed org-policy READ posts no verdict at all — only the neutral check (fail closed)", async () => {
+  it("a failed org-policy READ posts no verdict at all — only the failing check (fail closed)", async () => {
     // Regression guard for the fail-open this path used to have: `.catch(() => null)` published a green
     // check scored against the archetype default whenever the DB blipped, silently relaxing the bar.
     mockPolicy.mockRejectedValue(new Error("connection terminated"));
@@ -239,7 +239,7 @@ describe("runPrGate — a required check is never left silently absent", () => {
 
     expect(mockEvaluate).not.toHaveBeenCalled();
     expect(mockCheck).toHaveBeenCalledTimes(1);
-    expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "neutral" }));
+    expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "failure" }));
     expect(mockSticky).not.toHaveBeenCalled();
     expect(onRetryable).toHaveBeenCalledTimes(1);
   });
@@ -256,7 +256,7 @@ describe("runPrGate — a required check is never left silently absent", () => {
 });
 
 describe("runPrGate — the sticky comment is narrative, not the gate", () => {
-  it("swallows a comment failure: the verdict check stands and no neutral fallback is posted", async () => {
+  it("swallows a comment failure: the verdict check stands and no failing fallback is posted", async () => {
     mockSticky.mockRejectedValue(new Error("comments disabled"));
     const onRetryable = vi.fn();
 
@@ -304,7 +304,7 @@ describe("runPrGate — confirmOwner binds the installation to the owner", () =>
       }),
     ).resolves.toBeUndefined();
 
-    expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "neutral" }));
+    expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "failure" }));
   });
 });
 
@@ -350,13 +350,13 @@ describe("runPrGate — org state resolves by tenancy, not by the owner login", 
     expect(mockChecks).toHaveBeenCalledWith("kiro", "xkazm04/kp");
   });
 
-  it("a failed tenant resolve posts the neutral check and releases the delivery — never a green one", async () => {
+  it("a failed tenant resolve posts the failing check and releases the delivery — never a green one", async () => {
     const onRetryable = vi.fn();
     mockOrgSlug.mockRejectedValue(new Error("db down"));
 
     await runPrGate(REF, { onRetryable });
 
-    expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "neutral", title: "Maturity gate could not run" }));
+    expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "failure", title: "Maturity gate could not run: no verdict" }));
     expect(onRetryable).toHaveBeenCalled();
   });
 });
