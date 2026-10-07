@@ -64,7 +64,10 @@
             "src/features/standing/governance/ledgerIntegrity.test.ts",
             "src/features/standing/governance/ledgerIntegrity.ts",
             "src/lib/github/pr-gate.test.ts",
-            "src/lib/scoring/gate-policy-sources.test.ts"
+            "src/lib/scoring/gate-policy-sources.test.ts",
+            "action.yml",
+            "scripts/maturity-gate.mjs",
+            "src/lib/scoring/gate-action-inputs.test.ts"
           ],
           "target": null,
           "apiRoutes": [
