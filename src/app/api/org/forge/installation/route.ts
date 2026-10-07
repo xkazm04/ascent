@@ -24,7 +24,7 @@ import {
   listForgeInstallations,
   upsertForgeInstallation,
 } from "@/lib/db/forge-installations";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
     credential?: string | null;
   };
   if (!body.org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "admin");
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "admin"));
   if (denied) return denied;
 
   const forge = readForge(body.forge);
@@ -122,7 +122,7 @@ export async function DELETE(request: Request) {
   if (crossOrigin) return crossOrigin;
   const body = (await request.json().catch(() => ({}))) as { org?: string; forge?: string; externalId?: string };
   if (!body.org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
-  const denied = await requireOrgRole(body.org, "admin");
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "admin"));
   if (denied) return denied;
   const forge = readForge(body.forge);
   const externalId = readExternalId(body.externalId);
