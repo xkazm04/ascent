@@ -26,6 +26,7 @@ import { isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { getRepoAdmission, setAdmissionRulesetId } from "@/lib/db/org-admission";
 import { compileStance } from "@/lib/org/admission";
+import { refusePublicOrgAdmin } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { requirePrWriteTarget, mapPrWriteError, repoUnderOrg } from "@/lib/github/pr-route";
 import { applyRuleset, listRulesets, revertRuleset } from "@/lib/github/admission-write";
@@ -48,6 +49,8 @@ async function gateRulesetRequest(request: Request, method: "POST" | "DELETE") {
   if (!isDbConfigured()) return NextResponse.json({ error: "Ruleset actions require a database." }, { status: 503 });
   const gate = await requireOrgOwnerPost<Body>(request, { missingOrgError: "Provide { org, repo, confirm }." });
   if (gate instanceof NextResponse) return gate;
+  const noPublic = refusePublicOrgAdmin(gate.org);
+  if (noPublic) return noPublic;
   const { org, body } = gate;
   const repo = await repoUnderOrg(org, body.repo);
   if (!repo) return NextResponse.json({ error: 'Provide repo as "owner/name" under this organization.' }, { status: 400 });

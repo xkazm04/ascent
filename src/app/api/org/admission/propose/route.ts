@@ -25,6 +25,7 @@ import { isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { getRepoAdmission } from "@/lib/db/org-admission";
 import { codeownersMarkers, compileStance } from "@/lib/org/admission";
+import { refusePublicOrgAdmin } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { requirePrWriteTarget, mapPrWriteError, repoUnderOrg } from "@/lib/github/pr-route";
 import { proposeManagedBlock } from "@/lib/github/admission-write";
@@ -46,6 +47,8 @@ export async function POST(request: Request) {
     missingOrgError: "Provide { org, repo, owners }.",
   });
   if (gate instanceof NextResponse) return gate;
+  const noPublic = refusePublicOrgAdmin(gate.org);
+  if (noPublic) return noPublic;
   const { org, body } = gate;
 
   const repo = await repoUnderOrg(org, body.repo);

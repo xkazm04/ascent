@@ -23,7 +23,7 @@ import { isDbConfigured, recordOrgAudit } from "@/lib/db";
 import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { deleteRepoAdmission, listOrgAdmissions, upsertRepoAdmission, MAX_RATIONALE } from "@/lib/db/org-admission";
 import { isAdmissionMode, isAutonomyTierId } from "@/lib/org/admission";
-import { requireOrgRead } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRead } from "@/lib/authz";
 import { requireOrgOwnerPost } from "@/lib/api/orgPost";
 import { resolveViewerLogin } from "@/lib/access";
 import { parseRepoFullName, repoUnderOrg } from "@/lib/github/pr-route";
@@ -58,6 +58,8 @@ export async function POST(request: Request) {
     { missingOrgError: "Provide { org, repo, grantedTier, mode }." },
   );
   if (gate instanceof NextResponse) return gate;
+  const noPublic = refusePublicOrgAdmin(gate.org);
+  if (noPublic) return noPublic;
   const { org, body } = gate;
 
   const repo = await repoUnderOrg(org, body.repo);
@@ -129,6 +131,8 @@ export async function DELETE(request: Request) {
     missingOrgError: "Provide { org, repo }.",
   });
   if (gate instanceof NextResponse) return gate;
+  const noPublic = refusePublicOrgAdmin(gate.org);
+  if (noPublic) return noPublic;
   const { org, body } = gate;
 
   const repo = await repoUnderOrg(org, body.repo);

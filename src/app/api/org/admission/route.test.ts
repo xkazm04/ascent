@@ -22,7 +22,7 @@ vi.mock("@/lib/db/org-admission", () => ({
   orgTracksRepo: vi.fn(async () => false),
   MAX_RATIONALE: 500,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRead: vi.fn(async () => null) }));
 vi.mock("@/lib/api/orgPost", () => ({ requireOrgOwnerPost: vi.fn() }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "octocat") }));
 
