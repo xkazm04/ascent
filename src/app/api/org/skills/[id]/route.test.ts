@@ -63,7 +63,7 @@ vi.mock("@/lib/db", () => ({
   recordOrgAudit: mockRecordOrgAudit,
   getOrgSkill: mockGetOrgSkill,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: mockRequireOrgRole }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: mockRequireOrgRole }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: mockResolveViewerLogin }));
 // isDenied is a pure type guard ("denied" in r) — kept real; only the network/identity calls are mocked.
 vi.mock("@/lib/api-token-auth", async (importOriginal) => {

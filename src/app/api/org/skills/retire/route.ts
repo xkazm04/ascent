@@ -32,7 +32,7 @@ import {
   recordOrgAudit,
   updateOrgSkill,
 } from "@/lib/db";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { requireSameOrigin } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { isPruneCandidate, type SkillUsage } from "@/lib/org/skill-usage";
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
   }
 
   // Destructive: admin + session, gated on the org before any read of the library.
-  const denied = await requireOrgRole(org, "admin");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "admin"));
   if (denied) return denied;
   const gate = await skillWriteGate(org, "edit");
   if (!gate.allowed) {

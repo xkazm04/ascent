@@ -69,7 +69,7 @@ vi.mock("@/lib/db", () => ({
   getPersonalUsage: mockGetPersonalUsage,
   PERSONAL_SKILL_LIMIT: 10,
 }));
-vi.mock("@/lib/authz", () => ({ requireOrgRole: mockRequireOrgRole }));
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: mockRequireOrgRole }));
 vi.mock("@/lib/auth", () => ({
   requireSameOrigin: () =>
     xo.sameOrigin ? null : new Response(JSON.stringify({ error: "Cross-origin request rejected." }), { status: 403 }),

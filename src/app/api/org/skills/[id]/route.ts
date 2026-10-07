@@ -16,7 +16,7 @@ import {
   recordOrgAudit,
   updateOrgSkill,
 } from "@/lib/db";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { authorizeOrgApi, isDenied, principalLogin, type OrgApiPrincipal } from "@/lib/api-token-auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
@@ -118,7 +118,7 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
   const org = await getOrgSkillOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Skill not found." }, { status: 404 });
   // Destructive: session + admin only (no token path) — a machine credential never archives a skill.
-  const denied = await requireOrgRole(org, "admin");
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "admin"));
   if (denied) return denied;
   const planGate = await planDenied(org);
   if (planGate) return planGate;

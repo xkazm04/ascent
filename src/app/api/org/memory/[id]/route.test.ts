@@ -71,7 +71,7 @@ vi.mock("@/lib/db", () => ({
   recordAudit: mockRecordAudit,
   getOrgId: mockGetOrgId,
 }));
-vi.mock("@/lib/authz", () => ({
+vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null,
   requireOrgAccess: mockRequireOrgAccess,
   requireOrgRole: mockRequireOrgRole,
   requireOrgRead: mockRequireOrgRead,

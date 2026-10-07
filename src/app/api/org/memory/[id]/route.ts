@@ -37,7 +37,7 @@ import {
   recordAudit,
   updateOrgMemory,
 } from "@/lib/db";
-import { requireOrgAccess, requireOrgRead, requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgAccess, requireOrgRead, requireOrgRole } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
 import { workspaceAllowsMemory } from "@/lib/db";
 import { MEMORY_KINDS, isMemoryKind, isMemoryVisibility } from "@/lib/org/memory-kinds";
@@ -54,11 +54,11 @@ export const dynamic = "force-dynamic";
 
 /** Resolve+authorize the memory's owning org for a write. Returns the org slug, or a NextResponse to
  *  send back (503 no-db / 404 unknown / gate 401-403 / 403 plan). Reads use requireOrgRead inline. */
-async function gateWrite(id: string, min: OrgRole): Promise<{ org: string } | NextResponse> {
+async function gateWrite(id: string, min: OrgRole, refusePublic = false): Promise<{ org: string } | NextResponse> {
   if (!isDbConfigured()) return NextResponse.json({ error: "Memory requires a database." }, { status: 503 });
   const org = await getOrgMemoryOrgSlug(id);
   if (!org) return NextResponse.json({ error: "Memory not found." }, { status: 404 });
-  const denied = min === "member" ? await requireOrgAccess(org) : await requireOrgRole(org, min);
+  const denied = (refusePublic ? refusePublicOrgAdmin(org) : null) ?? (min === "member" ? await requireOrgAccess(org) : await requireOrgRole(org, min));
   if (denied) return denied;
   const rowGate = await denyWriteOnRow(id);
   if (rowGate) return rowGate;
@@ -159,7 +159,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
 
 export async function DELETE(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const g = await gateWrite(id, "admin");
+  const g = await gateWrite(id, "admin", true);
   if (g instanceof Response) return g;
   try {
     await archiveOrgMemory(id);
