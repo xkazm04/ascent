@@ -12,10 +12,13 @@ import {
   advanceToFullCadence,
   getInstallationIdForOwner,
   getOrgId,
+  getLastScanAttempt,
   getScanReportByCommit,
+  inFailureBackoff,
   isByomActive,
   persistScanReport,
   recordScanOutcome,
+  CREDIT_SKIP_ERROR,
 } from "@/lib/db";
 import { claimJob, claimJobById, markJobCredit, reapExpiredLeases, settleJob, type ScanJobRow, type ScanLane } from "@/lib/db/scan-jobs";
 import { getInstallationToken } from "@/lib/github/app";
@@ -26,7 +29,16 @@ import { probeRepository } from "@/lib/scan-probe";
 import { drainUntilDeadline } from "@/lib/pool";
 import { decodeImportReason, type ImportJobPolicy } from "@/lib/scan-import-policy";
 import { getRepoSchedule } from "@/lib/db/org-watch";
+import { isMeteredScan } from "@/lib/entitlement";
 import type { ScanProgress } from "@/lib/types";
+
+/** The reason a push-triggered rescan is enqueued under (src/lib/push-rescan.ts). A job with this
+ *  reason runs the PUSH branch of {@link runRescoreJob}; every other reason is untouched by it. */
+export const PUSH_JOB_REASON = "webhook:push";
+
+/** The scan outcome a push rescan records when the provider degraded to the deterministic floor. A
+ *  failed outcome on purpose: the failure backoff then covers the outage instead of every push in it. */
+export const PUSH_DEGRADED_ERROR = "LLM unavailable: not persisted";
 
 export interface DrainOptions {
   concurrency: number;
@@ -246,6 +258,21 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
     await settleJob(job.id, { state: "skipped", error: "public-funnel import: the allowance is metered per request" });
     return;
   }
+  // A push job (PUSH_JOB_REASON) is a rescan a webhook asked for, not a slot on the repo's schedule:
+  // it never moves the cadence on any branch below, it backs off a recent failure, and it keeps the
+  // push path's own metering and degrade guard. Every other reason runs exactly as before.
+  const push = job.reason === PUSH_JOB_REASON;
+  if (push) {
+    // FAILURE BACKOFF, before any reserve. Reads the repo's last recorded attempt; a failed read is
+    // reported and fails toward scanning, because the window bucket still caps the spend. A skip here
+    // writes NO scan outcome: one would refresh lastScanAttemptAt and extend the backoff forever.
+    const last = await getLastScanAttempt(slug, repo).catch(degradedRead("queue-worker last-attempt read (push backoff)", null));
+    if (inFailureBackoff(last, opts.now?.())) {
+      summary.skipped += 1;
+      await settleJob(job.id, { state: "skipped", error: "failure backoff" });
+      return;
+    }
+  }
   opts.onRepo?.({ repo, stage: "start" });
 
   // A broken installation only matters to a job that scans WITH it; a token-less or env-token import
@@ -253,7 +280,7 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   const usesInstall = !importPolicy || importPolicy.token === "install";
   if (usesInstall && (await ctx.brokenInstall(slug))) {
     summary.skippedNoToken += 1;
-    if (job.repoId) await advanceScheduleAfterFailure(job.repoId).catch(degradedRead("queue-worker schedule advance after failure", undefined));
+    if (job.repoId && !push) await advanceScheduleAfterFailure(job.repoId).catch(degradedRead("queue-worker schedule advance after failure", undefined));
     await recordScanOutcome(slug, repo, { ok: false, error: "installation token unavailable" }).catch(
       degradedRead("queue-worker scan-outcome write (no token)", undefined),
     );
@@ -263,7 +290,11 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   }
 
   // A mock import is a free preview: no inference, so nothing to meter (the import route's own rule).
-  const metered = slug.toLowerCase() !== "public" && !importPolicy?.mock && !(await ctx.isByom(slug));
+  // A push keeps the metering the push path always charged: isMeteredScan, which does NOT exempt a
+  // BYOM org (this worker's own rule below does). Unifying the two is a pricing decision, not this one.
+  const metered = push
+    ? isMeteredScan(slug, false)
+    : slug.toLowerCase() !== "public" && !importPolicy?.mock && !(await ctx.isByom(slug));
   // A REQUEUED row may already hold a credit. reapExpiredLeases returns a process-killed worker's job
   // to the queue by clearing state/claimedAt/claimedBy/leaseUntil — and deliberately NOT
   // `creditCharged`, because settleJob is the only path that clears it and it clears it only on a
@@ -282,14 +313,23 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   if (metered && !carriedCredit) {
     // Ledger attribution: no human is in the loop when a job drains, so the honest actor is the queue
     // and the reason the job was enqueued for ("manual" from the dashboard, "cadence" from the cron,
-    // "webhook" from a push) — the nearest true answer to "what spent this credit", and enough to tell
+    // "webhook:push" from a push) — the nearest true answer to "what spent this credit", and enough to tell
     // a scheduled rescan's spend apart from a user-triggered one on the same repo.
     const actor = `queue:${actorReason}`;
     const reservation = await reserveScanCredit(slug, repo, { actor });
     if (reservation.skip) {
       summary.skippedForCredits += 1;
-      // The repo waits its full cadence rather than re-qualifying every pass and jamming the queue.
-      await settleCadence(job);
+      if (push) {
+        // The push path's durable trace, kept: an owner has to see WHY a watched repo went stale, and
+        // the fix (buy credits) is theirs. The copy is exempt from the failure backoff, so a top-up
+        // scans on the next push. No cadence movement: a push skip is not the schedule's skip.
+        await recordScanOutcome(slug, repo, { ok: false, error: CREDIT_SKIP_ERROR }).catch(
+          degradedRead("queue-worker scan-outcome write (push credit skip)", undefined),
+        );
+      } else {
+        // The repo waits its full cadence rather than re-qualifying every pass and jamming the queue.
+        await settleCadence(job);
+      }
       await settleJob(job.id, { state: "skipped", error: "insufficient credits" });
       opts.onRepo?.({ repo, stage: "skipped", reason: "insufficient_credits" });
       return;
@@ -314,6 +354,21 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
       onProgress: opts.onScanProgress ? (p) => opts.onScanProgress?.(repo, p) : undefined,
     });
     inferenceBilled = report.engine.provider !== "mock";
+    // DEGRADE-TO-MOCK GUARD (push only). A push asks for a real grade; a provider outage still returns
+    // a report stamped "mock", the deterministic FLOOR. Persisting it would make the floor the repo's
+    // current reading and the next regression baseline, and the alert would blame the customer's repo
+    // for our outage. So: no persist, no alert, refund, and a FAILED outcome so the backoff covers
+    // the outage.
+    if (push && !inferenceBilled) {
+      const refunded = await refundCredit();
+      await recordScanOutcome(slug, repo, { ok: false, error: PUSH_DEGRADED_ERROR }).catch(
+        degradedRead("queue-worker scan-outcome write (push degraded)", undefined),
+      );
+      await settleJob(job.id, { state: "skipped", error: PUSH_DEGRADED_ERROR, creditRefunded: refunded });
+      summary.skipped += 1;
+      opts.onRepo?.({ repo, stage: "error", error: PUSH_DEGRADED_ERROR, charged: false });
+      return;
+    }
     const persisted = await persistScanReport(report, { orgSlug: slug });
     let refunded = false;
     if (shouldRefundScan(report, persisted)) refunded = await refundCredit();
@@ -321,7 +376,7 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
       const orgId = (await getOrgId(slug).catch(degradedRead("queue-worker org lookup (regression alert)", null))) ?? undefined;
       await checkAndAlertRegression(prev, report, { orgId, orgSlug: slug });
     }
-    await settleCadence(job);
+    if (!push) await settleCadence(job);
     await recordScanOutcome(slug, repo, { ok: true }).catch(degradedRead("queue-worker scan-outcome write (ok)", undefined));
     await settleJob(job.id, {
       state: "done",
@@ -341,7 +396,7 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   } catch (err) {
     const msg = err instanceof Error ? err.message : "scan failed";
     const refunded = inferenceBilled ? false : await refundCredit();
-    if (job.repoId) await advanceScheduleAfterFailure(job.repoId).catch(degradedRead("queue-worker schedule advance after failure", undefined));
+    if (job.repoId && !push) await advanceScheduleAfterFailure(job.repoId).catch(degradedRead("queue-worker schedule advance after failure", undefined));
     await recordScanOutcome(slug, repo, { ok: false, error: msg }).catch(degradedRead("queue-worker scan-outcome write (failed)", undefined));
     await settleJob(job.id, { state: "failed", error: msg, creditRefunded: refunded });
     summary.failed += 1;
