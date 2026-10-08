@@ -49,10 +49,15 @@ export async function GET(request: Request) {
   const denied = await requireOrgAccess(org);
   if (denied) return denied;
 
-  const [behind, drift] = await Promise.all([
-    listBehindRepos(org, practiceId),
-    listDriftedRepos(org, practiceId),
-  ]);
+  let behind: Awaited<ReturnType<typeof listBehindRepos>>;
+  let drift: Awaited<ReturnType<typeof listDriftedRepos>>;
+  try {
+    [behind, drift] = await Promise.all([listBehindRepos(org, practiceId), listDriftedRepos(org, practiceId)]);
+  } catch (err) {
+    // A failed read is the answer here (there is no honest partial status), so it is a reported 500.
+    console.error("[practices/rollout] status read failed", err);
+    return respondError(500, "Could not load the rollout status.", { cause: err });
+  }
   // `latestVersion: null` means the org has NO mined pattern for this practice — not v0, and not
   // "everyone is current". The client must render it as "not version-tracked".
   return NextResponse.json({
