@@ -423,3 +423,52 @@ describe("POST /api/scan/stream — a returning connection rejoins the lingering
     expect(quotaStub.refund).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── PRIVATE REPO ON THE AMBIENT TOKEN ────────────────────────────────────────────────────────────
+//
+// The 2e992323 leftover. With the App configured, an owner with no installation reaches the live scan
+// on the operator PAT. A private repo that token can read must answer EXACTLY like a missing repo:
+// same status, same SSE body, same headers, nothing cached or persisted. The ingest is emulated by
+// what it does with its credential: a 404 from GitHub, or the ambient-token refusal in scan.ts when
+// the PAT read a private repo; both throw the same NOT_FOUND. The real ambient-token guard runs.
+
+import { GitHubError } from "@/lib/github/source";
+import { resetRepoVisibilityMemo } from "@/lib/github/visibility";
+import { PAT, githubFake, observe } from "../github-fake.fixture";
+
+describe("POST /api/scan/stream — a private repo on the ambient token answers like a missing repo", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetRepoVisibilityMemo();
+    vi.stubGlobal("fetch", githubFake({ "acme/secret": { private: true, head: "a".repeat(40) } }).fetchImpl);
+    vi.stubEnv("GITHUB_TOKEN", PAT);
+    vi.stubEnv("GITHUB_APP_ID", "1");
+    vi.stubEnv("GITHUB_APP_PRIVATE_KEY", "key");
+    mockAuth.mockResolvedValue({ orgSlug: "public" });
+    mockDbConfigured.mockReturnValue(true); // persistence is ON, so "nothing persisted" means something
+    mockLookup.mockImplementation(async (o) => ({ cacheKey: `${o.parsed.repo}::llm`, headSha: null, etag: null, cached: null, source: null }));
+    mockScan.mockImplementation(async (url, o = {}) => {
+      const cred = o.token ?? (o.noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
+      const res = await fetch(`https://api.github.com/repos/${url}`, { headers: cred ? { authorization: `Bearer ${cred}` } : {} });
+      const meta = res.ok ? ((await res.json()) as { private: boolean }) : null;
+      if (!meta || (meta.private && !o.token)) throw new GitHubError("NOT_FOUND", "Repository not found or is private.", 404);
+      return reportWith("gemini");
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("same status, body and headers as a missing repo, and nothing cached or persisted", async () => {
+    const existing = await observe(await post({ url: "acme/secret" }));
+    const missing = await observe(await post({ url: "acme/no-such-repo" }));
+    expect(existing).toEqual(missing);
+    expect(existing.status).toBe(200);
+    expect(existing.body).toContain("event: error");
+    expect(existing.body).toContain('"code":"NOT_FOUND"');
+    expect(mockScan).toHaveBeenCalledTimes(2);
+    expect(mockPersist).not.toHaveBeenCalled();
+    expect(mockCacheSet).not.toHaveBeenCalled();
+  });
+});
