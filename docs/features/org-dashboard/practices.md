@@ -46,7 +46,7 @@ commands and CI setup step (node, python, go, rust, or generic), so a Node repo 
 **leak-free**: repo-specific details are left as `<!-- TODO -->` placeholders, and the body
 degrades to placeholders when context is sparse.
 
-`POST /api/practices/generate` accepts `{ repo, practiceId }`, fetches read-only repo
+`POST /api/practices/generate` accepts `{ repo, practiceId, org? }`, fetches read-only repo
 context from GitHub, and returns `{ artifact, shape }` for **preview** (no writes).
 Generation goes through `buildPracticeArtifact` — the same call `applyPracticeToRepo`
 makes — so a caller with standing reviews the same house-or-generic **body** apply
@@ -56,8 +56,28 @@ only means the repo changed between preview and apply, never that preview was th
 generic starter while apply baked in the house pattern. `shape` is
 `{ kind: "house", exemplars }` or `{ kind: "generic" }`: the one-line kicker above the
 previewed artifact ("House pattern from N exemplars" vs "Generic starter (no mined
-pattern yet)"). Without standing, orgSlug is omitted: a generic starter, and mined
-structure stays inside the org.
+pattern yet)").
+
+**The org rides in the body.** An org's slug can differ from the GitHub owner of the repos
+it tracks (org `kiro` over `xkazm04/*`), so the dashboard sends `org` and every key
+below resolves against it, never against the repo owner. With `org`: standing is
+`canMintInstallationToken(org)`; the repo must pass `resolvePrWriteCoordinate(org, repo,
+"tracked")` (else `403`) before any token exists; the token is minted for the installation
+the apply door would use (`installOwnerFor`: the gated org on hosted, the repo owner only on
+an explicit self-host); the house pattern is the gated org's. Without `org`, or without
+standing, nothing is minted and the preview is a generic starter of a public repo, as before.
+
+**The build system is chosen from the repo, not the language.** For `java` and `kotlin`
+only, `src/lib/practices/build-system.ts` lists the repo root once (git trees API, not
+recursive, default branch, the same token `fetchRepoContext` used) and sets
+`RepoContext.buildSystem`: `pom.xml` → `maven` (mvn commands, also for Kotlin);
+`build.gradle` / `build.gradle.kts` → `gradle` / `gradle-kts` (`./gradlew` commands, that
+file as the source); neither, both, or a failed call → `unknown`, which emits the same `<…>`
+placeholders as an unknown language, never a guess. Other languages make no extra call. Both
+`/generate` and `applyPracticeToRepo` call this one helper, so preview and commit agree and the
+fingerprint guard holds. Extra GitHub calls: +1 per preview and +1 per applied repo for a JVM
+language, +0 otherwise. A caller that does not look (the onboarding track, the local
+install lane) leaves `buildSystem` unset and keeps the per-language default.
 
 A GitHub failure is answered with the status its *condition* means, via the single
 `githubErrorStatus` mapping in `src/lib/api/github-status.ts` — shared with `/api/scan`,
@@ -79,17 +99,20 @@ their credentials when the correct signal was to back off. The response now also
 
 ## Apply flow (`POST /api/practices/apply` → `src/lib/github/write.ts`)
 
-`POST /api/practices/apply { repo, practiceId, base? }` opens a draft PR and returns
+`POST /api/practices/apply { org, repo, practiceId, base? }` opens a draft PR and returns
 `{ url, number, branch, reused, path }`. Gates:
 
 - GitHub App installed with `contents: write` + `pull_requests: write` (else `503`).
 - If auth is configured, a signed-in session (else `401`).
-- Caller holds at least the **admin** role in the target org (`requireOrgRole(owner,
-  "admin")`, else `403`), since this route pushes a branch/commit and opens a draft PR into a
+- `org` is required (the dashboard org; `400` without). The caller holds at least the **admin**
+  role in it (`requireOrgRole(org, "admin")`, else `403`), since this route pushes a branch/commit and opens a draft PR into a
   real customer repo using the org's installation token, so it requires the same floor as
   other mutations of comparable blast radius (segment delete, credit grants), not merely
   "member". The batch route (below) applies the same gate.
-- Ascent installed on `owner` (`getInstallationIdForOwner`, else `403`).
+- The repo is in the org's own namespace **or tracked by it** (`requirePrWriteTarget(org, repo,
+  "tracked")`, the playbooks rule); any other repo is `403` before any installation lookup.
+- Ascent installed for the org (`getInstallationIdForOwner`, else `403`). The audit row,
+  `recordPracticePr` and the adoption row carry the gated org's id.
 
 `openDraftPr()` then drives the GitHub git-data API with the installation token:
 
@@ -147,10 +170,11 @@ rollout is `POST /api/org/ai-stance/apply-batch` (`StanceApplyBatch`): the same 
 
 ### Batch apply (`POST /api/practices/apply-batch`)
 
-Applies one practice across many repos: `{ repos: [...], practiceId, base? }`, bounded
+Applies one practice across many repos: `{ org, repos: [...], practiceId, base? }` (same
+`org` rule as apply; the repos may span owners the org tracks), bounded
 to `MAX_BATCH = 25`, fanned out with `mapPool` at `SCAN_CONCURRENCY`, with per-repo
 error isolation so one failure doesn't sink the batch. Driven by
-`PracticeApplyBatch.tsx` / `PracticeApplyBatchResults.tsx`.
+`PracticeApplyBatch.tsx` / `PracticeApplyBatchResults.tsx`; its confirm names the dashboard org.
 
 ## UI (`src/features/shared/practices/`, mounted by the Practices tab)
 
