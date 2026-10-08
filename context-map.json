@@ -294,7 +294,9 @@
             "src/lib/scan-ingest.test.ts",
             "src/lib/scan-lifecycle.ts",
             "src/lib/scan-lifecycle.doors.test.ts",
-            "src/lib/scan-lifecycle.test.ts"
+            "src/lib/scan-lifecycle.test.ts",
+            "src/lib/private-scan-store.ts",
+            "src/lib/private-scan-store.test.ts"
           ],
           "target": null,
           "apiRoutes": [

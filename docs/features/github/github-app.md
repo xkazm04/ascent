@@ -139,6 +139,18 @@ push and the throttle was the only cost ceiling. It now mirrors the queue worker
   report exists; a failure after real inference keeps the credit, as in the worker.
 - `maybeAlertLowCredits` fires on a push-funded crossing exactly as it does for `/api/scan`.
 
+### A push rescan scans on the org's own engine (2026-10-08)
+
+`runPushRescan` calls `scanRepository(fullName, { token, orgSlug })` with the installation's org, the
+same call shape as the queue worker. Until 2026-10-08 it passed no `orgSlug`, so `getProviderForOrg`
+never saw the org: a BYOM org's pushed private repos were assessed by the **platform** provider, and
+the standing-decision read had no org. With the org, a BYOM org scans on its own engine (a BYOM
+failure degrades to mock, never to the platform; the mock report is then discarded as below), and
+the report is scored against the org's standing decisions like a manual scan. Metering
+(`isMeteredScan`), the credit reservation and the throttle are unchanged. Because the org now reaches
+the scan, the `.ai/memory` mirror's private-repo gate matters on this path too (see
+[memory.md](../org-knowledge/memory.md#the-six-gates-all-fail-closed)).
+
 ### A degraded rescan is discarded, not persisted
 
 The push rescan asks for a real LLM grade. When the provider is unavailable `scanRepository`

@@ -1,4 +1,4 @@
-// The `.ai/memory` mirror's five gates, its idempotency, its supersede path and its honesty about
+// The `.ai/memory` mirror's six gates, its idempotency, its supersede path and its honesty about
 // confidence (moonshot #14). FAILS BEFORE: the module did not exist.
 //
 // The data layer is mocked at the MODULE boundary rather than at prisma, on purpose: what is under

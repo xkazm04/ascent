@@ -622,17 +622,18 @@ them back and indexes them org-wide.
 5. **Ingest.** Each newly-mirrored entry goes through `writeMemoryCandidate`
    (below) into `OrgMemory` with `source: "repo-memory"`.
 
-### The five gates, all fail-closed
+### The six gates, all fail-closed
 
 | # | Gate | Why |
 | --- | --- | --- |
+| 0 | `repo.isPrivate === false` (the snapshot's visibility, a **required** input) | Mirrored bodies are copied **verbatim** into `RepoMemoryMirror` and `OrgMemory`, and Ascent does not persist text copied out of a private repo's files (the same rule `src/lib/private-scan-store.ts` holds for the scan columns). Checked before the opt-out, because the opt-out defaults to ON. Unknown visibility is refused, and a local working copy reports itself private, so local scans do not mirror either. |
 | 1 | A non-blank `orgSlug`, and not the `public` pseudo-org | An anonymous/public-funnel scan must leave no trace of a repo's prose. |
 | 2 | A `Repository` row for this coordinate **in that org** | An org scanning a third party's public repo does not get to ingest that repo's agent prose. The tenancy boundary is a DB fact, never the caller's string. |
 | 3 | `Organization.repoMemoryMirror !== false` | The opt-out. `null` = never chosen = **ON**, the default the feature ships with. |
 | 4 | `workspaceAllowsMemory(slug, plan)` | The same gate every memory *write* route uses. Routing around the entitlement because the writer is a machine would be a back door. `selfHosted()` already turns the plan half off inside `planAllows`. |
 | 5 | 12 entries per scan, 200 live rows per `(org, repo)` | Newest win. The overflow is **ledgered** with `skipReason: "capped"`, not dropped — a cap that deletes evidence of itself is a data-loss bug. |
 
-Self-hosted collapses gates 3–5 to on/uncapped; nothing else changes, and in
+Self-hosted collapses gates 3–5 to on/uncapped (gate 0 still applies); nothing else changes, and in
 particular the confidence band does not.
 
 ### Confidence is 0.6, deliberately

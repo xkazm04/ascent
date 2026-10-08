@@ -142,6 +142,24 @@ still the shared `public` funnel (a body token, or the ambient operator PAT), an
 under `public` would publish it to every anonymous visitor. `scans-persist.ts` still refuses the
 write as the backstop.
 
+### What a private scan stores (2026-10-08)
+
+A private repo's report is **stored without any text copied out of its files**. The report handed
+back to the caller who ran the scan is the full one; only what is written changes. The rule is one
+pure function, `storableScanReport` in `src/lib/private-scan-store.ts`, and `persistScanReport`
+writes every `Scan` and `Repository` column from its output. For `repo.isPrivate === true`:
+
+| Store | Kept | Dropped |
+| --- | --- | --- |
+| `ScanDimension.evidence` | every analyzer line; a cited-claim line's facet, points and path(s) | the verbatim quote (up to 200 chars) after each path |
+| `guidanceGraphJson` (Scan + Repository) | nodes (path, vendor, bytes, pointers), canonical, projection states, coherence, penalties, the contradiction count, kind and paths | rule lines, literal commands, contradiction quotes (stored as `…`), rule subjects (numbered instead) |
+| `manifestJson` (Scan + Repository) | capability names and their verified / placeholder / wiredAt facts, control placement, declared paths, agent entrypoints, `neverTouch` paths | capability commands, `repo.purpose`, `secretsFrom`, raw `generatedFrom` placeholders, parse notes that quote the file |
+
+A public report passes through untouched. The `.ai/memory` mirror refuses a private repo at its own
+gate (see [memory.md](../org-knowledge/memory.md)). The LLM-written prose (summary, strengths, gaps,
+headline, risks) is model-authored, not a copy channel: the prompt asks for a verbatim quote only in
+`claims`, which is the evidence line above. Rows written before 2026-10-08 are **not** scrubbed.
+
 **SSE protocol** (`/api/scan/stream`): named events on the stream:
 
 - `progress`: `{ stage, message, pct, provider?, region?, fallback? }` where `stage` ∈
@@ -857,7 +875,10 @@ the {provider, model, rubric} scoring identity and the optional `!scope` segment
    `HeadHint` LRU (ETag + SHA, 6-hr TTL) for cheap conditional head requests.
 2. **Persistent** (`src/lib/scan-cache.ts:lookupCachedScan`): shared by both scan routes.
    It resolves the current head with a conditional request (`304 Not Modified` → free,
-   unchanged), then looks up the in-memory tier, then the DB
+   unchanged) using the credential its **caller** resolved and nothing from the environment: a
+   `noAmbientToken` scan or peek (an anonymous caller at an installed owner) resolves it as nobody,
+   so `GET /api/scan?peek=1` answers a private repo exactly like a missing one, with no
+   `x-ascent-head-sha` on either. It then looks up the in-memory tier, then the DB
    (`getScanReportByCommit`), then falls through to a fresh scan. `fresh=true` skips the
    cached *report* but still resolves the key/ETag.
 
@@ -869,6 +890,11 @@ The memory TTL bounds how long an *entry* lives; the age gate bounds how old the
 inside it may be, so a DB hit that warms memory can't keep serving a report past the gate.
 
 This makes re-scans of an unchanged commit instant and dodges GitHub rate limits.
+
+The in-memory tier is the **shared anonymous** cache, so a private report never enters it:
+`cacheAndPersistScan` skips `cacheSet` when `repo.isPrivate` is true (a private repo can reach the
+anonymous path through the ambient operator PAT, for an owner with no stored installation), and both
+lookups treat a private report found there as a miss.
 
 **Coalescing.** Concurrent scans of the same uncached commit share ONE run
 (`coalesceScan`): the first caller computes, later callers join and await the same result
@@ -942,6 +968,7 @@ window. That is the price of the rejoin, and it is what bounds the window's size
 | `src/lib/cache.ts` / `src/lib/scan-cache.ts` | In-memory LRU + tiered cache orchestration (incl. `lookupScopedScan`). |
 | `src/lib/scan-scope.ts` | Pure scope predicates: ref/sub-path validation, `isScopedScan`, the cache-key segment, the report caveat. Shared with the scan form. |
 | `src/lib/scan-scope-server.ts` | `resolveScanScope()`: validates + server-side-resolves a request's ref/sub-path for both scan routes. |
+| `src/lib/private-scan-store.ts` | `storableScanReport()`: the pure rule for what a private repo's scan may store (no copied file text). |
 | `src/lib/scan-lifecycle.ts` | `runScanLifecycle()`: the ONE post-gate run sequence both entry points execute, plus `resolveScanCoordinate` (forge routing), the refund ledger, `resolveScanTarget`, `latestPublicReport` / `salvageScanFailure` and `finalizeScanRun`. |
 | `src/lib/types.ts` | All domain types (`RepoSnapshot`, `DimensionSignals`, `LlmAssessment`, `ScanReport`, …). |
 
@@ -1032,8 +1059,11 @@ three workflows shows its first three in pick order.
   is a **rubric decision** (it would move weights, not add signals), so it is recorded here rather
   than changed: raising the enforcement top-up, or splitting `Linter configured` into
   configured/enforced tiers, needs a `SCORING_RUBRIC_VERSION` bump and a corpus recalibration.
-- **No raw source is persisted** in the MVP; only the derived report (see
-  [data-model.md](../data/data-model.md)).
+- **No raw file is persisted**; only the derived report (see
+  [data-model.md](../data/data-model.md)). A **public** report's stored evidence still carries cited
+  quotes (up to 200 chars) and its guidance graph and manifest carry the lines they compared; a
+  private report's do not (see [What a private scan stores](#what-a-private-scan-stores-2026-10-08)).
+  Private rows written before 2026-10-08 still hold that text: nothing scrubs them.
 - **The ingestion budget is not configurable per request, on purpose.** A bigger budget changes
   which files the *deterministic* detectors see (they read whole file bodies with length
   thresholds), so it changes the score: two repos scanned under different budgets would not be
