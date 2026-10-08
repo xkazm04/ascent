@@ -102,7 +102,10 @@ function parseEvidence(raw: string): string[] | null {
   try {
     const v: unknown = JSON.parse(raw);
     return Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : null;
-  } catch {
+  } catch (err) {
+    // Counted and listed as unparseable by the caller; logged because a stored value that is not JSON
+    // is damage, as parseGuidanceGraphJson treats it.
+    console.warn("[private-scan-scrub] ScanDimension.evidence unreadable; listed, not written:", err);
     return null;
   }
 }
