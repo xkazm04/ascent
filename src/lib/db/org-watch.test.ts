@@ -36,6 +36,10 @@ vi.mock("@/lib/db/org-shared", () => ({
 
 import {
   advanceToFullCadence,
+  CREDIT_SKIP_ERROR,
+  FAILED_RESCAN_BACKOFF_MS,
+  getLastScanAttempt,
+  inFailureBackoff,
   isRepoAutoscanned,
   claimRescan,
   listDueProbeCandidates,
@@ -927,5 +931,63 @@ describe("isRepoAutoscanned — \"no autoscan\" stops push rescans too", () => {
   it("is false when the DB is not configured", async () => {
     mockIsDbConfigured.mockReturnValue(false);
     expect(await isRepoAutoscanned("acme", "acme/api")).toBe(false);
+  });
+});
+
+// ── The push worker's failure backoff (push-triggered-rescan part 2) ─────────────────────────
+
+describe("getLastScanAttempt + inFailureBackoff", () => {
+  const NOW = Date.parse("2026-10-08T12:00:00.000Z");
+  const ago = (ms: number) => new Date(NOW - ms).toISOString();
+
+  it("reads the three outcome columns for (org, fullName) and returns the timestamp as an ISO string", async () => {
+    const findUnique = vi.fn(async () => ({
+      lastScanStatus: "error",
+      lastScanError: "boom",
+      lastScanAttemptAt: new Date("2026-10-08T10:00:00.000Z"),
+    }));
+    mockGetPrisma.mockReturnValue({ repository: { findUnique } });
+    expect(await getLastScanAttempt("acme", "acme/api")).toEqual({
+      status: "error",
+      error: "boom",
+      attemptAt: "2026-10-08T10:00:00.000Z",
+    });
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { orgId_fullName: { orgId: "org_1", fullName: "acme/api" } },
+      select: { lastScanStatus: true, lastScanError: true, lastScanAttemptAt: true },
+    });
+  });
+
+  it("answers null for a missing row and when the DB is off, and THROWS a failed read", async () => {
+    mockGetPrisma.mockReturnValue({ repository: { findUnique: vi.fn(async () => null) } });
+    expect(await getLastScanAttempt("acme", "acme/nope")).toBeNull();
+    mockGetPrisma.mockReturnValue({
+      repository: { findUnique: vi.fn(async () => { throw new Error("db down"); }) },
+    });
+    await expect(getLastScanAttempt("acme", "acme/api")).rejects.toThrow("db down");
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await getLastScanAttempt("acme", "acme/api")).toBeNull();
+  });
+
+  it("the backoff is 6 hours", () => {
+    expect(FAILED_RESCAN_BACKOFF_MS).toBe(6 * 60 * 60_000);
+  });
+
+  it("backs off a failed attempt younger than the backoff, and only that", () => {
+    expect(inFailureBackoff({ status: "error", error: "boom", attemptAt: ago(60_000) }, NOW)).toBe(true);
+    expect(inFailureBackoff({ status: "error", error: "boom", attemptAt: ago(FAILED_RESCAN_BACKOFF_MS - 1) }, NOW)).toBe(true);
+    expect(inFailureBackoff({ status: "error", error: "boom", attemptAt: ago(FAILED_RESCAN_BACKOFF_MS) }, NOW)).toBe(false);
+    expect(inFailureBackoff({ status: "ok", error: null, attemptAt: ago(60_000) }, NOW)).toBe(false);
+    expect(inFailureBackoff(null, NOW)).toBe(false);
+  });
+
+  it("a credit skip is NOT a failure: a topped-up org scans on its next push", () => {
+    expect(CREDIT_SKIP_ERROR).toBe("insufficient credits");
+    expect(inFailureBackoff({ status: "error", error: CREDIT_SKIP_ERROR, attemptAt: ago(60_000) }, NOW)).toBe(false);
+  });
+
+  it("an attempt with no usable timestamp is not proven recent, so it does not back off", () => {
+    expect(inFailureBackoff({ status: "error", error: "boom", attemptAt: null }, NOW)).toBe(false);
+    expect(inFailureBackoff({ status: "error", error: "boom", attemptAt: "garbage" }, NOW)).toBe(false);
   });
 });

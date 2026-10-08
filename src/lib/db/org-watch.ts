@@ -500,7 +500,7 @@ export async function advanceToFullCadence(repoId: string, schedule: string): Pr
  *  Like the claim lease, this writes ONLY `nextScanAt`: a backoff is a retry window, not a re-phasing.
  *  Leaving `scanSlotAt` alone means a repo that fails a few times and then recovers settles back onto
  *  its ORIGINAL slot instead of being permanently re-phased to whenever the failures stopped. */
-const FAILED_RESCAN_BACKOFF_MS = 6 * 60 * 60_000; // 6h
+export const FAILED_RESCAN_BACKOFF_MS = 6 * 60 * 60_000; // 6h
 export async function advanceScheduleAfterFailure(repoId: string): Promise<void> {
   if (!isDbConfigured()) return;
   await getPrisma().repository.update({
@@ -533,6 +533,51 @@ export async function recordScanOutcome(
       lastScanAttemptAt: new Date(),
     },
   });
+}
+
+/** The scan-outcome copy a credit skip writes. Named once because the failure backoff below must NOT
+ *  treat it as a failure: a topped-up org scans on its very next push, not six hours later. */
+export const CREDIT_SKIP_ERROR = "insufficient credits";
+
+/** The last recorded scan ATTEMPT on a repo, as {@link recordScanOutcome} wrote it. Wire-safe: the
+ *  timestamp is an ISO string. */
+export interface LastScanAttempt {
+  status: string | null;
+  error: string | null;
+  attemptAt: string | null;
+}
+
+/**
+ * Read a repo's last scan attempt. Null when persistence is off, the org is unknown or the repo has no
+ * row. THROWS on a failed read: the caller decides what a failure means (the push worker reports it
+ * and fails toward scanning, because the window bucket still caps the spend).
+ */
+export async function getLastScanAttempt(orgSlug: string, fullName: string): Promise<LastScanAttempt | null> {
+  if (!isDbConfigured()) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const row = await getPrisma().repository.findUnique({
+    where: { orgId_fullName: { orgId, fullName } },
+    select: { lastScanStatus: true, lastScanError: true, lastScanAttemptAt: true },
+  });
+  if (!row) return null;
+  return {
+    status: row.lastScanStatus ?? null,
+    error: row.lastScanError ?? null,
+    attemptAt: row.lastScanAttemptAt ? row.lastScanAttemptAt.toISOString() : null,
+  };
+}
+
+/**
+ * Is this repo inside its failure backoff? True only for a FAILED attempt younger than
+ * {@link FAILED_RESCAN_BACKOFF_MS} whose error is not the credit-skip copy. Pure. An attempt with no
+ * usable timestamp is not proven recent, so it does not back off (fail toward scanning).
+ */
+export function inFailureBackoff(attempt: LastScanAttempt | null, now: number = Date.now()): boolean {
+  if (!attempt || attempt.status !== "error" || attempt.error === CREDIT_SKIP_ERROR) return false;
+  const at = attempt.attemptAt ? new Date(attempt.attemptAt).getTime() : NaN;
+  if (!Number.isFinite(at)) return false;
+  return now - at < FAILED_RESCAN_BACKOFF_MS;
 }
 
 /** Outcome of a conformance ingest: `recorded` = the Repository row was updated; `stale` = the

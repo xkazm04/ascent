@@ -21,6 +21,10 @@ export {
   setRepoMissing,
   listDueRescanCandidates,
   recordScanOutcome,
+  getLastScanAttempt,
+  inFailureBackoff,
+  CREDIT_SKIP_ERROR,
+  FAILED_RESCAN_BACKOFF_MS,
   recordConformance,
   listWatchedRepos,
   listOrgsWithWatchedRepos,
@@ -30,6 +34,7 @@ export {
   type DueRescan,
   type MissingRepo,
   type MissingRepoReconciliation,
+  type LastScanAttempt,
 } from "@/lib/db/org-watch";
 
 export {
