@@ -176,7 +176,7 @@ export async function cacheAndPersistScan(
   // ambient operator PAT (an owner with no stored installation), and the DB row it persists is re-tenanted
   // off 'public', so this write was the one leak left (lite r1, robustness-2). scan-cache.ts refuses to
   // serve one from memory as well, so either half alone closes it.
-  if (lookup && authoritative && report.repo.isPrivate !== true) cacheSet(lookup.cacheKey, report);
+  if (lookup && authoritative && report.repo?.isPrivate !== true) cacheSet(lookup.cacheKey, report);
 
   let deduped = false;
   let persistedOk = true;
