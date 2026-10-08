@@ -41,6 +41,7 @@ a write set to be authoritative about.
 | [2026-10-06-autopilot-branch-disposition](2026-10-06-autopilot-branch-disposition.md) | Accepted (2026-10-06) | Drop 12 of 15 stale `autopilot/*` branches; salvage the 2 code runs by rebuild on master. |
 | [2026-10-07-failed-read-is-not-absence](2026-10-07-failed-read-is-not-absence.md) | Accepted (2026-10-07, recorded after the fact) | A failed read is never shown as absence: class A fails visibly (`dbReadStrict`), class B degrades but reaches a door. |
 | [2026-10-07-briefing-pdf-free-on-every-tier](2026-10-07-briefing-pdf-free-on-every-tier.md) | Accepted (2026-10-07) | The executive briefing PDF stays free on every tier: a declared exception to the report PDF's `pdfExport` gate. |
+| [2026-10-07-shared-public-org-has-no-owner](2026-10-07-shared-public-org-has-no-owner.md) | Accepted (2026-10-07) | The shared public org has no owner: every admin write refuses it, billing and autoscan cadence too; non-members scan into it.|
 
 ## A note on citations
 
