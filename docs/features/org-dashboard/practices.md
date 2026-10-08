@@ -159,7 +159,11 @@ A failed token mint answers `502` with the same copy ("Failed to mint an install
 org.", exported as `MINT_FAILED` from `src/lib/github/pr-route.ts`) on **every** practice route
 (generate, apply, apply-batch, rollout), reported with its cause. A failed org lookup (`getOrgId`)
 refuses the write with a reported `500` instead of opening an untracked PR. In the batch and rollout
-routes an unexpected per-repo error keeps its row copy but is logged and reported.
+routes an unexpected per-repo error keeps its row copy but is logged and reported. The rollout
+route writes one `practice.rollout_opened` audit row after its PRs open; if that write is rejected the
+route still answers `200` with `results`/`attempted`/`skipped` (the PRs are open), logging
+`[practices/rollout] audit write failed` and reporting it. apply, apply-batch and generate write no audit
+row in their routes.
 
 Two reads on the write path degrade deliberately and are now logged and reported rather than silent:
 a failed house-pattern version read still writes the adoption row (with `patternVersion: null`), and
@@ -212,7 +216,12 @@ rollout is `POST /api/org/ai-stance/apply-batch` (`StanceApplyBatch`): the same 
 Applies one practice across many repos: `{ org, repos: [...], practiceId, base? }` (same
 `org` rule as apply; the repos may span owners the org tracks), bounded
 to `MAX_BATCH = 25`, fanned out with `mapPool` at `SCAN_CONCURRENCY`, with per-repo
-error isolation so one failure doesn't sink the batch. Driven by
+error isolation so one failure doesn't sink the batch. An entry that does not parse as a repo is not
+dropped: when at least one entry parses, it comes back as a result row after the worker rows
+(`repo` = the raw entry cut to 200 characters, `ok: false`, `error: "Not a GitHub repository (use
+owner/name or a github.com URL)."`). Such rows open nothing, do not count in `attempted` and are not
+reported (an input error); a batch with no parseable entry is still the `400`. `POST
+/api/practices/rollout` answers rejected entries the same way. Driven by
 `PracticeApplyBatch.tsx` / `PracticeApplyBatchResults.tsx`; its confirm names the dashboard org.
 
 ## UI (`src/features/shared/practices/`, mounted by the Practices tab)
