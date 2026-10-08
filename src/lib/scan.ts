@@ -244,6 +244,16 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
       emit,
     });
 
+  // AMBIENT-TOKEN PRIVACY FLOOR. With the App configured, private repos are read ONLY through an
+  // installation token. When this ingest rode the server's own GITHUB_TOKEN (no explicit token, no
+  // injected source) and the repo turned out private, refuse exactly as a missing repo is refused, so a
+  // private repo answers like a nonexistent one. Runs before the memory mirror and every model call:
+  // nothing is persisted or cached. The ingest's enrichment promises swallow their own rejections
+  // (.catch in scan-ingest.ts), so abandoning them here cannot surface an unhandled rejection.
+  if (!opts.token && !opts.source && snapshot.meta.isPrivate && isAppConfigured()) {
+    throw new GitHubError("NOT_FOUND", "Repository not found or is private.", 404);
+  }
+
   // Resolve the scan timestamp up front and thread it through signal extraction, so D7's
   // recency bonus is deterministic (and the same `now` stamps the report below).
   const now = opts.now ?? new Date().toISOString();

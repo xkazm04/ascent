@@ -5,6 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ScanReport } from "@/lib/types";
+import { GitHubError } from "@/lib/github/source";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
 vi.mock("next/server", () => ({
@@ -361,6 +362,23 @@ describe("POST /api/scan — public weekly-quota refund (money-path)", () => {
     expect(res.status).toBe(500);
     expect(mockRefundQuota).toHaveBeenCalledTimes(1);
     expect(mockRefundQuota).toHaveBeenCalledWith(expect.anything(), expect.anything(), 1000);
+  });
+
+  // The ambient-token privacy floor (scan.ts) refuses a private repo read on the server's own token
+  // with the SAME GitHubError a missing repo raises. The route must answer it identically (status,
+  // code, body, headers), refund the slot, and never have reserved a credit: a private repo reads as
+  // a missing one, and the refusal costs the caller nothing.
+  it("answers the ambient-token private refusal exactly as a missing repo, refunding the slot", async () => {
+    const refusal = () => new GitHubError("NOT_FOUND", "Repository not found or is private.", 404);
+    mockScan.mockRejectedValueOnce(refusal()); // what the privacy floor throws
+    const refused = await post({ url: "o/r", mock: false });
+    mockScan.mockRejectedValueOnce(refusal()); // what a repo that does not exist throws
+    const missing = await post({ url: "o/missing", mock: false });
+    expect(refused.status).toBe(404);
+    expect(await refused.json()).toEqual(await missing.json());
+    expect([...refused.headers.entries()]).toEqual([...missing.headers.entries()]);
+    expect(mockRefundQuota).toHaveBeenCalledTimes(2);
+    expect(mockConsumeCredit).not.toHaveBeenCalled();
   });
 });
 

@@ -75,6 +75,22 @@ vi.mock("@/lib/db", async (importActual) => {
   };
 });
 
+// Ambient-token privacy floor harness: scanRepository builds its own forge source when none is injected,
+// so the ingest is wrapped to swap in an offline source for those calls; the mirror is a spy.
+const ambientIngest = vi.hoisted(() => ({
+  source: null as import("@/lib/github/source").RepoSource | null,
+  mirror: vi.fn(),
+}));
+vi.mock("@/lib/scan-ingest", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/scan-ingest")>();
+  return {
+    ...actual,
+    ingestRepository: (args: Parameters<typeof actual.ingestRepository>[0]) =>
+      actual.ingestRepository(ambientIngest.source ? { ...args, source: ambientIngest.source } : args),
+  };
+});
+vi.mock("@/lib/memory/repo-memory-mirror", () => ({ mirrorRepoMemory: ambientIngest.mirror }));
+
 // ---------------------------------------------------------------------------
 // LLM-provider injection harness (for the usage-metering + degradation-honesty
 // suites appended below). scan.ts resolves its primary provider via
@@ -745,5 +761,66 @@ describe("scanRepository — standing-decision scoping (decisionOrgSlug)", () =>
     const { source } = mockSource("c".repeat(40));
     await scanRepository("o/r", { mock: true, source, now: NOW });
     expect(dbControl.decisionsForRepo).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ambient-token privacy floor. With the App configured, a private repo is read only through an
+// installation token: an ingest that rode the server's own GITHUB_TOKEN (no opts.token, no injected
+// opts.source) and found a private repo refuses exactly as a missing repo does, before the memory
+// mirror, any model call or any persist. `ingestRepository` is wrapped so the ambient path (which
+// builds its own forge source) can be fed a private/public snapshot offline.
+// ---------------------------------------------------------------------------
+describe("scanRepository — ambient token never returns a private repo's report", () => {
+  function sourceWith(isPrivate: boolean): RepoSource {
+    const { source } = mockSource("d".repeat(40));
+    return {
+      async fetchSnapshot(repo, opts) {
+        const snap = await source.fetchSnapshot(repo, opts);
+        return { ...snap, meta: { ...snap.meta, isPrivate }, memoryFiles: [{ path: ".ai/memory/a.md", content: "x", bytes: 1 }] };
+      },
+    } as RepoSource;
+  }
+
+  beforeEach(() => {
+    authControl.appConfigured = true;
+    ambientIngest.source = null;
+    ambientIngest.mirror.mockReset();
+    vi.stubEnv("GITHUB_TOKEN", "ambient-operator-token");
+  });
+  afterEach(() => {
+    authControl.appConfigured = true;
+    ambientIngest.source = null;
+    vi.unstubAllEnvs();
+  });
+
+  it("private repo + ambient token + App configured ⇒ NOT_FOUND, no mirror, no model call, no persist", async () => {
+    ambientIngest.source = sourceWith(true);
+    const onProgress = vi.fn();
+    const err = await scanRepository("o/r", { mock: true, now: NOW, onProgress }).catch((e) => e);
+    expect(err).toMatchObject({ code: "NOT_FOUND", message: "Repository not found or is private." });
+    expect(ambientIngest.mirror).not.toHaveBeenCalled();
+    expect(onProgress.mock.calls.map((c) => c[0].stage)).not.toContain("compose");
+  });
+
+  it("a public repo on the ambient token is unchanged", async () => {
+    ambientIngest.source = sourceWith(false);
+    const report = await scanRepository("o/r", { mock: true, now: NOW });
+    expect(report.repo.owner).toBeDefined();
+  });
+
+  it("a private repo with an explicit token is unchanged", async () => {
+    ambientIngest.source = sourceWith(true);
+    await expect(scanRepository("o/r", { mock: true, now: NOW, token: "installation-token" })).resolves.toBeDefined();
+  });
+
+  it("a private snapshot from an injected source is unchanged", async () => {
+    await expect(scanRepository("o/r", { mock: true, now: NOW, source: sourceWith(true) })).resolves.toBeDefined();
+  });
+
+  it("without the App configured nothing changes (private + ambient still scans)", async () => {
+    authControl.appConfigured = false;
+    ambientIngest.source = sourceWith(true);
+    await expect(scanRepository("o/r", { mock: true, now: NOW })).resolves.toBeDefined();
   });
 });
