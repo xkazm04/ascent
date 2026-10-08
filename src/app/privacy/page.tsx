@@ -38,7 +38,7 @@ export default function PrivacyPage() {
       <SiteHeader />
       <main id="main" className="mx-auto w-full max-w-3xl px-5 py-12">
         <h1 className="type-display font-bold text-white sm:type-display-lg">Privacy policy</h1>
-        <p className="mt-2 type-mono-sm uppercase tracking-widest text-slate-500">Last updated: August 4, 2026</p>
+        <p className="mt-2 type-mono-sm uppercase tracking-widest text-slate-500">Last updated: October 8, 2026</p>
 
         <p className={P}>
           Ascent scores how AI-native an engineering organization is, based on the contents and history of its
@@ -55,7 +55,9 @@ export default function PrivacyPage() {
           persists afterwards is the <span className={EM}>derived output only</span>: scores, evidence notes,
           recommendations, and repository metadata such as the repo name, default branch, and a detected
           tech-stack summary. Reports on public repositories may quote short excerpts of those public files as
-          evidence; reports on private repositories store none. The sampled file contents are discarded when the scan completes.
+          evidence; reports on private repositories store none, apart from the section headings of their guidance
+          files, pull request templates and decision records, which are kept for practice matching. The sampled
+          file contents are discarded when the scan completes.
         </p>
         <ul className="mt-3 list-disc pl-5">
           <li className={LI}>
