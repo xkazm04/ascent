@@ -1,5 +1,6 @@
-// Failure paths of the re-convergence rollout: a failed org lookup writes nothing, and an unexpected
-// per-repo error keeps its row but is reported.
+// Failure paths of the re-convergence rollout: a failed mint or org lookup writes nothing, an
+// unexpected per-repo error keeps its row but is reported, a failed version read degrades the audit
+// row (reported), and a rejected audit write is a reported 500.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -44,20 +45,27 @@ vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => fals
 
 import { POST } from "./route";
 import { AppApiError, isAppConfigured } from "@/lib/github/app";
-import { getOrgId } from "@/lib/db";
+import { getOrgId, recordAudit } from "@/lib/db";
+import { listBehindRepos } from "@/lib/db/practice-adoption";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
 
 const targets = ["acme/a", "acme/b"].map((raw) => {
   const [owner, repo] = raw.split("/");
   return { raw, owner, repo, token: "t", parsed: { owner, repo } };
 });
-const run = () =>
+const run = (mode = "drifted") =>
   POST(
     new Request("http://localhost/api/practices/rollout", {
       method: "POST",
-      body: JSON.stringify({ org: "acme", practiceId: "agents-md", mode: "drifted", repos: ["acme/a", "acme/b"] }),
+      body: JSON.stringify({ org: "acme", practiceId: "agents-md", mode, repos: ["acme/a", "acme/b"] }),
     }),
   );
+const opened = (async (_t: string, ref: { repo: string }) => ({
+  kind: "ok",
+  pr: { url: "u", number: 1, reused: false },
+  ctx: { fullName: `acme/${ref.repo}` },
+  artifact: { path: "AGENTS.md" },
+})) as never;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -107,5 +115,38 @@ describe("POST /api/practices/rollout: failures", () => {
     expect(reportHandledError).toHaveBeenCalledTimes(1);
     expect(reportHandledError).toHaveBeenCalledWith(upstream, expect.objectContaining({ status: 502 }));
     expect(console.error).toHaveBeenCalledWith("[practices/rollout] acme/a upstream write failed", upstream);
+  });
+});
+
+describe("POST /api/practices/rollout: mint, version read and audit failures", () => {
+  it("answers a reported 502 MINT_FAILED when the token mint throws, and writes nothing", async () => {
+    const boom = new AppApiError("mint failed");
+    requirePrWriteTarget.mockRejectedValue(boom);
+    const res = await run();
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "Failed to mint an installation token for this org." });
+    expect(respondError).toHaveBeenCalledWith(502, "Failed to mint an installation token for this org.", { cause: boom });
+    expect(applyPracticeToRepo).not.toHaveBeenCalled();
+  });
+
+  it("a failed behind-version read still opens the PRs and audits a null span, reported", async () => {
+    const boom = new Error("db down");
+    vi.mocked(listBehindRepos).mockRejectedValue(boom);
+    vi.mocked(applyPracticeToRepo).mockImplementation(opened);
+    const res = await run("behind");
+    expect(res.status).toBe(200);
+    expect(applyPracticeToRepo).toHaveBeenCalledTimes(2);
+    expect(reportHandledError).toHaveBeenCalledWith(boom, expect.anything());
+    expect(vi.mocked(recordAudit).mock.calls[0]![1]).toMatchObject({ mode: "behind", fromVersion: null, toVersion: null });
+  });
+
+  it("a rejected audit write is answered as the reported 500 (recordAudit's own contract is never to throw)", async () => {
+    const boom = new Error("audit down");
+    vi.mocked(applyPracticeToRepo).mockImplementation(opened);
+    vi.mocked(recordAudit).mockRejectedValue(boom);
+    const res = await run();
+    expect(res.status).toBe(500);
+    expect(respondError).toHaveBeenCalledWith(500, "Failed to open the rollout PRs.", { cause: boom });
+    expect(console.error).toHaveBeenCalledWith("[practices/rollout] failed", boom);
   });
 });
