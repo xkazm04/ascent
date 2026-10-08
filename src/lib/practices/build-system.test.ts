@@ -52,8 +52,14 @@ describe("detectBuildSystem", () => {
   it("resolves unknown (not undefined) when the call fails or throws", async () => {
     mockFetch.mockResolvedValueOnce({ ok: false } as Response);
     expect(await detectBuildSystem(ref, "Kotlin", "main")).toBe("unknown");
-    mockFetch.mockRejectedValueOnce(new Error("boom"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(log).not.toHaveBeenCalled(); // a non-ok answer is an ordinary unknown, not a failure
+    const boom = new Error("boom");
+    mockFetch.mockRejectedValueOnce(boom);
     expect(await detectBuildSystem(ref, "Kotlin", "main")).toBe("unknown");
+    // A THROWN read keeps the fallback but is never silent (council r2 sweep).
+    expect(log).toHaveBeenCalledWith("[practices/build-system] root listing failed for acme/svc", boom);
+    log.mockRestore();
   });
 });
 
@@ -109,8 +115,12 @@ describe("ktlint proof (Gradle roots)", () => {
   });
 
   it("is not proven when the second call throws or its body is unreadable", async () => {
-    mockFetch.mockResolvedValueOnce(tree("build.gradle")).mockRejectedValueOnce(new Error("boom"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const boom = new Error("boom");
+    mockFetch.mockResolvedValueOnce(tree("build.gradle")).mockRejectedValueOnce(boom);
     expect(await withBuildSystem(ref, kt, "t")).not.toHaveProperty("ktlintApplied");
+    expect(log).toHaveBeenCalledWith("[practices/build-system] root build file read failed for acme/svc", boom);
+    log.mockRestore();
     mockFetch.mockResolvedValueOnce(tree("build.gradle")).mockResolvedValueOnce({
       ok: true,
       text: async () => {

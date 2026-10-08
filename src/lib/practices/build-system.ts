@@ -8,7 +8,10 @@
 // Source: one non-recursive git-trees call on the default branch, only for java/kotlin. Nothing stored
 // carries a repo's root file list (the scan keeps a manifest READOUT, not the build manifests), so a
 // stored read would need a scan to have run and could be stale; the live call is the same freshness
-// the preview already has. A failed call is `unknown` (placeholders), never a guess.
+// the preview already has. A failed call is `unknown` (placeholders), never a guess. A THROWN call (a
+// timeout, a network failure) degrades the same way but is logged, so placeholders in a JVM starter
+// can be traced to the read that failed. Not reported: an upstream GitHub blip is not our defect, and
+// a 25-repo fan-out would report it 25 times.
 //
 // A Gradle root costs ONE more call (the root build file) to prove the ktlint plugin; without that
 // proof the lint command is the placeholder. The file text is tested and dropped, never stored.
@@ -64,7 +67,8 @@ async function listRoot(
     const json = (await res.json()) as { tree?: { path?: string; type?: string }[] };
     const names = (json.tree ?? []).filter((e) => e.type === "blob" && typeof e.path === "string").map((e) => e.path!);
     return { buildSystem: classifyRoot(names), names };
-  } catch {
+  } catch (err) {
+    console.error(`[practices/build-system] root listing failed for ${ref.owner}/${ref.repo}`, err);
     return { buildSystem: "unknown", names: [] };
   }
 }
@@ -83,7 +87,8 @@ async function ktlintProven(
     const res = await ghFetch(url, { token, cache: "no-store", accept: "application/vnd.github.raw+json" });
     if (!res.ok) return false;
     return appliesKtlintPlugin(await res.text());
-  } catch {
+  } catch (err) {
+    console.error(`[practices/build-system] root build file read failed for ${ref.owner}/${ref.repo}`, err);
     return false;
   }
 }

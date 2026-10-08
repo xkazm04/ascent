@@ -25,6 +25,7 @@ import { DIMENSIONS } from "@/lib/maturity/model";
 import { registryBlobBase, getRegistrySync } from "@/lib/org/registry-sync";
 import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { getTheme } from "@/lib/theme/server";
+import { degraded } from "./practicesDegradedRead";
 import { PracticesPageV2 } from "./PracticesPage.v2";
 import { PracticesTabV1 } from "./PracticesTab.v1";
 import type { PracticesPageData } from "./practicesData";
@@ -48,16 +49,16 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
     // W6 — the org's OWN structure, for the house-pattern panel. Degrades to null (panel omitted)
     // rather than failing the tab: a missing panel is honest, an empty one would assert the org
     // shares nothing.
-    getOrgPracticeShapes(slug).catch(() => null),
+    getOrgPracticeShapes(slug).catch(degraded(slug, "practice shapes", null)),
     // Where these practices live (UC2): the strip says it once, and the registry-origin rows below are
     // read-only mirrors. Both degrade to "nothing mapped" rather than failing the tab.
     getRegistrySync(slug),
-    listOrgPracticeShapeRows(slug).catch(() => []),
+    listOrgPracticeShapeRows(slug).catch(degraded(slug, "shape rows", [])),
     // The fleet foundation rollout (moonshot #35) and the guidance-coherence measure (#15), moved here
     // from the Repositories tab on 2026-09-15: the shared checklist and its measurement in one place.
     // The rollup is request-cached and scoped the same way the Repositories tab reads it.
     getFoundationRollout(slug),
-    getOrgRollupShared(slug, undefined, null, techGroupId).catch(() => null),
+    getOrgRollupShared(slug, undefined, null, techGroupId).catch(degraded(slug, "coherence rollup", null)),
     getTheme(),
   ]);
   // MOONSHOT #33 — version the org's mined patterns from the read that already mined them, then read
@@ -66,7 +67,7 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
   // no-strip rather than failing the tab.
   const mined = shapes ? minePracticeShapes(shapes) : null;
   if (mined) await syncHousePatternVersions(slug);
-  const adoptionLedger = await getPracticeAdoptionSummary(slug).catch(() => null);
+  const adoptionLedger = await getPracticeAdoptionSummary(slug).catch(degraded(slug, "adoption ledger", null));
   const dimOptions = DIMENSIONS.map((d) => ({ id: d.id, label: d.name }));
 
   const summary = buildPracticeLibrarySummary(slug, practices ?? [], playbooks ?? [], adoption);
