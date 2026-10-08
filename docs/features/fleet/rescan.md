@@ -11,7 +11,10 @@ Both are guarded by the shared `CRON_SECRET` (`src/lib/cron-auth.ts`, `requireCr
 the GitHub App + `DATABASE_URL`.
 
 A third trigger sits outside the cron queue: the **push rescan** (`POST /api/app/webhook`, a
-default-branch push to a watched repo). Since 2026-09-05 it is metered like the `rescore` lane, one
+default-branch push to a repo that is watched **and** on an autoscan cadence, i.e.
+`scanSchedule` is not `off`: the same predicate the scheduled lane uses, `isRepoAutoscanned` in
+`org-watch.ts`). **"No autoscan" stops push rescans too**; there is no automatic scan of any kind on a
+repo set to it. Since 2026-09-05 it is metered like the `rescore` lane, one
 credit reserved before inference and skipped at zero balance, see
 [github-app.md](../github/github-app.md#a-push-rescan-pays-for-itself-2026-09-05).
 

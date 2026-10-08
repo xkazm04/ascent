@@ -79,7 +79,7 @@ unchanged. The refusal is a non-delivery, so the routes refund the quota slot an
 | `pull_request` (opened / synchronize / reopened / ready_for_review) | Run the PR maturity gate: score the PR head, diff vs base, post a Check Run + sticky comment (see [gate.md](../scanning/gate.md)). Falls back to the default branch when a fork head commit is unreachable. |
 | `installation_repositories` (added / removed) | The user changed *which* repos an installation can see. Deliberately **no payload-trusting fast path**: a deferred `reconcileInstallationRepos` re-lists the installation's live repos from GitHub (at the `reconcile` depth, so installations past 5000 repos reconcile too) and unwatches only what GitHub confirms is gone. The same listing also **auto-watches newly granted repos** (`src/lib/db/install-grants.ts`): for an org that already has a non-empty watchlist, a live repo the org has no Repository row for is watched through the import path (watched, `weekly` cadence), on hosted and self-hosted alike. At most **20 per org per event**; the rest stay unwatched, are logged, and are listed in an `org.repos.auto_watched` audit row (Admin → Audit), and a later grant event can pick them up. A repo the org already has a row for is never re-watched, because a stored `watched: false` may be a person's explicit unwatch. No credit is reserved at watch time; the scan that follows pays like any other. A listing that still comes back `truncated` skips both the unwatch and the auto-watch rather than treating a partial list as the live set. |
 | `check_run` (rerequested / requested_action `rescan`) | A "Re-run" click or GitHub's native rerequest — re-evaluate the gate for the PR the run is attached to, with no new push. |
-| `push` (default branch moved) | Re-scan **watched** repos (`runPushRescan`, DB-gated, **throttled**, see below) and alert on regressions (see [alerts.md](../fleet/alerts.md)). The same push also reaches the **registry lane** (`onRegistryPush`, a second `after()`). A push to the org's mapped registry sets `webhookHealthy` and re-indexes it. A fleet repo's push that touches `.ai/registry-map.json` or `.ai/manifest.yaml` re-sweeps that repo (see [org-registry](../org-registry/README.md#when-a-pass-runs-and-the-one-door-it-goes-through-2026-09-23)). A failure there is logged and never releases the delivery. |
+| `push` (default branch moved) | Re-scan **watched repos on an autoscan cadence** (`runPushRescan`, gated on `isRepoAutoscanned`: watched AND `scanSchedule` not `off`, DB-gated, **throttled**, see below) and alert on regressions (see [alerts.md](../fleet/alerts.md)). The same push also reaches the **registry lane** (`onRegistryPush`, a second `after()`). A push to the org's mapped registry sets `webhookHealthy` and re-indexes it. A fleet repo's push that touches `.ai/registry-map.json` or `.ai/manifest.yaml` re-sweeps that repo (see [org-registry](../org-registry/README.md#when-a-pass-runs-and-the-one-door-it-goes-through-2026-09-23)). A failure there is logged and never releases the delivery. |
 | `branch_protection_rule`, `repository_ruleset`, `repository` | Enqueue a **free control probe** of that repo (moonshot #10) **and** record a control *attribution* row (moonshot #1, below). A GitHub-confirmed `repository.deleted` (owner matches the installation) **unwatches that `fullName` only** — the same `reconcileWatchedRepos` drop used when a repo leaves the installation set. A forged owner mismatch does not unwatch. Archived stays watched. |
 | `member`, `team` | Owner-level access moved: enqueue probes across the org's watched repos (capped at 200). Writes no membership or RBAC row — identity-graph modelling is a separate item. |
 | `pull_request_review` (submitted, approved) | Record the approving review as `AiChange` evidence within seconds instead of at the next scan's cadence (moonshot #1, below). |
@@ -127,6 +127,19 @@ Two honest limits:
 - A repository that has never been scanned has no `Repository` row, and this path does **not** create
   one: an `AiChange` with no scan behind it would enter the conformance population as evidence from a
   repository the product has never assessed.
+
+### Which repos a push rescans (2026-10-08)
+
+`runPushRescan` gates first on `isRepoAutoscanned(org, fullName)` (`org-watch.ts`): the repo must be
+**watched AND its `scanSchedule` must not be `off`**, the same predicate the scheduled lane
+(`listDueRescans`) uses. **"No autoscan" stops push rescans too.** A repo on `off` is a deterministic
+no-op: no credit reserved, no installation token, no owner-confirm call, and the delivery is not
+released. Onboarding enrolls repos `watched: true` with schedule `off` by default, so a one-time
+import does not become a stream of metered push rescans. The UI says so beside every cadence control
+and in the onboarding cost disclosure (`PUSH_RESCAN_DISCLOSURE`, `src/lib/org/repo-schedule.ts`): a repo
+on any cadence is also rescanned on a default-branch push (throttled per repo), each push rescan is a
+metered scan (monthly allowance first, then one prepaid credit; free on self-hosted), and the
+onboarding estimate covers the cadence only, push rescans come on top.
 
 ### Push rescan throttle
 
@@ -206,8 +219,8 @@ A push inside the window is **dropped, not deferred** (the handler has no backgr
 work runs in the request's `after()`, bounded by `maxDuration`). It is not usually lost: a scan
 always reads the repo's *current* default-branch head, so the next push past the window covers every
 commit coalesced in between, in one scan. If pushes stop inside the window, the trailing head is
-picked up by the repo's **scheduled autoscan** (`/api/cron/rescan`) or a manual rescan, so a watched
-repo with `scanSchedule: off` can sit up to one window behind until its next push.
+picked up by the repo's **scheduled autoscan** (`/api/cron/rescan`) or a manual rescan, so a repo
+with a cadence can sit up to one window behind until its next push. A repo on `off` is never push-scanned at all.
 
 ## Setup & repos routes
 
@@ -348,7 +361,7 @@ for, and failing would strand the id forever). See
 ## Known gaps
 
 - **Push auto-rescan is DB-gated**: `runPushRescan` only runs for repos marked
-  `watched: true` and requires `DATABASE_URL`.
+  `watched: true` with a `scanSchedule` other than `off`, and requires `DATABASE_URL`.
 - **Sign-in is optional**: when OAuth env is unset, `/onboarding` is open; when set, the App path is
   scoped to the signed-in user's own installations (see [auth.md](./auth.md)).
 - **Token cache is in-memory**: re-minted per serverless instance.
