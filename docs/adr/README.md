@@ -43,6 +43,7 @@ a write set to be authoritative about.
 | [2026-10-07-briefing-pdf-free-on-every-tier](2026-10-07-briefing-pdf-free-on-every-tier.md) | Accepted (2026-10-07) | The executive briefing PDF stays free on every tier: a declared exception to the report PDF's `pdfExport` gate. |
 | [2026-10-07-shared-public-org-has-no-owner](2026-10-07-shared-public-org-has-no-owner.md) | Accepted (2026-10-07) | The shared public org has no owner: every admin write refuses it, billing and autoscan cadence too; non-members scan into it.|
 | [2026-10-08-pr-gate-fails-closed](2026-10-08-pr-gate-fails-closed.md) | Accepted (2026-10-08) | The PR gate fails closed: no `neutral` check, a floor on a missing dimension fails, the Action scores the PR head. |
+| [2026-10-08-private-scan-stores-no-file-text](2026-10-08-private-scan-stores-no-file-text.md) | Accepted (2026-10-08) | A private repo's scan stores no text copied from its files (quotes, guidance rules and commands, manifest prose); local copies are exempt; model prose and a re-read's lost quotes are open. |
 
 ## A note on citations
 
