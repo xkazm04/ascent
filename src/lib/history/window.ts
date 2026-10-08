@@ -14,8 +14,7 @@
 //      Master's pending decision: change it here and nowhere else.
 //   d. Self-host: retentionCutoff is already null, so every branch above answers "no window".
 
-import { dbReadStrict, isDbConfigured } from "@/lib/db/client";
-import { getOrgBySlug } from "@/lib/db/org-shared";
+import { getOrgForHistoryWindow } from "@/lib/db/scans-read";
 import { normalizeLogin } from "@/lib/db/members";
 import { PUBLIC_ORG } from "@/lib/org-constants";
 import { planFeatures, retentionCutoff } from "@/lib/plans";
@@ -44,20 +43,15 @@ export async function resolveHistoryWindow(
   viewerLogin: string | null | undefined,
   nowMs: number = Date.now(),
 ): Promise<HistoryWindow> {
-  if (!isDbConfigured()) return NO_HISTORY_WINDOW;
-  // STRICT, like the history read it precedes: an unreachable database surfaces as DbUnavailableError
-  // (the pages' honest "unavailable" notice, the route's 500), never as a silently unclamped read.
-  return dbReadStrict(() => decide(orgSlug, viewerLogin, nowMs));
-}
-
-async function decide(orgSlug: string, viewerLogin: string | null | undefined, nowMs: number): Promise<HistoryWindow> {
+  // The org lookups are STRICT, like the history read they precede: an unreachable database surfaces as
+  // DbUnavailableError (the pages' honest "unavailable" notice, the route's 500), never as an unclamped read.
   const slug = orgSlug.trim().toLowerCase();
   if (slug !== PUBLIC_ORG) {
-    const org = await getOrgBySlug(slug);
+    const org = await getOrgForHistoryWindow(slug);
     return org ? windowFor(org.plan, nowMs) : NO_HISTORY_WINDOW; // a: the tenant's own plan
   }
   if (!viewerLogin) return NO_HISTORY_WINDOW; // c: signed out
-  const personal = await getOrgBySlug(normalizeLogin(viewerLogin));
+  const personal = await getOrgForHistoryWindow(normalizeLogin(viewerLogin));
   if (personal?.kind !== "personal") return NO_HISTORY_WINDOW; // c: no personal workspace
   return windowFor(personal.plan, nowMs); // b
 }

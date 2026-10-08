@@ -31,7 +31,6 @@ vi.mock("@/lib/access", () => ({
   resolveViewerLogin: vi.fn(),
 }));
 
-vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: async () => null })); // no window row: reads stay unclamped
 vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(),
   getRepositoryHistory: vi.fn(),

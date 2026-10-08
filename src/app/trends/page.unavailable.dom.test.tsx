@@ -11,7 +11,6 @@ vi.mock("@/components/report/ReportShell", () => ({ ReportShell: ({ children }: 
 vi.mock("@/lib/signin-gate", () => ({ resolveSignInState: async () => ({ needsSignIn: false, provider: null, expired: false }) }));
 vi.mock("@/lib/auth", () => ({ readableOrgForOwner: async () => "acme" }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: async () => null }));
-vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: async () => null })); // no window row: reads stay unclamped
 vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   getRepositoryHistory: h.history }));

@@ -27,6 +27,7 @@ import { Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { dbReadSafe, dbReadStrict, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getDbMode, type DbMode } from "@/lib/db/mode";
+import { getOrgBySlug } from "@/lib/db/org-shared";
 import {
   SCORING_RUBRIC_VERSION,
   isDimensionId,
@@ -442,6 +443,19 @@ export async function getRepositoryHistory(
   // `strict` (opt-in; see readSafeOrStrict) throws DbUnavailableError instead, for a caller that must
   // not answer an outage as "no history".
   return readSafeOrStrict(opts.strict, () => loadRepositoryHistory(owner, name, opts), null);
+}
+
+/**
+ * The org row the history window is decided from (src/lib/history/window.ts): plan + kind, or null when
+ * persistence is off or the slug has no row. STRICT like the history reads it precedes: an unreachable
+ * database throws DbUnavailableError rather than answering "no window" (which would read unclamped).
+ */
+export async function getOrgForHistoryWindow(slug: string): Promise<{ plan: string; kind: string } | null> {
+  if (!isDbConfigured()) return null;
+  return dbReadStrict(async () => {
+    const org = await getOrgBySlug(slug);
+    return org ? { plan: org.plan, kind: org.kind } : null;
+  });
 }
 
 /**

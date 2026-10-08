@@ -15,8 +15,7 @@ vi.mock("@/components/report/ReportShell", () => ({ ReportShell: ({ children }: 
 vi.mock("@/lib/signin-gate", () => ({ resolveSignInState: async () => ({ needsSignIn: false, provider: null, expired: false }) }));
 vi.mock("@/lib/auth", () => ({ readableOrgForOwner: async () => "public" }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: h.viewer }));
-vi.mock("@/lib/db/client", () => ({ isDbConfigured: () => true, dbReadStrict: <T,>(fn: () => Promise<T>) => fn() }));
-vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: async (s: string) => h.orgs.get(s) ?? null }));
+vi.mock("@/lib/db/scans-read", () => ({ getOrgForHistoryWindow: async (s: string) => h.orgs.get(s) ?? null }));
 vi.mock("@/lib/db", () => ({ isDbConfigured: () => true, getRepositoryHistory: h.history }));
 vi.mock("@/lib/db/repo-deployments", () => ({ getRepositoryDeployments: async () => [] }));
 vi.mock("@/components/report/DimensionTrends", () => ({ DimensionTrends: () => null }));

@@ -14,8 +14,7 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => false, readableOrgForOwner: vi.fn() }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, resolveViewerLogin: vi.fn() }));
 vi.mock("@/lib/authz", () => ({ canReadOrg: async () => false }));
-vi.mock("@/lib/db/client", () => ({ isDbConfigured: () => true, dbReadStrict: <T,>(fn: () => Promise<T>) => fn() }));
-vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: async (s: string) => orgs.rows.get(s) ?? null }));
+vi.mock("@/lib/db/scans-read", () => ({ getOrgForHistoryWindow: async (s: string) => orgs.rows.get(s) ?? null }));
 vi.mock("@/lib/db", () => ({ isDbConfigured: () => true, getRepositoryHistory: vi.fn() }));
 
 import { GET } from "./route";
