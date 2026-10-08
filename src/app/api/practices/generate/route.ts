@@ -17,6 +17,7 @@ import { buildPracticeArtifact } from "@/lib/practices/artifact";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { canMintInstallationToken } from "@/lib/authz";
+import { withBuildSystem } from "@/lib/practices/build-system";
 import { installOwnerFor, resolvePrWriteCoordinate } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
@@ -66,7 +67,9 @@ export async function POST(request: Request) {
         if (minted) token = minted;
       }
     }
-    const ctx = await fetchRepoContext(parsed, token);
+    // A JVM repo costs ONE extra call (root listing) so the commands match its build tool; the same
+    // helper runs in applyPracticeToRepo, so the preview and the commit agree.
+    const ctx = await withBuildSystem(parsed, await fetchRepoContext(parsed, token), token);
     // Same (practiceId, ctx, orgSlug) `applyPracticeToRepo` uses, so the preview body is the
     // commit body and the fingerprint drift-guard can pass. Callers with standing resolve the gated
     // org's mined pattern; anonymous callers omit orgSlug — a generic starter.

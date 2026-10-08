@@ -63,6 +63,8 @@ vi.mock("@/lib/github/app", () => ({
 
 vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
 
+vi.mock("@/lib/github/host", () => ({ ghFetch: vi.fn(), githubApiBase: () => "https://api.github.test" }));
+
 vi.mock("@/lib/authz", () => ({ canMintInstallationToken: vi.fn(async () => false) }));
 
 import { POST } from "./route";
@@ -70,6 +72,7 @@ import { fetchRepoContext } from "@/lib/github/source";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { canMintInstallationToken } from "@/lib/authz";
+import { ghFetch } from "@/lib/github/host";
 import { orgTracksRepo } from "@/lib/db/org-admission";
 import { buildPracticeArtifact } from "@/lib/practices/artifact";
 import { getOrgPracticeShapes } from "@/lib/db/org-practice-shapes";
@@ -305,5 +308,29 @@ describe("POST /api/practices/generate — keyed on the dashboard org, not the r
     expect(mockInstallId).not.toHaveBeenCalled();
     expect(mockMintToken).not.toHaveBeenCalled();
     expect(mockFetchCtx).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/practices/generate — JVM build system", () => {
+  const javaCtx = { fullName: "acme/svc", name: "svc", description: null, primaryLanguage: "Java", defaultBranch: "main" };
+
+  it("makes ONE root-listing call for a Java repo and hands the build system to the generator", async () => {
+    mockFetchCtx.mockResolvedValueOnce(javaCtx);
+    vi.mocked(ghFetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ tree: [{ path: "build.gradle", type: "blob" }] }),
+    } as Response);
+
+    const res = await run({ repo: "acme/svc", practiceId: "agent-guidance" });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(ghFetch)).toHaveBeenCalledTimes(1);
+    expect(mockBuild.mock.calls.at(-1)?.[1]).toMatchObject({ buildSystem: "gradle" });
+  });
+
+  it("makes NO extra GitHub call for a non-JVM repo", async () => {
+    await run({ repo: "acme/web", practiceId: "agent-guidance" });
+    expect(vi.mocked(ghFetch)).not.toHaveBeenCalled();
+    expect(mockBuild.mock.calls.at(-1)?.[1]).not.toHaveProperty("buildSystem");
   });
 });

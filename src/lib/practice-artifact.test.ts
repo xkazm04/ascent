@@ -455,3 +455,56 @@ describe("generated workflows pin the Node major this repo actually runs", () =>
     expect(buildConformanceWiring().body).toContain("node-version: " + CI_NODE_VERSION);
   });
 });
+
+// A JVM repo's commands follow its PROVEN build tool. Absent buildSystem keeps the language default;
+// `unknown` (looked, could not tell, or both manifests) is the honest placeholder tuple, never a guess.
+describe("buildArtifact — JVM build system", () => {
+  const jvm = (primaryLanguage: string, buildSystem?: "maven" | "gradle" | "gradle-kts" | "unknown") => ({
+    ...ctx,
+    primaryLanguage,
+    ...(buildSystem ? { buildSystem } : {}),
+  });
+  const both = (c: ReturnType<typeof jvm>) => [
+    buildArtifact("agent-guidance", c)!.body,
+    buildArtifact("ci-gates", c)!.body,
+  ];
+
+  it("gives a Gradle Java repo ./gradlew commands in AGENTS.md and ci.yml (build.gradle and .kts)", () => {
+    for (const bs of ["gradle", "gradle-kts"] as const) {
+      for (const body of both(jvm("Java", bs))) {
+        expect(body).toContain("./gradlew test");
+        expect(body).not.toContain("mvn");
+      }
+    }
+    expect(commandsFor("Java", "gradle").sourceFile).toBe("build.gradle");
+    expect(commandsFor("Java", "gradle-kts").sourceFile).toBe("build.gradle.kts");
+  });
+
+  it("gives a Maven Java repo mvn commands, and a Kotlin repo with a proven pom.xml mvn too", () => {
+    for (const lang of ["Java", "Kotlin"]) {
+      for (const body of both(jvm(lang, "maven"))) {
+        expect(body).toContain("mvn -B test");
+        expect(body).not.toContain("gradlew");
+      }
+    }
+    expect(commandsFor("Kotlin", "maven").sourceFile).toBe("pom.xml");
+  });
+
+  it("emits the honest placeholders when the build tool is unknown — never mvn or gradlew", () => {
+    for (const body of both(jvm("Java", "unknown"))) {
+      expect(body).toContain("<run tests>");
+      expect(body).not.toContain("mvn");
+      expect(body).not.toContain("gradlew");
+    }
+  });
+
+  it("keeps today's per-language default when the caller did not look", () => {
+    expect(commandsFor("java")).toEqual(commandsFor("java", undefined));
+    expect(commandsFor("java").test).toBe("mvn -B test");
+    expect(commandsFor("kotlin").test).toBe("./gradlew test");
+  });
+
+  it("ignores buildSystem for a non-JVM language", () => {
+    expect(commandsFor("go", "gradle")).toEqual(commandsFor("go"));
+  });
+});

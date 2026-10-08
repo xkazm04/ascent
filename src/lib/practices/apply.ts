@@ -12,6 +12,7 @@ import { openDraftPr, type OpenPrResult } from "@/lib/github/write";
 import { recordAudit, recordPracticePr } from "@/lib/db";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";
 import { buildPracticeArtifact } from "@/lib/practices/artifact";
+import { withBuildSystem } from "@/lib/practices/build-system";
 import { buildRegistryArtifact, registrySlugOf } from "@/lib/practices/registry-artifact";
 import { getRegistryPracticeSource } from "@/lib/db/org-practice-shapes";
 import { getLatestHousePattern } from "@/lib/db/house-pattern-versions";
@@ -128,7 +129,11 @@ export async function applyPracticeToRepo(
   // lane get it from one place, and so the preview (which calls the same generator through the same
   // context) sees the same body the PR will commit — otherwise the fingerprint drift-guard below
   // would reject every apply as content-drift.
-  const { artifact, house } = await buildPracticeArtifact(practiceId, ctx, { orgSlug: opts?.orgSlug });
+  // JVM repos only: one root listing so the commands match the build tool (the same helper the preview
+  // calls, so the bodies agree). Registry copies above never read it, so they never pay for it.
+  const { artifact, house } = await buildPracticeArtifact(practiceId, await withBuildSystem(ref, ctx, token), {
+    orgSlug: opts?.orgSlug,
+  });
   if (!artifact) return { kind: "unknown-practice", ctx };
   if (opts?.expectedFingerprint && artifactFingerprint(artifact.body) !== opts.expectedFingerprint) {
     return { kind: "content-drift", ctx, artifact };

@@ -12,6 +12,13 @@ import { ALL_PRACTICES, type PracticeDef } from "@/lib/practices";
 import { publicBaseUrl } from "@/lib/site";
 import { reportPermalink } from "@/lib/ui";
 
+/**
+ * What a JVM repo's ROOT proved about its build tool. Absent on a RepoContext means "nobody looked"
+ * (the language default stands); `unknown` means "looked and could not tell" (neither manifest, or
+ * both) and yields placeholders, never a guess.
+ */
+export type JvmBuildSystem = "maven" | "gradle" | "gradle-kts" | "unknown";
+
 /** What the builder knows about the target repo (all optional — it degrades to placeholders). */
 export interface RepoContext {
   fullName: string;
@@ -19,6 +26,8 @@ export interface RepoContext {
   description?: string | null;
   primaryLanguage?: string | null;
   defaultBranch?: string;
+  /** Build tool of a JVM repo (java/kotlin), from the repo root. See {@link JvmBuildSystem}. */
+  buildSystem?: JvmBuildSystem;
   /**
    * W6 — the org's OWN mined pattern for this practice, when one exists.
    *
@@ -83,7 +92,11 @@ export interface LangCommands {
  *  placeholders travel into generated manifests and then make the generated doctor warn on every run,
  *  which is a guaranteed-warn artifact for any repo outside the original five. They intentionally
  *  keep `ci: "generic"` (see `ciSetup` above) so the exhaustive maps keyed on `ci` are unaffected. */
-export function commandsFor(language?: string | null): LangCommands {
+export function commandsFor(language?: string | null, buildSystem?: JvmBuildSystem): LangCommands {
+  const lang = (language ?? "").toLowerCase();
+  // A caller that LOOKED at the repo root overrides the per-language default for the JVM languages.
+  // Left undefined, today's defaults stand (callers outside the hosted practice routes still guess).
+  if (buildSystem && (lang === "java" || lang === "kotlin")) return jvmCommands(buildSystem);
   switch ((language ?? "").toLowerCase()) {
     case "typescript":
     case "javascript":
@@ -186,6 +199,35 @@ export function commandsFor(language?: string | null): LangCommands {
         ci: "generic",
         ciSetup: "erlef/setup-beam",
         sourceFile: "mix.exs",
+      };
+    default:
+      return { install: "<install deps>", test: "<run tests>", lint: "<run linter>", build: "<build>", ci: "generic" };
+  }
+}
+
+/** The commands a JVM repo's proven build tool runs. `unknown` is the honest placeholder tuple. */
+function jvmCommands(build: JvmBuildSystem): LangCommands {
+  switch (build) {
+    case "maven":
+      return {
+        install: "mvn -B dependency:go-offline",
+        test: "mvn -B test",
+        lint: "mvn -B checkstyle:check",
+        build: "mvn -B package",
+        ci: "generic",
+        ciSetup: "actions/setup-java",
+        sourceFile: "pom.xml",
+      };
+    case "gradle":
+    case "gradle-kts":
+      return {
+        install: "./gradlew dependencies",
+        test: "./gradlew test",
+        lint: "./gradlew ktlintCheck",
+        build: "./gradlew build",
+        ci: "generic",
+        ciSetup: "actions/setup-java",
+        sourceFile: build === "gradle-kts" ? "build.gradle.kts" : "build.gradle",
       };
     default:
       return { install: "<install deps>", test: "<run tests>", lint: "<run linter>", build: "<build>", ci: "generic" };
@@ -297,7 +339,7 @@ export function buildArtifact(practiceId: string, ctx: RepoContext): ArtifactSpe
   // spine; see the note on EXTRA_PRACTICES in src/lib/practices.ts for why the two lists differ.
   const p = ALL_PRACTICES.find((x) => x.id === practiceId);
   if (!p) return null;
-  const cmd = commandsFor(ctx.primaryLanguage);
+  const cmd = commandsFor(ctx.primaryLanguage, ctx.buildSystem);
   // Escape every repo-supplied field before it lands in the committed file (practices #7). The TODO
   // fallback is a trusted literal, so only the real description is sanitized.
   const name = safeText(ctx.name);
