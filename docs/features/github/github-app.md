@@ -46,13 +46,23 @@ a GHES web host (hostname not `github.com`) uses `/github-apps/<slug>/installati
 Returns `null` when the slug is unset. JWT minting and `githubAppFetch` are unchanged — those already
 talk to `githubApiBase()`.
 
-### The server's own token never returns a private repo's report (2026-10-08)
+### The server's own token never answers for a private repo (2026-10-08)
 
 With the App configured, `GITHUB_TOKEN` only raises rate limits on public repos; a private repo is read
 through an installation token or not at all. `resolveScanAuth` keeps the ambient token for an owner with
 no stored installation (the anonymous public funnel needs it), and that includes an owner whose App was
-just uninstalled, so an operator token that can read the repo would otherwise hand its report to an
-anonymous caller. `runScanRepository` therefore refuses, right after ingest and before the memory mirror,
+just uninstalled, so an operator token that can read the repo would otherwise answer for it to an
+anonymous caller.
+
+The first line of defence is a visibility check. Before the ambient token touches anything on the scan
+routes, `guardAmbientToken` (`src/lib/github/visibility.ts`) makes one conditional
+`GET /repos/{owner}/{repo}` with it. A repo proven public keeps the token; a private repo, or one the
+check cannot prove public (404, rate limit, error), runs the rest of the request with no credential. So
+the peek's head headers and a `?ref=` resolve answer a private repo exactly like a missing one, as the
+ingest does. The ETag is remembered, so a warm unchanged repo costs a free `304`. Details and the cost:
+[the peek contract](../scanning/scan.md#the-peek-contract-and-how-a-private-repo-is-answered-2026-10-08).
+
+The backstop stays. `runScanRepository` refuses, right after ingest and before the memory mirror,
 any model call or any persist, when the ingest used the ambient token (no `opts.token`, no injected
 `opts.source`) and the snapshot is private: it throws the same `NOT_FOUND` "Repository not found or is
 private." a missing repo raises, so the two are indistinguishable. Installation-token callers (webhook,

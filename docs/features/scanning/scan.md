@@ -138,9 +138,41 @@ other. The refund ledger is now a single object naming the five no-delivery situ
 
 A **private** report is also re-tenanted under the repo owner's org before persistence on both
 entry points now, not on the JSON one only: a scan can read a private repo while the resolved org is
-still the shared `public` funnel (a body token, or the ambient operator PAT), and persisting that
-under `public` would publish it to every anonymous visitor. `scans-persist.ts` still refuses the
-write as the backstop.
+still the shared `public` funnel (a body token, or, on a deployment without the App, the ambient
+operator PAT), and persisting that under `public` would publish it to every anonymous visitor.
+`scans-persist.ts` still refuses the write as the backstop.
+
+### The peek contract, and how a private repo is answered (2026-10-08)
+
+`GET /api/scan?peek=1` is the cache-only probe the `/report` page runs before opening a live scan.
+It never scans and never consumes quota; it has its own per-IP limiter (`PEEK_RATE_LIMIT`, `429`).
+
+| Request | Answer |
+| --- | --- |
+| `peek=1`, cached report at the current head | `200` + the report, `x-ascent-cache: hit` / `hit-db` |
+| `peek=1`, no cached report | `204`, with `x-ascent-head-sha` / `x-ascent-head-etag` when the head resolved |
+| `&recent=1` | also serves the last persisted **public** report within the cache-age window: `200`, `x-ascent-cache: hit-recent`, `x-ascent-stale: true` |
+| `&latest=1` | the last persisted **public** report at any age (the quota-wall salvage): `200`, `x-ascent-stale: true` |
+| `&ref=` / `&path=` (scoped) | bad input `400`, unresolvable ref `404 REF_NOT_FOUND`, otherwise a bare `204` (a ref that is the default head is an ordinary peek) |
+
+**A private repo answers exactly like a missing one**, on the peek and on the live scan, unless the
+caller holds an installation token for it. With the App configured, an owner with no installation
+reaches GitHub on the server's own `GITHUB_TOKEN`, which can usually read private repos. Before that
+token touches anything, `guardAmbientToken` (`src/lib/github/visibility.ts`) makes one conditional
+`GET /repos/{owner}/{repo}` with it and reads `private`. A repo proven public keeps the token (public
+lookups need its rate limit; unauthenticated GitHub allows 60 an hour). A private repo, or any answer
+that cannot prove public (404, rate limit, network error), sets `noAmbientToken` for the rest of the
+request: the ref resolve, the head lookup, the peek headers and the ingest all run with no
+credential, so GitHub answers `404` for the private repo just as it does for a missing one. The peek
+is then a bare `204` and a `?ref=` is `404 REF_NOT_FOUND` for both. Both routes call the guard where
+they compute the scope token, after their own limiters (the peek limiter, the stream's burst limiter).
+
+Cost for a public repo: one extra REST call cold, and a `304` warm (the ETag is remembered in memory
+per instance; GitHub does not bill an authorized `304`). The repo body carries counters such as
+`pushed_at`, so an active repo revalidates as a billed `200` more often than a quiet one. Callers
+holding a token (an installation token, a body token), callers already refused the PAT, and
+deployments without the App make no extra call. The ingest's own private-repo refusal (below, in
+`runScanRepository`) stays as the backstop.
 
 ### What a private scan stores (2026-10-08)
 
@@ -906,9 +938,10 @@ the {provider, model, rubric} scoring identity and the optional `!scope` segment
 2. **Persistent** (`src/lib/scan-cache.ts:lookupCachedScan`): shared by both scan routes.
    It resolves the current head with a conditional request (`304 Not Modified` → free,
    unchanged) using the credential its **caller** resolved and nothing from the environment: a
-   `noAmbientToken` scan or peek (an anonymous caller at an installed owner) resolves it as nobody,
-   so `GET /api/scan?peek=1` answers a private repo exactly like a missing one, with no
-   `x-ascent-head-sha` on either. It then looks up the in-memory tier, then the DB
+   `noAmbientToken` scan or peek (an anonymous caller at an installed owner, or any repo the
+   ambient-token guard could not prove public) resolves it as nobody, so `GET /api/scan?peek=1`
+   answers a private repo exactly like a missing one, with no `x-ascent-head-sha` on either (see
+   [the peek contract](#the-peek-contract-and-how-a-private-repo-is-answered-2026-10-08)). It then looks up the in-memory tier, then the DB
    (`getScanReportByCommit`), then falls through to a fresh scan. `fresh=true` skips the
    cached *report* but still resolves the key/ETag.
 
@@ -922,9 +955,9 @@ inside it may be, so a DB hit that warms memory can't keep serving a report past
 This makes re-scans of an unchanged commit instant and dodges GitHub rate limits.
 
 The in-memory tier is the **shared anonymous** cache, so a private report never enters it:
-`cacheAndPersistScan` skips `cacheSet` when `repo.isPrivate` is true (a private repo can reach the
-anonymous path through the ambient operator PAT, for an owner with no stored installation), and both
-lookups treat a private report found there as a miss.
+`cacheAndPersistScan` skips `cacheSet` when `repo.isPrivate` is true (a private repo can still reach
+the anonymous path through a caller-supplied body token, or through the ambient operator PAT on a
+deployment without the App), and both lookups treat a private report found there as a miss.
 
 **Coalescing.** Concurrent scans of the same uncached commit share ONE run
 (`coalesceScan`): the first caller computes, later callers join and await the same result
@@ -997,6 +1030,7 @@ window. That is the price of the rejoin, and it is what bounds the window's size
 | `src/lib/maturity/forecast.ts` | Trend projection + ETA to next level. |
 | `src/lib/cache.ts` / `src/lib/scan-cache.ts` | In-memory LRU + tiered cache orchestration (incl. `lookupScopedScan`). |
 | `src/lib/scan-scope.ts` | Pure scope predicates: ref/sub-path validation, `isScopedScan`, the cache-key segment, the report caveat. Shared with the scan form. |
+| `src/lib/github/visibility.ts` | `guardAmbientToken()` / `resolveRepoVisibility()`: the conditional repo read that decides whether the server's own token may serve an anonymous scan request. |
 | `src/lib/scan-scope-server.ts` | `resolveScanScope()`: validates + server-side-resolves a request's ref/sub-path for both scan routes. |
 | `src/lib/private-scan-store.ts` | `storableScanReport()`: the pure rule for what a private repo's scan may store (no copied file text). |
 | `src/lib/scan-lifecycle.ts` | `runScanLifecycle()`: the ONE post-gate run sequence both entry points execute, plus `resolveScanCoordinate` (forge routing), the refund ledger, `resolveScanTarget`, `latestPublicReport` / `salvageScanFailure` and `finalizeScanRun`. |
