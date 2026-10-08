@@ -619,9 +619,10 @@ async function runPushRescan(installationId: number, owner: string, repo: string
       // later top-up scans on the very next push instead of waiting out a window it never opened.
       // Checking credits first would only add a ledger read to pushes that were going to coalesce.
       //
-      // `mock: false` — this path asks for a real grade (no orgSlug is passed to scanRepository, so it
-      // uses the platform provider, never a BYOM key). isMeteredScan still exempts self-hosted, a
-      // DB-less deployment and the public org, which is the whole set of not-metered deployments here.
+      // `mock: false` — this path asks for a real grade. It passes the installation's org to
+      // scanRepository (below), so a BYOM org scans on its OWN engine, exactly as the queue worker does.
+      // isMeteredScan still exempts self-hosted, a DB-less deployment and the public org, which is the
+      // whole set of not-metered deployments here.
       const metered = isMeteredScan(orgSlug, false);
       // Attribution for BOTH sides of the movement: no human is behind a push delivery, so the honest
       // actor is the path itself, and the refund below names the same actor and repo as the debit.
@@ -660,7 +661,12 @@ async function runPushRescan(installationId: number, owner: string, repo: string
       let inferenceBilled = false;
       try {
         const token = await getInstallationToken(installationId);
-        const report = await scanRepository(fullName, { token });
+        // `orgSlug` is what makes getProviderForOrg pick the org's BYOM engine (privacy-strict: a BYOM
+        // failure degrades to mock, never to the platform provider) and what the standing-decision read
+        // falls back to. Without it every pushed private repo's sample went to the platform provider —
+        // the one hop a BYOM org connected its own engine to avoid. Same call shape as
+        // scan-queue-worker.ts.
+        const report = await scanRepository(fullName, { token, orgSlug });
         inferenceBilled = report.engine?.provider != null && report.engine.provider !== "mock";
         // DEGRADE-TO-MOCK GUARD. This path asks for a real LLM grade; when the provider is down
         // scanRepository still returns a report, stamped engine.provider = "mock" — the deterministic

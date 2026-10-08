@@ -564,6 +564,23 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
     expect(mockGetToken).toHaveBeenCalledWith(88);
     expect(mockScan).toHaveBeenCalled();
   });
+
+  // private-repo-scan lite r1, value-2. Without the org, scanRepository picked the PLATFORM provider for
+  // every pushed private repo, so a BYOM org's source sample left on the hop it connected Bedrock to avoid.
+  it("scans a push rescan for the installation's org, so its BYOM engine and standing decisions apply", async () => {
+    mockIdForOwner.mockResolvedValueOnce("88");
+    mockIsRepoWatched.mockResolvedValue(true);
+    mockGetToken.mockResolvedValue("ghs_push_token");
+    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
+    mockScan.mockResolvedValue({ repo: { headSha: "h" } } as Awaited<ReturnType<typeof scanRepository>>);
+    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
+    await post("push", "push-byom-org", pushPayload("VictimOwner", 88));
+    await runDeferred();
+    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockScan).toHaveBeenCalledWith("VictimOwner/secret-repo", { token: "ghs_push_token", orgSlug: "victimowner" });
+    // The persist and the scan name the same org — the report lands where its engine was chosen.
+    expect(mockPersist).toHaveBeenCalledWith(expect.anything(), { orgSlug: "victimowner" });
+  });
 });
 
 // github-app-installation-webhooks #5 + #6 — the replay horizon (the authoritative DB claim must outlast
