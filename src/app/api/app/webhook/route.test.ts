@@ -1360,3 +1360,110 @@ describe("POST /api/app/webhook — registry push lane (onRegistryPush)", () => 
     expect(mockOnRegistryPush).not.toHaveBeenCalled();
   });
 });
+
+// Codebase security scan (2026-10-09) finding 1: the body was read with an unbounded request.text()
+// BEFORE verifyWebhook, on an unauthenticated route. GitHub caps a payload at 25 MB, so anything larger
+// is refused with a 413 before the signature check, the parse, or any delivery claim.
+describe("POST /api/app/webhook — body size bound (25 MB) before the signature check", () => {
+  const CAP = 25 * 1024 * 1024;
+  let n = 0;
+
+  it("an over-cap Content-Length answers 413 and reaches neither verifyWebhook nor a delivery claim", async () => {
+    const res = await POST(
+      new Request("http://localhost/api/app/webhook", {
+        method: "POST",
+        headers: {
+          "content-length": String(CAP + 1),
+          "x-hub-signature-256": "sha256=stubbed",
+          "x-github-event": "push",
+          "x-github-delivery": "oversize-cl-" + n++,
+        },
+        body: "{}",
+      }),
+    );
+    expect(res.status).toBe(413);
+    expect(verifyWebhook).not.toHaveBeenCalled();
+    expect(mockClaim).not.toHaveBeenCalled();
+    expect(mockAfter).not.toHaveBeenCalled();
+  });
+
+  it("an over-cap body with NO Content-Length answers 413: the read itself is bounded", async () => {
+    const chunk = new Uint8Array(1024 * 1024).fill(0x20); // 1 MB of spaces
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        // 30 MB, with no Content-Length to read the size from: only the byte count can stop the read.
+        if (sent === 30) return controller.close();
+        sent++;
+        controller.enqueue(chunk);
+      },
+    });
+    const req = new Request("http://localhost/api/app/webhook", {
+      method: "POST",
+      headers: { "x-hub-signature-256": "sha256=stubbed", "x-github-event": "push", "x-github-delivery": "oversize-stream-" + n++ },
+      body: stream,
+      duplex: "half",
+    } as RequestInit);
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await POST(req);
+    expect(res.status).toBe(413);
+    // Stopped just past the cap, not after buffering the whole stream.
+    expect(sent).toBeLessThanOrEqual(27);
+    expect(verifyWebhook).not.toHaveBeenCalled();
+    expect(mockClaim).not.toHaveBeenCalled();
+  });
+
+  it("a normal signed push verifies the exact raw string and behaves as before (pins unchanged behaviour)", async () => {
+    mockIsRepoAutoscanned.mockResolvedValue(false);
+    const payload = {
+      installation: { id: 1 },
+      repository: { name: "web", full_name: "acme/web", default_branch: "main", owner: { login: "acme" } },
+      ref: "refs/heads/main",
+      after: "abc1230000000000000000000000000000000000",
+      deleted: false,
+      commits: [{ added: [], modified: ["README — ünïcødé ✓.md"], removed: [] }],
+    };
+    const raw = JSON.stringify(payload);
+    const delivery = "normal-push-" + n++;
+    const res = await POST(
+      new Request("http://localhost/api/app/webhook", {
+        method: "POST",
+        headers: {
+          "content-length": String(Buffer.byteLength(raw)),
+          "x-hub-signature-256": "sha256=stubbed",
+          "x-github-event": "push",
+          "x-github-delivery": delivery,
+        },
+        body: raw,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, event: "push" });
+    expect(verifyWebhook).toHaveBeenCalledWith(raw, "sha256=stubbed");
+    expect(mockClaim).toHaveBeenCalledWith(delivery, 24 * 60 * 60_000);
+    expect(mockAfter).toHaveBeenCalledTimes(2); // the rescan lane + the registry lane, as before
+  });
+
+  it("a body split mid-character across chunks decodes to the same string request.text() would give", async () => {
+    const raw = JSON.stringify({ zen: "ünïcødé ✓ 🚀" });
+    const bytes = new TextEncoder().encode(raw);
+    const cut = bytes.indexOf(0xf0) + 2; // inside the 4-byte emoji
+    const chunks = [bytes.slice(0, cut), bytes.slice(cut)];
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const next = chunks.shift();
+        if (next) controller.enqueue(next);
+        else controller.close();
+      },
+    });
+    await POST(
+      new Request("http://localhost/api/app/webhook", {
+        method: "POST",
+        headers: { "x-hub-signature-256": "sha256=stubbed", "x-github-event": "ping", "x-github-delivery": "split-" + n++ },
+        body: stream,
+        duplex: "half",
+      } as RequestInit),
+    );
+    expect(verifyWebhook).toHaveBeenCalledWith(raw, "sha256=stubbed");
+  });
+});

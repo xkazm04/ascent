@@ -71,7 +71,18 @@ unchanged. The refusal is a non-delivery, so the routes refund the quota slot an
 
 ## Webhook (`src/app/api/app/webhook/route.ts`)
 
-`POST /api/app/webhook` verifies the signature, then handles:
+`POST /api/app/webhook` verifies the signature, then handles the events below.
+
+**The body is size-bounded before the signature check (2026-10-09).** The route is unauthenticated
+until the HMAC is checked, and the HMAC covers the whole body, so the body has to be read first. That
+read is capped at **25 MB**, GitHub's own webhook payload cap. A request whose `Content-Length` is over
+the cap answers **`413 Payload too large`** without reading a byte. A request with no or a wrong
+`Content-Length` is counted as it streams in, and the read is cancelled with the same 413 as soon as it
+passes 25 MB. A 413 reaches neither `verifyWebhook` nor the delivery claim. The route is excluded from
+`src/proxy.ts`, so no proxy body cap applied before this. The bounded read decodes exactly as
+`request.text()` did, so a genuine delivery verifies the same string as before
+(`src/app/api/app/webhook/body-limit.ts`).
+
 
 | Event | Action |
 | --- | --- |

@@ -72,6 +72,7 @@ import { enqueueAndDrainPushRescan } from "@/lib/push-rescan";
 // The registry lane of a push (ai-registry-repo#A): the registry repo's own push re-indexes it, and a
 // fleet repo's `.ai/` push re-sweeps that repo. Owner binding reuses installationMatchesOwner below.
 import { onRegistryPush } from "@/lib/registry/registry-push";
+import { readBoundedText } from "./body-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -630,7 +631,12 @@ async function runInstallationLifecycle(
 export async function POST(request: Request) {
   // The push rescan's drain deadline is measured from here (fleetDeadlineAt), like /api/org/import.
   const invokedAt = Date.now();
-  const raw = await request.text();
+  // Bounded read BEFORE the signature check: nothing has authenticated the sender yet, and GitHub never
+  // sends more than its 25 MB cap, so an over-cap body is refused without being buffered or HMAC'd.
+  const raw = await readBoundedText(request);
+  if (raw === null) {
+    return NextResponse.json({ error: "Payload too large." }, { status: 413 });
+  }
   const signature = request.headers.get("x-hub-signature-256");
   if (!verifyWebhook(raw, signature)) {
     return NextResponse.json({ error: "Invalid signature." }, { status: 401 });
