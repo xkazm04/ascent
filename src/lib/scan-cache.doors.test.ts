@@ -46,7 +46,7 @@ describe("lookupCachedScan — persisted tier door (scan-cache.ts getScanReportB
     mockResolveHead.mockResolvedValueOnce({ status: "ok", sha: "sha-door", etag: "e-door" });
     mockGetScanReportByCommit.mockRejectedValueOnce(boom);
 
-    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "door-tier2" }, useLLM: false });
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "door-tier2" }, useLLM: false, token: undefined });
 
     // Degraded value unchanged: a miss that still carries the resolved key, so the re-scan is cached.
     expect(res.cached).toBeNull();
@@ -66,7 +66,7 @@ describe("lookupCachedScan — persisted tier door (scan-cache.ts getScanReportB
     mockResolveHead.mockResolvedValueOnce({ status: "ok", sha: "sha-quiet", etag: "e-quiet" });
     mockGetScanReportByCommit.mockResolvedValueOnce(null);
 
-    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "door-quiet" }, useLLM: false });
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "door-quiet" }, useLLM: false, token: undefined });
 
     expect(res.cached).toBeNull();
     expect(mockReportHandledError).not.toHaveBeenCalled();

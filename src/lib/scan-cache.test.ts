@@ -3,7 +3,7 @@
 // ETag (If-None-Match) so an unchanged repo answers a free 304 instead of burning a rate-limit
 // unit per request. resolveHead is mocked; the in-memory hint store (cache.ts) is the real thing.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { resolveHead } from "@/lib/github/source";
 import { getHeadHint, getScanReportByCommit } from "@/lib/db";
 import {
@@ -137,7 +137,7 @@ describe("lookupCachedScan — tier-2 (DB) honors the identity guard", () => {
     mockResolveHead.mockResolvedValueOnce({ status: "ok", sha: "sha-match", etag: "e1" });
     mockGetScanReportByCommit.mockResolvedValueOnce(fakeReport({ provider: "mock", model: "deterministic-rubric" }));
 
-    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "db-match" }, useLLM: false });
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "db-match" }, useLLM: false, token: undefined });
     expect(res.source).toBe("db");
     expect(res.cached).not.toBeNull();
   });
@@ -146,10 +146,50 @@ describe("lookupCachedScan — tier-2 (DB) honors the identity guard", () => {
     mockResolveHead.mockResolvedValueOnce({ status: "ok", sha: "sha-swap", etag: "e1" });
     mockGetScanReportByCommit.mockResolvedValueOnce(fakeReport({ provider: "gemini", model: "gemini-3-flash" }));
 
-    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "db-swap" }, useLLM: false });
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "db-swap" }, useLLM: false, token: undefined });
     expect(res.cached).toBeNull(); // identity mismatch → don't serve the stale-config score
     expect(res.source).toBeNull();
     expect(res.headSha).toBe("sha-swap"); // still resolved the sha so the re-scan is cached
+  });
+});
+
+// private-repo-scan lite r1, robustness-1. lookupCachedScan resolved the head with process.env.GITHUB_TOKEN
+// unconditionally, so an anonymous peek at an installed owner's private repo — a `noAmbientToken` caller —
+// still read it through the operator PAT and handed back its head sha: present for a private repo that
+// exists, absent for one that does not. The credential now comes from the caller, and nothing else.
+describe("lookupCachedScan — the head is resolved with the caller's credential, never the ambient PAT", () => {
+  const PAT = "ghp_operator_pat";
+  const prevPat = process.env.GITHUB_TOKEN;
+
+  beforeEach(() => {
+    process.env.GITHUB_TOKEN = PAT;
+    mockGetHeadHint.mockReset().mockResolvedValue(null);
+    mockGetScanReportByCommit.mockReset().mockResolvedValue(null);
+    // GitHub, modelled: the operator PAT can read octo/secret; nobody else can, and octo/missing is nothing.
+    mockResolveHead.mockReset().mockImplementation(async (parsed, opts) =>
+      parsed.repo === "secret" && opts?.token === PAT ? { status: "ok", sha: "a".repeat(40), etag: "e" } : { status: "error" },
+    );
+  });
+  afterAll(() => {
+    if (prevPat === undefined) delete process.env.GITHUB_TOKEN;
+    else process.env.GITHUB_TOKEN = prevPat;
+  });
+
+  it("an anonymous lookup of an existing private repo answers exactly like a missing one", async () => {
+    const secret = await lookupCachedScan({ parsed: { owner: "octo", repo: "secret" }, useLLM: false, token: undefined });
+    const missing = await lookupCachedScan({ parsed: { owner: "octo", repo: "missing" }, useLLM: false, token: undefined });
+
+    expect(mockResolveHead).toHaveBeenCalledTimes(2);
+    for (const call of mockResolveHead.mock.calls) expect(call[1]?.token).toBeUndefined();
+    expect({ ...secret, cacheKey: "" }).toEqual({ ...missing, cacheKey: "" });
+    expect(secret.headSha).toBeNull();
+    expect(secret.etag).toBeNull();
+  });
+
+  it("a caller that resolved the PAT itself still gets the head (the public funnel is unchanged)", async () => {
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "secret" }, useLLM: false, token: PAT });
+    expect(mockResolveHead).toHaveBeenCalledWith({ owner: "octo", repo: "secret" }, { token: PAT, etag: null });
+    expect(res.headSha).toBe("a".repeat(40));
   });
 });
 
@@ -176,7 +216,7 @@ describe("lookupCachedScan — tier-1 (memory) honors the SAME freshness gate as
     mockGetScanReportByCommit.mockResolvedValueOnce(
       fakeReport({ provider: "mock", model: "deterministic-rubric" }, threeDaysAgo),
     );
-    const warm = await lookupCachedScan({ parsed, useLLM: false });
+    const warm = await lookupCachedScan({ parsed, useLLM: false, token: undefined });
     expect(warm.source).toBe("db");
 
     // 2) Same commit, but the report is now BEYOND the max cache age (1-day gate). The memory entry is
@@ -185,7 +225,7 @@ describe("lookupCachedScan — tier-1 (memory) honors the SAME freshness gate as
     mockGetScanReportByCommit.mockResolvedValueOnce(
       fakeReport({ provider: "mock", model: "deterministic-rubric" }, threeDaysAgo),
     );
-    const res = await lookupCachedScan({ parsed, useLLM: false });
+    const res = await lookupCachedScan({ parsed, useLLM: false, token: undefined });
 
     expect(res.cached).toBeNull();
     expect(res.source).toBeNull();
@@ -197,10 +237,10 @@ describe("lookupCachedScan — tier-1 (memory) honors the SAME freshness gate as
     mockGetScanReportByCommit.mockResolvedValueOnce(
       fakeReport({ provider: "mock", model: "deterministic-rubric" }),
     );
-    await lookupCachedScan({ parsed: { owner: "octo", repo: "mem-fresh" }, useLLM: false });
+    await lookupCachedScan({ parsed: { owner: "octo", repo: "mem-fresh" }, useLLM: false, token: undefined });
 
     mockGetScanReportByCommit.mockClear();
-    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "mem-fresh" }, useLLM: false });
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "mem-fresh" }, useLLM: false, token: undefined });
 
     expect(res.source).toBe("memory");
     expect(res.cached).not.toBeNull();

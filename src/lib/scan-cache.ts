@@ -101,6 +101,14 @@ export async function lookupCachedScan(opts: {
   orgSlug?: string;
   fresh?: boolean;
   /**
+   * The credential the CALLER resolved for this scan, used for the conditional head request — never
+   * read from the environment here. Required (pass `undefined` for an unauthenticated lookup) so no
+   * caller can fall back to the ambient operator PAT by omission: a caller whose scan is
+   * `noAmbientToken` (an anonymous peek at an installed owner) must resolve the head as nobody, or
+   * the presence of `x-ascent-head-sha` on the peek answers "does this private repo exist".
+   */
+  token: string | undefined;
+  /**
    * A head sha/etag already resolved by an EARLIER lookup in the same logical flow — specifically
    * the /report peek → stream handoff, where the peek resolves the head, misses, and the client
    * passes the sha back. When set, skip the conditional head request entirely and reuse it, so the
@@ -126,7 +134,7 @@ export async function lookupCachedScan(opts: {
     const prior = headHintGet(owner, repo) ?? (await getHeadHint(owner, repo, { orgSlug }));
 
     // Conditional head lookup — a free 304 when the prior ETag still matches.
-    const head = await resolveHead(parsed, { token: process.env.GITHUB_TOKEN, etag: prior?.etag ?? null });
+    const head = await resolveHead(parsed, { token: opts.token, etag: prior?.etag ?? null });
 
     if (head.status === "ok") {
       headSha = head.sha;

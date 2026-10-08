@@ -11,7 +11,7 @@
 // of the two meters is handed back. The route-level half of the same claim (both entry points reaching
 // this one ledger) lives in src/app/api/scan/gate-order.test.ts.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 import type { ResolvedScanScope } from "@/lib/scan-scope-server";
@@ -46,6 +46,7 @@ import {
   createScanRefundLedger,
   isAuthoritativeScanResult,
   resolveScanCoordinate,
+  resolveScanTarget,
   runScanLifecycle,
   type ScanLifecycleAdapter,
 } from "@/lib/scan-lifecycle";
@@ -235,6 +236,37 @@ describe("resolveScanCoordinate - the live path is forge-capable", () => {
 
   it("reports an unparseable URL as a null coordinate", () => {
     expect(resolveScanCoordinate("not a repo at all!!").parsed).toBeNull();
+  });
+});
+
+describe("resolveScanTarget - the cache head lookup honours noAmbientToken (lite r1, robustness-1)", () => {
+  const PAT = "ghp_operator_pat";
+  const target = (noAmbientToken: boolean) =>
+    resolveScanTarget({
+      coordinate: resolveScanCoordinate("https://github.com/installed-org/private-repo"),
+      scoping: UNSCOPED_INPUT,
+      token: undefined,
+      noAmbientToken,
+      mock: false,
+      fresh: false,
+    });
+
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_TOKEN", PAT);
+    mockLookup.mockReset().mockResolvedValue({ cacheKey: "k", headSha: null, etag: null, cached: null, source: null });
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("an anonymous peek at an installed owner's private repo hands the lookup no credential", async () => {
+    await target(true);
+    expect(mockLookup).toHaveBeenCalledTimes(1);
+    expect(mockLookup).toHaveBeenCalledWith(expect.objectContaining({ token: undefined }));
+    expect(mockLookup.mock.calls[0]![0].token).not.toBe(PAT);
+  });
+
+  it("an ordinary anonymous scan still resolves the head with the ambient PAT", async () => {
+    await target(false);
+    expect(mockLookup).toHaveBeenCalledWith(expect.objectContaining({ token: PAT }));
   });
 });
 

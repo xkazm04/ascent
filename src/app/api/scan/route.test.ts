@@ -3,7 +3,7 @@
 // under the `::llm` key (which would serve the mock floor to every later scanner of the commit).
 // The scan/lookup/cache/db boundaries are mocked so we can assert exactly when cacheSet fires.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
 
@@ -428,6 +428,40 @@ describe("GET /api/scan?peek=1 — the 429 names the scope that refused", () => 
     expect(await res.json()).toMatchObject({ code: "rate_limited", scope: "ip", limiter: "peek", limit: 120, windowSec: 60 });
     // The whole point of this gate: the GitHub head request it protects never runs.
     expect(mockLookup).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+  });
+});
+
+// private-repo-scan lite r1, robustness-1 — the existence oracle. An anonymous peek at an INSTALLED
+// owner's repo is `noAmbientToken`, so it must not reach GitHub through the operator PAT: a private repo
+// that exists and one that does not have to answer identically, with no head sha/etag on either.
+describe("GET /api/scan?peek=1 — an installed owner's private repo answers like a missing one", () => {
+  const PAT = "ghp_operator_pat";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installNeutralDefaults();
+    vi.stubEnv("GITHUB_TOKEN", PAT);
+    mockAuth.mockResolvedValue({ token: undefined, orgSlug: "public", noAmbientToken: true } as never);
+    // GitHub as seen through whatever credential the lookup resolves the head with. An absent `token`
+    // key is how the lookup read the ambient PAT for itself before it took the caller's credential.
+    mockLookup.mockImplementation(async (o) => {
+      const cred = "token" in o ? o.token : process.env.GITHUB_TOKEN;
+      const seen = cred === PAT && o.parsed.repo === "private-repo";
+      return { cacheKey: `${o.parsed.repo}::llm`, headSha: seen ? "a".repeat(40) : null, etag: seen ? "e" : null, cached: null, source: null };
+    });
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("204 with no x-ascent-head-sha / x-ascent-head-etag for an existing private repo AND a missing one", async () => {
+    const existing = await GET(new Request("http://x/api/scan?url=installed-org%2Fprivate-repo&peek=1"));
+    const missing = await GET(new Request("http://x/api/scan?url=installed-org%2Fno-such-repo&peek=1"));
+    for (const res of [existing, missing]) {
+      expect(res.status).toBe(204);
+      expect(res.headers.get("x-ascent-head-sha")).toBeNull();
+      expect(res.headers.get("x-ascent-head-etag")).toBeNull();
+    }
+    expect([...existing.headers.entries()]).toEqual([...missing.headers.entries()]);
     expect(mockScan).not.toHaveBeenCalled();
   });
 });

@@ -208,7 +208,11 @@ export async function resolveScanTarget(args: {
     // from a client-supplied sha: lookup.headSha PINS ingestion and is stamped and persisted as the
     // report's commit identity, so a caller could otherwise have a cherry-picked flattering commit
     // scored, saved, and later served as the repo's "most recent" public report. [security]
-    lookup = await lookupCachedScan({ parsed: ghParsed, useLLM: !args.mock, orgSlug: PUBLIC_ORG, fresh: args.fresh });
+    //
+    // The head is resolved with the SAME ambient-guarded credential as the scope resolve above: for a
+    // `noAmbientToken` caller that is no credential at all, so a private repo answers exactly like a
+    // missing one (no head sha) instead of leaking through the operator PAT.
+    lookup = await lookupCachedScan({ parsed: ghParsed, useLLM: !args.mock, orgSlug: PUBLIC_ORG, fresh: args.fresh, token: scopeToken });
     defaultHeadSha = lookup.headSha;
   }
 
