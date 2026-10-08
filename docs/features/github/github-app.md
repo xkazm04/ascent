@@ -46,6 +46,19 @@ a GHES web host (hostname not `github.com`) uses `/github-apps/<slug>/installati
 Returns `null` when the slug is unset. JWT minting and `githubAppFetch` are unchanged — those already
 talk to `githubApiBase()`.
 
+### The server's own token never returns a private repo's report (2026-10-08)
+
+With the App configured, `GITHUB_TOKEN` only raises rate limits on public repos; a private repo is read
+through an installation token or not at all. `resolveScanAuth` keeps the ambient token for an owner with
+no stored installation (the anonymous public funnel needs it), and that includes an owner whose App was
+just uninstalled, so an operator token that can read the repo would otherwise hand its report to an
+anonymous caller. `runScanRepository` therefore refuses, right after ingest and before the memory mirror,
+any model call or any persist, when the ingest used the ambient token (no `opts.token`, no injected
+`opts.source`) and the snapshot is private: it throws the same `NOT_FOUND` "Repository not found or is
+private." a missing repo raises, so the two are indistinguishable. Installation-token callers (webhook,
+queue worker, import), injected sources (local mode, the loop lane) and deployments without the App are
+unchanged. The refusal is a non-delivery, so the routes refund the quota slot and no credit is reserved.
+
 ## Webhook (`src/app/api/app/webhook/route.ts`)
 
 `POST /api/app/webhook` verifies the signature, then handles:
