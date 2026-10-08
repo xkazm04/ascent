@@ -42,8 +42,9 @@ const CONFLICT_DEFAULT =
 
 /**
  * Confirm `org` has the GitHub App installed and mint its short-lived installation token. Returns the
- * token on success, or a ready-to-return 403 NextResponse ("Ascent isn't installed on <org>…") when no
- * installation exists. The `org` value is used verbatim both to look up the installation and in the 403
+ * token on success, a ready-to-return 403 NextResponse ("Ascent isn't installed on <org>…") when no
+ * installation exists, or a reported 502 {@link MINT_FAILED} when the installation lookup itself
+ * throws (an outage is not an absent install). The `org` value is used verbatim both to look up the installation and in the 403
  * message, so callers pass whatever coordinate their own tenant gate already resolved (the parsed repo
  * owner for practices, the playbook/passport org slug otherwise) to preserve the exact prior string.
  *
@@ -55,7 +56,18 @@ const CONFLICT_DEFAULT =
  * (or, for the batch route, its own token-mint catch).
  */
 export async function requirePrWriteContext(org: string): Promise<{ token: string } | NextResponse> {
-  const installId = isDbConfigured() ? await getInstallationIdForOwner(org).catch(() => null) : null;
+  let installId: string | null = null;
+  if (isDbConfigured()) {
+    try {
+      installId = await getInstallationIdForOwner(org);
+    } catch (err) {
+      // A lookup that THREW is not "no installation": telling an admin to install an App that is
+      // installed hides the outage from both of them. Same answer the preview gives for the same
+      // failure (practices/generate), reported, and no token is minted.
+      console.error(`[pr-route] installation lookup failed for ${org}`, err);
+      return respondError(502, MINT_FAILED, { cause: err });
+    }
+  }
   if (!installId) {
     return NextResponse.json(
       { error: `Ascent isn't installed on ${org}. Install the GitHub App (with write access) to open PRs.` },
@@ -198,7 +210,8 @@ export async function resolvePrWriteCoordinate(
  *
  * Refusals (ready-to-return NextResponse): 400 for an unparseable coordinate; 403 "That repository
  * doesn't belong to <org>." (a batch: "Not repositories of <org>: …") BEFORE any installation
- * lookup; then requirePrWriteContext's install-missing 403. MUST run after the route's role gate on
+ * lookup; then requirePrWriteContext's install-missing 403, or its reported 502 when the lookup
+ * throws. MUST run after the route's role gate on
  * `gatedOrg`. A token-mint failure throws AppApiError, so call it inside the route's try.
  *
  * A route that previews before writing (HITL) calls {@link resolvePrWriteCoordinate} first, so a

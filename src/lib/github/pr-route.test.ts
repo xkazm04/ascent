@@ -18,7 +18,7 @@ vi.mock("@/lib/github/app", () => ({
   getInstallationToken: vi.fn(async (id: string) => `token-for-${id}`),
 }));
 vi.mock("@/lib/db", () => ({
-  isDbConfigured: () => true,
+  isDbConfigured: vi.fn(() => true),
   getInstallationIdForOwner: vi.fn(async (owner: string) => `inst-${owner}`),
 }));
 const { respondError } = vi.hoisted(() => ({
@@ -27,22 +27,24 @@ const { respondError } = vi.hoisted(() => ({
 vi.mock("@/lib/api/respond", () => ({ respondError }));
 vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
 
-import { requirePrWriteTarget, mapPrWriteError, MINT_FAILED } from "./pr-route";
+import { requirePrWriteContext, requirePrWriteTarget, mapPrWriteError, MINT_FAILED } from "./pr-route";
 import { AppApiError } from "@/lib/github/app";
 import { GitHubError } from "@/lib/github/source";
 import { getInstallationToken } from "@/lib/github/app";
-import { getInstallationIdForOwner } from "@/lib/db";
+import { getInstallationIdForOwner, isDbConfigured } from "@/lib/db";
 import { orgTracksRepo } from "@/lib/db/org-admission";
 
 const mockInstall = vi.mocked(getInstallationIdForOwner);
 const mockToken = vi.mocked(getInstallationToken);
 const mockTracks = vi.mocked(orgTracksRepo);
+const mockDbConfigured = vi.mocked(isDbConfigured);
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockInstall.mockImplementation(async (owner: string) => `inst-${owner}`);
   mockToken.mockImplementation(async (id: string | number) => `token-for-${id}`);
   mockTracks.mockResolvedValue(false);
+  mockDbConfigured.mockReturnValue(true);
   vi.stubEnv("ASCENT_SELF_HOSTED", "0");
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -195,6 +197,49 @@ describe("requirePrWriteTarget: whose installation mints a tracked foreign repo"
       status: 403,
       error: "Ascent isn't installed on xkazm04. Install the GitHub App (with write access) to open PRs.",
     });
+  });
+});
+
+// Council r2 robustness-1: a THROWN installation lookup used to be caught as null and answered with the
+// "isn't installed" 403, telling an admin to install an App that was installed, and logging nothing.
+// A thrown lookup is now the preview's reported 502; only a null lookup is the 403.
+describe("requirePrWriteContext: a failed lookup is not a missing installation", () => {
+  const notInstalled = "Ascent isn't installed on acme. Install the GitHub App (with write access) to open PRs.";
+
+  it("a thrown lookup answers 502 MINT_FAILED, reports the cause, and mints nothing", async () => {
+    const boom = new Error("db down");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockInstall.mockRejectedValue(boom);
+    const res = await requirePrWriteContext("acme");
+    expect(await refusal(res)).toEqual({ status: 502, error: MINT_FAILED });
+    expect(respondError).toHaveBeenCalledWith(502, MINT_FAILED, { cause: boom });
+    expect(log).toHaveBeenCalledWith("[pr-route] installation lookup failed for acme", boom);
+    expect(mockToken).not.toHaveBeenCalled();
+  });
+
+  it("a null lookup is still the install-missing 403, unreported", async () => {
+    mockInstall.mockResolvedValue(null);
+    expect(await refusal(await requirePrWriteContext("acme"))).toEqual({ status: 403, error: notInstalled });
+    expect(respondError).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
+  });
+
+  it("no database answers the 403 without a lookup", async () => {
+    mockDbConfigured.mockReturnValue(false);
+    expect(await refusal(await requirePrWriteContext("acme"))).toEqual({ status: 403, error: notInstalled });
+    expect(mockInstall).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
+  });
+
+  it("requirePrWriteTarget passes the 502 through, in the single and the batch form", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockInstall.mockRejectedValue(new Error("db down"));
+    const single = await requirePrWriteTarget("acme", "acme/app", "owner-namespace");
+    const batch = await requirePrWriteTarget("acme", ["acme/a", "acme/b"], "owner-namespace");
+    expect(await refusal(single)).toEqual({ status: 502, error: MINT_FAILED });
+    expect(await refusal(batch)).toEqual({ status: 502, error: MINT_FAILED });
+    expect(respondError).toHaveBeenCalledTimes(2);
+    expect(mockToken).not.toHaveBeenCalled();
   });
 });
 
