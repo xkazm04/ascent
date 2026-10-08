@@ -9,6 +9,9 @@
 // carries a repo's root file list (the scan keeps a manifest READOUT, not the build manifests), so a
 // stored read would need a scan to have run and could be stale; the live call is the same freshness
 // the preview already has. A failed call is `unknown` (placeholders), never a guess.
+//
+// A Gradle root costs ONE more call (the root build file) to prove the ktlint plugin; without that
+// proof the lint command is the placeholder. The file text is tested and dropped, never stored.
 
 import { ghFetch, githubApiBase } from "@/lib/github/host";
 import type { ParsedRepo } from "@/lib/github/source";
@@ -34,6 +37,57 @@ export function classifyRoot(names: readonly string[]): JvmBuildSystem {
   return "unknown";
 }
 
+/** The ktlint Gradle plugin id. A quoted occurrence in the ROOT build file is the only proof. */
+const KTLINT_PLUGIN = /["']org.jlleitschuh.gradle.ktlint["']/;
+
+/** True when the root build file text applies the ktlint plugin by its quoted id (`id("…")` or
+ *  `apply plugin: "…"`). A version-catalog alias, convention plugin, buildSrc or subproject file
+ *  never reaches here, so none of them count. */
+export function appliesKtlintPlugin(buildFileText: string): boolean {
+  return KTLINT_PLUGIN.test(buildFileText);
+}
+
+interface Root {
+  buildSystem: JvmBuildSystem;
+  names: string[];
+}
+
+async function listRoot(
+  ref: ParsedRepo,
+  defaultBranch: string | undefined,
+  token?: string,
+): Promise<Root> {
+  try {
+    const url = `${githubApiBase()}/repos/${ref.owner}/${ref.repo}/git/trees/${encodeURIComponent(defaultBranch || "HEAD")}`;
+    const res = await ghFetch(url, { token, cache: "no-store" });
+    if (!res.ok) return { buildSystem: "unknown", names: [] };
+    const json = (await res.json()) as { tree?: { path?: string; type?: string }[] };
+    const names = (json.tree ?? []).filter((e) => e.type === "blob" && typeof e.path === "string").map((e) => e.path!);
+    return { buildSystem: classifyRoot(names), names };
+  } catch {
+    return { buildSystem: "unknown", names: [] };
+  }
+}
+
+/** ONE more call: the root build file the listing named, same token as the tree call. The text is
+ *  tested and dropped; any failure is "not proven". */
+async function ktlintProven(
+  ref: ParsedRepo,
+  root: Root,
+  defaultBranch: string | undefined,
+  token?: string,
+): Promise<boolean> {
+  try {
+    const file = root.names.includes("build.gradle.kts") ? "build.gradle.kts" : "build.gradle";
+    const url = `${githubApiBase()}/repos/${ref.owner}/${ref.repo}/contents/${file}?ref=${encodeURIComponent(defaultBranch || "HEAD")}`;
+    const res = await ghFetch(url, { token, cache: "no-store", accept: "application/vnd.github.raw+json" });
+    if (!res.ok) return false;
+    return appliesKtlintPlugin(await res.text());
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The build system of `ref`'s default branch root, or undefined when `language` is not a JVM language
  * (no call is made). One GitHub call; any failure resolves `unknown`.
@@ -45,16 +99,7 @@ export async function detectBuildSystem(
   token?: string,
 ): Promise<JvmBuildSystem | undefined> {
   if (!isJvmLanguage(language)) return undefined;
-  try {
-    const url = `${githubApiBase()}/repos/${ref.owner}/${ref.repo}/git/trees/${encodeURIComponent(defaultBranch || "HEAD")}`;
-    const res = await ghFetch(url, { token, cache: "no-store" });
-    if (!res.ok) return "unknown";
-    const json = (await res.json()) as { tree?: { path?: string; type?: string }[] };
-    const names = (json.tree ?? []).filter((e) => e.type === "blob" && typeof e.path === "string").map((e) => e.path!);
-    return classifyRoot(names);
-  } catch {
-    return "unknown";
-  }
+  return (await listRoot(ref, defaultBranch, token)).buildSystem;
 }
 
 /** `ctx` with its `buildSystem` filled in for a JVM repo; returned unchanged (no call) otherwise. */
@@ -63,6 +108,11 @@ export async function withBuildSystem<T extends Omit<RepoContext, "house">>(
   ctx: T,
   token?: string,
 ): Promise<T> {
-  const buildSystem = await detectBuildSystem(ref, ctx.primaryLanguage, ctx.defaultBranch, token);
-  return buildSystem ? { ...ctx, buildSystem } : ctx;
+  if (!isJvmLanguage(ctx.primaryLanguage)) return ctx;
+  const root = await listRoot(ref, ctx.defaultBranch, token);
+  const { buildSystem } = root;
+  // Gradle roots only: one more call decides whether the lint task exists. Maven makes none.
+  const gradle = buildSystem === "gradle" || buildSystem === "gradle-kts";
+  const ktlintApplied = gradle ? await ktlintProven(ref, root, ctx.defaultBranch, token) : undefined;
+  return { ...ctx, buildSystem, ...(ktlintApplied ? { ktlintApplied } : {}) };
 }

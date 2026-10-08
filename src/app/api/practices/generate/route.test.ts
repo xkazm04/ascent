@@ -316,16 +316,19 @@ describe("POST /api/practices/generate — JVM build system", () => {
 
   it("makes ONE root-listing call for a Java repo and hands the build system to the generator", async () => {
     mockFetchCtx.mockResolvedValueOnce(javaCtx);
-    vi.mocked(ghFetch).mockResolvedValue({
-      ok: true,
-      json: async () => ({ tree: [{ path: "build.gradle", type: "blob" }] }),
-    } as Response);
+    vi.mocked(ghFetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ tree: [{ path: "build.gradle", type: "blob" }] }),
+      } as Response)
+      .mockResolvedValueOnce({ ok: true, text: async () => "plugins { id(\"org.jlleitschuh.gradle.ktlint\") }" } as Response);
 
     const res = await run({ repo: "acme/svc", practiceId: "agent-guidance" });
 
     expect(res.status).toBe(200);
-    expect(vi.mocked(ghFetch)).toHaveBeenCalledTimes(1);
-    expect(mockBuild.mock.calls.at(-1)?.[1]).toMatchObject({ buildSystem: "gradle" });
+    // Tree listing + the Gradle root build file (the ktlint proof).
+    expect(vi.mocked(ghFetch)).toHaveBeenCalledTimes(2);
+    expect(mockBuild.mock.calls.at(-1)?.[1]).toMatchObject({ buildSystem: "gradle", ktlintApplied: true });
   });
 
   it("makes NO extra GitHub call for a non-JVM repo", async () => {

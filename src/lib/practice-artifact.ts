@@ -28,6 +28,9 @@ export interface RepoContext {
   defaultBranch?: string;
   /** Build tool of a JVM repo (java/kotlin), from the repo root. See {@link JvmBuildSystem}. */
   buildSystem?: JvmBuildSystem;
+  /** The Gradle root's build file applies the ktlint plugin (proven by build-system.ts). Only then does
+   *  the lint command name `ktlintCheck`; absent means not proven. */
+  ktlintApplied?: boolean;
   /**
    * W6 — the org's OWN mined pattern for this practice, when one exists.
    *
@@ -92,11 +95,11 @@ export interface LangCommands {
  *  placeholders travel into generated manifests and then make the generated doctor warn on every run,
  *  which is a guaranteed-warn artifact for any repo outside the original five. They intentionally
  *  keep `ci: "generic"` (see `ciSetup` above) so the exhaustive maps keyed on `ci` are unaffected. */
-export function commandsFor(language?: string | null, buildSystem?: JvmBuildSystem): LangCommands {
+export function commandsFor(language?: string | null, buildSystem?: JvmBuildSystem, ktlintApplied?: boolean): LangCommands {
   const lang = (language ?? "").toLowerCase();
   // A caller that LOOKED at the repo root overrides the per-language default for the JVM languages.
   // Left undefined, today's defaults stand (callers outside the hosted practice routes still guess).
-  if (buildSystem && (lang === "java" || lang === "kotlin")) return jvmCommands(buildSystem);
+  if (buildSystem && (lang === "java" || lang === "kotlin")) return jvmCommands(buildSystem, ktlintApplied);
   switch ((language ?? "").toLowerCase()) {
     case "typescript":
     case "javascript":
@@ -144,7 +147,8 @@ export function commandsFor(language?: string | null, buildSystem?: JvmBuildSyst
       return {
         install: "./gradlew dependencies",
         test: "./gradlew test",
-        lint: "./gradlew ktlintCheck",
+        // No one looked at the repo: the ktlint plugin is unproven, so no task name is claimed.
+        lint: "<run linter>",
         build: "./gradlew build",
         ci: "generic",
         ciSetup: "actions/setup-java",
@@ -206,7 +210,7 @@ export function commandsFor(language?: string | null, buildSystem?: JvmBuildSyst
 }
 
 /** The commands a JVM repo's proven build tool runs. `unknown` is the honest placeholder tuple. */
-function jvmCommands(build: JvmBuildSystem): LangCommands {
+function jvmCommands(build: JvmBuildSystem, ktlintApplied?: boolean): LangCommands {
   switch (build) {
     case "maven":
       return {
@@ -223,7 +227,7 @@ function jvmCommands(build: JvmBuildSystem): LangCommands {
       return {
         install: "./gradlew dependencies",
         test: "./gradlew test",
-        lint: "./gradlew ktlintCheck",
+        lint: ktlintApplied ? "./gradlew ktlintCheck" : "<run linter>",
         build: "./gradlew build",
         ci: "generic",
         ciSetup: "actions/setup-java",
@@ -312,7 +316,13 @@ function ciWorkflow(ctx: RepoContext, cmd: LangCommands): string {
             : cmd.ciSetup
               ? ciSetupStep(cmd.ciSetup)
               : "      # TODO: add the language setup step for this repo\n";
-  return `# Continuous integration: gate every PR on lint + tests so AI-generated changes are safe to merge.
+  // A placeholder lint is not a command: `- run: <run linter>` fails every CI run. Comment it instead.
+  const noLint = cmd.lint.startsWith("<") && hasConcreteCommands(cmd);
+  const lintStep = noLint
+    ? "      # TODO: add this repo's lint command here (no linter is proven for it)\n"
+    : `      - run: ${cmd.lint}\n`;
+  const gate = noLint ? "tests" : "lint + tests";
+  return `# Continuous integration: gate every PR on ${gate} so AI-generated changes are safe to merge.
 name: CI
 on:
   pull_request:
@@ -324,8 +334,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 ${setup}      - run: ${cmd.install}
-      - run: ${cmd.lint}
-      - run: ${cmd.test}
+${lintStep}      - run: ${cmd.test}
       - run: ${cmd.build}
 `;
 }
@@ -339,7 +348,7 @@ export function buildArtifact(practiceId: string, ctx: RepoContext): ArtifactSpe
   // spine; see the note on EXTRA_PRACTICES in src/lib/practices.ts for why the two lists differ.
   const p = ALL_PRACTICES.find((x) => x.id === practiceId);
   if (!p) return null;
-  const cmd = commandsFor(ctx.primaryLanguage, ctx.buildSystem);
+  const cmd = commandsFor(ctx.primaryLanguage, ctx.buildSystem, ctx.ktlintApplied);
   // Escape every repo-supplied field before it lands in the committed file (practices #7). The TODO
   // fallback is a trusted literal, so only the real description is sanitized.
   const name = safeText(ctx.name);

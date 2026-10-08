@@ -61,7 +61,7 @@ describe("commandsFor — language→commands map", () => {
     [
       "kotlin",
       "Kotlin",
-      { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.gradle" },
+      { install: "./gradlew dependencies", test: "./gradlew test", lint: "<run linter>", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.gradle" },
     ],
     [
       "scala",
@@ -176,7 +176,7 @@ describe("commandsFor — language→commands map", () => {
       ruby: { install: "bundle install", test: "bundle exec rspec", lint: "bundle exec rubocop", build: "bundle exec rake build", ci: "generic", ciSetup: "ruby/setup-ruby", sourceFile: "Gemfile" },
       php: { install: "composer install", test: "vendor/bin/phpunit", lint: "vendor/bin/php-cs-fixer fix --dry-run", build: "composer dump-autoload -o", ci: "generic", ciSetup: "shivammathur/setup-php", sourceFile: "composer.json" },
       java: { install: "mvn -B dependency:go-offline", test: "mvn -B test", lint: "mvn -B checkstyle:check", build: "mvn -B package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "pom.xml" },
-      kotlin: { install: "./gradlew dependencies", test: "./gradlew test", lint: "./gradlew ktlintCheck", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.gradle" },
+      kotlin: { install: "./gradlew dependencies", test: "./gradlew test", lint: "<run linter>", build: "./gradlew build", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.gradle" },
       scala: { install: "sbt update", test: "sbt test", lint: "sbt scalafmtCheckAll", build: "sbt package", ci: "generic", ciSetup: "actions/setup-java", sourceFile: "build.sbt" },
       "c#": { install: "dotnet restore", test: "dotnet test", lint: "dotnet format --verify-no-changes", build: "dotnet build -c Release", ci: "generic", ciSetup: "actions/setup-dotnet" },
       swift: { install: "swift package resolve", test: "swift test", lint: "swiftlint", build: "swift build -c release", ci: "generic", ciSetup: "swift-actions/setup-swift", sourceFile: "Package.swift" },
@@ -502,6 +502,38 @@ describe("buildArtifact — JVM build system", () => {
     expect(commandsFor("java")).toEqual(commandsFor("java", undefined));
     expect(commandsFor("java").test).toBe("mvn -B test");
     expect(commandsFor("kotlin").test).toBe("./gradlew test");
+  });
+
+  it("gives Kotlin with no build system the placeholder lint and leaves the rest unchanged", () => {
+    const k = commandsFor("kotlin");
+    expect(k.lint).toBe("<run linter>");
+    expect([k.install, k.test, k.build]).toEqual(["./gradlew dependencies", "./gradlew test", "./gradlew build"]);
+  });
+
+  it("names ktlintCheck only for a Gradle root with the plugin proven", () => {
+    for (const bs of ["gradle", "gradle-kts"] as const) {
+      expect(commandsFor("Kotlin", bs, true).lint).toBe("./gradlew ktlintCheck");
+      expect(commandsFor("Kotlin", bs).lint).toBe("<run linter>");
+      expect(commandsFor("Kotlin", bs, false).lint).toBe("<run linter>");
+    }
+  });
+
+  it("ci.yml for an unproven Gradle root has no placeholder run step, and keeps install/test/build", () => {
+    const body = buildArtifact("ci-gates", { ...ctx, primaryLanguage: "Kotlin", buildSystem: "gradle" })!.body;
+    expect(body).not.toContain("run: <");
+    expect(body).toContain("# TODO: add this repo's lint command");
+    expect(body).toContain("- run: ./gradlew dependencies");
+    expect(body).toContain("- run: ./gradlew test");
+    expect(body).toContain("- run: ./gradlew build");
+    expect(body.split("\n")[0]).not.toContain("lint");
+    const proven = buildArtifact("ci-gates", { ...ctx, primaryLanguage: "Kotlin", buildSystem: "gradle", ktlintApplied: true })!.body;
+    expect(proven).toContain("- run: ./gradlew ktlintCheck");
+    expect(proven.split("\n")[0]).toContain("lint + tests");
+  });
+
+  it("leaves the all-placeholder unknown-language workflow steps as they were", () => {
+    const body = buildArtifact("ci-gates", { ...ctx, primaryLanguage: "Brainfuck" })!.body;
+    expect(body).toContain("- run: <run linter>");
   });
 
   it("ignores buildSystem for a non-JVM language", () => {
