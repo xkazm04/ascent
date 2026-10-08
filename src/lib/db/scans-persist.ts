@@ -32,6 +32,7 @@ import { withAuditSignature } from "@/lib/db/audit-integrity";
 // implementation of it.
 import { latestObservations, recordObservations } from "@/lib/db/control-observations";
 import { forgeFromWebUrl, prefixForge } from "@/lib/forge/registry";
+import { storableScanReport } from "@/lib/private-scan-store";
 import { HEARTBEAT_AFTER_MS, diffSamples, governanceToSamples } from "@/lib/scan-probe-controls";
 
 /** Outcome of persisting a scan report — surfaces dedup and partial-write failures. */
@@ -109,10 +110,15 @@ function carryEventNote(note: string, prevId: string | undefined): string {
  *    no contributors or no audit row. A failure rolls the whole scan back (surfaced as a throw).
  */
 export async function persistScanReport(
-  report: ScanReport,
+  input: ScanReport,
   opts: { orgSlug?: string; actorId?: string; headEtag?: string | null } = {},
 ): Promise<PersistResult | null> {
   if (!isDbConfigured()) return null;
+  // A PRIVATE repo's report is stored without the text copied out of its files (evidence quotes, the
+  // guidance graph's rule lines and commands, the manifest's prose) — see src/lib/private-scan-store.ts.
+  // Everything below writes from THIS value, so no Scan or Repository column can see the original;
+  // the caller keeps the full report it was handed.
+  const report = storableScanReport(input);
   // Run the whole persist under withDb so a DSQL IAM-token expiry (token TTL ~15min; a frozen
   // serverless instance can thaw past it) is recovered: withDb proactively refreshes a stale token
   // before the op and reconnects + retries once on an auth-expiry error — instead of 500ing with the

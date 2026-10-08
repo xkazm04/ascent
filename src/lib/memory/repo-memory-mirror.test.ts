@@ -81,38 +81,50 @@ beforeEach(() => {
   allow();
 });
 
-describe("the five gates — each fails CLOSED", () => {
+describe("the six gates — each fails CLOSED", () => {
+  it("gate 0: a PRIVATE repo is never mirrored, even with the org flag ON (null = never chosen = ON)", async () => {
+    // Every later gate would pass: the repo is the org's own, the flag is ON, the plan allows memory.
+    h.resolveMirrorTarget.mockResolvedValue({ ...TARGET, mirrorFlag: true });
+    expect(await mirrorRepoMemory({ isPrivate: true, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] })).toBeNull();
+    h.resolveMirrorTarget.mockResolvedValue({ ...TARGET, mirrorFlag: null });
+    expect(await mirrorRepoMemory({ isPrivate: true, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] })).toBeNull();
+    // Unknown visibility is treated as private: the copy is verbatim, so the safe side is to refuse.
+    expect(await mirrorRepoMemory({ isPrivate: undefined, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] })).toBeNull();
+    expect(h.upsertMirrorEntries).not.toHaveBeenCalled();
+    expect(h.writeMemoryCandidate).not.toHaveBeenCalled();
+  });
+
   it("gate 1: no org (an anonymous / public-funnel scan) mirrors nothing", async () => {
-    expect(await mirrorRepoMemory({ repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] })).toBeNull();
-    expect(await mirrorRepoMemory({ orgSlug: "  ", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] })).toBeNull();
+    expect(await mirrorRepoMemory({ isPrivate: false, repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] })).toBeNull();
+    expect(await mirrorRepoMemory({ isPrivate: false, orgSlug: "  ", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] })).toBeNull();
     expect(h.resolveMirrorTarget).not.toHaveBeenCalled();
   });
 
   it('gate 1: the "public" pseudo-org is not an org', async () => {
-    const r = await mirrorRepoMemory({ orgSlug: "public", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
+    const r = await mirrorRepoMemory({ isPrivate: false, orgSlug: "public", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
     expect(r).toBeNull();
     expect(h.resolveMirrorTarget).not.toHaveBeenCalled();
   });
 
   it("gate 2: a repo the org does not own is not ingested", async () => {
     h.resolveMirrorTarget.mockResolvedValue(null);
-    const r = await mirrorRepoMemory({ orgSlug: "acme", repoFullName: "someone-else/oss", memoryFiles: [file("0001-a", doc("0001"))] });
+    const r = await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: "someone-else/oss", memoryFiles: [file("0001-a", doc("0001"))] });
     expect(r).toBeNull();
     expect(h.writeMemoryCandidate).not.toHaveBeenCalled();
   });
 
   it("gate 3: an org that opted out mirrors nothing; null (never chosen) is ON", async () => {
     h.resolveMirrorTarget.mockResolvedValue({ ...TARGET, mirrorFlag: false });
-    expect(await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] })).toBeNull();
+    expect(await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] })).toBeNull();
 
     h.resolveMirrorTarget.mockResolvedValue({ ...TARGET, mirrorFlag: null });
-    const on = await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
+    const on = await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
     expect(on?.mirrored).toBe(1);
   });
 
   it("gate 4: the same plan gate the memory WRITE route uses", async () => {
     h.workspaceAllowsMemory.mockResolvedValue(false);
-    const r = await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
+    const r = await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
     expect(r).toBeNull();
     expect(h.writeMemoryCandidate).not.toHaveBeenCalled();
   });
@@ -121,14 +133,14 @@ describe("the five gates — each fails CLOSED", () => {
     const files = Array.from({ length: MAX_ENTRIES_PER_SCAN + 5 }, (_, i) =>
       file(`${String(i + 1).padStart(4, "0")}-e`, doc(String(i + 1).padStart(4, "0"))),
     );
-    const r = await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: files });
+    const r = await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: files });
     expect(h.writeMemoryCandidate).toHaveBeenCalledTimes(MAX_ENTRIES_PER_SCAN);
     expect(r?.mirrored).toBe(MAX_ENTRIES_PER_SCAN);
   });
 
   it("gate 5: past the per-REPO cap the overflow is LEDGERED as capped, never dropped", async () => {
     h.resolveMirrorTarget.mockResolvedValue({ ...TARGET, liveCount: MAX_LIVE_PER_REPO });
-    const r = await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
+    const r = await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
     // No OrgMemory row...
     expect(h.writeMemoryCandidate).not.toHaveBeenCalled();
     expect(r?.mirrored).toBe(0);
@@ -141,7 +153,7 @@ describe("the five gates — each fails CLOSED", () => {
 
 describe("the row it writes", () => {
   it("records a repo claim at the MEDIUM band, never the observed one", async () => {
-    await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
+    await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
     const arg = h.writeMemoryCandidate.mock.calls[0]![0] as Record<string, unknown>;
     expect(arg.confidence).toBe(REPO_MEMORY_CONFIDENCE);
     expect(arg.confidence).toBe(0.6);
@@ -149,7 +161,7 @@ describe("the row it writes", () => {
   });
 
   it("namespaces to the repo, sources as repo-memory, and tags all three facets", async () => {
-    await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0007-x", doc("0007", "failed-approach"))] });
+    await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0007-x", doc("0007", "failed-approach"))] });
     const arg = h.writeMemoryCandidate.mock.calls[0]![0] as Record<string, unknown>;
     expect(arg).toMatchObject({
       orgId: "org_1",
@@ -170,7 +182,7 @@ describe("the row it writes", () => {
   });
 
   it("stamps the head sha it was read at", async () => {
-    await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, headSha: "abc123", memoryFiles: [file("0001-a", doc("0001"))] });
+    await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, headSha: "abc123", memoryFiles: [file("0001-a", doc("0001"))] });
     const [, , entries] = h.upsertMirrorEntries.mock.calls[0]!;
     expect((entries as { headSha: string | null }[])[0]!.headSha).toBe("abc123");
   });
@@ -182,20 +194,20 @@ describe("idempotency", () => {
       async (_o: string, _r: string, entries: { path: string; contentHash: string }[]) =>
         entries.map((e, i) => ({ id: `row_${i}`, path: e.path, contentHash: e.contentHash, entryId: null, mappedKind: "semantic", body: "", supersedes: null, isNew: false })),
     );
-    const r = await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
+    const r = await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
     expect(r?.mirrored).toBe(0);
     expect(h.writeMemoryCandidate).not.toHaveBeenCalled();
   });
 
   it("a new row the ingest door DEDUPED is counted as deduped and says so on the ledger", async () => {
     h.writeMemoryCandidate.mockResolvedValue(null);
-    const r = await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
+    const r = await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
     expect(r).toMatchObject({ mirrored: 0, deduped: 1 });
     expect(h.linkMirroredMemory).toHaveBeenCalledWith("row_0", { skipReason: "deduped" });
   });
 
   it("links a mirrored row to the OrgMemory row it fed", async () => {
-    await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
+    await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
     expect(h.linkMirroredMemory).toHaveBeenCalledWith("row_0", { orgMemoryId: "mem_0" });
   });
 });
@@ -204,6 +216,7 @@ describe("superseding", () => {
   it("archives the predecessor's memory rather than deleting it", async () => {
     h.markSuperseded.mockResolvedValue(["mem_old"]);
     const r = await mirrorRepoMemory({
+      isPrivate: false,
       orgSlug: "acme",
       repoFullName: REPO,
       memoryFiles: [file("0009-x", doc("0009", "decision", "the new call", "0003"))],
@@ -214,7 +227,7 @@ describe("superseding", () => {
   });
 
   it("claims nothing when no entry declares a supersedes", async () => {
-    await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
+    await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] });
     expect(h.markSuperseded).toHaveBeenCalledWith("org_1", REPO, []);
     expect(h.archiveOrgMemory).not.toHaveBeenCalled();
   });
@@ -223,6 +236,7 @@ describe("superseding", () => {
 describe("malformed input and failure", () => {
   it("counts an unreadable entry as skipped and mirrors the readable one beside it", async () => {
     const r = await mirrorRepoMemory({
+      isPrivate: false,
       orgSlug: "acme",
       repoFullName: REPO,
       memoryFiles: [file("0001-a", doc("0001")), file("0002-b", "no frontmatter at all")],
@@ -233,12 +247,12 @@ describe("malformed input and failure", () => {
   it("returns null (never throws) when the data layer fails", async () => {
     h.upsertMirrorEntries.mockRejectedValue(new Error("db is gone"));
     await expect(
-      mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] }),
+      mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [file("0001-a", doc("0001"))] }),
     ).resolves.toBeNull();
   });
 
   it("does nothing at all when the snapshot carried no memory channel", async () => {
-    expect(await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: [] })).toBeNull();
+    expect(await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: [] })).toBeNull();
     expect(h.resolveMirrorTarget).not.toHaveBeenCalled();
   });
 });
@@ -250,7 +264,7 @@ describe("self-hosted", () => {
     const files = Array.from({ length: MAX_ENTRIES_PER_SCAN + 3 }, (_, i) =>
       file(`${String(i + 1).padStart(4, "0")}-e`, doc(String(i + 1).padStart(4, "0"))),
     );
-    const r = await mirrorRepoMemory({ orgSlug: "acme", repoFullName: REPO, memoryFiles: files });
+    const r = await mirrorRepoMemory({ isPrivate: false, orgSlug: "acme", repoFullName: REPO, memoryFiles: files });
     expect(r?.mirrored).toBe(MAX_ENTRIES_PER_SCAN + 3);
     // Still the honest band — self-hosting removes a limit, not the provenance rule.
     const arg = h.writeMemoryCandidate.mock.calls[0]![0] as Record<string, unknown>;

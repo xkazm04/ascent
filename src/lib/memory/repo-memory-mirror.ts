@@ -21,8 +21,8 @@
 //
 // Same as scan-feed.ts, and for the same reason: this decorates a scan that already succeeded. It
 // NEVER THROWS (a failure returns null) and it is IDEMPOTENT (the mirror ledger's content hash, then
-// the ingest door's own dedup). Five gates, all fail-closed, all in order — an unmirrorable repo must
-// look exactly like a repo with no memory.
+// the ingest door's own dedup). Six gates (gate 0 refuses a private repo), all fail-closed, all in
+// order — an unmirrorable repo must look exactly like a repo with no memory.
 //
 // CONFIDENCE IS 0.6, NOT 1.0, and that is the honest half of the design. A scan-pipeline memory is
 // something the platform OBSERVED. An `.ai/memory` entry is something an agent CLAIMED. Recording a
@@ -56,6 +56,9 @@ export interface MirrorRepoMemoryInput {
   /** The org this scan belongs to. Absent/blank on an anonymous or public-funnel scan — gate 1. */
   orgSlug?: string | null;
   repoFullName: string;
+  /** The scanned repo's `repo.isPrivate`. REQUIRED so no caller can forget it: anything but an explicit
+   *  `false` is refused (gate 0). Unknown visibility is treated as private. */
+  isPrivate: boolean | undefined;
   headSha?: string | null;
   /** `RepoSnapshot.memoryFiles` — the quarantined channel, never `files`. */
   memoryFiles: { path: string; content: string }[];
@@ -86,6 +89,12 @@ export async function mirrorRepoMemory(
 async function runMirror(input: MirrorRepoMemoryInput): Promise<MirrorRepoMemoryResult | null> {
   const orgSlug = (input.orgSlug ?? "").trim();
   const repoFullName = (input.repoFullName ?? "").trim();
+  // GATE 0 — never a private repo, whatever the org's mirror flag says. The bodies are copied VERBATIM
+  // into RepoMemoryMirror and OrgMemory, and Ascent does not persist text copied out of a private repo's
+  // files (src/lib/private-scan-store.ts holds the same rule for the scan columns). This gate sits
+  // before the DB read and before the opt-out on purpose: the flag defaults to ON, so an org that never
+  // chose would otherwise be mirrored. Fail-closed: unknown visibility is refused too.
+  if (input.isPrivate !== false) return null;
   // GATE 1 — an org, and something to mirror. A public-funnel scan has no org to index INTO, and
   // "public" is not one: an anonymous scan must leave no trace of the repo's prose anywhere.
   if (!orgSlug || orgSlug === "public" || !repoFullName || input.memoryFiles.length === 0) return null;

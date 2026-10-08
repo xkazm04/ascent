@@ -571,6 +571,73 @@ describe("persistScanReport — manifestJson (#13)", () => {
   });
 });
 
+// ── private-repo-scan lite r1, value-1: a PRIVATE repo's stored columns carry no copied file text ──
+
+describe("persistScanReport — a private repo stores no text copied from its files", () => {
+  const QUOTE = "Never commit secrets to the repository; read them from the vault";
+  const CMD = "pnpm vitest run --coverage";
+  const PURPOSE = "Billing reconciliation service for the Northwind ledger";
+  const evidence = ["Found CLAUDE.md (2.1 KB)", `Model cited canonical_declared (+6) — AGENTS.md: "${QUOTE}"`];
+  const graph = {
+    version: "1",
+    nodes: [{ path: "AGENTS.md", agent: "agents", bytes: 900, contentSampled: true, commands: [{ key: "test", command: CMD }], rules: [{ subject: "commit secrets repository", polarity: "never", quote: QUOTE }], pointers: [], pointerOnly: false, lastCommitAt: null }],
+    edges: [],
+    canonical: "AGENTS.md",
+    canonicalBasis: "rank",
+    contradictions: [{ kind: "rule", subject: "commit secrets repository", a: { path: "AGENTS.md", quote: QUOTE }, b: { path: "CLAUDE.md", quote: "always commit secrets" }, confidence: "deterministic" }],
+    coherence: 80,
+    penalties: [],
+  };
+  const manifest = {
+    status: "ok", readAt: "2026-10-08T00:00:00.000Z", generatedAt: null, schemaVersion: "1.0.0", schemaAhead: false,
+    capabilities: [{ name: "test", command: CMD, verified: true, placeholder: false, wiredAt: [] }],
+    controls: { prePush: [], ciHardPass: [] }, paths: {}, agents: [], purpose: PURPOSE,
+    boundaries: { neverTouch: [], secretsFrom: null }, placeholders: [], unbacked: [], notes: [],
+  };
+  const dims = [{ id: "D1", name: "Guidance", weight: 1, score: 70, signalScore: 64, llmScore: 70, summary: "s", evidence, strengths: [], gaps: [] }];
+
+  function reportWithContent(isPrivate: boolean, headSha: string): ScanReport {
+    const r = makeReport({ headSha, isPrivate, dimensions: dims as unknown as ScanReport["dimensions"] });
+    return { ...r, guidanceGraph: graph, manifest } as unknown as ScanReport;
+  }
+
+  async function persisted(isPrivate: boolean) {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+    const report = reportWithContent(isPrivate, `sha_priv_${isPrivate}`);
+    await persistScanReport(report, { orgSlug: "acme" });
+    const upsert = prisma.repository.upsert.mock.calls[0]![0] as { update: Record<string, unknown>; create: Record<string, unknown> };
+    const scan = createdScans[0]!;
+    const storedDims = (scan.dimensions as { create: Array<{ evidence: string }> }).create;
+    return { report, scan, upsert, storedEvidence: storedDims.map((d) => d.evidence) };
+  }
+
+  it("evidence keeps facet and path, guidance graph and manifest keep no quote — on the Scan AND the Repository row", async () => {
+    const { report, scan, upsert, storedEvidence } = await persisted(true);
+    const written = JSON.stringify([storedEvidence, scan.guidanceGraphJson, scan.manifestJson, upsert.update, upsert.create]);
+    for (const copied of [QUOTE, CMD, PURPOSE, "always commit secrets", "commit secrets repository"]) {
+      expect(written).not.toContain(copied);
+    }
+    expect(JSON.parse(storedEvidence[0]!)).toEqual(["Found CLAUDE.md (2.1 KB)", "Model cited canonical_declared (+6) — AGENTS.md"]);
+    expect(upsert.update.guidanceGraphJson).toBe(scan.guidanceGraphJson);
+    expect(upsert.create.manifestJson).toBe(scan.manifestJson);
+    expect(JSON.parse(scan.guidanceGraphJson as string)).toMatchObject({ canonical: "AGENTS.md", coherence: 80 });
+    // The caller's report is not the stored one: it still carries what the scan read.
+    expect(report.dimensions[0]!.evidence[1]).toContain(QUOTE);
+    expect(report.manifest?.purpose).toBe(PURPOSE);
+  });
+
+  it("a public report's stored evidence, guidance graph and manifest are unchanged", async () => {
+    const { scan, upsert, storedEvidence } = await persisted(false);
+    expect(JSON.parse(storedEvidence[0]!)).toEqual(evidence);
+    expect(scan.guidanceGraphJson).toBe(JSON.stringify(graph));
+    expect(scan.manifestJson).toBe(JSON.stringify(manifest));
+    expect(upsert.update.guidanceGraphJson).toBe(JSON.stringify(graph));
+    expect(upsert.create.manifestJson).toBe(JSON.stringify(manifest));
+  });
+});
+
 // ── CRITICAL #2: carry-forward preserves tracked recommendation state ─────────────────────────────
 
 describe("persistScanReport — carry-forward of recommendation tracking state", () => {

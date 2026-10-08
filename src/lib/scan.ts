@@ -252,7 +252,8 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
 
   // The `.ai/memory` mirror (moonshot #14). FIRE AND FORGET, and deliberately not awaited: indexing a
   // repo's own agent memory is a side benefit of the scan, never a reason for one to be slower or to
-  // fail. `mirrorRepoMemory` never throws and gates itself (org, repo ownership, opt-out, plan, caps).
+  // fail. `mirrorRepoMemory` never throws and gates itself (visibility, org, repo ownership, opt-out,
+  // plan, caps).
   //
   // It reads `snapshot.memoryFiles` — the QUARANTINED channel — and nothing else in this pipeline may.
   // Those bodies are untrusted prose from a customer repo; keeping them out of `snapshot.files` (and so
@@ -261,6 +262,9 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
     void mirrorRepoMemory({
       orgSlug: opts.orgSlug,
       repoFullName,
+      // Gate 0 refuses anything not explicitly public: a private repo's memory bodies are verbatim file
+      // text, and Ascent does not persist that (src/lib/private-scan-store.ts).
+      isPrivate: snapshot.meta.isPrivate,
       headSha: snapshot.meta.headSha ?? null,
       memoryFiles: snapshot.memoryFiles,
     });
