@@ -18,7 +18,7 @@ import { getInstallationIdForOwner } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { canMintInstallationToken } from "@/lib/authz";
 import { withBuildSystem } from "@/lib/practices/build-system";
-import { installOwnerFor, resolvePrWriteCoordinate } from "@/lib/github/pr-route";
+import { installOwnerFor, MINT_FAILED, resolvePrWriteCoordinate } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,10 +61,14 @@ export async function POST(request: Request) {
     }
     let token = standingOrg ? process.env.GITHUB_TOKEN : undefined;
     if (isAppConfigured() && standingOrg) {
-      const id = await getInstallationIdForOwner(mintOwner).catch(() => null);
-      if (id) {
-        const minted = await getInstallationToken(id).catch(() => undefined);
-        if (minted) token = minted;
+      // A failed lookup or mint is a 502, never a silent downgrade: falling back to no token would
+      // make a private repo read as "not found". Only "no installation" (null) keeps the PAT.
+      try {
+        const id = await getInstallationIdForOwner(mintOwner);
+        if (id) token = (await getInstallationToken(id)) || token;
+      } catch (err) {
+        console.error("[practices/generate] installation token mint failed", err);
+        return respondError(502, MINT_FAILED, { cause: err });
       }
     }
     // A JVM repo costs ONE extra call (root listing) so the commands match its build tool; the same
