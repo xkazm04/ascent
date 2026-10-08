@@ -18,6 +18,7 @@ import { getRegistryPracticeSource } from "@/lib/db/org-practice-shapes";
 import { getLatestHousePattern } from "@/lib/db/house-pattern-versions";
 import { recordProposedAdoption, type AdoptionSource } from "@/lib/db/practice-adoption";
 import { contentDigest } from "@/lib/registry/parse";
+import { reportHandledError } from "@/lib/api/respond";
 
 /**
  * The shared "open a draft PR seeding one generated artifact, then audit-log it" step — the inner
@@ -173,7 +174,15 @@ export async function applyPracticeToRepo(
     // agreed on" — a question that outlives the PR by months. `patternVersion` is stamped only for a
     // house-shaped apply, so a generic starter reads as not-version-tracked rather than as v0/behind.
     const source: AdoptionSource = house ? "house" : "generic";
-    const pattern = house ? await getLatestHousePattern(audit.orgId, practiceId).catch(() => null) : null;
+    // A failed version read still writes the adoption row (the PR is open; losing the row is worse),
+    // but the row then reads as not-version-tracked, so the failure is never silent.
+    const pattern = house
+      ? await getLatestHousePattern(audit.orgId, practiceId).catch((err: unknown) => {
+          console.error(`[practices/apply] house pattern version read failed for ${ctx.fullName}`, err);
+          reportHandledError(err, { message: "Failed to read the house pattern version for the adoption row." });
+          return null;
+        })
+      : null;
     await recordProposedAdoption({
       orgId: audit.orgId,
       repoFullName: ctx.fullName,

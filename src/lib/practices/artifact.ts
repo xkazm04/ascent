@@ -11,6 +11,7 @@
 import { buildArtifact, type ArtifactSpec, type RepoContext } from "@/lib/practice-artifact";
 import { getOrgPracticeShapes } from "@/lib/db/org-practice-shapes";
 import { minePracticeShapes, minedStarter } from "@/lib/org/practice-mining";
+import { reportHandledError } from "@/lib/api/respond";
 
 /** What the builder needs about the target repo. The house pattern is resolved here, not passed in. */
 export type PracticeRepoContext = Omit<RepoContext, "house">;
@@ -30,7 +31,8 @@ export interface PracticeArtifactResult {
  * Null is the ordinary case for a young org and is NOT a failure: `buildArtifact` then emits the
  * generic starter and the PR body says so explicitly. A read failure also degrades to null — a
  * generic starter that says it is generic is always safe, whereas failing the apply would block a
- * write over a decoration.
+ * write over a decoration. The degrade is deliberate; hiding it is not, so a read failure is logged
+ * and reported (an outage must not look the same as a young org).
  */
 export async function resolveHousePattern(orgSlug: string, practiceId: string): Promise<HousePattern | null> {
   try {
@@ -40,7 +42,9 @@ export async function resolveHousePattern(orgSlug: string, practiceId: string): 
     if (!mined) return null;
     const lines = minedStarter(mined);
     return lines ? { lines, exemplars: mined.exemplars } : null;
-  } catch {
+  } catch (err) {
+    console.error(`[practices/artifact] house pattern read failed for ${orgSlug}/${practiceId}`, err);
+    reportHandledError(err, { message: "Failed to read the org's practice shapes; generic starter used." });
     return null;
   }
 }
