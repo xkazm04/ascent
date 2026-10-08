@@ -1,6 +1,6 @@
 // Failure paths of the re-convergence rollout: a failed mint or org lookup writes nothing, an
 // unexpected per-repo error keeps its row but is reported, a failed version read degrades the audit
-// row (reported), and a rejected audit write is a reported 500.
+// row (reported), and a rejected audit write still answers the 200, reported.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -140,13 +140,18 @@ describe("POST /api/practices/rollout: mint, version read and audit failures", (
     expect(vi.mocked(recordAudit).mock.calls[0]![1]).toMatchObject({ mode: "behind", fromVersion: null, toVersion: null });
   });
 
-  it("a rejected audit write is answered as the reported 500 (recordAudit's own contract is never to throw)", async () => {
+  it("a rejected audit write after the PRs opened still answers the 200 with the results, reported", async () => {
     const boom = new Error("audit down");
     vi.mocked(applyPracticeToRepo).mockImplementation(opened);
     vi.mocked(recordAudit).mockRejectedValue(boom);
     const res = await run();
-    expect(res.status).toBe(500);
-    expect(respondError).toHaveBeenCalledWith(500, "Failed to open the rollout PRs.", { cause: boom });
-    expect(console.error).toHaveBeenCalledWith("[practices/rollout] failed", boom);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { results: { repo: string; ok: boolean }[]; attempted: number; skipped: number };
+    expect(json.results.map((r) => [r.repo, r.ok])).toEqual([["acme/a", true], ["acme/b", true]]);
+    expect(json.attempted).toBe(2);
+    expect(json.skipped).toBe(0);
+    expect(respondError).not.toHaveBeenCalled();
+    expect(reportHandledError).toHaveBeenCalledWith(boom, expect.anything());
+    expect(console.error).toHaveBeenCalledWith("[practices/rollout] audit write failed", boom);
   });
 });

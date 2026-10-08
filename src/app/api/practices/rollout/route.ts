@@ -191,18 +191,25 @@ export async function POST(request: Request) {
       }
     });
 
-    await recordAudit(
-      "practice.rollout_opened",
-      {
-        practiceId,
-        mode,
-        fromVersion: versions?.fromVersion ?? null,
-        toVersion: versions?.latestVersion ?? null,
-        repos: batch.length,
-        batch: true,
-      },
-      { orgId, actorId: actorLogin ?? undefined },
-    );
+    // The PRs are open by now: a rejected audit write must not turn the answer into a 500 that hides
+    // them. Carry on with the results, but not silently.
+    try {
+      await recordAudit(
+        "practice.rollout_opened",
+        {
+          practiceId,
+          mode,
+          fromVersion: versions?.fromVersion ?? null,
+          toVersion: versions?.latestVersion ?? null,
+          repos: batch.length,
+          batch: true,
+        },
+        { orgId, actorId: actorLogin ?? undefined },
+      );
+    } catch (err) {
+      console.error("[practices/rollout] audit write failed", err);
+      reportHandledError(err, { message: "Failed to record the rollout audit row." });
+    }
 
     return NextResponse.json({ results: [...results, ...rejected], attempted: batch.length, skipped });
   } catch (err) {
