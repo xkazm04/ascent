@@ -68,7 +68,10 @@ describe("LocalFsSource against this repository", () => {
     const sha = snap.meta.headSha;
     expect(sha === undefined || /^[0-9a-f]{40}$/.test(sha!)).toBe(true);
 
+    // Still private (it keeps the .ai/memory mirror gate closed), and marked local so the store rule
+    // exempts it from the private-repo scrub (src/lib/private-scan-store.ts).
     expect(snap.meta.isPrivate).toBe(true);
+    expect(snap.meta.forge).toBe("local");
     expect(snap.coverage).toBeGreaterThan(0);
   }, 30_000);
 });

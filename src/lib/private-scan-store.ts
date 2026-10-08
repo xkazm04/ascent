@@ -14,6 +14,12 @@
 // The report RETURNED to the caller who ran the scan is untouched; only what is written changes.
 //
 // A public report passes through by identity, so nothing about the public corpus moves.
+//
+// A LOCAL working copy passes through by identity too (operator decision, 2026-10-08: "Exempt local
+// scans"). LocalFsSource stamps it `isPrivate: true` (which keeps the mirror gate closed) and
+// `forge: "local"`; the marker is set at the source, never inferred from the url, which is a
+// github.com url for a working copy. Local mode exists only on self-hosted deployments, where the
+// operator owns the database, and the loop brief (src/lib/db/lane-brief-read.ts) needs the quotes.
 
 import type { GuidanceContradiction, GuidanceEdge, GuidanceGraph, ScanReport } from "@/lib/types";
 import type { ManifestReadout } from "@/lib/standard/readout";
@@ -28,6 +34,7 @@ const DERIVED_KEY = /^[a-z][a-z0-9-]*$/;
 /** The report as it may be stored. Identity for anything not explicitly private. */
 export function storableScanReport(report: ScanReport): ScanReport {
   if (report.repo.isPrivate !== true) return report;
+  if (report.repo.forge === "local") return report;
   return {
     ...report,
     dimensions: report.dimensions.map((d) => ({ ...d, evidence: d.evidence.map(storableEvidenceLine) })),

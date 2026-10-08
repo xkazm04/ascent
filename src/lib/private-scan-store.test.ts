@@ -58,9 +58,9 @@ function manifest(): ManifestReadout {
   };
 }
 
-function report(isPrivate: boolean | undefined): ScanReport {
+function report(isPrivate: boolean | undefined, forge?: "github" | "local"): ScanReport {
   return {
-    repo: { owner: "acme", name: "ledger", url: "https://github.com/acme/ledger", stars: 0, isPrivate, headSha: "sha" },
+    repo: { owner: "acme", name: "ledger", url: "https://github.com/acme/ledger", stars: 0, isPrivate, headSha: "sha", ...(forge ? { forge } : {}) },
     dimensions: [{ id: "D1", name: "Guidance", weight: 1, score: 70, signalScore: 64, llmScore: 70, summary: "s", evidence: [SIGNAL, CITED, CITED_PAIR, CONFIRMED, UNVERIFIED], strengths: [], gaps: [] }],
     guidanceGraph: guidanceGraph(),
     manifest: manifest(),
@@ -146,5 +146,28 @@ describe("storableScanReport", () => {
     expect(storableScanReport(pub)).toBe(pub);
     const legacy = report(undefined);
     expect(storableScanReport(legacy)).toBe(legacy);
+  });
+});
+
+// Operator decision 2026-10-08, "Exempt local scans". FAILS BEFORE: the rule read isPrivate alone, and
+// LocalFsSource stamps every working copy private, so a local scan lost its quotes.
+describe("storableScanReport — a local working copy is exempt", () => {
+  it("keeps its evidence quotes, guidance graph and manifest", () => {
+    const local = report(true, "local");
+    const out = storableScanReport(local);
+    expect(out).toBe(local);
+    expect(out.dimensions[0]!.evidence).toContain(CITED);
+    expect(out.guidanceGraph?.nodes[0]?.rules[0]?.quote).toBe(QUOTE);
+    expect(out.manifest?.purpose).toContain("Northwind");
+  });
+
+  it("a private GitHub report is still scrubbed, with or without an explicit forge", () => {
+    for (const r of [report(true, "github"), report(true)]) {
+      const out = storableScanReport(r);
+      expect(out).not.toBe(r);
+      expect(carriesCopiedText(out.dimensions)).toEqual([]);
+      expect(carriesCopiedText(out.guidanceGraph)).toEqual([]);
+      expect(carriesCopiedText(out.manifest)).toEqual([]);
+    }
   });
 });

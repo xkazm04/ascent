@@ -136,6 +136,9 @@ export class LocalFsSource implements RepoSource {
       owner: parsed.owner,
       name: parsed.repo,
       url: `https://github.com/${parsed.owner}/${parsed.repo}`,
+      // The marker the store rule reads (src/lib/private-scan-store.ts): a working copy keeps its quotes.
+      // It is stamped HERE, at the source, because the url above is a github.com url and cannot tell.
+      forge: "local",
       stars: 0,
       forks: 0,
       defaultBranch: branch,
