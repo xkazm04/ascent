@@ -2,12 +2,12 @@
 //   • installation events                      → keep stored installations in sync.
 //   • pull_request (opened/synced/reopened)    → run the maturity gate on the repo and post a
 //                                                Check Run + sticky PR comment (Feature 2).
-//   • push (to the default branch, head moved) → re-scan a watched repo and alert on a
-//                                                regression vs the prior scan (Feature 4), throttled to
-//                                                one paid scan per repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES
-//                                                and PAID FOR: the rescan reserves a prepaid credit
-//                                                before inference exactly like the queue worker, and
-//                                                is skipped (never served free) when the org is out.
+//   • push (to the default branch, head moved) → enqueue ONE rescore job (reason webhook:push) per
+//                                                autoscanned repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES
+//                                                window on the durable ScanJob queue, then drain exactly
+//                                                that job (Feature 4). The queue worker's push branch
+//                                                reserves the credit, scans, persists and alerts on a
+//                                                regression; see src/lib/push-rescan.ts.
 //                                                The same push also reaches the registry lane
 //                                                (`onRegistryPush`): a mapped registry re-indexes, a
 //                                                fleet repo's `.ai/` map/manifest move re-sweeps it.
@@ -26,7 +26,6 @@ import { NextResponse, after } from "next/server";
 import {
   AppApiError,
   getInstallation,
-  getInstallationToken,
   isAppConfigured,
   listInstallationReposResult,
   verifyWebhook,
@@ -34,20 +33,15 @@ import {
 import {
   claimWebhookDelivery,
   getInstallationIdForOwner,
-  getOrgId,
-  getScanReportByCommit,
   isDbConfigured,
   isRepoAutoscanned,
   listWatchedRepos,
-  persistScanReport,
-  recordScanOutcome,
   reconcileWatchedRepos,
   removeInstallation,
   resumeInstallation,
   suspendInstallation,
   upsertInstallation,
 } from "@/lib/db";
-import { scanRepository } from "@/lib/scan";
 // Deep path, not the "@/lib/db" barrel: db/index.ts is Director-owned and its queue re-export lands
 // at merge (see the handoff). The webhook's half of moonshot #10 is enqueue-ONLY — no observation is
 // written here, because a signed payload is not evidence of a control's state.
@@ -72,15 +66,9 @@ import { abandonDelivery, deliveryAlreadySeen, forgetLocalDelivery } from "@/lib
 // it could not be shared from here). This route still owns the replay/dedup machinery and injects
 // it as hooks — behavior is unchanged.
 import { runPrGate, type PrGateHooks } from "@/lib/github/pr-gate";
-import { checkAndAlertRegression } from "@/lib/scan-alerts";
-// The push rescan is a REAL, LLM-billed scan and must pay for itself. Same pair the queue worker and
-// the import funnel use (src/lib/scan-queue-worker.ts, src/app/api/org/import/route.ts) — deliberately
-// NOT a second reserve mechanism, and NOT `scanCreditGate` (that shape exists to 402 an interactive
-// caller; a webhook has nobody to 402, so it mirrors the worker's reserve/skip/refund instead).
-// `reserveScanCredit` also fires `maybeAlertLowCredits` on a debit that crossed the low-water mark, so
-// a push-funded depletion pushes the same lifecycle alert /api/scan does.
-import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
-import { isMeteredScan } from "@/lib/entitlement";
+// The push rescan is a REAL, LLM-billed scan. It no longer runs here: the route enqueues a rescore job
+// and drains it, and the queue worker's push branch owns the reserve/skip/refund (scan-queue-worker.ts).
+import { enqueueAndDrainPushRescan } from "@/lib/push-rescan";
 // The registry lane of a push (ai-registry-repo#A): the registry repo's own push re-indexes it, and a
 // fleet repo's `.ai/` push re-sweeps that repo. Owner binding reuses installationMatchesOwner below.
 import { onRegistryPush } from "@/lib/registry/registry-push";
@@ -303,62 +291,6 @@ async function reconcileInstallationRepos(installationId: number, deliveryId?: s
   }
 }
 
-// github-app-installation-webhooks #6: two default-branch pushes (C1 then C2) landing within seconds spawn
-// two deferred runPushRescan runs that BOTH read `prev` (the regression baseline) BEFORE either persists —
-// so both diff against the same stale baseline R0 (a C1 regression reverted by C2 is missed, or a two-step
-// regression is mis-attributed). Serialize the read→scan→persist→diff sequence PER REPO so the next run's
-// baseline read sees the immediately-prior persisted scan. This is a PROCESS-LOCAL lock (a push burst is
-// typically routed to one warm instance); a cross-instance race is rarer and bounded, and the authoritative
-// per-commit dedup (@@unique[repoId, headSha]) still prevents a double metered scan regardless.
-const rescanChains = new Map<string, Promise<unknown>>();
-function serializePerRepo<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const tail = rescanChains.get(key) ?? Promise.resolve();
-  const next = tail.then(fn, fn); // run fn after the prior rescan settles, success OR failure
-  rescanChains.set(key, next);
-  // Drop the map entry once this run is the tail so the map can't grow unbounded across many repos.
-  void next.catch(() => {}).finally(() => {
-    if (rescanChains.get(key) === next) rescanChains.delete(key);
-  });
-  return next;
-}
-
-/**
- * G1-05: a push-triggered rescan is a REAL, LLM-billed scan, and `onDefault && headMoved` used to fire
- * one per push with nothing throttling it — a busy monorepo or a CI force-push storm bought one full
- * paid scan per commit. This is the per-repo MINIMUM INTERVAL between push-triggered scans.
- *
- * State lives in the DB, not in memory: the debounce compares against the PRIOR PERSISTED SCAN's
- * `scannedAt` (the report `runPushRescan` already reads as its regression baseline, so the check costs
- * zero extra queries and zero new infrastructure). That makes the window CROSS-INSTANCE by construction —
- * unlike a process-local Map, a webhook fleet behind a load balancer shares one window per repo.
- *
- * Default 15 minutes: comfortably longer than a median scan (~6 min), so a burst can never queue scans
- * back-to-back, and it caps push-driven spend at ≤4 scans/hour/repo while keeping a watched repo's report
- * fresh within a quarter hour. Override with `PUSH_RESCAN_MIN_INTERVAL_MINUTES`; 0 disables the throttle
- * (every default-branch push scans, the old behavior).
- */
-const DEFAULT_PUSH_RESCAN_MIN_INTERVAL_MINUTES = 15;
-function pushRescanMinIntervalMs(): number {
-  const minutes = Number(process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES);
-  const m = Number.isFinite(minutes) && minutes >= 0 ? minutes : DEFAULT_PUSH_RESCAN_MIN_INTERVAL_MINUTES;
-  return m * 60_000;
-}
-
-/**
- * Should this push COALESCE into the repo's most recent scan instead of buying its own?
- * Pure, given the baseline report's `scannedAt`. An absent/garbled timestamp means we can't prove the
- * repo was scanned recently, so we scan (fail toward freshness — the same discipline as
- * `isPersistedScanFresh`); the per-commit `@@unique[repoId, headSha]` dedup still blocks a double charge
- * for an identical head.
- */
-function withinPushRescanWindow(prevScannedAt: string | undefined, now: number = Date.now()): boolean {
-  const window = pushRescanMinIntervalMs();
-  if (window <= 0) return false; // throttle disabled
-  const t = prevScannedAt ? new Date(prevScannedAt).getTime() : NaN;
-  if (!Number.isFinite(t)) return false;
-  return now - t < window;
-}
-
 // ── Control-probe fan-in (moonshot #10) ──────────────────────────────────────────────────────────
 // Five events change a repo's CONTROL posture without changing a line of code, so none of them used
 // to reach us at all: branch_protection_rule, repository_ruleset, repository, member, team.
@@ -571,8 +503,17 @@ async function enqueueOrgControlProbes(installationId: number, owner: string, ev
   }
 }
 
-/** Re-scan a watched repo on push, persist, and alert on a regression vs the prior scan. */
-async function runPushRescan(installationId: number, owner: string, repo: string, deliveryId?: string) {
+/**
+ * Queue a push rescan of an autoscanned repo and drain it. The money and the scan run in the queue
+ * worker's push branch; this only decides WHETHER to enqueue and keeps the delivery honest:
+ *   (a) not autoscanned → a deterministic no-op, nothing to retry;
+ *   (b) owner mismatch → release the delivery (a `false` can be a transient blip);
+ *   (c) no job row (null or a throw) → reported, and the delivery released so a redelivery retries;
+ *   (d) once a row exists, it is the durable record: a failed or killed drain is reaped and retried
+ *       on the queue with its credit carried, so the delivery is NOT released (a redelivery would
+ *       only find the same bucket's row).
+ */
+async function runPushRescan(installationId: number, owner: string, repo: string, invokedAt: number, deliveryId?: string) {
   try {
     const fullName = `${owner}/${repo}`;
     const orgSlug = owner.toLowerCase();
@@ -587,126 +528,11 @@ async function runPushRescan(installationId: number, owner: string, repo: string
       await abandonDelivery(deliveryId);
       return;
     }
-    // #6: read the baseline, scan, persist and diff as ONE per-repo critical section, so a concurrent
-    // rescan of the same repo reads its baseline AFTER this one persists (see serializePerRepo).
-    // G1-05: the throttle check lives INSIDE that same section on purpose — a burst's second run waits
-    // for the first to persist, then reads the just-written `scannedAt` and coalesces. Checking outside
-    // would race (both reads see the old baseline and both scan), which is exactly the bug being fixed.
-    await serializePerRepo(fullName.toLowerCase(), async () => {
-      const prev = await getScanReportByCommit(owner, repo, { orgSlug }).catch(() => null);
-      if (withinPushRescanWindow(prev?.scannedAt)) {
-        // COALESCE, don't queue: we have no background worker (this runs inside the request's after(),
-        // bounded by maxDuration), so the push is DROPPED rather than deferred. It is not lost work in
-        // the usual case — `scanRepository` always scans the repo's CURRENT default-branch head, so the
-        // next push past the window picks up every commit coalesced here in one scan. If pushes stop
-        // inside the window, the trailing head is covered by the repo's scheduled autoscan
-        // (/api/cron/rescan) or a manual rescan; the report is at most one window + one cadence stale.
-        console.info(
-          `[webhook] push rescan for ${fullName} coalesced into the scan at ${prev?.scannedAt} (min interval ${pushRescanMinIntervalMs()}ms)`,
-        );
-        return;
-      }
-      // ── CREDIT RESERVATION ──────────────────────────────────────────────────────────────────────
-      // This is the money gate the header promises, and until now it did not exist: the push rescan
-      // ran real LLM inference on a private org repo with no reservation at all, so a watched org at
-      // balance zero kept scanning free forever and the 15-minute throttle was the only cost ceiling.
-      // Mirrors the queue worker's shape (reserve → skip / refund), because the outcomes are the same
-      // ones a background scan has: a webhook cannot 402 anybody.
-      //
-      // ORDER: the throttle check above runs FIRST, on purpose. The throttle is not a stamp we set —
-      // it is derived from the PRIOR PERSISTED SCAN's `scannedAt`, so only a scan that actually ran
-      // and persisted moves the window. A push skipped for credits therefore consumes nothing, and a
-      // later top-up scans on the very next push instead of waiting out a window it never opened.
-      // Checking credits first would only add a ledger read to pushes that were going to coalesce.
-      //
-      // `mock: false` — this path asks for a real grade. It passes the installation's org to
-      // scanRepository (below), so a BYOM org scans on its OWN engine, exactly as the queue worker does.
-      // isMeteredScan still exempts self-hosted, a DB-less deployment and the public org, which is the
-      // whole set of not-metered deployments here.
-      const metered = isMeteredScan(orgSlug, false);
-      // Attribution for BOTH sides of the movement: no human is behind a push delivery, so the honest
-      // actor is the path itself, and the refund below names the same actor and repo as the debit.
-      const actor = "webhook:push";
-      let charged = false;
-      if (metered) {
-        const reservation = await reserveScanCredit(orgSlug, fullName, { actor });
-        if (reservation.skip) {
-          // SKIP, don't scan-for-free and don't release the delivery: the balance is exhausted, and a
-          // GitHub redelivery would find it exhausted too (releasing would turn an empty wallet into a
-          // retry storm). Same "coalesce, don't queue" reasoning as the throttle — the repo is covered
-          // by the next push after a top-up, or by its scheduled autoscan.
-          //
-          // A DURABLE trace, not just a log line. This is the one skip an OWNER has to be able to act
-          // on — nobody is watching the response (it was sent before after() ran) and the fix is to buy
-          // credits — so it writes the same Repository.lastScanStatus/lastScanError the queue worker
-          // writes for its own skips (scan-queue-worker.ts). The Repositories tab already renders that
-          // pair, so a watched repo going stale says WHY on the dashboard instead of only in the logs.
-          // Best-effort, exactly as everywhere else: a bookkeeping write must not decide the skip.
-          await recordScanOutcome(orgSlug, fullName, { ok: false, error: "insufficient credits" }).catch(() => {});
-          console.warn(
-            `[webhook] push rescan for ${fullName} skipped: insufficient_credits (balance ${reservation.balance ?? "unknown"})`,
-          );
-          return;
-        }
-        charged = reservation.reserved; // true only on an overflow DEBIT — a within-allowance scan is free
-      }
-      // Give the credit back when nothing billable was produced. No-op unless an overflow credit was
-      // actually debited; refunding a free scan would MINT one.
-      const refundCredit = () => refundScanCredit(orgSlug, charged, { actor, repoFullName: fullName });
-
-      // Every unwind path from here on has to answer "was anything billable produced?". A throw
-      // BEFORE a real report (token mint, provider error) produced nothing and releases the delivery
-      // for redelivery, so it must refund or every retry buys a second credit; a throw AFTER one keeps
-      // the credit, because the inference genuinely ran. Same rule as the worker's `inferenceBilled`.
-      let inferenceBilled = false;
-      try {
-        const token = await getInstallationToken(installationId);
-        // `orgSlug` is what makes getProviderForOrg pick the org's BYOM engine (privacy-strict: a BYOM
-        // failure degrades to mock, never to the platform provider) and what the standing-decision read
-        // falls back to. Without it every pushed private repo's sample went to the platform provider —
-        // the one hop a BYOM org connected its own engine to avoid. Same call shape as
-        // scan-queue-worker.ts.
-        const report = await scanRepository(fullName, { token, orgSlug });
-        inferenceBilled = report.engine?.provider != null && report.engine.provider !== "mock";
-        // DEGRADE-TO-MOCK GUARD. This path asks for a real LLM grade; when the provider is down
-        // scanRepository still returns a report, stamped engine.provider = "mock" — the deterministic
-        // FLOOR, not a measurement. Persisting it makes that floor the repo's current public reading AND
-        // the next run's regression baseline, and the alert below would then diff a real prior scan
-        // against our own outage and tell the customer their repo regressed. The interactive routes
-        // already refuse to store such a report (scan-finalize.ts's `authoritative` gate), and the
-        // sibling cron/org-scan routes refund the credit on exactly this condition — as, now, does the
-        // reserve above: the degrade is recognised for BOTH the data and the billing here.
-        //
-        // Deliberately NOT released for redelivery: a provider outage would degrade the retry too, so a
-        // release turns one outage into a scan storm. The repo is covered by the next push past the
-        // window or its scheduled autoscan — the same "coalesce, don't queue" reasoning as the throttle
-        // above.
-        // Optional-chained on purpose: a report with no engine stamp (a legacy/reconstructed shape) is
-        // not PROVEN degraded, so it persists — fail toward keeping a real scan, never toward dropping one.
-        if (report.engine?.provider === "mock") {
-          await refundCredit(); // no inference was bought, so the org keeps its credit
-          console.warn(
-            `[webhook] push rescan for ${fullName} degraded to the deterministic floor (LLM unavailable) — not persisted, credit refunded, no regression alert`,
-          );
-          return;
-        }
-        const persisted = await persistScanReport(report, { orgSlug });
-        // The shared refund policy, byte-for-byte the worker's: degrade-to-mock (handled above) or a
-        // dedup — an unchanged head scored no new row, and "a dedup run is free".
-        if (shouldRefundScan({ engine: { provider: report.engine?.provider ?? "" } }, persisted)) {
-          await refundCredit();
-        }
-        if (persisted && !persisted.deduped) {
-          const orgId = (await getOrgId(orgSlug).catch(() => null)) ?? undefined;
-          await checkAndAlertRegression(prev, report, { orgId, orgSlug });
-        }
-      } catch (err) {
-        if (!inferenceBilled) await refundCredit();
-        throw err; // the outer catch owns the delivery release + the log
-      }
-    });
+    const res = await enqueueAndDrainPushRescan({ orgSlug, fullName, deliveryId, invokedAt, maxDurationSec: maxDuration });
+    if (!res.enqueued) await abandonDelivery(deliveryId);
   } catch (err) {
-    // The deferred rescan failed after we already 2xx'd — release the delivery so a redelivery retries.
+    // The autoscan or owner check threw after we already 2xx'd, before any job row existed — release
+    // the delivery so a redelivery retries.
     await abandonDelivery(deliveryId, () =>
       console.error("[webhook] push rescan failed", err instanceof Error ? err.message : err),
     );
@@ -802,6 +628,8 @@ async function runInstallationLifecycle(
 }
 
 export async function POST(request: Request) {
+  // The push rescan's drain deadline is measured from here (fleetDeadlineAt), like /api/org/import.
+  const invokedAt = Date.now();
   const raw = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
   if (!verifyWebhook(raw, signature)) {
@@ -939,10 +767,9 @@ export async function POST(request: Request) {
       const onDefault = defaultBranch != null && payload.ref === `refs/heads/${defaultBranch}`;
       const headMoved = !payload.deleted && !!payload.after && !/^0+$/.test(payload.after);
       if (installationId && owner && repo && onDefault && headMoved) {
-        after(() => runPushRescan(installationId, owner, repo, delivery ?? undefined));
-        // Deliberately NOT released on failure (no abandonDelivery): the rescan above may already have
-        // spent a credit on this delivery, and a redelivery would pay for it again. A missed registry
-        // pass is recovered by the next push or the tab's Re-index button.
+        after(() => runPushRescan(installationId, owner, repo, invokedAt, delivery ?? undefined));
+        // Deliberately NOT released on failure (no abandonDelivery): the delivery's rescan job may already
+        // exist, and a missed registry pass is recovered by the next push or the tab's Re-index button.
         const slice = { installationId, owner, repo, ref: payload.ref, defaultBranch, after: payload.after, deleted: payload.deleted, commits: payload.commits };
         after(() =>
           onRegistryPush(slice, { ownerMatches: installationMatchesOwner }).then(

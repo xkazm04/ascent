@@ -55,7 +55,15 @@ vi.mock("@/lib/db", () => ({
   CREDIT_REASON: { REFUND: "refund" },
   upsertInstallation: vi.fn(),
 }));
-vi.mock("@/lib/db/scan-jobs", () => ({ enqueueProbeJob: vi.fn(async () => ({ id: "job_1", created: true })) }));
+vi.mock("@/lib/db/scan-jobs", () => ({
+  enqueueProbeJob: vi.fn(async () => ({ id: "job_1", created: true })),
+  // push-triggered-rescan part 2: the push enqueues a rescore job (through @/lib/push-rescan, real).
+  enqueueScanJob: vi.fn(),
+  JOB_PRIORITY: { manual: 10, webhook: 5, cadence: 0 },
+}));
+// The worker's drain is a seam here: its push branch (the money) is pinned in
+// src/lib/scan-queue-worker.push.test.ts, so this suite asserts only what the route asks it to drain.
+vi.mock("@/lib/scan-queue-worker", () => ({ drainLane: vi.fn(), PUSH_JOB_REASON: "webhook:push" }));
 // Row 35 — the auto-watch of newly granted repos. Its own rules are pinned in
 // src/lib/db/install-grants.test.ts; here only what the route feeds it and when.
 vi.mock("@/lib/db/install-grants", () => ({
@@ -79,10 +87,8 @@ vi.mock("@/lib/scoring/gate-admission", () => ({
 vi.mock("@/lib/scoring/gate-comment", () => ({ buildGateComment: vi.fn(), GATE_COMMENT_MARKER: "<!-- gate -->" }));
 vi.mock("@/lib/github/checks", () => ({ createCheckRun: vi.fn(), upsertStickyComment: vi.fn() }));
 vi.mock("@/lib/scan-alerts", () => ({ checkAndAlertRegression: vi.fn(), maybeAlertLowCredits: vi.fn() }));
-// MONEY. The push rescan reserves a prepaid credit before inference (mirroring the queue worker), so
-// both credit seams are stubbed at module level the way the sibling route tests do. Defaults are the
-// happy path — metered org, reservation granted, an overflow credit actually charged — so every
-// pre-existing push test keeps exercising the scan path unchanged.
+// MONEY. The push rescan's reserve moved into the queue worker's push branch; the route must never
+// reach a credit seam itself, so the reserve is still stubbed here to assert it is NOT called.
 vi.mock("@/lib/scan-credit", async (orig) => ({
   // `shouldRefundScan` is the REAL policy function: stubbing it would let this suite pass while the
   // route refunded on the wrong condition.
@@ -90,7 +96,6 @@ vi.mock("@/lib/scan-credit", async (orig) => ({
   reserveScanCredit: vi.fn(async () => ({ skip: false, reserved: true, balance: 4 })),
   refundScanCredit: vi.fn(async () => 5),
 }));
-vi.mock("@/lib/entitlement", () => ({ isMeteredScan: vi.fn(() => true) }));
 vi.mock("@/lib/scoring/engine", () => ({ diffReports: vi.fn() }));
 // ai-registry-repo#A — the registry's half of a push. Its own behaviour is pinned in
 // src/lib/registry/registry-push.test.ts; here only the scheduling and the delivery net are.
@@ -103,12 +108,9 @@ import {
   claimWebhookDelivery,
   getInstallationIdForOwner,
   getOrgGatePolicy,
-  getOrgId,
-  getScanReportByCommit,
   isRepoAutoscanned,
   listWatchedRepos,
   persistScanReport,
-  recordScanOutcome,
   reconcileWatchedRepos,
   releaseWebhookDelivery,
   removeInstallation,
@@ -116,15 +118,14 @@ import {
   suspendInstallation,
   upsertInstallation,
 } from "@/lib/db";
-import { enqueueProbeJob } from "@/lib/db/scan-jobs";
+import { enqueueProbeJob, enqueueScanJob } from "@/lib/db/scan-jobs";
+import { drainLane, type DrainSummary } from "@/lib/scan-queue-worker";
 import { applyGrantedAutoWatch, planGrantedAutoWatch } from "@/lib/db/install-grants";
 import { scanRepository } from "@/lib/scan";
 import { evaluateGate } from "@/lib/scoring/gate";
 import { buildGateComment } from "@/lib/scoring/gate-comment";
 import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
-import { checkAndAlertRegression } from "@/lib/scan-alerts";
-import { refundScanCredit, reserveScanCredit } from "@/lib/scan-credit";
-import { isMeteredScan } from "@/lib/entitlement";
+import { reserveScanCredit } from "@/lib/scan-credit";
 import { diffReports } from "@/lib/scoring/engine";
 import { onRegistryPush } from "@/lib/registry/registry-push";
 
@@ -153,19 +154,25 @@ const mockCreateCheckRun = vi.mocked(createCheckRun);
 const mockStickyComment = vi.mocked(upsertStickyComment);
 const mockIsRepoAutoscanned = vi.mocked(isRepoAutoscanned);
 const mockPersist = vi.mocked(persistScanReport);
-const mockGetReportByCommit = vi.mocked(getScanReportByCommit);
-const mockCheckRegression = vi.mocked(checkAndAlertRegression);
 const mockGetOrgGatePolicy = vi.mocked(getOrgGatePolicy);
-const mockGetOrgId = vi.mocked(getOrgId);
 const mockDiffReports = vi.mocked(diffReports);
 const mockRelease = vi.mocked(releaseWebhookDelivery);
 const mockClaim = vi.mocked(claimWebhookDelivery);
 const mockEnqueueProbe = vi.mocked(enqueueProbeJob);
+const mockEnqueueScan = vi.mocked(enqueueScanJob);
+const mockDrainLane = vi.mocked(drainLane);
+const drainSummary = (): DrainSummary => ({
+  claimed: 1,
+  done: 1,
+  failed: 0,
+  skipped: 0,
+  skippedForCredits: 0,
+  skippedNoToken: 0,
+  truncated: false,
+  errors: [],
+});
 const mockListWatched = vi.mocked(listWatchedRepos);
 const mockReserve = vi.mocked(reserveScanCredit);
-const mockRefund = vi.mocked(refundScanCredit);
-const mockIsMetered = vi.mocked(isMeteredScan);
-const mockRecordOutcome = vi.mocked(recordScanOutcome);
 const mockOnRegistryPush = vi.mocked(onRegistryPush);
 
 /** Run the work the route deferred via after() — the test stands in for the post-response phase. */
@@ -520,7 +527,7 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
     expect(mockScan).not.toHaveBeenCalled();
   });
 
-  // ---- push path (runPushRescan) — the SAME gate fronts the rescan mint ----
+  // ---- push path (runPushRescan) — the SAME gate fronts the rescan's enqueue ----
 
   const pushPayload = (owner: string, installationId: number) => ({
     installation: { id: installationId },
@@ -530,63 +537,49 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
     deleted: false,
   });
 
-  it("REJECTS the push rescan mint on a forged owner pairing (stored mapping mismatch)", async () => {
+  it("REJECTS the push rescan on a forged owner pairing (stored mapping mismatch): nothing is enqueued", async () => {
     mockIdForOwner.mockResolvedValueOnce("42"); // victimOwner truly maps to 42
     mockIsRepoAutoscanned.mockResolvedValue(true);
     await post("push", "push-stored-mismatch", pushPayload("victimOwner", 99));
     await runDeferred();
+    expect(mockEnqueueScan).not.toHaveBeenCalled();
+    expect(mockDrainLane).not.toHaveBeenCalled();
     expect(mockGetToken).not.toHaveBeenCalled();
-    expect(mockScan).not.toHaveBeenCalled();
-    // Both the watch check and the cross-tenant gate front the mint; the forged pairing fails the gate,
-    // so no rescan side effects fire regardless of their order.
-    expect(mockCheckRegression).not.toHaveBeenCalled();
   });
 
-  it("FAILS CLOSED on the push path when the owner-mapping lookup throws", async () => {
+  it("FAILS CLOSED on the push path when the owner-mapping lookup throws: nothing is enqueued", async () => {
     mockIdForOwner.mockRejectedValueOnce(new Error("db down"));
     mockIsRepoAutoscanned.mockResolvedValue(true);
     await post("push", "push-db-error", pushPayload("victimOwner", 99));
     await runDeferred();
+    expect(mockEnqueueScan).not.toHaveBeenCalled();
+    expect(mockDrainLane).not.toHaveBeenCalled();
+  });
+
+  // private-repo-scan lite r1, value-2: the job is enqueued under the installation's org, and the worker
+  // scans with that org (so a BYOM org's engine and standing decisions apply; pinned in the worker).
+  it("enqueues the push rescan only after the gate passes, under the installation's org", async () => {
+    mockIdForOwner.mockResolvedValueOnce("88"); // victimOwner -> 88, payload also 88: agrees
+    mockIsRepoAutoscanned.mockResolvedValue(true);
+    mockEnqueueScan.mockResolvedValueOnce({ id: "job_push", created: true });
+    mockDrainLane.mockResolvedValueOnce(drainSummary());
+    await post("push", "push-stored-match", pushPayload("VictimOwner", 88));
+    await runDeferred();
+    expect(mockEnqueueScan).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueScan).toHaveBeenCalledWith(
+      expect.objectContaining({ orgSlug: "victimowner", repoFullName: "VictimOwner/secret-repo" }),
+    );
+    expect(mockDrainLane).toHaveBeenCalledWith("rescore", expect.objectContaining({ orgSlug: "victimowner" }));
+    // The route mints nothing itself: the worker owns the token, the credit and the scan.
     expect(mockGetToken).not.toHaveBeenCalled();
     expect(mockScan).not.toHaveBeenCalled();
   });
-
-  it("ALLOWS the push rescan mint only after the gate passes (stored mapping agrees)", async () => {
-    mockIdForOwner.mockResolvedValueOnce("88"); // victimOwner -> 88, payload also 88: agrees
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockGetToken.mockResolvedValue("ghs_push_token");
-    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
-    mockScan.mockResolvedValue({ repo: { headSha: "h" } } as Awaited<ReturnType<typeof scanRepository>>);
-    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
-    await post("push", "push-stored-match", pushPayload("victimOwner", 88));
-    await runDeferred();
-    expect(mockGetToken).toHaveBeenCalledTimes(1);
-    expect(mockGetToken).toHaveBeenCalledWith(88);
-    expect(mockScan).toHaveBeenCalled();
-  });
-
-  // private-repo-scan lite r1, value-2. Without the org, scanRepository picked the PLATFORM provider for
-  // every pushed private repo, so a BYOM org's source sample left on the hop it connected Bedrock to avoid.
-  it("scans a push rescan for the installation's org, so its BYOM engine and standing decisions apply", async () => {
-    mockIdForOwner.mockResolvedValueOnce("88");
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockGetToken.mockResolvedValue("ghs_push_token");
-    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
-    mockScan.mockResolvedValue({ repo: { headSha: "h" } } as Awaited<ReturnType<typeof scanRepository>>);
-    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
-    await post("push", "push-byom-org", pushPayload("VictimOwner", 88));
-    await runDeferred();
-    expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(mockScan).toHaveBeenCalledWith("VictimOwner/secret-repo", { token: "ghs_push_token", orgSlug: "victimowner" });
-    // The persist and the scan name the same org — the report lands where its engine was chosen.
-    expect(mockPersist).toHaveBeenCalledWith(expect.anything(), { orgSlug: "victimowner" });
-  });
 });
 
-// github-app-installation-webhooks #5 + #6 — the replay horizon (the authoritative DB claim must outlast
-// GitHub's redelivery window) and per-repo rescan serialization (back-to-back pushes must diff against the
-// immediately-prior persisted scan, not a shared stale baseline).
-describe("POST /api/app/webhook — replay horizon + per-repo rescan baseline (runPushRescan)", () => {
+// github-app-installation-webhooks #5 — the replay horizon (the authoritative DB claim must outlast
+// GitHub's redelivery window). #6 (per-repo rescan serialization) left with the inline loop: a push is a
+// queued job now, and claimJobById's peer check serializes one repo's scans across instances.
+describe("POST /api/app/webhook — replay horizon (runPushRescan)", () => {
   const pushPayload = (owner: string, installationId: number) => ({
     installation: { id: installationId },
     repository: { name: "secret-repo", default_branch: "main", owner: { login: owner } },
@@ -601,38 +594,6 @@ describe("POST /api/app/webhook — replay horizon + per-repo rescan baseline (r
     expect(mockClaim).toHaveBeenCalledWith("replay-horizon-id", 24 * 60 * 60_000);
   });
 
-  it("serializes back-to-back rescans of the same repo so the 2nd diff baselines on the 1st's persisted scan (#6)", async () => {
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockIdForOwner.mockResolvedValue("42"); // stored mapping agrees for both deliveries
-    mockGetToken.mockResolvedValue("tok");
-    mockGetOrgId.mockResolvedValue("org1");
-
-    // Model the DB honestly: getScanReportByCommit returns the LAST persisted report. Two pushes scan two
-    // different reports. WITHOUT serialization both baseline reads see the same stale value (null); WITH it,
-    // the 2nd critical section runs after the 1st persists, so its baseline is the 1st's report.
-    const reportA = { repo: { headSha: "a" } } as Awaited<ReturnType<typeof scanRepository>>;
-    const reportB = { repo: { headSha: "b" } } as Awaited<ReturnType<typeof scanRepository>>;
-    let lastPersisted: unknown = null;
-    mockGetReportByCommit.mockImplementation(
-      async () => lastPersisted as Awaited<ReturnType<typeof getScanReportByCommit>>,
-    );
-    mockScan.mockResolvedValueOnce(reportA).mockResolvedValueOnce(reportB);
-    mockPersist.mockImplementation(async (report) => {
-      lastPersisted = report;
-      return { deduped: false } as Awaited<ReturnType<typeof persistScanReport>>;
-    });
-
-    // Two pushes for the SAME repo, deferred work run CONCURRENTLY (as a real after() burst would).
-    await post("push", "push-a", pushPayload("acme", 42));
-    await post("push", "push-b", pushPayload("acme", 42));
-    await Promise.all(mockAfter.mock.calls.map((c) => (c[0] as () => Promise<void>)()));
-
-    expect(mockCheckRegression).toHaveBeenCalledTimes(2);
-    // Order-independent invariant of the fix: the FIRST rescan baselines on null (nothing persisted yet);
-    // the SECOND baselines on the FIRST rescan's persisted report — NOT the stale null it read before #6.
-    expect(mockCheckRegression.mock.calls[0]![0]).toBeNull();
-    expect(mockCheckRegression.mock.calls[1]![0]).toBe(mockCheckRegression.mock.calls[0]![1]);
-  });
 });
 
 // Pins test-mastery 06-18 high #3 (route.ts:202-273, 402-413): the PR maturity gate `runPrGate` must
@@ -788,14 +749,17 @@ describe("POST /api/app/webhook — PR maturity gate outcomes (runPrGate)", () =
   });
 });
 
-// Pins test-mastery 06-18 high #4 (route.ts:304-324, 431-440): the `push` rescan gate must auto-rescan
-// ONLY a watched repo, ONLY on the default branch, and ONLY when the head actually moved. A no-op /
-// non-default / unwatched / branch-delete push must NOT mint a token, scan, persist, or charge a
-// regression check. The auth gate is satisfied (stored mapping agrees) so these pin the rescan guards
-// themselves, not the authorization branch (covered above).
-// Invariant: scanRepository fires for a push iff (watched AND default-branch AND head-moved); otherwise
-// no rescan and no spend.
-describe("POST /api/app/webhook — push rescan gate guards (runPushRescan)", () => {
+// push-triggered-rescan part 2: a default-branch push to an autoscanned repo ENQUEUES one rescore job
+// (reason webhook:push, priority webhook, the aligned window bucket) and drains exactly that job by id
+// with a deadline. The money (reserve, scan, persist, refund, the degrade guard, the failure backoff)
+// lives in the worker's push branch and is pinned in src/lib/scan-queue-worker.push.test.ts; the route
+// owns only WHETHER to enqueue and what happens to the delivery.
+// Invariant: a job is enqueued for a push iff (autoscanned AND default-branch AND head-moved AND the
+// owner matches); a push that enqueues no row releases its delivery, and one that did never does.
+describe("POST /api/app/webhook — push rescan on the ScanJob queue (runPushRescan)", () => {
+  let n = 0;
+  const NOW = Date.parse("2026-10-08T12:07:00.000Z");
+  const WINDOW = 15 * 60_000;
   const pushPayload = (over: Record<string, unknown> = {}) => ({
     installation: { id: 66 },
     repository: { name: "repo", default_branch: "main", owner: { login: "acme" } },
@@ -805,242 +769,160 @@ describe("POST /api/app/webhook — push rescan gate guards (runPushRescan)", ()
     ...over,
   });
 
-  function expectNoRescan() {
-    expect(mockScan).not.toHaveBeenCalled();
-    expect(mockGetToken).not.toHaveBeenCalled();
-    expect(mockPersist).not.toHaveBeenCalled();
-    expect(mockCheckRegression).not.toHaveBeenCalled();
-  }
-
-  it("does NOT rescan or charge an UNWATCHED repo on a default-branch push", async () => {
-    mockIdForOwner.mockResolvedValue("66"); // auth gate agrees
-    mockIsRepoAutoscanned.mockResolvedValue(false); // ...but the repo isn't watched
-    await post("push", "push-unwatched", pushPayload());
-    await runDeferred();
-    expectNoRescan();
-  });
-
-  it("a watched repo on \"no autoscan\" (the gate says false) scans nothing: no credit, no token, no owner-confirm, no release", async () => {
-    mockIdForOwner.mockResolvedValue("66");
-    mockIsRepoAutoscanned.mockResolvedValue(false); // watched, scanSchedule "off": isRepoAutoscanned is false
-    await post("push", "push-autoscan-off", pushPayload());
-    await runDeferred();
-    expect(mockIsRepoAutoscanned).toHaveBeenCalledWith("acme", "acme/repo");
-    expectNoRescan();
-    expect(mockReserve).not.toHaveBeenCalled();
-    expect(mockIdForOwner).not.toHaveBeenCalled();
-    expect(mockRelease).not.toHaveBeenCalled();
-  });
-
-  it("a watched repo on a cadence (weekly: the gate says true) is rescanned as before", async () => {
-    mockIdForOwner.mockResolvedValue("66");
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockGetToken.mockResolvedValue("ghs_push_token");
-    mockGetReportByCommit.mockResolvedValue({ repo: { headSha: "prev" } } as Awaited<ReturnType<typeof getScanReportByCommit>>);
-    mockScan.mockResolvedValue({ repo: { headSha: "abc123" } } as Awaited<ReturnType<typeof scanRepository>>);
-    await post("push", "push-autoscan-weekly", pushPayload());
-    await runDeferred();
-    expect(mockIdForOwner).toHaveBeenCalled();
-    expect(mockScan).toHaveBeenCalledTimes(1);
-  });
-
-  it("does NOT rescan a push to a NON-DEFAULT branch (the guard is checked before runPushRescan)", async () => {
-    mockIdForOwner.mockResolvedValue("66");
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    // A feature-branch push: ref != refs/heads/<default_branch>, so runPushRescan is never scheduled.
-    await post("push", "push-nondefault", pushPayload({ ref: "refs/heads/feature" }));
-    await runDeferred();
-    expectNoRescan();
-  });
-
-  it("does NOT rescan a branch-DELETE push (after is all-zeros / deleted)", async () => {
-    mockIdForOwner.mockResolvedValue("66");
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    // A branch delete: deleted=true and after is the all-zero SHA — the head did not move forward.
-    await post("push", "push-deleted", pushPayload({
-      deleted: true,
-      after: "0000000000000000000000000000000000000000",
-    }));
-    await runDeferred();
-    expectNoRescan();
-  });
-
-  it("DOES rescan + alert a watched, default-branch, head-moved push and persists a fresh report", async () => {
-    mockIdForOwner.mockResolvedValue("66"); // auth gate agrees
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockGetToken.mockResolvedValue("ghs_push_token");
-    const prior = { repo: { headSha: "prev" } } as Awaited<ReturnType<typeof getScanReportByCommit>>;
-    mockGetReportByCommit.mockResolvedValue(prior);
-    mockScan.mockResolvedValue({ repo: { headSha: "abc123" } } as Awaited<ReturnType<typeof scanRepository>>);
-    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
-    mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
-    mockCheckRegression.mockResolvedValue(undefined as Awaited<ReturnType<typeof checkAndAlertRegression>>);
-
-    await post("push", "push-rescan-ok", pushPayload());
-    await runDeferred();
-
-    expect(mockGetToken).toHaveBeenCalledWith(66);
-    expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(mockPersist).toHaveBeenCalledTimes(1);
-    // A non-deduped persist drives a regression check against the PRIOR report.
-    expect(mockCheckRegression).toHaveBeenCalledTimes(1);
-    expect(mockCheckRegression.mock.calls[0][0]).toBe(prior);
-  });
-
-  it("does NOT alert when the persisted report is a DEDUPED no-op (same commit already scored)", async () => {
-    mockIdForOwner.mockResolvedValue("66");
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockGetToken.mockResolvedValue("ghs_push_token");
-    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
-    mockScan.mockResolvedValue({ repo: { headSha: "abc123" } } as Awaited<ReturnType<typeof scanRepository>>);
-    // This commit was already persisted — a deduped write must SUPPRESS the regression alert (no double-charge).
-    mockPersist.mockResolvedValue({ deduped: true } as Awaited<ReturnType<typeof persistScanReport>>);
-
-    await post("push", "push-rescan-deduped", pushPayload());
-    await runDeferred();
-
-    expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(mockPersist).toHaveBeenCalledTimes(1);
-    expect(mockCheckRegression).not.toHaveBeenCalled();
-  });
-});
-
-// Pins G1-05: a push rescan is a REAL, LLM-billed scan, so `runPushRescan` throttles to at most one
-// scan per repo per PUSH_RESCAN_MIN_INTERVAL_MINUTES (default 15). The window state is the PRIOR
-// PERSISTED SCAN's `scannedAt` — a DB fact, so the throttle holds across instances — and the check runs
-// INSIDE the serializePerRepo critical section so a burst's 2nd run sees the 1st run's persisted stamp.
-// Invariant: a second default-branch push inside the window costs NOTHING (no token, no scan, no
-// persist, no alert); a push past the window scans normally; and throttling never weakens the #6
-// baseline-ordering guarantee.
-describe("POST /api/app/webhook — push rescan throttle (G1-05)", () => {
-  const pushPayload = () => ({
-    installation: { id: 77 },
-    repository: { name: "busy-repo", default_branch: "main", owner: { login: "acme" } },
-    ref: "refs/heads/main",
-    after: "beef000000000000000000000000000000000000",
-    deleted: false,
-  });
-
-  /** A scan report carrying an explicit scannedAt — what the throttle reads off the baseline. */
-  const report = (headSha: string, scannedAt: string) =>
-    ({ repo: { headSha }, scannedAt }) as unknown as Awaited<ReturnType<typeof scanRepository>>;
-
-  function authorizeWatchedRepo() {
-    mockIdForOwner.mockResolvedValue("77");
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockGetToken.mockResolvedValue("ghs_tok");
-    mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
-    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
-  }
-
   beforeEach(() => {
-    vi.spyOn(console, "info").mockImplementation(() => {}); // the coalesce path logs why it skipped
+    mockIdForOwner.mockResolvedValue("66"); // the auth gate agrees
+    mockIsRepoAutoscanned.mockResolvedValue(true);
+    mockEnqueueScan.mockResolvedValue({ id: "job_push", created: true });
+    mockDrainLane.mockResolvedValue(drainSummary());
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     delete process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES;
   });
 
-  it("a SECOND push inside the window does NOT buy a second scan (no token, no scan, no persist, no alert)", async () => {
-    authorizeWatchedRepo();
-    const now = Date.now();
-    // Model the DB: the baseline read returns the last persisted report, exactly as the real reader does.
-    let lastPersisted: unknown = null;
-    mockGetReportByCommit.mockImplementation(
-      async () => lastPersisted as Awaited<ReturnType<typeof getScanReportByCommit>>,
-    );
-    mockPersist.mockImplementation(async (r) => {
-      lastPersisted = r;
-      return { deduped: false } as Awaited<ReturnType<typeof persistScanReport>>;
+  it("enqueues ONE job (webhook:push, priority webhook, the window bucket), then drains it by id with a deadline", async () => {
+    const delivery = "push-enqueue-" + n++;
+    await post("push", delivery, pushPayload());
+    await runDeferred();
+    expect(mockEnqueueScan).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueScan).toHaveBeenCalledWith({
+      orgSlug: "acme",
+      repoFullName: "acme/repo",
+      lane: "rescore",
+      reason: "webhook:push",
+      bucket: `push:${Math.floor(NOW / WINDOW)}`,
+      priority: 5,
     });
-    // The first push's scan lands NOW; the second push arrives 1 minute later — inside the 15-min default.
-    mockScan.mockResolvedValue(report("beef", new Date(now).toISOString()));
-
-    await post("push", "throttle-first", pushPayload());
-    await runDeferred();
-    expect(mockScan).toHaveBeenCalledTimes(1);
-
-    await post("push", "throttle-second", pushPayload());
-    await runDeferred();
-
-    expect(mockScan).toHaveBeenCalledTimes(1); // still ONE paid scan
-    expect(mockGetToken).toHaveBeenCalledTimes(1); // and no token minted for the coalesced push
-    expect(mockPersist).toHaveBeenCalledTimes(1);
-    expect(mockCheckRegression).toHaveBeenCalledTimes(1);
-    // A coalesced push is a deterministic decision, not a failure — the delivery claim stays held.
-    expect(mockRelease).not.toHaveBeenCalledWith("throttle-second");
-  });
-
-  it("a push AFTER the window DOES scan again", async () => {
-    authorizeWatchedRepo();
-    // Baseline scanned 16 minutes ago — past the 15-minute default.
-    mockGetReportByCommit.mockResolvedValue(
-      report("old", new Date(Date.now() - 16 * 60_000).toISOString()) as Awaited<
-        ReturnType<typeof getScanReportByCommit>
-      >,
-    );
-    mockScan.mockResolvedValue(report("beef", new Date().toISOString()));
-
-    await post("push", "throttle-past-window", pushPayload());
-    await runDeferred();
-
-    expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(mockCheckRegression).toHaveBeenCalledTimes(1);
-  });
-
-  it("honors PUSH_RESCAN_MIN_INTERVAL_MINUTES (a 60-min window coalesces a 20-min-old baseline)", async () => {
-    process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES = "60";
-    authorizeWatchedRepo();
-    mockGetReportByCommit.mockResolvedValue(
-      report("old", new Date(Date.now() - 20 * 60_000).toISOString()) as Awaited<
-        ReturnType<typeof getScanReportByCommit>
-      >,
-    );
-
-    await post("push", "throttle-env-60", pushPayload());
-    await runDeferred();
-
-    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockDrainLane).toHaveBeenCalledTimes(1);
+    expect(mockDrainLane).toHaveBeenCalledWith("rescore", {
+      jobs: [{ id: "job_push", repo: "acme/repo" }],
+      concurrency: 1,
+      // fleetDeadlineAt(invokedAt, maxDuration 300): the 15 s finalize reserve is held back.
+      deadlineAt: NOW + 300_000 - 15_000,
+      orgSlug: "acme",
+      workerId: `webhook:${delivery}`,
+    });
+    // No money moves in the route: no token, no reserve, no scan.
     expect(mockGetToken).not.toHaveBeenCalled();
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockRelease).not.toHaveBeenCalled();
   });
 
-  it("a baseline with NO usable timestamp fails toward freshness (scans)", async () => {
-    authorizeWatchedRepo();
-    // A DB blip degrades the baseline read to null; an unparseable stamp is the same case.
-    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
-    mockScan.mockResolvedValue(report("beef", new Date().toISOString()));
-
-    await post("push", "throttle-no-baseline", pushPayload());
+  it("a repo that is NOT autoscanned is never enqueued, and the owner confirm is never called", async () => {
+    mockIsRepoAutoscanned.mockResolvedValue(false); // unwatched, or watched on "no autoscan"
+    await post("push", "push-not-autoscanned-" + n++, pushPayload());
     await runDeferred();
-
-    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockIsRepoAutoscanned).toHaveBeenCalledWith("acme", "acme/repo");
+    expect(mockIdForOwner).not.toHaveBeenCalled();
+    expect(mockGetInstallation).not.toHaveBeenCalled();
+    expect(mockEnqueueScan).not.toHaveBeenCalled();
+    expect(mockDrainLane).not.toHaveBeenCalled();
+    expect(mockRelease).not.toHaveBeenCalled(); // a deterministic no-op stays deduped
   });
 
-  it("with the throttle DISABLED (0) the #6 per-repo baseline ordering still holds for a concurrent burst", async () => {
-    process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES = "0";
-    authorizeWatchedRepo();
-    const now = Date.now();
-    const reportA = report("a", new Date(now).toISOString());
-    const reportB = report("b", new Date(now + 1000).toISOString());
-    let lastPersisted: unknown = null;
-    mockGetReportByCommit.mockImplementation(
-      async () => lastPersisted as Awaited<ReturnType<typeof getScanReportByCommit>>,
+  it("does NOT enqueue a push to a NON-DEFAULT branch or a branch DELETE (nothing is even scheduled)", async () => {
+    await post("push", "push-feature-" + n++, pushPayload({ ref: "refs/heads/feature" }));
+    await post("push", "push-delete-" + n++, pushPayload({ after: "0000000000000000000000000000000000000000", deleted: true }));
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockEnqueueScan).not.toHaveBeenCalled();
+  });
+
+  it("an enqueue that answers NULL is reported and abandons the delivery", async () => {
+    mockEnqueueScan.mockResolvedValueOnce(null);
+    const delivery = "push-enqueue-null-" + n++;
+    await post("push", delivery, pushPayload());
+    await runDeferred();
+    expect(console.error).toHaveBeenCalledWith(
+      "[webhook] push rescan enqueue returned no row for acme/repo",
+      "enqueueScanJob returned null",
     );
-    mockScan.mockResolvedValueOnce(reportA).mockResolvedValueOnce(reportB);
-    mockPersist.mockImplementation(async (r) => {
-      lastPersisted = r;
-      return { deduped: false } as Awaited<ReturnType<typeof persistScanReport>>;
+    expect(mockRelease).toHaveBeenCalledWith(delivery);
+    expect(mockDrainLane).not.toHaveBeenCalled();
+  });
+
+  it("an enqueue that THROWS is reported and abandons the delivery", async () => {
+    mockEnqueueScan.mockRejectedValueOnce(new Error("unique index down"));
+    const delivery = "push-enqueue-throw-" + n++;
+    await post("push", delivery, pushPayload());
+    await runDeferred();
+    expect(console.error).toHaveBeenCalledWith("[webhook] push rescan enqueue failed for acme/repo", "unique index down");
+    expect(mockRelease).toHaveBeenCalledWith(delivery);
+    expect(mockDrainLane).not.toHaveBeenCalled();
+  });
+
+  it("once a row exists the delivery is KEPT, even when the drain throws (the row is the durable record)", async () => {
+    mockDrainLane.mockRejectedValueOnce(new Error("reserve threw"));
+    await post("push", "push-drain-throw-" + n++, pushPayload());
+    await runDeferred();
+    expect(console.error).toHaveBeenCalledWith("[webhook] push rescan drain failed for acme/repo", "reserve threw");
+    expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("a SECOND push in the same window reuses the row and buys nothing", async () => {
+    // The queue modelled honestly: the idempotency key is the bucket, an existing row is returned with
+    // created: false, and a row that already settled cannot be claimed again (claimJobById's CAS on
+    // state "queued", pinned in scan-jobs.test.ts). `bought` counts the drains that won a claim.
+    const rows = new Map<string, { id: string; settled: boolean }>();
+    let bought = 0;
+    mockEnqueueScan.mockImplementation(async (input) => {
+      const hit = rows.get(input.bucket!);
+      if (hit) return { id: hit.id, created: false };
+      const row = { id: `job_${rows.size + 1}`, settled: false };
+      rows.set(input.bucket!, row);
+      return { id: row.id, created: true };
+    });
+    mockDrainLane.mockImplementation(async (_lane, opts) => {
+      const row = [...rows.values()].find((r) => r.id === opts.jobs![0]!.id)!;
+      if (!row.settled) {
+        row.settled = true;
+        bought += 1;
+      }
+      return drainSummary();
     });
 
-    await post("push", "throttle-off-a", pushPayload());
-    await post("push", "throttle-off-b", pushPayload());
-    await Promise.all(mockAfter.mock.calls.map((c) => (c[0] as () => Promise<void>)()));
+    await post("push", "push-window-a-" + n++, pushPayload());
+    await runDeferred();
+    vi.setSystemTime(NOW + 60_000); // a minute later, same aligned window
+    await post("push", "push-window-b-" + n++, pushPayload({ after: "def4560000000000000000000000000000000000" }));
+    await runDeferred();
 
-    expect(mockScan).toHaveBeenCalledTimes(2);
-    // The 2nd critical section baselines on the 1st's PERSISTED report, not the stale null it read before.
-    expect(mockCheckRegression).toHaveBeenCalledTimes(2);
-    expect(mockCheckRegression.mock.calls[0]![0]).toBeNull();
-    expect(mockCheckRegression.mock.calls[1]![0]).toBe(mockCheckRegression.mock.calls[0]![1]);
+    const buckets = mockEnqueueScan.mock.calls.map((c) => c[0].bucket);
+    expect(buckets).toEqual([`push:${Math.floor(NOW / WINDOW)}`, `push:${Math.floor(NOW / WINDOW)}`]);
+    expect(await mockEnqueueScan.mock.results[1]!.value).toEqual({ id: "job_1", created: false });
+    expect(rows.size).toBe(1);
+    expect(bought).toBe(1);
+    expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("a push in the NEXT aligned window gets a new bucket", async () => {
+    await post("push", "push-next-a-" + n++, pushPayload());
+    await runDeferred();
+    vi.setSystemTime((Math.floor(NOW / WINDOW) + 1) * WINDOW); // the next window's first instant
+    await post("push", "push-next-b-" + n++, pushPayload());
+    await runDeferred();
+    const buckets = mockEnqueueScan.mock.calls.map((c) => c[0].bucket);
+    expect(buckets[0]).not.toBe(buckets[1]);
+  });
+
+  it("honors PUSH_RESCAN_MIN_INTERVAL_MINUTES (a 60-minute window)", async () => {
+    process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES = "60";
+    await post("push", "push-hour-" + n++, pushPayload());
+    await runDeferred();
+    expect(mockEnqueueScan.mock.calls[0]![0].bucket).toBe(`push:${Math.floor(NOW / (60 * 60_000))}`);
+  });
+
+  it("with the interval at 0 (throttle off) the bucket is per DELIVERY", async () => {
+    process.env.PUSH_RESCAN_MIN_INTERVAL_MINUTES = "0";
+    const d1 = "push-zero-a-" + n++;
+    const d2 = "push-zero-b-" + n++;
+    await post("push", d1, pushPayload());
+    await post("push", d2, pushPayload());
+    await runDeferred();
+    expect(mockEnqueueScan.mock.calls.map((c) => c[0].bucket)).toEqual([`push:${d1}`, `push:${d2}`]);
   });
 });
 
@@ -1160,8 +1042,8 @@ describe("POST /api/app/webhook — delivery release on the installationMatchesO
       deleted: false,
     });
     await runDeferred();
-    expect(mockGetToken).not.toHaveBeenCalled();
-    expect(mockScan).not.toHaveBeenCalled();
+    expect(mockEnqueueScan).not.toHaveBeenCalled(); // bailed before any job row exists
+    expect(mockDrainLane).not.toHaveBeenCalled();
     expect(mockRelease).toHaveBeenCalledWith("push-owner-mismatch-release");
   });
 
@@ -1270,64 +1152,6 @@ describe("POST /api/app/webhook — claim/parse ordering: no half-claimed strand
     const retry = await post("installation", "del-claimblip", carrier);
     expect(retry.duplicate).toBeUndefined();
     expect(mockClaim).toHaveBeenCalledTimes(2);
-  });
-});
-
-// A push rescan asks for a real LLM grade. When the provider is down, scanRepository still returns a
-// report — stamped engine.provider = "mock", the deterministic FLOOR rather than a measurement.
-// Persisting that makes the floor the repo's current public reading AND the next run's baseline, and
-// the regression alert would then diff a real prior scan against our own outage and tell the customer
-// their repo regressed. The sibling cron/org-scan routes recognise this exact condition for BILLING
-// (they refund the credit); none of them applied the same judgment to the DATA.
-describe("POST /api/app/webhook — a degraded push rescan is not persisted or alerted on", () => {
-  let n = 0;
-  const pushPayload = () => ({
-    installation: { id: 77 },
-    repository: { name: "repo", default_branch: "main", owner: { login: "acme" } },
-    ref: "refs/heads/main",
-    after: "beef000000000000000000000000000000000000",
-    deleted: false,
-  });
-  const report = (provider: string) =>
-    ({ repo: { headSha: "beef" }, scannedAt: new Date().toISOString(), engine: { provider, model: "m" } }) as unknown as Awaited<
-      ReturnType<typeof scanRepository>
-    >;
-
-  beforeEach(() => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockIdForOwner.mockResolvedValue("77");
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockGetToken.mockResolvedValue("ghs_tok");
-    mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
-    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
-    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
-  });
-
-  it("skips BOTH the persist and the regression alert when the scan degraded to the floor", async () => {
-    mockScan.mockResolvedValue(report("mock"));
-    await post("push", "d-degrade-" + (n++), pushPayload());
-    await runDeferred();
-
-    expect(mockScan).toHaveBeenCalled(); // the scan ran — it just produced nothing authoritative
-    expect(mockPersist).not.toHaveBeenCalled();
-    expect(mockCheckRegression).not.toHaveBeenCalled();
-  });
-
-  it("persists and alerts normally when a real provider answered", async () => {
-    mockScan.mockResolvedValue(report("gemini"));
-    await post("push", "d-degrade-" + (n++), pushPayload());
-    await runDeferred();
-
-    expect(mockPersist).toHaveBeenCalled();
-    expect(mockCheckRegression).toHaveBeenCalled();
-  });
-
-  it("persists a report with NO engine stamp — absence is not proof of degradation", async () => {
-    mockScan.mockResolvedValue({ repo: { headSha: "beef" } } as Awaited<ReturnType<typeof scanRepository>>);
-    await post("push", "d-degrade-" + (n++), pushPayload());
-    await runDeferred();
-
-    expect(mockPersist).toHaveBeenCalled();
   });
 });
 
@@ -1455,166 +1279,11 @@ describe("POST /api/app/webhook — repository.deleted unwatch", () => {
   });
 });
 
-// ── MONEY: the push rescan pays for itself (Direction 2) ─────────────────────────────────────────
-// `runPushRescan` runs real LLM inference on a private org repo. Until this landed it reserved NO
-// credit — the file header and the degrade comment both narrated a charge that was never made, so a
-// watched org at balance zero kept scanning free forever and the 15-minute throttle was the only cost
-// ceiling. These pin the worker-shaped money loop: reserve before inference, SKIP (never scan free)
-// when the balance is exhausted, refund whenever nothing billable was produced.
-describe("POST /api/app/webhook — push rescan credit metering", () => {
-  let n = 0;
-  const pushPayload = () => ({
-    installation: { id: 88 },
-    repository: { name: "paid-repo", default_branch: "main", owner: { login: "acme" } },
-    ref: "refs/heads/main",
-    after: "cafe000000000000000000000000000000000000",
-    deleted: false,
-  });
-  const report = (provider: string) =>
-    ({ repo: { headSha: "cafe" }, scannedAt: new Date().toISOString(), engine: { provider, model: "m" } }) as unknown as Awaited<
-      ReturnType<typeof scanRepository>
-    >;
-  /** A baseline far outside the throttle window, so the throttle never masks what these assert. */
-  const staleBaseline = () =>
-    ({ repo: { headSha: "old" }, scannedAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString() }) as unknown as Awaited<
-      ReturnType<typeof getScanReportByCommit>
-    >;
-
-  beforeEach(() => {
-    mockIdForOwner.mockResolvedValue("88");
-    mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockGetToken.mockResolvedValue("ghs_tok");
-    mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
-    mockGetReportByCommit.mockResolvedValue(staleBaseline());
-    mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
-    mockScan.mockResolvedValue(report("gemini"));
-    mockIsMetered.mockReturnValue(true);
-    mockReserve.mockResolvedValue({ skip: false, reserved: true, balance: 4 });
-  });
-
-  it("reserves ONE credit for the org+repo BEFORE inference", async () => {
-    await post("push", "credit-reserve-" + n++, pushPayload());
-    await runDeferred();
-
-    expect(mockReserve).toHaveBeenCalledWith("acme", "acme/paid-repo", { actor: "webhook:push" });
-    expect(mockScan).toHaveBeenCalledTimes(1);
-    // Ordering is the whole point: a reservation made after the scan would serve the inference free.
-    expect(mockReserve.mock.invocationCallOrder[0]).toBeLessThan(mockScan.mock.invocationCallOrder[0]);
-  });
-
-  it("SKIPS the rescan of a balance-zero org — no token, no scan, no persist — and records why", async () => {
-    mockReserve.mockResolvedValue({ skip: true, reserved: false, balance: 0 });
-
-    await post("push", "credit-skip-" + n++, pushPayload());
-    await runDeferred();
-
-    expect(mockGetToken).not.toHaveBeenCalled();
-    expect(mockScan).not.toHaveBeenCalled();
-    expect(mockPersist).not.toHaveBeenCalled();
-    expect(mockCheckRegression).not.toHaveBeenCalled();
-    // A webhook cannot 402 anybody, so the skip is recorded the way the throttle records its coalesce:
-    // a log line carrying a STABLE reason string.
-    const warned = vi.mocked(console.warn).mock.calls.map((c) => String(c[0])).join("\n");
-    expect(warned).toContain("insufficient_credits");
-    expect(warned).toContain("acme/paid-repo");
-    // DURABLE trace, not just the log line: the owner sees WHY the watched repo went stale on the
-    // Repositories tab (Repository.lastScanStatus/lastScanError), without reading server logs.
-    expect(mockRecordOutcome).toHaveBeenCalledWith("acme", "acme/paid-repo", {
-      ok: false,
-      error: "insufficient credits",
-    });
-    // Nothing was reserved, so nothing may be refunded — a refund here would MINT a credit.
-    expect(mockRefund).not.toHaveBeenCalled();
-    // And the delivery stays claimed: an empty wallet is not a transient failure, and releasing it
-    // would turn a depleted balance into a redelivery storm.
-    expect(mockRelease).not.toHaveBeenCalled();
-  });
-
-  it("a credits-skipped push does NOT consume the throttle — the next push scans immediately", async () => {
-    mockReserve.mockResolvedValueOnce({ skip: true, reserved: false, balance: 0 });
-    await post("push", "credit-skip-throttle-a-" + n++, pushPayload());
-    await runDeferred();
-    expect(mockScan).not.toHaveBeenCalled();
-    // The throttle's state IS the prior persisted scan's `scannedAt`, and the skip persisted nothing,
-    // so the window the org would otherwise wait out was never opened.
-    expect(mockPersist).not.toHaveBeenCalled();
-
-    // Topped up: the very next push scans, rather than waiting 15 minutes for a scan that never ran.
-    await post("push", "credit-skip-throttle-b-" + n++, pushPayload());
-    await runDeferred();
-    expect(mockScan).toHaveBeenCalledTimes(1);
-    expect(mockPersist).toHaveBeenCalledTimes(1);
-  });
-
-  it("REFUNDS a charged scan that degraded to the deterministic floor", async () => {
-    mockScan.mockResolvedValue(report("mock"));
-
-    await post("push", "credit-degrade-" + n++, pushPayload());
-    await runDeferred();
-
-    expect(mockPersist).not.toHaveBeenCalled(); // the data judgment is unchanged
-    expect(mockRefund).toHaveBeenCalledWith("acme", true, { actor: "webhook:push", repoFullName: "acme/paid-repo" });
-  });
-
-  it("REFUNDS a deduped persist — an unchanged head scored no new row, so the run was free", async () => {
-    mockPersist.mockResolvedValue({ deduped: true } as Awaited<ReturnType<typeof persistScanReport>>);
-
-    await post("push", "credit-dedup-" + n++, pushPayload());
-    await runDeferred();
-
-    expect(mockRefund).toHaveBeenCalledWith("acme", true, { actor: "webhook:push", repoFullName: "acme/paid-repo" });
-    expect(mockCheckRegression).not.toHaveBeenCalled();
-  });
-
-  it("KEEPS the credit for a real, newly-persisted scan", async () => {
-    await post("push", "credit-keep-" + n++, pushPayload());
-    await runDeferred();
-
-    expect(mockPersist).toHaveBeenCalledTimes(1);
-    expect(mockRefund).not.toHaveBeenCalled();
-    // The outcome row is written ONLY on the credits skip: a normal rescan must not start stamping
-    // scan status on the repo, or the throttle/dedup paths would begin reporting outcomes they never
-    // reported before.
-    expect(mockRecordOutcome).not.toHaveBeenCalled();
-  });
-
-  it("does NOT reserve on a deployment where the scan is not metered (self-hosted / no DB / public)", async () => {
-    mockIsMetered.mockReturnValue(false);
-
-    await post("push", "credit-unmetered-" + n++, pushPayload());
-    await runDeferred();
-
-    expect(mockReserve).not.toHaveBeenCalled();
-    expect(mockRefund).not.toHaveBeenCalled();
-    expect(mockScan).toHaveBeenCalledTimes(1); // still scans — metering is not an authorization gate
-  });
-
-  it("REFUNDS when the scan throws BEFORE inference, because the redelivery will reserve again", async () => {
-    mockGetToken.mockRejectedValue(new Error("token mint 500"));
-
-    await post("push", "credit-throw-pre-" + n++, pushPayload());
-    await runDeferred();
-
-    expect(mockRefund).toHaveBeenCalledWith("acme", true, { actor: "webhook:push", repoFullName: "acme/paid-repo" });
-    expect(mockRelease).toHaveBeenCalled(); // and the delivery is released so the retry happens
-  });
-
-  it("KEEPS the credit when the failure lands AFTER a real report — the inference was genuinely spent", async () => {
-    mockPersist.mockRejectedValue(new Error("db down"));
-
-    await post("push", "credit-throw-post-" + n++, pushPayload());
-    await runDeferred();
-
-    expect(mockRefund).not.toHaveBeenCalled();
-    expect(mockRelease).toHaveBeenCalled();
-  });
-});
-
 // ai-registry-repo#A (challenge-2026-09-23) — a default-branch push also reaches the registry lane:
 // the registry repo's own push re-indexes it, a fleet repo's `.ai/` push re-sweeps that repo. The
 // route's only job is to SCHEDULE that behind the same signature/dedup gates, and never to let the
-// registry's failure touch the delivery: the rescan beside it may already have spent a credit, and a
-// released delivery would make GitHub's redelivery pay for it twice.
+// registry's failure touch the delivery: the rescan job beside it may already exist, and its row, not a
+// redelivery, is what retries it.
 describe("POST /api/app/webhook — registry push lane (onRegistryPush)", () => {
   let n = 0;
   const registryPush = (over: Record<string, unknown> = {}) => ({
@@ -1661,14 +1330,13 @@ describe("POST /api/app/webhook — registry push lane (onRegistryPush)", () => 
   it("guard: a WATCHED repo's default-branch push still schedules runPushRescan exactly once", async () => {
     mockIdForOwner.mockResolvedValue("1");
     mockIsRepoAutoscanned.mockResolvedValue(true);
-    mockGetToken.mockResolvedValue("ghs_tok");
-    mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
-    mockScan.mockResolvedValue({ repo: { headSha: "abc" } } as Awaited<ReturnType<typeof scanRepository>>);
-    mockPersist.mockResolvedValue({ deduped: true } as Awaited<ReturnType<typeof persistScanReport>>);
+    mockEnqueueScan.mockResolvedValue({ id: "job_reg", created: true });
+    mockDrainLane.mockResolvedValue(drainSummary());
     await post("push", "registry-push-watched-" + n++, registryPush({ repository: { name: "api", default_branch: "main", owner: { login: "acme" } } }));
     expect(mockAfter).toHaveBeenCalledTimes(2); // the rescan + the registry lane, nothing more
     await runDeferred();
-    expect(mockScan).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueScan).toHaveBeenCalledTimes(1);
+    expect(mockDrainLane).toHaveBeenCalledTimes(1);
     expect(mockOnRegistryPush).toHaveBeenCalledTimes(1);
   });
 
