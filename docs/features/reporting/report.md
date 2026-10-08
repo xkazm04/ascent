@@ -552,13 +552,23 @@ window" from "never scanned".
 2 × `EXEMPLAR_CANDIDATE_CAP` 2000 cohort members (the language and archetype slices). It is bounded only by
 those constants and does not take `since`.
 
-### Trajectory forecast: fit over full history, never the displayed range
+### Trajectory forecast: fit over the full history the read returned, never the displayed range
 
 `fitTrendForecast` (`src/app/trends/forecast.ts`) takes **no range argument by construction**. The
-forecast is fit over the repository's full recorded history, so flipping 5d/30d/90d/All cannot change
+forecast is fit over the full history the read returned, so flipping 5d/30d/90d/All cannot change
 the ETA: a projection that moves when the viewer changes a zoom control is not a projection, and a
-5-day re-fit produces a confident-looking ETA from noise. `TrajectoryPanel` states the basis on
-screen ("All-time trajectory · fit over all N scans … does not follow the range toggle below").
+5-day re-fit produces a confident-looking ETA from noise. With no plan window that is the repository's
+whole recorded history, and `TrajectoryPanel` says so ("All-time trajectory · fit over this
+repository's full recorded history: all N scans … does not follow the range toggle below").
+
+**Under a plan history window the fit is over the window, and the panel says so.** The viewer's plan
+window (`resolveHistoryWindow`) is the read's access boundary, so the fit never sees older rows and is
+never fit over history the plan does not include; nor is the projection withheld. The page passes
+`{ days, planLabel }` and the panel reads "30-day trajectory · fit over the N scans in the last 30
+days, the Free plan's history window … does not follow the range toggle below" (rubric-cut variant:
+"…points scored under X, within the last 30 days, …"). This deviates knowingly from the
+metric-forecasting standard (a display filter must not reach the fit): a plan window is an access
+boundary, not a display filter. Nothing on the panel calls a windowed fit "all-time" or "full".
 When that history includes compacted summaries, the adapter preserves their provenance and the
 basis says "history points" rather than individual scans, with the number of compacted fit days.
 A summary contributes one day to the fit regardless of how many deleted scans it represents.
@@ -1446,7 +1456,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/components/report/DimensionClimberList.tsx` | Sortable climber rows (level, headroom lever, delta, score) synced with the gauge. |
 | `src/components/report/DimensionReading.tsx` | Four-cell reading strip over the selected dimension's detail. |
 | `src/components/report/dimensionExplorerDerive.ts` | Pure facts per dimension (level, next rung, headroom, divergence, provenance) + the takeaway line. |
-| `src/app/trends/forecast.ts` | The trends forecast fit: full history, no range argument. |
+| `src/app/trends/forecast.ts` | The trends forecast fit: the history the read returned (the plan window when one applies), no range argument. |
 | `src/app/trends/TrajectoryPanel.tsx` | All-time trajectory panel; refuses to project a thin sample. |
 | `src/app/trends/annotations.ts` | Band-crossing / regression markers for the timeline. |
 | `src/app/trends/ExportCsvButton.tsx` | CSV download as UI (401 → re-auth prompt, not raw JSON). |
