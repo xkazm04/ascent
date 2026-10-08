@@ -24,11 +24,15 @@
 // by hand.
 
 import { NextResponse } from "next/server";
+import { respondError } from "@/lib/api/respond";
 import { AppApiError, getInstallationToken } from "@/lib/github/app";
 import { GitHubError, parseRepoUrl, type ParsedRepo } from "@/lib/github/source";
 import { getInstallationIdForOwner, isDbConfigured } from "@/lib/db";
 import { orgTracksRepo } from "@/lib/db/org-admission";
 import { selfHostedExplicit } from "@/lib/env";
+
+/** The one answer (502) every practice route gives when the installation-token mint fails. */
+export const MINT_FAILED = "Failed to mint an installation token for this org.";
 
 const WRITE_REJECTED = "GitHub rejected the write. Check the repo and base branch.";
 const NO_WRITE_SCOPE =
@@ -302,5 +306,5 @@ export function mapPrWriteError(
   const classified = classifyPrWriteError(err, opts);
   if (classified) return NextResponse.json({ error: classified.message }, { status: classified.status });
   console.error(`[${opts.tag}] failed`, err);
-  return NextResponse.json({ error: opts.genericError }, { status: 500 });
+  return respondError(500, opts.genericError, { cause: err });
 }

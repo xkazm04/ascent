@@ -21,9 +21,15 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: () => true,
   getInstallationIdForOwner: vi.fn(async (owner: string) => `inst-${owner}`),
 }));
+const { respondError } = vi.hoisted(() => ({
+  respondError: vi.fn((status: number, message: string) => Response.json({ error: message }, { status })),
+}));
+vi.mock("@/lib/api/respond", () => ({ respondError }));
 vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
 
-import { requirePrWriteTarget } from "./pr-route";
+import { requirePrWriteTarget, mapPrWriteError, MINT_FAILED } from "./pr-route";
+import { AppApiError } from "@/lib/github/app";
+import { GitHubError } from "@/lib/github/source";
 import { getInstallationToken } from "@/lib/github/app";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { orgTracksRepo } from "@/lib/db/org-admission";
@@ -189,5 +195,28 @@ describe("requirePrWriteTarget: whose installation mints a tracked foreign repo"
       status: 403,
       error: "Ascent isn't installed on xkazm04. Install the GitHub App (with write access) to open PRs.",
     });
+  });
+});
+
+describe("mapPrWriteError", () => {
+  it("answers an unclassified error with the route's generic 500, unchanged on the wire, and reports its cause", async () => {
+    const boom = new Error("db down");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = mapPrWriteError(boom, { tag: "t", genericError: "Failed to do it." });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Failed to do it." });
+    expect(respondError).toHaveBeenCalledWith(500, "Failed to do it.", { cause: boom });
+  });
+
+  it("does not report a classified error", async () => {
+    const a = mapPrWriteError(new AppApiError("no"), { tag: "t", genericError: "x" });
+    const g = mapPrWriteError(new GitHubError("UPSTREAM", "nope", 422), { tag: "t", genericError: "x" });
+    expect(a.status).toBe(502);
+    expect(g.status).toBe(422);
+    expect(respondError).not.toHaveBeenCalled();
+  });
+
+  it("exports the shared mint copy", () => {
+    expect(MINT_FAILED).toBe("Failed to mint an installation token for this org.");
   });
 });
