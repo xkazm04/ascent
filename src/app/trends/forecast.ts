@@ -1,8 +1,9 @@
 // THE ONE PLACE the repo trend forecast is fit — and the deliberate absence of a `range` argument is
 // the whole point (G5-01 / G4-16).
 //
-// THE DECISION: fit over the repository's FULL recorded history, never over the 5d/30d/90d/All slice
-// the chart happens to be showing.
+// THE DECISION: fit over the full history the read returned, never over the 5d/30d/90d/All slice the
+// chart happens to be showing. When the viewer's plan clamps the read, "the full history" is the plan's
+// sold window (see resolveHistoryWindow); otherwise it is the repository's whole recorded history.
 //
 //   Why not "responsive" (re-fit per displayed range)? Because a forecast that changes when the viewer
 //   changes a zoom control is not a forecast. The same repo would report a different promotion ETA on
@@ -10,10 +11,16 @@
 //   would look exactly as confident as the 90-day one. The range toggle answers "what do I want to
 //   LOOK at"; the forecast answers "where is this repo going". Those are different questions.
 //
+//   DEVIATION from the governing standard (metric-forecasting, trend-fitting-and-anchoring): a display
+//   filter must not reach the fit. A plan's history window is not a display filter here — it is the
+//   access boundary of the read, so rows beyond it never arrive and cannot be fit (fitting older
+//   history would derive a figure from data the plan does not include). The panel says so on screen:
+//   "{N}-day trajectory", "fit over the N scans in the last N days, the <plan> plan's history window".
+//
 //   The cost of the choice is honesty about staleness, which we pay in two places: the panel states
-//   the basis on screen ("fit over all N scans"), and `forecastInsufficiency` refuses to project at
-//   all when the full history is itself too thin (< 3 distinct scan days or < 14 days of span) rather
-//   than emitting an ETA with a confidence percentage attached to noise.
+//   the basis on screen, and `forecastInsufficiency` refuses to project at all when the history the
+//   fit saw is itself too thin (< 3 distinct scan days or < 14 days of span) rather than emitting an
+//   ETA with a confidence percentage attached to noise.
 
 import { forecastTrajectory, type Forecast } from "@/lib/maturity/forecast";
 import type { HistoryPoint } from "@/lib/db/scans";
@@ -40,12 +47,13 @@ export function rubricTruncation(scans: readonly HistoryPoint[]): { used: number
 }
 
 /**
- * Fit the repo's trajectory over its full history.
+ * Fit the repo's trajectory over the full history the read returned: the plan's sold window when one
+ * applies, the whole recorded history otherwise. Never the 5d/30d/90d/All display slice.
  *
  * Takes NO range/window parameter by construction — that is the contract, not an oversight: there is
  * no argument a caller could pass to make the forecast follow the display window.
  *
- * @param scans  the full fetched history (any order; the fit sorts internally).
+ * @param scans  the full fetched history (already bounded by the plan window, if any) (any order; the fit sorts internally).
  * @param nowMs  the caller's "present" for anchoring the ETA (injected in tests).
  */
 export function fitTrendForecast(scans: readonly HistoryPoint[], nowMs?: number): Forecast | null {

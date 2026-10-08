@@ -29,6 +29,31 @@ function pt(daysAgo: number, overallScore: number): HistoryPoint {
 }
 
 describe("TrajectoryPanel", () => {
+  const win = { days: 30, planLabel: "Free" };
+  const spread = [pt(0, 62), pt(10, 58), pt(20, 54), pt(28, 50)];
+
+  it("under a plan window names the window and scan count, never 'full recorded history' or 'All-time'", () => {
+    const { container } = render(<TrajectoryPanel forecast={fitTrendForecast(spread, NOW)} scanCount={spread.length} window={win} />);
+    expect(document.getElementById("trajectory-heading")?.textContent).toBe("30-day trajectory");
+    const basis = screen.getByText(/does not follow the 5d \/ 30d \/ 90d range toggle/i);
+    expect(basis.textContent).toContain("Fit over the 4 scans in the last 30 days, the Free plan's history window");
+    expect(container.textContent).not.toMatch(/full recorded history|all-time/i);
+  });
+
+  it("the rubricRun variant also names the window", () => {
+    const { container } = render(
+      <TrajectoryPanel forecast={fitTrendForecast(spread, NOW)} scanCount={4} window={win} rubricRun={{ used: 3, total: 4, rubric: "v2" }} />,
+    );
+    const basis = screen.getByText(/does not follow the 5d \/ 30d \/ 90d range toggle/i);
+    expect(basis.textContent).toContain("3 of 4 history points scored under v2, within the last 30 days, the Free plan's history window");
+    expect(container.textContent).not.toMatch(/full recorded history|all-time/i);
+  });
+
+  it("the insufficient-history refusal is headed by the window too", () => {
+    render(<TrajectoryPanel forecast={null} scanCount={1} window={win} />);
+    expect(document.getElementById("trajectory-heading")?.textContent).toBe("30-day trajectory");
+  });
+
   it("discloses summarized days and does not call compacted history rows individual scans", () => {
     const scans = [pt(0, 62), pt(20, 56), { ...pt(40, 52), compacted: true as const, scanCount: 100 }];
     render(<TrajectoryPanel forecast={fitTrendForecast(scans, NOW)} scanCount={scans.length} />);

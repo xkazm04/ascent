@@ -8,6 +8,7 @@ import { render, screen } from "@testing-library/react";
 const h = vi.hoisted(() => ({
   history: vi.fn(),
   viewer: vi.fn(),
+  panel: vi.fn((_: unknown) => null as null),
   orgs: new Map<string, { plan: string; kind: string }>(),
 }));
 
@@ -19,7 +20,7 @@ vi.mock("@/lib/db/scans-read", () => ({ getOrgForHistoryWindow: async (s: string
 vi.mock("@/lib/db", () => ({ isDbConfigured: () => true, getRepositoryHistory: h.history }));
 vi.mock("@/lib/db/repo-deployments", () => ({ getRepositoryDeployments: async () => [] }));
 vi.mock("@/components/report/DimensionTrends", () => ({ DimensionTrends: () => null }));
-vi.mock("@/app/trends/TrajectoryPanel", () => ({ TrajectoryPanel: () => null }));
+vi.mock("@/app/trends/TrajectoryPanel", () => ({ TrajectoryPanel: (p: unknown) => h.panel(p) }));
 vi.mock("@/app/trends/TimelineAnnotations", () => ({ TimelineAnnotations: () => null }));
 vi.mock("@/app/trends/ExportCsvButton", () => ({ ExportCsvButton: () => null }));
 vi.mock("@/components/LevelBadge", () => ({ LevelBadge: () => null }));
@@ -36,6 +37,7 @@ const history = (ids: string[]) => ({ repo: { owner: "acme", name: "web", fullNa
 beforeEach(() => {
   vi.stubEnv("ASCENT_SELF_HOSTED", "0");
   h.history.mockReset();
+  h.panel.mockClear();
   h.viewer.mockResolvedValue("kaz");
   h.orgs.clear();
   h.orgs.set("kaz", { plan: "free", kind: "personal" });
@@ -48,6 +50,19 @@ describe("/trends — the history window", () => {
     await renderPage();
     expect(h.history.mock.calls[0]![2].since).toBeInstanceOf(Date);
     expect(screen.getByText("Showing the last 30 days: the Free plan's history window.")).toBeTruthy();
+  });
+
+  it("hands the trajectory panel the plain window, so it names it instead of 'all-time'", async () => {
+    h.history.mockResolvedValue(history(["a", "b"]));
+    await renderPage();
+    expect(h.panel.mock.calls[0]![0]).toMatchObject({ window: { days: 30, planLabel: "Free" }, scanCount: 2 });
+  });
+
+  it("an unclamped read passes no window to the trajectory panel", async () => {
+    h.viewer.mockResolvedValue(null);
+    h.history.mockResolvedValue(history(["a", "b"]));
+    await renderPage();
+    expect(h.panel.mock.calls[0]![0]).toMatchObject({ window: null });
   });
 
   it("empty clamped series with older scans: says so, never 'No scans recorded yet'", async () => {

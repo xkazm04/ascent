@@ -170,11 +170,16 @@ export default async function TrendsPage({
   // would land the reader on a picker with a single option.
   const retainedCount = history.scans.filter((s) => !s.compacted).length;
 
-  // Forward-looking GPS for THIS repo. Fit over the FULL fetched history — deliberately NOT over the
-  // 5d/30d/90d slice the chart below renders. The range toggle is a zoom control; a projection that
-  // moves when the viewer zooms is not a projection (G5-01), and re-fitting per range is exactly what
-  // makes a 5-day window hand back a confident ETA read off noise (G4-16). `TrajectoryPanel` states
-  // the basis on screen and refuses to project at all below the shared sample floor.
+  // Forward-looking GPS for THIS repo. Fit over the full history this viewer's plan window reads
+  // (everything, when no window applies) — deliberately NOT over the 5d/30d/90d slice the chart below
+  // renders. The sold window is the read's access boundary, not a display filter, so the fit never
+  // sees rows the plan excludes; the range toggle is a zoom control, and a projection that moves when
+  // the viewer zooms is not a projection (G5-01), while a per-range re-fit hands back a confident ETA
+  // read off noise (G4-16). `TrajectoryPanel` names the window on screen and refuses to project at all
+  // below the shared sample floor.
+  const trajectoryWindow = historyWindow.since && historyWindow.days && historyWindow.planLabel
+    ? { days: historyWindow.days, planLabel: historyWindow.planLabel }
+    : null;
   const forecast = fitTrendForecast(history.scans);
   // Timeline events (band crossings + threshold regressions) derived from the same series.
   const annotations = deriveTrendAnnotations(history.scans);
@@ -242,7 +247,7 @@ export default async function TrendsPage({
         )}
 
         <div className="mt-8">
-          <TrajectoryPanel forecast={forecast} scanCount={history.scans.length} rubricRun={rubricTruncation(history.scans)} />
+          <TrajectoryPanel forecast={forecast} scanCount={history.scans.length} rubricRun={rubricTruncation(history.scans)} window={trajectoryWindow} />
         </div>
 
         <div className="mt-8">
