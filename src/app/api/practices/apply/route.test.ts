@@ -88,6 +88,8 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: () => true,
 }));
 
+vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
+
 vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
 
 import { POST } from "./route";
@@ -98,6 +100,7 @@ import { AppApiError, getInstallationToken } from "@/lib/github/app";
 import { getInstallationIdForOwner, getOrgId, recordAudit, recordPracticePr } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { requireOrgRole } from "@/lib/authz";
+import { orgTracksRepo } from "@/lib/db/org-admission";
 
 const mockOpenPr = vi.mocked(openDraftPr);
 const mockFetchCtx = vi.mocked(fetchRepoContext);
@@ -106,13 +109,16 @@ const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockRecordAudit = vi.mocked(recordAudit);
 const mockSession = vi.mocked(getSession);
 const mockRequireOrgRole = vi.mocked(requireOrgRole);
+const mockTracks = vi.mocked(orgTracksRepo);
 
+/** The dashboard org defaults to the repo's owner (the common case); pass `org` to override or "" to omit. */
 function run(body: Record<string, unknown>) {
+  const org = "org" in body ? body.org : String(body.repo ?? "").split("/")[0];
   return POST(
     new Request("http://localhost/api/practices/apply", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, org }),
     }),
   );
 }
@@ -271,5 +277,50 @@ describe("POST /api/practices/apply — one lower-cased org for gate, mint and a
     expect(mockInstallId.mock.calls).toEqual([["myorg"]]);
     expect(vi.mocked(getOrgId).mock.calls).toEqual([["myorg"]]);
     expect(mockFetchCtx.mock.calls[0]![0]).toMatchObject({ owner: "myorg", repo: "Repo" });
+  });
+});
+
+describe("POST /api/practices/apply — keyed on the dashboard org, not the repo owner", () => {
+  it("org kiro over tracked xkazm04/x: gates kiro, mints for kiro, audits and records kiro's org id", async () => {
+    mockTracks.mockResolvedValue(true);
+    vi.mocked(getOrgId).mockImplementation((async (slug: string) => (slug === "kiro" ? "org-kiro" : null)) as never);
+
+    const res = await run({ org: "Kiro", repo: "xkazm04/x", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("kiro", "admin");
+    expect(mockInstallId.mock.calls).toEqual([["kiro"]]);
+    expect(vi.mocked(getOrgId).mock.calls).toEqual([["kiro"]]);
+    // The writer still targets the repo's real coordinate.
+    expect(mockOpenPr.mock.calls[0]![0]).toMatchObject({ owner: "xkazm04", repo: "x" });
+    expect(mockRecordAudit.mock.calls[0]![2]).toMatchObject({ orgId: "org-kiro" });
+    expect(vi.mocked(recordPracticePr).mock.calls[0]![0]).toMatchObject({ orgId: "org-kiro", repoFullName: "xkazm04/x" });
+  });
+
+  it("refuses an untracked foreign repo with 403 before any installation lookup or mint", async () => {
+    mockTracks.mockResolvedValue(false);
+
+    const res = await run({ org: "kiro", repo: "someone/else", practiceId: "ci-gates" });
+
+    expect(res.status).toBe(403);
+    expect(mockInstallId).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it("400s a request without org, before the role gate or any write", async () => {
+    const res = await run({ org: "", repo: "acme/app", practiceId: "ci-gates" });
+    expect(res.status).toBe(400);
+    const none = await POST(
+      new Request("http://localhost/api/practices/apply", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: "acme/app", practiceId: "ci-gates" }),
+      }),
+    );
+    expect(none.status).toBe(400);
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
   });
 });

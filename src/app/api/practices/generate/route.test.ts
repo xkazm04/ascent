@@ -61,6 +61,8 @@ vi.mock("@/lib/github/app", () => ({
   isAppConfigured: vi.fn(() => true),
 }));
 
+vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
+
 vi.mock("@/lib/authz", () => ({ canMintInstallationToken: vi.fn(async () => false) }));
 
 import { POST } from "./route";
@@ -68,6 +70,7 @@ import { fetchRepoContext } from "@/lib/github/source";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { canMintInstallationToken } from "@/lib/authz";
+import { orgTracksRepo } from "@/lib/db/org-admission";
 import { buildPracticeArtifact } from "@/lib/practices/artifact";
 import { getOrgPracticeShapes } from "@/lib/db/org-practice-shapes";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";
@@ -79,6 +82,7 @@ const mockMintToken = vi.mocked(getInstallationToken);
 const mockAppConfigured = vi.mocked(isAppConfigured);
 const mockCanMint = vi.mocked(canMintInstallationToken);
 const mockBuild = vi.mocked(buildPracticeArtifact);
+const mockTracks = vi.mocked(orgTracksRepo);
 const mockShapes = vi.mocked(getOrgPracticeShapes);
 
 function run(body: Record<string, unknown>) {
@@ -141,7 +145,7 @@ describe("POST /api/practices/generate — ambient-PAT gate keys on caller stand
     mockCanMint.mockResolvedValue(true);
     mockInstallId.mockResolvedValue("inst-1");
 
-    await run({ repo: "acme/repo", practiceId: "agents-md" });
+    await run({ org: "acme", repo: "acme/repo", practiceId: "agents-md" });
 
     expect(mockCanMint).toHaveBeenCalledWith("acme");
     expect(tokenPassed()).toBe("installation-token");
@@ -151,7 +155,7 @@ describe("POST /api/practices/generate — ambient-PAT gate keys on caller stand
     mockCanMint.mockResolvedValue(true);
     mockInstallId.mockResolvedValue(null);
 
-    await run({ repo: "acme/repo", practiceId: "agents-md" });
+    await run({ org: "acme", repo: "acme/repo", practiceId: "agents-md" });
 
     expect(tokenPassed()).toBe("operator-pat");
   });
@@ -176,7 +180,7 @@ describe("POST /api/practices/generate — preview shape", () => {
       house: { lines: ["Commands"], exemplars: ["acme/api", "acme/core", "acme/web"] },
     });
 
-    const res = await run({ repo: "Acme/repo", practiceId: "agent-guidance" });
+    const res = await run({ org: "Acme", repo: "Acme/repo", practiceId: "agent-guidance" });
     expect(await res.json()).toMatchObject({
       artifact: { body: houseBody },
       shape: { kind: "house", exemplars: 3 },
@@ -213,7 +217,7 @@ describe("POST /api/practices/generate — preview body equals apply artifact", 
     mockCanMint.mockResolvedValue(true);
     mockShapes.mockResolvedValue(houseFixture());
 
-    const res = await run({ repo: "acme/repo", practiceId: "agent-guidance" });
+    const res = await run({ org: "acme", repo: "acme/repo", practiceId: "agent-guidance" });
     expect(res.status).toBe(200);
     const json = await res.json();
     const ctx = mockBuild.mock.calls.at(-1)![1];
@@ -231,7 +235,7 @@ describe("POST /api/practices/generate — preview body equals apply artifact", 
     mockCanMint.mockResolvedValue(true);
     mockShapes.mockResolvedValue(null);
 
-    const res = await run({ repo: "acme/repo", practiceId: "agent-guidance" });
+    const res = await run({ org: "acme", repo: "acme/repo", practiceId: "agent-guidance" });
     const json = await res.json();
     const ctx = mockBuild.mock.calls.at(-1)![1];
     const apply = await build("agent-guidance", ctx, { orgSlug: "acme" });
@@ -257,5 +261,49 @@ describe("POST /api/practices/generate — preview body equals apply artifact", 
     expect(json.artifact.body).toBe(generic.artifact!.body);
     expect(json.artifact.body).not.toBe(house.artifact!.body);
     expect(mockBuild.mock.calls[0]?.[2]).toEqual({});
+  });
+});
+
+describe("POST /api/practices/generate — keyed on the dashboard org, not the repo owner", () => {
+  it("gates standing on the org, mints for the org, and builds the ORG's house pattern (org kiro over xkazm04/x)", async () => {
+    mockCanMint.mockResolvedValue(true);
+    mockTracks.mockResolvedValue(true);
+    mockInstallId.mockResolvedValue("inst-kiro");
+
+    const res = await run({ org: "Kiro", repo: "xkazm04/x", practiceId: "agent-guidance" });
+
+    expect(res.status).toBe(200);
+    expect(mockCanMint).toHaveBeenCalledWith("kiro");
+    expect(mockCanMint).not.toHaveBeenCalledWith("xkazm04");
+    // Hosted: the gated org's installation, never the repo owner's.
+    expect(mockInstallId).toHaveBeenCalledWith("kiro");
+    expect(tokenPassed()).toBe("installation-token");
+    expect(mockBuild.mock.calls.at(-1)?.[2]).toEqual({ orgSlug: "kiro" });
+  });
+
+  it("gives a caller with NO standing in that org no token and a generic starter", async () => {
+    mockCanMint.mockResolvedValue(false);
+    mockTracks.mockResolvedValue(true);
+
+    const res = await run({ org: "kiro", repo: "xkazm04/x", practiceId: "agent-guidance" });
+
+    expect(res.status).toBe(200);
+    expect(mockCanMint).toHaveBeenCalledWith("kiro");
+    expect(tokenPassed()).toBeUndefined();
+    expect(mockInstallId).not.toHaveBeenCalled();
+    expect(mockMintToken).not.toHaveBeenCalled();
+    expect(mockBuild.mock.calls.at(-1)?.[2]).toEqual({});
+  });
+
+  it("refuses an untracked foreign repo with 403 before any installation lookup or mint", async () => {
+    mockCanMint.mockResolvedValue(true);
+    mockTracks.mockResolvedValue(false);
+
+    const res = await run({ org: "kiro", repo: "someone/else", practiceId: "agent-guidance" });
+
+    expect(res.status).toBe(403);
+    expect(mockInstallId).not.toHaveBeenCalled();
+    expect(mockMintToken).not.toHaveBeenCalled();
+    expect(mockFetchCtx).not.toHaveBeenCalled();
   });
 });

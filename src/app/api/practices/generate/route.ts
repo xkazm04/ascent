@@ -17,12 +17,13 @@ import { buildPracticeArtifact } from "@/lib/practices/artifact";
 import { getInstallationIdForOwner } from "@/lib/db";
 import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { canMintInstallationToken } from "@/lib/authz";
+import { installOwnerFor, resolvePrWriteCoordinate } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { repo?: string; practiceId?: string };
+  const body = (await request.json().catch(() => ({}))) as { repo?: string; practiceId?: string; org?: string };
   const parsed = parseRepoUrl(body.repo ?? "");
   if (!parsed || !body.practiceId) {
     return NextResponse.json({ error: "Provide { repo: 'owner/name', practiceId }." }, { status: 400 });
@@ -43,10 +44,23 @@ export async function POST(request: Request) {
     // default branch) through the operator's broad-read PAT — "every private repo the PAT can read
     // belongs to an installed org" was an unstated, untrue assumption. Now: no standing ⇒ no token at
     // all (token-less fetch keeps public repos working; a private repo 404s cleanly below).
-    const callerHasStanding = await canMintInstallationToken(parsed.owner);
-    let token = callerHasStanding ? process.env.GITHUB_TOKEN : undefined;
-    if (isAppConfigured() && callerHasStanding) {
-      const id = await getInstallationIdForOwner(parsed.owner).catch(() => null);
+    // The dashboard org the caller is previewing for. Without it this is today's anonymous preview of
+    // a public repo (token-less, generic starter). With it the org's slug — not the repo owner — is
+    // the standing check, the tenancy rule, the installation and the house pattern: an org named for
+    // its team (`kiro` over `xkazm04/*`) differs from the owner of the repos it tracks.
+    const org = typeof body.org === "string" && body.org.trim() ? body.org.trim().toLowerCase() : undefined;
+    let standingOrg: string | undefined;
+    let mintOwner = parsed.owner.toLowerCase();
+    if (org && (await canMintInstallationToken(org))) {
+      // Same tenancy rule apply enforces, checked BEFORE any token exists.
+      const coordinate = await resolvePrWriteCoordinate(org, body.repo ?? "", "tracked");
+      if (coordinate instanceof Response) return coordinate;
+      standingOrg = org;
+      mintOwner = installOwnerFor(org, coordinate);
+    }
+    let token = standingOrg ? process.env.GITHUB_TOKEN : undefined;
+    if (isAppConfigured() && standingOrg) {
+      const id = await getInstallationIdForOwner(mintOwner).catch(() => null);
       if (id) {
         const minted = await getInstallationToken(id).catch(() => undefined);
         if (minted) token = minted;
@@ -54,14 +68,12 @@ export async function POST(request: Request) {
     }
     const ctx = await fetchRepoContext(parsed, token);
     // Same (practiceId, ctx, orgSlug) `applyPracticeToRepo` uses, so the preview body is the
-    // commit body and the fingerprint drift-guard can pass. Standing callers resolve this org's
-    // mined pattern; anonymous callers omit orgSlug — a generic starter, mined structure stays
-    // inside the org.
-    const orgSlug = callerHasStanding ? parsed.owner.toLowerCase() : undefined;
+    // commit body and the fingerprint drift-guard can pass. Callers with standing resolve the gated
+    // org's mined pattern; anonymous callers omit orgSlug — a generic starter.
     const { artifact, house } = await buildPracticeArtifact(
       body.practiceId,
       ctx,
-      orgSlug ? { orgSlug } : {},
+      standingOrg ? { orgSlug: standingOrg } : {},
     );
     if (!artifact) return NextResponse.json({ error: `Unknown practice "${body.practiceId}".` }, { status: 404 });
     const shape = house

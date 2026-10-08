@@ -1,4 +1,4 @@
-// POST /api/practices/apply-batch  { repos: ["owner/name", ...], practiceId, base? }
+// POST /api/practices/apply-batch  { org, repos: ["owner/name", ...], practiceId, base? }
 //   -> { results: [{ repo, ok, url?, reused?, error? }], attempted, skipped }
 // Fleet rollout of the "systematic apply" step: open a draft PR seeding a practice's leak-free
 // starter into EVERY gap repo in one action, instead of clicking through a dropdown N times. Same
@@ -14,7 +14,7 @@ import { getOrgId } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
-import { classifyPrWriteError, requirePrWriteTarget, type PrWriteCoordinate } from "@/lib/github/pr-route";
+import { classifyPrWriteError, requirePrWriteTarget, type PrWriteBatchCoordinate } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import type { BatchResult } from "@/features/shared/practices/practiceApplyShared";
 
@@ -41,28 +41,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Sign in to open starter PRs." }, { status: 401 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as { repos?: string[]; practiceId?: string; base?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    org?: string;
+    repos?: string[];
+    practiceId?: string;
+    base?: string;
+  };
   if (!body.practiceId || !Array.isArray(body.repos) || body.repos.length === 0) {
-    return NextResponse.json({ error: "Provide { repos: ['owner/name', ...], practiceId }." }, { status: 400 });
+    return NextResponse.json({ error: "Provide { org, repos: ['owner/name', ...], practiceId }." }, { status: 400 });
+  }
+  // The dashboard org keys the gate, the mint, the audit rows and the house pattern — never the repo
+  // owner (an org's slug can differ from the owner of the repos it tracks).
+  const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
+  if (!org) {
+    return NextResponse.json({ error: "Provide { org, repos: ['owner/name', ...], practiceId }." }, { status: 400 });
   }
 
-  // Parse + validate; every repo must belong to ONE org so a single tenant gate covers the batch.
+  // Parse + validate; requirePrWriteTarget below checks every repo against the ONE gated org.
   const parsed = body.repos
     .map((raw) => ({ raw, ref: parseRepoUrl(raw) }))
     .filter((x): x is { raw: string; ref: NonNullable<ReturnType<typeof parseRepoUrl>> } => !!x.ref);
   if (parsed.length === 0) {
     return NextResponse.json({ error: "No valid 'owner/name' repos in the batch." }, { status: 400 });
   }
-  const owners = new Set(parsed.map((x) => x.ref.owner.toLowerCase()));
-  if (owners.size > 1) {
-    return NextResponse.json({ error: "All repos in a batch must belong to the same org." }, { status: 400 });
-  }
-  const owner = parsed[0]!.ref.owner;
 
   // Tenant gate: this opens PRs (WRITES) with the org's installation token — require at least the
   // "admin" role, matching other org-wide mutations of comparable blast radius (segment delete,
   // credit grants), not merely "member".
-  const denied = await requireOrgRole(owner, "admin");
+  const denied = await requireOrgRole(org, "admin");
   if (denied) return denied;
 
   // Dedupe before the cap: the API is a public surface (the UI sends from a Set, but a raw caller
@@ -80,16 +86,16 @@ export async function POST(request: Request) {
   const skipped = unique.length - batch.length;
 
   try {
-    // The one door (@/lib/github/pr-route): every coordinate re-checked against the gated owner, then
-    // install presence (403) + ONE token mint for that org. A mint failure throws into the catch
+    // The one door (@/lib/github/pr-route): every coordinate re-checked against the gated org (its own
+    // namespace or tracked by it; a foreign repo is a 403 before any installation lookup), then
+    // install presence (403) + token mint. A mint failure throws into the catch
     // below, which keeps THIS route's own "couldn't mint" 502 copy.
-    const target = await requirePrWriteTarget(owner, batch.map((b) => b.raw), "owner-namespace");
+    const target = await requirePrWriteTarget(org, batch.map((b) => b.raw), "tracked");
     if (target instanceof Response) return target;
-    const { token, org } = target;
-    const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
+    const orgId = (await getOrgId(target.org).catch(() => null)) ?? undefined;
 
     // Bounded fan-out; the per-repo worker owns its errors so one failure can't abort the pool.
-    const results = await mapPool<PrWriteCoordinate, BatchResult>(target.targets, SCAN_CONCURRENCY, async ({ raw, parsed: ref }) => {
+    const results = await mapPool<PrWriteBatchCoordinate, BatchResult>(target.targets, SCAN_CONCURRENCY, async ({ raw, parsed: ref, token }) => {
       try {
         const result = await applyPracticeToRepo(
           token,
@@ -100,7 +106,7 @@ export async function POST(request: Request) {
           // W6 — every PR in the fan-out carries the org's own pattern when there is one. Resolved
           // per repo rather than hoisted: the read is request-cached, and hoisting it would put an
           // org-wide fetch in front of a fan-out that may apply to a single repo.
-          { orgSlug: org },
+          { orgSlug: target.org },
         );
         if (result.kind === "unknown-practice") {
           return { repo: result.ctx.fullName, ok: false, error: `Unknown practice "${body.practiceId}".` };

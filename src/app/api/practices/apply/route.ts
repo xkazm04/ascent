@@ -1,4 +1,4 @@
-// POST /api/practices/apply  { repo: "owner/name", practiceId, base? }  ->  { url, number, reused }
+// POST /api/practices/apply  { org, repo: "owner/name", practiceId, base? }  ->  { url, number, reused }
 // The "systematic apply" step: open a DRAFT PR that seeds a practice's leak-free starter into the
 // repo. Requires the GitHub App installed on the repo's owner with contents + PR write — the same
 // installation token used for private scans. Sensitive (it writes to a customer repo), so it's
@@ -36,6 +36,9 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => ({}))) as {
+    /** The dashboard org this apply runs for: the gate, the mint, the audit row and the house pattern
+     *  all key on it, never on the repo owner (an org's slug can differ from the owner of its repos). */
+    org?: string;
     repo?: string;
     practiceId?: string;
     base?: string;
@@ -48,23 +51,22 @@ export async function POST(request: Request) {
   if (!parsed || !body.practiceId) {
     return NextResponse.json({ error: "Provide { repo: 'owner/name', practiceId }." }, { status: 400 });
   }
-  // Normalize the owner ONCE (lower-case). Org slugs + memberships are stored lower-cased, so the
-  // tenant gate, the installation lookup, and the audit `orgId` must all key off the SAME value — a
-  // mixed-case `MyOrg/Repo` would otherwise let the gate/install resolve differently from getOrgId
-  // (a lost audit FK, or a mis-passed/mis-failed gate vs the installation).
-  parsed.owner = parsed.owner.toLowerCase();
+  const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
+  if (!org) {
+    return NextResponse.json({ error: "Provide { org, repo: 'owner/name', practiceId }." }, { status: 400 });
+  }
 
   // Tenant gate: this opens a PR (a WRITE) using the org's installation token, so require the caller
   // to hold at least the "admin" role in that org — not merely be a member. This has the same blast
   // radius as other org-wide mutations (segment delete, credit grants), which already require admin.
-  const denied = await requireOrgRole(parsed.owner, "admin");
+  const denied = await requireOrgRole(org, "admin");
   if (denied) return denied;
 
   try {
-    // The one door (@/lib/github/pr-route): the coordinate must sit in the gated org's namespace
-    // (here it IS the gated org, so this cannot refuse), then install presence (403) + token mint for
-    // that org. The writer takes the returned coordinate, never a string of its own.
-    const target = await requirePrWriteTarget(parsed.owner, rawRepo, "owner-namespace");
+    // The one door (@/lib/github/pr-route): the coordinate must sit in the gated org's namespace or be
+    // tracked by it (a foreign repo is a 403 before any installation lookup), then install presence
+    // (403) + token mint. The writer takes the returned coordinate, never a string of its own.
+    const target = await requirePrWriteTarget(org, rawRepo, "tracked");
     if (target instanceof Response) return target;
     const orgId = (await getOrgId(target.org).catch(() => null)) ?? undefined;
     const result = await applyPracticeToRepo(

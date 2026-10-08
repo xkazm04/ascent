@@ -2,7 +2,7 @@
 // destructive PR-writes across up to MAX_BATCH repos with ONE org installation token, so the
 // load-bearing safety properties are: (a) a caller without at least the "admin" role is DENIED and NO
 // PR-write is attempted for any repo — since G2-01, a plain "member" is NOT enough for a fleet-wide
-// write of this blast radius; (b) a batch spanning two owners is refused (the same-org cross-tenant
+// write of this blast radius; (b) a batch with a repo the org neither owns nor tracks is refused (the cross-tenant
 // guard) with no writes; (c) the batch is capped at MAX_BATCH (over-cap → attempted=25, skipped=N-25)
 // and the admin/owner in-org happy path proceeds. The GitHub-App / DB / write boundaries are mocked so
 // no real PR is opened — the test asserts the *gate*, never the network.
@@ -88,6 +88,8 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: () => true,
 }));
 
+vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
+
 vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
 
 import { POST } from "./route";
@@ -96,6 +98,7 @@ import { fetchRepoContext, GitHubError } from "@/lib/github/source";
 import { getInstallationToken } from "@/lib/github/app";
 import { getInstallationIdForOwner, recordAudit, recordPracticePr } from "@/lib/db";
 import { requireOrgRole } from "@/lib/authz";
+import { orgTracksRepo } from "@/lib/db/org-admission";
 
 const mockOpenPr = vi.mocked(openDraftPr);
 const mockFetchCtx = vi.mocked(fetchRepoContext);
@@ -103,13 +106,16 @@ const mockToken = vi.mocked(getInstallationToken);
 const mockInstallId = vi.mocked(getInstallationIdForOwner);
 const mockRecordAudit = vi.mocked(recordAudit);
 const mockRequireOrgRole = vi.mocked(requireOrgRole);
+const mockTracks = vi.mocked(orgTracksRepo);
 
+/** The dashboard org defaults to the first repo's owner; pass `org` to override or "" to omit. */
 function run(body: Record<string, unknown>) {
+  const org = "org" in body ? body.org : String((body.repos as string[] | undefined)?.[0] ?? "").split("/")[0];
   return POST(
     new Request("http://localhost/api/practices/apply-batch", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, org }),
     }),
   );
 }
@@ -188,14 +194,12 @@ describe("POST /api/practices/apply-batch — tenant gate", () => {
 });
 
 describe("POST /api/practices/apply-batch — same-org (cross-tenant) guard", () => {
-  it("guard: rejects (400) a batch spanning two different owners — cross-tenant write refused", async () => {
+  it("guard: a batch spanning an owner the org does not track is refused (403) before any mint or write", async () => {
     const res = await run({ repos: ["orgA/app", "orgB/app"], practiceId: "ci-gates" });
 
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe("All repos in a batch must belong to the same org.");
-    // Refused before the gate / any write: a mixed-owner batch must never reach a token mint.
-    expect(mockRequireOrgRole).not.toHaveBeenCalled();
+    expect(res.status).toBe(403);
+    expect(mockInstallId).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
     expect(mockOpenPr).not.toHaveBeenCalled();
   });
 
@@ -283,5 +287,42 @@ describe("POST /api/practices/apply-batch — MAX_BATCH cap + happy path", () =>
     expect(ok).toHaveLength(2); // one bad repo never aborts the batch
     expect(bad).toHaveLength(1);
     expect(bad[0].error).toBe("boom"); // GitHubError message surfaced per-repo
+  });
+});
+
+describe("POST /api/practices/apply-batch — keyed on the dashboard org, not the repo owner", () => {
+  it("org kiro over tracked xkazm04/*: gates kiro, mints for kiro, audits and records kiro's org id", async () => {
+    mockTracks.mockResolvedValue(true);
+    const db = await import("@/lib/db");
+    vi.mocked(db.getOrgId).mockImplementation((async (slug: string) => (slug === "kiro" ? "org-kiro" : null)) as never);
+
+    const res = await run({ org: "kiro", repos: ["xkazm04/x", "xkazm04/y"], practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    expect(mockRequireOrgRole).toHaveBeenCalledWith("kiro", "admin");
+    expect(mockInstallId.mock.calls).toEqual([["kiro"]]);
+    expect(vi.mocked(db.getOrgId).mock.calls).toEqual([["kiro"]]);
+    expect(mockRecordAudit.mock.calls.every((c) => (c[2] as { orgId?: string }).orgId === "org-kiro")).toBe(true);
+    const tracked = vi.mocked(recordPracticePr);
+    expect(tracked).toHaveBeenCalledTimes(2);
+    expect(tracked.mock.calls.every((c) => c[0].orgId === "org-kiro")).toBe(true);
+  });
+
+  it("refuses an untracked foreign repo with 403 before any installation lookup or mint", async () => {
+    mockTracks.mockResolvedValue(false);
+
+    const res = await run({ org: "kiro", repos: ["someone/else"], practiceId: "ci-gates" });
+
+    expect(res.status).toBe(403);
+    expect(mockInstallId).not.toHaveBeenCalled();
+    expect(mockToken).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
+  });
+
+  it("400s a request without org, before the role gate or any write", async () => {
+    const res = await run({ org: "", repos: ["acme/app"], practiceId: "ci-gates" });
+    expect(res.status).toBe(400);
+    expect(mockRequireOrgRole).not.toHaveBeenCalled();
+    expect(mockOpenPr).not.toHaveBeenCalled();
   });
 });

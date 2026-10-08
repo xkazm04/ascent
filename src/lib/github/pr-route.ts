@@ -154,7 +154,7 @@ async function underOrg(org: string, parsed: ParsedRepo, rule: PrWriteRule): Pro
  *    deployment, and an org named for its team (`kiro`) tracking `xkazm04/*` has no installation of its
  *    own; the loop's PR writer already mints per repo owner (src/lib/db/improvement.ts).
  */
-function installOwnerFor(org: string, c: PrWriteCoordinate): string {
+export function installOwnerFor(org: string, c: Pick<PrWriteCoordinate, "owner">): string {
   if (c.owner === org) return org;
   // EXPLICIT only: selfHosted() also answers true by inference when billing is unconfigured, which a
   // managed deployment that lost its Polar token hits. Minting another account's installation token is
