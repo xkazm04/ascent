@@ -3098,6 +3098,8 @@
             "src/app/trends/ExportCsvButton.dom.test.tsx",
             "src/lib/history/limits.ts",
             "src/lib/history/limits.test.ts",
+            "src/lib/history/window.ts",
+            "src/lib/history/window.test.ts",
             "src/lib/report/exemplar.ts",
             "src/lib/report/exemplar-load.ts",
             "src/lib/corpus/eligibility.ts",

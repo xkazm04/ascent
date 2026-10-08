@@ -504,6 +504,54 @@ both the `/trends` page and `?format=csv` read. The page used to fetch 60 while 
 (`historyCapNote`): *"Showing the newest 200 scans: 'All' is capped at this depth, and the CSV
 export covers exactly the same 200."*
 
+### The history window: the plan's sold depth applies here too
+
+`/pricing` sells a history window per plan (`retentionDays`: Free 30, Starter 180, Team 365, Custom
+unlimited). The org reads and the personal overview already clamped to `retentionCutoff(plan)`; the
+per-repo history surfaces now do too. **One helper decides it** (`resolveHistoryWindow`,
+`src/lib/history/window.ts`) and its answer goes to every history read as `since`:
+
+- **a.** A read under a **tenant org** (anything but the shared `public` org) gets that org's plan window.
+- **b.** A read under the **public org** by a signed-in viewer who has a **personal workspace** (the org
+  whose slug is `normalizeLogin(viewer.login)` and whose `kind` is `personal`) gets that workspace's plan
+  window: the plan `personal.ts` reads, so the overview and its Trends / Compare links show one window.
+- **c.** Anyone else (signed out, or no personal workspace) is **not clamped**. This is a pending operator
+  decision and a single branch in the helper.
+- **d.** Self-host: `retentionCutoff` is null, so nothing is clamped on any plan.
+
+`getRepositoryHistory` and `getScanComparison` take an optional `since: Date | null`. Absent or null, the
+query is today's. Set, the scan read gains `scannedAt >= since` and the compacted tail drops every period
+that ended before it. `/trends` and `/report/compare` print one line (*"Showing the last 30 days: the
+Free plan's history window."*); a `?a`/`?b` id older than the window falls back like an id beyond the
+60-scan window. If the clamped series is empty but older scans exist the page says the scans fall outside
+the plan's window instead of "No scans recorded yet". `/api/history` (JSON and CSV) returns the window start
+in `x-ascent-history-since`; the CSV keeps its columns and its file name gains `-last<N>d`; the ETag carries
+the window length, so two windows over the same scans never share a validator.
+
+### What a read costs
+
+No model call and no paid third-party call sits on any of these paths: every read is the application's own
+database (Postgres / DSQL) and nothing else. There is no price or telemetry figure for them, so this section
+declares the bound and `scans-read.window.test.ts` pins the history read's (the `take` and the `scannedAt`
+floor both reach the query). Counts are application-level Prisma calls and exclude the auth/membership
+lookups every page makes. The window lookup adds **one** org read per request (request-memoized). With a
+window, a scan ceiling is `min(cap, scans in the window)`.
+
+| Use | DB queries | Row ceiling |
+| --- | --- | --- |
+| `/trends` first paint | window 1, org id 1, repo 1, scans 1 (no dimension join), compacted tail 1 (only when the scans do not fill the limit), deployments 2 | scans `min(200, in window)`; digests `200 − scans`; deployments 500 |
+| `/api/history` JSON | window 1, org id 1, repo 1, scans 1 plus the dimension relation load 1, tail 1 only with `?compacted=1` | scans `min(limit ≤ 200, default 30, in window)`; dimension rows ≤ 9 × scans |
+| CSV export | as the JSON, at `limit` 200, with `compacted=1` from the button | scans `min(200, in window)`; dimension rows ≤ 1800; digests `200 − scans` |
+| one `/report/compare` render | window 1, org id 1, repo 1, scans 1 plus dimensions 1, two full scan loads (about 2 each, with dimensions and recommendations), exemplar picker (below) | scans `min(60, in window)`; 2 full scans |
+
+When the window hides every scan, `/trends` and Compare make one extra single-row read to tell "outside the
+window" from "never scanned".
+
+**The heaviest read is the compare page's exemplar picker, unchanged by the window:**
+`listExemplarOptions` reads up to `ORG_CANDIDATE_CAP` 500 repositories for the org list plus up to
+2 × `EXEMPLAR_CANDIDATE_CAP` 2000 cohort members (the language and archetype slices). It is bounded only by
+those constants and does not take `since`.
+
 ### Trajectory forecast: fit over full history, never the displayed range
 
 `fitTrendForecast` (`src/app/trends/forecast.ts`) takes **no range argument by construction**. The
