@@ -11,7 +11,15 @@ import { PracticeApply } from "@/features/shared/practices/PracticeApply";
 import { scoreHex } from "@/lib/ui";
 import type { OrgPractice } from "@/lib/db";
 
-export function MinedPracticeDetail({ p, onPromote }: { p: OrgPractice; onPromote?: () => void }) {
+export function MinedPracticeDetail({
+  org,
+  p,
+  onPromote,
+}: {
+  org: string;
+  p: OrgPractice;
+  onPromote?: () => void;
+}) {
   // `total` is the # of repos evaluated on this practice's dimension. When it's 0, show a "not yet
   // measured" state instead of a meaningless "0/0 · 0%" that reads as 0% adoption.
   const measured = p.total > 0;
@@ -102,7 +110,7 @@ export function MinedPracticeDetail({ p, onPromote }: { p: OrgPractice; onPromot
       </div>
 
       {/* Systematic apply: generate the starter + open a draft PR into a gap repo. */}
-      <PracticeApply practiceId={p.id} gapRepos={p.gapRepoRefs} openPrs={p.openPrs} />
+      <PracticeApply org={org} practiceId={p.id} gapRepos={p.gapRepoRefs} openPrs={p.openPrs} />
     </div>
   );
 }

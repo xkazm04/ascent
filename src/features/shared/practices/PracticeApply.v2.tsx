@@ -9,10 +9,13 @@ import { PracticeApplyBatch } from "./PracticeApplyBatch";
 import { PracticePreviewKicker, previewShapeFromPayload } from "./PracticePreviewKicker";
 
 export function PracticeApplyV2({
+  org,
   practiceId,
   gapRepos,
   openPrs = [],
 }: {
+  /** The dashboard org: the apply gate, mint, audit row and house pattern key on it, never on the repo owner. */
+  org: string;
   practiceId: string;
   gapRepos: RepoRef[];
   openPrs?: OpenPrRef[];
@@ -40,7 +43,7 @@ export function PracticeApplyV2({
       const res = await fetch("/api/practices/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo: target, practiceId }),
+        body: JSON.stringify({ org, repo: target, practiceId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to generate.");
@@ -62,7 +65,7 @@ export function PracticeApplyV2({
       const res = await fetch("/api/practices/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo: target, practiceId, previewFingerprint: artifactFingerprint(artifact.body) }),
+        body: JSON.stringify({ org, repo: target, practiceId, previewFingerprint: artifactFingerprint(artifact.body) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -143,6 +146,7 @@ export function PracticeApplyV2({
       )}
       {gapRepos.length > 1 && (
         <PracticeApplyBatch
+          org={org}
           practiceId={practiceId}
           gapRepos={gapRepos}
           openPrs={openPrByRepo}

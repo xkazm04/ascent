@@ -34,10 +34,13 @@ function dimensionLabel(id: string): string {
 }
 
 export function RegistryPractices({
+  org,
   rows,
   registryBase,
   repoOptions = [],
 }: {
+  /** The dashboard org the Copy action is gated and audited under. */
+  org: string;
   /** Every live shape row; this component filters to the registry-origin ones itself. */
   rows: readonly PracticeShapeRow[];
   /** Blob-URL prefix of the mapped registry, or null when nothing is mapped. */
@@ -82,7 +85,7 @@ export function RegistryPractices({
                 <OriginTag origin={r.origin} path={r.registryPath} />
               </div>
               {r.appliesWhen && <p className="mt-1 type-body-sm text-slate-400">{r.appliesWhen}</p>}
-              <RegistryPracticeApply slug={r.slug} title={r.title || r.slug} repoOptions={repoOptions} />
+              <RegistryPracticeApply org={org} slug={r.slug} title={r.title || r.slug} repoOptions={repoOptions} />
             </div>
             <OpenInRegistry href={registryBlobHref(registryBase, r.registryPath)} />
           </li>

@@ -41,6 +41,7 @@ export function PracticeDetailModal({
           <ModalBody>
             {row.source === "mined" && row.mined ? (
               <MinedPracticeDetail
+                org={slug}
                 p={row.mined}
                 onPromote={onPromoteMined ? () => onPromoteMined(row.mined!) : undefined}
               />

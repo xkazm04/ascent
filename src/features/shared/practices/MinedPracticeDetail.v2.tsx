@@ -6,7 +6,15 @@ import { Caption, Chip, ChipRow, DimensionLine, Frame, GhostAction, KeyValue, Mo
 import { PracticeApplyV2 } from "./PracticeApply.v2";
 import type { OrgPractice } from "@/lib/db";
 
-export function MinedPracticeDetailV2({ p, onPromote }: { p: OrgPractice; onPromote?: () => void }) {
+export function MinedPracticeDetailV2({
+  org,
+  p,
+  onPromote,
+}: {
+  org: string;
+  p: OrgPractice;
+  onPromote?: () => void;
+}) {
   const measured = p.total > 0;
   const pct = measured ? Math.round((p.strongCount / p.total) * 100) : null;
   const dim = parseDimension(p.dimId);
@@ -60,7 +68,7 @@ export function MinedPracticeDetailV2({ p, onPromote }: { p: OrgPractice; onProm
           ))}
         </ul>
       </Frame>
-      <PracticeApplyV2 practiceId={p.id} gapRepos={p.gapRepoRefs} openPrs={p.openPrs} />
+      <PracticeApplyV2 org={org} practiceId={p.id} gapRepos={p.gapRepoRefs} openPrs={p.openPrs} />
     </div>
   );
 }

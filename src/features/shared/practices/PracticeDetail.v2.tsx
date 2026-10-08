@@ -57,7 +57,7 @@ export function PracticeDetailV2({
         <Lede className="mt-3">{row.what}</Lede>
       </header>
       {row.source === "mined" && row.mined ? (
-        <MinedPracticeDetailV2 p={row.mined} onPromote={() => onPromoteMined(row.mined!)} />
+        <MinedPracticeDetailV2 org={slug} p={row.mined} onPromote={() => onPromoteMined(row.mined!)} />
       ) : row.authored ? (
         <Panel aria-label={row.label}>
           <PlaybookCardV2

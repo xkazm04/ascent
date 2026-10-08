@@ -20,10 +20,13 @@ import { useState } from "react";
 import { ConfirmAction } from "@/components/ConfirmAction";
 
 export function RegistryPracticeApply({
+  org,
   slug,
   title,
   repoOptions,
 }: {
+  /** The dashboard org the apply is gated and audited under (not the repo owner). */
+  org: string;
   /** The registry practice's slug — the id sent is `registry:<slug>`. */
   slug: string;
   title: string;
@@ -46,7 +49,7 @@ export function RegistryPracticeApply({
       const res = await fetch("/api/practices/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo, practiceId: `registry:${slug}` }),
+        body: JSON.stringify({ org, repo, practiceId: `registry:${slug}` }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open the PR.");

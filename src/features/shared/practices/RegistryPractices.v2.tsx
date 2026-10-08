@@ -11,10 +11,12 @@ function dimensionName(id: string): string {
 }
 
 export function RegistryPracticesV2({
+  org,
   rows,
   registryBase,
   repoOptions = [],
 }: {
+  org: string;
   rows: readonly PracticeShapeRow[];
   registryBase: string | null;
   repoOptions?: string[];
@@ -43,7 +45,7 @@ export function RegistryPracticesV2({
                   <OriginTag origin={r.origin} path={r.registryPath} />
                 </div>
                 {r.appliesWhen && <p className="mt-1 max-w-[62ch] text-slate-400">{r.appliesWhen}</p>}
-                <RegistryPracticeApplyV2 slug={r.slug} title={r.title || r.slug} repoOptions={repoOptions} />
+                <RegistryPracticeApplyV2 org={org} slug={r.slug} title={r.title || r.slug} repoOptions={repoOptions} />
               </div>
               <OpenInRegistry href={registryBlobHref(registryBase, r.registryPath)} />
             </li>

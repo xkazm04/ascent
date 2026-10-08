@@ -25,14 +25,14 @@ function ok(payload: Record<string, unknown>) {
 }
 
 async function preview() {
-  render(<PracticeApply practiceId="agent-guidance" gapRepos={repos} />);
+  render(<PracticeApply org="kiro" practiceId="agent-guidance" gapRepos={repos} />);
   fireEvent.click(screen.getByRole("button", { name: "Preview starter" }));
   await screen.findByTestId("practice-preview-shape");
 }
 
 describe("PracticeApply preview shape kicker", () => {
   it("shows no shape line until an artifact is previewed", () => {
-    render(<PracticeApply practiceId="agent-guidance" gapRepos={repos} />);
+    render(<PracticeApply org="kiro" practiceId="agent-guidance" gapRepos={repos} />);
     expect(screen.queryByTestId("practice-preview-shape")).toBeNull();
   });
 

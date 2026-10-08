@@ -17,10 +17,12 @@ import { PracticePreviewKicker, previewShapeFromPayload } from "./PracticePrevie
  * apply would only re-surface the same `ascent/<practice>` branch.
  */
 export function PracticeApply({
+  org,
   practiceId,
   gapRepos,
   openPrs = [],
 }: {
+  org: string;
   practiceId: string;
   gapRepos: RepoRef[];
   openPrs?: OpenPrRef[];
@@ -49,7 +51,7 @@ export function PracticeApply({
       const res = await fetch("/api/practices/generate", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo: target, practiceId }),
+        body: JSON.stringify({ org, repo: target, practiceId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to generate.");
@@ -84,7 +86,7 @@ export function PracticeApply({
       const res = await fetch("/api/practices/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repo: target, practiceId, previewFingerprint: artifactFingerprint(artifact.body) }),
+        body: JSON.stringify({ org, repo: target, practiceId, previewFingerprint: artifactFingerprint(artifact.body) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -185,6 +187,7 @@ export function PracticeApply({
 
       {gapRepos.length > 1 && (
         <PracticeApplyBatch
+          org={org}
           practiceId={practiceId}
           gapRepos={gapRepos}
           openPrs={openPrByRepo}

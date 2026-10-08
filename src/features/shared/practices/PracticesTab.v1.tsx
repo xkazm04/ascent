@@ -37,7 +37,7 @@ export function PracticesTabV1({ data }: { data: PracticesPageData }) {
       {data.mined && <HousePattern mined={data.mined} reposWithShape={data.reposWithShape} />}
 
       {/* The org's OWN agreed practices, straight out of the registry, above the generic catalog. */}
-      <RegistryPractices rows={data.shapeRows} registryBase={data.registryBase} repoOptions={data.repoOptions} />
+      <RegistryPractices org={data.slug} rows={data.shapeRows} registryBase={data.registryBase} repoOptions={data.repoOptions} />
 
       <div className={TILE_GRID}>
         <Tile

@@ -12,12 +12,15 @@ import { MAX_BATCH, type BatchResult, type OpenPrRef, type RepoRef } from "./pra
 import { PracticeApplyBatchResults } from "./PracticeApplyBatchResults";
 
 export function PracticeApplyBatch({
+  org,
   practiceId,
   gapRepos,
   openPrs,
   singleBusy,
   onBusyChange,
 }: {
+  /** The dashboard org: the apply gate, mint, audit row and house pattern key on it, never on the repo owner. */
+  org: string;
   practiceId: string;
   gapRepos: RepoRef[];
   /** Repos that already have a live starter PR for this practice — never offered a duplicate. */
@@ -41,9 +44,9 @@ export function PracticeApplyBatch({
   const [confirmingBatch, setConfirmingBatch] = useState(false);
 
   const selectable = gapRepos.filter((r) => !openPrs.has(r.fullName));
-  // All gap repos belong to one org (the batch route rejects a mixed-owner batch); take the owner from
-  // the first so the confirm can name the org whose repos are about to receive PRs.
-  const batchOrg = gapRepos[0]?.fullName.split("/")[0] ?? "the org";
+  // The confirm names the DASHBOARD org the batch is gated and audited under, not the first repo's
+  // owner (an org's slug can differ from the owner of the repos it tracks).
+  const batchOrg = org;
 
   function setBusy(b: boolean) {
     setBatchBusy(b);
@@ -76,7 +79,7 @@ export function PracticeApplyBatch({
       const res = await fetch("/api/practices/apply-batch", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ repos, practiceId }),
+        body: JSON.stringify({ org, repos, practiceId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to open PRs.");

@@ -47,7 +47,7 @@ export function PracticesPageV2({ data, filters }: { data: PracticesPageData; fi
           <RegistrySyncStripV2 sync={data.sync} slug={data.slug} artifact="practices" />
           <PracticesMastheadV2 data={data} filters={filters} />
           {data.mined && <HousePatternV2 mined={data.mined} reposWithShape={data.reposWithShape} />}
-          <RegistryPracticesV2 rows={data.shapeRows} registryBase={data.registryBase} repoOptions={data.repoOptions} />
+          <RegistryPracticesV2 org={data.slug} rows={data.shapeRows} registryBase={data.registryBase} repoOptions={data.repoOptions} />
           {data.adoptionLedger && <PracticeDriftV2 slug={data.slug} summary={data.adoptionLedger} />}
           <PracticeLibraryV2
             rows={view.rows}
