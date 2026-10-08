@@ -43,7 +43,7 @@ vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null), requi
 vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
 
 import { POST } from "./route";
-import { isAppConfigured } from "@/lib/github/app";
+import { AppApiError, isAppConfigured } from "@/lib/github/app";
 import { getOrgId } from "@/lib/db";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
 
@@ -88,5 +88,24 @@ describe("POST /api/practices/rollout: failures", () => {
     expect(results).toContainEqual({ repo: "acme/a", ok: false, error: "Failed to open the starter PR." });
     expect(results.find((r) => r.repo === "acme/b")?.ok).toBe(true);
     expect(reportHandledError).toHaveBeenCalledWith(boom, expect.anything());
+  });
+
+  // Council r2 robustness-3: a CLASSIFIED 5xx kept its row copy and was never logged or reported.
+  it("reports a classified 5xx row with its cause, and keeps a classified 4xx row quiet", async () => {
+    const upstream = Object.assign(new AppApiError("app 500"), { status: 500 });
+    const scope = Object.assign(new AppApiError("app 403"), { status: 403 });
+    vi.mocked(applyPracticeToRepo).mockImplementation((async (_t: string, ref: { repo: string }) => {
+      throw ref.repo === "a" ? upstream : scope;
+    }) as never);
+    const res = await run();
+    expect(res.status).toBe(200);
+    const { results } = (await res.json()) as { results: { repo: string; ok: boolean; error?: string }[] };
+    expect(results).toEqual([
+      { repo: "acme/a", ok: false, error: "GitHub rejected the write. Check the repo and base branch." },
+      { repo: "acme/b", ok: false, error: "The installation lacks contents/PR write access. Update the GitHub App's permissions." },
+    ]);
+    expect(reportHandledError).toHaveBeenCalledTimes(1);
+    expect(reportHandledError).toHaveBeenCalledWith(upstream, expect.objectContaining({ status: 502 }));
+    expect(console.error).toHaveBeenCalledWith("[practices/rollout] acme/a upstream write failed", upstream);
   });
 });

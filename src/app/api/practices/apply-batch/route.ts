@@ -128,6 +128,11 @@ export async function POST(request: Request) {
           // An unexpected failure keeps the row's copy but is never silent: logged with the repo, reported.
           console.error(`[practices/apply-batch] ${raw} failed`, err);
           reportHandledError(err, { message: "Failed to open the starter PR." });
+        } else if (classified.status >= 500) {
+          // A classified 5xx (an App API 500, a GitHub upstream failure) keeps its row copy too, but is
+          // an unexpected upstream failure: reported like the unclassified one. A 4xx stays quiet.
+          console.error(`[practices/apply-batch] ${raw} upstream write failed`, err);
+          reportHandledError(err, { status: classified.status, message: classified.message });
         }
         return { repo: raw, ok: false, error: classified?.message ?? "Failed to open the starter PR." };
       }

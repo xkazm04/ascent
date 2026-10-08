@@ -14,7 +14,15 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/github/app", () => ({
-  AppApiError: class AppApiError extends Error {},
+  AppApiError: class AppApiError extends Error {
+    constructor(
+      readonly status: number,
+      readonly path: string,
+      readonly body: string,
+    ) {
+      super(`GitHub App API ${status} on ${path}: ${body}`);
+    }
+  },
   getInstallationToken: vi.fn(async (id: string) => `token-for-${id}`),
 }));
 vi.mock("@/lib/db", () => ({
@@ -253,12 +261,31 @@ describe("mapPrWriteError", () => {
     expect(respondError).toHaveBeenCalledWith(500, "Failed to do it.", { cause: boom });
   });
 
-  it("does not report a classified error", async () => {
-    const a = mapPrWriteError(new AppApiError("no"), { tag: "t", genericError: "x" });
-    const g = mapPrWriteError(new GitHubError("UPSTREAM", "nope", 422), { tag: "t", genericError: "x" });
-    expect(a.status).toBe(502);
-    expect(g.status).toBe(422);
+  it("does not report a classified 4xx: the App's 403/404/409 and a 4xx GitHubError", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const statuses: number[] = [];
+    for (const s of [403, 404, 409]) {
+      statuses.push(mapPrWriteError(new AppApiError(s, "/x", "no"), { tag: "t", genericError: "x" }).status);
+    }
+    statuses.push(mapPrWriteError(new GitHubError("UPSTREAM", "nope", 422), { tag: "t", genericError: "x" }).status);
+    expect(statuses).toEqual([403, 404, 409, 422]);
     expect(respondError).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  // Council r2 robustness-3: a classified 5xx was answered but never logged or reported.
+  it("reports a classified 5xx with its cause, body unchanged: an App 500 (answered 502) and a 5xx GitHubError", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = new AppApiError(500, "/x", "boom");
+    const gh = new GitHubError("UPSTREAM", "GitHub is down.", 503);
+    const a = mapPrWriteError(app, { tag: "t", genericError: "x" });
+    const g = mapPrWriteError(gh, { tag: "t", genericError: "x" });
+    expect([a.status, g.status]).toEqual([502, 503]);
+    expect(await a.json()).toEqual({ error: "GitHub rejected the write. Check the repo and base branch." });
+    expect(await g.json()).toEqual({ error: "GitHub is down." });
+    expect(respondError).toHaveBeenCalledWith(502, "GitHub rejected the write. Check the repo and base branch.", { cause: app });
+    expect(respondError).toHaveBeenCalledWith(503, "GitHub is down.", { cause: gh });
+    expect(log).toHaveBeenCalledWith("[t] upstream write failed", app);
   });
 
   it("exports the shared mint copy", () => {

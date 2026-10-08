@@ -311,12 +311,20 @@ export function classifyPrWriteError(
  * Map a thrown PR-write error to the route's HTTP response. Delegates the AppApiError/GitHubError
  * classification to {@link classifyPrWriteError}; anything else → a logged generic 500. `genericError`
  * is the route's 500 copy; `conflict` overrides the 409 hint (see classifyPrWriteError).
+ *
+ * A classified 4xx (no write scope, not found, won't overwrite) is the system working and stays
+ * unreported. A classified 5xx (an App API 500 answered 502, a GitHub upstream failure) is an
+ * unexpected upstream failure like any other on this path: same body, but logged and reported.
  */
 export function mapPrWriteError(
   err: unknown,
   opts: { tag: string; genericError: string; conflict?: (err: AppApiError) => string },
 ): NextResponse {
   const classified = classifyPrWriteError(err, opts);
+  if (classified && classified.status >= 500) {
+    console.error(`[${opts.tag}] upstream write failed`, err);
+    return respondError(classified.status, classified.message, { cause: err });
+  }
   if (classified) return NextResponse.json({ error: classified.message }, { status: classified.status });
   console.error(`[${opts.tag}] failed`, err);
   return respondError(500, opts.genericError, { cause: err });
