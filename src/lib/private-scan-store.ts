@@ -77,9 +77,14 @@ export function storableGuidanceGraph(graph: GuidanceGraph): GuidanceGraph {
   };
 }
 
+const RULE_DIVERGENCE = "rule: never vs always";
+
 function storableEdge(e: GuidanceEdge): GuidanceEdge {
   if (e.kind !== "diverges") return e; // the other kinds carry generated vocabulary only
-  if (e.detail.startsWith("rule ")) return { ...e, detail: "rule: never vs always" };
+  // `rule "<subject>": …` before the scrub, `rule: never vs always` after it. Both map to the same
+  // line so the transform is idempotent: the backfill scrub (src/lib/db/private-scan-scrub.ts) re-runs
+  // it over rows that may already be clean, and a second pass must change nothing.
+  if (e.detail.startsWith("rule ") || e.detail === RULE_DIVERGENCE) return { ...e, detail: RULE_DIVERGENCE };
   const key = e.detail.split(":")[0] ?? "";
   return { ...e, detail: DERIVED_KEY.test(key) ? `${key}: commands differ` : "commands differ" };
 }

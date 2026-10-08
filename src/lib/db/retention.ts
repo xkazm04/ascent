@@ -2150,6 +2150,26 @@ async function eraseOrgMemoryCitations(
   );
 }
 
+/**
+ * MOONSHOT #14 — the repo-scoped half of the `.ai/memory` mirror erase: every RepoMemoryMirror row of
+ * ONE repo, keyed by (orgId, repoFullName). A preview counts over the SAME predicate the delete uses.
+ * Exported so the private-scan scrub (src/lib/db/private-scan-scrub.ts) deletes a private repo's
+ * mirror exactly as a repo-scoped erase does, rather than through a second copy of the predicate.
+ */
+export async function eraseRepoMemoryMirrorByRepo(
+  prisma: PrismaLike,
+  orgId: string,
+  repoFullName: string,
+  dryRun: boolean,
+): Promise<number> {
+  if (dryRun) return prisma.repoMemoryMirror.count({ where: { orgId, repoFullName } });
+  return (
+    await withRetry(() => prisma.repoMemoryMirror.deleteMany({ where: { orgId, repoFullName } }), {
+      label: "erase.repo-memory-mirror-by-repo",
+    })
+  ).count;
+}
+
 /** The function cap the erase route DECLARES (`export const maxDuration`). Next.js needs that segment
  *  config to be a literal, so the route can't import this — a route test pins the two together instead
  *  (same contract as {@link PURGE_MAX_DURATION_S}). */
@@ -2460,18 +2480,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     // reads back what the repo said. The declared `onDelete: Cascade` does not help here: it hangs off
     // the Organization relation, and this path deletes no Organization row.
     if (repoName) {
-      if (dryRun) {
-        memoryMirrorsDeleted += await prisma.repoMemoryMirror.count({
-          where: { orgId: org.id, repoFullName: repoName },
-        });
-      } else {
-        memoryMirrorsDeleted += (
-          await withRetry(
-            () => prisma.repoMemoryMirror.deleteMany({ where: { orgId: org.id, repoFullName: repoName } }),
-            { label: "erase.repo-memory-mirror-by-repo" },
-          )
-        ).count;
-      }
+      memoryMirrorsDeleted += await eraseRepoMemoryMirrorByRepo(prisma, org.id, repoName, dryRun);
       // MOONSHOT #33 — the repo's adoption ledger, keyed by (orgId, repoFullName) for the same
       // reason and with the same hazard: a REPO-scoped erase that left these behind would keep a
       // durable record of which files that repo held and what was in them, addressed by path, after

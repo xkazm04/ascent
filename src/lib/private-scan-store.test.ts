@@ -171,3 +171,19 @@ describe("storableScanReport — a local working copy is exempt", () => {
     }
   });
 });
+
+// The backfill scrub (src/lib/db/private-scan-scrub.ts) re-applies these transforms to rows that may
+// already be clean. FAILS BEFORE: a scrubbed rule divergence edge ("rule: never vs always") was read as
+// a command key "rule" and rewritten to "rule: commands differ" on the second pass.
+describe("the store transforms are idempotent", () => {
+  it("a second pass changes nothing", () => {
+    const g = storableGuidanceGraph(guidanceGraph());
+    expect(storableGuidanceGraph(g)).toEqual(g);
+    const m = storableManifest(manifest());
+    expect(storableManifest(m)).toEqual(m);
+    for (const line of [SIGNAL, CITED, CITED_PAIR, CONFIRMED, UNVERIFIED]) {
+      const once = storableEvidenceLine(line);
+      expect(storableEvidenceLine(once)).toBe(once);
+    }
+  });
+});
