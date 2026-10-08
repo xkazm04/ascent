@@ -420,11 +420,15 @@ function withoutDimensions(p: HistoryPoint): HistoryPoint {
  * average as a scan (the compare picker, `/api/history` without the param) never receives one by
  * accident. Callers that opt in must skip or label `digest:` ids ({@link isCompactedPointId}) so a
  * mean is never posted as a permalinked scan.
+ *
+ * `since` (optional) is the plan's sold history floor (src/lib/history/window.ts). Absent or null, the
+ * query is exactly what it was before the option existed. Set, the scan read gains `scannedAt >= since`
+ * and the compacted tail drops every period that ENDED before it.
  */
 export async function getRepositoryHistory(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean; strict?: boolean } = {},
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean; strict?: boolean; since?: Date | null } = {},
 ): Promise<RepositoryHistory | null> {
   if (!isDbConfigured()) return null;
   // DB-DOWN DEGRADE, deliberately uniform (scan-persistence-history 07-16 #4): every reader in this
@@ -454,7 +458,7 @@ function readSafeOrStrict<T>(strict: boolean | undefined, fn: () => Promise<T>, 
 async function loadRepositoryHistory(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean },
+  opts: { orgSlug?: string; limit?: number; includeDimensions?: boolean; includeCompacted?: boolean; since?: Date | null },
 ): Promise<RepositoryHistory | null> {
   const prisma = getPrisma();
   const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
@@ -478,7 +482,12 @@ async function loadRepositoryHistory(
   // Two statically-typed queries (rather than a dynamic select) so the result type stays precise:
   // the light branch genuinely omits the dimensions join at the DB, not just in the mapping. Each
   // branch maps through historyPointFrom (a single array type, never a union, so it stays type-safe).
-  const args = { where: { repoId: repo.id }, orderBy: SCAN_ORDER, take: limit } as const;
+  const since = opts.since ?? null;
+  const args = {
+    where: { repoId: repo.id, ...(since ? { scannedAt: { gte: since } } : {}) },
+    orderBy: SCAN_ORDER,
+    take: limit,
+  } as const;
 
   const scans: HistoryPoint[] = includeDimensions
     ? (
@@ -502,6 +511,8 @@ async function loadRepositoryHistory(
       limit: limit - scans.length,
     });
     for (const row of tail) {
+      // A period that ended before the plan's floor is outside the sold window (compare by instant).
+      if (since && new Date(row.lastScannedAt).getTime() < since.getTime()) continue;
       const point = digestToPoint(row);
       scans.push(includeDimensions ? point : withoutDimensions(point));
     }
@@ -676,7 +687,15 @@ async function loadComparableScan(
 export async function getScanComparison(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number; strict?: boolean } = {},
+  opts: {
+    orgSlug?: string;
+    afterId?: string;
+    beforeId?: string;
+    limit?: number;
+    strict?: boolean;
+    /** The plan's sold history floor; absent/null = today's unbounded-by-age query. */
+    since?: Date | null;
+  } = {},
 ): Promise<ScanComparison | null> {
   if (!isDbConfigured()) return null;
   // DB-down degrades to null like every other reader here — see getRepositoryHistory
@@ -689,7 +708,7 @@ export async function getScanComparison(
 async function loadScanComparison(
   owner: string,
   name: string,
-  opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number },
+  opts: { orgSlug?: string; afterId?: string; beforeId?: string; limit?: number; since?: Date | null },
 ): Promise<ScanComparison | null> {
   const prisma = getPrisma();
   const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
@@ -716,7 +735,7 @@ async function loadScanComparison(
   if (orgSlug === DEFAULT_ORG_SLUG && repo.isPrivate) return null;
 
   const list = await prisma.scan.findMany({
-    where: { repoId: repo.id },
+    where: { repoId: repo.id, ...(opts.since ? { scannedAt: { gte: opts.since } } : {}) },
     orderBy: SCAN_ORDER,
     take: limit,
     select: { ...HISTORY_POINT_SELECT, dimensions: { select: { dimId: true, score: true } } },
