@@ -6,9 +6,10 @@
 // scans just this segment's watched repos (SSE progress, like OrgScanButton). "Scan segment" /
 // "set cadence" on a slice instead of the whole fleet.
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { readSSE } from "@/lib/sse";
+import { PUSH_RESCAN_DISCLOSURE } from "@/lib/org/repo-schedule";
 
 const CADENCES = ["off", "daily", "weekly", "monthly"] as const;
 
@@ -96,6 +97,8 @@ export function SegmentActions({
     }
   }
 
+  const pushId = useId();
+
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-3">
       <select
@@ -103,6 +106,7 @@ export function SegmentActions({
         disabled={cadenceBusy}
         onChange={(e) => setSchedule(e.target.value)}
         aria-label="Set autoscan cadence for this segment"
+        aria-describedby={pushId}
         className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 type-mono-sm text-slate-300 outline-none focus:border-accent disabled:opacity-50"
       >
         <option value="">Cadence…</option>
@@ -130,6 +134,9 @@ export function SegmentActions({
             `Scan segment (${repos.length < taggedCount ? `${repos.length} of ${taggedCount} watched` : repos.length})`}
       </button>
       {note && <span className="type-mono-sm text-slate-500">{note}</span>}
+      <p id={pushId} className="basis-full type-mono-sm text-slate-500">
+        {PUSH_RESCAN_DISCLOSURE}
+      </p>
       {scan?.error && <span className="type-mono-sm text-orange-300">{scan.error}</span>}
     </div>
   );

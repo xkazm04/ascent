@@ -10,8 +10,8 @@
 // the whole vocabulary, so a new cadence (or a relabelled one) cannot reintroduce the divergence.
 
 import { describe, it, expect, vi } from "vitest";
-import { render } from "@testing-library/react";
-import { SCHEDULES, scheduleLabel } from "@/lib/org/repo-schedule";
+import { render, screen } from "@testing-library/react";
+import { PUSH_RESCAN_DISCLOSURE, SCHEDULES, scheduleLabel } from "@/lib/org/repo-schedule";
 import { ScheduleSelect } from "./ScheduleSelect";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
@@ -37,5 +37,15 @@ describe("ScheduleSelect cadence labels", () => {
     const off = options().find((o) => o.value === "off");
     expect(off?.text).toBe("no autoscan");
     expect(off?.text).not.toBe("off");
+  });
+
+  it("describes the push-rescan cost and the no-autoscan rule through its accessible description", () => {
+    render(<ScheduleSelect org="acme" fullName="acme/api" schedule="off" />);
+    const select = screen.getByLabelText("Autoscan cadence for acme/api");
+    const ids = (select.getAttribute("aria-describedby") ?? "").split(" ");
+    const text = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+    expect(text).toContain(PUSH_RESCAN_DISCLOSURE);
+    expect(PUSH_RESCAN_DISCLOSURE).toMatch(/default branch is pushed/);
+    expect(PUSH_RESCAN_DISCLOSURE).toMatch(/\"no autoscan\" stops push rescans too/);
   });
 });

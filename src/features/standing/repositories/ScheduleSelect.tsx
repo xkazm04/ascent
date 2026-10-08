@@ -12,7 +12,7 @@ import { useId, useState } from "react";
 // id, and "off" is the id, not the label. The connect page's two selects render through it ("no
 // autoscan"); this one shipped later and rendered the raw id, so the same setting read as two
 // different words depending on which surface you were standing on.
-import { SCHEDULES as OPTIONS, scheduleLabel, type Schedule } from "@/lib/org/repo-schedule";
+import { SCHEDULES as OPTIONS, scheduleLabel, PUSH_RESCAN_DISCLOSURE, type Schedule } from "@/lib/org/repo-schedule";
 
 function normalize(s: string): Schedule {
   return (OPTIONS as readonly string[]).includes(s) ? (s as Schedule) : "off";
@@ -37,6 +37,7 @@ export function ScheduleSelect({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hintId = useId();
+  const pushId = useId();
   // a11y (ambiguity-ui 2026-07-16 #5): a natively-disabled select leaves the tab order and `title`
   // is hover-only — keyboard/SR users found a dead control with no reason. Keep it focusable with
   // aria-disabled + a change guard (the controlled value simply doesn't move), and expose the
@@ -81,7 +82,7 @@ export function ScheduleSelect({
         title={disabled ? disabledHint : undefined}
         onChange={(e) => onChange(normalize(e.target.value))}
         aria-label={`Autoscan cadence for ${fullName}`}
-        aria-describedby={disabled && disabledHint ? hintId : undefined}
+        aria-describedby={disabled && disabledHint ? `${hintId} ${pushId}` : pushId}
         className={`rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 type-mono-sm text-slate-300 transition focus:border-accent focus:outline-none ${
           inert ? "cursor-not-allowed opacity-50" : "hover:border-accent"
         }`}
@@ -92,6 +93,9 @@ export function ScheduleSelect({
           </option>
         ))}
       </select>
+      <span id={pushId} className="sr-only">
+        {PUSH_RESCAN_DISCLOSURE}
+      </span>
       {disabled && disabledHint && (
         <span id={hintId} className="sr-only">
           {disabledHint}

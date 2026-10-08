@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ScanCostDisclosure } from "./OnboardingSelectStep.CostDisclosure";
 import { getAutoWatchOptIn, resetAutoWatchOptIn } from "./OnboardingSelectStep.watchOptIn";
+import { PUSH_RESCAN_DISCLOSURE } from "@/lib/org/repo-schedule";
 import { immediateScanCredits } from "@/components/credit/WatchCostTail";
 
 beforeEach(() => resetAutoWatchOptIn());
@@ -107,5 +108,23 @@ describe("onboarding cost disclosure at the commit point", () => {
     expect(screen.queryByText(/draws up to/)).toBeNull();
     expect(screen.queryByText(/balance:/)).toBeNull();
     expect(document.body.textContent).not.toMatch(/NaN/);
+  });
+});
+
+describe("push rescans are disclosed beside the autoscan opt-in", () => {
+  const credit = { balance: 40, unlimited: false, allowanceRemaining: 0 };
+
+  it("opted out: the opt-in line carries the push clause and the one-time line is unchanged", () => {
+    render(<ScanCostDisclosure count={3} sourceInstallId="42" credit={credit} />);
+    expect(screen.getByRole("checkbox", { name: /Also autoscan/i })).toHaveAccessibleName(
+      expect.stringContaining(PUSH_RESCAN_DISCLOSURE),
+    );
+    expect(screen.getByText(/One-time scan: no recurring autoscan is set up/)).toBeInTheDocument();
+  });
+
+  it("opted in: the estimate says it covers the cadence only, push rescans on top", () => {
+    render(<ScanCostDisclosure count={3} sourceInstallId="42" credit={credit} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Also autoscan/i }));
+    expect(screen.getByText(/prepaid credits\/month/)).toHaveTextContent(/this covers the cadence only, push rescans come on top/);
   });
 });

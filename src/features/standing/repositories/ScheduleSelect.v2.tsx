@@ -5,7 +5,7 @@
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { FormField, Select } from "@/components/kit";
-import { SCHEDULES as OPTIONS, scheduleLabel, type Schedule } from "@/lib/org/repo-schedule";
+import { SCHEDULES as OPTIONS, scheduleLabel, PUSH_RESCAN_DISCLOSURE, type Schedule } from "@/lib/org/repo-schedule";
 
 function normalize(s: string): Schedule {
   return (OPTIONS as readonly string[]).includes(s) ? (s as Schedule) : "off";
@@ -30,6 +30,7 @@ export function ScheduleSelectV2({
   const [error, setError] = useState<string | null>(null);
   const fieldId = useId();
   const hintId = useId();
+  const pushId = useId();
   const inert = disabled || saving;
 
   async function onChange(next: Schedule) {
@@ -69,7 +70,7 @@ export function ScheduleSelectV2({
           title={disabled ? disabledHint : undefined}
           onChange={(e) => onChange(normalize(e.target.value))}
           aria-label={`Autoscan cadence for ${fullName}`}
-          aria-describedby={disabled && disabledHint ? hintId : undefined}
+          aria-describedby={disabled && disabledHint ? `${hintId} ${pushId}` : pushId}
           className={inert ? "cursor-not-allowed" : undefined}
         >
           {OPTIONS.map((o) => (
@@ -78,6 +79,9 @@ export function ScheduleSelectV2({
             </option>
           ))}
         </Select>
+        <span id={pushId} className="sr-only">
+          {PUSH_RESCAN_DISCLOSURE}
+        </span>
         {disabled && disabledHint && (
           <span id={hintId} className="sr-only">
             {disabledHint}

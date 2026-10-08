@@ -5,7 +5,7 @@ import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FormField, PrimaryAction, Select } from "@/components/kit";
 import { readSSE } from "@/lib/sse";
-import { SCHEDULES, scheduleLabel } from "@/lib/org/repo-schedule";
+import { PUSH_RESCAN_DISCLOSURE, SCHEDULES, scheduleLabel } from "@/lib/org/repo-schedule";
 
 interface ScanState {
   running: boolean;
@@ -27,6 +27,7 @@ export function SegmentActionsV2({
 }) {
   const router = useRouter();
   const fieldId = useId();
+  const pushId = useId();
   const [cadence, setCadence] = useState("");
   const [cadenceBusy, setCadenceBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -104,6 +105,7 @@ export function SegmentActionsV2({
           disabled={cadenceBusy}
           onChange={(e) => setSchedule(e.target.value)}
           aria-label="Set autoscan cadence for this segment"
+          aria-describedby={pushId}
         >
           <option value="">Cadence…</option>
           {SCHEDULES.map((c) => (
@@ -119,6 +121,9 @@ export function SegmentActionsV2({
         </PrimaryAction>
       </span>
       {note && <span className="type-body-sm text-slate-400">{note}</span>}
+      <p id={pushId} className="basis-full type-body-sm text-slate-400">
+        {PUSH_RESCAN_DISCLOSURE}
+      </p>
       {scan?.error && (
         <span role="alert" className="type-body-sm text-slate-100">
           <span aria-hidden>! </span>

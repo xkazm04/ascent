@@ -10,7 +10,9 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
+import { PUSH_RESCAN_DISCLOSURE } from "@/lib/org/repo-schedule";
 import { SegmentActions } from "./SegmentActions";
+import { SegmentActionsV2 } from "./SegmentActions.v2";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -72,5 +74,16 @@ describe("SegmentActions cadence dropdown (#5)", () => {
 
     await waitFor(() => expect(refresh).toHaveBeenCalled());
     expect(select.value).toBe("weekly"); // accepted → the selection is retained
+  });
+});
+
+describe("SegmentActions push-rescan disclosure", () => {
+  it.each([
+    ["classic", SegmentActions],
+    ["v2", SegmentActionsV2],
+  ])("%s: the bulk cadence control is described by the push-rescan sentence", (_n, Comp) => {
+    render(<Comp org="acme" segmentId="seg1" repos={["acme/web"]} taggedCount={1} />);
+    const ids = (cadenceSelect().getAttribute("aria-describedby") ?? "").split(" ");
+    expect(ids.map((id) => document.getElementById(id)?.textContent).join(" ")).toContain(PUSH_RESCAN_DISCLOSURE);
   });
 });

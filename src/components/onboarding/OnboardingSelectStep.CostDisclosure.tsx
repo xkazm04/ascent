@@ -13,6 +13,7 @@ import {
   setPreviewFirst,
   subscribePreviewFirst,
 } from "@/components/onboarding/OnboardingSelectStep.previewFirst";
+import { PUSH_RESCAN_DISCLOSURE } from "@/lib/org/repo-schedule";
 import { CREDIT_ESTIMATE_NOTE } from "@/lib/credit-estimate";
 import { immediateScanCredits, WatchCostTail } from "@/components/credit/WatchCostTail";
 
@@ -113,7 +114,7 @@ export function ScanCostDisclosure({
         />
         <span>
           Also autoscan {repoPhrase} {IMPORT_WATCH_SCHEDULE} (a recurring credit draw you can change or
-          turn off anytime on the Repositories tab).
+          turn off anytime on the Repositories tab). {PUSH_RESCAN_DISCLOSURE}
         </span>
       </label>
       <p className="type-body-sm text-slate-500" title={CREDIT_ESTIMATE_NOTE}>
@@ -126,6 +127,7 @@ export function ScanCostDisclosure({
             {alreadyOn > 0 && (
               <> ({alreadyOn} already autoscan {IMPORT_WATCH_SCHEDULE}, so they add nothing)</>
             )}
+            ; this covers the cadence only, push rescans come on top
           </>
         ) : (
           <>One-time scan: no recurring autoscan is set up</>
