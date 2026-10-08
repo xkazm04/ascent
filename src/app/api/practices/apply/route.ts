@@ -5,14 +5,15 @@
 // gated on a session when auth is configured and every apply is audit-logged.
 
 import { NextResponse } from "next/server";
+import { respondError } from "@/lib/api/respond";
 import { parseRepoUrl } from "@/lib/github/source";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
-import { isAppConfigured } from "@/lib/github/app";
+import { AppApiError, isAppConfigured } from "@/lib/github/app";
 import { getOrgId } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
-import { mapPrWriteError, requirePrWriteTarget } from "@/lib/github/pr-route";
+import { mapPrWriteError, MINT_FAILED, requirePrWriteTarget, type PrWriteTarget } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,9 +67,20 @@ export async function POST(request: Request) {
     // The one door (@/lib/github/pr-route): the coordinate must sit in the gated org's namespace or be
     // tracked by it (a foreign repo is a 403 before any installation lookup), then install presence
     // (403) + token mint. The writer takes the returned coordinate, never a string of its own.
-    const target = await requirePrWriteTarget(org, rawRepo, "tracked");
+    let target: PrWriteTarget | NextResponse;
+    try {
+      target = await requirePrWriteTarget(org, rawRepo, "tracked");
+    } catch (err) {
+      // Only the mint is wrapped: an AppApiError here is a failed token mint (502), not a write rejection.
+      if (err instanceof AppApiError) {
+        console.error("[practices/apply] installation token mint failed", err);
+        return respondError(502, MINT_FAILED, { cause: err });
+      }
+      throw err;
+    }
     if (target instanceof Response) return target;
-    const orgId = (await getOrgId(target.org).catch(() => null)) ?? undefined;
+    // A thrown lookup stops the route: opening the PR untracked (orgId unknown) is worse than refusing.
+    const orgId = (await getOrgId(target.org)) ?? undefined;
     const result = await applyPracticeToRepo(
       target.token,
       target.parsed,

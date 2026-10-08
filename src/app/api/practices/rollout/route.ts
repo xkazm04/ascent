@@ -18,6 +18,7 @@
 // human decided. Doing nothing remains a valid outcome and there is no scheduled caller.
 
 import { NextResponse } from "next/server";
+import { reportHandledError, respondError } from "@/lib/api/respond";
 import { parseRepoUrl } from "@/lib/github/source";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
 import { AppApiError, isAppConfigured } from "@/lib/github/app";
@@ -26,7 +27,7 @@ import { listBehindRepos, listDriftedRepos } from "@/lib/db/practice-adoption";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
-import { classifyPrWriteError, requirePrWriteTarget, type PrWriteCoordinate } from "@/lib/github/pr-route";
+import { classifyPrWriteError, MINT_FAILED, requirePrWriteTarget, type PrWriteCoordinate } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import type { BatchResult } from "@/features/shared/practices/practiceApplyShared";
 
@@ -133,11 +134,17 @@ export async function POST(request: Request) {
     const target = await requirePrWriteTarget(org, batch.map((b) => b.raw), "owner-namespace");
     if (target instanceof Response) return target;
     const { token } = target;
-    const orgId = (await getOrgId(org).catch(() => null)) ?? undefined;
+    const orgId = (await getOrgId(org)) ?? undefined; // a thrown lookup applies to no repo
     // The version span this rollout is closing, recorded on the audit row so "why did 12 PRs open on
     // Tuesday" has an answer that outlives the session. Null for a drift rollout (no version moved) and
     // for a practice with no mined pattern — absent, never 0.
-    const versions = mode === "behind" ? await listBehindRepos(org, practiceId).catch(() => null) : null;
+    const versions = mode === "behind" ? await listBehindRepos(org, practiceId).catch((err: unknown) => {
+        // Nullable audit field: carry on without it, but not silently.
+        console.error("[practices/rollout] listBehindRepos failed", err);
+        reportHandledError(err, { message: "Failed to read the behind-version span." });
+        return null;
+      })
+      : null;
 
     const results = await mapPool<PrWriteCoordinate, BatchResult>(target.targets, SCAN_CONCURRENCY, async ({ raw, parsed: ref }) => {
       try {
@@ -158,6 +165,11 @@ export async function POST(request: Request) {
         return { repo: result.ctx.fullName, ok: true, url: result.pr.url, reused: result.pr.reused };
       } catch (err) {
         const classified = classifyPrWriteError(err);
+        if (!classified) {
+          // An unexpected failure keeps the row's copy but is never silent: logged with the repo, reported.
+          console.error(`[practices/rollout] ${raw} failed`, err);
+          reportHandledError(err, { message: "Failed to open the starter PR." });
+        }
         return { repo: raw, ok: false, error: classified?.message ?? "Failed to open the starter PR." };
       }
     });
@@ -177,10 +189,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ results, attempted: batch.length, skipped });
   } catch (err) {
-    if (err instanceof AppApiError) {
-      return NextResponse.json({ error: "Failed to mint an installation token for this org." }, { status: 502 });
-    }
     console.error("[practices/rollout] failed", err);
-    return NextResponse.json({ error: "Failed to open the rollout PRs." }, { status: 500 });
+    if (err instanceof AppApiError) return respondError(502, MINT_FAILED, { cause: err });
+    return respondError(500, "Failed to open the rollout PRs.", { cause: err });
   }
 }

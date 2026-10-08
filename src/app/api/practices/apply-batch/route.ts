@@ -7,6 +7,7 @@
 // hammer GitHub or trip the function timeout. One bad repo never aborts the rest.
 
 import { NextResponse } from "next/server";
+import { reportHandledError, respondError } from "@/lib/api/respond";
 import { parseRepoUrl } from "@/lib/github/source";
 import { applyPracticeToRepo } from "@/lib/practices/apply";
 import { AppApiError, isAppConfigured } from "@/lib/github/app";
@@ -14,7 +15,7 @@ import { getOrgId } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
-import { classifyPrWriteError, requirePrWriteTarget, type PrWriteBatchCoordinate } from "@/lib/github/pr-route";
+import { classifyPrWriteError, MINT_FAILED, requirePrWriteTarget, type PrWriteBatchCoordinate } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import type { BatchResult } from "@/features/shared/practices/practiceApplyShared";
 
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
     // below, which keeps THIS route's own "couldn't mint" 502 copy.
     const target = await requirePrWriteTarget(org, batch.map((b) => b.raw), "tracked");
     if (target instanceof Response) return target;
-    const orgId = (await getOrgId(target.org).catch(() => null)) ?? undefined;
+    const orgId = (await getOrgId(target.org)) ?? undefined; // a thrown lookup applies to no repo
 
     // Bounded fan-out; the per-repo worker owns its errors so one failure can't abort the pool.
     const results = await mapPool<PrWriteBatchCoordinate, BatchResult>(target.targets, SCAN_CONCURRENCY, async ({ raw, parsed: ref, token }) => {
@@ -123,16 +124,19 @@ export async function POST(request: Request) {
         // the message is used here (the aggregate response is a 200 whatever the per-repo mix), unlike
         // mapPrWriteError's callers which map the whole route to one HTTP status.
         const classified = classifyPrWriteError(err);
+        if (!classified) {
+          // An unexpected failure keeps the row's copy but is never silent: logged with the repo, reported.
+          console.error(`[practices/apply-batch] ${raw} failed`, err);
+          reportHandledError(err, { message: "Failed to open the starter PR." });
+        }
         return { repo: raw, ok: false, error: classified?.message ?? "Failed to open the starter PR." };
       }
     });
 
     return NextResponse.json({ results, attempted: batch.length, skipped });
   } catch (err) {
-    if (err instanceof AppApiError) {
-      return NextResponse.json({ error: "Failed to mint an installation token for this org." }, { status: 502 });
-    }
     console.error("[practices/apply-batch] failed", err);
-    return NextResponse.json({ error: "Failed to open the starter PRs." }, { status: 500 });
+    if (err instanceof AppApiError) return respondError(502, MINT_FAILED, { cause: err });
+    return respondError(500, "Failed to open the starter PRs.", { cause: err });
   }
 }

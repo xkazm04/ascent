@@ -1,0 +1,92 @@
+// Failure paths of the re-convergence rollout: a failed org lookup writes nothing, and an unexpected
+// per-repo error keeps its row but is reported.
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const { respondError, reportHandledError, requirePrWriteTarget } = vi.hoisted(() => ({
+  respondError: vi.fn((status: number, message: string) => Response.json({ error: message }, { status })),
+  reportHandledError: vi.fn(),
+  requirePrWriteTarget: vi.fn(),
+}));
+vi.mock("@/lib/api/respond", () => ({ respondError, reportHandledError }));
+vi.mock("next/server", () => ({
+  NextResponse: class {
+    static json(body: unknown, init?: ResponseInit) {
+      return Response.json(body, init);
+    }
+  },
+}));
+vi.mock("@/lib/github/source", () => ({
+  GitHubError: class GitHubError extends Error {},
+  parseRepoUrl: (input: string) => {
+    const [owner, repo] = String(input).split("/");
+    return owner && repo ? { owner, repo } : null;
+  },
+}));
+vi.mock("@/lib/github/app", () => ({
+  AppApiError: class AppApiError extends Error {},
+  isAppConfigured: vi.fn(() => true),
+}));
+vi.mock("@/lib/github/pr-route", async (orig) => ({
+  ...(await orig<typeof import("@/lib/github/pr-route")>()),
+  requirePrWriteTarget,
+}));
+vi.mock("@/lib/db", () => ({ getOrgId: vi.fn(), recordAudit: vi.fn() }));
+vi.mock("@/lib/db/practice-adoption", () => ({
+  listBehindRepos: vi.fn(async () => ({ repos: [], latestVersion: null, fromVersion: null })),
+  listDriftedRepos: vi.fn(),
+}));
+vi.mock("@/lib/practices/apply", () => ({ applyPracticeToRepo: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => false }));
+vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, resolveViewerLogin: vi.fn(async () => "alice") }));
+vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null), requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
+
+import { POST } from "./route";
+import { isAppConfigured } from "@/lib/github/app";
+import { getOrgId } from "@/lib/db";
+import { applyPracticeToRepo } from "@/lib/practices/apply";
+
+const targets = ["acme/a", "acme/b"].map((raw) => {
+  const [owner, repo] = raw.split("/");
+  return { raw, owner, repo, token: "t", parsed: { owner, repo } };
+});
+const run = () =>
+  POST(
+    new Request("http://localhost/api/practices/rollout", {
+      method: "POST",
+      body: JSON.stringify({ org: "acme", practiceId: "agents-md", mode: "drifted", repos: ["acme/a", "acme/b"] }),
+    }),
+  );
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.mocked(isAppConfigured).mockReturnValue(true);
+  requirePrWriteTarget.mockResolvedValue({ org: "acme", token: "t", targets });
+  vi.mocked(getOrgId).mockResolvedValue("org-1");
+});
+
+describe("POST /api/practices/rollout: failures", () => {
+  it("applies nothing and reports a 500 when the org lookup throws", async () => {
+    const boom = new Error("db down");
+    vi.mocked(getOrgId).mockRejectedValue(boom);
+    const res = await run();
+    expect(res.status).toBe(500);
+    expect(respondError).toHaveBeenCalledWith(500, "Failed to open the rollout PRs.", { cause: boom });
+    expect(applyPracticeToRepo).not.toHaveBeenCalled();
+  });
+
+  it("reports a repo that throws a plain Error and keeps the others", async () => {
+    const boom = new Error("kaboom");
+    vi.mocked(applyPracticeToRepo).mockImplementation((async (_t: string, ref: { repo: string }) => {
+      if (ref.repo === "a") throw boom;
+      return { kind: "ok", pr: { url: "u", number: 1, reused: false }, ctx: { fullName: "acme/b" }, artifact: { path: "AGENTS.md" } };
+    }) as never);
+    const res = await run();
+    const { results } = (await res.json()) as { results: { repo: string; ok: boolean; error?: string }[] };
+    expect(results).toContainEqual({ repo: "acme/a", ok: false, error: "Failed to open the starter PR." });
+    expect(results.find((r) => r.repo === "acme/b")?.ok).toBe(true);
+    expect(reportHandledError).toHaveBeenCalledWith(boom, expect.anything());
+  });
+});
