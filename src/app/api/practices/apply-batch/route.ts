@@ -26,6 +26,8 @@ export const maxDuration = 120;
 /** Cap a single batch so one click can't open hundreds of PRs / run past the function ceiling. */
 const MAX_BATCH = 25;
 
+const NOT_A_REPO = "Not a GitHub repository (use owner/name or a github.com URL).";
+
 export async function POST(request: Request) {
   if (!isAppConfigured()) {
     return NextResponse.json(
@@ -65,6 +67,11 @@ export async function POST(request: Request) {
   if (parsed.length === 0) {
     return NextResponse.json({ error: "No valid 'owner/name' repos in the batch." }, { status: 400 });
   }
+  // An entry parseRepoUrl rejects is answered as a row (appended after the worker rows), never dropped:
+  // it opens nothing, is not `attempted`, and is an input error so it is not reported.
+  const rejected: BatchResult[] = body.repos
+    .filter((raw) => !parseRepoUrl(raw))
+    .map((raw) => ({ repo: String(raw).slice(0, 200), ok: false, error: NOT_A_REPO }));
 
   // Tenant gate: this opens PRs (WRITES) with the org's installation token — require at least the
   // "admin" role, matching other org-wide mutations of comparable blast radius (segment delete,
@@ -138,7 +145,7 @@ export async function POST(request: Request) {
       }
     });
 
-    return NextResponse.json({ results, attempted: batch.length, skipped });
+    return NextResponse.json({ results: [...results, ...rejected], attempted: batch.length, skipped });
   } catch (err) {
     console.error("[practices/apply-batch] failed", err);
     if (err instanceof AppApiError) return respondError(502, MINT_FAILED, { cause: err });

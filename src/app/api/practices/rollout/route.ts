@@ -38,6 +38,8 @@ export const maxDuration = 120;
 /** Mirrors `/api/practices/apply-batch`'s MAX_BATCH. A deliberate bound, not a tuning knob. */
 const MAX_BATCH = 25;
 
+const NOT_A_REPO = "Not a GitHub repository (use owner/name or a github.com URL).";
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const org = (url.searchParams.get("org") ?? "").trim().toLowerCase();
@@ -108,6 +110,11 @@ export async function POST(request: Request) {
   if (parsed.length === 0) {
     return NextResponse.json({ error: "No valid 'owner/name' repos in the batch." }, { status: 400 });
   }
+  // An entry parseRepoUrl rejects is answered as a row (appended after the worker rows), never dropped:
+  // it opens nothing, is not `attempted`, and is an input error so it is not reported.
+  const rejected: BatchResult[] = body.repos
+    .filter((raw) => !parseRepoUrl(raw))
+    .map((raw) => ({ repo: String(raw).slice(0, 200), ok: false, error: NOT_A_REPO }));
 
   // Re-validate every coordinate against the org that was just GATED. A foreign repo fails the WHOLE
   // call rather than being reported as one failed row among successes: by then the successes have
@@ -197,7 +204,7 @@ export async function POST(request: Request) {
       { orgId, actorId: actorLogin ?? undefined },
     );
 
-    return NextResponse.json({ results, attempted: batch.length, skipped });
+    return NextResponse.json({ results: [...results, ...rejected], attempted: batch.length, skipped });
   } catch (err) {
     console.error("[practices/rollout] failed", err);
     if (err instanceof AppApiError) return respondError(502, MINT_FAILED, { cause: err });

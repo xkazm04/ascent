@@ -236,6 +236,25 @@ describe("POST /api/practices/apply-batch — MAX_BATCH cap + happy path", () =>
     expect(mockOpenPr).toHaveBeenCalledTimes(2);
   });
 
+  // Council r3 robustness-7: an unparseable entry used to vanish from the answer.
+  it("answers an unparseable entry as a rejected row, after the worker rows, and still opens the valid ones", async () => {
+    const junk = "::::" + "x".repeat(300);
+    const res = await run({ org: "acme", repos: ["acme/app", junk, "acme/api"], practiceId: "ci-gates" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.attempted).toBe(2);
+    expect(json.skipped).toBe(0);
+    expect(json.results).toHaveLength(3);
+    expect(json.results.slice(0, 2).every((r: { ok: boolean }) => r.ok)).toBe(true);
+    expect(json.results[2]).toEqual({
+      repo: junk.slice(0, 200),
+      ok: false,
+      error: "Not a GitHub repository (use owner/name or a github.com URL).",
+    });
+    expect(mockOpenPr).toHaveBeenCalledTimes(2);
+  });
+
   it("records EVERY batched PR onto the shared ImprovementPr lifecycle (one row per repo)", async () => {
     // The fleet rollout is the most companion-like action in the product; before this, 25 draft PRs
     // left nothing but audit rows and the practices page could not show what it had put in motion.

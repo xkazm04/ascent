@@ -85,6 +85,24 @@ describe("POST /api/practices/rollout — tenancy", () => {
   });
 });
 
+describe("POST /api/practices/rollout — rejected entries", () => {
+  // Council r3 robustness-7: an unparseable entry used to vanish from the answer.
+  it("answers an unparseable entry as a rejected row, after the worker rows, and still opens the valid ones", async () => {
+    const junk = "::::" + "x".repeat(300);
+    const res = await run({ org: "acme", practiceId: "ci-gates", mode: "behind", repos: ["acme/a", junk, "acme/b"] });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.attempted).toBe(2);
+    expect(json.results.map((r: { repo: string }) => r.repo)).toEqual(["acme/a", "acme/b", junk.slice(0, 200)]);
+    expect(json.results[2]).toEqual({
+      repo: junk.slice(0, 200),
+      ok: false,
+      error: "Not a GitHub repository (use owner/name or a github.com URL).",
+    });
+    expect(applyPracticeToRepo).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("POST /api/practices/rollout — refusals, each before any write", () => {
   it("503 when the GitHub App is not configured", async () => {
     vi.mocked(isAppConfigured).mockReturnValue(false);
