@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { ConfirmAction, batchPrConfirm } from "@/components/ConfirmAction";
-import { MAX_BATCH, type BatchResult, type OpenPrRef, type RepoRef } from "./practiceApplyShared";
+import { MAX_BATCH, readApiResponse, type BatchResult, type OpenPrRef, type RepoRef } from "./practiceApplyShared";
 import { PracticeApplyBatchResults } from "./PracticeApplyBatchResults";
 
 export function PracticeApplyBatch({
@@ -81,8 +81,9 @@ export function PracticeApplyBatch({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, repos, practiceId }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to open PRs.");
+      const read = await readApiResponse<{ results: BatchResult[]; attempted?: unknown; skipped?: unknown }>(res, "Failed to open PRs.");
+      if (!read.ok) throw new Error(read.error);
+      const data = read.data;
       const results = data.results as BatchResult[];
       setBatchResults(results);
       setBatchSummary({

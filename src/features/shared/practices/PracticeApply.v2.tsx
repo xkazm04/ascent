@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import { FormField, GhostAction, PrimaryAction, Select } from "@/components/kit";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";
-import { type Artifact, type OpenPrRef, type RepoRef } from "./practiceApplyShared";
+import { readApiResponse, type Artifact, type OpenPrRef, type RepoRef } from "./practiceApplyShared";
 import { PracticeApplyBatch } from "./PracticeApplyBatch";
 import { PracticePreviewKicker, previewShapeFromPayload } from "./PracticePreviewKicker";
 
@@ -45,8 +45,9 @@ export function PracticeApplyV2({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, repo: target, practiceId }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to generate.");
+      const read = await readApiResponse<{ artifact: { path: string; body: string } }>(res, "Failed to generate.");
+      if (!read.ok) throw new Error(read.error);
+      const data = read.data;
       setArtifact({ path: data.artifact.path, body: data.artifact.body, repo: target, shape: previewShapeFromPayload(data) });
       setOpen(true);
     } catch (e) {
@@ -67,12 +68,12 @@ export function PracticeApplyV2({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, repo: target, practiceId, previewFingerprint: artifactFingerprint(artifact.body) }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        if (data.code === "content-drift") setArtifact(null);
-        throw new Error(data.error ?? "Failed to open PR.");
+      const read = await readApiResponse<{ url: string; reused: boolean }>(res, "Failed to open PR.");
+      if (!read.ok) {
+        if (read.code === "content-drift") setArtifact(null);
+        throw new Error(read.error);
       }
-      setPr({ url: data.url, reused: data.reused });
+      setPr({ url: read.data.url, reused: read.data.reused });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to open PR.");
     } finally {

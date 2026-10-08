@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";
-import { type Artifact, type OpenPrRef, type RepoRef } from "./practiceApplyShared";
+import { readApiResponse, type Artifact, type OpenPrRef, type RepoRef } from "./practiceApplyShared";
 import { PracticeApplyBatch } from "./PracticeApplyBatch";
 import { PracticePreviewKicker, previewShapeFromPayload } from "./PracticePreviewKicker";
 
@@ -53,8 +53,9 @@ export function PracticeApply({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, repo: target, practiceId }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to generate.");
+      const read = await readApiResponse<{ artifact: { path: string; body: string } }>(res, "Failed to generate.");
+      if (!read.ok) throw new Error(read.error);
+      const data = read.data;
       // Stamp the artifact with the repo it was generated for, so apply can't post a different one.
       // `shape` is the generate payload's house-vs-generic mark: the kicker above the body.
       // `body` is `buildPracticeArtifact`'s output — the same bytes apply fingerprints and commits.
@@ -88,14 +89,11 @@ export function PracticeApply({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, repo: target, practiceId, previewFingerprint: artifactFingerprint(artifact.body) }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        // Content drift: the preview is stale — drop it so the apply button disappears until the
-        // user re-previews the regenerated starter.
-        if (data.code === "content-drift") setArtifact(null);
-        throw new Error(data.error ?? "Failed to open PR.");
-      }
-      setPr({ url: data.url, reused: data.reused });
+      const read = await readApiResponse<{ url: string; reused: boolean }>(res, "Failed to open PR.");
+      // Content drift: the preview is stale; drop it so the apply button disappears until re-preview.
+      if (!read.ok && read.code === "content-drift") setArtifact(null);
+      if (!read.ok) throw new Error(read.error);
+      setPr({ url: read.data.url, reused: read.data.reused });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to open PR.");
     } finally {

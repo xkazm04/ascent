@@ -3,6 +3,7 @@
 // Prism copy control. Same confirm, same apply route. The repo picker is a labeled Select.
 import { useState } from "react";
 import { ConfirmAction } from "@/components/ConfirmAction";
+import { readApiResponse } from "./practiceApplyShared";
 import { FormField, PrimaryAction, Select } from "@/components/kit";
 
 export function RegistryPracticeApplyV2({
@@ -37,9 +38,9 @@ export function RegistryPracticeApplyV2({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ org, repo, practiceId: `registry:${slug}` }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to open the PR.");
-      setPr({ url: data.url, reused: !!data.reused });
+      const read = await readApiResponse<{ url: string; reused?: boolean }>(res, "Failed to open the PR.");
+      if (!read.ok) throw new Error(read.error);
+      setPr({ url: read.data.url, reused: !!read.data.reused });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to open the PR.");
     } finally {

@@ -45,3 +45,26 @@ export interface BatchResult {
 // truncates to the FIRST MAX_BATCH repos it receives and returns the over-cap count as `skipped`, so we
 // (a) send the neediest repos first and (b) surface `skipped` instead of implying full coverage.
 export const MAX_BATCH = 25;
+
+/** A practice route's answer, read without trusting the body to be JSON. */
+export type ApiRead<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
+
+/**
+ * Read a practice route's response for an inline control. Every control used to call `res.json()`
+ * BEFORE checking `res.ok`, so a non-JSON error body (a platform timeout page, an empty 502) showed
+ * the raw SyntaxError instead of the control's copy. Here a non-JSON or empty body is the caller's
+ * `fallback`; a server error keeps its `error` text and its `code` (`content-drift` drives the
+ * apply control). The shape of a successful body is the caller's to state.
+ */
+export async function readApiResponse<T>(res: Response, fallback: string): Promise<ApiRead<T>> {
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    // Not JSON, or empty: the fallback copy below is the answer the user sees.
+  }
+  const obj = body && typeof body === "object" ? (body as { error?: unknown; code?: unknown }) : null;
+  if (res.ok && obj) return { ok: true, data: obj as T };
+  const error = typeof obj?.error === "string" && obj.error ? obj.error : fallback;
+  return typeof obj?.code === "string" ? { ok: false, error, code: obj.code } : { ok: false, error };
+}
