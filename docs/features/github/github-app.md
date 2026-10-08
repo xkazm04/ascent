@@ -79,7 +79,7 @@ unchanged. The refusal is a non-delivery, so the routes refund the quota slot an
 | `pull_request` (opened / synchronize / reopened / ready_for_review) | Run the PR maturity gate: score the PR head, diff vs base, post a Check Run + sticky comment (see [gate.md](../scanning/gate.md)). Falls back to the default branch when a fork head commit is unreachable. |
 | `installation_repositories` (added / removed) | The user changed *which* repos an installation can see. Deliberately **no payload-trusting fast path**: a deferred `reconcileInstallationRepos` re-lists the installation's live repos from GitHub (at the `reconcile` depth, so installations past 5000 repos reconcile too) and unwatches only what GitHub confirms is gone. The same listing also **auto-watches newly granted repos** (`src/lib/db/install-grants.ts`): for an org that already has a non-empty watchlist, a live repo the org has no Repository row for is watched through the import path (watched, `weekly` cadence), on hosted and self-hosted alike. At most **20 per org per event**; the rest stay unwatched, are logged, and are listed in an `org.repos.auto_watched` audit row (Admin → Audit), and a later grant event can pick them up. A repo the org already has a row for is never re-watched, because a stored `watched: false` may be a person's explicit unwatch. No credit is reserved at watch time; the scan that follows pays like any other. A listing that still comes back `truncated` skips both the unwatch and the auto-watch rather than treating a partial list as the live set. |
 | `check_run` (rerequested / requested_action `rescan`) | A "Re-run" click or GitHub's native rerequest — re-evaluate the gate for the PR the run is attached to, with no new push. |
-| `push` (default branch moved) | Re-scan **watched repos on an autoscan cadence** (`runPushRescan`, gated on `isRepoAutoscanned`: watched AND `scanSchedule` not `off`, DB-gated, **throttled**, see below) and alert on regressions (see [alerts.md](../fleet/alerts.md)). The same push also reaches the **registry lane** (`onRegistryPush`, a second `after()`). A push to the org's mapped registry sets `webhookHealthy` and re-indexes it. A fleet repo's push that touches `.ai/registry-map.json` or `.ai/manifest.yaml` re-sweeps that repo (see [org-registry](../org-registry/README.md#when-a-pass-runs-and-the-one-door-it-goes-through-2026-09-23)). A failure there is logged and never releases the delivery. |
+| `push` (default branch moved) | Re-scan **watched repos on an autoscan cadence** as a queued `rescore` job (`runPushRescan`, gated on `isRepoAutoscanned`: watched AND `scanSchedule` not `off`, DB-gated, **throttled**, see below) and alert on regressions (see [alerts.md](../fleet/alerts.md)). The same push also reaches the **registry lane** (`onRegistryPush`, a second `after()`). A push to the org's mapped registry sets `webhookHealthy` and re-indexes it. A fleet repo's push that touches `.ai/registry-map.json` or `.ai/manifest.yaml` re-sweeps that repo (see [org-registry](../org-registry/README.md#when-a-pass-runs-and-the-one-door-it-goes-through-2026-09-23)). A failure there is logged and never releases the delivery. |
 | `branch_protection_rule`, `repository_ruleset`, `repository` | Enqueue a **free control probe** of that repo (moonshot #10) **and** record a control *attribution* row (moonshot #1, below). A GitHub-confirmed `repository.deleted` (owner matches the installation) **unwatches that `fullName` only** — the same `reconcileWatchedRepos` drop used when a repo leaves the installation set. A forged owner mismatch does not unwatch. Archived stays watched. |
 | `member`, `team` | Owner-level access moved: enqueue probes across the org's watched repos (capped at 200). Writes no membership or RBAC row — identity-graph modelling is a separate item. |
 | `pull_request_review` (submitted, approved) | Record the approving review as `AiChange` evidence within seconds instead of at the next scan's cadence (moonshot #1, below). |
@@ -133,8 +133,8 @@ Two honest limits:
 `runPushRescan` gates first on `isRepoAutoscanned(org, fullName)` (`org-watch.ts`): the repo must be
 **watched AND its `scanSchedule` must not be `off`**, the same predicate the scheduled lane
 (`listDueRescans`) uses. **"No autoscan" stops push rescans too.** A repo on `off` is a deterministic
-no-op: no credit reserved, no installation token, no owner-confirm call, and the delivery is not
-released. Onboarding enrolls repos `watched: true` with schedule `off` by default, so a one-time
+no-op: no job enqueued, no credit reserved, no installation token, no owner-confirm call, and the
+delivery is not released. Onboarding enrolls repos `watched: true` with schedule `off` by default, so a one-time
 import does not become a stream of metered push rescans. The UI says so beside every cadence control
 and in the onboarding cost disclosure (`PUSH_RESCAN_DISCLOSURE`, `src/lib/org/repo-schedule.ts`): a repo
 on any cadence is also rescanned on a default-branch push (throttled per repo), each push rescan is a
@@ -143,47 +143,59 @@ onboarding estimate covers the cadence only, push rescans come on top.
 
 ### Push rescan throttle
 
-A push rescan is a real, LLM-billed scan, so `runPushRescan` enforces a **per-repo minimum
-interval** before calling `scanRepository`. The window state is the **prior persisted scan's
-`scannedAt`** (the report the rescan already reads as its regression baseline), so the throttle
-costs no extra query, needs no new infrastructure, and is **cross-instance** (a webhook fleet
-shares one window per repo, unlike a process-local map). The check runs *inside* the
-`serializePerRepo` critical section, so a burst's second run reads the first run's freshly
-persisted timestamp instead of racing it.
+A push rescan is a real, LLM-billed scan. Since 2026-10-08 it is a **rescore job on the `ScanJob`
+queue** (reason `webhook:push`; the flow is in
+[rescan.md](../fleet/rescan.md#flow--the-push-rescan-a-rescore-job-since-2026-10-08)), and the
+throttle is the job's **idempotency bucket**: `push:<floor(now / w)>`, one job per repo per
+**aligned** window of `w` minutes. Every push inside a window computes the same key, so the first
+creates the row and the rest find it and buy nothing. The window closes on **any** outcome (done,
+failed, degraded or skipped), not only on a persisted scan, so a provider outage or a failing repo
+can no longer leave every push uncapped. The bucket lives in the database, so the window is
+**cross-instance**. The old process-local `serializePerRepo` lock is gone: the queue's
+`claimJobById` peer check stops two jobs from scanning one repo at once, across instances.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `PUSH_RESCAN_MIN_INTERVAL_MINUTES` | `15` | Minimum minutes between push-triggered scans of the same repo. `0` disables the throttle (every default-branch push scans). |
+| `PUSH_RESCAN_MIN_INTERVAL_MINUTES` | `15` | Width of the aligned window: at most one push-triggered job per repo per window, whatever its outcome. `0` disables the throttle (one job per delivery; a redelivery still enqueues nothing new). |
+
+The worker also applies a **6-hour failure backoff** to push jobs: a repo whose last attempt failed
+less than 6 h ago is skipped with no reserve and no outcome write. A credit skip is not a failure
+for this purpose.
 
 ### A push rescan pays for itself (2026-09-05)
 
 "LLM-billed" was, until 2026-09-05, a description with no debit behind it: `runPushRescan` ran real
 inference with no credit reservation, so a watched org at balance zero kept scanning free on every
-push and the throttle was the only cost ceiling. It now mirrors the queue worker's money loop
-(`reserveScanCredit` / `refundScanCredit` / `shouldRefundScan`, `src/lib/scan-credit.ts`):
+push and the throttle was the only cost ceiling. Since 2026-10-08 the money loop is the queue
+worker's own (`runRescoreJob`'s push branch, `src/lib/scan-queue-worker.ts`, over
+`reserveScanCredit` / `refundScanCredit` / `shouldRefundScan` in `src/lib/scan-credit.ts`):
 
 - **Reserve before inference**, on a metered scan (`isMeteredScan`; self-hosted, DB-less and the
-  public org are exempt and stay free). The ledger row carries actor `webhook:push` and the repo,
-  so push-driven spend is separable from `queue:*` and interactive spend.
+  public org are exempt and stay free). Unlike a cadence job, a BYOM org's push job is still
+  metered: the move onto the queue kept the push path's charge. The ledger row carries actor
+  `queue:webhook:push` and the repo, so push-driven spend is separable from `queue:cadence` and
+  interactive spend.
 - **Out of credits → the push is skipped**, never served free. A webhook has nobody to 402, so the
   skip is recorded on the repository (`recordScanOutcome`, the worker's precedent: `lastScanStatus`
   / `lastScanError` = "insufficient credits", visible on the Repositories tab) and logged as
   `insufficient_credits`. The delivery is deliberately not released for redelivery (an empty wallet
-  is not transient). The throttle is derived from the prior *persisted* scan, so a credits-skipped
-  push opens no window: a topped-up org scans on its very next push.
+  is not transient). The skip settles the window's job, so the rest of that window buys nothing;
+  the "insufficient credits" copy is exempt from the failure backoff, so a topped-up org scans on
+  its first push in a later window.
 - **Refunds** on degrade-to-mock, on a dedup (unchanged head), and on a failure *before* a real
-  report exists; a failure after real inference keeps the credit, as in the worker.
+  report exists; a failure after real inference keeps the credit. A worker killed mid-scan leaves
+  its row to the lease reaper, and the retry reads the row's `creditCharged` instead of reserving
+  again.
 - `maybeAlertLowCredits` fires on a push-funded crossing exactly as it does for `/api/scan`.
 
 ### A push rescan scans on the org's own engine (2026-10-08)
 
-`runPushRescan` calls `scanRepository(fullName, { token, orgSlug })` with the installation's org, the
-same call shape as the queue worker. Until 2026-10-08 it passed no `orgSlug`, so `getProviderForOrg`
+The push rescan scans with the installation's org: since 2026-10-08 the call is the queue worker's
+own (`scanRepository(fullName, { token, orgSlug })`, the job's org and its installation token). Until 2026-10-08 it passed no `orgSlug`, so `getProviderForOrg`
 never saw the org: a BYOM org's pushed private repos were assessed by the **platform** provider, and
 the standing-decision read had no org. With the org, a BYOM org scans on its own engine (a BYOM
 failure degrades to mock, never to the platform; the mock report is then discarded as below), and
-the report is scored against the org's standing decisions like a manual scan. Metering
-(`isMeteredScan`), the credit reservation and the throttle are unchanged. Because the org now reaches
+the report is scored against the org's standing decisions like a manual scan. Because the org now reaches
 the scan, the `.ai/memory` mirror's private-repo gate matters on this path too (see
 [memory.md](../org-knowledge/memory.md#the-six-gates-all-fail-closed)).
 
@@ -191,16 +203,18 @@ the scan, the `.ai/memory` mirror's private-repo gate matters on this path too (
 
 The push rescan asks for a real LLM grade. When the provider is unavailable `scanRepository`
 still returns a report: stamped `engine.provider = "mock"`, the deterministic **floor**
-rather than a measurement. `runPushRescan` therefore **skips both the persist and the
-regression alert** on such a report: storing it would make the floor the repo's current
+rather than a measurement. The queue worker's push branch therefore **skips both the persist and
+the regression alert** on such a report, refunds the credit, and settles the job `skipped`: storing it would make the floor the repo's current
 public reading *and* the next run's baseline, and the alert would diff a real prior scan
 against our own outage and tell the customer their repo regressed. During a provider outage
 that would fire fleet-wide at once. This mirrors the `authoritative` gate the interactive
 scan routes apply in `scan-finalize.ts`.
 
-The delivery is deliberately **not** released for redelivery: an outage would degrade the
-retry too, so releasing turns one outage into a scan storm. The repo is covered by the next
-push past the throttle window, or by its scheduled autoscan.
+It also records a **failed** outcome on the repository ("LLM unavailable: not persisted"), so the
+6-hour failure backoff covers the outage: pushes during it are skipped with no reserve rather than
+each buying a degraded scan. The delivery is not released: the job row is the record, and a
+redelivery would only find the same window's row. The repo is covered by a push after the backoff,
+or by its scheduled autoscan (a cadence job is not subject to the push backoff).
 
 ### Every App API call is time-bounded
 
@@ -215,12 +229,13 @@ a bound, one hung connection there costs the required merge status. A caller-sup
 15 minutes is longer than a median scan (~6 min), so bursts can't queue scans back-to-back, and it
 caps push-driven spend at ≤4 scans/hour/repo.
 
-A push inside the window is **dropped, not deferred** (the handler has no background worker; the
-work runs in the request's `after()`, bounded by `maxDuration`). It is not usually lost: a scan
-always reads the repo's *current* default-branch head, so the next push past the window covers every
-commit coalesced in between, in one scan. If pushes stop inside the window, the trailing head is
-picked up by the repo's **scheduled autoscan** (`/api/cron/rescan`) or a manual rescan, so a repo
-with a cadence can sit up to one window behind until its next push. A repo on `off` is never push-scanned at all.
+A push inside a window whose job has already run buys nothing. It is not usually lost: a scan
+always reads the repo's *current* default-branch head, so the first push in a later window covers
+every commit in between, in one scan. If pushes stop inside the window, the trailing head is picked
+up by the repo's **scheduled autoscan** (`/api/cron/rescan`) or a manual rescan. A window's job that
+**yielded** because another scan of the repo was running stays queued and runs on the next rescore
+drain (the 06:00 cron), against the head current at that time. A repo on `off` is never
+push-scanned at all.
 
 ## Setup & repos routes
 
@@ -360,7 +375,7 @@ for, and failing would strand the id forever). See
 
 ## Known gaps
 
-- **Push auto-rescan is DB-gated**: `runPushRescan` only runs for repos marked
+- **Push auto-rescan is DB-gated**: `runPushRescan` only enqueues for repos marked
   `watched: true` with a `scanSchedule` other than `off`, and requires `DATABASE_URL`.
 - **Sign-in is optional**: when OAuth env is unset, `/onboarding` is open; when set, the App path is
   scoped to the signed-in user's own installations (see [auth.md](./auth.md)).

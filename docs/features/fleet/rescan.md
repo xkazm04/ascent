@@ -10,12 +10,14 @@ The fleet runs at **two speeds**, over one durable queue (`ScanJob`, `src/lib/db
 Both are guarded by the shared `CRON_SECRET` (`src/lib/cron-auth.ts`, `requireCronAuth`) and require
 the GitHub App + `DATABASE_URL`.
 
-A third trigger sits outside the cron queue: the **push rescan** (`POST /api/app/webhook`, a
-default-branch push to a repo that is watched **and** on an autoscan cadence, i.e.
-`scanSchedule` is not `off`: the same predicate the scheduled lane uses, `isRepoAutoscanned` in
-`org-watch.ts`). **"No autoscan" stops push rescans too**; there is no automatic scan of any kind on a
-repo set to it. Since 2026-09-05 it is metered like the `rescore` lane, one
-credit reserved before inference and skipped at zero balance, see
+A third trigger has no cron of its own but runs **on the same queue**: the **push rescan**
+(`POST /api/app/webhook`, a default-branch push to a repo that is watched **and** on an autoscan
+cadence, i.e. `scanSchedule` is not `off`: the same predicate the scheduled lane uses,
+`isRepoAutoscanned` in `org-watch.ts`). **"No autoscan" stops push rescans too**; there is no
+automatic scan of any kind on a repo set to it. Since 2026-10-08 a push enqueues a `rescore` job with
+reason `webhook:push` and drains exactly that job; see
+[the push rescan](#flow--the-push-rescan-a-rescore-job-since-2026-10-08) below. It is metered (one
+credit reserved before inference, skipped at zero balance), see
 [github-app.md](../github/github-app.md#a-push-rescan-pays-for-itself-2026-09-05).
 
 **Why two.** Re-scoring is expensive and paid, so it runs on cadence. But a repo's *controls* —
@@ -111,6 +113,60 @@ Per job, `drainLane`:
 Jobs the deadline never reached were never claimed: they stay `queued`, neither failed nor backed
 off, and the response reports the queue's own depth (`queueDepth()`, read after the drain) rather
 than a number this invocation guessed at.
+
+## Flow — the push rescan (a rescore job, since 2026-10-08)
+
+Until 2026-10-08 the webhook ran its own copy of the money loop inline in `after()`: reserve, scan,
+persist, refund, behind a process-local per-repo lock and a throttle derived from the last
+*persisted* scan. A 300 s kill kept the credit and left no row; a degraded or failed rescan never
+closed the throttle, so every push in an outage bought a scan; and two instances could each buy
+inference for the same burst. The push is now a queue job (`src/lib/push-rescan.ts`):
+
+1. **`isRepoAutoscanned`**, then **`installationMatchesOwner`** (a `false` releases the delivery).
+2. **`enqueueScanJob`** on the `rescore` lane, reason `webhook:push`, priority `JOB_PRIORITY.webhook`,
+   bucket `push:<floor(now / w)>` where `w = PUSH_RESCAN_MIN_INTERVAL_MINUTES` (default 15). That is
+   **one job per repo per aligned window**. A bucket whose row exists, settled or not, buys nothing
+   more, so the window closes on **any** outcome: done, failed, degraded or skipped. With the interval
+   at `0` the bucket is the delivery id. An enqueue that returns no row (or throws) is reported and
+   releases the delivery so GitHub's redelivery can retry; once a row exists, the row is the durable
+   record and the delivery is kept.
+3. **`drainLane("rescore", { jobs: [that job], concurrency: 1, deadlineAt: fleetDeadlineAt(invokedAt, 300) })`**
+   inside `after()`, with `invokedAt` taken at the top of the request.
+
+What the queue buys:
+
+- **A kill is not a loss.** A process killed mid-scan leaves the row `claimed`; `reapExpiredLeases`
+  returns it to `queued` after its 15-minute lease, and the next rescore drain retries it. The
+  `creditCharged` stamp is carried, so the retry does not reserve a second credit.
+- **One scan per repo across instances.** `claimJobById`'s peer check yields to an older live claim
+  on the same repo, so a push job whose repo is already being scanned (by a cadence job, a bulk scan
+  or a push job from another instance) is requeued behind that lease instead of buying a second
+  scan. The **06:00 rescore drain** (`/api/cron/rescan`) picks the yielded job up; it scans the
+  repo's then-current head.
+- **Every outcome is recorded**: the job row settles `done` / `failed` / `skipped` with its error,
+  and `Repository.lastScanStatus` carries the scan outcome.
+
+`runRescoreJob` treats `reason === "webhook:push"` as a push job (`PUSH_JOB_REASON`). Every other
+reason runs exactly as in "Flow — the rescore lane" above. For a push job:
+
+- **No cadence movement**, on any branch: never `advanceToFullCadence`, never
+  `advanceScheduleAfterFailure`. A push is not a slot on the repo's schedule.
+- **Failure backoff (6 h, `FAILED_RESCAN_BACKOFF_MS`).** After the claim and before any reserve, the
+  worker reads `lastScanStatus` / `lastScanError` / `lastScanAttemptAt` (`getLastScanAttempt`). A
+  failed attempt younger than 6 h settles the job `skipped` ("failure backoff") with **no reserve and
+  no outcome write**, since a write would refresh `lastScanAttemptAt` and extend the backoff forever.
+  The credit-skip copy (`CREDIT_SKIP_ERROR`, "insufficient credits") is exempt, so a topped-up org
+  scans on its first push in a later window. A failed backoff read is reported and fails toward
+  scanning; the window bucket still caps the spend.
+- **Metering is the push path's**: `isMeteredScan(slug, false)`, which does **not** exempt a BYOM org
+  (the cadence rule does). The ledger actor is `queue:webhook:push`.
+- **A credit skip** records the "insufficient credits" outcome on the repository and settles
+  `skipped`.
+- **A degrade to mock** is not persisted and sends no regression alert. The credit is refunded, the
+  job settles `skipped`, and a failed outcome ("LLM unavailable: not persisted") is recorded, so the
+  failure backoff covers the outage instead of every push in it.
+- Success, a thrown scan, the pre-inference refund rule and the `creditCharged` carry are the
+  worker's ordinary paths.
 
 ## Flow — the probe lane (free)
 
@@ -458,11 +514,12 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 | `src/lib/scan-probe.ts` · `src/lib/scan-probe-controls.ts` | The credit-free runner and its pure `Governance`/`SecurityPosture`/repo-meta → control samplers. |
 | `src/lib/db/control-observations.ts` | `recordObservations`, `latestObservations`, `listObservationsSince` — the ledger's write side. |
 | `src/lib/cron-auth.ts` | Shared `requireCronAuth` gate for all cron routes. |
-| `src/lib/db/org-watch.ts` | `listDueRescans` / `listDueRescanCandidates` / `listDueProbeCandidates`, `claimRescan`, `advanceToFullCadence`, `advanceScheduleAfterFailure`, `getRepoSchedule`, `setRepoMissing`, `recordScanOutcome`. |
+| `src/lib/db/org-watch.ts` | `listDueRescans` / `listDueRescanCandidates` / `listDueProbeCandidates`, `claimRescan`, `advanceToFullCadence`, `advanceScheduleAfterFailure`, `getRepoSchedule`, `setRepoMissing`, `recordScanOutcome`, and the push job's failure backoff (`getLastScanAttempt`, `inFailureBackoff`, `FAILED_RESCAN_BACKOFF_MS`, `CREDIT_SKIP_ERROR`). |
 | `src/lib/scan-credit.ts` | `reserveScanCredit`, `refundScanCredit`, `shouldRefundScan`: shared credit reserve/refund core also used by `/api/org/scan` and `/api/org/import`. |
 | `src/lib/db/org-llm.ts` | `isByomActive`: BYOM detection to skip platform billing. |
 | `src/lib/pool.ts` | `mapPoolUntilDeadline` (array fan-out), `drainUntilDeadline` (supplier fan-out, for the queue), `fleetDeadlineAt`, `SCAN_CONCURRENCY`, `PROBE_CONCURRENCY`. |
 | `src/lib/scan-alerts.ts` | `checkAndAlertRegression` (see [alerts.md](./alerts.md)). |
+| `src/lib/push-rescan.ts` | The push rescan's enqueue-and-drain: `pushRescanBucket` (the aligned window), `pushRescanMinIntervalMs`, `enqueueAndDrainPushRescan`. Called by `src/app/api/app/webhook/route.ts`. |
 | `src/lib/scan-import-policy.ts` | `importJobReason` / `decodeImportReason`: the import request's credential, mock and public-funnel facts, carried on the job's `reason` for the worker. |
 
 ## Known gaps
@@ -475,6 +532,9 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
   the six writers that can materialize an Organization, `ensureOrgId` stamps and repairs it, the
   watch path stamps it as of 2026-09-06, and `plan.ts` / `installations.ts` / `org-memory.ts` /
   `org-skills.ts` still create rows unstamped.
+- **A push job and a cadence job meter a BYOM org differently.** A `webhook:push` job uses
+  `isMeteredScan`, which charges a BYOM org; a cadence or manual job exempts it (`isByomActive`). The
+  move onto the queue kept each path's charge as it was; which rule is right is a pricing decision.
 - **Cron schedules live in deploy config** (`vercel.json` / dashboard), not in code; this doc
   covers the handler's behavior once invoked, not the invocation cadence.
 - **The rescore lane runs on the deployment's configured `LLM_PROVIDER`** (e.g. Bedrock/Gemini):
