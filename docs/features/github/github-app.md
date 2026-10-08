@@ -252,7 +252,7 @@ push-scanned at all.
 
 | Route | Method | Role |
 | --- | --- | --- |
-| `/api/app/setup` | `GET` | Post-install redirect: fetch the installation's account login, `upsertInstallation`, bounce to `/onboarding?org=…&installation_id=…`. |
+| `/api/app/setup` | `GET` | Post-install redirect: fetch the installation's account login, `upsertInstallation`, bounce to `/onboarding?org=…&installation_id=…`. `installation_id` must be a positive integer; anything else (`42?x`, `../app`, `42#`) redirects to `?error=missing_installation` with no GitHub call and no write (2026-10-09), because the raw value went into the API path and was stored as the org's install id. |
 | `/api/app/repos` | `GET` | List the installation's repos (`?org=` or `?installation_id=`), merged with the DB watch/schedule state. Body includes `truncated: true` when GitHub's listing hit the page cap (the `repos` array is incomplete; overflow is not visible to watch/scan). |
 
 ## Installations storage (`src/lib/db/installations.ts`)

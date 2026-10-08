@@ -138,3 +138,27 @@ describe("GET /api/app/setup — success", () => {
     expect(dest.searchParams.get("installation_id")).toBe("42");
   });
 });
+
+// Codebase security scan (2026-10-09): installation_id went into the GitHub API path and into the
+// stored mapping unvalidated. fetch() resolves `..` segments and drops `#…`, so a value such as
+// `42%3Fx` resolved to installation 42 for the ownership check, then stored the raw string `42?x` as
+// the org's install id: every later token mint for that org then POSTs to the wrong path, and the
+// webhook's stored-mapping check fails closed on every delivery. With no auth stack, any caller could
+// do that to any org. A GitHub installation id is a positive integer; anything else is refused.
+describe("GET /api/app/setup — installation_id must be a GitHub installation id", () => {
+  it.each([
+    ["42%3Fx", "a query smuggled into the API path"],
+    ["42%23frag", "a fragment that fetch() drops"],
+    ["..%2F..%2Fapp", "dot segments that fetch() resolves"],
+    ["42%2F", "a trailing slash"],
+    ["-42", "a negative number"],
+    ["0", "zero"],
+    ["4e2", "an exponent"],
+    [" 42", "whitespace"],
+  ])("refuses %s (%s) as missing_installation, with no GitHub call and no write", async (raw) => {
+    m.authGateEnabled.mockReturnValue(false); // the open mode, where nothing else stands in the way
+    expect(errorOf(await setup(`?installation_id=${raw}`))).toBe("missing_installation");
+    expect(m.getInstallation).not.toHaveBeenCalled();
+    expect(m.upsertInstallation).not.toHaveBeenCalled();
+  });
+});

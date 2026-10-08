@@ -18,7 +18,11 @@ export async function GET(request: Request) {
   if (!isAppConfigured()) {
     return NextResponse.redirect(new URL("/onboarding?error=not_configured", request.url));
   }
-  if (!installationId) {
+  // A GitHub installation id is a positive integer. The raw param goes into the GitHub API path AND is
+  // stored as the org's install id, and fetch() resolves `..` and drops `#…`: `42?x` used to pass the
+  // ownership check as installation 42, then store `42?x`, breaking every later token mint for the org
+  // and failing the webhook's stored-mapping check closed. Anything else is treated as absent.
+  if (!installationId || !/^[1-9][0-9]{0,18}$/.test(installationId)) {
     return NextResponse.redirect(new URL("/onboarding?error=missing_installation", request.url));
   }
 
