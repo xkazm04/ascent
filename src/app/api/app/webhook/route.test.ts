@@ -625,7 +625,7 @@ describe("POST /api/app/webhook — replay horizon + per-repo rescan baseline (r
 //   • a PASSING evaluation posts a SUCCESS check-run for the PR head SHA (and a sticky comment);
 //   • a head-ref scan failure FALLS BACK to the default branch and STILL posts a real check (a fork PR's
 //     head can be unreachable — the check must not vanish);
-//   • a hard failure AFTER the token mint posts a NEUTRAL "could not run" check (never throws into the
+//   • a hard failure AFTER the token mint posts a FAILING 'could not run' check (never throws into the
 //     handler, never leaves the PR unchecked) and RELEASES the delivery so a redelivery retries.
 // Invariant: once a token is minted, a pull_request event ALWAYS completes with either a real or a
 // neutral Check Run — it never throws out of runPrGate and never leaves the PR with no check.
@@ -684,7 +684,7 @@ describe("POST /api/app/webhook — PR maturity gate outcomes (runPrGate)", () =
     mockScan.mockResolvedValueOnce({ repo: { headSha: "defaultsha" } } as Awaited<ReturnType<typeof scanRepository>>);
     mockEvaluateGate.mockReturnValue({} as ReturnType<typeof evaluateGate>);
     mockBuildComment.mockReturnValue({
-      conclusion: "neutral",
+      conclusion: "failure",
       title: "Default branch passed — PR head not scored",
       summary: "s",
       commentBody: "b",
@@ -707,7 +707,7 @@ describe("POST /api/app/webhook — PR maturity gate outcomes (runPrGate)", () =
       expect.objectContaining({ scoredHead: false }),
     );
     expect(mockCreateCheckRun).toHaveBeenCalledTimes(1);
-    expect((mockCreateCheckRun.mock.calls[0][0] as { conclusion: string }).conclusion).toBe("neutral");
+    expect((mockCreateCheckRun.mock.calls[0][0] as { conclusion: string }).conclusion).toBe("failure");
   });
 
   it("the head-scored path passes scoredHead: true (the confident per-PR framing is preserved)", async () => {
@@ -733,7 +733,7 @@ describe("POST /api/app/webhook — PR maturity gate outcomes (runPrGate)", () =
     );
   });
 
-  it("posts a NEUTRAL 'could not run' check and releases the delivery when the gate throws after mint", async () => {
+  it("posts a FAILING 'could not run' check and releases the delivery when the gate throws after mint", async () => {
     authorize();
     // The token mints, but every scan attempt fails — a hard failure inside the gate body. The handler
     // must NOT throw; it posts a neutral check (with a Re-run action) so the required check isn't absent.
@@ -748,7 +748,7 @@ describe("POST /api/app/webhook — PR maturity gate outcomes (runPrGate)", () =
     // The PR is never left unchecked: exactly one neutral check is posted on the minted token.
     expect(mockCreateCheckRun).toHaveBeenCalledTimes(1);
     const neutral = mockCreateCheckRun.mock.calls[0][0] as { conclusion: string; headSha: string; actions?: unknown[] };
-    expect(neutral.conclusion).toBe("neutral");
+    expect(neutral.conclusion).toBe("failure");
     expect(neutral.headSha).toBe("headsha9");
     expect(neutral.actions).toBeDefined(); // the Re-run action gives the author recourse
 
@@ -1152,7 +1152,7 @@ describe("POST /api/app/webhook — a failed PRIMARY check write is not swallowe
     pull_request: { number: 9, head: { sha: "headsha9", ref: "feature" }, base: { ref: "main" } },
   };
 
-  it("posts the neutral fallback AND releases the delivery when the primary check write ultimately fails", async () => {
+  it("posts the failing fallback AND releases the delivery when the primary check write ultimately fails", async () => {
     mockIdForOwner.mockResolvedValue("55"); // stored mapping agrees → authorized
     mockGetToken.mockResolvedValue("ghs_pr_token");
     mockGetOrgGatePolicy.mockResolvedValue(null as Awaited<ReturnType<typeof getOrgGatePolicy>>);
@@ -1176,7 +1176,7 @@ describe("POST /api/app/webhook — a failed PRIMARY check write is not swallowe
 
     // Two check writes: the failed primary, then the neutral 'could not run' fallback.
     expect(mockCreateCheckRun).toHaveBeenCalledTimes(2);
-    expect((mockCreateCheckRun.mock.calls[1][0] as { conclusion: string }).conclusion).toBe("neutral");
+    expect((mockCreateCheckRun.mock.calls[1][0] as { conclusion: string }).conclusion).toBe("failure");
     // The sticky comment is skipped (the throw jumped past it) and the delivery is freed for a redelivery.
     expect(mockStickyComment).not.toHaveBeenCalled();
     expect(mockRelease).toHaveBeenCalledWith("pr-primary-checkfail");
