@@ -54,7 +54,8 @@ export default function PrivacyPage() {
           and sent to the deployment&apos;s configured AI inference provider to produce the score. What Ascent
           persists afterwards is the <span className={EM}>derived output only</span>: scores, evidence notes,
           recommendations, and repository metadata such as the repo name, default branch, and a detected
-          tech-stack summary. The sampled file contents are discarded when the scan completes.
+          tech-stack summary. Reports on public repositories may quote short excerpts of those public files as
+          evidence; reports on private repositories store none. The sampled file contents are discarded when the scan completes.
         </p>
         <ul className="mt-3 list-disc pl-5">
           <li className={LI}>
