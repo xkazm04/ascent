@@ -10,6 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { GitHubError } from "@/lib/github/source";
+import { guardAmbientToken } from "@/lib/github/visibility";
 import { reportHandledError } from "@/lib/api/respond";
 import { resolveScanAuth } from "@/lib/scan";
 import { UNSCOPED, resolveScanScope, type ResolvedScanScope } from "@/lib/scan-scope-server";
@@ -94,7 +95,7 @@ export async function POST(request: Request) {
   const resolvedAuth = await resolveScanAuth(ghParsed, body.installationId);
   const token = resolvedAuth.token;
   const orgSlug = resolvedAuth.orgSlug;
-  const noAmbientToken = (resolvedAuth.noAmbientToken ?? false) || forgeId !== "github";
+  const noAmbientTokenAuth = (resolvedAuth.noAmbientToken ?? false) || forgeId !== "github";
 
   // Supabase login wall. In production (Supabase configured + bypass hard-off, via authGateEnabled) a
   // PRIVATE / installed-org scan requires a signed-in viewer. The anonymous PUBLIC funnel is exempt by
@@ -121,7 +122,15 @@ export async function POST(request: Request) {
   // the lifecycle, because its refusal must be a plain JSON status before the stream opens — the one
   // reason it is not a lifecycle stage. A non-GitHub coordinate has no ref resolver, so it is UNSCOPED
   // (the same honest degrade a token-less GitHub scan takes).
-  const scopeToken = token ?? (noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
+  //
+  // AMBIENT-TOKEN GUARD first, shared with /api/scan: an owner with no installation reaches this point
+  // on the operator PAT, and one conditional metadata read decides whether that token may touch the
+  // scope resolve, the head lookup and the ingest. A repo it cannot prove public runs the rest of the
+  // request with no credential, so a private repo answers exactly like a missing one. After the burst
+  // limiter above, so the check is throttled (src/lib/github/visibility.ts).
+  const ambient = await guardAmbientToken(ghParsed, { token, noAmbientToken: noAmbientTokenAuth }, { signal: request.signal });
+  const noAmbientToken = ambient.noAmbientToken;
+  const scopeToken = ambient.scopeToken;
   const scoping: ResolvedScanScope = ghParsed
     ? await resolveScanScope(ghParsed, { ref: body.ref, subPath: body.subPath }, { token: scopeToken })
     : UNSCOPED;

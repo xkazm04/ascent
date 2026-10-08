@@ -211,7 +211,9 @@ export async function resolveScanTarget(args: {
     //
     // The head is resolved with the SAME ambient-guarded credential as the scope resolve above: for a
     // `noAmbientToken` caller that is no credential at all, so a private repo answers exactly like a
-    // missing one (no head sha) instead of leaking through the operator PAT.
+    // missing one (no head sha) instead of leaking through the operator PAT. The routes set it for an
+    // installed owner the caller cannot mint for, and for any repo the ambient-token guard could not
+    // prove public (src/lib/github/visibility.ts).
     lookup = await lookupCachedScan({ parsed: ghParsed, useLLM: !args.mock, orgSlug: PUBLIC_ORG, fresh: args.fresh, token: scopeToken });
     defaultHeadSha = lookup.headSha;
   }

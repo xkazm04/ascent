@@ -13,6 +13,7 @@
 
 import { NextResponse } from "next/server";
 import { GitHubError } from "@/lib/github/source";
+import { guardAmbientToken } from "@/lib/github/visibility";
 import { githubErrorHeaders, githubErrorStatus } from "@/lib/api/github-status";
 import { respondError } from "@/lib/api/respond";
 import { resolveScanAuth } from "@/lib/scan";
@@ -102,7 +103,8 @@ async function runScan(
   // plus 1-2 DB reads, before the peek returns 204. That is cheap per request but an anonymous client
   // looping distinct repo URLs can exhaust the shared GitHub budget at no cost to itself. Cap the peek
   // path on its own generous budget (PEEK_RATE_LIMIT) WITHOUT consuming the monthly free-scan quota.
-  // Must run BEFORE the lifecycle so the head request itself is rate-limited, not just the 204.
+  // Must run BEFORE the lifecycle so the head request itself is rate-limited, not just the 204, and
+  // before the ambient-token guard below, whose visibility check is a GitHub request too.
   if (opts.peek && opts.req) {
     const rl = rateLimitRequest(opts.req, PEEK_RATE_LIMIT);
     if (!rl.ok) {
@@ -114,11 +116,19 @@ async function runScan(
     }
   }
 
+  // AMBIENT-TOKEN GUARD. With the App configured, an owner with no installation reaches this point on
+  // the operator PAT. Before that token touches the scope resolve, the head lookup or the peek headers,
+  // one conditional metadata read decides whether it may: a repo it cannot prove public drops the
+  // credential for the rest of the request, so a private repo answers exactly like a missing one.
+  // AFTER the peek throttle above, so the check itself is rate-limited (src/lib/github/visibility.ts).
+  const ambient = await guardAmbientToken(ghParsed, { token, noAmbientToken }, { signal: opts.signal });
+  noAmbientToken = ambient.noAmbientToken;
+
   // SCOPE (G7-07 / G7-08). Resolved here rather than inside the lifecycle because its refusal is a
   // plain status both routes render identically (and the stream needs it before its stream opens).
   // `noAmbientToken` is honored so a ref resolve can't confirm a private repo's branches through the
   // operator PAT. See scan-scope-server.ts for the collision/trust reasoning.
-  const scopeToken = token ?? (noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
+  const scopeToken = ambient.scopeToken;
   const scoping: ResolvedScanScope = ghParsed
     ? await resolveScanScope(ghParsed, { ref: opts.ref, subPath: opts.subPath }, { token: scopeToken })
     : UNSCOPED;
