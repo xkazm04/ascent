@@ -105,6 +105,11 @@ which previously disagreed with this route on the same error:
 | Repo has no files | `422` | `{ error, code: "EMPTY" }` |
 | GitHub throttling | `429` + `retry-after` | `{ error, code: "RATE_LIMITED" }` |
 | Any other GitHub failure | `502` | `{ error, code: "UPSTREAM" }` |
+| Installation lookup or token mint failed (caller with standing, App configured) | `502` | `{ error: "Failed to mint an installation token for this org." }` |
+
+A failed lookup or mint is never downgraded to a token-less fetch (that made a private repo read as
+`404`). An owner with *no* installation (the lookup resolves null) still falls back to `GITHUB_TOKEN`.
+An unexpected error answers a reported `500`.
 
 Until 2026-08-28 this route mapped these by GitHub's *own* status (`err.status ?? 502`),
 which is set at only some throw sites — so an empty repo and an invalid URL both read as
@@ -142,6 +147,12 @@ their credentials when the correct signal was to back off. The response now also
 When the DB is configured, a `practice.pr_opened` audit entry is recorded. `AppApiError`s
 are mapped to friendly messages (403 → "install lacks write scope", 404 → "check repo and
 base branch").
+
+A failed token mint answers `502` with the same copy ("Failed to mint an installation token for this
+org.", exported as `MINT_FAILED` from `src/lib/github/pr-route.ts`) on **every** practice route
+(generate, apply, apply-batch, rollout), reported with its cause. A failed org lookup (`getOrgId`)
+refuses the write with a reported `500` instead of opening an untracked PR. In the batch and rollout
+routes an unexpected per-repo error keeps its row copy but is logged and reported.
 
 ### Shared write path, drift guard, and PR tracking (`src/lib/practices/apply.ts`)
 
