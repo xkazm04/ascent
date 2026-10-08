@@ -75,9 +75,24 @@ recursive, default branch, the same token `fetchRepoContext` used) and sets
 file as the source); neither, both, or a failed call → `unknown`, which emits the same `<…>`
 placeholders as an unknown language, never a guess. Other languages make no extra call. Both
 `/generate` and `applyPracticeToRepo` call this one helper, so preview and commit agree and the
-fingerprint guard holds. Extra GitHub calls: +1 per preview and +1 per applied repo for a JVM
-language, +0 otherwise. A caller that does not look (the onboarding track, the local
-install lane) leaves `buildSystem` unset and keeps the per-language default.
+fingerprint guard holds.
+
+**Lint is named only when proven.** `./gradlew ktlintCheck` exists only where the ktlint Gradle
+plugin is applied, so a Gradle root gets the lint command `<run linter>` unless the proof holds.
+The proof is one more read, by the same helper, of the root build file the listing named
+(`build.gradle.kts` when present, else `build.gradle`), with the same token as the tree call and
+no fallback token: the file must name `org.jlleitschuh.gradle.ktlint` in quotes (a plugins-block
+`id(...)` or an `apply plugin:` line) → `RepoContext.ktlintApplied`. A version-catalog alias, a
+convention plugin, `buildSrc` and a subproject build file are not proof; a failed call, an
+unreadable body or no match is not proven. The text is tested and dropped, never stored or put in
+the artifact. No other task (detekt, spotlessCheck, check) is substituted. When lint is a
+placeholder, the generated `ci.yml` carries a commented TODO in place of the lint step (a
+`- run: <run linter>` step would fail every run) and its header says it gates PRs on tests.
+
+Extra GitHub calls: +1 per preview and +1 per applied repo for a JVM language, +1 more for a
+Gradle root, +0 otherwise. A caller that does not look (the onboarding track, the manifest, the
+local install lane) leaves `buildSystem` unset: Kotlin keeps its Gradle install/test/build but
+gets the placeholder lint.
 
 A GitHub failure is answered with the status its *condition* means, via the single
 `githubErrorStatus` mapping in `src/lib/api/github-status.ts` — shared with `/api/scan`,
