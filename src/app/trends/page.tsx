@@ -14,6 +14,8 @@ import type { RepositoryHistory } from "@/lib/db/scans";
 import { isDbDown } from "@/app/trends/dbDown";
 import { HISTORY_SCAN_CAP, historyCapNote } from "@/lib/history/limits";
 import { readableOrgForOwner } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
+import { historyOutsideWindowNote, historyWindowNote, resolveHistoryWindow, type HistoryWindow } from "@/lib/history/window";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { fitTrendForecast, rubricTruncation } from "@/app/trends/forecast";
 import { SignInNotice } from "@/components/SignInNotice";
@@ -101,15 +103,31 @@ export default async function TrendsPage({
   // extends the series without ever pretending to be a scan.
   // STRICT: an unreachable database must not read as "No scans recorded yet" (the refusal /api/history
   // makes too); it gets its own honest notice, never a 500.
+  // The plan's sold history window: the same floor the personal overview reads under.
+  const viewerLogin = await resolveViewerLogin();
+  let historyWindow: HistoryWindow;
   let history: RepositoryHistory | null;
+  let hiddenByWindow = false;
   try {
+    historyWindow = await resolveHistoryWindow(orgSlug, viewerLogin);
     history = await getRepositoryHistory(parsed.owner, parsed.repo, {
       limit: HISTORY_SCAN_CAP,
       orgSlug,
       includeDimensions: false,
       includeCompacted: true,
       strict: true,
+      since: historyWindow.since,
     });
+    // Empty under a floor: say whether older scans exist, so the page never claims "never scanned".
+    if (historyWindow.since && (!history || history.scans.length === 0)) {
+      const any = await getRepositoryHistory(parsed.owner, parsed.repo, {
+        limit: 1,
+        orgSlug,
+        includeDimensions: false,
+        strict: true,
+      });
+      hiddenByWindow = (any?.scans.length ?? 0) > 0;
+    }
   } catch (err) {
     if (!isDbDown(err)) throw err;
     return (
@@ -122,7 +140,19 @@ export default async function TrendsPage({
       </Shell>
     );
   }
+  const windowNote = historyWindowNote(historyWindow);
   if (!history || history.scans.length === 0) {
+    if (hiddenByWindow) {
+      return (
+        <Shell>
+          <Notice
+            title="Scans fall outside your plan's history window"
+            body={historyOutsideWindowNote(historyWindow, `${parsed.owner}/${parsed.repo}`)}
+            repo={`${parsed.owner}/${parsed.repo}`}
+          />
+        </Shell>
+      );
+    }
     return (
       <Shell>
         <Notice
@@ -196,6 +226,12 @@ export default async function TrendsPage({
         {retainedCount === 1 && history.scans.length === 1 && (
           <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 type-body text-slate-400">
             Only a baseline scan so far. The trend lines fill in after the next scan.
+          </p>
+        )}
+
+        {windowNote && (
+          <p className="mt-4 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 type-body-sm text-slate-400">
+            {windowNote}
           </p>
         )}
 

@@ -31,6 +31,7 @@ vi.mock("@/lib/access", () => ({
   resolveViewerLogin: vi.fn(),
 }));
 
+vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: async () => null })); // no window row: reads stay unclamped
 vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(),
   getRepositoryHistory: vi.fn(),
@@ -95,7 +96,6 @@ describe("GET /api/history — org-scoping & auth gate", () => {
     const res = await get("?repo=acme/repo");
 
     expect(res.status).toBe(200);
-    expect(mockViewerLogin).not.toHaveBeenCalled(); // short-circuited: auth-off skips the viewer check
   });
 
   // --- Guard (b): the resolved orgSlug flows INTO the query (the leak-prevention invariant) -------

@@ -14,6 +14,7 @@
 //      Master's pending decision: change it here and nowhere else.
 //   d. Self-host: retentionCutoff is already null, so every branch above answers "no window".
 
+import { dbReadStrict, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { normalizeLogin } from "@/lib/db/members";
 import { PUBLIC_ORG } from "@/lib/org-constants";
@@ -43,6 +44,13 @@ export async function resolveHistoryWindow(
   viewerLogin: string | null | undefined,
   nowMs: number = Date.now(),
 ): Promise<HistoryWindow> {
+  if (!isDbConfigured()) return NO_HISTORY_WINDOW;
+  // STRICT, like the history read it precedes: an unreachable database surfaces as DbUnavailableError
+  // (the pages' honest "unavailable" notice, the route's 500), never as a silently unclamped read.
+  return dbReadStrict(() => decide(orgSlug, viewerLogin, nowMs));
+}
+
+async function decide(orgSlug: string, viewerLogin: string | null | undefined, nowMs: number): Promise<HistoryWindow> {
   const slug = orgSlug.trim().toLowerCase();
   if (slug !== PUBLIC_ORG) {
     const org = await getOrgBySlug(slug);

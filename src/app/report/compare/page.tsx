@@ -7,6 +7,8 @@ import { parseRepoUrl } from "@/lib/github/source";
 import { getScanComparison, isDbConfigured } from "@/lib/db";
 import type { ScanComparison } from "@/lib/db/scans";
 import { readableOrgForOwner } from "@/lib/auth";
+import { resolveViewerLogin } from "@/lib/access";
+import { historyOutsideWindowNote, historyWindowNote, resolveHistoryWindow, type HistoryWindow } from "@/lib/history/window";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { SignInNotice } from "@/components/SignInNotice";
 import { isDbDown } from "@/app/trends/dbDown";
@@ -84,15 +86,27 @@ export default async function ComparePage({
   const orgSlug = await readableOrgForOwner(parsed.owner);
   // STRICT: an unreachable database must not read as "No scans recorded yet" (the refusal /api/history
   // makes too); it gets its own honest notice, never a 500.
+  // The plan's sold history window, the floor /trends and the personal overview read under. A ?a/?b id
+  // older than it simply is not in the list, so it falls back like an id beyond the 60-scan window.
+  const viewerLogin = await resolveViewerLogin();
+  let historyWindow: HistoryWindow;
   let comparison: ScanComparison | null;
+  let hiddenByWindow = false;
   try {
+    historyWindow = await resolveHistoryWindow(orgSlug, viewerLogin);
     comparison = await getScanComparison(parsed.owner, parsed.repo, {
       orgSlug,
       afterId: a,
       beforeId: b,
       limit: 60,
       strict: true,
+      since: historyWindow.since,
     });
+    // Empty under a floor: say whether older scans exist, so the page never claims "never scanned".
+    if (historyWindow.since && (!comparison || comparison.scans.length === 0)) {
+      const any = await getScanComparison(parsed.owner, parsed.repo, { orgSlug, limit: 1, strict: true });
+      hiddenByWindow = (any?.scans.length ?? 0) > 0;
+    }
   } catch (err) {
     if (!isDbDown(err)) throw err;
     return (
@@ -108,6 +122,18 @@ export default async function ComparePage({
 
   // `after` is null only when no scans exist, so it rides the same guard — and the exemplar axis then
   // has a subject scan without needing the pair.
+  const windowNote = historyWindowNote(historyWindow);
+  if (hiddenByWindow) {
+    return (
+      <Shell>
+        <Notice
+          title="Scans fall outside your plan's history window"
+          body={historyOutsideWindowNote(historyWindow, `${parsed.owner}/${parsed.repo}`)}
+          repo={`${parsed.owner}/${parsed.repo}`}
+        />
+      </Shell>
+    );
+  }
   if (!comparison || comparison.scans.length === 0 || !comparison.after) {
     return (
       <Shell>
@@ -179,6 +205,12 @@ export default async function ComparePage({
             </Link>
           </div>
         </div>
+
+        {windowNote && (
+          <p className="rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3 type-body-sm text-slate-400">
+            {windowNote}
+          </p>
+        )}
 
         {unhonored.length > 0 && (
           <p

@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const orgs = vi.hoisted(() => ({ rows: new Map<string, { plan: string; kind: string }>() }));
+vi.mock("@/lib/db/client", () => ({ isDbConfigured: () => true, dbReadStrict: <T,>(fn: () => Promise<T>) => fn() }));
 vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: async (slug: string) => orgs.rows.get(slug) ?? null }));
 
 import { historyOutsideWindowNote, historyWindowNote, resolveHistoryWindow } from "@/lib/history/window";

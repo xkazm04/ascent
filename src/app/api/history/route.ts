@@ -14,6 +14,7 @@ import { canReadOrg } from "@/lib/authz";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { csvTable } from "@/lib/export/csv";
 import { HISTORY_SCAN_CAP } from "@/lib/history/limits";
+import { resolveHistoryWindow } from "@/lib/history/window";
 import { safeFilenameSlug } from "@/lib/export/filename";
 import { reportHandledError } from "@/lib/api/respond";
 
@@ -105,8 +106,15 @@ export async function GET(request: Request) {
     // already deleted, served as labelled summaries. Off by default, so every existing caller of this
     // endpoint keeps getting retained scans only.
     const includeCompacted = searchParams.get("compacted") === "1";
+    // The plan's sold history window (src/lib/history/window.ts), the same floor /trends and Compare
+    // read under. Null = no clamp (signed out, unlimited plan, self-host).
+    const historyWindow = await resolveHistoryWindow(orgSlug, await resolveViewerLogin());
+    const sinceHeader: Record<string, string> = historyWindow.since
+      ? { "x-ascent-history-since": historyWindow.since.toISOString() }
+      : {};
     const history = await getRepositoryHistory(parsed.owner, parsed.repo, {
       orgSlug,
+      since: historyWindow.since,
       includeDimensions,
       limit,
       includeCompacted,
@@ -119,13 +127,14 @@ export async function GET(request: Request) {
       { repo: { owner: parsed.owner, name: parsed.repo, fullName: `${parsed.owner}/${parsed.repo}` }, scans: [] };
 
     if (wantCsv) {
-      const file = `ascent-trends-${safeFilenameSlug(payload.repo.fullName, "repo")}-${payload.scans[0]?.scannedAt?.slice(0, 10) ?? "history"}.csv`;
+      const file = `ascent-trends-${safeFilenameSlug(payload.repo.fullName, "repo")}-${payload.scans[0]?.scannedAt?.slice(0, 10) ?? "history"}${historyWindow.days != null ? `-last${historyWindow.days}d` : ""}.csv`;
       const body = historyToCsv(payload);
       return new NextResponse(body, {
         headers: {
           "content-type": "text/csv; charset=utf-8",
           "content-disposition": `attachment; filename="${file}"`,
           "cache-control": "private, no-store",
+          ...sinceHeader,
           // Self-verifying integrity for the filed artifact: recompute SHA-256 over the bytes to confirm
           // the export wasn't altered after download.
           "x-ascent-content-sha256": sha256Hex(body),
@@ -160,9 +169,13 @@ export async function GET(request: Request) {
       : "none";
     // The mode marker carries the compaction flag too: the same repo at the same depth answers with a
     // different series depending on it, and two modes must never share one validator.
-    const etag = `W/"h${includeDimensions ? "f" : "l"}${includeCompacted ? "c" : ""}${payload.scans.length}-${seriesSig}"`;
+    // The window length is part of the validator too: the same scans under a 30- and a 365-day window
+    // are two different answers (the floor moves with the clock, so the day count, not the date, is the
+    // stable marker), and a 304 must never hand one window's body to the other.
+    const etag = `W/"h${includeDimensions ? "f" : "l"}${includeCompacted ? "c" : ""}${historyWindow.days != null ? `w${historyWindow.days}` : ""}${payload.scans.length}-${seriesSig}"`;
     const headers: Record<string, string> = {
       etag,
+      ...sinceHeader,
       "cache-control": "private, max-age=30, stale-while-revalidate=300",
     };
     if (request.headers.get("if-none-match") === etag) {
