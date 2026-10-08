@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
+import { readApiResponse } from "./practiceApplyShared";
 
 export function usePlaybookCard({ playbook: p, adoption }: { playbook: PlaybookRow; adoption: PlaybookAdoption | undefined }) {
   const [applied, setApplied] = useState<string[]>(adoption?.appliedRepos ?? []);
@@ -67,9 +68,9 @@ export function usePlaybookCard({ playbook: p, adoption }: { playbook: PlaybookR
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repo }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to open PR.");
-      setPrResult({ url: data.url, reused: data.reused });
+      const read = await readApiResponse<{ url: string; reused: boolean }>(res, "Failed to open PR.");
+      if (!read.ok) throw new Error(read.error);
+      setPrResult({ url: read.data.url, reused: read.data.reused });
       setProposed((a) => (a.includes(repo) ? a : [...a, repo]));
       setPick("");
     } catch (e) {

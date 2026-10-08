@@ -14,7 +14,7 @@
 
 import { useState } from "react";
 import { ConfirmAction, batchPrConfirm } from "@/components/ConfirmAction";
-import { MAX_BATCH, type BatchResult } from "./practiceApplyShared";
+import { MAX_BATCH, readApiResponse, type BatchResult } from "./practiceApplyShared";
 import { PracticeApplyBatchResults } from "./PracticeApplyBatchResults";
 
 export function PlaybookApplyBatch({
@@ -84,9 +84,10 @@ export function PlaybookApplyBatch({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ repos }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to open PRs.");
-      const rows = data.results as BatchResult[];
+      const read = await readApiResponse<{ results: BatchResult[]; attempted?: unknown; skipped?: unknown }>(res, "Failed to open PRs.");
+      if (!read.ok) throw new Error(read.error);
+      const data = read.data;
+      const rows = data.results;
       setResults(rows);
       setSummary({
         attempted: typeof data.attempted === "number" ? data.attempted : rows.length,
