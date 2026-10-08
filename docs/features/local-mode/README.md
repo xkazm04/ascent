@@ -150,6 +150,11 @@ downstream — analyzers, scoring, persistence, the trailer close in `engine.ts`
   to replay the scan records `unavailable`, and those three dimensions are **excluded from the green
   verdict** rather than scored at a floor the repository cannot raise. Full rationale, and why
   "folding is not a lift", in [org-planning/live.md](../org-planning/live.md#platform-signals-carried-into-a-worktree-rescan).
+- **What a local scan stores (2026-10-08).** The meta is `isPrivate: true` and `forge: "local"`. The
+  private-repo store rule exempts `forge: "local"`, so a local scan keeps its evidence quotes, guidance
+  graph and manifest, which the loop brief reads. `isPrivate` keeps the `.ai/memory` mirror closed, so
+  a local scan mirrors nothing. See
+  [scan.md](../scanning/scan.md#what-a-private-scan-stores-2026-10-08).
 
 `POST /api/org/local/rescan { org, fullName }` runs one paired repo end-to-end (member-gated — a
 scan reads, only pairing decides what may be read). No credit ceremony: behind `selfHostGuard`,

@@ -296,7 +296,10 @@
             "src/lib/scan-lifecycle.doors.test.ts",
             "src/lib/scan-lifecycle.test.ts",
             "src/lib/private-scan-store.ts",
-            "src/lib/private-scan-store.test.ts"
+            "src/lib/private-scan-store.test.ts",
+            "src/lib/db/private-scan-scrub.ts",
+            "src/lib/db/private-scan-scrub.test.ts",
+            "scripts/scrub-private-scan-content.mts"
           ],
           "target": null,
           "apiRoutes": [

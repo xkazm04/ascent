@@ -158,7 +158,37 @@ writes every `Scan` and `Repository` column from its output. For `repo.isPrivate
 A public report passes through untouched. The `.ai/memory` mirror refuses a private repo at its own
 gate (see [memory.md](../org-knowledge/memory.md)). The LLM-written prose (summary, strengths, gaps,
 headline, risks) is model-authored, not a copy channel: the prompt asks for a verbatim quote only in
-`claims`, which is the evidence line above. Rows written before 2026-10-08 are **not** scrubbed.
+`claims`, which is the evidence line above.
+
+**A local working copy is exempt** (operator decision 2026-10-08). `LocalFsSource` stamps its meta
+`isPrivate: true` **and** `forge: "local"`, and `storableScanReport` returns a `forge: "local"`
+report unchanged, so local and loop-lane scans keep their quotes, guidance graph and manifest (the loop
+brief in `src/lib/db/lane-brief-read.ts` reads them). The marker is set at the source and never
+inferred from the url, which is a github.com url for a working copy. `isPrivate` stays true, so the
+mirror gate stays closed for local scans. Local mode exists only on self-hosted deployments.
+
+**Section headings are kept.** `Scan.practiceShape` (`src/lib/analyze/practice-shape.ts`) stores the
+heading outline (never the prose under it) of a private repo's guidance files, pull request template
+and decision records, for practice matching. The operator's decision (2026-10-08) was to keep them and
+say so; the [privacy page](../../../src/app/privacy/page.tsx) states it.
+
+**Rows written before 2026-10-08: the scrub.** `src/lib/db/private-scan-scrub.ts` rewrites the same
+columns of every `Repository.isPrivate` repo through the same transforms, and deletes the repo's
+`RepoMemoryMirror` rows (through retention's `eraseRepoMemoryMirrorByRepo`) and the `repo-memory`
+`OrgMemory` rows the mirror fed, citations first. It writes a value only when the transform changes
+it, lists values that do not parse, never moves `Repository.updatedAt`, `lastScanAt` or
+`scannedAt`, lists (never touches) `OrgMemory` rows linked to a deleted row by `supersededBy`, and
+records one `data.private-scan-scrubbed` audit row per org it changed. A second run changes nothing.
+Run it dry first, then apply:
+
+```sh
+npx vite-node --config vitest.config.js scripts/scrub-private-scan-content.mts            # dry run: host, then per-column counts
+npx vite-node --config vitest.config.js scripts/scrub-private-scan-content.mts --apply    # writes; add --org <slug> for one org
+```
+
+`--apply` is **refused on a self-hosted deployment** (`selfHosted()`): a stored row does not record
+whether a local or a GitHub scan wrote it, so the scrub cannot leave the exempt local rows alone.
+Managed cloud has no local rows.
 
 **SSE protocol** (`/api/scan/stream`): named events on the stream:
 
@@ -1063,7 +1093,8 @@ three workflows shows its first three in pick order.
   [data-model.md](../data/data-model.md)). A **public** report's stored evidence still carries cited
   quotes (up to 200 chars) and its guidance graph and manifest carry the lines they compared; a
   private report's do not (see [What a private scan stores](#what-a-private-scan-stores-2026-10-08)).
-  Private rows written before 2026-10-08 still hold that text: nothing scrubs them.
+  Private rows written before 2026-10-08 hold that text until the operator runs the one-off scrub
+  described there; on a self-hosted deployment the scrub's `--apply` refuses, so those rows stay.
 - **The ingestion budget is not configurable per request, on purpose.** A bigger budget changes
   which files the *deterministic* detectors see (they read whole file bodies with length
   thresholds), so it changes the score: two repos scanned under different budgets would not be
