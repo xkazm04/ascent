@@ -72,6 +72,15 @@ export function persistedMatchesActiveIdentity(report: ScanReport, useLLM: boole
   return provider === want.provider && model === want.model;
 }
 
+/**
+ * The in-memory tier is the shared ANONYMOUS cache, so a PRIVATE report is never served from it — a
+ * hit on one reads as a miss (lite r1, robustness-2). Optional-chained: a legacy entry with no repo
+ * block is not proven private.
+ */
+function servableFromMemory(report: ScanReport | null | undefined): ScanReport | null {
+  return report && report.repo?.isPrivate !== true ? report : null;
+}
+
 export interface ScanCacheLookup {
   /** Where to write the fresh scan. Pinned to the resolved sha, or SHA-less if the head lookup
    *  failed (best-effort caching). Always present so the caller can cacheSet() its result. */
@@ -163,7 +172,10 @@ export async function lookupCachedScan(opts: {
   // without this check a report that crossed scanMaxCacheAgeMs mid-TTL kept being served here while the
   // DB tier had already started re-scanning it: the documented freshness contract held on one tier and
   // not the other, purely by which instance you landed on. Both tiers now answer the same question.
-  const mem = cacheGet(cacheKey);
+  //
+  // BACKSTOP: this lookup only ever serves an ANONYMOUS scan or peek, so a private report found here is a
+  // miss whatever put it there (scan-finalize.ts no longer writes one).
+  const mem = servableFromMemory(cacheGet(cacheKey));
   if (mem && isPersistedScanFresh(mem.scannedAt)) return { cacheKey, headSha, etag, cached: mem, source: "memory" };
 
   // Tier 2: persistent (cross-instance) — rebuild the report pinned to this commit, then warm
@@ -224,7 +236,7 @@ export function lookupScopedScan(opts: {
     scopeCacheSegment({ subPath }),
   );
   if (!fresh) {
-    const mem = cacheGet(cacheKey);
+    const mem = servableFromMemory(cacheGet(cacheKey));
     if (mem && isPersistedScanFresh(mem.scannedAt)) {
       return { cacheKey, headSha: refSha, etag: null, cached: mem, source: "memory" };
     }

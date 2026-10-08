@@ -171,7 +171,12 @@ export async function cacheAndPersistScan(
   // Derived vector-agnostically so a FOURTH one needs no edit here (see isAuthoritativeScanResult).
   const authoritative = isAuthoritativeScanResult(cls);
 
-  if (lookup && authoritative) cacheSet(lookup.cacheKey, report);
+  // The in-memory cache is the SHARED ANONYMOUS tier: every later anonymous scan or peek of this commit
+  // is served from it. A private report must never land there — it can reach this point through the
+  // ambient operator PAT (an owner with no stored installation), and the DB row it persists is re-tenanted
+  // off 'public', so this write was the one leak left (lite r1, robustness-2). scan-cache.ts refuses to
+  // serve one from memory as well, so either half alone closes it.
+  if (lookup && authoritative && report.repo.isPrivate !== true) cacheSet(lookup.cacheKey, report);
 
   let deduped = false;
   let persistedOk = true;

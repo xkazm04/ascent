@@ -9,10 +9,12 @@ import { getHeadHint, getScanReportByCommit } from "@/lib/db";
 import {
   lookupCachedScan,
   lookupPersistedScanByCommit,
+  lookupScopedScan,
   persistedMatchesActiveIdentity,
   resolveHeadWithHint,
 } from "./scan-cache";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
+import { cacheSet, makeCacheKey } from "@/lib/cache";
 import type { ScanReport } from "@/lib/types";
 
 vi.mock("@/lib/github/source", async (importOriginal) => ({
@@ -190,6 +192,36 @@ describe("lookupCachedScan — the head is resolved with the caller's credential
     const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "secret" }, useLLM: false, token: PAT });
     expect(mockResolveHead).toHaveBeenCalledWith({ owner: "octo", repo: "secret" }, { token: PAT, etag: null });
     expect(res.headSha).toBe("a".repeat(40));
+  });
+});
+
+// private-repo-scan lite r1, robustness-2 — the backstop. Both lookups serve ANONYMOUS callers only, so a
+// private report sitting in the shared memory tier (however it got there) is a miss, never a hit.
+describe("lookupCachedScan / lookupScopedScan — the memory tier never serves a private report", () => {
+  const privateReport = () =>
+    ({ repo: { owner: "octo", name: "leaked", isPrivate: true }, engine: { provider: "mock", model: "deterministic-rubric" }, scannedAt: new Date().toISOString() }) as unknown as ScanReport;
+
+  beforeEach(() => {
+    mockResolveHead.mockReset().mockResolvedValue({ status: "ok", sha: "b".repeat(40), etag: "e" });
+    mockGetHeadHint.mockReset().mockResolvedValue(null);
+    mockGetScanReportByCommit.mockReset().mockResolvedValue(null);
+  });
+
+  it("an anonymous scan or peek of the commit misses instead of reading the private entry", async () => {
+    cacheSet(makeCacheKey("octo", "leaked", false, "b".repeat(40)), privateReport());
+    const res = await lookupCachedScan({ parsed: { owner: "octo", repo: "leaked" }, useLLM: false, token: undefined });
+    expect(res.cached).toBeNull();
+    expect(res.source).toBeNull();
+    expect(res.headSha).toBe("b".repeat(40)); // still keyed, so a public re-scan of the commit caches normally
+  });
+
+  it("the scoped twin refuses it too", () => {
+    const parsed = { owner: "octo", repo: "leaked-scoped" };
+    const probe = lookupScopedScan({ parsed, useLLM: false, refSha: "c".repeat(40), subPath: "pkg" });
+    cacheSet(probe.cacheKey, privateReport());
+    const res = lookupScopedScan({ parsed, useLLM: false, refSha: "c".repeat(40), subPath: "pkg" });
+    expect(res.cached).toBeNull();
+    expect(res.source).toBeNull();
   });
 });
 

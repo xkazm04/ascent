@@ -28,6 +28,7 @@ vi.mock("@/lib/public-scan-quota", () => ({
 vi.mock("@/lib/access", () => ({ getViewer: vi.fn() }));
 
 import { cacheAndPersistScan } from "./scan-finalize";
+import { cacheSet } from "@/lib/cache";
 import { checkAndAlertRegression } from "@/lib/scan-alerts";
 import { getScanReportByCommit, getOrgId, persistScanReport, isDbConfigured } from "@/lib/db";
 
@@ -164,5 +165,30 @@ describe("cacheAndPersistScan — interactive regression alert wiring", () => {
     mockPersist.mockResolvedValue(persisted(true) as never);
     const out = await cacheAndPersistScan(report(), AUTHORITATIVE, { ...OPTS });
     expect(out).toEqual({ deduped: true, persistedOk: true, durable: true });
+  });
+});
+
+// private-repo-scan lite r1, robustness-2. The in-memory cache is the SHARED ANONYMOUS tier. A private
+// report reached it through the ambient-PAT path (an owner with no stored installation), and every later
+// anonymous scan or peek of that commit was then served it. The durable row is still written — under the
+// owner's org, re-tenanted off 'public' — only the shared write is refused.
+describe("cacheAndPersistScan — a private report never enters the shared anonymous cache", () => {
+  const LOOKUP = { cacheKey: "acme/api@sha-fresh::llm", headSha: "sha-fresh", etag: "e", cached: null, source: null } as const;
+  const withVisibility = (isPrivate: boolean) =>
+    ({ ...report(), repo: { owner: "acme", name: "api", headSha: "sha-fresh", isPrivate } }) as unknown as ScanReport;
+
+  it("does not cacheSet a private report, and still persists it under its org", async () => {
+    mockPersist.mockResolvedValue(persisted(false) as never);
+    const out = await cacheAndPersistScan(withVisibility(true), AUTHORITATIVE, { ...OPTS, lookup: LOOKUP });
+    expect(vi.mocked(cacheSet)).not.toHaveBeenCalled();
+    expect(mockPersist).toHaveBeenCalledWith(expect.anything(), { orgSlug: "acme", headEtag: "e" });
+    expect(out.durable).toBe(true);
+  });
+
+  it("still caches a public report under the lookup's key", async () => {
+    mockPersist.mockResolvedValue(persisted(false) as never);
+    const pub = withVisibility(false);
+    await cacheAndPersistScan(pub, AUTHORITATIVE, { ...OPTS, lookup: LOOKUP });
+    expect(vi.mocked(cacheSet)).toHaveBeenCalledWith(LOOKUP.cacheKey, pub);
   });
 });
