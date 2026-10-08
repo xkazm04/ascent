@@ -131,7 +131,11 @@ their credentials when the correct signal was to back off. The response now also
   "member". The batch route (below) applies the same gate.
 - The repo is in the org's own namespace **or tracked by it** (`requirePrWriteTarget(org, repo,
   "tracked")`, the playbooks rule); any other repo is `403` before any installation lookup.
-- Ascent installed for the org (`getInstallationIdForOwner`, else `403`). The audit row,
+- Ascent installed for the org (`getInstallationIdForOwner`, else `403` "Ascent isn't installed
+  on <org>…"). A lookup that **throws** (a database outage) is not a missing installation: the door
+  (`requirePrWriteContext` in `src/lib/github/pr-route.ts`) answers a reported `502` `MINT_FAILED`
+  and mints nothing, the answer the preview gives for the same failure. Until 2026-10-09 it was
+  caught as null and told an admin to install an App that was installed. The audit row,
   `recordPracticePr` and the adoption row carry the gated org's id.
 
 `openDraftPr()` then drives the GitHub git-data API with the installation token:
@@ -146,13 +150,22 @@ their credentials when the correct signal was to back off. The response now also
 
 When the DB is configured, a `practice.pr_opened` audit entry is recorded. `AppApiError`s
 are mapped to friendly messages (403 → "install lacks write scope", 404 → "check repo and
-base branch").
+base branch"). A classified `4xx` (403, 404, 409, a 4xx `GitHubError`) is the system working and
+stays unreported. A classified `5xx` (an App API 500 answered `502`, a 5xx `GitHubError`) keeps the
+same body but is logged and reported (`mapPrWriteError`), and in the batch and rollout routes the
+per-repo row keeps its copy while the failure is logged with the repo and reported.
 
 A failed token mint answers `502` with the same copy ("Failed to mint an installation token for this
 org.", exported as `MINT_FAILED` from `src/lib/github/pr-route.ts`) on **every** practice route
 (generate, apply, apply-batch, rollout), reported with its cause. A failed org lookup (`getOrgId`)
 refuses the write with a reported `500` instead of opening an untracked PR. In the batch and rollout
 routes an unexpected per-repo error keeps its row copy but is logged and reported.
+
+Two reads on the write path degrade deliberately and are now logged and reported rather than silent:
+a failed house-pattern version read still writes the adoption row (with `patternVersion: null`), and
+a failed read of the org's practice shapes (`resolveHousePattern`) still generates the generic
+starter. A thrown GitHub read in the JVM build-system detector degrades to placeholder commands with a
+logged (not reported) error.
 
 ### Shared write path, drift guard, and PR tracking (`src/lib/practices/apply.ts`)
 
@@ -215,8 +228,16 @@ Opening a row shows a layer-2 modal (`PracticeDetailModal` →
 "House pattern from N exemplars" or "Generic starter (no mined pattern yet)"), **Open draft PR** (→ `/apply`, a link
 to the PR, labelled "Existing draft PR" when reused), or **Roll out to the fleet**
 (`PracticeApplyBatch` → `/apply-batch`, confirm dialog, neediest-first, `skipped` surfaced).
-Errors surface inline. (Rewritten 2026-09-05; the previous text described the pre-tab card
+Errors surface inline. Every control reads its answer through `readApiResponse`
+(`practiceApplyShared.ts`): a non-JSON or empty error body (a platform timeout page) shows the
+control's own copy, never a raw JSON `SyntaxError`, and a server error keeps its text and `code`
+(`content-drift` drops the stale preview). (Rewritten 2026-09-05; the previous text described the pre-tab card
 page.)
+
+The tab's optional panels (house pattern, shape rows, guidance coherence, adoption ledger) degrade to
+omitted when their read fails rather than failing the tab; each such failure is logged with the
+`[practices/tab]` tag and reported (`practicesDegradedRead.ts`), so an outage no longer looks the
+same as an org with nothing mined.
 
 ### Prism composition (2026-09-30)
 
@@ -565,7 +586,8 @@ own; "we changed it on purpose" is the likeliest explanation for a diverged arti
 **Re-converging is an explicit, capped action.** `PracticeDriftStrip` (beneath the lift strip, three
 `Tile`s on the neutral `BAND.some` accent — a library behind on one version is a baseline, not a red
 maturity reading; renders nothing on an empty ledger) offers a **Roll out** on the *behind* bucket
-only. `GET /api/practices/rollout?org=&practiceId=` returns the target sets (member gate, read-only);
+only. `GET /api/practices/rollout?org=&practiceId=` returns the target sets (member gate, read-only;
+a failed read answers a reported `500` "Could not load the rollout status.");
 `POST /api/practices/rollout` opens the PRs (**admin** gate — it writes into customer repos), capped
 at 25 with the excess reported as `skipped`, typed-confirm on the client listing the exact repos, a
 foreign coordinate failing the whole call rather than partially applying, and every write through
