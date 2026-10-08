@@ -68,13 +68,18 @@ function b64url(input: string | Buffer): string {
   return Buffer.from(input).toString("base64url");
 }
 
-// github-app-installation-webhooks #4: backdate `iat` by the SAME skew budget the token cache uses
-// (TOKEN_EXPIRY_SKEW_MS = 180s), not 60s. On an under-provisioned host without reliable NTP whose clock
-// runs >60s AHEAD of GitHub's, GitHub rejects the App JWT with "'iat' is in the future" and every App call
-// (getInstallation, token mints, isOrgAdminViaInstallation) 401s — making the 180s token-cache widening
-// moot, since the App can't even mint a token. GitHub caps `exp - iat` at 10 min (600s), so with iat
-// backdated 180s, exp is held at iat+600 = now + (600-180) = now+420 to stay inside the cap.
-const JWT_IAT_BACKDATE_SEC = 180;
+// How far the host clock may disagree with GitHub's (no reliable NTP on an under-provisioned host). Two
+// places spend it: the App JWT's `iat` backdate below, and the clock half of the token cache's re-mint
+// margin (TOKEN_EXPIRY_SKEW_MS). The cache margin ALSO covers the longest consumer of a token, so the two
+// are no longer the same number; only this clock budget is shared.
+const CLOCK_SKEW_BUDGET_SEC = 180;
+
+// github-app-installation-webhooks #4: backdate `iat` by the full clock-skew budget (180s), not 60s. On a
+// host whose clock runs >60s AHEAD of GitHub's, GitHub rejects the App JWT with "'iat' is in the future"
+// and every App call (getInstallation, token mints, isOrgAdminViaInstallation) 401s, so the App can't even
+// mint a token. GitHub caps `exp - iat` at 10 min (600s), so with iat backdated 180s, exp is held at
+// iat+600 = now + (600-180) = now+420 to stay inside the cap.
+const JWT_IAT_BACKDATE_SEC = CLOCK_SKEW_BUDGET_SEC;
 const JWT_MAX_LIFETIME_SEC = 600; // GitHub's hard ceiling on exp - iat for an App JWT
 
 /** Short-lived RS256 JWT authenticating as the App itself. */
@@ -179,12 +184,25 @@ export async function getInstallation(installationId: number | string): Promise<
 // Cache installation tokens (valid ~1h) to avoid minting one per request.
 const tokenCache = new Map<string, { token: string; expires: number }>();
 
-// Re-mint this far BEFORE GitHub's stated expiry. The buffer absorbs (a) a token expiring mid-request
-// and (b) host-clock skew vs GitHub's clock: if the host clock runs behind real time by up to this
-// margin, a token GitHub already considers expired would otherwise still look fresh locally and 401.
-// 60s only covered (a); under-provisioned hosts without reliable NTP can drift minutes, so widen to
-// 3 min — negligible against a ~1h token lifetime.
-const TOKEN_EXPIRY_SKEW_MS = 180_000;
+/**
+ * The longest one caller holds a single installation token. Every route that mints one runs under a
+ * `maxDuration` of at most 300 s (the webhook's after() work and its push-rescan drain, the cron
+ * rescan, org import, gate-policy), and a caller mints once and reuses the token for its whole run (the
+ * queue worker's OrgContext keeps one per org per drain). Pinned against every route's maxDuration in
+ * app.test.ts.
+ */
+export const LONGEST_TOKEN_CONSUMER_MS = 300_000;
+
+// Re-mint this far BEFORE GitHub's stated expiry, so a token handed out is still valid when its holder
+// finishes. Two parts:
+//   (a) the longest consumer (above). At 180 s alone a cached token could be handed out with 181 s left
+//       to a 300 s webhook run, and expire mid-work. Nothing on that path turns a 401 into a re-mint
+//       (only listInstallationReposResult self-heals), so the check run, the scan's GitHub reads or the
+//       registry pass would simply 401 and the delivery be abandoned.
+//   (b) host-clock skew: a host clock running behind GitHub's by up to the budget would otherwise see a
+//       token GitHub already considers expired as fresh.
+// 480 s against a ~1 h token lifetime costs one extra mint per installation every ~52 min instead of ~57.
+const TOKEN_EXPIRY_SKEW_MS = LONGEST_TOKEN_CONSUMER_MS + CLOCK_SKEW_BUDGET_SEC * 1000;
 
 /** Drop a cached installation token (e.g. after a 401 — the installation may be suspended,
  *  uninstalled, or its access changed). The next call re-mints. */

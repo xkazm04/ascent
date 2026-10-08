@@ -15,6 +15,7 @@ import {
   invalidateInstallationToken,
   githubAppFetch,
   AppApiError,
+  LONGEST_TOKEN_CONSUMER_MS,
 } from "./app";
 
 const SECRET = "test-webhook-secret";
@@ -92,7 +93,8 @@ const { privateKey: TEST_PRIVATE_KEY } = generateKeyPairSync("rsa", {
 });
 
 const INSTALL_ID = 4242;
-const SKEW_MS = 180_000; // TOKEN_EXPIRY_SKEW_MS in app.ts
+const CLOCK_SKEW_MS = 180_000; // CLOCK_SKEW_BUDGET_SEC in app.ts
+const SKEW_MS = 300_000 + CLOCK_SKEW_MS; // TOKEN_EXPIRY_SKEW_MS: the longest consumer + clock skew
 const NOW = 1_750_000_000_000; // fixed wall-clock for deterministic skew math
 
 /** Mock Response compatible with githubAppFetch(): supports .ok, .status, .json(), .text(). */
@@ -258,6 +260,53 @@ describe("getInstallationToken — mint, cache, expiry-skew + NaN guard", () => 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  // Codebase security scan (2026-10-09) finding 3: the margin was 180 s, so a cached token could be
+  // handed out with 181 s left to a webhook run that owns 300 s (maxDuration) and expire mid-work, with
+  // nothing on that path turning the 401 into a re-mint. A handed-out token must now outlive the
+  // longest consumer plus the clock-skew budget.
+  it.each([181_000, 300_000, SKEW_MS - 1_000])(
+    "RE-MINTS a cached token with %i ms left: it would expire inside a 300 s consumer's run",
+    async (msLeft) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(tokenRes("tok-short", 3_600_000))
+        .mockResolvedValueOnce(tokenRes("tok-long", 3_600_000));
+      vi.stubGlobal("fetch", fetchMock);
+
+      expect(await getInstallationToken(INSTALL_ID)).toBe("tok-short");
+      vi.setSystemTime(NOW + 3_600_000 - msLeft);
+      expect(await getInstallationToken(INSTALL_ID)).toBe("tok-long");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("any token it hands out outlives the longest consumer plus the clock-skew budget", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(tokenRes("tok", 3_600_000));
+    vi.stubGlobal("fetch", fetchMock);
+    await getInstallationToken(INSTALL_ID);
+    // Walk the cached token's life: whenever the cache serves it, it must still have the full margin.
+    for (let t = 0; t < 3_600_000; t += 30_000) {
+      vi.setSystemTime(NOW + t);
+      const before = fetchMock.mock.calls.length;
+      await getInstallationToken(INSTALL_ID);
+      if (fetchMock.mock.calls.length === before) {
+        expect(NOW + 3_600_000 - (NOW + t)).toBeGreaterThan(LONGEST_TOKEN_CONSUMER_MS + CLOCK_SKEW_MS);
+      }
+      invalidateInstallationToken(INSTALL_ID);
+      fetchMock.mockClear();
+      vi.setSystemTime(NOW);
+      await getInstallationToken(INSTALL_ID); // re-seed the same NOW+1h token
+    }
+  });
+
+  it("still REUSES a cached token just outside the widened margin", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(tokenRes("tok-cached", 3_600_000));
+    vi.stubGlobal("fetch", fetchMock);
+    await getInstallationToken(INSTALL_ID);
+    vi.setSystemTime(NOW + 3_600_000 - SKEW_MS - 1_000);
+    expect(await getInstallationToken(INSTALL_ID)).toBe("tok-cached");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("invalidateInstallationToken drops the cache so the next call re-mints", async () => {
     const fetchMock = vi
       .fn()
@@ -269,6 +318,36 @@ describe("getInstallationToken — mint, cache, expiry-skew + NaN guard", () => 
     invalidateInstallationToken(INSTALL_ID);
     expect(await getInstallationToken(INSTALL_ID)).toBe("tok-y");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// LONGEST_TOKEN_CONSUMER_MS is only true while no route outlives it. Every route's maxDuration is read
+// from source (comments and strings stripped first, per AGENTS.md) and must fit inside it; a route
+// that grows past 300 s has to grow the token margin with it.
+describe("LONGEST_TOKEN_CONSUMER_MS covers every route's maxDuration", () => {
+  const MAX_DURATION = /export\s+const\s+maxDuration\s*=\s*([0-9_]+)/g;
+  const stripComments = (src: string) =>
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1")
+      .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g, '""');
+  const durations = (src: string) => [...stripComments(src).matchAll(MAX_DURATION)].map((m) => Number(m[1]!.replace(/_/g, "")));
+
+  it("the matcher bites: a seeded over-limit route is found, a commented-out one is not", () => {
+    expect(durations("export const maxDuration = 800;")).toEqual([800]);
+    expect(durations("// export const maxDuration = 800;\nconst s = 'export const maxDuration = 900';")).toEqual([]);
+  });
+
+  it("no route file declares a maxDuration longer than the token margin's consumer budget", async () => {
+    const { readdirSync, readFileSync } = await import("fs");
+    const { join } = await import("path");
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(join(dir, e.name)) : /^route\.tsx?$/.test(e.name) ? [join(dir, e.name)] : [],
+      );
+    const found = walk(join(process.cwd(), "src", "app")).flatMap((f) => durations(readFileSync(f, "utf8")).map((d) => ({ f, d })));
+    expect(found.length).toBeGreaterThan(10); // the scan reaches the routes at all
+    expect(found.filter((x) => x.d * 1000 > LONGEST_TOKEN_CONSUMER_MS)).toEqual([]);
   });
 });
 

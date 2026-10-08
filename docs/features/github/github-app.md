@@ -22,11 +22,17 @@ install on GitHub  →  /api/app/setup?installation_id=…&setup_action=install
 The App authenticates in two hops and caches the result:
 
 1. **App JWT**: `createAppJwt()` signs a short-lived (10-min) RS256 JWT from
-   `GITHUB_APP_PRIVATE_KEY` + `GITHUB_APP_ID` (issued 60s in the past for clock skew).
+   `GITHUB_APP_PRIVATE_KEY` + `GITHUB_APP_ID` (`iat` backdated 180 s, the clock-skew budget, with
+   `exp - iat` held at GitHub's 600 s ceiling).
 2. **Installation token**: `getInstallationToken(installationId)` exchanges the JWT for
    a ~1-hour installation access token (`POST /app/installations/{id}/access_tokens`),
-   **cached in memory** per installation. On `401` (suspended/uninstalled),
-   `invalidateInstallationToken()` drops the entry and re-mints (self-healing).
+   **cached in memory** per installation. A cached token is re-minted once it has **8 minutes** or
+   less left (2026-10-09; it was 3): 5 min for the longest consumer (`LONGEST_TOKEN_CONSUMER_MS`, the
+   300 s `maxDuration` every token-minting route runs under, held in place by a test over every
+   route's `maxDuration`) plus the 3 min clock-skew budget. At 3 min a cached token could reach a
+   300 s webhook run with 181 s left and expire mid-work. Callers do not turn a 401 into a re-mint,
+   so that run would fail. `invalidateInstallationToken()` drops an entry; the installation teardown
+   paths call it, and `listInstallationReposResult` drops it and re-mints once on a `401`.
 
 `githubAppFetch<T>(path, auth, init)` wraps calls with standard headers and throws
 `AppApiError` (carrying the HTTP status) on non-2xx. `isAppConfigured()` gates the whole
