@@ -42,6 +42,7 @@ a write set to be authoritative about.
 | [2026-10-07-failed-read-is-not-absence](2026-10-07-failed-read-is-not-absence.md) | Accepted (2026-10-07, recorded after the fact) | A failed read is never shown as absence: class A fails visibly (`dbReadStrict`), class B degrades but reaches a door. |
 | [2026-10-07-briefing-pdf-free-on-every-tier](2026-10-07-briefing-pdf-free-on-every-tier.md) | Accepted (2026-10-07) | The executive briefing PDF stays free on every tier: a declared exception to the report PDF's `pdfExport` gate. |
 | [2026-10-07-shared-public-org-has-no-owner](2026-10-07-shared-public-org-has-no-owner.md) | Accepted (2026-10-07) | The shared public org has no owner: every admin write refuses it, billing and autoscan cadence too; non-members scan into it.|
+| [2026-10-08-pr-gate-fails-closed](2026-10-08-pr-gate-fails-closed.md) | Accepted (2026-10-08) | The PR gate fails closed: no `neutral` check, a floor on a missing dimension fails, the Action scores the PR head. |
 
 ## A note on citations
 
