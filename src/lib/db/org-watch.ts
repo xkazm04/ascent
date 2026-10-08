@@ -101,6 +101,23 @@ export async function isRepoWatched(orgSlug: string, fullName: string): Promise<
   return Boolean(repo?.watched);
 }
 
+/**
+ * Is a repo on an autoscan cadence (the gate for push-triggered re-scans)? Watched AND scanSchedule
+ * not "off" — the same predicate the scheduled lane uses (listDueRescans), so "no autoscan" stops
+ * every automatic scan, push included. False when DB off, org unknown or repo unknown.
+ */
+export async function isRepoAutoscanned(orgSlug: string, fullName: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const prisma = getPrisma();
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return false;
+  const repo = await prisma.repository.findUnique({
+    where: { orgId_fullName: { orgId, fullName } },
+    select: { watched: true, scanSchedule: true },
+  });
+  return Boolean(repo?.watched) && repo?.scanSchedule !== "off";
+}
+
 async function ensureOrg(slug: string) {
   // CANONICALIZE THE SLUG. This is an org-row WRITER, and it took the caller's string raw while
   // every reader goes through getOrgId → normalizeOrgSlug (trim + lower-case). The asymmetry is

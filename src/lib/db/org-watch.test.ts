@@ -36,6 +36,7 @@ vi.mock("@/lib/db/org-shared", () => ({
 
 import {
   advanceToFullCadence,
+  isRepoAutoscanned,
   claimRescan,
   listDueProbeCandidates,
   listDueRescanCandidates,
@@ -879,5 +880,52 @@ describe("listDueRescanCandidates excludeOrgSlugs", () => {
     const where = (findMany.mock.calls[0]![0] as { where: { org: Record<string, unknown> } }).where;
     expect(where.org).not.toHaveProperty("slug");
     expect(out.map((r) => r.orgSlug)).toEqual(["public"]);
+  });
+});
+
+// ── isRepoAutoscanned: the push-rescan gate (watched AND on a cadence) ──────────────────────
+
+describe("isRepoAutoscanned — \"no autoscan\" stops push rescans too", () => {
+  function withRepo(row: { watched: boolean; scanSchedule: string } | null) {
+    const findUnique = vi.fn(async () => row);
+    mockGetPrisma.mockReturnValue({ repository: { findUnique } });
+    return findUnique;
+  }
+
+  it("is false for an unwatched repo, whatever its cadence", async () => {
+    withRepo({ watched: false, scanSchedule: "weekly" });
+    expect(await isRepoAutoscanned("acme", "acme/api")).toBe(false);
+  });
+
+  it("is false for a watched repo on off", async () => {
+    withRepo({ watched: true, scanSchedule: "off" });
+    expect(await isRepoAutoscanned("acme", "acme/api")).toBe(false);
+  });
+
+  it.each(["daily", "weekly", "monthly"])("is true for a watched repo on %s", async (s) => {
+    const findUnique = withRepo({ watched: true, scanSchedule: s });
+    expect(await isRepoAutoscanned("acme", "acme/api")).toBe(true);
+    expect(findUnique).toHaveBeenCalledWith({
+      where: { orgId_fullName: { orgId: "org_1", fullName: "acme/api" } },
+      select: { watched: true, scanSchedule: true },
+    });
+  });
+
+  it("is false for a missing repo row", async () => {
+    withRepo(null);
+    expect(await isRepoAutoscanned("acme", "acme/nope")).toBe(false);
+  });
+
+  it("is false for a missing org", async () => {
+    const orgShared = await import("@/lib/db/org-shared");
+    vi.mocked(orgShared.getOrgBySlug).mockResolvedValueOnce(null as never);
+    const findUnique = withRepo({ watched: true, scanSchedule: "weekly" });
+    expect(await isRepoAutoscanned("ghost", "ghost/api")).toBe(false);
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+
+  it("is false when the DB is not configured", async () => {
+    mockIsDbConfigured.mockReturnValue(false);
+    expect(await isRepoAutoscanned("acme", "acme/api")).toBe(false);
   });
 });

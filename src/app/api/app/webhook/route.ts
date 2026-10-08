@@ -37,7 +37,7 @@ import {
   getOrgId,
   getScanReportByCommit,
   isDbConfigured,
-  isRepoWatched,
+  isRepoAutoscanned,
   listWatchedRepos,
   persistScanReport,
   recordScanOutcome,
@@ -576,10 +576,10 @@ async function runPushRescan(installationId: number, owner: string, repo: string
   try {
     const fullName = `${owner}/${repo}`;
     const orgSlug = owner.toLowerCase();
-    // Cheap local short-circuit FIRST: only watched repos auto-rescan, so bail on the DB check before
+    // Cheap local short-circuit FIRST: only watched repos on an autoscan cadence (not "no autoscan") rescan, so bail on the DB check before
     // the (potentially GitHub-round-tripping) owner confirm. For a push from an unrecorded org the
     // owner-confirm always dead-ended here anyway, burning a GitHub API call per push (rate-limit burn).
-    if (!(await isRepoWatched(orgSlug, fullName))) return; // deterministic "not watched" — nothing to retry
+    if (!(await isRepoAutoscanned(orgSlug, fullName))) return; // deterministic "not autoscanned" — nothing to retry
     if (!(await installationMatchesOwner(installationId, owner))) {
       // github-app-installation-webhooks #2 (push path): same as runPrGate — a `false` here can be a
       // transient DB/GitHub blip, and this bare return is inside the try, so release the delivery so a

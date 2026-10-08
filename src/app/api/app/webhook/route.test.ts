@@ -38,7 +38,7 @@ vi.mock("@/lib/db", () => ({
   getOrgId: vi.fn(),
   getScanReportByCommit: vi.fn(),
   isDbConfigured: () => true,
-  isRepoWatched: vi.fn(),
+  isRepoAutoscanned: vi.fn(),
   listWatchedRepos: vi.fn(async () => []),
   persistScanReport: vi.fn(),
   recordScanOutcome: vi.fn(async () => {}),
@@ -105,7 +105,7 @@ import {
   getOrgGatePolicy,
   getOrgId,
   getScanReportByCommit,
-  isRepoWatched,
+  isRepoAutoscanned,
   listWatchedRepos,
   persistScanReport,
   recordScanOutcome,
@@ -151,7 +151,7 @@ const mockEvaluateGate = vi.mocked(evaluateGate);
 const mockBuildComment = vi.mocked(buildGateComment);
 const mockCreateCheckRun = vi.mocked(createCheckRun);
 const mockStickyComment = vi.mocked(upsertStickyComment);
-const mockIsRepoWatched = vi.mocked(isRepoWatched);
+const mockIsRepoAutoscanned = vi.mocked(isRepoAutoscanned);
 const mockPersist = vi.mocked(persistScanReport);
 const mockGetReportByCommit = vi.mocked(getScanReportByCommit);
 const mockCheckRegression = vi.mocked(checkAndAlertRegression);
@@ -532,7 +532,7 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
 
   it("REJECTS the push rescan mint on a forged owner pairing (stored mapping mismatch)", async () => {
     mockIdForOwner.mockResolvedValueOnce("42"); // victimOwner truly maps to 42
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     await post("push", "push-stored-mismatch", pushPayload("victimOwner", 99));
     await runDeferred();
     expect(mockGetToken).not.toHaveBeenCalled();
@@ -544,7 +544,7 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
 
   it("FAILS CLOSED on the push path when the owner-mapping lookup throws", async () => {
     mockIdForOwner.mockRejectedValueOnce(new Error("db down"));
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     await post("push", "push-db-error", pushPayload("victimOwner", 99));
     await runDeferred();
     expect(mockGetToken).not.toHaveBeenCalled();
@@ -553,7 +553,7 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
 
   it("ALLOWS the push rescan mint only after the gate passes (stored mapping agrees)", async () => {
     mockIdForOwner.mockResolvedValueOnce("88"); // victimOwner -> 88, payload also 88: agrees
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     mockGetToken.mockResolvedValue("ghs_push_token");
     mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
     mockScan.mockResolvedValue({ repo: { headSha: "h" } } as Awaited<ReturnType<typeof scanRepository>>);
@@ -569,7 +569,7 @@ describe("POST /api/app/webhook — cross-tenant token-mint authorization gate (
   // every pushed private repo, so a BYOM org's source sample left on the hop it connected Bedrock to avoid.
   it("scans a push rescan for the installation's org, so its BYOM engine and standing decisions apply", async () => {
     mockIdForOwner.mockResolvedValueOnce("88");
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     mockGetToken.mockResolvedValue("ghs_push_token");
     mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
     mockScan.mockResolvedValue({ repo: { headSha: "h" } } as Awaited<ReturnType<typeof scanRepository>>);
@@ -596,13 +596,13 @@ describe("POST /api/app/webhook — replay horizon + per-repo rescan baseline (r
   });
 
   it("claims the delivery for the FULL replay horizon (24h), not the 10-min default (#5)", async () => {
-    mockIsRepoWatched.mockResolvedValue(false); // deferred work bails; we assert only the SYNC claim in POST
+    mockIsRepoAutoscanned.mockResolvedValue(false); // deferred work bails; we assert only the SYNC claim in POST
     await post("push", "replay-horizon-id", pushPayload("acme", 42));
     expect(mockClaim).toHaveBeenCalledWith("replay-horizon-id", 24 * 60 * 60_000);
   });
 
   it("serializes back-to-back rescans of the same repo so the 2nd diff baselines on the 1st's persisted scan (#6)", async () => {
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     mockIdForOwner.mockResolvedValue("42"); // stored mapping agrees for both deliveries
     mockGetToken.mockResolvedValue("tok");
     mockGetOrgId.mockResolvedValue("org1");
@@ -814,15 +814,39 @@ describe("POST /api/app/webhook — push rescan gate guards (runPushRescan)", ()
 
   it("does NOT rescan or charge an UNWATCHED repo on a default-branch push", async () => {
     mockIdForOwner.mockResolvedValue("66"); // auth gate agrees
-    mockIsRepoWatched.mockResolvedValue(false); // ...but the repo isn't watched
+    mockIsRepoAutoscanned.mockResolvedValue(false); // ...but the repo isn't watched
     await post("push", "push-unwatched", pushPayload());
     await runDeferred();
     expectNoRescan();
   });
 
+  it("a watched repo on \"no autoscan\" (the gate says false) scans nothing: no credit, no token, no owner-confirm, no release", async () => {
+    mockIdForOwner.mockResolvedValue("66");
+    mockIsRepoAutoscanned.mockResolvedValue(false); // watched, scanSchedule "off": isRepoAutoscanned is false
+    await post("push", "push-autoscan-off", pushPayload());
+    await runDeferred();
+    expect(mockIsRepoAutoscanned).toHaveBeenCalledWith("acme", "acme/repo");
+    expectNoRescan();
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockIdForOwner).not.toHaveBeenCalled();
+    expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("a watched repo on a cadence (weekly: the gate says true) is rescanned as before", async () => {
+    mockIdForOwner.mockResolvedValue("66");
+    mockIsRepoAutoscanned.mockResolvedValue(true);
+    mockGetToken.mockResolvedValue("ghs_push_token");
+    mockGetReportByCommit.mockResolvedValue({ repo: { headSha: "prev" } } as Awaited<ReturnType<typeof getScanReportByCommit>>);
+    mockScan.mockResolvedValue({ repo: { headSha: "abc123" } } as Awaited<ReturnType<typeof scanRepository>>);
+    await post("push", "push-autoscan-weekly", pushPayload());
+    await runDeferred();
+    expect(mockIdForOwner).toHaveBeenCalled();
+    expect(mockScan).toHaveBeenCalledTimes(1);
+  });
+
   it("does NOT rescan a push to a NON-DEFAULT branch (the guard is checked before runPushRescan)", async () => {
     mockIdForOwner.mockResolvedValue("66");
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     // A feature-branch push: ref != refs/heads/<default_branch>, so runPushRescan is never scheduled.
     await post("push", "push-nondefault", pushPayload({ ref: "refs/heads/feature" }));
     await runDeferred();
@@ -831,7 +855,7 @@ describe("POST /api/app/webhook — push rescan gate guards (runPushRescan)", ()
 
   it("does NOT rescan a branch-DELETE push (after is all-zeros / deleted)", async () => {
     mockIdForOwner.mockResolvedValue("66");
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     // A branch delete: deleted=true and after is the all-zero SHA — the head did not move forward.
     await post("push", "push-deleted", pushPayload({
       deleted: true,
@@ -843,7 +867,7 @@ describe("POST /api/app/webhook — push rescan gate guards (runPushRescan)", ()
 
   it("DOES rescan + alert a watched, default-branch, head-moved push and persists a fresh report", async () => {
     mockIdForOwner.mockResolvedValue("66"); // auth gate agrees
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     mockGetToken.mockResolvedValue("ghs_push_token");
     const prior = { repo: { headSha: "prev" } } as Awaited<ReturnType<typeof getScanReportByCommit>>;
     mockGetReportByCommit.mockResolvedValue(prior);
@@ -865,7 +889,7 @@ describe("POST /api/app/webhook — push rescan gate guards (runPushRescan)", ()
 
   it("does NOT alert when the persisted report is a DEDUPED no-op (same commit already scored)", async () => {
     mockIdForOwner.mockResolvedValue("66");
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     mockGetToken.mockResolvedValue("ghs_push_token");
     mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
     mockScan.mockResolvedValue({ repo: { headSha: "abc123" } } as Awaited<ReturnType<typeof scanRepository>>);
@@ -903,7 +927,7 @@ describe("POST /api/app/webhook — push rescan throttle (G1-05)", () => {
 
   function authorizeWatchedRepo() {
     mockIdForOwner.mockResolvedValue("77");
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     mockGetToken.mockResolvedValue("ghs_tok");
     mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
     mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
@@ -1126,7 +1150,7 @@ describe("POST /api/app/webhook — delivery release on the installationMatchesO
   });
 
   it("releases the delivery on the push rescan's owner-match-false early return", async () => {
-    mockIsRepoWatched.mockResolvedValue(true); // watched, so we reach the owner check
+    mockIsRepoAutoscanned.mockResolvedValue(true); // watched, so we reach the owner check
     mockIdForOwner.mockResolvedValue("99"); // stored != payload 42 → false
     await post("push", "push-owner-mismatch-release", {
       installation: { id: 42 },
@@ -1142,7 +1166,7 @@ describe("POST /api/app/webhook — delivery release on the installationMatchesO
   });
 
   it("does NOT release on the deterministic 'not watched' return (a real no-op, nothing to retry)", async () => {
-    mockIsRepoWatched.mockResolvedValue(false); // deterministic: this repo isn't watched
+    mockIsRepoAutoscanned.mockResolvedValue(false); // deterministic: this repo isn't watched
     mockIdForOwner.mockResolvedValue("42"); // (never reached — the watch check returns first)
     await post("push", "push-unwatched-norelease", {
       installation: { id: 42 },
@@ -1272,7 +1296,7 @@ describe("POST /api/app/webhook — a degraded push rescan is not persisted or a
   beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     mockIdForOwner.mockResolvedValue("77");
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     mockGetToken.mockResolvedValue("ghs_tok");
     mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
     mockPersist.mockResolvedValue({ deduped: false } as Awaited<ReturnType<typeof persistScanReport>>);
@@ -1458,7 +1482,7 @@ describe("POST /api/app/webhook — push rescan credit metering", () => {
 
   beforeEach(() => {
     mockIdForOwner.mockResolvedValue("88");
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     mockGetToken.mockResolvedValue("ghs_tok");
     mockGetOrgId.mockResolvedValue("org-1" as Awaited<ReturnType<typeof getOrgId>>);
     mockGetReportByCommit.mockResolvedValue(staleBaseline());
@@ -1604,7 +1628,7 @@ describe("POST /api/app/webhook — registry push lane (onRegistryPush)", () => 
   });
 
   beforeEach(() => {
-    mockIsRepoWatched.mockResolvedValue(false); // the registry repo is not a watched scan target
+    mockIsRepoAutoscanned.mockResolvedValue(false); // the registry repo is not a watched scan target
   });
 
   it("schedules onRegistryPush via after() with the push slice, and answers 200", async () => {
@@ -1636,7 +1660,7 @@ describe("POST /api/app/webhook — registry push lane (onRegistryPush)", () => 
 
   it("guard: a WATCHED repo's default-branch push still schedules runPushRescan exactly once", async () => {
     mockIdForOwner.mockResolvedValue("1");
-    mockIsRepoWatched.mockResolvedValue(true);
+    mockIsRepoAutoscanned.mockResolvedValue(true);
     mockGetToken.mockResolvedValue("ghs_tok");
     mockGetReportByCommit.mockResolvedValue(null as Awaited<ReturnType<typeof getScanReportByCommit>>);
     mockScan.mockResolvedValue({ repo: { headSha: "abc" } } as Awaited<ReturnType<typeof scanRepository>>);

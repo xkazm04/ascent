@@ -5,6 +5,7 @@
 
 export {
   isRepoWatched,
+  isRepoAutoscanned,
   setRepoWatch,
   setRepoSchedule,
   setWatchedSchedule,
