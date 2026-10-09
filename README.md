@@ -11,6 +11,8 @@ you review.
 
 ![Ascent landing page: the maturity index, 5 levels, 9 dimensions](./docs/assets/readme-report.png)
 
+*The maturity report: a 0-100 score, the 5-level ladder, and the 9 weighted dimensions behind it.*
+
 Open source under [AGPL-3.0](./LICENSE). Any model, including a local one. No feature
 gates, no scan limits, no telemetry.
 
