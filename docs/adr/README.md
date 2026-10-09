@@ -50,6 +50,7 @@ a write set to be authoritative about.
 | [2026-10-09-plan-history-window-is-an-access-boundary](2026-10-09-plan-history-window-is-an-access-boundary.md) | Accepted (2026-10-09) | The plan's history window is an access boundary: Trends, `/api/history` (JSON and CSV) and Compare read under it, and the trajectory fit runs over the window and names it; the report permalink and a signed-out public read are still unclamped. |
 | [2026-10-09-caught-write-failure-is-not-a-different-answer](2026-10-09-caught-write-failure-is-not-a-different-answer.md) | Accepted (2026-10-09) | A caught failure at a write door is never a different answer and never silent: a fallback is kept, logged with a tag and reported; a thrown installation lookup is a reported 502, not the 403; 4xx stays unreported. Extends failed-read-is-not-absence to writes. |
 | [2026-10-09-byom-push-rescan-is-not-metered](2026-10-09-byom-push-rescan-is-not-metered.md) | Accepted (2026-10-09) | A push rescan exempts a BYOM org from the credit charge, like every other job reason; the disclosure says so. |
+| [2026-10-09-webhook-delivery-identity-and-claim-policy](2026-10-09-webhook-delivery-identity-and-claim-policy.md) | Proposed (2026-10-09) | A webhook delivery is claimed on its delivery id AND a hash of its signed body, and one with no `X-GitHub-Delivery` header is refused; the claim store reports a failure and the route owns the policy per lane: money and GitHub-write lanes fail closed, re-read-only lanes fail open. Not implemented. |
 
 ## A note on citations
 
