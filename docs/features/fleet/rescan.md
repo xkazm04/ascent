@@ -158,8 +158,9 @@ reason runs exactly as in "Flow — the rescore lane" above. For a push job:
   The credit-skip copy (`CREDIT_SKIP_ERROR`, "insufficient credits") is exempt, so a topped-up org
   scans on its first push in a later window. A failed backoff read is reported and fails toward
   scanning; the window bucket still caps the spend.
-- **Metering is the push path's**: `isMeteredScan(slug, false)`, which does **not** exempt a BYOM org
-  (the cadence rule does). The ledger actor is `queue:webhook:push`.
+- **Metering**: `isMeteredScan(slug, false)` and not a BYOM org, so a push job exempts BYOM like
+  every other reason (2026-10-09-byom-push-rescan-is-not-metered). A failed BYOM probe degrades to not-BYOM and the job
+  stays metered. The ledger actor is `queue:webhook:push`.
 - **A credit skip** records the "insufficient credits" outcome on the repository and settles
   `skipped`.
 - **A degrade to mock** is not persisted and sends no regression alert. The credit is refunded, the
@@ -538,9 +539,9 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
   the six writers that can materialize an Organization, `ensureOrgId` stamps and repairs it, the
   watch path stamps it as of 2026-09-06, and `plan.ts` / `installations.ts` / `org-memory.ts` /
   `org-skills.ts` still create rows unstamped.
-- **A push job and a cadence job meter a BYOM org differently.** A `webhook:push` job uses
-  `isMeteredScan`, which charges a BYOM org; a cadence or manual job exempts it (`isByomActive`). The
-  move onto the queue kept each path's charge as it was; which rule is right is a pricing decision.
+- **A BYOM org's push spend is bounded by the window, not by credits.** A `webhook:push` job exempts a
+  BYOM org like every other reason, so its only ceilings are the per-repo window bucket and the 6 h
+  failure backoff; the platform earns nothing on it (2026-10-09-byom-push-rescan-is-not-metered.md).
 - **Cron schedules live in deploy config** (`vercel.json` / dashboard), not in code; this doc
   covers the handler's behavior once invoked, not the invocation cadence.
 - **The rescore lane runs on the deployment's configured `LLM_PROVIDER`** (e.g. Bedrock/Gemini):

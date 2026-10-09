@@ -188,8 +188,8 @@ worker's own (`runRescoreJob`'s push branch, `src/lib/scan-queue-worker.ts`, ove
 `reserveScanCredit` / `refundScanCredit` / `shouldRefundScan` in `src/lib/scan-credit.ts`):
 
 - **Reserve before inference**, on a metered scan (`isMeteredScan`; self-hosted, DB-less and the
-  public org are exempt and stay free). Unlike a cadence job, a BYOM org's push job is still
-  metered: the move onto the queue kept the push path's charge. The ledger row carries actor
+  public org are exempt and stay free). Like every other job reason, a BYOM org's push job is
+  not metered: the org pays its own inference. The ledger row carries actor
   `queue:webhook:push` and the repo, so push-driven spend is separable from `queue:cadence` and
   interactive spend.
 - **Out of credits → the push is skipped**, never served free. A webhook has nobody to 402, so the

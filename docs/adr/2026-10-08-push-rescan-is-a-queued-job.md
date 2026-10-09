@@ -116,3 +116,5 @@ The code comment calls unifying the two "a pricing decision, not this one". The 
 filed it as economics-4, craft-8 and value-6, and the disclosure above does not mention it. **The
 question is with the operator:** should a BYOM org, which pays its own inference, be charged a credit
 for a push rescan?
+
+**Settled 2026-10-09 by [2026-10-09-byom-push-rescan-is-not-metered](2026-10-09-byom-push-rescan-is-not-metered.md): exempt.**
