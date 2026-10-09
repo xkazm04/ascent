@@ -177,7 +177,13 @@ the run may still be going and points at the dashboard rather than claiming it f
 `beforeunload` guard is armed while scanning.
 Reads are spaced 15 seconds after the previous read completes, so slow responses cannot overlap.
 Completion or refusal stops polling; transient network failures retry, and leaving the view aborts
-its pending read.
+its pending read. The follow is bounded (`src/components/org/shared/queueFollow.ts`, shared with the
+org scan button): at most 120 reads or 30 minutes of real time (hidden time counts), whichever comes
+first; a failed or blipped read counts toward the cap, and a new run starts a fresh budget. No read is
+made while the tab is hidden; on return it reads once immediately and resumes the cadence. Reaching
+the ceiling is **not** evidence the run finished: the status becomes `stopped`, `onSettled` never
+fires, and the notice says the run may still be going, the page stopped checking, not to start it
+again, and to open the dashboard.
 An unreadable queue snapshot also makes following unavailable: missing or invalid counters never
 mean "finished", and malformed rows never replace the last known results.
 

@@ -246,6 +246,11 @@ frames as before. What changed is the ending: instead of a `truncated` frame nam
 dropped, it emits `queued { runId, queued, total }` — work still owed, which the background worker
 finishes. `GET /api/org/scan/queue?org=&runId=` serves the poll behind "N queued — finishing in the
 background" (gate the org, then constrain the query by it, so a foreign run id is simply not found).
+The poll is bounded (`src/components/org/shared/queueFollow.ts`): 15 s apart, at most 120 reads or
+30 minutes of real time, paused while the tab is hidden (one immediate read on return). The rescore
+drain is a daily pass, and on a deployment without the GitHub App it never drains, so an unbounded
+follow would run for as long as the tab stayed open. At the ceiling the button keeps its last count
+and reads "N queued — last count; this page stopped checking, reload to check." — never "finished".
 
 `POST /api/org/import` now has the same shape (2026-09-24): it enqueues one `rescore` job per repo
 under its run id **before** anything is scanned, drains its own jobs until the deadline, and leaves
@@ -466,7 +471,8 @@ deliberately carries no ETA: nothing here can honestly say when the next cron pa
 A failed read answers **503** `{ error }` (after `console.error` plus `reportHandledError`), never 200 with
 zero counts, since both followers (`useOrgScanButton`, `useImportReattach`) read `total: 0, pending: 0` as
 finished. A non-OK poll is no evidence: the scan button keeps its last count and the wizard shows
-"unavailable". `listJobsForRun` is class A and throws on a failed org lookup or run read.
+"unavailable". Hitting the poll ceiling is no evidence either: the wizard shows "stopped" and the
+button flags its count as no longer updating (see the bound above). `listJobsForRun` is class A and throws on a failed org lookup or run read.
 
 ## Who can be watched (`POST /api/org/watch`, since 2026-09-24)
 
