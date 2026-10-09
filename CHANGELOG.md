@@ -6,6 +6,9 @@ versioned for release.
 
 ## [Unreleased]
 
+### Security
+- `next` 16.3.3 → 16.3.8 (and `eslint-config-next`), which fixes GHSA-vcvr-r3jv-pc5j, an RCE in `next/og` `ImageResponse`.
+
 ### Changed
 - **Scoring rubric `r7` → `r8`: the LLM guardband narrowed 25 → 6.** The band bounding how far the
   model may move a dimension from its deterministic signal was exactly as wide as a maturity level
