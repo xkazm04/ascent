@@ -45,6 +45,7 @@ a write set to be authoritative about.
 | [2026-10-08-pr-gate-fails-closed](2026-10-08-pr-gate-fails-closed.md) | Accepted (2026-10-08) | The PR gate fails closed: no `neutral` check, a floor on a missing dimension fails, the Action scores the PR head. |
 | [2026-10-08-private-scan-stores-no-file-text](2026-10-08-private-scan-stores-no-file-text.md) | Accepted (2026-10-08) | A private repo's scan stores no text copied from its files (quotes, guidance rules and commands, manifest prose); local copies are exempt; model prose and a re-read's lost quotes are open. |
 | [2026-10-08-ambient-token-only-for-proven-public](2026-10-08-ambient-token-only-for-proven-public.md) | Accepted (2026-10-08) | The server's own GitHub token touches a repo only once it is proven public; a private repo answers like a missing one and never enters the shared anonymous cache. |
+| [2026-10-08-push-rescan-is-a-queued-job](2026-10-08-push-rescan-is-a-queued-job.md) | Accepted (2026-10-08) | A push rescan is a `webhook:push` job on the ScanJob queue, gated on watched AND a cadence other than off, one job per repo per aligned window, a 6 h backoff after a failure; whether a BYOM org is charged for it is open. |
 
 ## A note on citations
 
