@@ -69,7 +69,8 @@ import { GUARD_OFF_PATCH, installBaseline, laneChangedPaths, verifyInstall } fro
 // matters.
 import { unverifiedCycleBrief, unverifiedCycleLesson, type BaselineLaneRow } from "@/lib/local/lane-baseline";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
-import { getActiveDeferrals } from "@/lib/db/lane-outcomes";
+import { getActiveDeferrals, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
+import { parkWithoutCommits } from "@/lib/local/lane-park";
 import { recordLoopLessons, recordRedBaselineLesson } from "@/lib/db/loop-lessons";
 import { buildLaneBrief, briefSummaryLine } from "@/lib/org/lane-brief";
 import { laneReportContract, readLaneReport, type LaneReport } from "@/lib/local/lane-report";
@@ -1816,6 +1817,19 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // (The read side refuses the same pair independently — `laneAttribution` in cockpitDrift.ts —
     // because the rows written before this gate existed are still in the database.)
     if (commits === 0) {
+      // NO COMMIT, NO RESCAN — but the session's own skips still park their items (lane-park.ts), so
+      // the next cycle is not handed the same refusal. Closes nothing, verifies nothing.
+      if (isAgentLaneKind(kind) && laneId && batch.length > 0) {
+        await parkWithoutCommits(
+          { org, repo, runId, laneId, cycle, batchIds: batch.map((b) => b.id), report },
+          // Lazy wrappers on purpose: the bindings are read inside parkWithoutCommits' own try.
+          {
+            recordLaneOutcomes: (i) => recordLaneOutcomes(i),
+            recordLoopLessons: (o, r, l, list, opts) => recordLoopLessons(o, r, l, list, opts),
+            log: (line) => appendLaneLog(laneId, line),
+          },
+        );
+      }
       return exitLane(ctx, "no-commits", {
         why: `loop cycle ${cycle} committed nothing, so there was nothing for a rescan to adjudicate`,
         log: "No commits, so no rescan: scanning a worktree that nothing landed in would make it this repository's latest reading and credit the repo with work that does not exist.",
