@@ -28,6 +28,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { runGit } from "@/lib/local/git";
+import { detachForKillTree, killProcessTree } from "@/lib/local/kill-tree";
 import { allInert, allIsolated } from "@/lib/local/lane-inert";
 import { detectToolchainChecks, type ToolchainCheck } from "@/lib/local/lane-toolchain";
 import {
@@ -71,6 +72,15 @@ const MAX_OUTPUT = 256 * 1024;
  * own gate does not finish inside the budget, which is `baseline-unavailable` — honest, and it stops the guard
  * silently costing every lane ten minutes for nothing. On the result run it means the session left
  * the repository in a state its own checks cannot get through, which is a degradation.
+ *
+ * A TIMEOUT ENDS THE WHOLE PROCESS TREE, and so does the end of the lane (`stopVerifyCommands`).
+ * `shell: true` makes the child a SHELL, and the repository's command is its grandchild: `cmd.exe` ->
+ * `npm` -> `vitest` -> its forks. `child.kill()` ended only the shell, and on win32 the rest survived it
+ * unparented. Measured 2026-10-09 on the infinite-cycles rig: two `npm test` trees outlived their
+ * 3-min timeout by over an hour, one fork at 16.9 GB, about 23 GB together, and starved the machine.
+ * `killProcessTree` is the one place that reaches a tree (`taskkill /T /F` on win32, the process group
+ * elsewhere, which is why the child is spawned `detached` off win32). It is never by name: only this
+ * child's own pid and its descendants.
  */
 export function runVerifyCommand(cwd: string, command: string, timeoutMs: number): Promise<VerifyRun> {
   return new Promise((resolve) => {
@@ -81,36 +91,84 @@ export function runVerifyCommand(cwd: string, command: string, timeoutMs: number
     env.CI = "1";
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(command, { shell: true, cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      child = spawn(command, {
+        shell: true,
+        cwd,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        detached: detachForKillTree(),
+      });
     } catch (err) {
       resolve({ ok: false, output: `Could not run the verification command: ${err instanceof Error ? err.message : String(err)}`, timedOut: false });
       return;
     }
     let out = "";
     let settled = false;
+    // While a stop is in flight the shell's own `close` is ignored: a killed command is reported as
+    // what stopped it (the timeout, the lane's end), never as an ordinary non-zero exit.
+    let stopping = false;
+    const key = liveKey(cwd);
+    const live = LIVE_VERIFY_RUNS.get(key) ?? new Set<() => Promise<void>>();
+    LIVE_VERIFY_RUNS.set(key, live);
     const append = (d: Buffer) => {
       if (out.length < MAX_OUTPUT) out += d.toString("utf8").slice(0, MAX_OUTPUT - out.length);
     };
     const settle = (r: VerifyRun) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
+      live.delete(stopOnLaneEnd);
+      if (live.size === 0 && LIVE_VERIFY_RUNS.get(key) === live) LIVE_VERIFY_RUNS.delete(key);
       resolve(r);
     };
-    const timer = setTimeout(() => {
-      child.kill();
-      settle({ ok: false, output: `${out}\nThe verification command exceeded ${Math.round(timeoutMs / 60_000)} min and was stopped.`, timedOut: true });
-    }, timeoutMs);
+    // END THE TREE, THEN SETTLE. Bounded by kill-tree.ts's grace, and awaited so the next rung of the
+    // ladder (or the worktree's removal) does not start beside a half-killed suite.
+    const stop = async (why: "timeout" | "lane-ended") => {
+      if (settled || stopping) return;
+      stopping = true;
+      await killProcessTree(child.pid, { label: "verification command" }).catch(() => null);
+      settle({
+        ok: false,
+        output:
+          why === "timeout"
+            ? `${out}\nThe verification command exceeded ${Math.round(timeoutMs / 60_000)} min and was stopped.`
+            : `${out}\nThe verification command was stopped because its lane ended.`,
+        timedOut: why === "timeout",
+      });
+    };
+    const stopOnLaneEnd = () => stop("lane-ended");
+    const timer = setTimeout(() => void stop("timeout"), timeoutMs);
+    live.add(stopOnLaneEnd);
     child.stdout?.on("data", append);
     child.stderr?.on("data", append);
     child.on("error", (e) => {
-      clearTimeout(timer);
-      settle({ ok: false, output: `Could not run the verification command: ${e.message}`, timedOut: false });
+      if (!stopping) settle({ ok: false, output: `Could not run the verification command: ${e.message}`, timedOut: false });
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      settle({ ok: code === 0, output: out, timedOut: false });
+      if (!stopping) settle({ ok: code === 0, output: out, timedOut: false });
     });
   });
+}
+
+/** The verification commands still running, by worktree. Each entry ends its own tree and settles its
+ *  own run. Process-global for the same reason the baseline cache is: keyed by a path no two lanes
+ *  share, and an entry leaves the set the moment its run settles. */
+const LIVE_VERIFY_RUNS = new Map<string, Set<() => Promise<void>>>();
+const liveKey = (dir: string): string => path.resolve(dir);
+
+/**
+ * END EVERY VERIFICATION COMMAND STILL RUNNING IN `dir`, tree and all, and resolve once each has settled.
+ * Called when the lane's worktree is forgotten (`forgetVerifyBaseline`), so a command the lane stopped
+ * waiting for (a watchdog deadline, a stopped run) does not outlive the worktree it ran in. Touches
+ * nothing outside `dir`. Never rejects. Returns how many commands it stopped.
+ */
+export async function stopVerifyCommands(dir: string): Promise<number> {
+  const live = LIVE_VERIFY_RUNS.get(liveKey(dir));
+  if (!live || live.size === 0) return 0;
+  const stops = [...live];
+  await Promise.all(stops.map((s) => s().catch(() => undefined)));
+  return stops.length;
 }
 
 /** Read the declaration files the resolver consults. A file that is not there is simply absent — a
@@ -203,7 +261,13 @@ export const NO_VERIFY_BASELINE: VerifyBaseline = {
  */
 const BASELINES = new Map<string, VerifyBaseline>();
 
-export const forgetVerifyBaseline = (dir: string): void => void BASELINES.delete(dir);
+/** Forget the worktree's baseline AND end any verification command still running in it: the worktree is
+ *  about to be removed, so whatever still runs there belongs to a lane that has ended. The cache entry
+ *  is dropped synchronously; the promise resolves once the command trees are ended. */
+export const forgetVerifyBaseline = (dir: string): Promise<void> => {
+  BASELINES.delete(dir);
+  return stopVerifyCommands(dir).then(() => undefined);
+};
 /** Test seam — the cache is process-global by design, so a suite has to be able to empty it. */
 export const __clearVerifyBaselines = (): void => BASELINES.clear();
 
