@@ -7,7 +7,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { runMemoryCheck, type CheckResponse } from "@/features/shared/memory/memoryCheck";
-import { EMPTY_FORM, fetchMemoryList, postMemory } from "@/features/shared/memory/memoryLibraryApi";
+import { EMPTY_FORM, postMemory } from "@/features/shared/memory/memoryLibraryApi";
+import { useMemoryListRefresh } from "@/features/shared/memory/useMemoryListRefresh";
 import { useMemoryCorrection } from "@/features/shared/memory/useMemoryCorrection";
 import type { MemoryFormState } from "@/features/shared/memory/MemoryTypes";
 import type { MemoryRow, MemorySort } from "@/lib/db";
@@ -44,47 +45,15 @@ export function useMemoryLibrary({
   const checkAbort = useRef<AbortController | null>(null);
   const correction = useMemoryCorrection(emptyForm, { setFormState, setSupersedeId, setVerdict, cancelCheck });
 
-  const didMount = useRef(false);
   const setForm = (patch: Partial<MemoryFormState>) => setFormState((f) => ({ ...f, ...patch }));
 
-  /** One list read. `signal` belongs to the filter state that asked for it: once superseded, the
-   *  request is aborted and neither its rows nor its loading flag may land. */
-  async function refresh(signal?: AbortSignal) {
-    setLoading(true);
-    try {
-      const body = await fetchMemoryList(slug, { sort, namespace, kind, source, search }, signal);
-      if (signal?.aborted) return;
-      if (body) {
-        setMemories(body.memories ?? []);
-        setNamespaces(body.namespaces ?? []);
-      }
-    } catch {
-      /* keep the current list on a transient fetch error (an abort included) */
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }
-
-  // Re-query the server when a filter changes (debounced so typing doesn't spam). Skips the first run
-  // so the server-rendered `initial` isn't immediately refetched.
-  //
-  // The debounce covers the TIMER; the AbortController covers the request the timer started. Without
-  // it a filter changed twice in quick succession left two reads in flight and the SLOWER one won the
-  // setState — the list showed rows for a filter the user had already moved off, with the controls
-  // showing the new one. The `check()` call below already used this pattern; the list read did not.
-  useEffect(() => {
-    if (!didMount.current) {
-      didMount.current = true;
-      return;
-    }
-    const ac = new AbortController();
-    const t = setTimeout(() => void refresh(ac.signal), 250);
-    return () => {
-      clearTimeout(t);
-      ac.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, namespace, kind, source, sort]);
+  const { refresh, listError } = useMemoryListRefresh({
+    slug,
+    filters: { sort, namespace, kind, source, search },
+    setMemories,
+    setNamespaces,
+    setLoading,
+  });
 
   // A check outlives the click that started it; abort it if the panel unmounts so the spawned CLI dies.
   useEffect(() => () => checkAbort.current?.abort(), []);
@@ -180,6 +149,7 @@ export function useMemoryLibrary({
     setExpanded,
     loading,
     error,
+    listError,
     form,
     setForm,
     busy,

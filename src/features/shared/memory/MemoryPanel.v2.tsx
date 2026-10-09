@@ -73,7 +73,9 @@ export function MemoryPanelV2({
         />
       </div>
       <div className="mt-5">
-        {m.memories.length === 0 && !sceneId ? (
+        {m.listError ? (
+          <p role="alert" data-list-read-error className="type-body text-orange-300">{m.listError}</p>
+        ) : m.memories.length === 0 && !sceneId ? (
           <p className="type-body text-slate-400">{m.loading ? "Loading…" : m.filtered ? "No memories match your filters." : EMPTY}</p>
         ) : (
           <MemoryRowsV2

@@ -10,6 +10,7 @@ import { useSkillScene } from "./useSkillScene";
 import { SkillsFilterV2 } from "./SkillsFilter.v2";
 import { SkillsLifecycleV2 } from "./SkillsLifecycle.v2";
 import { SkillRetireSweep } from "./SkillRetireSweep";
+import { SkillsListError, SkillsTruncatedLine } from "./SkillsListNotes";
 import { SkillsLibraryEmptyV2 } from "./SkillsLibraryEmpty.v2";
 import { SkillsRowsV2 } from "./SkillsRows.v2";
 import { SkillsUnmirroredV2 } from "./SkillsUnmirrored.v2";
@@ -25,6 +26,7 @@ export function SkillsPanelV2({
   repoOptions,
   isAdmin,
   registryBase,
+  initialTruncated = false,
 }: {
   slug: string;
   initial: SkillRow[];
@@ -35,8 +37,9 @@ export function SkillsPanelV2({
   repoOptions: string[];
   isAdmin: boolean;
   registryBase: string | null;
+  initialTruncated?: boolean;
 }) {
-  const s = useSkillsLibrary({ slug, initial });
+  const s = useSkillsLibrary({ slug, initial, initialTruncated });
   const [sceneId, setScene] = useSkillScene();
   const filtered = Boolean(s.search || s.category);
   const figures = skillFigures(s.skills, usage, repoOptions.length);
@@ -100,7 +103,11 @@ export function SkillsPanelV2({
               setSort={s.setSort}
               categories={categories}
             />
-            {s.skills.length === 0 ? (
+            {s.listError ? (
+              <div className="mt-4">
+                <SkillsListError message={s.listError} />
+              </div>
+            ) : s.skills.length === 0 ? (
               <SkillsLibraryEmptyV2 loading={s.loading} filtered={filtered} />
             ) : (
               <SkillsRowsV2
@@ -118,6 +125,7 @@ export function SkillsPanelV2({
                 fleetSize={repoOptions.length}
               />
             )}
+            {s.truncated && !s.listError && <SkillsTruncatedLine count={s.skills.length} />}
           </>
         )}
       </Frame>

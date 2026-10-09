@@ -12,6 +12,7 @@
 
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { SkillsFilterBar } from "@/features/shared/skills/SkillsFilterBar";
+import { SkillsListError, SkillsTruncatedLine } from "@/features/shared/skills/SkillsListNotes";
 import { SkillsLibraryTable } from "@/features/shared/skills/SkillsLibraryTable";
 import { SkillRetireSweep } from "@/features/shared/skills/SkillRetireSweep";
 import { SkillsLifecycle } from "@/features/shared/skills/SkillsLifecycle";
@@ -30,6 +31,7 @@ export function SkillsPanel({
   repoOptions,
   isAdmin,
   registryBase,
+  initialTruncated = false,
 }: {
   slug: string;
   initial: SkillRow[];
@@ -44,8 +46,10 @@ export function SkillsPanel({
   /** `https://github.com/<owner>/<repo>/blob/<branch>` when a registry is mapped, else null. Non-null
    *  is what turns the per-row origin markers on: with nothing mapped, "hosted" is not news. */
   registryBase: string | null;
+  /** The server page was cut at its size cap (src/lib/db/org-skills.ts SKILLS_PAGE_DEFAULT). */
+  initialTruncated?: boolean;
 }) {
-  const s = useSkillsLibrary({ slug, initial });
+  const s = useSkillsLibrary({ slug, initial, initialTruncated });
   // Sink B samples whose name is not an OrgSkill: kept (not dropped) so a fleet running unmirrored
   // skills is still visible here. Ranked by invoke volume; they never appear as library rows.
   const unmirrored = unmirroredRegistryUsage(usage);
@@ -111,6 +115,9 @@ export function SkillsPanel({
 
       {/* data-tour: the onboarding companion's "make the fix repeatable" spotlight. */}
       <div data-tour="skills-registry" className="mt-4">
+        {s.listError ? (
+          <SkillsListError message={s.listError} />
+        ) : (
         <SkillsLibraryTable
           slug={slug}
           skills={s.skills}
@@ -126,6 +133,8 @@ export function SkillsPanel({
           archive={s.archive}
           registryBase={registryBase}
         />
+        )}
+        {s.truncated && !s.listError && <SkillsTruncatedLine count={s.skills.length} />}
       </div>
 
       {s.error && <p className="mt-2 type-body-sm text-orange-300">{s.error}</p>}

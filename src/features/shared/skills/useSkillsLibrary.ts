@@ -13,7 +13,18 @@ import { useEffect, useRef, useState } from "react";
 import type { SkillRow, SkillSort } from "@/lib/db";
 import type { SweepResult } from "./skillRetireModel";
 
-export function useSkillsLibrary({ slug, initial }: { slug: string; initial: SkillRow[] }) {
+/** Shown when a list read fails and the server gave no message of its own. */
+export const LIST_READ_FALLBACK = "Couldn't load the list. Try again.";
+
+export function useSkillsLibrary({
+  slug,
+  initial,
+  initialTruncated = false,
+}: {
+  slug: string;
+  initial: SkillRow[];
+  initialTruncated?: boolean;
+}) {
   const [skills, setSkills] = useState<SkillRow[]>(initial);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
@@ -21,6 +32,9 @@ export function useSkillsLibrary({ slug, initial }: { slug: string; initial: Ski
   const [expanded, setExpanded] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A failed list read, kept apart from the write/archive `error` so neither hides or clears the other.
+  const [listError, setListError] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(initialTruncated);
 
   const didMount = useRef(false);
 
@@ -28,16 +42,27 @@ export function useSkillsLibrary({ slug, initial }: { slug: string; initial: Ski
    *  request is aborted and neither its rows nor its loading flag may land. */
   async function refresh(signal?: AbortSignal) {
     setLoading(true);
-    setError(null);
     try {
       const params = new URLSearchParams({ org: slug, sort });
       if (category) params.set("category", category);
       if (search.trim()) params.set("search", search.trim());
       const res = await fetch(`/api/org/skills?${params.toString()}`, { signal });
       if (signal?.aborted) return;
-      if (res.ok) setSkills((await res.json()).skills ?? []);
-    } catch {
-      /* keep the current list on a transient fetch error (an abort included) */
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || LIST_READ_FALLBACK);
+      }
+      const body = (await res.json()) as { skills?: SkillRow[]; truncated?: boolean };
+      if (signal?.aborted) return;
+      setSkills(body.skills ?? []);
+      setTruncated(Boolean(body.truncated));
+      setListError(null);
+    } catch (e) {
+      if (signal?.aborted || (e as Error).name === "AbortError") return; // a superseded filter stays silent
+      // Never leave the old rows standing under the new filter.
+      setSkills([]);
+      setTruncated(false);
+      setListError(e instanceof Error && e.message ? e.message : LIST_READ_FALLBACK);
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
@@ -111,6 +136,8 @@ export function useSkillsLibrary({ slug, initial }: { slug: string; initial: Ski
     setExpanded,
     loading,
     error,
+    listError,
+    truncated,
     archive,
     sweep,
   };

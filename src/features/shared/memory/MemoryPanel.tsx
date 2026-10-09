@@ -78,7 +78,11 @@ export function MemoryPanel({
       />
 
       <div className="mt-4">
-        {m.memories.length === 0 ? (
+        {m.listError ? (
+          <p role="alert" data-list-read-error className="type-body text-orange-300">
+            {m.listError}
+          </p>
+        ) : m.memories.length === 0 ? (
           // (O) The argument belongs here, where a reader has nothing to look at and a reason to act.
           <p className="type-body text-slate-500">
             {m.loading

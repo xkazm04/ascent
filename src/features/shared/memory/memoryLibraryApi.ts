@@ -24,21 +24,24 @@ export type MemoryListFilters = {
   search: string;
 };
 
-/** Read the filtered list. Returns null on a non-OK response so the caller keeps the current list.
- *  Takes a `signal` so a superseded filter change can abort its own request rather than racing the
+/** Read the filtered list. Throws on a non-OK response (the server's `error` when it sent one) so the
+ *  caller can surface the failure. Takes a `signal` so a superseded filter change can abort its own request rather than racing the
  *  next one to setState — see the refresh effect in useMemoryLibrary. */
 export async function fetchMemoryList(
   slug: string,
   filters: MemoryListFilters,
   signal?: AbortSignal,
-): Promise<{ memories: MemoryRow[]; namespaces: string[] } | null> {
+): Promise<{ memories: MemoryRow[]; namespaces: string[] }> {
   const params = new URLSearchParams({ org: slug, sort: filters.sort });
   if (filters.namespace) params.set("namespace", filters.namespace);
   if (filters.kind) params.set("kind", filters.kind);
   if (filters.source) params.set("source", filters.source);
   if (filters.search.trim()) params.set("search", filters.search.trim());
   const res = await fetch(`/api/org/memory?${params.toString()}`, { signal });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || "Couldn't load the list. Try again.");
+  }
   return (await res.json()) as { memories: MemoryRow[]; namespaces: string[] };
 }
 
