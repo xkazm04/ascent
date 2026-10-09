@@ -120,23 +120,22 @@ function fakePrisma() {
     if (args.where) scanWheres.push(args.where);
     return [];
   });
-  const repoIncludes: Record<string, unknown>[] = [];
+  // The latest-scan-per-repo picks are `scan.groupBy … _max` (economics-1, org-rollup-latest-scans.ts):
+  // the groupBy `where` is what carries the window bound the current fleet snapshot is taken under.
+  const scanGroupWheres: Record<string, unknown>[] = [];
   const prisma = {
     organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
-    repository: {
-      findMany: vi.fn(async (args: { include?: { scans?: Record<string, unknown> }; select?: { scans?: Record<string, unknown> } } = {}) => {
-        // getOrgRollup names its columns explicitly (`select`) rather than shipping every scalar of
-        // every row; a reader using `include` is equivalent for this suite. Either way the scans
-        // sub-query is what carries the window bound these tests pin.
-        const scans = args.select?.scans ?? args.include?.scans;
-        if (scans) repoIncludes.push(scans);
+    repository: { findMany: vi.fn(async () => []) },
+    scan: {
+      findMany: scanFindMany,
+      groupBy: vi.fn(async (args: { where?: Record<string, unknown> } = {}) => {
+        if (args.where) scanGroupWheres.push(args.where);
         return [];
       }),
     },
-    scan: { findMany: scanFindMany },
     scanDimension: { findMany: vi.fn(async () => []) },
   };
-  return { prisma, scanWheres, repoIncludes };
+  return { prisma, scanWheres, scanGroupWheres };
 }
 
 describe("the fleet aggregates filter on the half-open bound", () => {
@@ -149,12 +148,13 @@ describe("the fleet aggregates filter on the half-open bound", () => {
   const legacy: OrgWindow = { start: START, end: END_INCLUSIVE };
 
   it("getOrgRollup bounds the current fleet snapshot with lt:endExclusive", async () => {
-    const { prisma, repoIncludes } = fakePrisma();
+    const { prisma, scanGroupWheres } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
 
     await getOrgRollup("acme", half);
 
-    expect(repoIncludes[0]!.where).toEqual({ scannedAt: { lt: END_EXCLUSIVE } });
+    // The first latest-scan pick is the current snapshot (the baseline's, under lt:start, follows it).
+    expect(scanGroupWheres[0]!.scannedAt).toEqual({ lt: END_EXCLUSIVE });
   });
 
   it("getOrgRollup bounds the maturity trend query with lt:endExclusive", async () => {
@@ -169,12 +169,12 @@ describe("the fleet aggregates filter on the half-open bound", () => {
   });
 
   it("getOrgRollup still honors a legacy inclusive-only window (lte:end)", async () => {
-    const { prisma, repoIncludes } = fakePrisma();
+    const { prisma, scanGroupWheres } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
 
     await getOrgRollup("acme", legacy);
 
-    expect(repoIncludes[0]!.where).toEqual({ scannedAt: { lte: END_INCLUSIVE } });
+    expect(scanGroupWheres[0]!.scannedAt).toEqual({ lte: END_INCLUSIVE });
   });
 
   it("getOrgMovers bounds its in-window query with lt:endExclusive — a boundary scan is not 'now'", async () => {

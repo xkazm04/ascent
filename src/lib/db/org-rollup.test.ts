@@ -37,6 +37,29 @@ import {
 import { forecastBasis, forecastTrajectory } from "@/lib/maturity/forecast";
 import { retentionCutoff } from "@/lib/plans";
 import { __resetOrgTimeZoneCache } from "@/lib/org/timezone";
+import { latestScanReads, scansOfRepoRows, unrecorded, type FakeScan } from "./org-rollup-latest-scans.test-helpers";
+
+/**
+ * getOrgRollup reads each repo's latest scan as a groupBy + pair fetch (economics-1, see
+ * org-rollup-latest-scans.ts), both for the current snapshot and for the period baseline. The doubles
+ * in this file still describe the current scan NESTED on its repository row (`scans: [latest]`), the
+ * clearest way to write such a fixture; this serves both reads from those rows plus any `baseline`
+ * rows, evaluated like a database would, and routes every other scan.findMany (the trend) to `trend`.
+ * `repos` is read per call, so a test may swap `prisma.repository.findMany` after building the double.
+ */
+function scanReadsFor(
+  repos: () => Parameters<typeof unrecorded>[0],
+  baseline: () => FakeScan[] = () => [],
+  trend: (args: { where?: Record<string, unknown> }) => unknown = () => [],
+) {
+  return latestScanReads(
+    async () => [...scansOfRepoRows(await unrecorded<{ id: string; scans?: Record<string, unknown>[] }[]>(repos())), ...baseline()],
+    trend,
+  );
+}
+
+/** A baseline row's time: a repo's latest scan before every window `start` the tests in this file use. */
+const BEFORE_WINDOWS = new Date("2026-04-01T00:00:00Z");
 
 /** Terse snapshot builder: same overall/adoption/rigor unless overridden. */
 function snap(repoId: string, overall: number, adoption = overall, rigor = overall): RepoScoreSnap {
@@ -266,42 +289,43 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
     };
   }
 
-  /** scan.findMany is called twice (trend, then the distinct baseline); branch on the `distinct` arg. */
+  /** The repo row's nested scan is the current one; `baseline` rows sit before the window; any other
+   *  scan.findMany is the trend read. */
   function fakePrisma(
     trendScans: { scannedAt: Date; overallScore: number; repoId?: string }[],
     digests: { repoId: string; lastScannedAt: Date; overallSum: number; scanCount: number }[] = [],
+    baseline: FakeScan[] = [{ id: "s_base", repoId: "r1", scannedAt: BEFORE_WINDOWS, overallScore: 50, adoptionScore: 50, rigorScore: 50 }],
   ) {
-    const scanFindMany = vi.fn(async (args: { distinct?: unknown } = {}) =>
-      args.distinct
-        ? [{ id: "s_base", repoId: "r1", overallScore: 50, adoptionScore: 50, rigorScore: 50 }]
-        : trendScans,
-    );
     const digestFindMany = vi.fn(async () => digests);
     const prisma = {
       organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
       repository: { findMany: vi.fn(async () => [repoRow("r1", new Date("2026-05-12T12:00:00Z"))]) },
-      scan: { findMany: scanFindMany },
+      scan: null as unknown as ReturnType<typeof scanReadsFor>,
       scanDigest: { findMany: digestFindMany },
       scanDimension: { findMany: vi.fn(async () => []) },
     };
-    return { prisma, scanFindMany, digestFindMany };
+    prisma.scan = scanReadsFor(() => prisma.repository.findMany, () => baseline, () => trendScans);
+    return { prisma, scanFindMany: prisma.scan.findMany, scanGroupBy: prisma.scan.groupBy, digestFindMany };
   }
 
-  it("issues the pre-window baseline query with distinct:['repoId'] — one row per repo at the DB (fleet-rollups-insights #1)", async () => {
-    const { prisma, scanFindMany } = fakePrisma([{ scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70 }]);
+  it("takes the pre-window baseline as groupBy _max under lt:start — one row per repo IN SQL, no distinct (economics-1)", async () => {
+    const { prisma, scanFindMany, scanGroupBy } = fakePrisma([{ scannedAt: new Date("2026-05-12T12:00:00Z"), overallScore: 70 }]);
     mockGetPrisma.mockReturnValue(prisma);
 
     // A window `start` triggers the baseline branch.
     const start = new Date("2026-05-01T00:00:00Z");
     await getOrgRollup("acme", { start });
 
-    const baselineCall = scanFindMany.mock.calls.map((c) => c[0]).find((a) => a?.distinct) as
-      | { distinct: unknown; where: { scannedAt: unknown } }
-      | undefined;
-    expect(baselineCall, "the baseline scan.findMany should carry distinct").toBeDefined();
-    expect(baselineCall!.distinct).toEqual(["repoId"]);
+    const baselineCall = scanGroupBy.mock.calls
+      .map((c) => c[0] as { by?: unknown; _max?: unknown; where: { scannedAt?: unknown } })
+      .find((a) => a.where.scannedAt != null);
+    expect(baselineCall, "the baseline should be a scan.groupBy").toBeDefined();
+    expect(baselineCall!.by).toEqual(["repoId"]);
+    expect(baselineCall!._max).toEqual({ scannedAt: true });
     // Half-open baseline: strictly before `start`.
     expect(baselineCall!.where.scannedAt).toEqual({ lt: start });
+    // `distinct` is applied client-side by Prisma's query compiler: it bounds nothing, so no read relies on it.
+    for (const c of scanFindMany.mock.calls) expect((c[0] as { distinct?: unknown } | undefined)?.distinct).toBeUndefined();
   });
 
   it("buckets the maturity trend by the CANONICAL ZONE's calendar day, collapsing same-day scans to one averaged point (fleet-rollups-insights #2)", async () => {
@@ -406,15 +430,10 @@ describe("getOrgRollup — baseline query shape + local-day trend", () => {
   it("keeps a mock-scored repo out of the cohort-matched period delta, on either side of the window", async () => {
     // The badge arrows read `deltas`. A mock endpoint there is the same defect the cohort card's
     // `deltaCrossesEngine` mute already refuses: an engine transition dressed as fleet movement.
-    const { prisma } = fakePrisma([]);
-    prisma.scan.findMany = vi.fn(async (args: { distinct?: unknown } = {}) =>
-      args.distinct
-        ? [
-            { id: "s_a", repoId: "a", overallScore: 50, adoptionScore: 50, rigorScore: 50, engineProvider: "anthropic" },
-            { id: "s_c", repoId: "c", overallScore: 10, adoptionScore: 10, rigorScore: 10, engineProvider: "mock" },
-          ]
-        : [],
-    );
+    const { prisma } = fakePrisma([], [], [
+      { id: "s_a", repoId: "a", scannedAt: BEFORE_WINDOWS, overallScore: 50, adoptionScore: 50, rigorScore: 50, engineProvider: "anthropic" },
+      { id: "s_c", repoId: "c", scannedAt: BEFORE_WINDOWS, overallScore: 10, adoptionScore: 10, rigorScore: 10, engineProvider: "mock" },
+    ]);
     const mk = (id: string, overall: number, engine: string) => {
       const r = repoRow(id, new Date("2026-05-12T12:00:00Z"));
       r.scans[0]!.overallScore = overall;
@@ -640,13 +659,14 @@ describe("getOrgRollup — the mock floor leaves dimAverages and the trend", () 
   }
 
   function prismaWith(repoRows: unknown[]) {
-    const scanFindMany = vi.fn(async () => []);
+    const repository = { findMany: vi.fn(async () => repoRows) };
+    const scan = scanReadsFor(() => repository.findMany);
     return {
-      scanFindMany,
+      scanFindMany: scan.findMany,
       prisma: {
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
-        repository: { findMany: vi.fn(async () => repoRows) },
-        scan: { findMany: scanFindMany },
+        repository,
+        scan,
         scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
       },
@@ -689,8 +709,8 @@ describe("getOrgRollup — the mock floor leaves dimAverages and the trend", () 
 
     await getOrgRollup("acme");
 
-    // The trend is the non-distinct scan.findMany (the baseline query carries `distinct`).
-    const trendCall = scanFindMany.mock.calls.map((c) => c[0]).find((a: { distinct?: unknown }) => !a?.distinct) as
+    // The trend is the scan.findMany that is not a latest-scan pair fetch (those carry `OR`).
+    const trendCall = scanFindMany.mock.calls.map((c) => c[0]).find((a: { where?: { OR?: unknown } }) => !a?.where?.OR) as
       | { where: { engineProvider?: unknown } }
       | undefined;
     expect(trendCall, "the trend scan.findMany should have run").toBeDefined();
@@ -836,11 +856,11 @@ describe("isMockScore — the one predicate every reader shares", () => {
 });
 
 // ── The rollup names its columns (fleet-rollups-insights: cardinality-and-cost) ───────────────────
-// `include` ships every scalar of every row, and the nested `take: 1` does NOT bound the transfer
-// under this query compiler — it is applied after the fetch, so the org's ENTIRE scan history crosses
-// the wire to keep one row per repo. Every column named here is therefore paid for once per scan ever
-// taken. These tests pin the column list against a lazy `include:` creeping back, and against a
-// column being added to the select without a reader.
+// `include` ships every scalar of every row. The scan columns used to ride a nested `take: 1`, which
+// this query compiler applies after the fetch, so each one was paid for once per scan ever taken; the
+// latest-scan read is now a groupBy + pair fetch (economics-1, query plan pinned in
+// org-rollup-queries.test.ts), but the column list still governs what each fetched row costs. These
+// tests pin it against a lazy `include:` creeping back, and against a column added without a reader.
 describe("getOrgRollup — the repository query selects only what the mapper reads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -849,29 +869,37 @@ describe("getOrgRollup — the repository query selects only what the mapper rea
 
   function capture() {
     const repoFindMany = vi.fn(async () => []);
+    // One scan in the table, so the latest-scan pair fetch runs and its `select` can be read.
+    const scan = latestScanReads(() => [{ id: "s1", repoId: "r1", scannedAt: new Date("2026-05-12T12:00:00Z") }]);
+    const scanSelect = () =>
+      (scan.findMany.mock.calls.map((c) => c[0]).find((a) => a?.where && "OR" in a.where) as
+        | { include?: unknown; select: Record<string, unknown> }
+        | undefined)!;
     return {
       repoFindMany,
+      scanSelect,
       prisma: {
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
         repository: { findMany: repoFindMany },
-        scan: { findMany: vi.fn(async () => []) },
+        scan,
         scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
       },
     };
   }
 
-  it("uses select (never include) at BOTH levels", async () => {
-    const { prisma, repoFindMany } = capture();
+  it("uses select (never include) on BOTH reads, and the repository read joins no scans", async () => {
+    const { prisma, repoFindMany, scanSelect } = capture();
     mockGetPrisma.mockReturnValue(prisma);
 
     await getOrgRollup("acme");
 
     const args = repoFindMany.mock.calls[0]![0] as { include?: unknown; select: Record<string, unknown> };
     expect(args.include).toBeUndefined();
-    const scans = args.select.scans as { include?: unknown; select: Record<string, unknown> };
-    expect(scans.include).toBeUndefined();
-    expect(scans.select).toBeTruthy();
+    // economics-1: no nested `scans` relation (its `take: 1` never reached the SQL).
+    expect(args.select).not.toHaveProperty("scans");
+    expect(scanSelect().include).toBeUndefined();
+    expect(scanSelect().select).toBeTruthy();
   });
 
   it("names exactly the Repository columns the mapper reads — and none of the ~18 it does not", async () => {
@@ -885,7 +913,7 @@ describe("getOrgRollup — the repository query selects only what the mapper rea
       [
         "aiConformance", "contextHealthJson", "fullName", "guidanceGraphJson", "id", "isPrivate",
         "lastScanAt", "lastScanError", "lastScanStatus", "manifestJson", "name", "owner",
-        "passportJson", "passportOverridesJson", "primaryLanguage", "scanSchedule", "scans",
+        "passportJson", "passportOverridesJson", "primaryLanguage", "scanSchedule",
         "techStackJson", "watched",
       ].sort(),
     );
@@ -895,16 +923,17 @@ describe("getOrgRollup — the repository query selects only what the mapper rea
   });
 
   it("names exactly the Scan columns the mapper and its JSON parsers read", async () => {
-    const { prisma, repoFindMany } = capture();
+    const { prisma, scanSelect } = capture();
     mockGetPrisma.mockReturnValue(prisma);
 
     await getOrgRollup("acme");
 
-    const scans = (repoFindMany.mock.calls[0]![0] as { select: { scans: { select: Record<string, unknown> } } }).select.scans;
+    const scans = scanSelect();
+    // `id` + `repoId` are the latest-scan pick's own keys (attach the row to its repo, break ties).
     expect(Object.keys(scans.select).sort()).toEqual(
       [
-        "adoptionScore", "commitActivity", "dimensions", "engineProvider", "governance", "level",
-        "overallScore", "platformSignalsJson", "posture", "prStats", "rigorScore", "scannedAt",
+        "adoptionScore", "commitActivity", "dimensions", "engineProvider", "governance", "id", "level",
+        "overallScore", "platformSignalsJson", "posture", "prStats", "repoId", "rigorScore", "scannedAt",
       ].sort(),
     );
     // The blobs that used to ride along on EVERY scan in history, read by nobody here.
@@ -933,7 +962,7 @@ describe("getOrgRollupShared — argument normalization", () => {
       prisma: {
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
         repository: { findMany: repoFindMany },
-        scan: { findMany: vi.fn(async () => []) },
+        scan: latestScanReads(() => []),
         scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
       },
@@ -1010,12 +1039,13 @@ describe("getOrgRollup — freshness.queued splits rescore vs probe", () => {
 
   function prismaWithJobs(jobs: { repoFullName: string; lane: string }[], repoIds: string[] = ["web", "api"]) {
     const scanJobFindMany = vi.fn(async () => jobs);
+    const repository = { findMany: vi.fn(async () => repoIds.map(repoRow)) };
     return {
       scanJobFindMany,
       prisma: {
         organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
-        repository: { findMany: vi.fn(async () => repoIds.map(repoRow)) },
-        scan: { findMany: vi.fn(async () => []) },
+        repository,
+        scan: scanReadsFor(() => repository.findMany),
         scanDigest: { findMany: vi.fn(async () => []) },
         scanDimension: { findMany: vi.fn(async () => []) },
         scanJob: { findMany: scanJobFindMany },

@@ -20,6 +20,7 @@ import { forecastTrajectory, type Forecast, type SeriesPoint } from "@/lib/matur
 import { levelForScore } from "@/lib/maturity/model";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
+import { latestFirst, readLatestScanPerRepo } from "@/lib/db/org-rollup-latest-scans";
 import { dayKeyInZone } from "@/lib/org/timezone";
 import { asOrgId, type OrgId } from "@/lib/org/ids";
 import { noteReadFailure } from "@/lib/org/degraded-read";
@@ -724,69 +725,75 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
   // Segment AND tech-group filters compose — both narrow the same repo set (Feature 3b).
   const seg = { ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
 
-  // EXPLICIT `select`, not `include`, at BOTH levels (fleet-rollups-insights: cardinality-and-cost).
+  // EXPLICIT `select`, not `include`, on BOTH reads (fleet-rollups-insights: cardinality-and-cost).
+  // `include` ships every scalar of every row: ~36 Repository columns and ~39 Scan columns while the
+  // mapper below reads 18 and 11, including the big JSON blobs (`strengths`, `risks`, `discrepancies`,
+  // `aiUsageJson`, `warningsJson`, `scoreIntegrityJson`, `practiceShape`, and the Scan-side
+  // techStack/passport/contextHealth/manifest/guidanceGraph duplicates the mapper reads off REPOSITORY).
   //
-  // `include` ships every scalar of every row. That is ~36 Repository columns and ~39 Scan columns
-  // while the mapper below reads 18 and 11 — and the nested `take: 1` does NOT bound the transfer:
-  // the Prisma 6.19 client query compiler applies a nested take AFTER the fetch, so the emitted
-  // `SELECT … FROM "Scan" WHERE "repoId" IN (…)` carries no LIMIT and the org's ENTIRE scan history
-  // crosses the wire so one row per repo can be kept (measured and documented at length in
-  // org-insights.ts' getOrgBacklog header). Every unread column is therefore paid for once per scan
-  // ever taken, not once per repo — including the big JSON blobs (`strengths`, `risks`,
-  // `discrepancies`, `aiUsageJson`, `warningsJson`, `scoreIntegrityJson`, `practiceShape`, and the
-  // Scan-side techStack/passport/contextHealth/manifest/guidanceGraph duplicates the mapper reads off
-  // REPOSITORY instead). Naming the columns is the whole fix; the shape the mapper sees is identical.
+  // The latest scan per repo is NOT a nested `scans: { take: 1 }` (economics-1). The Prisma 6.19 client
+  // query compiler applies a nested take AFTER the fetch, so that shape emitted `SELECT … FROM "Scan"
+  // WHERE "repoId" IN (…)` with no LIMIT and the org's ENTIRE scan history crossed the wire on every
+  // rollup, i.e. on every Org surface and briefing build, to keep one row per repo. The pick is now a
+  // real GROUP BY (`groupBy repoId, _max scannedAt` under the window's upper bound) and a fetch of only
+  // those rows, the shape getOrgBacklog measured (org-insights.ts); ties on an equal `scannedAt`
+  // resolve by the rule in org-rollup-latest-scans.ts. The two reads run in parallel; the rows are
+  // re-attached as `scans: [latest]` so everything below reads the shape it always did.
   //
   // Adding a field to OrgRepoRow means adding it HERE too — that is the intended friction.
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...seg, OR: [{ watched: true }, { scans: { some: {} } }] },
-    select: {
-      id: true,
-      fullName: true,
-      owner: true,
-      name: true,
-      isPrivate: true,
-      watched: true,
-      primaryLanguage: true,
-      // The five cached-from-latest-scan blobs the row parsers read — all off Repository, so no scan
-      // join is involved and the Scan-side copies of the same names are never fetched.
-      techStackJson: true,
-      passportJson: true,
-      passportOverridesJson: true,
-      contextHealthJson: true,
-      manifestJson: true,
-      guidanceGraphJson: true,
-      scanSchedule: true,
-      lastScanAt: true,
-      lastScanStatus: true,
-      lastScanError: true,
-      aiConformance: true,
-      scans: {
-        // Bound the "current" snapshot to the window end (almost always now) so a custom range
-        // that ends in the past reflects the fleet as it stood then.
-        where: upper ? { scannedAt: upper } : undefined,
-        orderBy: { scannedAt: "desc" },
-        take: 1,
-        select: {
-          level: true,
-          overallScore: true,
-          adoptionScore: true,
-          rigorScore: true,
-          posture: true,
-          scannedAt: true,
-          engineProvider: true,
-          governance: true,
-          prStats: true,
-          commitActivity: true,
-          platformSignalsJson: true,
-          // signalScore + llmScore ride along so a consumer can tell whether the guardband BOUND on a
-          // dimension (|llm - signal| > band) — the one persisted trace of the model having disagreed
-          // with a detector more strongly than the engine let it act on. Two ints per dimension row.
-          dimensions: { select: { dimId: true, score: true, signalScore: true, llmScore: true } },
-        },
+  const [repoRows, latestByRepo] = await Promise.all([
+    prisma.repository.findMany({
+      where: { orgId: org.id, ...seg, OR: [{ watched: true }, { scans: { some: {} } }] },
+      select: {
+        id: true,
+        fullName: true,
+        owner: true,
+        name: true,
+        isPrivate: true,
+        watched: true,
+        primaryLanguage: true,
+        // The five cached-from-latest-scan blobs the row parsers read — all off Repository, so no scan
+        // join is involved and the Scan-side copies of the same names are never fetched.
+        techStackJson: true,
+        passportJson: true,
+        passportOverridesJson: true,
+        contextHealthJson: true,
+        manifestJson: true,
+        guidanceGraphJson: true,
+        scanSchedule: true,
+        lastScanAt: true,
+        lastScanStatus: true,
+        lastScanError: true,
+        aiConformance: true,
       },
-    },
-    orderBy: { fullName: "asc" },
+      orderBy: { fullName: "asc" },
+    }),
+    // Bound the "current" snapshot to the window end (almost always now) so a custom range that ends
+    // in the past reflects the fleet as it stood then. Scoped through the relation (same org/segment/
+    // stack slice as the repository read) so it does not wait for that read.
+    readLatestScanPerRepo(prisma, { repo: { orgId: org.id, ...seg }, ...(upper ? { scannedAt: upper } : {}) }, {
+      id: true,
+      repoId: true,
+      level: true,
+      overallScore: true,
+      adoptionScore: true,
+      rigorScore: true,
+      posture: true,
+      scannedAt: true,
+      engineProvider: true,
+      governance: true,
+      prStats: true,
+      commitActivity: true,
+      platformSignalsJson: true,
+      // signalScore + llmScore ride along so a consumer can tell whether the guardband BOUND on a
+      // dimension (|llm - signal| > band) — the one persisted trace of the model having disagreed
+      // with a detector more strongly than the engine let it act on. Two ints per dimension row.
+      dimensions: { select: { dimId: true, score: true, signalScore: true, llmScore: true } },
+    }),
+  ]);
+  const repos = repoRows.map((r) => {
+    const latest = latestByRepo.get(r.id);
+    return { ...r, scans: latest ? [latest] : [] };
   });
 
   // Two-speed freshness (moonshot #10), two cheap fleet-wide reads rather than a per-row query:
@@ -981,34 +988,26 @@ export async function getOrgRollup(orgSlug: string, window?: OrgWindow, segmentI
     // arbitrarily old — history the same page's trend refuses to draw. Clamping `start` keeps both
     // surfaces coherent: the baseline is the fleet as of the oldest instant the tier buys.
     const effStart = retentionStart && retentionStart > start ? retentionStart : start;
-    const priorScans = await prisma.scan.findMany({
-      // Half-open window: the baseline is scans STRICTLY before `start`, while the in-window trend uses
-      // `gte: start` (above). A scan whose timestamp is exactly `start` (e.g. seed/snapshot data at a
-      // clean local midnight) previously counted as BOTH the baseline and the first in-window point —
-      // comparing it against itself for a spurious 0-delta. `lt` makes each scan land on one side only.
-      //
-      // `distinct: ["repoId"]` bounds this to ONE row per repo AT THE DB (rows are scannedAt desc, so the
-      // kept row is each repo's latest before `start`) — instead of pulling the org's ENTIRE pre-window
-      // history into Node just to dedupe in a JS loop, which scaled with fleet AGE not the period (tens of
-      // thousands of rows for an org scanned daily for a year+). Mirrors the fix getOrgMovers already
-      // applies to its baseline query (org-insights.ts). (fleet-rollups-insights #1)
-      where: { repo: { orgId: org.id, ...seg }, scannedAt: { lt: effStart } },
-      // engineProvider rides along so a mock placeholder on the BASELINE side is excluded from the
-      // period delta the same way it is on the current side — otherwise a mock→live re-scan would
-      // still read as fleet movement on the badge while the cohort card correctly refuses it.
-      select: { id: true, repoId: true, overallScore: true, adoptionScore: true, rigorScore: true, engineProvider: true },
-      orderBy: { scannedAt: "desc" },
-      distinct: ["repoId"],
-    });
-    // Defensive first-per-repo pick over the already-deduped rows, mirroring getOrgMovers: keeps the
-    // baseline correct as one row per repo even if a driver ever under-honors `distinct`.
-    const seen = new Set<string>();
-    const deduped: typeof priorScans = [];
-    for (const s of priorScans) {
-      if (seen.has(s.repoId)) continue;
-      seen.add(s.repoId);
-      deduped.push(s);
-    }
+    // Each repo's latest scan STRICTLY before `start`. Half-open window: the in-window trend uses
+    // `gte: start` (above), so a scan whose timestamp is exactly `start` (e.g. seed/snapshot data at a
+    // clean local midnight) lands on one side only instead of being compared against itself.
+    //
+    // The pick is a real GROUP BY (economics-1, see org-rollup-latest-scans.ts). The `distinct: ["repoId"]`
+    // it replaces was documented here as bounding this to one row per repo AT THE DB; it did not —
+    // Prisma's client query compiler applies `distinct` client-side and the SQL carried no DISTINCT ON,
+    // so the org's ENTIRE pre-window history crossed the wire (getOrgBacklog's header has the
+    // measurement). (fleet-rollups-insights #1)
+    //
+    // engineProvider rides along so a mock placeholder on the BASELINE side is excluded from the period
+    // delta the same way it is on the current side — otherwise a mock→live re-scan would still read as
+    // fleet movement on the badge while the cohort card correctly refuses it.
+    const priorByRepo = await readLatestScanPerRepo(
+      prisma,
+      { repo: { orgId: org.id, ...seg }, scannedAt: { lt: effStart } },
+      { id: true, repoId: true, scannedAt: true, overallScore: true, adoptionScore: true, rigorScore: true, engineProvider: true },
+    );
+    // One row per repo, newest first (the order the old `orderBy desc` read produced).
+    const deduped = [...priorByRepo.values()].sort(latestFirst);
     // Mock placeholders drop out of the baseline cohort, exactly as they drop out of the current one
     // below. We do NOT reach further back for an older live scan in their place: that would move the
     // baseline INSTANT the `asOf` label claims, trading one silent inaccuracy for another.

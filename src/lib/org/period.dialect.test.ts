@@ -35,6 +35,7 @@ import { getOrgTeamRollup } from "@/lib/db/org-teams";
 import { inclusiveEnd, resolveWindow } from "@/lib/window";
 import { orgWindowBounds } from "@/lib/org/period";
 import { freezeShareWindow } from "@/lib/briefing-share";
+import { groupLatest, matchesScanWhere } from "@/lib/db/org-rollup-latest-scans.test-helpers";
 
 /** Frozen "now" so the presets resolve to fixed instants. */
 const NOW = new Date("2026-06-15T12:34:56.000Z");
@@ -123,38 +124,38 @@ describe("orgWindowBounds — the half-open form selects exactly the rows the in
 
 // ── The aggregates: same fixture, same period, same rows under both dialects ──────────────────────
 
-/** Captures every `where` the aggregate under test issues (scan queries and the repo sub-select). */
+/** Captures every `where` the aggregate under test issues (scan queries and the latest-scan picks). */
 function fakePrisma() {
   const scanWheres: Record<string, unknown>[] = [];
-  const repoScanSelects: Record<string, unknown>[] = [];
+  // The latest-scan-per-repo picks are `scan.groupBy … _max` (economics-1, org-rollup-latest-scans.ts);
+  // their `where` carries the bound the rollup's current snapshot and both baselines are taken under.
+  const latestPickWheres: Record<string, unknown>[] = [];
   const prisma = {
     organization: { findUnique: vi.fn(async () => ({ id: "org_1", plan: "enterprise", slug: "acme" })) },
-    repository: {
-      findMany: vi.fn(async (args: { include?: { scans?: Record<string, unknown> }; select?: { scans?: Record<string, unknown> } } = {}) => {
-        const scans = args.select?.scans ?? args.include?.scans;
-        if (scans) repoScanSelects.push(scans);
-        return [];
-      }),
-    },
+    repository: { findMany: vi.fn(async () => []) },
     scan: {
       findMany: vi.fn(async (args: { where?: Record<string, unknown> } = {}) => {
         if (args.where) scanWheres.push(args.where);
         return [];
       }),
+      groupBy: vi.fn(async (args: { where?: Record<string, unknown> } = {}) => {
+        if (args.where) latestPickWheres.push(args.where);
+        return [];
+      }),
     },
     scanDimension: { findMany: vi.fn(async () => []) },
   };
-  return { prisma, scanWheres, repoScanSelects };
+  return { prisma, scanWheres, latestPickWheres };
 }
 
 /** Run an aggregate with a window and return every `scannedAt` fragment it filtered on. */
 async function scannedAtFilters(run: (w: OrgWindow) => Promise<unknown>, w: OrgWindow) {
-  const { prisma, scanWheres, repoScanSelects } = fakePrisma();
+  const { prisma, scanWheres, latestPickWheres } = fakePrisma();
   mockGetPrisma.mockReturnValue(prisma);
   await run(w);
-  const fromRepos = repoScanSelects.map((s) => (s.where as { scannedAt?: object } | undefined)?.scannedAt);
+  const fromPicks = latestPickWheres.map((s) => s.scannedAt as object | undefined);
   const fromScans = scanWheres.map((s) => s.scannedAt as object | undefined);
-  return [...fromRepos, ...fromScans].filter(Boolean) as { gte?: Date; lt?: Date; lte?: Date }[];
+  return [...fromPicks, ...fromScans].filter(Boolean) as { gte?: Date; lt?: Date; lte?: Date }[];
 }
 
 const PERIOD = resolveWindow({ range: "custom", from: "2026-01-01", to: "2026-03-31" }, NOW);
@@ -203,15 +204,15 @@ describe("what 'now' means differs BY READER — the same bounds, different endp
   });
 
   it("getOrgRollup's 'current' has NO lower bound — latest scan at-or-before the window end", async () => {
-    const { prisma, repoScanSelects } = fakePrisma();
+    const { prisma, latestPickWheres } = fakePrisma();
     mockGetPrisma.mockReturnValue(prisma);
 
     await getOrgRollup("acme", HALF_OPEN);
 
-    // The fleet-snapshot sub-select is bounded on the UPPER side only: a repo last scanned before
-    // `start` still carries its most recent score into the fleet average.
-    expect(repoScanSelects[0]!.where).toEqual({ scannedAt: { lt: PERIOD.endExclusive } });
-    expect(matches(repoScanSelects[0]!.where as never, new Date("2020-01-01T00:00:00.000Z"))).toBe(true);
+    // The fleet-snapshot pick (the first latest-scan groupBy) is bounded on the UPPER side only: a repo
+    // last scanned before `start` still carries its most recent score into the fleet average.
+    expect(latestPickWheres[0]!.scannedAt).toEqual({ lt: PERIOD.endExclusive });
+    expect(matches(latestPickWheres[0]!.scannedAt as never, new Date("2020-01-01T00:00:00.000Z"))).toBe(true);
   });
 
   it("getOrgMovers' 'now' is bounded on BOTH sides — a repo unscanned in the period has no move", async () => {
@@ -242,6 +243,8 @@ describe("what 'now' means differs BY READER — the same bounds, different endp
 // A count without names is not a fleet of onboarded repos. getOrgMovers is the production reader of
 // who joined; `readOnboardedRepos` projects the names. Both dialects must name the SAME repos.
 
+const asScanRow = (s: { repoId: string; scannedAt: Date }) => ({ ...s, id: `${s.repoId}@${s.scannedAt.toISOString()}` });
+
 function moversDataPrisma(
   rows: { repoId: string; fullName: string; name: string; scannedAt: Date; overall: number }[],
 ) {
@@ -250,10 +253,15 @@ function moversDataPrisma(
     repository: { findMany: vi.fn(async () => []) },
     scanDimension: { findMany: vi.fn(async () => []) },
     scan: {
-      findMany: vi.fn(async (args: { where?: { scannedAt?: { gte?: Date; lt?: Date; lte?: Date } }; orderBy?: { scannedAt?: "asc" | "desc" }; distinct?: string[] } = {}) => {
+      // The baseline pick (groupBy _max, then a fetch by (repoId, scannedAt) pairs — economics-1) runs
+      // over the same rows, through the shared Scan-table matcher.
+      groupBy: vi.fn(async (args: { where?: Record<string, unknown> } = {}) => groupLatest(rows.map(asScanRow), args.where)),
+      findMany: vi.fn(async (args: { where?: { scannedAt?: { gte?: Date; lt?: Date; lte?: Date }; OR?: unknown }; orderBy?: { scannedAt?: "asc" | "desc" }; distinct?: string[] } = {}) => {
         const t = args.where?.scannedAt;
         const dir = args.orderBy?.scannedAt ?? "desc";
-        let matched = rows.filter((s) => matches(t, s.scannedAt));
+        let matched = args.where?.OR
+          ? rows.filter((s) => matchesScanWhere(args.where, asScanRow(s)))
+          : rows.filter((s) => matches(t, s.scannedAt));
         matched.sort((a, b) =>
           dir === "asc" ? a.scannedAt.getTime() - b.scannedAt.getTime() : b.scannedAt.getTime() - a.scannedAt.getTime(),
         );
@@ -262,6 +270,7 @@ function moversDataPrisma(
           matched = matched.filter((s) => (seen.has(s.repoId) ? false : (seen.add(s.repoId), true)));
         }
         return matched.map((s) => ({
+          id: asScanRow(s).id,
           repoId: s.repoId,
           overallScore: s.overall,
           adoptionScore: s.overall,

@@ -15,6 +15,7 @@ import {
   type SegmentSummary,
 } from "@/lib/db/segments";
 import { segmentScope } from "@/lib/db/org-shared";
+import { latestScanReads, scansOfRepoRows } from "./org-rollup-latest-scans.test-helpers";
 
 // The DB client is mocked away so the module never touches Prisma. The pure-helper tests below
 // don't use it; the DB-write tests drive a fakePrisma through it (see fakePrisma()).
@@ -533,8 +534,9 @@ function viewPrisma(opts: {
   repos: FakeRepo[];
   membership: Record<string, string[]>;
 }) {
-  /** Rollup-shaped repo reads only: the select that joins `scans`. listTaggableRepos' cheap select is
-   *  deliberately NOT counted — it is three scalar columns, not the fleet's scan history. */
+  /** Rollup-shaped repo reads only: the select carrying the rollup's cached-blob columns (its latest scan
+   *  per repo is a separate groupBy + pair fetch since economics-1, so a `scans` join no longer marks
+   *  it). listTaggableRepos' cheap select is deliberately NOT counted — three scalar columns. */
   const rollupQueries: Array<Record<string, unknown>> = [];
   const taggableQueries: Array<Record<string, unknown>> = [];
 
@@ -593,15 +595,18 @@ function viewPrisma(opts: {
     },
     repository: {
       findMany: vi.fn(async ({ where, select }: { where: Record<string, unknown>; select: Record<string, unknown> }) => {
-        if (select.scans) rollupQueries.push(where);
+        if (select.techStackJson) rollupQueries.push(where);
         else taggableQueries.push(where);
         if (where.orgId !== opts.orgId) return [];
         return opts.repos.map(repoRow);
       }),
     },
-    scan: {
-      findMany: vi.fn(async () => opts.repos.map((r) => ({ scannedAt: new Date("2026-01-01T00:00:00Z"), overallScore: r.overall }))),
-    },
+    // Each repo's latest scan (the nested one on its row) through the groupBy + pair fetch; every other
+    // scan.findMany is the trend read.
+    scan: latestScanReads(
+      () => scansOfRepoRows(opts.repos.map(repoRow)),
+      () => opts.repos.map((r) => ({ scannedAt: new Date("2026-01-01T00:00:00Z"), overallScore: r.overall })),
+    ),
   };
   return { prisma, rollupQueries, taggableQueries };
 }

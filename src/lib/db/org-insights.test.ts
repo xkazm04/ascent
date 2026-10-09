@@ -23,6 +23,7 @@ import { getOrgRollup } from "@/lib/db/org-rollup";
 import { IMPACT_WEIGHT } from "@/lib/db/org-shared";
 import { weightsFor } from "@/lib/maturity/model";
 import { projectedGain } from "@/lib/scoring/engine";
+import { groupLatest, matchesScanWhere } from "./org-rollup-latest-scans.test-helpers";
 
 describe("percentileOf", () => {
   it("returns null below the sample floor instead of a hard 0/100", () => {
@@ -73,6 +74,8 @@ interface FakeScan {
 }
 
 const scanIdOf = (s: FakeScan): string => `${s.repoId}@${s.scannedAt.toISOString()}`;
+/** The row the shared Scan-table matcher evaluates `where` against. */
+const asRow = (s: FakeScan) => ({ ...s, id: scanIdOf(s), engineProvider: s.engineProvider ?? "anthropic" });
 interface FakeRepo {
   id: string;
   fullName: string;
@@ -128,13 +131,17 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
       }),
     },
     scan: {
+      // The latest-scan picks (org-rollup-latest-scans.ts): groupBy _max, then a fetch by (repoId,
+      // scannedAt) pairs, both evaluated over the same table the other reads see.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma query-arg shape on a test double
+      groupBy: vi.fn(async (args: any) => groupLatest(scans.map(asRow), args?.where)),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma query-arg shape on a test double
       findMany: vi.fn(async (args: any) => {
         const t = args?.where?.scannedAt;
         const dir: "asc" | "desc" = args?.orderBy?.scannedAt ?? "desc";
-        const rows = scans
-          .filter((s) => scanMatchesTime(s, t))
-          .sort((a, b) => sortByTime(a, b, dir));
+        const rows = args?.where?.OR
+          ? scans.filter((s) => matchesScanWhere(args.where, asRow(s)))
+          : scans.filter((s) => scanMatchesTime(s, t)).sort((a, b) => sortByTime(a, b, dir));
         const repoById = new Map(repos.map((r) => [r.id, r]));
         return rows.map((s) => {
           const repo = repoById.get(s.repoId)!;
@@ -148,6 +155,7 @@ function fakeOrgPrisma(repos: FakeRepo[], scans: FakeScan[], plan = "enterprise"
             posture: s.posture,
             scannedAt: s.scannedAt,
             engineProvider: s.engineProvider ?? "anthropic",
+            dimensions: s.dimensions ?? [],
             repo: { fullName: repo.fullName, name: repo.name },
           };
         });

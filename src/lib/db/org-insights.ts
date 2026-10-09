@@ -26,6 +26,7 @@ import { classifyDelta } from "@/lib/maturity/noise";
 // The ONE mock-floor predicate, from the producer that defines it (org-rollup.ts). A movers pair is a
 // before/after MEASUREMENT, so an endpoint the scanner never scored cannot be one of its ends.
 import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
+import { atPairs, latestFirst, latestScanAtPerRepo, readLatestScanPerRepo, scanAtBeforePerRepo } from "@/lib/db/org-rollup-latest-scans";
 // The single canonical parser for stored `string[]` columns (the explore questions live in one) — reuse
 // it here rather than forking a second parser, exactly as scans-read/scans-recommendations do.
 import { parseStringArray } from "@/lib/db/json-columns";
@@ -175,7 +176,7 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
     // the org's entire scan history into memory (which scaled with fleet age, not the period: an org
     // scanned daily across hundreds of repos for a year+ dragged tens of thousands of rows into Node on
     // every executive/briefing/live render). The in-window query is bounded on both sides; the baseline
-    // query takes only the latest pre-start scan PER REPO (distinct) so it stays one row per repo.
+    // takes only the latest pre-start scan PER REPO, as a real GROUP BY (see below).
     const repoScope = { orgId: org.id, ...seg };
     const inWindow = await prisma.scan.findMany({
       where: { repo: repoScope, scannedAt: { gte: start, ...(upper ?? {}) } },
@@ -194,24 +195,24 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       orderBy: { scannedAt: "desc" },
     });
     // Latest scan STRICTLY before `start`, one per repo (matches getOrgRollup's half-open `lt: start`
-    // cohort). `distinct` bounds this to a single row per repo at the DB; we still pick the first (latest,
-    // desc) per repo in code so the baseline is correct regardless of the driver's distinct support.
-    const preStart = await prisma.scan.findMany({
-      where: { repo: repoScope, scannedAt: { lt: start } },
-      select: {
-        repoId: true,
-        overallScore: true,
-        adoptionScore: true,
-        rigorScore: true,
-        level: true,
-        posture: true,
-        scannedAt: true,
-        // The provenance the mock guard reads (isRealPair) — one column, no extra round trip.
-        engineProvider: true,
-        repo: { select: { fullName: true, name: true } },
-      },
-      orderBy: { scannedAt: "desc" },
-      distinct: ["repoId"],
+    // cohort). This used to say `distinct: ["repoId"]` bounded the read to one row per repo AT THE DB. It
+    // did not: Prisma's client query compiler applies `distinct` client-side (the SQL carries no DISTINCT
+    // ON), so every pre-window scan the org ever took crossed the wire (economics-1; measured in
+    // getOrgBacklog's header below). The pick is now `groupBy repoId, _max scannedAt` under `lt: start`
+    // plus a fetch of only those rows; ties on an equal `scannedAt` resolve by the rule stated in
+    // org-rollup-latest-scans.ts, not by the order the database returns rows in.
+    const baselineByRepo = await readLatestScanPerRepo(prisma, { repo: repoScope, scannedAt: { lt: start } }, {
+      id: true,
+      repoId: true,
+      overallScore: true,
+      adoptionScore: true,
+      rigorScore: true,
+      level: true,
+      posture: true,
+      scannedAt: true,
+      // The provenance the mock guard reads (isRealPair) — one column, no extra round trip.
+      engineProvider: true,
+      repo: { select: { fullName: true, name: true } },
     });
     const byRepo = new Map<string, typeof inWindow>();
     for (const r of inWindow) {
@@ -219,8 +220,6 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       arr.push(r);
       byRepo.set(r.repoId, arr);
     }
-    const baselineByRepo = new Map<string, (typeof inWindow)[number]>();
-    for (const r of preStart) if (!baselineByRepo.has(r.repoId)) baselineByRepo.set(r.repoId, r); // first = latest (desc)
 
     for (const [repoId, arr] of byRepo) {
       const now = arr[0]; // latest in-window (rows are scannedAt desc)
@@ -248,23 +247,38 @@ export async function getOrgMovers(orgSlug: string, window?: OrgWindow, segmentI
       moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev, realBaseline ? "period" : "onboarded"));
     }
   } else {
-    const repos = await prisma.repository.findMany({
-      where: { orgId: org.id, ...seg },
-      select: {
-        fullName: true,
-        name: true,
-        scans: {
-          orderBy: { scannedAt: "desc" },
-          take: 2,
-          select: { overallScore: true, adoptionScore: true, rigorScore: true, level: true, posture: true, scannedAt: true, engineProvider: true },
-        },
-      },
-    });
-    for (const r of repos) {
-      if (r.scans.length < 2) continue;
-      const [now, prev] = r.scans as [ScanLite, ScanLite]; // safe: length >= 2 checked above
+    // "Since last scan": each repo's two most recent scans. Not a nested `scans: { take: 2 }`, which
+    // like `take: 1` is applied AFTER the fetch and so transferred the org's entire history (economics-1).
+    // Two GROUP BYs (the latest instant per repo, then the latest strictly before it) and one fetch of
+    // the rows at either instant: three statements and at most two rows per repo, plus exact ties. The
+    // rows order by the shared tie rule (latestFirst), so two scans sharing the latest timestamp still
+    // pair as now/prev, as the old take-2 returned them, only now deterministically.
+    const latest = await latestScanAtPerRepo(prisma, { repo: { orgId: org.id, ...seg } });
+    const pairs = [...latest, ...(await scanAtBeforePerRepo(prisma, latest))];
+    const rows = pairs.length
+      ? await prisma.scan.findMany({
+          where: atPairs(pairs),
+          select: {
+            id: true,
+            repoId: true,
+            overallScore: true,
+            adoptionScore: true,
+            rigorScore: true,
+            level: true,
+            posture: true,
+            scannedAt: true,
+            engineProvider: true,
+            repo: { select: { fullName: true, name: true } },
+          },
+        })
+      : [];
+    const byRepo = new Map<string, typeof rows>();
+    for (const r of rows) byRepo.set(r.repoId, [...(byRepo.get(r.repoId) ?? []), r]);
+    for (const scans of byRepo.values()) {
+      const [now, prev] = scans.sort(latestFirst);
+      if (!now || !prev) continue; // fewer than two scans: nothing to compare
       if (!isRealPair(now, prev)) continue; // an engine transition is not repo movement
-      moves.push(buildMove(r.fullName, r.name, now, prev));
+      moves.push(buildMove(now.repo.fullName, now.repo.name, now, prev));
     }
   }
 
@@ -609,7 +623,8 @@ export interface OrgBacklog extends BacklogCounts {
  * per repo. Same for `events: { take: 1 }`: every event ever written on every current recommendation is
  * transferred to keep the newest. That scales with fleet AGE and tracker ACTIVITY, not with what the
  * page renders. (`distinct` is no help — it is also applied client-side under this engine; the SQL
- * carries no DISTINCT ON. The "bounds this AT THE DB" claims elsewhere in this layer predate that.)
+ * carries no DISTINCT ON. getOrgRollup's and getOrgMovers' baselines once claimed `distinct` bounded them
+ * "AT THE DB"; since economics-1 they use this same groupBy shape, via org-rollup-latest-scans.ts.)
  *
  * So the "latest per group" picks are pushed into SQL as `groupBy … _max`, which IS a real GROUP BY.
  * Measured against PGlite, 300 repos × 10 recs, 60 scans/repo, 8 events/rec:
