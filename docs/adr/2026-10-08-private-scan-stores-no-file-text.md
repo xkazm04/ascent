@@ -118,6 +118,9 @@ whether it does so enough to matter. Two ways out are recognised; **neither is c
 1. extend the store rule to those fields (cost: private reports lose their narrative);
 2. change the page's wording to say model-written commentary is stored (cost: a weaker claim).
 
+Decided 2026-10-09 by the operator (ask 2a12c1f4): way 2, the /privacy wording discloses the stored
+commentary. Page commit: 9a4403a0. Point (b) stays open.
+
 **(b) A private report re-read from the store has lost its quotes, and nothing tells the reader.** The
 elision (`ELIDED_QUOTE = "…"`, `private-scan-store.ts:29`) is the only marker, and it appears only in
 contradiction sides. Evidence lines simply end at the path. The code at this head has no flag on a re-read

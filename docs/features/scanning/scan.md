@@ -202,7 +202,9 @@ mirror gate stays closed for local scans. Local mode exists only on self-hosted 
 **Section headings are kept.** `Scan.practiceShape` (`src/lib/analyze/practice-shape.ts`) stores the
 heading outline (never the prose under it) of a private repo's guidance files, pull request template
 and decision records, for practice matching. The operator's decision (2026-10-08) was to keep them and
-say so; the [privacy page](../../../src/app/privacy/page.tsx) states it.
+say so; the [privacy page](../../../src/app/privacy/page.tsx) states it. The model-written commentary
+(headline, strengths, risks, dimension summaries and gaps, roadmap notes) is stored and is disclosed on
+/privacy (operator decision, 2026-10-09).
 
 **Rows written before 2026-10-08: the scrub.** `src/lib/db/private-scan-scrub.ts` rewrites the same
 columns of every `Repository.isPrivate` repo through the same transforms, and deletes the repo's
