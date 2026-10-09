@@ -290,10 +290,10 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   }
 
   // A mock import is a free preview: no inference, so nothing to meter (the import route's own rule).
-  // A push keeps the metering the push path always charged: isMeteredScan, which does NOT exempt a
-  // BYOM org (this worker's own rule below does). Unifying the two is a pricing decision, not this one.
+  // A push is metered by isMeteredScan and exempts a BYOM org like every other reason:
+  // docs/adr/2026-10-09-byom-push-rescan-is-not-metered.md.
   const metered = push
-    ? isMeteredScan(slug, false)
+    ? isMeteredScan(slug, false) && !(await ctx.isByom(slug))
     : slug.toLowerCase() !== "public" && !importPolicy?.mock && !(await ctx.isByom(slug));
   // A REQUEUED row may already hold a credit. reapExpiredLeases returns a process-killed worker's job
   // to the queue by clearing state/claimedAt/claimedBy/leaseUntil — and deliberately NOT

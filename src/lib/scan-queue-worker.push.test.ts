@@ -4,7 +4,7 @@
 //   • NO CADENCE MOVEMENT on any branch — success, throw, credit skip, degrade, no token.
 //   • THE FAILURE BACKOFF — a failed attempt younger than 6 h skips with no reserve and no outcome
 //     write; a credit-skip error is exempt, so a topped-up org scans on its next push.
-//   • THE PUSH PATH'S MONEY, KEPT — isMeteredScan (a BYOM org is still metered), the degrade guard
+//   • THE PUSH PATH'S MONEY, KEPT — isMeteredScan, and a BYOM org is exempt, the degrade guard
 //     (no persist, no alert, refund, a failed outcome), and the creditCharged carry on a reaped row.
 //   • A cadence job still settles its cadence (the branch is push-only).
 
@@ -222,11 +222,30 @@ describe("push job: credits", () => {
     expect(h.scanRepository).toHaveBeenCalledTimes(1);
   });
 
-  it("a BYOM org's push job is still metered: isMeteredScan(slug, false) decides, not the BYOM check", async () => {
+  it("a BYOM org's push job reserves no credit, writes no ledger movement, and still scans as the org", async () => {
     h.isByomActive.mockResolvedValue(true);
+    const s = await drain();
+    expect(s.done).toBe(1);
+    expect(h.reserveScanCredit).not.toHaveBeenCalled();
+    expect(h.refundScanCredit).not.toHaveBeenCalled();
+    expect(h.markJobCredit).not.toHaveBeenCalled();
+    expect(h.scanRepository).toHaveBeenCalledTimes(1);
+    expect(h.scanRepository.mock.calls[0][1]).toMatchObject({ orgSlug: "acme" });
+  });
+
+  it("a non-BYOM org's push job is still metered by isMeteredScan(slug, false)", async () => {
+    h.isByomActive.mockResolvedValue(false);
     await drain();
     expect(h.isMeteredScan).toHaveBeenCalledWith("acme", false);
     expect(h.reserveScanCredit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a BYOM probe that throws degrades to not-BYOM: the push job stays metered", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.isByomActive.mockRejectedValue(new Error("db blip"));
+    await drain();
+    expect(h.reserveScanCredit).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   it("an unmetered deployment (isMeteredScan false) reserves nothing and still scans", async () => {

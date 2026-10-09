@@ -27,10 +27,11 @@ export type Schedule = (typeof SCHEDULES)[number];
 /** The one sentence that tells a user what an autoscan cadence also buys. The push throttle is a server
  *  env setting the client cannot see, so no interval is stated. Cost wording follows reserveScanCredit /
  *  isMeteredScan: a metered scan counts against the monthly allowance first, then draws one prepaid
- *  credit; self-hosted installs are never metered. */
+ *  credit; self-hosted installs are never metered, and neither is an org that brings its own model key. */
 export const PUSH_RESCAN_DISCLOSURE =
   "A repo on any autoscan cadence is also rescanned when its default branch is pushed, throttled per repo. " +
   "Each push rescan is a metered scan: it counts against the monthly allowance, then draws one prepaid credit (free on self-hosted installs). " +
+  "An org that brings its own model key is not charged for push rescans. " +
   "\"no autoscan\" stops push rescans too.";
 
 /** The single user-facing label for a cadence id. RepoRow and the BulkActionsBar previously diverged
