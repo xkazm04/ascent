@@ -140,7 +140,13 @@ count, last-updated date, and an `expires` badge if the row has a TTL. Its
 that the memory was used. The debounce covers the timer;
 an `AbortController` covers the request it starts, so changing a filter twice
 cannot let the slower read overwrite the faster one's rows (pinned by a case in
-`useMemoryLibrary.test.ts`).
+`useMemoryLibrary.test.ts`). A read that fails (non-ok, or a thrown fetch) is not
+silent either: `fetchMemoryList` throws, `useMemoryListRefresh` empties the rows and
+sets a list-read error (the server's `error`, else "Couldn't load the list. Try
+again."), and both panels show it in place of the list and of "No memories match
+your filters". It is kept apart from the write/archive error and cleared by the
+next successful read; an aborted read changes nothing
+(`useMemoryLibrary.listRead.test.ts`).
 
 ### Author a memory (check → save)
 

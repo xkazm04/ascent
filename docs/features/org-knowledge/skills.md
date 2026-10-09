@@ -21,6 +21,22 @@ the public registry lane forbids. The Registry tab how-to
 names `ASCENT_TOKEN` only for sink A and the MCP door. See *Usage telemetry*
 below.
 
+## List page size
+
+The user-facing list read is `listOrgSkillsPage` (`src/lib/db/org-skills.ts`), not
+the whole library: each row carries its full `content` (up to 50 KB), so the
+default page is `SKILLS_PAGE_DEFAULT` = **200** rows (about 10 MB worst case),
+clamped to `SKILLS_PAGE_MIN` 1 to `SKILLS_PAGE_MAX` **500**, mirroring
+`listOrgMemories`. It fetches limit + 1 rows to learn whether more matched.
+`GET /api/org/skills?org=&limit=` takes an optional `limit` (a non-number falls
+back to the default; any number is clamped) and answers
+`{ skills, categories, truncated, limit }`; `truncated` and `limit` are additive.
+The Skills tab loads its first page the same way, and when `truncated` both
+panels print "Showing the first N skills. Search or pick a category to narrow the
+list." No per-plan library maximum is declared. `listOrgSkills` stays unbounded
+for its internal callers (retire sweep, usage load, lane brief, MCP registry reads,
+manifest), which need the whole non-archived set.
+
 ## UI entry point
 
 `src/app/org/[slug]/skills/page.tsx` (server component, `dynamic =
@@ -50,6 +66,10 @@ does not invent the missing events.
 (250ms) a server-side refetch of `GET /api/org/skills` on search/category/sort
 changes — the debounce covers the timer and an `AbortController` covers the
 request it starts, so a superseded read cannot land its rows after a newer one —
+a read that fails (non-ok, or a thrown fetch) is never silent: the rows become
+empty and the server's `error` (else "Couldn't load the list. Try again.") shows in
+place of the table and of the empty state, kept apart from the archive/retire
+error and cleared by the next successful read. An aborted read stays silent —
 opens on `SkillsLifecycle` (below), then a ranked list of **registry usage not
 in this library** when sink B names skills this org has not mirrored (kept,
 not dropped; they never become table rows and they do not vote on the
