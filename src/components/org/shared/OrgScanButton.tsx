@@ -92,7 +92,8 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             dropped. It sits inside the same live region, so a screen-reader user hears it too. */}
         {!p.running && p.queued && !p.error && p.queued.pending > 0 && (
           <p className="type-body-sm text-warn">
-            <span className="font-mono tabular-nums">{p.queued.pending}</span> queued — finishing in the background.
+            <span className="font-mono tabular-nums">{p.queued.pending}</span> queued —{" "}
+            {p.queued.stopped ? "last count; this page stopped checking, reload to check." : "finishing in the background."}
           </p>
         )}
         {p.error && <p className="type-body-sm text-danger">{p.error}</p>}

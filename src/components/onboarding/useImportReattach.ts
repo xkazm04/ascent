@@ -16,10 +16,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
+import { QUEUE_FOLLOW_POLL_MS, startQueueFollow } from "@/components/org/shared/queueFollow";
 
 /** Same cadence as useOrgScanButton's queue poll. Slow on purpose: the work is durable, the next
  *  worker pass is minutes away, and a tighter poll would buy nothing and cost a query per tick. */
-export const REATTACH_POLL_MS = 15_000;
+export const REATTACH_POLL_MS = QUEUE_FOLLOW_POLL_MS;
 
 export type ReattachStatus =
   /** Not re-attached (a normal run, or nothing to follow). */
@@ -30,7 +31,11 @@ export type ReattachStatus =
   | "settled"
   /** The run cannot be followed from here (no database, no access, a failing endpoint). The rows are
    *  unknown, and saying so is the honest surface; the dashboard is the recovery. */
-  | "unavailable";
+  | "unavailable"
+  /** The follow hit its ceiling (read cap or wall-clock, see queueFollow.ts) with the run still
+   *  unaccounted for. NOT evidence the run finished: it may still be going on the server. The page
+   *  stopped checking; the dashboard is the recovery. Never settles and never shows the done screen. */
+  | "stopped";
 
 export interface ReattachState {
   status: ReattachStatus;
@@ -128,36 +133,34 @@ export function useImportReattach({
     }
     let cancelled = false;
     let settled = false;
-    let unavailable = false;
     const controller = new AbortController();
     setState({ status: "polling", pending: 0, total: 0 });
 
-    const tick = async () => {
+    const tick = async (): Promise<"more" | "stop"> => {
       let data: unknown;
       try {
         const res = await fetch(
           `/api/org/scan/queue?org=${encodeURIComponent(org)}&runId=${encodeURIComponent(runId)}`,
           { signal: controller.signal },
         );
-        if (cancelled) return;
+        if (cancelled) return "stop";
         if (!res.ok) {
           // A refusal (no database, no access) is terminal for the FOLLOW, not evidence about the run.
           // Stop polling and say the run can't be followed — never "finished".
-          unavailable = true;
           setState((s) => ({ ...s, status: "unavailable" }));
-          return;
+          return "stop";
         }
         data = await res.json();
       } catch {
-        // A network blip is not information: keep the last known state and try again next tick.
-        return;
+        // A network blip is not information: keep the last known state and try again next tick
+        // (it still counts toward the read cap).
+        return "more";
       }
-      if (cancelled || settled) return;
+      if (cancelled || settled) return "stop";
       if (!isQueueSnapshot(data)) {
         // Missing counters are unknown, never evidence that the run finished.
-        unavailable = true;
         setState((s) => ({ ...s, status: "unavailable" }));
-        return;
+        return "stop";
       }
       const jobs = data.repos;
       const rows = jobs.map(rowFromJob).filter((r): r is ScanRow => r !== null);
@@ -171,20 +174,25 @@ export function useImportReattach({
         settled = true;
         setState({ status: "settled", pending: 0, total });
         onSettledRef.current();
+        return "stop";
       }
+      return "more";
     };
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const poll = async () => {
-      await tick();
-      // Schedule after the read finishes so a slow endpoint cannot create overlapping requests.
-      if (!cancelled && !settled && !unavailable) timer = setTimeout(() => void poll(), REATTACH_POLL_MS);
-    };
-    void poll(); // answer immediately — a settled run must not hold the user for a full interval
+    // Reads are scheduled after the previous read finishes (no overlap), paused while the tab is
+    // hidden, and bounded by the shared ceiling. The first read is immediate — a settled run must not
+    // hold the user for a full interval. Hitting the ceiling says "stopped", never "settled".
+    const stopFollow = startQueueFollow({
+      read: tick,
+      immediate: true,
+      onCeiling: () => {
+        if (!cancelled && !settled) setState((s) => ({ ...s, status: "stopped" }));
+      },
+    });
     return () => {
       cancelled = true;
       controller.abort();
-      clearTimeout(timer);
+      stopFollow();
     };
   }, [active, org, runId]);
 

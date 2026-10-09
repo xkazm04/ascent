@@ -10,6 +10,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { useScanStream } from "@/components/org/shared/useScanStream";
+import { startQueueFollow } from "@/components/org/shared/queueFollow";
 import { consumeUpgradeScanFlag } from "@/components/onboarding/upgradeScan";
 import { DEMO_ORG_SLUG } from "@/lib/site";
 
@@ -33,13 +34,9 @@ interface Progress {
    *  moonshot #10 the remainder is a DURABLE QUEUE, not a list the user must re-drive: the background
    *  worker finishes it, and this carries the run handle so the hook can poll how much is left. Kept
    *  strictly separate from `error` — a budget-stopped run scanned (and persisted) real repos. */
-  queued?: { runId: string; pending: number; total: number };
+  queued?: { runId: string; pending: number; total: number; /** The poll hit its ceiling: `pending` is the last known count, no longer updating. */ stopped?: boolean };
   error?: string;
 }
-
-/** How often the background remainder is re-read. Slow on purpose: the work is durable and a cron
- *  pass is minutes away, so a tighter poll would buy nothing and cost a query per tick. */
-const QUEUE_POLL_MS = 15_000;
 
 /** Scope for one bulk-scan request — the stale-only filter, or an explicit remainder to continue. */
 export type ScanScope = { staleOnlyDays?: number; repos?: string[] };
@@ -168,30 +165,40 @@ export function useOrgScanButton(org: string, watchedCount: number) {
   // PASSIVE POLL of a budget-stopped run's remainder (moonshot #10). The old UI handed the user a
   // "Continue (N left)" button — i.e. asked them to re-drive work the server had dropped. The server
   // no longer drops it, so the honest surface is a count that ticks down on its own. The poll is
-  // read-only, costs one small query, and stops the moment nothing is pending.
+  // read-only, costs one small query, and stops the moment nothing is pending — or at the shared
+  // ceiling (queueFollow.ts), where it keeps the last count and says it stopped, never "finished".
   const queuedRunId = p.queued?.runId;
   useEffect(() => {
     if (!queuedRunId) return;
     let cancelled = false;
-    const tick = async () => {
+    const tick = async (): Promise<"more" | "stop"> => {
       try {
         const res = await fetch(`/api/org/scan/queue?org=${encodeURIComponent(org)}&runId=${encodeURIComponent(queuedRunId)}`);
         // A failed poll is NOT evidence the work vanished — keep the last known count rather than
         // silently showing "finished" for a run still in the queue.
-        if (!res.ok || cancelled) return;
+        if (!res.ok || cancelled) return "more";
         const d = (await res.json()) as { pending?: number };
         const pending = Number(d.pending);
-        if (cancelled || !Number.isFinite(pending)) return;
+        if (cancelled || !Number.isFinite(pending)) return "more";
         setP((s) => (s.queued?.runId === queuedRunId ? { ...s, queued: pending > 0 ? { ...s.queued, pending } : undefined } : s));
-        if (pending === 0) router.refresh(); // the fleet's rows are now current — reload them
+        if (pending === 0) {
+          router.refresh(); // the fleet's rows are now current — reload them
+          return "stop";
+        }
       } catch {
         // Network blip: same reasoning as a non-ok response — say nothing rather than something false.
       }
+      return "more";
     };
-    const id = setInterval(tick, QUEUE_POLL_MS);
+    const stopFollow = startQueueFollow({
+      read: tick,
+      immediate: false,
+      onCeiling: () =>
+        setP((s) => (s.queued?.runId === queuedRunId ? { ...s, queued: { ...s.queued, stopped: true } } : s)),
+    });
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stopFollow();
     };
   }, [org, queuedRunId, router]);
 

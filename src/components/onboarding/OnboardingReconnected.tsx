@@ -23,6 +23,16 @@ export function ReconnectedNotice({ state }: { state: ReattachState }) {
     );
   }
 
+  if (state.status === "stopped") {
+    return (
+      <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 type-body-sm text-amber-300">
+        This scan may still be running on the server, but this page stopped checking on it.{" "}
+        <strong>Don&apos;t start it again</strong> — that would scan (and charge for) the same repositories twice.
+        Open the dashboard to see where it got to.
+      </p>
+    );
+  }
+
   return (
     <p
       role="status"
