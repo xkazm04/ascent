@@ -165,6 +165,21 @@ export async function deleteSegment(id: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * The display name of ONE segment, read constrained to the org (gate-then-constrain): the caller has
+ * already gated `orgSlug`, and the id is matched only inside that org, so another org's segment id is
+ * simply not found. This is the client a per-client briefing names. Null = no such segment in this
+ * org (or persistence is off). A failed read THROWS: the caller decides how that fails, and must not
+ * read it as "no name" and fall back to the org's own.
+ */
+export async function getSegmentName(orgSlug: string, segmentId: string): Promise<string | null> {
+  if (!isDbConfigured()) return null;
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return null;
+  const s = await getPrisma().segment.findFirst({ where: { id: segmentId, orgId }, select: { name: true } });
+  return s?.name ?? null;
+}
+
 /** The owning org's slug for a segment id (per-row tenant gate on /api/org/segments/:id). Null = unknown id. */
 export async function getSegmentOrgSlug(id: string): Promise<string | null> {
   if (!isDbConfigured()) return null;

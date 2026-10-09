@@ -4,7 +4,7 @@ import { trajectoryNote } from '@/lib/maturity/forecast';
 import { briefingHasScore, scoreBasisLine, noScoreLine, coverageLine, mockDisclosure,
   valueRealizedLine, valueRealizedHeading, benchmarkCaption, briefingTrajectory, briefingGoalLine,
   engineMixCaveat, engineMixLabel, movementLine, briefingProofLine, briefingLoopProofLine,
-  briefingNextMove, nextMoveLine } from './briefing-format';
+  briefingNextMove, nextMoveLine, briefingSubject } from './briefing-format';
 import { periodDeltaCaption } from './briefingMovement';
 
 
@@ -19,7 +19,8 @@ export function briefingMarkdown(b: ExecBriefing): string {
   const moveLine = (arrow: string, m: BriefingMove) =>
     `- ${arrow} ${m.name}: ${m.dOverall >= 0 ? "+" : ""}${m.dOverall}${m.levelFrom !== m.levelTo ? ` (${m.levelFrom}→${m.levelTo})` : ""}`;
 
-  out.push(`# Ascent AI-native engineering maturity briefing: ${b.org}`);
+  // A per-client briefing is headed with the CLIENT, not the reseller's account (briefingSubject).
+  out.push(`# Ascent AI-native engineering maturity briefing: ${briefingSubject(b)}`);
   out.push(`Generated ${b.generatedOn} · period: ${b.periodTitle}`);
   out.push("");
   out.push("## Standing");

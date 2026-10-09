@@ -35,6 +35,7 @@ vi.mock("@/lib/plans", () => ({ planAllowsWhiteLabel: () => false }));
 
 import SharedBriefingPage from "./page";
 import { BriefingGoalsCard, BriefingTiles } from "@/features/bought/executive/briefingCards";
+import { SectionHeader } from "@/components/org/shared/ui";
 
 function find(node: unknown, type: unknown): React.ReactElement | null {
   if (!React.isValidElement(node)) return null;
@@ -94,5 +95,20 @@ describe("share page — segment-scoped link", () => {
     const el = (await SharedBriefingPage({ params: Promise.resolve({ token: "t" }) })) as React.ReactElement;
     expect(find(el, BriefingGoalsCard)).toBeNull();
     expect(find(el, BriefingTiles)!.props.benchmarkOmitted).toBe(false);
+  });
+
+  it("heads a per-client link with the CLIENT, and builds from the segment the signed token carries", async () => {
+    mockBuildExecBriefing.mockResolvedValue(briefing({ segmentName: "Globex Corp", accountFiguresNotice: NOTICE }));
+    const el = (await SharedBriefingPage({ params: Promise.resolve({ token: "t" }) })) as React.ReactElement;
+    expect(find(el, SectionHeader)!.props.title).toBe("Globex Corp: executive briefing");
+    expect(mockBuildExecBriefing.mock.calls[0]![3]).toBe("seg_1");
+  });
+
+  it("an unscoped link is headed with the org exactly as before", async () => {
+    mockVerify.mockReturnValue({ org: "acme", range: "90d", winStart: null, winEnd: null });
+    mockBuildExecBriefing.mockResolvedValue(briefing({ segmentName: null }));
+    const el = (await SharedBriefingPage({ params: Promise.resolve({ token: "t" }) })) as React.ReactElement;
+    expect(find(el, SectionHeader)!.props.title).toBe("acme: executive briefing");
+    expect(mockBuildExecBriefing.mock.calls[0]![3]).toBeNull();
   });
 });

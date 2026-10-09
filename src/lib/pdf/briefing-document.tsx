@@ -7,7 +7,7 @@
 
 import { Document, Page, Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { ColumnHeading, DimLine, MoveLine, SectionHeading } from "./briefing-document-rows";
-import { benchmarkCaption, briefingGoalStats, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingNextMove, briefingProofLine, briefingTrajectoryNote, coverageLine, engineMixCaveat, engineMixLabel, mockDisclosure, movementLine, nextMoveLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
+import { benchmarkCaption, briefingGoalStats, briefingSubject, briefingHasScore, briefingLevelCaption, briefingLoopProofLine, briefingNextMove, briefingProofLine, briefingTrajectoryNote, coverageLine, engineMixCaveat, engineMixLabel, mockDisclosure, movementLine, nextMoveLine, noScoreLine, scoreBasisLine, scoreValue, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { periodDeltaCaption } from "@/lib/org/briefingMovement";
 import type { ExecBriefing } from "@/lib/org/briefing";
 import { ACCENT, INK, MUTED, FAINT, baseStyles, scoreColor, Stat, Footer } from "./theme";
@@ -40,18 +40,20 @@ const styles = StyleSheet.create({
 export function BriefingDocument({ briefing, branding }: { briefing: ExecBriefing; branding?: BriefingBranding }) {
   const b = briefing;
   const accent = branding?.brandColor || ACCENT;
-  // latin1Safe: the white-label brand name + org name are user-supplied free text; a non-Latin-1 glyph
-  // must show as a visible "?" rather than being silently dropped by the built-in Helvetica (see ./latin1).
+  // latin1Safe: the white-label brand name + org/client name are user-supplied free text; a non-Latin-1
+  // glyph must show as a visible "?" rather than being silently dropped by the built-in Helvetica (see ./latin1).
   const brandLabel = latin1Safe(branding?.brandName || "Ascent");
-  const org = latin1Safe(b.org);
+  // Who the document is ABOUT: the client on a per-client (segment-scoped) briefing, else the org. The
+  // org stays the issuer: the brand kicker and the document author are unchanged.
+  const subject = latin1Safe(briefingSubject(b));
   const scored = briefingHasScore(b);
   return (
-    <Document title={`${brandLabel} executive briefing — ${org}`} author={brandLabel} subject="AI-native engineering maturity">
+    <Document title={`${brandLabel} executive briefing — ${subject}`} author={brandLabel} subject="AI-native engineering maturity">
       <Page size="A4" style={baseStyles.page}>
         {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer Image, not an HTML img (no alt) */}
         {branding?.logoUrl ? <Image src={branding.logoUrl} style={{ height: 28, marginBottom: 8 }} /> : null}
         <Text style={{ ...baseStyles.kicker, color: accent }}>{brandLabel} · Executive briefing</Text>
-        <Text style={baseStyles.h1}>{org}</Text>
+        <Text style={baseStyles.h1}>{subject}</Text>
         <Text style={baseStyles.meta}>{b.periodTitle} · generated {b.generatedOn}</Text>
 
         {/* G5-03: optional executive narrative. `narrative` is null unless a deliverable path opted in

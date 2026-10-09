@@ -17,6 +17,16 @@ import { providerLabel as engineLabel } from '@/lib/llm/config';
 export const SEGMENT_ACCOUNT_FIGURES_NOTICE =
   "Account-wide goals and the corpus percentile are not shown on a per-client briefing.";
 
+/**
+ * Who the briefing is ABOUT: the client's name on a segment-scoped (per-client) briefing, else the
+ * org. Every surface that titles the document reads this one rule (PDF title + heading, share-page
+ * header, markdown header), so a per-client deliverable can never name the reseller's own account
+ * on one of them. The org remains the issuer (brand, author) wherever those are printed.
+ */
+export function briefingSubject(b: Pick<ExecBriefing, 'org' | 'segmentName'>): string {
+  return b.segmentName || b.org;
+}
+
 /** "Claude CLI ×18, Mock ×2" — the period's scoring provenance, busiest engine first. */
 export function engineMixLabel(mix: EngineMixEntry[]): string {
   return mix.map((e) => `${engineLabel(e.provider)} ×${e.count}`).join(", ");

@@ -70,6 +70,22 @@ export function Notice({ title, body }: { title: string; body: string }) {
 }
 
 
+/**
+ * #26: say plainly which of the two this page is. A recipient must never be shown different numbers
+ * in silence — when the fingerprint the sender's link carries no longer matches what this period now
+ * produces, that is stated above the figures, not left to be discovered.
+ */
+export function FiguresMovedNotice() {
+  return (
+    <div className="mb-4 rounded-lg border border-warn/40 bg-warn/[0.08] px-4 py-3 type-body-sm text-slate-200">
+      <span className="font-mono uppercase tracking-widest text-warn">⚠ Figures moved</span> — the period below is the
+      one that was shared and is frozen, but its numbers are no longer the ones the sender saw (a benchmark, goal,
+      repository set or retained scan changed underneath it). These are current. Ask the sender for a fresh link before
+      quoting a figure back to them.
+    </div>
+  );
+}
+
 /** A read this page depends on failed: the link is not shown, but the reader is told nothing false about it. */
 export const tryAgainNotice = () => (
   <Notice title="Briefing unavailable" body="We couldn't verify this link just now. Try it again in a moment." />

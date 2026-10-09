@@ -120,6 +120,9 @@ export async function GET(request: Request) {
   }
   // White-label the download name too: a branded org's export shouldn't reveal "ascent" in the filename.
   const brandSlug = branding?.brandName ? safeFilenameSegment(branding.brandName).toLowerCase().slice(0, 40) : "ascent";
-  const filename = `${brandSlug}-briefing-${safeFilenameSegment(org)}-${safeFilenameSegment(briefing.generatedOn)}.pdf`;
+  // A per-client briefing carries the client in its name too, so two clients exported on one day are
+  // two different files rather than one overwriting the other in a download folder.
+  const client = briefing.segmentName ? `-${safeFilenameSegment(briefing.segmentName)}` : "";
+  const filename = `${brandSlug}-briefing-${safeFilenameSegment(org)}${client}-${safeFilenameSegment(briefing.generatedOn)}.pdf`;
   return pdfAttachmentResponse(buffer, filename, "private, max-age=300");
 }

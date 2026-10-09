@@ -4,6 +4,7 @@
 // @/lib/db; no new queries. Powers /org/[slug]/executive and (Phase 5.2) the scheduled PDF digest.
 
 import { SEGMENT_ACCOUNT_FIGURES_NOTICE } from "./briefing-format";
+import { getSegmentName } from "@/lib/db/segments";
 import {
   getOrgBenchmark,
   getOrgMovers,
@@ -74,6 +75,12 @@ export interface BriefingGoal {
 
 export interface ExecBriefing {
   org: string;
+  /** The CLIENT a segment-scoped (per-client) briefing is about: the segment's name, read
+   *  org-constrained off the segment id the caller scoped by. Null/absent = unscoped, and every
+   *  renderer then names `org` exactly as before. The org stays the ISSUER (brand, author); this is
+   *  only who the document is about. Read it through {@link briefingSubject}. OPTIONAL for the same
+   *  fixture-compatibility reason as `accountFiguresNotice`; `buildExecBriefing` always sets it. */
+  segmentName?: string | null;
   periodTitle: string;
   generatedOn: string; // YYYY-MM-DD
   maturity: { overall: number; levelId: string; levelName: string; adoption: number; rigor: number };
@@ -301,7 +308,7 @@ export async function buildExecBriefing(
   // reseller's client) and says so via accountFiguresNotice.
   const segmentScoped = !!segmentId;
   const accountFiguresNotice = segmentScoped ? SEGMENT_ACCOUNT_FIGURES_NOTICE : null;
-  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs, practices, playbooks, playbookAdoption, loopEvents] = await Promise.all([
+  const [rollup, benchmark, movers, goals, priorRollup, engineMix, recsActivity, orgRecs, practices, playbooks, playbookAdoption, loopEvents, segmentName] = await Promise.all([
     getOrgRollup(orgSlug, window, segmentId, techGroupId),
     // Account-wide reads (no segment parameter): a per-client briefing skips them, see below.
     segmentScoped ? Promise.resolve(null) : getOrgBenchmark(orgSlug),
@@ -328,14 +335,22 @@ export async function buildExecBriefing(
       start: window?.start ?? null,
       end: window?.endExclusive ?? window?.end ?? null,
     }).catch(degradedRead("briefing improvement events", [] as ImprovementEvent[])),
+    // The client a per-client briefing names (value-1). Org-constrained, so another org's segment id
+    // resolves to no name; NOT degraded: a failed read rejects the build like the rollup's would.
+    segmentId ? getSegmentName(orgSlug, segmentId) : Promise.resolve(null),
   ]);
   if (!rollup || rollup.scannedCount === 0) return null;
+  // A segment-scoped build whose name cannot be read must not render. Falling back to the org name
+  // is the defect this field exists to remove: the client's deliverable would name the reseller.
+  // (Another org's segment id never gets here: the org-constrained rollup is empty and returned above.)
+  if (segmentScoped && !segmentName) throw new Error("briefing: segment name could not be read for a segment-scoped build");
   // A scanned all-mock fleet has real coverage but no grade. Keep the coverage and provenance while
   // leaving every comparison/benchmark empty; the renderers already use realScoredCount to show
   // noScoreLine instead of a fabricated 0/100 or L1.
   if (!hasFleetGrade(rollup)) {
     return {
       org: orgSlug,
+      segmentName: segmentName ?? null,
       periodTitle,
       generatedOn: new Date().toISOString().slice(0, 10),
       maturity: { overall: 0, levelId: "", levelName: "", adoption: 0, rigor: 0 },
@@ -428,6 +443,7 @@ export async function buildExecBriefing(
 
   return {
     org: orgSlug,
+    segmentName: segmentName ?? null,
     periodTitle,
     generatedOn: new Date().toISOString().slice(0, 10),
     maturity: {
@@ -554,6 +570,6 @@ export function buildLoopProof(events: readonly ImprovementEvent[]): ExecBriefin
 }
 
 // Preserve the public module entry point while presentation lives separately.
-export { engineMixLabel, engineMixCaveat, briefingTrajectory, briefingTrajectoryNote, briefingGoal, briefingGoalLine, briefingGoalStats, valueRealizedLine, valueRealizedHeading, benchmarkCaption, movementLine, briefingHasScore, scoreValue, briefingLevelCaption, noScoreLine, scoreBasisLine, mockDisclosure, coverageLine, briefingLoopProofLine, briefingProofLine, briefingNextMove, nextMoveLine, SEGMENT_ACCOUNT_FIGURES_NOTICE } from './briefing-format';
+export { engineMixLabel, engineMixCaveat, briefingTrajectory, briefingTrajectoryNote, briefingGoal, briefingGoalLine, briefingGoalStats, valueRealizedLine, valueRealizedHeading, benchmarkCaption, movementLine, briefingHasScore, scoreValue, briefingLevelCaption, noScoreLine, scoreBasisLine, mockDisclosure, coverageLine, briefingLoopProofLine, briefingProofLine, briefingNextMove, nextMoveLine, briefingSubject, SEGMENT_ACCOUNT_FIGURES_NOTICE } from './briefing-format';
 export { briefingPeriodMovement, periodCompositionClause, periodDeltaCaption, priorPeriodBasisNote } from './briefingMovement';
 export { briefingMarkdown } from './briefing-markdown';

@@ -31,6 +31,12 @@ vi.mock("@/lib/db", () => ({
   getPlaybookAdoption: vi.fn(async () => ({})),
 }));
 
+// A segment-scoped build names its client (value-1): the name read is org-constrained in production
+// (getSegmentName); here "seg_1" resolves and anything else is another org's id, i.e. no name.
+vi.mock("@/lib/db/segments", () => ({
+  getSegmentName: vi.fn(async (_org: string, id: string) => (id === "seg_1" ? "Globex" : null)),
+}));
+
 // buildExecBriefing reads the engine mix through the @/lib/db/org barrel (the same barrel every
 // sibling rollup goes through), so stub it here too — otherwise the real query reaches for a
 // database and the assembly hangs.

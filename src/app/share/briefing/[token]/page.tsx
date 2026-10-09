@@ -14,9 +14,10 @@ import {
   BriefingTiles,
 } from "@/features/bought/executive/briefingCards";
 import { ExecutiveTrajectoryCard } from "@/features/bought/executive/ExecutiveTrajectoryCard";
+import { briefingSubject } from "@/lib/org/briefing-format";
 import { buildExecBriefing, engineMixCaveat, engineMixLabel, mockDisclosure, valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
 import { briefingFigureDigest, shareIntegrity, verifyBriefingShareToken } from "@/lib/briefing-share";
-import { Notice, ShareFooter, ShareHeader, tryAgainNotice } from "./shareChrome";
+import { FiguresMovedNotice, Notice, ShareFooter, ShareHeader, tryAgainNotice } from "./shareChrome";
 import { inclusiveEnd, resolveWindow } from "@/lib/window";
 import { orgWindowBounds } from "@/lib/org/period";
 import { getCreditState, getOrgBranding, getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
@@ -182,20 +183,13 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
           {asOf && <> · data as of {asOf}</>}
           {integrity === "unchanged" && <> · figures unchanged since this link was created</>}
         </div>
-        {/* #26: say plainly which of the two this is. A recipient must never be shown different numbers
-            in silence — when the fingerprint the sender's link carries no longer matches what this
-            period now produces, that is stated here, above the figures, not left to be discovered. */}
-        {integrity === "changed" && (
-          <div className="mb-4 rounded-lg border border-warn/40 bg-warn/[0.08] px-4 py-3 type-body-sm text-slate-200">
-            <span className="font-mono uppercase tracking-widest text-warn">⚠ Figures moved</span> — the period below is the
-            one that was shared and is frozen, but its numbers are no longer the ones the sender saw (a benchmark, goal,
-            repository set or retained scan changed underneath it). These are current. Ask the sender for a fresh link before
-            quoting a figure back to them.
-          </div>
-        )}
+        {/* #26: say plainly which of the two this is, above the figures (see FiguresMovedNotice). */}
+        {integrity === "changed" && <FiguresMovedNotice />}
         <SectionHeader
           descriptionClassName="max-w-3xl"
-          title={`${verified.org}: executive briefing`}
+          // Named for the CLIENT on a per-client link: the segment comes from the signed token (never the
+          // query string), and buildExecBriefing resolved its name org-constrained (briefingSubject).
+          title={`${briefingSubject(briefing)}: executive briefing`}
           description={`AI-native engineering maturity standing over ${briefing.periodTitle.toLowerCase()}${asOf ? `, as of ${asOf} (window frozen when the link was created)` : ""}.`}
         />
 

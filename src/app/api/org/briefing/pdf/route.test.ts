@@ -340,4 +340,25 @@ describe("GET /api/org/briefing/pdf", () => {
     // a " \r \n b / c  →  a - - - b - c  (each disallowed char becomes one dash).
     expect(disposition).toBe('attachment; filename="ascent-briefing-a---b-c-2026-06-18.pdf"');
   });
+
+  it("names the CLIENT in a per-client briefing's filename, so two clients exported on one day differ", async () => {
+    const scoped = (segment: string) =>
+      GET(new Request(`http://localhost/api/org/briefing/pdf?org=acme&segment=${segment}`));
+    mockBuild.mockResolvedValueOnce({ ...BRIEFING, segmentName: "Globex Corp" } as unknown as ExecBriefing);
+    const a = await scoped("seg_1");
+    mockBuild.mockResolvedValueOnce({ ...BRIEFING, segmentName: "Initech/\"x" } as unknown as ExecBriefing);
+    const b = await scoped("seg_2");
+
+    // The segment id the route scoped by is the one the build resolved the name from.
+    expect(mockBuild.mock.calls[0]![3]).toBe("seg_1");
+    expect(a.headers.get("content-disposition")).toBe('attachment; filename="ascent-briefing-acme-Globex-Corp-2026-06-18.pdf"');
+    // Through safeFilenameSegment like every other part: a client name is free text, never a header break.
+    expect(b.headers.get("content-disposition")).toBe('attachment; filename="ascent-briefing-acme-Initech--x-2026-06-18.pdf"');
+  });
+
+  it("an unscoped briefing keeps the org-only filename (segmentName null)", async () => {
+    mockBuild.mockResolvedValueOnce({ ...BRIEFING, segmentName: null } as unknown as ExecBriefing);
+    const res = await get("acme");
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="ascent-briefing-acme-2026-06-18.pdf"');
+  });
 });
