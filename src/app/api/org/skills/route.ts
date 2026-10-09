@@ -1,4 +1,4 @@
-// GET  /api/org/skills?org=&category=&search=&sort=  -> { skills, categories }   (read-gated)
+// GET  /api/org/skills?org=&category=&search=&sort=&limit=  -> { skills, categories, truncated, limit }   (read-gated)
 // POST /api/org/skills { org, name, category, content, description?, tags? } -> { id }
 // Org Skills Library (Feature 2). The list is read-gated (any member of the org); creating a skill is
 // member-gated AND requires a Team+ plan (authoring is the gated capability; reads stay open — §8.6).
@@ -7,7 +7,7 @@
 // with no block is wrapped from them, so every stored skill is a conformant SKILL.md.
 
 import { NextResponse } from "next/server";
-import { createOrgSkill, isDbConfigured, listOrgSkills, type SkillSort } from "@/lib/db";
+import { SKILLS_PAGE_DEFAULT, createOrgSkill, isDbConfigured, listOrgSkillsPage, type SkillSort } from "@/lib/db";
 import { authorizeOrgApi, isDenied, principalLogin } from "@/lib/api-token-auth";
 import { SKILL_CATEGORIES, isSkillCategory } from "@/lib/org/skill-categories";
 import { reconcileSkillWrite } from "@/lib/org/skill-frontmatter";
@@ -26,12 +26,20 @@ export async function GET(request: Request) {
   const auth = await authorizeOrgApi(request, org, { scope: "skills:read", mode: "read" });
   if (isDenied(auth)) return auth.denied;
   const sortParam = url.searchParams.get("sort");
-  const skills = await listOrgSkills(org, {
+  // A page, not the whole library: a non-number ?limit falls back to the default, any number is clamped.
+  const limitParam = url.searchParams.get("limit");
+  const page = await listOrgSkillsPage(org, {
     category: url.searchParams.get("category") ?? undefined,
     search: url.searchParams.get("search") ?? undefined,
     sort: isSort(sortParam) ? sortParam : undefined,
+    limit: limitParam === null || limitParam.trim() === "" ? undefined : Number(limitParam),
   });
-  return NextResponse.json({ skills: skills ?? [], categories: SKILL_CATEGORIES });
+  return NextResponse.json({
+    skills: page?.skills ?? [],
+    categories: SKILL_CATEGORIES,
+    truncated: page?.truncated ?? false,
+    limit: page?.limit ?? SKILLS_PAGE_DEFAULT,
+  });
 }
 
 export async function POST(request: Request) {

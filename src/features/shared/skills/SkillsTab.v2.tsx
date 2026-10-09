@@ -9,7 +9,7 @@ import {
   getOrgSkillAdoption,
   listOrgApiTokens,
   listOrgRepoNames,
-  listOrgSkills,
+  listOrgSkillsPage,
   SKILL_TOKEN_SCOPES,
 } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
@@ -25,8 +25,8 @@ async function SkillsRegistryStrip({ slug, sync }: { slug: string; sync: Promise
 }
 
 async function SkillsLibraryData({ slug, sync }: { slug: string; sync: Promise<RegistrySync> }) {
-  const [skills, adoption, usage, outcomes, repoOptions, isAdmin] = await Promise.all([
-    listOrgSkills(slug),
+  const [page, adoption, usage, outcomes, repoOptions, isAdmin] = await Promise.all([
+    listOrgSkillsPage(slug),
     getOrgSkillAdoption(slug),
     getOrgSkillUsage(slug).catch(() => ({})),
     getOrgSkillOutcomes(slug).catch(() => ({})),
@@ -36,7 +36,8 @@ async function SkillsLibraryData({ slug, sync }: { slug: string; sync: Promise<R
   return (
     <SkillsPanelV2
       slug={slug}
-      initial={skills ?? []}
+      initial={page?.skills ?? []}
+      initialTruncated={page?.truncated ?? false}
       categories={SKILL_CATEGORIES}
       adoption={adoption}
       usage={usage}

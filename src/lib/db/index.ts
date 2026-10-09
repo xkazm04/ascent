@@ -230,6 +230,12 @@ export {
 } from "@/lib/db/playbooks";
 export {
   listOrgSkills,
+  listOrgSkillsPage,
+  clampSkillsLimit,
+  SKILLS_PAGE_DEFAULT,
+  SKILLS_PAGE_MAX,
+  SKILLS_PAGE_MIN,
+  type SkillsPage,
   getOrgSkill,
   getOrgSkillOrgSlug,
   createOrgSkill,

@@ -165,6 +165,68 @@ export async function listOrgSkills(orgSlug: string, opts: SkillListOpts = {}): 
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return [];
 
+  const { where, orderBy } = listQuery(orgId, opts);
+  const rows = await prisma.orgSkill.findMany({
+    where,
+    orderBy,
+    include: { _count: { select: { adoptions: true } } },
+  });
+  return rows.map(toRow);
+}
+
+/**
+ * Page size of the user-facing skills list. Every row carries its full `content` (up to MAX_CONTENT,
+ * 50 KB), so the declared worst case of one read is SKILLS_PAGE_DEFAULT x 50 KB = 10 MB, and
+ * SKILLS_PAGE_MAX x 50 KB = 25 MB at the ceiling a caller can ask for. Mirrors listOrgMemories (200
+ * default, 500 max). The page bounds the read whatever the library's size; no per-plan library
+ * maximum is declared (a plan decision, not a query one).
+ */
+export const SKILLS_PAGE_DEFAULT = 200;
+export const SKILLS_PAGE_MAX = 500;
+export const SKILLS_PAGE_MIN = 1;
+
+export interface SkillsPage {
+  skills: SkillRow[];
+  /** More rows matched than `limit`: the list is the first page, not the whole library. */
+  truncated: boolean;
+  limit: number;
+}
+
+/**
+ * The user-facing list read: `listOrgSkills`'s filter and order, cut at a page. Fetches limit + 1 rows
+ * to learn whether anything was left out, and returns at most `limit`. Null when persistence is off;
+ * an empty page for an unknown org. The internal callers that need the whole set keep `listOrgSkills`.
+ */
+export async function listOrgSkillsPage(
+  orgSlug: string,
+  opts: SkillListOpts & { limit?: number } = {},
+): Promise<SkillsPage | null> {
+  if (!isDbConfigured()) return null;
+  const limit = clampSkillsLimit(opts.limit);
+  const orgId = await getOrgId(orgSlug);
+  if (!orgId) return { skills: [], truncated: false, limit };
+
+  const { where, orderBy } = listQuery(orgId, opts);
+  const rows = await getPrisma().orgSkill.findMany({
+    where,
+    orderBy,
+    take: limit + 1,
+    include: { _count: { select: { adoptions: true } } },
+  });
+  return { skills: rows.slice(0, limit).map(toRow), truncated: rows.length > limit, limit };
+}
+
+/** Clamp a caller-supplied page size into [SKILLS_PAGE_MIN, SKILLS_PAGE_MAX]; non-finite = default. */
+export function clampSkillsLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return SKILLS_PAGE_DEFAULT;
+  return Math.min(Math.max(SKILLS_PAGE_MIN, Math.trunc(limit)), SKILLS_PAGE_MAX);
+}
+
+/** The ONE place the list's where + orderBy are built, shared by the unbounded and the paged read. */
+function listQuery(
+  orgId: string,
+  opts: SkillListOpts,
+): { where: Prisma.OrgSkillWhereInput; orderBy: Prisma.OrgSkillOrderByWithRelationInput } {
   const where: Prisma.OrgSkillWhereInput = { orgId, archived: false };
   if (isSkillCategory(opts.category)) where.category = opts.category;
   const search = opts.search?.trim();
@@ -181,13 +243,7 @@ export async function listOrgSkills(orgSlug: string, opts: SkillListOpts = {}): 
       : opts.sort === "downloads"
         ? { downloadCount: "desc" }
         : { updatedAt: "desc" };
-
-  const rows = await prisma.orgSkill.findMany({
-    where,
-    orderBy,
-    include: { _count: { select: { adoptions: true } } },
-  });
-  return rows.map(toRow);
+  return { where, orderBy };
 }
 
 /** Fetch one skill (full content), for the download/edit path. Null if absent. */

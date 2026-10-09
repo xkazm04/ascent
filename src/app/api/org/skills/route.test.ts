@@ -23,7 +23,7 @@ vi.mock("next/server", () => ({
 
 const {
   mockIsDbConfigured,
-  mockListOrgSkills,
+  mockListOrgSkillsPage,
   mockCreateOrgSkill,
   mockGetCreditState,
   mockIsPersonalOrg,
@@ -32,7 +32,7 @@ const {
   mockPrincipalLogin,
 } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(),
-  mockListOrgSkills: vi.fn(),
+  mockListOrgSkillsPage: vi.fn(),
   mockCreateOrgSkill: vi.fn(),
   mockGetCreditState: vi.fn(),
   mockIsPersonalOrg: vi.fn(),
@@ -43,7 +43,8 @@ const {
 
 vi.mock("@/lib/db", () => ({
   isDbConfigured: mockIsDbConfigured,
-  listOrgSkills: mockListOrgSkills,
+  listOrgSkillsPage: mockListOrgSkillsPage,
+  SKILLS_PAGE_DEFAULT: 200,
   createOrgSkill: mockCreateOrgSkill,
   getCreditState: mockGetCreditState,
   isPersonalOrg: mockIsPersonalOrg,
@@ -81,7 +82,7 @@ beforeEach(() => {
   mockIsPersonalOrg.mockResolvedValue(false);
   mockGetPersonalUsage.mockResolvedValue({ skills: { used: 0, limit: 10 } });
   mockCreateOrgSkill.mockResolvedValue({ id: "skill_1" });
-  mockListOrgSkills.mockResolvedValue([]);
+  mockListOrgSkillsPage.mockResolvedValue({ skills: [], truncated: false, limit: 200 });
 });
 
 describe("POST /api/org/skills — auth chain + order", () => {
@@ -198,7 +199,7 @@ describe("GET /api/org/skills — read gate", () => {
   });
 
   it("returns skills + the curated category list", async () => {
-    mockListOrgSkills.mockResolvedValue([{ id: "s1" }]);
+    mockListOrgSkillsPage.mockResolvedValue({ skills: [{ id: "s1" }], truncated: true, limit: 200 });
     const res = await GET(new Request("http://t/api/org/skills?org=acme&sort=downloads"));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -206,13 +207,37 @@ describe("GET /api/org/skills — read gate", () => {
     expect(Array.isArray(body.categories)).toBe(true);
     expect(body.categories).toContain("security");
     // the validated sort is forwarded
-    expect(mockListOrgSkills.mock.calls[0][1]).toMatchObject({ sort: "downloads" });
+    expect(mockListOrgSkillsPage.mock.calls[0][1]).toMatchObject({ sort: "downloads" });
+    expect(body).toMatchObject({ truncated: true, limit: 200 });
+  });
+
+  it("forwards ?limit as a number and answers with the page's truncated and limit", async () => {
+    mockListOrgSkillsPage.mockResolvedValue({ skills: [], truncated: true, limit: 25 });
+    const res = await GET(new Request("http://t/api/org/skills?org=acme&limit=25"));
+    expect(mockListOrgSkillsPage.mock.calls[0][1]).toMatchObject({ limit: 25 });
+    expect(await res.json()).toMatchObject({ skills: [], truncated: true, limit: 25 });
+  });
+
+  it("leaves a missing or non-number ?limit to the default (undefined or NaN reaches the clamp)", async () => {
+    await GET(new Request("http://t/api/org/skills?org=acme"));
+    await GET(new Request("http://t/api/org/skills?org=acme&limit="));
+    await GET(new Request("http://t/api/org/skills?org=acme&limit=abc"));
+    const limits = mockListOrgSkillsPage.mock.calls.map((c) => c[1].limit);
+    expect(limits[0]).toBeUndefined();
+    expect(limits[1]).toBeUndefined();
+    expect(Number.isNaN(limits[2])).toBe(true);
+  });
+
+  it("falls back to the default page when persistence returns null", async () => {
+    mockListOrgSkillsPage.mockResolvedValue(null);
+    const body = await (await GET(new Request("http://t/api/org/skills?org=acme"))).json();
+    expect(body).toMatchObject({ skills: [], truncated: false, limit: 200 });
   });
 
   it("denies an unauthorized reader verbatim", async () => {
     mockAuthorizeOrgApi.mockResolvedValue({ denied: Response.json({ error: "no" }, { status: 403 }) });
     const res = await GET(new Request("http://t/api/org/skills?org=acme"));
     expect(res.status).toBe(403);
-    expect(mockListOrgSkills).not.toHaveBeenCalled();
+    expect(mockListOrgSkillsPage).not.toHaveBeenCalled();
   });
 });
