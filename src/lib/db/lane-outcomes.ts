@@ -41,6 +41,8 @@ import { getOrgBySlug } from "@/lib/db/org-shared";
 // with. A deferral that keys on anything else is a deferral the next rescan silently drops.
 import { normalizeRecTitle } from "@/lib/report/recommendation-identity";
 import type { LaneReport, LaneVerdict } from "@/lib/local/lane-report";
+// Pure and import-free, so the db side can hold the rule without reaching into the lane's deps.
+import { containmentParkedDims } from "@/lib/local/lane-park";
 
 /** How many cycles a skip holds before the loop is willing to try again. */
 export const LANE_DEFER_CYCLES = 3;
@@ -407,12 +409,12 @@ export async function getActiveDeferrals(orgSlug: string, repoFullName: string, 
     const prisma = getPrisma();
     const rows = await prisma.laneItemOutcome.findMany({
       where: { orgId: org.id, repoFullName, deferUntil: { gt: now } },
-      select: { recommendationId: true },
+      select: { recommendationId: true, verdict: true, reason: true },
     });
     const ids = new Set(rows.map((r) => r.recommendationId));
     if (ids.size === 0) return ids;
     try {
-      return await expandToIdentities(prisma, org.id, repoFullName, ids);
+      return await expandToIdentities(prisma, org.id, repoFullName, ids, rows);
     } catch {
       // The widening is an IMPROVEMENT on the id set, never a precondition for it. If any of its
       // reads fails the caller still gets every id a lane actually parked — the old behaviour — rather
@@ -423,21 +425,34 @@ export async function getActiveDeferrals(orgSlug: string, repoFullName: string, 
 }
 
 /** The identity expansion behind `getActiveDeferrals`. Split out so its failure cannot cost the
- *  caller the ids it already has. */
+ *  caller the ids it already has.
+ *
+ *  …AND A CONTAINMENT REFUSAL WIDENS TO THE DIMENSION'S GAPS (infinite-cycles block 003). The model
+ *  re-words a gap's title on every scan, so a park keyed on the title misses the next scan's row:
+ *  block 002 re-offered the same four refused D9 workflow practices under nine titles, and three of
+ *  its four dry rounds were that re-offer. When `CONTAINMENT_PARK_MIN` gap rows in one dimension were
+ *  refused for a containment reason (network, shell, a gate-surface edit), every open GAP row of that
+ *  dimension on the latest scan is parked with them. The rule and its limits live in lane-park.ts
+ *  (`containmentParkedDims`); a craft rung is never widened, and nothing here changes a row. */
 async function expandToIdentities(
   prisma: ReturnType<typeof getPrisma>,
   orgId: string,
   repoFullName: string,
   ids: Set<string>,
+  outcomes: readonly { recommendationId: string; verdict: string; reason: string }[] = [],
 ): Promise<Set<string>> {
   // What those parked rows WERE, by identity. A row that has since been purged simply contributes
   // no identity — the id itself stays parked, which is the pre-2026-09-01 behaviour.
   const parked = await prisma.recommendation.findMany({
     where: { id: { in: [...ids] } },
-    select: { dimId: true, title: true },
+    select: { id: true, dimId: true, title: true, kind: true },
   });
   const keys = new Set(parked.map(recIdentity));
   if (keys.size === 0) return ids;
+  const rowOf = new Map(parked.map((r) => [r.id, r]));
+  const containedDims = containmentParkedDims(
+    outcomes.map((o) => ({ ...o, dimId: rowOf.get(o.recommendationId)?.dimId ?? null, kind: rowOf.get(o.recommendationId)?.kind ?? null })),
+  );
   const repo = await prisma.repository.findUnique({
     where: { orgId_fullName: { orgId: orgId, fullName: repoFullName } },
     select: { id: true },
@@ -447,9 +462,11 @@ async function expandToIdentities(
   if (!scan) return ids;
   const current = await prisma.recommendation.findMany({
     where: { scanId: scan.id, status: { in: ["open", "in_progress"] } },
-    select: { id: true, dimId: true, title: true },
+    select: { id: true, dimId: true, title: true, kind: true },
   });
-  for (const r of current) if (keys.has(recIdentity(r))) ids.add(r.id);
+  for (const r of current) {
+    if (keys.has(recIdentity(r)) || (r.kind === "gap" && containedDims.has(r.dimId))) ids.add(r.id);
+  }
   return ids;
 }
 

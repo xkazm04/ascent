@@ -6,7 +6,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { claimedTrailerIds } from "@/lib/db/lane-outcomes";
-import { parkWithoutCommits, parkingGroups, type ParkDeps } from "@/lib/local/lane-park";
+import { containmentParkedDims, isContainmentRefusal, parkWithoutCommits, parkingGroups, type ParkDeps } from "@/lib/local/lane-park";
 import type { LaneReport, LaneVerdict } from "@/lib/local/lane-report";
 
 const item = (id: string, verdict: LaneVerdict, reason = `why ${id}`) => ({ recommendationId: id, verdict, reason, files: [] });
@@ -79,5 +79,75 @@ describe("parkWithoutCommits", () => {
     await parkWithoutCommits({ ...args, report: report([item("ci-trigger", "resolved"), item("sbom", "attempted")]) }, d);
     expect(d.recordLaneOutcomes).not.toHaveBeenCalled();
     expect(d.log).not.toHaveBeenCalled();
+  });
+});
+
+// THE REASONS BLOCK 002 ACTUALLY RECORDED (fragments, verbatim) for the eleven D3/D8/D9 rows its lanes
+// refused, under nine different titles for four workflow practices. Every one must read as containment.
+const BLOCK_002_CONTAINMENT = [
+  "Needs a gate-surface edit to .github/workflows/ai-conformance.yml: add `push: branches: [master]`",
+  "Needs a gate-surface edit to .github/workflows/release.yml: give the build job id-token",
+  "Needs network to resolve each action tag to a commit SHA, plus gate-surface edits to all 7",
+  "means editing existing .github/workflows/*.yml (voids the cycle) and resolving tags to commit SHAs (needs network)",
+  "Adding push: branches: [master] and workflow_dispatch: to ai-conformance.yml is an edit to an existing workflow (voids the cycle)",
+  "which is an edit to an existing workflow and needs network to pin the new actions.",
+  "Every part of the gap is an edit to an existing .github/workflows/*.yml (top-level permissions, ...), and pinning also needs network to resolve SHAs",
+  "SHA pins need network to resolve tags and an edit to every existing workflow, and SBOM/provenance need a release.yml edit, all of which void the cycle",
+  "are edits to existing workflows that void the cycle; added a vitest ratchet",
+  "editing an existing workflow voids the runner cycle, and the app-side opt-in alone would point at a manifest nothing publishes",
+];
+
+describe("isContainmentRefusal — the lane's own words for a limit it will always have", () => {
+  it("reads every block-002 refusal as containment", () => {
+    for (const r of BLOCK_002_CONTAINMENT) expect(isContainmentRefusal(r), r).toBe(true);
+    expect(isContainmentRefusal("This session has no shell, so nothing was run")).toBe(true);
+  });
+
+  it("does not read a product decision, an already-covered skip or a silent row as containment", () => {
+    for (const r of [
+      "",
+      "Already covered: .github/workflows/codeql.yml runs SAST on push",
+      "needs a product decision: which installers do users download?",
+      "needs a build run: whether the existing budget is still green cannot be established offline",
+      "The existing workflow already scopes its token; nothing to do",
+      "a network diagram would help reviewers",
+    ]) {
+      expect(isContainmentRefusal(r), r).toBe(false);
+    }
+  });
+});
+
+describe("containmentParkedDims — a re-worded gap in a refused dimension stays parked", () => {
+  const row = (id: string, dimId: string, reason: string, over: Partial<{ verdict: string; kind: string }> = {}) => ({
+    recommendationId: id,
+    verdict: over.verdict ?? "needs_human",
+    reason,
+    dimId,
+    kind: over.kind ?? "gap",
+  });
+
+  it("parks D9 and D8 from the block-002 refusals and nothing else", () => {
+    const dims = containmentParkedDims([
+      row("c9286e59", "D9", BLOCK_002_CONTAINMENT[2]!),
+      row("728a4c02", "D9", BLOCK_002_CONTAINMENT[3]!),
+      row("005be88b", "D8", BLOCK_002_CONTAINMENT[0]!),
+      row("d8c8ea3b", "D8", BLOCK_002_CONTAINMENT[4]!),
+      row("b94557cc", "D2", "Needs network and a gate-surface edit: Stryker must be installed", { verdict: "skipped", kind: "craft" }),
+      row("0e4020df", "D7", "Needs a gate-surface edit: lefthook.yml", { verdict: "skipped", kind: "craft" }),
+    ]);
+    expect([...dims].sort()).toEqual(["D8", "D9"]);
+  });
+
+  it("needs two distinct gap rows: one refusal, or one row recorded twice, parks no dimension", () => {
+    expect(containmentParkedDims([row("a", "D9", BLOCK_002_CONTAINMENT[2]!)]).size).toBe(0);
+    expect(containmentParkedDims([row("a", "D9", BLOCK_002_CONTAINMENT[2]!), row("a", "D9", BLOCK_002_CONTAINMENT[3]!)]).size).toBe(0);
+  });
+
+  it("ignores craft rungs, non-parking verdicts, unknown rows and non-containment reasons", () => {
+    const r = BLOCK_002_CONTAINMENT[3]!;
+    expect(containmentParkedDims([row("a", "D9", r, { kind: "craft" }), row("b", "D9", r, { kind: "craft" })]).size).toBe(0);
+    expect(containmentParkedDims([row("a", "D9", r, { verdict: "attempted" }), row("b", "D9", r, { verdict: "resolved" })]).size).toBe(0);
+    expect(containmentParkedDims([{ ...row("a", "D9", r), dimId: null }, { ...row("b", "D9", r), kind: null }]).size).toBe(0);
+    expect(containmentParkedDims([row("a", "D9", "needs a product decision"), row("b", "D9", "Already covered by codeql.yml")]).size).toBe(0);
   });
 });
