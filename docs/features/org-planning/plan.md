@@ -384,6 +384,22 @@ A link minted by the Share button is prepended on success through a window event
 (`publishMintedShareGrant`), because the mint control sits inside a server subtree that cannot pass a
 callback - so the URL has a durable home instead of existing only in the clipboard.
 
+**A per-client briefing names its client (2026-10-09).** A segment-scoped briefing (`?segment=<id>` on
+`/api/org/briefing/pdf`, or the segment carried in a signed share token) is the deliverable a reseller
+hands its client, and it used to name the reseller's own account everywhere it titled itself.
+`buildExecBriefing` now reads the segment's name with `getSegmentName(org, segmentId)`
+(`src/lib/db/segments.ts`), matched only inside the gated org, so another org's segment id resolves to no
+name, and carries it as `ExecBriefing.segmentName` (null when unscoped). One composer, `briefingSubject`
+(`src/lib/org/briefing-format.ts`), names the client in the PDF document title, the PDF's h1, the share
+page's header and the markdown header. The PDF filename gains the client
+(`<brand>-briefing-<org>-<client>-<date>.pdf`, each part through `safeFilenameSegment`), so two clients
+exported on one day are two files. The org stays the issuer: the brand kicker and the PDF author do not
+change. The share page reads the segment from the token, never the query string. A name that cannot be
+read fails the build (PDF route 503, share page "Briefing unavailable") instead of falling back to the
+org's name, which was the defect. An unscoped briefing renders exactly as before. Pinned by
+`briefing.client-name.test.ts`, `briefing-document.client.test.tsx`, `segments.name.test.ts`, the PDF
+route's filename cases and `page.segment-notice.test.tsx`.
+
 **A failed read is not a fact (2026-10-07).** The share path, the PDF route and the briefing build used to
 turn a database error into a sentence about the world. They no longer do, and each is pinned by a test that
 makes the read fail:

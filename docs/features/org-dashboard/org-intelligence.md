@@ -414,8 +414,9 @@ rollup the mean came from held every repo's per-dimension score the whole time.
 - **One fleet read, not three.** The tab shows the per-segment strip AND one A/B comparison off the same
   fleet, and it used to buy that fleet three times: `listSegmentSummaries` (one unscoped
   `getOrgRollup`) plus `compareSegments`, whose two `summarizeSegment` calls each ran a segment-scoped
-  one. `getOrgRollup`'s own header records why that was expensive: a nested `take` does not bound the
-  transfer, so the org's entire scan history crosses the wire per call. `loadSegmentsView(slug, { a, b })`
+  one. That was expensive: until 2026-10-09 the rollup's nested `take` did not bound the transfer, so the
+  org's entire scan history crossed the wire per call (now a GROUP BY, see *Bounded latest-scan reads*
+  below; three rollups are still three times one). `loadSegmentsView(slug, { a, b })`
   (`src/lib/db/segments.ts`) now fetches ONE rollup, partitions it by the membership map the strip
   already needed, and returns both readings plus the resolved A/B pair. Measured 2026-10-05 as
   rollup-shaped `repository.findMany` calls for one Segments view: **3 before, 1 after**
@@ -805,10 +806,11 @@ barrel) keep an unchanged public surface for callers:
 ### Shell cost discipline: nobody buys a rollup to read a scalar (2026-08-03)
 
 `getOrgRollup` is the dashboard's heaviest read: every repo's latest scan **with its dimension
-rows**, plus governance / passport / tech-stack JSON parsing, plus two unbounded `scan.findMany`
-sweeps (the daily trend and the baseline cohort). Its cost scales with fleet **history**, not with
-what the caller renders. Three surfaces were paying it to read a handful of scalars; all three are
-now on narrow queries.
+rows**, plus governance / passport / tech-stack JSON parsing, plus the daily trend sweep (bounded only
+by the window and the plan's retention floor) and, with a window, the baseline cohort. Until 2026-10-09
+the latest-scan pick and the baseline were unbounded too (see *Bounded latest-scan reads* below), so its
+cost scaled with fleet **history**, not with what the caller renders. Three surfaces were paying it to
+read a handful of scalars; all three are now on narrow queries.
 
 | Surface | Was | Now |
 | --- | --- | --- |
@@ -818,6 +820,7 @@ now on narrow queries.
 | Practices / Skills repo picker (2026-09-05) | full `getOrgRollup` for `repos[].fullName` (6 queries, two unbounded scan sweeps) | `listOrgRepoNames` (1 query, 1 column) |
 | Repositories tab (2026-09-05; segment filter 2026-09-17) | two full rollups per render (leaderboard stack-scoped, Context Health unscoped, so the lens ignored `?stack=` / `?segment=`) | one `resolveOrgScope` in `RepositoriesTab` plus one `getOrgRollupShared` (request-cached on primitive args) feeding both panels at the same `(segmentId, techGroupId)`; the leaderboard renders the shared `SegmentSelector` via `ScopeFilterBar`, not a second filter |
 | `getOrgRollup` itself (2026-09-05) | `include:` at both levels: ~36 Repository + ~39 Scan columns for every scan in history (the nested `take: 1` is applied client-side) | `select:` of the 18 + 11 fields the mapper reads |
+| `getOrgRollup` / `getOrgMovers` latest-scan picks (2026-10-09) | nested `take: 1` / `take: 2` and `distinct: ["repoId"]`, all applied after the fetch: every scan under the bound crossed the wire | `groupBy repoId, _max scannedAt` + a fetch of only those rows: one row per repo per pick |
 
 - **`getOrgPassportBlockers(slug)`** (`src/lib/db/org-nav-counts.ts`): the passport blob lives on
   `Repository`, not on `Scan`, so the badge needs no scan join at all: three columns over the same
@@ -837,6 +840,34 @@ the rollup's two unbounded sweeps grow with it and neither replacement touches `
 Regression-pinned by `src/lib/db/org-passport-blockers.test.ts` (the query must stay scan-free and
 keep the rollup's repo set) and `src/lib/org/nav-counts.test.ts` (`getOrgRollup` is never called from
 the badge path).
+
+### Bounded latest-scan reads (2026-10-09)
+
+`getOrgRollup` and `getOrgMovers` feed every Org surface and every executive-briefing build, and each
+needs only one or two scans per repo. They took them with shapes Prisma's client query compiler applies
+**after** the fetch: the rollup's nested `scans: { take: 1 }` (the current snapshot) and its
+`distinct: ["repoId"]` baseline, and movers' `distinct` pre-start baseline and nested `take: 2`
+("since last scan"). None of them reached the SQL as a LIMIT or DISTINCT ON, so every scan the org had
+ever taken under the bound crossed the wire to keep one row per repo (council finding economics-1 on the
+briefing export). The code comments that said `distinct` bounded the read "at the DB" were wrong;
+`getOrgBacklog`'s header had measured that in August.
+
+All four now use that header's measured shape, shared in `src/lib/db/org-rollup-latest-scans.ts`: a
+`groupBy repoId, _max scannedAt` under the caller's bound (the window end for the current snapshot,
+`lt start` for both baselines, and per repo `lt <its latest>` for the second scan), then a fetch of only
+those `(repoId, scannedAt)` rows, served by `@@index([repoId, scannedAt])`. **Tie rule:** between scans of
+one repo with an equal `scannedAt`, the greatest scan id wins. Scan ids are uuids, so the choice is
+arbitrary, but it is deterministic, where the nested `take` left it to the database's row order. Return
+shapes, signatures and every rendered value are unchanged.
+
+On a 42-repo fixture with scans before, inside and after a quarter window, the windowed rollup now picks
+**162** rows (81 grouped and the 81 they name) where the old shape transferred **1,562**. The gap grows
+with each scan the fleet takes. Pinned by `src/lib/db/org-rollup-queries.test.ts`: the statement sequence
+is identical for 1 repo × 25 scans and 300 × 60, no read carries a nested `take` or a `distinct`, and
+every pick is a `groupBy`. It fails 14 of 15 cases against the previous code.
+`src/lib/db/org-rollup-latest-scans.equivalence.test.ts` checks that each read keeps exactly the rows the
+old shape kept, along with the tie rule. `getRepoStates` and `getOrgHeaderSummary` (the org shell's header)
+still use a nested `take: 1` and are not yet converted.
 
 **A failed read is not "none" (2026-10-07 sweep).** Where an org-dashboard read used to fall back to a value a
 reader would take as a fact, it now says the read failed and reports it: `GET /api/org/repo-dimension`
@@ -861,8 +892,8 @@ The Overview page composes several server queries, all scoped to the org:
 
 | Function | Produces |
 | --- | --- |
-| `getOrgRollup(slug, window?, segmentId?)` | Latest scan per repo → fleet averages, posture distribution, dimension averages, daily trend, and a linear `Forecast`. **Known gap (2026-09-04): the trend and the badge beside it have different denominators.** `avgOverall` is a mean over REPOS (each repo's latest scan); a trend point is a mean over the SCANS that landed that day. `OverviewLedger` renders them side by side, so on a fleet with mixed cadence the chart's right edge and the number next to it describe different populations — measured at a 23-point gap on a 20-repo fleet where only the 3 daily-autoscanned repos were scanned that day (final point over 3 of 20 repos), and `forecastTrajectory` is fitted to the same series. Both candidate remedies are real product calls (carry each repo's latest score forward per day so the last point equals the badge; or keep the scan-mean and ship each point's `n`, which is the `count-carries-predicate` rule `CohortMovement` in this same file already follows), so it is a deck item, not a sweep fix. With a `window` it also returns a `baseline` snapshot (latest scan per repo as of `window.start`) and per-metric `deltas` for period-over-period tile comparisons; the trend is bounded to the window. An optional `segmentId` scopes every figure to a [segment](#segments)'s tagged repos. |
-| `getOrgMovers(slug, window?, segmentId?)` | Per-repo delta over the window: latest scan vs the baseline scan strictly before `window.start` (gainers / regressions / held / levelChanges). Without a window, falls back to the two most recent scans ("since last scan"). Optional `segmentId` scopes to a segment. A repo with no scan before `window.start` (onboarded mid-period) is a **lifetime** delta, not a period one: it's tagged `baselineKind: "onboarded"` and reported separately in `onboarded`, excluded from `gainers`/`regressers`/`held`/`levelChanges`/`comparedRepos` so a fleet's onboarding wave can't read as that period's improvement. |
+| `getOrgRollup(slug, window?, segmentId?)` | Latest scan per repo → fleet averages, posture distribution, dimension averages, daily trend, and a linear `Forecast`. **Known gap (2026-09-04): the trend and the badge beside it have different denominators.** `avgOverall` is a mean over REPOS (each repo's latest scan); a trend point is a mean over the SCANS that landed that day. `OverviewLedger` renders them side by side, so on a fleet with mixed cadence the chart's right edge and the number next to it describe different populations — measured at a 23-point gap on a 20-repo fleet where only the 3 daily-autoscanned repos were scanned that day (final point over 3 of 20 repos), and `forecastTrajectory` is fitted to the same series. Both candidate remedies are real product calls (carry each repo's latest score forward per day so the last point equals the badge; or keep the scan-mean and ship each point's `n`, which is the `count-carries-predicate` rule `CohortMovement` in this same file already follows), so it is a deck item, not a sweep fix. With a `window` it also returns a `baseline` snapshot (latest scan per repo as of `window.start`) and per-metric `deltas` for period-over-period tile comparisons; the trend is bounded to the window. An optional `segmentId` scopes every figure to a [segment](#segments)'s tagged repos. The latest scan per repo and the baseline are each one GROUP BY plus a fetch of those rows (see [Bounded latest-scan reads](#bounded-latest-scan-reads-2026-10-09)). |
+| `getOrgMovers(slug, window?, segmentId?)` | Per-repo delta over the window: latest scan vs the baseline scan strictly before `window.start` (gainers / regressions / held / levelChanges). Without a window, falls back to the two most recent scans ("since last scan"). Optional `segmentId` scopes to a segment. A repo with no scan before `window.start` (onboarded mid-period) is a **lifetime** delta, not a period one: it's tagged `baselineKind: "onboarded"` and reported separately in `onboarded`, excluded from `gainers`/`regressers`/`held`/`levelChanges`/`comparedRepos` so a fleet's onboarding wave can't read as that period's improvement. The baseline and the since-last-scan pair are GROUP BY reads, one row per repo per pick (see [Bounded latest-scan reads](#bounded-latest-scan-reads-2026-10-09)). |
 | `getOrgRecommendations(slug, limit, segmentId?)` | Open recs aggregated across latest scans, ranked by leverage `repoCount × impactWeight × (1 + dimWeight)`. Optional `segmentId` scopes to a segment. |
 | `getOrgBacklog(slug, segmentId?, now?, techGroupId?, opts?)` | The recommendation **backlog**: actionable per-repo recs (open + in_progress) from the latest scans (carrying owner + due date), grouped by owner and by due-date bucket (overdue / this week / this month / later / no date), with overdue/due-soon/unassigned counts and the fleet's contributor logins for the assignee picker. Pure `dueBucketFor(date, now)` (unit-tested) does the bucketing. Backs the Follow-ups ledger (the Backlog tab it originally served retired 2026-08-17; owner/due-date fields are carried but no longer surfaced); mutations go through `updateRecommendation` (`src/lib/db/scans.ts`), which records a `RecommendationEvent` per change. **Reversibility (2026-07-28, G6-02):** `opts.includeClosed` groups the done/dismissed rows too (`GET /api/org/backlog?includeClosed=1`, surfaced as the panel's "Show done & dismissed" toggle) so an item closed by a mis-click stays findable and can be set back to Open: the ACTIVE-only default was previously a one-way door. Every headline count still describes the ACTIVE backlog either way, and a closed row never reports `overdue`, so the toggle moves no number. |
 | `getOrgBenchmark(slug)` | The org's average-overall percentile vs every other org's **public** repos (the corpus). **Tenancy (2026-07-28):** the cross-tenant corpus query is filtered to `isPrivate: false`: other tenants' private repo scores must never feed a percentile handed back to a different org. This org's own side is unfiltered (an org is entitled to its own private repos). **Corpus eligibility (2026-07-28):** both sides of the comparison are filtered to non-`mock` engines at the *current* `SCORING_RUBRIC_VERSION`: a percentile is a claim that two numbers came out of the same instrument, and demo/keyless `mock` scans plus retired-rubric rows were previously ranked as peers. `corpusBasis` is returned with every result so a percentile always travels with the population it was computed on. |
@@ -1310,7 +1341,9 @@ page and the markdown print that one line in the Goals slot, and the percentile 
 tech-stack-only scope is not a segment scope and still shows them (open question: its goals are
 account-wide too). Unscoped briefings are unchanged. Existing segment-scoped share links change
 figure fingerprint (goals and benchmark are in `briefingFigureDigest`), so they show the "Figures
-moved" banner once, the safe direction. **Three surfaces render the same `ExecBriefing`** and must never disagree: the
+moved" banner once, the safe direction. The same build also carries the client's name (`segmentName`, read
+org-constrained), which titles the PDF, the share page and the markdown in place of the org's; see
+[plan.md](../org-planning/plan.md) (*A per-client briefing names its client*). **Three surfaces render the same `ExecBriefing`** and must never disagree: the
 Briefing tab (`src/features/bought/executive/ExecutiveTab.tsx`; `src/app/org/[slug]/executive/page.tsx` is a redirect into the tab shell), the board PDF
 (`GET /api/org/briefing/pdf` → `src/lib/pdf/briefing-document.tsx`; read-gated only, deliberately free on every tier and outside `pdfExport`, per `docs/adr/2026-10-07-briefing-pdf-free-on-every-tier.md`), and the "Copy for LLM"
 markdown (`briefingMarkdown`). The anonymous share link (`/share/briefing/[token]`) re-runs the
