@@ -17,6 +17,7 @@
 import { rm, rmdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { runGit } from "@/lib/local/git";
+import { GIT_COMMIT_TIMEOUT_MS } from "@/lib/local/run-limits";
 import { installFiles } from "@/lib/local/install-files";
 import { getScanReportByCommit } from "@/lib/db";
 import { buildFoundation } from "@/lib/standard";
@@ -183,7 +184,9 @@ export async function installInWorktree(input: LaneInstallInput): Promise<LaneIn
   const trailer = input.resolvesId ? `\n\n${FOLLOWUP_TRAILER}: ${input.resolvesId}` : "";
   const skippedNote = installed.skipped.length > 0 ? `\n\nSkipped (the repository already has them): ${installed.skipped.join(", ")}` : "";
   const ignoredBody = ignoredNote ? `\n\nNot committed — ${ignoredNote}` : "";
-  const commit = await runGit(input.dir, ["commit", "-m", subject, "-m", `${body}${skippedNote}${ignoredBody}${trailer}`]);
+  const commit = await runGit(input.dir, ["commit", "-m", subject, "-m", `${body}${skippedNote}${ignoredBody}${trailer}`], {
+    timeoutMs: GIT_COMMIT_TIMEOUT_MS,
+  });
   if (!commit.ok) return fail(`Could not commit the install: ${commit.stderr || commit.stdout}`);
 
   return {

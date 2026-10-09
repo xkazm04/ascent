@@ -118,3 +118,17 @@ export function normalizeVerifyTimeoutMs(v: unknown): number | null {
 
 export const verifyTimeoutMsOf = (v: number | null | undefined): number =>
   normalizeVerifyTimeoutMs(v) ?? VERIFY_TIMEOUT_DEFAULT_MS;
+
+/**
+ * The ceiling for a `git commit` that RUNS THE REPOSITORY'S OWN HOOKS (`runGit`'s `timeoutMs`).
+ *
+ * `git.ts` bounds every call at fifteen seconds, which is right for inspecting state and wrong for a
+ * commit: the hooks are repo-authored work (a secret scan, a staged lint), and on a loaded machine
+ * they alone can pass fifteen seconds. Measured 2026-10-09 against xkazm04/personas: the install
+ * lane's commit was killed between pre-commit (lefthook reported a pass in 7.26 s) and
+ * prepare-commit-msg. The lane logged "Could not commit the install" over a hook that had succeeded,
+ * every round re-armed the same install, and every round went dry. An agent lane would have reached
+ * the `--no-verify` rung the same way. Three minutes still bounds a wedged hook without cutting a
+ * slow one. Lives here, not in `git.ts`, because the lane suites mock that module whole.
+ */
+export const GIT_COMMIT_TIMEOUT_MS = 180_000;
