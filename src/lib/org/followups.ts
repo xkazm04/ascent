@@ -283,9 +283,14 @@ const LANE_CAPABILITY_RULE: readonly string[] = [
   // Measured 2026-10-05: on a game repo the agent edited the same existing CI workflow and the same
   // package.json that declares the verify command in two cycles running, and both were voided — it had
   // never been told which edits discard a whole cycle. Naming them turns a repeated void into a skip.
+  // Measured again 2026-10-10 (experiment/infinite-cycles block 005, round 3): this list said only
+  // MODIFYING voids, then "ADDING is allowed", while lane-gate-diff.ts still voids an ADDED fixture
+  // data file and an ADDED gate config. A lane added `evals/fixtures/prompt-injection/tool-output-
+  // attacks.json` beside the repo's own `attacks.json` and the void discarded two other resolved items.
   "WHAT VOIDS A WHOLE CYCLE (the integrity guard diffs your work after you exit):",
   "- MODIFYING or DELETING an EXISTING test file or fixture, an EXISTING CI workflow (`.github/workflows/*`), an existing hook or gate config (tsconfig, eslint / vitest / pytest config, pre-commit, lefthook), or the build/script manifest that declares the verify command (the package.json script block, build.gradle(.kts), Cargo.toml, Makefile). A voided cycle is discarded from the measurement and held for a human — all of it, not just that file.",
   "- ADDING is allowed: new test files, a new workflow, a new hook, a new check script, new docs. Declaring the repository's real verify command in AGENTS.md / CLAUDE.md / `.ai/manifest.yaml` is allowed when that command passes on your result.",
+  "- TWO ADDITIONS STILL VOID THE WHOLE CYCLE. (1) A new DATA file in a fixture directory (`fixtures/`, `__fixtures__/`, `__snapshots__/`, `__mocks__/`, `mocks/`, `testdata/`, `golden/`, `baselines/`) or a new `*.snap` / `*.fixture.*` / `*.mock.*` file, because an existing test may load it. Even when the repository keeps a corpus in such a directory, put a new test's cases INLINE in the new test file. (2) A new config for a tool the verify command runs: a `tsconfig*.json`, a vitest / jest / playwright / eslint config, a lefthook config.",
   "- If an item can only be closed by editing one of those existing files, emit `SKIPPED: <id> - needs a gate-surface edit: <file>` and move on.",
   "- A NEW test file must not end the process (`process.exit`, `os.Exit`, `sys.exit`, `os._exit`, `Environment.Exit`): a test runner collecting it would stop early, and the cycle is voided. A standalone check script that exits with a status is not a test: name it without a test pattern (`tools/check-hint-drift.cjs`, not `tools/hint-drift-test.cjs` or `*.test.*`).",
   "",

@@ -9,10 +9,12 @@
 // `kind: craft` with five well-formed rungs per repo — the ladder is built and working; it simply
 // never got a turn.
 //
-// THE DOCTRINE, unchanged where it matters: a repo with a real hole gets NO craft budget at all. A
-// NON-green repo's batch is gaps-only and byte-identical to what it was before this module existed.
-// Only once every measured dimension has cleared the band do the gaps stop being allowed to fill the
-// whole lane — and even then they still come first and still win the top slots.
+// THE DOCTRINE, as master ships it: a repo with a real hole gets NO craft budget at all, and only a
+// green repo's gaps stop filling the whole lane. ON experiment/infinite-cycles (cycle 006) `openBatch`
+// reserves on EVERY repo: a hole the lane cannot reach (Personas' D9, network-bound) held the ladder
+// shut, and every gaps-only lane in blocks 002 and 005 closed nothing (see `openBatch`). Gaps still
+// come first and still win the top slots. `isReservationGreen` stays for the product version, which
+// would hold out only the dimensions a lane has proved it cannot work.
 
 import { repoGreenness, type DimScore } from "@/lib/maturity/green";
 import { FOLLOW_UP_BELOW } from "@/lib/maturity/model";

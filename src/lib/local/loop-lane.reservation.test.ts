@@ -1,9 +1,8 @@
 // `openBatch`'s GREEN RESERVATION — the wiring, on top of the pure rules in lane-reservation.test.ts.
 //
 // Sibling of loop-lane.craft.test.ts, which pins the gaps-outrank-craft ordering and the zero-gap
-// fallback and must keep passing untouched: every case there is a NON-green repo (its dimension read
-// is unmocked and answers nothing), and a non-green repo's batch is byte-identical to what it was
-// before the reservation existed.
+// fallback. Until cycle 006 (experiment/infinite-cycles) every case there was a NON-green repo whose
+// batch stayed gaps-only; the reservation now opens on every repo, so both files pin the mixed batch.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FollowUpItem } from "@/lib/org/followups";
@@ -107,30 +106,31 @@ describe("the green reservation", () => {
     expect(batch.filter((b) => b.kind === "craft").map((b) => b.id)).toEqual(["c1", "c2", "c3"]);
   });
 
-  it("leaves a NON-GREEN repo gaps-only — a repo with a real hole gets no craft budget", async () => {
+  // experiment/infinite-cycles, cycle 006: the reservation no longer waits for green. On Personas a
+  // hole the lane cannot reach (D9, network-bound) kept every gap lane gaps-only, and those lanes
+  // closed nothing in blocks 002 and 005 (5 lanes, 0 closes). These three pin the new behaviour.
+  it("MIXES a NON-GREEN repo too — a hole the lane cannot reach no longer holds the ladder shut", async () => {
     backlogItems.push(gap("g1"), gap("g2"), gap("g3"));
     craftItems.push(craft("c1"), craft("c2"));
     dimScores = NOT_GREEN;
-    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1", "g2", "g3"]);
+    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1", "g2", "c1", "c2", "g3"]);
   });
 
-  it("treats an UNREADABLE dimension read as not green — an absence of evidence opens nothing", async () => {
+  it("does not depend on the dimension read — an unreadable one gives the same mixed batch", async () => {
     backlogItems.push(gap("g1"), gap("g2"), gap("g3"));
     craftItems.push(craft("c1"));
     dimScores = [];
-    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1", "g2", "g3"]);
+    // Two gaps, then the ladder's one rung, then the slot the short ladder could not fill goes back
+    // to the gap list rather than shrinking the batch.
+    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1", "g2", "c1", "g3"]);
   });
 
-  it("counts an unobservable dimension the same way the rest of the loop does", async () => {
-    // D2/D3/D4 read at their file-scan floor on a worktree rescan. Judged, they would keep every
-    // loop repo permanently non-green; held out, the repo is green and the reservation opens.
+  it("gives the same batch whether or not an unobservable dimension is held out", async () => {
     backlogItems.push(gap("g1"), gap("g2"), gap("g3"));
     craftItems.push(craft("c1"));
     dimScores = [...GREEN, { dimId: "D3", score: 12 }];
-    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1", "g2", "g3"]);
+    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1", "g2", "c1", "g3"]);
     unmeasurableDims = ["D2", "D3", "D4"];
-    // Two gaps, then the ladder's one rung, then the slot the short ladder could not fill goes back
-    // to the gap list rather than shrinking the batch.
     expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1", "g2", "c1", "g3"]);
   });
 
