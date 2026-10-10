@@ -146,5 +146,12 @@ export function laneReportContract(batchIds: readonly string[]): string {
     "- Your verdict is your account, not the ruling. A row closes only when the next scan stops raising the gap AND the dimension measurably moved.",
     "- `lessons` are for what a future agent working THIS organization's repositories should know. They become reviewable candidates a human decides on; they are not written into memory by you.",
     "- Do NOT commit this file. It is excluded from the branch on purpose.",
+    // Measured 2026-10-10 (experiment/infinite-cycles block 006, round 1): this contract is the LAST
+    // thing the session reads, and it said nothing about the claim lines. The session wrote this file
+    // with 3 `resolved` verdicts, ended on markdown prose ("**Doc counts (resolved).**"), and the commit
+    // carried 0 trailers ("the session named no ids"). A craft rung closes on its trailer alone
+    // (followups.ts `decideInProgress`), so three resolved rungs could not close and the round was dry.
+    // Every other executed craft lane in blocks 002-006 wrote both and closed exactly its claimed rungs.
+    "- THIS FILE IS NOT THE CLAIM. Your FINAL MESSAGE must still END with one plain line per id, exactly `RESOLVED: <id> - <what changed>` or `SKIPPED: <id> - why` (no bold, no bullets, no headings around the id). The commit's trailers are built from those lines and nothing else, so a verdict written only here claims nothing. The two must agree.",
   ].join("\n");
 }
