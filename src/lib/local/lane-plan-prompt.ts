@@ -12,7 +12,7 @@
 //     the block says what happens to work that leaves it.
 
 import type { FollowUpItem } from "@/lib/org/followups";
-import type { ArchitectureMove, LanePlan, ModulePartition, PlanItem } from "@/lib/local/runner-types";
+import { PLAN_TIMEOUT_MS, type ArchitectureMove, type LanePlan, type ModulePartition, type PlanItem } from "@/lib/local/runner-types";
 import { describeMove } from "@/lib/local/lane-plan-classify";
 
 /** The partition is listed, not dumped: past this many modules the brief says how many it left out. */
@@ -47,6 +47,27 @@ export const PLAN_CONTRACT = [
   "- A plan that does not parse against this shape (an unknown move kind, a missing field, a second draft after the block) is treated as unreadable and EVERY item waits for the operator.",
 ].join("\n");
 
+/**
+ * THE PLAN STEP'S TIME BUDGET, told to the planner (cycle 005, 2026-10-10). Measured on infinite-cycles
+ * blocks 003-004: four 5-rung craft plans in a row hit the ceiling and were discarded whole. Each one
+ * launched 3-4 background Explore agents. The slowest agent was the critical path (4.2-6.6 min; its Bash
+ * calls took 11-22 s at the median). The planner then read on alone, and wrote the plan twice: the CLI's
+ * plan file, then the final message. Block 002's direct plans took 54-288 s. The ceiling is part of the
+ * instrument and is not raised here. The planner is told the ceiling and what to spend it on.
+ */
+export function planBudgetLines(timeoutMs: number = PLAN_TIMEOUT_MS): string[] {
+  const minutes = Math.max(1, Math.floor(timeoutMs / 60_000));
+  const aim = Math.max(1, Math.floor(minutes * 0.75));
+  return [
+    `TIME BUDGET: this session is stopped at ${minutes} minutes, and a stopped session's plan is discarded whole, so nothing in the batch runs. Aim to send your final message by minute ${aim}.`,
+    "- Read the code yourself with Read, Grep and Glob. Put independent calls together in one turn. About 20 calls in all is enough; past that, plan with what you have.",
+    "- Do not start subagents (Agent or Task, Explore included), background tasks or scheduled wake-ups, and do not use Bash. A planner that waits on helpers runs out of time before it writes.",
+    '- The "Explore first" questions steer the plan; they are not measurements to take now. Read enough to name each item\'s files, modules and moves. Where an answer needs something run (a score, a share of commits), make measuring it a step of the plan.',
+    "- The session that executes this plan has a far larger budget. It does the deep reading.",
+    "- Write the plan once, in your final message: a short paragraph, then the contract's json block. Do not draft it in a plan file first.",
+  ];
+}
+
 function itemLines(it: FollowUpItem): string[] {
   const lines = [
     `### ${it.title}`,
@@ -68,6 +89,8 @@ export function buildPlanningPrompt(input: {
   briefText: string | null;
   partition: ModulePartition;
   revise: readonly ReviseNote[];
+  /** The planning session's real ceiling, stated to the planner. Omitted = `PLAN_TIMEOUT_MS`. */
+  timeoutMs?: number;
 }): string {
   const { partition } = input;
   const listed = partition.modules.slice(0, PARTITION_LIST_MAX);
@@ -76,6 +99,8 @@ export function buildPlanningPrompt(input: {
     "",
     "This is a READ-ONLY planning session. You may Read, Grep and Glob; you may not edit, write or run anything. The worktree is checked after you exit, and a planning session that changed it fails the whole lane with nothing executed.",
     "Read the code these items touch, then plan how you would resolve each one. Do not start the work — a later session executes the plan.",
+    "",
+    ...planBudgetLines(input.timeoutMs),
     "",
     `## The batch — ${input.batch.length} item(s)`,
     "",

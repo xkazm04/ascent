@@ -91,6 +91,11 @@ describe("planLane", () => {
     expect(call.prompt).toContain("ORG STANDARD TEXT");
     expect(call.prompt).toContain("- src/lib/local/");
     expect(call.prompt).toContain("An UNDECLARED move is detected from the real diff");
+    // The planner is told the ceiling it runs under (the shared constant: 8 min) and to read directly.
+    expect(call.prompt).toContain("this session is stopped at 8 minutes");
+    expect(call.prompt).toContain("Aim to send your final message by minute 6.");
+    expect(call.prompt).toContain("Do not start subagents");
+    expect(call.prompt.indexOf("TIME BUDGET")).toBeLessThan(call.prompt.indexOf("## The batch"));
     if (res.mode !== "execute") throw new Error(res.mode);
     expect(res.execute.map((i) => i.id)).toEqual(["rec-a", "rec-b"]);
     expect(res).toMatchObject({ parked: [], planId: "exec-1", resumeSessionId: call.sessionId, declaredMoves: [], directionFence: null });
@@ -270,10 +275,13 @@ describe("planLane — per-step arming", () => {
     const { outcome, via } = armed(SPLIT, 999_000);
     await outcome;
     expect(via[0]!.opts.timeoutMs).toBe(999_000);
+    // The budget the planner is TOLD is the one it runs under, not the shared constant.
+    expect(via[0]!.opts.prompt).toContain("this session is stopped at 16 minutes");
     // …and the shared constant when none is.
     const { outcome: o2, via: v2 } = armed(SPLIT);
     await o2;
     expect(v2[0]!.opts.timeoutMs).toBe(PLAN_TIMEOUT_MS);
+    expect(v2[0]!.opts.prompt).toContain("this session is stopped at 8 minutes");
   });
 
   it("an UNARMED call is unchanged — it goes through `runAgent` and records no planning model", async () => {
