@@ -4,7 +4,7 @@
 
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_AGENT_MODEL, autopilotEnabled, resolveAgentConfig, runClaudeAgent } from "@/lib/local/agent";
+import { DEFAULT_AGENT_MODEL, RESULT_EXIT_GRACE_MS, autopilotEnabled, resolveAgentConfig, runClaudeAgent } from "@/lib/local/agent";
 import { parseAgentEnvelope } from "@/lib/local/agent-envelope";
 import { killProcessTree } from "@/lib/local/kill-tree";
 
@@ -289,5 +289,84 @@ describe("THE STOP REACHES THE PROCESS", () => {
     expect(r.ok).toBe(true);
     expect(r.summary).toContain("did the thing");
     expect(killProcessTree).not.toHaveBeenCalled();
+  });
+
+  // Infinite-cycles block 003 (win32, 2026-10-09): `child.kill()` ran first, ended `cmd.exe`, and the
+  // `taskkill /T` that followed had no pid to walk — both "stopped" planning sessions kept running.
+  it("ends the TREE before the shell, on the timer and on abort alike", async () => {
+    armed();
+    vi.useFakeTimers();
+    try {
+      const p = runClaudeAgent({ cwd: process.cwd(), prompt: "work", timeoutMs: 60_000 });
+      const child = spawned.last!;
+      await vi.advanceTimersByTimeAsync(60_001);
+      await p;
+      const tree = vi.mocked(killProcessTree).mock.invocationCallOrder[0]!;
+      const shell = vi.mocked(child.kill).mock.invocationCallOrder[0]!;
+      expect(tree).toBeLessThan(shell);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    armed();
+    const cut = new AbortController();
+    const p2 = runClaudeAgent({ cwd: process.cwd(), prompt: "work", timeoutMs: 60_000, signal: cut.signal });
+    const child2 = spawned.last!;
+    cut.abort();
+    await p2;
+    expect(vi.mocked(killProcessTree).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(child2.kill).mock.invocationCallOrder[0]!);
+  });
+});
+
+describe("A PROCESS THAT OUTLIVES ITS ANSWER", () => {
+  // Infinite-cycles block 003, round 2 (claude 2.1.295): the planning session's `result` line carried
+  // the complete plan at 5 min 46 s; a pending ScheduleWakeup kept the `-p` process alive, so `close`
+  // never came and the 8-minute ceiling discarded the plan.
+  const RESULT = `${JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "the plan", num_turns: 9 })}\n`;
+  const armed = () => {
+    vi.stubEnv("ASCENT_AUTOPILOT", "1");
+    spawned.last = null;
+    vi.mocked(killProcessTree).mockClear();
+  };
+
+  it("keeps the answer and ends the tree once the process lingers past the grace", async () => {
+    armed();
+    vi.useFakeTimers();
+    try {
+      const p = runClaudeAgent({ cwd: process.cwd(), prompt: "plan", timeoutMs: 480_000 });
+      spawned.last!.stdout.emit("data", Buffer.from(RESULT));
+      await vi.advanceTimersByTimeAsync(RESULT_EXIT_GRACE_MS + 1);
+      const r = await p;
+      expect(r.ok).toBe(true);
+      expect(r.summary).toBe("the plan");
+      expect(r.turns).toBe(9);
+      // No ceiling fired: the session ended on its own answer.
+      expect(r.ceiling).toBeUndefined();
+      expect(killProcessTree).toHaveBeenCalledWith(4242);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits again when the stream goes on after a result, and never cuts a prompt close", async () => {
+    armed();
+    vi.useFakeTimers();
+    try {
+      const p = runClaudeAgent({ cwd: process.cwd(), prompt: "plan", timeoutMs: 480_000 });
+      let done = false;
+      void p.then(() => (done = true));
+      spawned.last!.stdout.emit("data", Buffer.from(RESULT));
+      await vi.advanceTimersByTimeAsync(RESULT_EXIT_GRACE_MS - 1_000);
+      // The session resumed (a task notification, a wake-up): the wait is disarmed.
+      spawned.last!.stdout.emit("data", Buffer.from(`${JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "more" }] } })}\n`));
+      await vi.advanceTimersByTimeAsync(RESULT_EXIT_GRACE_MS + 1);
+      expect(done).toBe(false);
+      spawned.last!.emit("close", 0);
+      const r = await p;
+      expect(r.ok).toBe(true);
+      expect(killProcessTree).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -36,7 +36,7 @@ import type { LocalEndpoint } from "@/lib/local/transport/run";
 import { agentTimeoutMs } from "@/lib/local/lane-watchdog";
 import { agentErrorText, parseAgentEnvelope, type AgentEnvelope } from "@/lib/local/agent-envelope";
 import { createStreamParser } from "@/lib/local/agent-stream";
-import { detachForKillTree, killProcessTree } from "@/lib/local/kill-tree";
+import { detachForKillTree, killProcessTree, type KillTreeOutcome } from "@/lib/local/kill-tree";
 import { sanitizeAgentStderr } from "@/lib/local/agent-stderr";
 import type { AgentStreamEvent } from "@/lib/local/runner-types";
 
@@ -101,6 +101,22 @@ export function agentSpawnEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 // and let go line by line, and only the final `result` line is retained.
 const MAX_STDOUT = 4 * 1024 * 1024;
 const MAX_STDERR = 16 * 1024;
+
+/**
+ * HOW LONG A SESSION'S PROCESS MAY OUTLIVE ITS OWN ANSWER before it is ended and the answer kept.
+ *
+ * MEASURED 2026-10-09 (infinite-cycles block 003, claude 2.1.295, round 2, session 9d833930): the
+ * planning session launched four background Explore agents, set `ScheduleWakeup` (1200 s, "fallback
+ * heartbeat while explore agents run"), and emitted its final `result` line at 5 min 46 s with the
+ * complete plan contract in it. The `-p` process then stayed alive for the pending wake-up, so `close`
+ * never came; the 8-minute ceiling fired at 8:00 and the finished plan was discarded as "exceeded 8 min".
+ *
+ * The CLI emits no `result` line while a background task is still running (the same block's round 1:
+ * three stops with agents in flight, no `result`), so a `result` followed by this much silence is the
+ * session's answer, not a pause. Any later stream event disarms the wait. Not a ceiling, and not
+ * shorter than any ceiling: a session that never answers still ends on its own timer, unchanged.
+ */
+export const RESULT_EXIT_GRACE_MS = 60_000;
 
 /**
  * What one session did AND what it cost.
@@ -301,7 +317,21 @@ export function runAgentSession(opts: ClaudeAgentOptions, arm: AgentArm): Promis
     // that throws, so telemetry can never end the session it is watching.
     const decoder = new StringDecoder("utf8");
     const onEvent = opts.onEvent;
-    const parser = createStreamParser((e) => onEvent?.(e), { cwd: opts.cwd, maxFrameChars: MAX_STDOUT });
+    // THE ANSWER'S WAIT (`RESULT_EXIT_GRACE_MS`). Armed by each `result` line, disarmed by any later
+    // event and by every path that settles; when it fires, the answer already on the stream is kept.
+    let exitGrace: ReturnType<typeof setTimeout> | null = null;
+    const disarmGrace = (): void => {
+      if (exitGrace) clearTimeout(exitGrace);
+      exitGrace = null;
+    };
+    const parser = createStreamParser(
+      (e) => {
+        disarmGrace();
+        if (e.kind === "result") exitGrace = setTimeout(() => answeredButAlive(), RESULT_EXIT_GRACE_MS);
+        onEvent?.(e);
+      },
+      { cwd: opts.cwd, maxFrameChars: MAX_STDOUT },
+    );
     let err = "";
     let settled = false;
     const settle = (r: AgentRunResult) => {
@@ -310,17 +340,53 @@ export function runAgentSession(opts: ClaudeAgentOptions, arm: AgentArm): Promis
         resolve(r);
       }
     };
+    // END THE TREE, THEN THE SHELL — the order lane-guard.ts and lane-deps-spawn.ts already use.
+    // `child.kill()` used to run FIRST: on win32 it ended `cmd.exe` at once, the `claude` grandchild
+    // was orphaned, and the `taskkill /PID <shell> /T` that followed found no pid to walk (exit 128,
+    // which kill-tree.ts reads as "already gone"). MEASURED 2026-10-09, infinite-cycles block 003: both
+    // "stopped" planning sessions kept running — round 1's to 22:52:05Z, 2 min past its ceiling;
+    // round 2's for 16 more minutes, until its scheduled wake-up fired and it ran `cargo mutants
+    // --version` and `npx lefthook version` (an npm install) in a worktree that had been removed.
+    const endTree = (): Promise<KillTreeOutcome> =>
+      killProcessTree(child.pid).finally(() => {
+        child.kill();
+      });
+    /** The settled value the stream carries — `exitCode` is null when the process never exited itself. */
+    const settleFromStream = (exitCode: number | null): void => {
+      // THE WHOLE ENVELOPE, not just `.result`. The parse is pure and lives in agent-envelope.ts so
+      // it can be table-tested without a subprocess; `{ok, summary}` are byte-for-byte what they
+      // were, and the measurements ride alongside them. The text parsed is the stream's final
+      // `result` line, or — for output that never was a stream — the stdout verbatim, as before; a
+      // stream that ended without a `result` parses "" into today's no-JSON failure sentence.
+      const raw = parser.end() ?? parser.raw();
+      const errorHint = parser.errorHint();
+      // STDERR IS SANITIZED BEFORE IT CAN REACH A STORED TEXT (agent-stderr.ts): a failing user hook's
+      // echoed command line — token included — is exactly what the live check found in it.
+      const stderr = sanitizeAgentStderr(err);
+      const envelope = parseAgentEnvelope(raw, { fallbackModel: model, exitCode, stderr, errorHint });
+      settle(envelope.ok ? envelope : { ...envelope, errorText: agentErrorText(raw, { stderr, errorHint }) });
+    };
+    // THE PROCESS OUTLIVED ITS ANSWER. The answer is kept exactly as `close` would have read it; the
+    // tree is ended in the background, as on the timer path.
+    const answeredButAlive = (): void => {
+      exitGrace = null;
+      if (settled) return;
+      clearTimeout(timer);
+      disarm();
+      void endTree().catch(() => null);
+      settleFromStream(null);
+    };
     // KILLING IS NOT THE MECHANISM; SETTLING IS. `child.kill()` is best-effort — with `shell: true`
     // it signals the shell, and a grandchild that inherited the stdio pipes can keep them open, so
     // `close` may never arrive. The `settle` call is therefore unconditional and NOT inside a close
     // handler: the caller's await resolves on the timer whatever the process does afterwards. (The
     // lane's watchdog races this call as well, so even a broken timer cannot park a lane.)
     const timer = setTimeout(() => {
-      child.kill();
+      disarmGrace();
       // The tree kill is fire-and-forget HERE on purpose: this path's summary and its timing are
       // exactly what they were before the helper existed, and the settle above the lane must not
       // wait on a `taskkill`. The abort path below is the one that reports what the kill confirmed.
-      void killProcessTree(child.pid).catch(() => null);
+      void endTree().catch(() => null);
       settle({
         ok: false,
         summary: `Agent session${clause} exceeded ${Math.round(limitMs / 60_000)} min and was stopped.`,
@@ -333,11 +399,11 @@ export function runAgentSession(opts: ClaudeAgentOptions, arm: AgentArm): Promis
     // its honest outcome in the summary the lane logs. It settles exactly once, like every other path.
     const onAbort = (): void => {
       clearTimeout(timer);
-      child.kill();
+      disarmGrace();
       // A CUT FROM OUTSIDE is the LANE's ceiling, not this session's, so `limitMs` stays null: the
       // number that fired belongs to the watchdog and is already on the lane row.
       const cut: CeilingHit = { kind: "lane", transport, local, limitMs: null };
-      void killProcessTree(child.pid).then(
+      void endTree().then(
         (k) => settle({ ok: false, summary: `${abortSummary(opts.signal)} — ${k.note}.`, ceiling: cut }),
         () =>
           settle({
@@ -358,25 +424,16 @@ export function runAgentSession(opts: ClaudeAgentOptions, arm: AgentArm): Promis
     });
     child.on("error", (e) => {
       clearTimeout(timer);
+      disarmGrace();
       disarm();
       settle({ ok: false, summary: `Could not start the claude CLI: ${e.message}` });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      disarmGrace();
       disarm();
       parser.push(decoder.end());
-      // THE WHOLE ENVELOPE, not just `.result`. The parse is pure and lives in agent-envelope.ts so
-      // it can be table-tested without a subprocess; `{ok, summary}` are byte-for-byte what they
-      // were, and the measurements ride alongside them. The text parsed is the stream's final
-      // `result` line, or — for output that never was a stream — the stdout verbatim, as before; a
-      // stream that ended without a `result` parses "" into today's no-JSON failure sentence.
-      const raw = parser.end() ?? parser.raw();
-      const errorHint = parser.errorHint();
-      // STDERR IS SANITIZED BEFORE IT CAN REACH A STORED TEXT (agent-stderr.ts): a failing user hook's
-      // echoed command line — token included — is exactly what the live check found in it.
-      const stderr = sanitizeAgentStderr(err);
-      const envelope = parseAgentEnvelope(raw, { fallbackModel: model, exitCode: code, stderr, errorHint });
-      settle(envelope.ok ? envelope : { ...envelope, errorText: agentErrorText(raw, { stderr, errorHint }) });
+      settleFromStream(code);
     });
 
     child.stdin.write(opts.prompt);
