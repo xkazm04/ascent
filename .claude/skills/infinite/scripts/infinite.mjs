@@ -356,6 +356,10 @@ function computeMetrics(dir, extra = {}) {
         phase: l.phase,
         kind: o?.kind ?? null,
         commits: l.commits ?? 0,
+        // A lane with commits and no landedAt is HELD: its work sits on its own ascent/loop-* branch and
+        // never reached ascent/runner (personas-web block 001: 7 of 10 lanes, verify skipped).
+        landed: l.landedAt != null,
+        branch: l.branch ?? null,
         closed: (l.closedIds ?? []).length,
         verifyVerdict: l.verifyVerdict ?? null,
         verifyRung: l.verifyRung ?? null,
@@ -414,6 +418,9 @@ function computeMetrics(dir, extra = {}) {
       verifiedPoints: rounds.reduce((s, r) => s + r.verifiedPoints, 0),
       landed: rounds.reduce((s, r) => s + (r.landed ?? 0), 0),
       laneCommits: allLanes.reduce((s, l) => s + l.commits, 0),
+      heldLanes: allLanes.filter((l) => l.commits > 0 && !l.landed).length,
+      closesOnHeldLanes: allLanes.filter((l) => l.commits > 0 && !l.landed).reduce((s, l) => s + l.closed, 0),
+      heldBranches: allLanes.filter((l) => l.commits > 0 && !l.landed).map((l) => l.branch).filter(Boolean),
       dryRounds: rounds.filter((r) => r.dry).length,
       voidedLanes: allLanes.filter((l) => l.voidReason).length,
       voidReasons: allLanes.filter((l) => l.voidReason).map((l) => l.voidReason),
@@ -517,6 +524,7 @@ function appendLedger(m) {
       TABLE_HEAD +
       ledgerRow(m) +
       `\n${m.label ? `label: ${m.label}  \n` : ""}exit ${m.exitCode} · drive ${m.driveId ?? "-"} · verify ${JSON.stringify(m.totals.verifyVerdicts)} rungs ${m.totals.verifyRungs.join(",") || "-"}` +
+      ` · held lanes ${m.totals.heldLanes ?? "?"} (closes on held ${m.totals.closesOnHeldLanes ?? "?"})` +
       `${m.errors?.length ? `  \nerrors: ${m.errors.slice(0, 5).map((e) => String(e).replace(/\s*\n\s*/g, " / ").slice(0, 240)).join(" ;; ")}` : ""}\n`,
   );
 }
@@ -830,6 +838,12 @@ async function block() {
     `DONE ${id}: ${stopReason} · ${metrics.roundsCompleted}/${cfg.rounds} rounds · closes ${metrics.totals.verifiedClosesByRound.join(",") || "-"} · ` +
       `runner +${metrics.runnerBranch.commitsAdded} commits · exit ${exitCode}`,
   );
+  if (metrics.totals.heldLanes > 0) {
+    log(
+      `WARNING ${id}: ${metrics.totals.heldLanes} lane(s) committed work that never reached ascent/runner ` +
+        `(${metrics.totals.closesOnHeldLanes} closes counted on them): ${metrics.totals.heldBranches.join(", ")}`,
+    );
+  }
   return exitCode;
 }
 
