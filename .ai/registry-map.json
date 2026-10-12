@@ -816,7 +816,11 @@
           "revision": 52,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/org-gate.ts:23 A corrupt stored policy becomes an unset policy, allowing the archetype default to replace an unreadable configured bar instead of refusing the verdict.",
+          "evaluatedAt": "2026-10-12",
+          "evaluatedAgainst": "sha256-b2:6e635d76a310aa4b",
+          "evaluatedRevision": 53
         },
         {
           "subject": "agent-memory",
@@ -6133,7 +6137,11 @@
           "revision": 52,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/local/lane-gate-repair.ts:40 The gate-repair turn lets the same agent rewrite the failing check, so a subsequent green result does not prove repair against an unchanged oracle.",
+          "evaluatedAt": "2026-10-12",
+          "evaluatedAgainst": "sha256-b2:6e635d76a310aa4b",
+          "evaluatedRevision": 53
         },
         {
           "subject": "agent-cli-transport",

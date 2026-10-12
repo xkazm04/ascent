@@ -329,6 +329,68 @@
       "worker": "w9-ascent",
       "techniques": [],
       "registryProposal": ""
+    },
+    "Repository Scanning & Scoring/CI Gate & Status Checks/quality-gates": {
+      "context": "CI Gate & Status Checks",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-12",
+      "evaluatedTs": "2026-10-12T20:14:34.132Z",
+      "worker": "c0e336bf-9635-4704-9e50-dad080f0240c",
+      "techniques": [
+        {
+          "technique": "policy-projection",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate-comment.ts:260 The PR footer projects the effective policy through the shared condition enumeration and marks skipped conditions."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:401 The refusal explains the unavailable inputs and names the authenticated check-run surface that can enforce those bars."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "conformant",
+          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:350 Failure maps to HTTP 422, while degradation or explicitly requested unmeasured bars map to 503; route tests assert the non-success mapping."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-gate.ts:23 The parser returns null after this diagnostic; the gate route treats null as no configured policy and uses defaults rather than refusing an unreadable policy."
+        }
+      ]
+    },
+    "Org Planning & Execution/Local Autopilot & Loop Engine/quality-gates": {
+      "context": "Local Autopilot & Loop Engine",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-12",
+      "evaluatedTs": "2026-10-12T20:14:34.132Z",
+      "worker": "c0e336bf-9635-4704-9e50-dad080f0240c",
+      "techniques": [
+        {
+          "technique": "instrument-answers-only-its-own-question",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/lane-guard.ts:474 A narrowed verification result explicitly states its compile/lint scope and declines to claim that the test suite passed."
+        },
+        {
+          "technique": "oracle-frozen-during-repair",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/lane-gate-repair.ts:40 repairDeclaredGate resumes the same session to edit the failing gate scripts/configuration; the prohibition on weakening is prose, and correcting the oracle is not a separate human-owned task."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/loop-delivery.ts:129 The delivery boundary checks rejection before landing or opening a PR and returns delivered:false from this branch."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/loop-delivery.ts:155 With verification enabled, skipped, unavailable, or missing verdicts block delivery; unverifiedDeliveryReason preserves their distinct explanations."
+        }
+      ]
     }
   }
 }

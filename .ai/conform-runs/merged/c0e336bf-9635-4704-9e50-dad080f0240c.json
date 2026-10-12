@@ -1,0 +1,162 @@
+{
+ "schema": "conform-run/1",
+ "worker": "c0e336bf-9635-4704-9e50-dad080f0240c",
+ "subject": "quality-gates",
+ "evaluatedAt": "2026-10-12T20:14:34.132098+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "CI Gate & Status Checks",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/org-gate.ts:23 A corrupt stored policy becomes an unset policy, allowing the archetype default to replace an unreadable configured bar instead of refusing the verdict.",
+   "techniques": [
+    {
+     "technique": "policy-projection",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/gate-comment.ts:260 The PR footer projects the effective policy through the shared condition enumeration and marks skipped conditions."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "conformant",
+     "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:401 The refusal explains the unavailable inputs and names the authenticated check-run surface that can enforce those bars."
+    },
+    {
+     "technique": "severity-by-construction",
+     "verdict": "conformant",
+     "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:350 Failure maps to HTTP 422, while degradation or explicitly requested unmeasured bars map to 503; route tests assert the non-success mapping."
+    },
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-gate.ts:23 The parser returns null after this diagnostic; the gate route treats null as no configured policy and uses defaults rather than refusing an unreadable policy."
+    }
+   ]
+  },
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/local/lane-gate-repair.ts:40 The gate-repair turn lets the same agent rewrite the failing check, so a subsequent green result does not prove repair against an unchanged oracle.",
+   "techniques": [
+    {
+     "technique": "instrument-answers-only-its-own-question",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/lane-guard.ts:474 A narrowed verification result explicitly states its compile/lint scope and declines to claim that the test suite passed."
+    },
+    {
+     "technique": "oracle-frozen-during-repair",
+     "verdict": "deviation",
+     "evidence": "src/lib/local/lane-gate-repair.ts:40 repairDeclaredGate resumes the same session to edit the failing gate scripts/configuration; the prohibition on weakening is prose, and correcting the oracle is not a separate human-owned task."
+    },
+    {
+     "technique": "severity-by-construction",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/loop-delivery.ts:129 The delivery boundary checks rejection before landing or opening a PR and returns delivered:false from this branch."
+    },
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/loop-delivery.ts:155 With verification enabled, skipped, unavailable, or missing verdicts block delivery; unverifiedDeliveryReason preserves their distinct explanations."
+    }
+   ]
+  },
+  {
+   "context": "Athena Companion",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/athena/proposals/[id]/resolve/route.ts:170 A failed approval-policy read becomes no policy, allowing anonymous acceptance to proceed without establishing whether named human approval was required.",
+   "techniques": [
+    {
+     "technique": "prose-rule-drift",
+     "verdict": "conformant",
+     "evidence": "src/app/api/athena/proposals/[id]/resolve/route.ts:171 When the published stance is available, its named-human approval rule is enforced at acceptance before claiming or executing the action."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "conformant",
+     "evidence": "src/app/api/athena/proposals/[id]/resolve/route.ts:175 The approval refusal explains the missing attribution and names signing in as the remedy."
+    },
+    {
+     "technique": "severity-by-construction",
+     "verdict": "deviation",
+     "evidence": "src/app/api/cron/athena/route.ts:174 Errors, truncation, or no engine return a success-class 2xx status despite the preceding code comment relying on non-2xx monitoring; a consumer accepting all 2xx responses will not detect degradation from status alone."
+    },
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "deviation",
+     "evidence": "src/app/api/athena/proposals/[id]/resolve/route.ts:170 An instrument failure reading the governing stance is converted to its legitimate absence, disabling the approval-attribution check instead of refusing acceptance."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "quality-gates",
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "First-Run Onboarding Wizard",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-12T20:14:34.132098+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "policy-projection",
+    "refusal-names-a-reachable-remedy",
+    "severity-by-construction",
+    "unmeasurable-criteria"
+   ],
+   "deviations": 1,
+   "context": "CI Gate & Status Checks",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-12T20:14:34.132098+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "instrument-answers-only-its-own-question",
+    "oracle-frozen-during-repair",
+    "severity-by-construction",
+    "unmeasurable-criteria"
+   ],
+   "deviations": 1,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-12T20:14:34.132098+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "prose-rule-drift",
+    "refusal-names-a-reachable-remedy",
+    "severity-by-construction",
+    "unmeasurable-criteria"
+   ],
+   "deviations": 1,
+   "context": "Athena Companion",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
