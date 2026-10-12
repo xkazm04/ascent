@@ -427,6 +427,17 @@ function computeMetrics(dir, extra = {}) {
       heldLanes: allLanes.filter(isHeld).length,
       closesOnHeldLanes: allLanes.filter(isHeld).reduce((s, l) => s + l.closed, 0),
       heldBranches: allLanes.filter(isHeld).map((l) => l.heldRef ?? l.branch).filter(Boolean),
+      // By cause, because the remedies differ: `fence` = the plan/containment guard moved the commits to
+      // ascent/held/<id> (the plan must declare what the executor creates); `unverified` = verify was
+      // skipped and delivery refused (the repository needs a declared gate); `other` = anything else.
+      heldByCause: allLanes.filter(isHeld).reduce(
+        (m, l) => {
+          const cause = l.heldRef ? "fence" : l.verifyVerdict === "skipped" ? "unverified" : "other";
+          m[cause] += 1;
+          return m;
+        },
+        { fence: 0, unverified: 0, other: 0 },
+      ),
       dryRounds: rounds.filter((r) => r.dry).length,
       voidedLanes: allLanes.filter((l) => l.voidReason).length,
       voidReasons: allLanes.filter((l) => l.voidReason).map((l) => l.voidReason),
@@ -530,7 +541,7 @@ function appendLedger(m) {
       TABLE_HEAD +
       ledgerRow(m) +
       `\n${m.label ? `label: ${m.label}  \n` : ""}exit ${m.exitCode} · drive ${m.driveId ?? "-"} · verify ${JSON.stringify(m.totals.verifyVerdicts)} rungs ${m.totals.verifyRungs.join(",") || "-"}` +
-      ` · held lanes ${m.totals.heldLanes ?? "?"} (closes on held ${m.totals.closesOnHeldLanes ?? "?"})` +
+      ` · held lanes ${m.totals.heldLanes ?? "?"} ${m.totals.heldByCause ? JSON.stringify(m.totals.heldByCause) : ""} (closes on held ${m.totals.closesOnHeldLanes ?? "?"})` +
       `${m.errors?.length ? `  \nerrors: ${m.errors.slice(0, 5).map((e) => String(e).replace(/\s*\n\s*/g, " / ").slice(0, 240)).join(" ;; ")}` : ""}\n`,
   );
 }
