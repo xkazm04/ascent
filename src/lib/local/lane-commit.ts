@@ -35,6 +35,7 @@
 // rescan's own "no longer raised AND the dimension moved" rule, which needs no trailer.
 
 import { runGit } from "@/lib/local/git";
+import { GIT_COMMIT_TIMEOUT_MS } from "@/lib/local/run-limits";
 import { FOLLOWUP_TRAILER } from "@/lib/org/followups";
 
 /** Longest subject line the lane will write. Conventional git wisdom, and the history strip's width. */
@@ -384,7 +385,11 @@ export async function commitAgentWork(input: LaneCommitInput): Promise<LaneCommi
     extra;
 
   // RUNG 1 — the ordinary commit, with the repository's own hooks running.
-  const first = await runGit(input.dir, ["commit", "-m", subject, "-m", body]);
+  // Every rung runs (or skips) the repository's hooks, so every rung gets the commit ceiling, not the
+  // 15 s inspection one: a timed-out rung 1 and 2 would otherwise reach the `--no-verify` bypass over
+  // hooks that were passing (GIT_COMMIT_TIMEOUT_MS, run-limits.ts).
+  const commitOpts = { timeoutMs: GIT_COMMIT_TIMEOUT_MS };
+  const first = await runGit(input.dir, ["commit", "-m", subject, "-m", body], commitOpts);
   if (first.ok) return { committed: true, files: paths.length, resolved: ids, summary: landed("") };
   const firstErr = firstLine(first.stderr || first.stdout);
 
@@ -395,7 +400,7 @@ export async function commitAgentWork(input: LaneCommitInput): Promise<LaneCommi
   // Appended INTO the trailer block when there is one (a blank line would end it and demote the
   // waiver to prose), and after a blank line when the body ends in prose.
   const exemptBody = ids.length > 0 ? `${body}\n${EXEMPTION_REASON}` : `${body}\n\n${EXEMPTION_REASON}`;
-  const second = await runGit(input.dir, ["commit", "-m", subject, "-m", exemptBody]);
+  const second = await runGit(input.dir, ["commit", "-m", subject, "-m", exemptBody], commitOpts);
   if (second.ok) {
     return {
       committed: true,
@@ -414,7 +419,7 @@ export async function commitAgentWork(input: LaneCommitInput): Promise<LaneCommi
   // real changes with it, 7 lanes running. Work is never silently discarded over a message format.
   // The bypass is a fact about a repository's own gate being stepped over, so it is stated in the
   // lane log, in capitals, with the hook's own words and both attempts named.
-  const third = await runGit(input.dir, ["commit", "--no-verify", "-m", subject, "-m", exemptBody]);
+  const third = await runGit(input.dir, ["commit", "--no-verify", "-m", subject, "-m", exemptBody], commitOpts);
   if (third.ok) {
     return {
       committed: true,

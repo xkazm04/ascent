@@ -53,6 +53,22 @@ vi.mock("@/lib/local/git", () => ({
     return { ok: true, stdout: "sha_head", stderr: "" };
   }),
 }));
+const outcomeCalls: Record<string, unknown>[] = [];
+const lessonCalls: unknown[][] = [];
+vi.mock("@/lib/db/lane-outcomes", () => ({
+  getActiveDeferrals: vi.fn(async () => new Set<string>()),
+  recordLaneOutcomes: vi.fn(async (input: Record<string, unknown>) => {
+    outcomeCalls.push(input);
+    return [];
+  }),
+}));
+vi.mock("@/lib/db/loop-lessons", () => ({
+  recordLoopLessons: vi.fn(async (...a: unknown[]) => {
+    lessonCalls.push(a);
+    return (a[3] as string[]).map((content) => ({ content, status: "pending" }));
+  }),
+  recordRedBaselineLesson: vi.fn(async () => null),
+}));
 vi.mock("@/lib/db", () => ({ persistScanReport: vi.fn(async () => ({ scanId: "s" })) }));
 vi.mock("@/lib/db/org-insights", () => ({ getOrgBacklog: vi.fn(async () => null) }));
 vi.mock("@/lib/scan", () => ({ scanRepository: vi.fn(async () => ({})) }));
@@ -97,8 +113,50 @@ const run = (over: Partial<LaneDeps> = {}) =>
 beforeEach(() => {
   logs.length = 0;
   recUpdates.length = 0;
+  outcomeCalls.length = 0;
+  lessonCalls.length = 0;
   rescan.mockClear();
   git.commits = "0";
+});
+
+// Block 001 of the infinite-cycles rig (2026-10-09): every item skipped with a reason, nothing
+// committed, nothing recorded, and the next cycle was offered the same three refusals.
+const skippedAll = {
+  v: 1 as const,
+  parsed: true,
+  items: [
+    { recommendationId: "a", verdict: "skipped" as const, reason: "needs an edit to an existing workflow", files: [] },
+    { recommendationId: "b", verdict: "needs_human" as const, reason: "needs network to resolve SHAs", files: [] },
+  ],
+  lessons: ["route workflow edits to a human"],
+};
+
+describe("a lane that committed nothing, but whose session said what it could not do", () => {
+  it("parks those items (closedIds []) and records the lessons as candidates, still without a rescan", async () => {
+    const res = await run({ readReport: vi.fn(async () => skippedAll) as never });
+    expect(rescan).not.toHaveBeenCalled();
+    expect(res.progressed).toBe(false);
+    expect(outcomeCalls.map((c) => [c.batchIds, c.closedIds])).toEqual([
+      [["a"], []],
+      [["b"], []],
+    ]);
+    expect(lessonCalls).toHaveLength(1);
+    expect(lessonCalls[0]![4]).toEqual({ autoKeep: false });
+    expect(logs.some((l) => l.includes("Parked 2 item(s)"))).toBe(true);
+    // The claims are released exactly as before; the deferral is a separate, advisory row.
+    expect(recUpdates.filter((u) => u.status === "open").map((u) => u.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("parks nothing when the session wrote no report", async () => {
+    await run({ readReport: vi.fn(async () => null) as never });
+    expect(outcomeCalls).toEqual([]);
+  });
+
+  it("leaves a committing lane on its ordinary adjudication path", async () => {
+    git.commits = "2";
+    await run({ readReport: vi.fn(async () => skippedAll) as never });
+    expect(logs.some((l) => l.includes("Parked"))).toBe(false);
+  });
 });
 
 describe("a lane that committed nothing", () => {

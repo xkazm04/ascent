@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Rec = { id: string; dimId: string; title: string; status: string; kind: string; scanId: string };
 
 const recs: Rec[] = [];
-const outcomes: { recommendationId: string; repoFullName: string; orgId: string; verdict: string; deferUntil: Date | null }[] = [];
+const outcomes: { recommendationId: string; repoFullName: string; orgId: string; verdict: string; deferUntil: Date | null; reason?: string }[] = [];
 const events: Record<string, unknown>[] = [];
 let laneVerdict: string | null = "verified";
 
@@ -97,6 +97,52 @@ describe("getActiveDeferrals — the park is on the ITEM, not on the row", () =>
     recs.push({ id: "new", dimId: "D9", title: "Pin actions to commit SHAs", status: "open", kind: "gap", scanId: "scan-2" });
     outcomes.push({ recommendationId: "old", repoFullName: "kiro/kp", orgId: "org-kiro", verdict: "skipped", deferUntil: new Date("2026-08-01T00:00:00Z") });
     expect((await getActiveDeferrals("kiro", "kiro/kp", NOW)).size).toBe(0);
+  });
+});
+
+describe("getActiveDeferrals — a containment refusal parks the dimension's re-worded GAPS (block 003)", () => {
+  // Block 002 on xkazm04/personas: the same four D9 workflow practices came back under nine titles,
+  // every lane refused them for network / gate-surface reasons, and the title-keyed park missed each
+  // new wording. These rows are the shape of that block, titles verbatim.
+  const refuse = (id: string, reason: string) =>
+    outcomes.push({ recommendationId: id, repoFullName: "xkazm04/personas", orgId: "org-kiro", verdict: "needs_human", deferUntil: LATER, reason });
+  const seed = () => {
+    recs.push({ id: "r1", dimId: "D9", title: "Workflow actions float on tags and branches", status: "open", kind: "gap", scanId: "scan-1" });
+    recs.push({ id: "r4", dimId: "D9", title: "Installers ship without provenance or an inventory", status: "open", kind: "gap", scanId: "scan-1" });
+    recs.push({ id: "new-pin", dimId: "D9", title: "Actions are referenced by tag and some workflows hold broad tokens", status: "open", kind: "gap", scanId: "scan-2" });
+    recs.push({ id: "new-sbom", dimId: "D9", title: "Release artifacts ship without signatures, provenance or an SBOM", status: "open", kind: "gap", scanId: "scan-2" });
+    recs.push({ id: "d9-rung", dimId: "D9", title: "Secrets scanning could gate the release path", status: "open", kind: "craft", scanId: "scan-2" });
+    recs.push({ id: "d5-gap", dimId: "D5", title: "Decisions live in three places", status: "open", kind: "gap", scanId: "scan-2" });
+  };
+
+  it("parks every open D9 gap on the latest scan once two D9 gaps were refused for containment", async () => {
+    seed();
+    refuse("r1", "Needs network to resolve each action tag to a commit SHA, plus gate-surface edits");
+    refuse("r4", "an edit to an existing workflow and needs network to pin the new actions.");
+    const parked = await getActiveDeferrals("kiro", "xkazm04/personas", NOW);
+    expect(parked.has("new-pin"), "re-worded pinning gap").toBe(true);
+    expect(parked.has("new-sbom"), "re-worded provenance gap").toBe(true);
+    // A craft rung on the same dimension and a gap on another dimension are untouched.
+    expect(parked.has("d9-rung")).toBe(false);
+    expect(parked.has("d5-gap")).toBe(false);
+  });
+
+  it("does not widen on one refusal, or on refusals that name no containment limit", async () => {
+    seed();
+    refuse("r1", "Needs network to resolve each action tag to a commit SHA");
+    expect((await getActiveDeferrals("kiro", "xkazm04/personas", NOW)).has("new-pin")).toBe(false);
+    outcomes.length = 0;
+    refuse("r1", "needs a product decision on which installers matter");
+    refuse("r4", "Already covered by codeql.yml");
+    expect((await getActiveDeferrals("kiro", "xkazm04/personas", NOW)).has("new-sbom")).toBe(false);
+  });
+
+  it("lets the dimension go when the deferrals that justified it expire", async () => {
+    seed();
+    refuse("r1", "Needs network to resolve each action tag to a commit SHA");
+    refuse("r4", "an edit to an existing workflow (voids the cycle)");
+    const afterWindow = new Date(LATER.getTime() + 1000);
+    expect((await getActiveDeferrals("kiro", "xkazm04/personas", afterWindow)).size).toBe(0);
   });
 });
 

@@ -741,7 +741,8 @@ export async function retryLane(laneId: string, opts: { deps?: Partial<LaneDeps>
       });
     } finally {
       if (wt) {
-        forgetVerifyBaseline(wt.dir);
+        // Ends any verification command still running in the worktree (its whole tree) before removal.
+        await forgetVerifyBaseline(wt.dir);
         await removeLoopWorktree(wt);
       }
     }
@@ -974,7 +975,8 @@ async function drive(
     pending.clear();
     clearStopTeeth(state);
     for (const wt of state.worktrees.values()) {
-      forgetVerifyBaseline(wt.dir);
+      // Ends any verification command still running in the worktree (its whole tree) before removal.
+      await forgetVerifyBaseline(wt.dir);
       await removeLoopWorktree(wt);
     }
     live.delete(run.id);

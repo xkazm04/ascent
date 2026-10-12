@@ -5,7 +5,8 @@
 // everything the rubric asks got silence. Worse, craft rows were reaching the batch ACCIDENTALLY —
 // `getOrgBacklog` filtered on `status` alone, so a craft entry could be dispatched mixed in with
 // gaps, unordered, contradicting the schema's own comment. r12 makes the mixing deliberate and
-// ordered: gaps always outrank craft, and craft is returned ONLY when no open gap remains.
+// ordered: gaps always outrank craft. (Until cycle 006 craft was returned ONLY when no open gap
+// remained on a non-green repo; the reservation in loop-lane.reservation.test.ts now opens everywhere.)
 //
 // The campaign case is the one that has to work: a repo with an EMPTY gap backlog must produce a
 // non-empty, dispatchable batch — not an empty one, which makes the lane a silent no-op.
@@ -102,20 +103,22 @@ beforeEach(() => {
 });
 
 describe("gaps always outrank craft", () => {
-  it("a repo with BOTH open gaps and craft rungs gets a gaps-only batch", async () => {
+  // experiment/infinite-cycles, cycle 006: the reservation no longer waits for green (this repo's
+  // dimension read is unmocked and answers nothing, which used to mean gaps-only). Gaps still lead.
+  it("a repo with BOTH open gaps and craft rungs gets the gaps first and the ladder after them", async () => {
     backlogItems.push(gap("g1"), gap("g2", "low"));
     craftItems.push(craft("c1", "performance"));
 
     const batch = await openBatch("kiro", "o/r");
-    expect(batch.map((b) => b.id)).toEqual(["g1", "g2"]);
-    expect(batch.some((b) => b.kind === "craft")).toBe(false);
+    expect(batch.map((b) => b.id)).toEqual(["g1", "g2", "c1"]);
   });
 
-  it("a single open gap is still enough to keep craft out entirely", async () => {
+  it("a single open gap leads the batch but no longer keeps craft out", async () => {
     backlogItems.push(gap("g1"));
     craftItems.push(craft("c1", "performance"), craft("c2", "robustness"));
     const batch = await openBatch("kiro", "o/r");
-    expect(batch.map((b) => b.id)).toEqual(["g1"]);
+    expect(batch[0]?.id).toBe("g1");
+    expect(batch.slice(1).map((b) => b.id).sort()).toEqual(["c1", "c2"]);
   });
 });
 
@@ -168,7 +171,8 @@ describe("the craft fallback — where the loop used to die", () => {
     backlogItems.push(gap("g1"));
     craftItems.push(craft("c1", "performance"));
     unmeasurableDims = [];
-    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1"]);
+    // The gap is still armed and still leads; since cycle 006 the ladder fills the slots after it.
+    expect((await openBatch("kiro", "o/r")).map((b) => b.id)).toEqual(["g1", "c1"]);
   });
 
   it("skips only the unobservable dimensions — a gap elsewhere is still armed", async () => {

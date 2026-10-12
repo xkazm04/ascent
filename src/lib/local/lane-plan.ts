@@ -210,7 +210,7 @@ export async function planLane(input: PlanLaneInput): Promise<PlanLaneOutcome> {
   const planEndpoint = resolveLocalEndpoint(planArm);
   const opts: TransportRunOptions = {
     cwd: worktree.dir,
-    prompt: buildPlanningPrompt({ org, repo, batch, briefText: input.briefText, partition, revise: revise.map((r) => r.note) }),
+    prompt: buildPlanningPrompt({ org, repo, batch, briefText: input.briefText, partition, revise: revise.map((r) => r.note), timeoutMs: input.planTimeoutMs ?? PLAN_TIMEOUT_MS }),
     permission: "plan",
     sessionId,
     ...(planModel ? { model: planModel } : {}),

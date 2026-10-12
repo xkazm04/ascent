@@ -100,4 +100,13 @@ describe("laneReportContract", () => {
     // Skips are asked for as first-class answers, because a hedge is what the loop cannot act on.
     expect(text).toContain("FIRST-CLASS answers");
   });
+
+  it("says the report file is not the claim, and the final message's RESOLVED/SKIPPED lines are", () => {
+    // Block 006 round 1 (experiment/infinite-cycles): a session wrote 3 resolved verdicts here and no
+    // claim lines, so its commit carried 0 trailers and no craft rung could close.
+    const text = laneReportContract(BATCH);
+    expect(text).toContain("THIS FILE IS NOT THE CLAIM");
+    expect(text).toContain("`RESOLVED: <id> - <what changed>`");
+    expect(text).toContain("`SKIPPED: <id> - why`");
+  });
 });

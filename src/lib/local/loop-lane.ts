@@ -39,7 +39,7 @@ import { installInWorktree } from "@/lib/local/lane-install";
 import { commitAgentWork } from "@/lib/local/lane-commit";
 import { parseClaimLines, type AgentClaim } from "@/lib/local/lane-deliverables";
 import { isAgentLaneKind, proposeLaneKind } from "@/lib/local/lane-kind";
-import { gapSlotsAtGreen, isReservationGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
+import { gapSlotsAtGreen, reserveCraftSlots } from "@/lib/local/lane-reservation";
 import { batchSizeOf, verifyTimeoutMsOf } from "@/lib/local/run-limits";
 // THE LIVENESS CEILING. Every awaited stage below runs inside a race against ONE deadline derived
 // from this run's own parameters, so an inner call that never settles orphans itself instead of
@@ -69,7 +69,8 @@ import { GUARD_OFF_PATCH, installBaseline, laneChangedPaths, verifyInstall } fro
 // matters.
 import { unverifiedCycleBrief, unverifiedCycleLesson, type BaselineLaneRow } from "@/lib/local/lane-baseline";
 import { loadLaneBriefInput } from "@/lib/db/lane-brief-read";
-import { getActiveDeferrals } from "@/lib/db/lane-outcomes";
+import { getActiveDeferrals, recordLaneOutcomes } from "@/lib/db/lane-outcomes";
+import { parkWithoutCommits } from "@/lib/local/lane-park";
 import { recordLoopLessons, recordRedBaselineLesson } from "@/lib/db/loop-lessons";
 import { buildLaneBrief, briefSummaryLine } from "@/lib/org/lane-brief";
 import { laneReportContract, readLaneReport, type LaneReport } from "@/lib/local/lane-report";
@@ -482,22 +483,6 @@ async function latestUnmeasurableDims(org: string, repo: string): Promise<Readon
   }
 }
 
-/**
- * Is this repo GREEN — every measured dimension at or above FOLLOW_UP_BELOW on its latest scan?
- *
- * Lazy import for the same reason `latestUnmeasurableDims` above is. A failed read is NOT green,
- * which lands the batch on the untouched gaps-only path: the reservation spends a lane's slots on
- * optional work, so an absence of evidence must never be enough to open it.
- */
-async function latestRepoIsGreen(org: string, repo: string, unmeasurable: ReadonlySet<string>): Promise<boolean> {
-  try {
-    const { getLatestRepoDimScores } = await import("@/lib/db/org-insights-green");
-    return isReservationGreen(repo, await getLatestRepoDimScores(org, repo), [...unmeasurable]);
-  } catch {
-    return false;
-  }
-}
-
 /** The durable keys a plan currently holds on this repo. Lazy for the same reason `latestUnmeasurableDims`
  *  is (the lane's unit tests mock the db barrel); a failed read is an EMPTY set, never "assume held". */
 async function heldByPlan(org: string, repo: string): Promise<ReadonlySet<string>> {
@@ -572,20 +557,26 @@ export async function openBatch(
       projectedPoints: it.projectedPoints,
     }));
   if (gaps.length === 0) return craftBatch(org, repo, limit, deferred, isHeld);
-  // THE GREEN RESERVATION (see lane-reservation.ts for the campaign evidence).
+  // THE CRAFT RESERVATION (see lane-reservation.ts for the campaign evidence).
   //
-  // GAPS STILL OUTRANK CRAFT — they come first and they win the top slots — but on a GREEN repo they
-  // no longer take the whole lane. r12 reached the ladder only when a repo had zero open gaps, and
-  // twelve campaign runs on two green repositories show that never happens: every rescan's roadmap
-  // raises one or two fresh entries, so the batch is perpetually a one-item `backlog` lane and the
-  // ladder — five well-formed rungs per repo, sitting in the recommendations table — never gets a
-  // turn.
+  // GAPS STILL OUTRANK CRAFT — they come first and they win the top slots — but they no longer take
+  // the whole lane. r12 reached the ladder only when a repo had zero open gaps, and twelve campaign
+  // runs on two green repositories show that never happens: every rescan's roadmap raises one or two
+  // fresh entries, so the batch is perpetually a one-item `backlog` lane and the ladder — five
+  // well-formed rungs per repo, sitting in the recommendations table — never gets a turn.
   //
-  // A NON-GREEN REPO IS UNCHANGED, byte-identical to before: a repo with a real hole gets no craft
-  // budget at all. So is a green repo with no rungs left, and so is the curated read, which asks for
-  // the whole open list rather than a lane-sized batch.
+  // IT NO LONGER WAITS FOR GREEN (experiment/infinite-cycles, cycle 006). It used to open only once
+  // every measured dimension cleared FOLLOW_UP_BELOW, so a non-green repo's batch was gaps-only.
+  // Measured on xkazm04/personas across blocks 002 and 005, the two blocks whose executors ran: the
+  // repo is non-green on ONE dimension (D9 63 < 65) whose gaps a no-shell lane cannot work (network
+  // to pin SHAs, edits to existing workflows), so whenever a rescan raised any gap the lane got that
+  // gap alone. Gaps-only lanes: 5 lanes, 0 closes (002 r1/r4/r6/r7, 005 r2, the last a single D1 gap
+  // at D1 = 100 whose fix lives in a harness-protected file). Lanes carrying the ladder: 4 lanes, 7
+  // closes, and the fourth was voided rather than refused. One item owned the round, and a dry round
+  // is what the back-off counts. Now every lane keeps its 2/5 gap share AND carries the ladder in the
+  // rest; a gap still leads. Unchanged: a repo with no rungs left gets exactly the gaps it had, and
+  // the curated read asks for the whole open list rather than a lane-sized batch.
   if (opts.reserveCraft === false) return gaps;
-  if (!(await latestRepoIsGreen(org, repo, unmeasurable))) return gaps;
   // THE RESERVATION IS A PROPORTION, not a count. A fixed two gap slots against a variable batch is
   // two different reservations wearing one number — on a batch of ten it would hand eight slots to the
   // ladder. `gapSlotsAtGreen` keeps the 2/3 split at five and scales it, always leaving at least one
@@ -1816,6 +1807,19 @@ export async function runLane(input: LaneRunInput): Promise<LaneRunResult> {
     // (The read side refuses the same pair independently — `laneAttribution` in cockpitDrift.ts —
     // because the rows written before this gate existed are still in the database.)
     if (commits === 0) {
+      // NO COMMIT, NO RESCAN — but the session's own skips still park their items (lane-park.ts), so
+      // the next cycle is not handed the same refusal. Closes nothing, verifies nothing.
+      if (isAgentLaneKind(kind) && laneId && batch.length > 0) {
+        await parkWithoutCommits(
+          { org, repo, runId, laneId, cycle, batchIds: batch.map((b) => b.id), report },
+          // Lazy wrappers on purpose: the bindings are read inside parkWithoutCommits' own try.
+          {
+            recordLaneOutcomes: (i) => recordLaneOutcomes(i),
+            recordLoopLessons: (o, r, l, list, opts) => recordLoopLessons(o, r, l, list, opts),
+            log: (line) => appendLaneLog(laneId, line),
+          },
+        );
+      }
       return exitLane(ctx, "no-commits", {
         why: `loop cycle ${cycle} committed nothing, so there was nothing for a rescan to adjudicate`,
         log: "No commits, so no rescan: scanning a worktree that nothing landed in would make it this repository's latest reading and credit the repo with work that does not exist.",
