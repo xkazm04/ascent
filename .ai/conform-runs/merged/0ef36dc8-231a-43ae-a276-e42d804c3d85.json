@@ -1,0 +1,97 @@
+{
+ "schema": "conform-run/1",
+ "worker": "0ef36dc8-231a-43ae-a276-e42d804c3d85",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-10-12T22:31:42.340975+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [
+  {
+   "context": "Live War Room",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/features/inflight/live/LiveWarRoomHeader.test.ts:27 The test file re-implements daysUntil verbatim as a private local function rather than importing the production helper from LiveWarRoomGoalBanner.tsx, leaving production changes unreached by tests.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/features/inflight/live/LiveWarRoomHeader.test.ts:27 The test asserts against its own duplicated copy of daysUntil instead of the exported production helper."
+    },
+    {
+     "technique": "isolation-lanes",
+     "verdict": "conformant",
+     "evidence": "src/features/inflight/live/LiveWarRoomHeader.dom.test.tsx:1 Declares an isolated jsdom environment at the file level for DOM component assertions."
+    }
+   ]
+  },
+  {
+   "context": "LLM Provider Abstraction",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/llm/bedrock.test.ts:19 The suite stubs external cloud LLM providers with hand-written in-memory mocks without recorded network interaction fixtures or scheduled live certification lanes.",
+   "techniques": [
+    {
+     "technique": "recorded-interaction-fixtures",
+     "verdict": "deviation",
+     "evidence": "src/lib/llm/bedrock.test.ts:19 External LLM provider SDKs are stubbed using hand-written class mocks rather than recorded cassettes or live lanes."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/lib/llm/provider.test.ts:37 Pins the validation decision to drop missing scores rather than coercing them silently to zero."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Local Autopilot & Loop Engine",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "AI-Native Standard & Onboarding Skill",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Repo Report Shell & Tabs",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-12T22:31:42.340975+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "isolation-lanes",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Live War Room",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  },
+  {
+   "ts": "2026-10-12T22:31:42.340975+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "recorded-interaction-fixtures",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "LLM Provider Abstraction",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  }
+ ]
+}

@@ -599,6 +599,48 @@
         "at": "2026-10-12T21:27:18.479823+00:00",
         "reason": "reviewer (sonnet): src/lib/athena/prompt.ts:133-134 appends a visible \" …[truncated]\" marker whenever a recalled memory is cut, which contradicts the claim that the model can read a clipped belief as the whole one, and the gate.ts:158 anchor does not itself slice at RECALL_EXCERPT."
       }
+    },
+    "Org Planning & Execution/Live War Room/test-harness": {
+      "context": "Live War Room",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-12",
+      "evaluatedTs": "2026-10-12T22:31:42.340Z",
+      "worker": "0ef36dc8-231a-43ae-a276-e42d804c3d85",
+      "techniques": [
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/features/inflight/live/LiveWarRoomHeader.test.ts:27 The test asserts against its own duplicated copy of daysUntil instead of the exported production helper."
+        },
+        {
+          "technique": "isolation-lanes",
+          "verdict": "conformant",
+          "evidence": "src/features/inflight/live/LiveWarRoomHeader.dom.test.tsx:1 Declares an isolated jsdom environment at the file level for DOM component assertions."
+        }
+      ]
+    },
+    "Repository Scanning & Scoring/LLM Provider Abstraction/test-harness": {
+      "context": "LLM Provider Abstraction",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-12",
+      "evaluatedTs": "2026-10-12T22:31:42.340Z",
+      "worker": "0ef36dc8-231a-43ae-a276-e42d804c3d85",
+      "techniques": [
+        {
+          "technique": "recorded-interaction-fixtures",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/bedrock.test.ts:19 External LLM provider SDKs are stubbed using hand-written class mocks rather than recorded cassettes or live lanes."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/provider.test.ts:37 Pins the validation decision to drop missing scores rather than coercing them silently to zero."
+        }
+      ]
     }
   }
 }

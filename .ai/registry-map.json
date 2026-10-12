@@ -1066,7 +1066,11 @@
           "revision": 24,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/llm/bedrock.test.ts:19 The suite stubs external cloud LLM providers with hand-written in-memory mocks without recorded network interaction fixtures or scheduled live certification lanes.",
+          "evaluatedAt": "2026-10-12",
+          "evaluatedAgainst": "sha256-b2:5521806124d93882",
+          "evaluatedRevision": 26
         },
         {
           "subject": "codebase-scanning",
@@ -5115,7 +5119,11 @@
           "revision": 24,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/inflight/live/LiveWarRoomHeader.test.ts:27 The test file re-implements daysUntil verbatim as a private local function rather than importing the production helper from LiveWarRoomGoalBanner.tsx, leaving production changes unreached by tests.",
+          "evaluatedAt": "2026-10-12",
+          "evaluatedAgainst": "sha256-b2:5521806124d93882",
+          "evaluatedRevision": 26
         },
         {
           "subject": "fleet-orchestration",
