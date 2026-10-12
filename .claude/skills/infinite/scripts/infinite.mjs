@@ -15,6 +15,10 @@
 //   node infinite.mjs status [--project owner/name]
 //   node infinite.mjs sweep <blockDir>
 //
+// `--base` is the target's git branch (init only). The runner server's URL is `--server-url`, default
+// http://localhost:<port>; the two shared one flag until 2026-10-12, so `init --base master` asked the
+// server at the URL "master".
+//
 // State lives outside every repo: $INFINITE_HOME (default ~/.personas/infinite)/
 //   rig.json                       { wt, port, org } - the Ascent worktree that serves the runner
 //   next-dev.pid                   the server this script started (it never kills anything else)
@@ -36,9 +40,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
 const argOf = (name) => { const a = process.argv; const i = a.indexOf(`--${name}`); return i >= 0 && a[i + 1] != null && !a[i + 1].startsWith("--") ? a[i + 1] : null; };
 const readJson = (f) => (fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : null);
 const HOME = process.env.INFINITE_HOME || path.join(os.homedir(), ".personas", "infinite");
@@ -69,7 +71,7 @@ const flag = (name, fallback = null) => {
   return i >= 0 && argv[i + 1] != null && !argv[i + 1].startsWith("--") ? argv[i + 1] : fallback;
 };
 const has = (name) => argv.includes(`--${name}`);
-const BASE = flag("base", `http://localhost:${PORT}`);
+const BASE = flag("server-url", `http://localhost:${PORT}`);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const iso = () => new Date().toISOString();
@@ -224,11 +226,17 @@ async function serverStart() {
     console.log(`port ${PORT} already has a listener (PID ${listenerPid()}); not starting a second server.`);
     return true;
   }
+  // Logs and the pid file live in HOME and the server runs from the rig's worktree. (The weekend rig kept
+  // all three beside its script; carried over as-is, `server start` launched in a directory that does
+  // not exist and wrote its pid where `server stop` never looks.)
+  fs.mkdirSync(HOME, { recursive: true });
   for (const f of ["next-dev.log", "next-dev.err.log"]) {
-    const p = path.join(HERE, f);
-    if (fs.existsSync(p)) fs.renameSync(p, path.join(HERE, f.replace(".log", `.${iso().replace(/[:.]/g, "-")}.log`)));
+    const p = path.join(HOME, f);
+    if (fs.existsSync(p)) fs.renameSync(p, path.join(HOME, f.replace(".log", `.${iso().replace(/[:.]/g, "-")}.log`)));
   }
-  const D = HERE.replace(/\//g, "\\");
+  const H = HOME.replace(/\//g, "\\");
+  const W = WT.replace(/\//g, "\\");
+  const P = PID_FILE.replace(/\//g, "\\");
   // stdio "ignore" on purpose: Start-Process with redirection creates the child with inherited
   // handles, so a PIPE handed to powershell would be held open by `next dev` for its whole life and
   // execFileSync would wait for EOF forever (it did, 2026-10-09). The PID comes back via the file.
@@ -239,8 +247,8 @@ async function serverStart() {
       "-NoProfile",
       "-Command",
       `$p = Start-Process -FilePath 'node.exe' -ArgumentList 'node_modules/next/dist/bin/next','dev','-p','${PORT}' ` +
-        `-WorkingDirectory '${D}\\ascent-wt' -WindowStyle Hidden -RedirectStandardOutput '${D}\\next-dev.log' ` +
-        `-RedirectStandardError '${D}\\next-dev.err.log' -PassThru; Set-Content -Path '${D}\\next-dev.pid' -Value $p.Id -NoNewline`,
+        `-WorkingDirectory '${W}' -WindowStyle Hidden -RedirectStandardOutput '${H}\\next-dev.log' ` +
+        `-RedirectStandardError '${H}\\next-dev.err.log' -PassThru; Set-Content -Path '${P}' -Value $p.Id -NoNewline`,
     ],
     { stdio: "ignore", windowsHide: true },
   );
@@ -892,7 +900,9 @@ async function initCmd() {
   const detected = (git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], target) ?? "").replace(/^origin\//, "") || git(["branch", "--show-current"], target) || "master";
   const base = argOf("base") ?? detected;
   fs.mkdirSync(path.join(PDIR, "blocks", "000"), { recursive: true });
-  const cfg = { repo: REPO, org: ORG, path: target, base, initialisedAt: iso() };
+  // Re-init (after a rescan) refreshes the baseline and keeps what the operator and the loop recorded:
+  // verifyTimeoutMin is part of the instrument, and operatorDecisions/techMetrics/tier are decisions.
+  const cfg = { ...PROJECT_CFG, repo: REPO, org: ORG, path: target, base: argOf("base") ?? PROJECT_CFG.base ?? base, initialisedAt: iso() };
   fs.writeFileSync(path.join(PDIR, "project.json"), JSON.stringify(cfg, null, 2) + "\n");
   const snap = await (async () => { const dims = {}; let head = null; for (const d of DIMS) { try { const j = await api(`/api/org/repo-dimension?org=${ORG}&repo=${encodeURIComponent(REPO)}&dim=${d}`, {}, 3); head ??= { scannedAt: j.scannedAt ?? null, overall: j.overall ?? null, level: j.level?.id ?? j.level ?? null }; dims[d] = j.dimension?.score ?? null; } catch { dims[d] = null; } } return head ? { ...head, dims } : null; })();
   const prompt = (() => { const sha = git(["rev-parse", "--short=10", "HEAD"], WT); const subject = git(["log", "-1", "--format=%s"], WT); return { sha, subject, branch: git(["branch", "--show-current"], WT) }; })();
