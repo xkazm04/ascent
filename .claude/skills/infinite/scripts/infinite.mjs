@@ -360,6 +360,9 @@ function computeMetrics(dir, extra = {}) {
         // never reached ascent/runner (personas-web block 001: 7 of 10 lanes, verify skipped).
         landed: l.landedAt != null,
         branch: l.branch ?? null,
+        // The architecture/containment hold moves the commits to ascent/held/<id> and RESETS the lane, so
+        // `commits` reads 0; only the log names the ref (personas-web block 002).
+        heldRef: (l.log ?? []).map((x) => /ascent\/held\/[0-9a-f-]{8,}/.exec(String(x))?.[0]).find(Boolean) ?? null,
         closed: (l.closedIds ?? []).length,
         verifyVerdict: l.verifyVerdict ?? null,
         verifyRung: l.verifyRung ?? null,
@@ -397,6 +400,9 @@ function computeMetrics(dir, extra = {}) {
     });
   }
   const allLanes = rounds.flatMap((r) => r.lanes);
+  // Held = committed work that did not reach ascent/runner: unlanded commits on the lane branch, or
+  // commits the guard moved to ascent/held/<id>.
+  const isHeld = (l) => (l.commits > 0 && !l.landed) || Boolean(l.heldRef);
   const before = snapshot(firstBefore);
   const after = snapshot(lastAfter);
   const delta =
@@ -418,9 +424,9 @@ function computeMetrics(dir, extra = {}) {
       verifiedPoints: rounds.reduce((s, r) => s + r.verifiedPoints, 0),
       landed: rounds.reduce((s, r) => s + (r.landed ?? 0), 0),
       laneCommits: allLanes.reduce((s, l) => s + l.commits, 0),
-      heldLanes: allLanes.filter((l) => l.commits > 0 && !l.landed).length,
-      closesOnHeldLanes: allLanes.filter((l) => l.commits > 0 && !l.landed).reduce((s, l) => s + l.closed, 0),
-      heldBranches: allLanes.filter((l) => l.commits > 0 && !l.landed).map((l) => l.branch).filter(Boolean),
+      heldLanes: allLanes.filter(isHeld).length,
+      closesOnHeldLanes: allLanes.filter(isHeld).reduce((s, l) => s + l.closed, 0),
+      heldBranches: allLanes.filter(isHeld).map((l) => l.heldRef ?? l.branch).filter(Boolean),
       dryRounds: rounds.filter((r) => r.dry).length,
       voidedLanes: allLanes.filter((l) => l.voidReason).length,
       voidReasons: allLanes.filter((l) => l.voidReason).map((l) => l.voidReason),
