@@ -6259,11 +6259,11 @@
           "revision": 46,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "conformant",
-          "evidence": "One value model with one home (recall.ts, imported by decay.ts:27 and coverage.ts); recall/route.ts:87 bumps only delivered ids and :94-108 splits budget-omitted from ineligible; org-memory-lifecycle.ts:150-184 rollups supersede transactionally, never delete; reflect route proposal-gates every apply.",
-          "evaluatedAt": "2026-08-24",
-          "evaluatedAgainst": "sha256:1117665ec59c1168",
-          "stale": true
+          "state": "deviation",
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:49 Recall and copy bumps rewrite updatedAt, and the value model treats that same column as the half-life clock, so a low-trust memory that keeps being delivered never reaches the forget floor.",
+          "evaluatedAt": "2026-10-12",
+          "evaluatedAgainst": "sha256-b2:23599eae61aa7119",
+          "evaluatedRevision": 47
         },
         {
           "subject": "test-harness",
@@ -6467,10 +6467,10 @@
           "changedAt": "2026-09-29",
           "confidence": "strong",
           "state": "not-applicable",
-          "evidence": "This context (src/app/api/org/skills/*, org/tokens) is a versioned skill-CATALOG — promoting a generated SKILL.md into an org library, gated by plan entitlement (promote/route.ts:1-13,43-55) — with no recall/decay/consolidation of retrieved knowledge across agent turns anywhere in it. None of agent-memory's techniques (memory-value-model, recall-injection, decay-and-forgetting, consolidation, coverage-instrumentation, baseline-ladder) have a precondition that holds here; the actual memory system (recall.ts/decay.ts/org-memory-lifecycle.ts) is a separate context ('Org Knowledge & Skills/Org Memory') already judged conformant in the map. This reads as a matcher lexical collision on \"skills\"/\"library\"/\"generated\" rather than a real match — worth a coverage-question note to the registry rather than a technique-level verdict.",
-          "evaluatedAt": "2026-08-31",
-          "evaluatedAgainst": "sha256:5215e21162717d59",
-          "stale": true
+          "evidence": "src/app/api/org/skills/promote/route.ts:3 These routes file a generated SKILL.md into a versioned library and mint API tokens for that library. Nothing here recalls, decays, or consolidates knowledge across agent turns.",
+          "evaluatedAt": "2026-10-12",
+          "evaluatedAgainst": "sha256-b2:23599eae61aa7119",
+          "evaluatedRevision": 47
         },
         {
           "subject": "eval-harness",
