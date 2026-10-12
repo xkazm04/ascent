@@ -2852,7 +2852,11 @@
           "revision": 30,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/onboarding/importScan.ts:114 Searches of the onboarding files and repository MCP terms found no wizard tool catalog or protocol dispatch, and the wizard submits a browser-controlled import request to an application API.",
+          "evaluatedAt": "2026-10-12",
+          "evaluatedAgainst": "sha256-b2:afba7a2b8c938ae1",
+          "evaluatedRevision": 31
         },
         {
           "subject": "voice-io",
@@ -6794,7 +6798,11 @@
           "revision": 30,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/athena/grounding.ts:143 Athena computes access by excluding writes and holder-scoped tools rather than admitting an explicit scope grant through shared admission, allowing future scoped reads to become available by default.",
+          "evaluatedAt": "2026-10-12",
+          "evaluatedAgainst": "sha256-b2:afba7a2b8c938ae1",
+          "evaluatedRevision": 31
         },
         {
           "subject": "agent-memory",
@@ -6976,7 +6984,11 @@
           "revision": 30,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/mcp/handlers.ts:421 Dispatch maintains a separate switch over tool names instead of resolving handlers through the published registry, leaving two authorities for which tools exist.",
+          "evaluatedAt": "2026-10-12",
+          "evaluatedAgainst": "sha256-b2:afba7a2b8c938ae1",
+          "evaluatedRevision": 31
         },
         {
           "subject": "quality-gates",
