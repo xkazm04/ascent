@@ -1123,7 +1123,11 @@
           "revision": 13,
           "changedAt": "2026-09-05",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/llm/config.ts:43 Malformed numeric LLM configuration silently becomes the default without the corruption diagnostic required by typed accessors.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:85c48ec5bdb5581f",
+          "evaluatedRevision": 13
         },
         {
           "subject": "structured-output",
@@ -1678,7 +1682,11 @@
           "revision": 13,
           "changedAt": "2026-09-05",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/github/host.ts:17 The shared endpoint accessor normalizes arbitrary nonblank strings without URL validation, allowing malformed deployment configuration to reach consumers as a usable host value.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:85c48ec5bdb5581f",
+          "evaluatedRevision": 13
         },
         {
           "subject": "docs-sync",
@@ -3771,7 +3779,11 @@
           "revision": 13,
           "changedAt": "2026-09-05",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/security/supply-chain.ts:128 An unrecognized SUPPLY_CHAIN_PROVIDER value takes the default branch and silently disables advisory scanning instead of reporting malformed configuration.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:85c48ec5bdb5581f",
+          "evaluatedRevision": 13
         },
         {
           "subject": "agent-runtime-assembly",
@@ -9088,7 +9100,11 @@
           "revision": 13,
           "changedAt": "2026-09-05",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/retention/route.ts:132 The retention change audit records the new policy without its prior values, preventing the trail from explaining or reverting the transition.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:85c48ec5bdb5581f",
+          "evaluatedRevision": 13
         },
         {
           "subject": "prompt-assembly",

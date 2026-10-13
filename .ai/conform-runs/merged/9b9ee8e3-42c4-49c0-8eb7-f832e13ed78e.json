@@ -1,0 +1,219 @@
+{
+ "schema": "conform-run/1",
+ "worker": "9b9ee8e3-42c4-49c0-8eb7-f832e13ed78e",
+ "subject": "settings",
+ "evaluatedAt": "2026-10-13T21:22:23.217829+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "subject": "settings",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/[slug]/registry/route.ts:70 The write boundary converts any supplied non-true value, including malformed non-booleans, into false instead of rejecting invalid configuration.",
+   "techniques": [
+    {
+     "technique": "config-backup-and-restore",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/org-registry.ts:228 Mapped configuration has an authoritative database copy; onboarding scaffolds the remote repository through PRs rather than overwriting an authoritative local settings file."
+    },
+    {
+     "technique": "read-batching",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/org-registry.ts:171 The loader retrieves the configuration row containing branch, canonical status, mode and telemetry sink together, rather than querying each setting separately."
+    },
+    {
+     "technique": "settings-audit-and-history",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-registry.ts:225 The inspected upsert and mapping route persist configuration changes without recording their old/new values in the audit trail; createdBy attributes creation rather than subsequent changes."
+    },
+    {
+     "technique": "typed-accessors",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/[slug]/registry/route.ts:70 A supplied string, number or null is silently accepted as false; the boolean write contract does not reject invalid types."
+    }
+   ]
+  },
+  {
+   "context": "LLM Provider Abstraction",
+   "subject": "settings",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/llm/config.ts:43 Malformed numeric LLM configuration silently becomes the default without the corruption diagnostic required by typed accessors.",
+   "techniques": [
+    {
+     "technique": "cross-source-precedence-chain",
+     "verdict": "deviation",
+     "evidence": "src/lib/llm/openai.ts:56 Constructor options, environment and compiled default resolve into one endpoint string without retaining or exposing which source supplied it."
+    },
+    {
+     "technique": "typed-accessors",
+     "verdict": "deviation",
+     "evidence": "src/lib/llm/config.ts:43 Shared parsing and downstream clamps exist, but a nonnumeric configured value reaches the fallback without any warning or telemetry."
+    }
+   ]
+  },
+  {
+   "context": "Security Posture & Audit Log",
+   "subject": "settings",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/security/supply-chain.ts:128 An unrecognized SUPPLY_CHAIN_PROVIDER value takes the default branch and silently disables advisory scanning instead of reporting malformed configuration.",
+   "techniques": [
+    {
+     "technique": "read-batching",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/security/supply-chain.ts:122 Provider configuration is a synchronous environment read with no per-key storage round trip; the advisory-result cache is not a settings cache."
+    },
+    {
+     "technique": "typed-accessors",
+     "verdict": "deviation",
+     "evidence": "src/lib/security/supply-chain.ts:128 The selector handles github and mock explicitly, but treats every other configured value as off without diagnosing an invalid enum member."
+    }
+   ]
+  },
+  {
+   "context": "Data Retention & Purge",
+   "subject": "settings",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/retention/route.ts:132 The retention change audit records the new policy without its prior values, preventing the trail from explaining or reverting the transition.",
+   "techniques": [
+    {
+     "technique": "config-backup-and-restore",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/retention.ts:696 The retention settings are authoritative Organization columns in the backend, not an application-overwritten local configuration file."
+    },
+    {
+     "technique": "read-batching",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/retention.ts:679 One organization query selects all four retention overrides together; the read path has no mirrored settings cache requiring invalidation."
+    },
+    {
+     "technique": "save-experience",
+     "verdict": "deviation",
+     "evidence": "src/features/admin/settings/RetentionCard.tsx:93 A lost response after a committed POST can reach this catch, so the explicit-save surface asserts unchanged storage when the outcome is unknown."
+    },
+    {
+     "technique": "settings-audit-and-history",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/retention/route.ts:132 Although the route already reads the existing policy, its audit payload includes only the submitted values and does not suppress identical-value writes."
+    },
+    {
+     "technique": "typed-accessors",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/retention-policy.ts:106 Invalid environment values become the same null result as absent values, then resolve to defaults without reporting configuration corruption."
+    }
+   ]
+  },
+  {
+   "context": "GitHub Repo Data Access",
+   "subject": "settings",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/github/host.ts:17 The shared endpoint accessor normalizes arbitrary nonblank strings without URL validation, allowing malformed deployment configuration to reach consumers as a usable host value.",
+   "techniques": [
+    {
+     "technique": "cross-source-precedence-chain",
+     "verdict": "deviation",
+     "evidence": "src/lib/github/host.ts:31 Explicit host, environment and compiled default have deterministic precedence, but resolution returns only the value and records no winning-source provenance."
+    },
+    {
+     "technique": "read-batching",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/github/host.ts:36 Endpoint access reads an already supplied object or process environment synchronously, so these settings reads incur no storage boundary crossing to batch."
+    },
+    {
+     "technique": "typed-accessors",
+     "verdict": "deviation",
+     "evidence": "src/lib/github/host.ts:17 Normalization does not validate URL syntax or protocol; a slash-only configured value even becomes an empty string that survives the callers' nullish fallback."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-13T21:22:23.217829+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "settings"
+   ],
+   "techniques": [
+    "config-backup-and-restore",
+    "read-batching",
+    "settings-audit-and-history",
+    "typed-accessors"
+   ],
+   "deviations": 1,
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-13T21:22:23.217829+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "settings"
+   ],
+   "techniques": [
+    "cross-source-precedence-chain",
+    "typed-accessors"
+   ],
+   "deviations": 1,
+   "context": "LLM Provider Abstraction",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-13T21:22:23.217829+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "settings"
+   ],
+   "techniques": [
+    "read-batching",
+    "typed-accessors"
+   ],
+   "deviations": 1,
+   "context": "Security Posture & Audit Log",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-13T21:22:23.217829+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "settings"
+   ],
+   "techniques": [
+    "config-backup-and-restore",
+    "read-batching",
+    "save-experience",
+    "settings-audit-and-history",
+    "typed-accessors"
+   ],
+   "deviations": 1,
+   "context": "Data Retention & Purge",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-13T21:22:23.217829+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "settings"
+   ],
+   "techniques": [
+    "cross-source-precedence-chain",
+    "read-batching",
+    "typed-accessors"
+   ],
+   "deviations": 1,
+   "context": "GitHub Repo Data Access",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

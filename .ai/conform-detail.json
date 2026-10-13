@@ -2448,6 +2448,110 @@
           "reason": "replaced by fd1cee79-4be4-4738-b614-44eea3062276"
         }
       ]
+    },
+    "Repository Scanning & Scoring/LLM Provider Abstraction/settings": {
+      "context": "LLM Provider Abstraction",
+      "subject": "settings",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T21:22:23.217Z",
+      "worker": "9b9ee8e3-42c4-49c0-8eb7-f832e13ed78e",
+      "techniques": [
+        {
+          "technique": "cross-source-precedence-chain",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/openai.ts:56 Constructor options, environment and compiled default resolve into one endpoint string without retaining or exposing which source supplied it."
+        },
+        {
+          "technique": "typed-accessors",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/config.ts:43 Shared parsing and downstream clamps exist, but a nonnumeric configured value reaches the fallback without any warning or telemetry."
+        }
+      ]
+    },
+    "Org Dashboard & Analytics/Security Posture & Audit Log/settings": {
+      "context": "Security Posture & Audit Log",
+      "subject": "settings",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T21:22:23.217Z",
+      "worker": "9b9ee8e3-42c4-49c0-8eb7-f832e13ed78e",
+      "techniques": [
+        {
+          "technique": "read-batching",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/security/supply-chain.ts:122 Provider configuration is a synchronous environment read with no per-key storage round trip; the advisory-result cache is not a settings cache."
+        },
+        {
+          "technique": "typed-accessors",
+          "verdict": "deviation",
+          "evidence": "src/lib/security/supply-chain.ts:128 The selector handles github and mock explicitly, but treats every other configured value as off without diagnosing an invalid enum member."
+        }
+      ]
+    },
+    "Data & Persistence/Data Retention & Purge/settings": {
+      "context": "Data Retention & Purge",
+      "subject": "settings",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T21:22:23.217Z",
+      "worker": "9b9ee8e3-42c4-49c0-8eb7-f832e13ed78e",
+      "techniques": [
+        {
+          "technique": "config-backup-and-restore",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/retention.ts:696 The retention settings are authoritative Organization columns in the backend, not an application-overwritten local configuration file."
+        },
+        {
+          "technique": "read-batching",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/retention.ts:679 One organization query selects all four retention overrides together; the read path has no mirrored settings cache requiring invalidation."
+        },
+        {
+          "technique": "save-experience",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/settings/RetentionCard.tsx:93 A lost response after a committed POST can reach this catch, so the explicit-save surface asserts unchanged storage when the outcome is unknown."
+        },
+        {
+          "technique": "settings-audit-and-history",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/retention/route.ts:132 Although the route already reads the existing policy, its audit payload includes only the submitted values and does not suppress identical-value writes."
+        },
+        {
+          "technique": "typed-accessors",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention-policy.ts:106 Invalid environment values become the same null result as absent values, then resolve to defaults without reporting configuration corruption."
+        }
+      ]
+    },
+    "Identity & GitHub Connectivity/GitHub Repo Data Access/settings": {
+      "context": "GitHub Repo Data Access",
+      "subject": "settings",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T21:22:23.217Z",
+      "worker": "9b9ee8e3-42c4-49c0-8eb7-f832e13ed78e",
+      "techniques": [
+        {
+          "technique": "cross-source-precedence-chain",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/host.ts:31 Explicit host, environment and compiled default have deterministic precedence, but resolution returns only the value and records no winning-source provenance."
+        },
+        {
+          "technique": "read-batching",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/host.ts:36 Endpoint access reads an already supplied object or process environment synchronously, so these settings reads incur no storage boundary crossing to batch."
+        },
+        {
+          "technique": "typed-accessors",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/host.ts:17 Normalization does not validate URL syntax or protocol; a slash-only configured value even becomes an empty string that survives the callers' nullish fallback."
+        }
+      ]
     }
   }
 }
