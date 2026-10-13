@@ -1341,7 +1341,11 @@
           "revision": 14,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/analyze/platform-signals.ts:126 The analyzer's documented scoring award maps only to scan.md, leaving the maturity-model reference's explicit description of that award outside the change obligation.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:fd96220db75846a1",
+          "evaluatedRevision": 14
         },
         {
           "subject": "voice-io",
@@ -1448,7 +1452,11 @@
           "revision": 14,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/scan.ts:29 The pipeline delegates behavior to four phase modules that match no source-doc mapping entry, leaving changes in those modules invisible to the documentation obligation.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:fd96220db75846a1",
+          "evaluatedRevision": 14
         },
         {
           "subject": "supply-chain",
@@ -6728,7 +6736,11 @@
           "revision": 14,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/registry-howto.ts:37 The registry's documented command builder maps only to org-intelligence.md, so its changes do not create an obligation to update the registry reference that describes it.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:fd96220db75846a1",
+          "evaluatedRevision": 14
         },
         {
           "subject": "agent-memory",

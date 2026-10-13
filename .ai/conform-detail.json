@@ -1796,6 +1796,64 @@
           "reason": "replaced by 72a37590-2d16-44b4-ab9f-86795eb919d1"
         }
       ]
+    },
+    "Repository Scanning & Scoring/Scan Pipeline & Ingestion/docs-sync": {
+      "context": "Scan Pipeline & Ingestion",
+      "subject": "docs-sync",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T10:09:13.595Z",
+      "worker": "ee941db6-c72a-4415-92d3-b6f111caabc3",
+      "techniques": [
+        {
+          "technique": "dated-corrections",
+          "verdict": "deviation",
+          "evidence": "src/app/page.tsx:58 The FAQ correction preserves the former false claim and names contradicting implementations, but its correction block carries no date; searching this file for dates and verification terms found no dated correction."
+        },
+        {
+          "technique": "source-doc-mapping",
+          "verdict": "deviation",
+          "evidence": "src/lib/scan-ingest.ts:126 Matching every supplied path against every map entry found scan-ingest.ts, scan-score-input.ts, scan-assess.ts and scan-compose.ts unmapped; these are active pipeline implementations, not skipped test files."
+        }
+      ]
+    },
+    "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/docs-sync": {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "docs-sync",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T10:09:13.595Z",
+      "worker": "ee941db6-c72a-4415-92d3-b6f111caabc3",
+      "techniques": [
+        {
+          "technique": "named-duplication-points",
+          "verdict": "deviation",
+          "evidence": "docs/features/org-registry/README.md:147 This repeated preview-transport claim is stale: the same document says previews use React state at line 111, and src/app/api/org/[slug]/registry/route.ts:57 always returns getRegistryView(slug), ignoring query parameters."
+        },
+        {
+          "technique": "source-doc-mapping",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/registry-view.fixture.ts:21 The fixture module is explicitly listed as a registry documentation surface at README.md:23, but matching it against all map entries selects only org-intelligence.md; registry-howto.ts likewise lacks coupling to the registry reference."
+        }
+      ]
+    },
+    "Repository Scanning & Scoring/Maturity Model & Scoring Engine/docs-sync": {
+      "context": "Maturity Model & Scoring Engine",
+      "subject": "docs-sync",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T10:09:13.595Z",
+      "worker": "ee941db6-c72a-4415-92d3-b6f111caabc3",
+      "techniques": [
+        {
+          "technique": "source-doc-mapping",
+          "verdict": "deviation",
+          "evidence": "docs/features/scanning/maturity-model.md:189 The maturity reference explicitly describes platform-signals.ts and its +8 award, but every map entry matching that module targets scan.md; the maturity-model entry does not include analyzer sources."
+        }
+      ]
     }
   }
 }
