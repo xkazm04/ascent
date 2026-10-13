@@ -8548,11 +8548,11 @@
           "revision": 7,
           "changedAt": "2026-09-18",
           "confidence": "strong",
-          "state": "conformant",
-          "evidence": "src/lib/plans.ts:80-444 is the single tier model every surface reads (id-vs-label split lines 26-31, decideScanCharge/decideCharge naming unlimited/allowance/credit/denied lines 348-409, selfHosted() short-circuit at planAllows:439-444) and src/app/api/billing/webhook/route.ts realizes lifecycle revocation end to end (ENTITLING_SUB_STATUSES grace :52, retainedHigherPlan downgrade guard :70-73, proportional refund clawback :222-251, stale-paid fence :162-183) — the model, gate, page and webhook agree by construction.",
-          "evaluatedAt": "2026-08-31",
-          "evaluatedAgainst": "sha256:f4ff0c3355f019e5",
-          "stale": true
+          "state": "deviation",
+          "evidence": "src/app/api/billing/webhook/route.ts:180 Revocation checks tier rank but not the currently granting subscription's identity, so a stale revoke can remove a replacement subscription at the same tier.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:58f21c0561a86e45",
+          "evaluatedRevision": 7
         },
         {
           "subject": "agent-memory",
@@ -8793,10 +8793,10 @@
           "changedAt": "2026-09-18",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "entitlement.ts:72-84 computes orgExists 'so a caller can 404 a phantom slug'; no production caller reads it - all three gates return 402 INSUFFICIENT_CREDITS, so a deleted org is told to buy credits it has.",
-          "evaluatedAt": "2026-08-23",
-          "evaluatedAgainst": "sha256:f4ff0c3355f019e5",
-          "stale": true
+          "evidence": "src/components/org/shared/CreditsControl.sections.tsx:29 Self-hosted orgs receive unlimited access regardless of tier, but this chip attributes that access to the Custom plan instead of the deployment mode.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:58f21c0561a86e45",
+          "evaluatedRevision": 7
         },
         {
           "subject": "cost-metering",
