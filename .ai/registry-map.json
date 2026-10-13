@@ -4985,15 +4985,15 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "not-applicable",
-          "evidence": "developer-view.ts:19-20 is explicitly DB-import-free ('PURE module — no @/lib/db import, because every Developer component is a client component') and developer-view-load.ts's getDeveloperView() runs server-side, called from page.tsx:56-59 (a Server Component) which passes the resolved DeveloperView as props. No browser-held DB credential and no broker route relaying an upstream failure exist in this context, so every technique's precondition (client-held credential, or a broker reporting an upstream failure) fails to hold.",
-          "evaluatedAt": "2026-08-31",
-          "evaluatedAgainst": "sha256:f3f5d2c3d03ce511",
+          "state": "deviation",
+          "evidence": "src/lib/athena/turn.ts:247 Developer home's shell exposes Athena, whose failed model calls send raw provider error messages, including upstream response-body excerpts, to the browser.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:d3eef10e9ed8459f",
           "digest": "sha256-b2:d3eef10e9ed8459f",
           "source": "retained",
           "revision": 3,
           "changedAt": "2026-09-03",
-          "stale": true
+          "evaluatedRevision": 3
         }
       ],
       "governance": "governed"
@@ -8013,9 +8013,7 @@
           "confidence": "probable",
           "state": "deviation",
           "evidence": "github/source.ts:375-377 interpolates raw String(e) into a GitHubError relayed verbatim (stream/route.ts:367 -> useReportScan.ts:292); on a GHES base a malformed URL publishes the internal API host.",
-          "evaluatedAt": "2026-08-23",
-          "evaluatedAgainst": "sha256:f3f5d2c3d03ce511",
-          "stale": true
+          "evaluatedAt": "2026-08-23"
         },
         {
           "subject": "quality-gates",

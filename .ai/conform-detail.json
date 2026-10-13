@@ -274,27 +274,51 @@
       "context": "Developer home (UC3 individual care)",
       "subject": "browser-credential-boundary",
       "bundle": "software-engineering",
-      "state": "not-applicable",
-      "evaluatedAt": "2026-08-31",
-      "worker": "w9-ascent",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T12:43:57.977Z",
+      "worker": "00de936c-9e69-450e-8a18-7a6e03f71d45",
       "techniques": [
-        {
-          "technique": "public-vs-server-env-split",
-          "verdict": "not-applicable",
-          "evidence": "no NEXT_PUBLIC_ value or credential is read anywhere in developer-view.ts/developer-view-load.ts"
-        },
         {
           "technique": "aggregate-view-not-base-table",
           "verdict": "not-applicable",
-          "evidence": "no browser-held DB credential fronts any store here to require a caller-evaluated view"
+          "evidence": "src/lib/org/developer-view-load.ts:58 The personal activity projection is assembled from server-side reads, rather than browser queries over a publicly granted identifying table."
+        },
+        {
+          "technique": "allowlisted-operator-stream",
+          "verdict": "not-applicable",
+          "evidence": "src/features/developer/CareBits.tsx:47 These controls log local action intent and payload, rather than credential-bearing outbound request records."
+        },
+        {
+          "technique": "broker-proxy-attaches-secret",
+          "verdict": "deviation",
+          "evidence": "src/app/api/athena/[id]/message/route.ts:85 The shell-mounted Athena broker forwards events unchanged, including the raw model-error message constructed at src/lib/athena/turn.ts:247, violating the constrained-response requirement despite its org gate."
         },
         {
           "technique": "default-deny-plus-defaulted-owner",
           "verdict": "not-applicable",
-          "evidence": "no RLS-style policy engine fronts a browser role for this data; access is decided server-side in page.tsx's resolveDeveloperOrg via canReadOrg"
+          "evidence": "src/lib/org/developer-view-load.ts:59 Personal rows are scoped and read by the server; the browser does not insert rows through a database policy engine."
+        },
+        {
+          "technique": "omit-the-column-not-the-value",
+          "verdict": "not-applicable",
+          "evidence": "src/app/org/developer/page.tsx:58 The client receives a resolved view model, not direct access to a publicly granted database schema containing secrets."
+        },
+        {
+          "technique": "opaque-upstream-errors",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/turn.ts:247 src/lib/llm/transports.ts:157 embeds the upstream status and first 200 response-body characters in LlmHttpError; tool-loop.ts:225 rethrows it, this generator emits its message, and useAthenaThread.ts:131 stores it for display."
         }
       ],
-      "registryProposal": ""
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "developer-view.ts:19-20 is explicitly DB-import-free ('PURE module — no @/lib/db import, because every Developer component is a client component') and developer-view-load.ts's getDeveloperView() runs server-side, called from page.tsx:56-59 (a Server Component) which passes the resolved DeveloperView as props. No browser-held DB credential and no broker route relaying an upstream failure exist in this context, so every technique's precondition (client-held credential, or a broker reporting an upstream failure) fails to hold.",
+          "evaluatedAt": "2026-08-31",
+          "worker": null,
+          "reason": "replaced by 00de936c-9e69-450e-8a18-7a6e03f71d45"
+        }
+      ]
     },
     "Data & Persistence/Database Client & Schema/browser-credential-boundary": {
       "context": "Database Client & Schema",
@@ -2275,6 +2299,66 @@
       "evaluatedTs": "2026-10-13T12:07:06.824Z",
       "worker": "1d9c0dc7-708d-43a0-ad51-7bdb98cdd3e0",
       "techniques": []
+    },
+    "Reporting & Visualization/Repo Report Shell & Tabs/browser-credential-boundary": {
+      "context": "Repo Report Shell & Tabs",
+      "subject": "browser-credential-boundary",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T12:43:57.977Z",
+      "techniques": [
+        {
+          "technique": "aggregate-view-not-base-table",
+          "verdict": "not-applicable",
+          "evidence": "src/app/report/[owner]/[repo]/page.tsx:56 The report is read server-side; this feature does not give a browser-facing database role access to identifying rows to calculate counts."
+        },
+        {
+          "technique": "allowlisted-operator-stream",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/ReportClientStatus.tsx:192 The stream drives product progress text, rather than an operator inspector exposing credential-bearing request records."
+        },
+        {
+          "technique": "broker-proxy-attaches-secret",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/host.ts:31 The same-origin scan route obtains credentials server-side, but its configured GitHub base passes through envHost without absolute-URL or scheme validation."
+        },
+        {
+          "technique": "default-deny-plus-defaulted-owner",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/useReportScan.ts:262 The browser calls an application route; it does not write owned rows directly through a database role."
+        },
+        {
+          "technique": "omit-the-column-not-the-value",
+          "verdict": "not-applicable",
+          "evidence": "src/app/report/[owner]/[repo]/page.tsx:185 The server supplies a report projection as props; this context does not design a table readable through a public database grant."
+        },
+        {
+          "technique": "opaque-upstream-errors",
+          "verdict": "deviation",
+          "evidence": "src/components/report/useReportScan.ts:402 GitHub REST failures interpolate res.status into their messages at src/lib/github/source.ts:341; src/app/api/scan/stream/route.ts:321 forwards those messages and this consumer displays them without a closed error mapping."
+        },
+        {
+          "technique": "outbound-fetch-destination-validation",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/host.ts:103 The report scanner's ghFetch supplies no redirect policy, so fetch automatically follows upstream redirects without validating each new destination or binding an approved address to the connection."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "github/source.ts:375-377 interpolates raw String(e) into a GitHubError relayed verbatim (stream/route.ts:367 -> useReportScan.ts:292); on a GHES base a malformed URL publishes the internal API host.",
+          "evaluatedAt": "2026-08-23",
+          "worker": null,
+          "reason": "replaced by 00de936c-9e69-450e-8a18-7a6e03f71d45"
+        }
+      ],
+      "withdrawn": {
+        "worker": "00de936c-9e69-450e-8a18-7a6e03f71d45",
+        "state": "deviation",
+        "at": "2026-10-13T12:46:14.694335+00:00",
+        "reason": "reviewer (sonnet): The anchor src/lib/github/host.ts is not one of this context's files. It only trims operator-set env vars (GITHUB_API_URL and similar), so the claim that this validation gap is a browser-credential-boundary deviation for the report shell is about a shared library, not this context's code. I did not "
+      }
     }
   }
 }

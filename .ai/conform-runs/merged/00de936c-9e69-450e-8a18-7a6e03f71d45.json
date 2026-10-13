@@ -1,0 +1,97 @@
+{
+  "schema": "conform-run/1",
+  "worker": "00de936c-9e69-450e-8a18-7a6e03f71d45",
+  "subject": "browser-credential-boundary",
+  "evaluatedAt": "2026-10-13T12:43:57.977495+00:00",
+  "provider": "codex",
+  "model": "gpt-6.1-sol",
+  "pairs": [
+    {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "browser-credential-boundary",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/athena/turn.ts:247 Developer home's shell exposes Athena, whose failed model calls send raw provider error messages, including upstream response-body excerpts, to the browser.",
+      "techniques": [
+        {
+          "technique": "aggregate-view-not-base-table",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/developer-view-load.ts:58 The personal activity projection is assembled from server-side reads, rather than browser queries over a publicly granted identifying table."
+        },
+        {
+          "technique": "allowlisted-operator-stream",
+          "verdict": "not-applicable",
+          "evidence": "src/features/developer/CareBits.tsx:47 These controls log local action intent and payload, rather than credential-bearing outbound request records."
+        },
+        {
+          "technique": "broker-proxy-attaches-secret",
+          "verdict": "deviation",
+          "evidence": "src/app/api/athena/[id]/message/route.ts:85 The shell-mounted Athena broker forwards events unchanged, including the raw model-error message constructed at src/lib/athena/turn.ts:247, violating the constrained-response requirement despite its org gate."
+        },
+        {
+          "technique": "default-deny-plus-defaulted-owner",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/developer-view-load.ts:59 Personal rows are scoped and read by the server; the browser does not insert rows through a database policy engine."
+        },
+        {
+          "technique": "omit-the-column-not-the-value",
+          "verdict": "not-applicable",
+          "evidence": "src/app/org/developer/page.tsx:58 The client receives a resolved view model, not direct access to a publicly granted database schema containing secrets."
+        },
+        {
+          "technique": "opaque-upstream-errors",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/turn.ts:247 src/lib/llm/transports.ts:157 embeds the upstream status and first 200 response-body characters in LlmHttpError; tool-loop.ts:225 rethrows it, this generator emits its message, and useAthenaThread.ts:131 stores it for display."
+        }
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "browser-credential-boundary",
+      "context": "Repo Report Shell & Tabs",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor src/lib/github/host.ts is not one of this context's files. It only trims operator-set env vars (GITHUB_API_URL and similar), so the claim that this validation gap is a browser-credential-boundary deviation for the report shell is about a shared library, not this context's code. I did not "
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-13T12:43:57.977495+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "browser-credential-boundary"
+      ],
+      "techniques": [
+        "aggregate-view-not-base-table",
+        "allowlisted-operator-stream",
+        "broker-proxy-attaches-secret",
+        "default-deny-plus-defaulted-owner",
+        "omit-the-column-not-the-value",
+        "opaque-upstream-errors",
+        "outbound-fetch-destination-validation"
+      ],
+      "deviations": 1,
+      "context": "Repo Report Shell & Tabs",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    },
+    {
+      "ts": "2026-10-13T12:43:57.977495+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "browser-credential-boundary"
+      ],
+      "techniques": [
+        "aggregate-view-not-base-table",
+        "allowlisted-operator-stream",
+        "broker-proxy-attaches-secret",
+        "default-deny-plus-defaulted-owner",
+        "omit-the-column-not-the-value",
+        "opaque-upstream-errors"
+      ],
+      "deviations": 1,
+      "context": "Developer home (UC3 individual care)",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    }
+  ]
+}
