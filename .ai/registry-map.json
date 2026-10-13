@@ -1476,7 +1476,11 @@
           "revision": 6,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/security/checks.ts:218 A committed Dependabot or Renovate file scores 10 with no check that any update proposal was opened, so a configured-but-dead lane reads as covered.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:f5666db1094acd9f",
+          "evaluatedRevision": 6
         },
         {
           "subject": "eval-harness",
@@ -3667,7 +3671,11 @@
           "revision": 6,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/security/supply-chain.ts:93 A non-ok Dependabot page after the first is kept as that repo's finished advisory tally, so a truncated read is shown as the open-alert count.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:f5666db1094acd9f",
+          "evaluatedRevision": 6
         },
         {
           "subject": "node-boot-and-declarative-bootstrap",
@@ -4928,7 +4936,11 @@
           "revision": 6,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/developer-view-load.ts:21 The page loads the viewer's commits, AI-attributed share, open recommendations, and mentor share; searches for pnpm-lock, package-lock, osv.dev, codeload, and patch-package under the developer files found none.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:f5666db1094acd9f",
+          "evaluatedRevision": 6
         },
         {
           "subject": "people-analytics-ethics",

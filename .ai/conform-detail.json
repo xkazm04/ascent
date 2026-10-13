@@ -2162,6 +2162,119 @@
         "at": "2026-10-13T11:24:47.168915+00:00",
         "reason": "reviewer (sonnet): The anchor artifact.ts:62 is the buildPracticeArtifact function. It doesn't show that no agent CLI is spawned, and the absence rests only on a search I couldn't tie to that line. The anchor is incidental, so the not-applicable is withdrawn."
       }
+    },
+    "Org Dashboard & Analytics/Security Posture & Audit Log/supply-chain": {
+      "context": "Security Posture & Audit Log",
+      "subject": "supply-chain",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T12:07:06.824Z",
+      "worker": "1d9c0dc7-708d-43a0-ad51-7bdb98cdd3e0",
+      "techniques": [
+        {
+          "technique": "secret-scanning-architecture",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/security/supply-chain.ts:87 The only fetch in this context is open Dependabot alerts. Searched these security, audit, and PDF files for gitleaks, trufflehog, and secret scan and found no commit-time secret scanner."
+        },
+        {
+          "technique": "dependency-policy-gates",
+          "verdict": "deviation",
+          "evidence": "src/lib/security/supply-chain.ts:50 The signal keeps a severity tally only: no lockfile target, license allowlist, source rule, or expiring exception. The provider also defaults off at supply-chain.ts:123."
+        },
+        {
+          "technique": "scheduled-deep-analysis",
+          "verdict": "deviation",
+          "evidence": "src/lib/security/supply-chain.ts:93 Auth failure is a separate degraded flag and is not this line. A later-page failure still returns a partial tally with no truncated marker, and the read runs on security-tab render (supply-chain.ts:132), not on a monitored clock."
+        },
+        {
+          "technique": "review-attestation-ledger",
+          "verdict": "not-applicable",
+          "evidence": "src/features/standing/security/SecurityRiskRegister.tsx:166 A fetched zero is labeled none-open, not reviewed. This view does not record who reviewed a package version, and nothing here is an obligation to show that."
+        }
+      ],
+      "registryProposal": "scheduled-deep-analysis assumes the check is a cron inside the repository. This context is a multi-tenant observer: a page-render pull that paints UNKNOWN when GitHub auth fails is a different liveness shape, and the standard does not say where that pull should sit."
+    },
+    "Repository Scanning & Scoring/Scan Pipeline & Ingestion/supply-chain": {
+      "context": "Scan Pipeline & Ingestion",
+      "subject": "supply-chain",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T12:07:06.824Z",
+      "worker": "1d9c0dc7-708d-43a0-ad51-7bdb98cdd3e0",
+      "techniques": [
+        {
+          "technique": "dependency-policy-gates",
+          "verdict": "deviation",
+          "evidence": "src/lib/security/exposure.ts:64 git and file specs never reach the OSV grade. Cargo keeps only registry+ sources (exposure-lockfiles.ts:34). deps past 500 are sliced and the remainder can still be known:true (exposure.ts:44)."
+        },
+        {
+          "technique": "verification-scope",
+          "verdict": "deviation",
+          "evidence": "src/lib/security/checks.ts:129 The pin grade is the fraction of uses: refs plus Dockerfile FROM lines. A run step that downloads its own tool is outside that fraction and can still score 10."
+        },
+        {
+          "technique": "lockfile-freshness-oracle",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/security/exposure.ts:40 The scan reads the committed lockfile and queries those versions. It does not re-resolve to newest, so the noisy freshness oracle is not this check."
+        },
+        {
+          "technique": "scheduled-deep-analysis",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/scan/route.ts:1 Exposure runs inside a client scan request. Searched src/lib/scan.ts and src/app/api/scan for cron and found none. A fleet clock, if any, is not in this context."
+        },
+        {
+          "technique": "permission-manifest-scoping",
+          "verdict": "deviation",
+          "evidence": "src/lib/security/checks.ts:82 The grade is how many workflow files contain a permissions key, plus a broad-write cap. It does not diff declared grants against the hosts or writes the steps perform."
+        },
+        {
+          "technique": "reading-is-not-running",
+          "verdict": "conformant",
+          "evidence": "src/lib/security/exposure.ts:60 The lockfile is parsed as JSON text. Workflow checks regex file contents. No eval, Function, or child_process spawn in src/lib/scan.ts, src/lib/analyze/index.ts, or src/lib/github/source.ts."
+        },
+        {
+          "technique": "update-automation-review",
+          "verdict": "deviation",
+          "evidence": "src/lib/security/checks.ts:218 File presence is full marks. Bot commits are consulted only when the file is absent (the next branch), so a dead committed config still scores 10."
+        },
+        {
+          "technique": "build-time-dependency-tier",
+          "verdict": "deviation",
+          "evidence": "src/lib/security/checks.ts:268 One exposure verdict covers the lockfile population. Dev and build-time packages are not split out, so a clean count does not say which phase was examined."
+        },
+        {
+          "technique": "review-attestation-ledger",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/security/checks.ts:266 Unknown exposure stays unscored and the words are known vulnerabilities, not a review attestation. This pipeline does not store who reviewed a version."
+        }
+      ]
+    },
+    "Org Planning & Execution/Follow-ups Ledger/supply-chain": {
+      "context": "Follow-ups Ledger",
+      "subject": "supply-chain",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T12:07:06.824Z",
+      "techniques": [],
+      "withdrawn": {
+        "worker": "1d9c0dc7-708d-43a0-ad51-7bdb98cdd3e0",
+        "state": "not-applicable",
+        "at": "2026-10-13T12:09:15.915018+00:00",
+        "reason": "reviewer (sonnet): The anchor at followups.ts:275 is a prompt line telling the agent it has no shell or package manager, so it does not show that supply-chain work is absent from this context; the same file's worked example is a follow-up item about pinning GitHub Actions and it carries a gitleaks/lockfile denylist, s"
+      }
+    },
+    "Org Dashboard & Analytics/Developer home (UC3 individual care)/supply-chain": {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "supply-chain",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T12:07:06.824Z",
+      "worker": "1d9c0dc7-708d-43a0-ad51-7bdb98cdd3e0",
+      "techniques": []
     }
   }
 }
