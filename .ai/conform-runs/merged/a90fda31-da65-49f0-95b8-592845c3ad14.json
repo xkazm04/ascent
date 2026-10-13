@@ -1,0 +1,261 @@
+{
+  "schema": "conform-run/1",
+  "worker": "a90fda31-da65-49f0-95b8-592845c3ad14",
+  "subject": "agent-runtime-assembly",
+  "evaluatedAt": "2026-10-13T03:34:29.670903+00:00",
+  "provider": "grok",
+  "model": "grok-4.7",
+  "pairs": [
+    {
+      "context": "First-Run Onboarding Wizard",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/onboarding/page.tsx:23 Searches of src/components/onboarding and src/app/onboarding for a hook chain, assembly digest, checkpoint mode, runToolLoop, and spawn found none (only React hooks, test guards, and a draft-PR install CTA); a search of foundation generators for hooks, settings.json, SessionStart, and PreToolUse also found none, so this wizard never assembles the code around a model call.",
+      "techniques": [
+        {
+          "technique": "activation-is-a-separate-mutation",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/OnboardingFoundationPanel.tsx:6 Activation here is the wizard's draft foundation PR, not a persisted callback registration; the foundation search found no hook or session-callback payload."
+        },
+        {
+          "technique": "semantic-hook-placement",
+          "verdict": "not-applicable",
+          "evidence": "src/app/onboarding/page.tsx:29 The page branches to a sign-in panel, a skill guide, or the repo-pick wizard. No model or tool wrapper is composed."
+        }
+      ]
+    },
+    {
+      "context": "MCP Server",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/mcp/route.ts:7 This is a stateless JSON-RPC tool door. Searches of src/app/api/mcp and src/lib/mcp found no hook chain, assembly digest, checkpoint mode, or model wrapper; dynamic import hits were tests, and write-gate's extension contract is two source edits compiled into the server. The golden path assigns the wire to mcp-tools.",
+      "techniques": [
+        {
+          "technique": "semantic-hook-placement",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/mcp/route.ts:48 The handler imports are tool dispatch and the protocol. There is no model-call chain."
+        },
+        {
+          "technique": "operator-tier-code-loading",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/mcp/write-gate.ts:10 Adding a write tool is a reviewed source edit, not a service-writable key that names code."
+        },
+        {
+          "technique": "session-scoped-capability",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/mcp/tools.ts:30 The roster varies by the token on the request. That is authorization, not a client-surface capability read from a process environment slot."
+        },
+        {
+          "technique": "guard-input-custody",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/mcp/write-gate.ts:28 Write policy is a server table fed numbers by the route. There is no agent working tree and no policy file the caller can rewrite."
+        }
+      ]
+    },
+    {
+      "context": "CI Gate & Status Checks",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/lib/scoring/gate.ts:2 evaluateGate turns a maturity report into a pass/fail policy for a CI endpoint. A search of src/lib/scoring/gate.ts, gate-comment.ts, and the gate route for a hook chain, assembly digest, checkpoint mode, agent loop, or tool wrapper found no matches.",
+      "techniques": [
+        {
+          "technique": "semantic-hook-placement",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:7 The route scores a repository. It does not wrap an agent model call or a tool call in hooks."
+        },
+        {
+          "technique": "guard-input-custody",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/gate.ts:13 A repo manifest is folded strictest-wins, so it cannot lower the org floor. That is a score-policy merge, not an agent containment guard reading a file in the agent's tree."
+        }
+      ]
+    },
+    {
+      "context": "Athena Companion",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/athena/turn.ts:154 The user row is written before the model runs, and a mid-turn death or a thrown loop leaves that row with no closed result and no indeterminate status; a follow-up typed while the turn is in flight is dropped instead of joined at the model-call boundary.",
+      "techniques": [
+        {
+          "technique": "indeterminate-closure-on-interruption",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/turn.ts:154 appendTurn writes the user message first. On a thrown loop, turn.ts yields an error event and returns without an assistant row. Tool calls live only in the loop's memory, so an interrupt leaves a hole rather than a first-class unknown outcome."
+        },
+        {
+          "technique": "additive-input-at-the-call-boundary",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/athena/AthenaComposer.tsx:26 The textarea stays enabled, but submit and useAthenaThread.send return immediately while sending. The draft is not drained into the running turn, not recorded, and a press during the turn is silent. The turn already has a durable append, so the no-record exception does not apply."
+        },
+        {
+          "technique": "guard-input-custody",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/grounding.ts:242 Plan and read predicates are injected by the route. A thrown or absent skills predicate stays closed, and execute refuses every mutates tool, so the model cannot rewrite the gate's inputs."
+        },
+        {
+          "technique": "semantic-hook-placement",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/tool-loop.ts:194 The loop calls the resolved runner directly. No contributed hook list, placement class, or compose-time order check exists."
+        },
+        {
+          "technique": "assembly-identity",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/turn.ts:284 The settled turn records the resolved engine and model. There is no hook assembly, declared hook identity, or procedure-versioned digest to compare."
+        },
+        {
+          "technique": "bounded-projection-of-external-work",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/tool-loop.ts:248 Each tool is awaited inside the leg and the string comes back before the next model call. No remote handle is persisted and the model is not given a poll."
+        },
+        {
+          "technique": "checkpoint-mode-custody",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/turn.ts:190 History is complete message rows, replayed up to a fixed count. There is no full-versus-delta mode, marker, or ancestry walk. A failed history() becomes [] at turn.ts:181; that is a separate honesty gap, not this mode gate."
+        },
+        {
+          "technique": "honest-hook-registry",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/turn.ts:10 phase, recall, tool, settled, and error are the turn's own events. Nothing registers a contributed callback against them."
+        },
+        {
+          "technique": "host-routes-win",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/athena/[id]/message/route.ts:3 The message route is a host adapter. No contribution mounts a handler on it."
+        },
+        {
+          "technique": "nested-run-is-not-its-parent",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/turn.ts:141 A search of src/lib/athena for spawn, subagent, and process.env found none. One turn does not start another run."
+        },
+        {
+          "technique": "observer-and-mutator-surfaces",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/tool-loop.ts:80 Dispatch is one caller-supplied function. There is no observer registry and no mutator vocabulary for contributed code."
+        },
+        {
+          "technique": "operator-tier-code-loading",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/grounding.ts:49 The catalog is a static import, then filtered. No configuration key names code to load."
+        },
+        {
+          "technique": "rewrite-before-the-gate",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/grounding.ts:284 Arguments are passed through after the plan checks. No contributed rewrite point exists."
+        },
+        {
+          "technique": "session-scoped-capability",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/grounding.ts:145 Tools differ by workspace plan, resolved per turn from injected predicates. A search of src/lib/athena found no process.env roster, and no tool exists only because of which UI client is attached."
+        },
+        {
+          "technique": "substituted-result-attribution",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/tool-loop.ts:252 The only result path is execute's string, stored under the call's own id and name. No cache or alternate producer returns in the tool's place."
+        }
+      ],
+      "registryProposal": "additive-input names supersede and inject, and its surface sentence says the send control is never disabled. A composer that leaves the textarea live, refuses submit while the turn runs, and drops Enter with no visible pending state is a third design the decision rules do not name."
+    }
+  ],
+  "declined": [
+    {
+      "subject": "agent-runtime-assembly",
+      "context": "Local Autopilot & Loop Engine",
+      "reason": "withdrawn after review: reviewer (sonnet): The route comment at loop/route.ts:19 shows the loop spawns editing agents, and agent.ts builds the claude CLI call with claudeSpawnEnv, claudeArgs, permission and resume handling. That is assembly around a model call, so the claim that no model-call wrapper exists could not be confirmed."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-13T03:34:29.670903+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-runtime-assembly"
+      ],
+      "techniques": [
+        "activation-is-a-separate-mutation",
+        "semantic-hook-placement"
+      ],
+      "deviations": 0,
+      "context": "First-Run Onboarding Wizard",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-13T03:34:29.670903+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-runtime-assembly"
+      ],
+      "techniques": [
+        "operator-tier-code-loading",
+        "semantic-hook-placement"
+      ],
+      "deviations": 0,
+      "context": "Local Autopilot & Loop Engine",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-13T03:34:29.670903+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-runtime-assembly"
+      ],
+      "techniques": [
+        "guard-input-custody",
+        "operator-tier-code-loading",
+        "semantic-hook-placement",
+        "session-scoped-capability"
+      ],
+      "deviations": 0,
+      "context": "MCP Server",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-13T03:34:29.670903+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-runtime-assembly"
+      ],
+      "techniques": [
+        "guard-input-custody",
+        "semantic-hook-placement"
+      ],
+      "deviations": 0,
+      "context": "CI Gate & Status Checks",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-13T03:34:29.670903+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-runtime-assembly"
+      ],
+      "techniques": [
+        "additive-input-at-the-call-boundary",
+        "assembly-identity",
+        "bounded-projection-of-external-work",
+        "checkpoint-mode-custody",
+        "guard-input-custody",
+        "honest-hook-registry",
+        "host-routes-win",
+        "indeterminate-closure-on-interruption",
+        "nested-run-is-not-its-parent",
+        "observer-and-mutator-surfaces",
+        "operator-tier-code-loading",
+        "rewrite-before-the-gate",
+        "semantic-hook-placement",
+        "session-scoped-capability",
+        "substituted-result-attribution"
+      ],
+      "deviations": 1,
+      "context": "Athena Companion",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    }
+  ]
+}

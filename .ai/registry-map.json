@@ -884,7 +884,11 @@
           "revision": 26,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/scoring/gate.ts:2 evaluateGate turns a maturity report into a pass/fail policy for a CI endpoint. A search of src/lib/scoring/gate.ts, gate-comment.ts, and the gate route for a hook chain, assembly digest, checkpoint mode, agent loop, or tool wrapper found no matches.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:9036e979656a8dc5",
+          "evaluatedRevision": 27
         },
         {
           "subject": "test-harness",
@@ -2852,7 +2856,11 @@
           "revision": 26,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/onboarding/page.tsx:23 Searches of src/components/onboarding and src/app/onboarding for a hook chain, assembly digest, checkpoint mode, runToolLoop, and spawn found none (only React hooks, test guards, and a draft-PR install CTA); a search of foundation generators for hooks, settings.json, SessionStart, and PreToolUse also found none, so this wizard never assembles the code around a model call.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:9036e979656a8dc5",
+          "evaluatedRevision": 27
         },
         {
           "subject": "mcp-tools",
@@ -6950,7 +6958,11 @@
           "revision": 26,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/athena/turn.ts:154 The user row is written before the model runs, and a mid-turn death or a thrown loop leaves that row with no closed result and no indeterminate status; a follow-up typed while the turn is in flight is dropped instead of joined at the model-call boundary.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:9036e979656a8dc5",
+          "evaluatedRevision": 27
         },
         {
           "subject": "structured-output",
@@ -7072,7 +7084,11 @@
           "revision": 26,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/mcp/route.ts:7 This is a stateless JSON-RPC tool door. Searches of src/app/api/mcp and src/lib/mcp found no hook chain, assembly digest, checkpoint mode, or model wrapper; dynamic import hits were tests, and write-gate's extension contract is two source edits compiled into the server. The golden path assigns the wire to mcp-tools.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:9036e979656a8dc5",
+          "evaluatedRevision": 27
         },
         {
           "subject": "agent-memory",
