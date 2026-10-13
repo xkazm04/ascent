@@ -5975,7 +5975,11 @@
           "revision": 24,
           "changedAt": "2026-09-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/followups.ts:162 A non-restated craft item becomes done from its completion trailer without an independent artifact acceptance check, turning the worker's claim into the ruling.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:4fc5c1fbe75c52d2",
+          "evaluatedRevision": 25
         },
         {
           "subject": "quality-gates",
@@ -6265,7 +6269,11 @@
           "revision": 24,
           "changedAt": "2026-09-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/loop-runs-stale.ts:73 A failed external-executor lookup becomes an empty exclusion list, allowing the following sweep to stop externally driven runs without establishing their death.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:4fc5c1fbe75c52d2",
+          "evaluatedRevision": 25
         },
         {
           "subject": "voice-io",

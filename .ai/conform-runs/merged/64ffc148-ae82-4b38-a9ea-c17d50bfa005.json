@@ -1,0 +1,127 @@
+{
+ "schema": "conform-run/1",
+ "worker": "64ffc148-ae82-4b38-a9ea-c17d50bfa005",
+ "subject": "fleet-orchestration",
+ "evaluatedAt": "2026-10-13T08:23:00.262277+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "fleet-orchestration",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/loop-runs-stale.ts:73 A failed external-executor lookup becomes an empty exclusion list, allowing the following sweep to stop externally driven runs without establishing their death.",
+   "techniques": [
+    {
+     "technique": "absent-status-passthrough",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/loop-runs-stale.ts:73 An unavailable executor lookup is treated as a definite empty answer; the subsequent filter and update can mark external work stopped."
+    },
+    {
+     "technique": "deliberation-as-an-elected-turn",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/local/loop-engine.ts:804 This dispatch width is computed by code from configured targets and arms, rather than elected by a model dispatcher."
+    },
+    {
+     "technique": "durable-fleet-state",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/loop-runs-stale.ts:59 Recovery classifies runs from absence in this process's live map, without corroborating surviving child processes before stopping records and releasing claims."
+    },
+    {
+     "technique": "parallel-dispatch",
+     "verdict": "deviation",
+     "evidence": "src/lib/local/loop-engine.ts:682 Retry resets the lane unconditionally and launches work directly outside the normal mapPool admission path; concurrent retries have neither an atomic reservation nor shared capacity enforcement."
+    },
+    {
+     "technique": "result-harvest",
+     "verdict": "deviation",
+     "evidence": "src/lib/local/lane-report.ts:128 Worker report ingestion reads the entire file without a size bound; later field slicing does not bound the initial read or JSON parsing."
+    },
+    {
+     "technique": "session-registry",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/loop-runs-write.ts:377 The lane mutation door accepts phase patches by id without checking the current state, legal transition edge, or session incarnation."
+    },
+    {
+     "technique": "substrate-reconciliation",
+     "verdict": "deviation",
+     "evidence": "src/lib/local/boot-sweep.ts:95 Boot removes worktrees from the pre-sweep candidate list even if markStaleRunsStopped throws and is converted to zero, so destruction is not gated on successful authoritative reconciliation."
+    }
+   ]
+  },
+  {
+   "context": "Follow-ups Ledger",
+   "subject": "fleet-orchestration",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/org/followups.ts:162 A non-restated craft item becomes done from its completion trailer without an independent artifact acceptance check, turning the worker's claim into the ruling.",
+   "techniques": [
+    {
+     "technique": "completion-claim-verification",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/followups.ts:162 After the restatement check, craft completion depends on the trailer alone; scans-persist uses this decision without an independent craft-artifact acceptance verdict."
+    },
+    {
+     "technique": "evidence-outranks-a-liveness-claim",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/followup-claims.ts:138 Expiry alone returns an editing task to the queue, without confirming that its remote holder stopped or fencing that holder's repository edits."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "fleet-orchestration",
+   "context": "Live War Room",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "fleet-orchestration",
+   "context": "First-Run Onboarding Wizard",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "fleet-orchestration",
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-13T08:23:00.262277+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "fleet-orchestration"
+   ],
+   "techniques": [
+    "absent-status-passthrough",
+    "deliberation-as-an-elected-turn",
+    "durable-fleet-state",
+    "parallel-dispatch",
+    "result-harvest",
+    "session-registry",
+    "substrate-reconciliation"
+   ],
+   "deviations": 1,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-13T08:23:00.262277+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "fleet-orchestration"
+   ],
+   "techniques": [
+    "completion-claim-verification",
+    "evidence-outranks-a-liveness-claim"
+   ],
+   "deviations": 1,
+   "context": "Follow-ups Ledger",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

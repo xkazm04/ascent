@@ -1494,6 +1494,73 @@
         }
       ],
       "registryProposal": "Clarify in voice-io.md that conversational agent persona and tone of voice ('invitational voice') belong to prompt-and-context rather than voice-io, which strictly governs audio I/O pipelines."
+    },
+    "Org Planning & Execution/Local Autopilot & Loop Engine/fleet-orchestration": {
+      "context": "Local Autopilot & Loop Engine",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T08:23:00.262Z",
+      "worker": "64ffc148-ae82-4b38-a9ea-c17d50bfa005",
+      "techniques": [
+        {
+          "technique": "absent-status-passthrough",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/loop-runs-stale.ts:73 An unavailable executor lookup is treated as a definite empty answer; the subsequent filter and update can mark external work stopped."
+        },
+        {
+          "technique": "deliberation-as-an-elected-turn",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/local/loop-engine.ts:804 This dispatch width is computed by code from configured targets and arms, rather than elected by a model dispatcher."
+        },
+        {
+          "technique": "durable-fleet-state",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/loop-runs-stale.ts:59 Recovery classifies runs from absence in this process's live map, without corroborating surviving child processes before stopping records and releasing claims."
+        },
+        {
+          "technique": "parallel-dispatch",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/loop-engine.ts:682 Retry resets the lane unconditionally and launches work directly outside the normal mapPool admission path; concurrent retries have neither an atomic reservation nor shared capacity enforcement."
+        },
+        {
+          "technique": "result-harvest",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/lane-report.ts:128 Worker report ingestion reads the entire file without a size bound; later field slicing does not bound the initial read or JSON parsing."
+        },
+        {
+          "technique": "session-registry",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/loop-runs-write.ts:377 The lane mutation door accepts phase patches by id without checking the current state, legal transition edge, or session incarnation."
+        },
+        {
+          "technique": "substrate-reconciliation",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/boot-sweep.ts:95 Boot removes worktrees from the pre-sweep candidate list even if markStaleRunsStopped throws and is converted to zero, so destruction is not gated on successful authoritative reconciliation."
+        }
+      ]
+    },
+    "Org Planning & Execution/Follow-ups Ledger/fleet-orchestration": {
+      "context": "Follow-ups Ledger",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T08:23:00.262Z",
+      "worker": "64ffc148-ae82-4b38-a9ea-c17d50bfa005",
+      "techniques": [
+        {
+          "technique": "completion-claim-verification",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:162 After the restatement check, craft completion depends on the trailer alone; scans-persist uses this decision without an independent craft-artifact acceptance verdict."
+        },
+        {
+          "technique": "evidence-outranks-a-liveness-claim",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/followup-claims.ts:138 Expiry alone returns an editing task to the queue, without confirming that its remote holder stopped or fencing that holder's repository edits."
+        }
+      ]
     }
   }
 }
