@@ -1,0 +1,187 @@
+{
+ "schema": "conform-run/1",
+ "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+ "subject": "table",
+ "evaluatedAt": "2026-10-13T10:39:11.279059+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Repositories & Segments",
+   "subject": "table",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 Activity sorting has no immutable identity tiebreaker, so equal-valued repositories inherit their incoming order instead of a total deterministic order.",
+   "techniques": [
+    {
+     "technique": "client-server-split",
+     "verdict": "conformant",
+     "evidence": "src/features/standing/repositories/RepositoriesLeaderboardPanel.tsx:189 The client receives the complete posture-filtered, segment/stack-scoped repository set; the inspected rollup query does not truncate repositories before client sorting."
+    },
+    {
+     "technique": "filtering",
+     "verdict": "deviation",
+     "evidence": "src/features/standing/repositories/RepositoriesLeaderboardPanel.tsx:104 The All action clears posture while preserving segment and stack; the inspected selector composition provides no single action clearing the complete applied predicate."
+    },
+    {
+     "technique": "loading-and-empty-states",
+     "verdict": "deviation",
+     "evidence": "src/features/standing/repositories/RepositoriesTab.tsx:75 Initial loading suspends the entire leaderboard panel, including its filter/export toolbar and column headers, instead of rendering chrome immediately with a body-only placeholder."
+    },
+    {
+     "technique": "pagination",
+     "verdict": "deviation",
+     "evidence": "src/features/standing/repositories/RepoLeaderboard.tsx:68 Every sorted repository is rendered; the inspected leaderboard has no bounded row window or pager."
+    },
+    {
+     "technique": "performance",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-rollup.ts:745 The inspected query fetches every matching repository without a top-level take, and the leaderboard mounts the full result; cost remains proportional to fleet size despite bounded latest-scan reads."
+    },
+    {
+     "technique": "sorting",
+     "verdict": "deviation",
+     "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 Missing activity now stays last in both directions, but distinct repositories with equal activity still compare equal because no identity comparison follows."
+    }
+   ]
+  },
+  {
+   "context": "People & Delivery Analytics",
+   "subject": "table",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/export/route.ts:120 Teams export omits the window supplied by the on-screen panel, so its movement columns can describe since-last-scan comparisons instead of the period the user reviewed.",
+   "techniques": [
+    {
+     "technique": "client-server-split",
+     "verdict": "conformant",
+     "evidence": "src/features/bought/teams/TeamsRollupPanel.tsx:150 The matrix sorts the complete scoped team rollup; the inspected server query does not page teams before that client sort."
+    },
+    {
+     "technique": "filtering",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/export/route.ts:120 TeamsRollupPanel passes window to the same producer at line 56, but the export branch omits it and the download link carries only segment and stack."
+    },
+    {
+     "technique": "loading-and-empty-states",
+     "verdict": "deviation",
+     "evidence": "src/features/bought/teams/TeamsTab.tsx:18 The initial fallback replaces the entire TeamsRollupPanel, withholding its scope controls and table headers while data loads."
+    },
+    {
+     "technique": "pagination",
+     "verdict": "deviation",
+     "evidence": "src/features/bought/delivery/PrRepoTable.tsx:158 The first twelve rows are separated from an unbounded remainder, which is rendered in a details element; folding does not establish a bounded pagination window."
+    },
+    {
+     "technique": "performance",
+     "verdict": "deviation",
+     "evidence": "src/features/bought/delivery/PrRepoTable.tsx:173 All healthier-tail rows are rendered even when their details element is closed, and getOrgPrSignals fetches all scoped repositories; the visual fold does not bound payload or DOM construction."
+    },
+    {
+     "technique": "sorting",
+     "verdict": "deviation",
+     "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 Reversing direction moves the negative-infinity sentinels for absent AI share and movement to the front, and the comparator supplies no immutable identity tiebreaker."
+    }
+   ]
+  },
+  {
+   "context": "Follow-ups Ledger",
+   "subject": "table",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/org/followups/FollowupsFilterBar.tsx:91 Clear filters resets the shared follow-up filters but leaves the Proposals worklist's separate Source selection active, so it does not clear the complete applied predicate.",
+   "techniques": [
+    {
+     "technique": "client-server-split",
+     "verdict": "deviation",
+     "evidence": "src/features/inflight/proposals/ProposalsTab.tsx:36 Loop proposals are truncated to twelve recent run details before client repository, dimension, source and text filtering, while the ledger does not label those controls as searching only that recent window."
+    },
+    {
+     "technique": "filtering",
+     "verdict": "deviation",
+     "evidence": "src/components/org/followups/FollowupsFilterBar.tsx:91 Source is independently stored in ProposalsWorklist at line 68 and supplied to applyProposalFilters; this reset cannot clear it."
+    },
+    {
+     "technique": "loading-and-empty-states",
+     "verdict": "deviation",
+     "evidence": "src/components/org/shared/DecisionTable.tsx:134 A zero-match result substitutes the empty content for the entire OrgTable, removing its schema-derived column headers instead of keeping chrome and changing only the body."
+    },
+    {
+     "technique": "pagination",
+     "verdict": "deviation",
+     "evidence": "src/components/org/shared/DecisionTable.tsx:153 ProposalsWorklist passes the complete filtered result as rows, and DecisionTable renders every row without a bounded window."
+    },
+    {
+     "technique": "performance",
+     "verdict": "deviation",
+     "evidence": "src/features/inflight/proposals/ProposalsWorklist.tsx:75 The presentation sequence is recomputed on every worklist render, including selection and modal changes, rather than cached against its named data and predicate inputs."
+    },
+    {
+     "technique": "sorting",
+     "verdict": "deviation",
+     "evidence": "src/components/org/followups/followupsModel.ts:110 The scan-ledger comparator ends with a mutable, potentially colliding title rather than the recommendation's immutable unique id."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-13T10:39:11.279059+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "table"
+   ],
+   "techniques": [
+    "client-server-split",
+    "filtering",
+    "loading-and-empty-states",
+    "pagination",
+    "performance",
+    "sorting"
+   ],
+   "deviations": 1,
+   "context": "Repositories & Segments",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-13T10:39:11.279059+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "table"
+   ],
+   "techniques": [
+    "client-server-split",
+    "filtering",
+    "loading-and-empty-states",
+    "pagination",
+    "performance",
+    "sorting"
+   ],
+   "deviations": 1,
+   "context": "People & Delivery Analytics",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-13T10:39:11.279059+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "table"
+   ],
+   "techniques": [
+    "client-server-split",
+    "filtering",
+    "loading-and-empty-states",
+    "pagination",
+    "performance",
+    "sorting"
+   ],
+   "deviations": 1,
+   "context": "Follow-ups Ledger",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

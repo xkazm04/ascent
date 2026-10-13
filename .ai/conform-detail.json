@@ -1854,6 +1854,156 @@
           "evidence": "docs/features/scanning/maturity-model.md:189 The maturity reference explicitly describes platform-signals.ts and its +8 award, but every map entry matching that module targets scan.md; the maturity-model entry does not include analyzer sources."
         }
       ]
+    },
+    "Org Dashboard & Analytics/Repositories & Segments/table": {
+      "context": "Repositories & Segments",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T10:39:11.279Z",
+      "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+      "techniques": [
+        {
+          "technique": "client-server-split",
+          "verdict": "conformant",
+          "evidence": "src/features/standing/repositories/RepositoriesLeaderboardPanel.tsx:189 The client receives the complete posture-filtered, segment/stack-scoped repository set; the inspected rollup query does not truncate repositories before client sorting."
+        },
+        {
+          "technique": "filtering",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/RepositoriesLeaderboardPanel.tsx:104 The All action clears posture while preserving segment and stack; the inspected selector composition provides no single action clearing the complete applied predicate."
+        },
+        {
+          "technique": "loading-and-empty-states",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/RepositoriesTab.tsx:75 Initial loading suspends the entire leaderboard panel, including its filter/export toolbar and column headers, instead of rendering chrome immediately with a body-only placeholder."
+        },
+        {
+          "technique": "pagination",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/RepoLeaderboard.tsx:68 Every sorted repository is rendered; the inspected leaderboard has no bounded row window or pager."
+        },
+        {
+          "technique": "performance",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-rollup.ts:745 The inspected query fetches every matching repository without a top-level take, and the leaderboard mounts the full result; cost remains proportional to fleet size despite bounded latest-scan reads."
+        },
+        {
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 Missing activity now stays last in both directions, but distinct repositories with equal activity still compare equal because no identity comparison follows."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/features/standing/repositories/RepositoriesLeaderboardPanel.tsx:102 threads only posture+stack into the Export CSV href and src/app/api/org/repositories/route.ts:34 passes null for segment (the route has no segment param), so a segment-scoped table exports the whole fleet; src/features/standing/repositories/RepoLeaderboardParts.tsx:76 gives absent activity the minimum (-1), a home that holds only in the descending half of the cycle, and src/features/standing/repositories/useRepoLeaderboard.ts:48 appends no identity tiebreaker",
+          "evaluatedAt": "2026-09-20",
+          "worker": null,
+          "reason": "replaced by 56735964-f5f6-478b-aaae-58c70bb83c5b"
+        }
+      ]
+    },
+    "Org Dashboard & Analytics/People & Delivery Analytics/table": {
+      "context": "People & Delivery Analytics",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T10:39:11.279Z",
+      "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+      "techniques": [
+        {
+          "technique": "client-server-split",
+          "verdict": "conformant",
+          "evidence": "src/features/bought/teams/TeamsRollupPanel.tsx:150 The matrix sorts the complete scoped team rollup; the inspected server query does not page teams before that client sort."
+        },
+        {
+          "technique": "filtering",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/export/route.ts:120 TeamsRollupPanel passes window to the same producer at line 56, but the export branch omits it and the download link carries only segment and stack."
+        },
+        {
+          "technique": "loading-and-empty-states",
+          "verdict": "deviation",
+          "evidence": "src/features/bought/teams/TeamsTab.tsx:18 The initial fallback replaces the entire TeamsRollupPanel, withholding its scope controls and table headers while data loads."
+        },
+        {
+          "technique": "pagination",
+          "verdict": "deviation",
+          "evidence": "src/features/bought/delivery/PrRepoTable.tsx:158 The first twelve rows are separated from an unbounded remainder, which is rendered in a details element; folding does not establish a bounded pagination window."
+        },
+        {
+          "technique": "performance",
+          "verdict": "deviation",
+          "evidence": "src/features/bought/delivery/PrRepoTable.tsx:173 All healthier-tail rows are rendered even when their details element is closed, and getOrgPrSignals fetches all scoped repositories; the visual fold does not bound payload or DOM construction."
+        },
+        {
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 Reversing direction moves the negative-infinity sentinels for absent AI share and movement to the front, and the comparator supplies no immutable identity tiebreaker."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:34 sorts an unmeasured AI share to -Infinity, whose declared home (:32-33) inverts on the ascending half of the cycle at :61, and src/lib/db/org-signals.ts:209 orders perRepo with no identity tiebreaker over a findMany declaring no orderBy (:160), so equal-risk repos can reorder between refreshes; src/features/bought/delivery/PrRepoTable.tsx:157 bounds only what is visible while every row in scope is fetched and mounted (performance is conformant: TeamsMatrix.tsx:59-62, :150)",
+          "evaluatedAt": "2026-09-20",
+          "worker": null,
+          "reason": "replaced by 56735964-f5f6-478b-aaae-58c70bb83c5b"
+        }
+      ]
+    },
+    "Org Planning & Execution/Follow-ups Ledger/table": {
+      "context": "Follow-ups Ledger",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T10:39:11.279Z",
+      "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+      "techniques": [
+        {
+          "technique": "client-server-split",
+          "verdict": "deviation",
+          "evidence": "src/features/inflight/proposals/ProposalsTab.tsx:36 Loop proposals are truncated to twelve recent run details before client repository, dimension, source and text filtering, while the ledger does not label those controls as searching only that recent window."
+        },
+        {
+          "technique": "filtering",
+          "verdict": "deviation",
+          "evidence": "src/components/org/followups/FollowupsFilterBar.tsx:91 Source is independently stored in ProposalsWorklist at line 68 and supplied to applyProposalFilters; this reset cannot clear it."
+        },
+        {
+          "technique": "loading-and-empty-states",
+          "verdict": "deviation",
+          "evidence": "src/components/org/shared/DecisionTable.tsx:134 A zero-match result substitutes the empty content for the entire OrgTable, removing its schema-derived column headers instead of keeping chrome and changing only the body."
+        },
+        {
+          "technique": "pagination",
+          "verdict": "deviation",
+          "evidence": "src/components/org/shared/DecisionTable.tsx:153 ProposalsWorklist passes the complete filtered result as rows, and DecisionTable renders every row without a bounded window."
+        },
+        {
+          "technique": "performance",
+          "verdict": "deviation",
+          "evidence": "src/features/inflight/proposals/ProposalsWorklist.tsx:75 The presentation sequence is recomputed on every worklist render, including selection and modal changes, rather than cached against its named data and predicate inputs."
+        },
+        {
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/components/org/followups/followupsModel.ts:110 The scan-ledger comparator ends with a mutable, potentially colliding title rather than the recommendation's immutable unique id."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/components/org/shared/DecisionTable.tsx:88 derives the bulk bar's selection from allRows instead of the shown rows (src/features/inflight/proposals/ProposalsWorklist.tsx:147-148 passes both), so a batch action and its count reach rows the current filter hides; the rest of the axis is exemplary - one predicate value at src/components/org/followups/FollowupsFilterBar.tsx:44, a derived clear-all at :91, and a filter-typed empty at ProposalsWorklist.tsx:160",
+          "evaluatedAt": "2026-09-20",
+          "worker": null,
+          "reason": "replaced by 56735964-f5f6-478b-aaae-58c70bb83c5b"
+        }
+      ]
     }
   }
 }
