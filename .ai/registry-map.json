@@ -1427,12 +1427,12 @@
           "revision": 12,
           "changedAt": "2026-09-23",
           "confidence": "strong",
-          "state": "deviation",
-          "evidence": "PR-sensor swallow FIXED (c3e99594: prFetchFailed flag + persisted warning distinguishes a failed fetch from 'repo has no PRs'). Remaining: governance/posture/exposure fetches still .catch(()=>null) with score-bearing folds.",
-          "evaluatedAt": "2026-08-29",
-          "evaluatedAgainst": "sha256:1117665ec59c1168",
+          "state": "conformant",
+          "evidence": "src/lib/scan-ingest.ts:148 The scan pipeline isolates per-sensor failures, carries skips in the snapshot, excludes unobservable absence checks, budgets ingestion and LLM calls, and guards persistence against unauthoritative or truncated runs.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:06416fce13bc2342",
           "source": "retained",
-          "stale": true
+          "evaluatedRevision": 12
         },
         {
           "subject": "docs-sync",
@@ -4135,7 +4135,11 @@
           "revision": 12,
           "changedAt": "2026-09-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/governance.ts:8 Searches for scanner terms 'fetchSnapshot', 'scanRepository', 'RepoSnapshot', and 'sensorFailures' returned zero hits across this context, which evaluates gate policies across precomputed rollups ('no re-scan') and manages practice templates rather than running codebase scans.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:06416fce13bc2342",
+          "evaluatedRevision": 12
         },
         {
           "subject": "quality-gates",

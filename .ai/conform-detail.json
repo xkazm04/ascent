@@ -1561,6 +1561,103 @@
           "evidence": "src/lib/db/followup-claims.ts:138 Expiry alone returns an editing task to the queue, without confirming that its remote holder stopped or fencing that holder's repository edits."
         }
       ]
+    },
+    "Repository Scanning & Scoring/Scan Pipeline & Ingestion/codebase-scanning": {
+      "context": "Scan Pipeline & Ingestion",
+      "subject": "codebase-scanning",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T08:53:46.833Z",
+      "worker": "5f368074-9d22-4774-a0aa-c097f501fafe",
+      "techniques": [
+        {
+          "technique": "sensor-pipeline",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-ingest.ts:148 Records each failed score-bearing sensor during ingestion instead of swallowing into a silent empty result."
+        },
+        {
+          "technique": "evidence-scoping",
+          "verdict": "conformant",
+          "evidence": "src/lib/security/checks.ts:374 Excludes checks whose zero only an unread GitHub sensor could refute, while preserving local file evidence."
+        },
+        {
+          "technique": "ingestion-budget",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-compose.ts:290 Emits an explicit reliability warning when snapshot coverage falls below 50% due to budget limits."
+        },
+        {
+          "technique": "the-tree-is-not-the-population",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-compose.ts:286 Discloses file tree truncation honestly as a report warning rather than presenting the result as a complete sweep."
+        },
+        {
+          "technique": "the-narrowest-view-owns-the-number",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-finalize.ts:125 Classifies scans with degraded coverage confidence as unauthoritative to prevent poisoning persistent caches."
+        },
+        {
+          "technique": "llm-assisted-scanning",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-assess.ts:34 Enforces total wall-clock budget for model attempts with graceful degradation to the deterministic mock floor."
+        },
+        {
+          "technique": "incremental-scanning",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-finalize.ts:158 Refuses persisting scoped or sub-path scans as the repo's standing so incremental sweeps do not redefine baselines."
+        },
+        {
+          "technique": "finding-lifecycle",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-ingest.ts:166 Pins ingestion and report identity to the exact resolved commit SHA so finding dedup survives across sweeps."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "PR-sensor swallow FIXED (c3e99594: prFetchFailed flag + persisted warning distinguishes a failed fetch from 'repo has no PRs'). Remaining: governance/posture/exposure fetches still .catch(()=>null) with score-bearing folds.",
+          "evaluatedAt": "2026-08-29",
+          "worker": null,
+          "reason": "replaced by 5f368074-9d22-4774-a0aa-c097f501fafe"
+        }
+      ]
+    },
+    "Org Knowledge & Skills/Org Memory/codebase-scanning": {
+      "context": "Org Memory",
+      "subject": "codebase-scanning",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T08:53:46.833Z",
+      "techniques": [
+        {
+          "technique": "sensor-pipeline",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/memory/check/route.ts:87 Precondition does not hold: context performs memory deduplication and recall over stored memory rows rather than codebase sensors."
+        }
+      ],
+      "withdrawn": {
+        "worker": "5f368074-9d22-4774-a0aa-c097f501fafe",
+        "state": "not-applicable",
+        "at": "2026-10-13T08:54:16.168935+00:00",
+        "reason": "reviewer (sonnet): The anchor at src/app/api/org/memory/check/route.ts:87 is only the JSON response (comparedCount) of a dedup endpoint, so it does not show that the scanning precondition is absent, and the verdict rests on a zero-hit grep rather than on a line that shows it."
+      }
+    },
+    "Org Dashboard & Analytics/Practices, Governance & Adoption/codebase-scanning": {
+      "context": "Practices, Governance & Adoption",
+      "subject": "codebase-scanning",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T08:53:46.833Z",
+      "worker": "5f368074-9d22-4774-a0aa-c097f501fafe",
+      "techniques": [
+        {
+          "technique": "sensor-pipeline",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/governance.ts:8 Precondition does not hold: context operates as pure assembly over precomputed rollups ('no re-scan') and CI gate evaluations."
+        }
+      ]
     }
   }
 }

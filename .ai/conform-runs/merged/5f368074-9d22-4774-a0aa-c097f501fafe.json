@@ -1,0 +1,147 @@
+{
+  "schema": "conform-run/1",
+  "worker": "5f368074-9d22-4774-a0aa-c097f501fafe",
+  "subject": "codebase-scanning",
+  "evaluatedAt": "2026-10-13T08:53:46.833971+00:00",
+  "provider": "agy",
+  "model": "gemini-3.8-flash-high",
+  "pairs": [
+    {
+      "context": "Scan Pipeline & Ingestion",
+      "subject": "codebase-scanning",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evidence": "src/lib/scan-ingest.ts:148 The scan pipeline isolates per-sensor failures, carries skips in the snapshot, excludes unobservable absence checks, budgets ingestion and LLM calls, and guards persistence against unauthoritative or truncated runs.",
+      "techniques": [
+        {
+          "technique": "sensor-pipeline",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-ingest.ts:148 Records each failed score-bearing sensor during ingestion instead of swallowing into a silent empty result."
+        },
+        {
+          "technique": "evidence-scoping",
+          "verdict": "conformant",
+          "evidence": "src/lib/security/checks.ts:374 Excludes checks whose zero only an unread GitHub sensor could refute, while preserving local file evidence."
+        },
+        {
+          "technique": "ingestion-budget",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-compose.ts:290 Emits an explicit reliability warning when snapshot coverage falls below 50% due to budget limits."
+        },
+        {
+          "technique": "the-tree-is-not-the-population",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-compose.ts:286 Discloses file tree truncation honestly as a report warning rather than presenting the result as a complete sweep."
+        },
+        {
+          "technique": "the-narrowest-view-owns-the-number",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-finalize.ts:125 Classifies scans with degraded coverage confidence as unauthoritative to prevent poisoning persistent caches."
+        },
+        {
+          "technique": "llm-assisted-scanning",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-assess.ts:34 Enforces total wall-clock budget for model attempts with graceful degradation to the deterministic mock floor."
+        },
+        {
+          "technique": "incremental-scanning",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-finalize.ts:158 Refuses persisting scoped or sub-path scans as the repo's standing so incremental sweeps do not redefine baselines."
+        },
+        {
+          "technique": "finding-lifecycle",
+          "verdict": "conformant",
+          "evidence": "src/lib/scan-ingest.ts:166 Pins ingestion and report identity to the exact resolved commit SHA so finding dedup survives across sweeps."
+        }
+      ]
+    },
+    {
+      "context": "Practices, Governance & Adoption",
+      "subject": "codebase-scanning",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/lib/org/governance.ts:8 Searches for scanner terms 'fetchSnapshot', 'scanRepository', 'RepoSnapshot', and 'sensorFailures' returned zero hits across this context, which evaluates gate policies across precomputed rollups ('no re-scan') and manages practice templates rather than running codebase scans.",
+      "techniques": [
+        {
+          "technique": "sensor-pipeline",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/governance.ts:8 Precondition does not hold: context operates as pure assembly over precomputed rollups ('no re-scan') and CI gate evaluations."
+        }
+      ],
+      "absenceTerms": [
+        "fetchSnapshot",
+        "scanRepository",
+        "RepoSnapshot",
+        "sensorFailures"
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "codebase-scanning",
+      "context": "LLM Provider Abstraction",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "codebase-scanning",
+      "context": "Org Import, Scan & Watchlist",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "codebase-scanning",
+      "context": "Org Memory",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor at src/app/api/org/memory/check/route.ts:87 is only the JSON response (comparedCount) of a dedup endpoint, so it does not show that the scanning precondition is absent, and the verdict rests on a zero-hit grep rather than on a line that shows it."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-13T08:53:46.833971+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "codebase-scanning"
+      ],
+      "techniques": [
+        "evidence-scoping",
+        "finding-lifecycle",
+        "incremental-scanning",
+        "ingestion-budget",
+        "llm-assisted-scanning",
+        "sensor-pipeline",
+        "the-narrowest-view-owns-the-number",
+        "the-tree-is-not-the-population"
+      ],
+      "deviations": 0,
+      "context": "Scan Pipeline & Ingestion",
+      "via": "curator-multi:agy",
+      "model": "gemini-3.8-flash-high"
+    },
+    {
+      "ts": "2026-10-13T08:53:46.833971+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "codebase-scanning"
+      ],
+      "techniques": [
+        "sensor-pipeline"
+      ],
+      "deviations": 0,
+      "context": "Org Memory",
+      "via": "curator-multi:agy",
+      "model": "gemini-3.8-flash-high"
+    },
+    {
+      "ts": "2026-10-13T08:53:46.833971+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "codebase-scanning"
+      ],
+      "techniques": [
+        "sensor-pipeline"
+      ],
+      "deviations": 0,
+      "context": "Practices, Governance & Adoption",
+      "via": "curator-multi:agy",
+      "model": "gemini-3.8-flash-high"
+    }
+  ]
+}
