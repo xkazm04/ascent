@@ -1,0 +1,337 @@
+{
+  "schema": "conform-run/1",
+  "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
+  "subject": "prompt-assembly",
+  "evaluatedAt": "2026-10-13T00:24:42.892481+00:00",
+  "provider": "grok",
+  "model": "grok-4.7",
+  "pairs": [
+    {
+      "context": "Maturity Model & Scoring Engine",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/scoring/prompt.ts:91 buildAssessmentPrompt is one pure assembler with a stable system prefix, but the standing text opens on an expertise claim and the file window is spent by character-slicing evidence the model cannot fetch back.",
+      "techniques": [
+        {
+          "technique": "layered-composition",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/prompt.ts:464 One assembler takes the score input and returns a stable system prefix plus a per-repo user message."
+        },
+        {
+          "technique": "variable-interpolation",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/prompt.ts:525 A missing description becomes the declared token \"(none)\", and repository text is neutralized before it enters the user message."
+        },
+        {
+          "technique": "house-vocabulary-layer",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/prompt.ts:101 Dimension names and criteria are rendered from DIMENSIONS, the rubric module, rather than restated by hand in the prompt."
+        },
+        {
+          "technique": "context-reachability",
+          "verdict": "deviation",
+          "evidence": "src/lib/scoring/prompt.ts:502 Omitted file excerpts are unreachable on this call (the only tool is the assessment schema) and are still the first thing cut."
+        },
+        {
+          "technique": "context-budgeting",
+          "verdict": "deviation",
+          "evidence": "src/lib/scoring/prompt.ts:107 The window is a character slice that can end mid-span and labels the cut only \"truncated\", with no token total owned at assembly."
+        },
+        {
+          "technique": "task-envelope",
+          "verdict": "deviation",
+          "evidence": "src/lib/scoring/prompt.ts:91 The standing prompt opens with an expertise claim; the locate pointer, done shape and check come only later."
+        },
+        {
+          "technique": "fingerprinting-and-cache-keys",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/maturity/model.ts:342 r24 busts the score cache when the rubric or system prompt changes; this call is one-shot and has no resumed session to compare."
+        },
+        {
+          "technique": "pinned-prompt-clock",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/prompt.ts:524 The only timestamp is repo.pushedAt from the input; a search of prompt.ts found no Date or clock read."
+        },
+        {
+          "technique": "response-reservation-sizing",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/prompt.ts:546 The assembler returns the two texts and does not set an output ceiling; a search of prompt.ts and engine.ts found no maxTokens."
+        }
+      ],
+      "registryProposal": "Say outright that a stateless single-call scorer is outside history-compaction, continuation, cache-affinity and the compaction schedules, so absence of a transcript is not left as an unread pile."
+    },
+    {
+      "context": "LLM Provider Abstraction",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/llm/openai.ts:92 Providers send the assembled assessment and mark one cache cut on the stable system block, but the output ceiling stays an env default of 4096 while measured output length never changes it or retries a cut response.",
+      "techniques": [
+        {
+          "technique": "response-reservation-sizing",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/output-budget.ts:19 Output length is classified against a model table, and the request ceiling stays llmMaxTokens' fallback of 4096 with no percentile and no retry at a higher cap."
+        },
+        {
+          "technique": "cache-breakpoint-allocation",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/bedrock.ts:137 One cut sits after the whole stable system block, which changes on one cadence, and the per-repo user message stays outside it."
+        },
+        {
+          "technique": "layered-composition",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/bedrock.ts:103 The provider calls the scoring assembler and sends those two sections; this path does not append further instruction text."
+        },
+        {
+          "technique": "capability-documentation",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/schema.ts:74 The assessment tool schema takes its craft-axis enum from the taxonomy, so the dispatcher and the schema share one list."
+        },
+        {
+          "technique": "context-ownership-regimes",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/bedrock.ts:138 The assessment request is one user message and sets no provider context-editing or compaction block."
+        },
+        {
+          "technique": "history-compaction",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/tool-loop.ts:57 The tool loop keeps every in-loop turn and stops at four legs; it does not cut a tail."
+        },
+        {
+          "technique": "house-vocabulary-layer",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/prose.ts:28 This file is a style rider imported by the scoring assembler; the house terms are the rubric, rendered in the other context."
+        }
+      ]
+    },
+    {
+      "context": "Follow-ups Ledger",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/org/followups.ts:688 buildFixPrompt is a pure batch assembler, but buildAgentBrief concatenates the org standard and working perimeter onto the returned string, and the lane capability rules are a hand-written list the file itself records as having drifted from the guard.",
+      "techniques": [
+        {
+          "technique": "layered-composition",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:688 The remote brief appends sections after buildFixPrompt returns, so those sections sit outside the assembler's budget and tests."
+        },
+        {
+          "technique": "capability-documentation",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:287 The session's capability rules are hand-maintained prose, and this comment records them disagreeing with the guard that actually voids the cycle."
+        },
+        {
+          "technique": "context-budgeting",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:644 Every selected item's rationale is inlined with no section cap, no total, and no notice of anything dropped."
+        },
+        {
+          "technique": "house-vocabulary-layer",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:541 gap and rung are defined again inside this prompt instead of being cited from one house-term source."
+        },
+        {
+          "technique": "task-envelope",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:594 The task states a machine-checkable done line per item and does not open with an expertise claim."
+        },
+        {
+          "technique": "context-reachability",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:550 The repo is pointed at, not inlined, and the unreachable scan judgment is what the item text carries."
+        },
+        {
+          "technique": "variable-interpolation",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:651 The date and scan note enter as declared arguments; the function does not read a clock."
+        }
+      ]
+    },
+    {
+      "context": "Athena Companion",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/athena/prompt.ts:152 Athena has one ordered assembler and a registry-generated action contract, but each turn silently keeps only the last eight stored turns as truncated prose and reloads identity into the standing head immediately.",
+      "techniques": [
+        {
+          "technique": "layered-composition",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/prompt.ts:115 Empty identity sections are omitted, and buildAthenaPrompt orders constitution and contracts before recall, history and the new message."
+        },
+        {
+          "technique": "variable-interpolation",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/prompt.ts:139 Recalled memory is declared foreign-authored and wrapped; the assembler comment states it reads no clock."
+        },
+        {
+          "technique": "capability-documentation",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/actions.ts:355 The action section is generated from the same wire list the validator accepts, including argument constraints."
+        },
+        {
+          "technique": "task-envelope",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/cycle-prompt.ts:192 The cycle prompt states an autonomy fact and, below it, a silence token as the done line when nothing changed."
+        },
+        {
+          "technique": "house-vocabulary-layer",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:80 The standing text is a checkable style contract and does not render a house-term section for standing, dimension, rung or craft."
+        },
+        {
+          "technique": "context-budgeting",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:152 Turns beyond the last eight are dropped with no in-prompt count, and what remains is cut by a character cap."
+        },
+        {
+          "technique": "tiered-history-projection",
+          "verdict": "deviation",
+          "evidence": "src/app/api/athena/gate.ts:221 The prompt is rebuilt from stored turns, but only a flat recent window is loaded, with no coarser tier and no id back to older turns."
+        },
+        {
+          "technique": "continuation-prompts",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:158 Each stateless rebuild replays a truncated raw tail rather than carried decisions and their reasons."
+        },
+        {
+          "technique": "recovery-path-as-loss-signal",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:134 Recall is shortened with a truncation mark and nothing counts a later read of the cut text."
+        },
+        {
+          "technique": "deferred-interface-invalidation",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/turn.ts:186 Identity is read into the standing head on every turn, so an accepted identity change rewrites the prefix on the next message."
+        },
+        {
+          "technique": "endpoint-sealed-continuation-metadata",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/athena/gate.ts:224 Stored history is role and content only, so there is no sealed provider metadata to replay or strip."
+        },
+        {
+          "technique": "pinned-prompt-clock",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/prompt.ts:165 buildAthenaPrompt takes no date and the function body does not read a clock."
+        },
+        {
+          "technique": "history-compaction",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/prompt.ts:43 Replayed history is prose role lines, not a tool-call protocol, so there is no call/result pair for a cut to orphan."
+        }
+      ],
+      "registryProposal": "The pyramid gate (do not build tiers until histories routinely outgrow the flat tail) is easy to miss beside the silent-drop rule; a fixed cap that names how many turns were omitted may be the honest ladder until that gate is met."
+    }
+  ],
+  "declined": [
+    {
+      "subject": "prompt-assembly",
+      "context": "First-Run Onboarding Wizard",
+      "reason": "withdrawn after review: reviewer (sonnet): importScan.ts:5 is a comment about the stall watchdog and does not show that the wizard has no prompt assembler. My own grep of src/components/onboarding for the claimed terms found no matches, but that is a context-wide absence and the anchor only shows one module's purpose, so the not-applicable r"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-13T00:24:42.892481+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [
+        "context-budgeting",
+        "context-reachability",
+        "fingerprinting-and-cache-keys",
+        "house-vocabulary-layer",
+        "layered-composition",
+        "pinned-prompt-clock",
+        "response-reservation-sizing",
+        "task-envelope",
+        "variable-interpolation"
+      ],
+      "deviations": 1,
+      "context": "Maturity Model & Scoring Engine",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-13T00:24:42.892481+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "First-Run Onboarding Wizard",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-13T00:24:42.892481+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [
+        "cache-breakpoint-allocation",
+        "capability-documentation",
+        "context-ownership-regimes",
+        "history-compaction",
+        "house-vocabulary-layer",
+        "layered-composition",
+        "response-reservation-sizing"
+      ],
+      "deviations": 1,
+      "context": "LLM Provider Abstraction",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-13T00:24:42.892481+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [
+        "capability-documentation",
+        "context-budgeting",
+        "context-reachability",
+        "house-vocabulary-layer",
+        "layered-composition",
+        "task-envelope",
+        "variable-interpolation"
+      ],
+      "deviations": 1,
+      "context": "Follow-ups Ledger",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-13T00:24:42.892481+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [
+        "capability-documentation",
+        "context-budgeting",
+        "continuation-prompts",
+        "deferred-interface-invalidation",
+        "endpoint-sealed-continuation-metadata",
+        "history-compaction",
+        "house-vocabulary-layer",
+        "layered-composition",
+        "pinned-prompt-clock",
+        "recovery-path-as-loss-signal",
+        "task-envelope",
+        "tiered-history-projection",
+        "variable-interpolation"
+      ],
+      "deviations": 1,
+      "context": "Athena Companion",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    }
+  ]
+}

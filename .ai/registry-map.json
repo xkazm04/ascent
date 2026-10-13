@@ -1018,7 +1018,11 @@
           "revision": 41,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/llm/openai.ts:92 Providers send the assembled assessment and mark one cache cut on the stable system block, but the output ceiling stays an env default of 4096 while measured output length never changes it or retries a cut response.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:7436fd55a7cb2500",
+          "evaluatedRevision": 43
         },
         {
           "subject": "voice-io",
@@ -1193,7 +1197,11 @@
           "revision": 41,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/scoring/prompt.ts:91 buildAssessmentPrompt is one pure assembler with a stable system prefix, but the standing text opens on an expertise claim and the file window is spent by character-slicing evidence the model cannot fetch back.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:7436fd55a7cb2500",
+          "evaluatedRevision": 43
         },
         {
           "subject": "translation-quality-measurement",
@@ -5899,7 +5907,11 @@
           "revision": 41,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/followups.ts:688 buildFixPrompt is a pure batch assembler, but buildAgentBrief concatenates the org standard and working perimeter onto the returned string, and the lane capability rules are a hand-written list the file itself records as having drifted from the guard.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:7436fd55a7cb2500",
+          "evaluatedRevision": 43
         },
         {
           "subject": "agent-instruction-files",
@@ -6866,7 +6878,11 @@
           "revision": 41,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:152 Athena has one ordered assembler and a registry-generated action contract, but each turn silently keeps only the last eight stored turns as truncated prose and reloads identity into the standing head immediately.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:7436fd55a7cb2500",
+          "evaluatedRevision": 43
         },
         {
           "subject": "voice-io",
