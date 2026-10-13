@@ -1233,7 +1233,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "scripts/benchmark.mjs:110 The calibration harness can exit successfully under --strict after every case errors or after only a passing subset returns, so incomplete evaluation can satisfy the gate.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "test-harness",
@@ -6137,7 +6141,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/local/compare-metrics.ts:528 The loop ranks arms by their raw aggregate metric and advances a constraint-clearing winner without establishing that the ranking exceeds measurement noise.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "agent-instruction-files",
@@ -7396,7 +7404,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/report/RoadmapSandbox.tsx:50 Searches of the context and its projection helper found no eval, judge, benchmark, trial, holdout or pairwise machinery, while repository searches located separate harnesses and this context computes hypothetical scores from existing report values.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "quality-gates",

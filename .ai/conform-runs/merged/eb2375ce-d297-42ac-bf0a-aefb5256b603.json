@@ -1,0 +1,126 @@
+{
+ "schema": "conform-run/1",
+ "worker": "eb2375ce-d297-42ac-bf0a-aefb5256b603",
+ "subject": "eval-harness",
+ "evaluatedAt": "2026-10-13T02:36:23.214873+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/local/compare-metrics.ts:528 The loop ranks arms by their raw aggregate metric and advances a constraint-clearing winner without establishing that the ranking exceeds measurement noise.",
+   "techniques": [
+    {
+     "technique": "metric-role-contract",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/compare-metrics.ts:550 One objective determines ordering, while every declared constraint must clear before an arm advances."
+    },
+    {
+     "technique": "outcome-conditioned-cost",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/loop-runs-read.ts:413 The conditioned population ultimately treats commit production as success without requiring a verified task outcome; fullySuccessfulTrials selects these landed classifications."
+    },
+    {
+     "technique": "resolution-precondition",
+     "verdict": "deviation",
+     "evidence": "src/lib/local/compare-metrics.ts:528 The complete ranking and winner-selection path contains no within-condition spread calculation or resolution floor."
+    }
+   ]
+  },
+  {
+   "context": "Roadmap & Recommendation Tracking",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/components/report/RoadmapSandbox.tsx:50 Searches of the context and its projection helper found no eval, judge, benchmark, trial, holdout or pairwise machinery, while repository searches located separate harnesses and this context computes hypothetical scores from existing report values.",
+   "techniques": [
+    {
+     "technique": "comparison-modes",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/scoring/projections.ts:26 The sandbox comparison is deterministic score projection over user overrides, not an absolute, pairwise or matrix evaluation of candidates."
+    }
+   ]
+  },
+  {
+   "context": "Maturity Model & Scoring Engine",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "scripts/benchmark.mjs:110 The calibration harness can exit successfully under --strict after every case errors or after only a passing subset returns, so incomplete evaluation can satisfy the gate.",
+   "techniques": [
+    {
+     "technique": "eval-economics",
+     "verdict": "deviation",
+     "evidence": "scripts/benchmark.mjs:110 Errors are omitted from rows, and neither incomplete coverage nor zero completed cases causes strict failure."
+    },
+    {
+     "technique": "scenario-design",
+     "verdict": "deviation",
+     "evidence": "scripts/benchmark.mjs:60 Scenarios scan repository heads without a frozen ref; saved rows retain repository names and labels but no snapshot/content version, allowing the exam to change between comparisons."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "eval-harness",
+   "context": "Live War Room",
+   "reason": "pair anchor refused: src/features/inflight/live/ledger/comparison/ComparisonView.tsx:42 does not contain the quoted text"
+  },
+  {
+   "subject": "eval-harness",
+   "context": "LLM Provider Abstraction",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-13T02:36:23.214873+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [
+    "metric-role-contract",
+    "outcome-conditioned-cost",
+    "resolution-precondition"
+   ],
+   "deviations": 1,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-13T02:36:23.214873+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [
+    "comparison-modes"
+   ],
+   "deviations": 0,
+   "context": "Roadmap & Recommendation Tracking",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-13T02:36:23.214873+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [
+    "eval-economics",
+    "scenario-design"
+   ],
+   "deviations": 1,
+   "context": "Maturity Model & Scoring Engine",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

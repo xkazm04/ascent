@@ -1078,6 +1078,69 @@
       "evaluatedTs": "2026-10-13T01:38:32.083Z",
       "worker": "def659ca-4613-4a69-8881-5cea7911caad",
       "techniques": []
+    },
+    "Org Planning & Execution/Local Autopilot & Loop Engine/eval-harness": {
+      "context": "Local Autopilot & Loop Engine",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T02:36:23.214Z",
+      "worker": "eb2375ce-d297-42ac-bf0a-aefb5256b603",
+      "techniques": [
+        {
+          "technique": "metric-role-contract",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/compare-metrics.ts:550 One objective determines ordering, while every declared constraint must clear before an arm advances."
+        },
+        {
+          "technique": "outcome-conditioned-cost",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/loop-runs-read.ts:413 The conditioned population ultimately treats commit production as success without requiring a verified task outcome; fullySuccessfulTrials selects these landed classifications."
+        },
+        {
+          "technique": "resolution-precondition",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/compare-metrics.ts:528 The complete ranking and winner-selection path contains no within-condition spread calculation or resolution floor."
+        }
+      ]
+    },
+    "Reporting & Visualization/Roadmap & Recommendation Tracking/eval-harness": {
+      "context": "Roadmap & Recommendation Tracking",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T02:36:23.214Z",
+      "worker": "eb2375ce-d297-42ac-bf0a-aefb5256b603",
+      "techniques": [
+        {
+          "technique": "comparison-modes",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/projections.ts:26 The sandbox comparison is deterministic score projection over user overrides, not an absolute, pairwise or matrix evaluation of candidates."
+        }
+      ]
+    },
+    "Repository Scanning & Scoring/Maturity Model & Scoring Engine/eval-harness": {
+      "context": "Maturity Model & Scoring Engine",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T02:36:23.214Z",
+      "worker": "eb2375ce-d297-42ac-bf0a-aefb5256b603",
+      "techniques": [
+        {
+          "technique": "eval-economics",
+          "verdict": "deviation",
+          "evidence": "scripts/benchmark.mjs:110 Errors are omitted from rows, and neither incomplete coverage nor zero completed cases causes strict failure."
+        },
+        {
+          "technique": "scenario-design",
+          "verdict": "deviation",
+          "evidence": "scripts/benchmark.mjs:60 Scenarios scan repository heads without a frozen ref; saved rows retain repository names and labels but no snapshot/content version, allowing the exam to change between comparisons."
+        }
+      ]
     }
   }
 }
