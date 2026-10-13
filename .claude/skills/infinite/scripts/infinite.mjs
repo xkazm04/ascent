@@ -1032,10 +1032,17 @@ async function main() {
   return 2;
 }
 
+// Exit by setting exitCode, not process.exit(): exiting while a fetch socket is still closing tripped a
+// libuv assertion after `server start` printed "HTTP 200" (the server stayed up; the caller saw a crash).
+// The unref'd timer still ends a process that some handle would otherwise keep alive.
+const finish = (code) => {
+  process.exitCode = code;
+  setTimeout(() => process.exit(code), 2000).unref();
+};
 main().then(
-  (code) => process.exit(code ?? 0),
+  (code) => finish(code ?? 0),
   (e) => {
     console.error(e);
-    process.exit(1);
+    finish(1);
   },
 );
