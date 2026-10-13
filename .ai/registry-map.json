@@ -1233,7 +1233,11 @@
           "revision": 3,
           "changedAt": "2026-09-14",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/maturity/model.ts:466 The rubric measures engineering practices and generated-code safeguards, and context and repository searches found no pretranslation or termbase machinery that would activate translation-quality measurement.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
+          "evaluatedRevision": 4
         },
         {
           "subject": "eval-harness",
@@ -3885,7 +3889,11 @@
           "revision": 3,
           "changedAt": "2026-09-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/segments.ts:214 Segments group repository identities rather than translated text units, and context and repository searches found no pretranslation or termbase machinery.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
+          "evaluatedRevision": 4
         },
         {
           "subject": "agent-instruction-files",
@@ -4794,7 +4802,11 @@
           "revision": 3,
           "changedAt": "2026-09-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/org/PersonalOverview.tsx:54 The overview tracks repository maturity histories and personal recommendations, and context and repository searches found no pretranslation or termbase machinery.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
+          "evaluatedRevision": 4
         }
       ],
       "governance": "governed"
@@ -7825,7 +7837,11 @@
           "revision": 3,
           "changedAt": "2026-09-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/report/PostureQuadrant.tsx:98 The visuals present AI adoption and engineering rigor, and context and repository searches found no pretranslation or termbase machinery for measuring translated text.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
+          "evaluatedRevision": 4
         },
         {
           "subject": "test-harness",
@@ -8121,7 +8137,11 @@
           "revision": 3,
           "changedAt": "2026-09-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/report/page.tsx:8 The report shell runs and presents repository maturity scans, and context and repository searches found no pretranslation or termbase machinery for translation-quality assessment.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
+          "evaluatedRevision": 4
         },
         {
           "subject": "voice-io",
