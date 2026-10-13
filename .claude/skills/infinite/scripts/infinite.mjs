@@ -635,14 +635,38 @@ function measureTech({ ref, runs = 2, label = "measure", log = console.log }) {
       log(`tech: npm ci failed in ${dir}: ${String(inst.stderr || inst.stdout).trim().split("\n").slice(-2).join(" / ")}`);
       return result;
     }
+    const exec = (command, timeoutMin) =>
+      spawnSync(command, { cwd: dir, shell: true, encoding: "utf8", timeout: (timeoutMin ?? 20) * 60_000, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+    // `clean`: paths removed before EVERY run, so a build is measured cold each time (a reused
+    // .next/cache made the second build 3x faster: 47 s then 17 s on one commit). `rmdir /s /q` on
+    // Windows removes the junctions `next build` puts in .next/node_modules without following them.
+    const clean = (m) => {
+      for (const rel of m.clean ?? []) {
+        const abs = path.join(dir, rel);
+        if (!fs.existsSync(abs)) continue;
+        if (process.platform === "win32") spawnSync("cmd", ["/c", "rmdir", "/s", "/q", abs], { windowsHide: true });
+        else fs.rmSync(abs, { recursive: true, force: true });
+      }
+    };
+    // `warmup`: one unmeasured run first, so every measured run starts from the same warm caches (the
+    // first unit-test run of a fresh install pays the transform cache: 44 s, then 26 s).
+    for (const m of result.metrics.filter((x) => x.warmup && x.command)) {
+      clean(m);
+      exec(m.command, m.timeoutMin);
+    }
     for (let r = 0; r < runs; r++) {
       let lastOut = { stdout: "", wallS: null, ok: true };
       for (const m of result.metrics) {
         if (m.command) {
+          clean(m);
           const s = Date.now();
-          const res = spawnSync(m.command, { cwd: dir, shell: true, encoding: "utf8", timeout: (m.timeoutMin ?? 20) * 60_000, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+          const res = exec(m.command, m.timeoutMin);
           lastOut = { stdout: `${res.stdout ?? ""}\n${res.stderr ?? ""}`, wallS: round2((Date.now() - s) / 1000), ok: res.status === 0 };
-          if (!lastOut.ok) log(`tech: run ${r + 1} "${m.name}" exited ${res.status}: ${lastOut.stdout.trim().split("\n").slice(-2).join(" / ").slice(0, 300)}`);
+          if (!lastOut.ok) {
+            const lines = lastOut.stdout.split("\n");
+            const failing = lines.filter((l) => /\bFAIL\b|×|Error:/.test(l)).slice(0, 6).map((l) => l.trim());
+            log(`tech: run ${r + 1} "${m.name}" exited ${res.status}: ${[...failing, ...lines.slice(-2)].join(" / ").slice(0, 900)}`);
+          }
         }
         const v = lastOut.ok ? parseTech(m, { ...lastOut, cwd: dir }) : null;
         m.values.push(v == null ? null : round2(v));
