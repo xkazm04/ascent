@@ -1042,7 +1042,11 @@
           "revision": 19,
           "changedAt": "2026-09-30",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/llm/provider.ts:94 A grep search across the LLM provider files for voice, speech, audio, and synthesis found no speech I/O capabilities, as the abstraction defines static repository assessment methods (`assess`) evaluating git metadata and code files to produce maturity scores.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:fa1c8ca716f872dc",
+          "evaluatedRevision": 20
         },
         {
           "subject": "agent-cli-transport",
@@ -4794,7 +4798,11 @@
           "revision": 19,
           "changedAt": "2026-09-30",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/developer-view.ts:236 A grep search across Developer Home files for voice, speech, audio, mic, and tts found zero voice I/O constructs, as this surface is a private developer care notebook where 'transcript' refers strictly to local agent session logs that never leave the developer's machine.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:fa1c8ca716f872dc",
+          "evaluatedRevision": 20
         },
         {
           "subject": "agent-memory",
@@ -5199,7 +5207,11 @@
           "revision": 19,
           "changedAt": "2026-09-30",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/features/inflight/live/liveWarRoomCelebrate.ts:18 A grep search across Live War Room files found audio limited to Web Audio API oscillator chime earcons (`scheduleTones`), which voice-io explicitly classifies as sound design outside the scope of speech recognition and voice synthesis.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:fa1c8ca716f872dc",
+          "evaluatedRevision": 20
         },
         {
           "subject": "quality-gates",
@@ -6926,7 +6938,11 @@
           "revision": 19,
           "changedAt": "2026-09-30",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/features/shared/athena/AthenaComposer.tsx:42 A grep search across Athena files for voice, speech, mic, and audio found only written brand persona references; the companion interaction surface is a text-only TextArea form communicating via HTTP server-sent events without voice input or synthesis pipelines.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:fa1c8ca716f872dc",
+          "evaluatedRevision": 20
         },
         {
           "subject": "agent-instruction-files",

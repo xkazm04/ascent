@@ -1328,6 +1328,172 @@
         }
       ],
       "registryProposal": "additive-input names supersede and inject, and its surface sentence says the send control is never disabled. A composer that leaves the textarea live, refuses submit while the turn runs, and drops Enter with no visible pending state is a third design the decision rules do not name."
+    },
+    "Org Dashboard & Analytics/Developer home (UC3 individual care)/voice-io": {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T04:39:10.721Z",
+      "worker": "89808012-4ebf-4d45-82e4-710c81c75f6c",
+      "techniques": [
+        {
+          "technique": "transcript-handoff-receipts",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/developer-view.ts:254 Transcripts in developer-view are local agent session logs permanently locked from transmission by CARE_NEVER_SENT_FIELDS, not dictated speech delivered to cursor targets."
+        },
+        {
+          "technique": "voice-ux-integration",
+          "verdict": "not-applicable",
+          "evidence": "src/features/developer/DeveloperCompanion.tsx:46 The developer companion is rendered as a silent private notebook interface without read-aloud controls, narration, or speech arbiters."
+        },
+        {
+          "technique": "spoken-intent-parsing",
+          "verdict": "not-applicable",
+          "evidence": "src/features/developer/CareMovesBoard.tsx:51 Care move actions are executed via interactive UI buttons rather than spoken commands parsed against a speech grammar."
+        },
+        {
+          "technique": "transcript-normalization",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/developer-view.ts:237 Prompts and session contents are explicitly never collected, precluding any reader-facing transcript normalization pipeline."
+        }
+      ]
+    },
+    "Repository Scanning & Scoring/LLM Provider Abstraction/voice-io": {
+      "context": "LLM Provider Abstraction",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T04:39:10.721Z",
+      "worker": "89808012-4ebf-4d45-82e4-710c81c75f6c",
+      "techniques": [
+        {
+          "technique": "engine-abstraction",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/provider.ts:91 LLMProvider defines an abstraction for language models assessing code maturity rather than speech-to-text or text-to-speech engines."
+        },
+        {
+          "technique": "portable-provider-package",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/registry.ts:42 The provider registry exposes text-only connection and runner seams for scans and chat turns, with no speech synthesis package or shared audio model home."
+        },
+        {
+          "technique": "on-device-vs-cloud",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/index.ts:8 Local vs cloud provider options govern local OpenAI-compatible text servers (Ollama/vLLM) versus cloud text APIs, not audio residency or microphone capture permissions."
+        },
+        {
+          "technique": "duplex-agent-sessions",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/provider.ts:84 Inference options support cancellation and token metering on discrete scan runs rather than bidirectional live audio duplex streaming."
+        }
+      ]
+    },
+    "Org Planning & Execution/Live War Room/voice-io": {
+      "context": "Live War Room",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T04:39:10.721Z",
+      "worker": "89808012-4ebf-4d45-82e4-710c81c75f6c",
+      "techniques": [
+        {
+          "technique": "tts-pipeline",
+          "verdict": "not-applicable",
+          "evidence": "src/features/inflight/live/liveWarRoomCelebrate.ts:12 Audio generation is limited to scheduled oscillator pitches for celebration earcons rather than text-to-speech synthesis queues or speaker playback lifecycles."
+        },
+        {
+          "technique": "voice-ux-integration",
+          "verdict": "not-applicable",
+          "evidence": "src/features/inflight/live/LiveWarRoomCelebrations.tsx:6 Celebrations are displayed visually using toast containers marked with aria-live polite regions, with no read-aloud controls or spoken narration."
+        },
+        {
+          "technique": "stt-pipeline",
+          "verdict": "not-applicable",
+          "evidence": "src/features/inflight/live/theater/theaterSound.ts:24 Audio handling only unlocks the browser AudioContext on user gesture for earcon playback, containing no microphone acquisition or STT pipeline."
+        },
+        {
+          "technique": "caller-scoped-voice-binding",
+          "verdict": "not-applicable",
+          "evidence": "src/features/inflight/live/theater/theaterSound.ts:17 Audio cues derive fixed oscillator frequencies from CHIME_TONES rather than resolving caller-scoped voice persona bindings."
+        }
+      ]
+    },
+    "Onboarding, Shell & AI Standard/First-Run Onboarding Wizard/voice-io": {
+      "context": "First-Run Onboarding Wizard",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T04:39:10.721Z",
+      "techniques": [
+        {
+          "technique": "voice-setup-experience",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/OnboardingFlow.tsx:5 First-run onboarding steps guide users through picking organizations and selecting repositories, not comparing voices by ear or configuring speech recognizers."
+        },
+        {
+          "technique": "stt-pipeline",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/OnboardingPickStep.tsx:12 Organization input is facilitated by clickable demo suggestion chips and search inputs, without microphone capture or speech transcription."
+        },
+        {
+          "technique": "voice-ux-integration",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/OnboardingFlow.tsx:8 Onboarding steps progress through access and scan gates silently without spoken narration or read-aloud overlays."
+        },
+        {
+          "technique": "engine-abstraction",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/canRunReal.ts:23 Execution branching determines whether scans run against real credits versus preview mocks, completely decoupled from speech engine adapters."
+        }
+      ],
+      "withdrawn": {
+        "worker": "89808012-4ebf-4d45-82e4-710c81c75f6c",
+        "state": "not-applicable",
+        "at": "2026-10-13T04:40:05.014381+00:00",
+        "reason": "reviewer (sonnet): The anchors (OnboardingFlow.tsx:4, :5 and :8) are import lines for the wizard steps. They don't show that voice input is absent. The claim rests only on a grep result, so the anchor is incidental."
+      }
+    },
+    "Org Knowledge & Skills/Athena Companion/voice-io": {
+      "context": "Athena Companion",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T04:39:10.721Z",
+      "worker": "89808012-4ebf-4d45-82e4-710c81c75f6c",
+      "techniques": [
+        {
+          "technique": "duplex-agent-sessions",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/athena/[id]/message/route.ts:50 Athena exchanges text JSON payloads over HTTP SSE streams rather than establishing live bidirectional audio duplex sessions."
+        },
+        {
+          "technique": "voice-ux-integration",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/athena/AthenaComposer.tsx:58 Athena's composer is driven by keyboard textarea interactions with no speech arbiter, voice mute, or read-aloud controls."
+        },
+        {
+          "technique": "stt-pipeline",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/athena/AthenaComposer.tsx:60 Chat messages are submitted via form submit button events without microphone acquisition, metering, or speech-to-text."
+        },
+        {
+          "technique": "tts-pipeline",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/athena/restingLine.ts:25 Athena's resting guidance explicitly documents eyebrows as not spoken, rendering text directly in UI drawers without TTS queues."
+        },
+        {
+          "technique": "spoken-intent-parsing",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/athena/[id]/message/route.ts:51 Input messages are handled as typed strings with character length bounds rather than speech transcripts parsed against closed grammars."
+        }
+      ],
+      "registryProposal": "Clarify in voice-io.md that conversational agent persona and tone of voice ('invitational voice') belong to prompt-and-context rather than voice-io, which strictly governs audio I/O pipelines."
     }
   }
 }
