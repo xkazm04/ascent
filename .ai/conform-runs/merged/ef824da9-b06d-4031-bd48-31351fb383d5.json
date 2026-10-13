@@ -1,0 +1,185 @@
+{
+  "schema": "conform-run/1",
+  "worker": "ef824da9-b06d-4031-bd48-31351fb383d5",
+  "subject": "agent-cli-transport",
+  "evaluatedAt": "2026-10-13T11:24:06.642737+00:00",
+  "provider": "codex",
+  "model": "gpt-6.1-sol",
+  "pairs": [
+    {
+      "context": "LLM Provider Abstraction",
+      "subject": "agent-cli-transport",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/llm/transport/claude.ts:109 The authorization probe inherits credentials that real runs strip, so it can report authorization for a different billing environment.",
+      "techniques": [
+        {
+          "technique": "availability-probe",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/transport/claude.ts:109 Probe uses the inherited environment; run() deletes ANTHROPIC_API_KEY before spawning."
+        },
+        {
+          "technique": "child-observed-posture",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/transport/claude.ts:120 Only loggedIn is inspected; the child's auth method, subscription tier, and unexpected missing fields are not checked against an expected record."
+        },
+        {
+          "technique": "dated-capability-matrix",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/transport/index.ts:40 Observed versions are cached without reconciliation against the adapters' verifiedVersion records; no version-mismatch staleness handling was found."
+        },
+        {
+          "technique": "host-routed-approval-round-trip",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/transport/claude.ts:154 This assessment transport runs unattended print-mode calls, without a mid-turn human approval channel."
+        },
+        {
+          "technique": "output-normalization",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/transport/codex.ts:187 A stream containing both answer text and turn.failed/error bypasses this failure branch and returns success, contrary to authoritative envelope error handling."
+        },
+        {
+          "technique": "permission-stance-enforcement",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/transport/claude-stream.ts:16 Generate invocations leave native tools enabled; running in tmpdir does not enforce the promised absence of workspace access."
+        },
+        {
+          "technique": "subscription-auth-selection",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/transport/claude.ts:146 Repository assessment content reaches a child inheriting the full application environment, with only ANTHROPIC_API_KEY removed rather than an environment allowlist."
+        }
+      ]
+    },
+    {
+      "context": "Local Autopilot & Loop Engine",
+      "subject": "agent-cli-transport",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/local/transport/claude.ts:197 The planning invocation sets plan mode and a reading allowlist but omits the independent write-tool deny layer required for read-only enforcement.",
+      "techniques": [
+        {
+          "technique": "availability-probe",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/transport/probe.ts:244 Probe executes the profile's binary, while the real runner honors CLAUDE_CLI_PATH or PI_CLI_PATH, allowing different executables to be checked and launched."
+        },
+        {
+          "technique": "child-observed-posture",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/transport/probe.ts:289 Missing auth-method and subscription fields still produce a successful finding rather than unknown or a failed expected-record check."
+        },
+        {
+          "technique": "dated-capability-matrix",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/transport/profile.ts:98 Cells carry dated live-run witnesses, but profile selection uses only transport identity; the recorded binary version is not used to mark mismatched cells stale."
+        },
+        {
+          "technique": "host-routed-approval-round-trip",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/local/transport/claude.ts:198 These are unattended autopilot sessions with a preset stance, rather than an attended conversation that can answer child approval requests."
+        },
+        {
+          "technique": "output-normalization",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/agent.ts:439 The prompt is written without an input-stream error handler; a child that exits early can emit an unhandled broken-pipe error."
+        },
+        {
+          "technique": "permission-stance-enforcement",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/transport/claude.ts:197 The complete planning argv has no write-tool denylist; the later clean-tree check detects changes after execution rather than supplying that prevention layer."
+        },
+        {
+          "technique": "subscription-auth-selection",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/transport/claude.ts:260 An agent processing repository files inherits the host environment minus three named variables, exposing unrelated application secrets instead of using an allowlist."
+        },
+        {
+          "technique": "thread-custody-across-resume",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/transport/claude.ts:205 A malformed supplied resume identifier is silently omitted, starting a fresh session without a typed thread-loss outcome or re-thread lineage; the behavior is explicitly pinned by claude.test.ts."
+        }
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "agent-cli-transport",
+      "context": "Checkout & Plans (Polar)",
+      "reason": "absence contradicted: src/lib/forge/local.ts:13 contains 'child_process' (110 hit(s) in the context's directories)"
+    },
+    {
+      "subject": "agent-cli-transport",
+      "context": "GitHub OAuth & Session",
+      "reason": "absence contradicted: src/lib/forge/local.ts:13 contains 'child_process' (110 hit(s) in the context's directories)"
+    },
+    {
+      "subject": "agent-cli-transport",
+      "context": "Practices, Governance & Adoption",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor artifact.ts:62 is the buildPracticeArtifact function. It doesn't show that no agent CLI is spawned, and the absence rests only on a search I couldn't tie to that line. The anchor is incidental, so the not-applicable is withdrawn."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-13T11:24:06.642737+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-cli-transport"
+      ],
+      "techniques": [
+        "availability-probe",
+        "child-observed-posture",
+        "dated-capability-matrix",
+        "host-routed-approval-round-trip",
+        "output-normalization",
+        "permission-stance-enforcement",
+        "subscription-auth-selection"
+      ],
+      "deviations": 1,
+      "context": "LLM Provider Abstraction",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    },
+    {
+      "ts": "2026-10-13T11:24:06.642737+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-cli-transport"
+      ],
+      "techniques": [
+        "availability-probe",
+        "child-observed-posture",
+        "dated-capability-matrix",
+        "host-routed-approval-round-trip",
+        "output-normalization",
+        "permission-stance-enforcement",
+        "subscription-auth-selection",
+        "thread-custody-across-resume"
+      ],
+      "deviations": 1,
+      "context": "Local Autopilot & Loop Engine",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    },
+    {
+      "ts": "2026-10-13T11:24:06.642737+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-cli-transport"
+      ],
+      "techniques": [
+        "availability-probe",
+        "child-observed-posture",
+        "dated-capability-matrix",
+        "fallback-ladder",
+        "host-routed-approval-round-trip",
+        "output-normalization",
+        "permission-stance-enforcement",
+        "subscription-auth-selection",
+        "thread-custody-across-resume"
+      ],
+      "deviations": 0,
+      "context": "Practices, Governance & Adoption",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    }
+  ]
+}

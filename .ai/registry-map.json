@@ -1062,7 +1062,11 @@
           "revision": 8,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/llm/transport/claude.ts:109 The authorization probe inherits credentials that real runs strip, so it can report authorization for a different billing environment.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:5791230ffb7d9fad",
+          "evaluatedRevision": 9
         },
         {
           "subject": "test-harness",
@@ -6230,7 +6234,11 @@
           "revision": 8,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/local/transport/claude.ts:197 The planning invocation sets plan mode and a reading allowlist but omits the independent write-tool deny layer required for read-only enforcement.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:5791230ffb7d9fad",
+          "evaluatedRevision": 9
         },
         {
           "subject": "agent-runtime-assembly",
