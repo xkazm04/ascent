@@ -4440,11 +4440,11 @@
           "changedAt": "2026-09-29",
           "confidence": "probable",
           "state": "conformant",
-          "evidence": "src/lib/integrations/otlp.ts:54-56,118-127,142-212 parseOtlpMetrics counts every dropped BYOM telemetry datapoint by SkipReason (unknown-metric/no-repo-attr/unsupported-host) and reports `received` alongside `skipped`, rather than a connector that silently stores nothing while looking like it works — the ingestion-side analog of usage-ledgers' 'failures are spend' and spend-attribution's counted-unattributed-bucket discipline.",
-          "evaluatedAt": "2026-08-31",
-          "evaluatedAgainst": "sha256:c701b1133c188f8a",
+          "evidence": "src/lib/integrations/otlp.ts:92 OTLP telemetry ingestion tracks and reports skipped datapoints by reason alongside received counts to make dropped spend visible.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:b3129728f9d9c336",
           "source": "retained",
-          "stale": true
+          "evaluatedRevision": 14
         },
         {
           "subject": "test-harness",
@@ -8786,10 +8786,10 @@
           "changedAt": "2026-09-29",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "scan/stream/route.ts has neither credit gate (route.ts has 6) yet asserts 'token scans are credit-metered'; webhook/route.ts:313 rescans unreserved; debits never pass scanId/actor, so spend is unjoinable.",
-          "evaluatedAt": "2026-08-23",
-          "evaluatedAgainst": "sha256:1117665ec59c1168",
-          "stale": true
+          "evidence": "src/lib/db/credits.ts:379 consumeScanCredit uses a static scan:<scanId> idempotency key that allows retries of refunded operations to execute for free without attempt walking.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:b3129728f9d9c336",
+          "evaluatedRevision": 14
         },
         {
           "subject": "hitl-approval",
@@ -8876,10 +8876,10 @@
           "changedAt": "2026-09-29",
           "confidence": "probable",
           "state": "conformant",
-          "evidence": "src/lib/db/usage.ts:59-76 isBillableScan is the ONE billable predicate shared by the chart/CSV/gate paths (comment names the drift bug this prevents); byRepo/byLane/byTeam (lines 111-129) carry multi-axis attribution and estimatedCostUsd/costBasis (102-110) is null rather than a fake price when unpriceable — realizes usage-ledgers, spend-attribution and spend-observability for the reporting surface. Enforcement techniques (budget-enforcement, preflight-estimation, reversible-debit-and-settle) are not-applicable here — this context is the read/reporting side; the gate is Credits & Entitlements, judged separately with a recorded deviation.",
-          "evaluatedAt": "2026-08-31",
-          "evaluatedAgainst": "sha256:c701b1133c188f8a",
-          "stale": true
+          "evidence": "src/lib/db/usage.ts:96 The unified isBillableScan predicate governs billing across summary tiles, daily trends, and exports without divergence.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:b3129728f9d9c336",
+          "evaluatedRevision": 14
         },
         {
           "subject": "agent-memory",

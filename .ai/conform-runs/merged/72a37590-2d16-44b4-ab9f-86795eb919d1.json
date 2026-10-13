@@ -1,0 +1,259 @@
+{
+ "schema": "conform-run/1",
+ "worker": "72a37590-2d16-44b4-ab9f-86795eb919d1",
+ "subject": "cost-metering",
+ "evaluatedAt": "2026-10-13T09:23:50.891748+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [
+  {
+   "context": "Usage Metering",
+   "subject": "cost-metering",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/lib/db/usage.ts:96 The unified isBillableScan predicate governs billing across summary tiles, daily trends, and exports without divergence.",
+   "techniques": [
+    {
+     "technique": "usage-ledgers",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/usage.ts:325 A single helper defines the half-open UTC window, which travels with the usage summary."
+    },
+    {
+     "technique": "spend-attribution",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/usage.ts:899 Spend groups by repo, lane, and team, with unassigned work captured in explicit org-wide null buckets."
+    },
+    {
+     "technique": "spend-observability",
+     "verdict": "conformant",
+     "evidence": "src/components/usage/UsageTrend.tsx:67 The daily trend marks the trailing incomplete bucket as partial and provides CSV/JSON and showback exports."
+    },
+    {
+     "technique": "price-tables",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/usage.ts:719 The cost fold refuses to price unknown models and returns null rather than defaulting to zero."
+    },
+    {
+     "technique": "unit-classes-are-open",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/usage.ts:194 Unpriced calls across lanes are tracked explicitly and propagate a floor qualifier to headline costs."
+    },
+    {
+     "technique": "budget-enforcement",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:1 Usage metering is the read and reporting surface; budget enforcement lives on the pre-scan gate."
+    },
+    {
+     "technique": "engagement-paced-cadence",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:2 No self-driven autonomous agent loop operates within the usage reporting context."
+    },
+    {
+     "technique": "preflight-estimation",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:3 Reporting summarizes actual incurred usage rather than gating prospective inference."
+    },
+    {
+     "technique": "reversible-debit-and-settle",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:4 Reversible debits and refunds belong to the prepaid credit gate, not the reporting aggregate."
+    },
+    {
+     "technique": "whole-prompt-denominator",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:51 Usage metrics aggregate plain input/output token counters without cache subset subtraction."
+    }
+   ]
+  },
+  {
+   "context": "Provider Integrations",
+   "subject": "cost-metering",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/lib/integrations/otlp.ts:92 OTLP telemetry ingestion tracks and reports skipped datapoints by reason alongside received counts to make dropped spend visible.",
+   "techniques": [
+    {
+     "technique": "usage-ledgers",
+     "verdict": "conformant",
+     "evidence": "src/lib/integrations/otlp.ts:92 Ingested points distinguish stored rows from dropped points, categorized by explicit skip reasons."
+    },
+    {
+     "technique": "spend-attribution",
+     "verdict": "conformant",
+     "evidence": "src/lib/integrations/providers.ts:23 Attribution fidelity is explicitly typed and seats-only providers report no fictitious spend."
+    },
+    {
+     "technique": "spend-observability",
+     "verdict": "conformant",
+     "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:89 The OTLP ingest response exposes skipped datapoint counts to make integration drop anomalies observable."
+    },
+    {
+     "technique": "price-tables",
+     "verdict": "conformant",
+     "evidence": "src/lib/integrations/otlp.ts:146 Provider meter cost readings are recorded verbatim rather than re-derived from local price tables."
+    },
+    {
+     "technique": "unit-classes-are-open",
+     "verdict": "conformant",
+     "evidence": "src/lib/integrations/otlp.ts:64 Unrecognized metrics outside the allowlist are counted as unknown-metric residuals rather than silently dropped."
+    },
+    {
+     "technique": "budget-enforcement",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/integrations/providers.ts:1 Provider integrations ingest external telemetry rather than enforcing spend ceilings on outgoing calls."
+    },
+    {
+     "technique": "engagement-paced-cadence",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/integrations/providers.ts:2 Integrations act as passive telemetry push/pull receivers without self-driven agent loops."
+    },
+    {
+     "technique": "preflight-estimation",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/integrations/providers.ts:3 Telemetry ingestion processes historical usage reported by external agents."
+    },
+    {
+     "technique": "reversible-debit-and-settle",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/integrations/providers.ts:4 External OTel telemetry has no debit reservation lifecycle."
+    },
+    {
+     "technique": "whole-prompt-denominator",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/integrations/otlp.ts:142 Ingested Claude Code token metrics are single cumulative token counters."
+    }
+   ]
+  },
+  {
+   "context": "Credits & Entitlements",
+   "subject": "cost-metering",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/credits.ts:379 consumeScanCredit uses a static scan:<scanId> idempotency key that allows retries of refunded operations to execute for free without attempt walking.",
+   "techniques": [
+    {
+     "technique": "reversible-debit-and-settle",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/credits.ts:379 When scanId is supplied, duplicate idempotency checks return ok:true without attempt suffixes or checking if previous attempts were refunded, violating attempt-walk semantics."
+    },
+    {
+     "technique": "budget-enforcement",
+     "verdict": "conformant",
+     "evidence": "src/lib/entitlement.ts:92 checkScanEntitlement combines tenant existence, plan allowance, and prepaid credits to gate execution before work starts."
+    },
+    {
+     "technique": "spend-attribution",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/credits.ts:417 CreditLedger rows record repoFullName, actor, and scanId at write time for joinable audit trails."
+    },
+    {
+     "technique": "usage-ledgers",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/credits.ts:178 CreditLedger enforces append-only delta consistency with clamped balance updates."
+    },
+    {
+     "technique": "preflight-estimation",
+     "verdict": "conformant",
+     "evidence": "src/lib/credit-estimate.ts:63 estimateMonthlyCredits calculates estimated credit draw netting out remaining monthly free allowance before commitment."
+    },
+    {
+     "technique": "spend-observability",
+     "verdict": "conformant",
+     "evidence": "src/components/credit/WatchCostTail.tsx:28 WatchCostTail exposes immediate and recurring credit draw estimates and warns when balance covers under a month."
+    },
+    {
+     "technique": "price-tables",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/credits.ts:3 Credits operate on fixed integer unit charges rather than model price lookup tables."
+    },
+    {
+     "technique": "engagement-paced-cadence",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/credits.ts:4 Credit accounting manages scan balances without pacing autonomous agent loop cadence."
+    },
+    {
+     "technique": "unit-classes-are-open",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/credits.ts:5 Credits are a closed single-unit currency (scan credits)."
+    },
+    {
+     "technique": "whole-prompt-denominator",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/credits.ts:6 Credit billing deals with discrete scan units rather than cached token breakdown."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-13T09:23:50.891748+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "cost-metering"
+   ],
+   "techniques": [
+    "budget-enforcement",
+    "engagement-paced-cadence",
+    "preflight-estimation",
+    "price-tables",
+    "reversible-debit-and-settle",
+    "spend-attribution",
+    "spend-observability",
+    "unit-classes-are-open",
+    "usage-ledgers",
+    "whole-prompt-denominator"
+   ],
+   "deviations": 0,
+   "context": "Usage Metering",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  },
+  {
+   "ts": "2026-10-13T09:23:50.891748+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "cost-metering"
+   ],
+   "techniques": [
+    "budget-enforcement",
+    "engagement-paced-cadence",
+    "preflight-estimation",
+    "price-tables",
+    "reversible-debit-and-settle",
+    "spend-attribution",
+    "spend-observability",
+    "unit-classes-are-open",
+    "usage-ledgers",
+    "whole-prompt-denominator"
+   ],
+   "deviations": 0,
+   "context": "Provider Integrations",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  },
+  {
+   "ts": "2026-10-13T09:23:50.891748+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "cost-metering"
+   ],
+   "techniques": [
+    "budget-enforcement",
+    "engagement-paced-cadence",
+    "preflight-estimation",
+    "price-tables",
+    "reversible-debit-and-settle",
+    "spend-attribution",
+    "spend-observability",
+    "unit-classes-are-open",
+    "usage-ledgers",
+    "whole-prompt-denominator"
+   ],
+   "deviations": 1,
+   "context": "Credits & Entitlements",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  }
+ ]
+}

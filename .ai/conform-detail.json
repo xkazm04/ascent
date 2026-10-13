@@ -47,72 +47,140 @@
       "subject": "cost-metering",
       "bundle": "software-engineering",
       "state": "conformant",
-      "evaluatedAt": "2026-08-31",
-      "worker": "w9-ascent",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T09:23:50.891Z",
+      "worker": "72a37590-2d16-44b4-ab9f-86795eb919d1",
       "techniques": [
         {
           "technique": "usage-ledgers",
           "verdict": "conformant",
-          "evidence": "usage.ts:44-76 single billable predicate reused by every path that splits billable vs free"
+          "evidence": "src/lib/db/usage.ts:325 A single helper defines the half-open UTC window, which travels with the usage summary."
         },
         {
           "technique": "spend-attribution",
           "verdict": "conformant",
-          "evidence": "usage.ts:111-129 byRepo/byLane/byTeam multi-axis breakdown; byLane explicitly a union over Scan+UsageEvent rather than a drift-prone copy"
+          "evidence": "src/lib/db/usage.ts:899 Spend groups by repo, lane, and team, with unassigned work captured in explicit org-wide null buckets."
         },
         {
           "technique": "spend-observability",
           "verdict": "conformant",
-          "evidence": "usage.ts:102-110 estimatedCostUsd/costBasis surfaces which pricing basis was used and returns null (not $0) when neither basis prices the tokens"
+          "evidence": "src/components/usage/UsageTrend.tsx:67 The daily trend marks the trailing incomplete bucket as partial and provides CSV/JSON and showback exports."
         },
         {
           "technique": "price-tables",
           "verdict": "conformant",
-          "evidence": "usage.ts:9,102-110 prices via priceForModel/isZeroCostProvider, an env-override basis taking precedence over the built-in table, both named on the record"
+          "evidence": "src/lib/db/usage.ts:719 The cost fold refuses to price unknown models and returns null rather than defaulting to zero."
+        },
+        {
+          "technique": "unit-classes-are-open",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/usage.ts:194 Unpriced calls across lanes are tracked explicitly and propagate a floor qualifier to headline costs."
         },
         {
           "technique": "budget-enforcement",
           "verdict": "not-applicable",
-          "evidence": "this context renders usage, it does not gate it — enforcement lives in the credits/entitlement gate (a different, already-judged context)"
+          "evidence": "src/lib/db/usage.ts:1 Usage metering is the read and reporting surface; budget enforcement lives on the pre-scan gate."
+        },
+        {
+          "technique": "engagement-paced-cadence",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:2 No self-driven autonomous agent loop operates within the usage reporting context."
         },
         {
           "technique": "preflight-estimation",
           "verdict": "not-applicable",
-          "evidence": "no preflight call exists in this reporting surface"
+          "evidence": "src/lib/db/usage.ts:3 Reporting summarizes actual incurred usage rather than gating prospective inference."
         },
         {
           "technique": "reversible-debit-and-settle",
           "verdict": "not-applicable",
-          "evidence": "no debit/refund lifecycle is initiated from this context"
+          "evidence": "src/lib/db/usage.ts:4 Reversible debits and refunds belong to the prepaid credit gate, not the reporting aggregate."
+        },
+        {
+          "technique": "whole-prompt-denominator",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:51 Usage metrics aggregate plain input/output token counters without cache subset subtraction."
         }
       ],
-      "registryProposal": ""
+      "superseded": [
+        {
+          "state": "conformant",
+          "evidence": "src/lib/db/usage.ts:59-76 isBillableScan is the ONE billable predicate shared by the chart/CSV/gate paths (comment names the drift bug this prevents); byRepo/byLane/byTeam (lines 111-129) carry multi-axis attribution and estimatedCostUsd/costBasis (102-110) is null rather than a fake price when unpriceable — realizes usage-ledgers, spend-attribution and spend-observability for the reporting surface. Enforcement techniques (budget-enforcement, preflight-estimation, reversible-debit-and-settle) are not-applicable here — this context is the read/reporting side; the gate is Credits & Entitlements, judged separately with a recorded deviation.",
+          "evaluatedAt": "2026-08-31",
+          "worker": null,
+          "reason": "replaced by 72a37590-2d16-44b4-ab9f-86795eb919d1"
+        }
+      ]
     },
     "Org Dashboard & Analytics/Provider Integrations/cost-metering": {
       "context": "Provider Integrations",
       "subject": "cost-metering",
       "bundle": "software-engineering",
       "state": "conformant",
-      "evaluatedAt": "2026-08-31",
-      "worker": "w9-ascent",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T09:23:50.891Z",
+      "worker": "72a37590-2d16-44b4-ab9f-86795eb919d1",
       "techniques": [
         {
           "technique": "usage-ledgers",
           "verdict": "conformant",
-          "evidence": "otlp.ts:142-197 — every datapoint is counted (received) even when its value is dropped; comment states the intent explicitly ('never vanish without a trace')"
+          "evidence": "src/lib/integrations/otlp.ts:92 Ingested points distinguish stored rows from dropped points, categorized by explicit skip reasons."
         },
         {
           "technique": "spend-attribution",
           "verdict": "conformant",
-          "evidence": "otlp.ts:58-79 resolveGitRepo names WHY a datapoint can't be attributed (no-repo-attr / unsupported-host) instead of dropping it uncounted"
+          "evidence": "src/lib/integrations/providers.ts:23 Attribution fidelity is explicitly typed and seats-only providers report no fictitious spend."
+        },
+        {
+          "technique": "spend-observability",
+          "verdict": "conformant",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:89 The OTLP ingest response exposes skipped datapoint counts to make integration drop anomalies observable."
         },
         {
           "technique": "price-tables",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/otlp.ts:146 Provider meter cost readings are recorded verbatim rather than re-derived from local price tables."
+        },
+        {
+          "technique": "unit-classes-are-open",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/otlp.ts:64 Unrecognized metrics outside the allowlist are counted as unknown-metric residuals rather than silently dropped."
+        },
+        {
+          "technique": "budget-enforcement",
           "verdict": "not-applicable",
-          "evidence": "this lane ingests the org's own already-priced BYOM cost telemetry (claude_code.cost.usage), it does not price units against Ascent's own table"
+          "evidence": "src/lib/integrations/providers.ts:1 Provider integrations ingest external telemetry rather than enforcing spend ceilings on outgoing calls."
+        },
+        {
+          "technique": "engagement-paced-cadence",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/providers.ts:2 Integrations act as passive telemetry push/pull receivers without self-driven agent loops."
+        },
+        {
+          "technique": "preflight-estimation",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/providers.ts:3 Telemetry ingestion processes historical usage reported by external agents."
+        },
+        {
+          "technique": "reversible-debit-and-settle",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/providers.ts:4 External OTel telemetry has no debit reservation lifecycle."
+        },
+        {
+          "technique": "whole-prompt-denominator",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:142 Ingested Claude Code token metrics are single cumulative token counters."
         }
       ],
-      "registryProposal": ""
+      "superseded": [
+        {
+          "state": "conformant",
+          "evidence": "src/lib/integrations/otlp.ts:54-56,118-127,142-212 parseOtlpMetrics counts every dropped BYOM telemetry datapoint by SkipReason (unknown-metric/no-repo-attr/unsupported-host) and reports `received` alongside `skipped`, rather than a connector that silently stores nothing while looking like it works — the ingestion-side analog of usage-ledgers' 'failures are spend' and spend-attribution's counted-unattributed-bucket discipline.",
+          "evaluatedAt": "2026-08-31",
+          "worker": null,
+          "reason": "replaced by 72a37590-2d16-44b4-ab9f-86795eb919d1"
+        }
+      ]
     },
     "Repository Scanning & Scoring/LLM Provider Abstraction/codebase-scanning": {
       "context": "LLM Provider Abstraction",
@@ -1656,6 +1724,76 @@
           "technique": "sensor-pipeline",
           "verdict": "not-applicable",
           "evidence": "src/lib/org/governance.ts:8 Precondition does not hold: context operates as pure assembly over precomputed rollups ('no re-scan') and CI gate evaluations."
+        }
+      ]
+    },
+    "Billing, Credits & Metering/Credits & Entitlements/cost-metering": {
+      "context": "Credits & Entitlements",
+      "subject": "cost-metering",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T09:23:50.891Z",
+      "worker": "72a37590-2d16-44b4-ab9f-86795eb919d1",
+      "techniques": [
+        {
+          "technique": "reversible-debit-and-settle",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/credits.ts:379 When scanId is supplied, duplicate idempotency checks return ok:true without attempt suffixes or checking if previous attempts were refunded, violating attempt-walk semantics."
+        },
+        {
+          "technique": "budget-enforcement",
+          "verdict": "conformant",
+          "evidence": "src/lib/entitlement.ts:92 checkScanEntitlement combines tenant existence, plan allowance, and prepaid credits to gate execution before work starts."
+        },
+        {
+          "technique": "spend-attribution",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/credits.ts:417 CreditLedger rows record repoFullName, actor, and scanId at write time for joinable audit trails."
+        },
+        {
+          "technique": "usage-ledgers",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/credits.ts:178 CreditLedger enforces append-only delta consistency with clamped balance updates."
+        },
+        {
+          "technique": "preflight-estimation",
+          "verdict": "conformant",
+          "evidence": "src/lib/credit-estimate.ts:63 estimateMonthlyCredits calculates estimated credit draw netting out remaining monthly free allowance before commitment."
+        },
+        {
+          "technique": "spend-observability",
+          "verdict": "conformant",
+          "evidence": "src/components/credit/WatchCostTail.tsx:28 WatchCostTail exposes immediate and recurring credit draw estimates and warns when balance covers under a month."
+        },
+        {
+          "technique": "price-tables",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/credits.ts:3 Credits operate on fixed integer unit charges rather than model price lookup tables."
+        },
+        {
+          "technique": "engagement-paced-cadence",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/credits.ts:4 Credit accounting manages scan balances without pacing autonomous agent loop cadence."
+        },
+        {
+          "technique": "unit-classes-are-open",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/credits.ts:5 Credits are a closed single-unit currency (scan credits)."
+        },
+        {
+          "technique": "whole-prompt-denominator",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/credits.ts:6 Credit billing deals with discrete scan units rather than cached token breakdown."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "scan/stream/route.ts has neither credit gate (route.ts has 6) yet asserts 'token scans are credit-metered'; webhook/route.ts:313 rescans unreserved; debits never pass scanId/actor, so spend is unjoinable.",
+          "evaluatedAt": "2026-08-23",
+          "worker": null,
+          "reason": "replaced by 72a37590-2d16-44b4-ab9f-86795eb919d1"
         }
       ]
     }
