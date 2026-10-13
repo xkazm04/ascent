@@ -2919,6 +2919,260 @@
         }
       ],
       "registryProposal": "The claim-write-back technique forbids naked booleans without timestamps, run identifiers, or rung provenance. However, lightweight human-facing repository manifests like ai-manifest.yaml prioritize clean, low-churn single-line flow mappings for ease of manual review. The standard could provide guidance on sibling ledger files or split metadata profiles for cases where in-band stamp serialization adds prohibitive diff churn."
+    },
+    "Repository Scanning & Scoring/LLM Provider Abstraction/multi-provider-gateway-plane": {
+      "context": "LLM Provider Abstraction",
+      "subject": "multi-provider-gateway-plane",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T22:46:49.117Z",
+      "worker": "d4076d4b-c1a3-4567-9c76-5e795ce62824",
+      "techniques": [
+        {
+          "technique": "caller-scoped-normalization-strictness",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/provider.ts:94 This boundary publishes an application-owned assessment contract rather than a stock-client-compatible proxy response."
+        },
+        {
+          "technique": "join-breadth-follows-the-wrong-match-cost",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/index.ts:118 Named provider lookup constructs a candidate; it does not join an upstream inventory against a catalog."
+        },
+        {
+          "technique": "named-members-over-a-uniform-collection",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scan-assess.ts:221 Providers are consumed interchangeably on the request path, not aggregated into heterogeneous inventories."
+        },
+        {
+          "technique": "one-typed-carrier-for-echoed-state",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/gemini.ts:86 Assessment sends a fresh prompt rather than round-tripping upstream continuation state through a client's transcript."
+        },
+        {
+          "technique": "per-provider-stream-framing",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/openai.ts:125 The inspected HTTP assessment path consumes a settled JSON response; it does not normalize upstream streaming frames."
+        },
+        {
+          "technique": "policy-verdict-in-the-status-space",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scan-assess.ts:140 Retry decisions are application code over errors, not operator-authored integer lists consuming a gateway policy-check verdict."
+        },
+        {
+          "technique": "router-versus-candidate-failure",
+          "verdict": "deviation",
+          "evidence": "src/lib/scan-assess.ts:352 The catch stops only for client cancellation; it has no typed router-failure break arm before recording the exception and continuing."
+        },
+        {
+          "technique": "strategy-tree-with-inherited-policy",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scan-assess.ts:303 The application owns one candidate sequence under one execution policy; the technique explicitly exempts a single candidate set and policy."
+        },
+        {
+          "technique": "upstream-identity-before-inventory",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/index.ts:100 Provider identity comes from explicit registry selection, without discovering shared-protocol implementations or importing their inventories."
+        }
+      ]
+    },
+    "Org Dashboard & Analytics/Provider Integrations/multi-provider-gateway-plane": {
+      "context": "Provider Integrations",
+      "subject": "multi-provider-gateway-plane",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T22:46:49.117Z",
+      "worker": "d4076d4b-c1a3-4567-9c76-5e795ce62824",
+      "techniques": [
+        {
+          "technique": "adapter-direction-asymmetry",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:65 This is inbound telemetry extraction, not bidirectional upstream request/response adaptation."
+        },
+        {
+          "technique": "caller-scoped-normalization-strictness",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:68 Normalization produces accounting records, which the standard explicitly separates from proxy products."
+        },
+        {
+          "technique": "exclusive-authorship-of-a-measured-decision",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:158 The mapper records received measurements; it does not select or dispatch a serving candidate."
+        },
+        {
+          "technique": "join-breadth-follows-the-wrong-match-cost",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:31 Repository identity is parsed from a remote, not fuzzily joined against an upstream artifact catalog."
+        },
+        {
+          "technique": "named-members-over-a-uniform-collection",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:73 The concurrent operations persist usage and sessions; they are not upstream inventory probes."
+        },
+        {
+          "technique": "one-typed-carrier-for-echoed-state",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/ingest-token.ts:55 The token is an Ascent-authored ingest credential, not opaque continuation state minted by an upstream."
+        },
+        {
+          "technique": "per-provider-stream-framing",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:52 The receiver parses a complete JSON export rather than an upstream response stream."
+        },
+        {
+          "technique": "policy-verdict-in-the-status-space",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:33 This is an ingest wire-format refusal, without a gateway candidate loop needing a policy-verdict status vocabulary."
+        },
+        {
+          "technique": "router-versus-candidate-failure",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:25 Authorization stops the local receiver; there is no subsequent upstream candidate sweep."
+        },
+        {
+          "technique": "strategy-tree-with-inherited-policy",
+          "verdict": "not-applicable",
+          "evidence": "src/features/admin/integrations/IntegrationsPanel.tsx:74 The provider collection renders connection cards rather than composing routing strategies."
+        },
+        {
+          "technique": "upstream-identity-before-inventory",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:159 The telemetry extractor declares its record source; it does not infer a discovered upstream implementation before importing inventory."
+        }
+      ]
+    },
+    "Org Knowledge & Skills/Skills Registry & API Tokens/multi-provider-gateway-plane": {
+      "context": "Skills Registry & API Tokens",
+      "subject": "multi-provider-gateway-plane",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T22:46:49.117Z",
+      "worker": "d4076d4b-c1a3-4567-9c76-5e795ce62824",
+      "techniques": [
+        {
+          "technique": "adapter-direction-asymmetry",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/push/route.ts:53 The transformation reconciles a stored skill's frontmatter, not upstream request and response dialects."
+        },
+        {
+          "technique": "caller-scoped-normalization-strictness",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/[id]/download/route.ts:37 Downloads format stored skill documents, without strict and native proxy response populations."
+        },
+        {
+          "technique": "exclusive-authorship-of-a-measured-decision",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/events/route.ts:59 Usage events are persisted directly; they do not evaluate a candidate-selection decision."
+        },
+        {
+          "technique": "join-breadth-follows-the-wrong-match-cost",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/[id]/route.ts:57 A skill is retrieved by its identifier, without an upstream-name-to-catalog fuzzy join."
+        },
+        {
+          "technique": "named-members-over-a-uniform-collection",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/route.ts:31 Listing queries one stored library rather than aggregating heterogeneous upstream inventories."
+        },
+        {
+          "technique": "one-typed-carrier-for-echoed-state",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/tokens/route.ts:38 The API token is a locally issued credential, not upstream continuation state carried through client responses."
+        },
+        {
+          "technique": "per-provider-stream-framing",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/[id]/download/route.ts:43 The route returns a complete markdown document rather than normalized upstream frames."
+        },
+        {
+          "technique": "policy-verdict-in-the-status-space",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/push/route.ts:47 This local entitlement refusal has no gateway failover or cache rule consuming an operator-authored status list."
+        },
+        {
+          "technique": "router-versus-candidate-failure",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/[id]/route.ts:119 The operation updates one database row rather than attempting alternative upstream candidates."
+        },
+        {
+          "technique": "strategy-tree-with-inherited-policy",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/[id]/adopt/route.ts:34 Adoption records a repository association, without recursive routing or inherited execution policy."
+        },
+        {
+          "technique": "upstream-identity-before-inventory",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/promote/route.ts:61 Promotion derives a skill from a saved report rather than identifying and importing a discovered upstream."
+        }
+      ]
+    },
+    "Identity & GitHub Connectivity/GitHub Repo Data Access/multi-provider-gateway-plane": {
+      "context": "GitHub Repo Data Access",
+      "subject": "multi-provider-gateway-plane",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-13",
+      "evaluatedTs": "2026-10-13T22:46:49.117Z",
+      "worker": "d4076d4b-c1a3-4567-9c76-5e795ce62824",
+      "techniques": [
+        {
+          "technique": "adapter-direction-asymmetry",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/graphql.ts:97 This request builder targets GitHub's contract rather than translating across many upstream dialects."
+        },
+        {
+          "technique": "caller-scoped-normalization-strictness",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/graphql.ts:149 The internal data-access result carries completeness, without stock-client versus native-capability proxy modes."
+        },
+        {
+          "technique": "exclusive-authorship-of-a-measured-decision",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/discover.ts:205 This selects an onboarding organization, not a measured serving upstream."
+        },
+        {
+          "technique": "join-breadth-follows-the-wrong-match-cost",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/discover.ts:169 Installation presence uses a normalized organization identity, not a fuzzy upstream-artifact catalog join."
+        },
+        {
+          "technique": "named-members-over-a-uniform-collection",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/governance.ts:51 The named concurrent reads retrieve resources from the same GitHub API, not distinct upstream inventories."
+        },
+        {
+          "technique": "one-typed-carrier-for-echoed-state",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/graphql.ts:240 Pagination state remains inside the data-access loop; it is not smuggled through a client transcript."
+        },
+        {
+          "technique": "per-provider-stream-framing",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/host.ts:158 The helper consumes complete JSON responses rather than provider-specific event frames."
+        },
+        {
+          "technique": "policy-verdict-in-the-status-space",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/list.ts:151 This interprets GitHub transport responses, not a gateway-authored policy-check verdict."
+        },
+        {
+          "technique": "router-versus-candidate-failure",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/list.ts:139 The retry changes credentials for the same GitHub URL rather than sweeping alternative upstream candidates."
+        },
+        {
+          "technique": "strategy-tree-with-inherited-policy",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/host.ts:146 The helper applies one request timeout; no recursive candidate structure or inherited subtree policy exists here."
+        },
+        {
+          "technique": "upstream-identity-before-inventory",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/host.ts:31 The GitHub endpoint is explicitly configured, without discovering competing implementations behind a shared protocol."
+        }
+      ]
     }
   }
 }

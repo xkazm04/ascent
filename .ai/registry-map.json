@@ -1159,7 +1159,11 @@
           "revision": 9,
           "changedAt": "2026-09-09",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/scan-assess.ts:353 The multi-provider attempt loop continues after any non-client exception without router-versus-candidate attribution, allowing an application-side defect to consume subsequent candidates.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:f268193750c0a517",
+          "evaluatedRevision": 9
         },
         {
           "subject": "agent-instruction-files",
@@ -1738,7 +1742,11 @@
           "revision": 9,
           "changedAt": "2026-09-09",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/github/list.ts:116 Context searches found no finish_reason, tool_calls, or failover constructs, and the inspected fallback changes GitHub resource paths on one configured API rather than selecting interchangeable upstream implementations.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:f268193750c0a517",
+          "evaluatedRevision": 9
         },
         {
           "subject": "agent-cli-transport",
@@ -4518,7 +4526,11 @@
           "revision": 9,
           "changedAt": "2026-09-09",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:72 Context searches found no finish_reason, tool_calls, or failover constructs, and the inspected receiver persists accounting records rather than serving requests through interchangeable upstreams.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:f268193750c0a517",
+          "evaluatedRevision": 9
         },
         {
           "subject": "optional-dependency-degradation",
@@ -6647,7 +6659,11 @@
           "revision": 9,
           "changedAt": "2026-09-09",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/skills/manifest/route.ts:19 Context searches found no finish_reason, tool_calls, or failover constructs, and the inspected routes serve stored skills and credentials rather than a multi-upstream gateway contract.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:f268193750c0a517",
+          "evaluatedRevision": 9
         },
         {
           "subject": "quality-gates",
