@@ -1,7 +1,7 @@
 ---
 name: infinite
 description: "Ascent's endless improvement loop for any paired project. Asks which known project(s) to work, then runs Ascent's standing runner in waves of blocks, reflects after every block, and climbs an objective ladder: a perfect maturity score first, then subscores, then breakthroughs in the project's technology. It never stops on a dry round; it pivots. Use when the operator wants a project improved session after session without a ceiling."
-version: 1.0
+version: 1.1
 argument-hint: "[start | resume <owner/name> | status | reflect <owner/name> <NNN> | stop]"
 ---
 
@@ -58,7 +58,7 @@ Two kinds of breakthrough are recorded, and both are the point:
 | Driver | `.claude/skills/infinite/scripts/infinite.mjs` (generalised from the weekend's cycle.mjs; Node built-ins only) |
 | State | `$INFINITE_HOME`, default `~/.personas/infinite/`: `rig.json`, `next-dev.pid`, and per project `projects/<owner__name>/` with `project.json`, `LEDGER.md`, `waves.jsonl`, `blocks/<NNN>/` (`000` is the baseline) |
 | Ascent server | `next dev -p <port>` (default 3200) from ONE Ascent worktree, with `ASCENT_AUTOPILOT=1` and the local org (`ASCENT_LOCAL_ORG`, org `kiro`). Its DB is the worktree's own PGlite copy, never the operator's `.pglite` in the main checkout |
-| Prompt surface | that worktree's branch. Today: `experiment/infinite-cycles` (weekend worktree `~/.personas/weekend/ascent-cycles/ascent-wt`). It carries 8 commits master lacks: three rig fixes (9321ebae hook-commit timeout, 46ade06a verify tree kill, b3824f84 session answer from the result line) and five prompt changes (lane-park, containment park, planner time budget, the craft ladder on every repo, gate-config naming) |
+| Prompt surface | that worktree's branch. Today: `experiment/infinite-cycles` (weekend worktree `~/.personas/weekend/ascent-cycles/ascent-wt`). Each reflection's change lands there as `cycle(<project>-NNN)`; the weekend's 8 commits are on master since 88413c4b |
 | Target | the project's own checkout. The runner writes ONLY `refs/heads/ascent/runner`, never checked out; merging it into the project is the operator's (`POST /api/org/local/runner/merge`, or by hand) |
 
 One drive per org is a hard limit of the runner, so one block runs at a time. A drive may name several repos,
@@ -114,6 +114,12 @@ Ask nothing the code or the ledger can answer. Never ask about usage: the operat
 3. Set `verifyTimeoutMin` in `project.json` from the project's own verify ladder (the weekend used 3 minutes
    for Personas, so lanes verify on the typecheck rung). Once set it is part of the instrument: never change
    it inside a tier.
+4. Check that the project DECLARES a gate Ascent can resolve: a `.ai/manifest.yaml` control (`ciHardPass` or a
+   `typecheck`/`lint`/`test` capability), or a `test`/`check`/`verify` script in `package.json`. Without one, every
+   lane verifies `skipped`, delivery refuses it, and the block's closes count on work that never lands
+   (personas-web block 001: 14 closes, 0 landed). Say so before block 001. The operator may declare the gate on the
+   base branch; otherwise the first block's honest job is to bootstrap it, and its closes are not comparable.
+5. Run the full declared gate once on the base, so a red gate on arrival is not later blamed on the loop.
 
 ### Phase 3 - The wave loop
 
@@ -202,8 +208,11 @@ metrics, and write the wave report. Leave the server running unless the operator
 - `projects` reads overall and level with one call per project, and debt only from the org's green summary.
   Subscores (claim facets, conformance, craft tallies) are read by the reflection from the API and the DB
   through the server. There is no single subscore endpoint yet.
-- The worktree branch `experiment/infinite-cycles` is ahead of ascent master by 8 commits. Folding the three
-  `rig(` fixes into master is the operator's call; until then the loop runs from that branch.
+- The weekend's 8 commits were merged into ascent master on 2026-10-12 (88413c4b). Every reflection since commits
+  its `cycle(<project>-NNN)` change on `experiment/infinite-cycles` again, so the branch runs ahead of master by the
+  wave's changes; folding them in is the operator's call, after reading the wave's verdicts.
+- The `ascent/runner` tip is verified lane by lane, often on the narrowed typecheck rung, never as a whole. Its full
+  gate can go red without any block noticing (personas-web: 3 failing tests at 32 commits). Run it before a merge.
 
 ## Skill Reflection
 
