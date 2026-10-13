@@ -1,7 +1,7 @@
 ---
 name: infinite
 description: "Ascent's endless improvement loop for any paired project. Asks which known project(s) to work, then runs Ascent's standing runner in waves of blocks, reflects after every block, and climbs an objective ladder: a perfect maturity score first, then subscores, then breakthroughs in the project's technology. It never stops on a dry round; it pivots. Use when the operator wants a project improved session after session without a ceiling."
-version: 1.1
+version: 1.2
 argument-hint: "[start | resume <owner/name> | status | reflect <owner/name> <NNN> | stop]"
 ---
 
@@ -61,6 +61,9 @@ Two kinds of breakthrough are recorded, and both are the point:
 | Prompt surface | that worktree's branch. Today: `experiment/infinite-cycles` (weekend worktree `~/.personas/weekend/ascent-cycles/ascent-wt`). Each reflection's change lands there as `cycle(<project>-NNN)`; the weekend's 8 commits are on master since 88413c4b |
 | Target | the project's own checkout. The runner writes ONLY `refs/heads/ascent/runner`, never checked out; merging it into the project is the operator's (`POST /api/org/local/runner/merge`, or by hand) |
 
+| T3 measurement | `infinite.mjs tech --project p [--ref r] [--runs 2] [--label l]` measures `project.json` `techMetrics` in a throwaway detached worktree of the target with its own `npm ci` (never a link to the operator's `node_modules`), and removes it unless a junction inside points outside it. In a T3 block the driver measures the start commit before the drive and the runner tip after, and writes `tech-before.json`, `tech-after.json` and `metrics.json` `tech.delta` (gain per metric, `breakthrough`, `noisy`) |
+| Frontier objective | an org memory in the namespace `frontier:<owner/name>` (`POST /api/org/memory {org, namespace, kind: "procedural", content}`; sharpen it later with `supersedeId`). When a runner lane's batch is empty and the objective exists, the lane works it instead of exiting dry (`src/lib/local/lane-frontier.ts`, paradigm P4) |
+
 One drive per org is a hard limit of the runner, so one block runs at a time. A drive may name several repos,
 but the driver measures one project per block; run projects one after another inside a wave.
 
@@ -101,7 +104,12 @@ gap dimensions, unmeasurable and contested dimensions, whether it is initialised
   tool grant on its own.
 - **T3 metrics** (only when entering T3): propose 2-4 technology metrics with the command that measures each,
   read from the project's own scripts and manifest. Record the confirmed ones in `project.json` as
-  `techMetrics: [{name, command, parse, direction, threshold}]`.
+  `techMetrics: [{name, command, parse, direction, threshold, timeoutMin?}]`, measured in order in one worktree;
+  `parse` is `{kind: "wall", unit: "s"}`, `{kind: "json-sum", file, field, scale?, unit}` or
+  `{kind: "regex", pattern, unit}`, and `command: null` reads what an earlier command left (bundle stats after
+  the build). Measure the baseline twice (`tech --label baseline --runs 2`): a metric whose spread is at or
+  above its threshold is not usable as it stands; widen its threshold to the measured noise, or drop it.
+  Before the first T3 block, run the project's build once: a target whose build is red cannot be measured.
 
 Ask nothing the code or the ledger can answer. Never ask about usage: the operator manages it.
 
@@ -165,6 +173,22 @@ A weak block is NOT a stop. The paradigm rule forces a change of mechanism inste
 3. Offer the next wave. Inside a `/loop`, schedule it with ScheduleWakeup. Outside one, name the command.
 4. Never merge `ascent/runner` into the project, and never push. Both are the operator's.
 
+## T3 and the frontier lane (paradigm P4)
+
+The operator's direction (2026-10-13): leave behind areas where a limit was reached, and push past the edge where
+model knowledge and creativity allow it. Fences never move to manufacture supply; the loop makes its own.
+
+1. Write the objective as an org memory in `frontier:<owner/name>`. One paragraph: the technology metrics with their
+   baseline values and directions, what "past the edge" means for this stack, and anything already known to be
+   over a budget. The frontier brief tells the session to choose ONE improvement, name its mechanism, and leave
+   behind anything that needs network, new dependencies, CI, `.claude/` or an existing test.
+2. Run T3 blocks as usual. A frontier lane closes no follow-up row, so the runner's own policy counts its round dry
+   and pauses the drive; in T3 the driver opens the next drive inside the same block (`NEXT DRIVE` in `cycle.log`)
+   until the block has its rounds. The policy and `DRY_BACKOFF_MS` are untouched.
+3. The block's verdict is the tech delta (`metrics.json` `tech.delta`), read against the noise: a `noisy` metric
+   is not evidence either way. The reflection may sharpen the objective memory (`supersedeId`) or the frontier
+   brief (`lane-frontier.ts`) as its one change.
+
 ## `/infinite resume <owner/name>`
 
 Read `project.json`, the last 3 ledger sections, `waves.jsonl` and the last `reflection.md`. Say in one
@@ -203,8 +227,9 @@ metrics, and write the wave report. Leave the server running unless the operator
 
 ## Known gaps (v1.0)
 
-- T3 is designed and not yet exercised: no block has run against a technology metric. The first T3 wave
-  should confirm that measuring before and after a block on the `ascent/runner` tip is stable enough to judge.
+- T3 was first set up on 2026-10-13 (personas-web). Wall-time metrics on a shared machine are noisy (unit tests
+  measured 44 s then 26 s on the same commit, a cold cache); judge them only with their spread. A deterministic
+  metric (bundle bytes from the build's own stats) is the dependable one.
 - `projects` reads overall and level with one call per project, and debt only from the org's green summary.
   Subscores (claim facets, conformance, craft tallies) are read by the reflection from the API and the DB
   through the server. There is no single subscore endpoint yet.

@@ -52,11 +52,12 @@ real engineering. Examples: build and test wall time, cold start, p95 latency, b
 rest, dependency count, lines of code per feature (simplification), duplicate-code ratio, type-coverage, a new
 capability that ships with tests.
 
-How the runner is pointed at a T3 target without touching the instrument: the reflection writes or sharpens a
-**playbook** and an **org memory** that state the technology objective (`POST /api/org/playbooks`, `POST
-/api/org/memory`), and may favour the craft axes that carry it. The Director measures each T3 metric on the
-`ascent/runner` tip before and after the block (in a throwaway checkout of that tip, never the target's working
-tree) and gives the numbers to the reflection.
+How the runner is pointed at a T3 target without touching the instrument: the objective is an org memory in the
+namespace `frontier:<owner/name>`, and when nothing reachable is proposed a runner lane works it as a frontier
+lane (`src/lib/local/lane-frontier.ts`). The driver measures each T3 metric itself, before the block on the commit
+the block starts from and after it on the `ascent/runner` tip, each time in a throwaway worktree with its own
+`npm ci` (never the target's working tree, never a link to its `node_modules`), and writes the delta into
+`metrics.json` `tech.delta` for the reflection.
 
 ## 4. When to move up
 

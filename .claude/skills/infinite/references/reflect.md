@@ -45,6 +45,13 @@ that found nothing to do is a signal to pivot, not to stop.
 
 Compare against the **best earlier block of the same tier**, not just the previous one.
 
+**In T3, read `metrics.json` `tech` first** (`tech-before.json` / `tech-after.json` beside it): per metric the
+before and after means, the `gain` (signed so positive is better), `breakthrough` (gain at or above the threshold)
+and `noisy` (either side's spread at or above the threshold). A noisy metric is not evidence for or against the
+block; say so, and lean on the deterministic one. Then read what the frontier lanes actually changed on
+`ascent/runner` and judge whether the mechanism they named explains the delta. A breakthrough whose diff does not
+explain it (a measurement artefact, a removed route, a skipped test) is a negative result.
+
 | Verdict | Rule |
 |---|---|
 | improvement | primary > best × 1.10, or primary >= best AND the main secondary > best × 1.20 |
@@ -73,6 +80,8 @@ nothing new, tell the skill the T1-to-T2 rule holds.
 | Parking: `parkWithoutCommits`, `CONTAINMENT_PARK_MIN`, `CONTAINMENT_PATTERNS` | `src/lib/local/lane-park.ts` ~74, ~136, ~144 |
 | How the org standard enters the brief | `src/lib/org/lane-brief.ts` ~281 |
 | Lane orchestration (batch shape, plan-then-execute, ordering) | `src/lib/local/loop-lane.ts`. Touch it only for a paradigm shift |
+| The frontier brief and report contract (T3, paradigm P4) | `src/lib/local/lane-frontier.ts` `buildFrontierPrompt`, `frontierReportContract` |
+| The frontier objective itself (T3) | the org memory in `frontier:<owner/name>`: write a sharper one with `POST /api/org/memory {org, namespace, kind: "procedural", content, supersedeId}` |
 
 You may also change the run dials of the next block: `--model`, `--effort`, `--agent-timeout-min`. Never change
 `--verify-timeout-min` or `project.json`'s `verifyTimeoutMin` inside a tier: it decides which rung verifies.
@@ -128,6 +137,10 @@ pointed at it.
 A **paradigm** is the mechanism by which Ascent turns a measurement into landed work. Rewording a prompt is not
 one. P0 is the shipped mechanism: plan-first lanes, one agent per batch of up to N follow-ups, Opus, the
 `buildFixPrompt` brief, no shell. (The weekend moved Personas to P1, item-isolated rounds, at block 006.)
+
+Paradigms so far: P0 shipped; P1 item-isolated rounds (Personas weekend); P2 a read-only reviewer and one repair
+turn before the guard (personas-web 006); P3 reach-first decomposition (personas-web 008); P4 frontier lanes, which
+work a technology objective when nothing reachable is proposed (personas-web 009, T3).
 
 **Two consecutive marginal or negative blocks oblige the next block to use a different paradigm.** An
 improvement resets the counter. Candidate shifts, none of them a rewording:

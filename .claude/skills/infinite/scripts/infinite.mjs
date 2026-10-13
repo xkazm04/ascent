@@ -39,7 +39,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
 
 const argOf = (name) => { const a = process.argv; const i = a.indexOf(`--${name}`); return i >= 0 && a[i + 1] != null && !a[i + 1].startsWith("--") ? a[i + 1] : null; };
 const readJson = (f) => (fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : null);
@@ -542,8 +542,142 @@ function appendLedger(m) {
       ledgerRow(m) +
       `\n${m.label ? `label: ${m.label}  \n` : ""}exit ${m.exitCode} · drive ${m.driveId ?? "-"} · verify ${JSON.stringify(m.totals.verifyVerdicts)} rungs ${m.totals.verifyRungs.join(",") || "-"}` +
       ` · held lanes ${m.totals.heldLanes ?? "?"} ${m.totals.heldByCause ? JSON.stringify(m.totals.heldByCause) : ""} (closes on held ${m.totals.closesOnHeldLanes ?? "?"})` +
+      (m.tech?.delta
+        ? `  \ntech: ${m.tech.delta.map((d) => `${d.name} ${d.before} -> ${d.after} ${d.unit} (${d.gain == null ? "-" : `${d.gain >= 0 ? "+" : ""}${Math.round(d.gain * 1000) / 10}%`}${d.breakthrough ? " BREAKTHROUGH" : ""}${d.noisy ? " noisy" : ""})`).join(" · ")}`
+        : "") +
       `${m.errors?.length ? `  \nerrors: ${m.errors.slice(0, 5).map((e) => String(e).replace(/\s*\n\s*/g, " / ").slice(0, 240)).join(" ;; ")}` : ""}\n`,
   );
+}
+
+// ── T3: technology metrics ───────────────────────────────────────────────────────────────────────
+//
+// project.json `techMetrics: [{name, command, parse, direction, threshold}]`, measured in ORDER in one
+// throwaway detached worktree of the target with its own `npm ci` (never a link to the operator's
+// node_modules: a test run through a link writes into the real one). `command` may be null for a
+// metric that reads what an earlier command left behind (bundle stats after the build). `parse`:
+//   {kind: "wall", unit: "s"}                                    the command's wall time
+//   {kind: "json-sum", file, field, scale?, unit}                 sum of `field` over a JSON file's values
+//   {kind: "regex", pattern, unit}                                first capture group of stdout+stderr
+// A command that exits non-zero gives that run `null`: a red gate is not a measurement.
+
+/** The commit a block starts from: the base when the runner holds nothing of its own past it (the first
+ *  round merges the base in), else the runner tip. */
+function techStartRef() {
+  const runner = runnerTip();
+  if (!runner) return BASE_BRANCH;
+  const base = git(["rev-parse", "-q", "--verify", `refs/heads/${BASE_BRANCH}`]);
+  if (base && git(["merge-base", "--is-ancestor", runner, base]) !== null) return BASE_BRANCH;
+  return RUNNER_REF;
+}
+
+function parseTech(metric, { stdout, wallS, cwd }) {
+  const p = metric.parse ?? { kind: "wall" };
+  if (p.kind === "wall") return wallS;
+  if (p.kind === "json-sum") {
+    const f = path.join(cwd, p.file);
+    if (!fs.existsSync(f)) return null;
+    const data = JSON.parse(fs.readFileSync(f, "utf8"));
+    const rows = Array.isArray(data) ? data : Object.values(data);
+    const sum = rows.reduce((s, r) => s + (Number(r?.[p.field]) || 0), 0);
+    return sum * (p.scale ?? 1);
+  }
+  if (p.kind === "regex") {
+    const m = new RegExp(p.pattern, "m").exec(stdout);
+    return m ? Number(m[1]) : null;
+  }
+  return null;
+}
+
+/**
+ * Remove a throwaway worktree, refusing if any junction or symlink under it points OUTSIDE it. `next
+ * build` itself creates junctions in `.next/node_modules` that point into the worktree's own
+ * node_modules (measured 2026-10-13); those die with the worktree. One pointing anywhere else is the
+ * case where a recursive delete could reach the operator's files.
+ */
+function removeTechWorktree(dir, log) {
+  const win = dir.replace(/\//g, "\\");
+  const outside = ps(
+    `Get-ChildItem -LiteralPath '${win}' -Force -Recurse -Depth 4 -Attributes ReparsePoint -ErrorAction SilentlyContinue | ` +
+      `ForEach-Object { $t = @($_.Target)[0]; if (-not $t -or -not ([System.IO.Path]::GetFullPath($t)).StartsWith('${win}', [System.StringComparison]::OrdinalIgnoreCase)) { $_.FullName + ' -> ' + $t } }`,
+  );
+  if (outside) {
+    log(`tech: NOT removing ${dir}: a junction or symlink inside it points outside it (${outside.split(/\r?\n/)[0]}). Remove it by hand.`);
+    return false;
+  }
+  git(["worktree", "remove", "--force", dir]);
+  git(["worktree", "prune"]);
+  const gone = !fs.existsSync(dir);
+  log(gone ? `tech: removed ${dir}` : `tech: could not remove ${dir}`);
+  return gone;
+}
+
+/** Measure every techMetric `runs` times on `ref`, in a throwaway worktree. Returns the result object. */
+function measureTech({ ref, runs = 2, label = "measure", log = console.log }) {
+  const metricsCfg = PROJECT_CFG.techMetrics ?? [];
+  if (metricsCfg.length === 0) return null;
+  const sha = git(["rev-parse", "--short=10", ref]);
+  if (!sha) {
+    log(`tech: ref ${ref} does not resolve`);
+    return null;
+  }
+  const dir = path.join(HOME, "tech-wt", `${SLUG}-${label}-${Date.now()}`);
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  if (git(["worktree", "add", "--detach", dir, sha]) === null) {
+    log(`tech: could not create a worktree at ${sha}`);
+    return null;
+  }
+  const result = { ref, sha, at: iso(), runs, label, install: null, metrics: metricsCfg.map((m) => ({ ...m, values: [] })) };
+  try {
+    const t0 = Date.now();
+    const inst = spawnSync("npm ci --prefer-offline --no-audit --no-fund", { cwd: dir, shell: true, encoding: "utf8", timeout: 20 * 60_000, windowsHide: true });
+    result.install = { ok: inst.status === 0, seconds: round2((Date.now() - t0) / 1000) };
+    if (inst.status !== 0) {
+      log(`tech: npm ci failed in ${dir}: ${String(inst.stderr || inst.stdout).trim().split("\n").slice(-2).join(" / ")}`);
+      return result;
+    }
+    for (let r = 0; r < runs; r++) {
+      let lastOut = { stdout: "", wallS: null, ok: true };
+      for (const m of result.metrics) {
+        if (m.command) {
+          const s = Date.now();
+          const res = spawnSync(m.command, { cwd: dir, shell: true, encoding: "utf8", timeout: (m.timeoutMin ?? 20) * 60_000, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+          lastOut = { stdout: `${res.stdout ?? ""}\n${res.stderr ?? ""}`, wallS: round2((Date.now() - s) / 1000), ok: res.status === 0 };
+          if (!lastOut.ok) log(`tech: run ${r + 1} "${m.name}" exited ${res.status}: ${lastOut.stdout.trim().split("\n").slice(-2).join(" / ").slice(0, 300)}`);
+        }
+        const v = lastOut.ok ? parseTech(m, { ...lastOut, cwd: dir }) : null;
+        m.values.push(v == null ? null : round2(v));
+      }
+      log(`tech: ${label} run ${r + 1}/${runs} on ${sha}: ${result.metrics.map((m) => `${m.name} ${m.values.at(-1) ?? "FAILED"}${m.parse?.unit ?? "s"}`).join(" · ")}`);
+    }
+  } finally {
+    removeTechWorktree(dir, log);
+  }
+  for (const m of result.metrics) {
+    const ok = m.values.filter((v) => v != null);
+    m.mean = ok.length ? round2(ok.reduce((a, b) => a + b, 0) / ok.length) : null;
+    m.spread = ok.length > 1 && m.mean ? round2((Math.max(...ok) - Math.min(...ok)) / m.mean) : null;
+  }
+  return result;
+}
+
+/** Before -> after per metric, signed so that a positive `gain` is always an improvement. */
+function techDelta(before, after) {
+  if (!before || !after) return null;
+  return before.metrics.map((b, i) => {
+    const a = after.metrics[i];
+    const change = b.mean && a?.mean != null ? (a.mean - b.mean) / b.mean : null;
+    const gain = change == null ? null : round2(b.direction === "up" ? change : -change);
+    return {
+      name: b.name,
+      unit: b.parse?.unit ?? "s",
+      before: b.mean,
+      after: a?.mean ?? null,
+      gain,
+      threshold: b.threshold ?? 0.1,
+      breakthrough: gain != null && gain >= (b.threshold ?? 0.1),
+      noisy: (b.spread ?? 0) >= (b.threshold ?? 0.1) || (a?.spread ?? 0) >= (b.threshold ?? 0.1),
+    };
+  });
 }
 
 function trend() {
@@ -628,6 +762,15 @@ async function block() {
   };
   log(`block ${id} (${smoke ? "smoke" : "block"}) rounds=${cfg.rounds} model=${cfg.model}${cfg.effort ? ` effort=${cfg.effort}` : ""} prompt=${pv.sha} "${pv.subject}" runner tip=${tipBefore ?? "(none yet)"}`);
 
+  // T3: measure the technology metrics on the commit the block starts from, before the drive exists
+  // (the same throwaway-worktree measurement `tech` runs), so the reflection judges a before/after pair.
+  const measureT3 = !smoke && PROJECT_CFG.tier === "T3" && (PROJECT_CFG.techMetrics ?? []).length > 0 && !has("no-tech");
+  let techBefore = null;
+  if (measureT3) {
+    techBefore = measureTech({ ref: techStartRef(), runs: Number(flag("tech-runs", "2")), label: `${id}-before`, log });
+    if (techBefore) fs.writeFileSync(path.join(dir, "tech-before.json"), JSON.stringify(techBefore, null, 2));
+  }
+
   // LEAK SWEEP state (see processesInDirs): the lane worktrees this block's runs created, by basename.
   const laneDirs = new Map();
   const runBranches = new Map();
@@ -665,162 +808,204 @@ async function block() {
     fs.writeFileSync(lanesFile, JSON.stringify([...laneDirs.values()], null, 2));
   }
 
-  const args = [
-    path.join("scripts", "runner-rounds.mjs"),
-    "--org", ORG, "--repos", REPO, "--rounds", String(cfg.rounds), "--base", BASE,
-    "--model", cfg.model, "--ceiling", String(cfg.ceiling), "--out", dir, "--stall-min", String(cfg.stallMin),
-  ];
-  if (cfg.effort) args.push("--effort", cfg.effort);
-  if (cfg.verifyTimeoutMin) args.push("--verify-timeout-min", cfg.verifyTimeoutMin);
-  if (cfg.agentTimeoutMin) args.push("--agent-timeout-min", cfg.agentTimeoutMin);
-
-  const child = spawn(process.execPath, args, { cwd: WT, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-  const childLog = fs.createWriteStream(path.join(dir, "runner-rounds.stdout.log"), { flags: "a" });
-  let driveId = null;
-  let childExit = null;
-  const onData = (buf) => {
-    const s = buf.toString();
-    childLog.write(s);
-    process.stdout.write(s);
-    const m = /^drive (\S+) phase=/m.exec(s);
-    if (m && !driveId) driveId = m[1];
-  };
-  child.stdout.on("data", onData);
-  child.stderr.on("data", onData);
-  const exited = new Promise((res) => child.on("exit", (code) => res((childExit = code))));
-
+  // ONE DRIVE = one runner-rounds invocation. A T1/T2 block needs one. A T3 (frontier) block may need
+  // several: a frontier lane lands verified work that closes no follow-up row, the runner's own policy
+  // counts that round as dry, and the dry-backoff pauses the DRIVE. The pause is per drive (a new drive
+  // lifts it, the same rule the skill already applies between blocks), so the block opens the next drive
+  // and keeps going until it has its rounds. The policy and DRY_BACKOFF_MS are untouched. Each extra
+  // drive writes to `drive-N/` and its rounds are renumbered into the block afterwards.
+  const crossDrives = measureT3 || has("cross-drives");
   let stopReason = null;
   let exitCode = 0;
   const pauses = [];
   const errors = [];
   const deadline = Date.now() + cfg.maxHours * 3_600_000;
   let lastDrive = null;
+  let driveId = null;
+  const driveIds = [];
+  const roundFiles = (d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((n) => /^round-\d+-.*\.json$/.test(n)).sort() : []);
 
-  // WATCH the drive alongside runner-rounds. It never decides a round; it only decides to give up.
-  while (childExit === null) {
-    await Promise.race([exited, sleep(30_000)]);
-    if (childExit !== null || !driveId) continue;
-    let d;
-    try {
-      d = (await listDrives()).find((x) => x.id === driveId);
-    } catch (e) {
-      log(`drive read failed: ${e.message}`);
+  async function runDrive(roundsWanted, outDir) {
+    fs.mkdirSync(outDir, { recursive: true });
+    const args = [
+      path.join("scripts", "runner-rounds.mjs"),
+      "--org", ORG, "--repos", REPO, "--rounds", String(roundsWanted), "--base", BASE,
+      "--model", cfg.model, "--ceiling", String(cfg.ceiling), "--out", outDir, "--stall-min", String(cfg.stallMin),
+    ];
+    if (cfg.effort) args.push("--effort", cfg.effort);
+    if (cfg.verifyTimeoutMin) args.push("--verify-timeout-min", cfg.verifyTimeoutMin);
+    if (cfg.agentTimeoutMin) args.push("--agent-timeout-min", cfg.agentTimeoutMin);
+
+    const child = spawn(process.execPath, args, { cwd: WT, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const childLog = fs.createWriteStream(path.join(dir, "runner-rounds.stdout.log"), { flags: "a" });
+    let thisDrive = null;
+    let childExit = null;
+    let out = ""; // THIS drive's output only: the shared log also holds earlier drives' "reached N rounds".
+    const onData = (buf) => {
+      const s = buf.toString();
+      out += s;
+      childLog.write(s);
+      process.stdout.write(s);
+      const m = /^drive (\S+) phase=/m.exec(s);
+      if (m && !thisDrive) thisDrive = m[1];
+    };
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onData);
+    const exited = new Promise((res) => child.on("exit", (code) => res((childExit = code))));
+
+    let segStop = null;
+    let segCode = 0;
+    // WATCH the drive alongside runner-rounds. It never decides a round; it only decides to give up.
+    while (childExit === null) {
+      await Promise.race([exited, sleep(30_000)]);
+      if (childExit !== null || !thisDrive) continue;
+      let d;
+      try {
+        d = (await listDrives()).find((x) => x.id === thisDrive);
+      } catch (e) {
+        log(`drive read failed: ${e.message}`);
+        continue;
+      }
+      if (!d) continue;
+      lastDrive = d;
+      try {
+        await trackLaneDirs(d);
+        sweepEnded(d);
+      } catch (e) {
+        log(`sweep bookkeeping failed: ${e.message}`);
+      }
+      const rs = (d.repoState ?? []).find((r) => r.repo === REPO);
+      let giveUp = null;
+      if (d.phase === "paused") {
+        giveUp = { reason: `paused:${d.pausedReason ?? "?"}`, code: 11, note: `runner paused (${d.pausedReason}) until ${d.pausedUntil ?? "the operator resumes it"}` };
+      } else if (rs?.paused === "dry-backoff") {
+        const waitMin = rs.pausedUntil ? (Date.parse(rs.pausedUntil) - Date.now()) / 60000 : Infinity;
+        if (waitMin > cfg.backoffWaitMin) giveUp = { reason: "dry-backoff", code: 10, note: `${rs.note ?? ""} pausedUntil=${rs.pausedUntil} dryStreak=${rs.dryStreak}` };
+      } else if (rs?.paused) {
+        giveUp = { reason: `repo-paused:${rs.paused}`, code: 11, note: rs.note ?? "" };
+      } else if (Date.now() > deadline) {
+        giveUp = { reason: "max-hours", code: 12, note: `block exceeded ${cfg.maxHours} h` };
+      }
+      if (giveUp) {
+        segStop = giveUp.reason;
+        segCode = giveUp.code;
+        pauses.push({ at: iso(), reason: giveUp.reason, note: giveUp.note, drive: thisDrive, repoState: rs ?? null });
+        log(`RETURNING EARLY: ${giveUp.reason} - ${giveUp.note}`);
+        try {
+          await postDrive({ action: "stop", id: thisDrive });
+          log("stop requested");
+        } catch (e) {
+          log(`stop failed: ${e.message}`);
+          errors.push(`stop failed: ${e.message}`);
+        }
+        // runner-rounds notices phase=stopped on its next poll (20 s) and exits; give it 5 min.
+        const t = await Promise.race([exited.then(() => "exited"), sleep(300_000).then(() => "timeout")]);
+        if (t === "timeout") {
+          log("runner-rounds did not exit after the stop; killing the child this script started");
+          child.kill();
+          await Promise.race([exited, sleep(10_000)]);
+        }
+        break;
+      }
+    }
+    await exited.catch(() => {});
+    childLog.end();
+
+    // Classify what runner-rounds itself said, when we did not stop it.
+    if (!segStop) {
+      if (/reached \d+ rounds/.test(out)) segStop = "completed";
+      else if (/STALL:/.test(out)) [segStop, segCode] = ["stall", 12];
+      else if (/drive ended: phase=(\S+)/.test(out)) [segStop, segCode] = [`drive-ended:${/drive ended: phase=(\S+)/.exec(out)[1]}`, 12];
+      else [segStop, segCode] = [`runner-rounds exit ${childExit}`, childExit === 0 ? 0 : 1];
+    }
+    // A backoff that lands AFTER the last requested round is not an early return: the drive is complete.
+    if (segCode !== 0 && roundFiles(outDir).length >= roundsWanted && /reached \d+ rounds/.test(out)) {
+      pauses.push({ at: iso(), reason: `${segStop} after the last round (not an early return)` });
+      [segStop, segCode] = ["completed", 0];
+    }
+    if (childExit && childExit !== 0) errors.push(`runner-rounds exited ${childExit}`);
+
+    // MAKE SURE the drive is not left running, then BACKFILL any ended run runner-rounds did not save.
+    if (thisDrive) {
+      try {
+        let d = (await listDrives()).find((x) => x.id === thisDrive);
+        if (d && LIVE_PHASES.includes(d.phase)) {
+          log(`drive still ${d.phase}; requesting stop`);
+          await postDrive({ action: "stop", id: thisDrive }).catch((e) => errors.push(`final stop failed: ${e.message}`));
+          for (let i = 0; i < 18 && d && LIVE_PHASES.includes(d.phase); i++) {
+            await sleep(10_000);
+            d = (await listDrives()).find((x) => x.id === thisDrive);
+          }
+        }
+        lastDrive = d ?? lastDrive;
+        const saved = new Set(fs.readdirSync(outDir).map((n) => /^round-\d+-(.+)\.json$/.exec(n)?.[1]).filter(Boolean));
+        const ended = (d?.runs ?? []).filter((r) => r.endedAt);
+        let n = saved.size;
+        for (const r of ended) {
+          if (saved.has(r.runId)) continue;
+          let detail = null;
+          try {
+            detail = await api(`/api/org/loop/${r.runId}?org=${ORG}`);
+          } catch (e) {
+            errors.push(`backfill detail ${r.runId}: ${e.message}`);
+          }
+          // A run the drive opened AFTER the last requested round is one our own stop aborted (personas-web
+          // block 004: round 11 opened 1 s after round 10 and was force-failed at $0). It is kept as evidence
+          // under a name the round regex does not match, so it never counts as a round, a dry round or an
+          // errored lane.
+          if (n >= roundsWanted) {
+            fs.writeFileSync(path.join(outDir, `aborted-by-stop-${r.runId}.json`), JSON.stringify({ record: r, detail }, null, 2));
+            log(`run ${r.runId} started after the drive's last round and was aborted by the stop; kept as aborted-by-stop, not counted`);
+            continue;
+          }
+          n++;
+          fs.writeFileSync(path.join(outDir, `round-${String(n).padStart(2, "0")}-${r.runId}.json`), JSON.stringify({ record: r, detail }, null, 2));
+          log(`backfilled round ${n} (${r.runId})`);
+        }
+        if (d) fs.writeFileSync(path.join(outDir, "drive.json"), JSON.stringify(d, null, 2));
+      } catch (e) {
+        errors.push(`drive finalize: ${e.message}`);
+      }
+      // FINAL SWEEP: every ended lane of this drive not swept yet, after the engine's grace.
+      try {
+        await trackLaneDirs(lastDrive);
+        const lastEnd = Math.max(0, ...(lastDrive?.runs ?? []).filter((r) => r.endedAt).map((r) => Date.parse(r.endedAt)));
+        const wait = SWEEP_GRACE_MS - (Date.now() - lastEnd);
+        if (lastEnd && wait > 0) await sleep(wait);
+        sweepEnded(lastDrive, true);
+        const unended = [...laneDirs.values()].filter((l) => !l.sweptAt).map((l) => l.base);
+        if (unended.length) log(`sweep: NOT swept (their run has no endedAt): ${unended.join(", ")}`);
+      } catch (e) {
+        errors.push(`final sweep: ${e.message}`);
+      }
+    }
+    return { stop: segStop, code: segCode, drive: thisDrive };
+  }
+
+  for (let seg = 1; ; seg++) {
+    const already = roundFiles(dir).length;
+    const outDir = seg === 1 ? dir : path.join(dir, `drive-${seg}`);
+    const r = await runDrive(cfg.rounds - already, outDir);
+    if (r.drive) {
+      driveId = r.drive;
+      driveIds.push(r.drive);
+    }
+    if (seg > 1) {
+      let n = already;
+      for (const f of roundFiles(outDir)) {
+        n++;
+        const runId = /^round-\d+-(.+)\.json$/.exec(f)[1];
+        fs.renameSync(path.join(outDir, f), path.join(dir, `round-${String(n).padStart(2, "0")}-${runId}.json`));
+      }
+      for (const f of fs.readdirSync(outDir).filter((x) => x.startsWith("aborted-by-stop-"))) fs.renameSync(path.join(outDir, f), path.join(dir, f));
+    }
+    [stopReason, exitCode] = [r.stop, r.code];
+    const done = roundFiles(dir).length;
+    if (crossDrives && stopReason === "dry-backoff" && done < cfg.rounds && Date.now() < deadline) {
+      log(`NEXT DRIVE: ${done}/${cfg.rounds} rounds; the drive paused on dry-backoff, and a new drive lifts it (a frontier round closes no follow-up row, so the runner counts it dry)`);
       continue;
     }
-    if (!d) continue;
-    lastDrive = d;
-    try {
-      await trackLaneDirs(d);
-      sweepEnded(d);
-    } catch (e) {
-      log(`sweep bookkeeping failed: ${e.message}`);
-    }
-    const rs = (d.repoState ?? []).find((r) => r.repo === REPO);
-    let giveUp = null;
-    if (d.phase === "paused") {
-      giveUp = { reason: `paused:${d.pausedReason ?? "?"}`, code: 11, note: `runner paused (${d.pausedReason}) until ${d.pausedUntil ?? "the operator resumes it"}` };
-    } else if (rs?.paused === "dry-backoff") {
-      const waitMin = rs.pausedUntil ? (Date.parse(rs.pausedUntil) - Date.now()) / 60000 : Infinity;
-      if (waitMin > cfg.backoffWaitMin) giveUp = { reason: "dry-backoff", code: 10, note: `${rs.note ?? ""} pausedUntil=${rs.pausedUntil} dryStreak=${rs.dryStreak}` };
-    } else if (rs?.paused) {
-      giveUp = { reason: `repo-paused:${rs.paused}`, code: 11, note: rs.note ?? "" };
-    } else if (Date.now() > deadline) {
-      giveUp = { reason: "max-hours", code: 12, note: `block exceeded ${cfg.maxHours} h` };
-    }
-    if (giveUp) {
-      stopReason = giveUp.reason;
-      exitCode = giveUp.code;
-      pauses.push({ at: iso(), reason: giveUp.reason, note: giveUp.note, repoState: rs ?? null });
-      log(`RETURNING EARLY: ${giveUp.reason} - ${giveUp.note}`);
-      try {
-        await postDrive({ action: "stop", id: driveId });
-        log("stop requested");
-      } catch (e) {
-        log(`stop failed: ${e.message}`);
-        errors.push(`stop failed: ${e.message}`);
-      }
-      // runner-rounds notices phase=stopped on its next poll (20 s) and exits; give it 5 min.
-      const t = await Promise.race([exited.then(() => "exited"), sleep(300_000).then(() => "timeout")]);
-      if (t === "timeout") {
-        log("runner-rounds did not exit after the stop; killing the child this script started");
-        child.kill();
-        await Promise.race([exited, sleep(10_000)]);
-      }
-      break;
-    }
-  }
-  await exited.catch(() => {});
-  childLog.end();
-
-  // Classify what runner-rounds itself said, when we did not stop it.
-  const roundsLog = fs.existsSync(path.join(dir, "runner-rounds.stdout.log")) ? fs.readFileSync(path.join(dir, "runner-rounds.stdout.log"), "utf8") : "";
-  if (!stopReason) {
-    if (/reached \d+ rounds/.test(roundsLog)) stopReason = "completed";
-    else if (/STALL:/.test(roundsLog)) [stopReason, exitCode] = ["stall", 12];
-    else if (/drive ended: phase=(\S+)/.test(roundsLog)) [stopReason, exitCode] = [`drive-ended:${/drive ended: phase=(\S+)/.exec(roundsLog)[1]}`, 12];
-    else [stopReason, exitCode] = [`runner-rounds exit ${childExit}`, childExit === 0 ? 0 : 1];
-  }
-  // A backoff that lands AFTER the last requested round is not an early return: the block is complete.
-  const savedRounds = fs.readdirSync(dir).filter((n) => /^round-\d+-.*\.json$/.test(n)).length;
-  if (exitCode !== 0 && savedRounds >= cfg.rounds && /reached \d+ rounds/.test(roundsLog)) {
-    pauses.push({ at: iso(), reason: `${stopReason} after the last round (not an early return)` });
-    [stopReason, exitCode] = ["completed", 0];
-  }
-  if (childExit && childExit !== 0) errors.push(`runner-rounds exited ${childExit}`);
-
-  // MAKE SURE the drive is not left running, then BACKFILL any ended run runner-rounds did not save.
-  if (driveId) {
-    try {
-      let d = (await listDrives()).find((x) => x.id === driveId);
-      if (d && LIVE_PHASES.includes(d.phase)) {
-        log(`drive still ${d.phase}; requesting stop`);
-        await postDrive({ action: "stop", id: driveId }).catch((e) => errors.push(`final stop failed: ${e.message}`));
-        for (let i = 0; i < 18 && d && LIVE_PHASES.includes(d.phase); i++) {
-          await sleep(10_000);
-          d = (await listDrives()).find((x) => x.id === driveId);
-        }
-      }
-      lastDrive = d ?? lastDrive;
-      const saved = new Set(fs.readdirSync(dir).map((n) => /^round-\d+-(.+)\.json$/.exec(n)?.[1]).filter(Boolean));
-      const ended = (d?.runs ?? []).filter((r) => r.endedAt);
-      let n = saved.size;
-      for (const r of ended) {
-        if (saved.has(r.runId)) continue;
-        let detail = null;
-        try {
-          detail = await api(`/api/org/loop/${r.runId}?org=${ORG}`);
-        } catch (e) {
-          errors.push(`backfill detail ${r.runId}: ${e.message}`);
-        }
-        // A run the drive opened AFTER the last requested round is one our own stop aborted (personas-web
-        // block 004: round 11 opened 1 s after round 10 and was force-failed at $0). It is kept as evidence
-        // under a name the round regex does not match, so it never counts as a round, a dry round or an
-        // errored lane.
-        if (n >= cfg.rounds) {
-          fs.writeFileSync(path.join(dir, `aborted-by-stop-${r.runId}.json`), JSON.stringify({ record: r, detail }, null, 2));
-          log(`run ${r.runId} started after round ${cfg.rounds} and was aborted by the stop; kept as aborted-by-stop, not counted`);
-          continue;
-        }
-        n++;
-        fs.writeFileSync(path.join(dir, `round-${String(n).padStart(2, "0")}-${r.runId}.json`), JSON.stringify({ record: r, detail }, null, 2));
-        log(`backfilled round ${n} (${r.runId})`);
-      }
-      if (d) fs.writeFileSync(path.join(dir, "drive.json"), JSON.stringify(d, null, 2));
-    } catch (e) {
-      errors.push(`drive finalize: ${e.message}`);
-    }
-    // FINAL SWEEP: every ended lane of this block not swept yet, after the engine's grace.
-    try {
-      await trackLaneDirs(lastDrive);
-      const lastEnd = Math.max(0, ...(lastDrive?.runs ?? []).filter((r) => r.endedAt).map((r) => Date.parse(r.endedAt)));
-      const wait = SWEEP_GRACE_MS - (Date.now() - lastEnd);
-      if (lastEnd && wait > 0) await sleep(wait);
-      sweepEnded(lastDrive, true);
-      const unended = [...laneDirs.values()].filter((l) => !l.sweptAt).map((l) => l.base);
-      if (unended.length) log(`sweep: NOT swept (their run has no endedAt): ${unended.join(", ")}`);
-    } catch (e) {
-      errors.push(`final sweep: ${e.message}`);
-    }
+    break;
   }
 
   const tipAfter = runnerTip();
@@ -828,9 +1013,24 @@ async function block() {
   const commitLog = tipAfter ? (git(["log", "--oneline", "--no-decorate", range]) ?? "").split(/\r?\n/).filter(Boolean) : [];
   const latestScanAfter = await apiSnapshot();
   const endedAt = iso();
+  // T3: the same measurement on the runner tip the block left (reused when nothing landed).
+  let tech = null;
+  if (measureT3 && techBefore) {
+    const after =
+      tipAfter && tipAfter !== tipBefore
+        ? measureTech({ ref: RUNNER_REF, runs: Number(flag("tech-runs", "2")), label: `${id}-after`, log })
+        : { ...techBefore, label: `${id}-after (nothing landed: same commit)` };
+    if (after) fs.writeFileSync(path.join(dir, "tech-after.json"), JSON.stringify(after, null, 2));
+    tech = { before: techBefore, after, delta: techDelta(techBefore, after) };
+    for (const d of tech.delta ?? []) {
+      log(`tech: ${d.name} ${d.before} -> ${d.after} ${d.unit} (gain ${d.gain == null ? "-" : `${Math.round(d.gain * 1000) / 10}%`}${d.breakthrough ? ", BREAKTHROUGH" : ""}${d.noisy ? ", noisy" : ""})`);
+    }
+  }
+
   const metrics = computeMetrics(dir, {
     latestScanBefore,
     latestScanAfter,
+    tech,
     block: id,
     kind: smoke ? "smoke" : "block",
     label,
@@ -840,6 +1040,7 @@ async function block() {
     config: cfg,
     promptVersion: pv,
     driveId,
+    driveIds,
     stopReason,
     exitCode,
     pauses,
@@ -1019,6 +1220,18 @@ async function main() {
       requireProject();
       trend();
       return 0;
+    case "tech": {
+      // node infinite.mjs tech --project p [--ref <git ref>] [--runs 2] [--label baseline]
+      requireProject();
+      const ref = flag("ref", techStartRef());
+      const label = flag("label", "measure");
+      const res = measureTech({ ref, runs: Number(flag("runs", "2")), label });
+      if (!res) return 3;
+      const out = path.join(PDIR, `tech-${label}-${res.sha}.json`);
+      fs.writeFileSync(out, JSON.stringify(res, null, 2));
+      console.log(JSON.stringify({ out, sha: res.sha, install: res.install, metrics: res.metrics.map((m) => ({ name: m.name, values: m.values, mean: m.mean, spread: m.spread, threshold: m.threshold })) }, null, 2));
+      return res.metrics.every((m) => m.mean != null) ? 0 : 1;
+    }
     case "ledger": {
       requireProject();
       // Re-append a block's section from its metrics.json (a block killed before it wrote one).
