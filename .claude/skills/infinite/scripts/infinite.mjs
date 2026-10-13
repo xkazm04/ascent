@@ -786,13 +786,22 @@ async function block() {
       let n = saved.size;
       for (const r of ended) {
         if (saved.has(r.runId)) continue;
-        n++;
         let detail = null;
         try {
           detail = await api(`/api/org/loop/${r.runId}?org=${ORG}`);
         } catch (e) {
           errors.push(`backfill detail ${r.runId}: ${e.message}`);
         }
+        // A run the drive opened AFTER the last requested round is one our own stop aborted (personas-web
+        // block 004: round 11 opened 1 s after round 10 and was force-failed at $0). It is kept as evidence
+        // under a name the round regex does not match, so it never counts as a round, a dry round or an
+        // errored lane.
+        if (n >= cfg.rounds) {
+          fs.writeFileSync(path.join(dir, `aborted-by-stop-${r.runId}.json`), JSON.stringify({ record: r, detail }, null, 2));
+          log(`run ${r.runId} started after round ${cfg.rounds} and was aborted by the stop; kept as aborted-by-stop, not counted`);
+          continue;
+        }
+        n++;
         fs.writeFileSync(path.join(dir, `round-${String(n).padStart(2, "0")}-${r.runId}.json`), JSON.stringify({ record: r, detail }, null, 2));
         log(`backfilled round ${n} (${r.runId})`);
       }
