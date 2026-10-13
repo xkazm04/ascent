@@ -2496,7 +2496,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/standard/maintain.ts:183 The guidance projection generator hardcodes an inlined per-host regex branch rather than compiling from a declarative host contract, preventing extensible transformation of tool vocabularies or frontmatter across different agent hosts.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:25b61236a62604b0",
+          "evaluatedRevision": 31
         },
         {
           "subject": "agent-memory",
@@ -5231,7 +5235,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/features/inflight/live/LiveWarRoom.tsx:11 A grep across Context 5's files for subject terms (guidance, instruction, agents.md, claude.md) returned zero matches in the war room implementation; this module is an interactive frontend dashboard rendering real-time operational panels such as FleetTimetablePanel, without authoring or managing agent instruction files.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:25b61236a62604b0",
+          "evaluatedRevision": 31
         },
         {
           "subject": "mcp-tools",
@@ -6474,7 +6482,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/skills/manifest/route.ts:19 A grep across Context 2's files for subject terms (guidance, instruction, agents.md, claude.md) returned zero matches; the module provides an HTTP catalog of reusable skills and tokens via listOrgSkillManifest, with no authoring or governance of repository-level agent instruction files.",
+          "evaluatedAt": "2026-10-13",
+          "evaluatedAgainst": "sha256-b2:25b61236a62604b0",
+          "evaluatedRevision": 31
         },
         {
           "subject": "agent-memory",

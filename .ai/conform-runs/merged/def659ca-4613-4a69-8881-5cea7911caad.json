@@ -1,0 +1,153 @@
+{
+  "schema": "conform-run/1",
+  "worker": "def659ca-4613-4a69-8881-5cea7911caad",
+  "subject": "agent-instruction-files",
+  "evaluatedAt": "2026-10-13T01:38:32.083849+00:00",
+  "provider": "agy",
+  "model": "gemini-3.8-flash-high",
+  "pairs": [
+    {
+      "context": "Skills Registry & API Tokens",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/org/skills/manifest/route.ts:19 A grep across Context 2's files for subject terms (guidance, instruction, agents.md, claude.md) returned zero matches; the module provides an HTTP catalog of reusable skills and tokens via listOrgSkillManifest, with no authoring or governance of repository-level agent instruction files.",
+      "techniques": []
+    },
+    {
+      "context": "AI-Native Standard & Onboarding Skill",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/standard/maintain.ts:183 The guidance projection generator hardcodes an inlined per-host regex branch rather than compiling from a declarative host contract, preventing extensible transformation of tool vocabularies or frontmatter across different agent hosts.",
+      "techniques": [
+        {
+          "technique": "host-contract-compilation",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/maintain.ts:183 Hardcodes an inlined per-host file extension check for .mdc frontmatter rather than reading a declarative contract per host."
+        },
+        {
+          "technique": "single-source-topology",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/spec.ts:109 Defines a single canonical instruction document as authority and projects downstream vendor files via maintain.mjs project."
+        },
+        {
+          "technique": "instruction-freshness",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/doctor.ts:307 Checks generatedFrom git commit dates against generatedAt timestamp to flag stale generated manifest and instructions."
+        },
+        {
+          "technique": "enforcement-demotion",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/guardrails.ts:42 Demotes mechanically checkable invariants into an executable doctor check rather than relying on un-enforced guidance prose."
+        },
+        {
+          "technique": "machine-owned-regions",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/maintain.ts:187 Stamps generated projection files with source and body sha256 hashes and instructions to re-project rather than edit in place."
+        },
+        {
+          "technique": "capability-coverage-contract",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:176 Explicitly leaves omitted pointers silent rather than checking completeness against runtime capabilities."
+        },
+        {
+          "technique": "write-back-sink-class",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/maintain.ts:131 Allocates sequentially numbered memory files from local directory listing without collector-driven identity deduplication or drain verification."
+        }
+      ],
+      "registryProposal": "When a repository standard defines projection from a canonical agent guidance file (e.g. AGENTS.md) into vendor-specific instruction files, host-contract-compilation should extend beyond skill compilation to prescribe declarative transformation contracts for instruction documents (specifying host-specific frontmatter, section suppression, and tool vocabulary maps) rather than relying on inlined generator heuristics."
+    },
+    {
+      "context": "Live War Room",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/features/inflight/live/LiveWarRoom.tsx:11 A grep across Context 5's files for subject terms (guidance, instruction, agents.md, claude.md) returned zero matches in the war room implementation; this module is an interactive frontend dashboard rendering real-time operational panels such as FleetTimetablePanel, without authoring or managing agent instruction files.",
+      "techniques": []
+    }
+  ],
+  "declined": [
+    {
+      "subject": "agent-instruction-files",
+      "context": "Local Autopilot & Loop Engine",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor at propose/route.ts:128 only calls proposeLaneKind and does not show the instruction-file precondition is absent. The context's own test (route.test.ts:95-105) asserts an `agent-guidance` practice lane that installs AGENTS.md. The route's comments also describe a lane that installs the `."
+    },
+    {
+      "subject": "agent-instruction-files",
+      "context": "Follow-ups Ledger",
+      "reason": "withdrawn after review: reviewer (sonnet): followups.ts:550 shows the context does touch agent instruction files. buildFixPrompt tells the agent to read CLAUDE.md / AGENTS.md, and line 299 of the same file allows the agent to declare the verify command in AGENTS.md / CLAUDE.md / .ai/manifest.yaml. So the line does not show the subject is abs"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-13T01:38:32.083849+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-instruction-files"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Local Autopilot & Loop Engine",
+      "via": "curator-multi:agy",
+      "model": "gemini-3.8-flash-high"
+    },
+    {
+      "ts": "2026-10-13T01:38:32.083849+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-instruction-files"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Skills Registry & API Tokens",
+      "via": "curator-multi:agy",
+      "model": "gemini-3.8-flash-high"
+    },
+    {
+      "ts": "2026-10-13T01:38:32.083849+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-instruction-files"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Follow-ups Ledger",
+      "via": "curator-multi:agy",
+      "model": "gemini-3.8-flash-high"
+    },
+    {
+      "ts": "2026-10-13T01:38:32.083849+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-instruction-files"
+      ],
+      "techniques": [
+        "capability-coverage-contract",
+        "enforcement-demotion",
+        "host-contract-compilation",
+        "instruction-freshness",
+        "machine-owned-regions",
+        "single-source-topology",
+        "write-back-sink-class"
+      ],
+      "deviations": 1,
+      "context": "AI-Native Standard & Onboarding Skill",
+      "via": "curator-multi:agy",
+      "model": "gemini-3.8-flash-high"
+    },
+    {
+      "ts": "2026-10-13T01:38:32.083849+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-instruction-files"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Live War Room",
+      "via": "curator-multi:agy",
+      "model": "gemini-3.8-flash-high"
+    }
+  ]
+}
