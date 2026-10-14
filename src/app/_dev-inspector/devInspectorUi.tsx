@@ -7,7 +7,7 @@
  * (and so each file stays small). Dev-only; never ships to production.
  */
 
-import { useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { ACCENT, DIM, OK, Z } from "./devInspectorMarks";
 import { formatHudCopy, isLibraryPath, splitLoc, type LocEntry } from "./devLocate";
@@ -112,6 +112,25 @@ function HudBtn({ label, onClick, children }: { label: string; onClick: () => vo
   );
 }
 
+/** Last rung of the copy ladder: the text, already selected, for the operator's own Ctrl+C. */
+function ManualCopyField({ text }: { text: string }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, [text]);
+  return (
+    <textarea
+      ref={ref}
+      readOnly
+      value={text}
+      rows={2}
+      aria-label="Source reference - press Ctrl+C to copy"
+      style={{ width: "100%", font: "inherit", background: "transparent", color: "inherit", resize: "none" }}
+    />
+  );
+}
+
 export function InspectorHud({
   copied,
   copyOk,
@@ -182,7 +201,7 @@ export function InspectorHud({
         </div>
       </div>
       {copied ? (
-        <div style={{ wordBreak: "break-all" }}>{copied}</div>
+        copyOk ? <div style={{ wordBreak: "break-all" }}>{copied}</div> : <ManualCopyField text={copied} />
       ) : !mappingOn ? (
         <div style={{ color: "#fca5a5", lineHeight: 1.6 }}>
           Source mapping is OFF. Relaunch with:
