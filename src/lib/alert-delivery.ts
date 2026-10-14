@@ -1,5 +1,5 @@
 // Alert sink configuration, validation and delivery. Message builders stay in alerts.ts.
-import { isPrivateOrInternalHost } from "@/lib/net/ssrf";
+import { isPrivateOrInternalHost, isSafePublicHttpsUrl } from "@/lib/net/ssrf";
 import type { AlertMessage } from "./alerts";
 
 
@@ -145,11 +145,21 @@ export async function dispatchAlert(
       return false;
     }
   }
+  // Re-vet the org's sink AT DELIVERY (notification-channel-security: the save-time check is not the
+  // delivery-time check — a row stored before the guard tightened, or edited out of band, reaches this
+  // fetch unvetted). Only the org-supplied sink is tenant input; the operator's global env sink is exempt.
+  if (opts.webhookUrl?.trim() && !isSafePublicHttpsUrl(url)) {
+    console.error("[alerts] org sink failed delivery-time vetting — nothing dispatched");
+    return false;
+  }
   const timeout = AbortSignal.timeout(DISPATCH_TIMEOUT_MS);
   const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
   try {
     const res = await fetch(url, {
       method: "POST",
+      // A vetted public host may answer 3xx to an internal address; following it crosses the vetting
+      // boundary. "manual" hands back the 3xx, which is not ok, so the dispatch reads as failed.
+      redirect: "manual",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: message.text, blocks: message.blocks }),
       signal,

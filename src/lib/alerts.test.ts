@@ -483,6 +483,29 @@ describe("dispatchAlert (the one real side-effect: 2xx/non-2xx/throw outcome map
     expect(JSON.parse(init.body as string)).toEqual({ text: msg.text, blocks: msg.blocks });
   });
 
+  it("never follows a redirect off the vetted host (3xx reads as a failed dispatch)", async () => {
+    const fetchMock = stubFetch(() => Promise.resolve({ ok: false, status: 302 }));
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const ok = await dispatchAlert(msg, { webhookUrl: ORG_HOOK });
+
+    expect(ok).toBe(false);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.redirect).toBe("manual");
+  });
+
+  it("re-vets the org sink at delivery: a stored private/plaintext URL is never fetched", async () => {
+    const fetchMock = stubFetch(() => Promise.resolve({ ok: true, status: 200 }));
+    vi.stubEnv("ALERT_WEBHOOK_URL", "");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    for (const bad of ["https://169.254.169.254/latest", "http://hooks.example/acme", "https://localhost/x"]) {
+      expect(await dispatchAlert(msg, { webhookUrl: bad })).toBe(false);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("threads opts.signal through to fetch (abortable with the surrounding work), composed with the per-request timeout", async () => {
     const fetchMock = stubFetch(() => Promise.resolve({ ok: true, status: 201 }));
     const controller = new AbortController();
