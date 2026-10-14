@@ -66,6 +66,23 @@ export function PlanEvidence({ plan }: { plan: LoopPlanRecord }) {
             </dl>
           </div>
         </DSec>
+        {p ? (
+          <DSec title="Challenge" count={p.challenge?.length}>
+            <div className={l.panel}>
+              {p.challenge?.length ? (
+                p.challenge.map((c, i) => (
+                  <div key={i} className={l.item}>
+                    <Text>{c}</Text>
+                  </div>
+                ))
+              ) : (
+                <div className={l.item}>
+                  <Text>The planner did not record a challenge pass for this plan.</Text>
+                </div>
+              )}
+            </div>
+          </DSec>
+        ) : null}
         {p?.risks.length ? (
           <DSec title="Risks" count={p.risks.length}>
             <div className={l.panel}>

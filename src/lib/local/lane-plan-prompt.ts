@@ -12,7 +12,7 @@
 //     the block says what happens to work that leaves it.
 
 import type { FollowUpItem } from "@/lib/org/followups";
-import { PLAN_TIMEOUT_MS, type ArchitectureMove, type LanePlan, type ModulePartition, type PlanItem } from "@/lib/local/runner-types";
+import { CHALLENGE_NOTHING_SURFACED, PLAN_TIMEOUT_MS, type ArchitectureMove, type LanePlan, type ModulePartition, type PlanItem } from "@/lib/local/runner-types";
 import { describeMove } from "@/lib/local/lane-plan-classify";
 
 /** The partition is listed, not dumped: past this many modules the brief says how many it left out. */
@@ -37,13 +37,15 @@ export const PLAN_CONTRACT = [
   '  "modules": ["src/lib/example/"],',
   '  "check": "the command or observation that proves the work",',
   '  "risks": ["what could go wrong"],',
-  '  "notDoing": ["what this plan deliberately leaves alone"]',
+  '  "notDoing": ["what this plan deliberately leaves alone"],',
+  `  "challenge": ["one short note per element you changed or doubted, or exactly: ${CHALLENGE_NOTHING_SURFACED}"]`,
   "}",
   "```",
   "- One `items` entry per batch item, keyed by its id. At most 40 `files` and 10 `moves` per item.",
   '- A move is `{ "kind": <kind>, "from": <module or null>, "to": <module or null> }`, with kind one of: `module-created` (to), `module-removed` (from), `module-split` (from, and each new module as to — one move per new module), `module-merged` (each source as from, the new module as to), `cross-module-move` (from and to). Name modules as the directory prefixes listed below.',
   "- An architecture move is ONLY one of those five, measured against the module partition below. Changing a contract, a dependency, a build file or touching many files is NOT a move — do not declare it; it is approved automatically.",
   "- DECLARE EVERY ARCHITECTURE MOVE HONESTLY. An item with a declared move waits for the operator's approval; an item without one executes now. An UNDECLARED move is detected from the real diff after execution and the work is discarded — parked on a held branch for review — so hiding a move costs the whole cycle.",
+  "- CHALLENGE, before you close the block: re-read the plan as a draft another planner handed you, whose author is not here. For each item ask: is it one thing or two (boundary); do the cited files support the approach (evidence); what nearby thing is it not (confounders); is it claimed more strongly than you read (confidence); is it specific to this repo or true of any repo (specificity). Fix what you find and record one short note per fix or doubt in `challenge`. If nothing surfaced, write the sentinel exactly; never leave it empty or omit it.",
   "- A plan that does not parse against this shape (an unknown move kind, a missing field, a second draft after the block) is treated as unreadable and EVERY item waits for the operator.",
 ].join("\n");
 

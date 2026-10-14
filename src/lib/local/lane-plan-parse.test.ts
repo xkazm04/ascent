@@ -2,6 +2,7 @@
 // null classifies the whole plan major-unreadable and anything else lets a malformed plan through.
 
 import { describe, expect, it } from "vitest";
+import { CHALLENGE_NOTHING_SURFACED } from "./runner-types";
 import { PLAN_BOUNDS, lastJsonBlock, parsePlan } from "./lane-plan-parse";
 
 const base = () => ({
@@ -32,6 +33,18 @@ describe("parsePlan — accepts exactly the contract", () => {
     const final = { ...base(), intent: "final" };
     expect(parsePlan(`${fenced(draft)}\nOn reflection:\n${fenced(final)}`)?.intent).toBe("final");
     expect(lastJsonBlock("```ts\nnot json\n```")).toBeNull();
+  });
+
+  it("keeps the challenge pass distinguishable: ran-and-found-nothing is a value, skipped is undefined", () => {
+    const p = parsePlan(fenced({ ...base(), challenge: [CHALLENGE_NOTHING_SURFACED] }));
+    expect(p?.challenge).toEqual([CHALLENGE_NOTHING_SURFACED]);
+    expect(parsePlan(fenced({ ...base(), challenge: ["item 1 smeared two modules; split the approach"] }))?.challenge).toHaveLength(1);
+    // empty, absent and malformed all read as "did not run" and never void the plan
+    for (const challenge of [[], undefined, "none", [1], null]) {
+      const got = parsePlan(fenced({ ...base(), challenge }));
+      expect(got).not.toBeNull();
+      expect(got?.challenge).toBeUndefined();
+    }
   });
 
   it("accepts every move kind with the endpoints it needs, and absent risks/notDoing as empty", () => {

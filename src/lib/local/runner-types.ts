@@ -125,7 +125,17 @@ export interface LanePlan {
   risks: string[];
   /** What the plan deliberately does not do. */
   notDoing: string[];
+  /**
+   * The planner's retained challenge notes (registry plan-review/fresh-posture-self-challenge).
+   * UNDEFINED = the challenge pass did not run (absent, empty or malformed in the block). A non-empty
+   * list = it ran; the lone entry `CHALLENGE_NOTHING_SURFACED` is the reserved "ran, found nothing".
+   * An empty list is never stored: it would render exactly like a pass that was skipped.
+   */
+  challenge?: string[];
 }
+
+/** The reserved value for "the challenge ran and surfaced nothing" — never an empty list. */
+export const CHALLENGE_NOTHING_SURFACED = "challenge ran: nothing surfaced";
 
 export type PlanClass = "minor" | "major" | "minor-under-direction";
 export type PlanClassReason = "no-moves" | "declared-moves" | "unreadable" | "undeclared-moves-in-diff" | "inside-direction-fence";

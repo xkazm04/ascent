@@ -136,7 +136,10 @@ export function validatePlan(raw: unknown): LanePlan | null {
   const risks = listOf(raw.risks);
   const notDoing = listOf(raw.notDoing);
   if (!risks || !notDoing) return null;
-  return { v: 1, intent, items, modules, check, risks, notDoing };
+  // `challenge` is retained, never gating: a missing, empty or malformed value reads as "did not run"
+  // (undefined). Voiding the plan for it would wake the operator over an informational field.
+  const challenge = Array.isArray(raw.challenge) ? strList(raw.challenge, PLAN_BOUNDS.list, (x) => str(x, PLAN_BOUNDS.listItem)) : null;
+  return { v: 1, intent, items, modules, check, risks, notDoing, ...(challenge && challenge.length ? { challenge } : {}) };
 }
 
 /** The content of the LAST ```json fenced block, or null when there is none (or it never closes). */
