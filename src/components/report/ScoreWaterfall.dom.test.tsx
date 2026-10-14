@@ -154,6 +154,26 @@ describe("ScoreWaterfall mock-scored hollow segments (engine honesty)", () => {
   });
 });
 
+describe("ScoreWaterfall lift column — meaning in words, not only a hover title", () => {
+  it("each lift cell carries its direction in sr-only words and hides the bare glyph", () => {
+    const { container } = render(<ScoreWaterfall report={report(LIVE, "claude-cli")} />);
+    const cells = Array.from(container.querySelectorAll<HTMLElement>("[data-lift]"));
+    expect(cells).toHaveLength(IDS.length);
+    for (const cell of cells) {
+      const glyph = cell.querySelector("[aria-hidden]");
+      expect(glyph).not.toBeNull();
+      const words = cell.querySelector(".sr-only")?.textContent ?? "";
+      const kind = cell.dataset.lift;
+      if (kind === "up") expect(words).toMatch(/^lifts the overall by \S+ points$/);
+      else if (kind === "down") expect(words).toMatch(/^drags the overall down by \S+ points$/);
+      else expect(words).toBe("at the weighted mean");
+    }
+    // LIVE spans 90..10 around a mean of 50, so both directions are exercised.
+    expect(cells.some((c) => c.dataset.lift === "up")).toBe(true);
+    expect(cells.some((c) => c.dataset.lift === "down")).toBe(true);
+  });
+});
+
 describe("scoreIntegrity encoding on the ring and waterfall (G5: disclose, never widen)", () => {
   it("ScoreRing aria-desc and caption include integrityNotes for widened D2", () => {
     const { container } = render(<ScoreRing score={72} level={L3} integrity={WIDENED_D2} />);

@@ -310,6 +310,8 @@ than no chart. Each of these is a load-bearing behavior, not a style choice:
   `ScoreWaterfall` segments carry no pixel floor either: their widths *are* their point
   contributions, sub-1.5pt contributions aggregate into one labeled neutral sliver
   (`scoreWaterfallSegments.ts`), and the headroom-to-100 tail is the honest remainder.
+  The itemized ▲/▼ lift column says its direction in words to assistive tech ("lifts the
+  overall by 4.2 points"); the glyph is hidden from it and the hover title stays for the pointer.
 - **Signal vs LLM on radar hover.** The polygon stays the blended headline so the shape
   does not fork, but hover (and the SR table) names both witnesses when either disagrees
   with that number (`signal 70 · LLM 90` beside a vertex at 78, with ticks on the spoke

@@ -175,8 +175,16 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
               <span
                 className={`w-12 shrink-0 text-right type-mono-sm tabular-nums ${liftColor}`}
                 title="Lift vs your weighted-mean score: ▲ pulls the overall up, ▼ drags it down"
+                data-lift={lift}
               >
-                {lift === "flat" ? "·" : `${lift === "up" ? "▲+" : "▼"}${fmtPts(Math.abs(c.signed))}`}
+                {/* The title is hover-only and the glyph reads as "black up-pointing triangle", so the
+                    meaning rides in words for assistive tech too (the PrSignalsPanel basis idiom). */}
+                <span aria-hidden>{lift === "flat" ? "·" : `${lift === "up" ? "▲+" : "▼"}${fmtPts(Math.abs(c.signed))}`}</span>
+                <span className="sr-only">
+                  {lift === "flat"
+                    ? "at the weighted mean"
+                    : `${lift === "up" ? "lifts the overall by" : "drags the overall down by"} ${fmtPts(Math.abs(c.signed))} points`}
+                </span>
               </span>
             </li>
           );
