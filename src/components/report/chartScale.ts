@@ -92,3 +92,14 @@ export const CHART_INK = {
   pointStroke: "#020617", // point outline on the dark canvas (slate-950 · --color-surface-strong)
   canvas: "#0b1322", // the dark canvas/surface behind a point (matches ui.ts heatCell background)
 } as const;
+
+/**
+ * Provenance ink — the two neutral witnesses behind a blended dimension score, shared by the
+ * ProvenanceTrack ribbon and the radar's hover ticks: the deterministic signal (slate-400, drawn as
+ * an unfilled mark) and the model's raw judgment (slate-300, drawn as a filled dot). One definition
+ * so "same marks on both charts" is a fact the code keeps, not a comment's promise.
+ */
+export const PROVENANCE_INK = {
+  signal: "#94a3b8", // detector / deterministic signal (slate-400)
+  llm: "#cbd5e1", // model judgment before clamp + blend (slate-300)
+} as const;

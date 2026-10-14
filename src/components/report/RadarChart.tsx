@@ -9,6 +9,7 @@ import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { ChartTooltip } from "@/components/report/chartHover";
 import { RadarFallback } from "@/components/report/RadarFallback";
 import { r2 } from "@/components/report/svgCoord";
+import { PROVENANCE_INK } from "@/components/report/chartScale";
 import { radarHoverTicks } from "@/lib/scoring/provenance";
 import { MOCK_HOLLOW_FILL, MOCK_SR_SUFFIX, isMockEngine } from "@/components/report/chartEngine";
 
@@ -191,13 +192,14 @@ export function RadarChart({
       {actPt && actDim && (
         <circle cx={actPt[0]} cy={actPt[1]} r={8} fill="none" stroke={scoreHex(actDim.score)} strokeWidth={2} />
       )}
-      {/* Signal vs LLM ticks on the hovered spoke. Same marks as ProvenanceTrack (hollow
-          slate tick = detector, filled pale dot = model). Drawn only when they disagree
+      {/* Signal vs LLM ticks on the hovered spoke, in ProvenanceTrack's ink (PROVENANCE_INK:
+          unfilled slate = detector, filled pale dot = model). The track draws the signal as a
+          vertical tick across its ribbon; on a spoke it is a ring. Drawn only when they disagree
           with the blend so a single fact stays one number (G1: never hide disagreement). */}
       {sigPt && llmPt && (
         <g data-hover-ticks>
-          <circle data-tick="signal" cx={sigPt[0]} cy={sigPt[1]} r={3} fill="none" stroke="#94a3b8" strokeWidth={1.5} />
-          <circle data-tick="llm" cx={llmPt[0]} cy={llmPt[1]} r={3} fill="#cbd5e1" stroke="var(--color-surface)" strokeWidth={1} />
+          <circle data-tick="signal" cx={sigPt[0]} cy={sigPt[1]} r={3} fill="none" stroke={PROVENANCE_INK.signal} strokeWidth={1.5} />
+          <circle data-tick="llm" cx={llmPt[0]} cy={llmPt[1]} r={3} fill={PROVENANCE_INK.llm} stroke="var(--color-surface)" strokeWidth={1} />
         </g>
       )}
       {/* labels */}

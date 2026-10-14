@@ -315,8 +315,9 @@ than no chart. Each of these is a load-bearing behavior, not a style choice:
 - **Signal vs LLM on radar hover.** The polygon stays the blended headline so the shape
   does not fork, but hover (and the SR table) names both witnesses when either disagrees
   with that number (`signal 70 · LLM 90` beside a vertex at 78, with ticks on the spoke
-  at those radii; `radarHoverTicks` in `provenance.ts`, the same two marks ProvenanceTrack
-  uses). Identical values stay one number. G1: disagreement is never collapsed into the
+  at those radii; `radarHoverTicks` in `provenance.ts`, in ProvenanceTrack's two inks from
+  `PROVENANCE_INK` in `chartScale.ts`: an unfilled slate ring for the signal where the track
+  draws a vertical tick, a filled pale dot for the model). Identical values stay one number. G1: disagreement is never collapsed into the
   blend.
 - **Mock-scored points are marked.** `engine.provider === "mock"` means the deterministic
   rubric scored the scan and no model contributed, so those points are not comparable to

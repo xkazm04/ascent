@@ -20,7 +20,7 @@
 import type { ScanReport, ScoreIntegrity } from "@/lib/types";
 import { blendWeightPercent, scoreProvenance, type ScoreProvenance } from "@/lib/scoring/provenance";
 import { scoreHex } from "@/lib/ui";
-import { linScale } from "@/components/report/chartScale";
+import { PROVENANCE_INK, linScale } from "@/components/report/chartScale";
 
 const W = 240;
 const H = 22;
@@ -72,14 +72,14 @@ export function ProvenanceTrack({ d, integrity }: { d: Dim; integrity?: ScoreInt
 
         {/* signal tick */}
         <g>
-          <line x1={x(d.signalScore)} x2={x(d.signalScore)} y1={TRACK_Y - 6} y2={TRACK_Y + 6} stroke="#94a3b8" strokeWidth={2} />
+          <line x1={x(d.signalScore)} x2={x(d.signalScore)} y1={TRACK_Y - 6} y2={TRACK_Y + 6} stroke={PROVENANCE_INK.signal} strokeWidth={2} />
           <title>{`Signal (deterministic): ${d.signalScore}`}</title>
         </g>
 
         {/* the model's raw judgment — drawn ONLY where judgment is a lever on this number */}
         {p.kind === "blended" && (
           <g>
-            <circle cx={x(d.llmScore)} cy={TRACK_Y} r={3} fill="#cbd5e1" stroke="var(--color-surface)" strokeWidth={1} />
+            <circle cx={x(d.llmScore)} cy={TRACK_Y} r={3} fill={PROVENANCE_INK.llm} stroke="var(--color-surface)" strokeWidth={1} />
             <title>{`LLM judgment (before the clamp and the blend weight): ${d.llmScore}`}</title>
           </g>
         )}
