@@ -6140,7 +6140,11 @@
           "revision": 18,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/app/api/org/local/drive/route.ts:163 Centralizing loop execution parameters and capacity clamping into a deep specification parser prevents invalid run configurations from propagating into execution lanes.",
+          "evaluatedAt": "2026-10-14",
+          "evaluatedAgainst": "sha256-b2:7c8008f2207b1946",
+          "evaluatedRevision": 18
         },
         {
           "subject": "agent-runtime-assembly",
@@ -8444,7 +8448,11 @@
           "revision": 18,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/plans.ts:7 Duplicating Polar catalog pricing into plans.ts and price-drift records introduces information leakage that requires manual cross-file edits and compensatory drift-detection jobs.",
+          "evaluatedAt": "2026-10-14",
+          "evaluatedAgainst": "sha256-b2:7c8008f2207b1946",
+          "evaluatedRevision": 18
         },
         {
           "subject": "mcp-tools",

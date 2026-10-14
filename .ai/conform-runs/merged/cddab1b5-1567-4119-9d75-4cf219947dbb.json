@@ -1,0 +1,141 @@
+{
+ "schema": "conform-run/1",
+ "worker": "cddab1b5-1567-4119-9d75-4cf219947dbb",
+ "subject": "module-design",
+ "evaluatedAt": "2026-10-14T22:59:34.909021+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "module-design",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/app/api/org/local/drive/route.ts:163 Centralizing loop execution parameters and capacity clamping into a deep specification parser prevents invalid run configurations from propagating into execution lanes.",
+   "techniques": [
+    {
+     "technique": "concurrency-at-the-edge",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/local/projects/route.ts:198 Sequential batch execution is chosen deliberately at the host edge to protect local machine git processes and preserve readable failure ordering, keeping flow control at the edge."
+    },
+    {
+     "technique": "declarative-or-sequential",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/local/projects/route.ts:100 Uses a straightforward sequential loop to populate multiple classification maps (dimensions and unmeasurable dimensions) simultaneously rather than multi-pass array pipelines."
+    },
+    {
+     "technique": "module-depth",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/local/drive/route.ts:163 parseRunSpec encapsulates validation, bounds capping, and option normalization into a single deep boundary reused across both drive and loop routes."
+    },
+    {
+     "technique": "seams-and-adapters",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/loop/route.test.ts:39 The GitHub App boundary is modeled as a clean query seam that routes can check and test harnesses can control without external infrastructure."
+    },
+    {
+     "technique": "structure-is-not-delegable",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/loop/route.ts:381 Human oversight and review are explicitly built into the loop engine lifecycle ('the loop proposes, the human disposes'), refusing to delegate structural approval to agents."
+    },
+    {
+     "technique": "scoreable-designs-are-built-not-argued",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/loop/route.ts:347 Instead of statically arguing model superiority, the engine supports an explicit A/B evaluation policy ('ab') across models during loop runs to score performance empirically."
+    },
+    {
+     "technique": "borrowed-surface",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/loop/route.ts:311 Incoming delivery arguments are normalized against a strict internal closed set rather than letting unconstrained strings or downstream transport types leak into the domain."
+    },
+    {
+     "technique": "state-carrier-decides-the-lane",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/loop/route.ts:85 Metrics and pricing state are derived dynamically from lane runs per-tenant rather than maintaining cross-tenant mutable state carriers."
+    }
+   ],
+   "registryProposal": "No registry changes needed; the Local Autopilot & Loop Engine cleanly realizes module-depth, edge concurrency, and human-in-the-loop stewardship boundaries."
+  },
+  {
+   "context": "Checkout & Plans (Polar)",
+   "subject": "module-design",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/plans.ts:7 Duplicating Polar catalog pricing into plans.ts and price-drift records introduces information leakage that requires manual cross-file edits and compensatory drift-detection jobs.",
+   "techniques": [
+    {
+     "technique": "module-depth",
+     "verdict": "deviation",
+     "evidence": "src/lib/plans.ts:7 Violates information leakage principles by duplicating the Polar product pricing decision across plans.ts and price-drift.ts rather than treating Polar as the single source of truth."
+    },
+    {
+     "technique": "borrowed-surface",
+     "verdict": "conformant",
+     "evidence": "src/app/api/billing/webhook/route.ts:63 Restricts entitlement logic to a locally vetted set of subscription statuses rather than borrowing Polar's entire status lifecycle."
+    },
+    {
+     "technique": "seams-and-adapters",
+     "verdict": "conformant",
+     "evidence": "src/app/api/billing/webhook/route.test.ts:22 The Polar webhook handler provides a clean testable adapter seam that can be mocked directly in unit tests without live cryptographic setup."
+    }
+   ],
+   "registryProposal": "Clarify guidance in module-depth regarding when static build-time / SSR performance constraints conflict with single-authority data models, providing patterns for caching upstream third-party catalog snapshots at build time."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "module-design",
+   "context": "Marketing About Page",
+   "reason": "The Marketing About Page is primarily a presentation/UI landing page composing static landing sections, copy, and visual components. Module design stewardship techniques (concurrency-at-the-edge, state-carrier-decides-the-lane, seams-and-adapters, host-primitive-facade, etc.) do not govern simple leaf UI presentation components where boundaries do not encapsulate backend capabilities or abstract service invariants."
+  },
+  {
+   "subject": "module-design",
+   "context": "Org Overview & Standing",
+   "reason": "Org Overview & Standing contexts focus on personal dashboard overview views, simple watch toggle mutations, and basic backlog reads, lacking sufficient module-level boundary complexity to evaluate 8 distinct module design techniques meaningfully."
+  },
+  {
+   "subject": "module-design",
+   "context": "Design System: UI Primitives & Deck",
+   "reason": "Design System UI Primitives and Deck components represent visual design system elements and presentation primitives. While they exhibit clean component props (narrow HTML attribute borrowing), they lack the service boundaries, flow control, and IO isolation that form the core evaluation criteria for module-design techniques."
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-14T22:59:34.909021+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "module-design"
+   ],
+   "techniques": [
+    "borrowed-surface",
+    "concurrency-at-the-edge",
+    "declarative-or-sequential",
+    "module-depth",
+    "scoreable-designs-are-built-not-argued",
+    "seams-and-adapters",
+    "state-carrier-decides-the-lane",
+    "structure-is-not-delegable"
+   ],
+   "deviations": 0,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  },
+  {
+   "ts": "2026-10-14T22:59:34.909021+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "module-design"
+   ],
+   "techniques": [
+    "borrowed-surface",
+    "module-depth",
+    "seams-and-adapters"
+   ],
+   "deviations": 1,
+   "context": "Checkout & Plans (Polar)",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  }
+ ]
+}
