@@ -62,7 +62,7 @@ export function RadarChart({
   // the radar would render as an invisible shape over data that exists. Degrade to labeled bars —
   // the honest form for one or two magnitudes — instead of a shape with no area. See RadarFallback.
   if (dimensions.length < 3) {
-    return <RadarFallback dimensions={dimensions} highlightId={highlightId} onSelect={onSelect} />;
+    return <RadarFallback dimensions={dimensions} highlightId={highlightId} onSelect={onSelect} engine={engine} />;
   }
 
   const cx = size / 2;

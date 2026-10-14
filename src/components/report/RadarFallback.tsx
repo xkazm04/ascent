@@ -6,7 +6,12 @@
 // RadarChart still produces perfectly valid coordinates — they just describe a single vertex or a
 // zero-area line, so the polygon renders as an invisible shape while the data plainly exists. That
 // is the worst of both worlds: the chart looks broken AND the numbers are unreadable. Reachable from
-// any direct caller that can pass a shorter array (RoadmapSandbox projects a subset).
+// a partial report: a failed detector drops its dimension before the blend (scoring/engine.ts), and
+// RoadmapSandbox's projection maps report.dimensions one to one, so it draws what the scan kept.
+//
+// The radar's engine honesty carries over: a mock-scored report draws its bars hollow (surface fill,
+// score-coloured inset edge, the waterfall's mark), names the demo scan to assistive tech, and shows
+// the snapshot footnote. Mock is the report's engine, not a per-dimension fact (chartEngine.ts).
 //
 // Rather than fall through to the "No dimension data" placeholder (which would be a lie — there IS
 // data), degrade to the honest form for one or two magnitudes: labeled bars. Same accessible
@@ -16,16 +21,27 @@
 import type { DimensionId, DimensionResult } from "@/lib/types";
 import { levelForScore } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
+import {
+  MOCK_HOLLOW_FILL,
+  MOCK_SNAPSHOT_NOTE,
+  MOCK_SR_SUFFIX,
+  isMockEngine,
+  mockHollowInset,
+} from "@/components/report/chartEngine";
 
 export function RadarFallback({
   dimensions,
   highlightId = null,
   onSelect,
+  engine,
 }: {
   dimensions: DimensionResult[];
   highlightId?: DimensionId | null;
   onSelect?: (id: DimensionId) => void;
+  /** Scan engine provider, forwarded by RadarChart. A mock-scored report draws its bars hollow. */
+  engine?: string | null;
 }) {
+  const mock = isMockEngine(engine);
   return (
     <div className="mx-auto w-full max-w-[340px]">
       <p className="type-body-sm text-slate-500">
@@ -64,10 +80,18 @@ export function RadarFallback({
               <div
                 className={`mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-800 ${hi ? "ring-1 ring-accent" : ""}`}
                 role="img"
-                aria-label={`${d.name}: ${d.score} of 100, ${lvl.id} ${lvl.name}`}
+                aria-label={`${d.name}: ${d.score} of 100, ${lvl.id} ${lvl.name}${mock ? MOCK_SR_SUFFIX : ""}`}
               >
                 {d.score > 0 && (
-                  <div className="h-full rounded-full" style={{ width: `${d.score}%`, backgroundColor: scoreHex(d.score) }} />
+                  <div
+                    className="h-full rounded-full"
+                    data-mock={mock ? "" : undefined}
+                    style={
+                      mock
+                        ? { width: `${d.score}%`, backgroundColor: MOCK_HOLLOW_FILL, boxShadow: mockHollowInset(scoreHex(d.score)) }
+                        : { width: `${d.score}%`, backgroundColor: scoreHex(d.score) }
+                    }
+                  />
                 )}
               </div>
               {d.score === 0 && <div className="mt-0.5 type-body-sm text-slate-500">Zero: nothing detected for this dimension.</div>}
@@ -75,6 +99,7 @@ export function RadarFallback({
           );
         })}
       </ul>
+      {mock && <p className="mt-3 type-body-sm text-slate-500">{MOCK_SNAPSHOT_NOTE}</p>}
     </div>
   );
 }
