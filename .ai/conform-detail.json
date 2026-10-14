@@ -3252,6 +3252,68 @@
         }
       ],
       "registryProposal": "Clarify guidance in module-depth regarding when static build-time / SSR performance constraints conflict with single-authority data models, providing patterns for caching upstream third-party catalog snapshots at build time."
+    },
+    "Reporting & Visualization/Trends & Comparison/data-viz": {
+      "context": "Trends & Comparison",
+      "subject": "data-viz",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-10-14",
+      "evaluatedTs": "2026-10-14T23:39:46.909Z",
+      "worker": "30a28c83-9e91-47de-a9c3-11e072100b61",
+      "techniques": [
+        {
+          "technique": "chart-loading-economics",
+          "verdict": "conformant",
+          "evidence": "src/components/report/DimensionTrends.tsx:111 Mounts on visibility with a 200px root margin to defer loading below the fold until approached."
+        },
+        {
+          "technique": "empty-and-degraded-chart-states",
+          "verdict": "conformant",
+          "evidence": "src/components/report/DimLine.tsx:86 Breaks the SVG path across missing data so unmeasured points render as gaps rather than plunging to zero."
+        },
+        {
+          "technique": "encoding-vocabulary",
+          "verdict": "conformant",
+          "evidence": "src/components/report/TrendChart.tsx:210 Encodes mock and compacted points with hollow marks so data provenance and synthetic nature are distinguishable without altering the score color ramp."
+        },
+        {
+          "technique": "metric-identity",
+          "verdict": "conformant",
+          "evidence": "src/lib/report/compare.ts:505 Tracks scoring rubric revisions between scans so historical comparisons across rubric changes explicitly identify ruler shifts rather than misattributing them to repository movement."
+        }
+      ]
+    },
+    "Reporting & Visualization/Score Charts & Visuals/data-viz": {
+      "context": "Score Charts & Visuals",
+      "subject": "data-viz",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-10-14",
+      "evaluatedTs": "2026-10-14T23:39:46.909Z",
+      "worker": "30a28c83-9e91-47de-a9c3-11e072100b61",
+      "techniques": [
+        {
+          "technique": "empty-and-degraded-chart-states",
+          "verdict": "conformant",
+          "evidence": "src/components/report/RadarChart.tsx:65 Degrades the radar chart to a labeled bar fallback when fewer than three dimensions exist rather than rendering a degenerate zero-area polygon."
+        },
+        {
+          "technique": "encoding-vocabulary",
+          "verdict": "conformant",
+          "evidence": "src/components/report/PostureQuadrant.tsx:18 Binds quadrant posture tints to canonical design system level tokens (LEVEL_HEX) and theme variables rather than hand-rolled ad-hoc hexes."
+        },
+        {
+          "technique": "metric-identity",
+          "verdict": "conformant",
+          "evidence": "src/components/report/ScoreWaterfall.tsx:144 Withholds directional arrows for score contributions within the resolution threshold (±0.05), classifying sub-resolution variance as flat."
+        },
+        {
+          "technique": "scale-and-axis-design",
+          "verdict": "conformant",
+          "evidence": "src/components/report/PostureQuadrant.tsx:70 Uses a guarded linear scale mapping 0..100 domain explicitly to pixels, preventing sample-anchored floating floors."
+        }
+      ]
     }
   }
 }

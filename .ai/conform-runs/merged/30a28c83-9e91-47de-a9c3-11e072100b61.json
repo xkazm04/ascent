@@ -1,0 +1,111 @@
+{
+ "schema": "conform-run/1",
+ "worker": "30a28c83-9e91-47de-a9c3-11e072100b61",
+ "subject": "data-viz",
+ "evaluatedAt": "2026-10-14T23:39:46.909240+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [
+  {
+   "context": "Trends & Comparison",
+   "subject": "data-viz",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/components/report/TrendChart.tsx:46 Renders time-series trends using fixed maturity-band scales, explicit degraded/mock markings, and responsive hover tooltips without charting library overhead.",
+   "techniques": [
+    {
+     "technique": "chart-loading-economics",
+     "verdict": "conformant",
+     "evidence": "src/components/report/DimensionTrends.tsx:111 Mounts on visibility with a 200px root margin to defer loading below the fold until approached."
+    },
+    {
+     "technique": "empty-and-degraded-chart-states",
+     "verdict": "conformant",
+     "evidence": "src/components/report/DimLine.tsx:86 Breaks the SVG path across missing data so unmeasured points render as gaps rather than plunging to zero."
+    },
+    {
+     "technique": "encoding-vocabulary",
+     "verdict": "conformant",
+     "evidence": "src/components/report/TrendChart.tsx:210 Encodes mock and compacted points with hollow marks so data provenance and synthetic nature are distinguishable without altering the score color ramp."
+    },
+    {
+     "technique": "metric-identity",
+     "verdict": "conformant",
+     "evidence": "src/lib/report/compare.ts:505 Tracks scoring rubric revisions between scans so historical comparisons across rubric changes explicitly identify ruler shifts rather than misattributing them to repository movement."
+    }
+   ]
+  },
+  {
+   "context": "Score Charts & Visuals",
+   "subject": "data-viz",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/components/report/RadarChart.tsx:21 Renders multi-dimensional maturity scores as an SVG radar with zero-value markers, explicit degradation for degenerate datasets, and accessible data table fallbacks.",
+   "techniques": [
+    {
+     "technique": "empty-and-degraded-chart-states",
+     "verdict": "conformant",
+     "evidence": "src/components/report/RadarChart.tsx:65 Degrades the radar chart to a labeled bar fallback when fewer than three dimensions exist rather than rendering a degenerate zero-area polygon."
+    },
+    {
+     "technique": "encoding-vocabulary",
+     "verdict": "conformant",
+     "evidence": "src/components/report/PostureQuadrant.tsx:18 Binds quadrant posture tints to canonical design system level tokens (LEVEL_HEX) and theme variables rather than hand-rolled ad-hoc hexes."
+    },
+    {
+     "technique": "metric-identity",
+     "verdict": "conformant",
+     "evidence": "src/components/report/ScoreWaterfall.tsx:144 Withholds directional arrows for score contributions within the resolution threshold (\u00b10.05), classifying sub-resolution variance as flat."
+    },
+    {
+     "technique": "scale-and-axis-design",
+     "verdict": "conformant",
+     "evidence": "src/components/report/PostureQuadrant.tsx:70 Uses a guarded linear scale mapping 0..100 domain explicitly to pixels, preventing sample-anchored floating floors."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "data-viz",
+   "context": "Design System: UI Primitives & Deck",
+   "reason": "The subject data-viz does not apply to this context: the files in components/deck and components/ui are general UI scaffolding and layout primitives (DeckNav, SideNav, Surface, Kicker, SectionHeading, HairlineGrid) and text-only stat formatters (Stat, format.ts), containing no chart components, SVG/canvas plots, or graphical data representations."
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-14T23:39:46.909240+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "data-viz"
+   ],
+   "techniques": [
+    "chart-loading-economics",
+    "empty-and-degraded-chart-states",
+    "encoding-vocabulary",
+    "metric-identity"
+   ],
+   "deviations": 0,
+   "context": "Trends & Comparison",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  },
+  {
+   "ts": "2026-10-14T23:39:46.909240+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "data-viz"
+   ],
+   "techniques": [
+    "empty-and-degraded-chart-states",
+    "encoding-vocabulary",
+    "metric-identity",
+    "scale-and-axis-design"
+   ],
+   "deviations": 0,
+   "context": "Score Charts & Visuals",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  }
+ ]
+}

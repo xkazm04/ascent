@@ -7421,7 +7421,11 @@
           "revision": 6,
           "changedAt": "2026-09-20",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/components/report/TrendChart.tsx:46 Renders time-series trends using fixed maturity-band scales, explicit degraded/mock markings, and responsive hover tooltips without charting library overhead.",
+          "evaluatedAt": "2026-10-14",
+          "evaluatedAgainst": "sha256-b2:0a15845e9dc44963",
+          "evaluatedRevision": 6
         },
         {
           "subject": "test-harness",
@@ -7588,7 +7592,11 @@
           "revision": 6,
           "changedAt": "2026-09-20",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/components/report/RadarChart.tsx:21 Renders multi-dimensional maturity scores as an SVG radar with zero-value markers, explicit degradation for degenerate datasets, and accessible data table fallbacks.",
+          "evaluatedAt": "2026-10-14",
+          "evaluatedAgainst": "sha256-b2:0a15845e9dc44963",
+          "evaluatedRevision": 6
         },
         {
           "subject": "translation-quality-measurement",
