@@ -57,7 +57,9 @@ export function DimensionExplorer({
         kicker="Dimension breakdown"
         kickerTone="accent"
         title="Elevation by dimension"
-        intro="Nine weighted dimensions on one gauge. The bands are the maturity levels; each rope climbs to its score and the hollow marker is where the last scan left it. Pick a climber to read its evidence."
+        // The count is the scan's, never typed: a partial scan (a failed detector) carries fewer than
+        // the model's nine, and the kicker beside this already counts `facts.length`.
+        intro={`${facts.length} weighted ${facts.length === 1 ? "dimension" : "dimensions"} on one gauge. The bands are the maturity levels; each rope climbs to its score and the hollow marker is where the last scan left it. Pick a climber to read its evidence.`}
         right={
           <Kicker tone="muted">
             {summary.atL4}/{facts.length} at Integrated or above

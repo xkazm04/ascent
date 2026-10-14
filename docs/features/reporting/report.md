@@ -205,7 +205,8 @@ it names a different default-branch artifact, or ColdScanGate.
    previous scan).
 5. **Maturity over time**: `TrendChart` (level-banded background) of persisted scans.
 6. **Strengths / Risks**: two `ListCard`s.
-7. **Elevation + dimension breakdown**: `DimensionExplorer` — the nine dimensions on one
+7. **Elevation + dimension breakdown**: `DimensionExplorer` — the scan's dimensions (nine,
+   fewer on a partial scan; the intro counts them rather than typing "nine") on one
    elevation gauge (`AltimeterGauge`: the five level bands as strata, a rope per dimension up to
    its score, a hollow marker where the previous scan left it, a takeaway line naming the
    leader, the trailer and the biggest lever), a synced **climber list** (`DimensionClimberList`:
