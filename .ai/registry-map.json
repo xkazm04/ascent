@@ -4918,7 +4918,11 @@
           "revision": 4,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/pdf/briefing-document.tsx:135 The PDF describes a rate calculated over live-scored repositories as a percentage of scanned repositories, giving mixed fleets a false denominator.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:a43eabdaa650ed07",
+          "evaluatedRevision": 4
         },
         {
           "subject": "mcp-tools",

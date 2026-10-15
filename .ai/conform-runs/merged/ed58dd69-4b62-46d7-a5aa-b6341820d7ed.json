@@ -1,0 +1,77 @@
+{
+ "schema": "conform-run/1",
+ "worker": "ed58dd69-4b62-46d7-a5aa-b6341820d7ed",
+ "subject": "executive-reporting",
+ "evaluatedAt": "2026-10-15T03:30:29.376796+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Executive Briefing",
+   "subject": "executive-reporting",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/pdf/briefing-document.tsx:135 The PDF describes a rate calculated over live-scored repositories as a percentage of scanned repositories, giving mixed fleets a false denominator.",
+   "techniques": [
+    {
+     "technique": "bad-news-labelling",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/briefing-markdown.ts:87 Unconditionally appends security under 'Weakest dimensions (where to focus)', including when security is also a strength; the assembler's disjointness is lost during serialization."
+    },
+    {
+     "technique": "denominator-naming",
+     "verdict": "deviation",
+     "evidence": "src/lib/pdf/briefing-document.tsx:135 fleetAdoptionRate excludes mock placeholders and divides by the live-scored population, but the PDF and markdown name the scanned population."
+    },
+    {
+     "technique": "expiring-share-links",
+     "verdict": "conformant",
+     "evidence": "src/lib/briefing-share.ts:315 Verified the signed scoped payload, seven-day default, frozen window, grant identity, server-side revocation lookup, fingerprint comparison, and recipient expiry notice."
+    },
+    {
+     "technique": "grounded-narrative-generation",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/briefing-narrative.ts:383 Generation receives the serialized facts without the Ask block; shape, numeric membership and subject binding gates discard invalid prose into deterministic copy."
+    },
+    {
+     "technique": "provenance-caveats",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/briefing.ts:329 A failed practices read becomes null proof and the proof section disappears without a document caveat, making unavailable evidence indistinguishable from no rollout activity."
+    },
+    {
+     "technique": "single-ranked-next-move",
+     "verdict": "deviation",
+     "evidence": "src/lib/pdf/briefing-document.tsx:258 The ranked head is used when present, but ranking failures become an empty list and silently remove the section instead of stating that the ranking input was unavailable."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "executive-reporting",
+   "context": "Roadmap & Recommendation Tracking",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-15T03:30:29.376796+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "executive-reporting"
+   ],
+   "techniques": [
+    "bad-news-labelling",
+    "denominator-naming",
+    "expiring-share-links",
+    "grounded-narrative-generation",
+    "provenance-caveats",
+    "single-ranked-next-move"
+   ],
+   "deviations": 1,
+   "context": "Executive Briefing",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
