@@ -4055,6 +4055,67 @@
         "at": "2026-10-15T04:33:26.785086+00:00",
         "reason": "reviewer (sonnet): The pooled 'unknown' bucket is deliberate and documented (rate-limit.ts:31-33, public-scan-quota.ts:138-146): it is the fail-closed burst choice, and the monthly quota explicitly fails open on unidentifiable callers, so the claimed 'accidental' lockout is contradicted and I found no code or standard"
       }
+    },
+    "Org Planning & Execution/Follow-ups Ledger/remediation-handoff": {
+      "context": "Follow-ups Ledger",
+      "subject": "remediation-handoff",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T21:22:07.597Z",
+      "techniques": [
+        {
+          "technique": "batch-shaping-for-one-session",
+          "verdict": "conformant",
+          "evidence": "src/components/org/followups/followupsModel.ts:199 Computes estate-wide category spread to shape batches as cross-repo practice decisions rather than isolated tickets, combined with value sorting and MAX_BATCH capping."
+        },
+        {
+          "technique": "claim-carry-forward-rules",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/scans-persist.ts:417 Restricts tier-3 unpairing and title-tier enforcement strictly to in_progress rows, permitting dismissed and done rows to structurally pair with fresh gaps and suppressing regression reopenings."
+        },
+        {
+          "technique": "evidence-based-auto-close",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:145 Treats trailer markers as claims that must be confirmed by the rescan, keeping claimed items open if still restated or if score movement is absent or unattributable."
+        },
+        {
+          "technique": "finding-refutation-channel",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/followup-claims.ts:381 A skipped item simply reverts to open without providing a refutation channel that suppresses re-raising or reports precision feedback to the producer."
+        },
+        {
+          "technique": "handoff-tenancy-and-idempotence",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/followups/handoff/route.ts:69 Gates organization access, validates batch ownership in one query, returns an indistinguishable 403 on foreign or nonexistent IDs, and safely reports skipped items on retry."
+        },
+        {
+          "technique": "resolution-trailers",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:39 Defines a single authoritative trailer key parsed case-insensitively at line start across commit messages, treating presence as a claim verified by the subsequent rescan."
+        },
+        {
+          "technique": "single-artifact-prompt-construction",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:550 Constructs a pure, deterministic markdown prompt partitioned by repository and sorted by value, stating findings in the scan's words with clear rules and trailer instructions."
+        }
+      ],
+      "registryProposal": "Clarify how human dismissals (such as deliberate architectural exemptions or false positives) should carry forward versus machine auto-closures, specifically whether an explicit rule/path-scoped suppression record should be modeled separately from title-tier carry-forward.",
+      "superseded": [
+        {
+          "state": "conformant",
+          "evidence": "handoff/route.ts realizes handoff-tenancy-and-idempotence: requireOrgAccess + whole-request 403 on any foreign/unknown id (no existence oracle), PUBLIC_ORG refused, MAX_BATCH 50, only open->in_progress with skipped-and-why reported. Wave-3 item 8 closed the one gap: db/scans-recommendations.ts handoffRecommendations now does ONE membership-scoped read and per-row CAS (status+org in the WHERE) in one tx with events+audit, so a row moving open->done mid-request can no longer be silently reopened. Residual tension: the ownership predicate now has two spellings (getRecommendationOrgSlug and the batch read's join), both in the same module.",
+          "evaluatedAt": "2026-08-30",
+          "worker": null,
+          "reason": "replaced by 70ce59f9-d153-4ff2-935a-f4108c0ffaa9"
+        }
+      ],
+      "withdrawn": {
+        "worker": "70ce59f9-d153-4ff2-935a-f4108c0ffaa9",
+        "state": "deviation",
+        "at": "2026-10-15T21:23:16.073278+00:00",
+        "reason": "reviewer (sonnet): The code does show dismissed and done rows tier-3 pairing and carrying status (scans-persist.ts:417 and 596, recommendation-identity.ts tier 3), but that file is not one of the context's files, and the 'fails to reopen restated done rows as regressions' claim could not be confirmed: a REOPEN concept"
+      }
     }
   }
 }
