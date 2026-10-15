@@ -3975,7 +3975,11 @@
           "revision": 5,
           "changedAt": "2026-09-17",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/org-rollup.ts:132 The repositories leaderboard ranks repositories by a line total rebuilt from mean additions plus deletions per pull request, with no size buckets and no generated-file exclusion.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:e43700f2d197398b",
+          "evaluatedRevision": 5
         },
         {
           "subject": "table",
@@ -4141,7 +4145,11 @@
           "revision": 5,
           "changedAt": "2026-09-17",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/analyze/pulls.ts:285 The review-coverage rate the delivery tab publishes counts any approving review, including the author's own, so it is not the share approved by a different party.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:e43700f2d197398b",
+          "evaluatedRevision": 5
         },
         {
           "subject": "machine-paced-delivery",

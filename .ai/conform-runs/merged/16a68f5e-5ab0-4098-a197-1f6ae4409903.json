@@ -1,0 +1,152 @@
+{
+  "schema": "conform-run/1",
+  "worker": "16a68f5e-5ab0-4098-a197-1f6ae4409903",
+  "subject": "delivery-analytics",
+  "evaluatedAt": "2026-10-15T03:13:29.088197+00:00",
+  "provider": "grok",
+  "model": "grok-4.7",
+  "pairs": [
+    {
+      "context": "People & Delivery Analytics",
+      "subject": "delivery-analytics",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/analyze/pulls.ts:285 The review-coverage rate the delivery tab publishes counts any approving review, including the author's own, so it is not the share approved by a different party.",
+      "techniques": [
+        {
+          "technique": "attribution-channels",
+          "verdict": "deviation",
+          "evidence": "src/features/bought/delivery/ai/FailureSplitMark.tsx:31 Deployment split keeps sha-unmatched deploys in unattributed, but the human bucket is the complement of the AI flag, not positive human evidence. Channel precedence in readAiInvolvement is bot author, then body marker, then trailer, so the heuristic marker outranks the exact trailer."
+        },
+        {
+          "technique": "batch-size-thresholds",
+          "verdict": "deviation",
+          "evidence": "src/lib/analyze/pulls.ts:295 Small-PR share is one cut at 200 lines of raw additions plus deletions. RATE_BASIS.smallPr exclusions is empty, the PR query fetches only totals, and the delivery band still tones that share as reviewability. No bucket table and no uncalibrated label."
+        },
+        {
+          "technique": "delivery-metric-denominators",
+          "verdict": "deviation",
+          "evidence": "src/features/bought/delivery/derivePriorities.ts:28 Review coverage, AI-governed, and the integrity rates do carry populations, exclusions, and a floor of 5, and trend gaps are not drawn as zero. Revert, small-PR, and AI-involvement are still published with minSample null, and an empty analyzed window becomes 0 via pct."
+        },
+        {
+          "technique": "line-volume-confounded-with-edit-grammar",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/graphql.ts:159 Size is the host pull-request diff totals. Searched src/features/bought/delivery and contributors for a producer-reported lines payload or a cross-tool lines sum and did not find one. Spend is split by PR volume, not lines."
+        },
+        {
+          "technique": "off-platform-signal-detection",
+          "verdict": "deviation",
+          "evidence": "src/features/bought/delivery/PrSignalsBand.tsx:81 A null review rate is explained only as no human merges. Searched src/features/bought/delivery for offPlatform, Reviewed-on, and sign-off and found no suppression. offPlatformReview nulls the rate only inside applyPrSignals for the score."
+        },
+        {
+          "technique": "path-class-confounded-with-size",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/delivery/GovernanceTable.tsx:14 Review depth on this tab is branch protection, required approving reviews, and status checks. Searched src/features/bought/delivery for path class, risk glob, and review-depth routing and found no path taxonomy."
+        },
+        {
+          "technique": "post-landing-repair-density",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/delivery/ai/DeliveryOutcomes.tsx:37 The outcome label is a failed deployment. Searched src/features/bought for repair density, fix-forward, and a freeze instant and found no post-landing repair stream."
+        },
+        {
+          "technique": "revert-linkage",
+          "verdict": "deviation",
+          "evidence": "src/features/bought/delivery/deliveryTrendMetrics.ts:73 The tab's revert rate is a title prefix, not the linked reworkRate, and the help text does not say lower bound. linkReverts does link by title and sha, but a revert-of-a-revert stays linked as a second failure (pulls-rework.test.ts nests both), and rework has no feature consumer."
+        },
+        {
+          "technique": "review-coverage-rate",
+          "verdict": "deviation",
+          "evidence": "src/lib/analyze/pulls.ts:285 Population is human-authored merged PRs and fast approval is surfaced separately. Self-approval is counted in this numerator and only also reported beside it. Enforced coverage does read required_approving_review_count apart from protected and requiresPullRequest."
+        }
+      ],
+      "registryProposal": "attribution-channels says both to keep unattributed out of human and, when an authorship record is missing, to read it as human. Those rules name different buckets for the same row."
+    },
+    {
+      "context": "Repositories & Segments",
+      "subject": "delivery-analytics",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/db/org-rollup.ts:132 The repositories leaderboard ranks repositories by a line total rebuilt from mean additions plus deletions per pull request, with no size buckets and no generated-file exclusion.",
+      "techniques": [
+        {
+          "technique": "batch-size-thresholds",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-rollup.ts:132 The leaderboard sorts on that raw total. A missing average becomes 0 before the multiply. The column title calls it lines changed across the analyzed PR window and does not mark it uncalibrated."
+        },
+        {
+          "technique": "line-volume-confounded-with-edit-grammar",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/org-rollup.ts:131 The unit is the host pull-request diff, not a writing tool's self-reported payload. The grammar confound does not apply to this column. The raw-total ranking is the batch-size deviation."
+        },
+        {
+          "technique": "path-class-confounded-with-size",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/segmentRule.ts:24 Segment membership is language or team, not a path glob that routes review depth. Searched the repositories feature for a path risk tier and found none."
+        }
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "delivery-analytics",
+      "context": "Practices, Governance & Adoption",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor src/lib/org/adoption.ts:344 is enablement prose and shows no attribution definition, and I could not find any trailer/marker definition, precedence rule, or unknown-author dropping in adoption.ts, which only consumes pooled aggregates; the 'no precedence' claim also conflicts with the aut"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-15T03:13:29.088197+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "delivery-analytics"
+      ],
+      "techniques": [
+        "attribution-channels",
+        "batch-size-thresholds",
+        "delivery-metric-denominators",
+        "line-volume-confounded-with-edit-grammar",
+        "off-platform-signal-detection",
+        "path-class-confounded-with-size",
+        "post-landing-repair-density",
+        "revert-linkage",
+        "review-coverage-rate"
+      ],
+      "deviations": 1,
+      "context": "People & Delivery Analytics",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-15T03:13:29.088197+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "delivery-analytics"
+      ],
+      "techniques": [
+        "attribution-channels",
+        "delivery-metric-denominators",
+        "review-coverage-rate"
+      ],
+      "deviations": 1,
+      "context": "Practices, Governance & Adoption",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    },
+    {
+      "ts": "2026-10-15T03:13:29.088197+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "delivery-analytics"
+      ],
+      "techniques": [
+        "batch-size-thresholds",
+        "line-volume-confounded-with-edit-grammar",
+        "path-class-confounded-with-size"
+      ],
+      "deviations": 1,
+      "context": "Repositories & Segments",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    }
+  ]
+}
