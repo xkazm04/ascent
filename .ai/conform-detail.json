@@ -3724,6 +3724,207 @@
           "evidence": "src/lib/pdf/briefing-document.tsx:258 The ranked head is used when present, but ranking failures become an empty list and silently remove the section instead of stating that the ranking input was unavailable."
         }
       ]
+    },
+    "Marketing Site & Design System/Marketing About Page/motion": {
+      "context": "Marketing About Page",
+      "subject": "motion",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T03:57:54.738Z",
+      "worker": "8f7cde80-544b-4a37-a442-89be77f2104e",
+      "techniques": [
+        {
+          "technique": "content-bearing-degradation",
+          "verdict": "deviation",
+          "evidence": "src/components/landing/prototypes/shared/useCountUp.ts:30 AboutHero StatNum uses this. State starts at 0; the real target is shown only after mount and only when reduced motion is on. No-JS keeps 0."
+        },
+        {
+          "technique": "continuity-across-change",
+          "verdict": "conformant",
+          "evidence": "src/components/about/FleetGrid.tsx:99 Filter changes dim the same cell buttons instead of unmounting them; the distribution strips stay mounted and retarget flexGrow."
+        },
+        {
+          "technique": "engine-selection",
+          "verdict": "deviation",
+          "evidence": "src/components/about/AboutLanding.tsx:70 Framer-motion is the page default, with one ancestor reduce switch. The file's own comment and motionReveal.ts record that the switch does not cover pathLength, cx/cy, left, width, or flexGrow."
+        },
+        {
+          "technique": "gesture-decomposition",
+          "verdict": "conformant",
+          "evidence": "src/components/about/AboutAscentSteps.tsx:92 Rungs draw on a pathLength ease, nodes settle on a spring, and the climber runs a separate cx/cy track. Those are independent tracks, not one fused curve."
+        },
+        {
+          "technique": "loop-pause-governance",
+          "verdict": "not-applicable",
+          "evidence": "src/components/about/RemotionStage.tsx:92 Searched the about components for loop, infinite, and repeat. Hits are this flag, the 'not a loop' comments, and an ended-event recursion guard. No ongoing loop to merge pause deciders for."
+        },
+        {
+          "technique": "one-shot-guarding",
+          "verdict": "deviation",
+          "evidence": "src/components/about/AboutAscentSteps.tsx:81 Staircase draw and climber replay on every re-entry. RemotionStage also seekTo(0) and play() whenever the section is in view again. No identity-keyed seen-set."
+        },
+        {
+          "technique": "performance-discipline",
+          "verdict": "deviation",
+          "evidence": "src/components/landing/prototypes/shared/useCountUp.ts:24 Each frame writes React state. FleetGrid also animates left and flexGrow, RoiSimulator animates width, and the staircase animates cx, cy, and pathLength."
+        },
+        {
+          "technique": "preset-vocabulary",
+          "verdict": "deviation",
+          "evidence": "src/components/about/FleetGrid.tsx:102 Shared entrances inline milliseconds and easing. motionReveal.ts only gates reduced motion; it does not declare intent, a duration class, or an easing role."
+        },
+        {
+          "technique": "reduced-motion-mechanics",
+          "verdict": "deviation",
+          "evidence": "src/components/about/motionReveal.ts:33 Reduced motion is a duration of exact zero, re-decided at each call site, on top of a library switch that does not reach the properties those call sites animate."
+        },
+        {
+          "technique": "taste-budgets",
+          "verdict": "deviation",
+          "evidence": "src/components/about/AboutAscentSteps.tsx:116 The climber entrance is 2.4s plus delay, past a one-second cap, and rung nodes use a spring. No named entrance cap or stagger constant exists beside the gestures."
+        },
+        {
+          "technique": "unprompted-motion-lifecycle",
+          "verdict": "deviation",
+          "evidence": "src/components/about/RemotionStage.tsx:94 compositionShared sets a 330-frame 30fps shot (~11s) with autoPlay, click, and space-key play/pause all forced off. Scroll-back seeks to 0 and plays again. The replay button is removed when reduced motion is on."
+        }
+      ],
+      "registryProposal": "engine-selection says a player timeline has no reduced form unless a second asset is exported. RemotionStage can seek to the last frame, so a frame-addressable player already has a reduced variant the technique does not name."
+    },
+    "Marketing Site & Design System/Design System: UI Primitives & Deck/motion": {
+      "context": "Design System: UI Primitives & Deck",
+      "subject": "motion",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T03:57:54.738Z",
+      "worker": "8f7cde80-544b-4a37-a442-89be77f2104e",
+      "techniques": [
+        {
+          "technique": "content-bearing-degradation",
+          "verdict": "conformant",
+          "evidence": "src/components/deck/Reveal.tsx:58 armed starts false, so SSR has no js-reveal hidden state. If IntersectionObserver is missing, the block is revealed instead of left armed."
+        },
+        {
+          "technique": "continuity-across-change",
+          "verdict": "not-applicable",
+          "evidence": "src/components/deck/Reveal.tsx:3 Searched deck and ui for layoutId and AnimatePresence: no matches. Motion here is an entrance or a hover class on a stable node, not a pending-to-result swap."
+        },
+        {
+          "technique": "engine-selection",
+          "verdict": "conformant",
+          "evidence": "src/components/deck/Reveal.tsx:18 The reveal is a platform CSS transition the component arms with a class. No animation-library provider wraps it."
+        },
+        {
+          "technique": "gesture-decomposition",
+          "verdict": "not-applicable",
+          "evidence": "src/app/globals.css:692 Opacity and translate share one duration and one curve. This is a single fade-up, not a multi-track gesture that needed decomposition."
+        },
+        {
+          "technique": "loop-pause-governance",
+          "verdict": "not-applicable",
+          "evidence": "src/app/globals.css:419 Searched the listed deck and ui files for infinite, loop, and requestAnimationFrame. The deck's continuous motion is the scroll-timeline progress rule, which is not a self-running loop."
+        },
+        {
+          "technique": "one-shot-guarding",
+          "verdict": "deviation",
+          "evidence": "src/components/deck/Reveal.tsx:4 There is no surface-scoped seen-set. Intersection false removes is-revealed, so the next entry plays the entrance again."
+        },
+        {
+          "technique": "performance-discipline",
+          "verdict": "conformant",
+          "evidence": "src/app/globals.css:689 The reveal animates only opacity and transform. The intersection flag flips on enter and leave, not per frame."
+        },
+        {
+          "technique": "preset-vocabulary",
+          "verdict": "deviation",
+          "evidence": "src/app/globals.css:691 The shared reveal inlines a millisecond duration and a raw cubic-bezier. It does not name a duration class or an easing role."
+        },
+        {
+          "technique": "reduced-motion-mechanics",
+          "verdict": "conformant",
+          "evidence": "src/app/globals.css:686 The hidden start and the 0.55s transition exist only when the user allows motion. Reduced-motion readers get the settled content and no travel, without a call-site branch in Reveal."
+        },
+        {
+          "technique": "taste-budgets",
+          "verdict": "deviation",
+          "evidence": "src/components/deck/Reveal.tsx:81 Delay and travel are caller-supplied seconds and pixels. Nothing in the reveal names an entrance cap or a stagger cutoff."
+        },
+        {
+          "technique": "unprompted-motion-lifecycle",
+          "verdict": "deviation",
+          "evidence": "src/components/deck/Reveal.tsx:65 The scroll reveal is not one-shot. Leaving the viewport eases the section back to its hidden rest, which is the scroll-back defect the technique names."
+        }
+      ],
+      "registryProposal": "Reveal documents once:false as intentional for a full-viewport snap deck. unprompted-motion-lifecycle and one-shot-guarding treat every scroll-back as a re-read and give no chapter exception."
+    },
+    "Reporting & Visualization/Score Charts & Visuals/motion": {
+      "context": "Score Charts & Visuals",
+      "subject": "motion",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T03:57:54.738Z",
+      "worker": "8f7cde80-544b-4a37-a442-89be77f2104e",
+      "techniques": [
+        {
+          "technique": "content-bearing-degradation",
+          "verdict": "deviation",
+          "evidence": "src/components/report/chartMotion.ts:62 Reduced motion snaps to the real width, but SSR and no-JS stay at 0% because the server snapshot of the preference is false. PostureQuadrant also ships the repo dot at opacity 0."
+        },
+        {
+          "technique": "continuity-across-change",
+          "verdict": "conformant",
+          "evidence": "src/components/report/PostureQuadrant.tsx:168 The posture dot stays one element and moves by transform. ScoreRing retargets stroke-dashoffset on the same circle when the score changes."
+        },
+        {
+          "technique": "engine-selection",
+          "verdict": "conformant",
+          "evidence": "src/components/report/PostureQuadrant.tsx:58 Chart entrances are CSS transitions on the element. chartMotion imports framer only for useInView; no library reduce provider owns the gestures."
+        },
+        {
+          "technique": "gesture-decomposition",
+          "verdict": "conformant",
+          "evidence": "src/components/report/AltimeterGauge.tsx:130 DimensionExplorer's gauge draws the rope with a 0.7s dashoffset and fades the marker on a later, shorter opacity track."
+        },
+        {
+          "technique": "loop-pause-governance",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/chartMotion.ts:41 Searched the listed chart files for infinite, loop, and requestAnimationFrame as a running clock. Entrances are finite CSS transitions, not a loop with pause deciders."
+        },
+        {
+          "technique": "one-shot-guarding",
+          "verdict": "deviation",
+          "evidence": "src/components/report/chartMotion.ts:32 The entrance is coupled to mount. There is no identity-keyed seen-set, so a remount plays the grow again. useReplayOnView also bumps a key on every scroll entry."
+        },
+        {
+          "technique": "performance-discipline",
+          "verdict": "deviation",
+          "evidence": "src/components/report/ScoreRing.tsx:102 The shared fill animates width, the ring animates stroke-dashoffset, and the altimeter animates stroke-dashoffset and r. Those are outside transform and opacity."
+        },
+        {
+          "technique": "preset-vocabulary",
+          "verdict": "deviation",
+          "evidence": "src/components/report/chartMotion.ts:44 fillBarStyle inlines 0.7s ease-out. The waterfall keeps a second stagger pair (50/400) instead of one duration class."
+        },
+        {
+          "technique": "reduced-motion-mechanics",
+          "verdict": "deviation",
+          "evidence": "src/components/report/PostureQuadrant.tsx:57 Each chart writes its own reduced ternary. The preference reader is shared; the fallback is not resolved once at a preset."
+        },
+        {
+          "technique": "taste-budgets",
+          "verdict": "deviation",
+          "evidence": "src/components/report/ScoreWaterfall.tsx:83 Stagger caps are forked (480 default, 400 here) and the 0.7s width ease is added after the cap, so the last segment runs past a one-second entrance."
+        },
+        {
+          "technique": "unprompted-motion-lifecycle",
+          "verdict": "deviation",
+          "evidence": "src/components/report/chartMotion.ts:80 The shared chart motion module replays a scroll entrance on every entry. The listed charts themselves are short mount grows and do not render a pause control."
+        }
+      ],
+      "registryProposal": "performance-discipline's transform-and-opacity rule has no SVG presentation-attribute case. stroke-dashoffset and r on these charts are still a deviation under the written rule."
     }
   }
 }

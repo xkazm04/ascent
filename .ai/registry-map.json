@@ -7734,7 +7734,11 @@
           "revision": 10,
           "changedAt": "2026-09-24",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/report/chartMotion.ts:62 Score waterfall bars and the shared fill helper paint 0% until a post-mount frame, so the served graphic is an empty contribution until the entrance runs.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:8d9b3eabe2f3b534",
+          "evaluatedRevision": 10
         },
         {
           "subject": "scoring-rubrics",
@@ -9371,7 +9375,11 @@
           "revision": 10,
           "changedAt": "2026-09-24",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/deck/Reveal.tsx:65 The shared deck entrance un-hides and re-hides with intersection, so a scroll-back both replays the entrance and takes the content away.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:8d9b3eabe2f3b534",
+          "evaluatedRevision": 10
         },
         {
           "subject": "agent-memory",
@@ -9654,7 +9662,11 @@
           "revision": 10,
           "changedAt": "2026-09-24",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/landing/prototypes/shared/useCountUp.ts:30 The about hero counts Levels and Dimensions up from 0, and the served and pre-mount render stays 0, so a content-bearing gesture degrades to a confident wrong number.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:8d9b3eabe2f3b534",
+          "evaluatedRevision": 10
         },
         {
           "subject": "narrative-scroll-surface",
