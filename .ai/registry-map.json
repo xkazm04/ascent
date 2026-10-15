@@ -947,7 +947,11 @@
           "revision": 15,
           "changedAt": "2026-09-17",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/gate-policy/route.ts:56 The sweep deadline is independently hard-coded rather than computed from the route's execution ceiling, allowing the protective bound and destructive timeout to drift.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:56e509787bc708cd",
+          "evaluatedRevision": 15
         }
       ],
       "governance": "governed"
@@ -3337,7 +3341,11 @@
           "revision": 15,
           "changedAt": "2026-09-17",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/scan-jobs.ts:196 Distinct jobs are persisted without checking aggregate backlog capacity, so request batch caps do not bound the durable queue.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:56e509787bc708cd",
+          "evaluatedRevision": 15
         },
         {
           "subject": "fleet-orchestration",

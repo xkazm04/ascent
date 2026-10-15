@@ -1,0 +1,111 @@
+{
+ "schema": "conform-run/1",
+ "worker": "65714390-dd34-4a8a-872b-500f07598268",
+ "subject": "admission-queue",
+ "evaluatedAt": "2026-10-15T23:00:55.196117+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Org Import, Scan & Watchlist",
+   "subject": "admission-queue",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/scan-jobs.ts:196 Distinct jobs are persisted without checking aggregate backlog capacity, so request batch caps do not bound the durable queue.",
+   "techniques": [
+    {
+     "technique": "depth-bounds-and-shed",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/scan-jobs.ts:196 Enqueue checks identity and deduplication, but neither backlog depth nor a capacity-based shed policy."
+    },
+    {
+     "technique": "load-aware-admission",
+     "verdict": "deviation",
+     "evidence": "src/lib/scan-queue-worker.ts:165 The cron supply path claims eligible work without consulting host pressure; the surrounding drain checks concurrency and time."
+    },
+    {
+     "technique": "priority-and-fairness",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/scan-jobs.ts:295 Fixed priority precedes age, with no aging or per-origin occupancy enforcement in the claim path, allowing sustained manual work to starve cadence work."
+    },
+    {
+     "technique": "remediation-derived-bounds",
+     "verdict": "deviation",
+     "evidence": "src/lib/pool.ts:174 The deadline guard is disabled until an item finishes, so initial claims can still start after earlier route work has exhausted the invocation budget."
+    },
+    {
+     "technique": "wait-telemetry",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/scan/queue/route.ts:59 Despite stored timestamps and oldest-age gauges, run status exports only repository state and counts, without separate admission-wait and execution durations."
+    }
+   ]
+  },
+  {
+   "context": "CI Gate & Status Checks",
+   "subject": "admission-queue",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/gate-policy/route.ts:56 The sweep deadline is independently hard-coded rather than computed from the route's execution ceiling, allowing the protective bound and destructive timeout to drift.",
+   "techniques": [
+    {
+     "technique": "admission-vocabulary",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/gate-policy/route.ts:185 Deferred sweep acceptance supplies counts but no entry identity, queue position, or wait estimate through which the caller can observe its progress."
+    },
+    {
+     "technique": "load-aware-admission",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/gate-policy/route.ts:154 Sweep promotion uses a fixed worker count and budget/deadline checks without a host-pressure gate."
+    },
+    {
+     "technique": "remediation-derived-bounds",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/gate-policy/route.ts:56 The 240-second bound is separate from maxDuration=300, and its clock starts inside the deferred sweep after token acquisition."
+    },
+    {
+     "technique": "wait-telemetry",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/gate-policy/route.ts:97 Sweep entries contain repository coordinates without arrival/promotion stamps; sweep reporting records counts rather than separate queue-wait and execution durations."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-15T23:00:55.196117+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "admission-queue"
+   ],
+   "techniques": [
+    "depth-bounds-and-shed",
+    "load-aware-admission",
+    "priority-and-fairness",
+    "remediation-derived-bounds",
+    "wait-telemetry"
+   ],
+   "deviations": 1,
+   "context": "Org Import, Scan & Watchlist",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-15T23:00:55.196117+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "admission-queue"
+   ],
+   "techniques": [
+    "admission-vocabulary",
+    "load-aware-admission",
+    "remediation-derived-bounds",
+    "wait-telemetry"
+   ],
+   "deviations": 1,
+   "context": "CI Gate & Status Checks",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
