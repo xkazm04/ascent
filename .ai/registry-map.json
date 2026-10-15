@@ -3732,7 +3732,11 @@
           "revision": 12,
           "changedAt": "2026-10-06",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/security.ts:351 Context and repository searches found no translation infrastructure; this module constructs a security-remediation brief rather than moving content between locales.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:678c2208c5b0dfc0",
+          "evaluatedRevision": 12
         },
         {
           "subject": "quality-gates",
@@ -6342,7 +6346,11 @@
           "revision": 12,
           "changedAt": "2026-10-06",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/memory/consolidation.ts:205 Context and repository searches found no translation infrastructure; Org Memory checks and consolidates engineering knowledge rather than maintaining source-target translation pairs.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:678c2208c5b0dfc0",
+          "evaluatedRevision": 12
         },
         {
           "subject": "conversation-orchestration",
@@ -9604,7 +9612,11 @@
           "revision": 12,
           "changedAt": "2026-10-06",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/landing/prototypes/index/IndexHero.tsx:73 Context and repository searches found no translation infrastructure; the landing components render inline English copy and scan data without locale selection or translated artifacts.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:678c2208c5b0dfc0",
+          "evaluatedRevision": 12
         },
         {
           "subject": "eval-harness",

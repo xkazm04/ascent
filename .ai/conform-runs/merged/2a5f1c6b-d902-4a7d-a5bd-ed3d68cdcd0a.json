@@ -1,0 +1,307 @@
+{
+ "schema": "conform-run/1",
+ "worker": "2a5f1c6b-d902-4a7d-a5bd-ed3d68cdcd0a",
+ "subject": "translation-pipeline-topology",
+ "evaluatedAt": "2026-10-15T21:57:47.629208+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Security Posture & Audit Log",
+   "subject": "translation-pipeline-topology",
+   "bundle": "localization",
+   "state": "not-applicable",
+   "evidence": "src/lib/org/security.ts:351 Context and repository searches found no translation infrastructure; this module constructs a security-remediation brief rather than moving content between locales.",
+   "techniques": [
+    {
+     "technique": "canonical-and-derived-split",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/org/security.ts:275 The brief assembles English report text; no machine-translated artifacts were found."
+    },
+    {
+     "technique": "canonical-fallback-serving",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/org/security.ts:336 This handles unavailable advisory data, not unpublished translations."
+    },
+    {
+     "technique": "fuzzy-reuse-under-a-threshold",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/org/security.ts:259 The selected units are gate-failing repositories; no translation-memory reuse was found."
+    },
+    {
+     "technique": "hand-authored-exception-contract",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/pdf/security-document.tsx:64 This is an English report template, with no hand-authored translated exception."
+    },
+    {
+     "technique": "language-registry-single-source",
+     "verdict": "not-applicable",
+     "evidence": "src/features/standing/security/SecurityBandSpectrum.tsx:23 The enumerated registry contains security bands; no supported-locale list or switcher was found."
+    },
+    {
+     "technique": "non-translatable-value-classification",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/audit/route.ts:28 These fields are audit-export columns, not catalog values dispatched to a translation engine."
+    },
+    {
+     "technique": "prompt-context-contract",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/org/security.ts:351 The prompt requests security remediation, not translation."
+    },
+    {
+     "technique": "pseudo-localization-readiness",
+     "verdict": "not-applicable",
+     "evidence": "src/features/standing/security/SecurityRiskRegister.tsx:81 The register renders inline English labels; no localization-readiness workflow or source catalog was found."
+    },
+    {
+     "technique": "serialization-transport-safety",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/audit/route.ts:56 The serialization boundary exports audit data as CSV, not batch machine translations."
+    },
+    {
+     "technique": "sharded-translation-ci",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/security/supply-chain.ts:175 This is runtime advisory-fetch concurrency, not translation CI."
+    },
+    {
+     "technique": "source-hash-translation-cache",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/security/supply-chain.ts:149 The cache stores advisory results by organization and scope, not derived translations."
+    },
+    {
+     "technique": "source-identical-value-audit",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/scans-audit.ts:416 The audit verifies event integrity; no translated catalog exists here to compare with a source locale."
+    }
+   ],
+   "absenceTerms": [
+    "i18n",
+    "sourceLocale",
+    "targetLocale",
+    "termbase"
+   ]
+  },
+  {
+   "context": "Org Memory",
+   "subject": "translation-pipeline-topology",
+   "bundle": "localization",
+   "state": "not-applicable",
+   "evidence": "src/lib/memory/consolidation.ts:205 Context and repository searches found no translation infrastructure; Org Memory checks and consolidates engineering knowledge rather than maintaining source-target translation pairs.",
+   "techniques": [
+    {
+     "technique": "canonical-and-derived-split",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/memory/route.ts:138 The write stores submitted memory content; no derived translation store was found."
+    },
+    {
+     "technique": "canonical-fallback-serving",
+     "verdict": "not-applicable",
+     "evidence": "src/features/shared/memory/MemoryCard.tsx:146 The card renders stored content directly, without translated-unit lookup or locale fallback."
+    },
+    {
+     "technique": "fuzzy-reuse-under-a-threshold",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/memory/check/route.ts:63 Similarity checks compare knowledge notes for duplication or correction, not translation-memory pairs."
+    },
+    {
+     "technique": "hand-authored-exception-contract",
+     "verdict": "not-applicable",
+     "evidence": "src/features/shared/memory/MemoryAuthorForm.tsx:143 This is a memory-authoring action, with no translated-page exception to a machine pipeline."
+    },
+    {
+     "technique": "language-registry-single-source",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/memory/route.ts:83 The browse response enumerates memory kinds and namespaces; no locale registry or language switcher was found."
+    },
+    {
+     "technique": "non-translatable-value-classification",
+     "verdict": "not-applicable",
+     "evidence": "src/features/shared/memory/MemoryAuthorForm.tsx:98 The form collects knowledge prose, not catalog values being classified for translation requests."
+    },
+    {
+     "technique": "prompt-context-contract",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/memory/consolidation.ts:205 The declared task is knowledge consolidation, not machine translation."
+    },
+    {
+     "technique": "pseudo-localization-readiness",
+     "verdict": "not-applicable",
+     "evidence": "src/features/shared/memory/MemoryCoverageStrip.tsx:65 Coverage concerns repository memories; no source catalog or localization-readiness workflow was found."
+    },
+    {
+     "technique": "serialization-transport-safety",
+     "verdict": "not-applicable",
+     "evidence": "src/features/shared/memory/memoryCheck.ts:42 This transports a duplicate-check request, not a batch of translation units."
+    },
+    {
+     "technique": "sharded-translation-ci",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/memory/reflect/route.ts:176 Reflection is an interactive knowledge-consolidation pass; no translation CI workload was found."
+    },
+    {
+     "technique": "source-hash-translation-cache",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/memory/recall/route.ts:115 Recall returns ranked stored notes, not cached target-language artifacts."
+    },
+    {
+     "technique": "source-identical-value-audit",
+     "verdict": "not-applicable",
+     "evidence": "src/features/shared/memory/MemoryCard.tsx:113 Copying exposes the stored note verbatim; there are no parallel locale values to audit."
+    }
+   ],
+   "absenceTerms": [
+    "i18n",
+    "sourceLocale",
+    "targetLocale",
+    "termbase"
+   ]
+  },
+  {
+   "context": "Landing Page Prototypes",
+   "subject": "translation-pipeline-topology",
+   "bundle": "localization",
+   "state": "not-applicable",
+   "evidence": "src/components/landing/prototypes/index/IndexHero.tsx:73 Context and repository searches found no translation infrastructure; the landing components render inline English copy and scan data without locale selection or translated artifacts.",
+   "techniques": [
+    {
+     "technique": "canonical-and-derived-split",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/IndexHero.tsx:73 The hero contains source copy directly; no machine-translated counterpart was found."
+    },
+    {
+     "technique": "canonical-fallback-serving",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/IndexGallery.tsx:75 The fallback selects ranked or recent scans, not translated or canonical content."
+    },
+    {
+     "technique": "fuzzy-reuse-under-a-threshold",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/IndexGallery.tsx:69 The gallery consumes scan collections; no translation-memory matching or reuse was found."
+    },
+    {
+     "technique": "hand-authored-exception-contract",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/IndexFleet.tsx:17 This is inline English landing copy, not a hand-authored translation exempted from a machine pipeline."
+    },
+    {
+     "technique": "language-registry-single-source",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/IndexLanding.tsx:20 The navigation enumerates page sections; no language menu or translation-target registry was found."
+    },
+    {
+     "technique": "non-translatable-value-classification",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:23 The component renders authored copy; it does not dispatch catalog values to an engine."
+    },
+    {
+     "technique": "prompt-context-contract",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/DimensionMatrix.tsx:54 This text is rendered as a section introduction, not assembled into a translation request."
+    },
+    {
+     "technique": "pseudo-localization-readiness",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/ScoreGauge.tsx:42 The gauge renders an English accessibility label; no catalog-based localization-readiness workflow was found."
+    },
+    {
+     "technique": "sharded-translation-ci",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/IndexLevels.tsx:20 The deferred work loads a chart component; no translation CI jobs were found."
+    },
+    {
+     "technique": "source-hash-translation-cache",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/IndexFleet.test.tsx:20 The fleet section's test requires rendering without fetching; no derived translation cache was found in this context."
+    },
+    {
+     "technique": "source-identical-value-audit",
+     "verdict": "not-applicable",
+     "evidence": "src/components/landing/prototypes/index/IndexLevels.tsx:53 Level taglines render from the shared maturity model, without parallel translated catalogs."
+    }
+   ],
+   "absenceTerms": [
+    "i18n",
+    "sourceLocale",
+    "targetLocale",
+    "termbase"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-15T21:57:47.629208+00:00",
+   "bundle": "localization",
+   "subjects": [
+    "translation-pipeline-topology"
+   ],
+   "techniques": [
+    "canonical-and-derived-split",
+    "canonical-fallback-serving",
+    "fuzzy-reuse-under-a-threshold",
+    "hand-authored-exception-contract",
+    "language-registry-single-source",
+    "non-translatable-value-classification",
+    "prompt-context-contract",
+    "pseudo-localization-readiness",
+    "serialization-transport-safety",
+    "sharded-translation-ci",
+    "source-hash-translation-cache",
+    "source-identical-value-audit"
+   ],
+   "deviations": 0,
+   "context": "Security Posture & Audit Log",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-15T21:57:47.629208+00:00",
+   "bundle": "localization",
+   "subjects": [
+    "translation-pipeline-topology"
+   ],
+   "techniques": [
+    "canonical-and-derived-split",
+    "canonical-fallback-serving",
+    "fuzzy-reuse-under-a-threshold",
+    "hand-authored-exception-contract",
+    "language-registry-single-source",
+    "non-translatable-value-classification",
+    "prompt-context-contract",
+    "pseudo-localization-readiness",
+    "serialization-transport-safety",
+    "sharded-translation-ci",
+    "source-hash-translation-cache",
+    "source-identical-value-audit"
+   ],
+   "deviations": 0,
+   "context": "Org Memory",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-15T21:57:47.629208+00:00",
+   "bundle": "localization",
+   "subjects": [
+    "translation-pipeline-topology"
+   ],
+   "techniques": [
+    "canonical-and-derived-split",
+    "canonical-fallback-serving",
+    "fuzzy-reuse-under-a-threshold",
+    "hand-authored-exception-contract",
+    "language-registry-single-source",
+    "non-translatable-value-classification",
+    "prompt-context-contract",
+    "pseudo-localization-readiness",
+    "sharded-translation-ci",
+    "source-hash-translation-cache",
+    "source-identical-value-audit"
+   ],
+   "deviations": 0,
+   "context": "Landing Page Prototypes",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
