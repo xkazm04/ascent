@@ -3980,6 +3980,81 @@
           "reason": "replaced by a1fd728d-6cab-4034-b658-05e4ce2defc6"
         }
       ]
+    },
+    "Billing, Credits & Metering/Quotas & Rate Limiting/rate-limiting": {
+      "context": "Quotas & Rate Limiting",
+      "subject": "rate-limiting",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T04:33:09.679Z",
+      "techniques": [
+        {
+          "technique": "algorithm-selection",
+          "verdict": "conformant",
+          "evidence": "src/lib/rate-limit-window.ts:162 Sliding window checks the cap before recording so refused attempts consume no allowance, and computes retry-after directly from the oldest in-window timestamp."
+        },
+        {
+          "technique": "key-design",
+          "verdict": "conformant",
+          "evidence": "src/lib/public-scan-quota.ts:148 Disjoint key namespaces ('ip:' vs 'u:') separate actor boundaries, and the unknown-key policy scales to the horizon by failing open on unidentifiable callers in the monthly quota while burst limits fail closed."
+        },
+        {
+          "technique": "limit-derivation",
+          "verdict": "conformant",
+          "evidence": "src/lib/rate-limit.ts:397 Every limit is deploy-time overridable via env, read-only amplification vectors are explicitly budgeted, and uncomputed limits are honestly labelled as inherited rather than dressed up as derived."
+        },
+        {
+          "technique": "limit-observability",
+          "verdict": "conformant",
+          "evidence": "src/lib/public-scan-quota.ts:324 Provides passive, non-consuming usage snapshots for the client meter, near-limit warnings before refusal, predicate-tagged abuse counters by scope, and observable reaper stats."
+        },
+        {
+          "technique": "limiter-topology",
+          "verdict": "conformant",
+          "evidence": "src/lib/rate-limit.ts:174 Consumes atomically across layered windows (check per-IP first, charge global, commit per-IP only on admit), names the refusing layer in the scope, and fails closed in front of shared store spend."
+        },
+        {
+          "technique": "metered-step-selection",
+          "verdict": "conformant",
+          "evidence": "src/lib/public-scan-quota.ts:379 Meters production cost on completion rather than attempt by refunding consumed monthly slots for invalid, aborted, or degraded scans, while unbilled cache probes use their own rate limit."
+        },
+        {
+          "technique": "refusal-contract",
+          "verdict": "conformant",
+          "evidence": "src/lib/rate-limit.ts:304 Emits standard 429 with computed Retry-After header and machine-readable payload naming the refusing limiter namespace and scope, echoing caller limits while withholding global ceiling headroom."
+        },
+        {
+          "technique": "storm-hygiene",
+          "verdict": "conformant",
+          "evidence": "src/lib/rate-limit-window.ts:119 Refusal path is hot and O(1) in-memory without per-rejection log flooding, backed by an incremental, pressure-throttled periodic reaper with bounded sweeps and observable metrics."
+        },
+        {
+          "technique": "unattributable-client-bucketing",
+          "verdict": "deviation",
+          "evidence": "src/lib/rate-limit.ts:36 Unidentifiable callers are collapsed into a single shared 'unknown' bucket without coarse fingerprint spreading, locking out legitimate traffic under a shared allowance on unconfigured or self-hosted deploys."
+        },
+        {
+          "technique": "untrusted-key-derivation",
+          "verdict": "deviation",
+          "evidence": "src/lib/rate-limit.ts:38 While runtime witness (VERCEL) and depth-aware proxy indexing are implemented, trusted IPs are not canonicalized (no port stripping or IP validation) and clientIp returns a bare string rather than the derivation rung."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "rate-limit.ts:60-63 trusts x-real-ip under the default hops=1 on the operator's word alone — no runtime witness (cf. the VERCEL gate the technique's exemplar uses) — so an unconfigured self-hosted deploy lets a caller mint a fresh bucket per request; :373-385 also spends per-IP allowance on globally-refused requests. Refusal contract, reaper, and basis labels are all realized. (2026-08-30: public-scan-quota's read-decide-write tx moved into db/scan-quota.ts — quota policy unchanged; the deviation above is untouched by it.)",
+          "evaluatedAt": "2026-08-30",
+          "worker": null,
+          "reason": "replaced by a8b9f462-e263-4bae-8dca-9ff21e5ca8f0"
+        }
+      ],
+      "withdrawn": {
+        "worker": "a8b9f462-e263-4bae-8dca-9ff21e5ca8f0",
+        "state": "deviation",
+        "at": "2026-10-15T04:33:26.785086+00:00",
+        "reason": "reviewer (sonnet): The pooled 'unknown' bucket is deliberate and documented (rate-limit.ts:31-33, public-scan-quota.ts:138-146): it is the fail-closed burst choice, and the monthly quota explicitly fails open on unidentifiable callers, so the claimed 'accidental' lockout is contradicted and I found no code or standard"
+      }
     }
   }
 }

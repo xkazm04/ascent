@@ -8573,9 +8573,7 @@
           "confidence": "strong",
           "state": "deviation",
           "evidence": "rate-limit.ts:60-63 trusts x-real-ip under the default hops=1 on the operator's word alone — no runtime witness (cf. the VERCEL gate the technique's exemplar uses) — so an unconfigured self-hosted deploy lets a caller mint a fresh bucket per request; :373-385 also spends per-IP allowance on globally-refused requests. Refusal contract, reaper, and basis labels are all realized. (2026-08-30: public-scan-quota's read-decide-write tx moved into db/scan-quota.ts — quota policy unchanged; the deviation above is untouched by it.)",
-          "evaluatedAt": "2026-08-30",
-          "evaluatedAgainst": "sha256:d29b78d8c05d427b",
-          "stale": true
+          "evaluatedAt": "2026-08-30"
         },
         {
           "subject": "prompt-assembly",
