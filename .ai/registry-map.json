@@ -3645,10 +3645,10 @@
           "changedAt": "2026-09-05",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "scans-persist.ts:580 and scans-recommendations.ts:149 write in-tx audit rows without withAuditSignature, so the product's core actions verify as 'unsigned'; scans-audit.ts:139 gives the ledger a delete door (the digest claim marker is a control record in audit clothes); failed writes are logged (scans-audit.ts:41) but never counted or surfaced.",
-          "evaluatedAt": "2026-08-24",
-          "evaluatedAgainst": "sha256:1117665ec59c1168",
-          "stale": true
+          "evidence": "src/lib/db/scans-audit.ts:34 The audit writer persists arbitrary caller metadata after signing without sanitization or size limits, allowing sensitive values to become durable audit evidence.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:154304c5d9578971",
+          "evaluatedRevision": 10
         },
         {
           "subject": "node-boot-and-declarative-bootstrap",

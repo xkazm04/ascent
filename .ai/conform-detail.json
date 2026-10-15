@@ -3365,6 +3365,76 @@
           "reason": "replaced by 8095cc62-2a15-4f17-8674-eccaa7c49487"
         }
       ]
+    },
+    "Org Dashboard & Analytics/Security Posture & Audit Log/audit-logging": {
+      "context": "Security Posture & Audit Log",
+      "subject": "audit-logging",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T01:42:44.310Z",
+      "worker": "f3c55fb5-a171-4dbf-9a19-89790cba3d5c",
+      "techniques": [
+        {
+          "technique": "append-only-design",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.ts:1525 The erasure path updates existing audit rows and re-signs their replacement metadata, violating the standard's prohibition on in-place mutation; claim release itself now correctly appends a record."
+        },
+        {
+          "technique": "audit-querying",
+          "verdict": "deviation",
+          "evidence": "prisma/schema.prisma:879 Subject references reside in JSON metadata rather than structured indexed columns; the inspected API and getAuditLog support action, actor and time filters but provide no subject filter."
+        },
+        {
+          "technique": "best-effort-with-accounting",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/audit-health.ts:30 Failed writes are now counted and surfaced, but accounting exists only in process memory and resets on restart, falling short of the required durable counter by ledger and failure class."
+        },
+        {
+          "technique": "decision-records",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-decisions.ts:264 Security decisions have separate mutable state and stable finding keys, but their audit acts omit the previous status, rationale and contemporaneous title, so overwriting state loses essential decision history."
+        },
+        {
+          "technique": "record-axis-predicate",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/scans-audit.ts:363 This action ledger ranges over its single insertion timestamp; it has no recorded/invalidated validity interval requiring a bitemporal replay predicate."
+        },
+        {
+          "technique": "retention-and-partitioning",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.ts:1034 Scheduled purging applies one org-wide horizon across all audit actions, while inserts perform no retention enforcement; safety floors and post-deletion self-records do not supply domain-specific admission-time bounds."
+        },
+        {
+          "technique": "tamper-evidence",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/audit/AuditLogTable.tsx:30 HMAC verification runs on read and exports carry verdicts, but the dashboard hides integrity status when no signing key exists instead of explicitly showing that the trail is unverifiable."
+        },
+        {
+          "technique": "two-clock-records",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/scans-persist.ts:803 The inspected audit writes record actions performed here, such as scan persistence and human decisions; live advisory totals are not ingested as historical audit events requiring a separate effective clock."
+        },
+        {
+          "technique": "write-chokepoint",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/scans-recommendations.ts:158 Recommendation mutations insert directly into AuditLog, as do scan persistence and conformance reporting; shared signing does not establish one insert door enforcing every ledger invariant."
+        },
+        {
+          "technique": "write-path-sanitization",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/scans-audit.ts:30 Caller metadata passes directly to a signature helper that preserves its values, with no write-path allowlist, secret scrubbing or payload cap before insertion."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "scans-persist.ts:580 and scans-recommendations.ts:149 write in-tx audit rows without withAuditSignature, so the product's core actions verify as 'unsigned'; scans-audit.ts:139 gives the ledger a delete door (the digest claim marker is a control record in audit clothes); failed writes are logged (scans-audit.ts:41) but never counted or surfaced.",
+          "evaluatedAt": "2026-08-24",
+          "worker": null,
+          "reason": "replaced by f3c55fb5-a171-4dbf-9a19-89790cba3d5c"
+        }
+      ]
     }
   }
 }
