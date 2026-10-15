@@ -1,0 +1,130 @@
+{
+ "schema": "conform-run/1",
+ "worker": "beb116cb-455c-48dd-ba3b-9cd2319c5f26",
+ "subject": "data-access",
+ "evaluatedAt": "2026-10-15T02:44:14.337202+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Developer home (UC3 individual care)",
+   "subject": "data-access",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/mentor-share.ts:37 A stored mentor share that fails validation returns the same absence value as a missing record, concealing corruption from the Developer home.",
+   "techniques": [
+    {
+     "technique": "batching-and-n-plus-one",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/org-rollup.ts:182 The loader uses getRepoStates once and associates its keyed results with the developer's repositories, avoiding per-repository fetches."
+    },
+    {
+     "technique": "layering-rules",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/developer-view-load.ts:11 The application loader calls named repository operations; the route and client components do not construct database queries."
+    },
+    {
+     "technique": "query-construction",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/agent-sessions-viewer.ts:39 The personal session read supplies organization, identity keys, and time bounds through typed Prisma predicates rather than interpolated query text."
+    },
+    {
+     "technique": "read-models-and-projections",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/developer-view.ts:115 The display projection exposes writable properties and mutable arrays, falling short of the technique's explicit requirement that projections be read-only by type."
+    },
+    {
+     "technique": "repo-testing",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/developer-view-load.test.ts:16 These application-loader tests mock the repository interface, the boundary explicitly permitted by the technique; this does not certify underlying repository integration tests."
+    },
+    {
+     "technique": "row-mapping",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/mentor-share.ts:37 A present but invalid record becomes null without a distinguishable decode failure; malformed JSON also returns null."
+    }
+   ]
+  },
+  {
+   "context": "GitHub Repo Data Access",
+   "subject": "data-access",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/github/governance.ts:71 A successful branch response containing an object without a valid protected boolean becomes a confident protection verdict instead of a distinguishable decoding failure.",
+   "techniques": [
+    {
+     "technique": "batching-and-n-plus-one",
+     "verdict": "conformant",
+     "evidence": "src/lib/github/graphql.ts:162 Reviews arrive inside the paginated PR query, avoiding a separate review request per PR; page size and total page count are bounded."
+    },
+    {
+     "technique": "capability-declared-in-the-type",
+     "verdict": "conformant",
+     "evidence": "src/lib/scan-ingest.ts:180 The consumer checks the optional enrichment function before dispatch; EnrichmentSource uses optional function members, and GitHub binds its implementation explicitly."
+    },
+    {
+     "technique": "layering-rules",
+     "verdict": "deviation",
+     "evidence": "src/lib/github/source.ts:29 The ingestion layer imports a helper from the application scoring-prompt module, reversing the required dependency direction and coupling data access to prompt construction."
+    },
+    {
+     "technique": "query-construction",
+     "verdict": "conformant",
+     "evidence": "src/lib/github/graphql.ts:97 The static GraphQL query carries owner, repository, pagination size, and cursor separately as variables."
+    },
+    {
+     "technique": "row-mapping",
+     "verdict": "deviation",
+     "evidence": "src/lib/github/governance.ts:71 The preceding guard accepts any non-null object: {} maps to false and a string such as \"false\" maps to true, without validating the field's boolean shape."
+    },
+    {
+     "technique": "transactions-and-units-of-work",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/github/graphql.ts:152 The supplied production modules perform API reads and pure transformations; their GraphQL POST executes a query, and no multi-write unit of work was found in these files."
+    }
+   ],
+   "registryProposal": "Clarify repo-testing for hosted HTTP data providers: specify when recorded or mocked response tests require supplementary live contract checks, and what evidence can substitute when the provider cannot run locally."
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-15T02:44:14.337202+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "data-access"
+   ],
+   "techniques": [
+    "batching-and-n-plus-one",
+    "layering-rules",
+    "query-construction",
+    "read-models-and-projections",
+    "repo-testing",
+    "row-mapping"
+   ],
+   "deviations": 1,
+   "context": "Developer home (UC3 individual care)",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-15T02:44:14.337202+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "data-access"
+   ],
+   "techniques": [
+    "batching-and-n-plus-one",
+    "capability-declared-in-the-type",
+    "layering-rules",
+    "query-construction",
+    "row-mapping",
+    "transactions-and-units-of-work"
+   ],
+   "deviations": 1,
+   "context": "GitHub Repo Data Access",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

@@ -1671,7 +1671,11 @@
           "revision": 18,
           "changedAt": "2026-10-06",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/github/governance.ts:71 A successful branch response containing an object without a valid protected boolean becomes a confident protection verdict instead of a distinguishable decoding failure.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:2dba94be6400dea1",
+          "evaluatedRevision": 19
         },
         {
           "subject": "settings",
@@ -4740,7 +4744,11 @@
           "revision": 18,
           "changedAt": "2026-10-06",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/mentor-share.ts:37 A stored mentor share that fails validation returns the same absence value as a missing record, concealing corruption from the Developer home.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:2dba94be6400dea1",
+          "evaluatedRevision": 19
         },
         {
           "subject": "quality-gates",
