@@ -1,0 +1,17 @@
+{
+ "schema": "conform-run/1",
+ "worker": "6d4b397f-8e01-44bd-bbdf-63daab9032eb",
+ "subject": "cicd-monitoring",
+ "evaluatedAt": "2026-10-15T01:09:09.314643+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "cicd-monitoring",
+   "context": "Provider Integrations",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": []
+}
