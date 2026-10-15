@@ -4025,11 +4025,11 @@
           "revision": 3,
           "changedAt": "2026-09-23",
           "confidence": "strong",
-          "state": "conformant",
-          "evidence": "adoption.ts:48-49 banded distribution with stated cutoffs; :73/:160-169 mentor-learner gap floor under the namingAllowed ethics guard; :4-5 delivery beside adoption 'not a causal claim'; playbooks.ts:254-259 counts lift only when both pair halves exist, null otherwise; governance.ts publishes the assessed-vs-scanned denominator.",
-          "evaluatedAt": "2026-08-24",
-          "evaluatedAgainst": "sha256:1117665ec59c1168",
-          "stale": true
+          "state": "deviation",
+          "evidence": "src/lib/org/adoption.ts:248 The only mentor pairing this tab emits is the top measured team against the bottom one when their AI-share gap is at least 15 points, with no absolute strong floor on the mentor and no weak floor on the learner.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:502064804797857b",
+          "evaluatedRevision": 3
         },
         {
           "subject": "agent-cli-transport",

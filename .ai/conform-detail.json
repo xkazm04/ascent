@@ -3314,6 +3314,57 @@
           "evidence": "src/components/report/PostureQuadrant.tsx:70 Uses a guarded linear scale mapping 0..100 domain explicitly to pixels, preventing sample-anchored floating floors."
         }
       ]
+    },
+    "Org Dashboard & Analytics/Practices, Governance & Adoption/adoption-measurement": {
+      "context": "Practices, Governance & Adoption",
+      "subject": "adoption-measurement",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T00:44:07.378Z",
+      "worker": "8095cc62-2a15-4f17-8674-eccaa7c49487",
+      "techniques": [
+        {
+          "technique": "attribution-provenance-tiers",
+          "verdict": "conformant",
+          "evidence": "src/features/shared/practices/practiceRolloutViz.ts:100 Authored adoption is a declared cell beside a separate measured/not-judged verified cell; an unscanned practice is not-judged with no numeral, and the two states are not summed."
+        },
+        {
+          "technique": "adoption-distribution-bands",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/adoption.ts:66 Three per-person share buckets at round 0/1/50 cutoffs. No cadence-derived routine or embedded band, and the commit-weighted org share is still a headline tile with no concentration figure."
+        },
+        {
+          "technique": "dormancy-verdicts",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/practice-adoption.ts:12 Practice adoption is structural presence of the landed file (proposed/adopted/drifted/removed). Searched this context for dormant, never-used, neverUsed, lastUsed, and abandoned and found no recency verdict."
+        },
+        {
+          "technique": "before-after-outcome-pairing",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/playbook-adoption.ts:138 A scan at the adoption instant is taken as the before half. The query also never loads rubricVersion, and a missing half collapses to null lift rather than a named no-before/no-after/instrument-mismatch status."
+        },
+        {
+          "technique": "mentor-learner-pairing",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/adoption.ts:248 Gap only. A 40% team can mentor. namingAllowed empties champions and enablement, not this team pair, so a one- or two-person team can still be named."
+        },
+        {
+          "technique": "adoption-vs-outcome-separation",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/practice-library.ts:176 The library brief exports a dimension delta as lift with no payload or sentence saying the co-presentation is not attribution. The AI-adoption delivery strip does say that; this producer does not."
+        }
+      ],
+      "registryProposal": "The band ladder is a cadence of use (untouched/tried/routine/embedded). It does not say how to band a continuous attribution share, where the routine cutoff has no cadence to be derived from.",
+      "superseded": [
+        {
+          "state": "conformant",
+          "evidence": "adoption.ts:48-49 banded distribution with stated cutoffs; :73/:160-169 mentor-learner gap floor under the namingAllowed ethics guard; :4-5 delivery beside adoption 'not a causal claim'; playbooks.ts:254-259 counts lift only when both pair halves exist, null otherwise; governance.ts publishes the assessed-vs-scanned denominator.",
+          "evaluatedAt": "2026-08-24",
+          "worker": null,
+          "reason": "replaced by 8095cc62-2a15-4f17-8674-eccaa7c49487"
+        }
+      ]
     }
   }
 }
