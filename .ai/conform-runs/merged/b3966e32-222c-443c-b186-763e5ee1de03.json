@@ -1,0 +1,27 @@
+{
+ "schema": "conform-run/1",
+ "worker": "b3966e32-222c-443c-b186-763e5ee1de03",
+ "subject": "untrusted-extension-host",
+ "evaluatedAt": "2026-10-15T22:34:10.341630+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "untrusted-extension-host",
+   "context": "Roadmap & Recommendation Tracking",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "untrusted-extension-host",
+   "context": "AI-Native Standard & Onboarding Skill",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "untrusted-extension-host",
+   "context": "Credits & Entitlements",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": []
+}
