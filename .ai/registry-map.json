@@ -4437,13 +4437,13 @@
           "source": "conform",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "IntegrationsPanel.tsx:57 keys the connect affordance on a hard-coded id, so the Copilot row's status:'available'/connectKind:'admin-pull' lights no surface (header :3 still calls it planned) — the row declares but consumers don't derive; ownership/matching/lifecycle are n/a for a code-only catalog, adapter-normalization is realized.",
-          "evaluatedAt": "2026-08-24",
-          "evaluatedAgainst": "sha256:1117665ec59c1168",
+          "evidence": "src/features/admin/integrations/IntegrationsPanel.tsx:99 Rather than rendering connection setup through a uniform schema-driven form derived from catalog declarations, the dashboard dispatches across hardcoded provider panels.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:d78c2c6c19304554",
           "digest": "sha256-b2:d78c2c6c19304554",
           "revision": 4,
           "changedAt": "2026-09-26",
-          "stale": true
+          "evaluatedRevision": 4
         }
       ],
       "governance": "governed"

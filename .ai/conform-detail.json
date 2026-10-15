@@ -3435,6 +3435,57 @@
           "reason": "replaced by f3c55fb5-a171-4dbf-9a19-89790cba3d5c"
         }
       ]
+    },
+    "Org Dashboard & Analytics/Provider Integrations/connector-catalog": {
+      "context": "Provider Integrations",
+      "subject": "connector-catalog",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T02:14:50.420Z",
+      "worker": "439a4202-4f57-4ce9-968b-c4d5f1bd2bcf",
+      "techniques": [
+        {
+          "technique": "adapter-normalization",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/providers.ts:23 Fidelity tiers ('measured', 'allocated', 'seats-only') explicitly declare connector capabilities, preventing missing spend data like Copilot's from producing fabricated zeroes in downstream views."
+        },
+        {
+          "technique": "catalog-as-data",
+          "verdict": "deviation",
+          "evidence": "src/lib/integrations/providers.ts:28 ProviderDef omits auth schemas and probe recipes from the catalog row, preventing consuming surfaces from rendering uniformly and requiring per-provider component dispatch."
+        },
+        {
+          "technique": "schema-driven-forms",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/integrations/IntegrationsPanel.tsx:101 Acquisition surfaces are hand-crafted per-provider React components (ClaudeCodeSetup, CopilotSetup, OpenAISetup) rather than a single generic form renderer driven by declared auth schemas."
+        },
+        {
+          "technique": "catalog-lifecycle",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/providers.ts:24 While status flags gate UI affordances, persistent catalog version stamps, tombstones, and dependent migration mechanisms do not apply to an in-code static list."
+        },
+        {
+          "technique": "matching-and-ranking",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/providers.ts:26 Integration types are a closed set of fixed internal provider IDs; foreign reference resolution, alias tables, and ranking tiers are not implemented."
+        },
+        {
+          "technique": "shipped-vs-operator-ownership",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/providers.ts:72 Providers are defined as an immutable static in-code array with no database table or operator editing door, so two-writer refresh conflicts do not apply."
+        }
+      ],
+      "registryProposal": "For static in-code catalogs with a small, fixed set of integrations, the standard should clarify whether per-provider setup dispatch is treated as an acceptable form of adapter registration or a strict deviation from catalog-as-data.",
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "IntegrationsPanel.tsx:57 keys the connect affordance on a hard-coded id, so the Copilot row's status:'available'/connectKind:'admin-pull' lights no surface (header :3 still calls it planned) — the row declares but consumers don't derive; ownership/matching/lifecycle are n/a for a code-only catalog, adapter-normalization is realized.",
+          "evaluatedAt": "2026-08-24",
+          "worker": null,
+          "reason": "replaced by 439a4202-4f57-4ce9-968b-c4d5f1bd2bcf"
+        }
+      ]
     }
   }
 }
