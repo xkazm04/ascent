@@ -4416,12 +4416,12 @@
           "revision": 17,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "deviation",
-          "evidence": "envInt malformed-silent-default FIXED (c2408869: refuses, naming var+value); copilot denied/unreachable collapse FIXED (bc759bca: typed GhFailureReason, honest 403/502/422). Remaining: Copilot card advertises a capability with no affordance.",
-          "evaluatedAt": "2026-08-29",
-          "evaluatedAgainst": "sha256:1117665ec59c1168",
+          "state": "conformant",
+          "evidence": "src/features/admin/integrations/IntegrationsPanel.tsx:98 Provider connect surfaces dispatch per provider identifier so each available integration supplies its own dedicated setup affordance rather than leaving capabilities unreachable or mis-mapped.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:641cb6bf0b2c6916",
           "source": "retained",
-          "stale": true
+          "evaluatedRevision": 17
         },
         {
           "subject": "cicd-monitoring",

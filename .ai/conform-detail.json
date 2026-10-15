@@ -3925,6 +3925,61 @@
         }
       ],
       "registryProposal": "performance-discipline's transform-and-opacity rule has no SVG presentation-attribute case. stroke-dashoffset and r on these charts are still a deviation under the written rule."
+    },
+    "Org Dashboard & Analytics/Provider Integrations/optional-dependency-degradation": {
+      "context": "Provider Integrations",
+      "subject": "optional-dependency-degradation",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T04:12:38.449Z",
+      "worker": "a1fd728d-6cab-4034-b658-05e4ce2defc6",
+      "techniques": [
+        {
+          "technique": "absent-degrades-malformed-fails-fast",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-guard.ts:42 Rate limit integer variables fall back to derived defaults when unset, but fail fast at boot/import when malformed, naming the variable and bad value."
+        },
+        {
+          "technique": "capability-honest-refusal",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-guard.ts:141 Unconfigured ingest endpoints return 503 Service Unavailable rather than 401/404, while UI surfaces hide unconfigured affordances and metrics APIs report exact skip counts."
+        },
+        {
+          "technique": "degradation-coupled-to-hardening",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-token.ts:98 Hardening eliminated the legacy fallback dev secret so an unconfigured deployment fails closed instead of allowing forged writes under an unhardened default."
+        },
+        {
+          "technique": "guarded-singleton-accessor",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-token.ts:71 Ingest tokens are minted via a function that throws when the secret is unset, paired with the isIngestConfigured companion predicate that callers check."
+        },
+        {
+          "technique": "misconfiguration-never-reaches-a-fallback",
+          "verdict": "conformant",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:34 Exporters sending OTLP/protobuf to the JSON metrics receiver receive an actionable HTTP 415 error rather than a silent 202 phantom success with dropped data."
+        },
+        {
+          "technique": "per-variable-blast-radius",
+          "verdict": "conformant",
+          "evidence": ".env.example:334 The .env.example template documents the blast radius, unset refusal behavior (503), and rotation scope for INTEGRATIONS_INGEST_SECRET."
+        },
+        {
+          "technique": "probe-the-grant-not-the-config",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/copilot.ts:119 The Copilot sync probes GitHub's API directly and categorizes failures into typed denied/absent/unreachable reasons, returning honest 403/422/502 responses."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "envInt malformed-silent-default FIXED (c2408869: refuses, naming var+value); copilot denied/unreachable collapse FIXED (bc759bca: typed GhFailureReason, honest 403/502/422). Remaining: Copilot card advertises a capability with no affordance.",
+          "evaluatedAt": "2026-08-29",
+          "worker": null,
+          "reason": "replaced by a1fd728d-6cab-4034-b658-05e4ce2defc6"
+        }
+      ]
     }
   }
 }
