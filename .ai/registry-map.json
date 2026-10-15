@@ -3098,7 +3098,11 @@
           "revision": 4,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/alerts.ts:64 Event cooldowns live in process memory and are stamped before sending, so restarts permit duplicates while failed deliveries consume the suppression window.",
+          "evaluatedAt": "2026-10-15",
+          "evaluatedAgainst": "sha256-b2:90e16e9a2b80434b",
+          "evaluatedRevision": 4
         },
         {
           "subject": "prompt-assembly",

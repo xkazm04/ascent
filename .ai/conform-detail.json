@@ -4391,6 +4391,58 @@
           "evidence": "src/app/api/org/gate-policy/route.ts:97 Sweep entries contain repository coordinates without arrival/promotion stamps; sweep reporting records counts rather than separate queue-wait and execution durations."
         }
       ]
+    },
+    "Org Scanning & Fleet Rollups/Fleet Alerts & Digests/alerting": {
+      "context": "Fleet Alerts & Digests",
+      "subject": "alerting",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-15",
+      "evaluatedTs": "2026-10-15T23:40:08.633Z",
+      "worker": "2972efe8-7a90-4739-b9c4-b748faf0a226",
+      "techniques": [
+        {
+          "technique": "absence-as-a-condition",
+          "verdict": "deviation",
+          "evidence": "src/lib/alerts-detection.ts:311 Standing-regression sustain removes missing dimension readings before counting consecutive scans, implicitly bridging gaps without a rule-declared no-data policy or an aged not-evaluable state."
+        },
+        {
+          "technique": "alert-lifecycle",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/alert-events.ts:76 Cooldown-suppressed event attempts and manual resends create separate history rows; AlertEvent has no episode ownership, acknowledgment, resolution kind, or suppressed-repeat counter."
+        },
+        {
+          "technique": "dedup-and-cooldown",
+          "verdict": "deviation",
+          "evidence": "src/lib/alerts.ts:82 The process-local claim stamps before dispatch and is not released after a failed event send; history is recorded afterward rather than durably governing suppression."
+        },
+        {
+          "technique": "escalation-routing",
+          "verdict": "deviation",
+          "evidence": "src/lib/alert-delivery.ts:120 Delivery selects the configured tenant/global sink without severity-dependent reach; severity changes message presentation and history, but no routing table or unacknowledged-alert escalation is implemented."
+        },
+        {
+          "technique": "evaluation-loop",
+          "verdict": "deviation",
+          "evidence": "src/lib/scan-alerts.ts:240 The evaluation catch logs an error and returns the same result used when no baseline exists, without persisting or surfacing a failed-evaluation status."
+        },
+        {
+          "technique": "flap-control",
+          "verdict": "deviation",
+          "evidence": "src/lib/maturity/noise.ts:79 The corridor suppresses only when both axes are indecisive: adoption=60 lets a rigor crossing from 51 to 49 announce an ungoverned regression even though the changing input remains inside the noise corridor."
+        },
+        {
+          "technique": "periodic-digest",
+          "verdict": "deviation",
+          "evidence": "src/app/api/cron/digest/route.ts:293 Flat recipients are counted and returned without a durable per-recipient outcome; no-channel, no-data and deadline skips likewise lack records distinguishing a skipped edition from an unexecuted run."
+        },
+        {
+          "technique": "rule-authoring-validation",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-alerts.ts:64 The API validates thresholds as integers within 1..100, but the storage setter accepts unchecked numbers, contrary to the required storage-boundary validation door; the editor also lacks historical firing previews."
+        }
+      ],
+      "registryProposal": "Clarify dedup-and-cooldown's final requirement for recovery notifications to have separate suppression state: earlier text requires opposite-direction pushes at the same reach to consume one shared pool, so the final rule should distinguish quiet recovery from full-reach recovery."
     }
   }
 }
