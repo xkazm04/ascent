@@ -1,0 +1,17 @@
+{
+ "schema": "conform-run/1",
+ "worker": "5ae6e5fe-453a-4ea2-9812-220dca5317b5",
+ "subject": "hitl-approval",
+ "evaluatedAt": "2026-10-15T00:10:37.389207+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "hitl-approval",
+   "context": "CI Gate & Status Checks",
+   "reason": "deviation with no technique named as the deviation"
+  }
+ ],
+ "consults": []
+}
