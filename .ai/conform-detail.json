@@ -4668,6 +4668,53 @@
           "evidence": "src/lib/db/usage.ts:670 Missing pricing rates produce no estimate, while explicitly configured zero rates remain valid measured-zero prices; tests cover both cases."
         }
       ]
+    },
+    "Org Dashboard & Analytics/Security Posture & Audit Log/node-boot-and-declarative-bootstrap": {
+      "context": "Security Posture & Audit Log",
+      "subject": "node-boot-and-declarative-bootstrap",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-16",
+      "evaluatedTs": "2026-10-16T02:31:22.856Z",
+      "techniques": [
+        {
+          "technique": "ordered-boot-dag",
+          "verdict": "not-applicable",
+          "evidence": "src/features/standing/security/SecurityTab.tsx:44 The security surface loads rollup, advisories, and decisions together on a request; there is no startup graph and no unseal-shaped boot step."
+        },
+        {
+          "technique": "reload-partition",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/security/supply-chain.ts:122 The only configuration read is an env var sampled on the call; no reload signal and no reloadable or restart-only key class exist here."
+        },
+        {
+          "technique": "once-only-bootstrap-with-marker",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/scans-audit.ts:117 This marker deduplicates a digest window and is released so the next run can retry; it is not a first-start policy bootstrap, and these files do not seed default rows from an empty table."
+        },
+        {
+          "technique": "config-objects-are-api-immutable",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/scans-audit.ts:12 Audit state is appended trail rows, not devices born from a config file and from the API; no config-born discriminator or audit-sink type is present."
+        },
+        {
+          "technique": "request-chain-not-dsl",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/audit/route.ts:2 The audit interface is one filtered read or CSV export, not an ordered chain of ordinary API requests with history references."
+        },
+        {
+          "technique": "seal-before-storage-plugins",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/controls/seal.ts:104 The daily seal is stored in the same database it covers and is a fixed sha256 recipe, not a provider that must be declared before storage is readable."
+        }
+      ],
+      "registryProposal": "The match is carried by the words audit and seal. This subject's sealing boundary unwraps storage before it is readable; a daily sha256 tamper-evidence root stored in that same database is a different object, and the golden path should say so.",
+      "withdrawn": {
+        "worker": "8a099f1d-1099-4d66-b9b0-f20ae23ea754",
+        "state": "not-applicable",
+        "at": "2026-10-16T02:31:52.006162+00:00",
+        "reason": "reviewer (sonnet): The anchor src/lib/controls/seal.ts:23 is an import line in a file outside this context's file list, so it doesn't show that boot, reload or unseal steps are absent. The context's own audit code also signs entries (`withAuditSignature` in `scans-audit.ts`), which I didn't trace and which doesn't fit"
+      }
     }
   }
 }

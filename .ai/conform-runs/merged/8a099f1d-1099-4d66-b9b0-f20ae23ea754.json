@@ -1,0 +1,37 @@
+{
+  "schema": "conform-run/1",
+  "worker": "8a099f1d-1099-4d66-b9b0-f20ae23ea754",
+  "subject": "node-boot-and-declarative-bootstrap",
+  "evaluatedAt": "2026-10-16T02:31:22.856904+00:00",
+  "provider": "grok",
+  "model": "grok-4.7",
+  "pairs": [],
+  "declined": [
+    {
+      "subject": "node-boot-and-declarative-bootstrap",
+      "context": "Security Posture & Audit Log",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor src/lib/controls/seal.ts:23 is an import line in a file outside this context's file list, so it doesn't show that boot, reload or unseal steps are absent. The context's own audit code also signs entries (`withAuditSignature` in `scans-audit.ts`), which I didn't trace and which doesn't fit"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-16T02:31:22.856904+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "node-boot-and-declarative-bootstrap"
+      ],
+      "techniques": [
+        "config-objects-are-api-immutable",
+        "once-only-bootstrap-with-marker",
+        "ordered-boot-dag",
+        "reload-partition",
+        "request-chain-not-dsl",
+        "seal-before-storage-plugins"
+      ],
+      "deviations": 0,
+      "context": "Security Posture & Audit Log",
+      "via": "curator-multi:grok",
+      "model": "grok-4.7"
+    }
+  ]
+}
