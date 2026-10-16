@@ -7531,7 +7531,11 @@
           "revision": 10,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/report/WhatChanged.tsx:59 The comparison publishes its overall contrast even when the preceding rubric warning establishes that the scoring instrument changed.",
+          "evaluatedAt": "2026-10-16",
+          "evaluatedAgainst": "sha256-b2:b702c58e785c6c51",
+          "evaluatedRevision": 11
         },
         {
           "subject": "docs-sync",
@@ -8896,7 +8900,11 @@
           "revision": 10,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/usage.ts:544 A failed ledger read becomes an empty contribution, allowing the summary to publish partial usage without identifying the acquisition failure.",
+          "evaluatedAt": "2026-10-16",
+          "evaluatedAgainst": "sha256-b2:b702c58e785c6c51",
+          "evaluatedRevision": 11
         }
       ],
       "governance": "governed"

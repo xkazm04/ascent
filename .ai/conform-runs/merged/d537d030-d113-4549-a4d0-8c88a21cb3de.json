@@ -1,0 +1,129 @@
+{
+ "schema": "conform-run/1",
+ "worker": "d537d030-d113-4549-a4d0-8c88a21cb3de",
+ "subject": "measurement-honesty",
+ "evaluatedAt": "2026-10-16T01:59:30.878483+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Trends & Comparison",
+   "subject": "measurement-honesty",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/report/WhatChanged.tsx:59 The comparison publishes its overall contrast even when the preceding rubric warning establishes that the scoring instrument changed.",
+   "techniques": [
+    {
+     "technique": "co-published-numbers-must-reconcile",
+     "verdict": "conformant",
+     "evidence": "src/lib/report/compare.ts:386 The headline gap count accumulates the same per-dimension lists that the comparison renders."
+    },
+    {
+     "technique": "control-failure-is-not-a-datum-state",
+     "verdict": "deviation",
+     "evidence": "src/components/report/WhatChanged.tsx:59 A known rubric mismatch produces a warning but does not withhold the contrast; compare.test.ts also explicitly preserves the cross-rubric delta."
+    },
+    {
+     "technique": "incomplete-not-verdict",
+     "verdict": "deviation",
+     "evidence": "src/lib/report/validate.ts:124 A malformed successful history response becomes an empty history; DimensionTrends only rejects missing dimensions when parsed scans are nonempty, so this path reaches the completed state."
+    },
+    {
+     "technique": "minimum-sample-floors",
+     "verdict": "conformant",
+     "evidence": "src/lib/maturity/forecast.ts:396 The forecast presentation gate requires three distinct scan days and fourteen days of span; TrajectoryPanel renders the refusal instead of the projection below that gate."
+    },
+    {
+     "technique": "noise-band-and-hysteresis",
+     "verdict": "deviation",
+     "evidence": "src/lib/report/compare.ts:302 Any nonzero dimension delta qualifies for movement narration, including changes inside the repository's existing two-point score noise band."
+    },
+    {
+     "technique": "unmeasurable-vs-zero",
+     "verdict": "conformant",
+     "evidence": "src/lib/report/compare.ts:368 A dimension absent from either scan produces a null contrast, with explicit no-baseline or no-longer-scored presentation rather than an invented zero."
+    }
+   ]
+  },
+  {
+   "context": "Usage Metering",
+   "subject": "measurement-honesty",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/usage.ts:544 A failed ledger read becomes an empty contribution, allowing the summary to publish partial usage without identifying the acquisition failure.",
+   "techniques": [
+    {
+     "technique": "co-published-numbers-must-reconcile",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/usage.ts:907 Scan-team allocations always use built-in rates, while the headline and scan-lane estimate can use configured env rates, so their published costs can disagree."
+    },
+    {
+     "technique": "incomplete-not-verdict",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/usage.ts:544 Lane, team, matrix, and repo ledger read failures are caught as empty arrays without an incomplete result or a failed-read disclosure."
+    },
+    {
+     "technique": "lower-bound-disclosure",
+     "verdict": "deviation",
+     "evidence": "src/app/usage/costHeadline.ts:79 When calls are unpriced, the floor qualifier appears only in the separate subtitle; the monetary value itself remains an unqualified dollar string."
+    },
+    {
+     "technique": "minimum-sample-floors",
+     "verdict": "deviation",
+     "evidence": "src/app/usage/page.tsx:160 Credit runway extrapolates any positive daily burn, including a single scan in a one-day window, without a minimum sample or elapsed-span refusal."
+    },
+    {
+     "technique": "renormalize-over-present",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:946 This aggregation adds monetary parts of a budget whole rather than averaging nullable measures; the standard explicitly excludes rescaling such missing parts."
+    },
+    {
+     "technique": "unmeasurable-vs-zero",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/usage.ts:670 Missing pricing rates produce no estimate, while explicitly configured zero rates remain valid measured-zero prices; tests cover both cases."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-16T01:59:30.878483+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "measurement-honesty"
+   ],
+   "techniques": [
+    "co-published-numbers-must-reconcile",
+    "control-failure-is-not-a-datum-state",
+    "incomplete-not-verdict",
+    "minimum-sample-floors",
+    "noise-band-and-hysteresis",
+    "unmeasurable-vs-zero"
+   ],
+   "deviations": 1,
+   "context": "Trends & Comparison",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  },
+  {
+   "ts": "2026-10-16T01:59:30.878483+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "measurement-honesty"
+   ],
+   "techniques": [
+    "co-published-numbers-must-reconcile",
+    "incomplete-not-verdict",
+    "lower-bound-disclosure",
+    "minimum-sample-floors",
+    "renormalize-over-present",
+    "unmeasurable-vs-zero"
+   ],
+   "deviations": 1,
+   "context": "Usage Metering",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
