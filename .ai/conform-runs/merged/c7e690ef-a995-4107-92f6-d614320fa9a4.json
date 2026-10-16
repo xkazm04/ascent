@@ -1,0 +1,22 @@
+{
+ "schema": "conform-run/1",
+ "worker": "c7e690ef-a995-4107-92f6-d614320fa9a4",
+ "subject": "public-claim-provenance",
+ "evaluatedAt": "2026-10-16T21:41:30.832416+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "public-claim-provenance",
+   "context": "Live War Room",
+   "reason": "not-applicable without the 2+ search terms that prove the absence"
+  },
+  {
+   "subject": "public-claim-provenance",
+   "context": "Score Charts & Visuals",
+   "reason": "not-applicable without the 2+ search terms that prove the absence"
+  }
+ ],
+ "consults": []
+}
