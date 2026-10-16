@@ -1,0 +1,95 @@
+{
+ "schema": "conform-run/1",
+ "worker": "666ce06b-447e-41c8-b2ce-a54c297a966b",
+ "subject": "error-handling",
+ "evaluatedAt": "2026-10-16T01:35:05.726596+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "error-handling",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/app/report/[owner]/[repo]/page.tsx:59 Failed server-side data reads are explicitly caught, routed to telemetry and operator logs, and distinguished from empty results so failures are never silently swallowed or misrepresented to users.",
+   "techniques": [
+    {
+     "technique": "cancellation-attribution",
+     "verdict": "conformant",
+     "evidence": "src/components/report/useReportScan.ts:439 Attributed reason is set at the site of cancellation (timeout vs user abort) so the catch handler classifies by cause rather than guessing from the causeless AbortError."
+    },
+    {
+     "technique": "consumer-decides-error-shape",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/ReportClient.tsx:15 Internal UI application terminating in render doors rather than an independently shipped and versioned library boundary."
+    },
+    {
+     "technique": "containment-boundary-restores-state",
+     "verdict": "not-applicable",
+     "evidence": "src/app/report/[owner]/[repo]/page.tsx:84 Context is a read-only reporting shell with no long-lived mutating document or session state requiring snapshot rollback."
+    },
+    {
+     "technique": "error-doors",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/opengraph-image.tsx:36 Failed data reads route to operator logging and telemetry doors via reportDegradedRead rather than failing silently."
+    },
+    {
+     "technique": "exit-contract-is-a-taxonomy-projection",
+     "verdict": "not-applicable",
+     "evidence": "src/app/report/page.tsx:13 Web UI shell in Next.js with no process supervisor exit status or CLI contract."
+    },
+    {
+     "technique": "parse-failure-keeps-identity",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/useReportScan.ts:393 Reports are parsed as single cohesive documents where payload corruption fails the report rather than an externally owned collection of items."
+    },
+    {
+     "technique": "structured-propagation",
+     "verdict": "conformant",
+     "evidence": "src/components/report/useReportScan.ts:312 Error classification across HTTP and SSE boundaries checks machine status codes and structured fields rather than parsing localized error prose."
+    },
+    {
+     "technique": "swallowed-error-prevention",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.tsx:280 Degraded best-effort reads are routed through degradeTo door helpers to prevent silent swallows, reinforced by AST guard tests."
+    },
+    {
+     "technique": "taxonomy-design",
+     "verdict": "conformant",
+     "evidence": "src/components/report/useReportScan.ts:39 Defines a closed failure taxonomy (ScanErrorClass) separating transient issues from permanent fault lines and extracting remediation data (resetAt)."
+    },
+    {
+     "technique": "user-facing-mapping",
+     "verdict": "conformant",
+     "evidence": "src/components/report/ReportClient.tsx:73 Maps classified failure states to specific product surfaces pairing honest failure descriptions with actionable remedies like credit top-up."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-16T01:35:05.726596+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "error-handling"
+   ],
+   "techniques": [
+    "cancellation-attribution",
+    "consumer-decides-error-shape",
+    "containment-boundary-restores-state",
+    "error-doors",
+    "exit-contract-is-a-taxonomy-projection",
+    "parse-failure-keeps-identity",
+    "structured-propagation",
+    "swallowed-error-prevention",
+    "taxonomy-design",
+    "user-facing-mapping"
+   ],
+   "deviations": 0,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  }
+ ]
+}
