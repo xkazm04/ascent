@@ -8934,7 +8934,11 @@
           "revision": 2,
           "changedAt": "2026-08-27",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/retention.ts:1005 The org receives scan counts only after the entire repo prune returns, so a later batch failure loses counts from earlier committed batches.",
+          "evaluatedAt": "2026-10-16",
+          "evaluatedAgainst": "sha256-b2:c04dbf25f3ca1ea6",
+          "evaluatedRevision": 2
         },
         {
           "subject": "feed",

@@ -4550,6 +4550,42 @@
         "at": "2026-10-16T00:50:18.583503+00:00",
         "reason": "reviewer (sonnet): The evidence anchor src/components/report/ScoringTab.tsx:66 is only a comment and render line for ScoreWaterfall, and ScoringTab.tsx is not among the context's listed files, so it doesn't show that orchestration is absent in this context."
       }
+    },
+    "Data & Persistence/Data Retention & Purge/data-retention": {
+      "context": "Data Retention & Purge",
+      "subject": "data-retention",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-16",
+      "evaluatedTs": "2026-10-16T01:13:44.994Z",
+      "worker": "fe29599f-538d-4f54-aae2-fc466a037e7f",
+      "techniques": [
+        {
+          "technique": "confirm-by-echo",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/settings/DataErasureDialog.tsx:39 The UI requires case-sensitive equality although the server treats org slugs case-insensitively; the technique explicitly rejects comparisons stricter than the identifier's equality rule."
+        },
+        {
+          "technique": "destructive-override-floor",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.ts:1190 Below-floor policies are correctly refused unless RETENTION_FORCE=1, but the audit payload and run summary do not record whether that bypass was active, as the technique requires."
+        },
+        {
+          "technique": "dry-run-preview",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.ts:1016 Execution ages out existing digests, but the dry-run branch returns before this sweep and leaves digestsDeleted initialized to zero, understating the destructive population."
+        },
+        {
+          "technique": "per-tenant-retention-policy",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/retention-policy.ts:136 Nullable persisted org windows inherit centralized defaults through resolveRetention; explicit zero remains unlimited, defaults retain everything, and disabled windows bypass deletion."
+        },
+        {
+          "technique": "time-budgeted-batch-purge",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.ts:345 Batching and budget checks exist, but committed counts remain local until this successful return; a subsequent selection or transaction failure rejects the helper and discards those counts from the summary."
+        }
+      ]
     }
   }
 }
