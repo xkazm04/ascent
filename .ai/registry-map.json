@@ -6378,7 +6378,11 @@
           "revision": 6,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/memory/route.ts:83 This context exposes a memory library and retrieval APIs, and searches found none of the listed orchestration identifiers in its directories, so resident-companion conversation orchestration does not apply here.",
+          "evaluatedAt": "2026-10-16",
+          "evaluatedAgainst": "sha256-b2:f3ecee1630629b34",
+          "evaluatedRevision": 6
         },
         {
           "subject": "agent-runtime-assembly",

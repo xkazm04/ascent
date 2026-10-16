@@ -4443,6 +4443,113 @@
         }
       ],
       "registryProposal": "Clarify dedup-and-cooldown's final requirement for recovery notifications to have separate suppression state: earlier text requires opposite-direction pushes at the same reach to consume one shared pool, so the final rule should distinguish quiet recovery from full-reach recovery."
+    },
+    "Org Knowledge & Skills/Org Memory/conversation-orchestration": {
+      "context": "Org Memory",
+      "subject": "conversation-orchestration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-16",
+      "evaluatedTs": "2026-10-16T00:49:56.027Z",
+      "worker": "3e6a7f9d-1c91-45eb-a82d-ce3d7aaabf80",
+      "techniques": [
+        {
+          "technique": "layered-avatar-state-machine",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/memory/MemoryCoverageStrip.tsx:50 The coverage strip represents fleet memory coverage, without a permanent companion avatar or turn-driven face."
+        },
+        {
+          "technique": "model-proposed-quick-replies",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/memory/MemoryAuthorForm.tsx:143 Save is an explicit authoring-form action; it is not a model-proposed conversational reply chip."
+        },
+        {
+          "technique": "narration-promote-on-finish",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/memory/memoryCheck.ts:49 The check returns a settled JSON verdict, with no live narration channel or conversational turn record to promote into."
+        },
+        {
+          "technique": "progress-beat-grammar",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/memory/check/route.ts:81 This model pass produces a machine-consumed write recommendation, an explicit exclusion in the technique."
+        },
+        {
+          "technique": "recall-transparency",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/memory/MemoryRecallPanel.tsx:106 This is a standalone retrieval inspection surface, not disclosure attached to a companion's composing or running turn."
+        },
+        {
+          "technique": "show-dont-tell-walkthrough",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/memory/MemoryAuthorForm.tsx:73 Scrolling follows a user's correction selection; no conversationally invoked companion walkthrough is involved."
+        },
+        {
+          "technique": "structured-visual-replies",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/memory/recall/route.ts:115 Recall returns ranked stored records, not visual structures composed inside a model's conversational answer."
+        },
+        {
+          "technique": "two-surface-doctrine",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/memory/MemoryPanel.tsx:97 The panel renders the browsable memory list; it does not route companion content between conversation and ambient surfaces."
+        }
+      ]
+    },
+    "Reporting & Visualization/Score Charts & Visuals/conversation-orchestration": {
+      "context": "Score Charts & Visuals",
+      "subject": "conversation-orchestration",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-16",
+      "evaluatedTs": "2026-10-16T00:49:56.027Z",
+      "techniques": [
+        {
+          "technique": "layered-avatar-state-machine",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/ScoreRing.tsx:102 The animation depicts a score arc, not a permanently visible companion's conversational state."
+        },
+        {
+          "technique": "model-proposed-quick-replies",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/RadarChart.tsx:144 The interaction selects a report dimension; it does not submit a model-proposed next message."
+        },
+        {
+          "technique": "narration-promote-on-finish",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/DimLine.tsx:89 The retained trajectory consists of scan values, without ephemeral conversational narration requiring promotion."
+        },
+        {
+          "technique": "progress-beat-grammar",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/DimensionExplorer.tsx:34 The explorer derives its display from supplied report data rather than orchestrating a running model turn."
+        },
+        {
+          "technique": "recall-transparency",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/provenance.ts:58 This provenance describes score production, not persistent user memories recalled into a companion's answer."
+        },
+        {
+          "technique": "show-dont-tell-walkthrough",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/chartHover.tsx:121 The overlay positions a chart tooltip; it is not a companion-invoked guide to application controls."
+        },
+        {
+          "technique": "structured-visual-replies",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/ScoreWaterfall.tsx:34 The chart derives from the report's scoring model, not a visual block authored within a conversational completion."
+        },
+        {
+          "technique": "two-surface-doctrine",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/PosturePanel.tsx:27 The panel presents report metrics and their quadrant, without conversation-versus-ambient companion routing."
+        }
+      ],
+      "withdrawn": {
+        "worker": "3e6a7f9d-1c91-45eb-a82d-ce3d7aaabf80",
+        "state": "not-applicable",
+        "at": "2026-10-16T00:50:18.583503+00:00",
+        "reason": "reviewer (sonnet): The evidence anchor src/components/report/ScoringTab.tsx:66 is only a comment and render line for ScoreWaterfall, and ScoringTab.tsx is not among the context's listed files, so it doesn't show that orchestration is absent in this context."
+      }
     }
   }
 }
