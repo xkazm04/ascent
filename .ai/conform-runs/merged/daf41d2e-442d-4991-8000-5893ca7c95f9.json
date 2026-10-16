@@ -1,0 +1,77 @@
+{
+ "schema": "conform-run/1",
+ "worker": "daf41d2e-442d-4991-8000-5893ca7c95f9",
+ "subject": "companion-runtime",
+ "evaluatedAt": "2026-10-16T00:20:09.007016+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [
+  {
+   "context": "Athena Companion",
+   "subject": "companion-runtime",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/athena/[id]/message/route.ts:75 The message route dispatches runAthenaTurn without holding a conversation-scoped lock or supporting an interrupted turn verdict, permitting concurrent turn interleaving and treating stops as errors.",
+   "techniques": [
+    {
+     "technique": "action-catalog-single-source",
+     "verdict": "conformant",
+     "evidence": "src/app/api/athena/proposals/[id]/resolve/route.ts:133 The catalog is re-consulted at acceptance time via coerceAthenaAction, retiring unknown actions."
+    },
+    {
+     "technique": "autonomous-cycle-hosting",
+     "verdict": "conformant",
+     "evidence": "src/app/api/cron/athena/route.ts:104 The autonomous cycle acquires an atomic at-most-once claim before spending, skips on live turns, and enforces ceilings."
+    },
+    {
+     "technique": "headless-turn-stream",
+     "verdict": "deviation",
+     "evidence": "src/lib/athena/turn.ts:41 The turn lacks an interrupted verdict and neither runtime nor route holds a conversation lock to guard turn concurrency."
+    },
+    {
+     "technique": "host-seam-contracts",
+     "verdict": "conformant",
+     "evidence": "src/lib/athena/turn.ts:80 The turn runtime receives all host capabilities as an injected object and is tested against doubles without host dependencies."
+    },
+    {
+     "technique": "metered-llm-seam",
+     "verdict": "conformant",
+     "evidence": "src/lib/llm/leg.ts:139 Every LLM call requires an explicit, un-defaulted legKind, and token usage is parsed centrally with nullable tokens."
+    },
+    {
+     "technique": "operative-working-set",
+     "verdict": "deviation",
+     "evidence": "src/lib/athena/cycle.ts:161 Instead of an in-process operative set, in-flight work is inferred by querying durable database turn timestamps."
+    },
+    {
+     "technique": "signal-economy-contract",
+     "verdict": "conformant",
+     "evidence": "src/lib/athena/cycle-signal.ts:120 Every autonomous outcome passes a typed report-or-absorb judgment that produces textless absorbed outcomes and emits no contact when quiet."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-16T00:20:09.007016+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "companion-runtime"
+   ],
+   "techniques": [
+    "action-catalog-single-source",
+    "autonomous-cycle-hosting",
+    "headless-turn-stream",
+    "host-seam-contracts",
+    "metered-llm-seam",
+    "operative-working-set",
+    "signal-economy-contract"
+   ],
+   "deviations": 1,
+   "context": "Athena Companion",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  }
+ ]
+}
