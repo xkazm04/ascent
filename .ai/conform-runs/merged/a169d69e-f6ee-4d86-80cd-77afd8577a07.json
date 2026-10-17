@@ -1,0 +1,22 @@
+{
+ "schema": "conform-run/1",
+ "worker": "a169d69e-f6ee-4d86-80cd-77afd8577a07",
+ "subject": "test-input-generation",
+ "evaluatedAt": "2026-10-17T22:33:04.405995+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "test-input-generation",
+   "context": "Design System: UI Primitives & Deck",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-input-generation",
+   "context": "Marketing About Page",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": []
+}
