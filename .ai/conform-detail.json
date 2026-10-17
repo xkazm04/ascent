@@ -4833,6 +4833,42 @@
         }
       ],
       "registryProposal": "Clarify multi-candidate ownership: the fenced-block rung says to prefer the candidate that validates furthest, while the cross-rung rule forbids schema consultation; specify how validator-ranked selection should occur without assessment-specific heuristics inside a generic extractor."
+    },
+    "Billing, Credits & Metering/Usage Metering/usage-pricing-models": {
+      "context": "Usage Metering",
+      "subject": "usage-pricing-models",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-17",
+      "evaluatedTs": "2026-10-17T23:08:23.652Z",
+      "techniques": [
+        {
+          "technique": "advance-billing-refuses-retroactive-models",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/usage/route.ts:134 The endpoint reads a usage summary; it does not select billing timing or collect an incremental usage charge."
+        },
+        {
+          "technique": "exact-money-with-one-rounding-boundary",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:651 The floating-point calculations estimate supplier inference costs, which the golden path explicitly excludes from seller-side monetary pricing."
+        },
+        {
+          "technique": "grouping-key-reruns-the-ladder",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage-showback.ts:109 Lane/team grouping aggregates recorded events for analytical showback; it does not introduce grouping on a customer charge or reset pricing components."
+        },
+        {
+          "technique": "inferred-tier-boundary-convention",
+          "verdict": "not-applicable",
+          "evidence": "src/app/usage/AllotmentPanel.tsx:35 The numeric thresholds classify allowance utilization for display, rather than defining tiers that price usage."
+        }
+      ],
+      "withdrawn": {
+        "worker": "a4b4dcd0-ac29-4b46-91a6-b366ea5d9c08",
+        "state": "not-applicable",
+        "at": "2026-10-17T23:08:41.862384+00:00",
+        "reason": "reviewer (sonnet): The context's own code shows a seller-side usage-to-money model: src/app/usage/AllotmentPanel.tsx:18 mentions a 'charge resolver' that compares metered scans to the plan's includedCredits, the same file computes monthly-allotment utilization, and usageDashboard.tsx:264 refers to where 'the price of "
+      }
     }
   }
 }

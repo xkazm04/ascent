@@ -1,0 +1,40 @@
+{
+  "schema": "conform-run/1",
+  "worker": "a4b4dcd0-ac29-4b46-91a6-b366ea5d9c08",
+  "subject": "usage-pricing-models",
+  "evaluatedAt": "2026-10-17T23:08:23.652514+00:00",
+  "provider": "codex",
+  "model": "gpt-6.1-sol",
+  "pairs": [],
+  "declined": [
+    {
+      "subject": "usage-pricing-models",
+      "context": "Checkout & Plans (Polar)",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "usage-pricing-models",
+      "context": "Usage Metering",
+      "reason": "withdrawn after review: reviewer (sonnet): The context's own code shows a seller-side usage-to-money model: src/app/usage/AllotmentPanel.tsx:18 mentions a 'charge resolver' that compares metered scans to the plan's includedCredits, the same file computes monthly-allotment utilization, and usageDashboard.tsx:264 refers to where 'the price of "
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-17T23:08:23.652514+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "usage-pricing-models"
+      ],
+      "techniques": [
+        "advance-billing-refuses-retroactive-models",
+        "exact-money-with-one-rounding-boundary",
+        "grouping-key-reruns-the-ladder",
+        "inferred-tier-boundary-convention"
+      ],
+      "deviations": 0,
+      "context": "Usage Metering",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    }
+  ]
+}
