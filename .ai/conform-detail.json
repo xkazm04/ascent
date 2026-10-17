@@ -4715,6 +4715,124 @@
         "at": "2026-10-16T02:31:52.006162+00:00",
         "reason": "reviewer (sonnet): The anchor src/lib/controls/seal.ts:23 is an import line in a file outside this context's file list, so it doesn't show that boot, reload or unseal steps are absent. The context's own audit code also signs entries (`withAuditSignature` in `scans-audit.ts`), which I didn't trace and which doesn't fit"
       }
+    },
+    "Org Knowledge & Skills/Athena Companion/structured-output": {
+      "context": "Athena Companion",
+      "subject": "structured-output",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-17",
+      "evaluatedTs": "2026-10-17T21:49:45.272Z",
+      "worker": "380447d2-436a-4843-b1d2-125ac42dd17b",
+      "techniques": [
+        {
+          "technique": "artifact-lifecycle",
+          "verdict": "deviation",
+          "evidence": "src/app/api/athena/[id]/message/route.ts:75 Each interactive request starts a turn without server-side per-thread admission; the client sending flag cannot prevent concurrent callers from running against the same thread."
+        },
+        {
+          "technique": "constrained-decoding-is-a-shared-budget",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/actions.ts:353 The action producer requests fenced text rather than assembling independently contributed decoder constraints."
+        },
+        {
+          "technique": "constraint-and-tool-channel-exclusion",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/tool-loop.ts:195 The assembled Athena leg carries tools and no output constraint, so the conflicting combination does not arise."
+        },
+        {
+          "technique": "display-vs-machine-channels",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/blocks.ts:294 Although extraction removes payload spans, block-only output receives synthesized narration, \"Here it is.\", contrary to the explicit empty-narration rule."
+        },
+        {
+          "technique": "extraction-observability",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/actions.ts:546 Aggregate drops discard the distinction between malformed JSON, unknown actions and parameter failures, along with rejected candidates needed for diagnosis."
+        },
+        {
+          "technique": "extraction-strategies",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/actions.ts:520 Action fence bodies receive strict parsing followed by dropping on failure, without a tolerant recovery ladder or a recorded strategy trace."
+        },
+        {
+          "technique": "graded-span-grounding",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/turn.ts:304 This persisted episode is a derived exchange summary, not an artifact claiming verbatim source spans."
+        },
+        {
+          "technique": "op-grammar-allowlisting",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/actions-execute.ts:169 The catalog closes operation names, but rule_on_finding does not resolve its operative itemKey before recording a ruling; decide performs a tenant-scoped upsert rather than a finding lookup."
+        },
+        {
+          "technique": "schema-validation-and-repair",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/actions.ts:384 Numeric action parameters are silently converted to strings, and successful validation carries no coercion or repair record."
+        }
+      ]
+    },
+    "Repository Scanning & Scoring/LLM Provider Abstraction/structured-output": {
+      "context": "LLM Provider Abstraction",
+      "subject": "structured-output",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-17",
+      "evaluatedTs": "2026-10-17T21:49:45.272Z",
+      "worker": "380447d2-436a-4843-b1d2-125ac42dd17b",
+      "techniques": [
+        {
+          "technique": "answer-coverage-gating",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/provider.ts:390 The named coverage floor and deduplication exist, but this count includes scores rounded or clamped by validateAssessment; five scores of 250 become five scores of 100 and satisfy a nine-dimension request's floor."
+        },
+        {
+          "technique": "constrained-decoding-is-a-shared-budget",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/gemini.ts:91 This assessment request has one built-in schema rather than multiple independently contributed constraints competing for capacity."
+        },
+        {
+          "technique": "constraint-and-tool-channel-exclusion",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/openai.ts:93 The inspected assessment request supplies an output format without acting tools; Bedrock instead uses a reporting tool's input schema."
+        },
+        {
+          "technique": "display-vs-machine-channels",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/provider.ts:365 This seam returns a machine assessment rather than a conversational turn with separate narration; presentation occurs downstream."
+        },
+        {
+          "technique": "enumerable-domain-decoding",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/schema.ts:176 The OpenAI schema transformation removes numeric bounds without replacing the small integer score domain with a derived enumeration, leaving range enforcement to post-generation clamping."
+        },
+        {
+          "technique": "extraction-observability",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/json.ts:21 Parse failure retains only a short head snippet, without the required tail, strategy trace or final validation errors; successful parsing also exposes no strategy telemetry."
+        },
+        {
+          "technique": "extraction-strategies",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/json.ts:119 The generic syntax extractor ranks candidates using assessment-specific dimensions fields, mixing validation concerns into extraction and returning no winning-strategy or multi-candidate metadata."
+        },
+        {
+          "technique": "op-grammar-allowlisting",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/bedrock.ts:212 The reporting tool's input is consumed as assessment data rather than dispatched as a model-proposed operation."
+        },
+        {
+          "technique": "output-budget-signal",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/output-budget.ts:79 Measurement and warning bands exist, but the default gemini-3.8-flash matches none of the listed Gemini prefixes and receives the wholly-unknown fallback instead of a recognized-family default."
+        },
+        {
+          "technique": "schema-validation-and-repair",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/provider.ts:236 Fractional and out-of-range scores silently become valid integers; the validator returns an assessment instead of path-addressed rejection errors and a bounded semantic repair outcome."
+        }
+      ],
+      "registryProposal": "Clarify multi-candidate ownership: the fenced-block rung says to prefer the candidate that validates furthest, while the cross-rung rule forbids schema consultation; specify how validator-ranked selection should occur without assessment-specific heuristics inside a generic extractor."
     }
   }
 }
