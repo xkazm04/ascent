@@ -1,0 +1,71 @@
+{
+ "schema": "conform-run/1",
+ "worker": "2b05cee5-5144-4c07-be9e-12b34ef9e272",
+ "subject": "design-tokens",
+ "evaluatedAt": "2026-10-18T22:48:26.169422+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Design System: UI Primitives & Deck",
+   "subject": "design-tokens",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/ui/Kicker.tsx:21 These primitives mix semantic roles with direct palette references, untokenized motion, and theme-specific overrides, preventing visual decisions from consistently flowing through shared roles.",
+   "techniques": [
+    {
+     "technique": "cross-language-token-parity",
+     "verdict": "deviation",
+     "evidence": "src/components/ui/format.ts:39 Stat consumes this fixed hex mapping; flat remains #94a3b8 while theme-prism.css:22 rebinds --color-tone-flat to #b7bbcc, and format.test.ts:56-59 checks only globals.css."
+    },
+    {
+     "technique": "density-and-scale-axes",
+     "verdict": "not-applicable",
+     "evidence": "src/components/ui/Stat.tsx:54 These are author-selected presentation variants; searches for density, text-scale, font-scale, prefers-contrast, and brightness found no user appearance axis in the listed context."
+    },
+    {
+     "technique": "motion-tokens",
+     "verdict": "deviation",
+     "evidence": "src/app/globals.css:691 Reveal's .js-reveal rule embeds a duration and easing curve instead of consuming a named motion ladder; reduced motion is handled by a selector-specific media block."
+    },
+    {
+     "technique": "theme-architecture",
+     "verdict": "deviation",
+     "evidence": "src/app/kit.css:387 HairlineGrid receives a component-specific theme override, including a raw radius, instead of consuming roles whose bindings change at the scope root."
+    },
+    {
+     "technique": "token-enforcement",
+     "verdict": "deviation",
+     "evidence": "src/components/deck/DeckNav.tsx:65 Deck navigation directly consumes palette primitives without a loud suppression; the inspected enforcement configuration provides no rule or ratchet rejecting these references."
+    },
+    {
+     "technique": "token-taxonomy",
+     "verdict": "deviation",
+     "evidence": "src/components/ui/Kicker.tsx:22 Kicker composes arbitrary tracking beside its text role, while its muted tone directly selects slate-500 rather than a semantic foreground role."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-18T22:48:26.169422+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "design-tokens"
+   ],
+   "techniques": [
+    "cross-language-token-parity",
+    "density-and-scale-axes",
+    "motion-tokens",
+    "theme-architecture",
+    "token-enforcement",
+    "token-taxonomy"
+   ],
+   "deviations": 1,
+   "context": "Design System: UI Primitives & Deck",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

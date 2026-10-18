@@ -9567,7 +9567,11 @@
           "revision": 7,
           "changedAt": "2026-09-24",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/ui/Kicker.tsx:21 These primitives mix semantic roles with direct palette references, untokenized motion, and theme-specific overrides, preventing visual decisions from consistently flowing through shared roles.",
+          "evaluatedAt": "2026-10-18",
+          "evaluatedAgainst": "sha256-b2:165125b7a54d0de3",
+          "evaluatedRevision": 7
         },
         {
           "subject": "test-input-generation",
