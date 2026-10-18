@@ -1,0 +1,38 @@
+{
+  "schema": "conform-run/1",
+  "worker": "3fddf8f2-7021-40ab-822e-9336ebcf6540",
+  "subject": "async-ui-states",
+  "evaluatedAt": "2026-10-18T21:40:41.570388+00:00",
+  "provider": "codex",
+  "model": "gpt-6.1-sol",
+  "pairs": [],
+  "declined": [
+    {
+      "subject": "async-ui-states",
+      "context": "Design System: UI Primitives & Deck",
+      "reason": "withdrawn after review: reviewer (sonnet): The deviation anchor PageSkeleton.tsx and the RouteError.tsx retry claim are not among this context's listed files and are not exported by ui/index.ts, so the verdict is about a different context, even though the lines themselves match what the evidence says."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-18T21:40:41.570388+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "async-ui-states"
+      ],
+      "techniques": [
+        "action-busy-states",
+        "arrival-choreography",
+        "empty-state-design",
+        "failure-states",
+        "placeholder-design",
+        "state-model",
+        "windowing-vs-identifying-keys"
+      ],
+      "deviations": 1,
+      "context": "Design System: UI Primitives & Deck",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    }
+  ]
+}

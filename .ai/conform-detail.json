@@ -4951,6 +4951,57 @@
           "evidence": "src/components/org/shared/useRunnerNotifier.ts:68 The shell-resident notification worker converts unsuccessful polling responses into null without reporting degraded health, making a failing worker indistinguishable from a quiet one."
         }
       ]
+    },
+    "Marketing Site & Design System/Design System: UI Primitives & Deck/async-ui-states": {
+      "context": "Design System: UI Primitives & Deck",
+      "subject": "async-ui-states",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-18",
+      "evaluatedTs": "2026-10-18T21:40:41.570Z",
+      "techniques": [
+        {
+          "technique": "action-busy-states",
+          "verdict": "deviation",
+          "evidence": "src/components/ui/RouteError.tsx:64 Retry starts router.refresh() and reset(), but has no synchronous duplicate-press guard, disabled state, spinner, or busy announcement."
+        },
+        {
+          "technique": "arrival-choreography",
+          "verdict": "not-applicable",
+          "evidence": "src/components/deck/Reveal.tsx:65 This implements viewport-driven deck motion rather than asynchronous content arrival; inspected landing usages wrap already-provided content."
+        },
+        {
+          "technique": "empty-state-design",
+          "verdict": "not-applicable",
+          "evidence": "src/components/ui/Stat.tsx:95 The inspected primitives conditionally render supplied presentation fields; they do not assert that a requested dataset is empty."
+        },
+        {
+          "technique": "failure-states",
+          "verdict": "conformant",
+          "evidence": "src/components/ui/RouteError.tsx:59 The boundary explicitly identifies failure, provides retry through refresh/reset, and reports the error through console.error; retry busy feedback is judged separately."
+        },
+        {
+          "technique": "placeholder-design",
+          "verdict": "deviation",
+          "evidence": "src/components/ui/PageSkeleton.tsx:9 The placeholder ghosts the heading as well as content, and the component has no delayed appearance mechanism."
+        },
+        {
+          "technique": "state-model",
+          "verdict": "not-applicable",
+          "evidence": "src/components/ui/Surface.tsx:33 These primitives render supplied content or framework-selected fallbacks; they do not own request machinery from which to derive the content state model."
+        },
+        {
+          "technique": "windowing-vs-identifying-keys",
+          "verdict": "not-applicable",
+          "evidence": "src/components/deck/DeckNav.tsx:22 This key controls observation of document sections, not a compound data request; the inspected primitives own no paging or identifying query coordinates."
+        }
+      ],
+      "withdrawn": {
+        "worker": "3fddf8f2-7021-40ab-822e-9336ebcf6540",
+        "state": "deviation",
+        "at": "2026-10-18T21:41:02.724915+00:00",
+        "reason": "reviewer (sonnet): The deviation anchor PageSkeleton.tsx and the RouteError.tsx retry claim are not among this context's listed files and are not exported by ui/index.ts, so the verdict is about a different context, even though the lines themselves match what the evidence says."
+      }
     }
   }
 }
