@@ -1,0 +1,40 @@
+{
+  "schema": "conform-run/1",
+  "worker": "7428e43d-843a-467d-b287-df9f617b307f",
+  "subject": "delivery-guarantees",
+  "evaluatedAt": "2026-10-18T23:20:14.717039+00:00",
+  "provider": "codex",
+  "model": "gpt-6.1-sol",
+  "pairs": [],
+  "declined": [
+    {
+      "subject": "delivery-guarantees",
+      "context": "People & Delivery Analytics",
+      "reason": "withdrawn after review: reviewer (sonnet): The main anchor, PrRepoTable.tsx:161, is just a table render and doesn't show that event processing is absent, so it is incidental. The DeliveryCorePanel.tsx:41 technique anchor is not in the context's file list, and the verdict's claim that repository searches 'located queue mechanisms elsewhere' w"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-18T23:20:14.717039+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "delivery-guarantees"
+      ],
+      "techniques": [
+        "atomic-claiming",
+        "co-transactional-consume",
+        "dead-letter-design",
+        "guarantee-selection",
+        "marker-certifies-what-was-done",
+        "non-delivery-ledgers",
+        "ordered-lane-blocking",
+        "retry-escalation",
+        "stuck-reaping"
+      ],
+      "deviations": 0,
+      "context": "People & Delivery Analytics",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    }
+  ]
+}
