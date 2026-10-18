@@ -1,0 +1,89 @@
+{
+ "schema": "conform-run/1",
+ "worker": "4488ca8c-bb68-422f-9fd4-be8633f75792",
+ "subject": "authorization",
+ "evaluatedAt": "2026-10-18T22:14:10.060700+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Security Posture & Audit Log",
+   "subject": "authorization",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/scans-audit.ts:20 The audit writer accepts arbitrary metadata, so secrets are not structurally excluded from persisted audit records.",
+   "techniques": [
+    {
+     "technique": "authorization-audit",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/scans-audit.ts:20 The writer accepts unrestricted values and serializes them; its input type does not enforce the standard's identifiers-only contract."
+    },
+    {
+     "technique": "ceiling-before-consent",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/security/pdf/route.ts:50 The inspected surfaces return reports and audit records; they do not present requester-selected capabilities for approval or mint grants."
+    },
+    {
+     "technique": "declarative-requirements",
+     "verdict": "deviation",
+     "evidence": "src/app/api/audit/route.ts:105 The requirement is an imperative handler call, rather than declared operation data consumed by the dispatcher."
+    },
+    {
+     "technique": "delegated-authority",
+     "verdict": "deviation",
+     "evidence": "src/lib/security/supply-chain.ts:143 The intermediary receives only org and data-scope identifiers before exercising an installation token; originating authority and delegate identity do not travel as a typed value."
+    },
+    {
+     "technique": "dispatch-chokepoint-gating",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/security/pdf/route.ts:29 Authorization runs inside GET after query parsing; coverage depends on each handler explicitly calling the guard."
+    },
+    {
+     "technique": "failure-direction",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/members.ts:33 Unrecognized stored roles become viewer through coerceStoredRole; canReadOrg accepts viewer, so corrupt authority still permits these private reads instead of refusing."
+    },
+    {
+     "technique": "machine-credential-consumption",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/security/supply-chain.ts:88 This context presents a credential to GitHub as a client; it does not implement the issuer-side machine login, use counting, or renewal lifecycle."
+    },
+    {
+     "technique": "one-accessor-per-fold-direction",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/authz.ts:201 The authority predicate returns a Boolean; no multi-valued authorization verdict with legitimately opposing uncertainty folds was found on these paths."
+    },
+    {
+     "technique": "scope-design",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/security/supply-chain.ts:156 The local scope parameter selects a tech-stack data subset; these paths do not define or issue application capability scopes."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-18T22:14:10.060700+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "authorization"
+   ],
+   "techniques": [
+    "authorization-audit",
+    "ceiling-before-consent",
+    "declarative-requirements",
+    "delegated-authority",
+    "dispatch-chokepoint-gating",
+    "failure-direction",
+    "machine-credential-consumption",
+    "one-accessor-per-fold-direction",
+    "scope-design"
+   ],
+   "deviations": 1,
+   "context": "Security Posture & Audit Log",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

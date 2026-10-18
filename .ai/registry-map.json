@@ -3732,7 +3732,11 @@
           "revision": 6,
           "changedAt": "2026-09-18",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/scans-audit.ts:20 The audit writer accepts arbitrary metadata, so secrets are not structurally excluded from persisted audit records.",
+          "evaluatedAt": "2026-10-18",
+          "evaluatedAgainst": "sha256-b2:57d60a438fa36d05",
+          "evaluatedRevision": 6
         },
         {
           "subject": "translation-pipeline-topology",
