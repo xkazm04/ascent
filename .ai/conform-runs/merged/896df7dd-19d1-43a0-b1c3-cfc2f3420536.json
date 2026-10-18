@@ -1,0 +1,71 @@
+{
+ "schema": "conform-run/1",
+ "worker": "896df7dd-19d1-43a0-b1c3-cfc2f3420536",
+ "subject": "analytics-time-windows",
+ "evaluatedAt": "2026-10-18T21:01:55.601084+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Trends & Comparison",
+   "subject": "analytics-time-windows",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/report/DimensionTrendsRange.tsx:37 Finite trend ranges enforce only their start boundary, retaining future-dated observations instead of applying the standard's exclusive end bound.",
+   "techniques": [
+    {
+     "technique": "baseline-as-window-start",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/scans-read.ts:774 The comparison defaults to adjacent scan artifacts and permits explicit scan selection; it does not claim movement since a reporting period began."
+    },
+    {
+     "technique": "calendar-arithmetic",
+     "verdict": "conformant",
+     "evidence": "src/components/report/DimensionTrendsRange.tsx:25 Calendar-day cutoffs use the shared zoned calendar helper, whose implementation constructs midnight from calendar components rather than subtracting fixed milliseconds."
+    },
+    {
+     "technique": "canonical-zone-single-source",
+     "verdict": "deviation",
+     "evidence": "src/components/report/WhatChangedParts.tsx:29 Picker timestamps use the ambient runtime zone rather than the canonical zone used for trend cutoffs; the chart's shortDate formatter also omits a timeZone."
+    },
+    {
+     "technique": "cohort-matched-comparison",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/scans-read.ts:752 The longitudinal comparison reads scans of one fixed repository, rather than subtracting aggregates over changing repository populations."
+    },
+    {
+     "technique": "half-open-interval-policy",
+     "verdict": "deviation",
+     "evidence": "src/components/report/DimensionTrendsRange.tsx:37 There is no exclusive upper bound; DimensionTrendsRange.test.tsx:69\u201372 explicitly requires future-dated scans to remain visible."
+    },
+    {
+     "technique": "range-precedence-resolution",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/DimensionTrends.tsx:33 The display range has one local-state source; the separately resolved plan history limit is an access ceiling, not a competing reporting preference."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-18T21:01:55.601084+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "analytics-time-windows"
+   ],
+   "techniques": [
+    "baseline-as-window-start",
+    "calendar-arithmetic",
+    "canonical-zone-single-source",
+    "cohort-matched-comparison",
+    "half-open-interval-policy",
+    "range-precedence-resolution"
+   ],
+   "deviations": 1,
+   "context": "Trends & Comparison",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

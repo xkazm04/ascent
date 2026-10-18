@@ -4869,6 +4869,47 @@
         "at": "2026-10-17T23:08:41.862384+00:00",
         "reason": "reviewer (sonnet): The context's own code shows a seller-side usage-to-money model: src/app/usage/AllotmentPanel.tsx:18 mentions a 'charge resolver' that compares metered scans to the plan's includedCredits, the same file computes monthly-allotment utilization, and usageDashboard.tsx:264 refers to where 'the price of "
       }
+    },
+    "Reporting & Visualization/Trends & Comparison/analytics-time-windows": {
+      "context": "Trends & Comparison",
+      "subject": "analytics-time-windows",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-18",
+      "evaluatedTs": "2026-10-18T21:01:55.601Z",
+      "worker": "896df7dd-19d1-43a0-b1c3-cfc2f3420536",
+      "techniques": [
+        {
+          "technique": "baseline-as-window-start",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/scans-read.ts:774 The comparison defaults to adjacent scan artifacts and permits explicit scan selection; it does not claim movement since a reporting period began."
+        },
+        {
+          "technique": "calendar-arithmetic",
+          "verdict": "conformant",
+          "evidence": "src/components/report/DimensionTrendsRange.tsx:25 Calendar-day cutoffs use the shared zoned calendar helper, whose implementation constructs midnight from calendar components rather than subtracting fixed milliseconds."
+        },
+        {
+          "technique": "canonical-zone-single-source",
+          "verdict": "deviation",
+          "evidence": "src/components/report/WhatChangedParts.tsx:29 Picker timestamps use the ambient runtime zone rather than the canonical zone used for trend cutoffs; the chart's shortDate formatter also omits a timeZone."
+        },
+        {
+          "technique": "cohort-matched-comparison",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/scans-read.ts:752 The longitudinal comparison reads scans of one fixed repository, rather than subtracting aggregates over changing repository populations."
+        },
+        {
+          "technique": "half-open-interval-policy",
+          "verdict": "deviation",
+          "evidence": "src/components/report/DimensionTrendsRange.tsx:37 There is no exclusive upper bound; DimensionTrendsRange.test.tsx:69–72 explicitly requires future-dated scans to remain visible."
+        },
+        {
+          "technique": "range-precedence-resolution",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/DimensionTrends.tsx:33 The display range has one local-state source; the separately resolved plan history limit is an access ceiling, not a competing reporting preference."
+        }
+      ]
     }
   }
 }

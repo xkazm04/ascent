@@ -7608,7 +7608,11 @@
           "revision": 6,
           "changedAt": "2026-09-30",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/report/DimensionTrendsRange.tsx:37 Finite trend ranges enforce only their start boundary, retaining future-dated observations instead of applying the standard's exclusive end bound.",
+          "evaluatedAt": "2026-10-18",
+          "evaluatedAgainst": "sha256-b2:9b81f64365c4edae",
+          "evaluatedRevision": 6
         }
       ],
       "governance": "governed"
