@@ -6350,7 +6350,11 @@
           "revision": 3,
           "changedAt": "2026-09-26",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/memory/route.ts:83 The browse endpoint silently returns at most 200 memories without a continuation, preventing callers from enumerating a larger matching collection.",
+          "evaluatedAt": "2026-10-18",
+          "evaluatedAgainst": "sha256-b2:4ec15f52e99e1903",
+          "evaluatedRevision": 3
         },
         {
           "subject": "translation-pipeline-topology",

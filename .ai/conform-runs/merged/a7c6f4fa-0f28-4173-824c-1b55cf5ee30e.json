@@ -1,0 +1,65 @@
+{
+ "schema": "conform-run/1",
+ "worker": "a7c6f4fa-0f28-4173-824c-1b55cf5ee30e",
+ "subject": "bounded-enumeration",
+ "evaluatedAt": "2026-10-18T21:56:49.053645+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Org Memory",
+   "subject": "bounded-enumeration",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/memory/route.ts:83 The browse endpoint silently returns at most 200 memories without a continuation, preventing callers from enumerating a larger matching collection.",
+   "techniques": [
+    {
+     "technique": "after-plus-limit-not-cursor",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-memory.ts:281 The list is capped but has no resumable position; MemoryListOpts and the GET handler expose no after or sort-tuple continuation."
+    },
+    {
+     "technique": "declare-the-inconsistency",
+     "verdict": "not-applicable",
+     "evidence": "src/features/shared/memory/memoryLibraryApi.ts:40 The inspected browse interface performs a single filtered top-N read, with no cross-page iteration contract to document."
+    },
+    {
+     "technique": "filter-after-return-under-limit",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-memory.ts:254 Private-row authorization filtering is composed into the database WHERE before take, whereas the technique requires filtering the bounded page after the store returns it."
+    },
+    {
+     "technique": "page-size-from-memory-budget",
+     "verdict": "deviation",
+     "evidence": "src/lib/memory/working-set.ts:23 Recall and reflection load up to 400 rows; the adjacent rationale names CPU and prompt bounds but supplies no memory target, worst-case row cost, arithmetic, or deployment override."
+    },
+    {
+     "technique": "required-limit-breaks-unaware-clients",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/memory/route.ts:83 Requests without a limit receive the default capped list, with neither an operator-configurable refusal posture nor a continuation indicating truncation."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-18T21:56:49.053645+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "bounded-enumeration"
+   ],
+   "techniques": [
+    "after-plus-limit-not-cursor",
+    "declare-the-inconsistency",
+    "filter-after-return-under-limit",
+    "page-size-from-memory-budget",
+    "required-limit-breaks-unaware-clients"
+   ],
+   "deviations": 1,
+   "context": "Org Memory",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
