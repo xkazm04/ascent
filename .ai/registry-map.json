@@ -6942,7 +6942,11 @@
           "revision": 5,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/shared/athena/AthenaComposer.tsx:61 The composer disables submission while Athena works, preventing the busy-turn queue required by the standard.",
+          "evaluatedAt": "2026-10-18",
+          "evaluatedAgainst": "sha256-b2:5b4e7d399a4d924e",
+          "evaluatedRevision": 5
         },
         {
           "subject": "structured-output",

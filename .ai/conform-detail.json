@@ -5094,6 +5094,62 @@
           "evidence": "src/lib/security/supply-chain.ts:156 The local scope parameter selects a tech-stack data subset; these paths do not define or issue application capability scopes."
         }
       ]
+    },
+    "Org Knowledge & Skills/Athena Companion/chat-transcript": {
+      "context": "Athena Companion",
+      "subject": "chat-transcript",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-18",
+      "evaluatedTs": "2026-10-18T22:27:39.079Z",
+      "worker": "dc80f893-c3dd-44e1-bffa-42234d066df4",
+      "techniques": [
+        {
+          "technique": "composer-turn-queue",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/athena/AthenaComposer.tsx:26 Busy submissions are refused; follow-ups cannot become identified queued rows."
+        },
+        {
+          "technique": "immutable-model-cached-layout",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/athena/AthenaPanel.tsx:97 Every panel render invokes the unmemoized turn component across the loaded history; settled rows are not inert during phase and tool updates, violating even the browser-managed layout residue."
+        },
+        {
+          "technique": "inline-structured-rows",
+          "verdict": "deviation",
+          "evidence": "src/app/api/athena/threads/route.ts:54 Boot excludes resolved proposals, while the turn renderer obtains proposal cards only from this collection; decisions disappear on reload instead of remaining resolved transcript rows."
+        },
+        {
+          "technique": "markdown-and-code-rendering",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/athena/AthenaProse.tsx:19 The renderer safely limits markup, but this expression deletes every closed fenced block, including ordinary code, instead of displaying its source with a copy affordance."
+        },
+        {
+          "technique": "progress-narration",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/athena/AthenaWaiting.tsx:56 Settlement clears waitingSince and removes narration entirely; persisted toolsCalled and phases have no compact, expandable trail in AthenaTurnView."
+        },
+        {
+          "technique": "transcript-scroll",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/athena/AthenaPanel.tsx:47 The effect runs on turn-count and sending changes without checking whether the user scrolled away, so settlement can yank a reader to the bottom."
+        },
+        {
+          "technique": "turn-metadata",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/athena/AthenaTurnView.tsx:79 Recall provenance is rendered as plain insight text; neither the chip model nor this rendering provides source links or an expansion to the recalled evidence."
+        },
+        {
+          "technique": "turn-model",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/athena/useAthenaThread.ts:130 The assistant row enters the transcript only at settlement; pending work uses a separate waiting component, and failures become a panel error rather than an identified failed turn."
+        },
+        {
+          "technique": "virtual-filtered-channel",
+          "verdict": "not-applicable",
+          "evidence": "src/features/shared/athena/useAthenaThread.ts:80 The inspected surface displays one unfiltered thread snapshot, with no transcript subset, merged source, or independently filtered pane requiring a derived channel."
+        }
+      ]
     }
   }
 }
