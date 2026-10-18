@@ -4561,7 +4561,11 @@
           "revision": 6,
           "changedAt": "2026-09-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/org/shell/OrgTabChunks.tsx:55 Switching tabs remounts the overview subtree and replays its entrance animation, discarding local form state instead of providing warm return.",
+          "evaluatedAt": "2026-10-18",
+          "evaluatedAgainst": "sha256-b2:62a9a7fc993ea8b5",
+          "evaluatedRevision": 6
         },
         {
           "subject": "agent-memory",

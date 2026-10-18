@@ -4910,6 +4910,47 @@
           "evidence": "src/components/report/DimensionTrends.tsx:33 The display range has one local-state source; the separately resolved plan history limit is an access ceiling, not a competing reporting preference."
         }
       ]
+    },
+    "Org Dashboard & Analytics/Org Overview & Standing/app-shell": {
+      "context": "Org Overview & Standing",
+      "subject": "app-shell",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-18",
+      "evaluatedTs": "2026-10-18T21:18:41.630Z",
+      "worker": "6c3f3717-3d5a-4386-806b-a753f205d794",
+      "techniques": [
+        {
+          "technique": "badge-and-attention",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-nav-counts.ts:47 The personal rail receives follow-up counts from personal-org scans, whereas PersonalBacklog displays public-corpus recommendations merged with personal overlays; the badge derivation does not count the work its destination displays."
+        },
+        {
+          "technique": "entitlement-gating",
+          "verdict": "deviation",
+          "evidence": "src/components/org/shell/OrgTabNav.tsx:99 Personal-workspace restrictions filter the rail inline, but OrgDashboardPage validates only the tab vocabulary; a hidden Teams destination still renders through ?tab=teams without consulting PERSONAL_TAB_IDS."
+        },
+        {
+          "technique": "lazy-section-loading",
+          "verdict": "deviation",
+          "evidence": "src/components/org/shell/OrgTabChunks.tsx:55 Re-keying the whole panel forces teardown and entrance choreography on every return; PersonalWatchControls keeps its input in component-local useState without restoration."
+        },
+        {
+          "technique": "nav-hierarchy",
+          "verdict": "conformant",
+          "evidence": "src/components/ui/SectionRailNav.tsx:143 The second level renders only the selected group's stable destinations; changing location resets the temporary group preview."
+        },
+        {
+          "technique": "navigation-model",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/orgTabs.ts:457 Route availability is manually enumerated separately from ORG_TAB_IDS and ORG_NAV_GROUPS, so adding a destination requires synchronizing parallel lists rather than deriving consumers from one registry."
+        },
+        {
+          "technique": "shell-hosted-services",
+          "verdict": "deviation",
+          "evidence": "src/components/org/shared/useRunnerNotifier.ts:68 The shell-resident notification worker converts unsuccessful polling responses into null without reporting degraded health, making a failing worker indistinguishable from a quiet one."
+        }
+      ]
     }
   }
 }
