@@ -5642,6 +5642,32 @@
           "evidence": "src/lib/db/personal-backlog.ts:101 Gap recommendations carry artifact findings without selecting assignee identities; this context does not attach risk or deficit measurements to named colleagues."
         }
       ]
+    },
+    "Reporting & Visualization/AI-Native Passports/readiness-passports": {
+      "context": "AI-Native Passports",
+      "subject": "readiness-passports",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T11:17:23.393Z",
+      "worker": "15eb9e1e-0aa2-415c-a55b-b40acc57eb17",
+      "techniques": [
+        {
+          "technique": "declined-by-choice",
+          "verdict": "conformant",
+          "evidence": "src/app/api/report/passport/overrides/route.ts:74 Validates decline paths against an allow-list before persistence so unobservable blind spots are never declinable."
+        },
+        {
+          "technique": "fingerprint-provenance",
+          "verdict": "conformant",
+          "evidence": "src/app/api/report/passport/route.ts:55 Migrates historical stored passports forward on read to the current schema version rather than mutating stored database rows."
+        },
+        {
+          "technique": "two-axis-readiness",
+          "verdict": "conformant",
+          "evidence": "src/app/api/report/passport/pr/route.ts:79 Presents automation level and production readiness band as an independent ordinal pair without collapsing them into an averaged headline."
+        }
+      ]
     }
   }
 }

@@ -8084,7 +8084,11 @@
           "revision": 3,
           "changedAt": "2026-10-01",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/app/api/report/passport/pr/route.ts:60 Ascent commits the externally derived, schema-versioned readiness passport as a portable JSON artifact into the repository alongside agent instructions.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:c63a7575b1e57d96",
+          "evaluatedRevision": 3
         },
         {
           "subject": "quality-gates",

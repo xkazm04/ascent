@@ -1,0 +1,53 @@
+{
+ "schema": "conform-run/1",
+ "worker": "15eb9e1e-0aa2-415c-a55b-b40acc57eb17",
+ "subject": "readiness-passports",
+ "evaluatedAt": "2026-10-19T11:17:23.393136+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [
+  {
+   "context": "AI-Native Passports",
+   "subject": "readiness-passports",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/app/api/report/passport/pr/route.ts:60 Ascent commits the externally derived, schema-versioned readiness passport as a portable JSON artifact into the repository alongside agent instructions.",
+   "techniques": [
+    {
+     "technique": "declined-by-choice",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/passport/overrides/route.ts:74 Validates decline paths against an allow-list before persistence so unobservable blind spots are never declinable."
+    },
+    {
+     "technique": "fingerprint-provenance",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/passport/route.ts:55 Migrates historical stored passports forward on read to the current schema version rather than mutating stored database rows."
+    },
+    {
+     "technique": "two-axis-readiness",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/passport/pr/route.ts:79 Presents automation level and production readiness band as an independent ordinal pair without collapsing them into an averaged headline."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T11:17:23.393136+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "readiness-passports"
+   ],
+   "techniques": [
+    "declined-by-choice",
+    "fingerprint-provenance",
+    "two-axis-readiness"
+   ],
+   "deviations": 0,
+   "context": "AI-Native Passports",
+   "via": "curator-multi:agy",
+   "model": "gemini-3.8-flash-high"
+  }
+ ]
+}
