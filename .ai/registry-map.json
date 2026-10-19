@@ -8990,7 +8990,11 @@
           "revision": 4,
           "changedAt": "2026-09-20",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/retention.ts:571 Control-observation retention protects one newest observation per entity through a fixed survivor predicate, whereas feed-retention requires the per-entity keep floor to be configurable.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:fdaa24ca3f5177d9",
+          "evaluatedRevision": 4
         },
         {
           "subject": "prompt-assembly",

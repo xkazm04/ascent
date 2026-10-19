@@ -5288,6 +5288,42 @@
           "evidence": "src/components/landing/prototypes/index/IndexHero.tsx:101 EN-BUTTON: the four-word call to action starts with a specific verb and names its object."
         }
       ]
+    },
+    "Data & Persistence/Data Retention & Purge/feed": {
+      "context": "Data Retention & Purge",
+      "subject": "feed",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T08:36:48.175Z",
+      "worker": "0ee475f0-ae67-45f1-ad8a-f76b5dd64ce7",
+      "techniques": [
+        {
+          "technique": "event-clustering",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/retention.ts:307 These digests are storage rollups committed with retention deletes, which the standard explicitly distinguishes from presentation clustering."
+        },
+        {
+          "technique": "feed-retention",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.ts:561 The reaper selects one protected observation per (repo, control); its survivor count is fixed rather than an operator-configurable keep floor."
+        },
+        {
+          "technique": "live-prepend",
+          "verdict": "not-applicable",
+          "evidence": "src/features/admin/settings/DataErasureOutcome.tsx:117 Continuation requests another erasure pass; this outcome dialog does not prepend arriving occurrences into a reading viewport."
+        },
+        {
+          "technique": "read-position-and-unseen",
+          "verdict": "not-applicable",
+          "evidence": "src/features/admin/settings/DataErasureCard.tsx:77 The accumulated counts describe erasure passes, not unseen occurrences or a reader's catch-up position."
+        },
+        {
+          "technique": "reverse-chronology-semantics",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/retention.ts:563 The reaper's newest-observation selection uses observation time and an identity tiebreaker, making its survivor cut deterministic at timestamp ties."
+        }
+      ]
     }
   }
 }
