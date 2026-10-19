@@ -24,6 +24,7 @@ lanes:
   skills: reader
   practices: reader
   memory: reader
+  knowledge: reader
   usage: reader
 
 telemetry: api

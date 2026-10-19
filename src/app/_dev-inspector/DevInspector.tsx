@@ -29,33 +29,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { copyText } from "./devCopy";
 import { useInspectorKeys, type InspectorMode } from "./devInspectorKeys";
 import { buildChain, dedupeChain, defaultCrumbIndex, formatHudCopy, pickDefaultIndex, type LocEntry } from "./devLocate";
 import { HighlightBox, InspectChip, InspectorHud, NavHint, SourceLabel, Z } from "./devInspectorUi";
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    /* fall through to the legacy path */
-  }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
 
 interface HoverState {
   chain: LocEntry[];
@@ -92,7 +69,7 @@ export function DevInspector() {
 
   const doCopy = useCallback(async (loc: string) => {
     const ok = await copyText(loc);
-    setCopyOk(ok);
+    setCopyOk(ok !== "failed");
     setCopied(loc);
     clearTimeout(copiedTimer.current);
     copiedTimer.current = setTimeout(() => setCopied(null), 1800);

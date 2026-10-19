@@ -11,13 +11,14 @@
 
 import { describe, expect, it } from "vitest";
 
+import { buildScaffoldFiles } from "./layout";
 import { DEFAULT_LANES, parseRegistryYaml, serializeRegistryYaml, writesLane } from "./policy";
 import { FIXTURE_REGISTRY_YAML } from "./__fixtures__/registry-tree";
 
 describe("lanes — the reference registry's declaration", () => {
   it("reads every lane as a reader, usage included", () => {
     const d = parseRegistryYaml(FIXTURE_REGISTRY_YAML);
-    expect(d.lanes).toEqual({ skills: "reader", practices: "reader", memory: "reader", usage: "reader" });
+    expect(d.lanes).toEqual({ skills: "reader", practices: "reader", memory: "reader", knowledge: "reader", usage: "reader" });
   });
 
   it("says ascent may not write the usage lane", () => {
@@ -86,5 +87,24 @@ describe("serializeRegistryYaml", () => {
 
   it("stays deterministic — same declaration, byte-identical output", () => {
     expect(serializeRegistryYaml(declaration)).toBe(serializeRegistryYaml(declaration));
+  });
+});
+
+describe("the seeded overlay stays in step with the reference overlay", () => {
+  // The round-trip above runs the fixture through its own parser, so it cannot see the scaffolder
+  // drifting from the reference: the seed is built from DEFAULT_LANES, not from the fixture. Compare
+  // the two directly (technique: consumer-overlays, "keep the scaffolder and the reference in step").
+  it("declares exactly the lanes the reference overlay declares", () => {
+    const seeded = parseRegistryYaml(buildScaffoldFiles("acme")[0]!.body);
+    expect(seeded.lanes).toEqual(parseRegistryYaml(FIXTURE_REGISTRY_YAML).lanes);
+  });
+
+  it("does not describe the registry sink as a write into a lane it declares a reader", () => {
+    // `telemetry: registry` makes ascent publish signals/<contributor>.json, which the signals route
+    // gates on `writesLane(.., "signals")`. The comment must say so rather than point at usage/.
+    const yaml = serializeRegistryYaml(parseRegistryYaml(FIXTURE_REGISTRY_YAML));
+    expect(yaml).toMatch(/signals: writer/);
+    expect(yaml).not.toMatch(/registry = committed into this repo's usage\/ lane/);
+    expect(writesLane(parseRegistryYaml(yaml), "usage")).toBe(false);
   });
 });

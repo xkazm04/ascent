@@ -36,6 +36,10 @@ export const DEFAULT_LANES: Readonly<Record<string, RegistryLaneRole>> = {
   skills: "reader",
   practices: "reader",
   memory: "reader",
+  // `knowledge/<domain>/index.json` is indexed (index-walk.ts `isBundleIndex`) and declared by the
+  // reference registry's overlay; a seeded overlay that omits it states fewer lanes than the
+  // indexer reads, i.e. a role map that disagrees with the code that runs.
+  knowledge: "reader",
   usage: "reader",
 };
 
@@ -225,9 +229,10 @@ mode: ${modeToYaml(d.mode)}
 lanes:
 ${lanes(d.lanes)}
 
-# Where the invocation counts this consumer observes are sent. api = POST to ascent;
-# registry = committed into this repo's usage/ lane; off = no counts at all. Counts only, never
-# prompt or transcript text.
+# Where the counts this consumer observes are sent. api = POST to ascent; off = no counts at all;
+# registry = ascent publishes signals/<contributor>.json into this repo by pull request. That is a
+# WRITE, so it also requires \`signals: writer\` under lanes above (the usage/ lane stays a reader).
+# Counts only, never prompt or transcript text.
 telemetry: ${d.telemetry}
 
 policies:
