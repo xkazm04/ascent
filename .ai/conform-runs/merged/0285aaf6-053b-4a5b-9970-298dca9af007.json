@@ -1,0 +1,17 @@
+{
+ "schema": "conform-run/1",
+ "worker": "0285aaf6-053b-4a5b-9970-298dca9af007",
+ "subject": "guided-tours",
+ "evaluatedAt": "2026-10-19T08:58:37.409398+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "guided-tours",
+   "context": "First-Run Onboarding Wizard",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": []
+}
