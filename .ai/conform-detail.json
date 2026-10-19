@@ -5488,6 +5488,47 @@
           "evidence": "src/lib/maturity/forecast.ts:170 Elapsed-day OLS and daily means are implemented, but the ray uses the last raw reading instead of the last day's collapsed mean."
         }
       ]
+    },
+    "Org Dashboard & Analytics/Repositories & Segments/modal-stack": {
+      "context": "Repositories & Segments",
+      "subject": "modal-stack",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T10:43:31.844Z",
+      "worker": "0f19f131-3f63-4c12-b7d6-9091b9791b6c",
+      "techniques": [
+        {
+          "technique": "stack-ownership",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/useRepoSegmentsPanel.ts:33 Modal visibility is managed via local useState rather than a central stack push/pop door."
+        },
+        {
+          "technique": "destructive-confirmation",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/RepoSegmentsPanel.tsx:71 Confirming immediately resets pendingDeleteId and dismisses the dialog before removeSegment completes, surfacing failures outside the dialog."
+        },
+        {
+          "technique": "layering-and-precedence",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/RepoLeaderboardBulkBar.tsx:28 The sticky bulk action bar uses a raw z-10 class rather than a semantic token from an authoritative layer scale."
+        },
+        {
+          "technique": "dismissal-semantics",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/RepoSegmentsPanel.tsx:68 Light dismissal and explicit cancel both collapse into resetting local state without distinguishing dismiss from cancel or returning a typed resolution."
+        },
+        {
+          "technique": "anchored-positioning",
+          "verdict": "not-applicable",
+          "evidence": "src/features/standing/repositories/SegmentComparePicker.tsx:35 Selectors and dropdowns in this feature use native select elements or inline button chips; no custom anchored overlays exist."
+        },
+        {
+          "technique": "focus-and-scroll-containment",
+          "verdict": "conformant",
+          "evidence": "src/features/standing/repositories/RepoSegmentsPanel.tsx:64 The confirmation dialog stays mounted with its portal armed so that initial focus safely lands on Cancel rather than the destructive action."
+        }
+      ]
     }
   }
 }

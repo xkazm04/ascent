@@ -3987,7 +3987,11 @@
           "revision": 5,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/standing/repositories/useRepoSegmentsPanel.ts:33 The segment deletion dialog is governed by local component state instead of a unified modal stack and closes optimistically before the server delete operation finishes.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:7848e4396b8a86da",
+          "evaluatedRevision": 5
         },
         {
           "subject": "delivery-analytics",
