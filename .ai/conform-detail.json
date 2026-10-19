@@ -5252,6 +5252,42 @@
         "at": "2026-10-18T23:20:44.124552+00:00",
         "reason": "reviewer (sonnet): The main anchor, PrRepoTable.tsx:161, is just a table render and doesn't show that event processing is absent, so it is incidental. The DeliveryCorePanel.tsx:41 technique anchor is not in the context's file list, and the verdict's claim that repository searches 'located queue mechanisms elsewhere' w"
       }
+    },
+    "Marketing Site & Design System/Landing Page Prototypes/english": {
+      "context": "Landing Page Prototypes",
+      "subject": "english",
+      "bundle": "localization",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T07:48:34.228Z",
+      "worker": "d14a45d7-2b1b-4074-a439-735df36580bb",
+      "techniques": [
+        {
+          "technique": "false-friends-and-collocations",
+          "verdict": "deviation",
+          "evidence": "src/components/landing/prototypes/index/IndexFleet.tsx:18 EN-ONE-TERM: the label and description alternate between “repo” and “repository” for the same entity without introducing the abbreviation."
+        },
+        {
+          "technique": "generated-prose-patterns",
+          "verdict": "conformant",
+          "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:23 EN-TEMPLATED-GRID: the use-case cards describe distinct mechanisms; this card specifies aggregation, trends, and repository contributions."
+        },
+        {
+          "technique": "register-and-voice",
+          "verdict": "conformant",
+          "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:74 EN-YOU: the landing-page action addresses the reader directly with a plain imperative."
+        },
+        {
+          "technique": "typography-and-capitalization",
+          "verdict": "deviation",
+          "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:37 EN-AMPERSAND: this rendered card title requires “and”; it is neither a proper name containing the sign nor a declared tight tabular label."
+        },
+        {
+          "technique": "ui-and-landing-microcopy",
+          "verdict": "conformant",
+          "evidence": "src/components/landing/prototypes/index/IndexHero.tsx:101 EN-BUTTON: the four-word call to action starts with a specific verb and names its object."
+        }
+      ]
     }
   }
 }

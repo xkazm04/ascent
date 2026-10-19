@@ -9641,7 +9641,11 @@
           "revision": 3,
           "changedAt": "2026-09-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:27 The rendered card title uses an ampersand where EN-AMPERSAND requires “and” in headings.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:3071c9ca3c71710b",
+          "evaluatedRevision": 3
         },
         {
           "subject": "repository-landing-document",

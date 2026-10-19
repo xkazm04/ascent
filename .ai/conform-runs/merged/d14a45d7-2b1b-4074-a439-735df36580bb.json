@@ -1,0 +1,65 @@
+{
+ "schema": "conform-run/1",
+ "worker": "d14a45d7-2b1b-4074-a439-735df36580bb",
+ "subject": "english",
+ "evaluatedAt": "2026-10-19T07:48:34.228783+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Landing Page Prototypes",
+   "subject": "english",
+   "bundle": "localization",
+   "state": "deviation",
+   "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:27 The rendered card title uses an ampersand where EN-AMPERSAND requires \u201cand\u201d in headings.",
+   "techniques": [
+    {
+     "technique": "false-friends-and-collocations",
+     "verdict": "deviation",
+     "evidence": "src/components/landing/prototypes/index/IndexFleet.tsx:18 EN-ONE-TERM: the label and description alternate between \u201crepo\u201d and \u201crepository\u201d for the same entity without introducing the abbreviation."
+    },
+    {
+     "technique": "generated-prose-patterns",
+     "verdict": "conformant",
+     "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:23 EN-TEMPLATED-GRID: the use-case cards describe distinct mechanisms; this card specifies aggregation, trends, and repository contributions."
+    },
+    {
+     "technique": "register-and-voice",
+     "verdict": "conformant",
+     "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:74 EN-YOU: the landing-page action addresses the reader directly with a plain imperative."
+    },
+    {
+     "technique": "typography-and-capitalization",
+     "verdict": "deviation",
+     "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:37 EN-AMPERSAND: this rendered card title requires \u201cand\u201d; it is neither a proper name containing the sign nor a declared tight tabular label."
+    },
+    {
+     "technique": "ui-and-landing-microcopy",
+     "verdict": "conformant",
+     "evidence": "src/components/landing/prototypes/index/IndexHero.tsx:101 EN-BUTTON: the four-word call to action starts with a specific verb and names its object."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T07:48:34.228783+00:00",
+   "bundle": "localization",
+   "subjects": [
+    "english"
+   ],
+   "techniques": [
+    "false-friends-and-collocations",
+    "generated-prose-patterns",
+    "register-and-voice",
+    "typography-and-capitalization",
+    "ui-and-landing-microcopy"
+   ],
+   "deviations": 1,
+   "context": "Landing Page Prototypes",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
