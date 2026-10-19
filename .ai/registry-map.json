@@ -4256,7 +4256,11 @@
           "revision": 1,
           "changedAt": "2026-09-03",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "context-map.json:1495 This context renders fleet analytics rather than managing prefix-derived blocks, and searches of its directories and the repository found no prefixCache, blockPool, freeList or cacheSalt identifiers.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:bdc97e412853bc4f",
+          "evaluatedRevision": 1
         }
       ],
       "governance": "governed"

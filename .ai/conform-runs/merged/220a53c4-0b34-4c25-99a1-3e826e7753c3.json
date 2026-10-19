@@ -1,0 +1,71 @@
+{
+ "schema": "conform-run/1",
+ "worker": "220a53c4-0b34-4c25-99a1-3e826e7753c3",
+ "subject": "paged-block-cache",
+ "evaluatedAt": "2026-10-19T10:58:55.754184+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "People & Delivery Analytics",
+   "subject": "paged-block-cache",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "context-map.json:1495 This context renders fleet analytics rather than managing prefix-derived blocks, and searches of its directories and the repository found no prefixCache, blockPool, freeList or cacheSalt identifiers.",
+   "techniques": [
+    {
+     "technique": "append-only-tolerates-duplicates",
+     "verdict": "not-applicable",
+     "evidence": "src/features/bought/teams/TeamsUnowned.tsx:36 The component filters repository ownership decisions; no append-only block-reference table or late cache-entry deduplication was found."
+    },
+    {
+     "technique": "chained-block-identity",
+     "verdict": "not-applicable",
+     "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 Rows are independently sortable team aggregates, not cached states whose identity depends on preceding blocks."
+    },
+    {
+     "technique": "one-page-size-bought-with-padding",
+     "verdict": "not-applicable",
+     "evidence": "src/features/bought/teams/TeamsMatrixDetail.tsx:61 The cap limits displayed repository links; it does not allocate fixed-size memory pages for heterogeneous consumers."
+    },
+    {
+     "technique": "release-order-is-the-eviction-policy",
+     "verdict": "not-applicable",
+     "evidence": "src/features/bought/delivery/PrRepoTable.tsx:158 Remaining rows render in a collapsible table; folding neither releases resources nor evicts cached blocks."
+    },
+    {
+     "technique": "salt-as-a-cache-partition",
+     "verdict": "not-applicable",
+     "evidence": "src/features/bought/delivery/DeliveryCorePanel.tsx:41 Delivery reads organization-scoped analytics; no shared prefix-cache lookup or timing-based reuse boundary was found."
+    }
+   ],
+   "absenceTerms": [
+    "prefixCache",
+    "blockPool",
+    "freeList",
+    "cacheSalt"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T10:58:55.754184+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "paged-block-cache"
+   ],
+   "techniques": [
+    "append-only-tolerates-duplicates",
+    "chained-block-identity",
+    "one-page-size-bought-with-padding",
+    "release-order-is-the-eviction-policy",
+    "salt-as-a-cache-partition"
+   ],
+   "deviations": 0,
+   "context": "People & Delivery Analytics",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

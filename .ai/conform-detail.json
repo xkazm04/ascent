@@ -5565,6 +5565,42 @@
           "evidence": "src/components/about/FleetGrid.tsx:133 The scan sweep runs for a timed duration after entering view rather than progressing reversibly with the reader's position."
         }
       ]
+    },
+    "Org Dashboard & Analytics/People & Delivery Analytics/paged-block-cache": {
+      "context": "People & Delivery Analytics",
+      "subject": "paged-block-cache",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T10:58:55.754Z",
+      "worker": "220a53c4-0b34-4c25-99a1-3e826e7753c3",
+      "techniques": [
+        {
+          "technique": "append-only-tolerates-duplicates",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/teams/TeamsUnowned.tsx:36 The component filters repository ownership decisions; no append-only block-reference table or late cache-entry deduplication was found."
+        },
+        {
+          "technique": "chained-block-identity",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 Rows are independently sortable team aggregates, not cached states whose identity depends on preceding blocks."
+        },
+        {
+          "technique": "one-page-size-bought-with-padding",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/teams/TeamsMatrixDetail.tsx:61 The cap limits displayed repository links; it does not allocate fixed-size memory pages for heterogeneous consumers."
+        },
+        {
+          "technique": "release-order-is-the-eviction-policy",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/delivery/PrRepoTable.tsx:158 Remaining rows render in a collapsible table; folding neither releases resources nor evicts cached blocks."
+        },
+        {
+          "technique": "salt-as-a-cache-partition",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/delivery/DeliveryCorePanel.tsx:41 Delivery reads organization-scoped analytics; no shared prefix-cache lookup or timing-based reuse boundary was found."
+        }
+      ]
     }
   }
 }
