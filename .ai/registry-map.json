@@ -4193,7 +4193,11 @@
           "revision": 9,
           "changedAt": "2026-09-03",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/bought/delivery/PrSignalsBand.tsx:89 The review-capacity display reports a mean of per-repository first-review medians instead of a requested-to-decided dwell distribution, obscuring the latency shape needed to assess human-gate overload.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:7c45f5d81cc35bf6",
+          "evaluatedRevision": 9
         },
         {
           "subject": "table",

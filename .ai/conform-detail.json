@@ -5431,6 +5431,22 @@
           "evidence": "src/app/api/org/[slug]/registry/signals/route.ts:105 Outgoing citation verdicts are copied from mirrored registry signals rather than produced by checking consumer evidence pointers; the inspected sweep ingests maps without generating fresh citation verification."
         }
       ]
+    },
+    "Org Dashboard & Analytics/People & Delivery Analytics/machine-paced-delivery": {
+      "context": "People & Delivery Analytics",
+      "subject": "machine-paced-delivery",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T10:21:58.659Z",
+      "worker": "6a760ec9-ad6b-4fef-8ce8-08ac9df41e30",
+      "techniques": [
+        {
+          "technique": "human-gate-capacity",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-signals.ts:303 derivePriorities explicitly identifies review capacity as a bottleneck, but its latency input averages repository medians; the required requested-to-decided dwell distribution is not supplied."
+        }
+      ]
     }
   }
 }

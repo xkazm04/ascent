@@ -1,0 +1,41 @@
+{
+ "schema": "conform-run/1",
+ "worker": "6a760ec9-ad6b-4fef-8ce8-08ac9df41e30",
+ "subject": "machine-paced-delivery",
+ "evaluatedAt": "2026-10-19T10:21:58.659251+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "People & Delivery Analytics",
+   "subject": "machine-paced-delivery",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/features/bought/delivery/PrSignalsBand.tsx:89 The review-capacity display reports a mean of per-repository first-review medians instead of a requested-to-decided dwell distribution, obscuring the latency shape needed to assess human-gate overload.",
+   "techniques": [
+    {
+     "technique": "human-gate-capacity",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-signals.ts:303 derivePriorities explicitly identifies review capacity as a bottleneck, but its latency input averages repository medians; the required requested-to-decided dwell distribution is not supplied."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T10:21:58.659251+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "machine-paced-delivery"
+   ],
+   "techniques": [
+    "human-gate-capacity"
+   ],
+   "deviations": 1,
+   "context": "People & Delivery Analytics",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
