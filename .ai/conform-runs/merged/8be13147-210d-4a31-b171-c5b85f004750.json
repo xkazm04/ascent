@@ -1,0 +1,100 @@
+{
+ "schema": "conform-run/1",
+ "worker": "8be13147-210d-4a31-b171-c5b85f004750",
+ "subject": "session-continuation",
+ "evaluatedAt": "2026-10-19T12:02:15.348319+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "GitHub OAuth & Session",
+   "subject": "session-continuation",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/auth/callback/route.ts:83 Context and repository searches found no loopAuthority, pendingStop or candidateYield identifiers, and inspection shows browser authentication rather than the agent continuation loop this subject governs.",
+   "techniques": [
+    {
+     "technique": "advisory-guard-fail-mode",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/auth.ts:467 This is an HTTP security guard, outside the technique's agent boundary interceptor precondition."
+    },
+    {
+     "technique": "boundary-applied-stop",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/auth/session/route.ts:55 The handler returns authentication status; it does not dispatch reasoning iterations or tool batches."
+    },
+    {
+     "technique": "compaction-checkpoint",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/supabase/server.ts:21 State restoration here reads browser cookies, with no agent context compaction boundary."
+    },
+    {
+     "technique": "continuation-as-state",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/auth.ts:324 Renewal extends authentication validity; no persisted mode refuses an agent's attempted stop."
+    },
+    {
+     "technique": "gate-state-lifetimes",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/sessions.ts:20 The store keys authentication revocation by login, rather than holding agent stop-gate counters."
+    },
+    {
+     "technique": "ordered-teardown",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/auth/logout/route.ts:42 Logout clears a browser credential; it does not cancel a continuation loop or dismantle stop-blocking guards."
+    },
+    {
+     "technique": "ordered-yield-composition",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/access.ts:208 The ordering selects an authenticated identity, not an arbiter among behaviours consuming candidate yields."
+    },
+    {
+     "technique": "sealed-stage-advance",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/auth/callback/route.ts:88 OAuth exchanges an authorization code; no resumable autonomous stage sequence advances on model completion evidence."
+    },
+    {
+     "technique": "single-loop-authority",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/access.ts:51 The authority consulted validates user identity, with no competing agent continuation loops or goal evaluator."
+    },
+    {
+     "technique": "stuck-loop-detection",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/auth.ts:578 This bounded retry handles external GitHub failures, which the standard explicitly separates from an agent repeating unsuccessful repairs."
+    }
+   ],
+   "absenceTerms": [
+    "loopAuthority",
+    "pendingStop",
+    "candidateYield"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T12:02:15.348319+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "session-continuation"
+   ],
+   "techniques": [
+    "advisory-guard-fail-mode",
+    "boundary-applied-stop",
+    "compaction-checkpoint",
+    "continuation-as-state",
+    "gate-state-lifetimes",
+    "ordered-teardown",
+    "ordered-yield-composition",
+    "sealed-stage-advance",
+    "single-loop-authority",
+    "stuck-loop-detection"
+   ],
+   "deviations": 0,
+   "context": "GitHub OAuth & Session",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

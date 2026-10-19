@@ -2124,7 +2124,11 @@
           "revision": 8,
           "changedAt": "2026-10-09",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/auth/callback/route.ts:83 Context and repository searches found no loopAuthority, pendingStop or candidateYield identifiers, and inspection shows browser authentication rather than the agent continuation loop this subject governs.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:b0eabf78abd856a4",
+          "evaluatedRevision": 8
         },
         {
           "subject": "priced-authority",
