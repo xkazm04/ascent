@@ -1,0 +1,17 @@
+{
+ "schema": "conform-run/1",
+ "worker": "8d09ae4c-a062-49b2-b455-f26dd7406679",
+ "subject": "stream-proxy-hop",
+ "evaluatedAt": "2026-10-19T12:22:07.031501+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "stream-proxy-hop",
+   "context": "GitHub OAuth & Session",
+   "reason": "absence contradicted: src/lib/db/control-observations.test.ts:5 contains 'heartbeat' (135 hit(s) in the context's directories)"
+  }
+ ],
+ "consults": []
+}
