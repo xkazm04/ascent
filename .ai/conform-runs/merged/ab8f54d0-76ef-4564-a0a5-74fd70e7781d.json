@@ -1,0 +1,35 @@
+{
+  "schema": "conform-run/1",
+  "worker": "ab8f54d0-76ef-4564-a0a5-74fd70e7781d",
+  "subject": "usage-aggregation-semantics",
+  "evaluatedAt": "2026-10-19T12:35:54.490063+00:00",
+  "provider": "codex",
+  "model": "gpt-6.1-sol",
+  "pairs": [],
+  "declined": [
+    {
+      "subject": "usage-aggregation-semantics",
+      "context": "Usage Metering",
+      "reason": "withdrawn after review: reviewer (sonnet): The not-applicable anchor (usageDashboard.tsx:58) is a copy line that doesn't show the precondition is absent, and the context itself has level-style state: usageDashboard.tsx:70-75 shows a credit balance, a 'low balance' notice and a monthly included allowance, and AllotmentPanel.test.ts and page.t"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-19T12:35:54.490063+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "usage-aggregation-semantics"
+      ],
+      "techniques": [
+        "high-water-mark-advance-billing",
+        "level-valued-time-integral",
+        "replayed-state-machine-count",
+        "seeded-recurring-aggregate"
+      ],
+      "deviations": 0,
+      "context": "Usage Metering",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    }
+  ]
+}

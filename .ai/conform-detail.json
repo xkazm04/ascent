@@ -6016,6 +6016,42 @@
           "evidence": "src/lib/supabase/client.ts:9 The browser resource is a Supabase client; this context creates no terminal emulator or accelerated renderer."
         }
       ]
+    },
+    "Billing, Credits & Metering/Usage Metering/usage-aggregation-semantics": {
+      "context": "Usage Metering",
+      "subject": "usage-aggregation-semantics",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T12:35:54.490Z",
+      "techniques": [
+        {
+          "technique": "high-water-mark-advance-billing",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:1058 Each billable scan contributes one event unit; this is not an advance charge against a decreasing capacity aggregate."
+        },
+        {
+          "technique": "level-valued-time-integral",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:506 Tokens measure consumption, so summing event quantities is appropriate and holding-duration integration does not apply."
+        },
+        {
+          "technique": "replayed-state-machine-count",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:463 The repository count reports repositories scanned, not billable seats or provisioned units with add/remove lifecycles."
+        },
+        {
+          "technique": "seeded-recurring-aggregate",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:453 Period scan usage counts events inside the window; earlier scans do not represent capacity still held and require no opening seed."
+        }
+      ],
+      "withdrawn": {
+        "worker": "ab8f54d0-76ef-4564-a0a5-74fd70e7781d",
+        "state": "not-applicable",
+        "at": "2026-10-19T12:36:14.536164+00:00",
+        "reason": "reviewer (sonnet): The not-applicable anchor (usageDashboard.tsx:58) is a copy line that doesn't show the precondition is absent, and the context itself has level-style state: usageDashboard.tsx:70-75 shows a credit balance, a 'low balance' notice and a monthly included allowance, and AllotmentPanel.test.ts and page.t"
+      }
     }
   }
 }
