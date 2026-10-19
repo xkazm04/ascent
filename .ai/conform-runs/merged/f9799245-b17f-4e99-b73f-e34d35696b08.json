@@ -1,0 +1,71 @@
+{
+ "schema": "conform-run/1",
+ "worker": "f9799245-b17f-4e99-b73f-e34d35696b08",
+ "subject": "people-analytics-ethics",
+ "evaluatedAt": "2026-10-19T11:02:55.654259+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Org Overview & Standing",
+   "subject": "people-analytics-ethics",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/personal-backlog.ts:62 Personal backlog reads accept a caller-supplied workspace identity rather than a session-derived self scope, leaving self-only privacy dependent on upstream authorization.",
+   "techniques": [
+    {
+     "technique": "aggregate-vs-individual-split",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/personal.ts:144 Although public repository scores and private overlays are separated, the personal producer accepts an arbitrary workspace identity instead of structurally admitting only the viewer."
+    },
+    {
+     "technique": "contribution-eligibility-floors",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/personal.ts:205 The forecast measures repository scan scores over time, not a distribution, ranking, rate, or recognition list of people."
+    },
+    {
+     "technique": "naming-population-floor",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/personal.ts:152 Watchlist rows identify repository coordinates rather than publish named people's measurements; the personal backlog likewise has no cohort breakdown."
+    },
+    {
+     "technique": "private-view-separation",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/personal-backlog.ts:62 The producer resolves and queries whichever personalSlug its caller supplies; another person's private view remains expressible without a session-bound opaque scope."
+    },
+    {
+     "technique": "producer-enforced-suppression",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/personal-backlog.ts:110 These are private recommendation overlays, not group person-level reporting; the standard requires scope protection here rather than group suppression floors."
+    },
+    {
+     "technique": "risk-framing-anonymization",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/personal-backlog.ts:101 Gap recommendations carry artifact findings without selecting assignee identities; this context does not attach risk or deficit measurements to named colleagues."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T11:02:55.654259+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "people-analytics-ethics"
+   ],
+   "techniques": [
+    "aggregate-vs-individual-split",
+    "contribution-eligibility-floors",
+    "naming-population-floor",
+    "private-view-separation",
+    "producer-enforced-suppression",
+    "risk-framing-anonymization"
+   ],
+   "deviations": 1,
+   "context": "Org Overview & Standing",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

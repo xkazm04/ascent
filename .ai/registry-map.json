@@ -4666,7 +4666,11 @@
           "revision": 3,
           "changedAt": "2026-09-30",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/personal-backlog.ts:62 Personal backlog reads accept a caller-supplied workspace identity rather than a session-derived self scope, leaving self-only privacy dependent on upstream authorization.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:cb03bdda55f3119d",
+          "evaluatedRevision": 3
         },
         {
           "subject": "test-harness",
