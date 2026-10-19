@@ -2092,7 +2092,11 @@
           "revision": 7,
           "changedAt": "2026-09-04",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/auth.ts:326 This context maintains authentication cookies rather than interactive terminal sessions, and searches of its files, surrounding auth directories, and repository found no xterm, multiplexer, scrollback, or node-pty references.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:c3ef11aba4a471f5",
+          "evaluatedRevision": 7
         },
         {
           "subject": "fleet-orchestration",

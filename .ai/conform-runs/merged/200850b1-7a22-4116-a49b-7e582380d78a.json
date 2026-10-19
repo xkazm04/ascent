@@ -1,0 +1,113 @@
+{
+ "schema": "conform-run/1",
+ "worker": "200850b1-7a22-4116-a49b-7e582380d78a",
+ "subject": "terminal-multiplexing",
+ "evaluatedAt": "2026-10-19T12:29:50.702131+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "GitHub OAuth & Session",
+   "subject": "terminal-multiplexing",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/auth.ts:326 This context maintains authentication cookies rather than interactive terminal sessions, and searches of its files, surrounding auth directories, and repository found no xterm, multiplexer, scrollback, or node-pty references.",
+   "techniques": [
+    {
+     "technique": "attach-detach-lifecycle",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/auth/logout/route.ts:42 Logout removes an authentication cookie; there is no terminal attachment lifecycle."
+    },
+    {
+     "technique": "bounded-replay-buffers",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/auth.ts:127 The byte budget constrains a signed cookie payload, with no terminal output ring or replay seam."
+    },
+    {
+     "technique": "capability-revalidation",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/auth.ts:262 The validation concerns authentication revocation versions, with no injected shell protocol to revalidate per command."
+    },
+    {
+     "technique": "completion-authority-arbitration",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/auth.ts:539 OAuth completion uses an HTTP response; no terminal command completion markers or silence heuristics compete."
+    },
+    {
+     "technique": "injected-hook-reconvergence",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/auth.ts:522 Integration starts through an OAuth authorization URL, with no shell configuration or injected prompt hooks."
+    },
+    {
+     "technique": "keystroke-injection",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/auth/login/route.ts:51 Sign-in proceeds through a browser redirect, with no programmatic terminal input."
+    },
+    {
+     "technique": "multi-client-fan-out",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/auth/session/route.ts:55 Session status is a request-scoped JSON response, with no shared terminal output distributed to independent viewers."
+    },
+    {
+     "technique": "multiplexer-state",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/auth.ts:298 Session lookup reads authentication state from a cookie, with no terminal machinery map or keyboard focus routing."
+    },
+    {
+     "technique": "occupant-state-detection",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/access.ts:51 Viewer identity comes from the authentication provider, with no hosted interactive occupant or screen classifier."
+    },
+    {
+     "technique": "pty-management",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/auth.ts:528 The external interaction is an HTTP token exchange, with no pseudo-terminal device to spawn, resize, or drain."
+    },
+    {
+     "technique": "readiness-edge-detection",
+     "verdict": "not-applicable",
+     "evidence": "src/app/auth/callback/route.ts:83 The callback awaits an authentication code exchange, with no shell input-readiness marker to detect."
+    },
+    {
+     "technique": "renderer-economics",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/supabase/client.ts:9 The browser resource is a Supabase client; this context creates no terminal emulator or accelerated renderer."
+    }
+   ],
+   "absenceTerms": [
+    "xterm",
+    "multiplexer",
+    "scrollback",
+    "node-pty"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T12:29:50.702131+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "terminal-multiplexing"
+   ],
+   "techniques": [
+    "attach-detach-lifecycle",
+    "bounded-replay-buffers",
+    "capability-revalidation",
+    "completion-authority-arbitration",
+    "injected-hook-reconvergence",
+    "keystroke-injection",
+    "multi-client-fan-out",
+    "multiplexer-state",
+    "occupant-state-detection",
+    "pty-management",
+    "readiness-edge-detection",
+    "renderer-economics"
+   ],
+   "deviations": 0,
+   "context": "GitHub OAuth & Session",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
