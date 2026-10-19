@@ -2658,7 +2658,11 @@
           "revision": 1,
           "changedAt": "2026-09-03",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/standard/index.ts:65 Context and repository searches found no registrar or WinterCG matches, and this entry point generates repository artifacts rather than assembling an embeddable language runtime.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:9cfe5aba03ea1a19",
+          "evaluatedRevision": 1
         },
         {
           "subject": "prompt-assembly",

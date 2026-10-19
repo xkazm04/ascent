@@ -1,0 +1,75 @@
+{
+ "schema": "conform-run/1",
+ "worker": "c7653625-4c3e-453f-8606-9eb330438657",
+ "subject": "standards-layered-runtime",
+ "evaluatedAt": "2026-10-19T12:10:05.903406+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "AI-Native Standard & Onboarding Skill",
+   "subject": "standards-layered-runtime",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/standard/index.ts:65 Context and repository searches found no registrar or WinterCG matches, and this entry point generates repository artifacts rather than assembling an embeddable language runtime.",
+   "techniques": [
+    {
+     "technique": "backend-parameterised-web-api",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/standard/doctor.ts:490 The generated checker consumes fetch to report results; it does not implement a guest-facing fetch API."
+    },
+    {
+     "technique": "baseline-plus-extension-tuple",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/standard/index.ts:38 The entry point returns generated files, rather than registering APIs into a guest context."
+    },
+    {
+     "technique": "cli-as-thin-assembler",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/standard/maintain.ts:219 This command-line tool maintains repository artifacts; it is not the front end of an embeddable runtime."
+    },
+    {
+     "technique": "crate-per-standards-body",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/standard/manifest.ts:324 The generated manifest declares repository capabilities, not runtime portability through dependencies on standards packages."
+    },
+    {
+     "technique": "re-export-preserves-import-path",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/standard/pr.ts:23 A compatibility re-export exists for a branch constant, but no runtime API migration between extras and standards packages was found."
+    },
+    {
+     "technique": "status-header-per-api",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/standard/spec.ts:24 The shipped specification concerns repository practices, not partially implemented platform APIs in a runtime standards package."
+    }
+   ],
+   "absenceTerms": [
+    "registrar",
+    "WinterCG"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T12:10:05.903406+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "standards-layered-runtime"
+   ],
+   "techniques": [
+    "backend-parameterised-web-api",
+    "baseline-plus-extension-tuple",
+    "cli-as-thin-assembler",
+    "crate-per-standards-body",
+    "re-export-preserves-import-path",
+    "status-header-per-api"
+   ],
+   "deviations": 0,
+   "context": "AI-Native Standard & Onboarding Skill",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
