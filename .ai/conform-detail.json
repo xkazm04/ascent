@@ -6052,6 +6052,52 @@
         "at": "2026-10-19T12:36:14.536164+00:00",
         "reason": "reviewer (sonnet): The not-applicable anchor (usageDashboard.tsx:58) is a copy line that doesn't show the precondition is absent, and the context itself has level-style state: usageDashboard.tsx:70-75 shows a credit balance, a 'low balance' notice and a monthly included allowance, and AllotmentPanel.test.ts and page.t"
       }
+    },
+    "Billing, Credits & Metering/Usage Metering/usage-analytics": {
+      "context": "Usage Metering",
+      "subject": "usage-analytics",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T12:40:11.975Z",
+      "techniques": [
+        {
+          "technique": "activation-and-funnel-honesty",
+          "verdict": "not-applicable",
+          "evidence": "src/app/usage/usageDashboard.tsx:102 The dashboard labels computed scan counts, without defining activation or presenting a conversion funnel."
+        },
+        {
+          "technique": "batching-and-quota",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:462 This counts persisted billable scans; it does not transmit browser interactions or session summaries."
+        },
+        {
+          "technique": "coverage-from-registries",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:487 The measurement frame groups incurred inference usage by repository and model, rather than tracking navigable product surfaces."
+        },
+        {
+          "technique": "event-taxonomy",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:490 This aggregates resource consumption from scan records rather than admitting named behavioral events."
+        },
+        {
+          "technique": "privacy-scrubbing",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/usage/route.ts:118 The endpoint authorizes access to an organization's billing summary; it is not a device telemetry collection endpoint."
+        },
+        {
+          "technique": "sink-abstraction",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/usage/route.ts:134 The route reads an existing metering summary rather than emitting measurements to an analytics destination."
+        }
+      ],
+      "withdrawn": {
+        "worker": "eaa77e83-f9fe-47c8-a726-08c519685fde",
+        "state": "not-applicable",
+        "at": "2026-10-19T12:40:32.638065+00:00",
+        "reason": "reviewer (sonnet): The not-applicable rests on an incidental anchor (page.tsx:14 is only the page metadata description) plus a search for three standard-specific event names (section_visited, session_summary, trackEvent). That does not show that no product-behavior instrumentation or usage-analytics precondition exist"
+      }
     }
   }
 }

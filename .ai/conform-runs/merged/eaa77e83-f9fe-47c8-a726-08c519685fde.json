@@ -1,0 +1,37 @@
+{
+  "schema": "conform-run/1",
+  "worker": "eaa77e83-f9fe-47c8-a726-08c519685fde",
+  "subject": "usage-analytics",
+  "evaluatedAt": "2026-10-19T12:40:11.975272+00:00",
+  "provider": "codex",
+  "model": "gpt-6.1-sol",
+  "pairs": [],
+  "declined": [
+    {
+      "subject": "usage-analytics",
+      "context": "Usage Metering",
+      "reason": "withdrawn after review: reviewer (sonnet): The not-applicable rests on an incidental anchor (page.tsx:14 is only the page metadata description) plus a search for three standard-specific event names (section_visited, session_summary, trackEvent). That does not show that no product-behavior instrumentation or usage-analytics precondition exist"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-19T12:40:11.975272+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "usage-analytics"
+      ],
+      "techniques": [
+        "activation-and-funnel-honesty",
+        "batching-and-quota",
+        "coverage-from-registries",
+        "event-taxonomy",
+        "privacy-scrubbing",
+        "sink-abstraction"
+      ],
+      "deviations": 0,
+      "context": "Usage Metering",
+      "via": "curator-multi:codex",
+      "model": "gpt-6.1-sol"
+    }
+  ]
+}
