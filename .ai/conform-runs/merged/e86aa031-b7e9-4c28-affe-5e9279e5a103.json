@@ -1,0 +1,89 @@
+{
+ "schema": "conform-run/1",
+ "worker": "e86aa031-b7e9-4c28-affe-5e9279e5a103",
+ "subject": "invariant-placement",
+ "evaluatedAt": "2026-10-19T09:31:26.316136+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Members & Access Control",
+   "subject": "invariant-placement",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/invites.ts:30 The invite construction door accepts owner roles that the HTTP route forbids, leaving this stable restriction dependent on callers.",
+   "techniques": [
+    {
+     "technique": "completeness-at-emission",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/invites.ts:156 The AcceptResult success variant requires both org and role before acceptInvite can return it; this proves field presence, not meaningful population."
+    },
+    {
+     "technique": "constraint-deletion-is-silent",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/members.ts:18 Found runtime rejection tests for isOrgRole, but no negative type artifact protecting this closed union against widening; parser tests do not assert compiler refusal."
+    },
+    {
+     "technique": "consumption-bounds-at-most-once",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/invites.ts:236 Consumption concerns a durable invite identity across HTTP requests, which the technique explicitly excludes from its in-process non-duplicable-value mechanism."
+    },
+    {
+     "technique": "derived-properties-cannot-be-forged",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/invites.ts:69 Token exclusion is computed from the actual record at the listing projection, rather than merely asserted by a safety annotation; a seeded-secret test checks the emitted result."
+    },
+    {
+     "technique": "indistinguishable-members-do-not-rise",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/members.ts:195 Org slug and target login are positional strings, so swapping authorization-sensitive identifiers remains type-correct; normalization does not distinguish their meanings."
+    },
+    {
+     "technique": "initialization-proof-tokens",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/members.ts:126 The inspected dependency handling concerns optional database configuration and runtime role resolution, rather than a mandatory bring-up protocol whose completion can be carried as a lasting proof."
+    },
+    {
+     "technique": "placement-precedes-gate",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/invites.ts:30 The route rejects owner invites at route.ts:127, while createInvite accepts and persists any OrgRole; the non-expiring role restriction could live in the construction shape or door."
+    },
+    {
+     "technique": "repairing-check-erases-its-evidence",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/members.test.ts:634 A seeded corrupt role must produce an error log as well as the viewer fallback, preserving evidence independently of the repaired value."
+    },
+    {
+     "technique": "shape-with-a-not-applicable-member",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/members.ts:125 Missing membership is represented outside the real role set as null, rather than by an Unknown or None role member."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T09:31:26.316136+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "invariant-placement"
+   ],
+   "techniques": [
+    "completeness-at-emission",
+    "constraint-deletion-is-silent",
+    "consumption-bounds-at-most-once",
+    "derived-properties-cannot-be-forged",
+    "indistinguishable-members-do-not-rise",
+    "initialization-proof-tokens",
+    "placement-precedes-gate",
+    "repairing-check-erases-its-evidence",
+    "shape-with-a-not-applicable-member"
+   ],
+   "deviations": 1,
+   "context": "Members & Access Control",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
