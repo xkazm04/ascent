@@ -3188,7 +3188,11 @@
           "revision": 5,
           "changedAt": "2026-09-20",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/admin/members/MembersTable.tsx:68 The roster renders machine role tokens directly instead of resolving them through a label catalog.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:bea7b30fd48d528d",
+          "evaluatedRevision": 5
         },
         {
           "subject": "invariant-placement",

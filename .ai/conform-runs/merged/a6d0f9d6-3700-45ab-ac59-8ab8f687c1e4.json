@@ -1,0 +1,65 @@
+{
+ "schema": "conform-run/1",
+ "worker": "a6d0f9d6-3700-45ab-ac59-8ab8f687c1e4",
+ "subject": "status-vocabulary",
+ "evaluatedAt": "2026-10-19T12:17:18.437602+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Members & Access Control",
+   "subject": "status-vocabulary",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/features/admin/members/MembersTable.tsx:68 The roster renders machine role tokens directly instead of resolving them through a label catalog.",
+   "techniques": [
+    {
+     "technique": "number-formatting",
+     "verdict": "deviation",
+     "evidence": "src/features/admin/members/memberTime.ts:44 Expiry quantities interpolate an unformatted integer and an English unit instead of using locale-aware formatting."
+    },
+    {
+     "technique": "status-color-mapping",
+     "verdict": "deviation",
+     "evidence": "src/features/admin/members/MemberInvites.tsx:30 The delivery presentation table combines labels and colors, but maps skipped delivery directly to a palette shade rather than a semantic warning role."
+    },
+    {
+     "technique": "timestamp-display",
+     "verdict": "deviation",
+     "evidence": "src/features/admin/members/memberTime.ts:20 Absolute tooltips use the host locale instead of resolving the application's active locale internally."
+    },
+    {
+     "technique": "untrusted-label-rendering",
+     "verdict": "deviation",
+     "evidence": "src/features/admin/members/MembersTable.tsx:63 React escapes the imported name, but its bare span supplies neither bidi isolation nor truncation with full-value recovery."
+    },
+    {
+     "technique": "vocabulary-chain-integrity",
+     "verdict": "deviation",
+     "evidence": "src/app/invite/[token]/AcceptInviteForm.tsx:11 The acceptance consumer widens the producer's closed OrgRole vocabulary to string and subsequently renders the role directly."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T12:17:18.437602+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "status-vocabulary"
+   ],
+   "techniques": [
+    "number-formatting",
+    "status-color-mapping",
+    "timestamp-display",
+    "untrusted-label-rendering",
+    "vocabulary-chain-integrity"
+   ],
+   "deviations": 1,
+   "context": "Members & Access Control",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

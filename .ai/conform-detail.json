@@ -5909,6 +5909,42 @@
           "evidence": "src/lib/standard/spec.ts:24 The shipped specification concerns repository practices, not partially implemented platform APIs in a runtime standards package."
         }
       ]
+    },
+    "Org Scanning & Fleet Rollups/Members & Access Control/status-vocabulary": {
+      "context": "Members & Access Control",
+      "subject": "status-vocabulary",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T12:17:18.437Z",
+      "worker": "a6d0f9d6-3700-45ab-ac59-8ab8f687c1e4",
+      "techniques": [
+        {
+          "technique": "number-formatting",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/members/memberTime.ts:44 Expiry quantities interpolate an unformatted integer and an English unit instead of using locale-aware formatting."
+        },
+        {
+          "technique": "status-color-mapping",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/members/MemberInvites.tsx:30 The delivery presentation table combines labels and colors, but maps skipped delivery directly to a palette shade rather than a semantic warning role."
+        },
+        {
+          "technique": "timestamp-display",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/members/memberTime.ts:20 Absolute tooltips use the host locale instead of resolving the application's active locale internally."
+        },
+        {
+          "technique": "untrusted-label-rendering",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/members/MembersTable.tsx:63 React escapes the imported name, but its bare span supplies neither bidi isolation nor truncation with full-value recovery."
+        },
+        {
+          "technique": "vocabulary-chain-integrity",
+          "verdict": "deviation",
+          "evidence": "src/app/invite/[token]/AcceptInviteForm.tsx:11 The acceptance consumer widens the producer's closed OrgRole vocabulary to string and subsequently renders the role directly."
+        }
+      ]
     }
   }
 }
