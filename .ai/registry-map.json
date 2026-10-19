@@ -9704,7 +9704,11 @@
           "revision": 3,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/landing/prototypes/IndexLanding.tsx:36 These components render the application's homepage, which the standard excludes; searches found no repository-front-page publishing constructs here, while repository badge matches occurred in README.md.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:7f83bf34fe6f34be",
+          "evaluatedRevision": 3
         },
         {
           "subject": "translation-pipeline-topology",

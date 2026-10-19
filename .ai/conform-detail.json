@@ -5756,6 +5756,57 @@
         }
       ],
       "registryProposal": "Reconcile the unsupported-major rules: semver-additive-evolution and must-ignore-unknown require refusal, while version-gate-precedes-schema-gate says multi-reader versions are advisory and must not cause refusal; distinguish contract-major compatibility from a minimum reader-version floor."
+    },
+    "Marketing Site & Design System/Landing Page Prototypes/repository-landing-document": {
+      "context": "Landing Page Prototypes",
+      "subject": "repository-landing-document",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T11:44:25.780Z",
+      "worker": "2a9e4185-a6fd-43de-a845-388e4e8f38b5",
+      "techniques": [
+        {
+          "technique": "caption-carrying-figures",
+          "verdict": "not-applicable",
+          "evidence": "src/components/landing/prototypes/index/IndexFleet.tsx:74 This labels an application vignette, outside the standard's repository-document scope."
+        },
+        {
+          "technique": "evidence-linked-badges",
+          "verdict": "not-applicable",
+          "evidence": "src/components/landing/prototypes/index/IndexGallery.tsx:125 The register links application scan results; searches found no repository badge URLs in the context directories."
+        },
+        {
+          "technique": "host-metadata-is-a-second-document",
+          "verdict": "not-applicable",
+          "evidence": "src/components/landing/prototypes/index/IndexHero.tsx:121 This is an outbound source-repository link, not maintenance of the repository host's description, topics or homepage fields."
+        },
+        {
+          "technique": "input-channel-distinction",
+          "verdict": "not-applicable",
+          "evidence": "src/components/landing/prototypes/index/IndexHero.tsx:96 The homepage offers an interactive scan dialog rather than repository-document blocks for shell and agent input."
+        },
+        {
+          "technique": "landing-document-as-router",
+          "verdict": "not-applicable",
+          "evidence": "src/components/landing/prototypes/index/IndexOrg.tsx:91 These cards navigate application demo views, not deeper pages routed from a repository landing document."
+        },
+        {
+          "technique": "multi-surface-degradation",
+          "verdict": "not-applicable",
+          "evidence": "src/components/landing/prototypes/IndexLanding.tsx:35 This implements browser deck navigation; no syndication of this context as a repository document was found."
+        },
+        {
+          "technique": "style-rule-ships-its-detector",
+          "verdict": "not-applicable",
+          "evidence": "src/components/landing/prototypes/index/IndexFleet.test.tsx:31 This detector checks rendered application copy, so it does not establish conformance for repository-document house style."
+        },
+        {
+          "technique": "visual-text-cadence",
+          "verdict": "not-applicable",
+          "evidence": "src/components/landing/prototypes/index/IndexVariant.tsx:48 The content belongs to an application scroll deck, outside the repository-document cadence contract."
+        }
+      ]
     }
   }
 }
