@@ -7360,7 +7360,11 @@
           "revision": 2,
           "changedAt": "2026-09-30",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/scoring/projections.ts:162 The next-level planner selects whole-dimension closures by weighted headroom without considering effort or reporting total cost, so its advertised cheapest path does not minimize effort.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:7b3d5bbfe7560a46",
+          "evaluatedRevision": 2
         },
         {
           "subject": "eval-harness",

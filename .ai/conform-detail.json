@@ -5668,6 +5668,47 @@
           "evidence": "src/app/api/report/passport/pr/route.ts:79 Presents automation level and production readiness band as an independent ordinal pair without collapsing them into an averaged headline."
         }
       ]
+    },
+    "Reporting & Visualization/Roadmap & Recommendation Tracking/remediation-roadmaps": {
+      "context": "Roadmap & Recommendation Tracking",
+      "subject": "remediation-roadmaps",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T11:29:29.388Z",
+      "worker": "bf33d41d-b735-426a-b2b1-3a11fbfd5495",
+      "techniques": [
+        {
+          "technique": "cheapest-path-projection",
+          "verdict": "deviation",
+          "evidence": "src/lib/scoring/projections.ts:162 The planner correctly re-scores combinations and checks ceiling reachability, but selects dimensions without recommendation effort estimates and returns no total effort."
+        },
+        {
+          "technique": "coverage-guarantee",
+          "verdict": "deviation",
+          "evidence": "src/components/report/RecommendationTracker.tsx:88 The generation pass appends follow-ups for uncovered weak dimensions, but gives them no coverage provenance; this tracker re-sorts every item together and renders coverage items with ordinary priority numbering and quick-win badges."
+        },
+        {
+          "technique": "invitational-framing",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/recommendations.ts:403 The shared generation funnel deterministically records imperative, supervisory, and contradictory wording without rejecting or rewriting findings; catalog titles are observational, and tracking supports dismissal with an optional reason and carries dismissed status across scans."
+        },
+        {
+          "technique": "projected-gain-modelling",
+          "verdict": "deviation",
+          "evidence": "src/components/report/RoadmapSandbox.tsx:237 Trying any recommendation assigns its entire dimension a perfect score, without a move-specific achievable target or confidence discount; shared scoring avoids additive totals but does not make this impact assumption conservative."
+        },
+        {
+          "technique": "sandbox-to-tracker-commit",
+          "verdict": "deviation",
+          "evidence": "src/components/report/RoadmapSandboxCommit.tsx:151 Commit is explicit, but its result retains only aggregate counts; failed recommendation identities and rejection reasons are not retained or displayed per item, contrary to the required partial-failure state model."
+        },
+        {
+          "technique": "weighted-upside-ranking",
+          "verdict": "deviation",
+          "evidence": "src/components/report/roadmapPriority.tsx:18 The tracker's default ordering uses categorical impact and effort rather than rubric weight × achievable headroom × achievability; it overrides the fallback generator's weighted ordering and has no stable-identity tie-break."
+        }
+      ]
     }
   }
 }
