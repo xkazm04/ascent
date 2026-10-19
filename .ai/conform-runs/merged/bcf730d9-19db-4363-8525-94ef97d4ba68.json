@@ -1,0 +1,78 @@
+{
+ "schema": "conform-run/1",
+ "worker": "bcf730d9-19db-4363-8525-94ef97d4ba68",
+ "subject": "repo-manifest-standard",
+ "evaluatedAt": "2026-10-19T11:38:41.954904+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "AI-Native Standard & Onboarding Skill",
+   "subject": "repo-manifest-standard",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/standard/manifest.ts:258 Regeneration reconstructs capability entries using only owned fields, discarding foreign metadata and violating the writer-side preservation rule.",
+   "techniques": [
+    {
+     "technique": "capability-not-tool-vocabulary",
+     "verdict": "conformant",
+     "evidence": "src/lib/standard/manifest.ts:125 Capabilities use obligation names with command invocations; read.ts also identifies unbacked controls across both placement tiers."
+    },
+    {
+     "technique": "generated-from-provenance",
+     "verdict": "deviation",
+     "evidence": "src/lib/standard/doctor.ts:308 Freshness compares commit dates rather than regenerating and comparing owned fields; emitted provenance also lacks generator version and source revision."
+    },
+    {
+     "technique": "must-ignore-unknown",
+     "verdict": "deviation",
+     "evidence": "src/lib/standard/manifest.ts:258 Readers tolerate extensions, but regeneration retains only command and verified within capability entries, losing unknown fields."
+    },
+    {
+     "technique": "pointers-not-embeds",
+     "verdict": "deviation",
+     "evidence": "src/lib/standard/doctor.ts:168 The reader substitutes a default location for an absent pointer, contrary to the required distinction between undeclared and declared-but-missing targets."
+    },
+    {
+     "technique": "reserved-space-must-be-unusable",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/standard/spec.ts:89 The contract explicitly opens extension vocabulary; searches of the context and specification found no reserved or provisional namespace requiring enforcement."
+    },
+    {
+     "technique": "semver-additive-evolution",
+     "verdict": "deviation",
+     "evidence": "src/lib/standard/doctor.ts:162 Contract versioning and additive evolution are documented, but an unsupported major only warns and processing continues, contrary to this technique's refusal rule."
+    },
+    {
+     "technique": "spec-ships-with-artifact",
+     "verdict": "deviation",
+     "evidence": "src/lib/standard/standard.test.ts:490 The specification ships and has an equality guard, but round-trip tests extract the doctor's own subset parser; searches found no independent full-format YAML parser test required by this technique."
+    }
+   ],
+   "registryProposal": "Reconcile the unsupported-major rules: semver-additive-evolution and must-ignore-unknown require refusal, while version-gate-precedes-schema-gate says multi-reader versions are advisory and must not cause refusal; distinguish contract-major compatibility from a minimum reader-version floor."
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T11:38:41.954904+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "repo-manifest-standard"
+   ],
+   "techniques": [
+    "capability-not-tool-vocabulary",
+    "generated-from-provenance",
+    "must-ignore-unknown",
+    "pointers-not-embeds",
+    "reserved-space-must-be-unusable",
+    "semver-additive-evolution",
+    "spec-ships-with-artifact"
+   ],
+   "deviations": 1,
+   "context": "AI-Native Standard & Onboarding Skill",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
