@@ -5231,7 +5231,11 @@
           "revision": 2,
           "changedAt": "2026-09-26",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/maturity/forecast.ts:170 The fit averages observations by calendar day but anchors projections to the last raw reading, allowing one reading to shift the forecast away from the fitted daily series.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:40bc666cc27ebc42",
+          "evaluatedRevision": 2
         }
       ],
       "governance": "governed"

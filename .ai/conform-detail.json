@@ -5447,6 +5447,47 @@
           "evidence": "src/lib/db/org-signals.ts:303 derivePriorities explicitly identifies review capacity as a bottleneck, but its latency input averages repository medians; the required requested-to-decided dwell distribution is not supplied."
         }
       ]
+    },
+    "Org Planning & Execution/Maturity Forecast/metric-forecasting": {
+      "context": "Maturity Forecast",
+      "subject": "metric-forecasting",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T10:32:56.786Z",
+      "worker": "4627b753-5a8c-4ff6-a055-4aec3df8a978",
+      "techniques": [
+        {
+          "technique": "fit-confidence-honesty",
+          "verdict": "deviation",
+          "evidence": "src/lib/maturity/forecast.ts:167 R² is computed and returned for two-day fits; lowData flags the problem but does not structurally withhold the numeric field."
+        },
+        {
+          "technique": "horizon-caps-and-flat-bands",
+          "verdict": "deviation",
+          "evidence": "src/lib/maturity/forecast.ts:341 Goal ETA computation accepts any positive slope, including slopes classified as flat by the shared weekly band, rather than skipping the crossing solve."
+        },
+        {
+          "technique": "pace-against-a-deadline",
+          "verdict": "deviation",
+          "evidence": "src/lib/maturity/forecast.ts:360 The verdict compares the crossing date with the deadline, but projectGoal computes no separate current-position verdict against a baseline-to-deadline target line."
+        },
+        {
+          "technique": "projection-presentability-gates",
+          "verdict": "deviation",
+          "evidence": "src/lib/maturity/forecast.ts:329 The count-and-span gate runs after forecastTrajectory has computed slope, confidence, projection and level ETA, contrary to the required gate-before-fit ordering."
+        },
+        {
+          "technique": "threshold-crossing-eta",
+          "verdict": "deviation",
+          "evidence": "src/lib/maturity/forecast.ts:217 Past crossings and beyond-horizon crossings collapse into the same null result instead of distinct explanatory states; a past crossing does not report the required contradiction between fit and observation."
+        },
+        {
+          "technique": "trend-fitting-and-anchoring",
+          "verdict": "deviation",
+          "evidence": "src/lib/maturity/forecast.ts:170 Elapsed-day OLS and daily means are implemented, but the ray uses the last raw reading instead of the last day's collapsed mean."
+        }
+      ]
     }
   }
 }

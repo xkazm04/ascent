@@ -1,0 +1,71 @@
+{
+ "schema": "conform-run/1",
+ "worker": "4627b753-5a8c-4ff6-a055-4aec3df8a978",
+ "subject": "metric-forecasting",
+ "evaluatedAt": "2026-10-19T10:32:56.786734+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Maturity Forecast",
+   "subject": "metric-forecasting",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/maturity/forecast.ts:170 The fit averages observations by calendar day but anchors projections to the last raw reading, allowing one reading to shift the forecast away from the fitted daily series.",
+   "techniques": [
+    {
+     "technique": "fit-confidence-honesty",
+     "verdict": "deviation",
+     "evidence": "src/lib/maturity/forecast.ts:167 R\u00b2 is computed and returned for two-day fits; lowData flags the problem but does not structurally withhold the numeric field."
+    },
+    {
+     "technique": "horizon-caps-and-flat-bands",
+     "verdict": "deviation",
+     "evidence": "src/lib/maturity/forecast.ts:341 Goal ETA computation accepts any positive slope, including slopes classified as flat by the shared weekly band, rather than skipping the crossing solve."
+    },
+    {
+     "technique": "pace-against-a-deadline",
+     "verdict": "deviation",
+     "evidence": "src/lib/maturity/forecast.ts:360 The verdict compares the crossing date with the deadline, but projectGoal computes no separate current-position verdict against a baseline-to-deadline target line."
+    },
+    {
+     "technique": "projection-presentability-gates",
+     "verdict": "deviation",
+     "evidence": "src/lib/maturity/forecast.ts:329 The count-and-span gate runs after forecastTrajectory has computed slope, confidence, projection and level ETA, contrary to the required gate-before-fit ordering."
+    },
+    {
+     "technique": "threshold-crossing-eta",
+     "verdict": "deviation",
+     "evidence": "src/lib/maturity/forecast.ts:217 Past crossings and beyond-horizon crossings collapse into the same null result instead of distinct explanatory states; a past crossing does not report the required contradiction between fit and observation."
+    },
+    {
+     "technique": "trend-fitting-and-anchoring",
+     "verdict": "deviation",
+     "evidence": "src/lib/maturity/forecast.ts:170 Elapsed-day OLS and daily means are implemented, but the ray uses the last raw reading instead of the last day's collapsed mean."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T10:32:56.786734+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "metric-forecasting"
+   ],
+   "techniques": [
+    "fit-confidence-honesty",
+    "horizon-caps-and-flat-bands",
+    "pace-against-a-deadline",
+    "projection-presentability-gates",
+    "threshold-crossing-eta",
+    "trend-fitting-and-anchoring"
+   ],
+   "deviations": 1,
+   "context": "Maturity Forecast",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
