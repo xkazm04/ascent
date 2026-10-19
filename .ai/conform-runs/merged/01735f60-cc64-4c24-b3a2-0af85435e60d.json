@@ -1,0 +1,65 @@
+{
+ "schema": "conform-run/1",
+ "worker": "01735f60-cc64-4c24-b3a2-0af85435e60d",
+ "subject": "narrative-scroll-surface",
+ "evaluatedAt": "2026-10-19T10:51:42.198428+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Marketing About Page",
+   "subject": "narrative-scroll-surface",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/about/AboutAscentSteps.tsx:87 The staircase rungs start invisible and require client animation to resolve, so the shared reveal wrapper's visible server rendering does not protect every illustration on this page.",
+   "techniques": [
+    {
+     "technique": "illustration-carries-the-claim",
+     "verdict": "deviation",
+     "evidence": "src/components/about/champion/ChampionComposition.tsx:83 The invented contributor graph displays a metric-shaped adoption percentage, which the technique explicitly forbids inside illustrations; the surrounding sample-data disclosure does not remove that requirement."
+    },
+    {
+     "technique": "motion-carries-the-mechanism",
+     "verdict": "deviation",
+     "evidence": "src/components/about/RemotionStage.tsx:94 The propagation and mitigation animations expose replay but no step controls, scrubber, or filmstrip, preventing readers from holding and comparing the mechanism's intermediate states."
+    },
+    {
+     "technique": "no-orientation-tax",
+     "verdict": "deviation",
+     "evidence": "src/components/deck/DeckNav.tsx:62 AboutLanding renders this navigation, whose inactive desktop destination labels remain invisible until hover or keyboard focus, violating legibility at rest."
+    },
+    {
+     "technique": "reveal-without-loss",
+     "verdict": "deviation",
+     "evidence": "src/components/about/AboutAscentSteps.tsx:87 Unlike Reveal and FleetGrid, the staircase passes invisible initial values through gatedReveal into the served rendering; its rungs also lack the selectors targeted by the print visibility override."
+    },
+    {
+     "technique": "scroll-bound-progression",
+     "verdict": "deviation",
+     "evidence": "src/components/about/FleetGrid.tsx:133 The scan sweep runs for a timed duration after entering view rather than progressing reversibly with the reader's position."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-19T10:51:42.198428+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "narrative-scroll-surface"
+   ],
+   "techniques": [
+    "illustration-carries-the-claim",
+    "motion-carries-the-mechanism",
+    "no-orientation-tax",
+    "reveal-without-loss",
+    "scroll-bound-progression"
+   ],
+   "deviations": 1,
+   "context": "Marketing About Page",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
