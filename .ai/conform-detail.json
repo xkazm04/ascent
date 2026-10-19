@@ -5380,6 +5380,57 @@
           "evidence": "src/lib/db/members.ts:125 Missing membership is represented outside the real role set as null, rather than by an Unknown or None role member."
         }
       ]
+    },
+    "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/knowledge-registry": {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "knowledge-registry",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-19",
+      "evaluatedTs": "2026-10-19T10:07:19.663Z",
+      "worker": "f296cdbc-85cf-44a1-9075-82ba69aff9f1",
+      "techniques": [
+        {
+          "technique": "catalog-as-sync-key",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/registry/RegistryFleetSync.tsx:111 Catalog generation and normalized digests exist, but this fleet surface never computes the four comparison states; it explicitly discloses that omission."
+        },
+        {
+          "technique": "consumer-overlays",
+          "verdict": "deviation",
+          "evidence": "src/lib/registry/policy.test.ts:15 Reference-alignment tests use a checked-in fixture and serializer/parser round trips rather than the actual reference declaration, which the technique explicitly identifies as insufficient to detect scaffold drift."
+        },
+        {
+          "technique": "deterministic-seeding",
+          "verdict": "conformant",
+          "evidence": "src/lib/registry/layout.test.ts:15 The inspected generator derives seed bytes from the normalized org slug, seeds an empty catalog with a null timestamp and telemetry off, includes CODEOWNERS, and distinguishes spine collisions from later-file collisions."
+        },
+        {
+          "technique": "lane-contracts",
+          "verdict": "deviation",
+          "evidence": "src/lib/registry/layout.ts:26 The complete seed treats the consumer overlay as the registry marker and emits no neutral root declaration carrying lane paths, specifications and gates; the overlay's reader/writer roles do not supply those contracts."
+        },
+        {
+          "technique": "per-contributor-aggregation",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/[slug]/registry/signals/route.ts:100 The endpoint aggregates signals already imported from registry contributors and republishes their totals under this installation's contributor ID, allowing the same measurements to be counted again."
+        },
+        {
+          "technique": "propose-then-adopt",
+          "verdict": "deviation",
+          "evidence": "src/lib/registry/scaffold.ts:87 The automated scaffold opens a GitHub draft PR instead of stopping at a branch commit as the technique explicitly requires; human merge remains required."
+        },
+        {
+          "technique": "standard-versus-consumer-split",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/[slug]/registry/signals/route.ts:118 The publication path builds slug-keyed aggregate counts without local evidence fields and rejects path-, URL- and address-shaped payloads before writing."
+        },
+        {
+          "technique": "verification-is-contributed",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/[slug]/registry/signals/route.ts:105 Outgoing citation verdicts are copied from mirrored registry signals rather than produced by checking consumer evidence pointers; the inspected sweep ingests maps without generating fresh citation verification."
+        }
+      ]
     }
   }
 }

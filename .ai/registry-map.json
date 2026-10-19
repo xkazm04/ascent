@@ -6609,7 +6609,11 @@
           "revision": 11,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/registry-view.ts:259 The live loader supplies zero adoption counts without comparing fleet artifacts against the catalog, leaving the required sync states unmeasured.",
+          "evaluatedAt": "2026-10-19",
+          "evaluatedAgainst": "sha256-b2:08227ed9be7fc676",
+          "evaluatedRevision": 11
         },
         {
           "subject": "quality-gates",
