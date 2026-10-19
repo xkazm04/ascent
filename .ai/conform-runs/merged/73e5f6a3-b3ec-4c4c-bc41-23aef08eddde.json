@@ -1,0 +1,17 @@
+{
+ "schema": "conform-run/1",
+ "worker": "73e5f6a3-b3ec-4c4c-bc41-23aef08eddde",
+ "subject": "scoring-rubrics",
+ "evaluatedAt": "2026-10-19T11:53:56.137160+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "scoring-rubrics",
+   "context": "Score Charts & Visuals",
+   "reason": "evidence leans on maturity/model.ts, which is not a tracked file"
+  }
+ ],
+ "consults": []
+}
