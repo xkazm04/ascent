@@ -1,0 +1,96 @@
+{
+ "schema": "conform-run/1",
+ "worker": "e072c69b-54d7-474f-9e6f-884723ae12a0",
+ "subject": "talking-avatar",
+ "evaluatedAt": "2026-10-21T21:39:03.570353+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Marketing About Page",
+   "subject": "talking-avatar",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/components/about/ChampionNetwork.tsx:16 The page animates marketing diagrams without a speaking face, and searches of the context directories and repository found no viseme, phoneme, lipSync, talkingAvatar or speechSynthesis implementation.",
+   "techniques": [
+    {
+     "technique": "face-signal-across-surfaces",
+     "verdict": "not-applicable",
+     "evidence": "src/components/about/ChampionNetwork.tsx:16 The rendered network is an adoption diagram; there is no companion face or face signal to mirror."
+    },
+    {
+     "technique": "motion-route-selection",
+     "verdict": "not-applicable",
+     "evidence": "src/components/about/AboutHero.tsx:74 The hero renders an index gauge; no avatar animation route is being selected."
+    },
+    {
+     "technique": "neural-motion-retargeting",
+     "verdict": "not-applicable",
+     "evidence": "src/components/about/champion/ChampionComposition.tsx:17 Motion derives from a graph propagation schedule and frame number, without predicted facial motion or retargeting."
+    },
+    {
+     "technique": "paced-realtime-measurement",
+     "verdict": "not-applicable",
+     "evidence": "src/components/about/RiskRadar.tsx:16 This is a risk illustration without speech playback whose audio-to-frame lag would need measurement."
+    },
+    {
+     "technique": "per-sentence-face-sidecar",
+     "verdict": "not-applicable",
+     "evidence": "src/components/about/RemotionStage.tsx:74 The inspected stage hosts diagram compositions; there is no voice pipeline receiving a face or numeric motion stack."
+    },
+    {
+     "technique": "procedural-presence-motion",
+     "verdict": "not-applicable",
+     "evidence": "src/components/about/AboutAscentSteps.tsx:115 The animated element is a staircase climber dot, with a reduced-motion endpoint, rather than a character requiring idle gestures or blinks."
+    },
+    {
+     "technique": "rig-parameter-contract",
+     "verdict": "not-applicable",
+     "evidence": "src/components/about/champion/ChampionComposition.tsx:38 The composition directly interpolates graph-link styling; there are no avatar motion producers exchanging rig parameters."
+    },
+    {
+     "technique": "single-image-layer-decomposition",
+     "verdict": "not-applicable",
+     "evidence": "src/components/about/AboutHero.tsx:40 The hero image is a decorative backdrop; the inspected component does not split or deform portrait parts."
+    },
+    {
+     "technique": "viseme-drive",
+     "verdict": "not-applicable",
+     "evidence": "src/components/about/risk/RadarComposition.tsx:15 The radar sweep follows composition frames, without a mouth or other speaking element following synthesized speech."
+    }
+   ],
+   "absenceTerms": [
+    "viseme",
+    "phoneme",
+    "lipSync",
+    "talkingAvatar",
+    "speechSynthesis"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-21T21:39:03.570353+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "talking-avatar"
+   ],
+   "techniques": [
+    "face-signal-across-surfaces",
+    "motion-route-selection",
+    "neural-motion-retargeting",
+    "paced-realtime-measurement",
+    "per-sentence-face-sidecar",
+    "procedural-presence-motion",
+    "rig-parameter-contract",
+    "single-image-layer-decomposition",
+    "viseme-drive"
+   ],
+   "deviations": 0,
+   "context": "Marketing About Page",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}
