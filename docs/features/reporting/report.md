@@ -1702,7 +1702,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 ## Failure states on the report page (2026-09-05)
 
 `useReportScan` classifies every pre-stream refusal and every in-stream error into one
-`ScanErrorClass` (`authRequired` / `blocked` monthly quota / `credits` / `notFound`, or none for a
+`ScanErrorClass` (`authRequired` / `blocked` monthly quota / `credits` / `notFound` / `throttled`, or none for a
 transient failure), and both surfaces branch on it:
 
 - **Out of credits.** A metered scan (private / installed-org repo) is refused by the credit gate
@@ -1718,6 +1718,19 @@ transient failure), and both surfaces branch on it:
   and offers **Retry only for the transient class**. The report underneath is never unmounted.
 - **Upstream errors are opaque.** A GitHub network failure surfaces as a fixed sentence; the raw
   fetch error (which on a GHES deploy could name the internal API host) goes to the server log only.
+- **A per-minute throttle counts down and resumes (2026-10-22).** A `429 rate_limited` or
+  `rate_limit_unavailable` from `/api/scan/stream` (the limiter refusal from `rate-limit-charge.ts`)
+  is classified as `ScanErrorClass.throttled` by `parseThrottle` (`scanThrottleModel.ts`): its scope
+  (`ip` / `global` / `unavailable`, or `unknown` for a legacy or unreadable body), limiter, stated cap
+  and the honest `retryAfterSec` (else the `retry-after` header, else a 60s window). The page renders
+  `ThrottledNotice` instead of "Couldn't scan that repo": copy per scope (your own pace with its cap;
+  the shared budget is busy and it is not your traffic; the limiter was unreachable and nothing was
+  counted), a live countdown, and a "Resume now" disabled until the window drains. The countdown
+  resumes the scan itself (`useThrottleResume.ts`) after retry-after plus a jitter in [0, 2s), at
+  most **twice per visit**, and **never from a hidden tab**; after that the visitor resumes by hand.
+  A throttled re-test keeps the report mounted and shows the same countdown in the re-scan alert
+  instead of Retry. An auto-resume costs no monthly free slot: the limiter runs before the quota
+  consume. `monthly_quota`, 402 and 401 keep their own paths.
 
 ## Reloading mid-scan rejoins the run (2026-10-05)
 

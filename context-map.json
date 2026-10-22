@@ -3787,7 +3787,13 @@
             "src/lib/rate-limit-window.ts",
             "src/lib/rate-limit-charge.ts",
             "src/lib/rate-limit-charge.test.ts",
-            "src/lib/rate-limit-charge.sites.test.ts"
+            "src/lib/rate-limit-charge.sites.test.ts",
+            "src/components/report/scanThrottleModel.ts",
+            "src/components/report/scanThrottleModel.test.ts",
+            "src/components/report/useThrottleResume.ts",
+            "src/components/report/ThrottledNotice.tsx",
+            "src/components/report/ThrottledNotice.dom.test.tsx",
+            "src/components/report/useReportScan.throttle.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": []
