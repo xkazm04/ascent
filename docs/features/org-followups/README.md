@@ -384,6 +384,17 @@ Omitting `engines` keeps the pre-attribution rule: a caller with no provenance i
 a unit fixture) gets the strict-movement test above, never a verdict invented from absent data. Each
 kept case writes its own `keepNote`, so the timeline says which bar the claim failed.
 
+Where a kept row lands is decided by **restatement alone** (`planCarryForward`,
+`src/lib/db/scan-carry-plan.ts`, computed once before the persist transaction opens). A kept row the
+new scan restates rides carry-forward, and its note attaches to the new row by that row's roadmap
+entry, so a restatement under a normalized title (`Add CI lint` -> `add CI lint.`) keeps its note.
+Every other keep (`no-movement`, `within-noise`, `mock-scan`, `rubric-changed`, `craft-unclaimed`)
+is copied forward as `in_progress` with its assignee, due date and claim. Until 2026-10-22 the
+`within-noise` and `mock-scan` keeps were treated as paired, looked up by a title nothing carried,
+and silently dropped from the latest scan with their lease. A kept claim is never handed to a
+different new gap through the lone-in-dimension tier. All three copies (carried, kept, resolved)
+share one copier, `copyRecRow`, pinned field by field against the previous-scan select.
+
 ## Known gaps
 
 - **Only the trailer and title-disappearance close a row.** A fix that lands without a trailer and

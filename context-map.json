@@ -3948,7 +3948,10 @@
             "src/lib/db/scan-row-codec.ts",
             "src/lib/db/scan-row-codec.test.ts",
             "src/lib/db/scan-row-codec.test-helpers.ts",
-            "src/lib/db/scans-read.reconstruct.test.ts"
+            "src/lib/db/scans-read.reconstruct.test.ts",
+            "src/lib/db/scan-carry-plan.ts",
+            "src/lib/db/scan-carry-plan.test.ts",
+            "src/lib/db/scans-persist.carry.test.ts"
           ],
           "target": null,
           "apiRoutes": []
