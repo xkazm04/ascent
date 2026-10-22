@@ -93,7 +93,7 @@ describe("getPublicScanGallery — DB-down degrades to the static fallback", () 
 // state back.
 describe("loadPublicGalleryCards — zero cards is null, so the register has no empty state to render", () => {
   it("returns null the moment it has no cards, rather than an empty board", () => {
-    const src = readFileSync("src/lib/db/scans-read.ts", "utf8");
+    const src = readFileSync("src/lib/db/scans-gallery.ts", "utf8");
     expect(src).toMatch(/if \(cards\.length === 0\) return null;/);
   });
 

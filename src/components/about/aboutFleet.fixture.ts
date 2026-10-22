@@ -41,6 +41,7 @@ export function liveCard(i: number, over: Partial<PublicRepoCard> = {}): PublicR
     href: `/report/acme/repo-${i}`,
     rubricVersion: "current",
     currentRubric: true,
+    verified: true,
     archetype,
     ...over,
   };
