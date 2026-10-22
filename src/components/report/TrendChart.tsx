@@ -7,7 +7,6 @@
 import { useId } from "react";
 import { useRouter } from "next/navigation";
 import type { TrendAnnotation } from "@/app/trends/annotations";
-import { deployColor } from "@/app/trends/deployTone";
 import { scoreHex } from "@/lib/ui";
 import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { BAND_EDGES, CHART_INK, levelBandRects, vScale, xScale } from "@/components/report/chartScale";
@@ -15,8 +14,12 @@ import { MOCK_POINT_NOTE, hasMockPoint, isMockEngine } from "@/components/report
 import { shortDateSafe } from "@/components/ui/format";
 import { CompactedNote, CompactedTooltipLines, trendPaths } from "@/components/report/TrendChart.CompactedBand";
 import { TrendSrTable } from "@/components/report/TrendChart.SrTable";
+import { TrendAnnotationMarks } from "@/components/report/TrendChart.Annotations";
 
 export interface TrendPoint {
+  /** Scan id, when the point is one scan (a compacted point carries its `digest:` id). Pick mode
+   *  (`onPick`) reports it; a point without one is not pickable. */
+  id?: string;
   score: number;
   at: string; // ISO
   engine?: string; // provider that produced this scan, when known (omitted for org rollups)
@@ -43,7 +46,19 @@ export interface TrendPoint {
 // here so its public import path (@/components/report/TrendChart) is unchanged.
 export { Sparkline } from "@/components/report/TrendChart.Sparkline";
 
-export function TrendChart({ points, annotations = [] }: { points: TrendPoint[]; annotations?: TrendAnnotation[] }) {
+export function TrendChart({
+  points,
+  annotations = [],
+  onPick,
+  picked = [],
+}: {
+  points: TrendPoint[];
+  annotations?: TrendAnnotation[];
+  /** Pick mode: a click on the hovered point reports its id here INSTEAD of opening its report. */
+  onPick?: (id: string) => void;
+  /** Ids currently picked; each gets a ring on the plot. */
+  picked?: readonly string[];
+}) {
   const W = 640;
   const H = 220;
   const m = { top: 16, right: 44, bottom: 26, left: 28 };
@@ -65,6 +80,7 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
   // Shift-click escape hatch to the exact GitHub commit (new tab, noopener) — the external half
   // of the investigation loop. Plain click keeps the in-app permalink as the primary action.
   const activeCommitUrl = a !== null ? points[a]?.commitUrl : undefined;
+  const activeId = a !== null ? points[a]?.id : undefined;
 
   // Thin the x-axis date labels so interior dates don't vanish (the old rule showed only first +
   // last past 6 points) and don't collide at 60 scans: aim for ~7 evenly-spaced labels, always
@@ -96,7 +112,7 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
         role="img"
         aria-label="Overall score over time"
         aria-describedby={tableId}
-        style={{ touchAction: "none", cursor: activeHref || activeCommitUrl ? "pointer" : undefined }}
+        style={{ touchAction: "none", cursor: (onPick ? activeId : activeHref) || activeCommitUrl ? "pointer" : undefined }}
         onPointerMove={(e) => {
           tap.notePointer(e);
           hover.onPointerMove(e);
@@ -110,6 +126,10 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
         onPointerLeave={hover.onPointerLeave}
         onClick={(e) => {
           if (e.shiftKey && activeCommitUrl) window.open(activeCommitUrl, "_blank", "noopener");
+          // Pick mode replaces navigation: the click selects the point for a two-scan compare.
+          else if (onPick) {
+            if (activeId && tap.shouldOpen(a)) onPick(activeId);
+          }
           // On touch the first tap only reveals the point's tooltip; a second tap on it navigates.
           else if (activeHref && tap.shouldOpen(a)) router.push(activeHref);
         }}
@@ -133,38 +153,8 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
             </text>
           </g>
         ))}
-        {/* G5-18: event markers (level crossings, regressions). Positioned by matching the annotation's
-            `at` against each point's own `at` — NEVER by array index, because the range toggle slices
-            `points` while the annotation list is derived from the full history. An annotation whose
-            scan is outside the visible slice simply doesn't render; it is never clamped to an edge,
-            which would plant a marker on a scan it doesn't describe. */}
-        {/* A deploy marker is its own mark: a toned glyph along the plot floor (red when a deployment
-            in its window failed), so it never stacks its chip on a score event's label at the top. */}
-        {annotationMarks.map(({ ann, i }) =>
-          ann.kind === "deploy" ? (
-            <g key={`deploy:${ann.scanId}`} data-deploy-marker={ann.scanId}>
-              <text x={xFor(i)} y={m.top + innerH - 4} textAnchor="middle" fontSize={9} fill={deployColor(ann.deploys)}>
-                ◆<title>{ann.detail}</title>
-              </text>
-            </g>
-          ) : (
-            <g key={`${ann.kind}:${ann.scanId}`}>
-              <line
-                x1={xFor(i)}
-                x2={xFor(i)}
-                y1={m.top}
-                y2={m.top + innerH}
-                stroke="var(--color-divider)"
-                strokeWidth={1}
-                strokeDasharray="2 4"
-              />
-              <text x={xFor(i)} y={m.top - 5} textAnchor="middle" fontSize={8} className="fill-slate-500">
-                {ann.label}
-                <title>{ann.detail}</title>
-              </text>
-            </g>
-          ),
-        )}
+        {/* G5-18 event markers, positioned by timestamp identity (see TrendChart.Annotations). */}
+        <TrendAnnotationMarks marks={annotationMarks} xFor={xFor} top={m.top} innerH={innerH} />
         {/* crosshair at the hovered scan */}
         {a !== null && (
           <line x1={xFor(a)} x2={xFor(a)} y1={m.top} y2={m.top + innerH} stroke={CHART_INK.crosshair} strokeWidth={1} strokeDasharray="3 3" />
@@ -218,6 +208,12 @@ export function TrendChart({ points, annotations = [] }: { points: TrendPoint[];
             )}
           </g>
         ))}
+        {/* picked points (pick mode): a ring that stays put while the hover moves on */}
+        {points.map((p, i) =>
+          p.id && picked.includes(p.id) ? (
+            <circle key={`pick:${p.id}`} data-picked={p.id} cx={xFor(i)} cy={yFor(p.score)} r={8} fill="none" stroke="var(--color-accent)" strokeWidth={2} />
+          ) : null,
+        )}
         {/* hovered point highlight */}
         {a !== null && (
           // safe: a is a valid index into points (from useChartHover over points)

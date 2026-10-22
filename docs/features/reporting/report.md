@@ -284,7 +284,7 @@ the current scan if not yet stored), and picks the correct baseline for deltas.
 | `ScoreRing` | Overall score as an SVG progress ring; arc length **and** color encode the score (color-blind-safe). | static |
 | `RadarChart` | The dimensions as a radar polygon with 25/50/75/100 rings (the plotted vertex is the blended score). | hover snaps to nearest vertex and names signal vs LLM ticks when they disagree with the blend (G1); SR-table fallback |
 | `RadarFallback` | The under-3-dimension form: labeled bars. | per-row picker buttons |
-| `TrendChart` | Overall-score history; background bands shade the 5 levels. | hover crosshair + `PointTooltip` (score, date, engine, delta) |
+| `TrendChart` | Overall-score history; background bands shade the 5 levels. | hover crosshair + `PointTooltip` (score, date, engine, delta); click opens the point's report, or with `onPick` picks it for a two-scan compare |
 | `Sparkline` | One dimension's score history inline (132×34). | hover crosshair |
 | `PostureQuadrant` | Adoption (x) × rigor (y) plot with a glowing dot + trail to prior scan. | mount animation (respects reduced-motion) |
 | `DimLine` | A dimension's trend line; null points render as breaks, never 0-crossings. | hover tooltip |
@@ -615,7 +615,7 @@ and when it still fits, the basis line names "the N of M history points scored u
 `deriveTrendAnnotations` (`src/app/trends/annotations.ts`) derives markers from the scan series
 already on hand: maturity-band crossings (promotion / demotion) and regressions at the same
 `DEFAULT_THRESHOLDS.overallDrop` the alerting path uses, expressed as `TrendAnnotation { at, kind, label,
-detail, delta, sha, commitSha }`, rendered as a dated "Events on this timeline" strip and as
+detail, delta, sha, commitSha, prevScanId }`, rendered as a dated "Events on this timeline" strip and as
 in-chart vertical rules on the overall chart and each `DimLine`. Markers are positioned by matching
 `at` against a point's timestamp, never by array index, since the chart slices by range and the
 annotation list does not.
@@ -638,6 +638,25 @@ by the deployment's own status and worded "Deployment status, not incidents"; `f
 count as failed and tone the marker red. The overall `TrendChart` draws them as a glyph along the
 plot floor, so a deploy never stacks on a score event's chip; `DimLine` does not receive them. No
 rows means no markers.
+
+**Every event opens its own diff.** Each marker carries `prevScanId`, the older real scan the move is
+measured against (`deriveTrendAnnotations` keeps the predecessor of its (newer, older) pair;
+`deriveDeployAnnotations` keeps the older real scan, so a deploy reads "what this deploy changed").
+The "Events on this timeline" strip renders a **what changed** link beside "report" and "commit":
+`/report/compare?repo=...&a=<scanId>&b=<prevScanId>`, the compare page's attributed diff of exactly that
+pair. A rubric marker links too; the compare page's ruler note says the move measured the rubric. The
+pair model is `src/app/trends/trendPairModel.ts` (pure, client-safe): `pairCompareHref` refuses a missing
+baseline, a self-pair and a compacted (`digest:`) side with null, so the oldest scan and a move off a
+compacted point offer no link rather than a non-scan diff. Both pages read the same depth (above), so any
+scan the chart shows opens on Compare.
+
+**Compare any two points.** "Compare two scans" on the overall chart turns a click on a point into a pick
+instead of a jump to its report (`TrendChart` `onPick` / `picked`; without `onPick`, ScoringTab and the
+org callers keep click-to-report). Picked points get a ring; two picks render "Compare <date> → <date>",
+older first, linking the pair. Roles are chronological whatever the click order (`pickReducer`): the
+older pick is the baseline (`b`), a third pick replaces the older of the two, picking a point again
+drops it, and a compacted point is not pickable. Narrowing the range so a picked point leaves the slice
+drops that pick in the same change.
 
 ### Export CSV
 

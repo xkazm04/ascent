@@ -3,20 +3,24 @@
 // Dimension-level trends — small-multiples line charts, one per dimension, over the
 // repo's scan history. A 'Last 5 / 30 / 90 days / All' range toggle slices the scan list
 // before any points are mapped; the charts add a hover crosshair + tooltip (chartHover).
+// "Compare two scans" turns the overall chart into a two-point picker whose pair opens the
+// compare page's diff (trendPairModel); a pick that leaves the range slice is dropped.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
-import { githubCommitUrl, reportPermalink, scoreGlyph, scoreHex } from "@/lib/ui";
+import { githubCommitUrl, reportPermalink } from "@/lib/ui";
 import type { RepositoryHistory } from "@/lib/db/scans";
 import { parseRepositoryHistory } from "@/lib/report/validate";
 import { EmptyState } from "@/components/EmptyState";
 import { Kicker, Surface } from "@/components/ui";
 import { TrendChart, type TrendPoint } from "@/components/report/TrendChart";
 import type { TrendAnnotation } from "@/app/trends/annotations";
-import { DeltaTag } from "@/components/report/deltas";
-import { DimLine, type ScanMeta } from "@/components/report/DimLine";
+import type { ScanMeta } from "@/components/report/DimLine";
 import { MOCK_POINT_NOTE, hasMockPoint } from "@/components/report/chartEngine";
 import { RANGES, RangeToggle, withinRange, type RangeKey } from "@/components/report/DimensionTrendsRange";
+import { DimensionTrendsGrid } from "@/components/report/DimensionTrendsGrid";
+import { DimensionTrendsCompareBar } from "@/components/report/DimensionTrendsCompareBar";
+import { EMPTY_PICK, pairCompareHref, pickReducer, pickedPair, type PickState } from "@/app/trends/trendPairModel";
 
 export function DimensionTrends({
   history,
@@ -32,6 +36,14 @@ export function DimensionTrends({
 }) {
   const [range, setRange] = useState<RangeKey>("all");
   const days = RANGES.find((r) => r.key === range)?.days ?? null;
+  const [comparing, setComparing] = useState(false);
+  const [pick, setPick] = useState<PickState>(EMPTY_PICK);
+  // A range change drops any pick whose scan leaves the new slice, in the same event as the change.
+  const changeRange = (next: RangeKey) => {
+    setRange(next);
+    const nextDays = RANGES.find((r) => r.key === next)?.days ?? null;
+    setPick((p) => pickReducer(p, { type: "retain", ids: withinRange(history.scans, nextDays).map((s) => s.id) }));
+  };
 
   // The OVERALL series is available immediately from the (lightweight, overall-only) history the
   // server passes, so the first paint stays light. The per-dimension small-multiples need the
@@ -118,6 +130,7 @@ export function DimensionTrends({
   const overallScans = withinRange(history.scans, days); // newest-first
   const overallChrono = [...overallScans].reverse();
   const overall: TrendPoint[] = overallChrono.map((s) => ({
+    id: s.id,
     score: s.overallScore,
     at: s.scannedAt,
     engine: s.engineProvider,
@@ -148,6 +161,9 @@ export function DimensionTrends({
     href: s.headSha ? reportPermalink(history.repo.fullName, s.headSha) : undefined,
     commitUrl: githubCommitUrl(history.repo.fullName, s.headSha) ?? undefined,
   }));
+  const chronoIds = overallChrono.map((s) => s.id);
+  const pair = pickedPair(pick);
+  const atOf = (id: string) => overallChrono.find((s) => s.id === id)?.scannedAt ?? "";
   const latest = dimScans[0];
   const prev = dimScans[1];
   const rows = DIMENSIONS.map((def) => {
@@ -167,14 +183,14 @@ export function DimensionTrends({
         <Kicker tone="muted">
           {overallScans.length} {overallScans.length === 1 ? "scan" : "scans"} shown
         </Kicker>
-        <RangeToggle value={range} onChange={setRange} />
+        <RangeToggle value={range} onChange={changeRange} />
       </div>
 
       {overallScans.length === 0 ? (
         <EmptyState icon="📈" title="No scans in the selected range" body="Try a wider window.">
           <button
             type="button"
-            onClick={() => setRange("all")}
+            onClick={() => changeRange("all")}
             className="rounded-xl border border-slate-700 px-5 py-2.5 type-body text-slate-300 transition hover:border-accent hover:text-white"
           >
             Show all
@@ -183,9 +199,26 @@ export function DimensionTrends({
       ) : (
         <>
           <Surface radius="2xl" className="p-6">
-            <h2 className="type-lede font-semibold text-white">Overall maturity</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="type-lede font-semibold text-white">Overall maturity</h2>
+              <DimensionTrendsCompareBar
+                active={comparing}
+                onToggle={() => {
+                  setComparing((c) => !c);
+                  setPick(EMPTY_PICK);
+                }}
+                pickedCount={pick.selected.length}
+                pair={pair && { before: { id: pair.beforeId, at: atOf(pair.beforeId) }, after: { id: pair.afterId, at: atOf(pair.afterId) } }}
+                href={pair && pairCompareHref(history.repo.fullName, pair)}
+              />
+            </div>
             <div className="mt-3">
-              <TrendChart points={overall} annotations={[...annotations, ...deployMarkers]} />
+              <TrendChart
+                points={overall}
+                annotations={[...annotations, ...deployMarkers]}
+                onPick={comparing ? (id) => setPick((p) => pickReducer(p, { type: "pick", id, order: chronoIds })) : undefined}
+                picked={pick.selected}
+              />
             </div>
           </Surface>
 
@@ -221,61 +254,7 @@ export function DimensionTrends({
               </p>
             )}
 
-            {dimState === "done" ? (
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {rows.map((r) => (
-                  <Surface key={r.id} radius="xl" className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <span className="type-mono-sm text-slate-500">{r.id}</span>
-                        <h3 className="type-body font-semibold text-white">{r.name}</h3>
-                      </div>
-                      <div className="text-right">
-                        <div
-                          className="font-mono type-title font-bold tabular-nums"
-                          style={{ color: r.current !== undefined ? scoreHex(r.current) : "#475569" }}
-                        >
-                          {/* Redundant (non-color) cue so the score's level reads without relying on
-                              hue alone (CVD) — mirrors the report's treatment. */}
-                          {r.current !== undefined && (
-                            <span aria-hidden className="mr-1 align-middle type-body-sm">
-                              {scoreGlyph(r.current)}
-                            </span>
-                          )}
-                          {r.current ?? "—"}
-                        </div>
-                        {r.delta !== null && <DeltaTag delta={r.delta} hideZero />}
-                      </div>
-                    </div>
-                    <DimLine values={r.series} meta={meta} name={r.name} current={r.current} annotations={annotations} />
-                  </Surface>
-                ))}
-              </div>
-            ) : dimState === "error" ? (
-              <div className="mt-4">
-                <EmptyState variant="section" title="Couldn't load the per-dimension breakdown">
-                  <button
-                    type="button"
-                    onClick={() => void loadDimensions()}
-                    className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
-                  >
-                    Retry
-                  </button>
-                </EmptyState>
-              </div>
-            ) : (
-              // idle / loading — shimmer placeholder cards while the dimension rows load. One card per
-              // DIMENSION (not a hardcoded 6) so the placeholder grid is exactly the height the loaded
-              // grid resolves to — no extra row popping in after load (CLS).
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden>
-                {Array.from({ length: DIMENSIONS.length }).map((_, i) => (
-                  <Surface key={i} radius="xl" className="p-4">
-                    <div className="h-4 w-24 animate-pulse rounded bg-slate-800" />
-                    <div className="mt-3 h-[90px] w-full animate-pulse rounded bg-slate-800/60" />
-                  </Surface>
-                ))}
-              </div>
-            )}
+            <DimensionTrendsGrid dimState={dimState} rows={rows} meta={meta} annotations={annotations} onRetry={() => void loadDimensions()} />
           </div>
         </>
       )}
