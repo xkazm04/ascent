@@ -79,7 +79,7 @@ function repoRow(
         levelName: "Established",
         adoptionScore: 60,
         rigorScore: 80,
-        engineProvider: over.engineProvider ?? "anthropic",
+        engineProvider: "engineProvider" in over ? over.engineProvider : "anthropic",
         confidence: over.confidence ?? 0.85,
         rubricVersion: "rubricVersion" in over ? over.rubricVersion : SCORING_RUBRIC_VERSION,
         prStats: "prStats" in over ? over.prStats : JSON.stringify({ merged: 12 }),
@@ -324,5 +324,37 @@ describe("registerEntryFrom — the rubric is a provenance qualifier", () => {
     const e = registerEntryFrom(repoRow({ rubricVersion: null }));
     expect(e?.rubricVersion).toBeNull();
     expect(e?.currentRubric).toBe(false);
+  });
+});
+
+// Card portfolio-0. The candidate window used to be ONE groupBy over every scan, mock included, ranked
+// by _max overallScore - so a corpus with REGISTER_CANDIDATE_CAP mock-high repos filled the window and
+// the model-scored repos never loaded. Ranked repos now get their own window; the preview tail its own.
+describe("getPublicRegister - mock floors cannot crowd the ranked window", () => {
+  it("500 mock-99 repos plus 3 model-scored repos at 40 -> totalVerified === 3", async () => {
+    const mocks = Array.from({ length: 500 }, (_, i) => ({ id: `m${i}`, overall: 99, engine: "mock" }));
+    const real = ["r1", "r2", "r3"].map((id) => ({ id, overall: 40, engine: "anthropic" }));
+    const all = [...mocks, ...real];
+    scanFindMany.mockImplementation(async (a: { where?: { engineProvider?: unknown }; take: number }) => {
+      const e = a.where?.engineProvider as undefined | string | { not: string };
+      return all
+        .filter((r) => (e == null ? true : typeof e === "string" ? r.engine === e : r.engine !== e.not))
+        .sort((x, y) => y.overall - x.overall)
+        .slice(0, a.take)
+        .map((r) => ({ repoId: r.id }));
+    });
+    repoFindMany.mockImplementation(async (a: { where: { id: { in: string[] } } }) =>
+      all
+        .filter((r) => a.where.id.in.includes(r.id))
+        .map((r) => repoRow({ id: r.id, name: r.id, overall: r.overall, engineProvider: r.engine })),
+    );
+
+    const reg = await getPublicRegister({ perPage: 100 });
+    expect(reg?.totalVerified).toBe(3);
+    expect(reg?.entries.map((e) => e.name)).toEqual(["r1", "r2", "r3"]);
+  });
+
+  it("an unknown engine is not verified - the rule is corpus.ts isRankableScan, not a local literal", () => {
+    expect(registerEntryFrom(repoRow({ engineProvider: null as unknown as string }))?.verified).toBe(false);
   });
 });

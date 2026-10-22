@@ -32,6 +32,9 @@
 //     less true, not more. An UNKNOWN rubric (a legacy row with a null column) is not current either —
 //     unknown is never "the same", exactly as the outcome ledger reads it.
 //
+// Both invariants are stated ONCE in `./corpus.ts` (the public-corpus door, card portfolio-0) and this
+// module and `./gallery.ts` (the landing register) build on it.
+//
 // No new columns, no new indexes: `Scan.engineProvider` and `Repository.isPrivate` already exist, and
 // ranking happens over a BOUNDED candidate window in memory (the same shape `getPublicScanGallery`
 // uses) so nothing here needs a migration.
@@ -42,6 +45,14 @@ import { DEFAULT_ORG_SLUG, resolveOrgId } from "@/lib/db/scans-shared";
 import { SCORING_RUBRIC_VERSION, isDimensionId, levelForScore } from "@/lib/maturity/model";
 import { reportPermalink } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
+import {
+  PREVIEW_ENGINE_WHERE,
+  RANKABLE_ENGINE_WHERE,
+  byRank,
+  isRankableScan,
+  publicCorpusWhere,
+  publicRowOrNull,
+} from "./corpus";
 
 /** One repository in the public register. */
 export interface RegisterEntry {
@@ -187,7 +198,7 @@ type RegisterRepoRow = Prisma.RepositoryGetPayload<{ select: typeof REGISTER_REP
  * it runs on every row from every query in this module, so no future caller can route around it.
  */
 export function registerEntryFrom(r: RegisterRepoRow): RegisterEntry | null {
-  if (r.isPrivate) return null; // never publish a private repo, whatever the query returned
+  if (!publicRowOrNull(r)) return null; // never publish a private repo, whatever the query returned
   const s = r.scans[0];
   if (!s) return null;
   const dimensions: Partial<Record<DimensionId, number>> = {};
@@ -209,8 +220,10 @@ export function registerEntryFrom(r: RegisterRepoRow): RegisterEntry | null {
     scannedAt: s.scannedAt.toISOString(),
     href: reportPermalink(r.fullName, s.headSha),
     engineProvider: s.engineProvider,
-    // A mock-engine scan means no model contributed a judgement. It is a preview, not a rating.
-    verified: s.engineProvider !== "mock",
+    // A mock-engine scan means no model contributed a judgement. It is a preview, not a rating. The rule
+    // is corpus.ts isRankableScan, the same one the landing register reads (an unknown engine is not
+    // verified either).
+    verified: isRankableScan(s.engineProvider),
     confidence: s.confidence,
     hasProcessSignals: hasProcessSignalsFrom(s.prStats),
     rubricVersion: s.rubricVersion,
@@ -232,11 +245,6 @@ function hasProcessSignalsFrom(prStats: string | null): boolean {
   }
 }
 
-/** Rank comparator: score desc, then the more recent scan, then a stable name tiebreak. */
-function byRank(a: RegisterEntry, b: RegisterEntry): number {
-  return b.overall - a.overall || b.scannedAt.localeCompare(a.scannedAt) || a.fullName.localeCompare(b.fullName);
-}
-
 /**
  * Load the bounded candidate window of PUBLIC repos in the PUBLIC org, ranked by their best scan.
  * `ownerPrefix` (already lowercased, no slash) narrows to one owner for the scorecard read.
@@ -246,21 +254,27 @@ async function loadCandidates(orgId: string, ownerPrefix?: string): Promise<Regi
   // Tenancy is expressed on the SCAN's repo relation as well as on the repository fetch below, so
   // neither query can widen on its own.
   const repoWhere: Prisma.RepositoryWhereInput = {
-    orgId,
-    isPrivate: false,
+    ...publicCorpusWhere(orgId),
     ...(ownerPrefix ? { fullName: { startsWith: `${ownerPrefix}/` } } : {}),
   };
 
   // Rank distinct public repositories by their best scan before applying the cap. Repeated scans
-  // of a few repos must not crowd every other repository out of the register.
-  const topRepos = await prisma.scan.groupBy({
-    by: ["repoId"],
-    where: { repo: repoWhere },
-    _max: { overallScore: true },
-    orderBy: [{ _max: { overallScore: "desc" } }, { repoId: "asc" }],
-    take: REGISTER_CANDIDATE_CAP,
-  });
-  const ids = topRepos.map((r) => r.repoId);
+  // of a few repos must not crowd every other repository out of the register. TWO windows (card
+  // portfolio-0): ranked repos by their best RANKABLE scan, and the unranked preview tail by its best
+  // mock scan. One window over every scan let REGISTER_CANDIDATE_CAP mock-high repos fill the cap, so
+  // the model-scored repos the board actually ranks never loaded. A repo whose latest scan is a mock
+  // can still arrive through the ranked window (an older model scan); registerEntryFrom reads its LATEST
+  // scan, so it lands in the unranked tail, never on the board.
+  const candidateWindow = (engine: Prisma.ScanWhereInput) =>
+    prisma.scan.groupBy({
+      by: ["repoId"],
+      where: { repo: repoWhere, ...engine },
+      _max: { overallScore: true },
+      orderBy: [{ _max: { overallScore: "desc" } }, { repoId: "asc" }],
+      take: REGISTER_CANDIDATE_CAP,
+    });
+  const [ranked, preview] = await Promise.all([candidateWindow(RANKABLE_ENGINE_WHERE), candidateWindow(PREVIEW_ENGINE_WHERE)]);
+  const ids = Array.from(new Set([...ranked, ...preview].map((r) => r.repoId)));
   if (ids.length === 0) return [];
 
   // Re-assert BOTH tenancy predicates on the id-keyed fetch. An id list is caller-independent here, but
@@ -299,7 +313,7 @@ export async function getPublicRegister(
     const prisma = getPrisma();
     const [candidates, totalRepos] = await Promise.all([
       loadCandidates(orgId),
-      prisma.repository.count({ where: { orgId, isPrivate: false, scans: { some: {} } } }),
+      prisma.repository.count({ where: { ...publicCorpusWhere(orgId), scans: { some: {} } } }),
     ]);
     if (candidates.length === 0) return null;
 

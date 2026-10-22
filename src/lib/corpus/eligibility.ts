@@ -15,6 +15,20 @@
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 
 /**
+ * The deterministic-rubric engine id: a scan with this engine had NO model contribution. The ONE place
+ * the literal is declared (card portfolio-0): `BENCHMARK_ELIGIBLE` below, the fleet rollups
+ * (`isMockScore` in db/org-rollup.ts) and the public register (`isRankableScan` in register/corpus.ts)
+ * all read it from here, so the next engine decision changes one line instead of three.
+ */
+export const MOCK_ENGINE = "mock";
+
+/** True when the scan was scored by the deterministic mock rubric. Null/undefined is NOT mock here:
+ *  callers that must also refuse unknown provenance (the public register) say so on top of this. */
+export function isMockEngine(engine: string | null | undefined): boolean {
+  return engine === MOCK_ENGINE;
+}
+
+/**
  * Which scans may enter a percentile comparison.
  *
  * A percentile is a claim that two numbers were produced the same way. Two things break that, and both
@@ -32,7 +46,7 @@ import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
  * live-scored corpus, which is the same error mirrored.
  */
 export const BENCHMARK_ELIGIBLE = {
-  engineProvider: { not: "mock" },
+  engineProvider: { not: MOCK_ENGINE },
   rubricVersion: SCORING_RUBRIC_VERSION,
 } as const;
 

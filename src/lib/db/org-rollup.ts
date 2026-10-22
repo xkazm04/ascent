@@ -20,6 +20,7 @@ import { forecastTrajectory, type Forecast, type SeriesPoint } from "@/lib/matur
 import { levelForScore } from "@/lib/maturity/model";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
+import { MOCK_ENGINE, isMockEngine } from "@/lib/corpus/eligibility";
 import { latestFirst, readLatestScanPerRepo, withLatestScans } from "@/lib/db/org-rollup-latest-scans";
 import { dayKeyInZone } from "@/lib/org/timezone";
 import { asOrgId, type OrgId } from "@/lib/org/ids";
@@ -97,9 +98,10 @@ const ACTIVITY_WEEKS = 4;
  * this ever measured". It lives here rather than in org-shared.ts because this is the producer that
  * defines the exclusion, and org-shared.ts carries no scoring semantics at all.
  */
-const MOCK_ENGINE = "mock";
+// The literal and the predicate are declared ONCE, in corpus/eligibility.ts (card portfolio-0); this
+// name stays so every rollup reader and its import path are unchanged.
 export function isMockScore(engine: string | null | undefined): boolean {
-  return engine === MOCK_ENGINE;
+  return isMockEngine(engine);
 }
 
 /**
