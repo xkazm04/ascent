@@ -1,14 +1,25 @@
-// Self-serve session controls for the DORMANT custom-OAuth session: re-sync installations without
-// signing out, and revoke every other signed-in session. Relocated verbatim from the retired /connect
-// page; rendered only when that session exists (under the Supabase wall it never does — see the known
-// gap in docs/features/github/auth.md). Server-safe: the sign-in button is the client piece.
+// Self-serve session controls, per auth stack (src/lib/onboarding-context.ts picks the stack):
+//  - "dormant" (custom-OAuth session): re-sync installations without signing out, and revoke every
+//    other signed-in session. Relocated verbatim from the retired /connect page.
+//  - "supabase" (the live wall): the revoke form only. POST /api/auth/revoke-sessions signs out the
+//    viewer's OTHER sessions there (signOut scope "others"); the re-sync buttons go to /api/auth/login,
+//    which only completes on the custom stack, so they are not rendered.
+// Server-safe: the sign-in button is the client piece.
 
 import { GitHubSignInButton } from "@/components/GitHubSignInButton";
+import type { SessionControlsStack } from "@/lib/onboarding-context";
 
-export function SessionControls({ pendingInstall }: { pendingInstall?: string | null }) {
+export function SessionControls({
+  stack,
+  pendingInstall,
+}: {
+  stack: SessionControlsStack;
+  pendingInstall?: string | null;
+}) {
+  const canResync = stack === "dormant";
   return (
     <div className="mt-10 space-y-3 border-t border-divider pt-6">
-      {pendingInstall && (
+      {canResync && pendingInstall && (
         <section className="mb-5 rounded-2xl border border-accent/30 bg-accent/5 p-6">
           <h2 className="font-semibold text-white">
             Finish connecting <span className="font-mono">{pendingInstall}</span>
@@ -28,13 +39,15 @@ export function SessionControls({ pendingInstall }: { pendingInstall?: string | 
           </div>
         </section>
       )}
-      <div className="flex flex-wrap items-center gap-3">
-        <GitHubSignInButton variant="nav" resync next="/onboarding" label="Re-sync access" pendingLabel="Re-syncing…" />
-        <p className="type-body-sm text-slate-500">
-          Added a repo or org on GitHub but don&apos;t see it here? Re-sync to refresh your installations without
-          signing out.
-        </p>
-      </div>
+      {canResync && (
+        <div className="flex flex-wrap items-center gap-3">
+          <GitHubSignInButton variant="nav" resync next="/onboarding" label="Re-sync access" pendingLabel="Re-syncing…" />
+          <p className="type-body-sm text-slate-500">
+            Added a repo or org on GitHub but don&apos;t see it here? Re-sync to refresh your installations without
+            signing out.
+          </p>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <form action="/api/auth/revoke-sessions" method="post" className="contents">
           <button

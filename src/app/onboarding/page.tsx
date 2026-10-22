@@ -8,8 +8,11 @@ import { SelfHostSetupPanel } from "@/components/onboarding/SelfHostSetupPanel";
 import { SessionControls } from "@/components/onboarding/SessionControls";
 import { ScanPrivacyNotice } from "@/components/onboarding/PrivacyNotice";
 import { getSession } from "@/lib/auth";
-import { getOrgRollup, isPersonalOrg } from "@/lib/db";
-import { getViewer } from "@/lib/access";
+import { getLoginDiscovery, getOrgRollup, isPersonalOrg } from "@/lib/db";
+import { authGateEnabled, getViewer } from "@/lib/access";
+import { resolveOnboardingContext } from "@/lib/onboarding-context";
+import { viewerInstallations } from "@/lib/viewer-installations";
+import { resolveViewerWorkspace } from "@/lib/viewer-workspace";
 import { appInstallUrl } from "@/lib/github/app";
 import { resolveFirstRun } from "@/lib/first-run";
 
@@ -36,23 +39,30 @@ export default async function OnboardingPage({
 }) {
   const { error, resynced, revoked, wizard } = await searchParams;
   const firstRun = await resolveFirstRun();
-  // Seed the activation checklist from a real signal: does the session have a GitHub App
-  // installation? (Safely false when auth/App isn't configured.) Pass the installations
-  // themselves down so the org step can pull private repos through the App, not just the
-  // public listing.
+  // What the flow already knows about the viewer, on EITHER auth stack (src/lib/onboarding-context.ts):
+  // App installations (so the org step can pull private repos through the App and the checklist seeds
+  // from a real signal), the not-yet-installed orgs sign-in discovered, the org whose watchlist sign-in
+  // pre-seeded, and which session controls can work. The dormant custom-OAuth session supplies them
+  // inline; under the live wall they come from memberships (kept to the orgs canReadOrg admits, via
+  // resolveViewerWorkspace) and the discovery row recorded for the viewer's OWN login. No request input
+  // reaches the discovery read. Awaited here, in the page body.
   const session = await getSession();
-  const installations = (session?.installations ?? []).map((i) => ({ login: i.login, id: String(i.id) }));
-  const hasInstallation = installations.length > 0;
-  // Orgs auto-discovered at login (public memberships + repo activity under the default read:user
-  // scope; full membership only when the token carries read:org — see buildAuthorizeUrl): not-yet-
-  // installed orgs to suggest scanning, and the most-active org whose watchlist we pre-seeded so
-  // its dashboard already has data to explore.
-  const suggestedOrgs = session?.suggestedOrgs ?? [];
-  const seededOrg = session?.seededOrg;
-  // Does the signed-in viewer own a PERSONAL workspace (Organization.kind === "personal")? One indexed
-  // lookup, and it is the real kind rather than a "slug === my login" guess — so the wizard can hand
-  // the individual tier off upfront without misclassifying a viewer whose namespace is a fleet org.
   const viewer = await getViewer();
+  const { installations, suggestedOrgs, seededOrg, controls } = await resolveOnboardingContext({
+    session,
+    viewer,
+    liveWall: authGateEnabled(),
+    getInstallations: async () => {
+      const [installs, workspace] = await Promise.all([viewerInstallations(), resolveViewerWorkspace()]);
+      const readable = new Set(workspace.options.map((o) => o.toLowerCase()));
+      return installs.filter((i) => readable.has(i.login.toLowerCase()));
+    },
+    getLoginDiscovery,
+  });
+  const hasInstallation = installations.length > 0;
+  // Does the signed-in viewer own a PERSONAL workspace (Organization.kind === "personal")? One indexed
+  // lookup, and it is the real kind rather than a "slug === my login" guess, so the wizard can hand
+  // the individual tier off upfront without misclassifying a viewer whose namespace is a fleet org.
   const personalOrg =
     viewer && (await isPersonalOrg(viewer.login).catch(() => false))
       ? viewer.login.trim().toLowerCase()
@@ -120,7 +130,7 @@ export default async function OnboardingPage({
               installUrl={appInstallUrl()}
               deployment={{ mode: firstRun.mode, gated: firstRun.gated, signedIn: firstRun.signedIn }}
             />
-            {session && <SessionControls />}
+            {controls && <SessionControls stack={controls} />}
           </>
         )}
       </main>

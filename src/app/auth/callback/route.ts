@@ -12,7 +12,6 @@
 // callback (src/app/api/auth/callback/route.ts) and therefore DO NOT run for prod sign-ins:
 //   - upsertInstallation (owner→installation linking; prod links only via webhook//api/app/setup)
 //   - session revocation-version stamping (getSessionVersion)
-//   - org auto-discovery + watchlist seeding (a brand-new prod user lands on an empty dashboard)
 //   - the resync=1 re-sync round-trip
 // (Sign-in routing through /launch is NO LONGER part of that gap — see POST-SIGN-IN DESTINATION.)
 // If any of those are wanted under the active wall, port them as a post-exchangeCodeForSession hook
@@ -23,6 +22,7 @@ import { NextResponse, after } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { publicOriginForRequest, safeNext } from "@/lib/auth";
 import { discoverOrgsForLogin } from "@/lib/auth-discovery";
+import { recordLoginDiscovery } from "@/lib/db/login-discovery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,13 +99,20 @@ export async function GET(request: Request) {
       const meta = (data?.user?.user_metadata ?? {}) as Record<string, string | undefined>;
       const login = meta.user_name ?? meta.preferred_username;
       if (providerToken && login) {
-        after(() =>
-          discoverOrgsForLogin(providerToken, login).catch((err) =>
-            // discoverOrgsForLogin already swallows its own failures; this is the belt on the braces so
-            // a deferred rejection can never surface as an unhandled error after the response is sent.
-            console.warn("[auth/callback] post-sign-in discovery failed", err instanceof Error ? err.message : err),
-          ),
-        );
+        // The result is RECORDED for this login (the identity the exchange just returned, never a
+        // request parameter) so /onboarding can offer the suggestions: the live stack has no session
+        // cookie to carry them. A failed discovery resolves {} and records nothing, so it never
+        // overwrites a good row from an earlier sign-in.
+        after(async () => {
+          try {
+            const found = await discoverOrgsForLogin(providerToken, login);
+            if (found.suggestedOrgs) await recordLoginDiscovery(login, found);
+          } catch (err) {
+            // Both calls already swallow their own failures; this is the belt on the braces so a
+            // deferred rejection can never surface as an unhandled error after the response is sent.
+            console.warn("[auth/callback] post-sign-in discovery failed", err instanceof Error ? err.message : err);
+          }
+        });
       }
       return NextResponse.redirect(new URL(next, origin));
     }

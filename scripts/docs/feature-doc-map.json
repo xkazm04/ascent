@@ -71,7 +71,9 @@
         "src/app/auth/**",
         "src/app/api/auth/**",
         "src/components/SupabaseAuthButtons.tsx",
-        "src/components/GitHubSignInButton.tsx"
+        "src/components/GitHubSignInButton.tsx",
+        "src/lib/db/login-discovery.ts",
+        "src/lib/onboarding-context.ts"
       ]
     },
     {

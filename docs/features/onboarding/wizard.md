@@ -15,7 +15,7 @@ an installed app opens this door rather than the marketing root. The route stays
 (sitemap, not robots-disallowed). The retired `/connect` page's jobs live here too (see
 [github-app.md](../github/github-app.md#install-entry-the-connect-page-is-retired-2026-08-29)):
 `OnboardingErrorBanner` renders every `?error=` / `?resynced=` / `?revoked=` code the auth and App
-routes emit, `SessionControls` carries the dormant session's re-sync / revoke-others controls,
+routes emit, `SessionControls` carries the session controls that work for the viewer's stack (the dormant session's re-sync + revoke-others; under the live wall, revoke-others only, since re-sync completes only on the custom stack),
 `ScanPrivacyNotice` the "where your code goes" disclosure, and the wizard's access gate carries the
 GitHub App install link (`installUrl` prop). `next.config.ts` redirects `/connect` → `/onboarding`.
 
@@ -434,7 +434,8 @@ cluster, each repo a star:
 | `src/components/onboarding/FirstRunSignIn.tsx` | Cloud: the sign-in-first panel above the wizard. Self-hosted: the plain `SignInNotice`. |
 | `src/components/onboarding/SelfHostSetupPanel.tsx` | Self-hosted + nothing set up: the `/onboarding` skill guide (steps from `selfHostPricingData.ts`). |
 | `src/components/onboarding/OnboardingErrorBanner.tsx` | `ONBOARDING_ERROR_COPY` + the `?error=` / `?resynced=` / `?revoked=` banners (ex-`/connect`). |
-| `src/components/onboarding/SessionControls.tsx` | Dormant-session re-sync + "sign out everywhere else" (ex-`/connect`). |
+| `src/components/onboarding/SessionControls.tsx` | "Sign out everywhere else" on both stacks, plus re-sync for the dormant session only (`stack` prop; ex-`/connect`). |
+| `src/lib/onboarding-context.ts` | `resolveOnboardingContext()`: the installations, suggested orgs, seeded org and session-controls stack the page feeds the wizard. Dormant session first (unchanged); under the live wall, membership-derived installations plus the `LoginDiscovery` row recorded at sign-in for the viewer's own login, installed orgs dropped from the suggestions. These also feed the "Welcome back" candidates. |
 | `src/components/onboarding/PrivacyNotice.tsx` | `ScanPrivacyNotice` — where a private scan's sampled files go (ex-`/connect`). |
 | `src/components/onboarding/OnboardingFlow.tsx` | Four-phase pick → select → scan → done (view layer). |
 | `src/components/onboarding/useOnboardingFlow.ts` | All wizard state/effects: listings, credit gate, resume snapshot, `?org=` handoff, SSE run. |

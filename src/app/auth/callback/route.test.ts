@@ -13,10 +13,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockExchange, mockAfter, mockDiscover } = vi.hoisted(() => ({
+const { mockExchange, mockAfter, mockDiscover, mockRecord } = vi.hoisted(() => ({
   mockExchange: vi.fn(),
   mockAfter: vi.fn(),
   mockDiscover: vi.fn(),
+  mockRecord: vi.fn(),
 }));
 
 vi.mock("next/server", () => ({
@@ -26,6 +27,7 @@ vi.mock("next/server", () => ({
   after: mockAfter,
 }));
 vi.mock("@/lib/auth-discovery", () => ({ discoverOrgsForLogin: mockDiscover }));
+vi.mock("@/lib/db/login-discovery", () => ({ recordLoginDiscovery: mockRecord }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(async () => ({ auth: { exchangeCodeForSession: mockExchange } })),
@@ -45,6 +47,8 @@ beforeEach(() => {
   mockAfter.mockReset();
   mockDiscover.mockReset();
   mockDiscover.mockResolvedValue({});
+  mockRecord.mockReset();
+  mockRecord.mockResolvedValue(true);
 });
 
 const req = (qs: string) => new Request(`https://internal:3000/auth/callback${qs}`);
@@ -170,5 +174,48 @@ describe("post-sign-in discovery + watchlist seeding", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     await GET(req());
     expect(mockAfter).not.toHaveBeenCalled();
+  });
+});
+
+// (4) Persist what sign-in learned (oauth-1). The deferred discovery used to compute the ranked org
+// suggestions and the seeded org, then throw them away: the live stack has no session cookie to put
+// them in. They are now recorded for the identity Supabase just returned, so /onboarding can offer
+// them. A failed discovery ({}) must never overwrite a good row from an earlier sign-in.
+describe("post-sign-in discovery is recorded for the signed-in login", () => {
+  const req = () => new Request("https://ascent.example/auth/callback?code=abc&login=victim");
+  const runDeferred = async () => {
+    for (const [fn] of mockAfter.mock.calls) await (fn as () => unknown)();
+  };
+  const signIn = () =>
+    mockExchange.mockResolvedValue({
+      data: { session: { provider_token: "t" }, user: { user_metadata: { user_name: "dana" } } },
+      error: null,
+    });
+
+  it("records the discovery result keyed on the exchange identity, never a request parameter", async () => {
+    signIn();
+    mockDiscover.mockResolvedValue({ suggestedOrgs: ["acme", "beta"], seededOrg: "acme" });
+    await GET(req());
+    expect(mockRecord).not.toHaveBeenCalled(); // deferred, not inline
+    await runDeferred();
+    expect(mockRecord).toHaveBeenCalledTimes(1);
+    expect(mockRecord).toHaveBeenCalledWith("dana", { suggestedOrgs: ["acme", "beta"], seededOrg: "acme" });
+  });
+
+  it("a failed discovery ({}) records nothing, so a good row survives", async () => {
+    signIn();
+    mockDiscover.mockResolvedValue({});
+    await GET(req());
+    await runDeferred();
+    expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it("a failing record can never surface after the response is sent", async () => {
+    signIn();
+    mockDiscover.mockResolvedValue({ suggestedOrgs: ["acme"] });
+    mockRecord.mockRejectedValue(new Error("db down"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await GET(req());
+    await expect(runDeferred()).resolves.toBeUndefined();
   });
 });

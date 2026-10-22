@@ -108,7 +108,7 @@ identical either way. `SignInNotice.tsx` distinguishes "Your session expired" fr
 
 | Route | Method | Behavior |
 | --- | --- | --- |
-| `/auth/callback` | `GET` | **Supabase.** Exchanges the PKCE `?code=` for a session (setting auth cookies), then redirects to `?next=` (run through `safeNext()` so a tampered value can't bounce to an external origin). Defaults to `/launch`. Also **seeds the watchlist** from the exchange's GitHub `provider_token`, deferred via `after()` so sign-in latency is untouched (see [Org auto-discovery](#org-auto-discovery-srclibgithubdiscoverts)). |
+| `/auth/callback` | `GET` | **Supabase.** Exchanges the PKCE `?code=` for a session (setting auth cookies), then redirects to `?next=` (run through `safeNext()` so a tampered value can't bounce to an external origin). Defaults to `/launch`. Also **seeds the watchlist** from the exchange's GitHub `provider_token`, deferred via `after()` so sign-in latency is untouched, and **records** the discovery result in `LoginDiscovery` for the login the exchange returned (see [Org auto-discovery](#org-auto-discovery-srclibgithubdiscoverts)). |
 | `/api/auth/session` | `GET` | Dual-stack JSON session status for client components and "session expires in N minutes" nudges. Under the Supabase wall the Supabase viewer is reported, `installations` is always `[]` (App installs resolve per-org via `canReadOrg`), and `expiresAt` is null (Supabase refreshes its own tokens). Otherwise falls through to custom-OAuth state. No token is ever in the payload. |
 | `/api/auth/viewer` | `GET` | The *effective* viewer for client components (the scan form's notify control), honoring the dev bypass viewer, unlike a raw client-side Supabase call. Returns `{ signedIn, email, gated }`. |
 | `/api/auth/login` | `GET` | **Dormant stack, retired as a sign-in path.** Requires `isAuthConfigured()`, then `supabaseAuthConfigured()`; otherwise redirects `/onboarding?error=auth_stack_retired`. The sign-in gate never offers this button when that bounce would fire, and still only offers `supabase` when both stacks are configured. Otherwise CSRF `state` cookie + `next` cookie, redirect to `{githubWebBase()}/login/oauth/authorize` with scope `read:user read:org`. |
@@ -202,7 +202,17 @@ What each stack gets differs, and the difference is intrinsic:
 | Token issuer | the Ascent App's own OAuth client | Supabase's OAuth client |
 | Watchlist seeding | yes, inline | yes, deferred via `after()` |
 | `/user/installations` | available → private repos may be seeded | unavailable → `selectSeedTarget` seeds **public repos only**, which is correct (an uninstalled org can't mint a token, so private rows would be dead entries) |
-| `suggestedOrgs` surfaced | yes (embedded in the signed cookie) | not yet (see Known gaps) |
+| `suggestedOrgs` surfaced | yes (embedded in the signed cookie) | yes, via the `LoginDiscovery` row (below) |
+
+**Where the live stack keeps it.** The Supabase callback has no session cookie to embed the result
+in, so its `after()` task records it with `recordLoginDiscovery()` (`src/lib/db/login-discovery.ts`):
+one `LoginDiscovery` row per lowercased login, overwritten per sign-in, org names only (no token or
+secret). The key is the identity `exchangeCodeForSession` returned, never a request parameter, and a
+failed discovery (`{}`) records nothing, so it cannot overwrite a good row. `/onboarding` reads it
+through `resolveOnboardingContext()` (`src/lib/onboarding-context.ts`) for the resolved viewer's
+own login only, beside the viewer's membership-derived installations (`viewerInstallations()`, kept
+to the orgs `resolveViewerWorkspace()` admits), and drops already-installed orgs from the
+suggestions. When a dormant session exists the page reads it exactly as before.
 
 > For a GitHub **App** user-to-server token the OAuth `scope` is advisory: access is
 > governed by the App's permissions, so `/user/orgs` may return less than a classic
@@ -240,14 +250,6 @@ Owner/admin writes now go through one door, `requireOrgAdmin(org, "admin" | "own
   revocation-version stamping, and the `resync=1` round-trip. Linking in particular
   **cannot** simply be ported: it needs an App-client token, which Supabase's
   `provider_token` is not.
-- **Discovered org suggestions aren't surfaced under the wall.** `onboarding/page.tsx`
-  reads `seededOrg`/`suggestedOrgs` off the dormant session cookie, so a production
-  viewer gets the seeding but never sees the "you might want to install on…" list.
-  Needs a render-side change to read discovery from somewhere the live stack has.
-- **The "sign out everywhere else" button is unreachable in production.**
-  `/api/auth/revoke-sessions` now works on both stacks, but `SessionControls` (on `/onboarding`) renders
-  its form only inside a `{session && …}` block (the dormant cookie), so a Supabase
-  viewer cannot click it.
 - **Read scope only**: the dormant stack requests `read:user read:org`; repo writes
   (practice PRs, checks) go through the [GitHub App](./github-app.md) installation
   token, not a user token.
