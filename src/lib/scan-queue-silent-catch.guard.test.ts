@@ -32,7 +32,7 @@ interface Allowed {
 // Class C only. The first sweep found 39 silent sites in the four queue/cron files, all class A/B (fixed).
 // The three org routes (import, scan, scan/queue) held 16: 13 class B (now through degradedRead) and these 3.
 const ALLOWED: Allowed[] = [
-  { file: "src/app/api/org/import/route.ts", shape: "catch-literal", count: 2, reason: "a quota-event telemetry write on the 429 path, and a request-body parse that becomes the 400 answer" },
+  { file: "src/app/api/org/import/route.ts", shape: "catch-literal", count: 1, reason: "a request-body parse that becomes the 400 answer (the 429 telemetry write moved into rate-limit-charge.ts, quotas-0)" },
   { file: "src/app/api/org/scan/route.ts", shape: "catch-literal", count: 1, reason: "a request-body parse that becomes the 400 'Missing org' answer" },
 ];
 
