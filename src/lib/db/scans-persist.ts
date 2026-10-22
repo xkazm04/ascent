@@ -7,8 +7,8 @@ import { billableInputTokens } from "@/lib/llm/config";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { getPrisma, isDbConfigured, withDb, withRetry } from "@/lib/db/client";
 import { cacheDelete, makeCacheKey } from "@/lib/cache";
-import { matchRecommendations } from "@/lib/report/recommendation-identity";
-import { decideInProgress, isRestated, keepNote, resolutionNote, type MovementEngines } from "@/lib/org/followups";
+import type { MovementEngines } from "@/lib/org/followups";
+import { PREV_REC_SELECT, copyRecRow, planCarryForward, trackedState } from "@/lib/db/scan-carry-plan";
 import {
   canonicalOrgSlug,
   canonicalRepoFullName,
@@ -65,23 +65,6 @@ export interface PersistResult {
   // (the whole scan rolls back). The field was hardcoded to "no failure" at every return site, and
   // callers had built dead alerting branches on a signal that could never fire. The one genuinely
   // best-effort post-commit step (tech-group sync) logs its own failure inline instead.
-}
-
-/** Work-queue claim copied onto a carried in-progress row; nulled when the work closes. */
-type ClaimCarry = {
-  claimActor: string | null;
-  claimExecutor: string | null;
-  leaseUntil: Date | null;
-  needsHuman: boolean;
-};
-
-function claimCarry(row: Partial<ClaimCarry> | null | undefined): ClaimCarry {
-  return {
-    claimActor: row?.claimActor ?? null,
-    claimExecutor: row?.claimExecutor ?? null,
-    leaseUntil: row?.leaseUntil ?? null,
-    needsHuman: row?.needsHuman ?? false,
-  };
 }
 
 /** Status-event note with the previous row id so a trailer that named it can still be mapped. */
@@ -357,7 +340,9 @@ export async function persistScanReport(
       // createdAt then id break the tie to the genuinely-latest row.
       orderBy: [{ scannedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       select: {
-        recommendations: { select: { id: true, dimId: true, title: true, status: true, assigneeLogin: true, targetDate: true, claimActor: true, claimExecutor: true, leaseUntil: true, needsHuman: true, impact: true, effort: true, rationale: true, firstStep: true, explore: true, levelUnlock: true, kind: true, craftAxis: true } },
+        // The field list copyRecRow is pinned against (scan-carry-plan.test.ts): a field selected here
+        // and not copied, or copied and not selected, is a test failure rather than a dropped claim.
+        recommendations: { select: PREV_REC_SELECT },
         // The previous scan's dimension scores — the independent witness for an in-progress row's
         // fate (decideInProgress's `movement`). A gap that vanished while its number stood still is
         // rephrasing, not repair.
@@ -373,16 +358,9 @@ export async function persistScanReport(
       },
     });
     const prevRecs = previous?.recommendations ?? [];
-    const prevDimScore = new Map<string, number>((previous?.dimensions ?? []).map((d) => [d.dimId, d.score]));
-    const nextDimScore = new Map<string, number>(report.dimensions.map((d) => [d.id, d.score]));
-    const movementOf = (dimId: string) => {
-      const before = prevDimScore.get(dimId);
-      const after = nextDimScore.get(dimId);
-      return before == null || after == null ? null : { before, after };
-    };
-    // The engines behind that movement. Null when there is no previous scan — no pair, nothing to
-    // attribute — which leaves decideInProgress on its pre-attribution strict-movement rule rather
-    // than letting it judge from a fabricated end.
+    // The engines behind a dimension's movement between the two scans. Null when there is no previous
+    // scan (no pair, nothing to attribute), which leaves decideInProgress on its pre-attribution
+    // strict-movement rule rather than letting it judge from a fabricated end.
     const movementEngines: MovementEngines | null = previous
       ? {
           before: { engineProvider: previous.engineProvider, engineDegraded: previous.engineDegraded, rubricVersion: previous.rubricVersion },
@@ -391,10 +369,6 @@ export async function persistScanReport(
           after: { engineProvider: report.engine.provider, engineDegraded: report.engine.degraded, rubricVersion: stampedRubric },
         }
       : null;
-    const carryMatch = matchRecommendations(
-      prevRecs.map((r) => ({ dim: r.dimId, title: r.title })),
-      report.roadmap.map((r) => ({ dim: r.dimension, title: r.title })),
-    );
 
     // FOLLOW-UP FEEDBACK (src/lib/org/followups.ts). An IN-PROGRESS row is a claim a user made — "we
     // took this on" — and this scan is the feedback on that claim. It is resolved when a commit in the
@@ -406,50 +380,22 @@ export async function persistScanReport(
     // names the mechanism, so the ledger's archive reads off the latest scan like everything else.
     // Carry-forward's own tier-3 match for an in-progress row is dropped for the same reason: a
     // claimed row is carried by its title or not at all.
-    const nextIds = report.roadmap.map((r) => ({ dim: r.dimension, title: r.title }));
     const resolvedIds = new Set(report.resolvedFollowUpIds ?? []);
     const scanRef = headSha ? headSha.slice(0, 12) : "latest";
-    const resolvedRows: { row: (typeof prevRecs)[number]; note: string }[] = [];
-    // Rows a rescan KEPT open for a reason the ledger should state. `paired` ones ride the normal
-    // carry-forward (a restated title matched a new row) and get their note attached to that row;
-    // unpaired ones (not restated, but the dimension did not move) would otherwise vanish — nothing
-    // matched them and they are not done — so they are copied forward as in_progress explicitly.
-    const keptRows: { row: (typeof prevRecs)[number]; note: string; paired: boolean }[] = [];
-    prevRecs.forEach((r, i) => {
-      if (r.status !== "in_progress") return;
-      const restated = isRestated({ dim: r.dimId, title: r.title }, nextIds);
-      const movement = movementOf(r.dimId);
-      // The row's KIND decides which resolve rule applies. A craft rung closes on its trailer alone —
-      // it raises a ceiling the rubric cannot record, so the movement witness a gap needs is not
-      // available for it (see decideInProgress's craft rule).
-      const decision = decideInProgress(
-        { id: r.id, kind: r.kind === "craft" ? "craft" : "gap" },
-        restated,
-        resolvedIds,
-        movement,
-        movementEngines,
-      );
-      if (decision.kind === "done") {
-        resolvedRows.push({ row: r, note: resolutionNote(decision, scanRef) });
-        // Un-pair any next item carry-forward matched to this row: it is not the same gap.
-        carryMatch.forEach((m, j) => {
-          if (m === i) carryMatch[j] = null;
-        });
-      } else if (decision.reason === "no-movement" || decision.reason === "craft-unclaimed" || decision.reason === "rubric-changed") {
-        // All three are UNPAIRED keeps: the new assessment did not restate the row, so nothing in the new
-        // roadmap matched it and it would vanish from the ledger without an explicit carry-forward.
-        keptRows.push({ row: r, note: keepNote(decision, scanRef, movement, movementEngines), paired: false });
-      } else {
-        const note = keepNote(decision, scanRef, movement, movementEngines);
-        if (note) keptRows.push({ row: r, note, paired: true });
-        // Restated (kept): keep the pairing ONLY if it is a title-tier match. matchRecommendations does
-        // not report the tier, so re-check the specific pair — a tier-3 pairing joins titles that
-        // isRestated rejects.
-        carryMatch.forEach((m, j) => {
-          if (m === i && !isRestated({ dim: r.dimId, title: r.title }, [nextIds[j]!])) carryMatch[j] = null;
-        });
-      }
+    // The whole decision, computed ONCE outside the retried transaction (src/lib/db/scan-carry-plan.ts):
+    // which previous row each new roadmap row inherits from, which claims closed, and which were kept
+    // open - paired to the new row that restates them, or copied forward because nothing does. Pairing
+    // is restatement, not a hand-list of reasons, so a kept claim can no longer fall between branches.
+    const plan = planCarryForward({
+      prevRecs,
+      prevDims: previous?.dimensions ?? [],
+      roadmap: report.roadmap,
+      dims: report.dimensions,
+      resolvedIds,
+      engines: movementEngines,
+      scanRef,
     });
+    const carryMatch = plan.carry;
 
     // Atomic write: the scan graph (scan + dimensions + recommendations), the contributor upserts,
     // and the audit entry commit together or roll back together — closing the partial-write hole
@@ -566,12 +512,9 @@ export async function persistScanReport(
                   // The axis rides only on a craft entry; a gap row's axis is NULL by construction so
                   // no coverage read can ever count a gap as a craft rung (scoring/craft.ts).
                   craftAxis: r.kind === "craft" ? (r.craftAxis ?? null) : null,
-                  status: carried?.status ?? "open",
-                  assigneeLogin: carried?.assigneeLogin ?? null,
-                  targetDate: carried?.targetDate ?? null,
-                  // Live claims ride only with in_progress. Dropping them here made a machine-held
-                  // lease read as a human take (`in_progress` + `leaseUntil: null`) on the new row.
-                  ...claimCarry(carried?.status === "in_progress" ? carried : null),
+                  // Status, owner, due date and the live claim, by the one rule every copy uses: the
+                  // claim rides only with in_progress (scan-carry-plan.ts trackedState).
+                  ...trackedState(carried, carried?.status ?? "open"),
                 };
               }),
             },
@@ -583,25 +526,10 @@ export async function persistScanReport(
         // above) with a system event that says which mechanism closed them. Written after the scan
         // row so the event can be attached, in the same transaction so a crash leaves no scan whose
         // archive silently forgot what the fix commits declared.
-        for (const { row, note } of resolvedRows) {
+        for (const { prevIndex, note } of plan.resolved) {
+          const row = prevRecs[prevIndex]!;
           const done = await tx.recommendation.create({
-            data: {
-              scanId: scan.id,
-              title: row.title,
-              dimId: row.dimId,
-              impact: row.impact,
-              effort: row.effort,
-              rationale: row.rationale,
-              firstStep: row.firstStep,
-              explore: row.explore,
-              levelUnlock: row.levelUnlock,
-              kind: row.kind,
-              craftAxis: row.craftAxis,
-              status: "done",
-              assigneeLogin: row.assigneeLogin,
-              targetDate: row.targetDate,
-              ...claimCarry(null),
-            },
+            data: { scanId: scan.id, ...copyRecRow(row, "done") },
             select: { id: true },
           });
           await tx.recommendationEvent.create({
@@ -610,40 +538,36 @@ export async function persistScanReport(
           closedDone.push({ id: done.id, title: row.title, dimId: row.dimId });
         }
 
-        // Rows the rescan kept open for a stated reason. An unpaired keep (not restated, but its
-        // dimension did not move) is copied forward as in_progress — it is nobody's "done" and it
-        // matched nothing, so without this it would silently drop out of the ledger. A paired keep
-        // (claimed by trailer, still restated) already rode carry-forward; its note attaches to the
-        // new row the carry produced. Same-status events are the ledger saying WHY, not a transition.
-        for (const { row, note, paired } of keptRows) {
-          const target = paired
-            ? await tx.recommendation.findFirst({
-                where: { scanId: scan.id, dimId: row.dimId, title: row.title },
-                select: { id: true },
-              })
-            : await tx.recommendation.create({
-                data: {
-                  scanId: scan.id,
-                  title: row.title,
-                  dimId: row.dimId,
-                  impact: row.impact,
-                  effort: row.effort,
-                  rationale: row.rationale,
-                  firstStep: row.firstStep,
-                  explore: row.explore,
-                  levelUnlock: row.levelUnlock,
-                  kind: row.kind,
-                  craftAxis: row.craftAxis,
-                  status: "in_progress",
-                  assigneeLogin: row.assigneeLogin,
-                  targetDate: row.targetDate,
-                  ...claimCarry(row),
-                },
-                select: { id: true },
-              });
+        // Rows the rescan kept open for a stated reason. An UNPAIRED keep (the new scan does not
+        // restate it: the dimension did not move, moved inside the noise band, crossed the mock floor
+        // or a rubric bump, or it is an unclaimed craft rung) is copied forward as in_progress with its
+        // owner and claim - it is nobody's "done" and it matched nothing, so without this it would
+        // silently drop out of the ledger. A PAIRED keep (still restated) already rode carry-forward;
+        // its note attaches to the new row the carry produced, addressed by that row's roadmap entry
+        // (the NEW title, which differs from the old one on a normalized-tier match). Same-status
+        // events are the ledger saying WHY, not a transition.
+        const keptTargets: { prevIndex: number; note: string; target: { id: string } | null }[] = [];
+        for (const { prevIndex, note } of plan.keptUnpaired) {
+          const target = await tx.recommendation.create({
+            data: { scanId: scan.id, ...copyRecRow(prevRecs[prevIndex]!, "in_progress") },
+            select: { id: true },
+          });
+          keptTargets.push({ prevIndex, note, target });
+        }
+        for (const { prevIndex, nextIndex, note } of plan.keptPaired) {
+          const next = report.roadmap[nextIndex]!;
+          const target = await tx.recommendation.findFirst({
+            where: { scanId: scan.id, dimId: next.dimension, title: next.title },
+            select: { id: true },
+          });
+          keptTargets.push({ prevIndex, note, target });
+        }
+        // Events in previous-scan order, as the ledger always wrote them.
+        keptTargets.sort((x, y) => x.prevIndex - y.prevIndex);
+        for (const { prevIndex, note, target } of keptTargets) {
           if (!target) continue;
           await tx.recommendationEvent.create({
-            data: { recommendationId: target.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "in_progress", note: carryEventNote(note, row.id) },
+            data: { recommendationId: target.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "in_progress", note: carryEventNote(note, prevRecs[prevIndex]!.id) },
           });
         }
 
@@ -868,7 +792,7 @@ export async function persistScanReport(
       console.warn(`[scans-persist] tech-stack group sync failed for repo ${repo.id} (org ${orgId}):`, err);
     });
 
-    return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha, closedFollowUpIds: dedupedByRace ? [] : resolvedRows.map((r) => r.row.id) };
+    return { scanId, deduped: dedupedByRace, upgraded: Boolean(upgradeOldScanId), headSha, closedFollowUpIds: dedupedByRace ? [] : plan.resolved.map((r) => prevRecs[r.prevIndex]!.id) };
   }, { label: "persistScanReport:scan" }));
   });
 }
