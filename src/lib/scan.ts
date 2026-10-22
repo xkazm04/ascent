@@ -17,6 +17,8 @@ import {
   type RepoSource,
 } from "@/lib/github/source";
 import { parseForgeUrl, resolveForge } from "@/lib/forge/registry";
+import { bindScanToken, warnDroppedScanToken } from "@/lib/forge/scan-credential";
+import type { ForgeId } from "@/lib/forge/types";
 import { getProviderForOrg } from "@/lib/llm";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import type { LLMProvider } from "@/lib/llm/provider";
@@ -41,6 +43,9 @@ export { isHardLlmError, shouldRetrySameProvider } from "@/lib/scan-assess";
 
 export interface ScanOptions {
   token?: string;
+  /** The forge that issued `token`. Absent means GitHub: a token is only ever sent to the forge it is
+   *  bound to, so an unlabelled token never reaches a non-GitHub host (src/lib/forge/scan-credential.ts). */
+  tokenForge?: ForgeId;
   mock?: boolean;
   /**
    * Owning org slug (BYOM — Feature 1). When set to a real org with an ACTIVE Bedrock config, the scan
@@ -224,7 +229,11 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
   // An explicitly injected source still wins (local mode, the loop lane, tests). Otherwise the forge
   // builds it — and for GitHub that is `new GitHubPublicSource()`, the same construction as before.
   const source = opts.source ?? forge.source();
-  const token = opts.token ?? (opts.noAmbientToken ? undefined : process.env.GITHUB_TOKEN);
+  // DESTINATION BINDING: a credential reaches only the forge that issued it, and the ambient GITHUB_TOKEN
+  // only a GitHub scan. Applied HERE so no caller can route a GitHub credential to another forge's host.
+  const bound = bindScanToken({ forge: forge.id, token: opts.token, tokenForge: opts.tokenForge, noAmbientToken: opts.noAmbientToken, ambient: process.env.GITHUB_TOKEN });
+  if (bound.dropped) warnDroppedScanToken(forge.id, opts.tokenForge);
+  const token = bound.token;
   // Honor client disconnect: every downstream fetch is wired to this signal, and we re-check it
   // at each stage boundary so an abandoned scan stops before the next expensive leg.
   const signal = opts.signal;

@@ -20,6 +20,8 @@ import {
 } from "@/lib/db";
 import { claimJob, claimJobById, markJobCredit, reapExpiredLeases, settleJob, type ScanJobRow, type ScanLane } from "@/lib/db/scan-jobs";
 import { getInstallationToken } from "@/lib/github/app";
+import { splitForgeFullName } from "@/lib/forge/registry";
+import { ambientAllowedFor } from "@/lib/forge/scan-credential";
 import { degradedRead } from "@/lib/org/degraded-read";
 import { DEGRADED_SCAN_ERROR, persistFleetScan } from "@/lib/scan-consequences";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
@@ -222,12 +224,16 @@ async function runProbeJob(job: ScanJobRow, slug: string, ctx: OrgContext, summa
 /** The GitHub credential a rescore scans with. Every non-import row (and a legacy bare `import` one)
  *  keeps the default: the org's installation token, or scanRepository's own env fallback when there is
  *  none. An import row scans with the credential its request did, and a token-less one says so
- *  EXPLICITLY, because an absent `token` alone falls back to the ambient operator PAT. */
+ *  EXPLICITLY, because an absent `token` alone falls back to the ambient operator PAT. A non-GitHub
+ *  row (`gitlab:...`) never mints: every credential here is a GitHub one, bound to GitHub
+ *  (src/lib/forge/scan-credential.ts), so it scans token-less with the ambient fallback refused. */
 async function scanCredential(
   policy: ImportJobPolicy | null,
   slug: string,
   ctx: OrgContext,
+  repo: string,
 ): Promise<{ token?: string; noAmbientToken?: true }> {
+  if (!ambientAllowedFor(splitForgeFullName(repo).forge)) return { noAmbientToken: true };
   if (!policy || policy.token === "install") return { token: await ctx.token(slug) };
   if (policy.token === "ambient") return {};
   return { noAmbientToken: true };
@@ -276,7 +282,7 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
 
   // A broken installation only matters to a job that scans WITH it; a token-less or env-token import
   // never asked for one, and skipping it as `no_token` would strand a scan that could run.
-  const usesInstall = !importPolicy || importPolicy.token === "install";
+  const usesInstall = (!importPolicy || importPolicy.token === "install") && ambientAllowedFor(splitForgeFullName(repo).forge);
   if (usesInstall && (await ctx.brokenInstall(slug))) {
     summary.skippedNoToken += 1;
     if (job.repoId && !push) await advanceScheduleAfterFailure(job.repoId).catch(degradedRead("queue-worker schedule advance after failure", undefined));
@@ -347,7 +353,7 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
     const [owner = "", name = ""] = repo.split("/");
     const prev = await getScanReportByCommit(owner, name, { orgSlug: slug }).catch(degradedRead("queue-worker previous-report read", null));
     const report = await scanRepository(repo, {
-      ...(await scanCredential(importPolicy, slug, ctx)),
+      ...(await scanCredential(importPolicy, slug, ctx, repo)),
       ...(importPolicy?.mock ? { mock: true } : {}),
       orgSlug: slug,
       onProgress: opts.onScanProgress ? (p) => opts.onScanProgress?.(repo, p) : undefined,

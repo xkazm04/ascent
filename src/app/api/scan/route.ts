@@ -34,6 +34,7 @@ import {
 } from "@/lib/scan-lifecycle";
 import { scanCreditRefusal } from "@/lib/entitlement";
 import { authGateEnabled, getViewer } from "@/lib/access";
+import { ambientAllowedFor } from "@/lib/forge/scan-credential";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,7 +80,7 @@ async function runScan(
     orgSlug = resolved.orgSlug;
     // A non-GitHub coordinate must NEVER reach the ambient GITHUB_TOKEN: it would be a GitHub
     // credential sent to another forge's host.
-    noAmbientToken = (resolved.noAmbientToken ?? false) || forgeId !== "github";
+    noAmbientToken = (resolved.noAmbientToken ?? false) || !ambientAllowedFor(forgeId);
   }
 
   // Supabase login wall — private/org scans only. A non-public orgSlug means an installation token

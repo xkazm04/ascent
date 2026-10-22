@@ -31,6 +31,7 @@ import { reportPermalink } from "@/lib/ui";
 import { dispatchScanCompletionEmail, emailSendingEnabled, isValidEmail } from "@/lib/email";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
 import type { ScanProgress } from "@/lib/types";
+import { ambientAllowedFor } from "@/lib/forge/scan-credential";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,7 +96,7 @@ export async function POST(request: Request) {
   const resolvedAuth = await resolveScanAuth(ghParsed, body.installationId);
   const token = resolvedAuth.token;
   const orgSlug = resolvedAuth.orgSlug;
-  const noAmbientTokenAuth = (resolvedAuth.noAmbientToken ?? false) || forgeId !== "github";
+  const noAmbientTokenAuth = (resolvedAuth.noAmbientToken ?? false) || !ambientAllowedFor(forgeId);
 
   // Supabase login wall. In production (Supabase configured + bypass hard-off, via authGateEnabled) a
   // PRIVATE / installed-org scan requires a signed-in viewer. The anonymous PUBLIC funnel is exempt by

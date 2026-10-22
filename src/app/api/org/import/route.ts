@@ -48,6 +48,7 @@ import { getInstallationToken, isAppConfigured } from "@/lib/github/app";
 import { isValidHandle, isValidRepoName, listOrgRepos } from "@/lib/github/list";
 import { forgeFullName, parseForgeUrl } from "@/lib/forge/registry";
 import { gitlabForge } from "@/lib/forge/gitlab/source";
+import { ambientAllowedFor } from "@/lib/forge/scan-credential";
 import { getForgeInstallation, hostFromBase } from "@/lib/db/forge-installations";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
@@ -237,6 +238,10 @@ export async function POST(request: Request) {
   const scanOpts = appTokenMinted || authOff
     ? { token, mock, orgSlug: org }
     : { noAmbientToken: true, mock, orgSlug: org };
+  // The minted / env token is a GitHub credential, bound to GitHub (src/lib/forge/scan-credential.ts):
+  // a non-GitHub entry of the same batch scans token-less, never with it.
+  const scanOptsFor = (forge: "github" | "gitlab" | undefined) =>
+    ambientAllowedFor(forge ?? "github") ? scanOpts : { noAmbientToken: true, mock, orgSlug: org };
 
   // Credits: a real-LLM import into a private org dashboard draws on prepaid credits. The default mock
   // import and the public funnel are free (mock runs no inference). Refuse up front when out of credits;
@@ -577,7 +582,7 @@ export async function POST(request: Request) {
             try {
               // The regression baseline, read BEFORE the fresh row lands (never throws; null = first scan).
               const prev = await readScanBaseline(r.fullName, org, "org/import");
-              const report = await scanRepository(r.fullName, scanOpts);
+              const report = await scanRepository(r.fullName, scanOptsFor(r.forge));
               inferenceBilled = report.engine.provider !== "mock";
               // The fleet's one persist door (src/lib/scan-consequences.ts), shared with the worker that
               // scans this import's queued tail: a degraded-to-mock floor is refused, and a new row runs
