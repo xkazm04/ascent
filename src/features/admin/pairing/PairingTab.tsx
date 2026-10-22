@@ -12,19 +12,18 @@
 // cloud, but a deep link still resolves — explain, don't 404, since the URL was honestly shared),
 // then the owner gate, then data.
 
-import { OrgEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { PairingList } from "./PairingList";
-import { AddRepoForm } from "./AddRepoForm";
+import { OrgEmpty } from "@/components/org/shared/ui";
 import { listLocalPairings } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { selfHosted } from "@/lib/env";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { getOrgRegistry } from "@/lib/db/org-registry";
 import { getRegistryCapabilities } from "@/lib/registry/capabilities";
 import { resolveLocalRegistry } from "@/lib/registry/local-source";
-import { RegistryPairingCard } from "./RegistryPairingCard";
-import { RegistryGithubStep } from "./RegistryGithubStep";
+import { getTheme } from "@/lib/theme/server";
+import { pairingV1 } from "./PairingTab.v1";
+import { pairingV2 } from "./PairingTab.v2";
+import type { PairingData } from "./pairingData";
 import type { RegistryPairingView } from "./pairingClient";
 
 /** The registry step's server read. Every part degrades on its own — a failed probe is "not connected". */
@@ -74,22 +73,7 @@ export async function PairingTab({ slug }: { slug: string }) {
     );
   }
 
-  const [pairings, registry] = await Promise.all([listLocalPairings(slug), registryPairingView(slug)]);
-  return (
-    <div className="space-y-6">
-      <SectionHeader
-        title="Local pairing"
-        description="Pair the registry first, then each repository, with their working copies on this machine. Everything paired reads from disk — no GitHub App required."
-      />
-      <RegistryPairingCard org={slug} view={registry} />
-      <RegistryGithubStep org={slug} github={registry.github} paired={registry.localPath !== null} />
-      <SectionHeader
-        title="Fleet repositories"
-        description="Paired repos scan from disk — commits carrying the Ascent-Resolves trailer close follow-ups immediately, before any push — and feed the registry's conformance sweep."
-      />
-      <AddRepoForm org={slug} />
-      <PairingList org={slug} initial={pairings} />
-      <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
-    </div>
-  );
+  const [pairings, registry, theme] = await Promise.all([listLocalPairings(slug), registryPairingView(slug), getTheme()]);
+  const data: PairingData = { pairings, registry };
+  return theme === "prism" ? pairingV2(slug, data) : pairingV1(slug, data);
 }
