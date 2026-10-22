@@ -640,6 +640,32 @@ are not deleted; the same read keeps them out of the count until their file land
 a repo with an open playbook PR also reads as proposed until then. The card shows "N draft PR(s)
 open" beside the adopted count and prints no count at all when nothing is adopted or proposed.
 
+**Playbook lift is a named-status before/after pair** (playbooks-0, 2026-10-22). The pairing rule
+lives in `src/lib/org/playbookLiftModel.ts` (pure); the reads live in `src/lib/db/playbook-lift.ts`.
+- **Each application gets exactly one status:** `paired`, `no-before` (no scan before the adoption), `no-after` (not
+  re-scanned since), `mock-reading` (either side is a mock scan) or `no-dimension` (the playbook's
+  dimension was not scored on one side). `getPlaybookAdoption` returns `unpaired = { noBefore,
+  noAfter, mock, noDimension }` beside `lift` and `measured`, and `measured` + the four counts equals
+  the playbook's applications. An application that cannot be measured is reported in `unpaired`, never shown as a 0 lift.
+- **The boundary resolves toward after.** This is a deliberate change: a scan exactly at the adoption
+  instant used to be the baseline and is now the first after-side reading. For a mark stamped by
+  the rescan that found the file landed (`appliedBy: "scan"`), the boundary is that landing scan,
+  because the scan already contains the playbook file. Before this change, that scan was the baseline,
+  so a landed playbook's lift measured only the movement after it landed. The single-scan-at-`appliedAt`
+  case keeps its output (no lift, measured 0) and is now counted as `no-before`.
+- **Mock scans are excluded, never swapped.** A mock latest or baseline reading makes the
+  application `mock-reading`. The reader does not fall back to an older live scan, which matches the
+  latest-scan door's drop-not-swap rule.
+- **The read is constant in history depth.** Each repo's latest scan and, per application, the latest scan strictly before
+  the boundary come from `latestScanAtPerRepo` / `scanAtBeforePerRepo` / `atPairs`
+  (`org-rollup-latest-scans.ts`). The lift no longer reads every scan of every adopting repo. Ten repos with sixty scans each fetch 30 Scan
+  rows, and doubling the history fetches the same 30. `org-latest-scan-guard.test.ts` now also
+  scans `playbook-*.ts` and fails any Scan `findMany` there that is not an `atPairs` fetch.
+- **The card says what the number stands on.** The lift badge's title is `liftSampleNote`, for
+  example "measured in 3 of 12 · 5 not re-scanned since · 2 adopted before their first scan · 2
+  mock scans excluded". The executive briefing's proof line reads the same `lift`, so its playbook
+  figures move with these rules.
+
 ## Governance perimeter: advisory findings on the repo node (2026-09-17)
 
 The AI-stance apply path reuses this writer's `openArtifactDraftPr` (see *Shared write path* above).

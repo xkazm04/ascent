@@ -184,7 +184,9 @@
         "src/lib/org/playbook-apply.ts",
         "src/lib/db/practice-adoption.ts",
         "src/lib/db/house-pattern-versions.ts",
-        "src/lib/db/playbook-adoption.ts"
+        "src/lib/db/playbook-adoption.ts",
+        "src/lib/db/playbook-lift.ts",
+        "src/lib/org/playbookLiftModel.ts"
       ]
     },
     {
