@@ -12,17 +12,11 @@
 
 import { NextResponse } from "next/server";
 import { REC_NOTE_MAX_LENGTH, REC_STATUSES, type RecStatus } from "@/lib/types";
-import {
-  clearRecommendationDismissal,
-  getRecommendationOrgSlug,
-  recordRecommendationDismissal,
-  updateRecommendation,
-  type RecommendationPatch,
-} from "@/lib/db";
+import { getRecommendationOrgSlug, updateRecommendation, type RecommendationPatch } from "@/lib/db";
+import { applyRecTransitionEffects } from "@/lib/db/rec-transition-effects";
 import { PUBLIC_ORG } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
-import { isClosedRecStatus, recordRecommendationClose } from "@/lib/memory/scan-feed";
 import { dbGuard } from "@/lib/api/orgPlan";
 
 export const runtime = "nodejs";
@@ -130,33 +124,18 @@ export async function PATCH(
 
   try {
     const updated = await updateRecommendation(id, patch, { actor: actorLogin, note });
-    // Auto-feed Shared Org Memory: a gap actually CLOSED is org intelligence, and until now it lived
-    // only in this recommendation's private event timeline. Fires on the persisted post-state (so a
-    // rejected/no-op patch can't record a close), resolves org + repo itself, is never-throwing, and
-    // dedups on content — a retried PATCH or a double-click writes one row, not two.
-    if (isClosedRecStatus(patch.status) && updated && isClosedRecStatus(updated.status)) {
-      await recordRecommendationClose(id, { title: updated.title, dimension: updated.dimension });
-    }
-    // The dismissal counterpart. `done` feeds Shared Org Memory (above); `dismissed` feeds the
-    // STANDING DECISIONS block the next scan's prompt reads — so "we're not doing this, we're on
-    // Bazel" reaches the assessment instead of dying in this row's event timeline and the identical
-    // gap being re-raised. The reason is the patch's `note`; a dismissal without one records nothing
-    // (silence must never become permanent suppression). Moving OUT of dismissed reopens the standing
-    // decision, so an un-dismissed gap stops being suppressed. Both are never-throwing.
+    // The status change's CONSEQUENCES (a close feeds Shared Org Memory, a dismissal with a reason
+    // becomes a standing decision the next scan reads, leaving dismissed lifts it) live in one module
+    // every status writer calls: src/lib/report/rec-transitions.ts plans them, the db side runs them
+    // post-commit and never throws. They fire on the persisted post-state, so a rejected or no-op
+    // patch cannot record a close. The route does not read the prior status, so `from` is unknown:
+    // the plan then lifts any standing dismissal defensively on a non-dismissed post-state, exactly as
+    // this route always did. The dismissal reason is the patch's `note`.
     if (patch.status !== undefined && updated) {
-      if (updated.status === "dismissed") {
-        await recordRecommendationDismissal(
-          id,
-          { title: updated.title, dimension: updated.dimension, reason: note },
-          actorLogin,
-        );
-      } else {
-        await clearRecommendationDismissal(
-          id,
-          { title: updated.title, dimension: updated.dimension },
-          actorLogin,
-        );
-      }
+      await applyRecTransitionEffects(
+        { from: null, to: updated.status, reason: note, title: updated.title, dimension: updated.dimension },
+        { recommendationId: id, actor: actorLogin },
+      );
     }
     return NextResponse.json(updated);
   } catch (err) {
