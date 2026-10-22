@@ -4,9 +4,9 @@ import { useState } from "react";
 import Image from "next/image";
 import { HairlineGrid, Kicker, Stat } from "@/components/ui";
 import { DeckSection } from "@/components/deck/DeckSection";
-import { ScoreGauge } from "@/components/landing/prototypes/index/ScoreGauge";
+import { ScoreGauge } from "./ScoreGauge";
 import { LEVELS, DIMENSIONS } from "@/lib/maturity/model";
-import { useCountUp } from "@/components/landing/prototypes/shared/useCountUp";
+import { useCountUp } from "@/components/ui/useCountUp";
 import { AboutCtaButtons } from "./AboutCtaButtons";
 
 // GOLDEN-TRIO: do not lead with ROI. The lede is the first sentence a visitor reads; it names the

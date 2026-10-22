@@ -9,17 +9,17 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { ARCHETYPE_WEIGHTS, DIMENSIONS, LEVELS } from "@/lib/maturity/model";
-import { PRISM_SCAN_HREF, SELF_HOST_HREF } from "./prismLinks";
+import { PRISM_SCAN_HREF, SELF_HOST_HREF, type PrismLinks } from "./prismLinks";
 
 // The real ScanModal reads the Next router; its own suite covers it. Here it only has to be mounted.
-vi.mock("@/components/landing/prototypes/index/ScanModal", () => ({
+vi.mock("@/components/shared/scan/ScanModal", () => ({
   ScanModal: () => <span data-testid="scan-modal" />,
 }));
 
 import { PrismLanding } from "./PrismLanding";
 
-const LINKS = { scan: PRISM_SCAN_HREF, org: "/org/demo", source: null };
-const render = (links = LINKS) => renderToStaticMarkup(<PrismLanding links={links} auth={null} gated={false} />);
+const LINKS: PrismLinks = { scan: PRISM_SCAN_HREF, org: "/org/demo", source: null };
+const render = (links: PrismLinks = LINKS) => renderToStaticMarkup(<PrismLanding links={links} auth={null} gated={false} />);
 
 describe("PrismLanding (server render)", () => {
   const html = render();
@@ -72,10 +72,40 @@ describe("PrismLanding (server render)", () => {
     expect(html).toContain("tag-ill");
   });
 
-  it("links the current landing back, and the legal pages the app footer would have", () => {
-    for (const href of ['href="/"', 'href="/privacy"', 'href="/terms"', 'href="/leaderboard"', 'href="/pricing"']) {
+  it("links the legal pages the app footer would have", () => {
+    for (const href of ['href="/privacy"', 'href="/terms"', 'href="/leaderboard"', 'href="/pricing"']) {
       expect(html).toContain(href);
     }
+  });
+
+  it("the hosted cloud sees the self-host pitch and no setup panel", () => {
+    expect(html).toContain("Run it yourself");
+    expect(html).not.toContain("Finish setup");
+    expect(html).not.toContain("This install");
+  });
+
+  it("a self-hosted install with nothing configured is led to /onboarding instead of the pitch", () => {
+    const out = render({ ...LINKS, selfHosted: true, setup: "unset" });
+    expect(out).toContain("Finish setup");
+    expect(out).toContain('href="/onboarding"');
+    expect(out).toContain("This install");
+    expect(out).not.toContain("Run it yourself");
+  });
+
+  it("a configured self-hosted install keeps the panel but drops the finish-setup call to action", () => {
+    const out = render({ ...LINKS, selfHosted: true, setup: "ready" });
+    expect(out).toContain("This install");
+    expect(out).not.toContain("Finish setup");
+  });
+
+  it("renders the register section and its nav link only when there is a gallery", () => {
+    expect(html).not.toContain('id="register"');
+    const card = { fullName: "acme/web", href: "/report/acme/web", level: "L3", levelName: "Managed", overall: 71, dimensions: {}, scannedAt: "2026-08-30T00:00:00Z", verified: true, currentRubric: true, rubricVersion: null, archetype: "org" };
+    const gallery = { recent: [card], topAiNative: [card], totalRepos: 1, dbMode: "postgres" } as never;
+    const out = renderToStaticMarkup(<PrismLanding links={LINKS} auth={null} gated={false} gallery={gallery} />);
+    expect(out).toContain('id="register"');
+    expect(out).toContain("acme/web");
+    expect(out).toContain('href="#register"');
   });
 
   it("scopes its symbols so they cannot collide with the app's ids", () => {

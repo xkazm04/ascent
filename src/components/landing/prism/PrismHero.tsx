@@ -7,6 +7,7 @@ import type { CSSProperties, RefObject } from "react";
 import type { Layout } from "./engine/types";
 import { Arrow } from "./PrismBits";
 import { PrismScanLink } from "./PrismScanLink";
+import { PrismSetupLink } from "./PrismSetup";
 import {
   ARCHETYPES,
   PRISM_DIMS,
@@ -49,6 +50,7 @@ export function PrismHero({ heroRef, canvasRef, links, layout, ready, hover, sho
           <div className="ctas">
             <PrismScanLink className="btn primary" href={links.scan}>Scan a repository <Arrow /></PrismScanLink>
             <Link className="btn ghost" href={links.org}>Open the org demo</Link>
+            <PrismSetupLink links={links} />
           </div>
           <p className="fine">Open source under AGPL-3.0 · runs on your machine with any model</p>
         </div>

@@ -87,7 +87,7 @@ describe("getPublicScanGallery — DB-down degrades to the static fallback", () 
 });
 
 // The register has exactly ONE empty-corpus behaviour: this loader returns null and IndexVariant drops
-// the section. IndexGallery therefore carries no worded empty state (UAT `RC2-N3` — it had one, and it
+// the section. PrismRegister therefore carries no worded empty state (UAT `RC2-N3` — it had one, and it
 // was unreachable). Structural pin, because the branch it guards is a deletion: if the zero-card return
 // goes, the component starts rendering a heading and column labels around nothing and needs its empty
 // state back.
@@ -97,8 +97,8 @@ describe("loadPublicGalleryCards — zero cards is null, so the register has no 
     expect(src).toMatch(/if \(cards\.length === 0\) return null;/);
   });
 
-  it("keeps IndexGallery free of a worded empty state", () => {
-    const gallerySrc = readFileSync("src/components/landing/prototypes/index/IndexGallery.tsx", "utf8");
+  it("keeps PrismRegister free of a worded empty state", () => {
+    const gallerySrc = readFileSync("src/components/landing/prism/PrismRegister.tsx", "utf8");
     expect(gallerySrc).not.toMatch(/No public scans yet/);
   });
 });

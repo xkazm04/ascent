@@ -4,6 +4,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { IllTag } from "./PrismBits";
+import { PrismSetup } from "./PrismSetup";
 import { MARK } from "./PrismDefs";
 import { HUES } from "./prismModel";
 import { SELF_HOST_HREF, type PrismLinks } from "./prismLinks";
@@ -89,11 +90,12 @@ export function PrismBeyond({ links }: { links: PrismLinks }) {
           <div className="ctas">
             {links.source ? (
               <a className="btn ghost" href={links.source} target="_blank" rel="noreferrer">Read the source</a>
-            ) : (
+            ) : links.selfHosted ? null : (
               <Link className="btn ghost" href={SELF_HOST_HREF}>Run it yourself</Link>
             )}
             <Link className="btn ghost" href={links.org}>Open the org demo</Link>
           </div>
+          <PrismSetup links={links} />
           <div className="badge">
             <svg viewBox="0 0 250 36" width="250" height="36" role="img" aria-label="Illustrative badge: Ascent L3 Augmented">
               <rect width="250" height="36" rx="4" fill="#0e1019" stroke="rgba(242,238,230,.2)" />

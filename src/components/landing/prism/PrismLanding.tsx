@@ -1,7 +1,6 @@
 "use client";
 
-// The Prism landing ("Read its spectrum"): the contest-winning brand and page, ported next to the current
-// landing and selected with /?landing=prism. The server page renders the FAQ JSON-LD and passes the
+// The Prism landing ("Read its spectrum"): the contest-winning brand and page, the only landing at `/`. The server page renders the FAQ JSON-LD and passes the
 // deployment's real wiring (demo org, source URL, sign-in mode); this owns everything the visitor sees.
 //
 // Nothing here re-implements the product: levels, dimensions, weights and posture labels are read from
@@ -10,7 +9,7 @@
 // flow are the ones the current landing uses.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScanModal, type AuthMode } from "@/components/landing/prototypes/index/ScanModal";
+import { ScanModal, type AuthMode } from "@/components/shared/scan/ScanModal";
 import "./prism.css";
 import { usePrefersReducedMotion, usePrismRoute } from "./hooks";
 import { PrismBeyond } from "./PrismBeyond";
@@ -24,7 +23,9 @@ import { PrismMethod } from "./PrismMethod";
 import { PrismScanProvider } from "./PrismScanLink";
 import { PrismScene } from "./PrismScene";
 import { PrismTop } from "./PrismTop";
-import { PRISM_NAV_IDS } from "./prismNav";
+import { prismNav } from "./prismNav";
+import { PrismRegister } from "./PrismRegister";
+import type { PublicScanGallery } from "@/lib/db";
 import { DEFAULT_ARCHETYPE, lineHash, nextLine, prevLine, type Archetype } from "./prismModel";
 import type { PrismLinks } from "./prismLinks";
 import { useScene } from "./useScene";
@@ -36,14 +37,18 @@ export interface PrismLandingProps {
   exampleRepos?: string[];
   auth: AuthMode;
   gated: boolean;
+  /** Live register from persisted public scans; null/absent when persistence is off or nothing is scored. */
+  gallery?: PublicScanGallery | null;
 }
 
 const go = (hash: string) => {
   window.location.hash = hash;
 };
 
-export function PrismLanding({ links, exampleRepos, auth, gated }: PrismLandingProps) {
+export function PrismLanding({ links, exampleRepos, auth, gated, gallery = null }: PrismLandingProps) {
   const reduced = usePrefersReducedMotion();
+  const nav = useMemo(() => prismNav(!!gallery), [gallery]);
+  const navIds = useMemo(() => nav.map((n) => n.id), [nav]);
   const [arch, setArch] = useState<Archetype>(DEFAULT_ARCHETYPE);
   const route = usePrismRoute();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -60,7 +65,7 @@ export function PrismLanding({ links, exampleRepos, auth, gated }: PrismLandingP
 
   const hero = usePrismHero({ rootRef, heroRef, canvasRef, reduced, arch, paused: route != null, onOpen: openLine });
   const scene = useScene(route, reduced, hero.engineRef, flashRef);
-  const scroll = usePrismScroll(PRISM_NAV_IDS);
+  const scroll = usePrismScroll(navIds);
   const mobile = hero.layout?.mobile ?? false;
 
   // Presses the real ScanModal's own (hidden) trigger; see PrismScanLink for why not the deep link.
@@ -132,7 +137,7 @@ export function PrismLanding({ links, exampleRepos, auth, gated }: PrismLandingP
     <PrismScanProvider value={openScan}>
       <div ref={rootRef} className={cls}>
         <PrismDefs />
-        <PrismTop links={links} paper={scroll.paper} active={scroll.active} progressRef={scroll.progressRef} />
+        <PrismTop links={links} nav={nav} paper={scroll.paper} active={scroll.active} progressRef={scroll.progressRef} />
         <main id="main" inert={scene.open}>
           <PrismHero
             heroRef={heroRef}
@@ -152,6 +157,7 @@ export function PrismLanding({ links, exampleRepos, auth, gated }: PrismLandingP
           <PrismLadder arch={arch} reduced={reduced} />
           <PrismMethod />
           <PrismBeyond links={links} />
+          {gallery && <PrismRegister gallery={gallery} scanHref={links.scan} />}
           <PrismBrand reduced={reduced} />
           <PrismLaunch links={links} />
         </main>

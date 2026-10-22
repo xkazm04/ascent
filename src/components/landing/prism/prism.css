@@ -353,3 +353,32 @@ to{transform:translateY(330px)}
 }
 @keyframes prism-blink{50%{opacity:0}
 }
+/* register + self-hosted setup (ported from the Altimeter deck) */
+.prism-root .rg-count,.prism-root .rg-prov{margin:6px 0 0;font-family:var(--mono);font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+.prism-root .rg-lens{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-bottom:calc(var(--U)*1.6);font-size:15px;color:var(--dim)}
+.prism-root .seg button[aria-pressed="true"]{background:var(--paper);color:#07080c;font-weight:600}
+.prism-root .rg-head,.prism-root .rg-row{display:grid;grid-template-columns:34px minmax(0,1fr) repeat(5,54px) 64px;gap:0 12px;align-items:center}
+.prism-root .rg-head{padding:0 0 8px;border-bottom:1px solid var(--hair);font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.prism-root .rg-row{padding:16px 0;border-bottom:1px solid var(--hair);text-decoration:none;transition:background .2s}
+.prism-root .rg-row:hover{background:rgba(242,238,230,.04)}
+.prism-root .rg-rank{font-family:var(--mono);font-size:14px;color:var(--dim)}
+.prism-root .rg-name{min-width:0}
+.prism-root .rg-name b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--disp);font-weight:600;font-size:max(17px,calc(var(--U)*1.2))}
+.prism-root .rg-row:hover .rg-name b{text-decoration:underline;text-underline-offset:4px}
+.prism-root .rg-name span{font-family:var(--mono);font-size:13px;color:var(--mute)}
+.prism-root .rg-s{text-align:center;font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:15px;color:var(--dim)}
+.prism-root .rg-s.big{font-size:20px;font-weight:700}
+.prism-root .rg-move{margin-left:8px;font-size:12px}
+.prism-root .rg-move.up{color:#62E59A}
+.prism-root .rg-move.down{color:#FF5A5F}
+.prism-root .rg-note{max-width:calc(var(--U)*58);line-height:1.5}
+.prism-root .rg-note b{color:var(--paper);font-weight:600}
+.prism-root .rg-foot{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;margin-top:calc(var(--U)*2.4);font-size:15px;color:var(--mute)}
+.prism-root .setup{margin-top:calc(var(--U)*2.4);padding:calc(var(--U)*1.6);border:1px solid var(--hair);border-radius:4px;background:rgba(242,238,230,.03)}
+.prism-root .setup .eyebrow{margin-bottom:10px}
+.prism-root .setup p{margin:0 0 12px;color:#d6d4d0}
+.prism-root .setup .ctas{margin-top:4px}
+@media (max-width:760px){
+.prism-root .rg-head,.prism-root .rg-row{grid-template-columns:28px minmax(0,1fr) 56px;gap:0 10px}
+.prism-root .rg-head .dim,.prism-root .rg-row .dim{display:none}
+}

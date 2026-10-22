@@ -30,9 +30,9 @@ keyed on `selfHosted()`:
 "Nothing set up" (`resolveFirstRunSetup`, pure + tested) means: no `ASCENT_LOCAL_ORG` declared, no
 GitHub App configured, and no `Organization` row beyond the shared `public` corpus
 (`countTenantOrgs()`, `src/lib/db/tenants.ts`). The landing page reads the same resolver: on a
-self-hosted install the hero's "Open source · run it yourself" CTA is replaced by "Finish setup ·
-/onboarding" while unset (and by nothing once set), and the fleet section's secondary link reads
-"set this install up first" instead of "sign in with GitHub first".
+self-hosted install the Prism landing drops the "run it yourself" pitch, shows a "This install" panel
+(`PrismSetup`) in the Beyond section, and offers "Finish setup · /onboarding" in the hero, the panel and
+the closing CTAs while unset (the CTA goes once set; the panel stays).
 
 The skill's step list the panel renders is the same data the self-hosted `/pricing` renders
 (`src/components/pricing/selfHostPricingData.ts`), so the two surfaces can't describe two skills.

@@ -157,7 +157,7 @@ describe("the three scan doors read one predicate", () => {
   });
 
   it("the QuotaMeter and the duration sentence ride the OPEN branch, so an anonymous visitor sees both", () => {
-    const modal = src("src/components/landing/prototypes/index/ScanModal.tsx");
+    const modal = src("src/components/shared/scan/ScanModal.tsx");
     // Both live below the `locked ? … : …` split's open arm; with the wall correctly off they render.
     expect(modal).toContain("<QuotaMeter />");
     expect(modal).toContain("SCAN_DURATION");

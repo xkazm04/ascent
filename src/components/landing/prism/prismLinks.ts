@@ -8,6 +8,10 @@ export interface PrismLinks {
   org: string;
   /** The deployment's source repository, or null when the operator has not named one. */
   source: string | null;
+  /** Self-hosted deployment (`first-run.ts` mode, resolved server-side): no "run it yourself" pitch. */
+  selfHosted?: boolean;
+  /** Self-hosted only: `unset` promotes the `/onboarding` skill. */
+  setup?: "ready" | "unset";
 }
 
 /** Self-host band on the pricing page: the honest stand-in when there is no source URL to link. */

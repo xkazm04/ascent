@@ -61,7 +61,6 @@ const SELLING_SURFACES = [
   "src/lib/plans.ts",
   "src/lib/site-jsonld.ts",
   "src/app/page.tsx",
-  "src/components/landing/prototypes/index/IndexPricing.tsx",
   ...nonTest("src/app/pricing"),
   ...nonTest("src/components/pricing"),
 ];

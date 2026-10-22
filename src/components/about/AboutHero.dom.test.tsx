@@ -21,7 +21,7 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }));
-vi.mock("@/components/landing/prototypes/index/ScoreGauge", () => ({
+vi.mock("@/components/about/ScoreGauge", () => ({
   ScoreGauge: () => <div data-testid="score-gauge" />,
 }));
 

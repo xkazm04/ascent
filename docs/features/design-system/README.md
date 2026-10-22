@@ -1,6 +1,6 @@
 # Marketing Site & Design System
 
-UI primitives, the component deck, landing-page prototypes, and the two marketing
+UI primitives, the component deck, the Prism landing, and the two marketing
 decks (`/about`, `/about-org`).
 
 Context-map group: **Marketing Site & Design System** (`feature`).
@@ -26,169 +26,80 @@ input state. A newly mounted `Defer` instance still applies its own arrival poli
 | Surface | Route(s) | Source |
 | --- | --- | --- |
 | Design System: UI Primitives & Deck | — | `src/components/ui/**`, `src/components/deck/**`, `src/components/ConfirmAction.tsx` |
-| Landing Page Prototypes | `/` | `src/components/landing/**` |
-| Prism landing (`/` under the Prism theme; preview beside `/` with `?landing=prism`) | `/` | `src/components/landing/prism/**` |
+| Prism landing | `/` | `src/components/landing/prism/**` |
 | Marketing About Page | `/about` | `src/app/about`, `src/components/about/**` |
 | Marketing Org Page | `/about-org` | `src/app/about-org`, `src/components/about-org/**` |
 
-## The `/` landing deck ("The Index")
+## The register and the self-host surfaces on `/`
 
-`IndexLanding` renders the production landing as a scroll-snap deck. Section
-roster (also the right-edge `DeckNav`): **hero · org · fleet · local · gallery
-(when the register has data) · pricing · levels · dimensions**, each a
-`DeckSection` under `src/components/landing/prototypes/index/`.
+The Altimeter scroll-snap deck ("The Index", `components/landing/prototypes/**`) is gone;
+its two live-data surfaces were ported into the Prism landing in the Prism language
+(`2026-10-22`), with the same data and the same gating.
 
-**Org edition (`IndexOrg`, deck id `org`)**: six use-case cards into the curated
-demo org. Copy names shipped tabs, not a retired Plan. The last card is
-Follow-ups & Proposals (`orgTabHref(DEMO_ORG_SLUG, "proposals")`) — scan
-follow-ups and loop proposals in one in-flight ledger, waiting on a decision —
-never an ROI-ranked backlog and never `/org/{demo}/plan` (Plan tab retired
-2026-08-17 in favour of that ledger; GOLDEN-TRIO: do not lead with ROI;
-`getOrgBacklog` sorts by due/impact/recency and projected points are display-only).
+**Section roster and nav.** Hero, Ladder, Method, Beyond one repository, **The
+register** (only when the page has a gallery), Identity, Launch. `prismNav(register)` in
+`prismNav.ts` builds the top-bar links and the scroll-spy ids, so "Register" is in the nav
+exactly when `<section id="register">` is rendered.
 
-**Fleet (`IndexFleet`, deck id `fleet`)**: the Mission Control constellation made
-public. The picture is data-free `PublicConstellation` (deterministic phyllotaxis,
-no fetch, no session, no fleet data). The three notes decode the metaphor — a
-cluster per org, a star per repo, the sky as a glance at the estate — and never
-claim the vignette is live-scanning. The stamp under the picture stays
-`Illustrative fleet`. Sign-in copy points at the real Mission Control; the
-picture itself is the metaphor.
+**Self-hosted install (`PrismSetup.tsx`).** `src/app/page.tsx` resolves
+`resolveFirstRun()` (`src/lib/first-run.ts`, the resolver `/onboarding` branches on) and
+passes `selfHosted` and `setup` through `PrismLinks`. On a self-hosted deployment the
+"Run it yourself" pitch (Beyond CTA, footer fallback) is not rendered, a **This install**
+panel sits in the Beyond section (setup guide link via `selfHostGuideHref()`, labelled
+"(upstream)" when no source repository is named), and while `setup === "unset"` a
+**Finish setup · /onboarding** call to action appears in the hero, the panel and the
+closing CTAs. Once a tenant exists the panel stays and the finish-setup CTA goes. The
+hosted cloud sees the pitch and no panel.
 
-**The register's counter is suppressed at zero** (`IndexGallery`). A count is a
-claim, and zero is not one worth making: on a configured-but-empty database this
-section headed "The register" used to open with "0 public repos rated", on a page
-whose whole proposition is *now it has an index* (UAT `TOMAS-L1-05`). The
-`Served live from …` provenance stamp stays in both states — the counter goes, the
-honesty does not.
+**The register (`PrismRegister`, `PrismRegisterLens`).** A ranked table of the most
+AI-native public repositories from `getPublicScanGallery()`.
+
+**The register's counter is suppressed at zero.** A count is a claim, and zero is not one
+worth making (UAT `TOMAS-L1-05`). The `Served live from …` provenance stamp stays in both
+states.
 
 **An empty corpus is an ABSENT register, and that is the only behaviour.**
-`loadPublicGalleryCards` returns `null` at zero cards, `IndexVariant` drops the
-whole section, and nothing renders — no heading, no counter, no empty state.
-`IndexGallery` used to *also* carry a worded `board.length === 0` state, which
-could never fire (non-null implies at least one card implies a non-empty board),
-so the register declared two behaviours for one state and shipped the other one
-(UAT `RC2-N3`). The worded state is deleted; `scans-gallery.test.ts` pins the
-zero-card `null` return, because if that goes the register needs it back.
+`loadPublicGalleryCards` returns `null` at zero cards, the landing receives
+`gallery={null}` and renders no section and no nav link. `PrismRegister` carries no worded
+empty state (UAT `RC2-N3`); `scans-gallery.test.ts` pins the zero-card `null` return and
+the absence of that copy.
 
-**A row scored on an earlier ruler carries a `rubric rNN` chip, and the board says
-so under itself.** `model.ts` states in writing that numbers from two rubric
-versions are not comparable, and a rubric bump invalidates the gallery cache
-*without* re-scanning anything — so an un-rescanned repo keeps its old score and is
-ranked here against fresh ones (UAT `TOMAS-L1-11`). `PublicRepoCard` therefore
-carries `rubricVersion` plus a derived `currentRubric` (`galleryCardFrom` in
-`scans-read.ts`); a non-current row gets a violet `rubric r10` chip — or `rubric
-unknown` when the scan predates the stamp, because unknown is never "the same
-ruler" — and a mixed board prints *"Mixed rubrics on this page"* above the
-growth-loop footer, counted over the rows actually rendered. This is the same
-derivation, chip and wording MC-B18 gave `RegisterEntry` on `/leaderboard`
-(`LeaderboardTable`): two public rankings over one corpus must not invent two
-vocabularies for one fact. **Qualified, never de-ranked** — a stale score is a real
-rating taken on an earlier instrument, unlike a mock score, which is not a rating
-at all; dropping every pre-bump row would empty the register on the day of each
-bump and publish something less true.
+**A row scored on an earlier ruler carries a `rubric rNN` chip, and the board says so under
+itself.** A rubric bump invalidates the gallery cache without re-scanning, so an
+un-rescanned repo is ranked against fresh ones (UAT `TOMAS-L1-11`). A non-current row
+wears `rubric r10` (or `rubric unknown` when the scan predates the stamp) and a mixed
+board prints *"Mixed rubrics on this page"*, counted over the rows actually rendered. Same
+derivation, chip and wording as `/leaderboard`. **Qualified, never de-ranked.**
 
 **A mock score is a `demo` row, never a ranked one, and the chips are one component.**
-`src/components/landing/RegisterChips.tsx` (`DemoChip`, `RubricChip`, `RegisterChips`) is the single
-copy of the provenance qualifiers both public rankings draw: `IndexGallery` here and `LeaderboardTable`
-on `/leaderboard`. The landing `topAiNative` holds verified cards only (card portfolio-0), so a
-mock-engine card can reach the board only on the recency fallback, where its rank cell is `·` and it
-wears the amber `demo` chip instead of the rubric one; the mixed-rubric note counts verified rows only.
+`src/components/landing/RegisterChips.tsx` is the single copy of the provenance qualifiers
+for `PrismRegister` and `LeaderboardTable`. `topAiNative` holds verified cards only, so a
+mock card reaches the board only on the recency fallback, where its rank cell is `·`.
 
-**The register can be read through one archetype lens** (card landing-1). Each stored headline was
-weighted under its own repo's lens (`overallScoreFor(dimensions, archetype)`), so the ranked board
-orders numbers from up to three weightings. A switch above the board (`RegisterLensSwitch`) offers
-`As scored` (the default, today's board, with a "rows weighted under N lenses" note) or Solo / Team /
-Org, which re-weights every row in the browser with the engine's own `overallScoreFor` and
-`levelForScore` (`shared/registerLensModel.ts`, no copy of the weights), ranks with the shared `byRank`
-comparator, and marks each row's signed move against the as-scored order. A row is re-weightable only
-when the engine reproduces its stored overall under its OWN lens; any other row (and every mock row)
-stays on the as-scored board only and is counted under the lens view, so the page never prints a
-recompute that contradicts the report a row links to. A note under a lens view says the figures were
-re-weighted in the browser and that each report keeps the score it was scored under. The switch is
-not rendered on the recency fallback, because a lens view is a ranking.
+**The register can be read through one archetype lens.** A switch (`As scored` / Solo /
+Team / Org) re-weights every row in the browser with the engine's own `overallScoreFor`
+(`prism/registerLensModel.ts`, no copy of the weights), ranks with the shared `byRank`,
+and marks each row's signed move. Only rows the engine reproduces under their own lens are
+re-weighted; the rest stay on the as-scored board and are counted. Not offered on the
+recency fallback.
 
-**The register footer links the capped landing board to `/leaderboard`.** The deck
-gallery is a slice (`getPublicScanGallery` `recentLimit`/`topLimit`); the crawlable,
-paginated ranking of the same corpus lives on `/leaderboard`. That path is a real
-`next/link` in the register footer, not a heading that merely names the register.
-The growth-loop scan CTA (`/?scan=1`) stays beside it.
+**The register footer links the capped landing board to `/leaderboard`** (a real
+`next/link`) beside the "Scan your repo" call to action (`/?scan=1`).
 
-The hero's scan dialog uses the shared `Modal` portal and its focus, Escape, backdrop,
-and scroll behavior. The `?scan=1` deep link still opens the same scan form.
+**Numbers in landing copy are imported, never typed.** Levels, dimensions and weights are
+read from the rubric (`prismModel.ts`); the scan dialog's duration reads
+`scanDurationClaim()`; the FAQ JSON-LD in `src/app/page.tsx` derives plan prices from
+`planPriceLabel()`.
 
-Two self-host surfaces added 2026-08-25, phrased in lockstep with `/pricing`'s
-`SelfHostBand` so the copy can't drift apart in spirit:
-
-- **Hero (`IndexHero`)**: an identity line under the lede ("Open source under
-  AGPL-3.0 … The cloud plans buy operation, not capability") plus a co-primary
-  "Open source · run it yourself" CTA beside the ScanModal button. It links to the
-  deployment's repository (`NEXT_PUBLIC_SOURCE_REPO_URL`) when named, and falls
-  back to `/pricing#self-host` — an anchor `SelfHostBand` now carries — instead of
-  shipping a dead external link.
-- **Local-loop section (`IndexLocal`, deck id `local`, after the fleet)**: three
-  cards for the self-hosted-only capabilities — repo↔folder pairing with
-  scan-from-disk (unpushed commits included), the autopilot loop (Claude CLI in an
-  isolated worktree, branch as the deliverable, never pushes), and the read-only
-  token-scoped MCP door. Card copy is verified against
-  [`local-mode/README.md`](../local-mode/README.md) and `src/lib/mcp/tools.ts`;
-  keep it exactly true when either changes.
-
-- **Loop band (inside `IndexLocal`, added 2026-08-28)**: "Drive it to green" — the
-  loop the product exists for (scan → propose → agent/foundation lane → rescan →
-  drive to green), the one surface no marketing page named at all until now. Its
-  rope is imported, not written: `LOOP_CONCURRENCY_CAP` and `LOOP_MAX_CYCLES_CAP`
-  (`src/lib/db/loop-runs-types.ts`), `DRIVE_MAX_RUNS_CAP` (`src/lib/local/drive-types.ts`),
-  and the three stop reasons typed against `DrivePhase` so a renamed phase fails the
-  build here. The caps ARE the copy on purpose: the honest claim about this loop is
-  that it is bounded and that a rescan, not the agent, decides whether anything
-  landed — printing the numbers is what makes that checkable. Since 2026-10-06 the
-  band also names the two artifacts a reader can go and look at, again from imports:
-  the `.ai/` foundation PR branch (`FOUNDATION_BRANCH`, declared in dependency-free
-  `src/lib/standard/types.ts` and re-exported by `pr.ts`, so the client bundle never
-  pulls the GitHub delivery half) and the public gate API (`GATE_API_PATH` plus the
-  pass/fail statuses from `src/lib/scoring/gate-api.ts`). `IndexLocal.test.tsx`
-  asserts the rendered band against those imports.
-
-**Pricing (`IndexPricing`, deck id `pricing`, after the register when present)**:
-a numeric, anonymous snap of the hosted plans (G8/G11). Amounts and cadences
-come from `planPriceLabel()` / `PLAN_FEATURES` — never typed dollar literals. A
-compact self-host band sits **above** the `HairlineGrid` and reuses
-`IndexLocal`'s `/pricing#self-host` anchor. Free / Starter / Team are one-click
-(`/` or `/onboarding`); Custom is `Flexible` plus `PlanEnquiryCta`. No "talk to
-sales" on Starter/Team.
-
-**Numbers in landing copy are imported, never typed.** The hero and
-`DimensionMatrix` already read `LEVELS` / `DIMENSIONS`; `IndexPricing` reads
-`planPriceLabel()`; the scan dialog's duration now reads `scanDurationClaim()`
-(`src/components/report/scanEstimate.ts`), the same constants the live-scan
-progress bar and its abort backstop run on. The dialog promised "in about a
-minute" for a year — true of no provider the scanner has ever run on (~100 s
-hosted, a measured ~6 min median on a local CLI), and already retired in
-`ColdScanGate`'s copy while the hero went on printing it.
-
-**The levels chart's dashed line marks a boundary that exists on its own axis.**
-`TrajectoryChart` drew it at `POSTURE_THRESHOLD` (50) labelled "AI-NATIVE" and
-`IndexLevels` invited the reader to "cross the dashed line and the org reads
-AI-Native". Wrong twice: POSTURE_THRESHOLD is the cut on the **adoption** and
-**rigor** axes (AI-Native means both clear 50, `model.ts:504-512`) while the chart's
-Y axis is the weighted 0–100 index, and 50 on the index sits **inside L3** — so
-crossing it changed neither level nor tagline. It now draws `AGENT_BAND`
-(`prototypes/shared/levelRamp.ts`): the L4 floor, labelled with the level it is the
-floor of, both read from `LEVELS`. `levelRamp.test.ts` pins that it stays a real band
-floor and is not the posture threshold.
+The scan dialog is the shared `ScanModal` (`src/components/shared/scan/`); it uses the
+shared `Modal` portal and its focus, Escape, backdrop, and scroll behavior. The `?scan=1`
+deep link still opens the same scan form.
 
 ## The Prism landing (`/`, 2026-09-29)
 
-**2026-10-22 (phase 3):** `/` always renders this landing; `?landing=prism` is ignored and the preview `noindex` is gone. The Altimeter deck (`components/landing/prototypes/**`) is no longer reachable from any route and is follow-up cleanup. The Prism landing does not yet render the self-hosted setup panel or the public gallery that the deck carried (see `docs/design/PRISM-MIGRATION-GAPS.md`).
+**2026-10-22:** `/` always renders this landing (Prism is the only look; `?landing=prism` is ignored). The Altimeter deck is deleted and its self-hosted setup panel and public register are ported (see above).
 
-The winner of the `landing-brand` contest (variant A/1, "Prism"), ported next to the
-current deck and selected with `/?landing=prism`. **`/` is unchanged and remains the
-default**; the current landing carries no link to Prism, and Prism links back to `/`
-from its footer. `src/app/page.tsx` reads `searchParams` (a promise in this Next), wraps
-the FAQ JSON-LD around either landing, and marks the Prism variant `noindex` through
-`generateMetadata` until it replaces the default. Prism renders **without**
-`SiteHeader`/`SiteFooter`: it has its own top bar (the new mark and wordmark) and a
-foot carrying the legal links the app footer would have (Privacy, Terms).
+The winner of the `landing-brand` contest (variant A/1, "Prism"). `src/app/page.tsx` wraps the FAQ JSON-LD around it. It renders **without** `SiteHeader`/`SiteFooter` by design (`docs/design/BRAND-PRISM.md`): it has its own top bar (the mark and wordmark) and a foot carrying the legal links the app footer would have (Privacy, Terms).
 
 **What it is.** One act as an identity: white light enters a prism shaped like the
 letter A and leaves as nine lines, one per real dimension, each line's width being that
@@ -212,9 +123,9 @@ None of it is a measured repository. The colour of a line always names a dimensi
 `demoOrgHref()` for the org demo and `sourceRepoHref()` for the source link; with no
 `NEXT_PUBLIC_SOURCE_REPO_URL` the source links fall back to `/pricing#self-host`
 (the prototype's hard-coded GitHub URL is gone). "Scan a repository" is a link
-whose `href` is the deep link `/?landing=prism&scan=1` (it works before hydration and in a
+whose `href` is the deep link `/?scan=1` (it works before hydration and in a
 new tab) and whose plain click presses the **real `ScanModal`'s own trigger** (mounted
-hidden), so the sign-in wall, quota meter and consent flow are the current landing's and
+hidden), so the sign-in wall, quota meter and consent flow are the scan dialog's and
 Escape closes it at once. Going through the URL instead would make Escape wait for a
 server render, because the deep link only closes once the page re-renders without
 `scan=1`. `PRISM_SCAN_HREF` in `prismLinks.ts` is the one place to change when Prism replaces `/`.
@@ -589,7 +500,7 @@ may import from `src/features/**`, enforced by `src/components/shared/shared-bou
 - The primitive inventory in `src/components/ui/` and when to reach for each.
 - The `Tile` → `TILE_LEDGER` hairline-chrome convention (`Tile` does not
   self-border) used across org pages.
-- How landing prototypes are staged behind a tab switcher and what promotes one
+- How landing variants are staged behind a tab switcher and what promotes one
   into the brand system; see the `/prototype` skill.
 - The 300-LOC-per-`.tsx` ceiling from [`AGENTS.md`](../../../AGENTS.md) and the
   co-located-extraction pattern it prescribes.

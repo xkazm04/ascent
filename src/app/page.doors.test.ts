@@ -16,7 +16,9 @@ import type { ReactElement, ReactNode } from "react";
 const h = vi.hoisted(() => ({
   getPublicScanGallery: vi.fn(),
   recordQuotaEvent: vi.fn(async () => {}),
+  resolveFirstRun: vi.fn(async () => ({ mode: "cloud", setup: "ready" })),
 }));
+vi.mock("@/lib/first-run", () => ({ resolveFirstRun: h.resolveFirstRun }));
 
 vi.mock("@/lib/db", () => ({
   getPublicScanGallery: h.getPublicScanGallery,
@@ -73,6 +75,25 @@ beforeEach(() => {
 });
 
 afterEach(() => warn.mockRestore());
+
+describe("landing (/) — the gallery and the first-run verdict reach the Prism landing", () => {
+  it("hands the live gallery down for the register section (null when nothing is scored)", async () => {
+    h.getPublicScanGallery.mockResolvedValue(GALLERY);
+    expect(findProps(await render(), PrismLanding)!.gallery).toBe(GALLERY);
+    h.getPublicScanGallery.mockResolvedValue(null);
+    expect(findProps(await render(), PrismLanding)!.gallery).toBeNull();
+  });
+
+  it("a cloud deployment is not self-hosted; a self-hosted one carries its setup verdict", async () => {
+    h.getPublicScanGallery.mockResolvedValue(null);
+    let links = findProps(await render(), PrismLanding)!.links as Record<string, unknown>;
+    expect(links.selfHosted).toBe(false);
+    h.resolveFirstRun.mockResolvedValueOnce({ mode: "self-hosted", setup: "unset" });
+    links = findProps(await render(), PrismLanding)!.links as Record<string, unknown>;
+    expect(links.selfHosted).toBe(true);
+    expect(links.setup).toBe("unset");
+  });
+});
 
 describe("landing (/) — getPublicScanGallery failure reaches a door", () => {
   it("a rejected gallery read still renders the landing with no live examples", async () => {

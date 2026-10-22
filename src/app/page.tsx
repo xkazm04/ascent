@@ -4,6 +4,7 @@ import { getPublicScanGallery, recordQuotaEvent } from "@/lib/db";
 import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { isAuthConfigured } from "@/lib/auth";
 import { supabaseAuthConfigured } from "@/lib/env";
+import { resolveFirstRun } from "@/lib/first-run";
 import { demoOrgHref, jsonLdScript, sourceRepoHref } from "@/lib/site";
 import { publicScanWallEnabled } from "@/lib/scan-gates";
 import { PLAN_FEATURES, planPriceLabel, type PlanId } from "@/lib/plans";
@@ -111,12 +112,22 @@ export default async function Home() {
   // signed-in members" wall over the form — and over the QuotaMeter and the honest duration sentence
   // that sit with it. The wall is now shown exactly when the server would enforce one.
   const gated = publicScanWallEnabled();
+  // Self-hosted vs cloud decides whether the page pitches self-hosting at all and whether it leads the
+  // visitor to finish setup (src/lib/first-run.ts — the same resolver /onboarding branches on).
+  const firstRun = await resolveFirstRun();
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(FAQ_LD) }} />
       <PrismLanding
-        links={{ scan: PRISM_SCAN_HREF, org: demoOrgHref(), source: sourceRepoHref() }}
+        links={{
+          scan: PRISM_SCAN_HREF,
+          org: demoOrgHref(),
+          source: sourceRepoHref(),
+          selfHosted: firstRun.mode === "self-hosted",
+          setup: firstRun.setup,
+        }}
         exampleRepos={exampleRepos}
+        gallery={gallery}
         auth={auth}
         gated={gated}
       />

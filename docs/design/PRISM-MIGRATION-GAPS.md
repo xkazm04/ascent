@@ -109,7 +109,6 @@ inline Altimeter blue (`#3b9eff`) and cannot read the theme: needs a decision (R
 ## Dead Altimeter code left for follow-up
 
 * The no-attribute base styles in `globals.css` (Prism overrides win, so they are unreachable but not removed) and the `html[data-theme="prism"]` prefix on every Prism selector (could be dropped once the base is rewritten).
-* The Altimeter landing deck `src/components/landing/prototypes/**` (`IndexLanding` and its sections/tests): no route reaches it any more. It carries the self-hosted setup panel and public gallery the Prism landing still lacks (Remaining 5), so port those before deleting it.
 * Shared Altimeter-shaped interior components listed in Remaining 2 are still used by the Prism compositions.
 
 ## Owner decisions
@@ -123,6 +122,6 @@ inline Altimeter blue (`#3b9eff`) and cannot read the theme: needs a decision (R
 2. **Interior components** reused by the v2 files that are still Altimeter-shaped in markup: `StackRadarChart`, `SecurityCheckMatrix`, `SecurityFindings`, `AdoptionCurve`, `DigestDimChart`, `TeamsMatrix`, `AuditLogCells`, `MembersTable`, Care* bodies, Loom grid, `ProposalDetail`. CSS corrects radius, caps, floor and inputs; card boxes and layout remain. One-off figure sizes (`text-[1.75rem] font-light` in SegmentMaturity, ContextDecayRows) want a Prism figure role.
 3. **Out-of-layout / non-themeable surfaces**: `global-error.tsx`; canvas in `FleetMap`; `chartScale.ts` canvases; OG images, email and PDF (intentionally brand-fixed, skip).
 4. **Public routes have no Prism composition**: `/pricing`, `/report/**`, `/launch`, `/about*`, `/onboarding`, `/portfolio`, `/usage`, `/leaderboard`, `/scorecard`, `/trends` render through tokens only. HANDOFF decision "poster scale vs dashboards" applies.
-5. **Prism landing parity**: self-hosted setup block, gallery rail, header/footer, `selfHosted` flag.
+5. ~~Prism landing parity~~ (done 2026-10-22): the self-hosted setup panel and the public register were ported into `src/components/landing/prism/` (`PrismSetup`, `PrismRegister`). The landing keeps its own top bar and foot by design, so it does not render `SiteHeader`/`SiteFooter`.
 6. ~~Phase 3 must know~~ (done 2026-10-22): the attribute is kept on `<html>`, so `kit.css`, `kit-viz.css` and `kit-modules.css` selectors are unchanged. `useIsPrism` is gone.
 7. Not run: `npx eslint`, `npm run copy:check`.

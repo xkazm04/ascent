@@ -10,7 +10,7 @@ import { HairlineGrid, Kicker, Stat } from "@/components/ui";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { AboutCtaButtons } from "@/components/about/AboutCtaButtons";
 import { GlowBackdrop } from "@/components/about/GlowBackdrop";
-import { useCountUp } from "@/components/landing/prototypes/shared/useCountUp";
+import { useCountUp } from "@/components/ui/useCountUp";
 import { OrgIndexInstrument } from "./OrgIndexInstrument";
 import { MODULE_COUNT, VIEW_COUNT } from "./orgModules";
 
