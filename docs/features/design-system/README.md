@@ -650,3 +650,7 @@ render it. The rules it follows live in the pure `src/components/ui/routeErrorMo
   label and digest, once per error key however often the card remounts. It is a no-op without
   `NEXT_PUBLIC_SENTRY_DSN` (see `src/instrumentation-client.ts`). `global-error.tsx` keeps its own
   capture; it only catches a throw in the root layout, which never reaches this card.
+
+## Header logo
+
+The site and org headers render the Prism mark inline (`Logo` in `src/components/StaticNav.tsx`); the old blue chevron PNG remains only as favicon and manifest icon (see `docs/design/PRISM-MIGRATION-GAPS.md`, visual pass). Below `sm` the wordmark and the org switcher are hidden so the signed-in header fits 390px.

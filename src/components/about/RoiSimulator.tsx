@@ -162,7 +162,7 @@ export function RoiSimulator({ fleet }: { fleet?: AboutFleet }) {
         {live ? (
           fleetCaption({ mode: "live", n: rows.length, newest: fleet?.newest ?? null })
         ) : (
-          <>Illustrative · {REPOS.length} sample repos, demo weighting — not customer data</>
+          <>Illustrative · {REPOS.length} sample repos, demo weighting, not customer data</>
         )}
       </p>
     </div>

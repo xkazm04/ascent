@@ -60,7 +60,7 @@ describe.skipIf(!ENABLED)("nebius raw response diagnosis", () => {
           const reasoning = (msg.reasoning_content as string) ?? "";
           const usage = body.usage as Record<string, unknown> | undefined;
 
-          // eslint-disable-next-line no-console
+           
           console.log(
             [
               model.padEnd(30),

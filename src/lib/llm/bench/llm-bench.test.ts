@@ -112,7 +112,7 @@ describe.skipIf(!ENABLED)("scan.calibrate — five-arm model comparison", () => 
           JSON.stringify(row, null, 2),
           "utf8",
         );
-        // eslint-disable-next-line no-console
+         
         console.log(
           `${arm.label.padEnd(36)} ${String(latencyMs).padStart(7)}ms  ${error ? `ERROR ${error.slice(0, 120)}` : "ok"}`,
         );

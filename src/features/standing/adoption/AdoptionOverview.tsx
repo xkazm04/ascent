@@ -51,10 +51,10 @@ export function adoptionView({ a, slug, filterBar, md }: AdoptionViewProps) {
         }
       />
       {a.orgCommits == null && (
-        <p className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <Caption>Commit total withheld below the naming floor</Caption>
           <WhyChip hint={DENOMINATOR_HINT} label="withheld commit total" />
-        </p>
+        </div>
       )}
       <AdoptionSpectrum
         distribution={a.distribution}

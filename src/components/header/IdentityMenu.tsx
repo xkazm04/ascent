@@ -131,7 +131,7 @@ export function IdentityMenu({
           role="menu"
           aria-label={`${login} account`}
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 z-40 mt-2 min-w-[14rem] rounded-lg border border-slate-700 bg-[#0b1120] py-1 shadow-xl shadow-black/40"
+          className="absolute right-0 z-40 mt-2 min-w-[14rem] rounded-lg border border-slate-700 bg-surface-strong py-1 shadow-xl shadow-black/40"
         >
           {items.map((item) => (
             <Link

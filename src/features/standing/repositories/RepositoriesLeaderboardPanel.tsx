@@ -36,7 +36,7 @@ export async function RepositoriesLeaderboardPanel({
   // Segment + tech-stack scope: the same SegmentSelector the rest of the dashboard uses. The two
   // filters compose (segment AND stack); a bogus id/key falls back to the whole fleet.
   const resolved = await scope;
-  const { segments, segmentId, techGroupId, activeStack } = resolved;
+  const { segmentId, techGroupId, activeStack } = resolved;
   // Request-scoped: Context Health below this panel asks for the SAME scoped rollup, and the tab used
   // to run two full ones per render. `getOrgRollupShared` normalizes null/undefined args so the two
   // calls key identically and collapse into one read.
@@ -104,7 +104,6 @@ export async function RepositoriesLeaderboardPanel({
   // contradict the filtered table it sits next to (repositories-segments #3). Segment was the one
   // of those three the link used to drop, so a segment-scoped table still downloaded the fleet.
   const csvHref = `/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv${posture ? `&posture=${encodeURIComponent(posture)}` : ""}${segmentId ? `&segment=${encodeURIComponent(segmentId)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`;
-  const csvTitle = posture || segmentId || activeStack ? "Download the currently filtered repos as CSV" : "Download the full fleet as CSV";
 
   return (
     <RepositoriesView

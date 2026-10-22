@@ -113,11 +113,37 @@ inline Altimeter blue (`#3b9eff`) and cannot read the theme: needs a decision (R
 * **`.v2` naming dropped** (265 files). Where `<X>.tsx` was a pure pass-through the two were folded (MembersPanel, DeveloperCompanion, MemoryTab, SkillsTab, SurfacesTab, LiveCockpit); where the entry still loads data or holds logic the composition became `<X>View.tsx` (and `GovernanceView` became `GovernanceBoard`, because `governanceView.ts` differs only by case on this filesystem). `FooV2` identifiers lost the suffix (`FooView` where `Foo` was taken). Maps, docs and comments follow.
 * `scripts/kit/*` no longer set the inert cookie or run Altimeter checks; `.claude/kit/config.md` describes one look.
 
+## Visual pass (2026-10-22, first time rendered)
+
+Dev server on :3100, Playwright at 1440 and 390, self-hosted (`ASCENT_SELF_HOSTED=1`) and cloud mode for the landing. Console captured on every page.
+
+**Verified rendered:** `/` (hero, register between Beyond and Identity, nav + scroll-spy, "This install" panel, cloud "Run it yourself"), `/pricing` (both modes), `/about`, `/about-org`, `/launch`, `/leaderboard`, `/trends`, `/kit`, `/report/vercel/ai` and the no-report state, 404, and every `?tab=` panel in `ORG_TAB_IDS` plus `/org/developer` at 1440; org overview, repositories and the public pages at 390. Tab focus ring checked on the landing nav and the org rail.
+
+**Fixed**
+* Site header logo was the old blue chevron PNG at 24px (a dot); `Logo` (`StaticNav.tsx`) is now the inline Prism mark. The wordmark text hides below `sm` and the org switcher hides below `sm` so the signed-in header no longer overflows at 390 (it did on every public page).
+* Org header action cluster wraps at 390 instead of clipping "Stale only".
+* Landing register column heads ("AI TOOLING" / "TESTING", "AGENTIC" / "CI/CD") collided; head cells are 10px with clipping (`prism.css`).
+* Knowledge composer (sticky "Dispatch") was 40% translucent over the matrix, so rows bled through; now opaque `bg-surface-strong`.
+* Digest coverage strip scaled to a 40px beige block at desktop width; capped at `max-w-xl`.
+* Hydration error on the Adoption tab (`<p>` inside `<p>`, `AdoptionOverview.tsx`); motion `strokeWidth` "undefined" warning in `StackRadarChart`.
+* IdentityMenu / OrgSwitcher popovers used `#0b1120` (Altimeter navy); now `bg-surface-strong`.
+* `BRAND_INK` (viewport themeColor and manifest) is now `#05060a`.
+* ESLint: 42 warnings, 0 errors before; 25 after (unused imports left by the migration in `TeamsRollupPanel`, `RepositoriesLeaderboardPanel`, four stale disable directives). `copy:check` had one em dash (`RoiSimulator`), fixed.
+
+**Open taste calls / not changed**
+* `font-sans` / `font-mono` utilities (Geist) vs `var(--font-*)` (Prism stacks): BRAND-PRISM "Font truth" (open question 3) is explicitly undecided, so left. Rendered: body and `type-*` are Segoe/Cascadia, utility-class text is Geist.
+* Favicon and manifest icons are still the blue chevron PNG (`public/brand/logo-mark*.png`): needs a designed asset.
+* Header wordmark is mono caps "ASCENT", not the drawn lowercase wordmark.
+* MatrixGrid heat is a flat grey ramp; white text is legible (>4.5:1) but values read as one tone. Radar/ring status hues and the blue BETA ring are data hues (owner decision).
+* Org rail badge (24, 35) overlaps the rail label at 390.
+* `<table class="sr-only">` matrices (Security tab) extend scrollWidth by ~74px at 1440; `/kit` overflows at 390 (dev-only).
+* Dev-only "mapping off" badge and the Guided-setup tab overlap page content; both are overlays, not page defects.
+
 ## Deferred from phase 4
 
 * `font-sans` / `font-mono` utilities still resolve to the inline Geist stacks (`@theme inline`), while `var(--font-*)` readers get the Prism stacks from `:root`. Switching the utilities would change rendered fonts, so it waits for the visual pass.
 * `--color-tone-flat` is re-pointed in `:root` (not `@theme`) because `DIRECTION_TONE.flat` in TS keeps `#94a3b8` and `format.test.ts` pins the pair.
-* `BRAND_INK` (`lib/site.ts`, viewport `themeColor` and the PWA manifest) is still the Altimeter `#080d1a`; the page uses `#05060a`. `og-brand.tsx` and `global-error.tsx` keep their own literals.
+* ~~`BRAND_INK`~~ (done in the visual pass; `og-brand.tsx` and `global-error.tsx` keep their own literals).
 * `data-role="<module>-v2"` hook values (CSS in `kit-modules.css`, drive scripts) keep the `-v2` spelling.
 * `docs/design/KIT-*.md` still describe the `<Module>.v2.tsx` recipe as a process; `src/app/kit/KitLanguage.tsx` and the kit comments still say "v2 language".
 * Comments mentioning an Altimeter twin were rewritten mechanically; a few multi-line sentences may still read oddly.

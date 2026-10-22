@@ -7,7 +7,6 @@
 // because SiteHeader awaits getSession()/DB and could cascade a 404 into the 500 document. Do NOT
 // import @/lib/auth, @/lib/db, or anything else that can throw at render here — next/link only.
 
-import Image from "next/image";
 import Link from "next/link";
 
 /** Lives here (not Brand.tsx)
@@ -18,15 +17,25 @@ import Link from "next/link";
 export function Logo({ className = "", size = 24 }: { className?: string; size?: number }) {
   return (
     <span className={`inline-flex items-center gap-2 ${className}`}>
-      <Image
-        src="/brand/logo-mark-nobg.png"
-        alt=""
-        width={size}
-        height={size}
-        priority
-        style={{ width: size, height: size }}
-      />
-      <span className="font-mono type-body font-semibold uppercase tracking-[0.22em] text-white">
+      <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true" focusable="false" className="shrink-0 text-white">
+        <defs>
+          <linearGradient id="logo-mkIn" gradientUnits="userSpaceOnUse" x1="27.7" y1="0" x2="68.7" y2="0">
+            <stop offset="0" stopColor="currentColor" />
+            <stop offset="1" stopColor="#dfe1ff" />
+          </linearGradient>
+        </defs>
+        <path d="M14 88L50 10L86 88" fill="none" stroke="currentColor" strokeWidth="7.5" />
+        <path d="M0 63.8L27.7 58.4" stroke="currentColor" strokeWidth="4.4" />
+        <path d="M27.7 58.4L68.7 50.6" stroke="url(#logo-mkIn)" strokeWidth="4.4" />
+        <g strokeWidth="3.3">
+          <path d="M68.7 50.6L100 36" stroke="#FF5A5F" />
+          <path d="M68.7 50.6L100 44" stroke="#FFC247" />
+          <path d="M68.7 50.6L100 52.4" stroke="#62E59A" />
+          <path d="M68.7 50.6L100 61" stroke="#4CB2FF" />
+          <path d="M68.7 50.6L100 69.5" stroke="#BC6DFF" />
+        </g>
+      </svg>
+      <span className="hidden font-mono type-body font-semibold uppercase tracking-[0.22em] text-white sm:inline">
         Ascent
       </span>
     </span>

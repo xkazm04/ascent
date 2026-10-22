@@ -114,7 +114,7 @@ const MAX_FIELD_LEN = 2000;
 // content in rendered markdown. Mirrors gate-comment.ts's defuseComment so EVERY consumer — not just
 // the gate table — gets sanitized text. Render sites must still treat these fields as untrusted
 // (never dangerouslySetInnerHTML). Newlines (\n), CR (\r), and tabs (\t) are preserved as legit prose.
-// eslint-disable-next-line no-control-regex
+ 
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
 // deEmDash is folded in here rather than at each render site because THIS is the chokepoint: every
 // model-supplied string reaches a user through cap(), so one call covers headline, summary, strengths,

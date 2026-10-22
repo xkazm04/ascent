@@ -367,6 +367,7 @@ to{transform:translateY(330px)}
 .prism-root .rg-row:hover .rg-name b{text-decoration:underline;text-underline-offset:4px}
 .prism-root .rg-name span{font-family:var(--mono);font-size:13px;color:var(--mute)}
 .prism-root .rg-s{text-align:center;font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:15px;color:var(--dim)}
+.prism-root .rg-head .rg-s{font-size:10px;letter-spacing:.03em;line-height:1.25;min-width:0;overflow:hidden}
 .prism-root .rg-s.big{font-size:20px;font-weight:700}
 .prism-root .rg-move{margin-left:8px;font-size:12px}
 .prism-root .rg-move.up{color:#62E59A}

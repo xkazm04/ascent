@@ -22,7 +22,7 @@ export function TimeRangeSelector({ range, from, to }: { range: RangeKey; from?:
     // OVR-5: remember this choice for the next visit. A shared ?range= URL still wins on the server,
     // since the page only consults the cookie when no explicit range param is present. (This is an
     // event handler, not render — the immutability rule's render-purity concern doesn't apply.)
-    // eslint-disable-next-line react-hooks/immutability
+     
     document.cookie = `${PERIOD_COOKIE}=${encodeURIComponent(serializePeriodCookie(next))}; path=/; max-age=31536000; samesite=lax`;
     const params = new URLSearchParams(searchParams.toString());
     params.delete("range");

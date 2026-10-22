@@ -38,7 +38,7 @@ export const DIMENSION_COUNT = DIMENSIONS.length;
  * globals.css — global-error.tsx keeps its own documented literals to stay self-contained. Not to be
  * confused with og-brand's BRAND_INK (#04070e), the glyph ink ON the accent tile.
  */
-export const BRAND_INK = "#080d1a";
+export const BRAND_INK = "#05060a";
 
 /**
  * The product description, in the three voices the shell needs. ONE sentence shape, count-derived, so

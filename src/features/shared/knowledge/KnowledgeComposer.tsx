@@ -86,7 +86,7 @@ export function KnowledgeComposer({
     : [];
 
   return (
-    <section className={`space-y-3 rounded-2xl border border-divider bg-surface/40 p-4 ${className}`} aria-label="Dispatch composer">
+    <section className={`space-y-3 rounded-2xl border border-divider bg-surface-strong p-4 ${className}`} aria-label="Dispatch composer">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <Kicker>Dispatch</Kicker>
         {repoRow ? (

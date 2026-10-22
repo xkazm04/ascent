@@ -145,7 +145,7 @@ export function OrgSwitcher({ orgs, active }: { orgs: string[]; active: string }
           role="menu"
           aria-label="Switch organization"
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 z-40 mt-2 max-h-80 min-w-[12rem] overflow-y-auto rounded-lg border border-slate-700 bg-[#0b1120] py-1 shadow-xl shadow-black/40"
+          className="absolute right-0 z-40 mt-2 max-h-80 min-w-[12rem] overflow-y-auto rounded-lg border border-slate-700 bg-surface-strong py-1 shadow-xl shadow-black/40"
         >
           {orgs.map((org) => {
             const isActive = org.toLowerCase() === active.toLowerCase();

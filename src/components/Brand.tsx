@@ -80,7 +80,7 @@ export async function HeaderAccount() {
   // when there is a real org to switch to: with just "public" the menu would be pointless.
   const workspace = await resolveViewerWorkspace();
   const switcher =
-    workspace.options.length > 1 ? <OrgSwitcher orgs={workspace.options} active={workspace.active} /> : null;
+    workspace.options.length > 1 ? <span className="hidden sm:block"><OrgSwitcher orgs={workspace.options} active={workspace.active} /></span> : null;
   const portfolio = showPortfolioEntry(workspace.options);
 
   if (supaOn) {
@@ -251,7 +251,7 @@ export function OrgHeader({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {actions}
           {actions && <span aria-hidden className="hidden h-6 w-px bg-divider sm:block" />}
           <HeaderAccount />

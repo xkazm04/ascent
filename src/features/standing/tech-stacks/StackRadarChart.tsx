@@ -122,7 +122,7 @@ export function StackRadarChart({
                     stroke={s.color}
                     strokeLinejoin="round"
                     strokeLinecap="round"
-                    initial={rm ? false : { pathLength: 0 }}
+                    initial={rm ? false : { pathLength: 0, strokeWidth: emphasized ? 2.75 : 2 }}
                     animate={{ pathLength: 1, strokeWidth: emphasized ? 2.75 : 2 }}
                     transition={{ duration: rm ? 0 : 0.6, ease: "easeOut" }}
                   />

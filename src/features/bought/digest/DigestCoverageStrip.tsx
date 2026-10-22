@@ -34,7 +34,7 @@ export function DigestCoverageStrip({ view }: { view: CoverageView }) {
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={ariaLabel}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full max-w-xl" role="img" aria-label={ariaLabel}>
         <title>{ariaLabel}</title>
         <VizDefs />
 
