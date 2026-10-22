@@ -2752,6 +2752,24 @@ CREATE UNIQUE INDEX "ProviderCredential_orgId_provider_key" ON "ProviderCredenti
 -- CreateIndex
 CREATE INDEX "ProviderCredential_orgId_idx" ON "ProviderCredential"("orgId");
 
+-- providers-0: replay receipts for the OTLP push path, one per admitted datapoint and sink.
+-- See the 20261022180000_otlp_point_receipt migration.
+CREATE TABLE "OtlpPointReceipt" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "sink" TEXT NOT NULL,
+    "pointKey" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OtlpPointReceipt_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex: the replay contract. A resent datapoint collides here, so its claim inserts nothing.
+CREATE UNIQUE INDEX "OtlpPointReceipt_orgId_sink_pointKey_key" ON "OtlpPointReceipt"("orgId", "sink", "pointKey");
+
+-- CreateIndex: the in-request expiry sweep (orgId, createdAt < horizon).
+CREATE INDEX "OtlpPointReceipt_orgId_createdAt_idx" ON "OtlpPointReceipt"("orgId", "createdAt");
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

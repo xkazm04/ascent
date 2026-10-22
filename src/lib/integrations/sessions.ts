@@ -19,6 +19,7 @@ import { attrMap, dpValue, isCumulativeSum, type OtlpDataPoint, type OtlpResourc
 //                derived reads say "produced code" / "did not", which is all the data supports.
 
 import { repoFromGitAttr } from "@/lib/integrations/otlp";
+import { otlpPointKey, type AdmitPoint } from "./otlp-point-key";
 
 /** One attempt, folded across however many exports carried its datapoints. */
 export interface AgentSessionInput {
@@ -78,8 +79,24 @@ interface Acc extends Omit<AgentSessionInput, "startedAt" | "lastSeenAt" | "cumu
  * attribute keeps working exactly as before and simply contributes no attempt rows. Silently
  * inventing one session per export would corrupt cost-per-attempt far worse than having none.
  */
-export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): AgentSessionInput[] {
+export function parseOtlpSessions(body: SessionsBody, fallbackMs: number, admit: AdmitPoint = null): AgentSessionInput[] {
+  return parseOtlpSessionsKeyed(body, fallbackMs, admit).sessions;
+}
+
+/**
+ * {@link parseOtlpSessions} plus the replay keys of the datapoints it folds (otlp-point-key.ts). The
+ * session sink claims its receipts independently of the usage sink, so a datapoint already folded
+ * into an attempt is not folded again by a resend, and `admit` drops it before it reaches an Acc.
+ */
+export function parseOtlpSessionsKeyed(
+  body: SessionsBody,
+  fallbackMs: number,
+  admit: AdmitPoint = null,
+): { sessions: AgentSessionInput[]; keys: string[]; duplicates: number } {
   const acc = new Map<string, Acc>();
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  let duplicates = 0;
 
   for (const rm of body.resourceMetrics ?? []) {
     const res = attrMap(rm.resource?.attributes);
@@ -98,6 +115,15 @@ export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): Agent
         if (!SESSION_METRICS.has(metric.name ?? "")) continue;
         const delta = !isCumulativeSum(metric);
         for (const dp of metric.sum?.dataPoints ?? metric.gauge?.dataPoints ?? []) {
+          const pk = otlpPointKey("claude-code", res, metric.name ?? "", dp);
+          if (pk !== null) {
+            if (!seen.has(pk)) keys.push(pk);
+            seen.add(pk);
+            if (admit && !admit(pk)) {
+              duplicates++;
+              continue;
+            }
+          }
           const ms = dpMs(dp, fallbackMs);
           const e =
             acc.get(key) ??
@@ -149,7 +175,7 @@ export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): Agent
     }
   }
 
-  return [...acc.values()].map((e) => ({
+  const sessions = [...acc.values()].map((e) => ({
     source: e.source,
     sessionId: e.sessionId,
     repoFullName: e.repoFullName,
@@ -164,4 +190,5 @@ export function parseOtlpSessions(body: SessionsBody, fallbackMs: number): Agent
     linesRemoved: Math.round(e.linesRemoved),
     cumulative: !e.sawDelta,
   }));
+  return { sessions, keys, duplicates };
 }

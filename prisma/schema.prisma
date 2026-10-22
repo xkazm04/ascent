@@ -1506,6 +1506,23 @@ model AiUsageRecord {
   @@index([orgId, source])
 }
 
+// Replay receipts for the OTLP push path (providers-0). AiUsageRecord above absorbs many exports per
+// day bucket by design, so it cannot reject a resent one; this table can. One row per datapoint the
+// ingest admitted into a sink ("usage" | "sessions"), keyed by pointKey = sha256 of series identity +
+// delta interval (src/lib/integrations/otlp-point-key.ts). Claimed with ON CONFLICT DO NOTHING inside
+// the sink write's transaction; expired after a 7-day replay horizon by the ingest itself
+// (src/lib/db/otlp-receipts.ts). Standalone (denormalized orgId, no FKs under relationMode="prisma").
+model OtlpPointReceipt {
+  id        String   @id @default(uuid())
+  orgId     String
+  sink      String // "usage" | "sessions"
+  pointKey  String // sha256 hex of series identity + interval
+  createdAt DateTime @default(now())
+
+  @@unique([orgId, sink, pointKey])
+  @@index([orgId, createdAt])
+}
+
 // Server-side session revocation. The signed session cookie embeds the `sv` (session
 // version) it was minted at; getSessionState re-checks it against this row on every
 // resolve and rejects the cookie once the stored version is higher. Bumping the version —

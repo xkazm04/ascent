@@ -8,14 +8,18 @@
 // callers. A bodyless probe with no content-type (the connect page's "Test ingest token") stays 202.
 // The body is read through the shared cap (413 over MAX_BODY) and the route sits behind the shared
 // rate limiter — see src/lib/integrations/ingest-guard.ts.
+// Replay-safe (providers-0): OTLP delivery is at-least-once, so every datapoint folded into a sink
+// claims a receipt (series + interval identity) in the same transaction as the sink write. A resent
+// export is a terminal 202 with `duplicates`, never a retriable status that would invite another resend.
 
 import { NextResponse, type NextRequest } from "next/server";
 import { guardIngest, payloadTooLarge, readCappedBody } from "@/lib/integrations/ingest-guard";
 import { parseOtlpMetrics, type OtlpMetricsBody } from "@/lib/integrations/otlp";
-import { parseOtlpSessions } from "@/lib/integrations/sessions";
+import { parseOtlpSessionsKeyed } from "@/lib/integrations/sessions";
 import { hasOtlpMetricStructure } from "@/lib/integrations/otlp-wire";
 import { recordUsage } from "@/lib/db";
 import { recordAgentSessions } from "@/lib/db/agent-sessions";
+import { withAdmittedPoints } from "@/lib/db/otlp-receipts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,19 +66,33 @@ export async function POST(req: NextRequest) {
   // no git.repository, or a remote on a host whose repo identity Ascent doesn't model. Without this the
   // 202 was indistinguishable between "40 datapoints stored" and "40 datapoints silently dropped".
   const now = Date.now();
-  const parsed = parseOtlpMetrics(body, now);
+  // Pass 1 (pure) names the keys each sink would fold; the claim admits the new ones; pass 2 folds
+  // only those. Parsing twice keeps the parsers pure and the claim inside the write transaction.
+  const keyed = parseOtlpMetrics(body, now);
+  let parsed = keyed;
+  let res: Awaited<ReturnType<typeof recordUsage>>;
+  try {
+    res = await withAdmittedPoints(gate.slug, "usage", keyed.keys, async (admit, client) => {
+      parsed = parseOtlpMetrics(body, now, admit);
+      return recordUsage(gate.slug, parsed.records, { mode: "add", client });
+    }, { nowMs: now, sweep: true });
+  } catch (err) {
+    // Rolled back with its receipts, so the exporter's retry stores the full value exactly once.
+    console.error("[ingest] usage write failed - rolled back, safe to retry", err);
+    return NextResponse.json({ error: "Couldn't store usage right now. Retry shortly." }, { status: 503, headers: { "retry-after": "30" } });
+  }
   // W3a — the SAME bytes also fold into per-session attempts, which is the shape day buckets
   // structurally cannot answer "what does a unit of work cost" from. Independent of the usage write:
   // an exporter that predates the `session.id` attribute yields zero sessions and keeps working
   // exactly as before, and a session-write failure must never fail an ingest whose usage landed.
-  const sessions = parseOtlpSessions(body, now);
-  const [res, sessionsStored] = await Promise.all([
-    recordUsage(gate.slug, parsed.records, { mode: "add" }),
-    recordAgentSessions(gate.slug, sessions).catch((err) => {
-      console.error("[ingest] agent-session write failed — usage still stored", err);
-      return 0;
-    }),
-  ]);
+  // Its own receipts and transaction, after the usage write (one connection never holds two).
+  const sessionKeys = parseOtlpSessionsKeyed(body, now).keys;
+  const sessionsStored = await withAdmittedPoints(gate.slug, "sessions", sessionKeys, (admit, client) =>
+    recordAgentSessions(gate.slug, parseOtlpSessionsKeyed(body, now, admit).sessions, client), { nowMs: now },
+  ).catch((err) => {
+    console.error("[ingest] agent-session write failed - usage still stored", err);
+    return 0;
+  });
   const droppedTotal = Object.values(parsed.skipped).reduce((a, b) => a + b, 0);
   return NextResponse.json(
     {
@@ -86,6 +104,10 @@ export async function POST(req: NextRequest) {
       // Zero here with a non-zero `stored` is the actionable signal that the exporter is not sending
       // `session.id` — usage lands, attempts do not, and unit economics stay unavailable.
       sessions: sessionsStored,
+      // Datapoints already admitted by an earlier delivery of this export: recognized, not re-added.
+      duplicates: parsed.duplicates,
+      // Datapoints with no timestamp: stored, but with no interval identity a resend could be matched on.
+      unkeyed: parsed.unkeyed,
       skipped: parsed.skipped,
       ...(parsed.unsupportedHosts.length ? { unsupportedHosts: parsed.unsupportedHosts } : {}),
       ...(droppedTotal > 0

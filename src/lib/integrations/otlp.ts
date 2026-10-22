@@ -1,4 +1,5 @@
 import { attrMap, dpValue, isCumulativeSum, type OtlpDataPoint, type OtlpResourceMetrics } from "./otlp-wire";
+import { otlpPointKey, type AdmitPoint } from "./otlp-point-key";
 // OTLP/JSON metrics → AiUsageRecord mapping for the Claude Code telemetry push path. Claude Code's
 // OpenTelemetry exporter POSTs an ExportMetricsServiceRequest to <endpoint>/v1/metrics; the
 // `git.repository` resource attribute (set via OTEL_RESOURCE_ATTRIBUTES in the connect snippet) carries
@@ -72,6 +73,12 @@ export interface OtlpParseResult {
   skipped: Record<SkipReason, number>;
   /** The distinct non-GitHub hosts seen, so "12 datapoints skipped" can name gitlab.com. Capped. */
   unsupportedHosts: string[];
+  /** Distinct replay keys of the datapoints this mapping folds (otlp-point-key.ts), for the receipt claim. */
+  keys: string[];
+  /** Folded-eligible datapoints NOT stored because their key was already admitted by an earlier delivery. */
+  duplicates: number;
+  /** Datapoints with no timestamp at all: stored, but with no interval identity to dedupe on. */
+  unkeyed: number;
 }
 
 const MAX_REPORTED_HOSTS = 5;
@@ -87,11 +94,15 @@ const MAX_REPORTED_HOSTS = 5;
  * a known metric still produces its record exactly as before — the count says "this number never
  * landed anywhere", not "the whole export was discarded".
  */
-export function parseOtlpMetrics(body: OtlpMetricsBody, fallbackMs: number): OtlpParseResult {
+export function parseOtlpMetrics(body: OtlpMetricsBody, fallbackMs: number, admit: AdmitPoint = null): OtlpParseResult {
   const buckets = new Map<string, Bucket>();
   const skipped: Record<SkipReason, number> = { "unknown-metric": 0, "no-repo-attr": 0, "unsupported-host": 0, "cumulative-temporality": 0 };
   const hosts = new Set<string>();
   let received = 0;
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  let duplicates = 0;
+  let unkeyed = 0;
 
   /** Count every datapoint under a resource we're about to abandon, so `received` stays a true total. */
   const countAll = (rm: OtlpResourceMetrics, reason: SkipReason) => {
@@ -133,6 +144,18 @@ export function parseOtlpMetrics(body: OtlpMetricsBody, fallbackMs: number): Otl
             skipped["cumulative-temporality"]++;
             continue;
           }
+          // Replay admission (providers-0): a point whose series + interval was already admitted, or
+          // that repeats inside this body, is a resend, not a second increment.
+          const pk = otlpPointKey("claude-code", res, metric.name ?? "", dp);
+          if (pk === null) unkeyed++;
+          else {
+            if (!seen.has(pk)) keys.push(pk);
+            seen.add(pk);
+            if (admit && !admit(pk)) {
+              duplicates++;
+              continue;
+            }
+          }
           const day = dpDayMs(dp, fallbackMs);
           const key = `${repo} ${day}`;
           const b = buckets.get(key) ?? { repo, day, tokens: 0, costCents: 0, sessions: 0, users: new Set<string>() };
@@ -167,5 +190,5 @@ export function parseOtlpMetrics(body: OtlpMetricsBody, fallbackMs: number): Otl
     fidelity: "measured" as const,
   }));
 
-  return { records, received, skipped, unsupportedHosts: [...hosts] };
+  return { records, received, skipped, unsupportedHosts: [...hosts], keys, duplicates, unkeyed };
 }

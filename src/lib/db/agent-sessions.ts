@@ -21,6 +21,7 @@
 // it is labelled as one, and it is defensible line by line.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
+import type { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import type { AgentSessionInput } from "@/lib/integrations/sessions";
@@ -44,11 +45,15 @@ function counterUpdate(s: AgentSessionInput) {
  * timestamp ever seen and `lastSeenAt` the latest, so a session spanning several exports reads as one
  * attempt.
  */
-export async function recordAgentSessions(orgSlug: string, sessions: AgentSessionInput[]): Promise<number> {
+export async function recordAgentSessions(
+  orgSlug: string,
+  sessions: AgentSessionInput[],
+  client?: Pick<Prisma.TransactionClient, "agentSession">, // the receipt-claim transaction (otlp-receipts.ts)
+): Promise<number> {
   if (!isDbConfigured() || sessions.length === 0) return 0;
   const org = await getOrgBySlug(orgSlug);
   if (!org) return 0;
-  const prisma = getPrisma();
+  const prisma = client ?? getPrisma();
 
   let written = 0;
   for (const s of sessions) {

@@ -72,7 +72,7 @@ describe("POST /api/integrations/ingest/v1/metrics — wire-format guard", () =>
     const res = await POST(mkReq({ body: JSON.stringify({ resourceMetrics: [] }), contentType: "application/json" }));
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ accepted: true, persisted: true, stored: 1, org: "acme" });
-    expect(mockOtlp).toHaveBeenCalledTimes(1);
+    expect(mockOtlp).toHaveBeenCalledTimes(2); // pass 1 names the replay keys, pass 2 folds the admitted ones
     expect(mockRecord).toHaveBeenCalledTimes(1);
   });
 
@@ -104,7 +104,7 @@ describe("POST /api/integrations/ingest/v1/metrics — wire-format guard", () =>
     "accepts empty exports and unknown fields: %j", async (body) => {
       const res = await POST(mkReq({ body: JSON.stringify(body), contentType: "application/json" }));
       expect(res.status).toBe(202);
-      expect(mockOtlp).toHaveBeenCalledTimes(1);
+      expect(mockOtlp).toHaveBeenCalledTimes(2); // pass 1 names the replay keys, pass 2 folds the admitted ones
     },
   );
 

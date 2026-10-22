@@ -16,6 +16,8 @@ export interface OtlpAttr {
 export interface OtlpDataPoint {
   asInt?: string | number;
   asDouble?: number;
+  /** The delta interval start. With `timeUnixNano` it identifies a delta point (otlp-point-key.ts). */
+  startTimeUnixNano?: string | number;
   timeUnixNano?: string | number;
   attributes?: OtlpAttr[];
 }

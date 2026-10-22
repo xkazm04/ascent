@@ -3,6 +3,7 @@
 // aggregates the caller's org window into the shape the /delivery AI ROI resolver consumes — measured
 // per-repo spend (scope=repo) and allocated org totals (scope=org). Guarded by DATABASE_URL.
 
+import type { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 
@@ -30,17 +31,18 @@ const n = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) &
  *     re-sending a period is idempotent.
  *   - "add" — increment tokens/cost/sessions. For OTLP counter streams that arrive as increments; seats
  *     (a level, not additive) is replaced with the latest observed value.
- * Skips malformed rows; returns how many were stored.
+ * Skips malformed rows; returns how many were stored. `client` lets the OTLP ingest run the upserts inside
+ * the transaction that claims their replay receipts (otlp-receipts.ts), so a failure rolls back both.
  */
 export async function recordUsage(
   orgSlug: string,
   records: UsageRecordInput[],
-  opts?: { mode?: "replace" | "add" },
+  opts?: { mode?: "replace" | "add"; client?: Pick<Prisma.TransactionClient, "aiUsageRecord"> },
 ): Promise<{ ok: boolean; stored: number; error?: string }> {
   if (!isDbConfigured()) return { ok: false, stored: 0, error: "Database not configured." };
   const org = await getOrgBySlug(orgSlug);
   if (!org) return { ok: false, stored: 0, error: "Unknown organization." };
-  const prisma = getPrisma();
+  const prisma = opts?.client ?? getPrisma();
   const mode = opts?.mode ?? "replace";
 
   let stored = 0;
