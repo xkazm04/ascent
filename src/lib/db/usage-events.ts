@@ -89,8 +89,9 @@ export interface LaneUsage {
   inputTokens: number | null;
   outputTokens: number | null;
   estimatedCostUsd: number | null;
-  /** Calls whose cost could not be established (BYOM, a zero-cost provider, an unpriced model, or a
-   *  provider that reported no usage at all). Reported so a $0 lane is readable as "nothing to price". */
+  /** Calls whose cost could not be established (BYOM, an unpriced model, or a provider that reported
+   *  no usage at all). A zero-cost provider is NOT among them: local inference is priced at exactly $0
+   *  by the one call-pricing rule (usage-pricing.ts). Reported so a partial sum reads as a floor. */
   unpricedCalls: number;
 }
 
@@ -100,7 +101,11 @@ export interface TeamUsage {
   teamKey: string | null;
   label: string;
   calls: number;
+  /** `null` when NOTHING on the team could be priced; when only SOME could, a floor. */
   estimatedCostUsd: number | null;
+  /** Calls on the team no basis could price - the panel prints it beside the sum so a partial figure
+   *  never reads as a total. */
+  unpricedCalls: number;
 }
 
 /** The label a team-less bucket carries. One constant so the panel, the CSV and the tests agree.
@@ -300,6 +305,9 @@ function sumOrNull(a: number | null, b: number | null | undefined): number | nul
 /**
  * Per-team totals over the same half-open window. A row with no `teamKey` lands in the explicit
  * `null` bucket — the work was org-wide (a briefing, a memory pass), which is an answer, not a gap.
+ *
+ * ONE query: the unpriced count rides along as a per-FIELD `_count`, the trick {@link repoTotals}
+ * uses (`costMicros` counts only non-null values, so `_all - costMicros` is the unpriced calls).
  */
 export async function teamTotals(orgSlug: string, since: Date, before: Date): Promise<TeamUsage[]> {
   if (!isDbConfigured()) return [];
@@ -308,14 +316,15 @@ export async function teamTotals(orgSlug: string, since: Date, before: Date): Pr
   const groups = await getPrisma().usageEvent.groupBy({
     by: ["teamKey"],
     where: { orgId, createdAt: { gte: since, lt: before } },
-    _count: true,
+    _count: { _all: true, costMicros: true },
     _sum: { costMicros: true },
   });
   return groups.map((g) => ({
     teamKey: g.teamKey,
     label: g.teamKey ?? ORG_WIDE_TEAM_LABEL,
-    calls: g._count,
+    calls: g._count._all,
     estimatedCostUsd: usdFromMicros(g._sum.costMicros),
+    unpricedCalls: Math.max(0, g._count._all - g._count.costMicros),
   }));
 }
 

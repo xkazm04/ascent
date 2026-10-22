@@ -21,14 +21,17 @@
 //   2. HONEST NULLS, NEVER ZERO. A token count or a cost is `null` when the provider reported nothing,
 //      when the org runs BYOM (Ascent is not billed at all), or when the model cannot be priced. `0`
 //      would be summed and averaged downstream as a measurement; `null` says "unknown" and the read
-//      side reports it as `unpricedCalls` beside the total.
+//      side reports it as `unpricedCalls` beside the total. A zero-cost (local) provider's cost IS 0:
+//      that is its real price, not a missing one (see `meterCallPrice`).
 //   3. NO PRISMA ACROSS A CLIENT BOUNDARY. The DB post is a LAZY `await import()` inside the default
 //      sink, so importing this module from a runner never statically pulls the db layer into a bundle
 //      (`build-not-in-gate`: tsc + unit tests pass while `next build` fails on such an edge).
 
 import type { LlmLegKind } from "@/lib/llm/leg";
 import type { TokenUsage } from "@/lib/types";
-import { billableInputTokens, isZeroCostProvider, priceForModel } from "@/lib/llm/config";
+import { billableInputTokens } from "@/lib/llm/config";
+// Pure (no db client): the one call-pricing rule, shared with every /usage fold.
+import { TABLE_BASIS, priceCallGroup, type CallPrice } from "@/lib/db/usage-pricing";
 
 /**
  * Which SURFACE spent the tokens — the vocabulary `/usage`, the showback CSV and the KPI fold group by.
@@ -174,38 +177,47 @@ function tokenOrNull(v: number | null | undefined): number | null {
 }
 
 /**
- * The price of one call in USD micros, or `null` when it cannot be known. PURE.
+ * The estimated price of one call and the reason, under the built-in table. PURE.
  *
- * Null — never 0 — in four cases, each a different kind of "we don't know":
- *   - BYOM: the org paid its own vendor; Ascent has no figure and must not imply one.
- *   - a zero-cost provider (local inference on the operator's own GPU): no per-token bill exists to
- *     record. The read side counts it under `unpricedCalls`, so a $0 lane reads as "nothing to price"
- *     rather than as "free", which is the distinction a buyer actually asks about.
+ * Delegates to THE call-pricing rule (`priceCallGroup`, src/lib/db/usage-pricing.ts) that every
+ * /usage fold uses, so a ledger call and a scan of the same shape classify identically:
+ *   - BYOM: the org paid its own vendor; Ascent has no figure and must not imply one (unpriced).
+ *   - a zero-cost provider (local inference on the operator's own GPU): priced at exactly $0, as the
+ *     scan lane prices it. It used to be null here and $0 there, so one kind of call was "unpriced"
+ *     on the ledger lanes and "priced" on the scan lane.
  *   - no usage reported (claude-cli's `ownsTimeout` path, mock): there is nothing to price.
- *   - an unpriced model id: `priceForModel` refuses to guess a rate, and so does this.
+ *   - an unpriced model id: the table refuses to guess a rate, and so does this.
  *
  * Cache classes are folded through `billableInputTokens`, so a cached call prices at what it really
- * cost rather than at its fresh-input count.
+ * cost rather than at its fresh-input count. An estimate for display: nothing reads it as a charge.
  */
+export function meterCallPrice(
+  provider: string,
+  model: string,
+  usage: TokenUsage | undefined,
+  byom: boolean | undefined,
+): CallPrice {
+  return priceCallGroup(
+    {
+      provider,
+      model,
+      byom: byom ?? null,
+      inputTokens: usage ? billableInputTokens(usage) : 0,
+      outputTokens: usage?.outputTokens ?? 0,
+    },
+    TABLE_BASIS,
+  );
+}
+
+/** {@link meterCallPrice} in USD micros, or `null` when the call cannot be priced. */
 export function costMicrosFor(
   provider: string,
   model: string,
   usage: TokenUsage | undefined,
   byom: boolean | undefined,
 ): number | null {
-  if (byom === true) return null;
-  if (isZeroCostProvider(provider)) return null;
-  if (!usage) return null;
-  const input = usage.inputTokens ?? 0;
-  const output = usage.outputTokens ?? 0;
-  const cacheRead = usage.cacheReadTokens ?? 0;
-  const cacheWrite = usage.cacheWriteTokens ?? 0;
-  if (input + output + cacheRead + cacheWrite === 0) return null;
-  const price = priceForModel(model);
-  if (!price) return null;
-  const usd =
-    (billableInputTokens(usage) / 1_000_000) * price.inPerMTok + (output / 1_000_000) * price.outPerMTok;
-  return Math.round(usd * 1_000_000);
+  const { usd } = meterCallPrice(provider, model, usage, byom);
+  return usd == null ? null : Math.round(usd * 1_000_000);
 }
 
 /**

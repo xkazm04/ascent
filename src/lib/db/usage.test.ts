@@ -599,7 +599,7 @@ describe("getUsageSummary — byLane and byTeam", () => {
         groupBy: vi.fn(async (args: { by: string[] }) =>
           args.by.includes("lane")
             ? [{ lane: "athena", _count: 2, _sum: { inputTokens: 100, outputTokens: 20, costMicros: 5_000 } }]
-            : [{ teamKey: null, _count: 2, _sum: { costMicros: 5_000 } }],
+            : [{ teamKey: null, _count: { _all: 2, costMicros: 2 }, _sum: { costMicros: 5_000 } }],
         ),
       },
       $queryRaw: vi.fn(async () => []),
@@ -773,6 +773,82 @@ describe("getUsageSummary — BYOM scan tokens are counted but never priced (Dir
       if (prev[1] === undefined) delete process.env.LLM_OUTPUT_COST_PER_MTOK;
       else process.env.LLM_OUTPUT_COST_PER_MTOK = prev[1];
     }
+  });
+});
+
+// ONE call-pricing rule (usage-pricing.ts). With LLM_*_COST_PER_MTOK set the scan LANE used the env
+// estimate while its unpriced count and every per-team / per-repo / matrix cell used the table, so
+// the "reconcile by construction" claim failed. The basis is now resolved once and every fold prices
+// through it. Display estimates only: no credit, quota or charge reads these figures.
+describe("getUsageSummary - one pricing basis across lane, team, repo and matrix", () => {
+  function withEnvRates<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = [process.env.LLM_INPUT_COST_PER_MTOK, process.env.LLM_OUTPUT_COST_PER_MTOK];
+    process.env.LLM_INPUT_COST_PER_MTOK = "3";
+    process.env.LLM_OUTPUT_COST_PER_MTOK = "15";
+    return fn().finally(() => {
+      if (prev[0] === undefined) delete process.env.LLM_INPUT_COST_PER_MTOK;
+      else process.env.LLM_INPUT_COST_PER_MTOK = prev[0];
+      if (prev[1] === undefined) delete process.env.LLM_OUTPUT_COST_PER_MTOK;
+      else process.env.LLM_OUTPUT_COST_PER_MTOK = prev[1];
+    });
+  }
+
+  beforeEach(() => {
+    mockIsDbConfigured.mockReturnValue(false);
+    mockGetPrisma.mockReset();
+  });
+
+  it("does not call an env-priced scan 'unpriced' because the TABLE lacks its model", async () => {
+    summaryPrisma({
+      scanGroups: [scanGroup("r1", { engineModel: "mystery-model-x", _sum: { inputTokens: 1_000_000, outputTokens: 0 } })],
+      repos: [repoRow("r1", "acme/api")],
+    });
+    const s = (await withEnvRates(() => getUsageSummary("acme", 30)))!;
+    const scan = s.byLane.find((l) => l.lane === "scan")!;
+    expect(scan.estimatedCostUsd).toBeCloseTo(3, 10);
+    expect(scan.unpricedCalls).toBe(0);
+    expect(s.allLanesUnpricedCalls).toBe(0);
+  });
+
+  it("makes the team, repo and matrix scan halves sum to the scan lane under env rates", async () => {
+    summaryPrisma({
+      scanGroups: [
+        scanGroup("r1", { engineModel: "mystery-model-x", _count: 2, _sum: { inputTokens: 1_000_000, outputTokens: 0 } }),
+        scanGroup("r2", { _count: 3, _sum: { inputTokens: 2_000_000, outputTokens: 1_000_000 } }),
+      ],
+      repos: [
+        { ...repoRow("r1", "acme/api"), teams: [{ slug: "@acme/a" }] },
+        { ...repoRow("r2", "acme/web"), teams: [{ slug: "@acme/b" }] },
+      ],
+    });
+    const s = (await withEnvRates(() => getUsageSummary("acme", 30)))!;
+    const lane = s.byLane.find((l) => l.lane === "scan")!.estimatedCostUsd!;
+    expect(lane).toBeCloseTo(3 + (6 + 15), 10);
+    const teamSum = s.byTeam.reduce((a, t) => a + (t.estimatedCostUsd ?? NaN), 0);
+    const repoSum = s.byRepo.reduce((a, r) => a + (r.estimatedCostUsd ?? NaN), 0);
+    const cellSum = s.byLaneTeam.filter((c) => c.lane === "scan").reduce((a, c) => a + (c.estimatedCostUsd ?? NaN), 0);
+    expect(teamSum).toBeCloseTo(lane, 10);
+    expect(repoSum).toBeCloseTo(lane, 10);
+    expect(cellSum).toBeCloseTo(lane, 10);
+  });
+
+  it("prices a zero-cost local scan at $0 under env rates, in the lane and its team cell", async () => {
+    summaryPrisma({
+      scanGroups: [scanGroup("r1", { engineProvider: "local", engineModel: "llama3", _sum: { inputTokens: 1_000_000, outputTokens: 1_000_000 } })],
+      repos: [{ ...repoRow("r1", "acme/api"), teams: [{ slug: "@acme/a" }] }],
+    });
+    const s = (await withEnvRates(() => getUsageSummary("acme", 30)))!;
+    expect(s.byLane.find((l) => l.lane === "scan")).toMatchObject({ estimatedCostUsd: 0, unpricedCalls: 0 });
+    expect(s.byTeam.find((t) => t.teamKey === "@acme/a")).toMatchObject({ estimatedCostUsd: 0, unpricedCalls: 0 });
+  });
+
+  it("carries the scan half's unpriced count into Spend by team", async () => {
+    summaryPrisma({
+      scanGroups: [scanGroup("r1", { engineByom: true, _count: 4 })],
+      repos: [{ ...repoRow("r1", "acme/api"), teams: [{ slug: "@acme/a" }] }],
+    });
+    const s = (await getUsageSummary("acme", 30))!;
+    expect(s.byTeam.find((t) => t.teamKey === "@acme/a")).toMatchObject({ estimatedCostUsd: null, unpricedCalls: 4 });
   });
 });
 

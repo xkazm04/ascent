@@ -43,6 +43,12 @@ function cost(usd: number | null): string {
   return usd == null ? "no estimate" : `$${usd.toFixed(2)}`;
 }
 
+/** A team row's floor: " · N unpriced" when some of its calls could not be priced, so a partial
+ *  sum never reads as the team's total. Empty when every call was priced. */
+function unpricedSuffix(unpricedCalls: number): string {
+  return unpricedCalls > 0 ? ` · ${unpricedCalls.toLocaleString()} unpriced` : "";
+}
+
 export function LanePanels({
   byLane,
   byTeam,
@@ -124,7 +130,7 @@ export function LanePanels({
             byTeam.map((t) => (
               <Bar
                 key={t.teamKey ?? "org-wide"}
-                label={`${t.label} · ${cost(t.estimatedCostUsd)}`}
+                label={`${t.label} · ${cost(t.estimatedCostUsd)}${unpricedSuffix(t.unpricedCalls)}`}
                 value={t.calls}
                 total={teamTotal}
                 color={t.teamKey ? "var(--color-accent)" : "var(--color-tone-flat)"}

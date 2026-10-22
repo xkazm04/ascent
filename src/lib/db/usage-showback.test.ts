@@ -19,7 +19,7 @@ const laneRow = (lane: LaneUsage["lane"]): LaneUsage => ({
 });
 
 const teamRow = (teamKey: string | null): TeamUsage => ({
-  teamKey, label: teamKey ?? "Org-wide (no repo)", calls: 1, estimatedCostUsd: null,
+  teamKey, label: teamKey ?? "Org-wide (no repo)", calls: 1, estimatedCostUsd: null, unpricedCalls: 1,
 });
 
 describe("mergeLaneTeamCells", () => {

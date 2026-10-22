@@ -14,7 +14,7 @@ const laneRow = (lane: LaneUsage["lane"]): LaneUsage => ({
   lane, calls: 1, inputTokens: null, outputTokens: null, estimatedCostUsd: null, unpricedCalls: 0,
 });
 const teamRow = (teamKey: string | null): TeamUsage => ({
-  teamKey, label: teamKey ?? "Org-wide (no repo)", calls: 1, estimatedCostUsd: null,
+  teamKey, label: teamKey ?? "Org-wide (no repo)", calls: 1, estimatedCostUsd: null, unpricedCalls: 1,
 });
 const cell = (o: Partial<LaneTeamCell> & { lane: LaneTeamCell["lane"] }): LaneTeamCell => ({
   teamKey: null, calls: 1, estimatedCostUsd: 1, unpricedCalls: 0, ...o,

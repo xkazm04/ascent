@@ -199,13 +199,31 @@ describe("teamTotals", () => {
   it("keeps a team-less event in the explicit org-wide bucket instead of dropping it", async () => {
     fakePrisma({
       teams: [
-        { teamKey: "@acme/platform", _count: 3, _sum: { costMicros: 2_000 } },
-        { teamKey: null, _count: 5, _sum: { costMicros: null } },
+        { teamKey: "@acme/platform", _count: { _all: 3, costMicros: 3 }, _sum: { costMicros: 2_000 } },
+        { teamKey: null, _count: { _all: 5, costMicros: 0 }, _sum: { costMicros: null } },
       ],
     });
     const rows = await teamTotals("acme", new Date(0), new Date(1));
     expect(rows).toHaveLength(2);
-    expect(rows[1]).toEqual({ teamKey: null, label: ORG_WIDE_TEAM_LABEL, calls: 5, estimatedCostUsd: null });
+    expect(rows[1]).toEqual({
+      teamKey: null,
+      label: ORG_WIDE_TEAM_LABEL,
+      calls: 5,
+      estimatedCostUsd: null,
+      unpricedCalls: 5,
+    });
+  });
+
+  it("reports the unpriced count beside a partial sum, in ONE query (the repoTotals trick)", async () => {
+    // Two ledger rows on one team: one priced at $1, one nothing could price. The panel must read
+    // "$1.00 · 1 unpriced" (a floor), never a confident $1.00.
+    const calls = fakePrisma({
+      teams: [{ teamKey: "@o/a", _count: { _all: 2, costMicros: 1 }, _sum: { costMicros: 1_000_000 } }],
+    });
+    const rows = await teamTotals("acme", new Date(0), new Date(1));
+    expect(rows).toEqual([{ teamKey: "@o/a", label: "@o/a", calls: 2, estimatedCostUsd: 1, unpricedCalls: 1 }]);
+    expect(calls.groupBy).toHaveLength(1);
+    expect(calls.groupBy[0]!._count).toEqual({ _all: true, costMicros: true });
   });
 });
 

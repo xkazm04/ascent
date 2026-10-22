@@ -5,8 +5,14 @@
 // GitHub App lands; until then everything is under the "public" org.)
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
-import { isZeroCostProvider, priceForModel } from "@/lib/llm/config";
 import { planFeatures, retentionCutoff } from "@/lib/plans";
+import {
+  foldCallGroups,
+  resolveScanBasis,
+  type CallGroup,
+  type ModelTokenUsage,
+  type PricingBasis,
+} from "@/lib/db/usage-pricing";
 import {
   ORG_WIDE_TEAM_LABEL,
   laneTotals,
@@ -21,6 +27,13 @@ import { laneTeamTotals, mergeLaneTeamCells, type LaneTeamCell } from "@/lib/db/
 
 export type { LaneUsage, TeamUsage } from "@/lib/db/usage-events";
 export type { LaneTeamCell } from "@/lib/db/usage-showback";
+// The call-pricing rule moved to usage-pricing.ts; re-exported so every existing caller is unchanged.
+export {
+  estimateLlmCostFromTable,
+  estimateLlmCostUsd,
+  unpricedScanCalls,
+  type ModelTokenUsage,
+} from "@/lib/db/usage-pricing";
 
 /** The shared anonymous funnel's slug (the value of `PUBLIC_ORG` in `@/lib/auth`, restated here so a
  *  db module does not reach into the auth layer). It has no tenant, no teams and no bill. */
@@ -171,8 +184,10 @@ export interface UsageSummary {
    *
    * SPARSE: one entry per (lane, team) pair that actually recorded calls. A missing pair is BLANK,
    * never a zero — absence of a record is not evidence a team spent nothing on a lane. The `scan`
-   * lane's cells come from the same Scan-derived fold that produces `byTeam`'s scan half, so the
-   * matrix and both tables above it reconcile by construction. Empty for the public funnel.
+   * lane's cells come from the same Scan-derived fold that produces `byTeam`'s scan half, priced by
+   * the one rule and the one basis the scan lane row uses (`priceCallGroup`, usage-pricing.ts), so the
+   * matrix and both tables above it reconcile by construction under env rates or the built-in table.
+   * Empty for the public funnel.
    */
   byLaneTeam: LaneTeamCell[];
   /**
@@ -502,30 +517,21 @@ export async function getUsageSummary(
   }));
   // The token TILES report the period's WHOLE volume: BYOM tokens were really consumed, and hiding
   // them would understate what this org's scanning costs to run. The COST fold sees only the priced
-  // half (estimateLlmCostFromTable skips `byom === true`), and `byomScans` below explains the gap.
+  // half (priceCallGroup never prices `byom === true`), and `byomScans` below explains the gap.
   const inputTokens = modelUsage.reduce((a, m) => a + m.inputTokens, 0);
   const outputTokens = modelUsage.reduce((a, m) => a + m.outputTokens, 0);
-  const priceable = modelUsage.filter((m) => m.byom !== true);
-  const pricedInputTokens = priceable.reduce((a, m) => a + m.inputTokens, 0);
-  const pricedOutputTokens = priceable.reduce((a, m) => a + m.outputTokens, 0);
   /** Computed scans in the period that ran in the org's OWN provider account — priced by nobody here. */
   const byomScans = scanGroups.reduce((a, g) => a + (g.engineByom === true ? g._count : 0), 0);
-  // Cost basis precedence: env rates (operator override, both set) > built-in per-model table > null.
-  // The operator's per-MTok rates price ASCENT's account, so they are applied to the PRICED tokens
-  // only. When every token in the period is BYOM there is nothing for those rates to price, and the
-  // estimate is null: a `$0.00` there would be the same overstatement-by-implication in reverse.
-  const envEstimate =
-    inputTokens + outputTokens > 0 && pricedInputTokens + pricedOutputTokens === 0
-      ? null
-      : estimateLlmCostUsd(
-          pricedInputTokens,
-          pricedOutputTokens,
-          process.env.LLM_INPUT_COST_PER_MTOK,
-          process.env.LLM_OUTPUT_COST_PER_MTOK,
-        );
-  const estimatedCostUsd = envEstimate ?? estimateLlmCostFromTable(modelUsage);
+  // Cost basis precedence: env rates (operator override, both set) > built-in per-model table. The
+  // basis is resolved ONCE here and handed to every fold below (lane, repo, team, matrix), so they
+  // all price a call by the same rule (`priceCallGroup`, usage-pricing.ts): BYOM is never priced,
+  // a zero-cost local provider is exactly $0 under either basis, and a call the basis did price is
+  // never counted unpriced. A window with nothing priceable (BYOM-only, mock-only) is null, never $0.
+  const basis = resolveScanBasis();
+  const scanFold = foldCallGroups(modelUsageWithCounts(scanGroups), basis);
+  const estimatedCostUsd = scanFold.usd;
   const costBasis: UsageSummary["costBasis"] =
-    envEstimate != null ? "env" : estimatedCostUsd != null ? "builtin" : null;
+    estimatedCostUsd == null ? null : basis.kind === "env" ? "env" : "builtin";
 
   // ── The lane + team + repo views (#11) ────────────────────────────────────────────────────────
   // All strictly ADDITIVE reads over the window already computed above. The public funnel is skipped
@@ -577,7 +583,8 @@ export async function getUsageSummary(
           inputTokens,
           outputTokens,
           estimatedCostUsd,
-          unpricedCalls: unpricedScanCalls(modelUsageWithCounts(scanGroups)),
+          // The same fold as the cost beside it, so a call the basis priced is never also "unpriced".
+          unpricedCalls: scanFold.unpricedCalls,
         }
       : null;
   const byLane: LaneUsage[] = [...(scanLane ? [scanLane] : []), ...otherLanes];
@@ -603,12 +610,13 @@ export async function getUsageSummary(
         }),
       ),
       repoById,
+      basis,
     ),
     eventRepos.map(eventRepoUsage),
   );
 
   // Fold 3 of 3: per (repo → owning team), from the same groups and the same Repository read.
-  const scanCells = isPublic ? [] : scanTeamUsage(scanGroups, repoById);
+  const scanCells = isPublic ? [] : scanTeamUsage(scanGroups, repoById, basis);
   const byTeam: TeamUsage[] = isPublic ? [] : mergeTeamUsage(scanTeamRows(scanCells), otherTeams);
   const byLaneTeam: LaneTeamCell[] = isPublic ? [] : mergeLaneTeamCells([...scanCells, ...laneTeamCells]);
 
@@ -647,86 +655,10 @@ export async function getUsageSummary(
   };
 }
 
-/**
- * Estimate LLM cost in USD from token totals + the configured per-MTok rates. Returns null unless
- * BOTH rates are explicitly set: an unset rate means "no estimate" (show "rate not set"), NEVER a
- * silent $0 — otherwise a partial config (only the input rate set) would bill the output side at $0
- * behind a confident dollar figure (a quiet ~halving of the bill). A deliberately-set "0" is a valid
- * explicit price, so both rates "0" yields a real $0.00.
- */
-export function estimateLlmCostUsd(
-  inputTokens: number,
-  outputTokens: number,
-  inRateRaw: string | undefined,
-  outRateRaw: string | undefined,
-): number | null {
-  const parseRate = (raw: string | undefined): number | null => {
-    if (raw == null || raw.trim() === "") return null;
-    const n = Number(raw);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  };
-  const inRate = parseRate(inRateRaw);
-  const outRate = parseRate(outRateRaw);
-  if (inRate == null || outRate == null) return null;
-  return (inputTokens / 1_000_000) * inRate + (outputTokens / 1_000_000) * outRate;
-}
-
-/** One (provider, model) pair's token totals within the period — the input to the per-model cost fold. */
-export interface ModelTokenUsage {
-  model: string | null;
-  /** Persisted `Scan.engineProvider`. Optional so older callers/mocks still typecheck, but supplying
-   *  it is what lets the fold recognize a $0 provider — see {@link estimateLlmCostFromTable}. */
-  provider?: string | null;
-  /** Persisted `Scan.engineByom`. `true` means the scan ran in the ORG'S OWN provider account: the
-   *  org already paid its vendor for those tokens and Ascent has no figure for them. Nullable/absent
-   *  (rows predating the column, older mocks) means the platform account, so it stays priceable —
-   *  the same `!== true` rule {@link isBillableScan} and the meter's `byom === true` guard apply. */
-  byom?: boolean | null;
-  inputTokens: number;
-  outputTokens: number;
-}
-
-/**
- * Fold per-model token usage into a USD estimate using the built-in MODEL_PRICES table (the
- * out-of-the-box default basis; env rates override upstream). Pure and unit-tested. Returns null
- * when ANY token-bearing model lacks a table price — a partial figure that silently omits the
- * unpriceable tokens would be the same half-billing trap estimateLlmCostUsd refuses — and null
- * when no tokens were consumed at all (mock-only periods show "no estimate", not $0.00 "spend").
- */
-export function estimateLlmCostFromTable(usage: ModelTokenUsage[]): number | null {
-  let cost = 0;
-  let pricedAny = false;
-  for (const m of usage) {
-    // BYOM: the org bought these tokens from its OWN vendor on its own account, so Ascent has no
-    // figure for them and must not invent one. `pricedAny` is deliberately NOT set — a period whose
-    // only tokens are BYOM prices as null ("no estimate"), never as a $0 that reads like a free
-    // month. This is the rule `meter()` already applies to every other lane (`if (byom === true)
-    // return null`, src/lib/llm/meter.ts) and the one docs/features/billing/usage.md states for all
-    // of them; the scan lane was the single exception, and it was the one figure on this page that
-    // could OVERSTATE money. The volume is not lost: those calls land in `unpricedScanCalls`.
-    if (m.byom === true) continue;
-    if (m.inputTokens + m.outputTokens === 0) continue; // token-less rows (mock) price as nothing
-    // Local inference bills nothing per token: it ran on the operator's own GPU. Priced at exactly
-    // zero rather than skipped, so a self-hosted org whose ONLY engine is local reads "$0.00" instead
-    // of "no estimate" — and, more importantly, so a local model tag that happens to prefix-match a
-    // hosted one in MODEL_PRICES can't invoice it at that vendor's rate. `pricedAny` is set because
-    // the row IS priced; zero is the price. (See isZeroCostProvider in src/lib/llm/config.ts.)
-    if (isZeroCostProvider(m.provider)) {
-      pricedAny = true;
-      continue;
-    }
-    const price = priceForModel(m.model);
-    if (!price) return null;
-    cost += (m.inputTokens / 1_000_000) * price.inPerMTok + (m.outputTokens / 1_000_000) * price.outPerMTok;
-    pricedAny = true;
-  }
-  return pricedAny ? cost : null;
-}
-
 // ── The lane + team folds (#11) ──────────────────────────────────────────────────────────────────
 
 /** A (provider, model) group with the call count the lane view needs beside its tokens. */
-type ModelCallGroup = ModelTokenUsage & { calls: number };
+type ModelCallGroup = CallGroup & { calls: number };
 
 /**
  * One row of THE per-(repo, provider, model, byom) groupBy — the single pass this module makes over
@@ -772,13 +704,14 @@ function modelUsageWithCounts(groups: PeriodScanGroup[]): ModelCallGroup[] {
  * The scan lane's per-REPO split, from the same groups the team split folds — the money half of the
  * "Top repositories" attribution, which counted scans and tokens and never dollars.
  *
- * Priced by the SAME fold as every other figure on the page (`estimateLlmCostFromTable`), so a BYOM
+ * Priced by the SAME rule and basis as every other figure on the page (`foldCallGroups`), so a BYOM
  * repo prices as null rather than as a $0 that reads like a free month (32015371), and a repo whose
  * model has no rate reports its unpriced calls instead of a confident short figure.
  */
 export function scanRepoUsage(
   groups: PeriodScanGroup[],
   repoById: ReadonlyMap<string, PeriodRepoRow>,
+  basis: PricingBasis,
 ): RepoUsage[] {
   const acc = new Map<string, ModelCallGroup[]>();
   for (const g of groups) {
@@ -788,14 +721,15 @@ export function scanRepoUsage(
   }
   return [...acc.entries()].map(([fullName, models]) => {
     const calls = models.reduce((n, m) => n + m.calls, 0);
+    const fold = foldCallGroups(models, basis);
     return {
       fullName,
       label: fullName,
       scans: calls,
       tokens: models.reduce((n, m) => n + m.inputTokens + m.outputTokens, 0),
       calls,
-      estimatedCostUsd: estimateLlmCostFromTable(models),
-      unpricedCalls: unpricedScanCalls(models),
+      estimatedCostUsd: fold.usd,
+      unpricedCalls: fold.unpricedCalls,
     };
   });
 }
@@ -855,28 +789,6 @@ export function mergeRepoUsage(a: RepoUsage[], b: RepoUsage[], limit = 10): Repo
 }
 
 /**
- * How many of the period's scans could NOT be costed — the number that makes a null (or a $0)
- * estimate readable. Three causes, all counted: a BYOM run (the org paid its own vendor; Ascent has
- * no figure), a token-less run (mock / degraded — no basis exists) and a token-bearing run on a
- * model `MODEL_PRICES` does not know (the table refuses to guess a rate).
- * A zero-cost provider is NOT counted: local inference has a real price and it is zero.
- */
-export function unpricedScanCalls(usage: ModelCallGroup[]): number {
-  let unpriced = 0;
-  for (const m of usage) {
-    // Unpriceable BY POLICY rather than for want of a rate, and checked FIRST: a BYOM run served by
-    // a zero-cost local provider is still the org's own spend, not Ascent's priced $0.
-    if (m.byom === true) {
-      unpriced += m.calls;
-      continue;
-    }
-    if (isZeroCostProvider(m.provider)) continue;
-    if (m.inputTokens + m.outputTokens === 0 || !priceForModel(m.model)) unpriced += m.calls;
-  }
-  return unpriced;
-}
-
-/**
  * The scan lane's per-team split: `Scan → Repository → RepoTeam(isDefaultOwner)`.
  *
  * The join is performed in JS, over the ONE Repository read the whole summary shares (this function
@@ -891,7 +803,11 @@ export function unpricedScanCalls(usage: ModelCallGroup[]): number {
  * and computing them twice — from two queries and two folds — is how they would come to disagree
  * (MC-B45). `scanTeamRows` projects the panel's shape back out of these cells.
  */
-function scanTeamUsage(groups: PeriodScanGroup[], repoById: ReadonlyMap<string, PeriodRepoRow>): LaneTeamCell[] {
+function scanTeamUsage(
+  groups: PeriodScanGroup[],
+  repoById: ReadonlyMap<string, PeriodRepoRow>,
+  basis: PricingBasis,
+): LaneTeamCell[] {
   if (groups.length === 0) return [];
   const acc = new Map<string | null, ModelCallGroup[]>();
   for (const g of groups) {
@@ -899,26 +815,30 @@ function scanTeamUsage(groups: PeriodScanGroup[], repoById: ReadonlyMap<string, 
     const key = repoById.get(g.repoId)?.teams[0]?.slug ?? null;
     acc.set(key, [...(acc.get(key) ?? []), modelCallGroup(g)]);
   }
-  return [...acc.entries()].map(([teamKey, models]) => ({
-    lane: "scan" as const,
-    teamKey,
-    calls: models.reduce((n, m) => n + m.calls, 0),
-    // Same fold, same refusal-to-guess as the headline estimate.
-    estimatedCostUsd: estimateLlmCostFromTable(models),
-    // The per-team share of the same count the `scan` LANE row reports — folded by the one definition
-    // of "could not be costed" rather than by a second, drifting one.
-    unpricedCalls: unpricedScanCalls(models),
-  }));
+  return [...acc.entries()].map(([teamKey, models]) => {
+    // Same fold, same basis, same refusal-to-guess as the headline estimate - and the per-team share
+    // of the same unpriced count the `scan` LANE row reports, from the one definition of "could not
+    // be costed" rather than a second, drifting one.
+    const fold = foldCallGroups(models, basis);
+    return {
+      lane: "scan" as const,
+      teamKey,
+      calls: models.reduce((n, m) => n + m.calls, 0),
+      estimatedCostUsd: fold.usd,
+      unpricedCalls: fold.unpricedCalls,
+    };
+  });
 }
 
 /** The `Spend by team` panel's shape, projected from the scan lane's matrix cells so the panel and
- *  the matrix can never split. `unpricedCalls` is dropped: that panel does not report it. */
+ *  the matrix can never split. `unpricedCalls` rides along: the panel prints it as the row's floor. */
 export function scanTeamRows(cells: readonly LaneTeamCell[]): TeamUsage[] {
   return cells.map((c) => ({
     teamKey: c.teamKey,
     label: c.teamKey ?? ORG_WIDE_TEAM_LABEL,
     calls: c.calls,
     estimatedCostUsd: c.estimatedCostUsd,
+    unpricedCalls: c.unpricedCalls,
   }));
 }
 
@@ -944,6 +864,7 @@ export function mergeTeamUsage(a: TeamUsage[], b: TeamUsage[]): TeamUsage[] {
       label: prev.label,
       calls: prev.calls + row.calls,
       estimatedCostUsd: unknown ? null : (prev.estimatedCostUsd ?? 0) + (row.estimatedCostUsd ?? 0),
+      unpricedCalls: prev.unpricedCalls + row.unpricedCalls,
     });
   }
   // Biggest spender first, with the unknown-cost buckets after the priced ones and the org-wide

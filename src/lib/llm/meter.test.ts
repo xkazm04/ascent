@@ -56,8 +56,10 @@ describe("costMicrosFor — null is never 0", () => {
     expect(costMicrosFor("bedrock", "anthropic.claude-sonnet-4", usage, true)).toBeNull();
   });
 
-  it("returns null (NOT 0) for a zero-cost provider — there is no per-token bill to record", () => {
-    expect(costMicrosFor("local", "sonnet", usage, false)).toBeNull();
+  it("prices a zero-cost provider at exactly 0 - the same answer the scan fold gives", () => {
+    // Local inference's price is zero; it is not an unknown. The scan lane always priced it $0, and
+    // the ledger now agrees (one call-pricing rule, usage-pricing.ts).
+    expect(costMicrosFor("local", "sonnet", usage, false)).toBe(0);
   });
 
   it("returns null for an unpriced model id rather than guessing a rate", () => {
