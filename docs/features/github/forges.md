@@ -146,6 +146,24 @@ ciphertext and read only server-side through `src/lib/db/forge-installations.ts`
   `gitlabWebBase(host)` (`webBase`, trailing slash stripped), so a self-managed instance never emits
   a gitlab.com link; unset ⇒ `https://gitlab.com`. GitHub permalinks overlay `host.webBase` on
   `GITHUB_SERVER_URL` through `githubWebBase({ host })`; unset is the env default.
+- **A self-managed GitLab row is read from its own host.** When a scan carries an `orgSlug` (the org
+  import, the rescan queue worker), `scanRepository` resolves the org's GitLab instance once through
+  `resolveOrgForgeHost(orgSlug, "gitlab")` (`src/lib/forge/org-forge-host.ts`) and hands the same
+  `ForgeHost` to `parseForgeUrl`, `gitlabForge.source(host)` and `gitlabForge.enrich(host)`, so the
+  snapshot and the MR / governance / CI / deployment reads all go to that instance, never to gitlab.com
+  at the same path. No installation row (or one on the public host) reads gitlab.com as before; an
+  input that names gitlab.com itself keeps the public host. A GitHub coordinate never consults the
+  resolver.
+- **An unsafe host refuses the scan.** A stored host that is not a public https address
+  (`isSafePublicHttpsUrl`: private ranges, loopback, link-local, cloud metadata) fails the scan with a
+  fixed `UPSTREAM` message that names neither host, and nothing is fetched. It is never silently
+  swapped for gitlab.com.
+- **The adapter decides the persisted forge.** The GitLab source stamps `meta.forge: "gitlab"`, and the
+  persist and watch writers read it through `persistedForgeOf` (`src/lib/forge/registry.ts`) instead of
+  re-inferring it from a web url no host-less parser recognizes, so a self-managed project lands on
+  `gitlab:group/project` with `forge: "gitlab"`. `RepoRef.forge` (the import's entries carry it) wins
+  in `setRepoWatch` / `seedWatchlist`. A local working copy keeps the identity of its url (a github.com
+  url persists as `github`), which the private-scan scrub relies on.
 
 CRUD: `GET|POST|DELETE /api/org/forge/installation`, `requireOrgRole("admin")`, same-origin. No `[id]`
 route is added — the row is addressed by `(org, forge, externalId)`, all supplied together — so
@@ -167,9 +185,10 @@ send a GitHub credential to another forge's host:
 - The rescan queue worker never mints the org's GitHub installation token for a non-GitHub row (and
   does not skip one as a broken installation it never used); `/api/org/import` builds the scan options
   per entry, so a mixed batch's minted token rides its GitHub entries only.
-- A GitLab body `token` on `POST /api/scan` is currently dropped too: the scan lifecycle does not yet
-  carry `tokenForge`, so it reaches `scanRepository` unlabelled. The org's stored GitLab credential
-  (`getForgeCredential`) is not wired into any scan path yet.
+- A body `token` on `POST /api/scan` for a `gitlab:` coordinate is labelled `gitlab` by the route and
+  threaded through `ScanLifecycleInput.tokenForge`, so it reaches the GitLab client. A body token on a
+  GitHub coordinate, and the installation mint, stay unlabelled (GitHub). The org's stored GitLab
+  credential (`getForgeCredential`) is not wired into any scan path yet.
 
 ## Plan gates
 
@@ -191,13 +210,12 @@ and forge-agnostic.
   one display field. Null reads as unknown, never as a fast pipeline.
 - **GitLab approvals carry no timestamp**, so `medianHoursToFirstReview` is null for GitLab repos. A
   merge time borrowed as a review time would fabricate the number.
-- **`RepoMeta` has no `forge` field yet**, so the three `repository.upsert` sites infer the forge from
-  the repo's own web url. The inference is conservative — anything not positively identified persists
-  as `github`, so a GitHub repo can never be relabelled — but the durable fix is a one-line additive
-  field on `RepoMeta`.
+- **An internal-network GitLab is refused even on a self-hosted deployment.** The host guard has no
+  self-hosted exception: allowing one would let the server fetch an admin-supplied internal URL, so it
+  is a recorded residue, not a relaxation made in passing.
 - **`Repository.externalId` is never written.** The column exists and the adapters can carry a
-  forge-native project id, but nothing on the scan report transports one to the persist layer (same
-  root cause as the bullet above). It stays `null`, which its schema comment already defines as "the
+  forge-native project id, but nothing on the scan report transports one to the persist layer
+  (`RepoMeta` carries the forge now, not the id). It stays `null`, which its schema comment already defines as "the
   adapter has not resolved it yet", never as "this repo has no id". A GitLab project renamed on the
   forge therefore re-persists under its new path rather than following the id.
 - **No forge badge on Standing → Repositories.** The rows are built from `OrgRepoRow`
@@ -217,4 +235,7 @@ and forge-agnostic.
 | `src/app/api/org/import/route.test.ts` | import persists GitLab permalinks on the stored `Installation.host` |
 | `src/lib/forge/gitlab/mappers.test.ts` | fixture-driven mappers — an unmapped `Governance` field is `false`, "no sample" is null not 0%, an unjoinable deployment is dropped |
 | `scripts/forge/equality.mts` | the byte-identity release gate |
+| `src/lib/forge/org-forge-host.test.ts` | the resolver returns the installed host, refuses a private-range host, and is never consulted for GitHub; a `gitlab:` scan's first fetch goes to the installed host; an unsafe host refuses with zero fetches; no installation reads gitlab.com; the enrichments receive the same host |
+| `src/lib/forge/persisted-forge.test.ts` | `persistedForgeOf` honours `meta.forge` (local stays `github`); `persistScanReport` and `setRepoWatch` write a self-managed project as `gitlab:` / `forge: "gitlab"` |
+| `src/app/api/scan/route.forge-token.test.ts` | a body GitLab token on `POST /api/scan` reaches the GitLab client; the ambient GitHub token and a GitHub body token never do |
 | `src/lib/forge/scan-credential.test.ts`, `src/lib/scan.forge-credential.test.ts`, `src/lib/scan-queue-worker.forge.test.ts`, `src/app/api/org/import/route.forge-credential.test.ts` | a GitHub credential (installation token or ambient `GITHUB_TOKEN`) never reaches a GitLab scan from `scanRepository`, the rescan worker or the import; a labelled GitLab token still flows; GitHub scans keep their token |
