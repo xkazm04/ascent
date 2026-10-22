@@ -159,6 +159,7 @@ import type { RoundLane } from "@/lib/db/loop-rounds";
 // Scan.scannedAt and getRepoStates `.toISOString()`s it.
 import type { RepoState } from "@/lib/db/org-rollup";
 import type { RetentionReceipt, RetentionReceiptRow } from "@/lib/db/retention-receipt";
+import type { CreditBacklog, CreditBacklogRepo } from "@/lib/credit-backlog-model";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -299,5 +300,9 @@ export const WIRE_TYPES = {
   // the ISO string the reader maps from AuditEntry.createdAt.
   RetentionReceipt: true satisfies WireSafe<RetentionReceipt>,
   RetentionReceiptRow: true satisfies WireSafe<RetentionReceiptRow>,
+  // credits-1: GET /api/org/credits returns it to the credits popover. skippedAt / oldestSkippedAt
+  // are the ISO strings getCreditBacklog maps from ScanJob.settledAt.
+  CreditBacklog: true satisfies WireSafe<CreditBacklog>,
+  CreditBacklogRepo: true satisfies WireSafe<CreditBacklogRepo>,
 } as const;
 

@@ -24,6 +24,7 @@ describe("wire-safe dates (structural guard)", () => {
     // + ProviderConnectionRow (the OpenAI Costs connection, GET /api/integrations/openai; row 47).
     // + RoundLane (the Live desk's lane-grain rounds read, contest live-fleet-rounds).
     // + RetentionReceipt / RetentionReceiptRow (retention-1: the purge receipt on the RetentionCard).
-    expect(Object.keys(WIRE_TYPES)).toHaveLength(77);
+    // + CreditBacklog / CreditBacklogRepo (credits-1: the credits popover backlog).
+    expect(Object.keys(WIRE_TYPES)).toHaveLength(79);
   });
 });

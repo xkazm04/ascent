@@ -416,7 +416,9 @@
         "src/app/pricing/**",
         "src/components/pricing/**",
         "src/components/credit/**",
-        "src/components/org/shared/CreditsControl*"
+        "src/components/org/shared/CreditsControl*",
+        "src/lib/credit-backlog-model.ts",
+        "src/lib/db/credit-backlog.ts"
       ]
     },
     {
