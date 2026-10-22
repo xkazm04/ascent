@@ -1,6 +1,3 @@
-import { SiteFooter, SiteHeader } from "@/components/Brand";
-import type { Metadata } from "next";
-import { IndexLanding } from "@/components/landing/prototypes/IndexLanding";
 import { PrismLanding } from "@/components/landing/prism/PrismLanding";
 import { PRISM_SCAN_HREF } from "@/components/landing/prism/prismLinks";
 import { getPublicScanGallery, recordQuotaEvent } from "@/lib/db";
@@ -9,11 +6,9 @@ import { isAuthConfigured } from "@/lib/auth";
 import { supabaseAuthConfigured } from "@/lib/env";
 import { demoOrgHref, jsonLdScript, sourceRepoHref } from "@/lib/site";
 import { publicScanWallEnabled } from "@/lib/scan-gates";
-import { resolveFirstRun } from "@/lib/first-run";
 import { PLAN_FEATURES, planPriceLabel, type PlanId } from "@/lib/plans";
 import { PUBLIC_SCAN_WINDOW_DAYS, publicScanAllowance } from "@/lib/public-scan-limit";
 import { degradeTo } from "@/lib/scan-read-door";
-import { getTheme } from "@/lib/theme/server";
 
 /** "Starter ($5/mo)" — the tier's customer-facing NAME and price, both read from the plan model. */
 const paidTier = (id: PlanId) => `${PLAN_FEATURES[id].label} (${planPriceLabel(id).amount}/mo)`;
@@ -91,17 +86,7 @@ const FAQ_LD = {
   ],
 };
 
-/** The Prism landing (the contest-winning brand and page) shows for the Prism theme, and `/?landing=prism` still previews it under Altimeter. */
-type HomeSearch = Promise<{ [key: string]: string | string[] | undefined }>;
-const wantsPrism = (sp: Awaited<HomeSearch>) => sp.landing === "prism";
-
-// The preview variant stays out of search results until it replaces the default.
-export async function generateMetadata({ searchParams }: { searchParams: HomeSearch }): Promise<Metadata> {
-  return wantsPrism(await searchParams) ? { robots: { index: false, follow: true } } : {};
-}
-
-export default async function Home({ searchParams }: { searchParams: HomeSearch }) {
-  const prism = wantsPrism(await searchParams) || (await getTheme()) === "prism";
+export default async function Home() {
   // Cookieless visit counter — the top of the visit → signup → activation funnel (the other two
   // stages already come from kpi-metrics.ts; read back on GET /api/kpi). Fire-and-forget exactly
   // like the scan route's quota tallies: recordQuotaEvent no-ops when no DB is configured and
@@ -126,43 +111,15 @@ export default async function Home({ searchParams }: { searchParams: HomeSearch 
   // signed-in members" wall over the form — and over the QuotaMeter and the honest duration sentence
   // that sit with it. The wall is now shown exactly when the server would enforce one.
   const gated = publicScanWallEnabled();
-  // Self-hosted vs cloud decides where the org CTAs point and whether the deck pitches self-hosting at
-  // all (src/lib/first-run.ts — the same resolver /onboarding branches on, so the two agree).
-  const firstRun = await resolveFirstRun();
-
-  if (prism) {
-    return (
-      <>
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(FAQ_LD) }} />
-        <PrismLanding
-          links={{ scan: PRISM_SCAN_HREF, org: demoOrgHref(), source: sourceRepoHref() }}
-          exampleRepos={exampleRepos}
-          auth={auth}
-          gated={gated}
-        />
-      </>
-    );
-  }
-
   return (
     <>
-      {/* SHELL-4: FAQ rich-result data. Rubric/copy-derived, and inlined through the shared
-          jsonLdScript escaper so this stays safe if a dynamic field is ever added (lib/site). */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(FAQ_LD) }} />
-      <SiteHeader />
-      <IndexLanding
-        gallery={gallery}
+      <PrismLanding
+        links={{ scan: PRISM_SCAN_HREF, org: demoOrgHref(), source: sourceRepoHref() }}
         exampleRepos={exampleRepos}
         auth={auth}
         gated={gated}
-        selfHosted={firstRun.mode === "self-hosted"}
-        setup={firstRun.setup}
       />
-      {/* snap-end makes the trailing footer its own snap point (aligned to the viewport bottom) so the
-          deck can rest on it instead of the last section snapping back over it. */}
-      <div className="snap-end">
-        <SiteFooter />
-      </div>
     </>
   );
 }

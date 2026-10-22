@@ -1,5 +1,5 @@
 // Dev-only kit specimen: every composition part in its states, plus the foundations, always in Prism (the
-// single reference for the look; PrismLock pins the theme, so the header switch does not matter). Synthetic data throughout (nothing here is a measurement). Not linked
+// single reference for the look). Synthetic data throughout (nothing here is a measurement). Not linked
 // from anywhere; a production build serves 404.
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/Brand";
@@ -9,7 +9,6 @@ import { KitBatch3 } from "./KitBatch3";
 import { KitBatch4 } from "./KitBatch4";
 import { KitViz } from "./KitViz";
 import { KitBatch6 } from "./KitBatch6";
-import { PrismLock } from "./PrismLock";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +45,6 @@ export default function KitSpecimen() {
   if (process.env.NODE_ENV === "production") notFound();
   return (
     <>
-      <PrismLock />
       <SiteHeader />
       <main id="main" className="mx-auto w-full max-w-6xl space-y-12 px-5 py-10">
         <header>

@@ -2,10 +2,9 @@
 //
 // `getPublicScanGallery().catch(degradeTo("landing: getPublicScanGallery", null))` — when the gallery
 // read rejects, the landing must still render (a broken DB can never fail the front page) with NO live
-// examples: the variants fall back to their static ones. What was a silent swallow is now a door: a
+// examples: the landing falls back to its static ones. What was a silent swallow is now a door: a
 // console.warn naming the read plus reportHandledError telemetry. A healthy read reaches no door and
-// hands the top three AI-native repos down as the examples. Both landing variants (default and
-// `?landing=prism`) are pinned, since each threads `exampleRepos` separately.
+// hands the top three AI-native repos down as the examples.
 //
 // The page is an async SERVER component: it is awaited and its returned element tree is walked for the
 // landing element's props — no DOM needed. The landings and site chrome are stubs; this page owns the
@@ -17,21 +16,17 @@ import type { ReactElement, ReactNode } from "react";
 const h = vi.hoisted(() => ({
   getPublicScanGallery: vi.fn(),
   recordQuotaEvent: vi.fn(async () => {}),
-  resolveFirstRun: vi.fn(async () => ({ mode: "cloud", setup: "ready" })),
 }));
 
 vi.mock("@/lib/db", () => ({
   getPublicScanGallery: h.getPublicScanGallery,
   recordQuotaEvent: h.recordQuotaEvent,
 }));
-vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
-vi.mock("@/lib/first-run", () => ({ resolveFirstRun: h.resolveFirstRun }));
 // server-only + cookies/headers: not what this page owns.
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => false }));
 // Pulls the rate limiter / entitlement / credit ledger through @/lib/db; the wall predicate is all we need.
 vi.mock("@/lib/scan-gates", () => ({ publicScanWallEnabled: () => false }));
 vi.mock("@/components/Brand", () => ({ SiteHeader: () => null, SiteFooter: () => null }));
-vi.mock("@/components/landing/prototypes/IndexLanding", () => ({ IndexLanding: vi.fn(() => null) }));
 vi.mock("@/components/landing/prism/PrismLanding", () => ({ PrismLanding: vi.fn(() => null) }));
 vi.mock("@/lib/api/respond", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/respond")>()),
@@ -39,7 +34,6 @@ vi.mock("@/lib/api/respond", async (importOriginal) => ({
 }));
 
 import Home from "./page";
-import { IndexLanding } from "@/components/landing/prototypes/IndexLanding";
 import { PrismLanding } from "@/components/landing/prism/PrismLanding";
 import { reportHandledError } from "@/lib/api/respond";
 
@@ -60,8 +54,8 @@ function findProps(node: ReactNode, component: unknown): Props | null {
   return findProps(el.props.children, component);
 }
 
-async function render(search: Record<string, string> = {}) {
-  return Home({ searchParams: Promise.resolve(search) });
+async function render() {
+  return Home();
 }
 
 const card = (fullName: string) => ({ fullName });
@@ -81,12 +75,11 @@ beforeEach(() => {
 afterEach(() => warn.mockRestore());
 
 describe("landing (/) — getPublicScanGallery failure reaches a door", () => {
-  it("a rejected gallery read still renders the default landing, with no gallery and no live examples", async () => {
+  it("a rejected gallery read still renders the landing with no live examples", async () => {
     h.getPublicScanGallery.mockRejectedValue(new Error("db unreachable"));
     const tree = await render();
-    const props = findProps(tree, IndexLanding);
+    const props = findProps(tree, PrismLanding);
     expect(props).not.toBeNull();
-    expect(props!.gallery).toBeNull();
     expect(props!.exampleRepos).toBeUndefined();
   });
 
@@ -101,20 +94,9 @@ describe("landing (/) — getPublicScanGallery failure reaches a door", () => {
     );
   });
 
-  it("the prism variant degrades the same way (no live examples) and reaches the same door", async () => {
-    h.getPublicScanGallery.mockRejectedValue(new Error("db unreachable"));
-    const tree = await render({ landing: "prism" });
-    const props = findProps(tree, PrismLanding);
-    expect(props).not.toBeNull();
-    expect(props!.exampleRepos).toBeUndefined();
-    expect(findProps(tree, IndexLanding)).toBeNull();
-    expect(reportHandledError).toHaveBeenCalledTimes(1);
-  });
-
   it("control: a healthy read passes the top three AI-native repos down and reaches no door", async () => {
     h.getPublicScanGallery.mockResolvedValue(GALLERY);
-    const props = findProps(await render(), IndexLanding);
-    expect(props!.gallery).toBe(GALLERY);
+    const props = findProps(await render(), PrismLanding);
     expect(props!.exampleRepos).toEqual(["acme/a", "acme/b", "acme/c"]);
     expect(reportHandledError).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
@@ -122,7 +104,7 @@ describe("landing (/) — getPublicScanGallery failure reaches a door", () => {
 
   it("control: an empty store (null gallery, no error) is not a failure — no door", async () => {
     h.getPublicScanGallery.mockResolvedValue(null);
-    const props = findProps(await render(), IndexLanding);
+    const props = findProps(await render(), PrismLanding);
     expect(props!.exampleRepos).toBeUndefined();
     expect(reportHandledError).not.toHaveBeenCalled();
   });
