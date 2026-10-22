@@ -8,14 +8,14 @@ import { TimelineAnnotations } from "@/app/trends/TimelineAnnotations";
 import { deriveTrendAnnotations } from "@/app/trends/annotations";
 import { deriveDeployAnnotations, mergeTimelineEvents } from "@/app/trends/deployAnnotations";
 import { getRepositoryDeployments } from "@/lib/db/repo-deployments";
-import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured } from "@/lib/db";
 import type { RepositoryHistory } from "@/lib/db/scans";
-import { isDbDown } from "@/app/trends/dbDown";
-import { HISTORY_SCAN_CAP, historyCapNote } from "@/lib/history/limits";
+import { historyCapNote } from "@/lib/history/limits";
 import { readableOrgForOwner } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
-import { historyOutsideWindowNote, historyWindowNote, resolveHistoryWindow, type HistoryWindow } from "@/lib/history/window";
+import { historyWindowNote, resolveHistoryWindow } from "@/lib/history/window";
+import { historyReturnPath, resolveRepoHistoryAccess } from "@/lib/history/repoHistoryAccess";
+import { repoHistoryNotice } from "@/lib/history/repoHistoryNotice";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { fitTrendForecast, rubricTruncation } from "@/app/trends/forecast";
 import { SignInNotice } from "@/components/SignInNotice";
@@ -53,118 +53,41 @@ export default async function TrendsPage({
   if (needsSignIn) {
     return (
       <Shell>
-        <SignInNotice
-          next={repo ? `/trends?repo=${encodeURIComponent(repo)}` : "/trends"}
-          provider={provider}
-          expired={expired}
-        />
+        <SignInNotice next={historyReturnPath("trends", { repo })} provider={provider} expired={expired} />
       </Shell>
     );
   }
 
-  if (!repo) {
+  // The shared history ladder (src/lib/history/repoHistoryAccess.ts): parse, database, org, plan window,
+  // strict read, db-down, hidden-by-window probe, empty. Read to HISTORY_SCAN_CAP, the SAME depth the
+  // CSV export and Compare use (G5-24), and ask for the compacted tail (MOONSHOT #32): this is the one
+  // surface whose job is "how has this repo moved over time". DimensionTrends lazy-loads the
+  // per-dimension rows client-side, so the first paint reads the overall-only series.
+  const access = await resolveRepoHistoryAccess<RepositoryHistory>({
+    repo,
+    surface: "trends",
+    deps: {
+      dbConfigured: isDbConfigured(),
+      resolveOrg: readableOrgForOwner,
+      resolveWindow: async (org) => resolveHistoryWindow(org, await resolveViewerLogin()),
+      read: ({ owner, repo: name, orgSlug, limit, since }) =>
+        getRepositoryHistory(owner, name, { limit, orgSlug, includeDimensions: false, includeCompacted: true, strict: true, since }),
+      probe: async ({ owner, repo: name, orgSlug }) =>
+        (await getRepositoryHistory(owner, name, { limit: 1, orgSlug, includeDimensions: false, strict: true }))?.scans.length ?? 0,
+    },
+  });
+  if (access.kind !== "ok") {
+    const notice = repoHistoryNotice(access, "trends", "repo" in access ? access.repo : undefined);
     return (
       <Shell>
-        <Notice title="No repository specified" body="Add ?repo=owner/repo to see its maturity trends." />
+        <Notice {...notice} />
       </Shell>
     );
   }
-  const parsed = parseRepoUrl(repo);
-  if (!parsed) {
-    return (
-      <Shell>
-        <Notice title="Invalid repository" body="Use the form owner/repo or a GitHub URL." />
-      </Shell>
-    );
-  }
-  if (!isDbConfigured()) {
-    return (
-      <Shell>
-        <Notice
-          title="Trends need a database"
-          body="Progress tracking is a Phase 2 feature. Set DATABASE_URL (local Postgres or Aurora DSQL) to record scan history."
-          repo={`${parsed.owner}/${parsed.repo}`}
-        />
-      </Shell>
-    );
-  }
-
-  const orgSlug = await readableOrgForOwner(parsed.owner);
-  // Lightweight first paint: fetch the overall-only series (no per-dimension fan-out) for the page
-  // shell + overall chart. DimensionTrends lazy-loads the per-dimension rows client-side (via
-  // /api/history) when its section nears the viewport.
-  // Fetch to the SAME depth the CSV export uses (HISTORY_SCAN_CAP). The page used to stop at 60 while
-  // `?format=csv` pulled 200, so "All" was a silent truncation: the chart and the spreadsheet
-  // downloaded from the button beside it described different histories, with nothing saying so
-  // (G5-24). One cap now, and `historyCapNote` says out loud when even that cap is binding.
-  // MOONSHOT #32 — ask for the compacted tail. This is the ONE surface whose job is "how has this
-  // repo moved over time", so it is the one that should not silently begin at whatever date the
-  // purge job last reached. A compacted point is labelled on the chart, carries no permalink, and
-  // extends the series without ever pretending to be a scan.
-  // STRICT: an unreachable database must not read as "No scans recorded yet" (the refusal /api/history
-  // makes too); it gets its own honest notice, never a 500.
-  // The plan's sold history window: the same floor the personal overview reads under.
-  const viewerLogin = await resolveViewerLogin();
-  let historyWindow: HistoryWindow;
-  let history: RepositoryHistory | null;
-  let hiddenByWindow = false;
-  try {
-    historyWindow = await resolveHistoryWindow(orgSlug, viewerLogin);
-    history = await getRepositoryHistory(parsed.owner, parsed.repo, {
-      limit: HISTORY_SCAN_CAP,
-      orgSlug,
-      includeDimensions: false,
-      includeCompacted: true,
-      strict: true,
-      since: historyWindow.since,
-    });
-    // Empty under a floor: say whether older scans exist, so the page never claims "never scanned".
-    if (historyWindow.since && (!history || history.scans.length === 0)) {
-      const any = await getRepositoryHistory(parsed.owner, parsed.repo, {
-        limit: 1,
-        orgSlug,
-        includeDimensions: false,
-        strict: true,
-      });
-      hiddenByWindow = (any?.scans.length ?? 0) > 0;
-    }
-  } catch (err) {
-    if (!isDbDown(err)) throw err;
-    return (
-      <Shell>
-        <Notice
-          title="Scan history is unavailable right now"
-          body={`We could not read the scan history for ${parsed.owner}/${parsed.repo}. Try again in a moment.`}
-          repo={`${parsed.owner}/${parsed.repo}`}
-        />
-      </Shell>
-    );
-  }
+  const { data: history, orgSlug, window: historyWindow, target } = access;
   const windowNote = historyWindowNote(historyWindow);
-  if (!history || history.scans.length === 0) {
-    if (hiddenByWindow) {
-      return (
-        <Shell>
-          <Notice
-            title="Scans fall outside your plan's history window"
-            body={historyOutsideWindowNote(historyWindow, `${parsed.owner}/${parsed.repo}`)}
-            repo={`${parsed.owner}/${parsed.repo}`}
-          />
-        </Shell>
-      );
-    }
-    return (
-      <Shell>
-        <Notice
-          title="No scans recorded yet"
-          body={`We haven't stored any scans for ${parsed.owner}/${parsed.repo}. Run a scan to start the trend.`}
-          repo={`${parsed.owner}/${parsed.repo}`}
-        />
-      </Shell>
-    );
-  }
 
-  const latest = history.scans[0]!; // safe: history.scans.length === 0 returned above
+  const latest = history.scans[0]!; // safe: the ladder answers "empty" for a zero-scan series
   // The compare view diffs two real scans, so the "Compare →" affordance counts real scans only: a
   // compacted point has no scan behind it to pick, and offering the link on the strength of one
   // would land the reader on a picker with a single option.
@@ -188,7 +111,7 @@ export default async function TrendsPage({
   // repo's deployments never reach this public-capable page. Bounded below by the oldest real scan,
   // the earliest window a deploy can be pinned into.
   const oldestReal = history.scans.filter((s) => !s.compacted).at(-1);
-  const deployments = await getRepositoryDeployments(parsed.owner, parsed.repo, {
+  const deployments = await getRepositoryDeployments(target.owner, target.repo, {
     orgSlug,
     since: oldestReal?.scannedAt ?? null,
   });
