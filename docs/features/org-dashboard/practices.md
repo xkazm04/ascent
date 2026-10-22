@@ -583,8 +583,10 @@ PR before merge is the normal case and must not read as drift. Merge detection i
 `syncHousePatternVersions` appends a version only when `patternHash(lines)` moves, so a nightly
 rescan of an unchanged fleet writes nothing. An adoption cites the version it came from, so re-mining
 cannot retroactively make every conformant repo drifted. An org that mines nothing gets **no row** —
-absence, not a v0 — and `patternVersion` is `null` for generic/registry/playbook adoptions, meaning
-*not version-tracked*, never *behind*.
+absence, not a v0 — and `patternVersion` is `null` for generic/registry adoptions and for a
+playbook's first apply, meaning *not version-tracked*, never *behind*. A playbook row carries a
+version only once a revision was proposed over it (see *Playbook revisions* below); every house-only
+reader filters on `source: "house"`, so it never reaches the house behind tiles.
 
 **Drift is a finding to decide, never an auto-reapply.** `practiceFindings()` (a fifth
 `FINDING_MODULES` member, `practices`) emits one `Finding` per drifted/removed row keyed
@@ -666,6 +668,45 @@ lives in `src/lib/org/playbookLiftModel.ts` (pure); the reads live in `src/lib/d
   mock scans excluded". The executive briefing's proof line reads the same `lift`, so its playbook
   figures move with these rules.
 
+**Playbook revisions: re-roll an edited playbook to the repos on an older version** (playbooks-1,
+2026-10-22). Every content edit bumps `Playbook.version`. Before this change the repos that adopted v1
+stayed on v1: re-applying was refused (the landed file is on the default branch, and `openDraftPr`
+never overwrites a base file), and after a title edit an apply would have committed a second file
+under the new slug.
+- **Who is behind.** `src/lib/org/playbookRevisionModel.ts` (pure) puts each adopter in one
+  standing against the current version: `behind` (adopted at an older `appliedVersion`), `diverged`
+  (the ledger row is `drifted` or `removed`, so the landed file was edited or deleted in the repo;
+  never offered, the edit is the user's decision), `unversioned` (no version on the mark, or no
+  ledger row; listed, never preselected, selectable only with a landed digest), `current`, and
+  `in-flight` (the first PR is still `proposed`, or a revision for this version is open).
+  `GET /api/org/playbooks/[id]/revise` (member) returns those sets; the landed paths and digests stay
+  server-side (`src/lib/db/playbook-revision.ts`).
+- **The rollout.** `PlaybookRevisionRollout` on the card (only when `version > 1`) reads
+  "N repos on v1-v2 -> update to v3", preselects the behind repos, and confirms in a dialog that names
+  the org and every repo and requires the org slug to be typed. `POST /api/org/playbooks/[id]/revise`
+  is `requireOrgAdmin` (admin, and refused on the shared public org), dedupes then caps at 25
+  (over-cap is `skipped`), refuses every repo outside the playbook's revisable set as a per-repo row
+  with no PR, answers `dryRun: true` with `{ repos, fromVersions, toVersion, starter }` and zero
+  GitHub calls, 409s an archived playbook, opens **draft** PRs only, and records one
+  `playbook.revision_opened` audit row with the version span.
+- **The write never touches content the customer authored.** The revision passes
+  `replaceIfBaseDigest` = the ledger's `adoptedHash` (the digest of the file as it landed). `openDraftPr`
+  fetches the base file and replaces it only when its bytes hash to exactly that digest, and the PUT
+  carries that file's blob sha, so a concurrent edit makes GitHub refuse the write. Different bytes,
+  or a file that is gone, is a 409 ("changed since Ascent landed it") and the repo is left untouched.
+  Every other caller passes no digest and keeps the never-overwrite guard exactly as before.
+- **A renamed playbook is updated in place.** A revision commits to the ledger row's `artifactPath`
+  (the file that landed, e.g. `docs/playbooks/<id>-<old-slug>.md`), on its own branch
+  `ascent/playbook-<id>-v<n>`. The file keeps the name it landed under, and the PR body says so; no
+  second file is seeded and nothing is orphaned.
+- **The ledger stays true after the merge.** The revision updates the same ledger row: `proposedHash`
+  and `patternVersion` become the new digest and version, and the state stays `adopted` (the landed
+  baseline survives until the revision lands). When a rescan sees exactly the proposed bytes on an
+  `adopted` row, `reconcileAdoption` **rebaselines** it (new `adoptedHash`/`adoptedOutline`, not
+  `drifted`; checked before the cosmetic allowance), the adoption date is kept, and
+  `stampRevisionLanded` moves the repo's `PlaybookApplication.appliedVersion` to the row's
+  `patternVersion`. A draft nobody merges never moves the version.
+
 ## Governance perimeter: advisory findings on the repo node (2026-09-17)
 
 The AI-stance apply path reuses this writer's `openArtifactDraftPr` (see *Shared write path* above).
@@ -688,6 +729,8 @@ contradictions only. See [org-intelligence.md](./org-intelligence.md) for the st
   (`src/lib/github/write.ts`, `existingFileSha`) reads the path on the **base** branch and refuses
   with a 409 rather than overwrite it with a starter artifact; it checks base, not the branch, so a
   re-seed of the draft branch stays idempotent. The 25-repo fan-out is the reason the guard exists.
+  The one exception is opt-in and digest-bound: a playbook revision (playbooks-1) may replace a base
+  file only when its bytes are exactly what Ascent landed.
 - **Batch apply is capped**: `POST /api/practices/apply-batch`,
   `POST /api/org/playbooks/[id]/apply-batch`, and `POST /api/org/ai-stance/apply-batch`
   are bounded to **25 repos per call** (a deliberate bound, not a limitation to remove:
@@ -710,6 +753,10 @@ contradictions only. See [org-intelligence.md](./org-intelligence.md) for the st
 - (Closed 2026-08-30, #33.) ~~Registry practices are read-only.~~ A registry `PRACTICE.md` now applies
   through the same writer as every other practice (`buildRegistryArtifact` → `applyPracticeToRepo`).
   Still read-only in the direction that matters: ascent never writes back to the registry repo.
+- **A plain apply after a title edit still targets the new slug.** The single and batch apply routes
+  derive the path from the current title, so applying a renamed playbook to a repo that never adopted
+  it is correct, but the batch still lists adopted repos as selectable; for those the base guard 409s
+  (no second file is written). Re-rolling an adopter goes through the revision rollout.
 - **A closed playbook PR stays proposed.** Playbook PRs bypass `ImprovementPr`, so nothing notices a
   playbook PR closed without merging: its ledger row stays `proposed` and the repo keeps reading as
   proposed (not adopted) on the card. Re-opening the PR and merging it, or the file landing another
