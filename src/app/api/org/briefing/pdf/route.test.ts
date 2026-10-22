@@ -44,9 +44,17 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(() => true),
 }));
 vi.mock("@react-pdf/renderer", () => ({ renderToBuffer: vi.fn() }));
-// The logo SSRF guard does real DNS + fetch; pass the URL through here so the branded-render path stays
-// hermetic. Its own guard is covered in src/lib/net/logo-fetch.test.ts.
-vi.mock("@/lib/net/logo-fetch", () => ({ resolveSafeLogoDataUri: vi.fn(async (u: string) => u) }));
+// The logo is read through readDeliverableBranding (real here, so the entitlement re-check is driven
+// by the getCreditState mock above). Its snapshot store and its one healing fetch are mocked so the
+// branded-render path stays hermetic; both are covered in src/lib/branding/deliverable.test.ts and
+// src/lib/net/logo-fetch.test.ts.
+vi.mock("@/lib/db/org-logo-snapshot", () => ({
+  getOrgLogoSnapshot: vi.fn(async () => null),
+  setOrgLogoSnapshot: vi.fn(async () => true),
+}));
+vi.mock("@/lib/net/logo-fetch", () => ({
+  fetchSafeLogo: vi.fn(async () => ({ ok: true, mime: "image/png", sha256: "f".repeat(64), dataUri: "data:image/png;base64,eA==" })),
+}));
 // BriefingDocument is irrelevant here — the route passes it to the (mocked) renderToBuffer.
 vi.mock("@/lib/pdf/briefing-document", () => ({ BriefingDocument: () => null }));
 // resolveWindow is pure; let the real one run so we don't have to model the route's window plumbing.
@@ -296,6 +304,35 @@ describe("GET /api/org/briefing/pdf", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/pdf");
     expect(mockRender).toHaveBeenCalledTimes(2); // branded attempt + unbranded fallback
+  });
+
+  it("retries WITH the brand name and accent (logo dropped) before falling back to unbranded", async () => {
+    mockGetBranding.mockResolvedValue({ brandName: "Acme Corp", brandColor: "#c41e3a", logoUrl: "https://cdn.example/logo.png" } as never);
+    mockRender
+      .mockRejectedValueOnce(new Error("bad logo image"))
+      .mockResolvedValueOnce(Buffer.from("%PDF-1.7 branded-no-logo"));
+    const res = await get("acme");
+
+    expect(res.status).toBe(200);
+    expect(mockRender).toHaveBeenCalledTimes(2);
+    const brandingOf = (call: number) =>
+      (mockRender.mock.calls[call]![0] as unknown as { props: { branding?: unknown } }).props.branding;
+    expect(brandingOf(0)).toEqual({ brandName: "Acme Corp", brandColor: "#c41e3a", logoUrl: "data:image/png;base64,eA==" });
+    expect(brandingOf(1)).toEqual({ brandName: "Acme Corp", brandColor: "#c41e3a", logoUrl: null });
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="acme-corp-briefing-acme-2026-06-18.pdf"');
+  });
+
+  it("unbranded stays the last rung when the logo-less branded render also rejects", async () => {
+    mockGetBranding.mockResolvedValue({ brandName: "Acme Corp", brandColor: "#c41e3a", logoUrl: "https://cdn.example/logo.png" } as never);
+    mockRender
+      .mockRejectedValueOnce(new Error("bad logo image"))
+      .mockRejectedValueOnce(new Error("bad font"))
+      .mockResolvedValueOnce(Buffer.from("%PDF-1.7 unbranded"));
+    const res = await get("acme");
+
+    expect(res.status).toBe(200);
+    expect(mockRender).toHaveBeenCalledTimes(3);
+    expect((mockRender.mock.calls[2]![0] as unknown as { props: { branding?: unknown } }).props.branding).toBeUndefined();
   });
 
   it("500 with a clean message (no raw stack) when BOTH renders reject", async () => {

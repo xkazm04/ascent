@@ -303,7 +303,11 @@
         "src/lib/db/improvement-events.ts",
         "src/lib/db/org-impact.ts",
         "src/lib/db/org-program.ts",
-        "src/lib/org/briefingMovement.ts"
+        "src/lib/org/briefingMovement.ts",
+        "src/lib/branding/deliverable.ts",
+        "src/lib/db/org-logo-snapshot.ts",
+        "src/lib/net/logo-fetch.ts",
+        "src/lib/net/pinned-get.ts"
       ]
     },
     {

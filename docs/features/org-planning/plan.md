@@ -400,6 +400,24 @@ org's name, which was the defect. An unscoped briefing renders exactly as before
 `briefing.client-name.test.ts`, `briefing-document.client.test.tsx`, `segments.name.test.ts`, the PDF
 route's filename cases and `page.segment-notice.test.tsx`.
 
+**White-label logo: a validated snapshot, not a per-render fetch (branding-0, 2026-10-22).** The
+board PDF (`/api/org/briefing/pdf`) and the anonymous share page (`/share/briefing/[token]`) read
+branding through one door, `readDeliverableBranding` (`src/lib/branding/deliverable.ts`). It re-checks
+the current plan with `planAllowsWhiteLabel` first, the same rule both deliverables applied by hand
+(a downgraded org, or an unreadable plan, gets no branding and nothing else is read), so what is paid
+for is unchanged. The logo is the `OrgLogoSnapshot` row the branding save stored: a `data:` URI, so
+neither deliverable makes a network call to the owner's host and a board member's browser no longer
+fetches it either. The save runs one fetch through `fetchSafeLogo` (`src/lib/net/logo-fetch.ts`): the
+literal-URL SSRF check, ONE DNS resolution that refuses any private, loopback or link-local answer, a
+connection pinned to that address (`src/lib/net/pinned-get.ts`: no second resolution, so the rebinding
+window is closed; SNI and Host keep the real name), no redirects, a 512 KB cap, and a magic-byte sniff
+that admits only PNG, JPEG and SVG, the formats `@react-pdf/image` renders. A WebP, GIF, HTML page or
+oversized file now saves with `logoUnreachable: true` and a `logoReason` instead of a green "Saved"
+over a logo-less PDF. An org saved before snapshots existed (or whose URL changed outside the form)
+heals once on its next render; a failed heal is a negative snapshot not retried for an hour. The PDF
+render ladder is branded, then branded without the logo, then unbranded, so a logo failure no longer
+strips the brand name and accent. The org erase drains the snapshot (`logoSnapshotsDeleted`).
+
 **A failed read is not a fact (2026-10-07).** The share path, the PDF route and the briefing build used to
 turn a database error into a sentence about the world. They no longer do, and each is pinned by a test that
 makes the read fail:

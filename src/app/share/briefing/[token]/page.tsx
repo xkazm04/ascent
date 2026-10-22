@@ -20,13 +20,13 @@ import { briefingFigureDigest, shareIntegrity, verifyBriefingShareToken } from "
 import { FiguresMovedNotice, Notice, ShareFooter, ShareHeader, tryAgainNotice } from "./shareChrome";
 import { inclusiveEnd, resolveWindow } from "@/lib/window";
 import { orgWindowBounds } from "@/lib/org/period";
-import { getCreditState, getOrgBranding, getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
+import { getOrgId, getTechGroupIdByKey, isDbConfigured, recordAudit } from "@/lib/db";
 import type { OrgWindow } from "@/lib/db";
 import { briefingShareLinkState } from "@/lib/db/org-share";
 import { reportHandledError } from "@/lib/api/respond";
 import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
 import { getMembershipRole, roleAtLeast } from "@/lib/db/members";
-import { planAllowsWhiteLabel } from "@/lib/plans";
+import { readDeliverableBranding } from "@/lib/branding/deliverable";
 
 export const dynamic = "force-dynamic";
 export const metadata = { robots: { index: false, follow: false } };
@@ -132,12 +132,12 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
     );
   }
   // White-label (EXEC-5): this share link is the artifact a reseller hands a client, so it renders the
-  // org's brand mark instead of Ascent's. Entitlement is RE-CHECKED here like the PDF route — the brand
-  // columns survive a plan downgrade, so applying them unconditionally would keep delivering a paid
-  // feature after the org stopped paying for it.
+  // org's brand mark instead of Ascent's, through the same door as the PDF route: it re-checks the
+  // current plan (the brand columns survive a downgrade) and serves the logo as the snapshot taken at
+  // save, a data: URI, so a board member's browser never calls the owner's host.
   // A thrown build is not an empty fleet. Both used to render "Nothing to show yet", so a board
   // holding the link was told the organization had no scans when the read had failed.
-  const [built, rawBranding, credit] = await Promise.all([
+  const [built, branding] = await Promise.all([
     buildExecBriefing(verified.org, shareWindow, period.title, verified.segment ?? null, techGroupId).then(
       (briefing) => ({ ok: true as const, briefing }),
       (err: unknown) => {
@@ -146,10 +146,8 @@ export default async function SharedBriefingPage({ params }: { params: Promise<{
         return { ok: false as const };
       },
     ),
-    getOrgBranding(verified.org).catch(degradedRead("briefing share branding", null)),
-    getCreditState(verified.org).catch(degradedRead("briefing share credit state", null)),
+    readDeliverableBranding(verified.org, { surface: "briefing share" }),
   ]);
-  const branding = planAllowsWhiteLabel(credit?.plan) ? rawBranding : null;
   if (!built.ok) {
     return (
       <Notice

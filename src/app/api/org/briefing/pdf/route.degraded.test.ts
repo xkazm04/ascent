@@ -30,7 +30,13 @@ vi.mock("@/lib/db", () => ({
   isDbConfigured: vi.fn(() => true),
 }));
 vi.mock("@react-pdf/renderer", () => ({ renderToBuffer: vi.fn() }));
-vi.mock("@/lib/net/logo-fetch", () => ({ resolveSafeLogoDataUri: vi.fn(async (u: string) => u) }));
+vi.mock("@/lib/db/org-logo-snapshot", () => ({
+  getOrgLogoSnapshot: vi.fn(async () => null),
+  setOrgLogoSnapshot: vi.fn(async () => true),
+}));
+vi.mock("@/lib/net/logo-fetch", () => ({
+  fetchSafeLogo: vi.fn(async () => ({ ok: true, mime: "image/png", sha256: "f".repeat(64), dataUri: "data:image/png;base64,eA==" })),
+}));
 vi.mock("@/lib/pdf/briefing-document", () => ({ BriefingDocument: () => null }));
 
 import { GET } from "./route";

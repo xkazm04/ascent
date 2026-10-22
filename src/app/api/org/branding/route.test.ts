@@ -2,7 +2,7 @@
 // `org.branding.updated`; a denied/failed POST must not leave a trail row.
 //
 // next/server is faked as a class so `requireOrgOwnerPost`'s `instanceof NextResponse` branch works.
-// db / authz / auth / access / logo-fetch are mocked; planAllowsWhiteLabel stays REAL (driven by the
+// db / authz / auth / access / logo-fetch / logo-snapshot are mocked; planAllowsWhiteLabel stays REAL (driven by the
 // mocked credit.plan). Preview / PDF download / contrast live in other modules and are not touched.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -26,7 +26,8 @@ const h = vi.hoisted(() => ({
   requireOrgRole: vi.fn(),
   requireSameOrigin: vi.fn(),
   resolveViewerLogin: vi.fn(),
-  resolveSafeLogoDataUri: vi.fn(),
+  fetchSafeLogo: vi.fn(),
+  setOrgLogoSnapshot: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -38,7 +39,8 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/authz", () => ({ refusePublicOrgAdmin: () => null, requireOrgRole: h.requireOrgRole }));
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: h.requireSameOrigin }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: h.resolveViewerLogin }));
-vi.mock("@/lib/net/logo-fetch", () => ({ resolveSafeLogoDataUri: h.resolveSafeLogoDataUri }));
+vi.mock("@/lib/net/logo-fetch", () => ({ fetchSafeLogo: h.fetchSafeLogo }));
+vi.mock("@/lib/db/org-logo-snapshot", () => ({ setOrgLogoSnapshot: h.setOrgLogoSnapshot }));
 
 import { POST } from "./route";
 import { NextResponse } from "next/server";
@@ -52,6 +54,14 @@ const stored = {
     logoUrl: "https://cdn.example/acme.png",
   },
   rejected: [] as string[],
+};
+
+const PNG_LOGO = {
+  ok: true as const,
+  bytes: Buffer.from("png"),
+  mime: "image/png",
+  sha256: "c".repeat(64),
+  dataUri: "data:image/png;base64,cG5n",
 };
 
 function post(body: Record<string, unknown>) {
@@ -73,7 +83,8 @@ beforeEach(() => {
   h.setOrgBranding.mockResolvedValue(stored);
   h.recordOrgAudit.mockResolvedValue(true);
   h.resolveViewerLogin.mockResolvedValue("owner-a");
-  h.resolveSafeLogoDataUri.mockResolvedValue("data:image/png;base64,xx");
+  h.fetchSafeLogo.mockResolvedValue(PNG_LOGO);
+  h.setOrgLogoSnapshot.mockResolvedValue(true);
 });
 
 describe("POST /api/org/branding — audit on success", () => {
@@ -120,11 +131,11 @@ describe("POST /api/org/branding — audit on success", () => {
     const [, , meta] = h.recordOrgAudit.mock.calls[0]!;
     expect(meta).toMatchObject({ brandName: null, brandColor: null, logoUrl: null });
     expect((meta as { status: string }).status).toBe("cleared");
-    expect(h.resolveSafeLogoDataUri).not.toHaveBeenCalled();
+    expect(h.fetchSafeLogo).not.toHaveBeenCalled();
   });
 
   it("audits even when the saved logo later probes unreachable (advisory, not a failed write)", async () => {
-    h.resolveSafeLogoDataUri.mockResolvedValue(null);
+    h.fetchSafeLogo.mockResolvedValue({ ok: false, reason: "unreachable" });
     const res = await post({ org: "acme", logoUrl: "https://cdn.example/acme.png" });
     expect(res.status).toBe(200);
     expect((await res.json()).logoUnreachable).toBe(true);
@@ -196,6 +207,39 @@ describe("POST /api/org/branding — no audit unless the write succeeded", () =>
   it("does not withhold the save when the audit write itself rejects", async () => {
     h.recordOrgAudit.mockRejectedValue(new Error("audit down"));
     const res = await post({ org: "acme", brandName: "Acme Inc." });
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+  });
+});
+
+describe("POST /api/org/branding - the save-time fetch IS the logo snapshot", () => {
+  it("a logo URL serving WebP saves with logoUnreachable:true and stores no snapshot", async () => {
+    h.fetchSafeLogo.mockResolvedValue({ ok: false, reason: "unsupported-format" });
+    const res = await post({ org: "acme", logoUrl: "https://cdn.example/acme.png" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.logoUnreachable).toBe(true);
+    expect(body.logoReason).toBe("unsupported-format");
+    expect(h.setOrgLogoSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("a PNG logo is snapshotted once with its source URL, sha256, mime and data URI", async () => {
+    const res = await post({ org: "acme", logoUrl: "https://cdn.example/acme.png" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).logoUnreachable).toBe(false);
+    expect(h.fetchSafeLogo).toHaveBeenCalledTimes(1);
+    expect(h.setOrgLogoSnapshot).toHaveBeenCalledTimes(1);
+    expect(h.setOrgLogoSnapshot).toHaveBeenCalledWith("acme", {
+      sourceUrl: "https://cdn.example/acme.png",
+      sha256: "c".repeat(64),
+      mime: "image/png",
+      dataUri: "data:image/png;base64,cG5n",
+    });
+  });
+
+  it("a snapshot write failure does not withhold the save", async () => {
+    h.setOrgLogoSnapshot.mockRejectedValue(new Error("db down"));
+    const res = await post({ org: "acme", logoUrl: "https://cdn.example/acme.png" });
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
   });

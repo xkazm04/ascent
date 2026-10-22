@@ -9,14 +9,13 @@ import { NextResponse } from "next/server";
 import { renderToBuffer, type DocumentProps } from "@react-pdf/renderer";
 import { BriefingDocument } from "@/lib/pdf/briefing-document";
 import { buildExecBriefing } from "@/lib/org/briefing";
-import { getCreditState, getOrgBranding, getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
-import { planAllowsWhiteLabel } from "@/lib/plans";
+import { getTechGroupIdByKey, isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
 import { respondError } from "@/lib/api/respond";
-import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
+import { noteReadFailure } from "@/lib/org/degraded-read";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { attachBriefingNarrative } from "@/lib/org/briefing-narrative";
-import { resolveSafeLogoDataUri } from "@/lib/net/logo-fetch";
+import { readDeliverableBranding } from "@/lib/branding/deliverable";
 import { safeFilenameSegment } from "@/lib/export/filename";
 import { pdfAttachmentResponse } from "@/lib/pdf/export-response";
 
@@ -85,34 +84,26 @@ export async function GET(request: Request) {
   // can neither fail the download nor introduce a figure that isn't in the briefing.
   const briefing = await attachBriefingNarrative(built);
 
-  // EXEC-5: white-label branding for the PDF. A bad/unreachable logo could fail rendering, so fall
-  // back to an unbranded render rather than 500 the download.
-  // Entitlement is RE-CHECKED here, not just on write: the brand columns are never cleared on a plan
-  // downgrade, so applying them unconditionally would keep delivering a paid feature (branded title,
-  // logo, footer, filename) indefinitely after the org stopped paying for it. Mirror executive/page.tsx
-  // — only apply branding when the CURRENT plan still allows white-label.
-  const [rawBranding, credit] = await Promise.all([
-    getOrgBranding(org).catch(degradedRead("briefing pdf branding", null)),
-    getCreditState(org).catch(degradedRead("briefing pdf credit state", null)),
-  ]);
-  const branding = planAllowsWhiteLabel(credit?.plan) ? (rawBranding ?? undefined) : undefined;
-  // SSRF: resolve the owner-supplied logo to image bytes OURSELVES under a strict guard and hand
-  // @react-pdf a data: URI, so it never fetches a remote (potentially DNS-rebound) host server-side at
-  // render time. On any failure keep the brand name/colour but drop the logo.
-  const brandingForRender: typeof branding = branding?.logoUrl
-    ? { ...branding, logoUrl: await resolveSafeLogoDataUri(branding.logoUrl) }
-    : branding;
+  // EXEC-5: white-label branding for the PDF, through the one deliverable door. It re-checks the
+  // CURRENT plan (the brand columns survive a downgrade, so an unconditional apply would keep delivering
+  // a paid feature) and hands back the logo as the snapshot taken at save: a data: URI, so @react-pdf
+  // makes no network request and this route never fetches the owner's host at render time.
+  const branding = (await readDeliverableBranding(org, { surface: "briefing pdf" })) ?? undefined;
   const render = (b: typeof branding) =>
     renderToBuffer(createElement(BriefingDocument, { briefing, branding: b }) as unknown as ReactElement<DocumentProps>);
   let buffer: Buffer;
   try {
-    // Try branded; on a bad logo fall back to an unbranded render. If THAT also fails (or there was no
-    // branding), the rejection used to escape as an unhandled 500 with a raw stack — wrap the whole
-    // thing so a render failure degrades to a clean error instead.
-    buffer = await render(brandingForRender).catch((err: unknown) => {
-      if (!brandingForRender) throw err;
-      noteReadFailure("briefing pdf branded render (retrying unbranded)", err);
-      return render(undefined);
+    // The ladder: branded -> branded without the logo -> unbranded. A logo failure must not strip the
+    // brand name and accent with it (the filename below still carries the brand), so the middle rung
+    // keeps them. If the last rung also fails the rejection lands in the catch below as a clean 500.
+    buffer = await render(branding).catch((err: unknown) => {
+      if (!branding) throw err;
+      noteReadFailure("briefing pdf branded render (retrying without the logo)", err);
+      const withoutLogo = branding.logoUrl ? render({ ...branding, logoUrl: null }) : Promise.reject(err);
+      return withoutLogo.catch((err2: unknown) => {
+        if (branding.logoUrl) noteReadFailure("briefing pdf logo-less render (retrying unbranded)", err2);
+        return render(undefined);
+      });
     });
   } catch (err) {
     console.error("[briefing/pdf] render failed", err);
