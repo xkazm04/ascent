@@ -885,8 +885,29 @@ with each scan the fleet takes. Pinned by `src/lib/db/org-rollup-queries.test.ts
 is identical for 1 repo × 25 scans and 300 × 60, no read carries a nested `take` or a `distinct`, and
 every pick is a `groupBy`. It fails 14 of 15 cases against the previous code.
 `src/lib/db/org-rollup-latest-scans.equivalence.test.ts` checks that each read keeps exactly the rows the
-old shape kept, along with the tie rule. `getRepoStates` and `getOrgHeaderSummary` (the org shell's header)
-still use a nested `take: 1` and are not yet converted.
+old shape kept, along with the tie rule.
+
+**One door for every fleet reader (2026-10-22).** Adopting the shape in three readers did not stop the
+drift: fifteen other fleet readers still took each repo's latest scan as a nested `scans: { take: 1 }`
+(the team rollup a `take: 2`), each transferring the org's whole scan history. All of them now go
+through `withLatestScans` in `src/lib/db/org-rollup-latest-scans.ts`, which runs the caller's repository
+read beside a GROUP BY pick (scoped through the relation, so the two run in parallel) and re-attaches
+`scans: [latest]` (or `[latest, previous]`), so nothing below a call site changed: `getOrgRecommendations`,
+`getOrgPractices`, `getOrgGapAnalysis`, `getOrgDiscrepancies`, `getOrgPrSignals`, `getOrgGovernance`,
+`getOrgDimensionGaps`, `getOrgActivity`, `getOrgTeamRollup` (groupBy latest, `scanAtBeforePerRepo`, one
+pair fetch: `readLatestTwoScansPerRepo`), `getRepoStates`, `getOrgHeaderSummary` (still React-`cache()`d,
+so the shell, page and OG card share one read per request), `getOrgNavCounts` (also still cached),
+`getOrgRework`, `getOrgPracticeShapes` and `getStanceRepoFacts`. The header summary and the nav badge run in
+EVERY org shell, so this was a per-tab cost.
+Pinned by `src/lib/db/org-rollup-queries.test.ts`: on a 40-repo fleet each reader moves 40 Scan rows (not
+1,200 at 30 scans per repo), still 40 at 60 per repo, and the team rollup at most 2 per repo.
+`src/lib/db/org-latest-scan-readers.equivalence.test.ts` checks that each reader returns the same object
+over the full history as over only the scans the old shape kept, tie rule included.
+`src/lib/db/org-latest-scan-guard.test.ts` fails on a nested `scans: { ..., take }` in any
+`src/lib/db/org-*.ts` module. It strips comments and string literals before matching and carries a seeded
+violation. `org-benchmark.ts` is the one allowlisted exemption: its picks filter on `engineProvider`
+(latest ELIGIBLE scan), which is outside the door's where-contract. The team rollup's windowed pre-start
+baseline still uses `distinct: ["repoId"]`; the guard does not cover `distinct`.
 
 **A failed read is not "none" (2026-10-07 sweep).** Where an org-dashboard read used to fall back to a value a
 reader would take as a fact, it now says the read failed and reports it: `GET /api/org/repo-dimension`
@@ -3011,6 +3032,7 @@ rows are excluded from it:
 | Fleet masthead `avg`, per-group `avg` (`avgRealScore`) | Averaged over live-scored repos only. **Null, never 0**, when the set has none: the renderers land on the `—` no-score path, because a `0` in `scoreHex(0)` alarm-red reads as a catastrophic grade rather than "not measured". The repo *count* still describes the whole set, and the tooltip names the denominator (`N live-scored · M mock excluded`). |
 | Fleet + per-group `avg move` (`avgRealMove`) | Excludes single-scan repos and **engine-transition** deltas, so a mock→live re-scan cannot fake improvement. Pre-existing; the score average now matches its precedent. |
 | Corpus percentile (`getOrgBenchmark`) | Both sides filtered to non-`mock` engines at the current rubric version (see above). |
+| Practice Library (`getOrgPractices`) and the cross-repo gap analysis (`getOrgGapAnalysis`) | Since 2026-10-22 a repo whose LATEST scan is a mock placeholder contributes nothing: no `byDim` row, so it is never an exemplar, never in `gapRepos` / `gapRepoRefs` / `commonGaps` / `repoSpecific`, and `total` / `scanned` count live-scored repos only. This is `getOrgRollup`'s `realScored` predicate. Before, neither read selected `engineProvider`, and the mock engine writes dimension rows, so a placeholder floor could show up as an org-wide gap next to a badge that leaves it out. **Displayed numbers change on a fleet with mock-latest repos:** practice totals and gap counts fall to match the badge's live-scored count. The repo is dropped, not replaced by an older live scan. An all-mock fleet reads as unscanned (`null`). Pinned by `src/lib/db/org-insights.mock-exclusion.test.ts`. |
 
 Groups with no live-scored repo sort **last**, not as the worst-scoring cohort. Pinned by
 `src/features/standing/overview/fleetAverages.test.ts` (all-mock, mixed, and zero-scored fleets).
