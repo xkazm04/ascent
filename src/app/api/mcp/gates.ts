@@ -18,9 +18,10 @@
 // a self-hosted install reaches every tool with a locally minted token and no plan at all.
 
 import { getCreditState, getOrgId, getPrisma, isDbConfigured, workspaceAllowsMemory, workspaceAllowsSkills } from "@/lib/db";
+import type { McpPlanGate } from "@/lib/mcp/tools";
 
-/** Which plan-gated resource families the catalog knows about. */
-export type McpPlanGate = "memory" | "skills";
+/** Which plan-gated resource families the catalog knows about. Declared once, in the catalog. */
+export type { McpPlanGate };
 
 /** One resolved decision per gated family. `true` = the org's plan carries this resource. */
 export interface McpGates {

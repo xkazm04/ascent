@@ -28,7 +28,8 @@
 // cannot accidentally satisfy a gate by handing it a live predicate that fails open.
 
 import type { SkillTokenScope } from "@/lib/db";
-import type { McpGates, McpPlanGate } from "@/app/api/mcp/gates";
+import type { McpGates } from "@/app/api/mcp/gates";
+import type { McpPlanGate } from "./tools";
 import { SKILL_INVOKES_PER_DAY_CEILING } from "./self-report-ceiling";
 
 export interface WriteToolPolicy {
