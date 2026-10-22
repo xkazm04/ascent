@@ -238,6 +238,8 @@ describe("prisma/init.sql mirrors prisma/schema.prisma", () => {
         "User.githubLogin",
         // C3: one care share per developer login (backlog develop-2026-09-17 row 46).
         "MentorShare.login",
+        // branding-0: one white-label logo snapshot per org.
+        "OrgLogoSnapshot.orgId",
       ].sort(),
     );
 

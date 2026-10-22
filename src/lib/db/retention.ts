@@ -1414,6 +1414,7 @@ async function eraseOrgLedgers(
   providerCredentials: number;
   apiTokens: number;
   alertEvents: number;
+  logoSnapshots: number;
 }> {
   const totals = {
     outcomes: 0,
@@ -1442,6 +1443,7 @@ async function eraseOrgLedgers(
     providerCredentials: 0,
     apiTokens: 0,
     alertEvents: 0,
+    logoSnapshots: 0,
   };
 
   /** Drain one flat org-scoped table. Counts in a preview; batched deletes otherwise. */
@@ -1751,6 +1753,15 @@ async function eraseOrgLedgers(
     "erase.alert-events",
   );
 
+  // White-label logo snapshot (branding-0): the bytes the owner's logo URL served, cached as a data
+  // URI. Tenant data like the branding it was taken for; one row per org, drained like the rest.
+  totals.logoSnapshots = await drain(
+    (take) => prisma.orgLogoSnapshot.findMany(page(take)),
+    () => prisma.orgLogoSnapshot.count({ where }),
+    async (ids) => (await prisma.orgLogoSnapshot.deleteMany({ where: { id: { in: ids } } })).count,
+    "erase.logo-snapshots",
+  );
+
   return totals;
 }
 
@@ -1938,6 +1949,8 @@ export interface EraseResult {
   apiTokensDeleted: number;
   /** `AlertEvent` rows removed — the durable alert history. Org scope only. */
   alertEventsDeleted: number;
+  /** `OrgLogoSnapshot` rows removed: the cached white-label logo (branding-0). Org scope only. */
+  logoSnapshotsDeleted: number;
   /** `ScanDigest` rows removed (moonshot #32). An erase both REFUSES to compact and deletes the
    *  compacted tail: a summary of erased data is still that data's shadow. */
   digestsDeleted: number;
@@ -2066,6 +2079,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
   let providerCredentialsDeleted = 0;
   let apiTokensDeleted = 0;
   let alertEventsDeleted = 0;
+  let logoSnapshotsDeleted = 0;
   let digestsDeleted = 0;
   let stoppedEarly = false;
 
@@ -2270,6 +2284,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       providerCredentialsDeleted = led.providerCredentials;
       apiTokensDeleted = led.apiTokens;
       alertEventsDeleted = led.alertEvents;
+      logoSnapshotsDeleted = led.logoSnapshots;
       if (overBudget()) stoppedEarly = true;
     }
 
@@ -2336,6 +2351,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       providerCredentialsDeleted,
       apiTokensDeleted,
       alertEventsDeleted,
+      logoSnapshotsDeleted,
       auditDeleted,
       auditRedacted,
       auditDisposition,
@@ -2395,6 +2411,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
       providerCredentialsDeleted,
       apiTokensDeleted,
       alertEventsDeleted,
+      logoSnapshotsDeleted,
       auditDeleted,
       auditRedacted,
       complete: !stoppedEarly,
@@ -2444,6 +2461,7 @@ export async function eraseOrgData(req: EraseRequest): Promise<EraseOutcome> {
     providerCredentialsDeleted,
     apiTokensDeleted,
     alertEventsDeleted,
+    logoSnapshotsDeleted,
     auditDeleted,
     auditRedacted,
     auditDisposition,

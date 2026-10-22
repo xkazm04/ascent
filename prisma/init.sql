@@ -2784,6 +2784,24 @@ CREATE TABLE "LoginDiscovery" (
     CONSTRAINT "LoginDiscovery_pkey" PRIMARY KEY ("login")
 );
 
+-- branding-0: the white-label logo as a validated snapshot (one row per org), rendered by the board
+-- PDF and the share page instead of a per-render fetch. See the 20261024090000_org_logo_snapshot migration.
+CREATE TABLE "OrgLogoSnapshot" (
+    "id" TEXT NOT NULL,
+    "orgId" TEXT NOT NULL,
+    "sourceUrl" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "dataUri" TEXT,
+    "sha256" TEXT,
+    "mime" TEXT,
+    "reason" TEXT,
+    "fetchedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrgLogoSnapshot_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "OrgLogoSnapshot_orgId_key" ON "OrgLogoSnapshot"("orgId");
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

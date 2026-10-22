@@ -6,7 +6,7 @@ layers on the **optional** Prisma persistence layer in `prisma/schema.prisma` + 
 When `DATABASE_URL` is unset, `isDbConfigured()` returns false and DB-backed features degrade
 to empty/notice states rather than erroring.
 
-The schema now defines **89 models**. It is **DSQL-safe by design** so the same migrations run
+The schema now defines **90 models**. It is **DSQL-safe by design** so the same migrations run
 on local Postgres and Amazon Aurora DSQL (see the header comment in `prisma/schema.prisma`):
 
 - `relationMode = "prisma"`: **no foreign-key constraints** emitted (DSQL has none);
@@ -215,6 +215,7 @@ chain is computed over are exported by `GET /api/org/controls?org=…&format=csv
 | --- | --- | --- |
 | `SessionRevocation` | Server-side session revocation: the signed cookie embeds a session version (`sv`) checked against this row; bumping it invalidates every outstanding token for a login immediately (logout, installation removal). | `login` (PK, lowercased GitHub login), `version` |
 | `LoginDiscovery` | What the live (Supabase) sign-in discovered for a login, so `/onboarding` can offer it: the not-yet-installed orgs to suggest and the org whose watchlist sign-in pre-seeded. The callback records it in `after()` keyed on the identity the code exchange returned (a failed discovery records nothing); onboarding reads it back only for the resolved viewer's own login. One row per login, overwritten per sign-in, org names only (no token or secret). Standalone, no FK (`src/lib/db/login-discovery.ts`). | `login` (PK, lowercased GitHub login), `suggestedOrgsJson` (JSON-in-TEXT, capped at 8), `seededOrg?`, `discoveredAt` |
+| `OrgLogoSnapshot` | The white-label logo as a validated asset (branding-0): the branding save runs one pinned, magic-byte-sniffed fetch (`src/lib/net/logo-fetch.ts`) and stores the result; the board PDF and the share page render `dataUri` through `readDeliverableBranding` (`src/lib/branding/deliverable.ts`), so a render makes no call to the owner's host. A cache keyed by orgId + sourceUrl, never a source of truth (`Organization.logoUrl` is the setting); a row whose `sourceUrl` differs heals on the next render, and `status: failed` is a negative entry honored for 1 h. Own table so the hot `Organization` row never carries a ~700 KB string. Standalone, no FK; drained by the org erase (`src/lib/db/org-logo-snapshot.ts`). | `orgId` (`@unique`), `sourceUrl`, `status` (ok|failed), `dataUri?` (TEXT, PNG/JPEG/SVG, <= 512 KB of bytes), `sha256?`, `mime?`, `reason?`, `fetchedAt` |
 | `WebhookDelivery` | Cross-instance GitHub webhook replay/idempotency store: a row is a "claimed" mark for a delivery id, kept until `expiresAt`, deleted on a failed deferred process so GitHub can retry. | `id` (PK, `X-GitHub-Delivery`), `expiresAt` |
 | `PublicScanQuota` | Soft weekly quota for anonymous public scans, keyed by a salted hash of the client IP (never the raw IP). Fails open if persistence hiccups. | `ipHash` (PK), `hits` (JSON epoch-ms array, trimmed to the rolling window) |
 | `QuotaEvent` | Public-funnel abuse observability: a running tally bumped when a quota denial or rate-limit trip fires. | `kind` (quota_deny\|rate_limit), `scope`, `count`; `@@unique([kind, scope])` |
@@ -351,7 +352,7 @@ database (`isDbConfigured()` false) never reaches either wrapper. Each reader re
 
 | File | Role |
 | --- | --- |
-| `prisma/schema.prisma` | The 89-model schema (DSQL-safe). |
+| `prisma/schema.prisma` | The 90-model schema (DSQL-safe). |
 | `src/lib/db/client.ts` | Lazy Prisma singleton, DSQL token refresh/retry, `isDbConfigured()`, `dbReadSafe` (degrade an unreachable DB) and its opt-in strict twin `dbReadStrict` / `DbUnavailableError`. |
 | `src/lib/db/mode.ts` | Reports the live backend (`dsql`\|`postgres`\|`pglite`\|`disabled`). |
 | `src/lib/db/index.ts` | Barrel re-export of the data layer. |

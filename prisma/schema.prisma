@@ -3185,3 +3185,24 @@ model ProviderCredential {
   @@unique([orgId, provider])
   @@index([orgId])
 }
+
+// branding-0 (scan-sweep challenge 2026-10-22e): the white-label logo as a validated ASSET, not a URL
+// fetched per render. The branding save runs ONE pinned, magic-byte-sniffed fetch
+// (src/lib/net/logo-fetch.ts) and stores the result here; the board PDF and the anonymous share page
+// render `dataUri` through readDeliverableBranding (src/lib/branding/deliverable.ts), so neither
+// makes a network call to the owner's host. A cache keyed by orgId + sourceUrl, never a source of
+// truth: Organization.logoUrl is the setting, and a row whose sourceUrl differs is stale and heals on
+// the next render. `status: "failed"` is a negative entry (reason set, dataUri null) honored for 1 h.
+// Its own table so the hot Organization row never carries a ~700 KB string; TEXT, not bytea (DSQL).
+// Standalone under relationMode = "prisma"; the org erase drains it.
+model OrgLogoSnapshot {
+  id        String   @id @default(uuid())
+  orgId     String   @unique
+  sourceUrl String
+  status    String // "ok" | "failed"
+  dataUri   String? // data:image/(png|jpeg|svg+xml);base64,... when status = "ok"
+  sha256    String?
+  mime      String?
+  reason    String? // the LogoRejectReason when status = "failed"
+  fetchedAt DateTime @default(now())
+}

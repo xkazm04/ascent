@@ -359,7 +359,7 @@ notes, the scan-pipeline feed, registry-mirrored notes, and rows with a null sou
 miss the human rows `cleanSource` stored as null, and sharing `{ orgId }` with Athena's sweep would
 make a **preview double-count** her episodes.
 
-The same org-scoped pass drains four other leftover tables the cron does not age:
+The same org-scoped pass drains five other leftover tables the cron does not age:
 
 | Table | Why it is tenant data | Counter |
 | --- | --- | --- |
@@ -367,8 +367,9 @@ The same org-scoped pass drains four other leftover tables the cron does not age
 | `ProviderCredential` | The OpenAI admin key for the Costs connector, as `encryptSecret()` ciphertext. Deleting the row destroys the key. | `providerCredentialsDeleted` |
 | `OrgApiToken` | SHA-256 of a live capability (revoked rows too — still a hash of a tenant secret). | `apiTokensDeleted` |
 | `AlertEvent` | The body a sink got, or would have gotten, about this tenant. | `alertEventsDeleted` |
+| `OrgLogoSnapshot` | The bytes the owner's white-label logo URL served, cached as a data URI (branding-0). | `logoSnapshotsDeleted` |
 
-All five use the existing batched `pruneAgedLedger` drain (`orgId` only — never a bare `deleteMany`
+All six use the existing batched `pruneAgedLedger` drain (`orgId` only — never a bare `deleteMany`
 over the table, never another org). The repo-scoped variant never reaches them. A preview counts
 each family over the delete's own predicate and deletes nothing; the number shown equals the number
 the confirmed run removes. Schema is not dropped; the `Organization` row stays.
