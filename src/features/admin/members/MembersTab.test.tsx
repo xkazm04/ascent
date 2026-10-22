@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const { mockResolveViewerLogin } = vi.hoisted(() => ({ mockResolveViewerLogin: vi.fn() }));
 
+vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: mockResolveViewerLogin }));
 vi.mock("@/lib/authz", () => ({ hasOrgRole: vi.fn(async () => true) }));
 vi.mock("@/lib/db", () => ({

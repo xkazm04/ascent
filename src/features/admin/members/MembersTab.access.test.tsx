@@ -10,6 +10,7 @@ import type { OrgRole } from "@/lib/db/members";
 const RANK: Record<OrgRole, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
 const h = vi.hoisted(() => ({ role: "owner" as string }));
 
+vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "carol") }));
 vi.mock("@/lib/authz", () => ({
   hasOrgRole: vi.fn(async (_slug: string, min: OrgRole) => RANK[h.role as OrgRole] >= RANK[min]),

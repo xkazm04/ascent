@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 vi.mock("@/lib/access", () => ({ resolveViewerLogin: vi.fn(async () => "stranger") }));
 vi.mock("@/lib/authz", () => ({ hasOrgRole: vi.fn(async () => true) }));
 vi.mock("@/lib/db", () => ({
