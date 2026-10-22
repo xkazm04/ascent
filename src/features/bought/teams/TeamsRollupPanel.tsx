@@ -9,7 +9,6 @@ import { TeamsStandings } from "./TeamsStandings";
 import { TeamsUnowned } from "./TeamsUnowned";
 import { ATTRIBUTION_HINT, deltaFootnote, teamAnchorId } from "./teamsShared";
 import { teamsRollupV2 } from "./TeamsRollupPanel.v2";
-import type { ThemeId } from "@/lib/theme/theme";
 import { getOrgTeamRollup, getTeamStandingsProvenance } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
@@ -21,7 +20,7 @@ import { explainTeamStandings } from "@/lib/org/teamStandings";
 import { WhyChip } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 
-export async function TeamsRollupPanel({ slug, sp, theme = "altimeter" }: { slug: string; sp: { [key: string]: string | string[] | undefined }; theme?: ThemeId }) {
+export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key: string]: string | string[] | undefined } }) {
   // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
   const { barProps, segmentId, techGroupId, activeStack } = await resolveOrgScope(slug, sp);
 
@@ -99,94 +98,10 @@ export async function TeamsRollupPanel({ slug, sp, theme = "altimeter" }: { slug
   // implying the filtered decomposition was the thing recorded.
   const scoped = segmentId != null || techGroupId != null;
 
-  if (theme === "prism") {
-    return teamsRollupV2({
-      slug, rollup, standings, decisions, decisionsFailed, deltaLabel, dims: DIMS, filterBar,
-      capturedAt: standingsProvenance?.generatedAt ?? null,
-      capturedScopeNote: scoped && standingsProvenance ? "captured fleet-wide, not for this filter" : null,
-      exportLink: <ExportCsvLink org={slug} kind="teams" segmentId={segmentId} stack={activeStack?.key} className="shrink-0" />,
-    });
-  }
-
-  return (
-    <div>
-      {/* The tab's lede was an essay (§1 A1): it named the component, defined the data source, and
-          argued the framing, above a panel the reader had not looked at yet. The source moves to the
-          Attribution WhyChip below, the framing to the standings' own chip, and the description of
-          what the grid contains is deleted — the grid says it. */}
-      {filterBar && <div className="flex justify-end">{filterBar}</div>}
-
-      {/* Summary ledger — the shared hairline tile band; each stat deep-links to its evidence. */}
-      <div className={`mt-6 ${TILE_GRID}`}>
-        <Tile label="Teams" value={rollup.teamCount} sub="from CODEOWNERS" href="#teams-matrix" />
-        <Tile label="Attributed repos" value={rollup.attributedRepos} sub="scanned, with a team owner" href="#teams-matrix" />
-        <Tile
-          label="Unowned repos"
-          value={rollup.unownedRepos}
-          sub={rollup.unownedRepos > 0 ? "no CODEOWNERS team → fix" : "every scanned repo has an owner"}
-          color={rollup.unownedRepos > 0 ? "var(--color-warn)" : undefined}
-          href={rollup.unownedRepos > 0 ? "#unowned" : undefined}
-        />
-        <Tile
-          label="Knowledge leader"
-          value={rollup.knowledgeLeader ? `${rollup.knowledgeLeader.aiCommitShare}%` : "—"}
-          sub={rollup.knowledgeLeader ? rollup.knowledgeLeader.name : "no AI-attributed activity yet"}
-          // Color by the metric SHOWN (AI commit share), not the ranking knowledgeScore — otherwise a
-          // team with low AI share but high adoption rendered its "30%" tinted green, disagreeing with
-          // both the number it sits on and the matrix rows (which color by aiCommitShare).
-          color={rollup.knowledgeLeader ? scoreHex(rollup.knowledgeLeader.aiCommitShare) : undefined}
-          href={rollup.knowledgeLeader ? `#${teamAnchorId(rollup.knowledgeLeader.slug)}` : undefined}
-        />
-      </div>
-
-      {/* The matrix — every team × every dimension, sortable, rows expand to repos/champions. */}
-      <div id="teams-matrix" className="mt-8 scroll-mt-24">
-        <SectionHeader
-          title={
-            <span className="flex items-center gap-2">
-              Teams × dimensions
-              <WhyChip hint={ATTRIBUTION_HINT} label="how a repo is attributed to a team" />
-            </span>
-          }
-          description={`${rollup.attributedRepos} attributed repos · Δ ${deltaLabel}`}
-          right={<ExportCsvLink org={slug} kind="teams" segmentId={segmentId} stack={activeStack?.key} className="shrink-0" />}
-        />
-        <TeamsMatrix teams={rollup.teams} dims={DIMS} leaderSlug={rollup.knowledgeLeader?.slug ?? null} deltaLabel={deltaLabel} />
-      </div>
-
-      {/* Why the top leads and the bottom lags — factor decomposition against the fleet mean. */}
-      {standings && (
-        <TeamsStandings
-          standings={standings}
-          teams={rollup.teams}
-          capturedAt={standingsProvenance?.generatedAt ?? null}
-          capturedScopeNote={scoped && standingsProvenance ? "captured fleet-wide, not for this filter" : null}
-        />
-      )}
-
-      {/* Headline signals: knowledge leader + top pairing opportunities, linked into the matrix. */}
-      <TeamsSignals slug={slug} leader={rollup.knowledgeLeader} pairings={rollup.pairings} />
-
-      <TeamsUnowned slug={slug} unowned={rollup.unowned} decisions={decisions} />
-
-      {/* The decisions annotation degrades alone: the lists above still render, and this says the
-          annotations are missing rather than letting them read as "no decisions recorded". */}
-      {decisionsFailed && (
-        <div className="mt-4">
-          <SectionEmpty>
-            Recorded decisions couldn&apos;t load right now, so the lists above show none. Try refreshing this page.
-          </SectionEmpty>
-        </div>
-      )}
-
-      {/* The Δ footnote is DERIVED from the same deltaLabel the column header and its tooltips use.
-          It used to assert "each repo's two latest scans" under a period-scoped Δ — a footnote
-          contradicting the column two sections above it. It KEEPS its sentence: what a delta
-          compares is not an epistemic state with an encoding, and a reader who mis-reads the window
-          mis-reads every Δ on the page.
-          The attribution mechanics that shared this paragraph moved to ATTRIBUTION_HINT (D), and the
-          GitHub-Teams roadmap line to the feature doc (F) — a roadmap is not runtime chrome. */}
-      <p className="mt-6 max-w-3xl type-mono-sm text-slate-600">Δ compares {deltaFootnote(deltaLabel)}.</p>
-    </div>
-  );
+  return teamsRollupV2({
+    slug, rollup, standings, decisions, decisionsFailed, deltaLabel, dims: DIMS, filterBar,
+    capturedAt: standingsProvenance?.generatedAt ?? null,
+    capturedScopeNote: scoped && standingsProvenance ? "captured fleet-wide, not for this filter" : null,
+    exportLink: <ExportCsvLink org={slug} kind="teams" segmentId={segmentId} stack={activeStack?.key} className="shrink-0" />,
+  });
 }

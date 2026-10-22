@@ -25,7 +25,6 @@ export function PracticesPageV2({ data, filters }: { data: PracticesPageData; fi
     adoption: data.adoption,
     dimOptions: data.dimOptions,
     repoOptions: data.repoOptions,
-    theme: "prism",
   });
 
   return (
@@ -59,7 +58,7 @@ export function PracticesPageV2({ data, filters }: { data: PracticesPageData; fi
               view.setShowCreate(true);
             }}
           />
-          <FoundationRolloutPanel slug={data.slug} rows={data.foundationRows} theme="prism" />
+          <FoundationRolloutPanel slug={data.slug} rows={data.foundationRows} />
           {data.coherence && <GuidanceCoherenceV2 rows={data.coherence} />}
           <NextMoveLink href={orgTabHref(data.slug, "live")} to="live" />
         </>

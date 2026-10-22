@@ -7,7 +7,7 @@
 import Link from "next/link";
 import { Caption, Frame, Input, Masthead, Segmented, Toolbar } from "@/components/kit";
 import { categories, descriptions, subjects } from "./catalog";
-import { Playground } from "./SurfacesTab.v1";
+import { Playground } from "./PlaygroundLazy";
 import { SurfacePreview } from "./SurfacePreview";
 import { useSurfacesView } from "./useSurfacesView";
 import styles from "./surfaces.v2.module.css";

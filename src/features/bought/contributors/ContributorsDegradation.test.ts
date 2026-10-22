@@ -10,8 +10,8 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-// The panel keeps the reads and empty states; the Altimeter body (and its decisions note) lives in ContributorsBody.v1.
-const PANEL = ["ContributorsInsightsPanel.tsx", "ContributorsBody.v1.tsx"]
+// The panel keeps the reads and empty states; the Prism body (and its decisions note) lives in ContributorsBody.v2.
+const PANEL = ["ContributorsInsightsPanel.tsx", "ContributorsBody.v2.tsx"]
   .map((f) => fs.readFileSync(path.resolve(__dirname, f), "utf8"))
   .join("\n");
 

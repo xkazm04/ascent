@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 //
-// G6-17: the leaderboard — the largest, most interactive fleet table with bulk selection — was the one
-// table omitting OrgTable's sr-only `caption` prop, so screen readers heard an unlabeled table. This
-// pins that the rendered <table> now has an accessible name via its <caption>.
+// G6-17: the leaderboard (the largest, most interactive fleet list, with bulk selection) must carry an
+// accessible name so screen readers do not hear an unlabeled list.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { RepoLeaderboard } from "./RepoLeaderboard";
 import type { LeaderRow } from "./useRepoLeaderboard";
 
@@ -40,7 +39,7 @@ describe("RepoLeaderboard accessible caption", () => {
         schedulable
       />,
     );
-    expect(screen.getByRole("table", { name: "Repository maturity leaderboard with segment selection" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Repository leaderboard, best score first" })).toBeInTheDocument();
   });
 });
 
@@ -106,7 +105,7 @@ function withCommits(fullName: string, commits: number[] | null): LeaderRow {
 
 describe("RepoLeaderboard activity sort", () => {
   it("keeps an unmeasured repo behind a measured zero when the column is least-first", () => {
-    render(
+    const { container } = render(
       <RepoLeaderboard
         slug="acme"
         rows={[withCommits("acme/none", null), withCommits("acme/zero", [0]), withCommits("acme/busy", [4])]}
@@ -114,10 +113,10 @@ describe("RepoLeaderboard activity sort", () => {
         schedulable
       />,
     );
-    const header = screen.getByRole("button", { name: /^Commits/ });
+    const header = within(screen.getByRole("group", { name: "Sort repositories by activity" })).getByRole("button", { name: /^Commits/ });
     fireEvent.click(header);
     fireEvent.click(header);
-    const body = screen.getAllByRole("row").slice(1).map((r) => r.textContent ?? "");
+    const body = [...container.querySelectorAll('[data-role="repo-row"]')].map((r) => r.textContent ?? "");
     const at = (name: string) => body.findIndex((t) => t.includes(name));
     expect(at("acme/zero")).toBeLessThan(at("acme/busy"));
     expect(at("acme/busy")).toBeLessThan(at("acme/none"));

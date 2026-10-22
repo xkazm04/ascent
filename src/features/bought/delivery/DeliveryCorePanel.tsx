@@ -1,6 +1,6 @@
 // The Delivery tab's core data region — PR signals, branch governance, commit activity and the AI
 // delivery ROI/governance read. One Promise.allSettled (G4-10: a failing query degrades only its own
-// section, never the tab). The theme picks DeliveryCore.v1 (Altimeter) or DeliveryCore.v2 (Prism);
+// section, never the tab). DeliveryCore.v2 (Prism) renders it;
 // both receive this same resolved view.
 
 import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
@@ -10,8 +10,6 @@ import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } 
 import { aiRoiSpendKind, aiRoiUnavailableMessage, settle } from "./deliveryLoad";
 import type { OrgScope } from "@/lib/org/scope";
 import type { ResolvedWindow } from "@/lib/window";
-import type { ThemeId } from "@/lib/theme/theme";
-import { DeliveryCoreV1 } from "./DeliveryCore.v1";
 import { DeliveryCoreV2 } from "./DeliveryCore.v2";
 
 export async function DeliveryCorePanel({
@@ -22,12 +20,10 @@ export async function DeliveryCorePanel({
   // name the cookie's period on a shared link. The usage rollup takes the same `{start,end}` as
   // unit/outcomes so 30d/90d spend bounds match; PR/governance/activity stay latest-scan snapshots.
   period,
-  theme = "altimeter",
 }: {
   slug: string;
   scope: Promise<OrgScope>;
   period: ResolvedWindow;
-  theme?: ThemeId;
 }) {
   const { barProps, segmentId, techGroupId, activeStack } = await scope;
 
@@ -98,5 +94,5 @@ export async function DeliveryCorePanel({
     withholdAllocatedRoi,
     aiUnavailable,
   };
-  return theme === "prism" ? <DeliveryCoreV2 {...view} /> : <DeliveryCoreV1 {...view} />;
+  return <DeliveryCoreV2 {...view} />;
 }

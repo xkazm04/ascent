@@ -11,14 +11,12 @@ import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { TeamsRollupPanel } from "./TeamsRollupPanel";
-import { getTheme } from "@/lib/theme/server";
 
-export async function TeamsTab({ slug, sp }: { slug: string; sp: { [key: string]: string | string[] | undefined } }) {
-  const theme = await getTheme();
+export function TeamsTab({ slug, sp }: { slug: string; sp: { [key: string]: string | string[] | undefined } }) {
   return (
     <div className="stagger-children space-y-6">
       <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-        <TeamsRollupPanel slug={slug} sp={sp} theme={theme} />
+        <TeamsRollupPanel slug={slug} sp={sp} />
       </Suspense>
       <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </div>

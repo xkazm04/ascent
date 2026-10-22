@@ -10,7 +10,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { PracticesView } from "./PracticesView";
+import { PracticeLibraryV2 } from "./PracticeLibrary.v2";
+import { usePracticesLibrary } from "./usePracticesLibrary";
 import { practiceIdFromHash } from "./usePracticeHash";
 import type { OrgPractice } from "@/lib/db";
 
@@ -32,15 +33,28 @@ function practice(over: Partial<OrgPractice> = {}): OrgPractice {
 
 function view(hash: string, practices: OrgPractice[] = [practice(), practice({ id: "ci-gates", label: "CI gates", dimId: "D3" })]) {
   window.location.hash = hash;
-  return render(
-    <PracticesView
-      slug="acme"
-      initialPlaybooks={[]}
-      practices={practices}
-      adoption={{}}
-      dimOptions={[{ id: "D2", label: "Testing" }]}
-      repoOptions={["acme/app"]}
-    />,
+  return render(<Harness practices={practices} />);
+}
+
+// Module-level so the hook sees stable inputs (fresh literals would re-derive the rows every render).
+const ADOPTION = {};
+const DIMS = [{ id: "D2", label: "Testing" }, { id: "D3", label: "CI" }];
+const REPOS = ["acme/app"];
+
+/** The Prism library wiring: the rows, plus a probe for which practice the shared hook has open. */
+function Harness({ practices }: { practices: OrgPractice[] }) {
+  const lib = usePracticesLibrary({
+    initialPlaybooks: [],
+    practices,
+    adoption: ADOPTION,
+    dimOptions: DIMS,
+    repoOptions: REPOS,
+  });
+  return (
+    <>
+      <PracticeLibraryV2 rows={lib.rows} rollout={lib.rollout} fleetSize={1} onOpen={lib.open} onCreate={() => {}} />
+      <output data-testid="open">{lib.openRow?.label ?? ""}</output>
+    </>
   );
 }
 
@@ -82,10 +96,8 @@ describe("Practice library rows — `#practice-<id>` deep link", () => {
     expect(scrollSpy).toHaveBeenCalledTimes(1);
     // The scroll happened on the TARGET row, not the first one.
     expect(scrollSpy.mock.instances[0]).toBe(document.getElementById("practice-ci-gates"));
-    // The modal is open on the right practice — the apply action is on screen.
-    const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("CI gates");
-    expect(dialog).toHaveTextContent("Apply to a repo");
+    // The detail (the apply flow) is opened on the right practice.
+    expect(screen.getByTestId("open")).toHaveTextContent("CI gates");
   });
 
   it("honors prefers-reduced-motion (no smooth scroll)", () => {
@@ -97,12 +109,12 @@ describe("Practice library rows — `#practice-<id>` deep link", () => {
   it("leaves the page untouched for a hash that is not a practice link", () => {
     view("#somewhere-else");
     expect(scrollSpy).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("open")).toBeEmpty();
   });
 
   it("does not open anything for a stale/unknown practice id", () => {
     view("#practice-no-such-practice");
     expect(scrollSpy).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("open")).toBeEmpty();
   });
 });

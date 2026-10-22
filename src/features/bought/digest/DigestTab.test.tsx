@@ -18,7 +18,6 @@ const { mockBuild, mockMarkdown } = vi.hoisted(() => ({
   mockMarkdown: vi.fn(() => "# Weekly digest\n"),
 }));
 
-vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 vi.mock("@/lib/org/digest", () => ({ buildWeeklyDigest: mockBuild }));
 vi.mock("@/lib/org/digest-markdown", () => ({ weeklyDigestMarkdown: mockMarkdown }));
 vi.mock("next/link", () => ({
@@ -36,7 +35,7 @@ describe("DigestTab", () => {
   it("heads the page with the fixed window and the two header actions", async () => {
     await renderTab(digestFixture());
 
-    expect(screen.getByText("Weekly digest")).toBeInTheDocument();
+    expect(screen.getByText(/^Weekly digest/)).toBeInTheDocument();
     expect(screen.getByText(/2026-08-26 → 2026-09-01/)).toBeInTheDocument();
     // The copy chip's accessible name is distinct from its visible label (several chips can share a page).
     expect(screen.getByRole("button", { name: "Copy the weekly digest as markdown" })).toBeInTheDocument();

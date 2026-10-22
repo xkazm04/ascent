@@ -2,8 +2,7 @@
 // Owner-only: the layout already gated org READ; this tab requires the owner role because it
 // manages credentials. The check runs first, before any card is built.
 //
-// THEME DUALITY: after the gate and the reads, the theme picks the composition (IntegrationsTab.v1
-// Altimeter, IntegrationsViewV2 Prism). Both receive the same IntegrationsData.
+// After the gate and the reads, IntegrationsViewV2 (Prism) renders the IntegrationsData.
 
 import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { ingestToken, isIngestConfigured } from "@/lib/integrations/ingest-token";
@@ -14,9 +13,7 @@ import { listForgeInstallations } from "@/lib/db/forge-installations";
 import { getProviderConnection } from "@/lib/db/provider-credentials";
 import { getMeasuredAttribution } from "@/lib/db/integrations-attribution";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
-import { getTheme } from "@/lib/theme/server";
 import type { IntegrationsData } from "./integrationModel";
-import { integrationsV1 } from "./IntegrationsTab.v1";
 import { IntegrationsViewV2 } from "./IntegrationsView.v2";
 
 export async function IntegrationsTab({ slug }: { slug: string }) {
@@ -41,7 +38,6 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
   // After the owner gate: which repos the measured spend landed on, against Delivery's own set.
   const measured = await getMeasuredAttribution(slug).catch(() => null);
   const gitlabConnected = forgeInstallations.some((row) => row.forge === "gitlab" && row.hasCredential);
-  const theme = await getTheme();
   const encryptionConfigured = isEncryptionConfigured();
   const data: IntegrationsData = {
     slug,
@@ -62,5 +58,5 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
     openai: { connection: openaiConnection, encryptionConfigured },
     encryptionConfigured,
   };
-  return theme === "prism" ? <IntegrationsViewV2 data={data} /> : integrationsV1(data);
+  return <IntegrationsViewV2 data={data} />;
 }

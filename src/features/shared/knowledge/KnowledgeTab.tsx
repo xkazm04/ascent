@@ -14,30 +14,14 @@
 // Ascent never judges conformance: the consumer computes, the repo's own `/conform` writes verdicts
 // into its `.ai/registry-map.json`, and the sweep reads them. This tab is a mirror with a hand.
 
-import Link from "next/link";
-import { Kicker } from "@/components/ui";
-import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
-import { orgTabHref } from "@/lib/org/orgTabs";
 import { registryPreviewEnabled } from "@/lib/env";
 import { getKnowledgeView } from "@/lib/org/knowledge-view";
 import { fixtureKnowledgeView } from "@/lib/org/knowledge-view.fixture";
 
-import { KnowledgeLoom } from "./KnowledgeLoom";
 import { KnowledgePreviewShell } from "./KnowledgePreviewShell";
 import { KnowledgeBodyV2, KnowledgeNoticeV2 } from "./KnowledgeTab.v2";
-import { getTheme } from "@/lib/theme/server";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
-
-function NoticeV1({ title, body }: { title: string; body: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-divider bg-ink px-6 py-8">
-      <Kicker tone="muted">Knowledge base</Kicker>
-      <h2 className="mt-2 type-lede font-medium text-slate-100">{title}</h2>
-      <p className="mt-2 max-w-2xl type-body-sm text-slate-400">{body}</p>
-    </div>
-  );
-}
 
 const one = (sp: SearchParams, key: string): string | null => {
   const v = sp[key];
@@ -45,9 +29,8 @@ const one = (sp: SearchParams, key: string): string | null => {
 };
 
 export async function KnowledgeTab({ slug, sp = {} }: { slug: string; sp?: SearchParams }) {
-  const [view, theme] = await Promise.all([getKnowledgeView(slug), getTheme()]);
-  const prism = theme === "prism";
-  const Notice = prism ? KnowledgeNoticeV2 : NoticeV1;
+  const view = await getKnowledgeView(slug);
+  const Notice = KnowledgeNoticeV2;
 
   if (view.status === "unmapped") {
     const notice = (
@@ -102,20 +85,5 @@ export async function KnowledgeTab({ slug, sp = {} }: { slug: string; sp?: Searc
     );
   }
 
-  if (prism) {
-    return <KnowledgeBodyV2 view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />;
-  }
-
-  return (
-    <div className="space-y-4">
-      <KnowledgeLoom view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />
-      {/* A second route to the same stage's org memory store; the next move below stays alone. */}
-      <nav aria-label="Related views" className="flex justify-end">
-        <Link href={orgTabHref(slug, "memory")} className="focus-ring type-caption text-accent transition hover:text-white">
-          Org memory →
-        </Link>
-      </nav>
-      <NextMoveLink href={orgTabHref(slug, "executive")} to="executive" />
-    </div>
-  );
+  return <KnowledgeBodyV2 view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />;
 }

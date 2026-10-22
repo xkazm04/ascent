@@ -18,14 +18,12 @@ import { SegmentSelector } from "@/components/shared/scope/SegmentSelector";
 import { deriveAutonomy, type RepoAutonomy } from "./autonomy/autonomyModel";
 import { isPlaceholderEngine } from "./PlaceholderMark";
 import type { PassportRow } from "./PassportTable";
-import { passportsV1 } from "./PassportsTab.v1";
 import type { PassportsData } from "./passportData";
 import { getOrgRollup } from "@/lib/db";
 import { getFoundationRollout } from "@/lib/db/org-foundation";
 import { decisionMap } from "@/lib/org/decision-map";
 import { passportStackChips } from "@/lib/org/passport-display";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { getTheme } from "@/lib/theme/server";
 import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
@@ -33,7 +31,7 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 
 export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParams }) {
   const { segments, segmentId, techGroupId } = await resolveOrgScope(slug, sp);
-  const [rollup, decisions, rollout, theme] = await Promise.all([
+  const [rollup, decisions, rollout] = await Promise.all([
     getOrgRollup(slug, undefined, segmentId, techGroupId),
     decisionMap(slug, "passports"),
     // Spec #35 handoff 2's promised report-back column (UAT `PRIYA-L1-05`). `getFoundationRollout`
@@ -41,7 +39,6 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
     // "where is the standard in and not in?" — was answered across three tabs with no cross-link and
     // the join living in her head. Read in the same parallel batch; it adds no round-trip depth.
     getFoundationRollout(slug),
-    getTheme(),
   ]);
 
   const withPassport = (rollup?.repos ?? []).filter((r) => r.passport);
@@ -140,9 +137,6 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
       </>
     ),
   };
-  if (theme === "prism") {
-    const { passportsV2 } = await import("./PassportsTab.v2");
-    return passportsV2(data);
-  }
-  return passportsV1(data);
+  const { passportsV2 } = await import("./PassportsTab.v2");
+  return passportsV2(data);
 }

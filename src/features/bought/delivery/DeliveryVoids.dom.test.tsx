@@ -1,16 +1,14 @@
 // @vitest-environment jsdom
 //
 // "An em dash is a missing measurement, not a zero" was the single most important caveat on the
-// Delivery tab and the one prose could never enforce. These pin the two drawings that now enforce it:
-// the trend line BREAKS at an unmeasured day, and the review-coverage strip draws an unmeasured repo
-// as an empty dashed column rather than a zero-height bar.
+// Delivery tab and the one prose could never enforce. This pins the drawing that now enforces it:
+// the trend line BREAKS at an unmeasured day rather than bridging through zero.
 //
 // The assertion that matters in both is negative: no numeral, and no geometry, at zero.
 
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { DeliveryTrendPanel } from "./DeliveryTrendPanel";
-import { ReviewCoverageStrip, orderByRisk } from "./ReviewCoverageStrip";
 import type { TrendPanelPoint } from "./deliveryTrendPanelMath";
 
 const day = (date: string, value: number | null): TrendPanelPoint => ({ date, value, mock: false, scans: 2, repos: 3 });
@@ -63,41 +61,5 @@ describe("DeliveryTrendPanel — a day nobody measured", () => {
     const img = container.querySelector('[role="img"]');
     expect(img?.getAttribute("aria-label")).toMatch(/No measurement/);
     expect(container.textContent).not.toMatch(/\b0%/);
-  });
-});
-
-describe("ReviewCoverageStrip — the risk ordering, drawn", () => {
-  const rows = [
-    { name: "web", rate: 40 },
-    { name: "api", rate: 95 },
-    { name: "cli", rate: 62 },
-    { name: "docs", rate: null },
-  ];
-
-  it("orders worst measured first and never ranks an unmeasured repo as a zero", () => {
-    expect(orderByRisk(rows).map((r) => r.name)).toEqual(["web", "cli", "api", "docs"]);
-  });
-
-  it("draws an unmeasured repo as a void column, not a zero-height bar", () => {
-    const { container } = render(<ReviewCoverageStrip rows={rows} target={80} />);
-    const docs = container.querySelector('[data-repo="docs"]');
-    expect(docs?.getAttribute("data-state")).toBe("missing");
-    expect(docs?.getAttribute("fill")).toBe("none");
-    // A measured repo, by contrast, is painted.
-    expect(container.querySelector('[data-repo="web"]')?.getAttribute("data-state")).toBe("measured");
-  });
-
-  it("brackets the below-target tail so 'riskiest first' is seen rather than stated", () => {
-    const { container } = render(<ReviewCoverageStrip rows={rows} target={80} />);
-    // web (40) and cli (62) are under the 80% target; api (95) is not; docs has no measurement.
-    expect(container.querySelector("[data-tail]")?.getAttribute("data-tail")).toBe("2");
-    expect(container.textContent).toMatch(/2 below target/);
-  });
-
-  it("carries an sr-only equivalent built from the same data the geometry is", () => {
-    const { container } = render(<ReviewCoverageStrip rows={rows} target={80} />);
-    const table = container.querySelector("table.sr-only");
-    expect(table?.textContent).toMatch(/No measurement/);
-    expect(table?.textContent).toMatch(/40%/);
   });
 });

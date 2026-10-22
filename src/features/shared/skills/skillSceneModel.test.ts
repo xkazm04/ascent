@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { SkillRow } from "@/lib/db";
 import type { SkillOutcome } from "@/lib/org/skill-outcomes";
 import type { SkillUsage } from "@/lib/org/skill-usage";
-import { USES_COLUMN_TITLE } from "./SkillsLibraryTable";
 import {
   adoptedMark,
   dormancyMark,
@@ -87,8 +86,10 @@ function step(steps: LadderStep[], key: string): LadderStep {
 }
 
 describe("skill scene model", () => {
-  it("keeps the uses-window sentence the table already shows", () => {
-    expect(USES_CAPTION).toBe(USES_COLUMN_TITLE);
+  it("pins the uses-window sentence", () => {
+    expect(USES_CAPTION).toBe(
+      "All-time volume: sink A (events API: copies, downloads, hook, CI and MCP invokes) plus sink B (registry usage/ over each contributor's declared window). Distinct from the Registry tab's 30d invoke rate.",
+    );
   });
 
   it("shows unmeasured as not measured, never a zero", () => {

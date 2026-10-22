@@ -1,8 +1,8 @@
 "use client";
 
 // The Prism (v2) composition of the Developer home: a masthead in the first person (what is kept, what
-// it is worth), then ruled Frames instead of a notebook of cards. Same view model and the same share
-// hook as v1; PERSONAL BY CONSTRUCTION still holds (no org branch exists here). Sections keep their
+// it is worth), then ruled Frames instead of a notebook of cards. Same view model and the share
+// hook (useCareShare); PERSONAL BY CONSTRUCTION still holds (no org branch exists here). Sections keep their
 // bodies; what changes is the structure around them.
 import { Frame, Masthead, SectionHead, type MastheadFigure } from "@/components/kit";
 import { WhyChip } from "@/components/shared/viz";
@@ -16,9 +16,13 @@ import { CarePrivacyLedger, CareSetupStrip } from "./CarePrivacyLedger";
 import { CareWhyStrip } from "./CareWhyStrip";
 import { CareShareUpload } from "./CareShareUpload";
 import { DeveloperActivityStripV2 } from "./DeveloperActivityStrip.v2";
-import { ACTIVITY_HINT } from "./DeveloperCompanion.v1";
 import { useCareShare } from "./useCareShare";
 import { careKeptSaving, type DeveloperView } from "@/lib/org/developer-view";
+
+const ACTIVITY_HINT =
+  "Read out of this workspace's contributor snapshot — the same rows the Contributors tab aggregates, " +
+  "shown here unfloored because the naming floor exists to stop the org reading a person, not to stop " +
+  "a person reading themself.";
 
 function figures(view: DeveloperView, kept: number, saving: number | null): MastheadFigure[] {
   const out: MastheadFigure[] = [{ label: "Moves kept", value: kept, detail: kept ? "your own decisions" : "none yet" }];

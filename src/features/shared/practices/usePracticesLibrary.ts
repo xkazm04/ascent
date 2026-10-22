@@ -1,10 +1,9 @@
 "use client";
 
-// One owner for the library's client state. Altimeter and Prism both call it, so a created
-// playbook, an open row, and a deep link cannot diverge between the two compositions.
+// One owner for the library's client state. A created
+// playbook, an open row, and a deep link share one state.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrgPractice, PlaybookAdoption, PlaybookRow } from "@/lib/db";
-import type { ThemeId } from "@/lib/theme/theme";
 import { clearPracticeHash, publishPracticeHash, rowForLevelHash } from "./practiceLevelHash";
 import { practiceToPlaybookDraft, type PlaybookDraft } from "./promotePractice";
 import { buildPracticeRows, summarizeRollout, type PracticeRow } from "./practiceRows";
@@ -17,14 +16,12 @@ export function usePracticesLibrary({
   adoption,
   dimOptions,
   repoOptions,
-  theme = "altimeter",
 }: {
   initialPlaybooks: PlaybookRow[];
   practices: OrgPractice[];
   adoption: Record<string, PlaybookAdoption>;
   dimOptions: PracticeDimOption[];
   repoOptions: string[];
-  theme?: ThemeId;
 }) {
   const [playbooks, setPlaybooks] = useState<PlaybookRow[]>(initialPlaybooks);
   const [openRow, setOpenRow] = useState<PracticeRow | null>(null);
@@ -40,30 +37,29 @@ export function usePracticesLibrary({
 
   const open = useCallback((row: PracticeRow) => {
     setOpenRow(row);
-    if (theme === "prism") publishPracticeHash(row);
-  }, [theme]);
+    publishPracticeHash(row);
+  }, []);
 
-  usePracticeHash(rows, theme === "prism" ? open : setOpenRow);
+  usePracticeHash(rows, open);
 
-  // Prism holds the open row in the URL. Back and Esc clear the hash; this follows it.
+  // The open row is held in the URL. Back and Esc clear the hash; this follows it.
   useEffect(() => {
-    if (theme !== "prism") return;
     const sync = () => setOpenRow(rowForLevelHash(rows, window.location.hash));
     sync();
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
-  }, [theme, rows]);
+  }, [rows]);
 
   const close = useCallback(() => {
     setOpenRow(null);
-    if (theme === "prism") clearPracticeHash();
-  }, [theme]);
+    clearPracticeHash();
+  }, []);
 
   function removeAuthored(id: string) {
     const prev = playbooks;
     setPlaybooks((p) => p.filter((x) => x.id !== id));
     setOpenRow(null);
-    if (theme === "prism") clearPracticeHash();
+    clearPracticeHash();
     void fetch(`/api/org/playbooks/${id}`, { method: "DELETE" })
       .then((r) => {
         if (!r.ok) setPlaybooks(prev);
@@ -74,7 +70,7 @@ export function usePracticesLibrary({
   function promoteMined(p: OrgPractice) {
     setDraft(practiceToPlaybookDraft(p));
     setOpenRow(null);
-    if (theme === "prism") clearPracticeHash();
+    clearPracticeHash();
     setShowCreate(true);
   }
 

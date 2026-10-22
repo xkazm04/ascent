@@ -20,8 +20,6 @@ import { orgTabHref } from "@/lib/org/orgTabs";
 import { getOrgRegistry } from "@/lib/db/org-registry";
 import { getRegistryCapabilities } from "@/lib/registry/capabilities";
 import { resolveLocalRegistry } from "@/lib/registry/local-source";
-import { getTheme } from "@/lib/theme/server";
-import { pairingV1 } from "./PairingTab.v1";
 import { pairingV2 } from "./PairingTab.v2";
 import type { PairingData } from "./pairingData";
 import type { RegistryPairingView } from "./pairingClient";
@@ -73,7 +71,7 @@ export async function PairingTab({ slug }: { slug: string }) {
     );
   }
 
-  const [pairings, registry, theme] = await Promise.all([listLocalPairings(slug), registryPairingView(slug), getTheme()]);
+  const [pairings, registry] = await Promise.all([listLocalPairings(slug), registryPairingView(slug)]);
   const data: PairingData = { pairings, registry };
-  return theme === "prism" ? pairingV2(slug, data) : pairingV1(slug, data);
+  return pairingV2(slug, data);
 }

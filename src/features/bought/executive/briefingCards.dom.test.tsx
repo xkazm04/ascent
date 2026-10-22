@@ -14,7 +14,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { BriefingMovementCard, BriefingTiles } from "./briefingCards";
-import { ExecutiveSignalsStrip } from "./ExecutiveSignalsStrip";
 import { BriefingBasisNote } from "./BriefingBasisNote";
 import type { ExecBriefing } from "@/lib/org/briefing";
 
@@ -118,13 +117,8 @@ describe("BriefingTiles — the percentile caption comes from benchmarkCaption",
   });
 });
 
-describe("the movement scale carries its subset clause on BOTH HTML surfaces", () => {
+describe("the movement scale carries its subset clause on the movement card", () => {
   const movement = { up: 5, down: 2, compared: 8 };
-
-  it("the exec tab's signals strip reads movementLine", () => {
-    const { container } = render(<ExecutiveSignalsStrip briefing={briefing({ movement, realScoredCount: 11 })} />);
-    expect(container.textContent).toContain("7 of 8 repos with a comparable prior scan moved (of 11 live-scored) (5 up / 2 down)");
-  });
 
   it("the movement card reads movementLine", () => {
     const { container } = render(

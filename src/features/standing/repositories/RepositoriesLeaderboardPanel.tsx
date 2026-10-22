@@ -9,13 +9,8 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { ThemeId } from "@/lib/theme/theme";
 import { RepositoriesViewV2 } from "./RepositoriesView.v2";
-import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/shared/dashboard/ui";
-import { POSTURE_HEX } from "@/components/shared/live/liveWarRoomShared";
-import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
-import { RepoLeaderboard } from "./RepoLeaderboard";
-import { MissingReposPanel } from "./MissingReposPanel";
+import { OrgEmpty, POSTURE_ORDER } from "@/components/shared/dashboard/ui";
 import { MissingReposPanelV2 } from "./MissingReposPanel.v2";
 import { getOrgRollupShared, listMissingRepos } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
@@ -29,22 +24,19 @@ export async function RepositoriesLeaderboardPanel({
   slug,
   sp,
   scope,
-  theme = "altimeter",
   queue,
 }: {
   slug: string;
   sp: SearchParams;
   /** SHARED promise created once in RepositoriesTab and awaited here and in Context Health. */
   scope: Promise<OrgScope>;
-  /** Picks the composition (the entry reads the cookie once). */
-  theme?: ThemeId;
-  /** Prism only: the queue-depth line, slotted into the toolbar region so it keeps its own Suspense boundary. */
+  /** The queue-depth line, slotted into the toolbar region so it keeps its own Suspense boundary. */
   queue?: ReactNode;
 }) {
   // Segment + tech-stack scope: the same SegmentSelector the rest of the dashboard uses. The two
   // filters compose (segment AND stack); a bogus id/key falls back to the whole fleet.
   const resolved = await scope;
-  const { barProps, segments, segmentId, techGroupId, activeStack } = resolved;
+  const { segments, segmentId, techGroupId, activeStack } = resolved;
   // Request-scoped: Context Health below this panel asks for the SAME scoped rollup, and the tab used
   // to run two full ones per render. `getOrgRollupShared` normalizes null/undefined args so the two
   // calls key identically and collapse into one read.
@@ -114,82 +106,26 @@ export async function RepositoriesLeaderboardPanel({
   const csvHref = `/api/org/repositories?org=${encodeURIComponent(slug)}&format=csv${posture ? `&posture=${encodeURIComponent(posture)}` : ""}${segmentId ? `&segment=${encodeURIComponent(segmentId)}` : ""}${activeStack ? `&stack=${encodeURIComponent(activeStack.key)}` : ""}`;
   const csvTitle = posture || segmentId || activeStack ? "Download the currently filtered repos as CSV" : "Download the full fleet as CSV";
 
-  if (theme === "prism") {
-    return (
-      <RepositoriesViewV2
-        slug={slug}
-        rollup={rollup}
-        leaderboard={leaderboard}
-        visible={visible}
-        posture={posture}
-        postureCounts={postureCounts}
-        chipHref={chipHref}
-        csvHref={csvHref}
-        scope={resolved}
-        schedulable={schedulable}
-        missing={<MissingReposPanelV2 org={slug} repos={missing} />}
-        queue={queue}
-        nextMove={
-          <>
-            {related}
-            {nextMove}
-          </>
-        }
-      />
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <MissingReposPanel org={slug} repos={missing} />
-      {/* Leaderboard */}
-      <div>
-        <SectionHeader
-          title="Repositories"
-          // §2.3 — scope and unit only. What the columns MEAN is each column header's own title.
-          description={
-            posture
-              ? `${visible.length}/${rollup.repoCount} repos · ${postureLabel(posture)} posture`
-              : `${rollup.scannedCount}/${rollup.repoCount} scanned · ~4-week activity`
-          }
-          right={
-            <ScopeFilterBar {...barProps}>
-              <a
-                href={csvHref}
-                title={csvTitle}
-                className="focus-ring rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
-              >
-                Export CSV
-              </a>
-            </ScopeFilterBar>
-          }
-        />
-        {/* Posture filter chips — the on-page surface for the ?posture= scope (also deep-linked from
-            the Overview's posture bar). Counts in the active segment/stack; "All" clears posture only. */}
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <Link
-            href={chipHref(null)}
-            aria-current={posture === null ? "true" : undefined}
-            className={`focus-ring rounded-full border px-2.5 py-1 type-mono-sm transition ${posture === null ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
-          >
-            All <span className="text-slate-500">{leaderboard.length}</span>
-          </Link>
-          {POSTURE_ORDER.filter((p) => (postureCounts.get(p) ?? 0) > 0).map((p) => (
-            <Link
-              key={p}
-              href={chipHref(p)}
-              aria-current={posture === p ? "true" : undefined}
-              className={`focus-ring inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 type-mono-sm transition ${posture === p ? "border-accent/60 text-white" : "border-slate-700 text-slate-400 hover:border-accent hover:text-white"}`}
-            >
-              <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: POSTURE_HEX[p] ?? "#64748b" }} />
-              {postureLabel(p)} <span className="text-slate-500">{postureCounts.get(p)}</span>
-            </Link>
-          ))}
-        </div>
-        <RepoLeaderboard slug={slug} rows={visible} segments={segments} schedulable={schedulable} />
-      </div>
-      {related}
-      {nextMove}
-    </div>
+    <RepositoriesViewV2
+      slug={slug}
+      rollup={rollup}
+      leaderboard={leaderboard}
+      visible={visible}
+      posture={posture}
+      postureCounts={postureCounts}
+      chipHref={chipHref}
+      csvHref={csvHref}
+      scope={resolved}
+      schedulable={schedulable}
+      missing={<MissingReposPanelV2 org={slug} repos={missing} />}
+      queue={queue}
+      nextMove={
+        <>
+          {related}
+          {nextMove}
+        </>
+      }
+    />
   );
 }

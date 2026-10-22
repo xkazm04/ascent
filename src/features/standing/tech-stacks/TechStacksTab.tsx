@@ -12,40 +12,10 @@
 // stacks at once, per dimension, with a transformation playbook attached. Picking two stacks by hand
 // was a strictly narrower read of the same numbers.
 
-import { Suspense } from "react";
-import Link from "next/link";
-import { TechStacksAnalysisPanel } from "./TechStacksAnalysisPanel";
-import { DIMS, SectionEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
-import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { listTechStackGroups } from "@/lib/db";
-import { getTheme } from "@/lib/theme/server";
 import { techStacksV2 } from "./TechStacksTab.v2";
-import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
-import { orgTabHref } from "@/lib/org/orgTabs";
 
 export async function TechStacksTab({ slug }: { slug: string }) {
-  const [groups, theme] = await Promise.all([listTechStackGroups(slug), getTheme()]);
-  // THEME DUALITY: Prism composes in TechStacksTab.v2.tsx; the Altimeter markup below is unchanged.
-  if (theme === "prism") return techStacksV2(slug, groups.length);
-
-  if (groups.length === 0) {
-    return (
-      <SectionEmpty>
-        No tech stacks detected yet. Stacks are derived from each repo&apos;s manifests at scan time. Scan some of this org&apos;s{" "}
-        <Link href={orgTabHref(slug, "repositories")} className="text-accent hover:text-white">repositories</Link>, then this view groups them by Frontend / Backend·language / Mobile / Data·ML / Infra.
-      </SectionEmpty>
-    );
-  }
-
-  return (
-    <div className="stagger-children space-y-6">
-      <div>
-        <SectionHeader title="Tech stacks" description={`${groups.length} stacks · ${DIMS.length} dimensions`} />
-        <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
-          <TechStacksAnalysisPanel slug={slug} />
-        </Suspense>
-      </div>
-      <NextMoveLink href={orgTabHref(slug, "proposals")} to="proposals" />
-    </div>
-  );
+  const groups = await listTechStackGroups(slug);
+  return techStacksV2(slug, groups.length);
 }

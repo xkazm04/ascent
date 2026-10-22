@@ -44,6 +44,23 @@ export function execBriefing(overrides: Partial<ExecBriefing> = {}): ExecBriefin
   };
 }
 
+/** A live-scored fleet (tiles, dimensions and movers all render), for the ExecutiveTab entry tests. */
+export function liveBriefing(overrides: Partial<ExecBriefing> = {}): ExecBriefing {
+  return execBriefing({
+    maturity: { overall: 62, levelId: "L3", levelName: "Established", adoption: 50, rigor: 55 },
+    realScoredCount: 10,
+    mockCount: 0,
+    periodDelta: 4,
+    movement: { up: 2, down: 1, compared: 3 },
+    strengths: [{ dimId: "D1", label: "Testing", avg: 80 }],
+    risks: [{ dimId: "D2", label: "Docs", avg: 30 }],
+    security: { dimId: "D9", label: "Security", avg: 90 },
+    topGainers: [{ name: "repo-a", fullName: "acme/repo-a", dOverall: 5, levelFrom: "L2", levelTo: "L3" }],
+    goals: [{ label: "Reach L4", pct: 60, current: 60, target: 100, etaDays: 30 }] as ExecBriefing["goals"],
+    ...overrides,
+  });
+}
+
 export function execView(overrides: Partial<ExecutiveView> = {}): ExecutiveView {
   return {
     slug: "acme",

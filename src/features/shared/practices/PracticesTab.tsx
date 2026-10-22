@@ -24,10 +24,8 @@ import { getPracticeAdoptionSummary } from "@/lib/db/practice-adoption";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { registryBlobBase, getRegistrySync } from "@/lib/org/registry-sync";
 import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
-import { getTheme } from "@/lib/theme/server";
 import { degraded } from "./practicesDegradedRead";
 import { PracticesPageV2 } from "./PracticesPage.v2";
-import { PracticesTabV1 } from "./PracticesTab.v1";
 import type { PracticesPageData } from "./practicesData";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -39,7 +37,7 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
   // clear it (docs/harness/biz-bug-scan-2026-06-29). The selector now renders, same as every sibling
   // tab. No segment selector here: getOrgPractices' segment scope isn't wired on this surface yet.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const [playbooks, adoption, repoOptions, practices, shapes, sync, shapeRows, foundationRows, rollup, theme] = await Promise.all([
+  const [playbooks, adoption, repoOptions, practices, shapes, sync, shapeRows, foundationRows, rollup] = await Promise.all([
     listPlaybooks(slug),
     getPlaybookAdoption(slug),
     // One column, one query. This used to be a full unscoped `getOrgRollup` whose ONLY consumed field
@@ -59,7 +57,6 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
     // The rollup is request-cached and scoped the same way the Repositories tab reads it.
     getFoundationRollout(slug),
     getOrgRollupShared(slug, undefined, null, techGroupId).catch(degraded(slug, "coherence rollup", null)),
-    getTheme(),
   ]);
   // MOONSHOT #33 — version the org's mined patterns from the read that already mined them, then read
   // the adoption ledger. `syncHousePatternVersions` writes only when the pattern's hash MOVED, so this
@@ -91,12 +88,10 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
     foundationRows,
     coherence: rollup && rollup.repos.length > 0 ? buildCoherenceRows(rollup.repos) : null,
   };
-  return theme === "prism" ? (
+  return (
     <PracticesPageV2
       data={data}
       filters={<ScopeFilterBar segments={[]} segmentId={null} techGroups={techGroups} activeStack={activeStack} />}
     />
-  ) : (
-    <PracticesTabV1 data={data} />
   );
 }

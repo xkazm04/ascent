@@ -20,9 +20,7 @@ import { resolveViewerLogin } from "@/lib/access";
 import { VIEWER_FALLBACK } from "@/components/shared/followups/claimActionsModel";
 import { selfHosted } from "@/lib/env";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { getTheme } from "@/lib/theme/server";
 import type { ProposalsTabData } from "./proposalsTabData";
-import { proposalsV1 } from "./ProposalsTab.v1";
 import { proposalsV2 } from "./ProposalsTab.v2";
 import { mergeProposals, pendingLoopProposals } from "./proposalsModel";
 
@@ -47,7 +45,7 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
   const pairedRepos = selfHosted()
     ? (await listLocalPairings(slug).catch(() => [])).filter((r) => r.localPath != null).map((r) => r.fullName)
     : [];
-  const [backlog, details, canReview, login, admin, theme] = await Promise.all([
+  const [backlog, details, canReview, login, admin] = await Promise.all([
     getOrgBacklog(slug, segmentId, new Date(), techGroupId, { includeClosed: true }),
     recentRunDetails(slug),
     // The loop review gate is owner-only, as on the Live tab's sheet; the route re-checks it.
@@ -56,7 +54,6 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
     // re-checks both; this only decides which buttons draw.
     resolveViewerLogin(),
     hasOrgRole(slug, "admin"),
-    getTheme(),
   ]);
   const viewer = { login: login ?? VIEWER_FALLBACK, admin };
   const followups = backlog ? rowsFromBacklog(backlog) : [];
@@ -79,6 +76,5 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
     viewer,
     counts: { open: active.length, handedOff, loop: loop.length, points },
   };
-  // THEME DUALITY: the theme picks the composition (ProposalsTab.v1.tsx Altimeter, ProposalsTab.v2.tsx Prism).
-  return theme === "prism" ? proposalsV2(data) : proposalsV1(data);
+  return proposalsV2(data);
 }

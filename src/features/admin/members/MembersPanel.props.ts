@@ -1,4 +1,4 @@
-// Props shared by both compositions of the member roster (MembersPanel.v1 Altimeter, MembersPanel.v2 Prism).
+// Props of the member roster (MembersPanel.v2, Prism).
 import type { InviteRow, Member } from "./MembersTypes";
 
 export interface MembersPanelProps {

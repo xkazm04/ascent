@@ -18,25 +18,17 @@
 // place for the authorization answer to live, and it is the one that would drift.
 
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
-import type { ThemeId } from "@/lib/theme/theme";
-import { FoundationRolloutV1 } from "./FoundationRollout.v1";
 import { FoundationRolloutV2 } from "./FoundationRollout.v2";
 import { useFoundationRollout } from "./useFoundationRollout";
 
 export function FoundationRolloutPanel({
   slug,
   rows,
-  theme = "altimeter",
 }: {
   slug: string;
   rows: FoundationRolloutRow[];
-  theme?: ThemeId;
 }) {
   const state = useFoundationRollout(slug, rows);
   if (rows.length === 0) return null;
-  return theme === "prism" ? (
-    <FoundationRolloutV2 rows={rows} state={state} />
-  ) : (
-    <FoundationRolloutV1 rows={rows} state={state} />
-  );
+  return <FoundationRolloutV2 rows={rows} state={state} />;
 }

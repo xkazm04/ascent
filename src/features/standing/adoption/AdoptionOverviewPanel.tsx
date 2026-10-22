@@ -9,14 +9,12 @@ import { buildAdoptionOverview, adoptionMarkdown } from "@/lib/org/adoption";
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { resolveOrgScope } from "@/lib/org/scope";
-import type { ThemeId } from "@/lib/theme/theme";
-import { adoptionV1 } from "./AdoptionOverview.v1";
 import { adoptionV2 } from "./AdoptionOverview.v2";
 import type { AdoptionViewProps } from "./adoptionViewProps";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-export async function AdoptionOverviewPanel({ slug, sp, theme = "altimeter" }: { slug: string; sp: SearchParams; theme?: ThemeId }) {
+export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: SearchParams }) {
   // Optional segment + tech-stack scope (bogus id/key → whole fleet) — a per-client / per-stack
   // adoption read for orgs that segment their fleet; the two filters compose.
   const { segments, segmentId, techGroups, activeStack, techGroupId } = await resolveOrgScope(slug, sp);
@@ -41,6 +39,5 @@ export async function AdoptionOverviewPanel({ slug, sp, theme = "altimeter" }: {
 
   const md = adoptionMarkdown(a);
   const props: AdoptionViewProps = { a, slug, filterBar, md };
-  // THEME DUALITY: the theme picks the composition (AdoptionOverview.v1.tsx Altimeter, .v2.tsx Prism).
-  return theme === "prism" ? adoptionV2(props) : adoptionV1(props);
+  return adoptionV2(props);
 }

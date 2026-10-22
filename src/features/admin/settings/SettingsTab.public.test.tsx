@@ -12,7 +12,6 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/db/retention", () => ({ getOrgRetention: vi.fn(async () => null) }));
 vi.mock("@/lib/crypto/secret-box", () => ({ isEncryptionConfigured: () => true }));
-vi.mock("@/lib/theme/server", () => ({ getTheme: vi.fn(async () => "altimeter") }));
 vi.mock("@/lib/polar", () => ({ polarEnabled: vi.fn(() => true) }));
 vi.mock("@/lib/llm/lane-routes-load", () => ({ loadLaneRouting: vi.fn(async () => ({ current: [], preview: null })) }));
 

@@ -17,9 +17,7 @@
 // visitor of the page.
 
 import { useState } from "react";
-import { Kicker } from "@/components/ui";
 import { Caption, Frame, Segmented } from "@/components/kit";
-import type { ThemeId } from "@/lib/theme/theme";
 import { CarePreviewBanner } from "./CarePreviewBanner";
 import { DeveloperCompanion } from "./DeveloperCompanion";
 import { DEVELOPER_PREVIEW_STATES, type DeveloperView } from "@/lib/org/developer-view";
@@ -36,12 +34,7 @@ function isBlank(view: DeveloperView): boolean {
   );
 }
 
-const tabClass = (active: boolean) =>
-  `focus-ring rounded-md px-2.5 py-1.5 type-mono-sm transition-colors ${
-    active ? "bg-surface text-slate-200" : "text-slate-500 hover:text-slate-200"
-  }`;
-
-export function DeveloperHomeShell({ view, slug, theme = "altimeter" }: { view: DeveloperView; slug: string; theme?: ThemeId }) {
+export function DeveloperHomeShell({ view, slug }: { view: DeveloperView; slug: string }) {
   const [preview, setPreview] = useState<{ name: string; view: DeveloperView } | null>(null);
 
   async function choose(name: string | null) {
@@ -56,7 +49,7 @@ export function DeveloperHomeShell({ view, slug, theme = "altimeter" }: { view: 
 
   return (
     <div className="space-y-6">
-      {isBlank(view) && theme === "prism" && (
+      {isBlank(view) && (
         <Frame edge="both" pad="sm" aria-label="Preview as">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <Caption>Preview as</Caption>
@@ -75,37 +68,9 @@ export function DeveloperHomeShell({ view, slug, theme = "altimeter" }: { view: 
         </Frame>
       )}
 
-      {isBlank(view) && theme !== "prism" && (
-        <div className="rounded-2xl border border-divider bg-surface/40 px-4 py-3">
-          <div className="flex flex-wrap items-center gap-1">
-            <Kicker tone="muted" className="mr-3">
-              Preview as
-            </Kicker>
-            <button type="button" aria-pressed={preview === null} onClick={() => choose(null)} className={tabClass(preview === null)}>
-              your view
-            </button>
-            {DEVELOPER_PREVIEW_STATES.map((p) => (
-              <button
-                key={p}
-                type="button"
-                aria-pressed={preview?.name === p}
-                onClick={() => choose(p)}
-                className={tabClass(preview?.name === p)}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 type-body-sm text-slate-500">
-            Nothing of yours has landed here yet. These are shaped examples, stamped as previews — they are not
-            anyone&apos;s data, and switching away from &quot;your view&quot; never writes anything.
-          </p>
-        </div>
-      )}
-
       {preview ? <CarePreviewBanner name={preview.name} onExit={() => choose(null)} /> : null}
 
-      <DeveloperCompanion view={preview?.view ?? view} slug={slug} theme={theme} />
+      <DeveloperCompanion view={preview?.view ?? view} slug={slug} />
     </div>
   );
 }

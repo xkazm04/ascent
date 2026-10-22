@@ -42,7 +42,6 @@ export function OverviewTabV2({ slug, billingNotice, i }: { slug: string; billin
           comparisonLabel={period.comparisonLabel}
           sortDim={i.dimParam}
           search={i.search}
-          theme="prism"
           fixFirst={
             <Suspense fallback={<OverviewFixFirstGap />}>
               <OverviewFixFirstPanel slug={slug} win={win} scopeQuery={i.stackQuery} />

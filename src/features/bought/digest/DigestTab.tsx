@@ -15,8 +15,6 @@
 import { buildWeeklyDigest } from "@/lib/org/digest";
 import { weeklyDigestMarkdown } from "@/lib/org/digest-markdown";
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
-import { getTheme } from "@/lib/theme/server";
-import { digestV1 } from "./DigestTab.v1";
 import { digestV2 } from "./DigestTab.v2";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -47,5 +45,5 @@ export async function DigestTab({ slug, sp }: { slug: string; sp: SearchParams }
 
   const md = weeklyDigestMarkdown(d);
 
-  return (await getTheme()) === "prism" ? digestV2(slug, d, md) : digestV1(slug, d, md);
+  return digestV2(slug, d, md);
 }

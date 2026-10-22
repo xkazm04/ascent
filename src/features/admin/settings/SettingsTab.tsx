@@ -8,12 +8,10 @@
 // by absence; a pinned test (SettingsTab.test.tsx) asserts the non-owner render contains no `/erase/i`,
 // `/retention/i`, or `/manage billing/i`. Do not move this check behind any card render.
 //
-// THEME DUALITY: after the gate and the reads, the theme picks the composition (SettingsTab.v1.tsx Altimeter,
-// SettingsTab.v2.tsx Prism). Both take the same SettingsData and render the same cards.
+// After the gate and the reads, SettingsTab.v2.tsx (Prism) renders the SettingsData cards.
 //
 // Its old route (src/app/org/[slug]/settings/page.tsx) is now a redirect().
 
-import { settingsV1 } from "./SettingsTab.v1";
 import { settingsV2 } from "./SettingsTab.v2";
 import type { SettingsData } from "./settingsData";
 import { OrgEmpty } from "@/components/shared/dashboard/ui";
@@ -25,7 +23,6 @@ import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { envBool } from "@/lib/env";
-import { getTheme } from "@/lib/theme/server";
 import { polarEnabled } from "@/lib/polar";
 import { loadLaneRouting } from "@/lib/llm/lane-routes-load";
 import { PUBLIC_ORG } from "@/lib/org-constants";
@@ -37,7 +34,7 @@ export async function SettingsTab({ slug }: { slug: string }) {
     return <OrgEmpty title="Owner only" body="Organization settings are available to organization owners." href={orgTabHref(slug, "overview")} cta="← Overview" />;
   }
   const configRead = getOrgLlmConfig(slug);
-  const [config, credit, retention, retentionReceipt, laneRouting, theme] = await Promise.all([
+  const [config, credit, retention, retentionReceipt, laneRouting] = await Promise.all([
     configRead,
     getCreditState(slug).catch(() => null),
     getOrgRetention(slug).catch(() => null),
@@ -45,7 +42,6 @@ export async function SettingsTab({ slug }: { slug: string }) {
     // Where each LLM lane runs for this org, plus the "if switched on" preview of a saved provider.
     // Never throws: an unreadable state renders as "could not be read", not as a platform guess.
     configRead.then((c) => loadLaneRouting(slug, c)),
-    getTheme(),
   ]);
   const data: SettingsData = {
     slug,
@@ -59,5 +55,5 @@ export async function SettingsTab({ slug }: { slug: string }) {
     portalEnabled: polarEnabled(),
     encryptionConfigured: isEncryptionConfigured(),
   };
-  return theme === "prism" ? settingsV2(data) : settingsV1(data);
+  return settingsV2(data);
 }

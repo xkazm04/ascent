@@ -14,9 +14,7 @@
 
 import { useState } from "react";
 import { Kicker } from "@/components/ui";
-import type { ThemeId } from "@/lib/theme/theme";
 import { REGISTRY_DEMO_STATES, fixtureRegistryView } from "@/lib/org/registry-view.fixture";
-import { RegistryPanel } from "./RegistryPanel";
 import { RegistryPanelV2 } from "./RegistryPanel.v2";
 import { RegistryPreviewContext } from "./useRegistryMutation";
 
@@ -25,14 +23,11 @@ const CHIP = "focus-ring rounded-md px-2.5 py-1.5 type-mono-sm transition-colors
 export function RegistryPreviewShell({
   slug,
   enabled,
-  theme = "altimeter",
   children,
 }: {
   slug: string;
   /** True only in development AND when the REAL view is `unmapped`. False renders `children` untouched. */
   enabled: boolean;
-  /** Which panel a shaped example uses. Defaults to Altimeter so existing callers stay on the previous panel. */
-  theme?: ThemeId;
   children: React.ReactNode;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
@@ -84,7 +79,7 @@ export function RegistryPreviewShell({
             </span>
           </div>
           <RegistryPreviewContext.Provider value>
-            {theme === "prism" ? <RegistryPanelV2 view={shown} slug={slug} /> : <RegistryPanel view={shown} slug={slug} />}
+            <RegistryPanelV2 view={shown} slug={slug} />
           </RegistryPreviewContext.Provider>
         </div>
       ) : (

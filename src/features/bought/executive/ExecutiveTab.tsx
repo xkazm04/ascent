@@ -1,11 +1,7 @@
 // Org dashboard "Briefing" tab (id: executive). SERVER component, filename PINNED.
-// The theme picks the composition after the reads: ExecutiveTab.v1 (Altimeter) or ExecutiveTab.v2 (Prism).
-// Both receive the same ExecutiveView. The public share page does not come through here.
+// ExecutiveTab.v2 (Prism) composes the ExecutiveView after the reads. The public share page does not come through here.
 
 import { buildExecBriefing, briefingMarkdown } from "@/lib/org/briefing";
-import { SectionEmpty } from "@/components/shared/dashboard/ui";
-import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
-import { orgTabHref } from "@/lib/org/orgTabs";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { getCreditState, getOrgBranding } from "@/lib/db";
 import { getOrgImpactLedger } from "@/lib/db/org-impact";
@@ -15,8 +11,6 @@ import { degradedRead } from "@/lib/org/degraded-read";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
-import { getTheme } from "@/lib/theme/server";
-import { executiveV1 } from "./ExecutiveTab.v1";
 import { executiveV2, executiveEmptyV2 } from "./ExecutiveTab.v2";
 import type { ExecutiveView } from "./executiveView";
 
@@ -26,23 +20,9 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
   const period = await resolveOrgWindow(sp);
   const segmentId = typeof sp.segment === "string" ? sp.segment : null;
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const [briefing, theme] = await Promise.all([
-    buildExecBriefing(slug, orgWindowBounds(period), period.title, segmentId, techGroupId),
-    getTheme(),
-  ]);
+  const briefing = await buildExecBriefing(slug, orgWindowBounds(period), period.title, segmentId, techGroupId);
 
-  if (!briefing) {
-    return theme === "prism" ? (
-      executiveEmptyV2(slug)
-    ) : (
-      <div className="space-y-4">
-        <SectionEmpty>
-          No scanned repositories yet. Scan some of this org&apos;s repos to generate an executive briefing.
-        </SectionEmpty>
-        <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
-      </div>
-    );
-  }
+  if (!briefing) return executiveEmptyV2(slug);
 
   // One ownership check feeds sharing and white-label. Impact and the program are independent reads.
   const [impact, program, isOwner] = await Promise.all([
@@ -61,5 +41,5 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
     md: briefingMarkdown(briefing),
     impact, program, canShare, branding, canBrand,
   };
-  return theme === "prism" ? executiveV2(view) : executiveV1(view);
+  return executiveV2(view);
 }

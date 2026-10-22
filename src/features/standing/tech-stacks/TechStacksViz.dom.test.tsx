@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import { StackProfiles } from "./StackProfiles";
+import { StackProfilesV2 as StackProfiles } from "./StackProfiles.v2";
 import { StackSpreadStrip } from "./StackSpreadStrip";
 import { STACK_SCOPE } from "./analysisScope";
 import type { SegmentSummary } from "@/lib/db";

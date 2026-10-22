@@ -1,5 +1,5 @@
 // The Prism masthead's headline figures for the Contributors tab, shaped from the insights the panel
-// already read (the same four numbers ContributorsTiles shows in Altimeter, same naming-floor branches).
+// already read (the four tile numbers, with the naming-floor branches).
 // Pure: no React, no DB. Below the naming floor a percentage is the wrong unit, so the count stays a count.
 
 import type { MastheadFigure } from "@/components/kit";

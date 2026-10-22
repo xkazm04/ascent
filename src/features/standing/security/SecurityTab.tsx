@@ -14,7 +14,6 @@
 import { buildGateSnippet, buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
-import { securityV1 } from "./SecurityTab.v1";
 import { securityV2 } from "./SecurityTab.v2";
 import type { SecurityTabData } from "./securityTabData";
 import { PersonalSecurity } from "@/components/org/personal/PersonalSecurity";
@@ -22,7 +21,6 @@ import { isPersonalOrg } from "@/lib/db";
 import { decisionMap } from "@/lib/org/decision-map";
 import { resolveStackScope } from "@/lib/org/scope";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
-import { getTheme } from "@/lib/theme/server";
 import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
@@ -36,11 +34,10 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
   const period = await resolveOrgWindow(sp);
   // Optional tech-stack scope (Feature 3b): "Frontend security vs Backend" — scope the whole overview.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
-  const [sec, supply, decisions, theme] = await Promise.all([
+  const [sec, supply, decisions] = await Promise.all([
     buildSecurityOverview(slug, orgWindowBounds(period), period.title, techGroupId),
     getOrgSupplyChain(slug, techGroupId),
     decisionMap(slug, "security"),
-    getTheme(),
   ]);
 
   if (!sec) {
@@ -79,6 +76,5 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
     comparisonLabel: period.comparisonLabel,
     stack: { groups: techGroups, active: activeStack?.key ?? null },
   };
-  // THEME DUALITY: the theme picks the composition (SecurityTab.v1.tsx Altimeter, SecurityTab.v2.tsx Prism).
-  return theme === "prism" ? securityV2(data) : securityV1(data);
+  return securityV2(data);
 }

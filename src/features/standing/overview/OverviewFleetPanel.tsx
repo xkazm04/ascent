@@ -15,7 +15,6 @@ import type { ReactNode } from "react";
 import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { PeriodCoverageStrip } from "@/components/shared/scope/PeriodCoverageStrip";
 import { periodCoverage } from "@/lib/org/periodCoverageModel";
-import { OverviewLedger } from "./OverviewLedger";
 import { OverviewLedgerV2 } from "./OverviewLedger.v2";
 import { isOverviewScopedEmpty, OVERVIEW_SCOPED_EMPTY } from "./overviewEmpty";
 import { buildScoreBadges, buildTrendPoints } from "./overviewStanding";
@@ -24,7 +23,6 @@ import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
 import type { OrgWindow } from "@/lib/db/org-rollup";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import type { ThemeId } from "@/lib/theme/theme";
 
 export async function OverviewFleetPanel({
   slug,
@@ -34,7 +32,6 @@ export async function OverviewFleetPanel({
   comparisonLabel,
   sortDim,
   search,
-  theme = "altimeter",
   fixFirst,
 }: {
   slug: string;
@@ -55,9 +52,7 @@ export async function OverviewFleetPanel({
   /** The tab's current query string, carried into the panels' deep links so a drill-in keeps the
    *  period + segment/stack scope the numbers were computed under. */
   search?: string;
-  /** Which composition renders. The entry resolves it once (getTheme); the default keeps v1 for any other caller. */
-  theme?: ThemeId;
-  /** v2 only: the "Fix first" band, slotted under the masthead. It carries its own Suspense boundary. */
+  /** The "Fix first" band, slotted under the masthead. It carries its own Suspense boundary. */
   fixFirst?: ReactNode;
 }) {
   const { segmentId, techGroupId } = await scope;
@@ -77,7 +72,7 @@ export async function OverviewFleetPanel({
   if (isOverviewScopedEmpty(rollup)) {
     return (
       <>
-        {theme === "prism" && fixFirst}
+        {fixFirst}
         <OrgEmpty
           title={OVERVIEW_SCOPED_EMPTY.title}
           body={OVERVIEW_SCOPED_EMPTY.body}
@@ -108,14 +103,13 @@ export async function OverviewFleetPanel({
   // The whole region is one client component (the fleet rollup and heatmap hold interaction state).
   // Everything it renders is derived HERE, on the server, and handed over serialised — nothing in
   // OverviewLedger awaits.
-  const Ledger = theme === "prism" ? OverviewLedgerV2 : OverviewLedger;
   // The period split, counted and named from this same rollup (no query): null for all time.
   const coverage = periodCoverage(rollup.repos, win.start);
   return (
     <>
       <PeriodCoverageStrip slug={slug} coverage={coverage} />
-      <Ledger
-        {...(theme === "prism" ? { fixFirst } : {})}
+      <OverviewLedgerV2
+        fixFirst={fixFirst}
         slug={slug}
         search={search ?? ""}
         periodTitle={periodTitle}

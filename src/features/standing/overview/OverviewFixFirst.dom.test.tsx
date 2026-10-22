@@ -45,7 +45,7 @@ describe("OverviewFixFirst — the ranked impact band", () => {
     expect(gap?.className).toMatch(/reveal-quiet/);
     expect(gap?.className).toMatch(/min-h-/);
 
-    for (const file of ["OverviewTab.v1.tsx", "OverviewTab.v2.tsx"]) {
+    for (const file of ["OverviewTab.v2.tsx"]) {
       const tab = readFileSync(join(process.cwd(), "src/features/standing/overview", file), "utf8");
       expect(tab).toMatch(/<Suspense fallback=\{<OverviewFixFirstGap \/>\}>\s*<OverviewFixFirstPanel/);
     }

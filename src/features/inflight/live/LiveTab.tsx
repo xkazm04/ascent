@@ -35,7 +35,6 @@ import { selfHosted } from "@/lib/env";
 import { autopilotEnabled } from "@/lib/local/agent";
 import { resolveStackScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
-import { getTheme } from "@/lib/theme/server";
 import { liveShareEnabled } from "@/lib/live-share";
 import type { GoalProgressView } from "@/components/shared/goals/goalView";
 import type { ObservatorySeed } from "./observatory";
@@ -59,7 +58,6 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
   // standing AND the launched scan to that stack's repos, so "Frontend war room" runs only those.
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const local = selfHosted();
-  const theme = await getTheme();
 
   // The goal the wall rallies around — the first not-yet-achieved goal, else the most recent. Its
   // createdAt doubles as the campaign-start baseline for the "since kickoff" delta (WAR-2).
@@ -191,7 +189,6 @@ export async function LiveTab({ slug, sp }: { slug: string; sp: SearchParams }) 
         ledgerHref={liveViewHref(sp, "ledger")}
         cockpitHref={liveViewHref(sp, "cockpit")}
         runnerRepos={runnerRepos}
-        theme={theme}
       />
       <LiveNextMove slug={slug} />
     </div>

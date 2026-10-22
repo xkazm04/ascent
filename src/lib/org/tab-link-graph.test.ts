@@ -290,9 +290,9 @@ describe("journey first-run stages and Scan-entry links: a removed link is notic
     expect(gaps(withoutLink(tree, "members", "repositories")).noOutbound).toEqual(["members"]);
   });
 
-  // The empty-state literal counted per composition, so deleting just one of Executive's two (Altimeter
-  // SectionEmpty, Prism executiveEmptyV2) is noticed even though the graph edge survives.
-  it.each([["security", 1], ["executive", 2]] as const)("%s renders %i Scan-entry link(s) to repositories", (tab, count) => {
+  // The empty-state literal counted per composition, so deleting Executive's (executiveEmptyV2) is noticed
+  // even if the graph edge survives elsewhere.
+  it.each([["security", 1], ["executive", 1]] as const)("%s renders %i Scan-entry link(s) to repositories", (tab, count) => {
     const found = tree
       .filter((f) => owningTab(f.path, IDS) === tab)
       .reduce((n, f) => n + (stripComments(f.source).match(NEXT_MOVE_SITE("repositories")) ?? []).length, 0);
@@ -308,16 +308,12 @@ describe("journey first-run stages and Scan-entry links: a removed link is notic
   });
 });
 
-// A themed Connect tab renders its link in BOTH compositions (Altimeter v1, Prism v2). The render-site
-// check above passes while either one still has it, so the per-file literal count is pinned here.
-describe("themed Connect tabs carry the link in every composition", () => {
+// A themed Connect tab renders its link in its Prism composition. The per-file literal count is pinned here.
+describe("Connect tabs carry the link in their composition", () => {
   const tree = readTree();
   const WHERE: [file: string, literals: number][] = [
-    ["src/features/shared/registry/RegistryPanel.v1.tsx", 2], // the unmapped and the identified panel
     ["src/features/shared/registry/RegistryPanel.v2.tsx", 1],
-    ["src/features/admin/integrations/IntegrationsTab.v1.tsx", 1],
     ["src/features/admin/integrations/IntegrationsView.v2.tsx", 1],
-    ["src/features/admin/settings/SettingsTab.v1.tsx", 1],
     ["src/features/admin/settings/SettingsTab.v2.tsx", 1],
   ];
   it.each(WHERE)("%s renders %i next-move link(s) to repositories", (file, literals) => {
@@ -333,7 +329,6 @@ describe("Settings carries its Members sibling link in every composition", () =>
   const tree = readTree();
   const PLAIN_LINK = /<Link href=\{orgTabHref\(slug, "members"\)\}/g;
   it.each([
-    "src/features/admin/settings/SettingsTab.v1.tsx",
     "src/features/admin/settings/SettingsTab.v2.tsx",
   ])("%s renders one plain Members link", (file) => {
     const f = tree.find((x) => x.path === file);

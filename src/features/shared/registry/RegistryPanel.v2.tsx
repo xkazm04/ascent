@@ -1,4 +1,4 @@
-// Prism registry: masthead, the six steps, then the machine. Altimeter stays in RegistryPanel.v1.
+// Prism registry: masthead, the six steps, then the machine.
 
 import { Notice } from "@/components/kit";
 import { timeAgo } from "@/lib/ui";

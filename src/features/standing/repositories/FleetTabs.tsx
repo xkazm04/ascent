@@ -4,38 +4,13 @@
 // server render. Pill styling matches the Fleet "Group" switcher in RepoCategoryRollup so they read as
 // one system. `active` is resolved by the host page from its searchParams (no client hooks needed).
 
-import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { Segmented } from "@/components/kit";
-import type { ThemeId } from "@/lib/theme/theme";
 
-export function FleetTabs({ slug, active, theme = "altimeter" }: { slug: string; active: "repositories" | "segments"; theme?: ThemeId }) {
+export function FleetTabs({ slug, active }: { slug: string; active: "repositories" | "segments" }) {
   const tabs: { key: "repositories" | "segments"; href: string; label: string }[] = [
     { key: "repositories", href: orgTabHref(slug, "repositories"), label: "Repositories" },
     { key: "segments", href: orgTabHref(slug, "segments"), label: "Segments" },
   ];
-  if (theme === "prism") {
-    return <Segmented nav label="Fleet view" variant="soft" value={active} options={tabs.map((t) => ({ key: t.key, href: t.href, label: t.label }))} />;
-  }
-  return (
-    <div role="tablist" aria-label="Fleet view" className="flex items-center gap-1.5">
-      {tabs.map((t) => {
-        const isActive = active === t.key;
-        return (
-          <Link
-            key={t.key}
-            href={t.href}
-            role="tab"
-            aria-selected={isActive}
-            aria-current={isActive ? "page" : undefined}
-            className={`focus-ring rounded-full border px-3 py-1 type-mono-sm transition ${
-              isActive ? "border-accent/60 text-white" : "border-divider text-slate-400 hover:border-accent hover:text-white"
-            }`}
-          >
-            {t.label}
-          </Link>
-        );
-      })}
-    </div>
-  );
+  return <Segmented nav label="Fleet view" variant="soft" value={active} options={tabs.map((t) => ({ key: t.key, href: t.href, label: t.label }))} />;
 }

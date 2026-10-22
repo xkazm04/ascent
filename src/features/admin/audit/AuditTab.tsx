@@ -10,12 +10,10 @@
 //     would be a second tenant check that can drift from the real one;
 //   - its old route (src/app/org/[slug]/audit/page.tsx) is now nothing but a redirect() — links in
 //     already-sent digest emails still resolve.
-// THEME DUALITY: the theme picks the composition (AuditTab.v1 Altimeter, AuditTab.v2 Prism).
+// The composition is AuditTab.v2 (Prism).
 // Its leaf parts (AuditLogViewer, AuditLogCells) sit beside it in the same group folder.
 
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
-import { getTheme } from "@/lib/theme/server";
-import { auditV1 } from "./AuditTab.v1";
 import { auditV2 } from "./AuditTab.v2";
 import { AuditHealthNotice } from "./AuditHealthNotice";
 import { getAuditLog } from "@/lib/db";
@@ -41,5 +39,5 @@ export async function AuditTab({ slug }: { slug: string }) {
     );
   }
 
-  return (await getTheme()) === "prism" ? auditV2(slug, page, health) : auditV1(slug, page, health);
+  return auditV2(slug, page, health);
 }

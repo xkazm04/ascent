@@ -9,9 +9,7 @@ import { resolveOrgWindow } from "@/lib/org/period";
 import { decisionMap } from "@/lib/org/decision-map";
 import { enablementTargets } from "@/lib/org/adoption";
 import { isViewer } from "./ContributorsYouPointer";
-import { ContributorsBodyV1 } from "./ContributorsBody.v1";
 import { ContributorsBodyV2 } from "./ContributorsBody.v2";
-import type { ThemeId } from "@/lib/theme/theme";
 // The Delivery tab's settle helper, reused rather than re-implemented: one classification of a
 // settled query ("null value" vs "actually failed") for every tab that degrades per section.
 import { settle } from "@/features/bought/delivery/deliveryLoad";
@@ -22,13 +20,11 @@ export async function ContributorsInsightsPanel({
   slug,
   sp,
   viewerLogin = null,
-  theme = "altimeter",
 }: {
   slug: string;
   sp: SearchParams;
   /** The signed-in developer, resolved by the tab — drives the "You" pointer (§5.2). */
   viewerLogin?: string | null;
-  theme?: ThemeId;
 }) {
   // Optional segment + tech-stack scope (bogus id/key → whole fleet); the two filters compose.
   const { segments, segmentId, techGroups, activeStack, techGroupId, barProps } = await resolveOrgScope(slug, sp);
@@ -90,5 +86,5 @@ export async function ContributorsInsightsPanel({
   const enablement = enablementTargets(insights);
 
   const body = { slug, insights, period, filterBar, viewerLogin, segmentId, activeStack, decisions, decisionsFailed, enablement, meInRoster };
-  return theme === "prism" ? <ContributorsBodyV2 {...body} /> : <ContributorsBodyV1 {...body} />;
+  return <ContributorsBodyV2 {...body} />;
 }

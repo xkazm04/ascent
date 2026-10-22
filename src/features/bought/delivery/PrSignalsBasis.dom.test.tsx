@@ -7,7 +7,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { PrSignalsBand } from "./PrSignalsBand";
-import { PrRepoTable } from "./PrRepoTable";
 import type { OrgPrSignals, PrRepoRow } from "@/lib/db";
 import type { FleetRateId } from "@/lib/db/org-signals";
 
@@ -95,26 +94,5 @@ describe("PrSignalsBand basis", () => {
     const { container } = render(<PrSignalsBand pr={signals({ avgReviewedRate: 55, rateBasis: basis })} />);
     expect(container.textContent).toMatch(/basis: 11 of 20 · 2 repos/);
     expect(container.querySelector('[title*="pooled"]')).toBeTruthy();
-  });
-});
-
-describe("PrRepoTable denominators", () => {
-  it("carries each rate's own denominator in the row, not just the analyzed count", () => {
-    const { container } = render(<PrRepoTable rows={[repo()]} />);
-    const text = container.textContent ?? "";
-    expect(text).toMatch(/75%\/30/); // reviewed, over human-merged PRs
-    expect(text).toMatch(/80%\/8/); // AI reviewed, over AI-involved PRs
-    expect(text).toMatch(/90%\/38/); // merge, over decided PRs
-  });
-
-  it("marks an unpersisted denominator as unknown instead of falling back to analyzed", () => {
-    const { container } = render(<PrRepoTable rows={[repo({ population: {} })]} />);
-    expect(container.textContent).toMatch(/90%\/\?/);
-    expect(container.querySelector('[title*="not persisted by this scan"]')).toBeTruthy();
-  });
-
-  it("still renders a null rate as an em dash", () => {
-    render(<PrRepoTable rows={[repo({ reviewedRate: null, revertRate: null })]} />);
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
 });

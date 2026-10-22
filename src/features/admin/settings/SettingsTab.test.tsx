@@ -19,8 +19,6 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/db/retention", () => ({ getOrgRetention: vi.fn(async () => null) }));
 vi.mock("@/lib/crypto/secret-box", () => ({ isEncryptionConfigured: () => true }));
-const { mockTheme } = vi.hoisted(() => ({ mockTheme: vi.fn(async () => "altimeter" as string) }));
-vi.mock("@/lib/theme/server", () => ({ getTheme: mockTheme }));
 vi.mock("@/lib/polar", () => ({ polarEnabled: vi.fn(() => true) }));
 vi.mock("@/lib/llm/lane-routes-load", () => ({ loadLaneRouting: mockLoadLanes }));
 
@@ -61,8 +59,7 @@ beforeEach(() => {
   vi.mocked(polarEnabled).mockReturnValue(true);
 });
 
-describe.each(["altimeter", "prism"])("SettingsTab — data erasure placement" + " [%s]", (theme) => {
-  beforeEach(() => mockTheme.mockResolvedValue(theme));
+describe("SettingsTab — data erasure placement", () => {
   it("renders the erase control for an owner, scoped to this org", async () => {
     mockHasOrgRole.mockResolvedValue(true);
 
@@ -86,8 +83,7 @@ describe.each(["altimeter", "prism"])("SettingsTab — data erasure placement" +
   });
 });
 
-describe.each(["altimeter", "prism"])("SettingsTab — retention placement" + " [%s]", (theme) => {
-  beforeEach(() => mockTheme.mockResolvedValue(theme));
+describe("SettingsTab — retention placement", () => {
   it("renders the retention control for an owner, scoped to this org", async () => {
     mockHasOrgRole.mockResolvedValue(true);
 
@@ -110,8 +106,7 @@ describe.each(["altimeter", "prism"])("SettingsTab — retention placement" + " 
   });
 });
 
-describe.each(["altimeter", "prism"])("SettingsTab — Polar portal placement" + " [%s]", (theme) => {
-  beforeEach(() => mockTheme.mockResolvedValue(theme));
+describe("SettingsTab — Polar portal placement", () => {
   it("renders PlanControl for an owner with the Polar portal armed", async () => {
     mockHasOrgRole.mockResolvedValue(true);
 
@@ -144,8 +139,7 @@ describe.each(["altimeter", "prism"])("SettingsTab — Polar portal placement" +
   });
 });
 
-describe.each(["altimeter", "prism"])("SettingsTab: lane routing (llm-provider-abstraction#B)" + " [%s]", (theme) => {
-  beforeEach(() => mockTheme.mockResolvedValue(theme));
+describe("SettingsTab: lane routing (llm-provider-abstraction#B)", () => {
   async function renderLanes() {
     const card = findType(await renderTab(), LaneRoutingCard);
     expect(card).not.toBeNull();

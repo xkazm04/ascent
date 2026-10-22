@@ -23,8 +23,6 @@
 // This file is the ENTRY: it picks the composition by theme (v1 = the shipped layout, v2 = Prism) and owns the props
 // contract both take. The state is `useLiveCockpitView`; each composition is layout only.
 
-import type { ThemeId } from "@/lib/theme/theme";
-import { LiveCockpitV1 } from "./LiveCockpit.v1";
 import { LiveCockpitV2 } from "./LiveCockpit.v2";
 import type { LoopRunDetail, LoopRunRecord, LoopRunSummary } from "./loopTypes";
 import type { ObservatoryHistory, ObservatorySeed } from "../observatory";
@@ -55,10 +53,8 @@ export interface LiveCockpitProps {
   /** The Live view switch's targets, the tab's other params preserved (`liveViewHref`). */
   ledgerHref?: string;
   cockpitHref?: string;
-  /** The look the server resolved (`getTheme()`). Absent or `altimeter` = the shipped composition; `prism` = v2. */
-  theme?: ThemeId;
 }
 
 export function LiveCockpit(props: LiveCockpitProps) {
-  return props.theme === "prism" ? <LiveCockpitV2 {...props} /> : <LiveCockpitV1 {...props} />;
+  return <LiveCockpitV2 {...props} />;
 }

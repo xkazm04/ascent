@@ -1,24 +1,20 @@
 // The governance tab's single data-bearing region: resolves scope, builds the fleet gate overview,
-// and hands the same props to whichever composition the theme selected. One panel, one Suspense
+// and hands the props to the Prism composition. One panel, one Suspense
 // boundary (GovernanceTab): every card derives from the same `buildGovernanceOverview` read.
 
 import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { buildGovernanceOverview } from "@/lib/org/governance";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
-import type { ThemeId } from "@/lib/theme/theme";
-import { GovernanceViewV1 } from "./GovernanceView.v1";
 import { GovernanceViewV2 } from "./GovernanceView.v2";
 import type { GovernanceSearchParams } from "./governanceView";
 
 export async function GovernancePanel({
   slug,
   sp,
-  theme,
 }: {
   slug: string;
   sp: GovernanceSearchParams;
-  theme: ThemeId;
 }) {
   // Segment + tech-stack scope (?segment=/?stack=). The scope narrows WHO is measured; the policy
   // stays org-wide.
@@ -40,5 +36,5 @@ export async function GovernancePanel({
     scoped,
     filterBar: <ScopeFilterBar {...barProps} />,
   };
-  return theme === "prism" ? <GovernanceViewV2 {...props} /> : <GovernanceViewV1 {...props} />;
+  return <GovernanceViewV2 {...props} />;
 }

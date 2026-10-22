@@ -5,6 +5,7 @@
 import { Caption, Frame, GhostAction, Masthead, Movement, type MastheadFigure } from "@/components/kit";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { WhyChip } from "@/components/shared/viz";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { WeeklyDigest } from "@/lib/org/digest-types";
 import { DigestActions } from "./DigestActions";
@@ -80,6 +81,7 @@ export function digestV2(slug: string, d: WeeklyDigest, md: string) {
           ))}
         </div>
       </Frame>
+      <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </div>
   );
 }

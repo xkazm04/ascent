@@ -20,16 +20,16 @@ export function DeliveryTabV2({
   return (
     <div data-role="delivery-v2" className="space-y-10">
       <Suspense fallback={<OrgTabGap minH="min-h-[20rem]" />}>
-        <DeliveryTrendDataPanel slug={slug} scope={scope} period={period} theme="prism" />
+        <DeliveryTrendDataPanel slug={slug} scope={scope} period={period} />
       </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
-        <DeliveryCorePanel slug={slug} scope={scope} period={period} theme="prism" />
+        <DeliveryCorePanel slug={slug} scope={scope} period={period} />
       </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[20rem]" />}>
-        <UnitEconomicsPanel slug={slug} period={period} theme="prism" />
+        <UnitEconomicsPanel slug={slug} period={period} />
       </Suspense>
       <Suspense fallback={<OrgTabGap minH="min-h-[20rem]" />}>
-        <DeliveryOutcomesPanel slug={slug} period={period} theme="prism" />
+        <DeliveryOutcomesPanel slug={slug} period={period} />
       </Suspense>
     </div>
   );

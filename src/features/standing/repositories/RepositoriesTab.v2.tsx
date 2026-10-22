@@ -15,13 +15,12 @@ type SearchParams = { [key: string]: string | string[] | undefined };
 export function RepositoriesTabV2({ slug, sp, scope }: { slug: string; sp: SearchParams; scope: Promise<OrgScope> }) {
   return (
     <div className="stagger-children space-y-8">
-      <FleetTabs slug={slug} active="repositories" theme="prism" />
+      <FleetTabs slug={slug} active="repositories" />
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
         <RepositoriesLeaderboardPanel
           slug={slug}
           sp={sp}
           scope={scope}
-          theme="prism"
           queue={
             <Suspense fallback={<OrgTabGap minH="min-h-4" />}>
               <QueueDepthLine slug={slug} className="type-body-sm text-slate-400" />

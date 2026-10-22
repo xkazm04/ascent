@@ -15,13 +15,8 @@ import { orgTabHref, DEFAULT_ORG_TAB } from "@/lib/org/orgTabs";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { FleetTabs } from "./FleetTabs";
-import { SegmentsSection } from "./SegmentsSection";
 import { SegmentsSectionV2 } from "./SegmentsSection.v2";
-import { RepositoriesLeaderboardPanel } from "./RepositoriesLeaderboardPanel";
-import { ContextHealthPanel } from "./context-health/ContextHealthPanel";
-import { QueueDepthLine } from "./QueueDepthLine";
 import { RepositoriesTabV2 } from "./RepositoriesTab.v2";
-import { getTheme } from "@/lib/theme/server";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -40,14 +35,12 @@ export async function RepositoriesTab({
   // the layout's nav already hides it, this is the deep-link backstop.
   if (await isPersonalOrg(slug)) redirect(orgTabHref(slug, DEFAULT_ORG_TAB));
 
-  const theme = await getTheme();
-
   if (mode === "segments") {
     return (
       <div className="stagger-children space-y-6">
-        <FleetTabs slug={slug} active="segments" theme={theme} />
+        <FleetTabs slug={slug} active="segments" />
         <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-          {theme === "prism" ? <SegmentsSectionV2 slug={slug} searchParams={sp} /> : <SegmentsSection slug={slug} searchParams={sp} />}
+          <SegmentsSectionV2 slug={slug} searchParams={sp} />
         </Suspense>
       </div>
     );
@@ -58,31 +51,5 @@ export async function RepositoriesTab({
   // boundaries costs one lookup, and both panels then read one `getOrgRollupShared` at the same
   // (segmentId, techGroupId). Deliberately NOT awaited here.
   const scope = resolveOrgScope(slug, sp);
-  if (theme === "prism") return <RepositoriesTabV2 slug={slug} sp={sp} scope={scope} />;
-
-  return (
-    <div className="stagger-children space-y-6">
-      <FleetTabs slug={slug} active="repositories" />
-      {/* The cadence backlog as ONE number, above the table whose per-row "queued" tags were the only
-          way to see it (UAT `VICTOR-L1-07`). Suspended separately so a slow queue count never holds
-          the leaderboard back. */}
-      <Suspense fallback={<OrgTabGap minH="min-h-4" />}>
-        <QueueDepthLine slug={slug} />
-      </Suspense>
-      {/* The leaderboard leads. It is the answer to the question the tab's own name asks ("which
-          repos do I have, and where do they stand?"), so it must not be pushed below the fold by a
-          derived lens — Context Health used to sit above it and did exactly that. */}
-      <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
-        <RepositoriesLeaderboardPanel slug={slug} sp={sp} scope={scope} />
-      </Suspense>
-      {/* Foundation rollout moved to Shared → Practices (2026-09-15): the shared checklist and its
-          measurement live in one place, beside the practice rollout matrix. */}
-      {/* Context Health (W4 — real): the quality-over-presence lens on the fleet's agent-context
-          layer. Fed by each scan's persisted contextHealthJson. Takes the SAME scope promise the
-          leaderboard above does — so `?segment=` / `?stack=` narrow both panels to one repo set. */}
-      <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
-        <ContextHealthPanel slug={slug} scope={scope} />
-      </Suspense>
-    </div>
-  );
+  return <RepositoriesTabV2 slug={slug} sp={sp} scope={scope} />;
 }

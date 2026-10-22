@@ -1,7 +1,7 @@
 "use client";
 
 // The tech-stacks selection: which stacks are plotted AND in scope for the analysis below. ONE hook both
-// compositions (TechStacksAnalysis v1, .v2) call, so the radar rail and the diagnosis board always agree.
+// compositions (TechStacksAnalysis.v2) calls, so the radar rail and the diagnosis board always agree.
 
 import { useState } from "react";
 import type { SegmentSummary } from "@/lib/db";

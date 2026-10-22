@@ -81,7 +81,7 @@ export function RepositoriesViewV2({
         />
         <div className="mb-4">{queue}</div>
         {missing}
-        <RepoLeaderboard slug={slug} rows={visible} segments={scope.segments as SegmentItem[]} schedulable={schedulable} theme="prism" />
+        <RepoLeaderboard slug={slug} rows={visible} segments={scope.segments as SegmentItem[]} schedulable={schedulable} />
       </Frame>
       {nextMove}
     </div>

@@ -31,7 +31,7 @@ export function techStacksV2(slug: string, stackCount: number) {
         lede="How each stack scores on every dimension, where they agree and where one lags another."
       />
       <Suspense fallback={<OrgTabGap minH="min-h-[28rem]" />}>
-        <TechStacksAnalysisPanel slug={slug} theme="prism" />
+        <TechStacksAnalysisPanel slug={slug} />
       </Suspense>
       <NextMoveLink href={orgTabHref(slug, "proposals")} to="proposals" />
     </div>

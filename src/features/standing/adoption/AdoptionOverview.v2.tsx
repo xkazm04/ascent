@@ -8,9 +8,10 @@ import { WhyChip } from "@/components/shared/viz";
 import { AdoptionSpectrumV2 } from "./AdoptionSpectrum.v2";
 import { ChampionsV2, TeamsV2 } from "./AdoptionPeople.v2";
 import { DeliveryContextV2, ToolFootprintV2 } from "./AdoptionContext.v2";
-import { WINDOW_NOTE } from "./AdoptionOverview.v1";
 import { ATTRIBUTION_HINT, DENOMINATOR_HINT } from "./adoptionHints";
 import type { AdoptionViewProps } from "./adoptionViewProps";
+
+const WINDOW_NOTE = "Latest-scan snapshot · the period selector does not apply";
 
 export function adoptionV2({ a, slug, filterBar, md }: AdoptionViewProps) {
   const d = a.delivery;

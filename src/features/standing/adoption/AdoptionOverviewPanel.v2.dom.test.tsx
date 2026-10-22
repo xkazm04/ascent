@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The Prism adoption composition states the same populations as the Altimeter one (denominator present, or withheld and said so).
+// The adoption composition states each population (denominator present, or withheld and said so).
 
 import { describe, expect, it, vi } from "vitest";
 import * as React from "react";
@@ -40,7 +40,7 @@ const overview = (over: Partial<AdoptionOverview> = {}): AdoptionOverview => ({
 
 async function renderPanel(a: AdoptionOverview | null) {
   mockBuild.mockResolvedValue(a);
-  return render(await AdoptionOverviewPanel({ slug: "acme", sp: {}, theme: "prism" }));
+  return render(await AdoptionOverviewPanel({ slug: "acme", sp: {} }));
 }
 describe("AdoptionOverviewPanel in Prism — the same population statements", () => {
   it("states the commit population in the masthead", async () => {

@@ -9,7 +9,6 @@
 
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { MembersPanel } from "./MembersPanel";
-import { getTheme } from "@/lib/theme/server";
 import { isDbConfigured, listOrgMembers, listPendingInvites } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
@@ -37,11 +36,10 @@ export async function MembersTab({ slug }: { slug: string }) {
   // under the Supabase wall it was always null in prod, so MembersPanel never showed the "you"
   // badge and the self-demotion confirm gate silently never fired — an owner could lock themselves
   // out with one unconfirmed select change (the invite page had the identical bug, fixed earlier).
-  const [members, invites, selfLogin, theme] = await Promise.all([
+  const [members, invites, selfLogin] = await Promise.all([
     listOrgMembers(slug),
     canManage ? listPendingInvites(slug) : Promise.resolve([]),
     resolveViewerLogin(),
-    getTheme(),
   ]);
   const initial = members.map((m) => ({
     login: m.login,
@@ -66,7 +64,6 @@ export async function MembersTab({ slug }: { slug: string }) {
       initialInvites={initialInvites}
       selfLogin={selfLogin}
       canManage={canManage}
-      theme={theme}
     />
   );
 }

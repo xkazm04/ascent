@@ -1,4 +1,4 @@
-// Prism switches the composition. Altimeter is pinned by ExecutiveTab.test.tsx.
+// The Briefing tab composes the Prism executive view (masthead, ruled frames).
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -14,7 +14,6 @@ const { mockBuild, mockWindow, mockScope, mockRole, mockImpact } = vi.hoisted(()
   mockImpact: vi.fn(),
 }));
 
-vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "prism" }));
 vi.mock("@/lib/org/briefing", () => ({
   buildExecBriefing: mockBuild,
   briefingMarkdown: () => "md",
@@ -69,8 +68,8 @@ beforeEach(() => {
   mockImpact.mockReset().mockResolvedValue(null);
 });
 
-describe("ExecutiveTab prism composition", () => {
-  it("renders the kit masthead instead of the altimeter tiles", async () => {
+describe("ExecutiveTab composition", () => {
+  it("renders the kit masthead instead of the old tile band", async () => {
     mockBuild.mockResolvedValue(execBriefing());
     const el = await ExecutiveTab({ slug: "acme", sp: {} });
     expect((el as React.ReactElement<{ "data-role"?: string }>).props["data-role"]).toBe("executive-v2");
@@ -78,7 +77,7 @@ describe("ExecutiveTab prism composition", () => {
     expect(findElement(el, BriefingTiles)).toBeNull();
   });
 
-  it("keeps the empty-fleet sentence on the prism frame", async () => {
+  it("keeps the empty-fleet sentence on the Prism frame", async () => {
     mockBuild.mockResolvedValue(null);
     const markup = renderToStaticMarkup(await ExecutiveTab({ slug: "acme", sp: {} }));
     expect(markup).toContain("No scanned repositories yet.");

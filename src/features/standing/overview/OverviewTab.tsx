@@ -16,18 +16,13 @@
 //   - `stagger-children` on the wrapper cascades the direct children in. Do NOT also put
 //     `.animate-arrive-in` on a direct child — the cascade already animates it.
 //   - No skeletons anywhere: a waiting region is an empty reserved-height <OrgTabGap>.
-//   - THEME DUALITY (docs/design/KIT-REDESIGN-PROCESS.md): this entry resolves the inputs ONCE and picks the
-//     composition by theme, OverviewTab.v1.tsx (Altimeter, unchanged) or OverviewTab.v2.tsx (Prism). Both take
-//     the same inputs and render the same panels; nothing data-shaped is duplicated per theme.
 
-import { OverviewTabV1 } from "./OverviewTab.v1";
 import { OverviewTabV2 } from "./OverviewTab.v2";
 import { resolveBillingReturn } from "./overviewBilling";
 import { resolveOverviewInputs, type OverviewSearchParams } from "./overviewInputs";
 import { PersonalOverview } from "@/components/org/personal/PersonalOverview";
 import { BillingReturnNotice } from "@/components/shared/credits/BillingReturnNotice";
 import { getOrgHeaderSummary } from "@/lib/db";
-import { getTheme } from "@/lib/theme/server";
 
 export async function OverviewTab({ slug, sp }: { slug: string; sp: OverviewSearchParams }) {
   const billing = resolveBillingReturn(slug, sp);
@@ -48,10 +43,6 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: OverviewSear
     );
   }
 
-  const [theme, inputs] = await Promise.all([getTheme(), resolveOverviewInputs(slug, sp)]);
-  return theme === "prism" ? (
-    <OverviewTabV2 slug={slug} billingNotice={billingNotice} i={inputs} />
-  ) : (
-    <OverviewTabV1 slug={slug} billingNotice={billingNotice} i={inputs} />
-  );
+  const inputs = await resolveOverviewInputs(slug, sp);
+  return <OverviewTabV2 slug={slug} billingNotice={billingNotice} i={inputs} />;
 }

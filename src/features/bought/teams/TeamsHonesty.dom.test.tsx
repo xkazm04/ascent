@@ -20,6 +20,7 @@ import type { TeamRollup } from "@/lib/db";
 import type { TeamStandings as TeamStandingsModel } from "@/lib/org/teamStandings";
 
 const PANEL = fs.readFileSync(path.resolve(__dirname, "TeamsRollupPanel.tsx"), "utf8");
+const PANEL_V2 = fs.readFileSync(path.resolve(__dirname, "TeamsRollupPanel.v2.tsx"), "utf8");
 
 const team = (over: Partial<TeamRollup> = {}): TeamRollup =>
   ({
@@ -55,7 +56,7 @@ describe("deltaFootnote", () => {
   });
 
   it("is what the panel actually renders — no second hand-written copy of the claim", () => {
-    expect(PANEL).toMatch(/Δ compares \{deltaFootnote\(deltaLabel\)\}/);
+    expect(PANEL_V2).toMatch(/Δ compares \{deltaFootnote\((p.deltaLabel)\)\}/);
     expect(PANEL).not.toMatch(/compares each repo&apos;s two latest scans/);
   });
 });
@@ -112,7 +113,7 @@ describe("TeamsRollupPanel degrades per section", () => {
   });
 
   it("says the decisions annotations are missing rather than showing none silently", () => {
-    expect(PANEL).toMatch(/Recorded decisions couldn&apos;t load right now/);
+    expect(PANEL_V2).toMatch(/Recorded decisions couldn&apos;t load right now/);
   });
 
   it("joins the provenance read into the settled set instead of awaiting it serially", () => {
