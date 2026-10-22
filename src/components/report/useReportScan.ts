@@ -16,6 +16,7 @@ import {
   scanAnchorSubject,
   writeScanAnchor,
 } from "@/components/report/scanResume";
+import { parseThrottle, THROTTLED_MESSAGE, type Throttle } from "@/components/report/scanThrottleModel";
 
 /** A report salvaged from the last persisted scan because the monthly quota blocked a fresh one. */
 type Stale = { resetAt: number | null; scope: QuotaScope };
@@ -45,6 +46,9 @@ export type ScanErrorClass = {
   notFound?: boolean;
   /** Credit gate refused before the stream opened (402 `INSUFFICIENT_CREDITS`); balance at refusal. */
   credits?: { balance: number };
+  /** A per-minute limiter refusal (429 `rate_limited` / `rate_limit_unavailable`): a countdown to
+   *  the honest retry-after that resumes itself (ThrottledNotice), never an immediate Retry. */
+  throttled?: Throttle;
 };
 
 export type ScanState =
@@ -77,6 +81,11 @@ export interface ReportScan {
    *  progress curve continue from there instead of resetting to 0:00 on the new mount. */
   resumedSince: number | null;
   retest: () => void;
+  /** Re-run a throttled scan once its window drained. `auto` = the countdown fired it (spends one of
+   *  the per-visit automatic resumes); a hand-pressed "Resume now" does not. Also a plain Retry. */
+  resumeThrottled: (auto?: boolean) => void;
+  /** Automatic resumes spent this visit (the countdown stops auto-resuming at MAX_AUTO_RESUMES). */
+  autoResumes: number;
   /** Abandon a rejoined run: retire the anchor and start a genuinely fresh scan. The visible exit the
    *  restored-work notice needs — a rejoin the user did not want must be reversible. */
   startFresh: () => void;
@@ -117,6 +126,8 @@ export function useReportScan(
   // Bumped by "Re-test" to re-run the scan in place; > 0 also implies fresh.
   const [retestNonce, setRetestNonce] = useState(0);
   const [rescan, setRescan] = useState<ReportScan["rescan"]>({ active: false, error: null, errorClass: {} });
+  // Per visit (this mount), not per scan: each resume settles a NEW throttle, so the cap lives here.
+  const [autoResumes, setAutoResumes] = useState(0);
   // The report currently on screen, read at scan-start to decide whether a re-test can keep it mounted.
   const reportRef = useRef<ScanReport | null>(null);
   // `fresh` (a "Re-test" link, or a re-test below) forces a re-score that bypasses the report cache.
@@ -336,6 +347,14 @@ export function useReportScan(
                 `You've used all your free public scans for this month. The limit resets ${formatResetAt(resetAt)}.`,
               { blocked: { scope, resetAt } },
             );
+            return;
+          }
+          // Per-minute limiter refusal: the server's retry-after is honest, so wait it out and resume
+          // (ThrottledNotice) instead of offering a Retry that re-trips the same window. Our own
+          // message, not the server prose: the notice renders the per-scope explanation.
+          const throttle = parseThrottle(res.status, data, res.headers.get("retry-after"));
+          if (throttle) {
+            settleError(THROTTLED_MESSAGE, { throttled: throttle });
           } else {
             settleError(data?.error ?? `Scan failed (${res.status}).`);
           }
@@ -467,6 +486,11 @@ export function useReportScan(
     resumed,
     resumedSince,
     retest: () => setRetestNonce((n) => n + 1),
+    resumeThrottled: (auto = false) => {
+      if (auto === true) setAutoResumes((n) => n + 1);
+      setRetestNonce((n) => n + 1);
+    },
+    autoResumes,
     startFresh: () => {
       // Retire the anchor FIRST: the re-run below must read no anchor, or it would rejoin the very run
       // the user just asked to abandon. The nonce bump implies `fresh`, which is what re-scores from

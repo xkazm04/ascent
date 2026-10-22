@@ -8,6 +8,8 @@
 // keep only the message, so every one of them rendered a "Retry" that re-trips the same gate and no
 // way out. The class now travels with the error (ScanErrorClass), and each class gets the action
 // that can actually clear it. Retry is offered ONLY for the unclassified/transient failure.
+// A per-minute throttle is neither: it gets the countdown (ThrottledNotice) that resumes the re-test
+// itself once the limiter's window drains, never a Retry that re-trips the same window.
 // The report underneath is never touched in any case — that is the whole point of the in-place path.
 
 import type { EmptyStateAction } from "@/components/EmptyState";
@@ -15,11 +17,12 @@ import { SupabaseSignInButton } from "@/components/SupabaseAuthButtons";
 import { formatResetAt } from "@/components/report/QuotaNotice";
 import { creditsOrgHref } from "@/components/report/CreditsNotice";
 import type { ScanErrorClass } from "@/components/report/useReportScan";
+import { ThrottledNotice } from "@/components/report/ThrottledNotice";
 
 /** True when nothing classified the failure — the transient class (timeout, network, upstream blip),
  *  and the only one a plain Retry can clear. */
 export function isTransientScanError(cls: ScanErrorClass): boolean {
-  return !cls.blocked && !cls.authRequired && !cls.notFound && !cls.credits;
+  return !cls.blocked && !cls.authRequired && !cls.notFound && !cls.credits && !cls.throttled;
 }
 
 /** The class-specific tail sentence appended after the server's message, when it adds something the
@@ -44,10 +47,14 @@ function classLink(cls: ScanErrorClass, repo: string): EmptyStateAction | null {
 const ACTION_CLASS =
   "focus-ring shrink-0 rounded-md border border-danger/40 px-3 py-1 type-body-sm font-medium transition hover:bg-danger/10";
 
+const DISMISS_CLASS =
+  "focus-ring shrink-0 rounded-md border border-slate-700 px-3 py-1 type-body-sm text-slate-300 transition hover:border-slate-500 hover:text-white";
+
 export function RescanAlert({
   repo,
   error,
   errorClass,
+  autoResumes = 0,
   signInNext,
   onRetry,
   onDismiss,
@@ -55,11 +62,34 @@ export function RescanAlert({
   repo: string;
   error: string;
   errorClass: ScanErrorClass;
+  /** Automatic throttle resumes already spent this visit (bounds the countdown's auto-resume). */
+  autoResumes?: number;
   /** Where to return after the sign-in round-trip (carries the scan's scope). */
   signInNext: string;
-  onRetry: () => void;
+  /** Re-run the re-test. `auto` is true only when a throttle countdown fired it. */
+  onRetry: (auto?: boolean) => void;
   onDismiss: () => void;
 }) {
+  if (errorClass.throttled) {
+    return (
+      <div
+        role="status"
+        className="animate-fade-up sticky top-16 z-10 mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-warn/30 bg-warn/10 px-4 py-3 type-body text-slate-200 backdrop-blur"
+      >
+        <span aria-hidden>⏳</span>
+        <span>Re-scan paused. Your existing report is unchanged.</span>
+        <ThrottledNotice
+          variant="inline"
+          throttle={errorClass.throttled}
+          autoUsed={autoResumes}
+          onResume={(auto) => onRetry(auto)}
+        />
+        <button type="button" onClick={onDismiss} className={DISMISS_CLASS}>
+          Dismiss
+        </button>
+      </div>
+    );
+  }
   const transient = isTransientScanError(errorClass);
   const tail = tailCopy(errorClass);
   const link = classLink(errorClass, repo);
@@ -84,15 +114,11 @@ export function RescanAlert({
       )}
       {/* Retry only where it can succeed: a classified refusal re-trips the same gate. */}
       {transient && (
-        <button type="button" onClick={onRetry} className={ACTION_CLASS}>
+        <button type="button" onClick={() => onRetry()} className={ACTION_CLASS}>
           Retry
         </button>
       )}
-      <button
-        type="button"
-        onClick={onDismiss}
-        className="focus-ring shrink-0 rounded-md border border-slate-700 px-3 py-1 type-body-sm text-slate-300 transition hover:border-slate-500 hover:text-white"
-      >
+      <button type="button" onClick={onDismiss} className={DISMISS_CLASS}>
         Dismiss
       </button>
     </div>

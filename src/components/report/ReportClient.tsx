@@ -6,6 +6,8 @@ import { ReportView } from "@/components/report/ReportView";
 import { ReportErrorBoundary } from "@/components/report/ReportErrorBoundary";
 import { Empty, Loading } from "@/components/report/ReportClientStatus";
 import { RescanBanner } from "@/components/report/ReportRescanBanner";
+import { RescanAlert } from "@/components/report/ReportRescanAlert";
+import { ThrottledNotice } from "@/components/report/ThrottledNotice";
 import { useReportScan } from "@/components/report/useReportScan";
 import { QuotaBanner, QuotaBlocked, QuotaStaleNotice } from "@/components/report/QuotaNotice";
 import { CreditsBlocked } from "@/components/report/CreditsNotice";
@@ -30,7 +32,21 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
   // re-scans rather than hydrating from a cached whole-repo reading.
   const ref = params.get("ref") ?? undefined;
   const subPath = params.get("path") ?? undefined;
-  const { state, progress, quota, rescan, attempt, persisted, resumed, resumedSince, retest, startFresh, dismissRescan } = useReportScan(repo, initialFresh, {
+  const {
+    state,
+    progress,
+    quota,
+    rescan,
+    attempt,
+    persisted,
+    resumed,
+    resumedSince,
+    retest,
+    resumeThrottled,
+    autoResumes,
+    startFresh,
+    dismissRescan,
+  } = useReportScan(repo, initialFresh, {
     notify,
     ref,
     subPath,
@@ -72,6 +88,10 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
     if (state.credits) {
       return <CreditsBlocked message={state.message} balance={state.credits.balance} repo={repo} />;
     }
+    // Per-minute throttle: count down the limiter's retry-after and resume, never an immediate retry.
+    if (state.throttled) {
+      return <ThrottledNotice throttle={state.throttled} autoUsed={autoResumes} onResume={resumeThrottled} />;
+    }
     return state.blocked ? (
       <QuotaBlocked message={state.message} scope={state.blocked.scope} signInNext={signInNext} />
     ) : (
@@ -86,7 +106,20 @@ export function ReportClient({ repo: repoProp }: { repo?: string } = {}) {
       {/* In-place re-scan: the report below stays mounted while a "Re-test" runs; this banner shows
           live progress, or an inline retry/dismiss on failure (the prior report is kept either way).
           Keyed by `attempt` so the banner's elapsed clock resets on each re-test. */}
-      {(rescan.active || rescan.error) && (
+      {/* A throttled re-test renders its countdown alert here (not via the banner) so the per-visit
+          auto-resume count reaches it; the resume re-runs the re-test in rescan mode. */}
+      {rescan.error && rescan.errorClass.throttled ? (
+        <RescanAlert
+          key={attempt}
+          repo={repo}
+          error={rescan.error}
+          errorClass={rescan.errorClass}
+          autoResumes={autoResumes}
+          signInNext={signInNext}
+          onRetry={resumeThrottled}
+          onDismiss={dismissRescan}
+        />
+      ) : (rescan.active || rescan.error) && (
         <RescanBanner
           key={attempt}
           repo={repo}
