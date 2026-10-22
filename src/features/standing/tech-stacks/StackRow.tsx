@@ -11,8 +11,8 @@
 // rather than merely discouraged.
 
 import Link from "next/link";
-import { StateSwatch, rendersValue, stateTitle } from "@/components/org/viz";
-import { postureLabel } from "@/components/org/shared/ui";
+import { StateSwatch, rendersValue, stateTitle } from "@/components/shared/viz";
+import { postureLabel } from "@/components/shared/dashboard/ui";
 import type { SegmentSummary } from "@/lib/db";
 import { scoreHex } from "@/lib/ui";
 import { stackState } from "@/features/standing/tech-stacks/stackMeasure";

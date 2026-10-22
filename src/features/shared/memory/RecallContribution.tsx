@@ -17,7 +17,7 @@
 // The citation term (`citedCount`) is deliberately absent: it is not on the wire row, and drawing a
 // factor from a field we do not have would be a fabricated measurement.
 
-import { clamp, r2 } from "@/components/org/viz";
+import { clamp, r2 } from "@/components/shared/viz";
 import {
   ACCESS_BONUS_WEIGHT,
   MAX_DELIVERY_BONUS,

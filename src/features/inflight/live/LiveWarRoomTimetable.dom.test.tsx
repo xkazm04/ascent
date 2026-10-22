@@ -14,7 +14,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
-import { STATE_HINT, STATE_LABEL } from "@/components/org/viz";
+import { STATE_HINT, STATE_LABEL } from "@/components/shared/viz";
 import { FleetTimetablePanel } from "@/features/inflight/live/LiveWarRoomTimetable";
 import type { FleetTimetable } from "@/features/inflight/live/fleetTimetable";
 

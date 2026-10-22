@@ -5,7 +5,7 @@
 // and is passed in as props. Keeps the orchestrator under the 300-LOC ceiling (AGENTS.md).
 
 import { Fragment } from "react";
-import { OrgTable } from "@/components/org/shared/ui";
+import { OrgTable } from "@/components/shared/dashboard/ui";
 import { OriginTag } from "@/features/shared/registry/RegistryOriginTag";
 import { MemoryCard } from "@/features/shared/memory/MemoryCard";
 import { confidenceLabel, memoryKindLabel } from "@/lib/org/memory-kinds";

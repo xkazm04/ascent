@@ -77,7 +77,7 @@ recorded, not a failure to reach a number.
 ### Two axes, one canonical — `CELL_VIZ_STATE`
 
 The eleven states above are the **domain axis**: *which* classification the registry gave this pair.
-The dashboard-wide `VizState` (`@/components/org/viz`, the [redesign](../../ORG-UX-REDESIGN.md) §2.4
+The dashboard-wide `VizState` (`@/components/shared/viz`, the [redesign](../../ORG-UX-REDESIGN.md) §2.4
 vocabulary) is the **epistemic axis**: did we *measure* it, was it merely *declared*, did nothing
 *judge* it, is there no measurement at all. `knowledgeVocabulary.ts` maps the first onto the second,
 and **the kit is canonical** — every hatch, dash, void, opacity, swatch and caveat sentence on this

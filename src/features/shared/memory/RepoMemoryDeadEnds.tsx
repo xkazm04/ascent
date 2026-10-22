@@ -14,8 +14,8 @@
 // and carries its own boundary. Bodies render as PREFORMATTED TEXT, never dangerouslySetInnerHTML —
 // the content is untrusted repo prose and this is the last place it is displayed.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { Legend, MatrixGrid, StateSwatch, type MatrixRow } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend, MatrixGrid, StateSwatch, type MatrixRow } from "@/components/shared/viz";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import type { RepoMemoryEntryRow } from "@/lib/db/repo-memory";
 

@@ -15,8 +15,8 @@
 // (the period's AI-change population, the same one /api/org/conformance-pack performs) because a
 // ribbon with three voids in it would be honest and useless.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { FlowRibbon, WhyChip } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { FlowRibbon, WhyChip } from "@/components/shared/viz";
 import { getAiChangePopulation } from "@/lib/db/ai-changes";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { DEFAULT_SAMPLE_SIZE } from "@/lib/conformance/sample";

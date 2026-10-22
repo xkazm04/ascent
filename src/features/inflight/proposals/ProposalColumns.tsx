@@ -5,9 +5,9 @@
 
 import Link from "next/link";
 import { reportPermalink, timeAgo } from "@/lib/ui";
-import type { DecisionColumn } from "@/components/org/shared/DecisionTable";
-import { ClaimLine, ImpactEffort, NeedsHumanChip, Points, StatusPill } from "@/components/org/followups/FollowupChips";
-import type { DimensionSpread } from "@/components/org/followups/followupsModel";
+import type { DecisionColumn } from "@/components/shared/recs/DecisionTable";
+import { ClaimLine, ImpactEffort, NeedsHumanChip, Points, StatusPill } from "@/components/shared/followups/FollowupChips";
+import type { DimensionSpread } from "@/components/shared/followups/followupsModel";
 import type { ProposalRow } from "./proposalsModel";
 
 function Dash() {

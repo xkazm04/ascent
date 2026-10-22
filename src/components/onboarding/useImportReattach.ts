@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ScanRow } from "@/components/onboarding/OnboardingScanRow";
-import { QUEUE_FOLLOW_POLL_MS, startQueueFollow } from "@/components/org/shared/queueFollow";
+import { QUEUE_FOLLOW_POLL_MS, startQueueFollow } from "@/components/shared/scan/queueFollow";
 
 /** Same cadence as useOrgScanButton's queue poll. Slow on purpose: the work is durable, the next
  *  worker pass is minutes away, and a tighter poll would buy nothing and cost a query per tick. */

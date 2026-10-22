@@ -8,7 +8,7 @@
 // OrgTable chrome; rows are plain serializable data passed from the server page.
 
 import Link from "next/link";
-import { OrgTable } from "@/components/org/shared/ui";
+import { OrgTable } from "@/components/shared/dashboard/ui";
 import {
   bandColor,
   bandLabel,

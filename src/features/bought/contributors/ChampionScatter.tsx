@@ -14,7 +14,7 @@
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
 import { linScale } from "@/components/report/chartScale";
 import { scoreHex } from "@/lib/ui";
-import { KICKER_SVG_CLASS, r2 } from "@/components/org/viz";
+import { KICKER_SVG_CLASS, r2 } from "@/components/shared/viz";
 
 const W = 320;
 const H = 168;

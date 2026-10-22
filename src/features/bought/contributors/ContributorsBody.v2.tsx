@@ -4,8 +4,8 @@
 // heads, so no heading is doubled. Nothing here names a person below the naming floor: the sections
 // enforce that, this file only places them.
 import { Frame, Masthead } from "@/components/kit";
-import { SectionEmpty } from "@/components/org/shared/ui";
-import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
+import { SnapshotScopeNotice } from "@/components/shared/scope/SnapshotScopeNotice";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { ContributorsChampionsGrid } from "./ContributorsChampionsGrid";
 import { ContributorsAdoptionStrip } from "./ContributorsAdoptionStrip";

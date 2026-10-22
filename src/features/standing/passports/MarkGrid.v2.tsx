@@ -2,8 +2,8 @@
 // A short row is padded with a void, the same rule as MatrixGrid, and that void says
 // "not measured" rather than 0. Server-safe: no hooks.
 import { CellMark, DataTable } from "@/components/kit";
-import { cellAt, type MatrixRow } from "@/components/org/viz/matrixShared";
-import { stateTitle } from "@/components/org/viz/states";
+import { cellAt, type MatrixRow } from "@/components/shared/viz/matrixShared";
+import { stateTitle } from "@/components/shared/viz/states";
 import { cellMarkView } from "./markCell";
 
 export function MarkGridV2({

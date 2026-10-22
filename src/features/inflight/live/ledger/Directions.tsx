@@ -1,7 +1,7 @@
 // DIRECTIONS — the grants approving a plan created. Active first (they are what the runner is working
 // under right now), then the ended ones — exhausted, done, revoked — newest first within each.
 
-import { InlineEmpty } from "@/components/org/shared/ui";
+import { InlineEmpty } from "@/components/shared/dashboard/ui";
 import { LedgerSectionHeader } from "./LedgerSectionHeader";
 import { DirectionRow } from "./DirectionRow";
 import { LEDGER_ANCHOR } from "./ledgerModel";

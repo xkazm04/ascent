@@ -1,6 +1,6 @@
 // Prism disclosure for Delivery's mixed window. Same claim as SnapshotScopeNotice scope="partial":
 // the trend, unit economics, outcomes and AI spend honour the period; the rest is a scan-time snapshot.
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { Caption } from "@/components/kit";
 import { RANGE_OPTIONS, type ResolvedWindow } from "@/lib/window";
 

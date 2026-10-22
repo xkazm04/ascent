@@ -1,10 +1,10 @@
 // The Altimeter composition of the Contributors tab body: the former tail of ContributorsInsightsPanel,
 // moved here unchanged (the panel keeps the reads, the empty states and the per-section degradation).
 
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
+import { SnapshotScopeNotice } from "@/components/shared/scope/SnapshotScopeNotice";
 import { ContributorsChampionsGrid } from "./ContributorsChampionsGrid";
 import { ContributorsAdoptionStrip } from "./ContributorsAdoptionStrip";
 import { ContributorsNotes } from "./ContributorsNotes";

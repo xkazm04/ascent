@@ -20,8 +20,8 @@
 // Server-safe (no hooks, no motion): a digest is a static artifact people paste, and an entrance
 // animation on a document is noise. Dependency-free on scoreHex/deltaHex, per §2.5.
 
-import { isNum, r2, rendersValue, stateTitle } from "@/components/org/viz";
-import { deltaHex, signedDelta } from "@/components/org/shared/ui";
+import { isNum, r2, rendersValue, stateTitle } from "@/components/shared/viz";
+import { deltaHex, signedDelta } from "@/components/shared/dashboard/ui";
 import { scoreHex } from "@/lib/ui";
 import { COLUMN_HEAD, MarkSvg, VoidRule, pctLen } from "../barRowMarks";
 import { NOISE, type DimBar } from "./digestViz";

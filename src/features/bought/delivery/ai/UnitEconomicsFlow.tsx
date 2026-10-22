@@ -11,7 +11,7 @@
 //
 // Server-safe: `FlowRibbon`, `Legend` and `WhyChip` cross the client boundary themselves.
 
-import { FlowRibbon, Legend, WhyChip } from "@/components/org/viz";
+import { FlowRibbon, Legend, WhyChip } from "@/components/shared/viz";
 import { flowHasVoid, unitEconomicsStages, type UnitFlowInput } from "./unitFlowStages";
 
 /** (D) The demoted "'Produced code' is not a success rate" paragraph. */

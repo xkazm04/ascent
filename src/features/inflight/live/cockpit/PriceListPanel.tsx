@@ -17,7 +17,7 @@
 // should be there the moment the tab opens, run or no run.
 
 import { Kicker } from "@/components/ui";
-import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
+import { InlineEmpty, TILE_LEDGER } from "@/components/shared/dashboard/ui";
 import { dimShort } from "@/lib/ui";
 import { fmtMicrosPerPoint } from "@/lib/local/lane-economics";
 import { usePriceList } from "./usePriceList";

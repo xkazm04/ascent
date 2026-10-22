@@ -12,7 +12,7 @@
 // Server-safe (no hooks): pure presentation over the fold.
 
 import { timeAgo } from "@/lib/ui";
-import { Legend, StateTrack, type VizState } from "@/components/org/viz";
+import { Legend, StateTrack, type VizState } from "@/components/shared/viz";
 import { groupLessonsByVersion, traceGroupLabel } from "@/lib/registry/trace";
 import { traceLanes } from "./skillTraceViz";
 import type { TraceEntryView, TraceLessonView } from "./skillTrace";

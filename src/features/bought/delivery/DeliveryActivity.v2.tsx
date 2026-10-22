@@ -2,7 +2,7 @@
 // broken week. The caption pluralizes weeks the same way the Altimeter composition does.
 import { Frame, SectionHead } from "@/components/kit";
 import { Defer } from "@/components/ui/Defer";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import type { OrgActivity } from "@/lib/db";
 import { DeliveryActivityChartChunk } from "./DeliveryTabChunks";
 

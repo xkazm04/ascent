@@ -6,12 +6,12 @@
 // map are all needed together for this single panel.
 
 import { Suspense } from "react";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { ContributorsInsightsPanel } from "./ContributorsInsightsPanel";
 import { ContributorsCareSection } from "./ContributorsCareSection";
 import { resolveViewerLogin } from "@/lib/access";
 import { getTheme } from "@/lib/theme/server";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 type SearchParams = { [key: string]: string | string[] | undefined };

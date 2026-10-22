@@ -5,7 +5,7 @@
 // no org). A rejection surfaces SectionEmpty "couldn't load"; total===0 still renders the re-scan
 // card. Swallowing the throw used to vanish the panel, which looked like the fleet never deployed.
 
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { Frame, Lede } from "@/components/kit";
 import { getDeliveryOutcomes } from "@/lib/db/delivery-outcomes";
 import type { ResolvedWindow } from "@/lib/window";

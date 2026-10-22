@@ -10,7 +10,7 @@
 // MEASURED. Where the instrument never ran, the count is `null` and the state is `missing` or
 // `not-judged`, which `rendersValue()` then refuses to print a numeral for.
 
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 import type { KnowledgeCell, KnowledgeDomain, KnowledgeRepo, KnowledgeSubject, KnowledgeView } from "@/lib/org/knowledge-shape";
 import { type CellIndex, CELL_VIZ_STATE, columnRepos, subjectsOf } from "./knowledgeModel";
 

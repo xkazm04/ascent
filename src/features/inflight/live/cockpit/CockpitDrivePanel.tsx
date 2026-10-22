@@ -25,7 +25,7 @@
 // The terminal banner lives in CockpitDriveVerdict.tsx and is re-exported from here.
 
 import { deltaHex, Kicker, signedDelta } from "@/components/ui";
-import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
+import { InlineEmpty, TILE_LEDGER } from "@/components/shared/dashboard/ui";
 import { DriveRunRow } from "./CockpitDriveRunRow";
 import { CockpitRunnerPanel } from "./CockpitRunnerPanel";
 import { driveProgress } from "./driveModel";

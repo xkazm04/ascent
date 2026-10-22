@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { STATE_LABEL, VIZ_STATES } from "@/components/org/viz";
+import { STATE_LABEL, VIZ_STATES } from "@/components/shared/viz";
 import { FeedbackPlayground } from "./FeedbackPlayground";
 
 afterEach(() => vi.useRealTimers());

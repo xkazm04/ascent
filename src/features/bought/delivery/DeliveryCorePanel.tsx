@@ -3,8 +3,8 @@
 // section, never the tab). The theme picks DeliveryCore.v1 (Altimeter) or DeliveryCore.v2 (Prism);
 // both receive this same resolved view.
 
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { ExportCsvLink } from "@/components/org/shared/ui";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
+import { ExportCsvLink } from "@/components/shared/dashboard/ui";
 import { buildAiDeliveryModel } from "./ai/aiDeliveryModel";
 import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } from "@/lib/db";
 import { aiRoiSpendKind, aiRoiUnavailableMessage, settle } from "./deliveryLoad";

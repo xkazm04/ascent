@@ -5,7 +5,7 @@
 // chime + its persisted toggle. Keeps its own timer set so a pending expiry can't outlive the wall.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CELEBRATION_MAX, CELEBRATION_MS, type Celebration } from "@/components/org/shared/liveWarRoomShared";
+import { CELEBRATION_MAX, CELEBRATION_MS, type Celebration } from "@/components/shared/live/liveWarRoomShared";
 
 /** The wall's "ta-da" as `[frequency Hz, offset s]` pairs, rising. Exported so the theater's cues
  *  (theater/theaterSound.ts) are derived from the same voice rather than a second, drifting synth. */

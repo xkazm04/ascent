@@ -4,7 +4,7 @@
 // lists, the ordered groups and the shown set's summary — shared by the Altimeter card and the v2 ruled
 // rollup so the two cannot rank or filter differently. No markup here beyond the option glyphs.
 import { useState } from "react";
-import { postureLabel } from "@/components/org/shared/ui";
+import { postureLabel } from "@/components/shared/dashboard/ui";
 import type { FilterOption } from "@/components/kit";
 import { StackRoleIcon } from "./orgIcons";
 import {

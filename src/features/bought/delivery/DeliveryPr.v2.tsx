@@ -2,7 +2,7 @@
 // it paints a status hue. The table keeps the same riskiest-first order.
 import type { ReactNode } from "react";
 import { Caption, Frame, HairlineGrid, SectionHead, StatTile } from "@/components/kit";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import type { OrgPrSignals } from "@/lib/db";
 import type { FleetRateId } from "@/lib/db/org-signals";
 import { BASIS_HINT, PRS_COLUMN_HINT, fleetBasisCopy, medianBasisCopy, prSectionBasisLine } from "./prBasis";

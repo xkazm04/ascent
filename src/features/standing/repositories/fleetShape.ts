@@ -13,7 +13,7 @@
 // another feature group's stats module: `src/features/<group>/<tab>/` is the ownership boundary, and
 // a cross-group import would make one tab's refactor another tab's regression.
 
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 
 export type FiveNumber = { min: number; q1: number; median: number; q3: number; max: number };
 

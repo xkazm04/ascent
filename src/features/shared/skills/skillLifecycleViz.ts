@@ -12,7 +12,7 @@
 //
 // Pure: no JSX, no hooks, no DB import. Every encoding is the kit's; nothing is re-defined here.
 
-import type { MatrixCell, MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixCell, MatrixRow, VizState } from "@/components/shared/viz";
 import type { OutcomeStatus } from "@/lib/org/skill-outcomes";
 import { usageVerdictLabel, type SkillUsage, type SkillUsageState } from "@/lib/org/skill-usage";
 import type { SkillRow } from "@/lib/db";

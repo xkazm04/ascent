@@ -281,7 +281,7 @@ are not peer accents; `warn` / `success` are status, and `LEVEL_HEX` is the scor
 ## Data-viz study (`DataCharts`)
 
 The surface-library data-viz study (`src/features/shared/surfaces/DataCharts.tsx`)
-renders the org viz kit — `Distribution` and `BandLadder` from `@/components/org/viz`,
+renders the org viz kit — `Distribution` and `BandLadder` from `@/components/shared/viz`,
 with `STATE_LABEL` and `scoreHex` (`@/lib/ui`) — not CSS `<i>` bars of hardcoded
 readiness. Scores in the playground are labelled as a study series, not live org
 or marketing figures. Empty level bands stay `missing` (`STATE_LABEL.missing`,
@@ -291,7 +291,7 @@ or marketing figures. Empty level bands stay `missing` (`STATE_LABEL.missing`,
 
 The surface-library async-ui-states study (`src/features/shared/surfaces/FeedbackPlayground.tsx`)
 is driven from `Defer` (`@/components/ui/Defer`) and `VIZ_STATES` / `STATE_LABEL`
-(`@/components/org/viz`). It is not invented Ready / Loading / Empty / Error, and it
+(`@/components/shared/viz`). It is not invented Ready / Loading / Empty / Error, and it
 does not teach a spinner or skeleton as the house async contract. `Defer` schedules a
 subtree's first appearance (strategies `next-frame`, `idle`, `visible`); once shown,
 the subtree stays mounted. That is not a loading state: children are ready, and the
@@ -574,6 +574,15 @@ trigger, Escape and blur to dismiss (a click inside the panel keeps it open — 
 checked against the wrapper), and a `role="tooltip"` panel wired through `aria-describedby`, so the
 sentence is announced rather than merely drawn. `align="right"` pins the panel to the right edge for a
 trigger near the edge of its container.
+
+## Component folders (2026-10-22)
+
+Three app-wide component folders, all importable from any feature or route: `src/components/ui/`
+(primitives), `src/components/kit/` (Prism composition parts) and `src/components/shared/` (reusable
+domain-aware pieces: org tiles and `NextMoveLink`, scope filters, goal and live helpers, credits, scan
+controls, follow-up vocabulary, and the `viz/` visual kit). The direction is one way: none of the three
+may import from `src/features/**`, enforced by `src/components/shared/shared-boundary.test.ts`.
+`src/components/org/` is only the org tab shell and the personal workspace views.
 
 ## What a doc here should still cover
 

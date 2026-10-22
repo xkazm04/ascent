@@ -327,7 +327,7 @@ The line between them is enforced in two directions:
 | Share panel (paste, preview, commit, delete) | `src/features/developer/CareShareUpload.tsx` |
 | Share preview over the server's validator + ledger (pure) | `src/features/developer/shareUploadModel.ts` |
 | Share route client (POST / DELETE, status to state) | `src/features/developer/careShareClient.ts` |
-| Shared viz kit | `@/components/org/viz` — `MatrixGrid`, `Distribution`, `StateSwatch`, `Legend`, `WhyChip`. No state encoding, hatch, dash or legend is re-implemented in this directory. |
+| Shared viz kit | `@/components/shared/viz` — `MatrixGrid`, `Distribution`, `StateSwatch`, `Legend`, `WhyChip`. No state encoding, hatch, dash or legend is re-implemented in this directory. |
 | Shared org shell | `src/components/org/shell/OrgShell.tsx` (+ `src/lib/org/orgShellGate.ts`) |
 | Contributors relation | `src/features/bought/contributors/ContributorsYouPointer.tsx`, `ContributorsCareSection.tsx`, `CareOrgAggregate.tsx` |
 | Own-telemetry session shape (pure fold + scope) | `src/lib/org/care-session-telemetry.ts` |

@@ -3,7 +3,7 @@
 // /share/briefing/[token] page use) so no call site changes. Same "public by default" prop contract —
 // see the header comment in briefingCards.tsx.
 
-import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/shared/ui";
+import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/shared/dashboard/ui";
 import { MoveRow } from "./briefingShared";
 import { briefingGoalLine, briefingGoalStats, movementLine } from "@/lib/org/briefing";
 import { scoreHex } from "@/lib/ui";

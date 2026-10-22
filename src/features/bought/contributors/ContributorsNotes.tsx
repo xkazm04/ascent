@@ -6,7 +6,7 @@
 // feature doc, where a list of things that do not exist yet belongs. Server-safe.
 
 import { Kicker } from "@/components/ui";
-import { StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { StateSwatch, WhyChip, stateTitle } from "@/components/shared/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 const STALE_HINT =

@@ -4,7 +4,7 @@
 // never a status-colored badge. The ribbon stays: a missing stage is a gap, not a zero.
 import { useState } from "react";
 import { Caption, Frame, SectionHead, Segmented } from "@/components/kit";
-import { FlowRibbon, WhyChip } from "@/components/org/viz";
+import { FlowRibbon, WhyChip } from "@/components/shared/viz";
 import type { ModelFidelity } from "./aiDeliveryModel";
 import type { AiDeliveryModel } from "./aiDeliveryModel";
 import { aiDeliveryStages } from "./aiDeliveryFlow";

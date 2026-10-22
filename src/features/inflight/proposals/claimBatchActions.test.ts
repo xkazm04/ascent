@@ -3,13 +3,13 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/components/org/followups/claimActionsModel", async (orig) => ({
-  ...(await orig<typeof import("@/components/org/followups/claimActionsModel")>()),
+vi.mock("@/components/shared/followups/claimActionsModel", async (orig) => ({
+  ...(await orig<typeof import("@/components/shared/followups/claimActionsModel")>()),
   postClaimVerb: vi.fn(async () => undefined),
 }));
 
 import { claimBatchActions } from "./claimBatchActions";
-import { postClaimVerb } from "@/components/org/followups/claimActionsModel";
+import { postClaimVerb } from "@/components/shared/followups/claimActionsModel";
 import type { LoopProposal, ProposalRow, ScanProposal } from "./proposalsModel";
 
 const NOW = new Date("2026-10-22T12:00:00.000Z");

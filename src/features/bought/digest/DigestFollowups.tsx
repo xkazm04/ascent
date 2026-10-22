@@ -12,9 +12,9 @@
 // counts those marks deliberately do not print, and the row-level evidence.
 
 import Link from "next/link";
-import { Card, InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { Card, InlineEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
 import { Kicker } from "@/components/ui";
-import { Legend, StateSwatch, type LegendExtra } from "@/components/org/viz";
+import { Legend, StateSwatch, type LegendExtra } from "@/components/shared/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { DigestFollowupRow, WeeklyDigest } from "@/lib/org/digest-types";
 import { DigestLedgerBars } from "./DigestLedgerBars";

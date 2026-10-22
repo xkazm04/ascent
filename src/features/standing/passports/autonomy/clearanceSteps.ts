@@ -6,7 +6,7 @@
 // issued floor as not measured. Rungs above it stay open.
 
 import type { LadderState, LadderStep } from "@/components/kit";
-import type { LadderBand, LadderEdge } from "@/components/org/viz/BandLadder";
+import type { LadderBand, LadderEdge } from "@/components/shared/viz/BandLadder";
 import { TIERS, TIER_META, type AutonomyTier } from "./autonomyTiers";
 
 const countOf = (count: number | null | undefined): number | null =>

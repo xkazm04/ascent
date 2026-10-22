@@ -12,7 +12,7 @@
 // driveClient.ts). It is offered on every paused repo, the dry backoff included — waking a repo early
 // is the operator's call — and never on a runner that has ended, which has nothing to resume into.
 
-import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
+import { InlineEmpty, TILE_LEDGER } from "@/components/shared/dashboard/ui";
 import type { RunnerRepoRow } from "./runnerModel";
 
 export interface CockpitRunnerReposProps {

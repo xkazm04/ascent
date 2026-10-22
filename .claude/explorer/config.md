@@ -100,7 +100,7 @@ Authority: `AGENTS.md` + `src/components/ui/BRAND.md`.
   boundary).
 - **`src/features/<group>/<tab>/` mirrors the nav** (`ORG_NAV_GROUPS` / `ORG_TAB_IDS` in
   `src/lib/org/orgTabs.ts`). Nothing in a feature group imports from another group;
-  `components/org/shared` is imported BY features, never the reverse.
+  `components/shared` is imported BY features, never the reverse.
 - **Brand**: import primitives from `@/components/ui` (Surface, Kicker, Stat, SectionHeading,
   HairlineGrid, Dateline, Modal) and org chrome from `@/components/org/ui` (Tile, TILE_LEDGER,
   OrgTable, Meter). Level/score color ONLY via `LEVEL_HEX`/`scoreHex` from `@/lib/ui` — never a

@@ -13,8 +13,8 @@
 // The pasted markdown keeps the sentence in full (`standingDelta` in digest-markdown.ts) — a
 // recipient in Slack has no strip to look at and no chip to open. That divergence is deliberate.
 
-import { Tile, TILE_LEDGER } from "@/components/org/shared/ui";
-import { WhyChip } from "@/components/org/viz";
+import { Tile, TILE_LEDGER } from "@/components/shared/dashboard/ui";
+import { WhyChip } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 import type { WeeklyDigest } from "@/lib/org/digest-types";
 import { DigestCoverageStrip } from "./DigestCoverageStrip";

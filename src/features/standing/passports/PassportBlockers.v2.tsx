@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { CreateIssueModal, type IssueDraft } from "@/components/github/CreateIssueModal";
 import { Caption, HairlineList, ListRow } from "@/components/kit";
-import { Legend, WhyChip, type LegendExtra } from "@/components/org/viz";
+import { Legend, WhyChip, type LegendExtra } from "@/components/shared/viz";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import { draftFor } from "./blockerDraft";
 import { aggregateBlockers, scopeCounts, type Agg } from "./passportBlockerAgg";

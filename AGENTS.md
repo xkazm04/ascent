@@ -42,13 +42,40 @@ src/features/
   developer/   ← no group: it hangs off the header identity menu, not the org rail
 ```
 
+## `src/components/shared/` — the one app-wide shared folder
+
+Reusable, domain-aware components that more than one area needs live in **`src/components/shared/`**, and
+**any feature group or route may import from it**. There is no second "shared" folder and no exception
+list: if a feature needs it, it belongs here (or in `ui/` / `kit/`), not in `components/org/`.
+
+```
+src/components/
+  ui/       primitives (Button, Card, tokens, BRAND.md)
+  kit/      Prism composition parts (the UI kit)
+  shared/   domain-aware reusable pieces, themed subfolders:
+    dashboard/  ui.tsx (Tile, Card, SectionHeader, OrgEmpty), uiMeters, NextMoveLink, OrgTabGap
+    scope/      ScopeFilterBar, SegmentSelector, TechStackSelector, SnapshotScopeNotice, PeriodCoverage*
+    goals/      goalView, goalViewLogic, GoalTrend        live/   liveWarRoomShared, useRunnerNotifier
+    recs/       DecisionTable, DecisionControl, RepoDimensionModal, backlogShared, recStatusUi
+    scan/       OrgScanButton, ScanRunRoster, useScanStream, queueFollow
+    credits/    CreditsControl, BillingReturnNotice, useCheckoutReturn
+    security/   SecurityFindings(+Table)    followups/   the follow-up row vocabulary
+    viz/        the visual kit (import from `@/components/shared/viz`)
+  org/      shell/ (OrgShell, OrgTabNav, OrgTabChunks, error boundary, RunnerNotifier, alerts/)
+            personal/ (Personal* workspace views that compose feature panels)
+```
+
+**Dependency direction:** `shared/`, `ui/` and `kit/` must **never import from `src/features/**`**
+(features → shared, never the reverse). Enforced by `src/components/shared/shared-boundary.test.ts`
+(comments stripped, seeded violation proves it bites). A component that needs to import a feature panel
+is composition, not a shared part: it lives in `components/org/` (that is why `personal/` is there).
+
 What deliberately stays in `src/components/org/`:
 
-- `shell/` — the tab shell itself (`OrgShell`, `OrgTabNav`, `OrgTabChunks`, the error boundary, the
-  quiet gap). It renders every group, so it belongs to none.
-- `shared/` — cross-group components and hooks (alerts, credits, scope filters, meters). **Nothing in
-  a feature group may be imported from here**; the dependency only runs the other way.
-- `followups/` and the loose `Personal*.tsx` / `DecisionControl.tsx` / `SecurityFindings.tsx` files.
+- `shell/` — the tab shell itself (`OrgShell`, `OrgTabNav`, `OrgTabChunks`, the error boundary,
+  `RunnerNotifier`, and `alerts/`, the header alerts control). It renders every group, so it belongs to
+  none; features must not import it (the shared pieces it needs, like `OrgTabGap`, live in `shared/dashboard/`).
+- `personal/` — the individual-tier workspace views, which import feature panels.
 
 ## Max 200 LOC per file under `src/features/**`
 
@@ -193,7 +220,7 @@ reference:
 | `src/app/api/cron/rescan/**`, `src/lib/db/org-watch.ts`, `src/lib/scan-credit.ts` | `docs/features/fleet/rescan.md` |
 | `src/app/api/cron/purge/**`, `src/lib/db/retention.ts` | `docs/features/data/retention.md` |
 | `src/lib/practices/**`, `src/app/api/practices/**`, `src/features/shared/practices/**` | `docs/features/org-dashboard/practices.md` |
-| `src/app/org/**`, `src/components/org/**`, `src/features/{standing,admin}/**`, `src/lib/org/**` | `docs/features/org-dashboard/org-intelligence.md` |
+| `src/app/org/**`, `src/components/org/**`, `src/components/shared/**`, `src/features/{standing,admin}/**`, `src/lib/org/**` | `docs/features/org-dashboard/org-intelligence.md` |
 | `src/lib/scoring/orgsim.ts`, `src/features/inflight/live/**`, `src/features/bought/executive/**` | `docs/features/org-planning/plan.md` |
 | `src/lib/memory/**`, `src/lib/db/org-memory*.ts`, `src/features/shared/memory/**` | `docs/features/org-knowledge/memory.md` |
 | `src/lib/org/skill-*.ts`, `src/lib/db/org-{skills,api-tokens}.ts`, `src/features/shared/skills/**` | `docs/features/org-knowledge/skills.md` |

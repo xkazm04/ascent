@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import { Surface, Kicker } from "@/components/ui";
-import { Meter } from "@/components/org/shared/ui";
+import { Meter } from "@/components/shared/dashboard/ui";
 import { scoreHex, reportPermalink, timeAgo } from "@/lib/ui";
 import { TIER_META, tierHex, type RepoAutonomy } from "./autonomyModel";
 import { GateDot, SourcePin, TierRail } from "./autonomyShared";

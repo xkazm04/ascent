@@ -3,8 +3,8 @@
 // Both receive the same ExecutiveView. The public share page does not come through here.
 
 import { buildExecBriefing, briefingMarkdown } from "@/lib/org/briefing";
-import { SectionEmpty } from "@/components/org/shared/ui";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { briefingShareEnabled } from "@/lib/briefing-share";
 import { getCreditState, getOrgBranding } from "@/lib/db";

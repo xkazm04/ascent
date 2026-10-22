@@ -5,8 +5,8 @@
 // count on the bar is exactly the rows the route will accept for this viewer. Neither verb applies to
 // a loop proposal: a loop proposal is ruled on, not claimed.
 
-import type { DecisionAction } from "@/components/org/shared/DecisionTable";
-import { claimActionsFor, postClaimVerb, type ClaimVerb, type ClaimViewer } from "@/components/org/followups/claimActionsModel";
+import type { DecisionAction } from "@/components/shared/recs/DecisionTable";
+import { claimActionsFor, postClaimVerb, type ClaimVerb, type ClaimViewer } from "@/components/shared/followups/claimActionsModel";
 import { isScanProposal, type ProposalRow } from "./proposalsModel";
 
 export interface ClaimBatchInput {

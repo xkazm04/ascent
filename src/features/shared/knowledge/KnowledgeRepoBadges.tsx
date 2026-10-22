@@ -15,7 +15,7 @@
 // swatches are `aria-hidden` for the same reason — the badge's own words are the accessible name.
 
 import { chipButtonClass } from "@/components/ui";
-import { STATE_HINT, StateSwatch, type VizState } from "@/components/org/viz";
+import { STATE_HINT, StateSwatch, type VizState } from "@/components/shared/viz";
 import type { KnowledgeRepo } from "@/lib/org/knowledge-shape";
 
 const BADGE = "px-1.5 py-0 type-micro normal-case tracking-normal inline-flex items-center gap-1";

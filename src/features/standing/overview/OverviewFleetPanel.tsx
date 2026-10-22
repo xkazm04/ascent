@@ -12,8 +12,8 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { OrgEmpty } from "@/components/org/shared/ui";
-import { PeriodCoverageStrip } from "@/components/org/shared/PeriodCoverageStrip";
+import { OrgEmpty } from "@/components/shared/dashboard/ui";
+import { PeriodCoverageStrip } from "@/components/shared/scope/PeriodCoverageStrip";
 import { periodCoverage } from "@/lib/org/periodCoverageModel";
 import { OverviewLedger } from "./OverviewLedger";
 import { OverviewLedgerV2 } from "./OverviewLedger.v2";

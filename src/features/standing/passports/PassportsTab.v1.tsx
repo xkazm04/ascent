@@ -2,7 +2,7 @@
 // selector, CSV export) are built once by the entry and passed in, so this markup matches the previous
 // header. Server-safe: the entry calls it as a function.
 import type { ReactNode } from "react";
-import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { SectionEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
 import { PassportsSwitcher } from "./PassportsSwitcher";
 import type { PassportsData } from "./passportData";
 

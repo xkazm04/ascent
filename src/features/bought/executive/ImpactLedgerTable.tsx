@@ -9,7 +9,7 @@
 // Two column headers carry a demoted caveat as their `title`, so the rule is reachable on the column
 // it governs rather than in a paragraph beneath the tiles. Server-safe — no hooks, no handlers.
 
-import { OrgTable } from "@/components/org/shared/ui";
+import { OrgTable } from "@/components/shared/dashboard/ui";
 import type { ImpactLedger as ImpactLedgerModel } from "@/lib/db/org-impact";
 import { GOOD, SOURCE_LABEL, SOURCE_TITLE, deltaCell } from "./ImpactLedgerCells";
 import { IMPACT_AWAITING_HINT, IMPACT_IN_REVIEW_HINT, IMPACT_NO_BASELINE_HINT, IMPACT_NO_SUM_HINT } from "./impactView";

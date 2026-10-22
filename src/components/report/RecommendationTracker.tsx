@@ -5,8 +5,8 @@ import type { PersistedRecommendation, RecStatus, ScanReport } from "@/lib/types
 import { RoadmapSortToggle, TrackerProgress } from "@/components/report/roadmapPieces";
 import { roadmapLiftKey, sortRoadmap, type RoadmapLifts, type RoadmapSortMode } from "@/components/report/roadmapPriority";
 import { expectedLiftClause } from "@/lib/outcomes/expected-lift";
-import { STATUS_LABEL } from "@/components/org/shared/backlogShared";
-import { useSavingIds } from "@/components/org/shared/recStatusUi";
+import { STATUS_LABEL } from "@/components/shared/recs/backlogShared";
+import { useSavingIds } from "@/components/shared/recs/recStatusUi";
 import { RecommendationRow } from "@/components/report/RecommendationRow";
 import type { RecPlanningPatch, RowError } from "@/components/report/recommendationRowUi";
 import { OrphanedTracking } from "@/components/report/OrphanedTracking";

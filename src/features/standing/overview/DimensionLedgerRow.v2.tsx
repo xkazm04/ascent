@@ -3,7 +3,7 @@
 // the click). A dimension no repository scored is NOT JUDGED: an empty track and the words, never a bar.
 import Link from "next/link";
 import { DimensionLine, Movement, VoidMark, type DimensionId } from "@/components/kit";
-import { StateSwatch, stateTitle } from "@/components/org/viz";
+import { StateSwatch, stateTitle } from "@/components/shared/viz";
 import { buildUrl, clearedTabScopedParams, orgTabHref } from "@/lib/org/orgTabs";
 import type { DimensionReading } from "./dimensionReading";
 import { GREEN_FLOOR } from "./phaseStanding";

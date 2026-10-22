@@ -2,7 +2,7 @@
 // Server-safe, no hooks. An unmeasured dimension renders as a void mark, never as a 0; each company's
 // weakest present dimension is outlined, and one line names the book-wide gap with its denominator.
 
-import { OrgTable } from "@/components/org/shared/ui";
+import { OrgTable } from "@/components/shared/dashboard/ui";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import { dimName, portfolioMatrix } from "@/lib/org/portfolioBookModel";
 import type { PortfolioCompany } from "@/lib/org/portfolio";

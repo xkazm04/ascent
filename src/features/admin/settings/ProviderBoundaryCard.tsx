@@ -8,8 +8,8 @@
 // Server-safe: no hooks, no handlers. `MatrixGrid` and `WhyChip` carry their own client boundary.
 
 import { Kicker } from "@/components/ui";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend, MatrixGrid, WhyChip } from "@/components/shared/viz";
 import type { OrgLlmConfigPublic } from "@/lib/db";
 import {
   PROVIDER_AXES,

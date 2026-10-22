@@ -13,17 +13,17 @@
 
 import { buildGateSnippet, buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { securityV1 } from "./SecurityTab.v1";
 import { securityV2 } from "./SecurityTab.v2";
 import type { SecurityTabData } from "./securityTabData";
-import { PersonalSecurity } from "@/components/org/PersonalSecurity";
+import { PersonalSecurity } from "@/components/org/personal/PersonalSecurity";
 import { isPersonalOrg } from "@/lib/db";
 import { decisionMap } from "@/lib/org/decision-map";
 import { resolveStackScope } from "@/lib/org/scope";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { getTheme } from "@/lib/theme/server";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 type SearchParams = { [key: string]: string | string[] | undefined };

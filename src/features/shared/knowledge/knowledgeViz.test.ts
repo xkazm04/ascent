@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { KNOWLEDGE_CELL_STATES } from "@/lib/org/knowledge-shape";
 import { fixtureKnowledgeView } from "@/lib/org/knowledge-view.fixture";
-import { VIZ_STATES } from "@/components/org/viz";
+import { VIZ_STATES } from "@/components/shared/viz";
 import { CELL_VIZ_STATE, STAGE_VIZ_STATE, indexCells, subjectsOf } from "./knowledgeModel";
 import { bundleCoverage, subjectImpact, subjectVizState } from "./knowledgeViz";
 

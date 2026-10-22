@@ -41,7 +41,7 @@ the brief the prototype builders and the ship-loop milestones read._
    (`src/features/standing/governance/GovernanceTab.tsx`), sub-folders for larger features, **max 200
    LOC per file** under `src/features/**` (the repo-wide 300-LOC rule still governs everything else).
    Shared/cross-cutting components are explicitly excluded and stay put (`src/components/ui`,
-   `src/components/org/shared`, `src/components/org/shell`).
+   `src/components/shared`, `src/components/org/shell`).
 5. **Registry actions are capability-gated, never decorative.** `getRegistryView` carries a
    `capabilities` block (app configured · installation present · token mintable · viewer role ·
    can-create-repo). If ascent cannot act on the user's behalf, the GitHub buttons and links are **not

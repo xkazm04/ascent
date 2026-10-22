@@ -15,8 +15,8 @@
 // zero-AI pool as the budget, this list as what was packed into it, and the remainder as an OMISSION
 // block whose label carries the horizon. "Says what it left out" stopped being a promise.
 
-import { OrgTable } from "@/components/org/shared/ui";
-import { BudgetPack, WhyChip } from "@/components/org/viz";
+import { OrgTable } from "@/components/shared/dashboard/ui";
+import { BudgetPack, WhyChip } from "@/components/shared/viz";
 import { ENABLEMENT_MAX_IDLE_DAYS, type AdoptionOverview } from "@/lib/org/adoption";
 import { timeAgo } from "@/lib/ui";
 

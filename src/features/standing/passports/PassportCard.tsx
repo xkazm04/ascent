@@ -3,7 +3,7 @@
 // honest blockers, and a download of the raw passport.json. Sibling to the maturity report, not a
 // replacement: the report explains the maturity score; the passport names the stack + the prod posture.
 
-import { Card, Meter, SectionHeader } from "@/components/org/shared/ui";
+import { Card, Meter, SectionHeader } from "@/components/shared/dashboard/ui";
 import { PassportOverridePin } from "@/components/report/PassportOverridePin";
 import { PassportCardDeclined } from "@/features/standing/passports/PassportCardDeclined";
 import { PassportDeclineControl } from "@/features/standing/passports/PassportDeclineControl";

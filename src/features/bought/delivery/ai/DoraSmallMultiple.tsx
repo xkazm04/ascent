@@ -9,7 +9,7 @@
 // Server-safe; `WhyChip` crosses the client boundary itself.
 
 import { scoreHex } from "@/lib/ui";
-import { VOID_DASH, WhyChip, clamp, fmtNum, isNum, r2, rendersValue, stateTitle } from "@/components/org/viz";
+import { VOID_DASH, WhyChip, clamp, fmtNum, isNum, r2, rendersValue, stateTitle } from "@/components/shared/viz";
 import type { DoraPanel } from "./doraPanels";
 
 const W = 120;

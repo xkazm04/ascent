@@ -12,7 +12,7 @@
 // affordance is now each row's `title`. What prose could NOT do is say which marks are absent — that
 // is the kit `Legend` below the radar, showing only the states this selection actually contains.
 
-import { Legend } from "@/components/org/viz";
+import { Legend } from "@/components/shared/viz";
 import { Surface } from "@/components/ui";
 import type { SegmentSummary } from "@/lib/db";
 import { StackRadarChart, type RadarSeries } from "@/features/standing/tech-stacks/StackRadarChart";

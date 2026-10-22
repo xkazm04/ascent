@@ -1,10 +1,10 @@
 // Per-individual involvement — the Contributors tab's opt-in drill-down. Co-located extraction from
 // page.tsx (300-LOC rule); behavior unchanged apart from the population-floor branch. Server-safe.
 
-import { ExportCsvLink, OrgTable } from "@/components/org/shared/ui";
+import { ExportCsvLink, OrgTable } from "@/components/shared/dashboard/ui";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { Kicker } from "@/components/ui";
-import { StateSwatch, WhyChip } from "@/components/org/viz";
+import { StateSwatch, WhyChip } from "@/components/shared/viz";
 import type { ContributorInsights } from "@/lib/db";
 import { timeAgo } from "@/lib/ui";
 import { AiBar } from "./AiBar";

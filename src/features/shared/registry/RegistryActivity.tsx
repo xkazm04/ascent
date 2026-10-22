@@ -3,7 +3,7 @@
 // change log beside the tree, the Pipeline as the invoke edge's tail). Server-safe.
 
 import { Kicker } from "@/components/ui";
-import { InlineEmpty } from "@/components/org/shared/ui";
+import { InlineEmpty } from "@/components/shared/dashboard/ui";
 import { timeAgo } from "@/lib/ui";
 import type { RegistryActivityKind, RegistryView } from "@/lib/org/registry-view";
 

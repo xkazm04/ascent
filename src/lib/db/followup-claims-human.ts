@@ -13,7 +13,7 @@
 // longer names the live claim, which is the intended loud failure.
 //
 // AUTHORIZATION is decided at the route from the pure table in
-// `src/components/org/followups/claimActionsModel.ts`; this module narrows each CAS so a caller that
+// `src/components/shared/followups/claimActionsModel.ts`; this module narrows each CAS so a caller that
 // skipped the route still cannot exceed it: a member's send back needs `needsHuman`, a release needs
 // an unleased human claim held by the viewer unless the viewer is an admin.
 //

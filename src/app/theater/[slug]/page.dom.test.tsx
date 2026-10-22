@@ -14,7 +14,7 @@ vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => env.authConfigured, getSe
 vi.mock("@/lib/authz", () => ({ canReadOrg: vi.fn(async () => env.canRead) }));
 vi.mock("@/components/Brand", () => ({ SiteHeader: () => <div data-testid="site-header" /> }));
 vi.mock("@/components/SignInNotice", () => ({ SignInNotice: (p: { next: string }) => <div data-testid="sign-in">{p.next}</div> }));
-vi.mock("@/components/org/shared/ui", () => ({ OrgEmpty: (p: { title: string }) => <div data-testid="org-empty">{p.title}</div> }));
+vi.mock("@/components/shared/dashboard/ui", () => ({ OrgEmpty: (p: { title: string }) => <div data-testid="org-empty">{p.title}</div> }));
 vi.mock("@/features/inflight/live/theater/TheaterShell", () => ({
   TheaterShell: (p: { source: { kind: string; scenario?: string }; soundPreselect?: boolean; heroId?: string | null }) => (
     <div data-testid="theater">{`${p.source.kind}:${p.source.scenario ?? ""}:${p.soundPreselect ? "sound" : "quiet"}:${p.heroId ?? ""}`}</div>

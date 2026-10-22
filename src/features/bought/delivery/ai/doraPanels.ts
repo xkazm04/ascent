@@ -13,7 +13,7 @@
 // only drawing that keeps that refusal legible.
 
 import { MIN_DEPLOYMENTS, type DeliveryOutcomes } from "@/lib/db/delivery-outcomes";
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 
 export interface DoraPanel {
   id: string;

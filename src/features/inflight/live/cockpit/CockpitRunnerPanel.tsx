@@ -19,7 +19,7 @@
 // stops the run it is waiting on. Either way the verified work already on the runner branch stays.
 
 import { Kicker } from "@/components/ui";
-import { TILE_LEDGER } from "@/components/org/shared/ui";
+import { TILE_LEDGER } from "@/components/shared/dashboard/ui";
 import { DriveRunRow } from "./CockpitDriveRunRow";
 import { CockpitRunnerRepos } from "./CockpitRunnerRepos";
 import { driveProgress } from "./driveModel";

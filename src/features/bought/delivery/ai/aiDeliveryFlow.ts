@@ -9,7 +9,7 @@
 // `FlowRibbon` breaks the connectors at either, so the chain visibly does not join through a claim
 // nobody measured.
 
-import type { FlowStage } from "@/components/org/viz";
+import type { FlowStage } from "@/components/shared/viz";
 import type { AiDeliveryModel } from "./aiDeliveryModel";
 
 export function aiDeliveryStages(model: AiDeliveryModel): FlowStage[] {

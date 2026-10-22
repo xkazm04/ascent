@@ -6,7 +6,7 @@
 // are now drawn: an unshared field is a VOID (no numeral, so it can never be misread as a zero), and
 // the band is a box plot, which has no prop that could carry a name.
 
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { CareShapeRow, type CareBandGap } from "./CareShapeRow";
 import { CARE_SHAPE_ORDER, type DeveloperView } from "@/lib/org/developer-view";
 import { careShapeEmptyReason } from "@/lib/org/care-shape-contract";

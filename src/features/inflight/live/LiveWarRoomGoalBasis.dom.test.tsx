@@ -10,7 +10,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { GOAL_PCT_LABEL } from "@/lib/db/plan";
-import type { GoalProgressView } from "@/components/org/shared/goalView";
+import type { GoalProgressView } from "@/components/shared/goals/goalView";
 import { GoalBanner } from "@/features/inflight/live/LiveWarRoomGoalBanner";
 import { TvStanding, type TvStageData } from "@/features/inflight/live/LiveWarRoomTvStages";
 import { MIN_FORECAST_POINTS } from "@/lib/maturity/forecast";

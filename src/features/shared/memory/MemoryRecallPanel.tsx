@@ -19,8 +19,8 @@
 // Reads are UNGATED (any org member), matching the route.
 
 import { useEffect, useRef, useState } from "react";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { BudgetPack, Legend, WhyChip } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { BudgetPack, Legend, WhyChip } from "@/components/shared/viz";
 import { IneligibleRow, OmissionGroup, ScoredRow } from "@/features/shared/memory/MemoryRecallRows";
 import { DEFAULT_BUDGET, MemoryRecallControls } from "@/features/shared/memory/MemoryRecallControls";
 import { runRecall, type RecallResponse } from "@/features/shared/memory/memoryRecall";

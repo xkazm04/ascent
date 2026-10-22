@@ -6,7 +6,7 @@
 // than in either file. Client because the migration action is a button.
 
 import { Kicker, Stat } from "@/components/ui";
-import { TILE_LEDGER } from "@/components/org/shared/ui";
+import { TILE_LEDGER } from "@/components/shared/dashboard/ui";
 import { scoreHex } from "@/lib/ui";
 import type { RegistryArtifact, RegistryView } from "@/lib/org/registry-view";
 import { ARTIFACTS, ARTIFACT_DIR, ARTIFACT_LABEL, MIGRATION_LABEL } from "./registryModel";

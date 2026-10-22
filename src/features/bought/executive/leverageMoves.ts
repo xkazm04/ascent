@@ -14,7 +14,7 @@
 // per-repo gain is recoverable from the same bar: it is one segment, and the segment dividers are
 // drawn per affected repository.
 
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 import type { OrgRec } from "@/lib/db";
 import { dimShort } from "@/lib/ui";
 

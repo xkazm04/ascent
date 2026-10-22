@@ -1,6 +1,6 @@
 // The Altimeter composition of the Pairing tab (moved unchanged from PairingTab.tsx). Server-safe.
-import { SectionHeader } from "@/components/org/shared/ui";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { PairingList } from "./PairingList";
 import { AddRepoForm } from "./AddRepoForm";

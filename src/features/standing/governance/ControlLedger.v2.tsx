@@ -1,7 +1,7 @@
 // Governance control ledger in Prism. The lane picture stays (no kit part draws a control over time).
 // The table under it is the kit table, and an unreadable state is a void.
 import { Caption, Frame, SectionHead } from "@/components/kit";
-import { Legend, StateTrack } from "@/components/org/viz";
+import { Legend, StateTrack } from "@/components/shared/viz";
 import { TIMELINE_CAP, controlCoverage, listControlTimeline, verifySeals } from "@/lib/db/control-observations";
 import { controlLanes } from "./controlLanes";
 import { groupTimeline, timelineDisclosure, timelineTotals, truncationSentence } from "./controlTimeline";

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { foldRepoEvent, computeStats, computeLeaderboard } from "@/features/inflight/live/liveWarRoomFold";
-import type { LiveRepo } from "@/components/org/shared/liveWarRoomShared";
+import type { LiveRepo } from "@/components/shared/live/liveWarRoomShared";
 
 // The derived-view half of the war-room fold suite, split off liveWarRoomFold.test.ts for the 200-LOC
 // src/features cap. The event-level rules (scored folds, the celebration crossing, and the

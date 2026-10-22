@@ -8,7 +8,7 @@
 // cannot print it. These tests pin the state, which is what the drawing reads.
 
 import { describe, expect, it } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import { buildDimensionReadings } from "@/features/standing/overview/dimensionReading";
 import { GREEN_FLOOR, owedCount, phaseStandings } from "@/features/standing/overview/phaseStanding";
 

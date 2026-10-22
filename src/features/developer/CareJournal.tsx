@@ -3,7 +3,7 @@
 // The journal — weekly retro lines, kept by ascent across machines and reinstalls. That persistence IS
 // the argument: a local skill's `journal.jsonl` dies with the laptop.
 
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { CareCommand } from "./CareBits";
 import { timeAgo } from "@/lib/ui";
 import type { DeveloperView } from "@/lib/org/developer-view";

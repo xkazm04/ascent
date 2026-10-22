@@ -95,7 +95,7 @@ themselves (`SkillCardActions`).
 
 `SkillsLifecycle` is two figures over the same ranked set of skills (top 10 by
 adoption, then downloads; the cut is named on screen). Both are built from
-`@/components/org/viz` — the shared `/org` state vocabulary — so the Skills tab,
+`@/components/shared/viz` — the shared `/org` state vocabulary — so the Skills tab,
 the Memory tab and Practices paint one alphabet.
 
 **Reuse across the fleet** — a `MatrixGrid`, one row per skill:

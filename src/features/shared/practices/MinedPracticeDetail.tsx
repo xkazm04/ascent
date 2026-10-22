@@ -6,7 +6,7 @@
 // shared detail modal (layer 2) and the "Current" baseline card, with no behavior change.
 
 import Link from "next/link";
-import { Meter } from "@/components/org/shared/ui";
+import { Meter } from "@/components/shared/dashboard/ui";
 import { PracticeApply } from "@/features/shared/practices/PracticeApply";
 import { scoreHex } from "@/lib/ui";
 import type { OrgPractice } from "@/lib/db";

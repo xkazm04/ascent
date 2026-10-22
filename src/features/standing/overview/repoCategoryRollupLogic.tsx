@@ -2,7 +2,7 @@
 // docs/ORG-TABS-REFACTOR.md's extraction order (pure functions before JSX regions) to keep
 // RepoCategoryRollup.tsx under the 200-LOC cap.
 
-import { postureLabel } from "@/components/org/shared/ui";
+import { postureLabel } from "@/components/shared/dashboard/ui";
 import { LEVEL_CLASSES, LEVEL_GLYPH } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import { StackRoleIcon } from "@/features/standing/overview/orgIcons";

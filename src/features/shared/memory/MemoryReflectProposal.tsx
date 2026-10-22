@@ -10,7 +10,7 @@
 // deletes) and the summary is drawn DECLARED until applied (nothing is written until you click).
 
 import { memoryKindLabel } from "@/lib/org/memory-kinds";
-import { Legend } from "@/components/org/viz";
+import { Legend } from "@/components/shared/viz";
 import { MergeCluster } from "@/features/shared/memory/MergeCluster";
 import type { ReflectProposal } from "@/features/shared/memory/memoryReflect";
 

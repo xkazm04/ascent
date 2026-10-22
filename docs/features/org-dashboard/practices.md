@@ -277,7 +277,7 @@ state links there.
 ### The rollout matrix (`/org` UX redesign wave 2, 2026-09-08)
 
 The library's headline reading is a **`MatrixGrid`** from the shared `/org` viz kit
-(`src/components/org/viz`), one row per practice against four stages, drawn before any table.
+(`src/components/shared/viz`), one row per practice against four stages, drawn before any table.
 The view model is pure and separately tested (`practiceRolloutViz.ts` /
 `practiceRolloutViz.test.ts`); `PracticeRolloutStrip.tsx` only paints it.
 

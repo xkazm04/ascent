@@ -23,7 +23,7 @@
 //
 // Pure: no React, no hooks, no I/O. The kit types are `import type`.
 
-import type { MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixRow, VizState } from "@/components/shared/viz";
 import type { OrgLlmConfigPublic } from "@/lib/db";
 
 /** Column names. Kept to ≤8 characters: MatrixGrid's cells are 46 user units wide and the axis label

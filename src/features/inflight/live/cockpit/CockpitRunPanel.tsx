@@ -7,7 +7,7 @@
 // says so: killing a `claude -p` session mid-edit would leave a working copy half-changed.
 
 import { Kicker } from "@/components/ui";
-import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
+import { InlineEmpty, TILE_LEDGER } from "@/components/shared/dashboard/ui";
 import { LaneRail } from "./LaneRail";
 import { isExternalExecutor } from "./loopTypes";
 import type { LoopLaneOutcome, LoopRunDetail } from "./loopTypes";

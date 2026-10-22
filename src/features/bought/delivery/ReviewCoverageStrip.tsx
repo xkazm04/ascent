@@ -23,7 +23,7 @@ import {
   isNum,
   r2,
   stateTitle,
-} from "@/components/org/viz";
+} from "@/components/shared/viz";
 
 const W = 320;
 const H = 78;

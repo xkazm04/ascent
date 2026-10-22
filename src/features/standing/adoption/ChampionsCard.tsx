@@ -7,9 +7,9 @@
 
 import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { Card, InlineEmpty, MeterRow, SectionHeader } from "@/components/org/shared/ui";
+import { Card, InlineEmpty, MeterRow, SectionHeader } from "@/components/shared/dashboard/ui";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
-import { StateSwatch, WhyChip } from "@/components/org/viz";
+import { StateSwatch, WhyChip } from "@/components/shared/viz";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { scoreHex } from "@/lib/ui";
 import { CHAMPION_HINT } from "./adoptionHints";

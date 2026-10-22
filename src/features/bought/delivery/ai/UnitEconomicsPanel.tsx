@@ -7,7 +7,7 @@
 // onboarding card. Swallowing the throw used to vanish the panel, which after a connected Claude
 // exporter looked like session.id never arrived.
 
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { Frame, Lede } from "@/components/kit";
 import { getUnitEconomics } from "@/lib/db/unit-economics";
 import type { ResolvedWindow } from "@/lib/window";

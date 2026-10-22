@@ -8,8 +8,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { CELL, DataTable, Frame, HEAD_CELL, SectionHead, SortHead, VoidMark } from "@/components/kit";
-import { RepoDimensionModal, type HeatTarget } from "@/components/org/shared/RepoDimensionModal";
-import { Legend } from "@/components/org/viz";
+import { RepoDimensionModal, type HeatTarget } from "@/components/shared/recs/RepoDimensionModal";
+import { Legend } from "@/components/shared/viz";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import { useHeatMatrix, type HeatRow } from "./heatmapModel";
 import { GREEN_FLOOR } from "./phaseStanding";

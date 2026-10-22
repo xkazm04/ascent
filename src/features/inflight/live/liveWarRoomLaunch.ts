@@ -9,7 +9,7 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { readSSE } from "@/lib/sse";
 import { foldProgressFrame, type ScanSubstage } from "@/lib/scan-stage";
-import type { Celebration, Mover, Phase } from "@/components/org/shared/liveWarRoomShared";
+import type { Celebration, Mover, Phase } from "@/components/shared/live/liveWarRoomShared";
 
 // `stage` is the current repo's SUB-progress (fetch → compose), null at a repo boundary. It is
 // additive: `done`/`total` still only ever move on a repo boundary, because foldProgressFrame assigns

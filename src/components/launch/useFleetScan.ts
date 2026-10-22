@@ -20,9 +20,9 @@
 // error or a network failure stops it, with that org's card saying why.
 
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
-import { useScanStream } from "@/components/org/shared/useScanStream";
-import { startQueueFollow } from "@/components/org/shared/queueFollow";
-import { emptyRoster, foldQueueSnapshot, foldStreamFrame, retryScope, type ScanRunRoster } from "@/components/org/shared/scanRunRosterModel";
+import { useScanStream } from "@/components/shared/scan/useScanStream";
+import { startQueueFollow } from "@/components/shared/scan/queueFollow";
+import { emptyRoster, foldQueueSnapshot, foldStreamFrame, retryScope, type ScanRunRoster } from "@/components/shared/scan/scanRunRosterModel";
 import type { Installation } from "./FleetMap.constants";
 import { applyScanEvent } from "./applyScanEvent";
 import { type FleetQueued, type FleetScanOutcome, fleetScanOutcome, refusedOutcome } from "./fleetScanOutcomeModel";

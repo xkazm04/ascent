@@ -3,8 +3,8 @@
 // Beyond-noise movers sit clear of the shaded band; `held` sits inside it; `onboarded` is a lifetime
 // delta (or a name at the origin when there is no comparable pair — never a printed 0).
 
-import { deltaHex, signedDelta } from "@/components/org/shared/ui";
-import { r2 } from "@/components/org/viz";
+import { deltaHex, signedDelta } from "@/components/shared/dashboard/ui";
+import { r2 } from "@/components/shared/viz";
 import { NOISE, type MoveMark } from "./digestViz";
 
 const LABEL_W = 92;

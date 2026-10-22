@@ -1,6 +1,6 @@
 // Prism trend. The small multiples stay: kit Trend cannot draw a broken day or an hours axis.
 import { Caption, Frame, SectionHead } from "@/components/kit";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { TimeRangeSelector } from "@/features/standing/overview/TimeRangeSelector";
 import type { OrgDeliveryTrend } from "@/lib/db/org-delivery-trend";
 import type { RangeKey } from "@/lib/window";

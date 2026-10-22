@@ -10,7 +10,7 @@
 // 200-LOC cap (AGENTS.md) by keeping the JSX itself thin.
 
 import { ConfirmAction, segmentDeleteConfirm } from "@/components/ConfirmAction";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import {
   SegmentChips,
   SegmentEditor,

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { REATTACH_POLL_MS, useImportReattach } from "./useImportReattach";
-import { QUEUE_FOLLOW_MAX_MS, QUEUE_FOLLOW_MAX_READS } from "@/components/org/shared/queueFollow";
+import { QUEUE_FOLLOW_MAX_MS, QUEUE_FOLLOW_MAX_READS } from "@/components/shared/scan/queueFollow";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); setVisibility("visible"); });

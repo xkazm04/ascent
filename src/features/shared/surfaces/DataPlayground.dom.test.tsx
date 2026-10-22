@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { STATE_LABEL } from "@/components/org/viz";
+import { STATE_LABEL } from "@/components/shared/viz";
 import { LEVELS } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 import { DataPlayground } from "./DataPlayground";

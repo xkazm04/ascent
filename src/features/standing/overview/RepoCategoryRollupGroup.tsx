@@ -1,7 +1,7 @@
 // One category group card (header aggregates + repo rows) inside RepoCategoryRollup. Split out of
 // RepoCategoryRollup.tsx per docs/ORG-TABS-REFACTOR.md (JSX regions → sibling components) to keep the
 // parent under the 200-LOC cap.
-import { Meter } from "@/components/org/shared/ui";
+import { Meter } from "@/components/shared/dashboard/ui";
 import { fmtDelta, deltaHex } from "@/components/ui/format";
 import { scoreHex } from "@/lib/ui";
 import { agg, type Group } from "./repoCategoryRollupLogic";

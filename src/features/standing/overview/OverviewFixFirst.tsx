@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { ListRow, ListRows, Panel } from "@/components/kit";
-import { Legend, WhyChip, type VizState } from "@/components/org/viz";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { Legend, WhyChip, type VizState } from "@/components/shared/viz";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { FixFirstImpactBar } from "./FixFirstImpactBar";
 import { IMPACT_UNIT, impactScaleMax } from "./fixFirstImpact";
 import type { FixFirstItem } from "@/features/standing/overview/fixFirst";

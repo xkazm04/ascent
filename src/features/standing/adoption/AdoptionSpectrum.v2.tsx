@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { Frame, SectionHead } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { DEFAULT_BASE, Legend, WhyChip } from "@/components/org/viz";
+import { DEFAULT_BASE, Legend, WhyChip } from "@/components/shared/viz";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { AdoptionCurve } from "./AdoptionCurve";
 import { buildAdoptionCurve } from "./adoptionCurveModel";

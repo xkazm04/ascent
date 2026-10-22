@@ -18,7 +18,7 @@
 // preview cannot promise a standard the lane then does not use.
 
 import { InfoTip, Kicker } from "@/components/ui";
-import { InlineEmpty } from "@/components/org/shared/ui";
+import { InlineEmpty } from "@/components/shared/dashboard/ui";
 import { briefSummaryParts, type BriefSummaryPart } from "@/lib/org/lane-brief";
 import type { LoopProposal } from "./loopTypes";
 

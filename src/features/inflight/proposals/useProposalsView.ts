@@ -12,9 +12,9 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { DecisionAction } from "@/components/org/shared/DecisionTable";
-import { dimensionSpread, emptyFilters, patchStatuses, type FollowUpFilters, type FollowUpRow } from "@/components/org/followups/followupsModel";
-import type { ClaimViewer } from "@/components/org/followups/claimActionsModel";
+import type { DecisionAction } from "@/components/shared/recs/DecisionTable";
+import { dimensionSpread, emptyFilters, patchStatuses, type FollowUpFilters, type FollowUpRow } from "@/components/shared/followups/followupsModel";
+import type { ClaimViewer } from "@/components/shared/followups/claimActionsModel";
 import { reviewLoopDeliverable } from "@/features/inflight/live/cockpit/loopClient";
 import { claimBatchActions } from "./claimBatchActions";
 import { proposalColumns } from "./ProposalColumns";

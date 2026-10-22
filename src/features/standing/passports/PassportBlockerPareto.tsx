@@ -25,7 +25,7 @@
 // DASHED mark and its own count, never folded into the solid run and never an issue-draft target.
 
 import { useState } from "react";
-import { Legend, WhyChip, type LegendExtra } from "@/components/org/viz";
+import { Legend, WhyChip, type LegendExtra } from "@/components/shared/viz";
 import { PassportBlockerShell } from "@/features/standing/passports/PassportBlockerShell";
 import { PLACEHOLDER_LABEL, PLACEHOLDER_TITLE } from "@/features/standing/passports/PlaceholderMark";
 import { CreateIssueModal, type IssueDraft } from "@/components/github/CreateIssueModal";

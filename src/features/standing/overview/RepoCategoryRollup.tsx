@@ -10,7 +10,7 @@
 // docs/ORG-TABS-REFACTOR.md to keep this file under the 200-LOC cap.
 
 import { Surface } from "@/components/ui";
-import { SectionHeader } from "@/components/org/shared/ui";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
 import { fmtDelta, deltaHex, DIRECTION_TONE } from "@/components/ui/format";
 import { scoreHex } from "@/lib/ui";
 import { FilterMenu } from "@/components/kit";

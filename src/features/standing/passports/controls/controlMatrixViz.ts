@@ -9,7 +9,7 @@
 // Pure: no React, no fetch. The type-only import of the kit's row shapes is erased at compile time,
 // so this stays a server-safe `.ts` module that a test can call directly.
 
-import type { MatrixCell, MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixCell, MatrixRow, VizState } from "@/components/shared/viz";
 import { parseCheckId } from "@/lib/standard/check-ids";
 import type { ControlMatrixRowView } from "./controlMatrixView";
 

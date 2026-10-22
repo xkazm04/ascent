@@ -8,7 +8,7 @@
 // practice appears without a reload), the selected detail row, and the create-modal flag.
 // Altimeter keeps this markup. Prism renders PracticesPageV2, which calls the same hook.
 
-import { SectionHeader, SectionEmpty } from "@/components/org/shared/ui";
+import { SectionHeader, SectionEmpty } from "@/components/shared/dashboard/ui";
 import { PracticeRolloutStrip } from "./PracticeRolloutStrip";
 import { PracticeDetailModal } from "./PracticeDetailModal";
 import { NewPracticeModal } from "./NewPracticeModal";

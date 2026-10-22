@@ -60,7 +60,7 @@ wall time was shared with a parallel exercise on `?tab=live`.
 - The **"movement basis" fragment** (arrow, value, `deltaLabel`, sr-only sentence) exists three times now:
   `OrgScoreBadges` (v1), `StandingMasthead.Movement` (v2) and, in spirit, the ledger row. It wants a kit
   `Movement` part before the Executive, Delivery and Adoption modules copy it a fourth time.
-- **`Legend`/`StateSwatch`/`HeatVoid`** (the void and not-judged marks) live in `components/org/viz` and this module.
+- **`Legend`/`StateSwatch`/`HeatVoid`** (the void and not-judged marks) live in `components/shared/viz` and this module.
   Every v2 surface needs them; they belong in the kit as `VoidMark`.
 - The **repo row** (`RepoCategoryRollupRow`) was reused as is inside a v2 group; it is still a mono path row with
   stack icons. It is the next thing to redesign, and it recurs in Repositories, Passports and Security.

@@ -12,7 +12,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { chipButtonClass, Kicker } from "@/components/ui";
-import { MatrixGrid } from "@/components/org/viz";
+import { MatrixGrid } from "@/components/shared/viz";
 import { CARE_LEDGER_AXES, careLedgerRows } from "./careLedgerRows";
 import { commitShare, deleteShare, type CareShareOutcome } from "./careShareClient";
 import { CARE_SHARE_SECTION_LABEL, careShareLeaves, careSharePreview, careSharePreviewCopy as COPY } from "./shareUploadModel";

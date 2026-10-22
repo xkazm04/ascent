@@ -17,7 +17,7 @@
 // was accepted about a different repo than the one that exists now. The entry says so, so the duplicate
 // reads as "this is the reasoning you are being asked to reaffirm", not as a double-count.
 
-import { DecisionControl, type DecisionStatusUi } from "@/components/org/DecisionControl";
+import { DecisionControl, type DecisionStatusUi } from "@/components/shared/recs/DecisionControl";
 import { judgeFinding } from "@/lib/org/passport-judgments";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import type { DeclinedByChoice, PassportFinding } from "@/lib/types";

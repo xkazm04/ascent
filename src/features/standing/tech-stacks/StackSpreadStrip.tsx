@@ -7,7 +7,7 @@
 // as `not-judged` rather than folded in at its sentinel 0, which would drag the minimum to zero and
 // invent a spread the fleet does not have.
 
-import { Distribution, Legend } from "@/components/org/viz";
+import { Distribution, Legend } from "@/components/shared/viz";
 import type { SegmentSummary } from "@/lib/db";
 import { stackSpread } from "@/features/standing/tech-stacks/stackMeasure";
 

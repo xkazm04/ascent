@@ -154,7 +154,7 @@ describe("owner-facing copy is a low-balance warning, not auto-recharge", () => 
   });
 
   it("the credits popover renders the shared copy and does not inline the automatic sentence", () => {
-    const ui = readFileSync(join(process.cwd(), "src/components/org/shared/CreditsControl.autorechargeUi.tsx"), "utf8");
+    const ui = readFileSync(join(process.cwd(), "src/components/shared/credits/CreditsControl.autorechargeUi.tsx"), "utf8");
     expect(ui).toContain("LOW_BALANCE_WARNING_LABEL");
     expect(ui).toContain("LOW_BALANCE_WARNING_TOGGLE");
     expect(ui).toContain("lowBalanceHelpCopy");

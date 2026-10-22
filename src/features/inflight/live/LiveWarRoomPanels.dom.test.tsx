@@ -13,7 +13,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { MoversTicker } from "@/features/inflight/live/LiveWarRoomPanels";
-import type { Mover } from "@/components/org/shared/liveWarRoomShared";
+import type { Mover } from "@/components/shared/live/liveWarRoomShared";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (

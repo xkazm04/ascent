@@ -19,7 +19,7 @@
 //
 // Server-safe: no hooks, no handlers, no motion — nothing here needs a client boundary.
 
-import { HATCH_ID, VizDefs, r2, stateFill, stateFillOpacity, stateStroke, stateTitle } from "@/components/org/viz";
+import { HATCH_ID, VizDefs, r2, stateFill, stateFillOpacity, stateStroke, stateTitle } from "@/components/shared/viz";
 import { MarkSvg, VoidRule, pctLen } from "../barRowMarks";
 import { SEGMENT_CAP, leverageMax, leverageReadout, type LeverageBar } from "./leverageMoves";
 

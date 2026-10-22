@@ -10,8 +10,8 @@
 // approval across them is the rubber stamp with better ergonomics. So nothing here is selectable and no
 // bulk action is offered; every plan is decided on its own row.
 
-import { DecisionTable, type DecisionColumn } from "@/components/org/shared/DecisionTable";
-import { InlineEmpty } from "@/components/org/shared/ui";
+import { DecisionTable, type DecisionColumn } from "@/components/shared/recs/DecisionTable";
+import { InlineEmpty } from "@/components/shared/dashboard/ui";
 import { fmtAgo, shortRepo } from "./ledgerFormat";
 import { planReason } from "./ledgerModel";
 import { PlanDecision } from "./PlanDecision";

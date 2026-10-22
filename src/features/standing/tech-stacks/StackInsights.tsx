@@ -4,8 +4,8 @@
 // Practices artifact, a Plan goal). Server-safe: computes the insights once, passes them to the
 // client board (AnalysisPlaybookBoard) which owns the expand state.
 
-import { Card, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { Legend, STATE_LABEL } from "@/components/org/viz";
+import { Card, SectionHeader, Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
+import { Legend, STATE_LABEL } from "@/components/shared/viz";
 import { CLASS_META } from "@/features/standing/tech-stacks/analysisShared";
 import { RANGE_LEGEND_EXTRA } from "@/features/standing/tech-stacks/rangeLegend";
 import type { SegmentSummary } from "@/lib/db";

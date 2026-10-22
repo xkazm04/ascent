@@ -12,6 +12,6 @@ export type GovernanceViewProps = {
   canEdit: boolean;
   /** True when ?segment= or ?stack= narrowed who is measured. The policy stays org-wide. */
   scoped: boolean;
-  /** Scope filter, built by the panel so neither composition imports org/shared for it. */
+  /** Scope filter, built by the panel so neither composition imports components/shared for it. */
   filterBar: ReactNode;
 };

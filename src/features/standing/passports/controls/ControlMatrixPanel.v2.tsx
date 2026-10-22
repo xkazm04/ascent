@@ -2,7 +2,7 @@
 
 // Prism doctor checks. Same fetch and the same four states as ControlMatrixPanel. Failing is a
 // count in paper. An error is a mark plus the words, not an amber panel.
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { Caption, Frame, Lede, SectionHead, StatStrip, StatTile } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { MarkGridV2 } from "../MarkGrid.v2";

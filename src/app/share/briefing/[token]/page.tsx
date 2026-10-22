@@ -3,7 +3,7 @@
 // Outside the /org layout (no session gate); the token is the capability and carries the window.
 // Exposes only what the Briefing tab shows. noindex so a leaked link isn't crawled.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { PriorPeriodGrid } from "@/features/bought/executive/briefingShared";
 import { BriefingProofBanner } from "@/features/bought/executive/BriefingProofBanner";
 import { BriefingBasisNote } from "@/features/bought/executive/BriefingBasisNote";

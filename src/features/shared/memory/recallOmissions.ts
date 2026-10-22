@@ -18,7 +18,7 @@
 //
 // Pure: no React, no fetch. `Omission` comes from the kit so the shape cannot drift from BudgetPack.
 
-import type { Omission, VizState } from "@/components/org/viz";
+import type { Omission, VizState } from "@/components/shared/viz";
 import type { IneligibleReason, RecallResponse } from "@/features/shared/memory/memoryRecall";
 import { INELIGIBLE_COPY } from "@/features/shared/memory/memoryRecall";
 

@@ -6,9 +6,9 @@
 // print "not measured" and never a numeral.
 
 import type { CellState } from "@/components/kit";
-import type { MatrixCell } from "@/components/org/viz/matrixShared";
-import { rendersValue } from "@/components/org/viz/states";
-import { isNum } from "@/components/org/viz/vizNum";
+import type { MatrixCell } from "@/components/shared/viz/matrixShared";
+import { rendersValue } from "@/components/shared/viz/states";
+import { isNum } from "@/components/shared/viz/vizNum";
 
 export interface CellMarkView {
   state: CellState;

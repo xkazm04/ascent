@@ -10,8 +10,8 @@
 // Server-safe: no hooks, no handlers (`WhyChip` brings its own client boundary).
 
 import { Kicker } from "@/components/ui";
-import { deltaHex, fmtDelta } from "@/components/org/shared/ui";
-import { StateSwatch, WhyChip, STATE_HINT } from "@/components/org/viz";
+import { deltaHex, fmtDelta } from "@/components/shared/dashboard/ui";
+import { StateSwatch, WhyChip, STATE_HINT } from "@/components/shared/viz";
 import type { PracticeRollout } from "./practiceRows";
 
 function Stat({

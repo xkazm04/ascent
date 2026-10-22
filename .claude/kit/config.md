@@ -63,8 +63,8 @@ Pasted into every builder brief (source: AGENTS.md; re-read it, do not trust thi
 - This is a Next.js with breaking changes: read the relevant guide in `node_modules/next/dist/docs/`
   before writing route code. Server pages stay server; add `"use client"` only where hooks/handlers
   live, never to a pure panel.
-- Client structure mirrors the nav: `src/features/<group>/<tab>/`; `src/components/org/shared/`
-  may not be imported from a feature group (the dependency only runs the other way).
+- Client structure mirrors the nav: `src/features/<group>/<tab>/`; `src/components/shared/` is the app-wide shared folder
+  any feature may import (it must never import `src/features/**`).
 - Wire types never declare `Date`; escape-hatch flags carry their production floor inside their
   own definition; `[id]` routes authorize against the row's org.
 - Git: commit on the current branch, never push, never stash or reset in the shared tree, commit

@@ -1,4 +1,4 @@
-// The D9 check battery, expressed in the shared epistemic vocabulary (@/components/org/viz states).
+// The D9 check battery, expressed in the shared epistemic vocabulary (@/components/shared/viz states).
 //
 // THE POINT OF THIS FILE. On a security surface the dangerous rendering is not a wrong number, it is
 // an absence that looks like a pass. The old grid painted every un-scored control as a slate "n/a"
@@ -10,7 +10,7 @@
 //
 // Pure: no JSX, no hooks — the mapping is unit-testable on its own.
 
-import type { MatrixCell, MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixCell, MatrixRow, VizState } from "@/components/shared/viz";
 import type { SecurityRowCheck } from "@/lib/org/security";
 import { CHECK_ORDER, checksById } from "./securityRegisterShared";
 

@@ -96,7 +96,7 @@ removing a sibling link fails the test. To make it pass, update the pinned list,
 where the count visibly changes.
 
 **Next-move links (org path of use, wave 1a, 2026-10-05).** Each Read and Measure tab ends on one
-named onward link, `<NextMoveLink>` (`src/components/org/shared/`), e.g. "Next: Read - Overview": Overview, Tech Stacks,
+named onward link, `<NextMoveLink>` (`src/components/shared/dashboard/NextMoveLink.tsx`), e.g. "Next: Read - Overview": Overview, Tech Stacks,
 Security and Governance go to Proposals (Overview's was added on 2026-10-07 after council-lite round 1, in both themes, always visible and unscoped); Briefing, Weekly digest, Adoption, Delivery, Contributors and Teams
 go back to Overview. The target is each tab's `nextMoveFor` in `src/lib/org/orgJourney.ts`, written
 as a literal `orgTabHref` so the graph counts it. Tech Stacks' and Delivery's dimension drill-ins now link to
@@ -238,7 +238,7 @@ rows land. See [the wizard doc](../onboarding/wizard.md) for the wizard half.
 
 **The run's end is a roster (2026-10-22).** A finished "Scan all watched" no longer ends in three
 count sentences ("N failed. See the Repositories tab." and two skip counts). `useOrgScanButton`
-keeps a roster (`src/components/org/shared/scanRunRosterModel.ts`, pure) that folds the stream's
+keeps a roster (`src/components/shared/scan/scanRunRosterModel.ts`, pure) that folds the stream's
 per-repo `repo` frames, the `notice`/`result` credit totals and the background tail's
 `GET /api/org/scan/queue` rows by repo identity, re-deriving every count from the lists.
 `ScanRunRoster` names each failed or skipped repo under the fix it needs, with one action per
@@ -952,7 +952,7 @@ The Overview page composes several server queries, all scoped to the org:
 now → projected score/level at the horizon, weekly rate, direction, ETA (date) to the next
 level, and an R² fit-quality confidence. Shared layout primitives (`Tile`, `Card`,
 `SectionHeader`, `Meter`, `SectionEmpty`, posture labels) live in
-`src/components/org/shared/ui.tsx`.
+`src/components/shared/dashboard/ui.tsx`.
 
 ## Change-management evidence pack (W2, 2026-08-14)
 
@@ -1331,7 +1331,7 @@ the code as well as on screen.
 
 **The contract is disclosure**, but the two tabs now discharge it differently.
 
-On **Contributors**, `SnapshotScopeNotice` (`src/components/org/shared/SnapshotScopeNotice.tsx`)
+On **Contributors**, `SnapshotScopeNotice` (`src/components/shared/scope/SnapshotScopeNotice.tsx`)
 renders **above the tiles**: it names the range the user has selected, draws it as a visibly **inert**
 chip (struck through, `aria-disabled`, the period is acknowledged, never implied to be in force),
 states that the figures are a scan-time snapshot, and links to a tab that *does* honour the period.
@@ -1347,7 +1347,7 @@ away, this row stops being true — remove the period picker in the same change 
 
 **Bucket labels state their maths.** The backlog's due buckets are *rolling* days, not
 calendar periods: labels are interpolated from `DUE_SOON_DAYS` (7) and `DUE_MONTH_DAYS` (31)
-in `src/components/org/shared/backlogShared.ts`, so "Due within 31 days" can never drift
+in `src/components/shared/recs/backlogShared.ts`, so "Due within 31 days" can never drift
 from the cutoff that produced it. The `this_month` enum key is historical: it has never
 meant a calendar month.
 
@@ -2166,11 +2166,11 @@ The client is verified only against a recorded fixture of the published response
 (`src/lib/integrations/openai-costs.fixture.ts`, citing the OpenAI OpenAPI spec); no test calls the
 live API.
 
-## The shared visual kit (`src/components/org/viz/`, 2026-09-08)
+## The shared visual kit (`src/components/shared/viz/`, 2026-09-08)
 
 The org dashboard's long-standing habit was to *narrate* a reading and then show a table under it.
 The [/org UX redesign](../../ORG-UX-REDESIGN.md) reverses that, and Wave 0 of it is this kit: one
-dependency-free SVG vocabulary that every tab imports from `@/components/org/viz`, so five parallel
+dependency-free SVG vocabulary that every tab imports from `@/components/shared/viz`, so five parallel
 redesigns cannot each invent their own gauge, hatch or dash pattern.
 
 **The epistemic state vocabulary (`states.ts`) is the load-bearing piece.** Six states, one
@@ -2531,7 +2531,7 @@ uses). The Foundation rollout and Guidance coherence panels described below now 
 Practices, from `src/features/shared/practices/foundation/`.
 
 **The leaderboard was a distribution first.** `RepositoriesLeaderboardPanel` rendered a fleet
-`Distribution` (kit, `@/components/org/viz`) above the sorted table — the min/q1/median/q3/max of the
+`Distribution` (kit, `@/components/shared/viz`) above the sorted table — the min/q1/median/q3/max of the
 overall scores in the ACTIVE posture/segment/stack scope, so the box and the rows can never describe
 different fleets. The table is now filtered by the same `SegmentSelector` the rest of the dashboard
 uses (`ScopeFilterBar` + `?segment=`), not a second local control. The table is unchanged and is the drill-down evidence. Repos with no scan are
@@ -2711,7 +2711,7 @@ and every absence on it carries a state from the shared kit rather than a glyph.
 **Per-dimension averages are a matrix, not a numeric grid.** The dimension columns used to live
 inside the sortable table: one tinted box per team per dimension, and a bare `·` wherever a team had
 never been graded on one — distinguishable from a low score only by hovering it. `MatrixGrid`
-(`src/components/org/viz`) draws the same data above the table and **hatches** the ungraded cell,
+(`src/components/shared/viz`) draws the same data above the table and **hatches** the ungraded cell,
 where `rendersValue` makes printing a numeral structurally impossible. The matrix follows the table's
 sort, so the two are one surface; the table keeps what a table is right for
 ([§2.7](../../ORG-UX-REDESIGN.md)) — auditable row-level scalars with an expandable drill-down.
@@ -2770,7 +2770,7 @@ orchestrator), plus the redesigned `TeamsMatrix`, `TeamsSignals`, `TeamsUnowned`
 
 The Tech Stacks tab was the least broken surface in the redesign — 173 characters of prose and two
 SVGs of its own — so Wave 3 converged it rather than rebuilding it. Everything the tab draws now
-speaks the shared `/org` visual vocabulary (`src/components/org/viz`), and the tab's own dialect is
+speaks the shared `/org` visual vocabulary (`src/components/shared/viz`), and the tab's own dialect is
 gone: the four diagnosis-class colours are the shared `LEVEL_HEX` ramp, the epistemic states are the
 kit's, and the only remaining colour literal in the directory is `STACK_COLORS` — the categorical
 identity ramp for the overlaid profiles, which deliberately avoids the score ramp so a red polygon
@@ -2823,7 +2823,7 @@ particular these all stay, verbatim:
 **What changed: the blast-radius preview is now a picture as well as a count.**
 
 `ErasePreviewPanel.tsx` (extracted from `DataErasurePreview.tsx` for the 200-LOC cap, view model
-in the pure `erasePreviewViz.ts`) opens on a `MatrixGrid` from `@/components/org/viz` — five
+in the pure `erasePreviewViz.ts`) opens on a `MatrixGrid` from `@/components/shared/viz` — five
 rows × **Erased / Kept** — above the existing counts `dl`:
 
 | | Erased | Kept |
@@ -3035,16 +3035,26 @@ never had. That is the rule working, not failing — §3 asks for ≤60 characte
 survivor is a unit line: that one, `4 open · 9 settled`, and
 `3 tracked repos · latest public scan · weakest first` (52 chars).
 
+## Component layout (2026-10-22)
+
+Org-dashboard components are split three ways. Tab bodies live in `src/features/<group>/<tab>/`. Everything
+reusable by more than one area lives in the app-wide **`src/components/shared/`** (`dashboard/` tiles and
+`NextMoveLink`, `scope/` filters, `goals/`, `live/`, `recs/`, `scan/`, `credits/`, `security/`,
+`followups/`, `viz/`), which any feature may import and which never imports `src/features/**`
+(`shared-boundary.test.ts`). `src/components/org/` keeps only the tab shell (`shell/`, including the header
+`alerts/` control) and the `personal/` workspace views that compose feature panels. The former
+`org/shared`, `org/viz` and `org/followups` folders no longer exist.
+
 ## Key files
 
 | File | Role |
 | --- | --- |
-| `src/components/org/viz/` | The shared visual kit (above): `states.ts` (the six-state vocabulary, `VizDefs`, `stateFill`/`stateStroke`), `Legend`/`StateSwatch`/`WhyChip`, and the seven charts. One `.dom.test.tsx` each. |
+| `src/components/shared/viz/` | The shared visual kit (above): `states.ts` (the six-state vocabulary, `VizDefs`, `stateFill`/`stateStroke`), `Legend`/`StateSwatch`/`WhyChip`, and the seven charts. One `.dom.test.tsx` each. |
 | `src/lib/db/org.ts` | Barrel re-exporting the org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies) from the `org-*.ts` sub-modules above. Each fleet aggregate takes an optional `segmentId` to scope it. |
 | `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, `listTaggableRepos` (the tag manager's repo universe), per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
-| `src/components/org/shared/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Shared `?segment=` filter (Overview, Contributors, Delivery, **Repositories leaderboard**, Passports, …; its "+ Create a segment →" pointer links to `?tab=segments`) · the Segments-view tag manager · A-vs-B comparison picker. The Repositories leaderboard does not invent a second filter: it spreads `barProps` from `resolveOrgScope` into `ScopeFilterBar`. |
-| `src/components/org/shared/ScopeFilterBar.tsx` | Shared segment + tech-stack filter. When a period window is active, a caption discloses that repos not scanned in-period still count in the fleet average and do not appear in movers (`org-rollup.ts` header; queries unchanged). An optional `coverage` prop counts that caption (rollups-1). |
-| `src/components/org/shared/PeriodCoverageStrip.tsx` + `PeriodCoverageRescan.tsx` | Overview's counted in-period strip and its one-click rescan of the carried, watched, unqueued repos (`src/lib/org/periodCoverageModel.ts`). |
+| `src/components/shared/scope/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Shared `?segment=` filter (Overview, Contributors, Delivery, **Repositories leaderboard**, Passports, …; its "+ Create a segment →" pointer links to `?tab=segments`) · the Segments-view tag manager · A-vs-B comparison picker. The Repositories leaderboard does not invent a second filter: it spreads `barProps` from `resolveOrgScope` into `ScopeFilterBar`. |
+| `src/components/shared/scope/ScopeFilterBar.tsx` | Shared segment + tech-stack filter. When a period window is active, a caption discloses that repos not scanned in-period still count in the fleet average and do not appear in movers (`org-rollup.ts` header; queries unchanged). An optional `coverage` prop counts that caption (rollups-1). |
+| `src/components/shared/scope/PeriodCoverageStrip.tsx` + `PeriodCoverageRescan.tsx` | Overview's counted in-period strip and its one-click rescan of the carried, watched, unqueued repos (`src/lib/org/periodCoverageModel.ts`). |
 | `src/features/standing/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on, see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
 | `src/features/standing/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome: class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
 | `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |
@@ -3058,14 +3068,14 @@ survivor is a unit line: that one, `4 open · 9 settled`, and
 | `src/components/org/shell/OrgTabChunks.tsx` · `orgTabPanels.tsx` | The tab -> panel lookup (keyed error boundary, keyed remount, one `<Suspense>` per panel) over `ORG_TAB_PANELS`, a server-only map `satisfies Record<OrgPanelTabId, PanelDef>`: a panel id with no panel, or an alias id given one, fails `tsc` instead of rendering blank. `segments` is a second key rendering `RepositoriesTab` in segments mode. |
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
 | `src/features/standing/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`), the personal overview and, since 2026-09-05, the org Overview ledger (`OverviewTrajectoryCard`, beside the standing strip, behind the same presentability gate the personal tier uses; renders nothing below it). |
-| `src/components/org/shared/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
-| `src/components/org/shared/ScanRunRoster.tsx` | The scan run's end: failed/skipped repos by fix, with Retry / credits / reconnect actions (model: `scanRunRosterModel.ts`). |
+| `src/components/shared/scan/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
+| `src/components/shared/scan/ScanRunRoster.tsx` | The scan run's end: failed/skipped repos by fix, with Retry / credits / reconnect actions (model: `scanRunRosterModel.ts`). |
 | `src/features/admin/audit/AuditLogViewer.tsx` | Audit trail viewer. |
-| `src/features/inflight/proposals/` · `src/components/org/followups/` | The Proposals ledger (Follow-ups until 2026-09-15; replaced the Backlog panel 2026-08-17): `ProposalsWorklist` (scan + loop rows, source-aware bulk bar), `FollowupsPromptModal` (fix prompt + hand-off), `FollowupHistory` (per-row timeline), `followupsModel.ts` (filters, selection, org-wide spread, `patchStatuses` bulk runner), `proposalsModel.ts` (the loop fold). |
+| `src/features/inflight/proposals/` · `src/components/shared/followups/` | The Proposals ledger (Follow-ups until 2026-09-15; replaced the Backlog panel 2026-08-17): `ProposalsWorklist` (scan + loop rows, source-aware bulk bar), `FollowupsPromptModal` (fix prompt + hand-off), `FollowupHistory` (per-row timeline), `followupsModel.ts` (filters, selection, org-wide spread, `patchStatuses` bulk runner), `proposalsModel.ts` (the loop fold). |
 | `src/features/inflight/lessons/` | The Lessons ledger (split out of the Live cockpit 2026-09-15). |
-| `src/components/org/shared/DecisionTable.tsx` | The shared decision-ledger shape behind Proposals and Lessons: selection, in-place expander, a sticky bulk bar whose actions declare which rows they apply to. |
+| `src/components/shared/recs/DecisionTable.tsx` | The shared decision-ledger shape behind Proposals and Lessons: selection, in-place expander, a sticky bulk bar whose actions declare which rows they apply to. |
 | `src/components/org/backlog/BacklogGroups.tsx` | The grouped Cards + rows + the three empty states (filter-empty is distinct from backlog-empty). |
-| `src/components/org/shared/ui.tsx` | Shared org-UI primitives. |
+| `src/components/shared/dashboard/ui.tsx` | Shared org-UI primitives. |
 | `src/app/api/org/*` | Active org, repos, import, scan, watch, schedule, segments, **backlog** (`GET ?org=` → `OrgBacklog`) (+ goals/initiatives/simulate; see [plan.md](../org-planning/plan.md)). |
 | `src/app/api/recommendations/[id]` | `PATCH` (status / `assigneeLogin` / `targetDate`, recording a `RecommendationEvent` attributed to the signed-in user) · `[id]/events` `GET` → the item's activity timeline. |
 | `src/app/api/audit/route.ts` | Audit query endpoint. |

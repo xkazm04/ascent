@@ -11,9 +11,9 @@
 // chart's own rows: it carries their title, dimension, reach, level lift and projected points, which
 // is strictly more than the one-line form it replaces.
 
-import { Card, InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { Card, InlineEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
 import { Kicker } from "@/components/ui";
-import { Legend, WhyChip } from "@/components/org/viz";
+import { Legend, WhyChip } from "@/components/shared/viz";
 import type { WeeklyDigest } from "@/lib/org/digest-types";
 import { DigestReachBars } from "./DigestReachBars";
 import { actionBars, presentStates } from "./digestViz";

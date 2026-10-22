@@ -1,4 +1,4 @@
-import type { Celebration } from "@/components/org/shared/liveWarRoomShared";
+import type { Celebration } from "@/components/shared/live/liveWarRoomShared";
 
 export function Celebrations({ celebrations }: { celebrations: Celebration[] }) {
   if (celebrations.length === 0) return null;

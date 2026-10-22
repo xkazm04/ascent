@@ -1,6 +1,6 @@
 "use client";
 
-import { type GoalProgressView } from "@/components/org/shared/goalView";
+import { type GoalProgressView } from "@/components/shared/goals/goalView";
 import { freshness } from "@/lib/ui";
 import { GoalBanner } from "./LiveWarRoomGoalBanner";
 import { enterTvMode, releaseWakeLock } from "./liveWakeLock";

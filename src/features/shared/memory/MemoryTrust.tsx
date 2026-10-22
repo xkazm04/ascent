@@ -11,7 +11,7 @@
 // Quartiles rather than a mean for confidence. Citation votes render as a `BudgetPack` only when at
 // least one listed row carries a vote — zero votes is "no evidence", never a pack parked at 0.
 
-import { BudgetPack, Distribution, Legend, WhyChip, type Omission } from "@/components/org/viz";
+import { BudgetPack, Distribution, Legend, WhyChip, type Omission } from "@/components/shared/viz";
 import type { MemoryRow } from "@/lib/db";
 
 /** Nearest-rank quantile over an already-sorted array. Total: an empty array is handled by the caller. */

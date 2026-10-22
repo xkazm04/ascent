@@ -2,7 +2,7 @@
 // strengths, widest divergence) in a ruled row, then the consensus and transfer plan in a Frame. Same
 // computeFleetInsights, same wording for every figure as StackInsights. Server-safe.
 import { Caption, Display, Frame, SectionHead } from "@/components/kit";
-import { Legend, STATE_LABEL } from "@/components/org/viz";
+import { Legend, STATE_LABEL } from "@/components/shared/viz";
 import type { SegmentSummary } from "@/lib/db";
 import { computeFleetInsights, type DimInsight } from "./fleetAnalysis";
 import { RANGE_LEGEND_EXTRA } from "./rangeLegend";

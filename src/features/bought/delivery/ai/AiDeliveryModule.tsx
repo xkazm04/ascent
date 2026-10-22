@@ -13,8 +13,8 @@
 // AI-PR sample the reviewed stage does the same.
 
 import { useState } from "react";
-import { SectionHeader } from "@/components/org/shared/ui";
-import { FlowRibbon, Legend, WhyChip } from "@/components/org/viz";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
+import { FlowRibbon, Legend, WhyChip } from "@/components/shared/viz";
 import type { AiDeliveryModel } from "./aiDeliveryModel";
 import { aiDeliveryStages } from "./aiDeliveryFlow";
 import { FidelityBadge } from "./aiShared";

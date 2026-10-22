@@ -15,7 +15,7 @@
 import { DEFAULT_SAMPLE_SIZE, drawSample, sampleSeed } from "@/lib/conformance/sample";
 import { verdictFor } from "@/lib/conformance/pack";
 import type { AiChangePopulation } from "@/lib/db/ai-changes";
-import type { FlowStage } from "@/components/org/viz";
+import type { FlowStage } from "@/components/shared/viz";
 
 /** The period bounds as the pack states them — "all-time" for an open end, never a fabricated date. */
 export function periodBound(d: Date | null): string {

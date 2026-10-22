@@ -18,8 +18,8 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { FlowRibbon } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { FlowRibbon } from "@/components/shared/viz";
 import { MemoryReflectProposal } from "@/features/shared/memory/MemoryReflectProposal";
 import {
   reflectOutcomeCopy,

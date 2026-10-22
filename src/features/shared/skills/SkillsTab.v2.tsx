@@ -1,9 +1,9 @@
 // Prism composition of the Skills tab. Same reads and the same Suspense boundaries as Altimeter.
 import { Suspense } from "react";
 import { Defer } from "@/components/ui/Defer";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import {
   getOrgSkillAdoption,

@@ -1,9 +1,9 @@
 // The Altimeter composition of the Proposals tab: the former ProposalsTab markup, moved here unchanged.
 import Link from "next/link";
-import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { LocalRescanButton } from "@/components/org/followups/LocalRescanButton";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { SectionEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
+import { LocalRescanButton } from "@/components/shared/followups/LocalRescanButton";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { ProposalsWorklist } from "./ProposalsWorklist";
 import type { ProposalsTabData } from "./proposalsTabData";

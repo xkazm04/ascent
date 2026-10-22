@@ -10,7 +10,7 @@
 // No "use client": nothing here holds state. `MatrixGrid` carries its own client boundary, so this
 // module renders unchanged from the org tab's client register and from the personal lens's server tree.
 
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { Legend, MatrixGrid, WhyChip } from "@/components/shared/viz";
 import { CHECK_AXES, matrixRows, statesPresent, type SecurityMatrixInput } from "./securityMatrixModel";
 
 /** The one sentence the ┃ divider used to carry in the caption above the old chip grid. */

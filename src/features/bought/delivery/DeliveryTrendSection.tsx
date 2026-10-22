@@ -10,8 +10,8 @@
 // canonical hint on it. The reader cannot mistake absence for zero because the picture does not offer
 // a zero to mistake (docs/ORG-UX-REDESIGN.md §2.4).
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { Legend, WhyChip } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend, WhyChip } from "@/components/shared/viz";
 import { TimeRangeSelector } from "@/features/standing/overview/TimeRangeSelector";
 import type { OrgDeliveryTrend } from "@/lib/db/org-delivery-trend";
 import type { RangeKey } from "@/lib/window";

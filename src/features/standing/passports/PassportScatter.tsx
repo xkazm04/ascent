@@ -21,7 +21,7 @@ import {
   bandColor,
   type PassportCohort,
 } from "@/lib/org/passport-display";
-import { Legend, VizDefs, stateFill, stateStroke, stateTitle, type LegendExtra } from "@/components/org/viz";
+import { Legend, VizDefs, stateFill, stateStroke, stateTitle, type LegendExtra } from "@/components/shared/viz";
 import { PLACEHOLDER_LABEL } from "@/features/standing/passports/PlaceholderMark";
 import { PAPER_LEGEND, PaperPoint } from "./PassportScatterPaper";
 

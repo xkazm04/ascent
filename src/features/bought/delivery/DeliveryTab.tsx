@@ -9,7 +9,7 @@
 
 import { resolveOrgScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { getTheme } from "@/lib/theme/server";
 import { DeliveryTabV1 } from "./DeliveryTab.v1";

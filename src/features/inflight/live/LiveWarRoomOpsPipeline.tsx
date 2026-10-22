@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
-import { stateTitle } from "@/components/org/viz";
+import { stateTitle } from "@/components/shared/viz";
 import { FlightRowDetail, LandedRowDetail, TriageDetail, opsImpact, type OpsView } from "@/features/inflight/live/liveWarRoomOpsShared";
 
 type Stage = "triage" | "inFlight" | "landed";

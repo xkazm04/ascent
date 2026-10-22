@@ -18,7 +18,7 @@
 // figure the section is about, so the heading itself carries data instead of introducing it.
 
 import { InfoTip } from "@/components/ui";
-import { SectionHeader } from "@/components/org/shared/ui";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
 
 export function LedgerSectionHeader({
   id,

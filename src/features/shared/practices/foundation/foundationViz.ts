@@ -21,7 +21,7 @@
 //
 // Pure: no React, no fetch. The kit types are `import type`, so nothing client-side is pulled in.
 
-import type { MatrixCell, MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixCell, MatrixRow, VizState } from "@/components/shared/viz";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import { canReport } from "@/lib/github/reportback-credential";
 import { reportBackOf } from "./foundationMarks";

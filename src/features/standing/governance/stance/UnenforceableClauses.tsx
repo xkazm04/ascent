@@ -14,7 +14,7 @@
 // Server-safe: no hooks, no handlers, so no "use client".
 
 import { Kicker } from "@/components/ui";
-import { StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { StateSwatch, WhyChip, stateTitle } from "@/components/shared/viz";
 import type { UnenforceableClause } from "@/lib/org/admission";
 import { RowList } from "@/components/kit";
 

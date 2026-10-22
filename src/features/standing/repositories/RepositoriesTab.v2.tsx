@@ -3,7 +3,7 @@
 // slot so it keeps its own Suspense boundary. Context Health keeps its boundary and its scope promise. Same scope
 // promise, same panels and same gap heights as the Altimeter composition in RepositoriesTab.tsx.
 import { Suspense } from "react";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import type { OrgScope } from "@/lib/org/scope";
 import { FleetTabs } from "./FleetTabs";
 import { QueueDepthLine } from "./QueueDepthLine";

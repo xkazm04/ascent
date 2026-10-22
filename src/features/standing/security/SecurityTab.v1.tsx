@@ -1,12 +1,12 @@
 // The Altimeter composition of the Security tab: the former SecurityTab markup, moved here unchanged.
 // It takes the SecurityTabData the entry computed (SecurityTab.tsx), so the v2 composition reads the same values.
 import { CHECK_AXES } from "./securityMatrixModel";
-import { Card, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { Card, SectionHeader, Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { DownloadButton } from "@/components/report/DownloadButton";
-import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
-import { SecurityFindings } from "@/components/org/SecurityFindings";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { TechStackSelector } from "@/components/shared/scope/TechStackSelector";
+import { SecurityFindings } from "@/components/shared/security/SecurityFindings";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { scoreHex } from "@/lib/ui";
 import { chipButtonClass } from "@/components/ui";

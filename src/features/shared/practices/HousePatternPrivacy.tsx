@@ -7,7 +7,7 @@
 // Server-safe: no hooks, no handlers (`MatrixGrid` and `WhyChip` carry their own client boundary).
 
 import { Kicker } from "@/components/ui";
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { Legend, MatrixGrid, WhyChip } from "@/components/shared/viz";
 import {
   SHAPE_AXES,
   SHAPE_PRIVACY_HINT,

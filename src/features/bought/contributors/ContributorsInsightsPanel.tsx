@@ -1,8 +1,8 @@
 // The Contributors tab's one data region — moved from the old page.tsx body (docs/ORG-TABS-REFACTOR.md),
 // its two former inline helpers (ChampionsGrid, ConcentrationTable) now real sibling components.
 
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { getContributorInsights } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";

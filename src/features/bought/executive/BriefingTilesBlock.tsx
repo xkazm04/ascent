@@ -6,7 +6,7 @@
 // optional prop defaults to OFF so rendering with none gives exactly the anonymous board view (see
 // briefingCards.tsx's header for the full prop contract).
 
-import { Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
 import { scoreHex } from "@/lib/ui";
 import { benchmarkCaption, type ExecBriefing } from "@/lib/org/briefing";
 import { BriefingDeltaCaption } from "./BriefingDeltaCaption";

@@ -29,7 +29,7 @@ describe("isLibraryPath — anchored shared roots", () => {
     expect(isLibraryPath("src/lib/ui.ts")).toBe(true);
     expect(isLibraryPath("src/lib/org/security.ts")).toBe(true);
     expect(isLibraryPath("src/components/ui/Modal.tsx")).toBe(true);
-    expect(isLibraryPath("src/components/org/shared/CreditsControl.tsx")).toBe(true);
+    expect(isLibraryPath("src/components/shared/credits/CreditsControl.tsx")).toBe(true);
     expect(isLibraryPath("src/app/_dev-inspector/devLocate.ts")).toBe(true);
   });
 

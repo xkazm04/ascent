@@ -119,7 +119,7 @@ and a reason to act — not above a populated panel, permanently.
 Five parallel agents will otherwise each invent a gauge. New module tree, server-safe unless noted:
 
 ```
-src/components/org/viz/
+src/components/shared/viz/
   states.ts          the §2.4 vocabulary: HATCH_ID, <VizDefs/>, stateFill(), stateStroke(), STATE_LABEL
   Legend.tsx         symbol-first inline legend; one row per state actually present in the data
   WhyChip.tsx        "use client" — ⓘ disclosure holding a demoted caveat; keyboard reachable
@@ -174,7 +174,7 @@ Wave 0 touches `src/components/org/`.
 
 | Wave | Agents | Areas |
 | --- | --- | --- |
-| **0** | 1 (serial) | `src/components/org/viz/**` — the kit + its tests |
+| **0** | 1 (serial) | `src/components/shared/viz/**` — the kit + its tests |
 | **1** | 5 | governance · memory · contributors · passports · delivery |
 | **2** | 5 | overview · repositories · executive · practices · adoption |
 | **3** | 5 | settings · skills · teams · tech-stacks · knowledge |
@@ -184,12 +184,12 @@ Wave 0 touches `src/components/org/`.
 
 Every wave agent is given, verbatim:
 
-1. **Own only your directory.** `src/features/<group>/<tab>/**`. Never edit `src/components/org/viz/**`
+1. **Own only your directory.** `src/features/<group>/<tab>/**`. Never edit `src/components/shared/viz/**`
    (Wave 0 owns it), never edit another agent's directory, never edit `src/lib/**` unless the tab's
    data genuinely lacks a field — and then say so loudly in the commit rather than reshaping a shared
    query.
 2. **Apply §2 exactly.** For every sentence you remove, tag it `E`/`D`/`O`/`F` in the commit body.
-3. **Import the kit.** `@/components/org/viz`. Do not re-implement a state encoding.
+3. **Import the kit.** `@/components/shared/viz`. Do not re-implement a state encoding.
 4. **Repo law.** ≤ 200 LOC per file under `src/features/**` (extract co-located siblings, `"use client"`
    only on files that need it). `.dom.test.tsx` for anything interactive or graphical.
 5. **Doc sync (Stop hook).** Update the coupled doc from `scripts/docs/feature-doc-map.json` in the

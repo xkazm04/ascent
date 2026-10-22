@@ -6,7 +6,7 @@
 // Renders nothing for unlimited (Custom) plans, which have no finite allotment to size against.
 
 import { planFeatures } from "@/lib/plans";
-import { Meter } from "@/components/org/shared/ui";
+import { Meter } from "@/components/shared/dashboard/ui";
 import { Surface } from "@/components/ui";
 
 /** Whether the org is idle (a smaller tier may fit), comfortable, or near the cap (top-up before the 402). */

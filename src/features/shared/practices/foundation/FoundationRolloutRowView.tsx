@@ -12,7 +12,7 @@
 // "PR opened", not "Installed": `foundation.pr_opened` records a DRAFT PR (src/lib/github/write.ts),
 // which nobody has necessarily merged. See foundationViz.ts for the full reasoning.
 
-import { StateSwatch } from "@/components/org/viz";
+import { StateSwatch } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import { BACK_TITLE, foundationBackMark, reportBackAction, reportBackOf } from "./foundationMarks";

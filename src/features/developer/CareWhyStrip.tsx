@@ -11,7 +11,7 @@
 // asserted: an empty workspace shows honest zeros. Each sentence now rides in that count's WhyChip.
 
 import { HairlineGrid, Kicker } from "@/components/ui";
-import { Legend, MatrixGrid, StateSwatch, WhyChip, type MatrixRow } from "@/components/org/viz";
+import { Legend, MatrixGrid, StateSwatch, WhyChip, type MatrixRow } from "@/components/shared/viz";
 import { careNeverSentCount } from "./careLedgerRows";
 import type { DeveloperView } from "@/lib/org/developer-view";
 

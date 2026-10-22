@@ -9,7 +9,7 @@
 // them ever acquires a mark. A promise a reader has to take on trust was the weaker artifact.
 
 import { chipButtonClass } from "@/components/ui";
-import { StateSwatch } from "@/components/org/viz";
+import { StateSwatch } from "@/components/shared/viz";
 import { LEVEL_HEX, scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";
 import {

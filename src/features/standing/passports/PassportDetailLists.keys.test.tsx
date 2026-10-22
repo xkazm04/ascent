@@ -16,7 +16,7 @@ import { declineOffers, isDeclinableFinding } from "./passportDeclineOffers";
 // Capture what the decision widget is handed — the itemKey it would WRITE under, and the status it
 // resolved to. Rendering the real control would pull in fetch and a router.
 const seen: { itemKey: string; status: string }[] = [];
-vi.mock("@/components/org/DecisionControl", () => ({
+vi.mock("@/components/shared/recs/DecisionControl", () => ({
   DecisionControl: ({ itemKey, status }: { itemKey: string; status: string }) => {
     seen.push({ itemKey, status });
     return null;

@@ -22,7 +22,7 @@ if (typeof document !== "undefined") {
 
   // jsdom implements no `matchMedia`, so ANY component reaching a media query throws an uncaught
   // TypeError rather than failing an assertion — the failure names the render, not the missing API,
-  // which is a long detour to debug. Every chart in @/components/org/viz calls
+  // which is a long detour to debug. Every chart in @/components/shared/viz calls
   // usePrefersReducedMotion, so as the /org redesign lands, existing DOM tests that never touched a
   // media query start crashing the moment a panel adopts a kit chart. One guard here beats the same
   // stub copied into every test file (measured: five wave agents each hit this independently).

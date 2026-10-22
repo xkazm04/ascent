@@ -7,7 +7,7 @@
 // a shared adjective.
 
 import { describe, expect, it } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import {
   OUTCOME_VIZ_STATE,
   REUSE_AXES,

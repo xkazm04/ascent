@@ -8,8 +8,8 @@
 // pass read memory as truth, so Keep promotes through the same memory door a person's own write uses,
 // and Discard is soft. A settled row leaves the review queue for the settled archive.
 
-import { InlineEmpty } from "@/components/org/shared/ui";
-import { DecisionTable, type DecisionAction, type DecisionColumn } from "@/components/org/shared/DecisionTable";
+import { InlineEmpty } from "@/components/shared/dashboard/ui";
+import { DecisionTable, type DecisionAction, type DecisionColumn } from "@/components/shared/recs/DecisionTable";
 import { timeAgo } from "@/lib/ui";
 import type { LoopLessonRow } from "@/features/inflight/live/cockpit/loopTypes";
 import { LessonsFilterBar } from "./LessonsFilterBar";

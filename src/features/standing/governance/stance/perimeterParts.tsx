@@ -14,7 +14,7 @@
 // zones). Filtering them off left a declared-not-checked clause invisible on the repo it binds.
 
 import { Kicker } from "@/components/ui";
-import { StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { StateSwatch, WhyChip, stateTitle } from "@/components/shared/viz";
 import { LEVEL_HEX, scoreHex, reportPermalink } from "@/lib/ui";
 import type { LevelId, AutonomyTierId } from "@/lib/types";
 import type { RepoStanceCompliance } from "@/lib/org/stance";

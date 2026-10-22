@@ -5,7 +5,7 @@
 // stance is the declared policy; the section header says which is which.
 
 import { Kicker } from "@/components/ui";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { getDraftOrgStance, getActiveOrgStance, isDbConfigured } from "@/lib/db";
 import { buildStanceOverview } from "@/lib/org/stance-overview";
 import { StancePerimeter } from "./StancePerimeter";

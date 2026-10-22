@@ -6,7 +6,7 @@
 // single-sources both and corrects the share view to the canonical delta presentation.
 
 import Link from "next/link";
-import { Meter, deltaHex, fmtDelta, DIRECTION_TONE } from "@/components/org/shared/ui";
+import { Meter, deltaHex, fmtDelta, DIRECTION_TONE } from "@/components/shared/dashboard/ui";
 import { scoreHex } from "@/lib/ui";
 import { PRACTICES } from "@/lib/practices";
 import { orgTabHref } from "@/lib/org/orgTabs";

@@ -10,8 +10,8 @@
 // never-benchmarked-vs-zero conflation the hatch closes.
 
 import { Kicker } from "@/components/ui";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { Legend, MatrixGrid, WhyChip, matrixLegendStates } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend, MatrixGrid, WhyChip, matrixLegendStates } from "@/components/shared/viz";
 import {
   isAdapterArtifact,
   isMatrixStale,

@@ -14,8 +14,8 @@
 // rows ARE shared and proves the cells stay empty.
 
 import { chipButtonClass, Kicker } from "@/components/ui";
-import { SectionEmpty } from "@/components/org/shared/ui";
-import { Legend, MatrixGrid, StateSwatch } from "@/components/org/viz";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
+import { Legend, MatrixGrid, StateSwatch } from "@/components/shared/viz";
 import { timeAgo } from "@/lib/ui";
 import { CareAction, CareCopyAction } from "./CareBits";
 import { CARE_LEDGER_AXES, careLedgerRows, careNeverSentCount } from "./careLedgerRows";

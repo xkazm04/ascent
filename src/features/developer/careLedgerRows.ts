@@ -13,7 +13,7 @@
 // still renders as two voids: the UI has no path that can put a mark there. `careLedgerRows.test.ts`
 // seeds exactly that violation, so the invariant cannot quietly stop biting.
 
-import type { MatrixCell, MatrixRow } from "@/components/org/viz";
+import type { MatrixCell, MatrixRow } from "@/components/shared/viz";
 import { careNeverSent, type DeveloperView } from "@/lib/org/developer-view";
 
 // Axis headers are drawn inside a 46-unit column at 9px mono/uppercase/wide-tracked, so they must

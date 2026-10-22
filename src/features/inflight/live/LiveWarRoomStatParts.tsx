@@ -6,7 +6,7 @@
 
 import { scoreGlyph } from "@/lib/ui";
 import { DIRECTION_TONE, deltaHex, signedDelta, toneFor } from "@/components/ui";
-import { stateTitle } from "@/components/org/viz";
+import { stateTitle } from "@/components/shared/viz";
 import { bandDomain } from "@/components/kit";
 import { HEADLINE_SCALE, type WallScale } from "./warRoomScale";
 import { useTween } from "./useLiveWarRoomStat";

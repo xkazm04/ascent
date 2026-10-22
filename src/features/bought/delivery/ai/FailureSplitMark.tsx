@@ -16,7 +16,7 @@
 // Server-safe — no hooks, no handlers.
 
 import { scoreHex } from "@/lib/ui";
-import { VOID_DASH, WhyChip, clamp, isNum, r2, stateTitle } from "@/components/org/viz";
+import { VOID_DASH, WhyChip, clamp, isNum, r2, stateTitle } from "@/components/shared/viz";
 import { MIN_DEPLOYMENTS, type OutcomeBucket } from "@/lib/db/delivery-outcomes";
 
 const W = 320;

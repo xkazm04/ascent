@@ -8,7 +8,7 @@
 // without reading someone else's scratch.
 
 import { useState } from "react";
-import { StateSwatch } from "@/components/org/viz";
+import { StateSwatch } from "@/components/shared/viz";
 import type { MemoryRow } from "@/lib/db";
 
 type Lineage = { lineage: MemoryRow[]; lineageHidden: number };

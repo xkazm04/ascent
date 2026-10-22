@@ -20,7 +20,7 @@
 // of the thing on screen.
 
 import { Kicker } from "@/components/ui";
-import { Distribution, StateSwatch } from "@/components/org/viz";
+import { Distribution, StateSwatch } from "@/components/shared/viz";
 import {
   CARE_SHAPE_LABEL,
   CARE_SHAPE_PCT,

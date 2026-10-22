@@ -10,8 +10,8 @@
 // these numbers are) plus CSS tokens — no hand-picked hex (BRAND.md).
 
 import { Kicker } from "@/components/ui";
-import { deltaHex, fmtDelta } from "@/components/org/shared/ui";
-import { KICKER_SVG_CLASS, r2 } from "@/components/org/viz";
+import { deltaHex, fmtDelta } from "@/components/shared/dashboard/ui";
+import { KICKER_SVG_CLASS, r2 } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 import type { PairedRow } from "./segmentViz";
 

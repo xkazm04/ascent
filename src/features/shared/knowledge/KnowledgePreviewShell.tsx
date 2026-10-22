@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import { Kicker } from "@/components/ui";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import type { KnowledgeView } from "@/lib/org/knowledge-shape";
 import { KnowledgeLoom } from "./KnowledgeLoom";
 

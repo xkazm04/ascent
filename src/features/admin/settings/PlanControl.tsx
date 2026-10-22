@@ -13,7 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ManageBillingLink } from "@/components/org/shared/CreditsControl.sections";
+import { ManageBillingLink } from "@/components/shared/credits/CreditsControl.sections";
 import { PLAN_FEATURES, PLAN_ORDER } from "@/lib/plans";
 
 // Derived from the plan model rather than re-typed, so a tier RENAME (the bespoke tier is stored as

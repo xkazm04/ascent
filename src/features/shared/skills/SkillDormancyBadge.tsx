@@ -13,7 +13,7 @@
 // unmeasured skill. `new` stays deliberately neutral rather than green — a skill nobody has used yet
 // hasn't earned "active", but branding it dormant on day one would train the org to ignore the badge.
 
-import { StateSwatch } from "@/components/org/viz";
+import { StateSwatch } from "@/components/shared/viz";
 import { usageBadgeLabel, usageDetail, usageVizState } from "@/features/shared/skills/skillLifecycleViz";
 import type { SkillUsage } from "@/lib/org/skill-usage";
 import { usageStateLabel, usageVerdictLabel } from "@/lib/org/skill-usage";

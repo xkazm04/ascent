@@ -12,7 +12,7 @@
 // Server-safe: no hooks, no handlers, and no motion — so there is nothing for reduced-motion to
 // suppress. Colour is scoreHex (the level ramp) and CSS tokens only; no hand-picked hex (BRAND.md).
 
-import { KICKER_SVG_CLASS, StateSwatch, VizDefs, r2, type VizState } from "@/components/org/viz";
+import { KICKER_SVG_CLASS, StateSwatch, VizDefs, r2, type VizState } from "@/components/shared/viz";
 import { Kicker } from "@/components/ui";
 import { scoreHex } from "@/lib/ui";
 import { decayCurve, type DecayField } from "./contextDecayViz";

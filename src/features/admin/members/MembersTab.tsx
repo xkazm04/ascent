@@ -7,7 +7,7 @@
 //
 // Its old route (src/app/org/[slug]/members/page.tsx) is now a redirect().
 
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { MembersPanel } from "./MembersPanel";
 import { getTheme } from "@/lib/theme/server";
 import { isDbConfigured, listOrgMembers, listPendingInvites } from "@/lib/db";

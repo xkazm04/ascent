@@ -2,7 +2,7 @@
 // its own <Suspense> boundary because listTechStackSummaries is its own read. `theme` picks the composition of
 // the board (TechStacksAnalysis v1, TechStacksAnalysis.v2); the reads and the ordering are shared.
 
-import { DIMS } from "@/components/org/shared/ui";
+import { DIMS } from "@/components/shared/dashboard/ui";
 import { StackSpreadStrip } from "./StackSpreadStrip";
 import { TechStacksAnalysis } from "./TechStacksAnalysis";
 import { TechStacksAnalysisV2 } from "./TechStacksAnalysis.v2";

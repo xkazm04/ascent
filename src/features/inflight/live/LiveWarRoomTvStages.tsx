@@ -8,14 +8,14 @@
 import Link from "next/link";
 import { EFFORT_CLASS, IMPACT_CLASS, reportPermalink } from "@/lib/ui";
 import { Kicker, deltaHex, fmtDelta } from "@/components/ui";
-import { stateTitle } from "@/components/org/viz";
-import { type GoalProgressView } from "@/components/org/shared/goalView";
+import { stateTitle } from "@/components/shared/viz";
+import { type GoalProgressView } from "@/components/shared/goals/goalView";
 import { TvGoalCard } from "@/features/inflight/live/LiveWarRoomTvGoal";
 import { Leaderboard } from "@/features/inflight/live/LiveWarRoomLeaderboard";
 import { MoversTicker } from "@/features/inflight/live/LiveWarRoomPanels";
 import { HeadlineStrip } from "@/features/inflight/live/LiveWarRoomStat";
 import { FlightRowDetail, LandedRowDetail, dimShort, opsImpact, type OpsView } from "@/features/inflight/live/liveWarRoomOpsShared";
-import { shortName, type LiveRepo, type Mover } from "@/components/org/shared/liveWarRoomShared";
+import { shortName, type LiveRepo, type Mover } from "@/components/shared/live/liveWarRoomShared";
 
 export interface TvStageData {
   slug: string;

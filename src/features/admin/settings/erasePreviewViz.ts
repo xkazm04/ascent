@@ -15,7 +15,7 @@
 // Pure: no React, no hooks. The kit types are `import type`. Count rows whose body omitted the field
 // are omitted — a missing counter is not a measured 0.
 
-import type { MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixRow, VizState } from "@/components/shared/viz";
 import type { AuditDisposition } from "./eraseTotals";
 
 /** Erased permanently · kept untouched — the manifest's own two headings. */

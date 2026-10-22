@@ -20,7 +20,7 @@
 //
 // Pure: no React, no fetch. The kit types are `import type`.
 
-import type { MatrixCell, MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixCell, MatrixRow, VizState } from "@/components/shared/viz";
 import type { SegmentComparison, SegmentSummary } from "@/lib/db";
 
 export const SEGMENT_AXES = ["Overall", "Adopt", "Rigor"] as const;

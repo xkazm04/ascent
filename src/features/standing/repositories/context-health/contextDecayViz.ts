@@ -14,7 +14,7 @@
 //
 // Pure: no React, no fetch. The kit types are `import type`.
 
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 import type { RepoContextRow } from "./contextHealthModel";
 
 /** One repo's position in the decay field. Only MEASURED repos get a point. */

@@ -5,7 +5,7 @@
 
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { DownloadButton } from "@/components/report/DownloadButton";
-import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
+import { TechStackSelector } from "@/components/shared/scope/TechStackSelector";
 import { BriefingShareButton } from "./BriefingShareButton";
 import { chipButtonClass } from "@/components/ui";
 import type { ResolvedWindow } from "@/lib/window";

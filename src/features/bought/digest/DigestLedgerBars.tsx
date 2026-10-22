@@ -15,7 +15,7 @@
 // Server-safe, no motion. Colour is the sanctioned direction triad (DIRECTION_TONE), never a hand
 // -picked hex: closing follow-ups is the rising direction, opening them the falling one.
 
-import { DIRECTION_TONE } from "@/components/org/shared/ui";
+import { DIRECTION_TONE } from "@/components/shared/dashboard/ui";
 import {
   STATE_LABEL,
   VOID_DASH,
@@ -26,7 +26,7 @@ import {
   stateStroke,
   stateStrokeWidth,
   stateTitle,
-} from "@/components/org/viz";
+} from "@/components/shared/viz";
 import type { LedgerBar, LedgerView } from "./digestViz";
 
 const LABEL_W = 62;

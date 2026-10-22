@@ -3,9 +3,9 @@
 // table), then one ruled Frame holding the filters and the decision ledger, instead of a header and a card.
 import Link from "next/link";
 import { Frame, Masthead } from "@/components/kit";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
-import { LocalRescanButton } from "@/components/org/followups/LocalRescanButton";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
+import { LocalRescanButton } from "@/components/shared/followups/LocalRescanButton";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { ProposalsWorklistV2 } from "./ProposalsWorklist.v2";
 import type { ProposalsTabData } from "./proposalsTabData";

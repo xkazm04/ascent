@@ -24,8 +24,8 @@ import { OverviewTabV1 } from "./OverviewTab.v1";
 import { OverviewTabV2 } from "./OverviewTab.v2";
 import { resolveBillingReturn } from "./overviewBilling";
 import { resolveOverviewInputs, type OverviewSearchParams } from "./overviewInputs";
-import { PersonalOverview } from "@/components/org/PersonalOverview";
-import { BillingReturnNotice } from "@/components/org/shared/BillingReturnNotice";
+import { PersonalOverview } from "@/components/org/personal/PersonalOverview";
+import { BillingReturnNotice } from "@/components/shared/credits/BillingReturnNotice";
 import { getOrgHeaderSummary } from "@/lib/db";
 import { getTheme } from "@/lib/theme/server";
 

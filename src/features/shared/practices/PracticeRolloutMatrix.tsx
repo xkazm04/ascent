@@ -5,7 +5,7 @@
 // assessed). Wide on purpose — the stage cells stay legible and the row scrolls sideways on a phone
 // rather than crushing the practice names.
 
-import { MatrixHatchDefs } from "@/components/org/viz/matrixMark";
+import { MatrixHatchDefs } from "@/components/shared/viz/matrixMark";
 import type { PracticeRow } from "./practiceRows";
 import { ROLLOUT_AXES } from "./practiceRolloutViz";
 import { groupReadout, type RolloutGroup } from "./practiceRolloutGroups";

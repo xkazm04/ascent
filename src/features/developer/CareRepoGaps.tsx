@@ -4,7 +4,7 @@
 // one machine's transcripts; ascent sees the standing of every repo the developer commits to, and can
 // say which open recommendation they are already the natural champion of.
 //
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { reportPermalink } from "@/lib/ui";
 import { CareLevelMark, CareLinkAction } from "./CareBits";

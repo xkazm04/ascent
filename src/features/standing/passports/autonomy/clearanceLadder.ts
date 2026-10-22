@@ -8,7 +8,7 @@
 //
 // Pure: no React, no hooks. The legend derivation is the kit's server-safe `ladderLegendStates`.
 
-import { ladderLegendStates, type LadderBand, type LadderEdge, type VizState } from "@/components/org/viz";
+import { ladderLegendStates, type LadderBand, type LadderEdge, type VizState } from "@/components/shared/viz";
 import { TIERS, TIER_META, tierHex, type AutonomyTier, type RepoAutonomy } from "./autonomyModel";
 
 /** A clearance resting on a deterministic placeholder scan was never graded by a model. */

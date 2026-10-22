@@ -3542,7 +3542,7 @@ ledger link (its viewer can use none of them).
 #### The runner notifier: permission-first, not visibility-gated, batched
 
 `RunnerNotifier` (`src/components/org/shell/RunnerNotifier.tsx`, mounted once in `OrgShell`; its engine
-`useRunnerNotifier` lives in `org/shared` because the theater arms the same engine) sends an OS
+`useRunnerNotifier` lives in `components/shared/live` because the theater arms the same engine) sends an OS
 notification when the runner needs a person. It reads **`GET /api/org/loop/needs-you?org=`**
 (`requireOrgAccess`, then a db guard): pending plans (`listLoopPlans(org, { status: ["pending"] })`,
 titled by `planTitle` — intent, else the first item's title, else its approach), the repos the org's
@@ -5677,7 +5677,7 @@ grid: a `·` in a hand-picked slate for a body cell, an em dash for the fleet-av
 another em dash for the Δ column — with nothing anywhere on the wall saying that any of them meant
 "not scanned" rather than "scored nothing".
 
-All three now draw the **one** `missing` mark from `@/components/org/viz` (`StateSwatch`: the broken
+All three now draw the **one** `missing` mark from `@/components/shared/viz` (`StateSwatch`: the broken
 rule with the gap between its stubs), each carrying `STATE_HINT.missing` — *"No measurement for this
 interval — an absence, never a zero"* — as its title, and the grid renders a `Legend` row for the
 void **only when it actually holds one**. A measured `0` still prints as `0` in its level colour: a

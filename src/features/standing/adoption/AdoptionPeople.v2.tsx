@@ -6,7 +6,7 @@ import Link from "next/link";
 import { BarRow, Frame, HairlineList, SectionHead } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
-import { Legend, MatrixGrid, StateSwatch, WhyChip } from "@/components/org/viz";
+import { Legend, MatrixGrid, StateSwatch, WhyChip } from "@/components/shared/viz";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { CHAMPION_HINT, CODEOWNERS_HINT } from "./adoptionHints";
 import { TEAM_AXES, TEAM_SHOW_LIMIT, teamMatrixRows, teamMatrixStates, unjudgedTeamCount } from "./adoptionTeamMatrix";

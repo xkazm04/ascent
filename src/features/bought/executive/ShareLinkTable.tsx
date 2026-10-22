@@ -4,7 +4,7 @@
 // src/features (AGENTS.md); it renders the table and nothing else. "use client" because the Revoke
 // control is a handler - the panel above owns the confirmation and the fetch.
 
-import { OrgTable } from "@/components/org/shared/ui";
+import { OrgTable } from "@/components/shared/dashboard/ui";
 import { chipButtonClass } from "@/components/ui";
 import type { ShareLinkRow } from "./shareLinkRows";
 

@@ -22,7 +22,7 @@
 
 import { CHART_INK, linScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, useChartHover } from "@/components/report/chartHover";
-import { DEFAULT_BASE, STATE_LABEL, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { DEFAULT_BASE, STATE_LABEL, StateSwatch, WhyChip, stateTitle } from "@/components/shared/viz";
 import { DeliveryTrendPanelFoot } from "./DeliveryTrendPanelFoot";
 import {
   TREND_H,

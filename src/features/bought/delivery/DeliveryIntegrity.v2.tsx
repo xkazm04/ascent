@@ -1,6 +1,6 @@
 // What review coverage is made of. A missing pool is "not measured", never 0% or n/a.
 import { Caption, Frame, HairlineGrid, Lede, SectionHead, StatTile } from "@/components/kit";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { FAST_APPROVAL_MAX_MINUTES, REVIEW_INTEGRITY_MIN_SAMPLE } from "@/lib/analyze/pr-thresholds";
 import type { OrgPrSignals } from "@/lib/db";
 import type { FleetIntegrityReading, IntegrityQuestion } from "./reviewIntegrityModel";

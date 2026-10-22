@@ -3,8 +3,8 @@
 // their meaning; the only change from the Altimeter bar is the shape (a 2px-radius rule, not a pill).
 import Link from "next/link";
 import { Eyebrow, Frame } from "@/components/kit";
-import { postureLabel } from "@/components/org/shared/ui";
-import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
+import { postureLabel } from "@/components/shared/dashboard/ui";
+import { POSTURE_HEX } from "@/components/shared/live/liveWarRoomShared";
 import { postureHref } from "./PostureCompositionBar";
 import { postureShares } from "./postureModel";
 

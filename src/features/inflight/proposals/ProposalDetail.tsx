@@ -9,10 +9,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { RowActions } from "@/components/org/followups/FollowupChips";
-import { FollowupHistory } from "@/components/org/followups/FollowupHistory";
-import { ClaimRowActions } from "@/components/org/followups/ClaimRowActions";
-import type { ClaimViewer } from "@/components/org/followups/claimActionsModel";
+import { RowActions } from "@/components/shared/followups/FollowupChips";
+import { FollowupHistory } from "@/components/shared/followups/FollowupHistory";
+import { ClaimRowActions } from "@/components/shared/followups/ClaimRowActions";
+import type { ClaimViewer } from "@/components/shared/followups/claimActionsModel";
 import { reviewLoopDeliverable } from "@/features/inflight/live/cockpit/loopClient";
 import type { LoopProposal, ProposalRow } from "./proposalsModel";
 

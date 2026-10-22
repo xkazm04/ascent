@@ -4,7 +4,7 @@
 // (LiveWarRoomHeader.tsx). Pulled out so the header's file stays under the 200-LOC cap
 // (docs/ORG-TABS-REFACTOR.md).
 
-import { shortName } from "@/components/org/shared/liveWarRoomShared";
+import { shortName } from "@/components/shared/live/liveWarRoomShared";
 
 export function HeaderProgress({
   running,

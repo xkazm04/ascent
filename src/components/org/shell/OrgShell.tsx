@@ -7,7 +7,7 @@ import { ProgramStrip } from "@/components/org/shell/ProgramStrip";
 import { RunnerNotifier } from "@/components/org/shell/RunnerNotifier";
 import { getOrgProgramStatus } from "@/lib/db/org-program";
 import { resolveOrgShellState } from "@/lib/org/orgShellGate";
-import { OrgEmpty } from "@/components/org/shared/ui";
+import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { TourChecklist } from "@/components/onboarding/tour/TourChecklist";
 import { countInFlightPrs, countMeteredScansThisMonth, ensureOwnerMembership, getCreditState, getMembershipRole, getOrgHeaderSummary, isDbConfigured, isDbUnavailableError } from "@/lib/db";
 import { getNavCounts } from "@/lib/org/nav-counts";

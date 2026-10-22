@@ -3,7 +3,7 @@
 // and the one thing the label CANNOT carry is which cells are holes: `fmtNum(null)` prints the em
 // dash, so an unmeasured dimension reads as an absence here exactly as it reads as a gap in the ring.
 
-import { fmtNum, STATE_LABEL } from "@/components/org/viz";
+import { fmtNum, STATE_LABEL } from "@/components/shared/viz";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import type { RadarSeries } from "@/features/standing/tech-stacks/StackRadarChart";
 

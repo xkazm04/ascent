@@ -583,7 +583,7 @@ contract.
 - **Goals have no management UI.** Deliberate half-state (operator decision 2026-10-07, see above); an
   admin can close a goal over the API, and nothing in the app does.
 - (Closed 2026-08-14.) ~~Goal metrics are point-in-time.~~ Every `GoalProgress` row carries
-  `series`, drawn by `GoalCard` (`src/components/org/shared/GoalTrend.tsx`).
+  `series`, drawn by `GoalCard` (`src/components/shared/goals/GoalTrend.tsx`).
 - (Closed 2026-09-17.) ~~Executive briefing fleet adoption used the mock-inclusive scanned set as
   its denominator.~~ `adoptionRate` is the share of **live-scored** repositories at a high-adoption
   posture (`realScoredCount`), matching the briefing's other measurements; mock-engine rows are

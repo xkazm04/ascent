@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import {
   parseOrgRetentionBody,
   type OrgRetentionColumns,

@@ -5,8 +5,8 @@
 //
 // Server-safe — no hooks, no handlers.
 
-import { OrgTable } from "@/components/org/shared/ui";
-import { STATE_HINT } from "@/components/org/viz";
+import { OrgTable } from "@/components/shared/dashboard/ui";
+import { STATE_HINT } from "@/components/shared/viz";
 import type { UnitEconomicsView } from "@/lib/db/unit-economics";
 
 /** Cents → "$1.23" / "$1,234". Whole dollars above $100, where cents are noise. */

@@ -7,7 +7,7 @@
 // sit one click away on a WhyChip beside each label. A fleet whose scans predate the counts renders a
 // dashed void saying so, never a 0%. Server-safe (no hooks; WhyChip is its own client island).
 
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { FAST_APPROVAL_MAX_MINUTES, REVIEW_INTEGRITY_MIN_SAMPLE } from "@/lib/analyze/pr-thresholds";
 import type { FleetIntegrityReading, IntegrityQuestion, ReviewIntegrityModel } from "./reviewIntegrityModel";
 

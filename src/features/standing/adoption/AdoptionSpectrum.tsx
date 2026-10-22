@@ -8,8 +8,8 @@
 
 import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { DEFAULT_BASE, Legend, WhyChip } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { DEFAULT_BASE, Legend, WhyChip } from "@/components/shared/viz";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { AdoptionCurve } from "./AdoptionCurve";
 import { buildAdoptionCurve } from "./adoptionCurveModel";

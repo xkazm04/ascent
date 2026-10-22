@@ -2,7 +2,7 @@
 // and hands the same props to whichever composition the theme selected. One panel, one Suspense
 // boundary (GovernanceTab): every card derives from the same `buildGovernanceOverview` read.
 
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { buildGovernanceOverview } from "@/lib/org/governance";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";

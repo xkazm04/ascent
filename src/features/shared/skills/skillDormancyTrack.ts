@@ -6,7 +6,7 @@
 // event at all" stop being the same amber word: the first is a VOID (the dotted ground shows
 // through), the second is a HATCH.
 
-import type { TrackRow, TrackSegment } from "@/components/org/viz";
+import type { TrackRow, TrackSegment } from "@/components/shared/viz";
 import type { SkillUsage } from "@/lib/org/skill-usage";
 import type { SkillRow } from "@/lib/db";
 import { rankSkills, usageDetail, usageVizState } from "@/features/shared/skills/skillLifecycleViz";

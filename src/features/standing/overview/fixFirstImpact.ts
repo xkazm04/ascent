@@ -18,7 +18,7 @@
 // Pure: no React, no fetch. The type-only kit import is erased at compile time (the
 // controlMatrixViz.ts precedent), so this stays a server-safe `.ts` a test can call directly.
 
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 
 export interface FixFirstImpact {
   /** Projected fleet-average points recoverable. `null` whenever `state` does not render a value. */

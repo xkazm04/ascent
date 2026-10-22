@@ -13,8 +13,8 @@
 
 import { controlLabel, controlOrder } from "@/lib/controls/catalog";
 import { scoreHex } from "@/lib/ui";
-import { VIZ_STATES } from "@/components/org/viz";
-import type { TrackRow, TrackSegment, VizState } from "@/components/org/viz";
+import { VIZ_STATES } from "@/components/shared/viz";
+import type { TrackRow, TrackSegment, VizState } from "@/components/shared/viz";
 import type { ControlObservationRow, ControlState } from "@/lib/db/control-observations";
 
 const DAY_MS = 86_400_000;

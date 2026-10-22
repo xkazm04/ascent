@@ -4,7 +4,7 @@
 
 import { SiteHeader } from "@/components/Brand";
 import { SignInNotice } from "@/components/SignInNotice";
-import { OrgEmpty } from "@/components/org/shared/ui";
+import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { getSessionState, isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, getViewer } from "@/lib/access";
 import { canReadOrg } from "@/lib/authz";

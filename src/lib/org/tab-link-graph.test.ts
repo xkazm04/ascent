@@ -54,7 +54,7 @@ describe("owningTab", () => {
   it("maps a feature folder, the follow-ups ledger and the group-less developer home", () => {
     expect(owningTab("src/features/standing/security/SecurityTab.tsx", IDS)).toBe("security");
     expect(owningTab("src/features/standing/security/sub/Deep.tsx", IDS)).toBe("security");
-    expect(owningTab("src/components/org/followups/FollowupsTab.tsx", IDS)).toBe("followups");
+    expect(owningTab("src/components/shared/followups/FollowupsTab.tsx", IDS)).toBe("followups");
     expect(owningTab("src/features/developer/DeveloperHome.tsx", IDS)).toBe("developer");
     expect(owningTab("src/features/shared/athena/AthenaDrawer.tsx", IDS)).toBeNull();
   });
@@ -75,7 +75,7 @@ function readTree(): SourceFile[] {
         files.push({ path: p.split(path.sep).join("/"), source: fs.readFileSync(p, "utf8") });
     }
   };
-  for (const root of ["src/features", "src/components/org/followups"]) walk(root);
+  for (const root of ["src/features", "src/components/shared/followups"]) walk(root);
   return files;
 }
 

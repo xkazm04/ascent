@@ -1,7 +1,7 @@
 "use client";
 
 // Altimeter foundation panel, the shipped markup. The panel owns the actions.
-import { Card, OrgTable, SectionHeader } from "@/components/org/shared/ui";
+import { Card, OrgTable, SectionHeader } from "@/components/shared/dashboard/ui";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import { FoundationSecretsDialog } from "./FoundationSecretsDialog";
 import { FoundationRolloutGrid } from "./FoundationRolloutGrid";

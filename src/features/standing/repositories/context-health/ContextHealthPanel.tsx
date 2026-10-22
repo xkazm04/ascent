@@ -15,7 +15,7 @@
 
 import { getOrgRollupShared } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { buildContextRows } from "./contextHealthModel";
 import { ContextHalfLife } from "./ContextHalfLife";
 

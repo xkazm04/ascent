@@ -14,7 +14,7 @@
 // Server-safe (MatrixGrid is the client component).
 
 import { Kicker } from "@/components/ui";
-import { MatrixGrid, WhyChip, type MatrixRow } from "@/components/org/viz";
+import { MatrixGrid, WhyChip, type MatrixRow } from "@/components/shared/viz";
 import type { CareOrgView } from "@/lib/org/developer-view";
 
 const LEDGER_HINT =

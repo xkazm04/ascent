@@ -1,7 +1,7 @@
 // Slope readouts in paper. The arrow is the true direction. Health is a word, not a hue.
 import { Caption } from "@/components/kit";
 import { DIRECTION_TONE } from "@/components/ui";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import type { DeliveryMetricKey, DeliveryRateFit } from "@/lib/db/org-delivery-trend";
 import { DeliverySlopeMark } from "./DeliverySlopeMark";
 

@@ -99,7 +99,7 @@ export function mean(xs: number[]): number | null {
  * `src/components/launch/fleetMapDerive.ts` returns `number | null`, documented "null when nothing is
  * scored (never NaN/0)". Two functions, one name, opposite contracts — this one is now the other one.
  *
- * Callers render null through the shared viz vocabulary (`@/components/org/viz` — `missing` for "no
+ * Callers render null through the shared viz vocabulary (`@/components/shared/viz` — `missing` for "no
  * population to measure", `not-judged` for "never assessed"), whose `rendersValue()` is false, so a
  * void cannot print a numeral.
  */

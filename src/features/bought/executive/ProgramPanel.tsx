@@ -11,7 +11,7 @@
 // the origin every time someone fixed a typo in the name would make every measurement since the
 // start disappear — see startProgram's contract in src/lib/db/org-program.ts.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { LEVELS } from "@/lib/maturity/model";
 import type { ProgramCadence, TransitionProgramRow } from "@/lib/db/org-program";
 import type { LevelId } from "@/lib/types";
@@ -19,7 +19,7 @@ import type { LevelId } from "@/lib/types";
 // State and both fetches live in useProgramPanel, shared with the Prism composition.
 import { ProgramPanelSummary } from "./ProgramPanelSummary";
 import { CADENCE_LABEL, PROGRAM_ORIGIN_HINT, inputClass, labelClass } from "./programPanelConstants";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { useProgramPanel } from "./useProgramPanel";
 
 export function ProgramPanel({

@@ -8,8 +8,8 @@
 //
 // Server-safe: no hooks, no handlers.
 
-import { StateSwatch, type VizState } from "@/components/org/viz";
-import { deltaHex, fmtDelta } from "@/components/org/shared/ui";
+import { StateSwatch, type VizState } from "@/components/shared/viz";
+import { deltaHex, fmtDelta } from "@/components/shared/dashboard/ui";
 import type { PracticeRow } from "./practiceRows";
 
 /** A mined practice no repository was scored on is `not-judged`; an authored adoption is a recorded

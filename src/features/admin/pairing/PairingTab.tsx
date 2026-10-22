@@ -12,7 +12,7 @@
 // cloud, but a deep link still resolves — explain, don't 404, since the URL was honestly shared),
 // then the owner gate, then data.
 
-import { OrgEmpty } from "@/components/org/shared/ui";
+import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { listLocalPairings } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";
 import { selfHosted } from "@/lib/env";

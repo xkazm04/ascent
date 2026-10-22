@@ -3,7 +3,7 @@
 // The Prism composition of the member roster: a masthead that states who holds the keys (owners, admins,
 // the rest, pending invites), then hairline Frames for the roster and for invites instead of a heading over
 // a boxed table. Same hook, same table and invite panel as v1.
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { Caption, Frame, Masthead, Notice, SectionHead, type MastheadFigure } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { MemberInvites } from "./MemberInvites";

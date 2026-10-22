@@ -9,7 +9,7 @@
 // cell any other state, this file fails.
 
 import { describe, expect, it } from "vitest";
-import { isVoid, rendersValue, STATE_LABEL } from "@/components/org/viz";
+import { isVoid, rendersValue, STATE_LABEL } from "@/components/shared/viz";
 import type { OrgLlmConfigPublic } from "@/lib/db";
 import {
   PROVIDER_AXES,

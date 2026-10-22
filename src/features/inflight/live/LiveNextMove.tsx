@@ -5,7 +5,7 @@
 // TV mode fullscreens <html> (enterTvMode) and the wall's stage is an in-flow min-h-[70vh] box, so this
 // link would sit under the stage on a display nobody clicks: the :root:fullscreen variant hides it there.
 import Link from "next/link";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export function LiveNextMove({ slug }: { slug: string }) {

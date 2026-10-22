@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { Defer } from "@/components/ui/Defer";
 import { SkillsPanel } from "@/features/shared/skills/SkillsPanel";
 import { ApiTokensPanelChunk } from "@/features/shared/skills/SkillsTabChunks";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import {
   getOrgSkillAdoption,
   listOrgApiTokens,
@@ -19,7 +19,7 @@ import { getOrgSkillUsage } from "@/lib/org/skill-usage-load";
 import { getOrgSkillOutcomes } from "@/lib/org/skill-outcomes-load";
 import { getRegistrySync, registryBlobBase, type RegistrySync } from "@/lib/org/registry-sync";
 import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 /** The registry strip: one small read, its own boundary, and it never blocks the catalog. */

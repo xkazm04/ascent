@@ -19,11 +19,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { Surface } from "@/components/ui";
 import { DataTable, VoidMark } from "@/components/kit";
-import { SectionHeader } from "@/components/org/shared/ui";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
 import { DIMENSION_SHORT, heatCell, scoreHex } from "@/lib/ui";
-import { Legend } from "@/components/org/viz";
+import { Legend } from "@/components/shared/viz";
 import { useHeatMatrix, type HeatRow } from "./heatmapModel";
-import { RepoDimensionModal, type HeatTarget } from "@/components/org/shared/RepoDimensionModal";
+import { RepoDimensionModal, type HeatTarget } from "@/components/shared/recs/RepoDimensionModal";
 
 export type { HeatRow } from "./heatmapModel";
 

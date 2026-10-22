@@ -13,7 +13,7 @@
 // loaded), so the column can never disagree with the status badge beside it — both read the same fold.
 
 import { Fragment } from "react";
-import { OrgTable } from "@/components/org/shared/ui";
+import { OrgTable } from "@/components/shared/dashboard/ui";
 import { SkillCard } from "@/features/shared/skills/SkillCard";
 import { SkillDormancyBadge } from "@/features/shared/skills/SkillDormancyBadge";
 import { OriginTag } from "@/features/shared/registry/RegistryOriginTag";

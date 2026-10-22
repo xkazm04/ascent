@@ -4,7 +4,7 @@
 //
 // No hooks: the log and the report sit in native <details>, so the row is a pure rendering.
 
-import { FlowRibbon } from "@/components/org/viz/FlowRibbon";
+import { FlowRibbon } from "@/components/shared/viz/FlowRibbon";
 import { verifyVerdictTag, type LoopLaneRecord } from "../cockpit/loopTypes";
 import { LANE_LOG_TAIL, laneFlow, logTail } from "./chronicleModel";
 import { fmtUsd, plural, shortRepo } from "./ledgerFormat";

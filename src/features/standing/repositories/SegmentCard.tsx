@@ -4,7 +4,7 @@
 
 import { SegmentActions } from "./SegmentActions";
 import { SegmentRuleRow } from "./SegmentRuleRow";
-import { POSTURE_LABEL } from "@/components/org/shared/ui";
+import { POSTURE_LABEL } from "@/components/shared/dashboard/ui";
 import { levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 import type { SegmentSummary } from "@/lib/db";

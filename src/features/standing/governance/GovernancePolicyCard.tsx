@@ -1,7 +1,7 @@
 // "Active policy" card — the governance tab's policy readout + owner-only editor. Extracted from the
 // old governance page.tsx JSX (docs/ORG-TABS-REFACTOR.md JSX-region split).
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { GatePolicyEditor } from "./GatePolicyEditor";
 import type { GatePolicy } from "@/lib/scoring/gate";
 

@@ -4,7 +4,7 @@
 // sort, the "show all" slice and the D9 drill-in target cannot drift between Altimeter and Prism. The matrix
 // above the table and the table are both driven by the SAME `visible` slice.
 import { useMemo, useState } from "react";
-import type { HeatTarget } from "@/components/org/shared/RepoDimensionModal";
+import type { HeatTarget } from "@/components/shared/recs/RepoDimensionModal";
 import type { SecurityRegisterRow } from "@/lib/org/security";
 import { DEFAULT_DIR, sortRows, VISIBLE_DEFAULT, type RegisterAdvisories, type SortKey } from "./securityRegisterShared";
 import type { ThSort } from "./SecurityRiskRegisterParts";

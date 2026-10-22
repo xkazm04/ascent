@@ -5,7 +5,7 @@
 // THEME DUALITY: after the gate and the reads, the theme picks the composition (IntegrationsTab.v1
 // Altimeter, IntegrationsViewV2 Prism). Both receive the same IntegrationsData.
 
-import { OrgEmpty } from "@/components/org/shared/ui";
+import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { ingestToken, isIngestConfigured } from "@/lib/integrations/ingest-token";
 import { getIngestTokenEpoch, getProviderIngestStatus } from "@/lib/db";
 import { hasOrgRole } from "@/lib/authz";

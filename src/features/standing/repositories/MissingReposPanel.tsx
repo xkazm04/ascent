@@ -13,7 +13,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Surface, Kicker } from "@/components/ui";
-import { StateSwatch, WhyChip } from "@/components/org/viz";
+import { StateSwatch, WhyChip } from "@/components/shared/viz";
 import { timeAgo } from "@/lib/ui";
 
 // The two demoted sentences: what an absence from the listing means, and why it costs something.

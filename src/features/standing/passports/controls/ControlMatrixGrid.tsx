@@ -4,7 +4,7 @@
 // expandable to the individual clause (`control.prepush.test`), because a CISO opens this to ask
 // "are the controls holding" and only then "which one".
 
-import { OrgTable } from "@/components/org/shared/ui";
+import { OrgTable } from "@/components/shared/dashboard/ui";
 import { ControlCell } from "./ControlCell";
 import { cellFor, columnTotals, columnsFor, type ControlMatrixRowView } from "./controlMatrixView";
 

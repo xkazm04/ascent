@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { reportPermalink, scoreGlyph, scoreHex } from "@/lib/ui";
-import { LEADER_MAX, ROW_H, type LiveRepo } from "@/components/org/shared/liveWarRoomShared";
+import { LEADER_MAX, ROW_H, type LiveRepo } from "@/components/shared/live/liveWarRoomShared";
 import { Panel } from "@/components/kit";
 
 export function Leaderboard({

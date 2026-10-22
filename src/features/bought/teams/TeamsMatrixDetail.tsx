@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import type { TeamRollup } from "@/lib/db";
-import { deltaHex, fmtDelta, postureLabel } from "@/components/org/shared/ui";
+import { deltaHex, fmtDelta, postureLabel } from "@/components/shared/dashboard/ui";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { scoreHex } from "@/lib/ui";
 

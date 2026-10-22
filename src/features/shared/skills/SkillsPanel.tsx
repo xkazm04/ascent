@@ -10,7 +10,7 @@
 // textarea (2026-09-17). State/effects live in useSkillsLibrary.ts; the table region lives in
 // SkillsLibraryTable.tsx — both extracted to keep this file under the 200-LOC cap.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { SkillsFilterBar } from "@/features/shared/skills/SkillsFilterBar";
 import { SkillsListError, SkillsTruncatedLine } from "@/features/shared/skills/SkillsListNotes";
 import { SkillsLibraryTable } from "@/features/shared/skills/SkillsLibraryTable";

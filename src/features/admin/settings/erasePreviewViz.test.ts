@@ -3,7 +3,7 @@
 // disposition four rows are void in Erased — the guarantee drawn as nothing to see.
 
 import { describe, expect, it } from "vitest";
-import { isVoid, rendersValue } from "@/components/org/viz";
+import { isVoid, rendersValue } from "@/components/shared/viz";
 import type { AuditDisposition } from "./eraseTotals";
 import { ERASE_AXES, ERASE_MATRIX_HINT, erasePreviewRows, erasePreviewStates } from "./erasePreviewViz";
 

@@ -1,8 +1,8 @@
 // Altimeter body of the core region. Markup moved unchanged from DeliveryCorePanel.
-import { Card, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { SnapshotScopeNotice } from "@/components/org/shared/SnapshotScopeNotice";
+import { Card, SectionEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
+import { SnapshotScopeNotice } from "@/components/shared/scope/SnapshotScopeNotice";
 import { Defer } from "@/components/ui/Defer";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { DeliveryPriorities } from "./DeliveryPriorities";
 import { DeliveryPrSection } from "./DeliveryPrSection";
 import { DeliveryGovernanceSection } from "./DeliveryGovernanceSection";

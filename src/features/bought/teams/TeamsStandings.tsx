@@ -11,8 +11,8 @@
 // live in the co-located TeamsStandingColumn.
 
 import { Surface } from "@/components/ui";
-import { SectionHeader } from "@/components/org/shared/ui";
-import { WhyChip } from "@/components/org/viz";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
+import { WhyChip } from "@/components/shared/viz";
 import { timeAgo } from "@/lib/ui";
 import type { TeamRollup } from "@/lib/db";
 import type { TeamStandings as TeamStandingsModel } from "@/lib/org/teamStandings";

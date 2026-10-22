@@ -1,6 +1,6 @@
 // The Altimeter composition of the Audit tab (moved unchanged from AuditTab.tsx). Server-safe.
-import { SectionHeader } from "@/components/org/shared/ui";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { AuditLogPage } from "@/lib/db";
 import type { AuditHealth } from "@/lib/db/audit-health";

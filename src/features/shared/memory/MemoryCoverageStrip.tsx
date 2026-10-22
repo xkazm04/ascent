@@ -11,8 +11,8 @@
 // at all (no observation ever, so a hatch, and a hatch prints no value). Three tiles below can state
 // the numbers; only the bar puts the gap next to the coverage it is a gap in.
 
-import { Tile, TILE_LEDGER } from "@/components/org/shared/ui";
-import { BudgetPack, Legend, type Omission } from "@/components/org/viz";
+import { Tile, TILE_LEDGER } from "@/components/shared/dashboard/ui";
+import { BudgetPack, Legend, type Omission } from "@/components/shared/viz";
 import { LEVEL_HEX, scoreHex } from "@/lib/ui";
 import type { MemoryCoverage } from "@/lib/memory/coverage";
 

@@ -10,9 +10,9 @@
 // The strip is the panel's headline reading: how concentrated a TYPICAL repo in this fleet is. The
 // tiles quantify it, and the risk table names the repos carrying it.
 
-import { OrgTable, SectionHeader, Tile, TILE_LEDGER } from "@/components/org/shared/ui";
+import { OrgTable, SectionHeader, Tile, TILE_LEDGER } from "@/components/shared/dashboard/ui";
 import { Kicker } from "@/components/ui";
-import { Distribution, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { Distribution, StateSwatch, WhyChip, stateTitle } from "@/components/shared/viz";
 import type { ContributorInsights, OrgResilience, RepoResilienceRisk } from "@/lib/db";
 import { scoreHex } from "@/lib/ui";
 import { quantiles } from "./contributorStats";

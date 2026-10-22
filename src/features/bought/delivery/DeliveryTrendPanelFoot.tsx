@@ -7,7 +7,7 @@
 // Server-safe — no hooks, no handlers.
 
 import { deltaHex, fmtDelta } from "@/components/ui";
-import { STATE_LABEL } from "@/components/org/viz";
+import { STATE_LABEL } from "@/components/shared/viz";
 import { dayLabel, type TrendPanelPoint } from "./deliveryTrendPanelMath";
 
 export function DeliveryTrendPanelFoot({

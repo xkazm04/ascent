@@ -2,7 +2,7 @@
 // getOrgDeliveryTrend is a genuinely separate (windowed) query from the PR/governance/activity/AI
 // reads in DeliveryCorePanel, so a slow trend query can't hold the rest of the tab hostage.
 
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { Frame, Lede } from "@/components/kit";
 import { DeliveryTrendSection } from "./DeliveryTrendSection";
 import { DeliveryTrendV2 } from "./DeliveryTrend.v2";

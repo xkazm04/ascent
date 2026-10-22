@@ -8,7 +8,7 @@
 // (RepoLeaderboardRow) and the sticky bar (RepoLeaderboardBulkBar) are extracted siblings — this file
 // stays under the 200-LOC cap (AGENTS.md) by keeping the JSX itself thin.
 
-import { OrgTable } from "@/components/org/shared/ui";
+import { OrgTable } from "@/components/shared/dashboard/ui";
 import { LeaderboardHead } from "./RepoLeaderboardParts";
 import { RepoLeaderboardRow } from "./RepoLeaderboardRow";
 import { RepoLeaderboardBulkBar } from "./RepoLeaderboardBulkBar";

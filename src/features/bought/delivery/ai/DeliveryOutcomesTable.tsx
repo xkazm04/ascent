@@ -4,8 +4,8 @@
 //
 // Server-safe — no hooks, no handlers.
 
-import { OrgTable } from "@/components/org/shared/ui";
-import { STATE_HINT } from "@/components/org/viz";
+import { OrgTable } from "@/components/shared/dashboard/ui";
+import { STATE_HINT } from "@/components/shared/viz";
 import { MIN_DEPLOYMENTS, type OutcomeBucket } from "@/lib/db/delivery-outcomes";
 import { scoreHex } from "@/lib/ui";
 

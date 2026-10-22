@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { emptyRoster, foldStreamFrame, type ScanRunRoster } from "@/components/org/shared/scanRunRosterModel";
+import { emptyRoster, foldStreamFrame, type ScanRunRoster } from "@/components/shared/scan/scanRunRosterModel";
 import { EMPTY_WATCHLIST_TEXT, fleetScanOutcome, refusedOutcome } from "./fleetScanOutcomeModel";
 
 const fold = (frames: [string, Record<string, unknown>][]): ScanRunRoster =>

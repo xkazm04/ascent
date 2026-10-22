@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { emptyRoster, foldStreamFrame } from "@/components/org/shared/scanRunRosterModel";
+import { emptyRoster, foldStreamFrame } from "@/components/shared/scan/scanRunRosterModel";
 import { ConstellationFooter } from "./ConstellationField.Footer";
 import { fleetScanOutcome } from "./fleetScanOutcomeModel";
 import type { Constellation } from "./fleetMapStars";

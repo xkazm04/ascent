@@ -9,9 +9,9 @@
 //
 // Extracted from CareOrgAggregate.tsx to keep both files under the 200-LOC cap. Server-safe.
 
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { Kicker } from "@/components/ui";
-import { Distribution, WhyChip } from "@/components/org/viz";
+import { Distribution, WhyChip } from "@/components/shared/viz";
 import {
   CARE_BAND_MIN_SHARERS,
   CARE_SHAPE_LABEL,

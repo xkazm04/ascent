@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { foldRepoEvent, computeStats } from "@/features/inflight/live/liveWarRoomFold";
-import type { LiveRepo, Mover } from "@/components/org/shared/liveWarRoomShared";
+import type { LiveRepo, Mover } from "@/components/shared/live/liveWarRoomShared";
 
 // The live war-room wall folds a stream of `repo` SSE events into three derived views: the repos
 // map (headline averages + posture distribution), the leaderboard ordering, and a celebration that

@@ -30,7 +30,7 @@
 // reader concluding the loop closed their item.
 
 import { Kicker } from "@/components/ui";
-import { InlineEmpty, TILE_LEDGER } from "@/components/org/shared/ui";
+import { InlineEmpty, TILE_LEDGER } from "@/components/shared/dashboard/ui";
 import { timeAgo } from "@/lib/ui";
 import type { LaneOutcomeRow } from "./loopTypes";
 

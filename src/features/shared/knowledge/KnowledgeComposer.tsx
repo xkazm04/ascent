@@ -11,7 +11,7 @@
 // a button that says "done".
 
 import { Kicker, chipButtonClass } from "@/components/ui";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import type { KnowledgeView, RegistryDispatchRow, RegistryDispatchStage } from "@/lib/org/knowledge-shape";
 import { KnowledgeComposerContexts } from "./KnowledgeComposerContexts";
 import { StageChip } from "./KnowledgeShared";

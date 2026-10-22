@@ -13,7 +13,7 @@
 //
 // Pure: no React. MatrixGrid paints from the states this returns.
 
-import type { MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixRow, VizState } from "@/components/shared/viz";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 
 type AdoptionTeam = AdoptionOverview["teams"][number];

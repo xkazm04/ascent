@@ -6,7 +6,7 @@
 // the bug the whole Skills redesign is about.
 
 import { describe, expect, it } from "vitest";
-import { isVoid } from "@/components/org/viz";
+import { isVoid } from "@/components/shared/viz";
 import { dormancyLanes, observedAt, trackEnd } from "./skillDormancyTrack";
 import type { SkillUsage } from "@/lib/org/skill-usage";
 import type { SkillRow } from "@/lib/db";

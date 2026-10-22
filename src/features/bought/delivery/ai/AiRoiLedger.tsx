@@ -10,7 +10,7 @@
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
 import { HairlineGrid } from "@/components/kit";
-import { OrgTable, Meter } from "@/components/org/shared/ui";
+import { OrgTable, Meter } from "@/components/shared/dashboard/ui";
 import { scoreHex } from "@/lib/ui";
 import { fmtMoney, type AiDeliveryModel, type AiRepoRoi } from "./aiDeliveryModel";
 import { VerdictChip } from "./aiShared";

@@ -20,7 +20,7 @@
 //
 // Server-safe — no hooks, no handlers.
 
-import { Card, SectionHeader, Tile, TILE_LEDGER } from "@/components/org/shared/ui";
+import { Card, SectionHeader, Tile, TILE_LEDGER } from "@/components/shared/dashboard/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { UnitEconomicsView } from "@/lib/db/unit-economics";
 import { UnitEconomicsFlow } from "./UnitEconomicsFlow";

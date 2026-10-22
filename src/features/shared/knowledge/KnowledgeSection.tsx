@@ -3,7 +3,7 @@
 // Apply stage). One switch on top of both views, and exactly one next-move link per view: the subjects
 // view's lives in KnowledgeTab, the gallery's here.
 
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { SurfacesTab } from "@/features/shared/surfaces/SurfacesTab";
 

@@ -10,7 +10,7 @@
 // Server-safe: `Distribution` is the client component, everything here is data shaping.
 
 import { Kicker } from "@/components/ui";
-import { Distribution, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { Distribution, StateSwatch, WhyChip, stateTitle } from "@/components/shared/viz";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import type { ContributorInsights } from "@/lib/db";
 import { quantiles } from "./contributorStats";

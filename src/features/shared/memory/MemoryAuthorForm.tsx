@@ -20,7 +20,7 @@
 // (docs/ORG-TABS-REFACTOR.md §3).
 
 import { useEffect, useRef } from "react";
-import { StateSwatch, WhyChip } from "@/components/org/viz";
+import { StateSwatch, WhyChip } from "@/components/shared/viz";
 import { CheckVerdict } from "@/features/shared/memory/MemoryCheckVerdict";
 import { MemoryAuthorFormFields } from "@/features/shared/memory/MemoryAuthorFormFields";
 import type { CheckResponse } from "@/features/shared/memory/memoryCheck";

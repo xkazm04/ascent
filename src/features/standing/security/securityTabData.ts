@@ -4,7 +4,7 @@
 import type { ComponentProps } from "react";
 import type { SecurityOverview } from "@/lib/org/security";
 import type { DecisionMap } from "@/lib/org/decision-map";
-import type { TechStackSelector } from "@/components/org/shared/TechStackSelector";
+import type { TechStackSelector } from "@/components/shared/scope/TechStackSelector";
 import type { RegisterAdvisories } from "./securityRegisterShared";
 
 export interface SecurityTabData {

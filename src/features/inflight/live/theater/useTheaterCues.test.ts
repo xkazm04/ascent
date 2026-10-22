@@ -2,7 +2,7 @@
 // sound is on, every card gone after CELEBRATION_MS, and nothing left armed after dispose.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CELEBRATION_MS } from "@/components/org/shared/liveWarRoomShared";
+import { CELEBRATION_MS } from "@/components/shared/live/liveWarRoomShared";
 import type { PulseEvent } from "@/lib/local/runner-types";
 import { CUE_GAP_MS, type TheaterCue } from "./theaterCues";
 import { createCueController } from "./useTheaterCues";

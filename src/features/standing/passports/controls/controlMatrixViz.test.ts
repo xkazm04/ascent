@@ -3,7 +3,7 @@
 // reason the sentence could go: a promise made by prose survives exactly as long as the next edit.
 
 import { describe, expect, it } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import { controlVizModel } from "./controlMatrixViz";
 import type { ControlMatrixRowView } from "./controlMatrixView";
 

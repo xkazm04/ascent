@@ -7,8 +7,8 @@
 // separate boundaries would only add complexity without letting anything paint sooner.
 
 import { Suspense } from "react";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { TeamsRollupPanel } from "./TeamsRollupPanel";
 import { getTheme } from "@/lib/theme/server";

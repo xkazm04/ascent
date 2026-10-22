@@ -10,7 +10,7 @@
 // "0 onboarded" — omit those clauses when the bucket is empty or unmeasured.
 
 import Link from "next/link";
-import { Card, InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { Card, InlineEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
 import { Kicker } from "@/components/ui";
 import type { WeeklyDigest } from "@/lib/org/digest-types";
 import { DigestMoveAxis } from "./DigestMoveAxis";

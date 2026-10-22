@@ -14,7 +14,7 @@
 
 import { buildWeeklyDigest } from "@/lib/org/digest";
 import { weeklyDigestMarkdown } from "@/lib/org/digest-markdown";
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { getTheme } from "@/lib/theme/server";
 import { digestV1 } from "./DigestTab.v1";
 import { digestV2 } from "./DigestTab.v2";

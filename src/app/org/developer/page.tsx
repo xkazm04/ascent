@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { OrgShell } from "@/components/org/shell/OrgShell";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { DeveloperHome } from "@/features/developer/DeveloperHome";
 import { getDeveloperView } from "@/lib/org/developer-view-load";
 import { resolveViewerIdentity } from "@/lib/access";

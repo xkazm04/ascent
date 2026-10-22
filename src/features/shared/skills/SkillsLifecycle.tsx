@@ -8,10 +8,10 @@
 // was recorded here") and a hatch ("nothing has ever been measured in this org") are different
 // pictures rather than the same amber word.
 //
-// Every encoding comes from @/components/org/viz. Nothing here re-defines a hatch, a dash or a label.
+// Every encoding comes from @/components/shared/viz. Nothing here re-defines a hatch, a dash or a label.
 
 import { Kicker } from "@/components/ui";
-import { Legend, MatrixGrid, StateTrack, WhyChip, type VizState } from "@/components/org/viz";
+import { Legend, MatrixGrid, StateTrack, WhyChip, type VizState } from "@/components/shared/viz";
 import { REUSE_AXES, reuseRows } from "@/features/shared/skills/skillLifecycleViz";
 import { dormancyLanes } from "@/features/shared/skills/skillDormancyTrack";
 import type { SkillUsage } from "@/lib/org/skill-usage";

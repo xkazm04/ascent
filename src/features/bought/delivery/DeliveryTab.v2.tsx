@@ -1,6 +1,6 @@
 // Prism composition. Same four suspense boundaries and the same data panels; each panel picks its v2 view.
 import { Suspense } from "react";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import type { OrgScope } from "@/lib/org/scope";
 import type { ResolvedWindow } from "@/lib/window";
 import { DeliveryTrendDataPanel } from "./DeliveryTrendDataPanel";

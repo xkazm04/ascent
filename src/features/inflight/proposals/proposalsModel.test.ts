@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { LoopRunDetail } from "@/lib/db/loop-runs-types";
-import { emptyFilters, type FollowUpRow } from "@/components/org/followups/followupsModel";
+import { emptyFilters, type FollowUpRow } from "@/components/shared/followups/followupsModel";
 import { applyProposalFilters, mergeProposals, pendingLoopProposals, type ProposalRow } from "./proposalsModel";
 
 /** A run whose one lane armed `batchIds` and resolved none of them — every item is `proposed`. */

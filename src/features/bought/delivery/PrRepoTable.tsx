@@ -5,8 +5,8 @@
 // no JS) so the page stays short without hiding data.
 
 import Link from "next/link";
-import { OrgTable, fmtHours } from "@/components/org/shared/ui";
-import { STATE_HINT } from "@/components/org/viz";
+import { OrgTable, fmtHours } from "@/components/shared/dashboard/ui";
+import { STATE_HINT } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 import type { PrRepoRow } from "@/lib/db";
 import type { FleetRateId } from "@/lib/db/org-signals";

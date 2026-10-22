@@ -7,9 +7,9 @@
 // risk point. The per-repo table stays BELOW it, where a table is the right shape — auditable
 // row-level evidence, and the only surface on this tab that carries a decision control.
 
-import { OrgTable, SectionHeader } from "@/components/org/shared/ui";
-import { DecisionControl } from "@/components/org/DecisionControl";
-import { ConcentrationCurve, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { OrgTable, SectionHeader } from "@/components/shared/dashboard/ui";
+import { DecisionControl } from "@/components/shared/recs/DecisionControl";
+import { ConcentrationCurve, StateSwatch, WhyChip, stateTitle } from "@/components/shared/viz";
 import type { DecisionMap } from "@/lib/org/decision-map";
 import type { ContributorInsights } from "@/lib/db";
 import { CHAMPION_MIN_POP, topContributorLabel } from "@/lib/org/champions";

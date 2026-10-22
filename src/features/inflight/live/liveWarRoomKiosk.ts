@@ -7,7 +7,7 @@
 
 import { useEffect, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import type { LiveRepo, LiveRepoSeed } from "@/components/org/shared/liveWarRoomShared";
+import type { LiveRepo, LiveRepoSeed } from "@/components/shared/live/liveWarRoomShared";
 import { useIsVisible } from "./useIsVisible";
 
 export function useLiveWarRoomKiosk({

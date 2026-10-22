@@ -11,7 +11,7 @@
 // Server-safe: no hooks, no handlers.
 
 import { Kicker } from "@/components/ui";
-import { Legend, MatrixGrid, WhyChip, matrixLegendStates } from "@/components/org/viz";
+import { Legend, MatrixGrid, WhyChip, matrixLegendStates } from "@/components/shared/viz";
 import type { SegmentSummary } from "@/lib/db";
 import { SEGMENT_AXES, segmentMatrixRows } from "./segmentViz";
 

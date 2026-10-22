@@ -4,7 +4,7 @@
 // column, and notices as ruled Frames rather than boxed cards.
 import Link from "next/link";
 import { Frame, Masthead, SectionHead } from "@/components/kit";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { KnowledgeView } from "@/lib/org/knowledge-shape";
 import { KnowledgeLoom } from "./KnowledgeLoom";

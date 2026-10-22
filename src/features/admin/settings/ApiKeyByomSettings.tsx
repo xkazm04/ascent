@@ -9,7 +9,7 @@
 // ENCRYPTION_KEY. Structural template: LlmProviderSettings (the Bedrock card).
 
 import { useState, type ReactNode } from "react";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { disableLlmProvider, saveApiKeyByomConfig, testApiKeyByomConfig } from "./apiKeyByomApi";
 import type { OrgLlmConfigPublic } from "@/lib/db";
 import type { ApiKeyByomKind } from "@/lib/llm/byom-kinds";

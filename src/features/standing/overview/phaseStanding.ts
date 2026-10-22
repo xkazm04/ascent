@@ -8,7 +8,7 @@
 //
 // Pure: no React. The type-only kit import is erased at compile time.
 
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 import { FOLLOW_UP_BELOW } from "@/lib/maturity/model";
 import { groupByPhase, type DimensionReading } from "./dimensionReading";
 

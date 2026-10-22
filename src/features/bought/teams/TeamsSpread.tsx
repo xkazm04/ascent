@@ -8,7 +8,7 @@
 //
 // Server-safe: no hooks, no handlers. `Distribution`/`WhyChip` carry their own client boundary.
 
-import { Distribution, WhyChip } from "@/components/org/viz";
+import { Distribution, WhyChip } from "@/components/shared/viz";
 import { Kicker } from "@/components/ui";
 import type { TeamRollup } from "@/lib/db";
 import type { TeamStandings } from "@/lib/org/teamStandings";

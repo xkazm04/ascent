@@ -11,7 +11,7 @@
 // `ATHENA_TABLE_MAX_*` constants on the way out of `meta`; doing it twice would be two places to
 // disagree.
 
-import { OrgTable } from "@/components/org/shared/ui";
+import { OrgTable } from "@/components/shared/dashboard/ui";
 import type { AthenaTableBlock } from "@/lib/athena/blocks";
 
 /** Columns after the first are numeric far more often than not, so they are typeset and right-set. */

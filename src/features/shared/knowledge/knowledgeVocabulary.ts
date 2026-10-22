@@ -7,16 +7,16 @@
 //
 // This file names the DOMAIN axis: WHICH of the registry's eleven classifications a cell carries
 // (`declined` is not `deferred`, `out-of-scope` is not `out-of-domain`). The kit's `VizState`
-// (`@/components/org/viz`) names the EPISTEMIC axis: whether we MEASURED it, whether somebody merely
+// (`@/components/shared/viz`) names the EPISTEMIC axis: whether we MEASURED it, whether somebody merely
 // DECLARED it, whether nothing judged it, whether there is no measurement at all.
 //
 // `CELL_VIZ_STATE` below is the thin mapping from this file's axis onto the kit's, and the kit is
 // canonical: every hatch, dash, void, opacity, swatch and caveat sentence on this tab comes from
-// `@/components/org/viz` through that map. Nothing here re-defines one. What stays local is only the
+// `@/components/shared/viz` through that map. Nothing here re-defines one. What stays local is only the
 // part the six states genuinely cannot carry — the eleven labels, the eleven glyphs, the worst-wins
 // rank, and the reason each absence is an absence.
 
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 import type { KnowledgeCellState, KnowledgeRepoStage } from "@/lib/org/knowledge-shape";
 
 export const STATE_LABEL: Record<KnowledgeCellState, string> = {

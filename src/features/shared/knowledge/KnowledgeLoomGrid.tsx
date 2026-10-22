@@ -6,7 +6,7 @@
 // cells are data — the `table` golden path's chrome/body split.
 
 import { DataTable } from "@/components/kit";
-import { STATE_HINT, StateSwatch } from "@/components/org/viz";
+import { STATE_HINT, StateSwatch } from "@/components/shared/viz";
 import type { KnowledgeDomain, KnowledgeRepo, KnowledgeView } from "@/lib/org/knowledge-shape";
 import { KnowledgeRepoBadges } from "./KnowledgeRepoBadges";
 import { CellButton, StageChip } from "./KnowledgeShared";

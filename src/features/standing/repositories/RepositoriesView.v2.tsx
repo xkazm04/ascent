@@ -4,8 +4,8 @@
 // list is ruled RepoRows in a Frame rather than a boxed table.
 import type { ReactNode } from "react";
 import { Frame, GhostAction, Masthead, Segmented, Toolbar, VoidMark } from "@/components/kit";
-import { POSTURE_ORDER, postureLabel } from "@/components/org/shared/ui";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { POSTURE_ORDER, postureLabel } from "@/components/shared/dashboard/ui";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { RepoLeaderboard } from "./RepoLeaderboard";
 import { fleetActivity } from "./repoFleetModel";
 import type { LeaderRow, SegmentItem } from "./useRepoLeaderboard";

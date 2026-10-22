@@ -23,9 +23,9 @@
 //
 // Server-safe — no hooks, no handlers.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { Kicker } from "@/components/ui";
-import { StateSwatch, WhyChip } from "@/components/org/viz";
+import { StateSwatch, WhyChip } from "@/components/shared/viz";
 import { HousePatternPrivacy } from "./HousePatternPrivacy";
 import { shapeProvenanceHint } from "./housePatternViz";
 import { MIN_AGREEMENT, type MinedPractice } from "@/lib/org/practice-mining";

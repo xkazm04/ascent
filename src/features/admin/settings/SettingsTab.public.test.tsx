@@ -17,7 +17,7 @@ vi.mock("@/lib/polar", () => ({ polarEnabled: vi.fn(() => true) }));
 vi.mock("@/lib/llm/lane-routes-load", () => ({ loadLaneRouting: vi.fn(async () => ({ current: [], preview: null })) }));
 
 import { SettingsTab } from "./SettingsTab";
-import { OrgEmpty } from "@/components/org/shared/ui";
+import { OrgEmpty } from "@/components/shared/dashboard/ui";
 
 const html = async (slug: string) => renderToStaticMarkup((await SettingsTab({ slug })) as React.ReactElement);
 

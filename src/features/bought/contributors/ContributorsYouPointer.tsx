@@ -10,7 +10,7 @@
 // Server-safe (no hooks, no handlers) — both pieces render inside the tab's server components.
 
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
-import { StateSwatch } from "@/components/org/viz";
+import { StateSwatch } from "@/components/shared/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 /** The inline mark on the viewer's own row/card. Nothing else about the row changes. */

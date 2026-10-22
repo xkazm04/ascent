@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Kicker } from "@/components/ui";
-import { BandLadder, Legend, WhyChip } from "@/components/org/viz";
+import { BandLadder, Legend, WhyChip } from "@/components/shared/viz";
 import type { RepoAdmissionRow } from "@/lib/org/admission";
 import { admissionSummary, toAdmissionViews, type AdmissionView } from "./admissionRows";
 import { admissionBands, admissionEdge, admissionStates } from "./admissionLadder";

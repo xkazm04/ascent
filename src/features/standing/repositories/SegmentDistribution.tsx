@@ -19,7 +19,7 @@
 // plus CSS tokens — no hand-picked hex (BRAND.md).
 
 import { Kicker } from "@/components/ui";
-import { KICKER_SVG_CLASS, r2 } from "@/components/org/viz";
+import { KICKER_SVG_CLASS, r2 } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 import { capItems, type DistSide, type DistributionRow } from "./segmentViz";
 

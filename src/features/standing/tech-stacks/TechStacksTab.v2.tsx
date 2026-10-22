@@ -4,9 +4,9 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { Masthead } from "@/components/kit";
-import { DIMS } from "@/components/org/shared/ui";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { DIMS } from "@/components/shared/dashboard/ui";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { TechStacksAnalysisPanel } from "./TechStacksAnalysisPanel";
 

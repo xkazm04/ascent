@@ -8,7 +8,7 @@
 // Server component: every child that holds interaction state is its own client file.
 import type { ReactNode } from "react";
 import { Caption, Frame } from "@/components/kit";
-import { DIMS } from "@/components/org/shared/ui";
+import { DIMS } from "@/components/shared/dashboard/ui";
 import { buildDimensionReadings } from "./dimensionReading";
 import { DimensionLedger } from "./DimensionLedger.v2";
 import { DimensionMatrix } from "./DimensionMatrix.v2";

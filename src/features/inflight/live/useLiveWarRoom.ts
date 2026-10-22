@@ -15,7 +15,7 @@ import {
   type LiveRepoSeed,
   type Mover,
   type Phase,
-} from "@/components/org/shared/liveWarRoomShared";
+} from "@/components/shared/live/liveWarRoomShared";
 import { computeLeaderboard, computeStats, foldRepoEvent, progressPct } from "@/features/inflight/live/liveWarRoomFold";
 import { useLiveWarRoomCelebrations } from "@/features/inflight/live/liveWarRoomCelebrate";
 import { useLiveWarRoomKiosk } from "@/features/inflight/live/liveWarRoomKiosk";

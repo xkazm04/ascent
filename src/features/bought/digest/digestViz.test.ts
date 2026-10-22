@@ -8,7 +8,7 @@
 // the nearest available value, and `0` is always available.
 
 import { describe, expect, it } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import { digestFixture } from "./digest.fixture";
 import { NOISE, actionBars, bandState, coverageView, deltaExtent, dimBars, ledgerView, moveMarks, presentStates } from "./digestViz";
 

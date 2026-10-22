@@ -8,7 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import type { SecurityRowCheck } from "@/lib/org/security";
-import { HATCH_ID } from "@/components/org/viz";
+import { HATCH_ID } from "@/components/shared/viz";
 import { SecurityCheckMatrix } from "./SecurityCheckMatrix";
 
 function check(over: Partial<SecurityRowCheck> = {}): SecurityRowCheck {

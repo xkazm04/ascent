@@ -2,7 +2,7 @@
 // from the old governance page.tsx JSX (docs/ORG-TABS-REFACTOR.md JSX-region split).
 
 import Link from "next/link";
-import { Card, InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { Card, InlineEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { scoreHex } from "@/lib/ui";
 import type { GovernanceOverview } from "@/lib/org/governance";

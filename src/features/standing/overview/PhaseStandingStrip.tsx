@@ -21,7 +21,7 @@ import {
   stateStroke,
   stateStrokeWidth,
   stateTitle,
-} from "@/components/org/viz";
+} from "@/components/shared/viz";
 import { GREEN_FLOOR, type PhaseStanding } from "./phaseStanding";
 
 const LABEL_W = 116;

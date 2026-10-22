@@ -3,11 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { reportPermalink } from "@/lib/ui";
-import { type LiveRepoSeed } from "@/components/org/shared/liveWarRoomShared";
+import { type LiveRepoSeed } from "@/components/shared/live/liveWarRoomShared";
 import { useLiveWarRoom } from "@/features/inflight/live/useLiveWarRoom";
 import { HeadlineStrip } from "@/features/inflight/live/LiveWarRoomStat";
 import { WarRoomHeader, releaseWakeLock } from "@/features/inflight/live/LiveWarRoomHeader";
-import type { GoalProgressView } from "@/components/org/shared/goalView";
+import type { GoalProgressView } from "@/components/shared/goals/goalView";
 import { FleetTimetablePanel } from "@/features/inflight/live/LiveWarRoomTimetable";
 import type { FleetTimetable } from "@/features/inflight/live/fleetTimetable";
 import { ShipLoopBand } from "@/features/inflight/live/LiveWarRoomOps";

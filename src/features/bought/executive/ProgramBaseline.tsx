@@ -16,7 +16,7 @@
 
 import { LEVEL_BANDS } from "@/components/report/chartScale";
 import { deltaHex } from "@/components/ui";
-import { KICKER_SVG_CLASS, stateStroke, stateStrokeWidth, stateTitle } from "@/components/org/viz";
+import { KICKER_SVG_CLASS, stateStroke, stateStrokeWidth, stateTitle } from "@/components/shared/viz";
 import { LEVELS } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 import type { LevelId } from "@/lib/types";

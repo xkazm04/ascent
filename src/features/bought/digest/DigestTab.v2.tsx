@@ -4,7 +4,7 @@
 // stays fixed. Server-safe: no hooks; CopyForLlm and WhyChip are client components that cross by themselves.
 import { Caption, Frame, GhostAction, Masthead, Movement, type MastheadFigure } from "@/components/kit";
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { WeeklyDigest } from "@/lib/org/digest-types";
 import { DigestActions } from "./DigestActions";

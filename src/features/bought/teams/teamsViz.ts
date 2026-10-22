@@ -15,7 +15,7 @@
 // the ownership boundary, and a cross-group import would make one tab's refactor another's
 // regression.
 
-import type { MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixRow, VizState } from "@/components/shared/viz";
 import type { TeamRollup } from "@/lib/db";
 
 export type FiveNumber = { min: number; q1: number; median: number; q3: number; max: number };

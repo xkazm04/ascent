@@ -15,7 +15,7 @@
 // axis origin sets its label in the gutter, so it can never collide with the ≥1% label beside it.
 
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
-import { DEFAULT_BASE, HATCH_ID, VizDefs, r2, stateFill, stateStroke, stateTitle } from "@/components/org/viz";
+import { DEFAULT_BASE, HATCH_ID, VizDefs, r2, stateFill, stateStroke, stateTitle } from "@/components/shared/viz";
 import { curveSummary, type AdoptionCurveModel, type CurveMark } from "./adoptionCurveModel";
 
 const Y_TICKS = [0, 50, 100];

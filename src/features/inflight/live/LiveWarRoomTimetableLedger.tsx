@@ -14,7 +14,7 @@
 
 import { scoreHex } from "@/lib/ui";
 import { Kicker, deltaHex } from "@/components/ui";
-import { Legend } from "@/components/org/viz";
+import { Legend } from "@/components/shared/viz";
 import { DataTable } from "@/components/kit";
 import { columnAverages } from "@/features/inflight/live/fleetTimetable";
 import { DeltaChip, NoScan, RepoCheck, type TimetableView } from "@/features/inflight/live/LiveWarRoomTimetable";

@@ -2,8 +2,8 @@
 // wrapper that carries the spoken label and the shared caveat on hover. An absence is never a zero and never
 // a bare dash; every surface draws it from here so a redesign of the void reaches all of them. `boxed` frames
 // it in a heatmap-cell sized outline. Server-safe; no hooks.
-import { StateSwatch } from "@/components/org/viz/StateSwatch";
-import { stateTitle } from "@/components/org/viz/states";
+import { StateSwatch } from "@/components/shared/viz/StateSwatch";
+import { stateTitle } from "@/components/shared/viz/states";
 
 export function VoidMark({
   subject,

@@ -11,7 +11,7 @@
 // `CareOrgBands` moved to CareOrgBandStrips.tsx when it became a quartile strip; this file keeps the
 // tiles, the kept-moves cards, the ask themes and the outcomes table.
 
-import { Meter, OrgTable, SectionEmpty } from "@/components/org/shared/ui";
+import { Meter, OrgTable, SectionEmpty } from "@/components/shared/dashboard/ui";
 import { deltaHex, fmtDelta } from "@/components/ui";
 import { CareAction, CareCategoryChip } from "@/features/developer/CareBits";
 import { type CareOrgView } from "@/lib/org/developer-view";

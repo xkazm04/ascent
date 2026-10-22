@@ -15,7 +15,7 @@
 // this component simply does not mount when the tab says the viewer cannot share.
 
 import { useState } from "react";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { chipButtonClass } from "@/components/ui";
 import { ShareLinkTable } from "./ShareLinkTable";
 import { useShareLinks } from "./useShareLinks";

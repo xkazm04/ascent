@@ -10,9 +10,9 @@
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
-import { Meter, MeterRow } from "@/components/org/shared/ui";
-import { stateTitle } from "@/components/org/viz";
-import { MatrixHatchDefs, MatrixMark } from "@/components/org/viz/matrixMark";
+import { Meter, MeterRow } from "@/components/shared/dashboard/ui";
+import { stateTitle } from "@/components/shared/viz";
+import { MatrixHatchDefs, MatrixMark } from "@/components/shared/viz/matrixMark";
 import { scoreHex } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { RegistryView } from "@/lib/org/registry-view";

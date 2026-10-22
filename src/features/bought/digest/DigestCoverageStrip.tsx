@@ -11,7 +11,7 @@
 // scanned span and prints no count, and the tiles above have already dropped their delta badges.
 // Repos with no scan at all are `not-judged` (never assessed), not repos that scored nothing.
 
-import { HATCH_ID, VOID_DASH, VizDefs, isNum, r2, stateTitle } from "@/components/org/viz";
+import { HATCH_ID, VOID_DASH, VizDefs, isNum, r2, stateTitle } from "@/components/shared/viz";
 import type { CoverageView } from "./digestViz";
 
 const W = 300;

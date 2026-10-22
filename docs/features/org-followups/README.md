@@ -120,7 +120,7 @@ rows a batch may act on (the working set; a closed row is never batchable, from 
 checkbox or select-all).
 
 **The view** (`ProposalsWorklist`, drawn by the shared `DecisionTable` in
-`src/components/org/shared/DecisionTable.tsx`, which also draws the Lessons tab): item-first. It is
+`src/components/shared/recs/DecisionTable.tsx`, which also draws the Lessons tab): item-first. It is
 one table across the fleet; you tick rows across any repos, and a sticky bulk bar totals the batch
 (`N selected · R repos · L from the loop · +P pts`). The bar offers only the actions the selection
 holds rows for, with a count on every button:
@@ -299,7 +299,7 @@ could not give it back either. Three verbs close both:
 | **send back** | any member on a needs-human row; an admin on any claim | Back to `open`, every claim column cleared, `needsHuman` false. |
 | **release** | the holder of a human hand-off; an admin on any human hand-off | Same effect as send back, named for the holder. Never a leased machine claim. |
 
-- **One table.** `claimActionsFor(row, viewer)` (`src/components/org/followups/claimActionsModel.ts`,
+- **One table.** `claimActionsFor(row, viewer)` (`src/components/shared/followups/claimActionsModel.ts`,
   pure) decides which verbs draw in the expanded row (`ClaimRowActions`), which rows the batch bar's
   **Take over N** / **Send back N** count (`claimBatchActions.ts`; never a loop proposal), and what the
   route admits. `ProposalsTab` resolves the viewer's login and admin role server-side.
@@ -345,10 +345,10 @@ is exactly as much of a claim as the trailer it also wrote — and every claim a
 | `src/app/api/org/followups/handoff/route.ts` | The hand-off write. |
 | `src/app/api/org/followups/claims/route.ts` (+ `route.test.ts`) | The human claim verbs: take over, send back, release. |
 | `src/lib/db/followup-claims-human.ts` (+ `.test.ts`) | Their compare-and-set writes, events and `followup.takeover` / `followup.release` audit rows. |
-| `src/components/org/followups/claimActionsModel.ts` (+ `.test.ts`) | The pure verb table (`claimActionsFor`) and the prompt's held-work partition (`promptPlan`). |
+| `src/components/shared/followups/claimActionsModel.ts` (+ `.test.ts`) | The pure verb table (`claimActionsFor`) and the prompt's held-work partition (`promptPlan`). |
 | `src/features/inflight/proposals/` | `ProposalsTab` (server; renders `PersonalBacklog` for a personal workspace) · `ProposalsWorklist` · `ProposalColumns` · `ProposalDetail` · `proposalsModel.ts` (+ `.test.ts`: the loop fold and the cross-source filters). |
-| `src/components/org/followups/` | The row vocabulary Proposals reuses: `FollowupsPromptModal` · `FollowupsFilterBar` (takes a `children` slot for extra menus) · `FollowupChips` · `FollowupHistory` · `followupsModel.ts` · `LocalRescanButton` (counts persist-closed rows, not trailer claims). |
-| `src/components/org/shared/DecisionTable.tsx` | The shared decision-ledger shape (selection, in-place expander, source-aware bulk bar) behind Proposals and Lessons. |
+| `src/components/shared/followups/` | The row vocabulary Proposals reuses: `FollowupsPromptModal` · `FollowupsFilterBar` (takes a `children` slot for extra menus) · `FollowupChips` · `FollowupHistory` · `followupsModel.ts` · `LocalRescanButton` (counts persist-closed rows, not trailer claims). |
+| `src/components/shared/recs/DecisionTable.tsx` | The shared decision-ledger shape (selection, in-place expander, source-aware bulk bar) behind Proposals and Lessons. |
 | `src/app/api/org/backlog/route.ts` | The ledger's read API (`getOrgBacklog`), kept from the retired tab for automation. `?format=csv` flattens one row per item and includes `rationale` and `explore` (questions joined with `"; "`; an empty value stays an empty cell, never `0`) so a downloaded batch can rebuild `buildFixPrompt` without re-fetching JSON. |
 
 ## The resolve rule, tightened (2026-08-26)

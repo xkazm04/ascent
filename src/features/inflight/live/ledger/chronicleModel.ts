@@ -1,7 +1,7 @@
 // The chronicle's arithmetic — pure. Stable run labels, the runner / drive / manual badge, the page
 // cursor, and a lane's proposed → armed → delivered flow.
 
-import type { FlowStage } from "@/components/org/viz/FlowRibbon";
+import type { FlowStage } from "@/components/shared/viz/FlowRibbon";
 import type { LoopLaneRecord } from "../cockpit/loopTypes";
 import { fmtDay } from "./ledgerFormat";
 import type { LoopRunChronicleEntry } from "./ledgerTypes";

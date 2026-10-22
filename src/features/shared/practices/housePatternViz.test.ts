@@ -4,7 +4,7 @@
 // regression-tested; a void can. If someone ever gives the contents row a mark, this fails.
 
 import { describe, expect, it } from "vitest";
-import { isVoid, rendersValue } from "@/components/org/viz";
+import { isVoid, rendersValue } from "@/components/shared/viz";
 import {
   SHAPE_AXES,
   SHAPE_PRIVACY_ROWS,

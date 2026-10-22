@@ -10,8 +10,8 @@
 // no legend to hover, so there the words ARE the encoding. The screen and the artifact diverge here
 // on purpose; §2 governs the screen.
 
-import { Card, InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { Legend } from "@/components/org/viz";
+import { Card, InlineEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend } from "@/components/shared/viz";
 import type { WeeklyDigest } from "@/lib/org/digest-types";
 import { DigestDimChart } from "./DigestDimChart";
 import { NOISE, deltaExtent, dimBars, presentStates } from "./digestViz";

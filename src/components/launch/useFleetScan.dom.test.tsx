@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { QUEUE_FOLLOW_POLL_MS } from "@/components/org/shared/queueFollow";
+import { QUEUE_FOLLOW_POLL_MS } from "@/components/shared/scan/queueFollow";
 import { useFleetScan } from "./useFleetScan";
 import type { Constellation } from "./fleetMapStars";
 

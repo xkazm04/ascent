@@ -18,7 +18,7 @@ import {
   stateStroke,
   stateTitle,
   type VizState,
-} from "@/components/org/viz";
+} from "@/components/shared/viz";
 
 const W = 46;
 const H = 20;

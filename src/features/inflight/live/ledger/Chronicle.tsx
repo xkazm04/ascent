@@ -5,7 +5,7 @@
 // strictly below the smallest number on screen, so no run is repeated or skipped while you read.
 
 import { useState } from "react";
-import { InlineEmpty } from "@/components/org/shared/ui";
+import { InlineEmpty } from "@/components/shared/dashboard/ui";
 import { LedgerSectionHeader } from "./LedgerSectionHeader";
 import { ChronicleRow } from "./ChronicleRow";
 import { CHRONICLE_PAGE, appendPage, oldestSeq } from "./chronicleModel";

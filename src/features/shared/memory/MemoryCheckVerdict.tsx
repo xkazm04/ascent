@@ -14,7 +14,7 @@
 //    `superseded` mark. "On save it is marked superseded and leaves the default list; its history is
 //    kept" was a sentence that appeared AFTER you chose; the strike appears the instant you do.
 
-import { StateSwatch, WhyChip } from "@/components/org/viz";
+import { StateSwatch, WhyChip } from "@/components/shared/viz";
 import { RELATION_LABEL, recommendationCopy, type CheckResponse } from "@/features/shared/memory/memoryCheck";
 import { memoryKindLabel } from "@/lib/org/memory-kinds";
 

@@ -11,7 +11,7 @@
 // privacy ledger's right-hand column of voids — instead of the four header paragraphs that used to
 // carry it, and the pointer to the developer's own loop is an affordance rather than a sentence.
 
-import { SectionHeader } from "@/components/org/shared/ui";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
 import type { CareOrgView } from "@/lib/org/developer-view";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import {

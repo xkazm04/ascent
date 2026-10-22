@@ -13,7 +13,7 @@ import { redirect } from "next/navigation";
 import { isPersonalOrg } from "@/lib/db";
 import { orgTabHref, DEFAULT_ORG_TAB } from "@/lib/org/orgTabs";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { FleetTabs } from "./FleetTabs";
 import { SegmentsSection } from "./SegmentsSection";
 import { SegmentsSectionV2 } from "./SegmentsSection.v2";

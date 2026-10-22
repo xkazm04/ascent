@@ -61,10 +61,10 @@ Pasted verbatim into every builder brief:
   read the relevant guide under `node_modules/next/dist/docs/` before writing code.
 - **Reuse before building.** UI primitives live in `src/components/ui/` — read
   `src/components/ui/BRAND.md` before writing any markup. Org-shell chrome lives in
-  `src/components/org/shell/`, cross-group pieces in `src/components/org/shared/`.
+  `src/components/org/shell/`, app-wide shared pieces in `src/components/shared/`.
 - **`src/features/<group>/<tab>/` mirrors the nav** (`ORG_NAV_GROUPS` / `ORG_TAB_IDS`
   in `src/lib/org/orgTabs.ts`). Nothing in a feature group may import from another
-  group; `org/shared/` is imported BY features, never the reverse.
+  group; `components/shared/` is imported BY features, never the reverse.
 - **Prisma/DSQL**: JSON is stored as TEXT, there is no `jsonb`. Nearly every table is
   org-scoped — a new org-scoped table makes the **erase/retention path**
   (`src/lib/db/retention.ts`, `docs/features/data/retention.md`) a mandatory touched context.
@@ -211,7 +211,7 @@ Pasted verbatim into every builder brief:
   and timed out under full-suite load only; `it.each` per record keeps the budget per import and names the
   failing subject.
 - 2026-09-06 (ui-surfaces-showcase): a builder misread AGENTS.md's "Nothing in a feature group may be imported
-  from here" (about `org/shared/`, which features MAY import) as forbidding the import, and another imported
+  from here" (about `components/shared/`, which features MAY import) as forbidding the import, and another imported
   a palette from a sibling feature GROUP (forbidden). State both directions explicitly in builder briefs; no
   lint catches the cross-group import today.
 - 2026-09-05 (knowledge-base-rebuild): **the prototype round blocked on an unonboarded device.** The

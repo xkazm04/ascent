@@ -8,7 +8,7 @@
 // HTML cell that sizes it. Strokes and dashes therefore never distort, whatever the panel width.
 
 import type { ReactNode } from "react";
-import { VOID_DASH, r2 } from "@/components/org/viz";
+import { VOID_DASH, r2 } from "@/components/shared/viz";
 
 /** A 0..100 share as an SVG percentage length: the cell, not a viewBox, owns the geometry. */
 export const pctLen = (v: number): string => `${r2(v)}%`;

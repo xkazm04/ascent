@@ -12,7 +12,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { MergeCluster } from "./MergeCluster";
-import { DECLARED_DASH } from "@/components/org/viz";
+import { DECLARED_DASH } from "@/components/shared/viz";
 
 // The kit's charts read `prefers-reduced-motion` through `useSyncExternalStore`; jsdom has no
 // matchMedia. Stub it to the REDUCED branch so entrance transitions are skipped and the geometry is

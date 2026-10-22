@@ -1,11 +1,11 @@
 // The Prism composition of the Teams rollup: a masthead that states how much of the fleet has a named
 // owner (the one number a CODEOWNERS file moves), then the matrix, the standings, the signals and the
 // unowned list as ruled Frames. The panel (TeamsRollupPanel) does every read and hands the finished values
-// here, so v1 and v2 cannot disagree. Scope bar and CSV link arrive as slots (no org/shared import here).
+// here, so v1 and v2 cannot disagree. Scope bar and CSV link arrive as slots (no components/shared import here).
 // Server-safe: TeamsMatrix is the client part.
 import type { ComponentProps, ReactNode } from "react";
 import { Caption, Frame, Masthead, SectionHead, type MastheadFigure } from "@/components/kit";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import type { getOrgTeamRollup } from "@/lib/db";
 import { TeamsMatrix } from "./TeamsMatrix";
 import { TeamsSignals } from "./TeamsSignals";

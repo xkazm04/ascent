@@ -8,7 +8,7 @@
 // null gain, not the bar's pixels.
 
 import { describe, expect, it } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import {
   findingImpact,
   goalImpact,

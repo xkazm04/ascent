@@ -13,7 +13,7 @@
 
 import Link from "next/link";
 import { Surface } from "@/components/ui";
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { Legend, MatrixGrid, WhyChip } from "@/components/shared/viz";
 import type { OrgTeamRollup } from "@/lib/db";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { teamAnchorId } from "./teamsShared";

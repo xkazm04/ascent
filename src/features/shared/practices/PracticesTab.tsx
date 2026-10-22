@@ -23,7 +23,7 @@ import { syncHousePatternVersions } from "@/lib/db/house-pattern-versions";
 import { getPracticeAdoptionSummary } from "@/lib/db/practice-adoption";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import { registryBlobBase, getRegistrySync } from "@/lib/org/registry-sync";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { getTheme } from "@/lib/theme/server";
 import { degraded } from "./practicesDegradedRead";
 import { PracticesPageV2 } from "./PracticesPage.v2";

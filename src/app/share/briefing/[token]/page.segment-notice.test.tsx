@@ -35,7 +35,7 @@ vi.mock("@/lib/plans", () => ({ planAllowsWhiteLabel: () => false }));
 
 import SharedBriefingPage from "./page";
 import { BriefingGoalsCard, BriefingTiles } from "@/features/bought/executive/briefingCards";
-import { SectionHeader } from "@/components/org/shared/ui";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
 
 function find(node: unknown, type: unknown): React.ReactElement | null {
   if (!React.isValidElement(node)) return null;

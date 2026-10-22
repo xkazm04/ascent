@@ -8,7 +8,7 @@
 // still the operator's to merge.
 
 import Link from "next/link";
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { LedgerSectionHeader } from "./LedgerSectionHeader";
 import { fmtIn, plural, shortRepo, shortSha } from "./ledgerFormat";
 import { LEDGER_ANCHOR, REPO_PAUSE_WORDS, RUNNER_BRANCH } from "./ledgerModel";

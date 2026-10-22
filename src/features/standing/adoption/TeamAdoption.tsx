@@ -8,8 +8,8 @@
 
 import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { Card, InlineEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { Legend, MatrixGrid, StateSwatch, WhyChip } from "@/components/org/viz";
+import { Card, InlineEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend, MatrixGrid, StateSwatch, WhyChip } from "@/components/shared/viz";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { CODEOWNERS_HINT } from "./adoptionHints";
 import { TEAM_AXES, TEAM_SHOW_LIMIT, teamMatrixRows, teamMatrixStates, unjudgedTeamCount } from "./adoptionTeamMatrix";

@@ -13,7 +13,7 @@
 // RENDERS NOTHING ON AN EMPTY LEDGER — the lift strip's rule. Three zeros read as a measured verdict.
 
 import { ConfirmAction, batchPrConfirm } from "@/components/ConfirmAction";
-import { Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
 import { BAND } from "@/features/standing/adoption/AdoptionSpectrum";
 import { rolloutConfirmBody } from "./practiceAdoptionRows";
 import { MAX_BATCH } from "./practiceApplyShared";

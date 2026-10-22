@@ -6,8 +6,8 @@
 // also scopes the analysis below. A swatch colour names WHICH stack; the score is the radius.
 import Link from "next/link";
 import { Caption, Display, HairlineList, VoidMark } from "@/components/kit";
-import { Legend, rendersValue } from "@/components/org/viz";
-import { postureLabel } from "@/components/org/shared/ui";
+import { Legend, rendersValue } from "@/components/shared/viz";
+import { postureLabel } from "@/components/shared/dashboard/ui";
 import type { SegmentSummary } from "@/lib/db";
 import { buildUrl, orgTabHref } from "@/lib/org/orgTabs";
 import { StackRadarChart, type RadarSeries } from "./StackRadarChart";

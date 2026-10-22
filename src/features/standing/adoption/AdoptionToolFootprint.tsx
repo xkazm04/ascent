@@ -2,7 +2,7 @@
 // out of the old page.tsx body (docs/ORG-TABS-REFACTOR.md) into its own named file.
 
 import { Surface, Kicker } from "@/components/ui";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { TOOLING_HINT } from "./adoptionHints";
 
 export function AdoptionToolFootprint({ tools }: { tools: { name: string; count: number }[] }) {

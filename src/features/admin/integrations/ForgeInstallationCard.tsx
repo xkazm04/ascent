@@ -14,7 +14,7 @@
 
 import { useState } from "react";
 import { SelectInput, TextInput } from "@/components/ui";
-import { Card } from "@/components/org/shared/ui";
+import { Card } from "@/components/shared/dashboard/ui";
 import type { ForgeInstallationRow } from "@/lib/db/forge-installations";
 import { CAPABILITY_LABELS } from "./forgeCapabilityLabels";
 

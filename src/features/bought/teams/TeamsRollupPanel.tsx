@@ -1,8 +1,8 @@
 // The Teams tab's one data region — moved verbatim from the old page.tsx body (minus the layout
 // guards, which stay in the org layout).
 
-import { DIMS, ExportCsvLink, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { DIMS, ExportCsvLink, SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { TeamsMatrix } from "./TeamsMatrix";
 import { TeamsSignals } from "./TeamsSignals";
 import { TeamsStandings } from "./TeamsStandings";
@@ -18,7 +18,7 @@ import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
 import { settle } from "@/features/bought/delivery/deliveryLoad";
 import { decisionMap } from "@/lib/org/decision-map";
 import { explainTeamStandings } from "@/lib/org/teamStandings";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 
 export async function TeamsRollupPanel({ slug, sp, theme = "altimeter" }: { slug: string; sp: { [key: string]: string | string[] | undefined }; theme?: ThemeId }) {

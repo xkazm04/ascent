@@ -1,7 +1,7 @@
 // Prism branch governance. The gap matrix is omitted: it paints status hues. The table
 // carries the same rows, gaps first, and a measured "no" stays the word No.
 import { Frame, SectionHead, StatStrip, StatTile } from "@/components/kit";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import type { OrgGovernance } from "@/lib/db";
 import { DeliveryGovTableV2 } from "./DeliveryGovTable.v2";
 import { fullTone, pct } from "./deliveryV2Marks";

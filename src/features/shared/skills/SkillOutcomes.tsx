@@ -15,7 +15,7 @@
 // AND THE DISTANCE TRAVELS WITH THE NUMBER: `withinPairingBound` (PAIRING_MAX_DISTANCE_DAYS, 180)
 // flags rather than filters, and a flag no consumer renders flags nothing.
 
-import { StateSwatch, WhyChip, rendersValue } from "@/components/org/viz";
+import { StateSwatch, WhyChip, rendersValue } from "@/components/shared/viz";
 import { OUTCOME_VIZ_STATE } from "@/features/shared/skills/skillLifecycleViz";
 import {
   PAIRING_MAX_DISTANCE_DAYS,

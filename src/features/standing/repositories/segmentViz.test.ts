@@ -5,7 +5,7 @@
 // pinned reading the field it draws rather than inferring the void from `scannedCount`.
 
 import { describe, it, expect } from "vitest";
-import { matrixLegendStates, rendersValue } from "@/components/org/viz";
+import { matrixLegendStates, rendersValue } from "@/components/shared/viz";
 import type { SegmentComparison, SegmentSummary } from "@/lib/db";
 import {
   SEGMENT_AXES,

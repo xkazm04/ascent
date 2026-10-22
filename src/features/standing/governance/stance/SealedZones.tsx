@@ -3,7 +3,7 @@
 // label verbatim; the readout compares the declaration with observed attribution, it never enforces.
 
 import { Kicker } from "@/components/ui";
-import { Legend, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { Legend, StateSwatch, WhyChip, stateTitle } from "@/components/shared/viz";
 import { PATH_ZONE_ADVISORY_LABEL } from "@/lib/org/stance";
 import type { StanceZoneView } from "@/lib/org/stance-overview";
 

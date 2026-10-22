@@ -9,7 +9,7 @@
 // exactly what the anonymous board link showed before this extraction; the exec page opts in. That way
 // a future edit to a shared block can't silently widen what the token-authenticated page exposes.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { DimRow, practiceHref } from "./briefingShared";
 import type { BriefingDim } from "@/lib/org/briefing";
 

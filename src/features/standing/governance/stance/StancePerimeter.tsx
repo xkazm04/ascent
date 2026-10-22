@@ -10,8 +10,8 @@
 // used to describe this picture is deleted; its two load-bearing clauses are the dashed stroke and
 // the legend hint the kit generates from `STATE_HINT.declared`.
 
-import { SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { BandLadder, Legend } from "@/components/org/viz";
+import { SectionHeader, Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
+import { BandLadder, Legend } from "@/components/shared/viz";
 import { Kicker } from "@/components/ui";
 import { scoreHex } from "@/lib/ui";
 import { reposByTier, type StanceOverview } from "@/lib/org/stance-overview";

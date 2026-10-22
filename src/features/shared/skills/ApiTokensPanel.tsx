@@ -10,7 +10,7 @@
 // Sibling of SkillsPanel; members only (the page gates rendering).
 
 import { useState } from "react";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import type { ApiTokenSummary, SkillTokenScope } from "@/lib/db";
 import { DEFAULT_PICKED_SCOPES } from "./apiTokenDefaults";
 

@@ -14,7 +14,7 @@
 // Server-safe (no hooks, no handlers) on purpose: the card renders on the server report page and the
 // table/scatter render inside client components, and both import this same file.
 
-import { StateSwatch } from "@/components/org/viz";
+import { StateSwatch } from "@/components/shared/viz";
 
 /** The wording. Every passports surface spells a placeholder scan this way, and only this way. */
 export const PLACEHOLDER_LABEL = "placeholder scan";

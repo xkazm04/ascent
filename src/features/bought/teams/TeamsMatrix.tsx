@@ -16,10 +16,10 @@
 
 import { useMemo, useState } from "react";
 import type { TeamRollup } from "@/lib/db";
-import { OrgTable, deltaHex, fmtDelta } from "@/components/org/shared/ui";
+import { OrgTable, deltaHex, fmtDelta } from "@/components/shared/dashboard/ui";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
-import { Legend, MatrixGrid, StateSwatch, stateTitle } from "@/components/org/viz";
+import { Legend, MatrixGrid, StateSwatch, stateTitle } from "@/components/shared/viz";
 import { TeamsMatrixSortTh, type TeamsMatrixSort } from "./TeamsMatrixSortTh";
 import { TeamsMatrixRow } from "./TeamsMatrixRow";
 import { dimMatrixRows, dimMatrixStates, unjudgedCellCount } from "./teamsViz";

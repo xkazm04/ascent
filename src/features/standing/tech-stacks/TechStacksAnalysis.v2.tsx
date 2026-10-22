@@ -3,7 +3,7 @@
 // Profiles and dimension analysis around ONE stack selection, Prism composition. Same props and the same
 // useStackSelection as TechStacksAnalysis, so toggling a stack in the rail rescopes the diagnosis below it.
 import { Caption, Frame, SectionHead } from "@/components/kit";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import type { SegmentSummary } from "@/lib/db";
 import { STACK_SCOPE } from "./analysisScope";
 import { StackInsightsV2 } from "./StackInsights.v2";

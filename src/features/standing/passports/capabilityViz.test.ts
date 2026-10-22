@@ -2,7 +2,7 @@
 // asserted here is the part a sentence could never enforce: which cells are allowed to carry a number.
 
 import { describe, expect, it } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import { buildCapabilityMatrix, type CapabilityMatrixInput } from "./capabilityAgg";
 import { CAPABILITY_AXES, capabilityVizRows, capabilityVizStates } from "./capabilityViz";
 import type { ManifestReadout } from "@/lib/standard/readout";

@@ -2,7 +2,7 @@
 //
 // The human claim verbs on the Proposals ledger: take a needs-human row, send a held row back to the
 // queue, release your own hand-off. The verb table is the pure `claimActionsFor`
-// (src/components/org/followups/claimActionsModel.ts), the same one the row and the batch bar read, so
+// (src/components/shared/followups/claimActionsModel.ts), the same one the row and the batch bar read, so
 // a button a viewer sees is a request this route accepts.
 //
 // GATE-THEN-CONSTRAIN. The public org is refused first, in code. `org` is gated with
@@ -22,7 +22,7 @@ import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess, requireOrgAdmin } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { readClaimStates, releaseHumanClaims, sendBack, takeOverEscalations } from "@/lib/db/followup-claims-human";
-import { MAX_CLAIM_BATCH, VIEWER_FALLBACK, isClaimVerb, verbNeedsAdmin } from "@/components/org/followups/claimActionsModel";
+import { MAX_CLAIM_BATCH, VIEWER_FALLBACK, isClaimVerb, verbNeedsAdmin } from "@/components/shared/followups/claimActionsModel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

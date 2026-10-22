@@ -13,7 +13,7 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { DIMENSION_SHORT } from "@/lib/ui";
-import { fmtNum } from "@/components/org/viz";
+import { fmtNum } from "@/components/shared/viz";
 import { axisAngle, polarPoint, labelAnchor, radarShape } from "@/features/standing/tech-stacks/stackViz";
 import { RadarSrTable } from "@/features/standing/tech-stacks/RadarSrTable";
 

@@ -10,14 +10,14 @@
 // client-side), and the details of the recent loop runs — the same bounded read the Live tab makes,
 // done here in the server component rather than as N browser round trips.
 
-import { PersonalBacklog } from "@/components/org/PersonalBacklog";
-import { rowsFromBacklog } from "@/components/org/followups/followupsModel";
+import { PersonalBacklog } from "@/components/org/personal/PersonalBacklog";
+import { rowsFromBacklog } from "@/components/shared/followups/followupsModel";
 import { getOrgBacklog, isPersonalOrg, listLocalPairings } from "@/lib/db";
 import { getLoopRunDetail, listLoopRuns } from "@/lib/db/loop-runs";
 import type { LoopRunDetail } from "@/lib/db/loop-runs-types";
 import { hasOrgRole } from "@/lib/authz";
 import { resolveViewerLogin } from "@/lib/access";
-import { VIEWER_FALLBACK } from "@/components/org/followups/claimActionsModel";
+import { VIEWER_FALLBACK } from "@/components/shared/followups/claimActionsModel";
 import { selfHosted } from "@/lib/env";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { getTheme } from "@/lib/theme/server";

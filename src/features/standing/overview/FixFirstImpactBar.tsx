@@ -11,8 +11,8 @@
 // (a findings queue) cannot appear here as a 0-length bar labelled "0" — the guard is structural.
 
 import { linScale } from "@/components/report/chartScale";
-import { fmtNum, isNum, r2 } from "@/components/org/viz";
-import { STATE_LABEL, StateSwatch, isVoid, rendersValue, stateFill, stateStroke } from "@/components/org/viz";
+import { fmtNum, isNum, r2 } from "@/components/shared/viz";
+import { STATE_LABEL, StateSwatch, isVoid, rendersValue, stateFill, stateStroke } from "@/components/shared/viz";
 import type { FixFirstImpact } from "./fixFirstImpact";
 
 const W = 160;

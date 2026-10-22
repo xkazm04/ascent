@@ -6,7 +6,7 @@
 // client-side, which would make a row jump under the cursor the moment it was paired.
 
 import { useRouter } from "next/navigation";
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { PairingRow } from "./PairingRow";
 import type { PairingView } from "./pairingClient";
 

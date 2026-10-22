@@ -18,8 +18,8 @@ import { SegmentDistribution, SegmentDistributionRow } from "./SegmentDistributi
 import { SegmentGapLaggards } from "./SegmentGapLaggards";
 import { dimensionPairs, distributionRows, headlinePairs, pairedStates, trailingSide } from "./segmentViz";
 import { postureText } from "./SegmentCard";
-import { Card, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta } from "@/components/org/shared/ui";
-import { Legend, WhyChip } from "@/components/org/viz";
+import { Card, SectionHeader, Tile, TILE_GRID, deltaHex, fmtDelta } from "@/components/shared/dashboard/ui";
+import { Legend, WhyChip } from "@/components/shared/viz";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import type { SegmentComparison } from "@/lib/db";
 import { compareCountSub } from "./segmentCounts";

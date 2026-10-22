@@ -4,9 +4,9 @@
 // deadline countdown, and movement since the campaign kicked off.
 
 import Link from "next/link";
-import { Meter } from "@/components/org/shared/ui";
-import { goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
-import { goalUnmeasuredLine } from "@/components/org/shared/goalViewLogic";
+import { Meter } from "@/components/shared/dashboard/ui";
+import { goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/shared/goals/goalView";
+import { goalUnmeasuredLine } from "@/components/shared/goals/goalViewLogic";
 import { scoreHex } from "@/lib/ui";
 import { DIRECTION_TONE, deltaHex, signedDelta, toneFor } from "@/components/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";

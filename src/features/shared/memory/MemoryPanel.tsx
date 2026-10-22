@@ -11,7 +11,7 @@
 // State/effects live in useMemoryLibrary.ts, extracted to keep this file under the 200-LOC .tsx cap
 // (docs/ORG-TABS-REFACTOR.md §3).
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { MemoryTrust } from "@/features/shared/memory/MemoryTrust";
 import { MemoryList } from "@/features/shared/memory/MemoryList";
 import { MemoryFilterBar } from "@/features/shared/memory/MemoryFilterBar";

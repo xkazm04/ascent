@@ -6,7 +6,7 @@
 // The merge keeps the matrix's encoding as the baseline and gives it the ledger's reach: all rows,
 // not eight, and the dimension grouping that answers "where does our adoption actually sit".
 
-import { isNum, type MatrixCell } from "@/components/org/viz";
+import { isNum, type MatrixCell } from "@/components/shared/viz";
 import { categoryLabel, type PracticeRow } from "./practiceRows";
 import { rolloutCellsFor } from "./practiceRolloutViz";
 

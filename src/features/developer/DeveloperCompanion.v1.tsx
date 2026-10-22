@@ -18,8 +18,8 @@
 // visible as text (the moves board's "nothing here is assigned to you").
 
 import { Dateline } from "@/components/ui";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { WhyChip } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { WhyChip } from "@/components/shared/viz";
 import { CareFixtureChip } from "./CareBits";
 import { CareProfileCard } from "./CareProfileCard";
 import { CareMovesBoard } from "./CareMovesBoard";

@@ -9,7 +9,7 @@
 // repo name, branch, commit, follow-up title or login from the in-app outcome sheet can reach this page.
 
 import { LiveWarRoom } from "@/features/inflight/live/LiveWarRoom";
-import { toLiveRepoSeeds } from "@/components/org/shared/liveWarRoomShared";
+import { toLiveRepoSeeds } from "@/components/shared/live/liveWarRoomShared";
 import { buildFleetTimetable } from "@/features/inflight/live/fleetTimetable";
 import { getOrgRepoHistories, getOrgRollup } from "@/lib/db";
 import { resolveLiveShare } from "@/lib/live-share-access";

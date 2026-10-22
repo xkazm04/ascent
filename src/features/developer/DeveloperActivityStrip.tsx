@@ -9,8 +9,8 @@
 // committed here" to someone whose row was suppressed is the worst thing this page could do.
 
 import { Kicker } from "@/components/ui";
-import { Tile, TILE_GRID } from "@/components/org/shared/ui";
-import { StateSwatch } from "@/components/org/viz";
+import { Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
+import { StateSwatch } from "@/components/shared/viz";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { timeAgo } from "@/lib/ui";

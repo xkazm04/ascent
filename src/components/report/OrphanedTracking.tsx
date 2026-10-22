@@ -15,7 +15,7 @@
 import { useEffect, useState } from "react";
 import type { PersistedRecommendation, RecStatus } from "@/lib/types";
 import type { OrphanedTrackedRec } from "@/lib/db/scans-recommendations";
-import { STATUS_LABEL } from "@/components/org/shared/backlogShared";
+import { STATUS_LABEL } from "@/components/shared/recs/backlogShared";
 import { Surface } from "@/components/ui";
 
 /** The tracking an orphan carries, as one human line. */

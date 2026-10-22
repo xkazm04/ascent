@@ -3,7 +3,7 @@
 // component, no state. The public share page mounts this same card (G12) so the two HTML surfaces
 // cannot drift.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { briefingTrajectory, briefingTrajectoryNote } from "@/lib/org/briefing";
 import type { ExecBriefing } from "@/lib/org/briefing";
 

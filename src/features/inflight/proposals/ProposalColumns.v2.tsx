@@ -5,10 +5,10 @@
 // Where a loop proposal has no value for a column it prints a dash rather than inventing one.
 import Link from "next/link";
 import { Chip, DimensionMark, type LedgerColumn } from "@/components/kit";
-import { STATUS_LABEL, type FollowUpStatus } from "@/components/org/followups/followupsModel";
-import { ClaimLine } from "@/components/org/followups/FollowupChips";
+import { STATUS_LABEL, type FollowUpStatus } from "@/components/shared/followups/followupsModel";
+import { ClaimLine } from "@/components/shared/followups/FollowupChips";
 import { reportPermalink, timeAgo } from "@/lib/ui";
-import type { DimensionSpread } from "@/components/org/followups/followupsModel";
+import type { DimensionSpread } from "@/components/shared/followups/followupsModel";
 import type { ProposalRow } from "./proposalsModel";
 
 const GLYPH: Record<FollowUpStatus, string> = { open: "○", in_progress: "◐", done: "✓", dismissed: "–" };

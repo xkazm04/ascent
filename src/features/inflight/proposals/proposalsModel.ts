@@ -13,7 +13,7 @@
 
 import type { LoopRunDetail, LoopLaneOutcome } from "@/lib/db/loop-runs-types";
 import { buildGapRows, gapKey, rowCover, type DeliverableState } from "@/features/inflight/live/outcome/outcomeGapRows";
-import { applyFilters, type DimensionSpread, type FollowUpFilters, type FollowUpRow } from "@/components/org/followups/followupsModel";
+import { applyFilters, type DimensionSpread, type FollowUpFilters, type FollowUpRow } from "@/components/shared/followups/followupsModel";
 
 export type ScanProposal = FollowUpRow & { source: "scan" };
 

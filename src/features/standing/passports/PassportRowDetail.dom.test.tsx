@@ -19,7 +19,7 @@ vi.mock("next/link", () => ({
 // Capture which rows the fleet widget is offered on — evidence-limit findings must not get one.
 const seen: string[] = [];
 const statuses: string[] = [];
-vi.mock("@/components/org/DecisionControl", () => ({
+vi.mock("@/components/shared/recs/DecisionControl", () => ({
   DecisionControl: ({ itemKey, status }: { itemKey: string; status: string }) => {
     seen.push(itemKey);
     statuses.push(status);

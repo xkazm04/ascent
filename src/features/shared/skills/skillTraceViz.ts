@@ -11,7 +11,7 @@
 //
 // Pure: no JSX, no hooks.
 
-import type { TrackRow, TrackSegment, VizState } from "@/components/org/viz";
+import type { TrackRow, TrackSegment, VizState } from "@/components/shared/viz";
 import type { TraceGroup } from "@/lib/registry/trace";
 import { traceGroupLabel } from "@/lib/registry/trace";
 

@@ -10,7 +10,7 @@
 // overview graphic and an auditable row list are different jobs (§2.7).
 
 import { Kicker } from "@/components/ui";
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { Legend, MatrixGrid, WhyChip } from "@/components/shared/viz";
 import { FOUNDATION_AXES, type FoundationViz } from "./foundationViz";
 
 const DRAFT_HINT =

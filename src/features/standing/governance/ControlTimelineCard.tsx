@@ -26,8 +26,8 @@
 // it needs no client boundary and works with JavaScript off. The one client boundary is the Verify
 // button inside LedgerIntegrityStrip.
 
-import { Card, InlineEmpty, OrgTable, SectionHeader } from "@/components/org/shared/ui";
-import { Legend, StateTrack, WhyChip } from "@/components/org/viz";
+import { Card, InlineEmpty, OrgTable, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend, StateTrack, WhyChip } from "@/components/shared/viz";
 import { TIMELINE_CAP, controlCoverage, listControlTimeline, verifySeals } from "@/lib/db/control-observations";
 import { coverageSentence, groupTimeline, timelineDisclosure, timelineTotals, truncationSentence } from "./controlTimeline";
 import { controlLanes } from "./controlLanes";

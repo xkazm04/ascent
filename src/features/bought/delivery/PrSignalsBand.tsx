@@ -5,7 +5,7 @@
 // baseline → a thin meter (threshold-marked where a target exists), bottom-aligned across the band.
 // Server-safe.
 
-import { Meter, fmtHours } from "@/components/org/shared/ui";
+import { Meter, fmtHours } from "@/components/shared/dashboard/ui";
 import type { OrgPrSignals } from "@/lib/db";
 import type { FleetRateId } from "@/lib/db/org-signals";
 import { scoreHex } from "@/lib/ui";

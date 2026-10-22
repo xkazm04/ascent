@@ -14,8 +14,8 @@
 // that scored zero. The hatched mark says which kind of absence it is (§2.4).
 
 import Link from "next/link";
-import { DecisionControl } from "@/components/org/DecisionControl";
-import { StateSwatch, stateTitle } from "@/components/org/viz";
+import { DecisionControl } from "@/components/shared/recs/DecisionControl";
+import { StateSwatch, stateTitle } from "@/components/shared/viz";
 import { Kicker } from "@/components/ui";
 import type { OrgTeamRollup } from "@/lib/db";
 import { isOpen, type DecisionMap } from "@/lib/org/decision-map";

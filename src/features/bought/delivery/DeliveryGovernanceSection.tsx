@@ -7,8 +7,8 @@
 // at-risk repo is missing, riskiest first, with a PR rule that requires zero approvals drawn as
 // `declared` rather than counted as governance (§2.2, §2.4).
 
-import { SectionHeader, Tile, TILE_LEDGER } from "@/components/org/shared/ui";
-import { WhyChip } from "@/components/org/viz";
+import { SectionHeader, Tile, TILE_LEDGER } from "@/components/shared/dashboard/ui";
+import { WhyChip } from "@/components/shared/viz";
 import { GovernanceTable, isGoverned } from "./GovernanceTable";
 import { GovernanceGapMatrix } from "./GovernanceGapMatrix";
 import { governanceGapRows } from "./governanceGaps";

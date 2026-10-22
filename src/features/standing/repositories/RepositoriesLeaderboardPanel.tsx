@@ -11,9 +11,9 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import type { ThemeId } from "@/lib/theme/theme";
 import { RepositoriesViewV2 } from "./RepositoriesView.v2";
-import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/org/shared/ui";
-import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { OrgEmpty, SectionHeader, postureLabel, POSTURE_ORDER } from "@/components/shared/dashboard/ui";
+import { POSTURE_HEX } from "@/components/shared/live/liveWarRoomShared";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { RepoLeaderboard } from "./RepoLeaderboard";
 import { MissingReposPanel } from "./MissingReposPanel";
 import { MissingReposPanelV2 } from "./MissingReposPanel.v2";
@@ -21,7 +21,7 @@ import { getOrgRollupShared, listMissingRepos } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 

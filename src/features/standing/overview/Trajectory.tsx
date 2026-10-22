@@ -3,7 +3,7 @@
 // where it is heading by the horizon, the weekly rate, the promotion/demotion ETA, and how
 // trustworthy the straight-line read is. Server-safe (no client hooks).
 // Headline and confidence come from composeTrajectory so an unpresentable fit cannot print a slope (G4).
-import { Card, Meter, SectionHeader, DIRECTION_TONE } from "@/components/org/shared/ui";
+import { Card, Meter, SectionHeader, DIRECTION_TONE } from "@/components/shared/dashboard/ui";
 import { composeTrajectory, forecastConfidenceNote, humanizeDays, type Forecast } from "@/lib/maturity/forecast";
 import { LEVEL_BY_ID } from "@/lib/maturity/model";
 import { LEVEL_GLYPH, scoreHex } from "@/lib/ui";

@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { POSTURE_LABEL } from "@/components/org/shared/ui";
+import { POSTURE_LABEL } from "@/components/shared/dashboard/ui";
 import { reportPermalink, scoreHex } from "@/lib/ui";
 import { deltaHex, fmtDelta } from "@/components/ui";
-import { POSTURE_HEX, POSTURE_ORDER, postureBarPct, type Mover } from "@/components/org/shared/liveWarRoomShared";
+import { POSTURE_HEX, POSTURE_ORDER, postureBarPct, type Mover } from "@/components/shared/live/liveWarRoomShared";
 import { Panel } from "@/components/kit";
 
 export function PostureMix({

@@ -7,7 +7,7 @@
 // `rendersValue(missing)` is false, so the view cannot print a numeral beside it.
 
 import { describe, expect, it } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import type { OrgRec } from "@/lib/db";
 import { leverageBars, leverageMax, leverageReadout, leverageStates } from "./leverageMoves";
 

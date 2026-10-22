@@ -15,10 +15,10 @@
 // The D9 number is computed, not judged — see src/lib/security/checks.ts.
 
 import Link from "next/link";
-import { OrgTable } from "@/components/org/shared/ui";
-import { StateSwatch, stateTitle } from "@/components/org/viz";
+import { OrgTable } from "@/components/shared/dashboard/ui";
+import { StateSwatch, stateTitle } from "@/components/shared/viz";
 import { heatCell } from "@/lib/ui";
-import { RepoDimensionModal } from "@/components/org/shared/RepoDimensionModal";
+import { RepoDimensionModal } from "@/components/shared/recs/RepoDimensionModal";
 import type { SecurityRegisterRow } from "@/lib/org/security";
 import { presentAdvisoryChips, VISIBLE_DEFAULT, type RegisterAdvisories } from "@/features/standing/security/securityRegisterShared";
 import { SecurityCheckMatrix } from "./SecurityCheckMatrix";

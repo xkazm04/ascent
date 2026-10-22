@@ -1,7 +1,7 @@
 "use client";
 
 // Prism integrations. The open level is the URL hash; the overview and the level are never both mounted.
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { IntegrationLevelV2 } from "./IntegrationLevel.v2";
 import { IntegrationsOverviewV2 } from "./IntegrationsOverview.v2";

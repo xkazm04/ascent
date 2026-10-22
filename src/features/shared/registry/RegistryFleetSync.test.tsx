@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import { HATCH_ID } from "@/components/org/viz";
+import { HATCH_ID } from "@/components/shared/viz";
 import { fixtureRegistryView } from "@/lib/org/registry-view.fixture";
 import type { RegistryView } from "@/lib/org/registry-view";
 import { RegistryFleetSync } from "./RegistryFleetSync";

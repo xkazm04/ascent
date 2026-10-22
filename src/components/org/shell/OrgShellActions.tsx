@@ -7,9 +7,9 @@
 // A server component: the three controls inside it are the client ones, and every env/plan decision
 // below must stay on the server (the Polar SDK never crosses the boundary).
 
-import { AlertsControl } from "@/components/org/shared/AlertsControl";
-import { CreditsControl } from "@/components/org/shared/CreditsControl";
-import { OrgScanButton } from "@/components/org/shared/OrgScanButton";
+import { AlertsControl } from "@/components/org/shell/alerts/AlertsControl";
+import { CreditsControl } from "@/components/shared/credits/CreditsControl";
+import { OrgScanButton } from "@/components/shared/scan/OrgScanButton";
 import type { getCreditState } from "@/lib/db";
 import { creditGrantsEnabled } from "@/lib/env";
 import { scanAllowance } from "@/lib/plans";

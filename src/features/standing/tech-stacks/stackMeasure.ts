@@ -19,7 +19,7 @@
 //
 // Both are `not-judged` / `missing` in the shared vocabulary, never zero.
 
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 import type { SegmentSummary } from "@/lib/db";
 
 /** A stack whose fleet average exists — the only stack that can be plotted, scored or ranked. */

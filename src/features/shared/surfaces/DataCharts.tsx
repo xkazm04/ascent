@@ -9,7 +9,7 @@ import {
   ladderLegendStates,
   type LadderBand,
   type VizState,
-} from "@/components/org/viz";
+} from "@/components/shared/viz";
 import { LEVELS, levelForScore } from "@/lib/maturity/model";
 import { scoreHex } from "@/lib/ui";
 import { projects } from "./sampleProjects";

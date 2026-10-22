@@ -19,10 +19,10 @@
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
-import { Meter } from "@/components/org/shared/ui";
+import { Meter } from "@/components/shared/dashboard/ui";
 import { buildUrl, clearedTabScopedParams, orgTabHref } from "@/lib/org/orgTabs";
 import { Movement, VoidMark } from "@/components/kit";
-import { StateSwatch, stateTitle } from "@/components/org/viz";
+import { StateSwatch, stateTitle } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 import { groupByPhase, type DimensionReading } from "./dimensionReading";
 

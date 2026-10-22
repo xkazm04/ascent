@@ -18,7 +18,7 @@
 // hands back the refusal in the same words PersonalOverview, the /trends panel and the Delivery
 // readout print, and it is rendered verbatim. No fit at all is still absence — the card stays off.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import { Trajectory } from "./Trajectory";
 import type { Forecast } from "@/lib/maturity/forecast";
 import { trajectoryView } from "./trajectoryRead";

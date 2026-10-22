@@ -14,8 +14,8 @@
 
 import Link from "next/link";
 import { Kicker, Surface } from "@/components/ui";
-import { SectionHeader, Tile, TILE_LEDGER, InlineEmpty } from "@/components/org/shared/ui";
-import { Legend, WhyChip } from "@/components/org/viz";
+import { SectionHeader, Tile, TILE_LEDGER, InlineEmpty } from "@/components/shared/dashboard/ui";
+import { Legend, WhyChip } from "@/components/shared/viz";
 import { scoreHex, fmtCompact } from "@/lib/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { fleetContextSummary, orderByUrgency, type RepoContextRow } from "./contextHealthModel";

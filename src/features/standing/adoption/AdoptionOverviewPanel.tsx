@@ -6,8 +6,8 @@
 // only the snapshot WINDOW survives in the description, which §2.3 permits at ≤60 characters.
 
 import { buildAdoptionOverview, adoptionMarkdown } from "@/lib/org/adoption";
-import { SectionEmpty } from "@/components/org/shared/ui";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { resolveOrgScope } from "@/lib/org/scope";
 import type { ThemeId } from "@/lib/theme/theme";
 import { adoptionV1 } from "./AdoptionOverview.v1";

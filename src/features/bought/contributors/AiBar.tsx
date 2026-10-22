@@ -8,8 +8,8 @@
 // was invisible on screen (§2.4: an absence is never a zero). A non-finite / null `pct` now renders
 // the `missing` void — the broken-rule swatch and an em dash — with the caveat on hover/focus.
 
-import { MeterRow } from "@/components/org/shared/ui";
-import { StateSwatch, isNum, stateTitle } from "@/components/org/viz";
+import { MeterRow } from "@/components/shared/dashboard/ui";
+import { StateSwatch, isNum, stateTitle } from "@/components/shared/viz";
 
 export function AiBar({
   pct,

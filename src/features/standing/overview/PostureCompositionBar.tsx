@@ -5,9 +5,9 @@
 // on the dimension ledger below it (LedgerDimensionRows).
 
 import Link from "next/link";
-import { postureLabel } from "@/components/org/shared/ui";
+import { postureLabel } from "@/components/shared/dashboard/ui";
 import { postureShares } from "./postureModel";
-import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
+import { POSTURE_HEX } from "@/components/shared/live/liveWarRoomShared";
 import { buildUrl, clearedTabScopedParams } from "@/lib/org/orgTabs";
 
 export const postureHref = (slug: string, posture: string, search: string) =>

@@ -16,7 +16,7 @@
 //
 // Pure: no React, no hooks, no data import. The kit types are `import type`.
 
-import type { MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixRow, VizState } from "@/components/shared/viz";
 import { calibrationScore, isAdapterArtifact, type MatrixScores, type ModelScore } from "@/lib/llm/matrix-scores";
 
 /** Where SettingsTab anchors the OpenRouter BYOM card — the target of the scorecard's "Use ↑" links.

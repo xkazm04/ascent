@@ -1,6 +1,6 @@
 // Altimeter composition. Moved unchanged from the entry so the Prism composition can sit beside it.
 import { Suspense } from "react";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import type { OrgScope } from "@/lib/org/scope";
 import type { ResolvedWindow } from "@/lib/window";
 import { DeliveryTrendDataPanel } from "./DeliveryTrendDataPanel";

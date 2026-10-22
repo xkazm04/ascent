@@ -14,7 +14,7 @@ vi.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: ReactNode }) => createElement("a", { href }, children),
 }));
 // The score-cell drill-in modal is out of scope here (and pulls in fetch-driven internals).
-vi.mock("@/components/org/shared/RepoDimensionModal", () => ({ RepoDimensionModal: () => null }));
+vi.mock("@/components/shared/recs/RepoDimensionModal", () => ({ RepoDimensionModal: () => null }));
 
 const { SecurityRiskRegister } = await import("./SecurityRiskRegister");
 const { presentAdvisoryChips } = await import("./securityRegisterShared");

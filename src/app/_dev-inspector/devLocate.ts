@@ -57,7 +57,7 @@ export function splitLoc(loc: string): { dir: string; file: string } {
 export const LIBRARY_ROOTS = [
   "src/lib/",
   "src/components/ui/",
-  "src/components/org/shared/",
+  "src/components/shared/",
   "src/app/_dev-inspector/",
 ];
 

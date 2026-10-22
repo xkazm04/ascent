@@ -8,7 +8,7 @@
 // Server-safe, no motion: there is nothing here for a reduced-motion preference to opt out of.
 // Colour is `scoreHex`, never a hand-picked hex (BRAND.md).
 
-import { StateSwatch } from "@/components/org/viz";
+import { StateSwatch } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 
 const W = 240;

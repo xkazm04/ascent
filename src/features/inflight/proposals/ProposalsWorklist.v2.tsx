@@ -3,9 +3,9 @@
 // The Proposals ledger, Prism composition. Same props and the same useProposalsView as ProposalsWorklist; the
 // ledger is the kit-built DecisionLedger (ruled rows, a Frame bar) and the filters are ProposalFiltersV2.
 import { useMemo } from "react";
-import { FollowupsPromptModal } from "@/components/org/followups/FollowupsPromptModal";
-import { isSelectable } from "@/components/org/followups/followupsModel";
-import type { ClaimViewer } from "@/components/org/followups/claimActionsModel";
+import { FollowupsPromptModal } from "@/components/shared/followups/FollowupsPromptModal";
+import { isSelectable } from "@/components/shared/followups/followupsModel";
+import type { ClaimViewer } from "@/components/shared/followups/claimActionsModel";
 import { DecisionLedger } from "@/components/kit";
 import { ProposalDetail } from "./ProposalDetail";
 import { proposalColumnsV2 } from "./ProposalColumns.v2";

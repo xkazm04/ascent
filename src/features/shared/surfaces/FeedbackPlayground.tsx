@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Defer } from "@/components/ui/Defer";
 import type { DeferStrategy } from "@/components/ui/deferPolicy";
-import { STATE_HINT, STATE_LABEL, VIZ_STATES, type VizState } from "@/components/org/viz";
+import { STATE_HINT, STATE_LABEL, VIZ_STATES, type VizState } from "@/components/shared/viz";
 import { AppearanceStudy } from "./AppearanceStudy";
 import styles from "./playground.module.css";
 

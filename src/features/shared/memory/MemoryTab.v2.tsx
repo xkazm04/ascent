@@ -2,7 +2,7 @@
 import { Suspense } from "react";
 import { Defer } from "@/components/ui/Defer";
 import { Masthead } from "@/components/kit";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
 import { listOrgMemories } from "@/lib/db";
 import { listRepoDeadEnds } from "@/lib/db/repo-memory";
@@ -10,7 +10,7 @@ import { getMemoryCoverage } from "@/lib/memory/coverage";
 import { resolveViewerLogin } from "@/lib/access";
 import { MEMORY_KINDS } from "@/lib/org/memory-kinds";
 import { getRegistrySync, registryBlobBase, type RegistrySync } from "@/lib/org/registry-sync";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { resolveMemoryShared, type MemoryShared } from "./memoryTabLoad";
 import { MemoryCoverageV2 } from "./MemoryCoverage.v2";

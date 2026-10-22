@@ -15,7 +15,7 @@
 // of scope (§2.3). Everything below the header is instructional copy on a form that writes a
 // credential, and §4 of docs/ORG-UX-REDESIGN.md deliberately leaves those alone.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import type { OrgLlmConfigPublic } from "@/lib/db";
 import { DEFAULT_MODEL, useLlmProviderSettings } from "./useLlmProviderSettings";
 

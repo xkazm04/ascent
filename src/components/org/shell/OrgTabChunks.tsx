@@ -13,7 +13,7 @@
 
 import { Suspense } from "react";
 import { OrgTabErrorBoundary } from "./OrgTabErrorBoundary";
-import { OrgTabGap } from "./OrgTabGap";
+import { OrgTabGap } from "../../shared/dashboard/OrgTabGap";
 import { ORG_TAB_PANELS, type OrgSearchParams } from "./orgTabPanels";
 import type { OrgPanelTabId } from "@/lib/org/orgTabs";
 

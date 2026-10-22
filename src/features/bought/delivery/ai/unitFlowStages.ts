@@ -11,7 +11,7 @@
 // "we spent nothing" chain, which is a claim about the org's spend rather than an admission that
 // nothing measured it.
 
-import type { FlowStage } from "@/components/org/viz";
+import type { FlowStage } from "@/components/shared/viz";
 
 export interface UnitFlowInput {
   sessions: number;

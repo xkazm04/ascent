@@ -10,7 +10,7 @@
 //
 // PURE — no React, no hooks. Server-safe.
 
-import type { LadderBand, LadderEdge, VizState } from "@/components/org/viz";
+import type { LadderBand, LadderEdge, VizState } from "@/components/shared/viz";
 import type { AdmissionMode } from "@/lib/org/admission";
 import { MODE_HEX, MODE_META, type AdmissionView } from "./admissionRows";
 

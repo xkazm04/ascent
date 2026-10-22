@@ -13,7 +13,7 @@
 // THEME DUALITY: the theme picks the composition (AuditTab.v1 Altimeter, AuditTab.v2 Prism).
 // Its leaf parts (AuditLogViewer, AuditLogCells) sit beside it in the same group folder.
 
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { getTheme } from "@/lib/theme/server";
 import { auditV1 } from "./AuditTab.v1";
 import { auditV2 } from "./AuditTab.v2";

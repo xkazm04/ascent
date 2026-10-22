@@ -7,8 +7,8 @@
 // source here. The theme is read here, outside that boundary, and the panel picks the composition.
 
 import { Suspense } from "react";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { getTheme } from "@/lib/theme/server";
 import { GovernancePanel } from "./GovernancePanel";

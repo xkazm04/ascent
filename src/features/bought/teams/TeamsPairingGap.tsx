@@ -9,7 +9,7 @@
 // Dependency-free SVG on `scoreHex` (never a hand-picked hex, §2.5). Server-safe: no hooks. The
 // accessible name is generated from the same four numbers the geometry is, so it cannot drift.
 
-import { r2 } from "@/components/org/viz";
+import { r2 } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 import type { TeamPairing } from "@/lib/db";
 

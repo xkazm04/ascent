@@ -580,7 +580,7 @@ The card under her turn is where the offer is answered. **Accept** and **Decline
 | --- | --- |
 | Panels / chrome | `Surface`, `Kicker` from `@/components/ui` - never a hand-rolled `border-slate-*` panel |
 | The composer | `TextArea` from the `Field` kit. Enter sends, Shift+Enter newlines; the textarea is never disabled mid-turn (that would discard what was being typed while waiting) |
-| `athena:table` | `OrgTable` (`src/components/org/shared/ui.tsx:76`) - a table she draws and a table the dashboard draws are the same object. `minWidth` is derived from the column count, not left at 640, so a two-column answer does not force a scrollbar in a 28rem drawer |
+| `athena:table` | `OrgTable` (`src/components/shared/dashboard/ui.tsx:76`) - a table she draws and a table the dashboard draws are the same object. `minWidth` is derived from the column count, not left at 640, so a two-column answer does not force a scrollbar in a 28rem drawer |
 | `athena:chart` | Dependency-free inline SVG on `chartScale.ts` + `chartHover.tsx`. **No chart library** - recharts appears in exactly one landing file and must not spread |
 | Prose | `MarkdownLite` (`src/components/report/MarkdownLite.tsx`) via an `AthenaProse` sibling that strips fenced regions first. Four inert constructs, no href, no src, no `dangerouslySetInnerHTML` - model output is untrusted, and that posture is repo law |
 

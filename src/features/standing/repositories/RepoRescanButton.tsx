@@ -10,7 +10,7 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
-import { useScanStream } from "@/components/org/shared/useScanStream";
+import { useScanStream } from "@/components/shared/scan/useScanStream";
 
 /** Terminal state of one rescan attempt — out-of-credits is a top-up nudge, not a failure. */
 type Outcome = { kind: "credits" | "error"; message: string } | null;

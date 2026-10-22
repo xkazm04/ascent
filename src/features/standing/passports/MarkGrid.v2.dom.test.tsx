@@ -2,7 +2,7 @@
 // CellMark grid: a judged share keeps its number, a void says "not measured", and nothing is painted by score hue.
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import type { MatrixRow } from "@/components/org/viz/matrixShared";
+import type { MatrixRow } from "@/components/shared/viz/matrixShared";
 import { buildCapabilityMatrix, type CapabilityMatrixInput } from "./capabilityAgg";
 import { CAPABILITY_AXES, capabilityVizRows } from "./capabilityViz";
 import { controlVizModel } from "./controls/controlMatrixViz";

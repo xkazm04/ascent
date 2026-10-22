@@ -2,7 +2,7 @@
 // `band === "unmeasured"` maps to `missing` (`rendersValue()` false), so an unmeasured dimension
 // cannot print a numeral. Held/onboarded follow the same rule: a null delta is a name, not a 0.
 
-import { isNum, type VizState } from "@/components/org/viz";
+import { isNum, type VizState } from "@/components/shared/viz";
 import { SCORE_NOISE_BAND } from "@/lib/maturity/noise";
 import type {
   DigestAction,

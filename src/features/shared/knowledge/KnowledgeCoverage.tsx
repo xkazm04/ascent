@@ -8,10 +8,10 @@
 // read), and freshness (pairs judged, which is `missing` outright when the sweep never ran).
 //
 // Server-safe: no hooks and no handlers of its own — `MatrixGrid` and `WhyChip` carry their own
-// client boundary. Every encoding comes from `@/components/org/viz`; nothing here paints a state.
+// client boundary. Every encoding comes from `@/components/shared/viz`; nothing here paints a state.
 
 import { Kicker } from "@/components/ui";
-import { Legend, MatrixGrid, WhyChip, type MatrixRow, type VizState } from "@/components/org/viz";
+import { Legend, MatrixGrid, WhyChip, type MatrixRow, type VizState } from "@/components/shared/viz";
 import type { KnowledgeView } from "@/lib/org/knowledge-shape";
 import { sweepAge } from "./knowledgeModel";
 import { type BundleCoverage, bundleCoverageRows } from "./knowledgeViz";

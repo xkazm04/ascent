@@ -15,7 +15,7 @@ import {
   type RosterAction,
   type RosterGroup,
   type ScanRunRoster,
-} from "@/components/org/shared/scanRunRosterModel";
+} from "@/components/shared/scan/scanRunRosterModel";
 
 /** The one sentence kept for a run that genuinely saw nothing: no frame scored, skipped or failed. */
 export const EMPTY_WATCHLIST_TEXT = "No watched repos to scan. Open the org and watch some repos first.";

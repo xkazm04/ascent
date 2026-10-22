@@ -6,8 +6,8 @@
 // fleet EVIDENCE ascent can add and the local skill cannot see. A move rendered without both is the
 // argument for the app going unmade.
 
-import { SectionEmpty } from "@/components/org/shared/ui";
-import { StateSwatch } from "@/components/org/viz";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
+import { StateSwatch } from "@/components/shared/viz";
 import { CareAction, CareCategoryChip, CareLinkAction, CareSaving, CareStateChip, CARE_STATE_LABEL } from "./CareBits";
 import { careMovesByState, CARE_MOVE_STATES, type CareMove } from "@/lib/org/developer-view";
 

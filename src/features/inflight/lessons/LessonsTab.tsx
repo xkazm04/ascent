@@ -7,7 +7,7 @@
 //
 // THEME DUALITY: the theme picks the composition (LessonsTab.v1.tsx Altimeter, LessonsTab.v2.tsx Prism).
 
-import { SectionEmpty } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { isPersonalOrg } from "@/lib/db";
 import { listLoopLessons } from "@/lib/db/loop-lessons";
 import { getTheme } from "@/lib/theme/server";

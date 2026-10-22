@@ -8,9 +8,9 @@
 // side rather than as two cards.
 
 import { deltaHex, fmtDelta, signedDelta } from "@/components/ui";
-import { postureLabel } from "@/components/org/shared/ui";
+import { postureLabel } from "@/components/shared/dashboard/ui";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
-import { STATE_LABEL, StateSwatch, WhyChip, stateTitle } from "@/components/org/viz";
+import { STATE_LABEL, StateSwatch, WhyChip, stateTitle } from "@/components/shared/viz";
 import { teamAnchorId } from "./teamsShared";
 import { DIMENSION_SHORT, scoreHex } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";

@@ -10,11 +10,11 @@
 // this component; `KnowledgeSubjectImpact` renders a void instead).
 //
 // Dependency-free SVG on `linScale`; every fill, stroke, dash and hatch comes from
-// `@/components/org/viz`. Entrance only, and skipped under `prefers-reduced-motion`.
+// `@/components/shared/viz`. Entrance only, and skipped under `prefers-reduced-motion`.
 
 import { linScale } from "@/components/report/chartScale";
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
-import { r2 } from "@/components/org/viz";
+import { r2 } from "@/components/shared/viz";
 import {
   KICKER_SVG_CLASS,
   STATE_LABEL,
@@ -27,7 +27,7 @@ import {
   stateStroke,
   stateStrokeWidth,
   stateTitle,
-} from "@/components/org/viz";
+} from "@/components/shared/viz";
 import { STATE_LABEL as CELL_LABEL } from "./knowledgeModel";
 import type { ImpactRow } from "./knowledgeViz";
 

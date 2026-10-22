@@ -8,7 +8,7 @@
 // transport can call `push` from its own fetch callback and nothing here reads a ref during render.
 
 import { useEffect, useState } from "react";
-import { CELEBRATION_MS } from "@/components/org/shared/liveWarRoomShared";
+import { CELEBRATION_MS } from "@/components/shared/live/liveWarRoomShared";
 import type { PulseEvent } from "@/lib/local/runner-types";
 import { cueDelay, emptyCueQueue, enqueueCues, takeCue, type CueKind, type TheaterCue } from "./theaterCues";
 import { playCue } from "./theaterSound";

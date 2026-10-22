@@ -5,7 +5,7 @@
 // hook as v1; PERSONAL BY CONSTRUCTION still holds (no org branch exists here). Sections keep their
 // bodies; what changes is the structure around them.
 import { Frame, Masthead, SectionHead, type MastheadFigure } from "@/components/kit";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { CareFixtureChip } from "./CareBits";
 import { CareProfileCard } from "./CareProfileCard";
 import { CareMovesBoard } from "./CareMovesBoard";

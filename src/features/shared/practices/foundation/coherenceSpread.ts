@@ -11,7 +11,7 @@
 //
 // Pure: no React, no fetch.
 
-import type { VizState } from "@/components/org/viz";
+import type { VizState } from "@/components/shared/viz";
 import { quantiles, type FiveNumber } from "@/features/standing/repositories/fleetShape";
 import type { RepoCoherenceRow } from "./guidanceCoherenceModel";
 

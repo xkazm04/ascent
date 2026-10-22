@@ -9,7 +9,7 @@
 // Server-safe: no hooks, no handlers. The data is secret-free by construction (lane-routes-load.ts).
 
 import { Kicker } from "@/components/ui";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import type { LaneRouting } from "@/lib/llm/lane-routes-load";
 import { laneRoutingView, platformOnlyLanes, type LaneCell, type LaneTone } from "./laneRoutingViz";
 

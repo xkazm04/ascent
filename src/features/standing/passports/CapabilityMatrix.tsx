@@ -10,9 +10,9 @@
 // not looked" indistinguishable from "declares nothing", and the whole point of the surface is that
 // those are different answers to a CISO's question.
 
-import { OrgTable, Tile, TILE_LEDGER, MeterRow } from "@/components/org/shared/ui";
+import { OrgTable, Tile, TILE_LEDGER, MeterRow } from "@/components/shared/dashboard/ui";
 import { Kicker, SectionHeading } from "@/components/ui";
-import { Legend, MatrixGrid } from "@/components/org/viz";
+import { Legend, MatrixGrid } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 import { buildCapabilityMatrix, verifiedRatio, type CapabilityMatrixInput } from "./capabilityAgg";
 import { CAPABILITY_AXES, capabilityVizRows, capabilityVizStates } from "./capabilityViz";

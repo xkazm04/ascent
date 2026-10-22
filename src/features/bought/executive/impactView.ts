@@ -11,7 +11,7 @@
 // draw a legible, symmetric "the period bought nothing", which is a measurement the ledger does not
 // have. `hasMovement` is that decision, made once.
 
-import type { FlowStage, VizState } from "@/components/org/viz";
+import type { FlowStage, VizState } from "@/components/shared/viz";
 import type { ImpactLedger } from "@/lib/db/org-impact";
 
 /** (D) What "points" are and what they exclude — the old field note's first two sentences. */

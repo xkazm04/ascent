@@ -18,7 +18,7 @@
 // column that wraps rather than being cut at 21 characters, and only the reach bar, the lift rung
 // and the void are SVG — no viewBox, percentages of the cell — so nothing scales with the panel.
 
-import { isNum, r2, rendersValue, stateFill, stateTitle } from "@/components/org/viz";
+import { isNum, r2, rendersValue, stateFill, stateTitle } from "@/components/shared/viz";
 import { COLUMN_HEAD, MarkSvg, VoidRule, pctLen } from "../barRowMarks";
 import type { ActionBar } from "./digestViz";
 

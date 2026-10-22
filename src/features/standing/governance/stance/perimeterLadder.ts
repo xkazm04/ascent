@@ -9,7 +9,7 @@
 //
 // PURE — no React, no I/O. Server-safe.
 
-import { ladderLegendStates, type LadderBand, type LadderEdge, type VizState } from "@/components/org/viz";
+import { ladderLegendStates, type LadderBand, type LadderEdge, type VizState } from "@/components/shared/viz";
 import type { AutonomyTierId } from "@/lib/types";
 import type { RepoStanceCompliance } from "@/lib/org/stance";
 import { TIER_HEX, TIER_META } from "./stanceShared";

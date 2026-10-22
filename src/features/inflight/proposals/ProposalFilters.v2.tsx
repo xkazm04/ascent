@@ -4,7 +4,7 @@
 // state as FollowupsFilterBar (Repo, Dimension, Impact, Status, plus Source), with the working-set /
 // resolved-archive switch and the org-wide scope as kit Segmented controls instead of hand-rolled pills.
 import { FilterBar, FilterCount, FilterMenu, Input, Segmented, type FilterOption } from "@/components/kit";
-import { STATUS_LABEL, filtersActive, type FollowUpFilters } from "@/components/org/followups/followupsModel";
+import { STATUS_LABEL, filtersActive, type FollowUpFilters } from "@/components/shared/followups/followupsModel";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
 import { SOURCE_LABEL, type ProposalRow } from "./proposalsModel";

@@ -1,9 +1,9 @@
 // Altimeter composition of the Briefing tab. Markup moved unchanged from ExecutiveTab.
 // The public share page does not use this file.
 import { valueRealizedHeading, valueRealizedLine } from "@/lib/org/briefing";
-import { Card, SectionHeader } from "@/components/org/shared/ui";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
 import Link from "next/link";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { PriorPeriodGrid } from "./briefingShared";
 import {

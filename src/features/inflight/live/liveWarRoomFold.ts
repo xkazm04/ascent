@@ -16,7 +16,7 @@ import {
   type Celebration,
   type LiveRepo,
   type Mover,
-} from "@/components/org/shared/liveWarRoomShared";
+} from "@/components/shared/live/liveWarRoomShared";
 
 /**
  * Run progress as a whole percent, CLAMPED to [0,100].

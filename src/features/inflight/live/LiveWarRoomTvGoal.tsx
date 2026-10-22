@@ -2,9 +2,9 @@
 // the features/ 200-LOC cap. Rendered big for a wall read from across a room.
 
 import { Kicker } from "@/components/ui";
-import { Meter } from "@/components/org/shared/ui";
-import { goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/org/shared/goalView";
-import { goalUnmeasuredLine } from "@/components/org/shared/goalViewLogic";
+import { Meter } from "@/components/shared/dashboard/ui";
+import { goalBasisMarker, goalMeterAriaLabel, type GoalProgressView } from "@/components/shared/goals/goalView";
+import { goalUnmeasuredLine } from "@/components/shared/goals/goalViewLogic";
 import { goalMeterColor } from "@/features/inflight/live/LiveWarRoomGoalBanner";
 import { WallPaceChip } from "@/features/inflight/live/WallPaceChip";
 

@@ -19,8 +19,8 @@
 // what it has PAID DOWN. Server-safe — no hooks, no handlers.
 
 import { Kicker } from "@/components/ui";
-import { SectionHeader, Tile, TILE_LEDGER } from "@/components/org/shared/ui";
-import { FlowRibbon, Legend, StateSwatch, WhyChip, type LegendExtra, type VizState } from "@/components/org/viz";
+import { SectionHeader, Tile, TILE_LEDGER } from "@/components/shared/dashboard/ui";
+import { FlowRibbon, Legend, StateSwatch, WhyChip, type LegendExtra, type VizState } from "@/components/shared/viz";
 import type { ImpactLedger as ImpactLedgerModel } from "@/lib/db/org-impact";
 import { LEVEL_HEX } from "@/lib/ui";
 import { BAD, GOOD, signed } from "./ImpactLedgerCells";

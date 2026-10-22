@@ -4,7 +4,7 @@
 // context, instead of a tile ledger over a stack of cards.
 import { Caption, Masthead, type MastheadFigure } from "@/components/kit";
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { AdoptionSpectrumV2 } from "./AdoptionSpectrum.v2";
 import { ChampionsV2, TeamsV2 } from "./AdoptionPeople.v2";
 import { DeliveryContextV2, ToolFootprintV2 } from "./AdoptionContext.v2";

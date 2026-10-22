@@ -25,9 +25,9 @@
 
 import { LiveWarRoom } from "./LiveWarRoom";
 import { LiveCockpit } from "./cockpit";
-import { toLiveRepoSeeds } from "@/components/org/shared/liveWarRoomShared";
+import { toLiveRepoSeeds } from "@/components/shared/live/liveWarRoomShared";
 import { buildFleetTimetable } from "./fleetTimetable";
-import { TechStackSelector } from "@/components/org/shared/TechStackSelector";
+import { TechStackSelector } from "@/components/shared/scope/TechStackSelector";
 import { getOrgRepoHistories, getOrgRollup, listGoals, listLocalPairings, listOpsState } from "@/lib/db";
 import { getActiveLoopRun, getLoopRunDetail, listLoopRuns } from "@/lib/db/loop-runs";
 import type { LoopRunDetail } from "@/lib/db/loop-runs-types";
@@ -37,7 +37,7 @@ import { resolveStackScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
 import { getTheme } from "@/lib/theme/server";
 import { liveShareEnabled } from "@/lib/live-share";
-import type { GoalProgressView } from "@/components/org/shared/goalView";
+import type { GoalProgressView } from "@/components/shared/goals/goalView";
 import type { ObservatorySeed } from "./observatory";
 import { liveViewHref } from "./LiveViewSwitch";
 import { LiveNextMove } from "./LiveNextMove";

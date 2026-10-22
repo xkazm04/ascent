@@ -7,7 +7,7 @@
 // refusal sentence itself moves into the mark's `WhyChip` (§2.1 D — Disclosed).
 
 import { DIRECTION_TONE, deltaHex } from "@/components/ui";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { DeliverySlopeMark } from "./DeliverySlopeMark";
 import type { DeliveryMetricKey, DeliveryRateFit } from "@/lib/db/org-delivery-trend";
 

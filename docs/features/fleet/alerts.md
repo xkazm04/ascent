@@ -43,7 +43,7 @@ It never throws and returns `false` when no sink resolves or the POST fails.
 `isAlertConfigured(orgWebhookUrl?)` checks for the sink. Per-org sinks and per-org
 sensitivity (`alertOverallDrop` / `alertDimensionDrop`) are configured through
 `GET`/`POST /api/org/alerts` (admin-gated) and the dashboard's Alerts popover
-(`src/components/org/shared/AlertsControl.tsx`). The two sensitivity fields are **independently
+(`src/components/org/shell/alerts/AlertsControl.tsx`). The two sensitivity fields are **independently
 optional** on the POST: a body carrying only one leaves the other exactly as stored. (Until
 2026-09-04 an absent key parsed to the same `null` an explicit clear produces, so a one-sided update
 silently reset the other threshold to its default — invisible from the popover, which always posts
@@ -254,7 +254,7 @@ cooldown claim, so an interactive rescan can't double-alert with the cron.
 | `src/lib/email/alert-sink.ts` | Renders an `AlertMessage` as mail for a `mailto:` sink. |
 | `src/lib/email/unsubscribe.ts`, `src/app/api/email/unsubscribe/route.ts` | Signed one-click unsubscribe (clears the org's sink). |
 | `src/lib/alert-sink-health.ts` | Pure sink health (`sinkHealth`), the popover's health line, and the resend rule (`isResendable` / `toHistoryEvent`). |
-| `src/components/org/shared/AlertsSinkHealth.tsx` | The chip's failing marker and the popover's health line. |
+| `src/components/org/shell/alerts/AlertsSinkHealth.tsx` | The chip's failing marker and the popover's health line. |
 | `src/lib/email/digest-mail.ts`, `src/app/api/cron/digest/digest-mail-load.ts` | The weekly digest artefact rendered as mail HTML (pure), and its load for an email sink only. |
 
 ## What moved since you last looked (in-app unread state)

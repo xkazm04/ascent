@@ -11,7 +11,7 @@
 //
 // Server-safe: `Legend` and `StateSwatch` are server components; nothing here holds state.
 
-import { Legend, STATE_HINT, StateSwatch } from "@/components/org/viz";
+import { Legend, STATE_HINT, StateSwatch } from "@/components/shared/viz";
 import type { KnowledgeCellState } from "@/lib/org/knowledge-shape";
 import { ABSENCE_STATES, CELL_REASON, CELL_VIZ_STATE, STATE_GLYPH, STATE_LABEL, VERDICT_STATES } from "./knowledgeModel";
 

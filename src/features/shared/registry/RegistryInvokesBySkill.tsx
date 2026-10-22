@@ -2,8 +2,8 @@
 // Never summed with invokesDirect30d. Keys are names (a registry-only skill has no OrgSkill id).
 // Hatched (`not-judged`) until an index pass has read the lane — unread is not a row of zeros.
 
-import { rendersValue, stateTitle, type VizState } from "@/components/org/viz";
-import { MatrixHatchDefs, MatrixMark } from "@/components/org/viz/matrixMark";
+import { rendersValue, stateTitle, type VizState } from "@/components/shared/viz";
+import { MatrixHatchDefs, MatrixMark } from "@/components/shared/viz/matrixMark";
 import type { RegistryView } from "@/lib/org/registry-view";
 
 export type InvokesBySkillRow = { name: string; invokes: number };

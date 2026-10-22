@@ -6,7 +6,7 @@
 
 import { Kicker } from "@/components/ui";
 import { chipButtonClass } from "@/components/ui";
-import { STATE_HINT, StateSwatch } from "@/components/org/viz";
+import { STATE_HINT, StateSwatch } from "@/components/shared/viz";
 import type { KnowledgeCell, KnowledgeCellState, KnowledgeDomain, KnowledgeRepo, KnowledgeView } from "@/lib/org/knowledge-shape";
 import {
   ABSENCE_STATES,

@@ -2,8 +2,8 @@
 
 // Prism marks for the automation × production scatter. No band hue: a shape names the production
 // band, and a placeholder stays the shared not-judged hatch. Altimeter keeps PassportScatter's circles.
-import type { LegendExtra } from "@/components/org/viz";
-import { stateFill, stateStroke, stateTitle } from "@/components/org/viz";
+import type { LegendExtra } from "@/components/shared/viz";
+import { stateFill, stateStroke, stateTitle } from "@/components/shared/viz";
 import { BAND_LABEL } from "@/lib/org/passport-display";
 import { PLACEHOLDER_LABEL } from "./PlaceholderMark";
 import type { ScatterPoint } from "./PassportScatter";

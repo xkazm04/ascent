@@ -11,7 +11,7 @@ import { RadarChart } from "@/components/report/RadarChart";
 import { AltimeterGauge } from "@/components/report/AltimeterGauge";
 import { dimFacts } from "@/components/report/dimensionExplorerDerive";
 import { StackRadarChart } from "@/features/standing/tech-stacks/StackRadarChart";
-import { MatrixGrid } from "@/components/org/viz";
+import { MatrixGrid } from "@/components/shared/viz";
 import { DIMENSIONS, LEVELS, levelForScore } from "@/lib/maturity/model";
 import type { DimensionId, DimensionResult } from "@/lib/types";
 

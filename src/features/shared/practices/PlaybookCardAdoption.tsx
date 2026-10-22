@@ -6,7 +6,7 @@
 // this block (nothing else on the card reads it), so it moves with the markup.
 
 import { useState } from "react";
-import { StateSwatch, STATE_HINT } from "@/components/org/viz";
+import { StateSwatch, STATE_HINT } from "@/components/shared/viz";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 import { liftSampleNote } from "@/lib/org/playbookLiftModel";
 

@@ -13,7 +13,7 @@
 //
 // Pure: no React, no hooks. The kit types are `import type`.
 
-import type { MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixRow, VizState } from "@/components/shared/viz";
 
 /** Read at scan time · travels to another repo in the same org. */
 export const SHAPE_AXES = ["Read", "Travels"] as const;

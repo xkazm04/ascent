@@ -1,6 +1,6 @@
 // Altimeter composition of the governance tab. Moved unchanged from GovernancePanel so a Prism
 // layout can exist beside it. Same props, same cards, same copy.
-import { SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { SectionEmpty, SectionHeader, Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { scoreHex } from "@/lib/ui";
 import { ciActionYaml, governanceMarkdown } from "@/lib/org/governance";

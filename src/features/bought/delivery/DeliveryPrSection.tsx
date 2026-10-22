@@ -7,8 +7,8 @@
 // merges" became `ReviewCoverageStrip` — the ordering is now a shape with the below-target tail
 // bracketed, so the reader sees the risk ranking instead of being told the rows are sorted.
 
-import { SectionHeader } from "@/components/org/shared/ui";
-import { WhyChip } from "@/components/org/viz";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
+import { WhyChip } from "@/components/shared/viz";
 import { PrSignalsBand, REVIEW_TARGET } from "./PrSignalsBand";
 import { PrRepoTable } from "./PrRepoTable";
 import { ReviewCoverageStrip } from "./ReviewCoverageStrip";

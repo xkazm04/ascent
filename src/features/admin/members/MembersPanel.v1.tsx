@@ -10,8 +10,8 @@
 // Orchestrator only — state/handlers live in useMembersPanel.ts, the table JSX region is
 // MembersTable.tsx (split to keep this file under the 200-LOC cap; docs/ORG-TABS-REFACTOR.md).
 
-import { SectionHeader } from "@/components/org/shared/ui";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { MemberInvites, type InviteRow } from "@/features/admin/members/MemberInvites";
 import { MembersTable } from "./MembersTable";

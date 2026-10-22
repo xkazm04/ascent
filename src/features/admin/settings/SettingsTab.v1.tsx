@@ -11,10 +11,10 @@ import { LaneRoutingCard } from "./LaneRoutingCard";
 import { DataErasureCard } from "./DataErasureCard";
 import { RetentionCard } from "./RetentionCard";
 import { PlanControl } from "./PlanControl";
-import { SectionHeader } from "@/components/org/shared/ui";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
 import type { SettingsData } from "./settingsData";
 import Link from "next/link";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export function settingsV1(d: SettingsData) {

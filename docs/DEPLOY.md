@@ -145,7 +145,7 @@ composite script never reached:
 
 None of the three failing files imports or exercises anything this change touched. The change's own
 surface is green: 19 test files, 289 tests, covering the digest cron, `src/lib/alerts.ts`,
-`scan-alerts`, `conformance-alerts`, the email lane and `src/components/org/shared`.
+`scan-alerts`, `conformance-alerts`, the email lane and `src/components/shared`.
 
 | File | Failures | Standing |
 | --- | --- | --- |

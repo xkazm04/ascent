@@ -1,10 +1,10 @@
 // The Altimeter composition of the Weekly digest tab (moved unchanged from DigestTab.tsx). Server-safe:
 // no hooks here; CopyForLlm and WhyChip are client components that cross the boundary themselves.
 import Link from "next/link";
-import { SectionHeader } from "@/components/org/shared/ui";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
 import { chipButtonClass } from "@/components/ui";
 import { CopyForLlm } from "@/components/CopyForLlm";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { WeeklyDigest } from "@/lib/org/digest-types";
 import { DigestHeadline } from "./DigestHeadline";

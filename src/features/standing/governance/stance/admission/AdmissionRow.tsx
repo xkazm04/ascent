@@ -14,7 +14,7 @@
 // revertable from here. Closed by default: the row is a record first.
 
 import { useState } from "react";
-import { StateSwatch, stateTitle } from "@/components/org/viz";
+import { StateSwatch, stateTitle } from "@/components/shared/viz";
 import { MODE_HEX, MODE_META, type AdmissionView } from "./admissionRows";
 import { viewState } from "./admissionLadder";
 import { AdmissionOverrideControl } from "./AdmissionOverrideControl";

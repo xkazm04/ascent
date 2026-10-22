@@ -9,9 +9,9 @@
 // `GET /api/org/loop/needs-you` every minute WITHOUT visibility gating (the hidden tab is the case it
 // exists for), announces only what is new, and never more than once per `NOTIFY_BATCH_MS`: an
 // operator is told "2 directions wait for your approval · kp paused: branch conflict" once, not
-// pinged per item. Clicking the notification opens the Ledger. Mechanics: org/shared/useRunnerNotifier.ts.
+// pinged per item. Clicking the notification opens the Ledger. Mechanics: shared/live/useRunnerNotifier.ts.
 
-import { useRunnerNotifier, type RunnerNotifierOptions } from "@/components/org/shared/useRunnerNotifier";
+import { useRunnerNotifier, type RunnerNotifierOptions } from "@/components/shared/live/useRunnerNotifier";
 
 export function RunnerNotifier({ slug, ...opts }: { slug: string } & RunnerNotifierOptions) {
   const { offerVisible, enable, dismiss } = useRunnerNotifier(slug, opts);

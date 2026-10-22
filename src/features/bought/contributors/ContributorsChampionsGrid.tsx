@@ -7,8 +7,8 @@
 // scatter encodes all three variables — y is adoption, x is volume, radius is breadth — and the ★
 // rank stays on the card, where it is a label on a thing you can already see.
 
-import { SectionHeader } from "@/components/org/shared/ui";
-import { WhyChip } from "@/components/org/viz";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
+import { WhyChip } from "@/components/shared/viz";
 import { AiBar } from "./AiBar";
 import type { ContributorInsights } from "@/lib/db";
 import { isViewer, YouMark } from "./ContributorsYouPointer";

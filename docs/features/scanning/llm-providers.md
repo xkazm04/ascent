@@ -395,7 +395,7 @@ anything that must distinguish an unresolvable active config uses `resolveByomSt
   `providerBoundaryViz.ts`): the **provider comparison**, and the tab's first element. The
   boundary/billing/plan distinction used to be a paragraph in each of the two BYOM card
   headers, which a reader had to hold in their head and diff; it is a `MatrixGrid` from the
-  shared `@/components/org/viz` kit now (`docs/ORG-UX-REDESIGN.md` §2). Three rows, four
+  shared `@/components/shared/viz` kit now (`docs/ORG-UX-REDESIGN.md` §2). Three rows, four
   columns, and — the part prose cannot enforce — **three different kinds of "no" in the
   Boundary column**:
 

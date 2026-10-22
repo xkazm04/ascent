@@ -8,7 +8,7 @@
 // test, it is a number that moves.
 //
 // An EDGE is a link written in one tab's source to a DIFFERENT tab. A tab's source is its feature
-// folder (`src/features/<group>/<tab>/`), plus the follow-ups ledger in `src/components/org/followups`
+// folder (`src/features/<group>/<tab>/`), plus the follow-ups ledger in `src/components/shared/followups`
 // and the group-less `src/features/developer/`. Five spellings of a tab link exist in that tree today,
 // and a matcher that reads only the canonical helper misses a third of the real edges:
 //
@@ -98,7 +98,7 @@ export function extractTabLinks(source: string, tabIds: readonly string[]): { li
 
 /** The tab a source file belongs to, or null when it belongs to none (e.g. `shared/athena`). */
 export function owningTab(path: string, tabIds: readonly string[]): string | null {
-  if (path.startsWith("src/components/org/followups/")) return "followups";
+  if (path.startsWith("src/components/shared/followups/")) return "followups";
   if (path.startsWith("src/features/developer/")) return "developer";
   const m = /^src\/features\/[^/]+\/([^/]+)\//.exec(path);
   const id = m?.[1];

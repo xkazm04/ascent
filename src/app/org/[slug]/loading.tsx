@@ -1,4 +1,4 @@
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 
 // App Router loading UI for the org dashboard segment. The org layout (site header + maturity chip +
 // section rail) stays mounted, so this fills only the content column while a route's server render

@@ -6,7 +6,7 @@
 // this: each row here renders the same element the track draws, with the sentence riding along as
 // the row's hover/focus hint. Server-safe (no hooks).
 
-import type { LegendExtra } from "@/components/org/viz";
+import type { LegendExtra } from "@/components/shared/viz";
 
 const DOT = "inline-block h-3 w-3 shrink-0 rounded-full";
 

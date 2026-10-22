@@ -19,8 +19,8 @@
 
 import Link from "next/link";
 import { Kicker, Surface } from "@/components/ui";
-import { SectionHeader, Tile, TILE_LEDGER, InlineEmpty } from "@/components/org/shared/ui";
-import { Distribution, Legend, StateSwatch, WhyChip } from "@/components/org/viz";
+import { SectionHeader, Tile, TILE_LEDGER, InlineEmpty } from "@/components/shared/dashboard/ui";
+import { Distribution, Legend, StateSwatch, WhyChip } from "@/components/shared/viz";
 import { scoreHex } from "@/lib/ui";
 import { coherenceSpread } from "./coherenceSpread";
 import {

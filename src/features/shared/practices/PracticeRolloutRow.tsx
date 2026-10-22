@@ -10,8 +10,8 @@
 // control; here each stage is its own named image and the practice name is the button.
 
 import { scoreHex } from "@/lib/ui";
-import { STATE_LABEL, fmtNum, isNum, isStruck, rendersValue, stateTitle, type MatrixCell } from "@/components/org/viz";
-import { MatrixMark, cellInk } from "@/components/org/viz/matrixMark";
+import { STATE_LABEL, fmtNum, isNum, isStruck, rendersValue, stateTitle, type MatrixCell } from "@/components/shared/viz";
+import { MatrixMark, cellInk } from "@/components/shared/viz/matrixMark";
 import type { PracticeRow } from "./practiceRows";
 import { ROLLOUT_AXES } from "./practiceRolloutViz";
 import type { RolloutEntry } from "./practiceRolloutGroups";

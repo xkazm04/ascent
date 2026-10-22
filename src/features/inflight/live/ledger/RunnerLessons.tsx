@@ -6,7 +6,7 @@
 // from the next lane on — and records who revoked it. Owner-only: it overrules a delegation the owner made.
 
 import { useState } from "react";
-import { InlineEmpty } from "@/components/org/shared/ui";
+import { InlineEmpty } from "@/components/shared/dashboard/ui";
 import { LedgerSectionHeader } from "./LedgerSectionHeader";
 import { fmtAgo, shortRepo } from "./ledgerFormat";
 import { revokeLesson } from "./ledgerClient";

@@ -3,7 +3,7 @@
 // Small presentational parts of SecurityRiskRegister.tsx (the coverage tally cell, the D9 score cell
 // and the sortable header cell), pulled out so the table's own file stays under the 200-LOC cap.
 
-import { StateSwatch, stateTitle } from "@/components/org/viz";
+import { StateSwatch, stateTitle } from "@/components/shared/viz";
 import type { SortKey } from "./securityRegisterShared";
 import { checkTally, type SecurityMatrixInput } from "./securityMatrixModel";
 

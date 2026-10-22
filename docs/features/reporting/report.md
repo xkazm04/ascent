@@ -1465,7 +1465,7 @@ from a blank. A repo with no overrides renders exactly as it did before.
 
 Known gap: the overrides blob keeps **no timestamp** for the identity fields — only a decline records
 an `at` — so the cue says who, not when, and none is invented. Two call sites still pass neither
-prop: `src/app/report/[owner]/[repo]/page.tsx` and `src/components/org/PersonalOverview.tsx` render
+prop: `src/app/report/[owner]/[repo]/page.tsx` and `src/components/org/personal/PersonalOverview.tsx` render
 `PassportCard` without `engine` or `ownerSet`, so the per-repo report shows no placeholder mark and
 no owner-set cue yet. Both props are optional and absent means "no claim either way", so those pages
 are unchanged rather than wrong.
@@ -1563,7 +1563,7 @@ Wave 1 of [`docs/ORG-UX-REDESIGN.md`](../../ORG-UX-REDESIGN.md). The tab carried
 prose over 25 components and one SVG, and its three richest concepts — the control matrix, the
 clearance ladder and the capability matrix — were all matrices and bands **rendered as text with a
 paragraph above them explaining what the text meant**. Every one of those paragraphs was already
-speaking the shared `/org` viz vocabulary (`src/components/org/viz`), so the fix was to draw it.
+speaking the shared `/org` viz vocabulary (`src/components/shared/viz`), so the fix was to draw it.
 
 | Surface | Was | Is |
 | --- | --- | --- |
@@ -1679,7 +1679,7 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/app/report/compare/ExemplarSection.tsx` | Resolves `?against=` into a panel or a notice. |
 | `src/lib/report/validate.ts` | `parseScanReport()` trust-boundary validation. |
 | `src/lib/ui.ts` | Color/glyph/format helpers shared across the report. |
-| `src/components/org/viz/` | The shared `/org` visual kit — the six-state epistemic vocabulary (`states.ts`) plus `Legend`, `StateSwatch`, `WhyChip`, `MatrixGrid`, `BandLadder`, … Every Passports graphic imports it; none re-defines a hatch, a dash or a state label. |
+| `src/components/shared/viz/` | The shared `/org` visual kit — the six-state epistemic vocabulary (`states.ts`) plus `Legend`, `StateSwatch`, `WhyChip`, `MatrixGrid`, `BandLadder`, … Every Passports graphic imports it; none re-defines a hatch, a dash or a state label. |
 | `src/features/standing/passports/controls/controlMatrixViz.ts` | Doctor checks as repo × check-family rows. A family with no judged clause returns `not-judged`, which cannot render a value. Altimeter draws them with `MatrixGrid`. Prism draws the same rows as `CellMark`s (`MarkGrid.v2.tsx`). |
 | `src/features/standing/passports/capabilityViz.ts` | The declared × proven × enforced grid, one row per capability, over assessed repos only. Prism renders it through `MarkGrid.v2`, not a heat fill. |
 | `src/features/standing/passports/autonomy/clearanceLadder.ts` | The clearance perimeter: nested `BandLadder` bands per tier, with placeholder-scanned clearances on the edge. Prism maps those bands through `clearanceSteps.ts` onto a `Ladder` (T0 to T3, plus the placeholder edge). |

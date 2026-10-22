@@ -10,7 +10,7 @@
 // Server-safe: no hooks, no handlers.
 
 import Link from "next/link";
-import { StateSwatch, rendersValue, type VizState } from "@/components/org/viz";
+import { StateSwatch, rendersValue, type VizState } from "@/components/shared/viz";
 import { scoreHex, fmtCompact } from "@/lib/ui";
 import { days } from "./contextDecayViz";
 import type { RepoContextRow } from "./contextHealthModel";

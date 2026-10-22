@@ -20,7 +20,7 @@
 
 import { Dateline, Kicker, SectionHeading } from "@/components/ui";
 import { timeAgo } from "@/lib/ui";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { RegistryView } from "@/lib/org/registry-view";
 import { MODE_LABEL, SINK_LABEL, registryVerdict, shortSha } from "./registryModel";

@@ -4,8 +4,8 @@
 // compositions of the ledger (v1 header in CockpitBatchLedger, the Prism header in CockpitBatchLedger.v2). Only the
 // header above it differs per theme; `dimMark` lets a composition name a row's dimension its own way.
 import type { ReactNode } from "react";
-import { OrgTable, SectionEmpty } from "@/components/org/shared/ui";
-import { ImpactEffort, Points } from "@/components/org/followups/FollowupChips";
+import { OrgTable, SectionEmpty } from "@/components/shared/dashboard/ui";
+import { ImpactEffort, Points } from "@/components/shared/followups/FollowupChips";
 import { BatchLedgerRow } from "./CockpitBatchLedgerRow";
 import { BatchRepairPairing } from "./BatchRepairPairing";
 import type { BatchRow } from "./cockpitBatchRows";

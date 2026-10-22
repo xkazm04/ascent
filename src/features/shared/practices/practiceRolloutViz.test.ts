@@ -5,7 +5,7 @@
 // "never looked" can never be rendered as "looked and found nothing".
 
 import { describe, expect, it } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import {
   LABEL_MAX,
   ROLLOUT_AXES,

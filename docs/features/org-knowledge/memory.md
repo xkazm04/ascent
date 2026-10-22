@@ -29,7 +29,7 @@ Prism (`ascent-theme=prism`) renders `MemoryTab.v2` instead of the cards below. 
 
 Above the memory list, `MemoryCoverageStrip`
 (`src/features/shared/memory/MemoryCoverageStrip.tsx`) opens on a `BudgetPack`
-(`@/components/org/viz`): covered-of-tracked repos as the fill, and the
+(`@/components/shared/viz`): covered-of-tracked repos as the fill, and the
 uncovered repos as blocks beside it split by which kind of absence they are — a
 repo that **went quiet** is `measured` (there is a last-memory date), a repo
 that **never recorded** one is `not-judged` (a hatch; no observation ever
@@ -75,7 +75,7 @@ of notes collapsing into one, a ranking with three factors — is inherently
 geometric. Four `SectionHeader description` paragraphs are now zero; each
 sentence they carried was **encoded** as a `VizState`, **disclosed** in a
 `<title>`/`WhyChip`/`Legend`, moved into the **empty state**, or moved here. The
-state vocabulary is imported from `@/components/org/viz` and never re-defined:
+state vocabulary is imported from `@/components/shared/viz` and never re-defined:
 `measured` (solid), `declared` (dashed outline, no fill), `not-judged` (hatched,
 never a printed value), `missing` (a void, never a zero), `decided` (accent
 ring), `superseded` (half opacity + a strikethrough rule).

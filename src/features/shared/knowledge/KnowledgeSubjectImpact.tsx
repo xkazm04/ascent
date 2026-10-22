@@ -13,7 +13,7 @@
 
 import { useState } from "react";
 import { Kicker } from "@/components/ui";
-import { STATE_HINT, StateSwatch, WhyChip } from "@/components/org/viz";
+import { STATE_HINT, StateSwatch, WhyChip } from "@/components/shared/viz";
 import type { KnowledgeSubject, KnowledgeView } from "@/lib/org/knowledge-shape";
 import { type CellIndex, STATE_CLASS, STATE_GLYPH, STATE_LABEL, readRevision } from "./knowledgeModel";
 import { KnowledgeImpactBars } from "./KnowledgeImpactBars";

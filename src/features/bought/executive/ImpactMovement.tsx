@@ -12,7 +12,7 @@
 // Server-safe: no hooks, no handlers, no motion.
 
 import { DIRECTION_TONE, deltaHex } from "@/components/ui";
-import { VOID_DASH, stateTitle } from "@/components/org/viz";
+import { VOID_DASH, stateTitle } from "@/components/shared/viz";
 import { type MovementRow, movementDomain } from "./impactView";
 
 const W = 320;

@@ -6,7 +6,7 @@
 // plans are superseded). Only an active or exhausted direction can be ended; the server says so on a race.
 
 import { useState } from "react";
-import { Meter } from "@/components/org/shared/ui";
+import { Meter } from "@/components/shared/dashboard/ui";
 import { fmtAgo, fmtUsd, shortRepo } from "./ledgerFormat";
 import { settleDirection } from "./ledgerClient";
 import type { LoopDirectionRecord, LoopPlanRecord } from "./ledgerTypes";

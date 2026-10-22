@@ -17,7 +17,7 @@ vi.mock("@/lib/org/adoption", () => ({ buildAdoptionOverview: mockBuild, adoptio
 vi.mock("@/lib/org/scope", () => ({
   resolveOrgScope: async () => ({ segments: [], segmentId: null, techGroups: [], activeStack: null, techGroupId: null }),
 }));
-vi.mock("@/components/org/shared/ScopeFilterBar", () => ({ ScopeFilterBar: () => <div data-testid="scope-bar" /> }));
+vi.mock("@/components/shared/scope/ScopeFilterBar", () => ({ ScopeFilterBar: () => <div data-testid="scope-bar" /> }));
 vi.mock("@/components/CopyForLlm", () => ({ CopyForLlm: () => <button type="button">Copy</button> }));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,

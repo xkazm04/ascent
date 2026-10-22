@@ -17,8 +17,8 @@
 // Client component because the fleet rollup and heatmap hold interaction state; every prop is
 // serialisable and derived ONCE on the server in OverviewFleetPanel — nothing here awaits.
 
-import { Card, DIMS, SectionHeader } from "@/components/org/shared/ui";
-import { Legend, type VizState } from "@/components/org/viz";
+import { Card, DIMS, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend, type VizState } from "@/components/shared/viz";
 import type { Forecast } from "@/lib/maturity/forecast";
 import type { ScoreBadge } from "./OrgScoreBadges";
 import type { TrendPoint } from "@/components/report/TrendChart";

@@ -3,8 +3,8 @@
 // Server-safe.
 import Link from "next/link";
 import { Caption, Chip, ChipRow, Display, Frame, SectionHead } from "@/components/kit";
-import { fmtHours } from "@/components/org/shared/ui";
-import { WhyChip } from "@/components/org/viz";
+import { fmtHours } from "@/components/shared/dashboard/ui";
+import { WhyChip } from "@/components/shared/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { DELIVERY_HINT, TOOLING_HINT } from "./adoptionHints";

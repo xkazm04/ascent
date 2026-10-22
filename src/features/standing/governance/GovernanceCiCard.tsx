@@ -7,8 +7,8 @@
 // the server policy is `measured` (enforced, live), the parameters you paste are `declared` (a
 // snapshot the gate treats as a tighten-only overlay). Both sentences ride along as the marks' hints.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { Legend, StateSwatch } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend, StateSwatch } from "@/components/shared/viz";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { GATE_API_PATH } from "@/lib/scoring/gate-api";
 

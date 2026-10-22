@@ -1,7 +1,7 @@
 // The Prism composition of the Lessons tab: a masthead that states what is held for a decision, then one
 // ruled Frame holding the ledger. Same data and same ledger behaviour as v1.
 import { Frame, Masthead } from "@/components/kit";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { LessonsWorklistV2 } from "./LessonsWorklist.v2";
 import type { LessonsTabData } from "./lessonsTabData";

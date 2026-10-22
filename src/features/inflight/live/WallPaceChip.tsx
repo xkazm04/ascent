@@ -2,8 +2,8 @@
 // verdict; a real-but-thin fit hatches the slot and prints no numeral (G4); no fit at all is
 // absence — the chip is hidden, not a fabricated "Tracking".
 
-import { PaceChip, type GoalProgressView } from "@/components/org/shared/goalView";
-import { HATCH_ID, VizDefs } from "@/components/org/viz";
+import { PaceChip, type GoalProgressView } from "@/components/shared/goals/goalView";
+import { HATCH_ID, VizDefs } from "@/components/shared/viz";
 import { wallGoalTrajectoryRead } from "./liveWarRoomGoalPace";
 
 export function WallPaceChip({ goal }: { goal: GoalProgressView }) {

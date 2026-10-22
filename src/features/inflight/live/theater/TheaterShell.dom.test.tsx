@@ -7,7 +7,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { THEATER_PULSE_MS, type PulseEvent } from "@/lib/local/runner-types";
-import { CELEBRATION_MS } from "@/components/org/shared/liveWarRoomShared";
+import { CELEBRATION_MS } from "@/components/shared/live/liveWarRoomShared";
 import { fixturePulse } from "./theaterFixture";
 
 const sound = vi.hoisted(() => ({ playCue: vi.fn(), unlockAudio: vi.fn(() => true), lockAudio: vi.fn() }));

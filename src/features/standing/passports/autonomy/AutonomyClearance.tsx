@@ -16,8 +16,8 @@
 // lifts the most repos" is a fleet question no single card can answer.
 
 import { Kicker, SectionHeading } from "@/components/ui";
-import { SectionEmpty, TILE_LEDGER, Tile } from "@/components/org/shared/ui";
-import { BandLadder, Legend } from "@/components/org/viz";
+import { SectionEmpty, TILE_LEDGER, Tile } from "@/components/shared/dashboard/ui";
+import { BandLadder, Legend } from "@/components/shared/viz";
 import { TIERS, TIER_META, tierHex, type RepoAutonomy } from "./autonomyModel";
 import { clearanceStates } from "./clearanceLadder";
 import { ClearanceCard } from "./ClearanceCard";

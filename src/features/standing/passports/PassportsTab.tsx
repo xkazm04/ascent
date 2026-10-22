@@ -13,8 +13,8 @@
 //     props since it is no longer a route.
 //   - Its old route (src/app/org/[slug]/passports/page.tsx) is now a redirect().
 
-import { ExportCsvLink } from "@/components/org/shared/ui";
-import { SegmentSelector } from "@/components/org/shared/SegmentSelector";
+import { ExportCsvLink } from "@/components/shared/dashboard/ui";
+import { SegmentSelector } from "@/components/shared/scope/SegmentSelector";
 import { deriveAutonomy, type RepoAutonomy } from "./autonomy/autonomyModel";
 import { isPlaceholderEngine } from "./PlaceholderMark";
 import type { PassportRow } from "./PassportTable";
@@ -26,7 +26,7 @@ import { decisionMap } from "@/lib/org/decision-map";
 import { passportStackChips } from "@/lib/org/passport-display";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { getTheme } from "@/lib/theme/server";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 type SearchParams = { [key: string]: string | string[] | undefined };

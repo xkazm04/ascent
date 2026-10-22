@@ -1,7 +1,7 @@
 "use client";
 
 import { scoreHex } from "@/lib/ui";
-import { POSTURE_HEX } from "@/components/org/shared/liveWarRoomShared";
+import { POSTURE_HEX } from "@/components/shared/live/liveWarRoomShared";
 import { HEADLINE_SCALE, type WallScale } from "./warRoomScale";
 import { headlineAnnouncement } from "./warRoomAnnounce";
 import { useSettledAnnouncement } from "./useLiveWarRoomStat";

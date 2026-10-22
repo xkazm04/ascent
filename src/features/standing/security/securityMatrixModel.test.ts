@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { SecurityRegisterRow, SecurityRowCheck } from "@/lib/org/security";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import { CHECK_AXES, checkState, cellScore, checkTally, matrixRows, shortLabel, statesPresent } from "./securityMatrixModel";
 
 function check(over: Partial<SecurityRowCheck> = {}): SecurityRowCheck {

@@ -7,7 +7,7 @@
 // panel is controlled, and the analysis recomputes over the selected stacks (computeFleetInsights is
 // pure). Client component; the page passes the server-fetched summaries in.
 
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { StackProfiles } from "@/features/standing/tech-stacks/StackProfiles";
 import { StackInsights } from "@/features/standing/tech-stacks/StackInsights";
 import { STACK_SCOPE } from "@/features/standing/tech-stacks/analysisScope";

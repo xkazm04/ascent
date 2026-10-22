@@ -12,8 +12,8 @@
 // overview; the expandable table below is the drill-down.
 
 import { Kicker, SectionHeading } from "@/components/ui";
-import { Tile, TILE_LEDGER } from "@/components/org/shared/ui";
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { Tile, TILE_LEDGER } from "@/components/shared/dashboard/ui";
+import { Legend, MatrixGrid, WhyChip } from "@/components/shared/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { ControlMatrixGrid } from "./ControlMatrixGrid";
 import { controlVizModel } from "./controlMatrixViz";

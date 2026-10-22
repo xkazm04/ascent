@@ -16,7 +16,7 @@ import { SegmentCard } from "./SegmentCard";
 import { SegmentMaturityGrid } from "./SegmentMaturityGrid";
 import { SegmentsComparePanel } from "./SegmentsComparePanel";
 import { RepoSegmentsPanel } from "./RepoSegmentsPanel";
-import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { SectionEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
 import { isAppConfigured } from "@/lib/github/app";
 import { getRepoSegmentMap, listSegments, listTaggableRepos, listWatchedRepos, loadSegmentsView } from "@/lib/db";
 

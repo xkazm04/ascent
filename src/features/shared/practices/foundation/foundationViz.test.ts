@@ -4,7 +4,7 @@
 // point of the redesign: a caption can be true and ignored, a state cannot be printed wrong.
 
 import { describe, it, expect } from "vitest";
-import { rendersValue } from "@/components/org/viz";
+import { rendersValue } from "@/components/shared/viz";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import { FOUNDATION_AXES, FOUNDATION_GRID_ROWS, foundationViz } from "./foundationViz";
 import { foundationBackMark, reportBackAction } from "./foundationMarks";

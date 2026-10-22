@@ -11,7 +11,7 @@
 //    WRITTEN until a second, deliberate click. Once applied it becomes `decided`: an accent ring,
 //    the vocabulary's mark for "a person decided this".
 //
-// Every encoding comes from the shared vocabulary (@/components/org/viz). Nothing here re-defines a
+// Every encoding comes from the shared vocabulary (@/components/shared/viz). Nothing here re-defines a
 // dash, a hatch or an opacity.
 
 import { useMounted, usePrefersReducedMotion } from "@/components/report/chartMotion";
@@ -27,7 +27,7 @@ import {
   stateStrokeWidth,
   stateTitle,
   type VizState,
-} from "@/components/org/viz";
+} from "@/components/shared/viz";
 
 const W = 300;
 const MEMBER_X = 4;

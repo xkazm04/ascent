@@ -15,12 +15,12 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { TechStacksAnalysisPanel } from "./TechStacksAnalysisPanel";
-import { DIMS, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
+import { DIMS, SectionEmpty, SectionHeader } from "@/components/shared/dashboard/ui";
+import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { listTechStackGroups } from "@/lib/db";
 import { getTheme } from "@/lib/theme/server";
 import { techStacksV2 } from "./TechStacksTab.v2";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export async function TechStacksTab({ slug }: { slug: string }) {

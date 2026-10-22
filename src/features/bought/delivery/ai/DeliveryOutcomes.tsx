@@ -17,8 +17,8 @@
 //
 // Server-safe — no hooks, no handlers.
 
-import { Card, SectionHeader } from "@/components/org/shared/ui";
-import { Legend } from "@/components/org/viz";
+import { Card, SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend } from "@/components/shared/viz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { DeliveryOutcomes as Outcomes } from "@/lib/db/delivery-outcomes";
 import { DoraSmallMultiple } from "./DoraSmallMultiple";

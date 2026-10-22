@@ -5,8 +5,8 @@
 import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { Surface, Kicker } from "@/components/ui";
-import { fmtHours } from "@/components/org/shared/ui";
-import { WhyChip } from "@/components/org/viz";
+import { fmtHours } from "@/components/shared/dashboard/ui";
+import { WhyChip } from "@/components/shared/viz";
 import type { AdoptionOverview } from "@/lib/org/adoption";
 import { scoreHex } from "@/lib/ui";
 import { DELIVERY_HINT } from "./adoptionHints";

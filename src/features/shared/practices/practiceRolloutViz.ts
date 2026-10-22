@@ -23,7 +23,7 @@
 // Pure: no React, no fetch, no hooks. The kit types are `import type`, so nothing client-side is
 // pulled in by importing this module.
 
-import type { MatrixCell, MatrixRow, VizState } from "@/components/org/viz";
+import type { MatrixCell, MatrixRow, VizState } from "@/components/shared/viz";
 import type { PracticeRow } from "./practiceRows";
 
 /** The four stages a practice passes through, left to right. */

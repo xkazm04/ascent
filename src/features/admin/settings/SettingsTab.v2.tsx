@@ -16,7 +16,7 @@ import { RetentionCard } from "./RetentionCard";
 import { SettingsMastheadV2, settingsAccountV2 } from "./SettingsSummary.v2";
 import type { SettingsData } from "./settingsData";
 import Link from "next/link";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export function settingsV2(d: SettingsData) {

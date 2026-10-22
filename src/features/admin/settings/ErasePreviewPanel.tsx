@@ -10,7 +10,7 @@
 // when a preview stopped at its own time budget: "at least 412" is the honest reading. See
 // erasePreviewViz.ts for the matrix and the family catalog.
 
-import { Legend, MatrixGrid, WhyChip } from "@/components/org/viz";
+import { Legend, MatrixGrid, WhyChip } from "@/components/shared/viz";
 import { auditDispositionHint } from "./eraseTotals";
 import type { ErasePreview } from "./DataErasurePreview";
 import {

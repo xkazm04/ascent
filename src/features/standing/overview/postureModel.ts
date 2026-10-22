@@ -1,6 +1,6 @@
 // The posture composition's arithmetic, shared by both compositions: true shares in POSTURE_ORDER, zero
 // segments kept (the legend prints them, the bar skips them). `total` floors at 1 so an empty fleet never divides by zero.
-import { POSTURE_ORDER } from "@/components/org/shared/ui";
+import { POSTURE_ORDER } from "@/components/shared/dashboard/ui";
 
 export interface PostureShare {
   posture: string;

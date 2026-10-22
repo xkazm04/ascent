@@ -30,7 +30,7 @@ import {
   stateStrokeWidth,
   stateTitle,
   type VizState,
-} from "@/components/org/viz";
+} from "@/components/shared/viz";
 
 const LABEL_W = 116;
 const CELL_W = 52;

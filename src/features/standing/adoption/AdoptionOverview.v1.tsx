@@ -1,9 +1,9 @@
 // The Altimeter composition of the Adoption panel: the former AdoptionOverviewPanel markup, moved here
 // unchanged. It takes the overview the panel already read, so the Prism composition shows the same numbers.
 import Link from "next/link";
-import { SectionHeader, Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { SectionHeader, Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
 import { Surface, Kicker } from "@/components/ui";
-import { WhyChip } from "@/components/org/viz";
+import { WhyChip } from "@/components/shared/viz";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { scoreHex } from "@/lib/ui";
 import { AdoptionSpectrum, ADOPTION_TINT } from "./AdoptionSpectrum";

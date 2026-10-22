@@ -5,7 +5,7 @@
 // figure you can open, gate verdict as a word and a glyph, gaps, advisories, the report link).
 import Link from "next/link";
 import { CELL, DataTable, Display, GhostAction, HEAD_CELL, VoidMark } from "@/components/kit";
-import { RepoDimensionModal } from "@/components/org/shared/RepoDimensionModal";
+import { RepoDimensionModal } from "@/components/shared/recs/RepoDimensionModal";
 import type { SecurityRegisterRow } from "@/lib/org/security";
 import { VISIBLE_DEFAULT, type RegisterAdvisories } from "./securityRegisterShared";
 import { SecurityCheckMatrix } from "./SecurityCheckMatrix";

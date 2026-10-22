@@ -1,8 +1,8 @@
 // Altimeter composition. The markup that shipped, moved here unchanged so a Prism layout cannot
 // shift it. Same PracticesPageData as PracticesPageV2.
-import { Tile, TILE_GRID } from "@/components/org/shared/ui";
+import { Tile, TILE_GRID } from "@/components/shared/dashboard/ui";
 import { BAND } from "@/features/standing/adoption/AdoptionSpectrum";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
+import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { FoundationRolloutPanel } from "./foundation/FoundationRolloutPanel";
 import { GuidanceCoherenceCard } from "./foundation/GuidanceCoherenceCard";
@@ -11,7 +11,7 @@ import { PracticeDriftStrip } from "./PracticeDriftStrip";
 import { PracticesView } from "./PracticesView";
 import { RegistryPractices } from "./RegistryPractices";
 import { RegistrySyncStrip } from "@/features/shared/registry/RegistrySyncStrip";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { PracticesPageData } from "./practicesData";
 

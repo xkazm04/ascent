@@ -15,8 +15,8 @@ import { useTvRotation } from "./useTvRotation";
 import { LiveWarRoomTvHeader } from "./LiveWarRoomTvHeader";
 import type { OpsState } from "@/lib/db";
 import type { OpsView } from "@/features/inflight/live/liveWarRoomOpsShared";
-import type { GoalProgressView } from "@/components/org/shared/goalView";
-import type { LiveRepo, Mover } from "@/components/org/shared/liveWarRoomShared";
+import type { GoalProgressView } from "@/components/shared/goals/goalView";
+import type { LiveRepo, Mover } from "@/components/shared/live/liveWarRoomShared";
 
 interface TvWall {
   stats: TvStageData["stats"];

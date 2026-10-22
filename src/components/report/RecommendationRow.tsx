@@ -12,8 +12,8 @@ import type { PersistedRecommendation, RecEvent, RecStatus, ScanReport } from "@
 import { ExemplarPointer, ExploreList, PayoffChip, RoadmapFirstStep, RoadmapMeta } from "@/components/report/roadmapPieces";
 import { isQuickWin, QuickWinBadge, type RoadmapLifts } from "@/components/report/roadmapPriority";
 import { ExpectedLiftBasis } from "@/components/report/ExpectedLiftBasis";
-import { EVENT_LABEL, eventValue, STATUS_ACCENT } from "@/components/org/shared/backlogShared";
-import { StatusSelect } from "@/components/org/shared/recStatusUi";
+import { EVENT_LABEL, eventValue, STATUS_ACCENT } from "@/components/shared/recs/backlogShared";
+import { StatusSelect } from "@/components/shared/recs/recStatusUi";
 import {
   DismissReasonPrompt,
   DoneReconciliation,

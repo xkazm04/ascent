@@ -10,7 +10,7 @@
 // cannot drift away from Governance's legend chrome. The four sentences that used to sit beside the
 // marks are now each row's `hint`: present on hover/focus, absent at first sight (§2.1 D).
 
-import { Legend, type LegendExtra } from "@/components/org/viz";
+import { Legend, type LegendExtra } from "@/components/shared/viz";
 import { CELL_STYLE, type CapabilityState } from "./capabilityAgg";
 
 const WHAT: Record<CapabilityState, string> = {

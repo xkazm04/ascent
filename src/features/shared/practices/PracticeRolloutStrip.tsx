@@ -16,8 +16,8 @@
 
 import { useMemo, useState } from "react";
 import { Kicker } from "@/components/ui";
-import { InlineEmpty } from "@/components/org/shared/ui";
-import { Legend, WhyChip } from "@/components/org/viz";
+import { InlineEmpty } from "@/components/shared/dashboard/ui";
+import { Legend, WhyChip } from "@/components/shared/viz";
 import { rolloutIsMeaningful, type PracticeRollout, type PracticeRow } from "./practiceRows";
 import { PracticeRolloutTotals } from "./PracticeRolloutTotals";
 import { PracticeRolloutMatrix } from "./PracticeRolloutMatrix";

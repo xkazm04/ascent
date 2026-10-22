@@ -11,8 +11,8 @@
 // "replaced by a correction" reads as struck-through and "excluded by your filter" reads as a hatch
 // that prints no score — because there is no score: filtering happens before scoring.
 
-import { StateSwatch, WhyChip } from "@/components/org/viz";
-import type { VizState } from "@/components/org/viz";
+import { StateSwatch, WhyChip } from "@/components/shared/viz";
+import type { VizState } from "@/components/shared/viz";
 import { memoryKindLabel } from "@/lib/org/memory-kinds";
 import { RecallContribution } from "@/features/shared/memory/RecallContribution";
 import { INELIGIBLE_STATE } from "@/features/shared/memory/recallOmissions";

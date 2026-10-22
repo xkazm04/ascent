@@ -283,7 +283,7 @@ frames as before. What changed is the ending: instead of a `truncated` frame nam
 dropped, it emits `queued { runId, queued, total }` — work still owed, which the background worker
 finishes. `GET /api/org/scan/queue?org=&runId=` serves the poll behind "N queued — finishing in the
 background" (gate the org, then constrain the query by it, so a foreign run id is simply not found).
-The poll is bounded (`src/components/org/shared/queueFollow.ts`): 15 s apart, at most 120 reads or
+The poll is bounded (`src/components/shared/scan/queueFollow.ts`): 15 s apart, at most 120 reads or
 30 minutes of real time, paused while the tab is hidden (one immediate read on return). The rescore
 drain is a daily pass, and on a deployment without the GitHub App it never drains, so an unbounded
 follow would run for as long as the tab stayed open. At the ceiling the button keeps its last count

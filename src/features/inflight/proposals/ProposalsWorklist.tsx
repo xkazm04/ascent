@@ -5,13 +5,13 @@
 // the shared DecisionTable. State and the source-aware batch actions live in useProposalsView, which the
 // Prism composition (ProposalsWorklist.v2.tsx) calls too.
 
-import { SectionEmpty } from "@/components/org/shared/ui";
-import { DecisionTable } from "@/components/org/shared/DecisionTable";
+import { SectionEmpty } from "@/components/shared/dashboard/ui";
+import { DecisionTable } from "@/components/shared/recs/DecisionTable";
 import { FilterMenu } from "@/components/kit";
-import { FollowupsFilterBar } from "@/components/org/followups/FollowupsFilterBar";
-import { FollowupsPromptModal } from "@/components/org/followups/FollowupsPromptModal";
-import { isSelectable } from "@/components/org/followups/followupsModel";
-import type { ClaimViewer } from "@/components/org/followups/claimActionsModel";
+import { FollowupsFilterBar } from "@/components/shared/followups/FollowupsFilterBar";
+import { FollowupsPromptModal } from "@/components/shared/followups/FollowupsPromptModal";
+import { isSelectable } from "@/components/shared/followups/followupsModel";
+import type { ClaimViewer } from "@/components/shared/followups/claimActionsModel";
 import { ProposalDetail } from "./ProposalDetail";
 import { SOURCE_LABEL, isScanProposal, type ProposalRow } from "./proposalsModel";
 import { useProposalsView } from "./useProposalsView";

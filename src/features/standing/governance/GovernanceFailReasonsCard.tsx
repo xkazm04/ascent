@@ -1,7 +1,7 @@
 // "Where the fleet fails" card — per-condition breakdown. Extracted from the old governance
 // page.tsx JSX (docs/ORG-TABS-REFACTOR.md JSX-region split).
 
-import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/org/shared/ui";
+import { Card, InlineEmpty, Meter, SectionHeader } from "@/components/shared/dashboard/ui";
 import {
   FLEET_UNJUDGED_NOTE,
   GOVERNANCE_FAIL_REASONS,

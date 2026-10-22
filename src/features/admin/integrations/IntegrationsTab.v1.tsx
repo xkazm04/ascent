@@ -1,6 +1,6 @@
 // Altimeter composition, moved unchanged from IntegrationsTab. The entry calls this as a function.
-import { SectionHeader } from "@/components/org/shared/ui";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { ProviderIngestStatus } from "@/lib/db";
 import { AttributionReconcile } from "./AttributionReconcile";

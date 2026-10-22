@@ -4,7 +4,7 @@
 // unit-testable without rendering, which the old `derivePriorities` export comment promised and no
 // test ever delivered.
 
-import { fmtHours } from "@/components/org/shared/ui";
+import { fmtHours } from "@/components/shared/dashboard/ui";
 import { REVIEW_TARGET } from "./PrSignalsBand";
 import { integrityQuestionEvidence, integrityQuestions } from "./reviewIntegrityModel";
 import type { OrgGovernance, OrgPrSignals } from "@/lib/db";

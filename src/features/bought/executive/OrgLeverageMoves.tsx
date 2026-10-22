@@ -8,8 +8,8 @@
 // that the list is not an order. Server component; the caller passes a non-empty list.
 
 import Link from "next/link";
-import { SectionHeader } from "@/components/org/shared/ui";
-import { Legend, WhyChip } from "@/components/org/viz";
+import { SectionHeader } from "@/components/shared/dashboard/ui";
+import { Legend, WhyChip } from "@/components/shared/viz";
 import type { OrgRec } from "@/lib/db";
 import { LeverageBars } from "./LeverageBars";
 import {

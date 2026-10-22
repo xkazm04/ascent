@@ -16,7 +16,7 @@
 
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
+import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { registryPreviewEnabled } from "@/lib/env";
 import { getKnowledgeView } from "@/lib/org/knowledge-view";

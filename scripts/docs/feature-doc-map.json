@@ -200,7 +200,7 @@
         "src/app/org/**",
         "src/features/standing/overview/**",
         "src/features/standing/repositories/**",
-        "src/components/org/shared/**",
+        "src/components/shared/**",
         "src/features/standing/security/**",
         "src/features/admin/integrations/**",
         "src/features/bought/delivery/**",
@@ -241,7 +241,7 @@
       "doc": "docs/features/org-followups/README.md",
       "sourceGlobs": [
         "src/lib/org/followups.ts",
-        "src/components/org/followups/**",
+        "src/components/shared/followups/**",
         "src/features/inflight/proposals/**",
         "src/app/api/org/followups/**",
         "src/app/api/org/backlog/**",
@@ -426,7 +426,7 @@
         "src/app/pricing/**",
         "src/components/pricing/**",
         "src/components/credit/**",
-        "src/components/org/shared/CreditsControl*",
+        "src/components/shared/credits/CreditsControl*",
         "src/lib/credit-backlog-model.ts",
         "src/lib/db/credit-backlog.ts"
       ]
@@ -491,7 +491,7 @@
         "src/lib/api/self-host.ts",
         "src/features/admin/pairing/**",
         "src/app/api/org/local/**",
-        "src/components/org/followups/LocalRescanButton.tsx",
+        "src/components/shared/followups/LocalRescanButton.tsx",
         "src/features/inflight/live/AutopilotBand.tsx",
         "src/features/inflight/live/AutopilotBandParts.tsx"
       ]

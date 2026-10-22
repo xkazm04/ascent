@@ -16,7 +16,7 @@
 import { settingsV1 } from "./SettingsTab.v1";
 import { settingsV2 } from "./SettingsTab.v2";
 import type { SettingsData } from "./settingsData";
-import { OrgEmpty } from "@/components/org/shared/ui";
+import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { getCreditState, getOrgLlmConfig } from "@/lib/db";
 import { getOrgRetention } from "@/lib/db/retention";
 import { getRetentionReceipt } from "@/lib/db/retention-receipt";

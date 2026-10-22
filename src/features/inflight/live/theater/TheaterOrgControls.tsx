@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import { chipButtonClass } from "@/components/ui";
-import { useRunnerNotifier } from "@/components/org/shared/useRunnerNotifier";
+import { useRunnerNotifier } from "@/components/shared/live/useRunnerNotifier";
 import { requestRunnerNotify, setRunnerNotifyWanted } from "@/lib/org/runner-notify";
 import { useTvShareLink } from "../useTvShareLink";
 
