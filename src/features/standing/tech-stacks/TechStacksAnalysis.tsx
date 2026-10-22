@@ -7,11 +7,11 @@
 // panel is controlled, and the analysis recomputes over the selected stacks (computeFleetInsights is
 // pure). Client component; the page passes the server-fetched summaries in.
 
-import { useState } from "react";
 import { WhyChip } from "@/components/org/viz";
 import { StackProfiles } from "@/features/standing/tech-stacks/StackProfiles";
 import { StackInsights } from "@/features/standing/tech-stacks/StackInsights";
 import { STACK_SCOPE } from "@/features/standing/tech-stacks/analysisScope";
+import { useStackSelection } from "@/features/standing/tech-stacks/useStackSelection";
 import type { SegmentSummary } from "@/lib/db";
 
 export function TechStacksAnalysis({ org, stacks, fleet, dims }: {
@@ -20,22 +20,7 @@ export function TechStacksAnalysis({ org, stacks, fleet, dims }: {
   fleet: SegmentSummary | null;
   dims: string[];
 }) {
-  // Default to the whole set — the selection now drives the analysis, so a complete picture (every
-  // divergence, including the laggards') reads on load; narrow it to focus.
-  const [active, setActive] = useState<Set<string>>(() => new Set(stacks.map((s) => s.id ?? "")));
-  const [hovered, setHovered] = useState<string | null>(null);
-
-  const toggle = (id: string) =>
-    setActive((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const allActive = active.size === stacks.length;
-  const toggleAll = () => setActive(allActive ? new Set() : new Set(stacks.map((s) => s.id ?? "")));
-
-  const activeStacks = stacks.filter((s) => active.has(s.id ?? ""));
+  const { active, hovered, setHovered, toggle, toggleAll, allActive, activeStacks } = useStackSelection(stacks);
 
   return (
     <div className="space-y-6">

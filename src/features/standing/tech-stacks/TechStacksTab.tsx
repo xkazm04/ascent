@@ -18,11 +18,15 @@ import { TechStacksAnalysisPanel } from "./TechStacksAnalysisPanel";
 import { DIMS, SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { listTechStackGroups } from "@/lib/db";
+import { getTheme } from "@/lib/theme/server";
+import { techStacksV2 } from "./TechStacksTab.v2";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 
 export async function TechStacksTab({ slug }: { slug: string }) {
-  const groups = await listTechStackGroups(slug);
+  const [groups, theme] = await Promise.all([listTechStackGroups(slug), getTheme()]);
+  // THEME DUALITY: Prism composes in TechStacksTab.v2.tsx; the Altimeter markup below is unchanged.
+  if (theme === "prism") return techStacksV2(slug, groups.length);
 
   if (groups.length === 0) {
     return (
