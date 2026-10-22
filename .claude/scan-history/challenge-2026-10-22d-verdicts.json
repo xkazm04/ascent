@@ -1,0 +1,157 @@
+{
+  "run": "challenge-2026-10-22d",
+  "critic_notes": "All 12 cards re-verified on the current tree (every cited path:line read; all 54 receiving-file LOC counts match the cards' loc_check). No card re-proposes a 2026-10-05 card, a BACKLOG.md row, a run-1/run-2 (landed) or a run-3 (building) card. Cross-run write-set overlap with run-3 is flagged per card and in `overlaps`.",
+  "rulings": {
+    "developer_A_policy_loosen": "NOT policy-loosen; in-scope `contract`. Reasons: (1) no existing row changes exposure — the column defaults false and a share without a consent section saves false, so every stored share stays out; (2) what crosses upward is a contribution to a floor-cleared aggregate and only that (aggregate-vs-individual-split: 'Individual values may not cross upward ... What crosses upward is a contribution to an aggregate, and only that'); private-view-separation's 'may not become one by being harvested' is answered by explicit per-share consent as data the producer filters on, not by convention; (3) suppression is producer-enforced (CHAMPION_MIN_POP, CARE_BAND_MIN_SHARERS, k-floor on free-text kept-move titles) and the cohort read returns no login; (4) the product's own contract already names this path as opt-in ('Opt-in — and off is a decision, not a gap', CareWhyStrip.tsx:103) and records C4 as a Known gap (developer.md:281-283). It stores one boolean more per share (the consent itself) and sends nothing person-shaped. Condition that must hold at build: the consent flag is writable only through the owner-self POST (it is), the cohort reader is the only non-self reader of MentorShare and it selects payloadJson only where orgAggregate=true, and the revoke path (re-POST without consent, or DELETE) takes effect on the next aggregate read.",
+    "retention": "Neither retention card deletes more, shortens a horizon or rewrites history. A is a pure relocation behind an unchanged PurgeSummary contract with preview==delete pinned; B is read-only plus an additive response field. A is revised (not voided) to pin the relocated predicates against today's inline ones so 'deletes no more' is a test, not an intent.",
+    "mcp_github_app_external_contracts": "mcp A: MCP wire unchanged (runTool gains an optional trailing arg; tools/list bytes untouched); the holder-required set must stay a superset of today's three. mcp B: result shapes and keys unchanged, `_meta` keys namespaced and additive, redaction only narrows what leaves; the catalog's org-authored set is pinned to ATHENA_UNTRUSTED_TOOLS. github-app A: HMAC verification, bounded read, dedup claim and the 24h horizon untouched; the App manifest and subscription table are not edited; the two closed arms bind on the STORED mapping only and mint no token. github-app B: the repo secret NAMES (ASCENT_CONFORMANCE_URL / ASCENT_CONFORMANCE_TOKEN) and the token scope (telemetry:write) are unchanged; only the org-token name becomes per-repo, so a credential's reach narrows."
+  },
+  "verdicts": [
+    {
+      "file": "developer.json", "index": 0,
+      "title": "C4: one consent-keyed producer feeds the org care aggregate and your bands",
+      "verdict": "build", "revise": null, "void_reason": null,
+      "premise_checked": 8, "premise_false": [],
+      "ambition": 4, "ambition_why": "Lands the designed-but-starved half of the care loop with consent as data and suppression in the producer — the move the standard prescribes, not a tidy-up.",
+      "grounding": 5, "grounding_why": "Every anchor holds: getCareOrgAggregate returns emptyOrgView (load.ts:133-136), careBandFromSharers has no production caller, orgBands is written by no loader, TOP has no consent key, MentorShare is keyed by login only, the doc records C4 as a Known gap.",
+      "falsifiability": 4, "falsifiability_why": "8 cases, 7 red before; the Prisma-where assertion (orgAggregate:true AND member logins) and the no-login JSON assertion are the two that would catch a wrong build; case 7 is green-before by design and honestly labelled.",
+      "impact_honest": 7,
+      "notes": "Ruling: in-scope contract, not policy-loosen (see rulings.developer_A_policy_loosen). Overlap with run-3: prisma/schema.prisma is also edited by oauth B and providers A (all additive models), and the migration dir 20261023120000_mentor_share_org_aggregate shares its timestamp with both run-3 migrations — distinct names so Prisma accepts it, but pick a later timestamp when building to keep ordering unambiguous. developer-view.ts is already 373 lines (.ts, spirit-only); the card correctly keeps new derivations out of it."
+    },
+    {
+      "file": "developer.json", "index": 1,
+      "title": "Bring your share in yourself: paste or drop it, preview what leaves, commit",
+      "verdict": "build", "revise": null, "void_reason": null,
+      "premise_checked": 8, "premise_false": [],
+      "ambition": 3, "ambition_why": "Necessary wiring of an unreachable door with an honest preview-then-commit; good UX judgement (what you STOP sharing), but it is the obvious next step rather than a principal's reframing.",
+      "grounding": 5, "grounding_why": "Every button is console.info (CareBits.tsx:47/60), both Share actions are unwired, DELETE exists with no caller, validateCareShare is pure (no db import), BACKLOG #22 is concept-doc first. One immaterial misline: careShareLedger is at care-share-view.ts:25, not :161 (the file is 53 lines).",
+      "falsifiability": 4, "falsifiability_why": "8 cases all red before; the 'same validator as the route' case and the demo-view-disables-commit case are the ones that bite; the fetch-count assertions pin single POST/DELETE.",
+      "impact_honest": 7,
+      "notes": "All new files under src/features/developer stay under 200. No overlap with run-3. Pairs naturally with card A (consent toggling needs a re-POST, which this card makes possible) but shares no file with it."
+    },
+    {
+      "file": "export.json", "index": 0,
+      "title": "One report-export read door: PDF, briefing, card read what the permalink reads",
+      "verdict": "build", "revise": null, "void_reason": null,
+      "premise_checked": 9, "premise_false": [],
+      "ambition": 4, "ambition_why": "Makes 'export what the page shows' structural with a comment-stripping guard; the right chokepoint move, modest in surface.",
+      "grounding": 5, "grounding_why": "page.tsx:44-48 resolveReportOrg + :56 strict read; all three export routes call readableOrgForOwner only and read without strict; scans-read.ts:1366 readSafeOrStrict; passport/route.ts:39 took strict; ReportHeader hrefs omit org though useSearchParams is in scope; report.md:127/136 claim a split the exports do not hold.",
+      "falsifiability": 4, "falsifiability_why": "6 cases red before plus 3 green-before guards (notably the unreadable-hint fallback that pins no reach widening); the seeded prose-only guard violation follows AGENTS.md.",
+      "impact_honest": 7,
+      "notes": "Not a paid-for change: under ?org the PDF plan check runs against the org whose scan is being exported, exactly as the permalink resolves it. Note passport/route.ts deliberately answers 500 (not 503) on outage because ReportView treats 503 as no-database mode; the exports already answer 503 today and the card keeps that — consistent with the exports, inconsistent with passport; not a defect of this card. Overlaps export B on ReportHeader.tsx and llm/route.ts (B is written to land after A)."
+    },
+    {
+      "file": "export.json", "index": 1,
+      "title": "Compose the LLM briefing: scope by dimension, carry measured lifts, same URL",
+      "verdict": "build", "revise": null, "void_reason": null,
+      "premise_checked": 7, "premise_false": [],
+      "ambition": 3, "ambition_why": "A genuine capability (scoped briefing + measured clauses reaching the model) but assembled from seams that already exist; a solid feature, not a reframing.",
+      "grounding": 5, "grounding_why": "reportLlmMarkdown has exactly two production callers, neither passing options (route.ts:68, ReportHeader.tsx:213); lifts option and the measured clause at :42/:396 are unreachable; ReportView threads serverLifts to ReportPanels only (:263); skill route's dims grammar and org/export's 400-on-unknown both verified; report.md:481-483 records the ?against gap.",
+      "falsifiability": 4, "falsifiability_why": "6 red-before cases incl. the fail-closed 400 and chip/endpoint parity for the scoped text; the byte-identity guard on the unscoped briefing is the one that protects external consumers.",
+      "impact_honest": 6,
+      "notes": "External contract safe: ?dims is additive and the unscoped body stays byte-identical (existing route.test.ts equality pin). Overlaps export A (ReportHeader.tsx, llm/route.ts) and run-3 charts B on src/components/report/ReportView.tsx (this card adds one prop-forwarding line; rebase after charts B lands). llm-markdown.ts 433 -> ~445 is .ts outside features."
+    },
+    {
+      "file": "github-app.json", "index": 0,
+      "title": "Webhook arms as one table behind one owner bind: attribution and AI-change too",
+      "verdict": "revise",
+      "revise": "Scope the doc-table guard (acceptance case 6) to backtick tokens in the FIRST column of the event table in docs/features/github/github-app.md:94-104 — the action cells also backtick function names (`upsertInstallation`, `reconcileInstallationRepos`, `runPushRescan`, `onRegistryPush`, `isRepoAutoscanned` ...), so 'every backtick in the table' can never equal the arm set and the guard would be loosened at build time.",
+      "void_reason": null,
+      "premise_checked": 9, "premise_false": [],
+      "ambition": 4, "ambition_why": "Turns a convention (bind if you remember) into a precondition the type system enforces, and closes three unbound tenant writes in the same move — a principal's shape.",
+      "grounding": 5, "grounding_why": "route.ts:796-809 runs attribution after a void-returning enqueueControlProbe that abandons on mismatch (:323-326); reduceAiChangeEvent (:438-492) and recordControlAttribution (:385-422) never call installationMatchesOwner (grep: 143 def, 233, 323, 497, 525, 781); pr-gate.ts:48 confirmOwner optional; route.test.ts has zero recordObservations/upsertLiveAiChange pins.",
+      "falsifiability": 4, "falsifiability_why": "Cases 1-3 and 7 are red on today's code and assert on the write spies; the seeded table-guard violation proves the guard bites; case 6 as written cannot be green (hence the revise).",
+      "impact_honest": 8,
+      "notes": "External contract: HMAC verification, bounded read, dedup claim, 24h horizon and the subscription table untouched; the two closed arms bind on the stored mapping only (no token minted, no GitHub call) so nothing a token reads widens. Write set is 2 edited + 8 new files, all .ts outside src/features; route.test.ts at 1469 lines is unchanged except imports (its module mocks still intercept relocated code). No run-3 overlap."
+    },
+    {
+      "file": "github-app.json", "index": 1,
+      "title": "Report-back you can trust: one credential per repo, broken rows named + fixable",
+      "verdict": "build", "revise": null, "void_reason": null,
+      "premise_checked": 10, "premise_false": [],
+      "ambition": 4, "ambition_why": "Finds a real silent fleet failure (N provisioned repos, 1 working credential) and fixes it at the credential model plus the row state — the fix is on the row, not a banner.",
+      "grounding": 5, "grounding_why": "TOKEN_NAME is one name (route.ts:42); rotate:true before any secret write (:151-156); org-api-tokens.ts:163-167 retires every live token of the name; audit row written with ok:false (:180-191); getFoundationRollout never reads meta.ok (org-foundation.ts:88-108); DELETE revokes the shared name (:227); marks are Provisioned/Not provisioned only; route.test.ts:209/:257 pin today's behaviour.",
+      "falsifiability": 5, "falsifiability_why": "8 cases all red before, each tied to a concrete spy (token liveness across two provisions, revoke scope, mint-write-retire order on 403, state derivation, viz count, action for missing-permission).",
+      "impact_honest": 8,
+      "notes": "policy-tighten verified: secret names and token scope unchanged, so external CI needs no change; a leaked repo secret now exposes one repo's credential. No name-length constraint exists in org-api-tokens.ts, so the 80-char bound is a self-imposed sanity cap, fine. 12 edited + 2 new = 14 files, at the ceiling but every features file stays under 200. No run-3 overlap. Doc sync: github-app.md:314 must stop saying 'named conformance report-back'."
+    },
+    {
+      "file": "launch.json", "index": 0,
+      "title": "The map's org scan runs on the shared scan-run model, not a third SSE fold",
+      "verdict": "build", "revise": null, "void_reason": null,
+      "premise_checked": 9, "premise_false": [],
+      "ambition": 3, "ambition_why": "Correct consolidation onto the model run-1 landed (c2ec4a4e), fixing three false sentences; a one-fold-for-every-consumer move, but a consolidation.",
+      "grounding": 5, "grounding_why": "FleetMap.tsx:141 reads only repo frames and :162 hard-codes the empty-watchlist copy; scan route sends in-band error at :133 and :267 and queued at :246; useScanStream takes no signal (:51-55); useOrgScanButton folds via foldStreamFrame/foldQueueSnapshot and follows the queue; no launch test touches /api/org/scan; FleetMap.tsx is exactly 300 lines.",
+      "falsifiability": 4, "falsifiability_why": "8 red-before cases; the credits-vs-empty-watchlist and queued-follow cases catch the exact bug; unmount-abort and retry-body cases pin the hook contract; two green-before guards protect useFleetData.",
+      "impact_honest": 7,
+      "notes": "useScanStream gains an optional AbortSignal (additive). FleetMap.tsx must leave the cap (300 -> ~215) — this card is also the precondition for launch B. Overlaps launch B on FleetMap.tsx and useFleetScan.ts. No run-3 overlap."
+    },
+    {
+      "file": "launch.json", "index": 1,
+      "title": "Scan what you filtered: the triage match set becomes one scoped fleet scan",
+      "verdict": "build", "revise": null, "void_reason": null,
+      "premise_checked": 6, "premise_false": [],
+      "ambition": 3, "ambition_why": "Turns an inert filter into a previewed, cancellable, single-pending action across orgs — good product sense built from parts the route already accepts.",
+      "grounding": 5, "grounding_why": "makeMatcher returns the predicate (fleetMapDerive.ts:133-150); TriageControls only announces the count (:122-124); FleetMap posts {org} only (:117); route.ts:80-83 filters by repos only when non-empty (so an empty scope would widen to the watchlist — the card refuses to send one); RepoStar.watched at fleetMapStars.ts:11; MAX_STARS slice at ConstellationField.tsx:58.",
+      "falsifiability": 4, "falsifiability_why": "8 red-before cases including the none-watched refusal (never POST an empty scope), one-in-flight ordering, cancel, and 402 stops the plan; the triage tests are green-before guards.",
+      "impact_honest": 6,
+      "notes": "Not a paid-for change: each run is an ordinary scoped scan charged per repo as today. SEQUENCED after launch A (FleetMap.tsx would cross 300 otherwise; useFleetScan.ts is created by A). Overlaps launch A. No run-3 overlap."
+    },
+    {
+      "file": "retention.json", "index": 0,
+      "title": "Purge ledgers as one declared table: preview becomes a mode of the deleter",
+      "verdict": "revise",
+      "revise": "Add one pin to retention-ledgers.test.ts: a snapshot test that each PURGE_LEDGERS descriptor's where(orgId, cutoff) deep-equals the predicate purgeExpiredData uses today for that ledger — usageEvent {orgId, createdAt:{lt}}, conformanceReport {orgId, reportedAt:{lt}} with findings via report, orgMemoryCitation {orgId, createdAt:{lt}}, and the controlObservation keep-newest-per-(repoFullName, controlId) rule with `lt` (never `lte`) at the cutoff — so 'deletes no more than today' is asserted against the old predicates, not only preview==delete (which both could drift together).",
+      "void_reason": null,
+      "premise_checked": 6, "premise_false": [],
+      "ambition": 4, "ambition_why": "Declares each purged ledger once and derives preview, delete, result row, audit meta and rollup from it, closing a recorded registry deviation — the right move on a 2808-line module.",
+      "grounding": 5, "grounding_why": "Dry-run counts at :914-926 and findMany predicates at :1044/:1071/:1107 are hand-copied twins; erase-side drain closure at :1800-1811; usageEventsDeleted named 13 times inside purgeExpiredData (17 in the file); :1005 adds counts only after pruneRepoScans returns; registry-map carries the :1005 deviation; dry-run-preview.md:22 states 'a mode of the deleter'.",
+      "falsifiability": 4, "falsifiability_why": "Cases 2-3 (committed counts survive a throw) and 5 (an appended descriptor is counted and deleted with no edit to purgeExpiredData) are red before and specific; the two guards are green before and honestly labelled; the missing pin is the revise.",
+      "impact_honest": 7,
+      "notes": "Ruling: deletes no more data, shortens no horizon, rewrites no history — pure relocation behind an unchanged purgeExpiredData/PurgeSummary contract; budget checks, floor refusal, rotation and orphan/queue/quota sweeps untouched. Overlap: retention.ts was edited by run-2 security A (landed, audit-append door) — rebase on master, not on an older read. No run-3 overlap."
+    },
+    {
+      "file": "retention.json", "index": 1,
+      "title": "Retention card answers 'what does MY edit add, and did the last purge run?'",
+      "verdict": "build", "revise": null, "void_reason": null,
+      "premise_checked": 7, "premise_false": [],
+      "ambition": 3, "ambition_why": "Brings the retention preview up to the erase dialog's honesty (full radius, unknown-not-zero, delta, receipt); well-judged but it follows a sibling's precedent.",
+      "grounding": 5, "grounding_why": "PreviewCounts keeps 5 of 16 counters (RetentionCard.tsx:19-24, :146-158); :86 substitutes zeros; route.ts:102-108 previews the proposed policy only and sends errors the card never reads; erasePreviewViz BLAST labels every counter; retention.purged has no reader beyond the audit filter label; retention.ts:1172 writes the row only when totalDeleted > 0.",
+      "falsifiability": 4, "falsifiability_why": "7 red-before cases including unknown-propagation, the twice-called preview spy, the errors alert, the three receipt states with the honest 'not since save' wording, and the org-scoped AuditLog where.",
+      "impact_honest": 6,
+      "notes": "Ruling: read-only plus an additive `baseline` field; deletes nothing, shortens nothing. Cost note: a differing draft runs previewOrgRetention twice on an owner click — acceptable. All features files stay under 200 (RetentionCard.test.tsx 109 -> ~170). No overlap with retention A (A edits retention.ts/retention-policy.ts; B reads OrgPurgeResult's type only). No run-3 overlap."
+    },
+    {
+      "file": "mcp.json", "index": 0,
+      "title": "One tool registry both doors dispatch through; Athena's private recall retires",
+      "verdict": "revise",
+      "revise": "Sequence after run-3 followups A ('Fence every post-claim write by its claim generation; retire the name holder') lands and re-anchor on its result: that card edits the same handlers.ts switch arms (claim_followups/get_fix_brief/report_attempt gain fence handling) and removes legacyActor from McpPrincipal in route.ts, so build the binding table over the post-fence work tools, re-cite handlers.ts/tools.ts line numbers, and pin that the holder:true set is a superset of today's three (claim_followups, get_fix_brief, report_attempt) so the registry can never relax a holder requirement.",
+      "void_reason": null,
+      "premise_checked": 6, "premise_false": [],
+      "ambition": 4, "ambition_why": "Collapses four authorities on 'what a tool is' into one and retires a private recall that re-carries a bug the shared door fixed — closes a recorded deviation and a real false-absence.",
+      "grounding": 5, "grounding_why": "registry-map pair is state deviation, stale:true, revisionsBehind 3; handlers.ts:432-467 is the 16-arm switch with per-arm principal ternaries; grounding.ts:4-6/163-165 keep the stale 'until the handler uses the same packer' premise while handlers.ts:334 uses recallMemories and :311 filters terms before the cap (47d10a70, 95105469 both in log); PRINCIPAL_SCOPE heuristic at :139; McpPlanGate declared in both tools.ts:44 and gates.ts:23.",
+      "falsifiability": 4, "falsifiability_why": "The 61-memory 'zebra' case is a precise red-before reproduction of the Athena false absence; structural key-equality and the holder-not-by-scope case catch a wrong table; two guards pin delivery counting and unattributed refusal.",
+      "impact_honest": 6,
+      "notes": "External contract: tools/list bytes and tool result shapes unchanged; runTool gains only an optional trailing options arg; no token reads more. Write-set overlap with run-3 followups A on src/lib/mcp/handlers.ts (and its premise rests on the switch that card edits) — hence the revise. No overlap with mcp B's edited files (B edits tools.ts and route.ts; A edits handlers.ts, gates.ts, write-gate.ts, grounding.ts)."
+    },
+    {
+      "file": "mcp.json", "index": 1,
+      "title": "Org-authored tool results leave the agent door redacted, with provenance _meta",
+      "verdict": "build", "revise": null, "void_reason": null,
+      "premise_checked": 6, "premise_false": [],
+      "ambition": 4, "ambition_why": "Applies the house egress rule at the one door that skipped it and makes result trust a declared catalog fact — the two doors can no longer disagree on the same rule.",
+      "grounding": 5, "grounding_why": "untrusted.ts:44-48 states the rule; grounding.ts:300 fences ATHENA_UNTRUSTED_TOOLS; route.ts:305-313 returns text and structuredContent verbatim; grep for redact/sanitize/wrapUntrusted in src/lib/mcp and src/app/api/mcp is empty; registry-reads.ts:154/:197 and handlers.ts:362 forward foreign-authored fields; redactSecrets at redact.ts:74.",
+      "falsifiability": 4, "falsifiability_why": "6 red-before cases on concrete credential shapes plus the byte-identical get_repo_standing guard; the shape-preservation case (numbers/booleans/nulls untouched) and the contentHash-vs-redactions case catch the two ways this is built wrong.",
+      "impact_honest": 7,
+      "notes": "External contract: result keys and shapes unchanged, `_meta` keys namespaced and additive, redaction only narrows egress — policy-tighten holds. Quality risk to carry into the build: redactSecrets' assignment-shape patterns can mask legitimate example code in skill bodies (e.g. `API_KEY=...` in a how-to); Athena already applies the same masker to the same five tools, so this is parity, not new mangling, and the redactions count makes it visible. Write-set overlap with run-3 followups A on src/lib/mcp/tools.ts (schema edits for report_attempt) and src/app/api/mcp/route.ts (McpPrincipal) — land after it; no premise of this card rests on the lines that card changes."
+    }
+  ],
+  "overlaps": [
+    ["One report-export read door: PDF, briefing, card read what the permalink reads", "Compose the LLM briefing: scope by dimension, carry measured lifts, same URL", "src/components/report/ReportHeader.tsx, src/app/api/report/llm/route.ts (B sequenced after A)"],
+    ["The map's org scan runs on the shared scan-run model, not a third SSE fold", "Scan what you filtered: the triage match set becomes one scoped fleet scan", "src/components/launch/FleetMap.tsx, src/components/launch/useFleetScan.ts (B sequenced after A)"],
+    ["One tool registry both doors dispatch through; Athena's private recall retires", "[run-3] Fence every post-claim write by its claim generation; retire the name holder", "src/lib/mcp/handlers.ts (premise rests on the switch run-3 edits)"],
+    ["Org-authored tool results leave the agent door redacted, with provenance _meta", "[run-3] Fence every post-claim write by its claim generation; retire the name holder", "src/lib/mcp/tools.ts, src/app/api/mcp/route.ts"],
+    ["Compose the LLM briefing: scope by dimension, carry measured lifts, same URL", "[run-3] The waterfall explains the move: a since-last-scan bridge, points by dimension", "src/components/report/ReportView.tsx"],
+    ["C4: one consent-keyed producer feeds the org care aggregate and your bands", "[run-3] Production sign-in lands on an onboarding that knows your installs and orgs / Replay-safe OTLP delta ingest", "prisma/schema.prisma (additive models; migration timestamp 20261023120000 shared with both run-3 migrations)"]
+  ]
+}

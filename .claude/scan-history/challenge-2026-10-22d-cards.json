@@ -1,0 +1,812 @@
+[
+ {
+  "context": "Developer home (UC3 individual care)",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "C4: one consent-keyed producer feeds the org care aggregate and your bands",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "prisma/schema.prisma",
+   "src/lib/org/care-share-contract.ts",
+   "src/lib/org/care-share-contract.test.ts",
+   "src/lib/db/mentor-share.ts",
+   "src/lib/org/care-share-view.ts",
+   "src/lib/org/developer-view.ts",
+   "src/lib/org/developer-view-load.ts"
+  ],
+  "new_files": [
+   "prisma/migrations/20261023120000_mentor_share_org_aggregate/migration.sql",
+   "src/lib/db/mentor-share-cohort.ts",
+   "src/lib/db/mentor-share-cohort.test.ts",
+   "src/lib/org/care-org-aggregate.ts",
+   "src/lib/org/care-org-aggregate.test.ts",
+   "src/lib/org/developer-view-load.aggregate.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/developer.md",
+   "docs/features/data/data-model.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "prisma/schema.prisma: MentorShare model 3121-3128 -> +2 lines (one Boolean column + comment)",
+   "src/lib/org/care-share-contract.ts: 221 -> ~240 (no hard cap, src/lib .ts; spirit 300)",
+   "src/lib/org/care-share-contract.test.ts: 103 -> ~130",
+   "src/lib/db/mentor-share.ts: 59 -> ~66",
+   "src/lib/org/care-share-view.ts: 53 -> ~60",
+   "src/lib/org/developer-view.ts: 373 -> ~380 (already over the 300 spirit; this card adds only one ledger row + one floor constant; NO new derivations land here - they go to care-org-aggregate.ts)",
+   "src/lib/org/developer-view-load.ts: 136 -> ~165",
+   "src/lib/db/mentor-share-cohort.ts: new ~70",
+   "src/lib/org/care-org-aggregate.ts: new ~130",
+   "src/lib/org/care-org-aggregate.test.ts: new ~170",
+   "src/lib/db/mentor-share-cohort.test.ts: new ~90",
+   "src/lib/org/developer-view-load.aggregate.test.ts: new ~120"
+  ],
+  "acceptance": [
+   "buildCareOrgAggregate(population=3 (< CHAMPION_MIN_POP), cohort of 6 consenting shares all carrying planModePct) -> belowFloor true, shapeBands {}, topKeptMoves [], adoption {setUp:0, sharing:0}: suppressed, not thinned",
+   "population=12, 5 consenting shares sharing planModePct [10,20,30,40,50] and 4 sharing testsBeforeCommitPct -> shapeBands.planModePct deep-equals careBandFromSharers([10,20,30,40,50]).band; bandGaps.testsBeforeCommitPct === 'below-sharer-floor'; testsBeforeCommitPct absent from shapeBands",
+   "a kept move title shared by 4 consenting sharers -> absent from topKeptMoves; the same title kept by 5 -> present with keptBy 5; JSON.stringify(aggregate) contains none of the seeded logins (output has no person-shaped field)",
+   "getOrgCareCohort(slug) with a mocked Prisma: the payload read's where clause carries orgAggregate: true AND login in the org's Membership->User.githubLogin set; a member whose share has orgAggregate false contributes 0 values to any band; a sharer who is not a member of slug is never read",
+   "validateCareShare({contract:1, consent:{orgAggregate:'yes'}}) -> ok:false with 'consent.orgAggregate: must be a boolean'; a share with no consent section saves orgAggregate=false (every existing share stays OUT by default)",
+   "getDeveloperView(viewer whose own share has consent.orgAggregate true, org with a cleared band) -> view.orgBands equals the org aggregate's shapeBands; same viewer with consent false -> view.orgBands === null (the 'comparison off' decided ring stays)",
+   "getCareOrgAggregate(PUBLIC_ORG) -> emptyOrgView, and getOrgCareCohort is never called",
+   "applyMentorShare with consent.orgAggregate true -> the privacy ledger row 'Anonymous org bands' is shared:true; without consent it is shared:false and careNeverSent is false for it (a switch, not a lock)"
+  ],
+  "guards": [
+   "case 7 (PUBLIC_ORG empty) is green-before by design: getCareOrgAggregate returns emptyOrgView for every slug today; it pins that the new producer keeps it"
+  ],
+  "premise": [
+   "src/lib/org/developer-view-load.ts:133-136 - getCareOrgAggregate reads only getContributorInsights and returns emptyOrgView(totalContributors): no share is ever read, so shapeBands/topKeptMoves/adoption are permanently empty",
+   "src/lib/org/developer-view.ts:290 - careBandFromSharers (the sharer-floored quartile producer) exists; grep shows its only callers are developer-view.test.ts - no production code feeds it",
+   "src/lib/org/developer-view.ts:129 - DeveloperView.orgBands 'present only if the developer opted into comparison'; src/lib/org/developer-view.ts:217 emptyDeveloperView sets it null and no loader ever writes it (grep orgBands: only the fixture at developer-view.fixture.ts:151 sets one)",
+   "src/lib/org/care-share-contract.ts:72 - TOP keys are contract/profile/moves/journal/shape/setup: the share contract has NO way to express consent to an org aggregate, so C4 cannot be built on today's rows without inventing consent",
+   "prisma/schema.prisma:3121-3128 - MentorShare is keyed by login only, one row per person across all workspaces; consent lives nowhere a query can filter on",
+   "src/lib/db/mentor-share.ts:4-5 - the personal read is fenced: 'there is no variant that lists, searches or reads by anything else'; the cohort read must be a separate door that returns no login",
+   "src/features/developer/CareWhyStrip.tsx:101 - the page already renders 'comparison off' when orgBands is null: the UI half of comparison exists and is starved",
+   "docs/features/org-dashboard/developer.md:281-283 - Known gap: 'No real floored org aggregate (C4) ... shape bands, most-kept moves and adoption counts stay empty even when people share'"
+  ],
+  "rollback": "Revert the commit series; the migration adds one Boolean column with default false (additive, droppable), no existing row changes meaning, and getCareOrgAggregate falls back to emptyOrgView exactly as today.",
+  "gate": "contract",
+  "doc": "docs/features/org-dashboard/developer.md",
+  "runner_up": "One authority for the never-sent vocabulary: CARE_NEVER_SENT_FIELDS (ledger labels, developer-view.ts:253) and CARE_SHARE_NEVER_SENT_KEYS (payload keys, care-share-contract.ts:62) are two hand-lists that must agree for the drawn guarantee to be true.",
+  "body": "## Summary\nBuild C4 as ONE producer: an explicit, per-share consent flag (stored as a filterable column), a cohort reader that returns anonymous payloads only for consenting members of the org, and a pure aggregate builder that runs the floors that already exist (CHAMPION_MIN_POP, careBandFromSharers) plus a k-floor on kept-move titles. The same aggregate feeds the Contributors Care section and the consenting viewer's own orgBands.\n\n## Description\nThe care loop has a working personal half (C3) and a fully designed org half (CareOrgView, careBandFromSharers, CareOrgBands, the 'comparison off' ring) with nothing between them: getCareOrgAggregate never reads a share and nothing fills orgBands. It cannot simply start reading MentorShare, because the contract has no consent field and the row is global per login, so any read today would turn 'I stored my notebook' into 'my org reads my numbers' - the exact flow private-view-separation forbids ('nothing computed here flows upward ... it may not become one by being harvested'). The move: consent becomes data the producer filters on, and suppression is enforced in the producer, never at the surface (producer-enforced-suppression: 'withheld values never leave the producer', 'one door').\n\nPieces: (1) contract gains optional consent:{orgAggregate:boolean}, refused when not boolean, absent = false; (2) MentorShare.orgAggregate Boolean @default(false), written by saveMentorShare from the validated share; (3) src/lib/db/mentor-share-cohort.ts getOrgCareCohort(slug): refuses PUBLIC_ORG, resolves the org's member githubLogins via Membership->User, counts share rows of members (setUp, existence only), and selects payloadJson ONLY where orgAggregate=true - returns {setUp, shares: CareSharePayload[]} with no login; (4) src/lib/org/care-org-aggregate.ts buildCareOrgAggregate(population, cohort): belowFloor short-circuits everything; per shape field, only fields each sharer actually shared (validateCareShapePayload sharedFields) go into careBandFromSharers; topKeptMoves grouped by normalized title and dropped below CARE_KEPT_MOVE_MIN (= CARE_BAND_MIN_SHARERS) because a free-text title kept by one or two people identifies them; asks and outcomes stay honestly empty (no source in the contract); (5) getDeveloperView sets orgBands from the same aggregate only when the viewer's own share consented; (6) one switchable privacy-ledger row 'Anonymous org bands'.\n\nGoverning subject: people-analytics-ethics - techniques producer-enforced-suppression, naming-population-floor (small-cell suppression on free-text cells), private-view-separation (consent is the only path upward).\n\n## Flow\n- Developer POSTs a share with consent.orgAggregate=true -> column set true\n- Contributors Care section -> getCareOrgAggregate(slug) -> getOrgCareCohort(slug) -> buildCareOrgAggregate(population, cohort)\n- Below CHAMPION_MIN_POP: suppressed whole; per field below 5 sharers: bandGaps reason; kept titles below 5: dropped\n- Developer page: own consent true -> orgBands = aggregate.shapeBands -> CareSessionShape draws the quartile strip with 'your value marked'\n\n## Expected impact\nThe Contributors Care section and the session-shape comparison stop being permanently empty for any workspace with >= 5 consenting sharers, with no new per-person read reachable by the org, and every existing share stays out by default.\n\n## Evaluation\nClaim: the org aggregate is produced from consenting members' shares only, floored in the producer, and feeds the consenting viewer's bands.\nBefore: 1 of 8 cases pass (case 7 by design)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (share contract + additive column; default-off consent keeps every existing row out)",
+  "evidence": "developer-view-load.ts:133-136\n  export async function getCareOrgAggregate(orgSlug: string): Promise<CareOrgView> {\n    const insights = await getContributorInsights(orgSlug).catch(() => null);\n    return emptyOrgView(insights?.totalContributors ?? 0);\n  }\ngrep careBandFromSharers|CARE_BAND_MIN_SHARERS (non-test): developer-view.ts:290 (definition), CareOrgBandStrips.tsx:16 (constant import for copy only) - no production caller of careBandFromSharers.\ngrep orgBands (non-test): CareSessionShape.tsx:23, CareWhyStrip.tsx:54/101 (readers), developer-view.fixture.ts:151 (fixture), developer-view.ts:129/217 (type, null default) - no loader writes it.\ncare-share-contract.ts:72 const TOP = new Set([\"contract\", \"profile\", \"moves\", \"journal\", \"shape\", \"setup\"]);\nschema.prisma:3121 model MentorShare { id, login @unique, payloadJson, sharedAt, createdAt, updatedAt }",
+  "notes_from_critic": "in-scope contract (not policy-loosen): default-false consent, producer-enforced suppression, cohort read returns no login. Use a migration timestamp later than providers-0 and oauth-1."
+ },
+ {
+  "context": "Developer home (UC3 individual care)",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Bring your share in yourself: paste or drop it, preview what leaves, commit",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/features/developer/CarePrivacyLedger.tsx",
+   "src/features/developer/CareProfileCard.tsx",
+   "src/features/developer/DeveloperCompanion.tsx"
+  ],
+  "new_files": [
+   "src/features/developer/shareUploadModel.ts",
+   "src/features/developer/shareUploadModel.test.ts",
+   "src/features/developer/careShareClient.ts",
+   "src/features/developer/CareShareUpload.tsx",
+   "src/features/developer/CareShareUpload.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/developer.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/features/developer/CarePrivacyLedger.tsx: 109 -> ~114 (cap 200)",
+   "src/features/developer/CareProfileCard.tsx: 71 -> ~73 (cap 200)",
+   "src/features/developer/DeveloperCompanion.tsx: 101 -> ~106 (cap 200)",
+   "src/features/developer/shareUploadModel.ts: new ~130 (cap 200, pure, no 'use client')",
+   "src/features/developer/shareUploadModel.test.ts: new ~170 (cap 200)",
+   "src/features/developer/careShareClient.ts: new ~60 (cap 200, fetch wrapper, no 'use client')",
+   "src/features/developer/CareShareUpload.tsx: new ~160 (cap 200, 'use client')",
+   "src/features/developer/CareShareUpload.dom.test.tsx: new ~150 (cap 200)"
+  ],
+  "acceptance": [
+   "careSharePreview('', view) -> {state:'empty'}, canCommit false",
+   "careSharePreview('{not json', view) -> {state:'invalid', errors:['The share is not valid JSON.']}, canCommit false",
+   "careSharePreview(JSON with moves[0].transcript, view) -> {state:'refused', errors:[contains 'never-sent field: moves[0].transcript']}, canCommit false - the SAME validateCareShare the route runs, so the browser refuses before anything leaves it",
+   "careSharePreview(text whose UTF-8 byte length > CARE_SHARE_MAX_BYTES, view) -> {state:'too-large'}, canCommit false, no JSON.parse attempted",
+   "careSharePreview(valid {contract:1, shape:{planModePct shared}} , view whose current share has moves and journal) -> state 'ready'; ledger lights 'Plan-mode ratio' only (careShareLedger); stopsSharing lists 'moves' and 'journal' (a POST replaces the snapshot whole, so the preview says what you stop sharing)",
+   "commitShare(text) with fetch mocked 200 -> one POST /api/me/mentor/share with the exact text body, state 'saved', router.refresh called once; mocked 400 {errors:[...]} -> state 'refused' carrying the server's errors; 401 -> state 'signed-out'",
+   "deleteShare: first click enters 'confirm' and issues no request; confirm -> one DELETE /api/me/mentor/share then refresh; mocked 404 -> state 'nothing-stored'",
+   "CareShareUpload rendered with a preview view (view.demo set) -> commit and delete controls disabled and fetch is never called"
+  ],
+  "guards": [],
+  "premise": [
+   "docs/features/org-dashboard/developer.md:284-288 - Known gap: 'npx ascent mentor share cannot authenticate ... nothing on a developer's machine can reach the route without a browser session, and the page has no upload or delete control of its own'",
+   "src/app/api/me/mentor/share/route.ts:17-19 - the route's own header: the CLI has no per-user credential; AUTH is the browser session - which is exactly the session the page already holds",
+   "src/features/developer/CareBits.tsx:47 and :60 - CareAction/CareLinkAction onClick is console.info(`[care] ${intent}`): every share button is a log line",
+   "src/features/developer/CarePrivacyLedger.tsx:44 - 'Share again' is CareAction intent='mentor.share' (unwired)",
+   "src/features/developer/CareProfileCard.tsx:62 - 'Share an update' is CareAction intent='mentor.share' (unwired)",
+   "src/app/api/me/mentor/share/route.ts:75-80 - DELETE exists and removes the row whole, but no surface calls it: the 'delete my share leaves nothing behind' guarantee (src/lib/db/mentor-share.ts:8-9) is unreachable from the product",
+   "src/lib/org/care-share-contract.ts:185 - validateCareShare is pure (no db import, line 20) and src/lib/org/care-share-view.ts:161 careShareLedger is pure: the preview can run the server's exact door client-side with zero duplication",
+   "docs/BACKLOG.md:116 - the per-user credential lane (#22) is 'concept-doc first': the CLI path is blocked for the foreseeable future, so the browser is the only door"
+  ],
+  "rollback": "Revert the series: the three edited components return to their CareAction buttons; no schema, route or contract changes, so nothing persisted depends on the new files.",
+  "gate": "none",
+  "doc": "docs/features/org-dashboard/developer.md",
+  "runner_up": "Wire Mark kept / Drop / Make this a move (CareMovesBoard.tsx:51-52, CareRepoGaps.tsx:67) as owner-self decisions the next snapshot push reconciles, instead of console.info.",
+  "body": "## Summary\nThe care loop's only door (POST /api/me/mentor/share) accepts the browser session and nothing else, and the page that holds that session has no way to use it. Add one control in the Setup card: paste or drop a share file, see a preview computed by the server's own validator and ledger (what lights up, what stops being shared, what was refused and why), then commit in one click; plus delete-my-share with a confirm step. Every unwired 'Share again' / 'Share an update' button opens it.\n\n## Description\nToday a developer who has a share (hand-written, or produced by the mentor once C2 ships) cannot get it onto their own page without opening devtools and hand-crafting a fetch: the route doc admits the CLI cannot authenticate (#22 is concept-doc first) and the page 'has no upload or delete control of its own'. Meanwhile every share affordance logs to the console. The decision the user makes blind is consent: a POST replaces the snapshot whole, so pushing a share without 'moves' silently stops sharing moves. The app already has every piece needed to show that before it happens: validateCareShare and careShareLedger are pure and run unchanged in the browser.\n\nshareUploadModel.ts (pure) maps input text + the current view to a typed state: empty | invalid | too-large | refused | ready (ledger rows that will light, sections that will stop being shared, counts of moves/journal/shape fields) | saved | signed-out | confirm-delete | nothing-stored. careShareClient.ts wraps POST/DELETE and maps 400/401/404/413/503 onto those states. CareShareUpload.tsx renders a textarea + file drop, the preview on the same MatrixGrid ledger vocabulary, Commit and Delete; disabled whenever view.demo is set so a preview fixture can never be pushed. Governing subjects: people-analytics-ethics private-view-separation ('say so in the product': the person sees exactly what leaves before it leaves) and draft-editing (preview-then-commit of a replace-whole snapshot).\n\n## Flow\n- Setup card -> 'Share again' opens the upload panel\n- Paste/drop -> preview: refused keys named by path, ledger rows lit, 'you stop sharing: moves, journal'\n- Commit -> POST -> refresh -> the page renders the stored share (profile.sharedAt set, preview control disappears)\n- Delete -> confirm -> DELETE -> refresh -> honest empty state\n\n## Expected impact\nThe care loop goes from unreachable without devtools to one paste and one click, with the consent consequence visible before commit, and the 'delete leaves nothing behind' guarantee becomes something a developer can actually exercise.\n\n## Evaluation\nClaim: a developer can preview, commit and delete their own share from the page, and the browser refuses exactly what the server refuses.\nBefore: 0 of 8 cases pass\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: none (owner-self route unchanged, no auth or contract change)",
+  "evidence": "CareBits.tsx:47      onClick={() => console.info(`[care] ${intent}`, payload ?? {})}\nCareBits.tsx:60      onClick={() => console.info(`[care] ${intent}`, payload ?? {})}\nCarePrivacyLedger.tsx:44  <CareAction label=\"Share again\" intent=\"mentor.share\" />\nCareProfileCard.tsx:62    <CareAction label=\"Share an update\" intent=\"mentor.share\" />\ndeveloper.md:288 'without a browser session, and the page has no upload or delete control of its own.'\nroute.ts:17-19 'AUTH is the browser session. The documented `npx ascent mentor share` has no per-user credential to send ... That half is a Known gap.'\ngrep -rn \"mentor/share\" src --include=*.tsx -> no component calls the route (only route.ts and its tests)."
+ },
+ {
+  "context": "PDF & LLM Export",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One report-export read door: PDF, briefing, card read what the permalink reads",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/app/api/report/pdf/route.ts",
+   "src/app/api/report/llm/route.ts",
+   "src/app/api/report/share-card/route.ts",
+   "src/app/report/[owner]/[repo]/page.tsx",
+   "src/components/report/ReportHeader.tsx",
+   "src/app/api/report/pdf/route.test.ts",
+   "src/app/api/report/pdf/route.failures.test.ts",
+   "src/app/api/report/llm/route.test.ts",
+   "src/app/api/report/llm/route.failures.test.ts",
+   "src/app/api/report/share-card/route.failures.test.ts"
+  ],
+  "new_files": [
+   "src/lib/report/report-org.ts",
+   "src/lib/report/export-read.ts",
+   "src/lib/report/export-read.test.ts",
+   "src/lib/report/export-href.ts",
+   "src/app/api/report/export-door.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/app/api/report/pdf/route.ts: 101 -> ~60 (no .ts cap; spirit 300)",
+   "src/app/api/report/llm/route.ts: 85 -> ~45",
+   "src/app/api/report/share-card/route.ts: 87 -> ~50",
+   "src/app/report/[owner]/[repo]/page.tsx: 283 -> ~276 (cap 300; resolveReportOrg moves out)",
+   "src/components/report/ReportHeader.tsx: 230 -> ~228 (cap 300; two inline href template literals become reportExportHref calls)",
+   "src/lib/report/report-org.ts: new ~25",
+   "src/lib/report/export-read.ts: new ~90",
+   "src/lib/report/export-href.ts: new ~25 (pure, client-safe)",
+   "src/lib/report/export-read.test.ts: new ~150",
+   "src/app/api/report/export-door.test.ts: new ~70"
+  ],
+  "acceptance": [
+   "DB configured but unreachable on GET /api/report/pdf, /api/report/llm and /api/report/share-card -> each answers 503 'Couldn't load this report right now', never 404 'Scan it first'; asserted by checking each route calls getScanReportByCommit with {strict:true} and maps a DbUnavailableError rejection to 503 (today all three omit strict, so the default reader resolves the outage to null -> 404)",
+   "GET /api/report/llm?repo=acme/app&org=rebrand where canReadOrg('rebrand') is true -> report read under orgSlug 'rebrand' (today the ?org hint is ignored and the read runs under readableOrgForOwner('acme'))",
+   "GET /api/report/llm?repo=acme/app&org=rebrand -> body byte-equal to reportLlmMarkdown(report read under 'rebrand'), i.e. what the CopyForLlm chip on /report/acme/app?org=rebrand copied",
+   "GET /api/report/pdf?repo=acme/app&org=rebrand where 'rebrand' is a real org -> planAllowsPdfExport is evaluated against getCreditState('rebrand'), the org the report was read under (rule unchanged: PUBLIC_ORG exempt, real org plan-checked)",
+   "ReportHeader rendered with search params 'org=rebrand' -> the PDF and share-card DownloadButton hrefs are '/api/report/pdf?repo=acme%2Fapp%40<sha>&org=rebrand' and the share-card equivalent",
+   "export-door guard: a route file under src/app/api/report/{pdf,llm,share-card} that calls getScanReportByCommit or readableOrgForOwner directly fails the guard; a seeded violation that names readReportForExport only in a comment also fails (comments and strings stripped before matching, per AGENTS.md)"
+  ],
+  "guards": [
+   "GET /api/report/llm?repo=acme/app&org=other where canReadOrg('other') is false -> falls back to readableOrgForOwner('acme'), never reads under 'other' (green before: the hint is ignored today; pins that the door cannot widen reach)",
+   "ReportHeader with no org search param -> hrefs byte-identical to today's '/api/report/pdf?repo=<enc>' (green before)",
+   "Unauthenticated caller on a private repo -> requireOrgRead/denial path unchanged, no report bytes (green before)"
+  ],
+  "premise": [
+   "src/app/report/[owner]/[repo]/page.tsx:44-48 - the permalink resolves its org through resolveReportOrg, honoring a canReadOrg-gated ?org= hint before falling back to readableOrgForOwner",
+   "src/app/api/report/pdf/route.ts:36, src/app/api/report/llm/route.ts:44, src/app/api/report/share-card/route.ts:41 - all three exports call readableOrgForOwner(parsed.owner) only; none reads ?org",
+   "src/components/report/ReportHeader.tsx:189 and :204 - export hrefs are built from repo.owner/name/headSha only, though the component already holds useSearchParams() (ReportHeader.tsx:2, :69)",
+   "src/app/report/[owner]/[repo]/page.tsx:56 - the permalink reads getScanReportByCommit(..., { strict: true })",
+   "src/app/api/report/pdf/route.ts:62, src/app/api/report/llm/route.ts:52, src/app/api/report/share-card/route.ts:47 - the exports call getScanReportByCommit(..., { headSha, orgSlug }) with NO strict",
+   "src/lib/db/scans-read.ts:1362-1366 - without strict, a configured-but-unreachable DB degrades to null (readSafeOrStrict), so the exports' try/catch at pdf/route.ts:61-70 never fires on an outage and the 404 at :71-76 tells the user to re-scan a repo that has a report",
+   "src/app/api/report/passport/route.ts:35-41 - the sibling passport export already took the strict read with this exact rationale; the three exports were not swept",
+   "docs/features/reporting/report.md:127 and :136 - the doc asserts the page matches 'the PDF/LLM 503-vs-404 split', a split the exports do not hold for a DB outage (report.md:138 records the 2026-10-07 strict fix for the page only)",
+   "src/app/api/report/llm/route.ts:3-6 - the endpoint promises byte-for-byte parity with the copy chip; under ?org= the chip renders the hinted org's report while the endpoint reads the owner-fallback org"
+  ],
+  "rollback": "Revert the series: routes go back to their inline preamble, page.tsx re-inlines resolveReportOrg, ReportHeader re-inlines the two href literals; the new lib modules and guard test are deleted. No schema, no data, no stored state.",
+  "gate": "contract",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "Fold the remaining owner-only report exports (/api/report/skill, /api/report/passport) through the same door so every report-derived download shares one org rule.",
+  "body": "## Summary\nThe three report exports each hand-roll the same preamble (parse, owner-only org, gate, NON-strict read, 404/503, filename) and have drifted from the permalink twice: they ignore the page's ?org hint and they never took the 2026-10-07 strict read. One `readReportForExport` door makes 'export what the page shows' structural.\n\n## Description\n`src/lib/report/report-org.ts` takes `resolveReportOrg(owner, hint)` out of page.tsx so the page and the exports resolve the tenant by one rule (canReadOrg-gated hint, else readableOrgForOwner). `src/lib/report/export-read.ts` owns parse -> resolve -> requireOrgRead -> strict getScanReportByCommit -> {404 empty | 503 unavailable} -> filename stem, returning `{ report, orgSlug, parsed, stem }` or a Response. The three routes keep only their own concern (plan gate + render for PDF, markdown for LLM, ImageResponse for the card). `src/lib/report/export-href.ts` builds the export URLs ReportHeader renders and forwards the page's `org` param. A source-scanning guard (comments stripped, seeded violation) pins that no export route reads the report outside the door.\n\nTechnique: authorization / dispatch-chokepoint-gating (one door every export passes) and failure-direction (an outage must not degrade toward 'not found').\n\n## Flow\n- /report/acme/app?org=rebrand renders the report read under 'rebrand'\n- Export PDF / Share card hrefs carry &org=rebrand; the door re-gates it with canReadOrg (never trusted)\n- door reads strict under the same org -> same report, same bytes as the chip\n- DB outage -> 503 try again, not 'Scan it first'\n\n## Expected impact\nExports can no longer hand back a different (public-org) report than the one on screen, or tell a user to spend a scan during an outage. Never widens reach: the hint is re-checked by canReadOrg and an unreadable hint falls back exactly as today.\n\n## Evaluation\nClaim: exports read the same tenant, the same strictness and the same report as the permalink.\nBefore: 0 of 6 acceptance cases pass\nAfter: 6 of 6 (plus 3 guards green before and after)\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract",
+  "evidence": "page.tsx:44-47 `async function resolveReportOrg(owner, sp) { const hint = typeof sp.org === \"string\" ? ... : undefined; if (hint && (await canReadOrg(hint))) return hint; return readableOrgForOwner(owner); }` and :56 `getScanReportByCommit(owner, name, { headSha: sha, orgSlug, strict: true })`. pdf/route.ts:36 `const orgSlug = await readableOrgForOwner(parsed.owner);` :62 `getScanReportByCommit(parsed.owner, parsed.name, { headSha: parsed.sha, orgSlug })` (no strict; same at llm/route.ts:52, share-card/route.ts:47). scans-read.ts:1366 `return readSafeOrStrict(opts.strict, () => loadScanReportByCommit(owner, name, opts), null);`. passport/route.ts:39 `getRepoPassport(parsed.owner, parsed.name, { orgSlug, headSha: parsed.sha, strict: true })`. grep 'resolveReportOrg' src -> only page.tsx:44,73,132."
+ },
+ {
+  "context": "PDF & LLM Export",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Compose the LLM briefing: scope by dimension, carry measured lifts, same URL",
+  "size": "L",
+  "effort": 7,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/lib/report/llm-markdown.ts",
+   "src/app/api/report/llm/route.ts",
+   "src/components/report/ReportHeader.tsx",
+   "src/components/report/ReportView.tsx"
+  ],
+  "new_files": [
+   "src/lib/report/briefing-scope.ts",
+   "src/lib/report/briefing-scope.test.ts",
+   "src/components/report/BriefingComposer.tsx",
+   "src/components/report/BriefingComposer.test.tsx",
+   "src/app/api/report/llm/route.scope.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md"
+  ],
+  "loc_check": [
+   "src/lib/report/llm-markdown.ts: 433 -> ~445 (one scopeNote option + lead line; narrowing lives in briefing-scope.ts)",
+   "src/app/api/report/llm/route.ts: 85 (or ~45 after card A) -> +~25 (parse ?dims, read lifts under the resolved org, pass both)",
+   "src/components/report/ReportHeader.tsx: 230 -> ~232 (cap 300; CopyForLlm swapped for BriefingComposer, one lifts prop)",
+   "src/components/report/ReportView.tsx: 291 -> ~292 (cap 300; forwards serverLifts to ReportHeader, one line)",
+   "src/lib/report/briefing-scope.ts: new ~120 (pure: parse, narrow, scope note, href)",
+   "src/components/report/BriefingComposer.tsx: new ~160 (\"use client\"; wraps CopyForLlm)"
+  ],
+  "acceptance": [
+   "parseBriefingScope(new URLSearchParams('dims=D3,D9'), report) -> { ok: true, dims: ['D3','D9'] }; 'dims=D3&dims=D9' gives the same (mirrors /api/report/skill's dims grammar)",
+   "parseBriefingScope('dims=D99') on a report without D99 -> { ok: false, error: 'Unknown dimension: D99' }, and GET /api/report/llm?repo=acme/app&dims=D99 -> 400 (fail closed, never a silent whole-report widening, matching org/export's unknown-segment 400)",
+   "reportLlmMarkdown(scopeReportForBriefing(report, ['D3']), { scopeNote }) -> Dimensions table, gaps, evidence and Roadmap contain only D3 rows, and the document leads with '> Scoped briefing: 1 of 9 dimensions (D3). Overall score and level are whole-repository figures.'",
+   "BriefingComposer model: selecting D3 then copying -> clipboard text equals the body of GET briefingHref({repo:'acme/app@sha', dims:['D3']}) = '/api/report/llm?repo=acme%2Fapp%40sha&dims=D3' (endpoint/chip parity extended to the scoped briefing)",
+   "Composer preview state for a selection -> { lines, chars, approxTokens: ceil(chars/4) } computed from the exact string that will be copied",
+   "GET /api/report/llm for an org whose ledger holds a lift distribution for a roadmap item -> that roadmap line carries the '- _measured:_ ...' clause (today no production caller passes lifts, so it never appears), and the in-page chip, fed the page's serverLifts, emits the same clause"
+  ],
+  "guards": [
+   "No ?dims and EMPTY_LIFTS (anonymous/public viewer) -> endpoint body and chip text byte-identical to today's reportLlmMarkdown(report) (the existing route.test.ts equality pin stays green before and after)",
+   "Private repo, unauthenticated -> denied via the existing gate, no lift read issued (green before)"
+  ],
+  "premise": [
+   "src/components/report/ReportHeader.tsx:212-216 - the chip copies reportLlmMarkdown(report) with no options: one whole-report blob, no scope, no lifts",
+   "src/app/api/report/llm/route.ts:68 - the endpoint calls reportLlmMarkdown(report) with no options and reads no query param beyond ?repo",
+   "src/lib/report/llm-markdown.ts:37-52 - ReportMarkdownOptions already declares lifts (:42) and exemplarSection; grep 'reportLlmMarkdown(' src (non-test) returns only llm/route.ts:68 and ReportHeader.tsx:213, neither passing options, so the measured clause at llm-markdown.ts:396 (options.lifts?.get) is unreachable in production",
+   "src/components/report/ReportView.tsx:43, :68, :263 - the page already holds serverLifts and threads them to ReportPanels (the roadmap renders ExpectedLiftBasis), but not to ReportHeader where the briefing is built",
+   "docs/features/reporting/report.md:770-772 - the doc states reportLlmMarkdown appends '- _measured:_ ...' to a roadmap line when non-null; no caller ever supplies the map, so a model reading the briefing never sees what the page shows",
+   "src/app/api/report/skill/route.ts:1, :40-44 - the sibling skill export already accepts a maintainer's ?dims= selection (and SkillDownload exposes a picker), so dimension-scoped export is an established pattern the briefing lacks",
+   "src/app/api/org/export/route.ts:30-39 - house rule for egress: an explicit scope that does not resolve fails closed with 400, never silently widens"
+  ],
+  "rollback": "Revert the series: ReportHeader goes back to the bare CopyForLlm, the route ignores ?dims and passes no lifts, the scopeNote option is removed; byte-identity of the unscoped briefing means no stored artifact or consumer changes.",
+  "gate": "contract",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "Wire ?against= (exemplarSection) into GET /api/report/llm so the compare page's exemplar briefing is fetchable by an agent; already recorded as a known gap at report.md:481-483.",
+  "body": "## Summary\n'Copy for LLM' dumps the whole report, and its endpoint twin takes no options, so an agent tasked with one dimension gets the whole document, and the org's measured lifts (which the roadmap on screen shows) never reach the model. Turn the chip into a small composer: pick dimensions, see the size, copy the text or the equivalent endpoint URL, and both carry the measured clause.\n\n## Description\n`src/lib/report/briefing-scope.ts` (pure) owns `parseBriefingScope` (same dims grammar as /api/report/skill, unknown -> error), `scopeReportForBriefing` (narrows dimensions, gaps, evidence, discrepancies and roadmap to the selection; strengths/risks stay, being report-level strings), the honesty lead line (a scoped briefing says it is partial and that the headline score is whole-repo, the scope marker a pasted text otherwise loses) and `briefingHref`. `reportLlmMarkdown` gains one `scopeNote` option; the unscoped output stays byte-identical. The endpoint parses ?dims (400 on unknown) and reads `getOrgExpectedLifts` under the org it already gated; ReportView forwards `serverLifts` to ReportHeader so the chip passes the same map. `BriefingComposer` wraps the existing CopyForLlm with a dimension multiselect, a lines/approx-token readout and 'Copy URL'. Builds on card A's door when both land (the route change is then ~25 lines on the thin route).\n\nTechniques: executive-reporting/provenance-caveats (a partial briefing states its partiality in the body); invariant-placement/completeness-at-emission (the payload the model reads carries every field the page shows).\n\n## Flow\n- viewer opens the composer on the report header\n- picks D3 + D9 -> preview reads '214 lines, ~3.1k tokens'\n- Copy text -> scoped briefing with the scope lead line and measured clauses\n- or Copy URL -> /api/report/llm?repo=...&dims=D3,D9 returns the same bytes for a script/agent\n\n## Expected impact\nAn agent handed one dimension gets a briefing about that dimension, and the roadmap it reads carries the org's own measured outcomes instead of silently omitting them. No new reach: lifts are read under the same gated org as the report; anonymous viewers get EMPTY_LIFTS and today's bytes.\n\n## Evaluation\nClaim: the briefing can be scoped, is scoped identically by chip and endpoint, and carries measured lifts.\nBefore: 0 of 6 acceptance cases pass\nAfter: 6 of 6 (plus 2 guards green before and after)\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract",
+  "evidence": "grep -rn 'reportLlmMarkdown(' src (excluding tests): src/app/api/report/llm/route.ts:68 `const body = reportLlmMarkdown(report);`, src/components/report/ReportHeader.tsx:213 `text={reportLlmMarkdown(report)}`. llm-markdown.ts:42 `lifts?: ReadonlyMap<string, LiftDistribution> | null;` and :396 `const clause = expectedLiftClause(options.lifts?.get(recommendationMatchKey(item.dimension, item.title)));`. ReportView.tsx:263 `lifts={serverLifts}` (ReportPanels only). Commit 0a92118f message: 'The lift map is not yet mounted on the report page ... recorded as a known gap' - the page mount landed later (report.md:697), the briefing mount never did."
+ },
+ {
+  "context": "GitHub App Installation & Webhooks",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Webhook arms as one table behind one owner bind: attribution and AI-change too",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/app/api/app/webhook/route.ts",
+   "src/app/api/app/webhook/route.test.ts"
+  ],
+  "new_files": [
+   "src/lib/github/webhook/payload.ts",
+   "src/lib/github/webhook/owner-bind.ts",
+   "src/lib/github/webhook/arms.ts",
+   "src/lib/github/webhook/lifecycle-arm.ts",
+   "src/lib/github/webhook/control-arms.ts",
+   "src/lib/github/webhook/ai-change-arm.ts",
+   "src/lib/github/webhook/arms.test.ts",
+   "src/lib/github/webhook/owner-bound-arms.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/github/github-app.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/app/api/app/webhook/route.ts: 837 -> ~170 (no .ts cap outside src/features; spirit of the 300 rule: the route keeps bounds, verify, parse, claim, dispatch)",
+   "src/app/api/app/webhook/route.test.ts: 1469 -> ~1470 (unchanged except imports; it already mocks @/lib/db, @/lib/github/app, scan-jobs, so moved code still hits the mocks)",
+   "src/lib/github/webhook/payload.ts: new ~45 (the WebhookPayload type, moved verbatim)",
+   "src/lib/github/webhook/owner-bind.ts: new ~120 (installationMatchesOwner, confirmRevocationWithGitHub, bindDelivery -> BoundDelivery | null)",
+   "src/lib/github/webhook/arms.ts: new ~170 (the event table: event, preconditions app/db, bind kind, extract, run)",
+   "src/lib/github/webhook/lifecycle-arm.ts: new ~150 (runInstallationLifecycle + reconcileInstallationRepos, moved)",
+   "src/lib/github/webhook/control-arms.ts: new ~190 (probe, org probes, unwatch-deleted, attribution)",
+   "src/lib/github/webhook/ai-change-arm.ts: new ~90 (reduceAiChangeEvent, moved)",
+   "src/lib/github/webhook/arms.test.ts: new ~120",
+   "src/lib/github/webhook/owner-bound-arms.test.ts: new ~170"
+  ],
+  "acceptance": [
+   "repository_ruleset delivery, actor present, stored mapping for owner = 42, payload installation = 99 -> recordObservations is NOT called (today it is: the attribution runs after enqueueControlProbe returns early on the mismatch)",
+   "pull_request_review approved on an AI-authored PR, stored mapping 42, payload installation 99 -> upsertLiveAiChange is NOT called and the delivery is released once",
+   "pull_request closed+merged, AI-marked, payload installation matches the stored mapping -> upsertLiveAiChange called exactly once; with a mismatched installation -> not called",
+   "pull_request_review for an owner with no stored mapping and the App not configured -> no GitHub call and no AiChange write (the review arm binds on the stored mapping only, it still mints no token)",
+   "table guard: every arm whose declared effects include a tenant write has bind 'owner' or 'github-confirmed'; a seeded arm {event:'x', effects:['tenant-write'], bind:'none'} fails the guard (proves it bites)",
+   "table guard: the set of events in the arm table equals the events named in backticks in the event table of docs/features/github/github-app.md (a new arm without its doc row fails)",
+   "owner-bind failure in the repo-control arm calls abandonDelivery exactly once and enqueues nothing, records nothing",
+   "CRITIC REVISE: the doc-table parity guard reads only the first-column backtick of each table row; it is green on the final tree and red on a seeded undocumented arm"
+  ],
+  "guards": [
+   "the existing push and pull_request stored-mismatch / GitHub-mismatch cases in route.test.ts (lines ~474-547, ~1022-1047) stay green: those arms already bind, the refactor must not change them",
+   "an unknown event still answers 200 {ok:true, event} with no after() scheduled"
+  ],
+  "premise": [
+   "src/app/api/app/webhook/route.ts:796-809 - the repo-control after() awaits enqueueControlProbe and then, unconditionally for GOVERNANCE_EVENTS, awaits recordControlAttribution",
+   "src/app/api/app/webhook/route.ts:323-326 - enqueueControlProbe on an owner mismatch only releases the delivery and returns void, so the caller cannot tell the bind failed",
+   "src/app/api/app/webhook/route.ts:385-422 - recordControlAttribution has no owner bind; it resolves the repo by the payload owner and writes recordObservations with the payload actorLogin and deliveryId",
+   "src/app/api/app/webhook/route.ts:735-738 and 744-748 - pull_request closed and pull_request_review schedule reduceAiChangeEvent with slug = payload owner, no installationMatchesOwner call",
+   "src/app/api/app/webhook/route.ts:438-492 - reduceAiChangeEvent writes upsertLiveAiChange (approved, approverLogin, mergeCommitSha) with no installation check",
+   "src/lib/db/ai-changes.ts:292-300 - upsertLiveAiChange writes for whatever org slug it is given, as long as the org and repo row exist",
+   "src/app/api/app/webhook/route.ts:143 - the one bind (installationMatchesOwner) is hand-called at 233, 323, 497, 525 and passed as a dep at 781; the arms at 735/744/807 never call it",
+   "src/lib/github/pr-gate.ts:48 - confirmOwner is OPTIONAL on PrGateHooks, so the bind is a convention each caller must remember, not a precondition",
+   "src/app/api/app/webhook/route.ts:115-121 and 686-827 - PR_ACTIONS, REPO_CONTROL_EVENTS, ORG_CONTROL_EVENTS and a 140-line if/else chain are the event list; nothing ties them to the documented subscription table (docs/features/github/github-app.md:94-104)"
+  ],
+  "rollback": "Pure relocation plus two added bind checks: revert the series and route.ts returns to its single-file form; no schema, no migration, no stored state.",
+  "gate": "architecture",
+  "doc": "docs/features/github/github-app.md",
+  "runner_up": "Persist a per-delivery verdict (processed / refused-owner / unconfirmed-revocation / not-autoscanned) so a dropped push rescan is answerable - webhook-ingestion delivery-logging-and-replay; held back because it needs a schema table.",
+  "body": "## Summary\nThe webhook route is 837 lines of if/else where the tenant bind (`installationMatchesOwner`) is hand-called by five arms and skipped by three. Turn the arms into one table where an arm that writes tenant state cannot run without a `BoundDelivery`, and close the three skips.\n\n## Description\nThe route's own doctrine (route.ts:137-142) says a valid HMAC proves a delivery is authentic, not that its (installation, owner) pair is real, so every tenant write must bind first. The push, PR-gate, probe and registry arms do. Three arms don't. (1) Repo-control attribution runs after `enqueueControlProbe` has already refused the owner, because that function returns void on a mismatch (route.ts:323-326, 796-809). So a mismatched delivery still writes an actor-attributed row into the named org's governance ledger. (2) and (3) `pull_request_review` and `pull_request.closed` write AiChange approval and merge evidence for the payload owner with no bind at all (route.ts:735-748, 438-492). That is the conformance pack's evidence population. This is the 'two implementations of one rule where only one was fixed' shape: the bind is a convention (pr-gate.ts:48 makes it optional), not a precondition.\n\nThe move: `arms.ts` declares one row per event: preconditions (app, db), `bind: 'owner' | 'github-confirmed' | 'none'`, the declared effects, `extract(payload)` and `run(bound, payload)`. The route does bounds -> verify -> parse -> claim -> `dispatch(event, payload, delivery)`. `dispatch` runs `bindDelivery` once for an owner-bound arm and hands `run` a branded `BoundDelivery {installationId, orgSlug, deliveryId}` it cannot fabricate. The review/merge arms bind on the stored mapping only, so they still mint no token and make no GitHub call (stored mapping only, no live confirm). Signature verification, the bounded read, the dedup claim and the 24h horizon are untouched.\n\n## Flow\n- route.ts: readBoundedText -> verifyWebhook -> JSON.parse -> claim (unchanged) -> dispatch\n- dispatch: arm = ARMS[event]; unmet precondition -> no-op; bind 'owner' -> bindDelivery or abandonDelivery once and stop\n- run(bound, payload): probe + attribution share ONE bound value; AI-change uses bound.orgSlug, not the payload login\n- arms.test.ts: data-table guard (no source scanning) + seeded violation + doc-table equality\n\n## Expected impact\nNo signed-but-misrouted delivery can write a governance attribution or AiChange evidence row into an org whose installation it does not hold (today 3 arms can). The bind becomes structural. A new arm (e.g. deck #21 identity sync) cannot ship without declaring one, and cannot ship undocumented. Applies webhook-ingestion / sender-authentication (one-validation-door) and the identity-survives-reuse law.\n\n## Evaluation\nClaim: every tenant-writing webhook arm runs only behind the installation->owner bind\nBefore: 0 of 7 acceptance cases pass (cases 1-3 and 7 fail on today's code; 5-6 have no table to test)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first in owner-bound-arms.test.ts and arms.test.ts, then the relocation, then the two bind closures\nResult: better\nGate: architecture",
+  "evidence": "route.ts:796-809\n  after(async () => {\n    await enqueueControlProbe(installationId, login, fullName, event, delivery ?? undefined, payload.action);\n    if (GOVERNANCE_EVENTS.includes(event)) {\n      await recordControlAttribution(login.toLowerCase(), fullName, event, payload, delivery ?? undefined);\n    }\n  });\nroute.ts:323-326\n  if (!(await installationMatchesOwner(installationId, orgSlug))) {\n    await abandonDelivery(deliveryId);\n    return;\n  }\nroute.ts:735-737 / 744-747: after(() => reduceAiChangeEvent(slug, ...)) with slug = owner.toLowerCase(), no bind.\ngrep -n installationMatchesOwner src/app/api/app/webhook/route.ts -> 143 (def), 233, 323, 497, 525, 781; none inside reduceAiChangeEvent (438-492) or recordControlAttribution (385-422).\ngrep in route.test.ts for recordObservations|upsertLiveAiChange -> 0 hits: neither write path is pinned under a mismatch.",
+  "revise_applied": "scope the doc-table guard to FIRST-COLUMN backticks only (other cells backtick function names)"
+ },
+ {
+  "context": "GitHub App Installation & Webhooks",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Report-back you can trust: one credential per repo, broken rows named + fixable",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/app/api/report/foundation/secrets/route.ts",
+   "src/app/api/report/foundation/secrets/route.test.ts",
+   "src/lib/db/org-foundation.ts",
+   "src/lib/db/org-foundation.test.ts",
+   "src/lib/db/org-api-tokens.ts",
+   "src/features/shared/practices/foundation/foundationMarks.ts",
+   "src/features/shared/practices/foundation/foundationViz.ts",
+   "src/features/shared/practices/foundation/foundationViz.test.ts",
+   "src/features/shared/practices/foundation/FoundationRolloutRowView.tsx",
+   "src/features/shared/practices/foundation/FoundationRow.v2.tsx",
+   "src/features/shared/practices/foundation/useFoundationRollout.ts",
+   "src/features/standing/passports/CapabilityMatrixRowView.tsx"
+  ],
+  "new_files": [
+   "src/lib/github/reportback-credential.ts",
+   "src/lib/github/reportback-credential.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/github/github-app.md",
+   "docs/features/org-dashboard/practices.md",
+   "docs/features/onboarding/wizard.md"
+  ],
+  "loc_check": [
+   "src/app/api/report/foundation/secrets/route.ts: 243 -> ~265 (no .ts cap; name derivation and write ordering live in the new module)",
+   "src/app/api/report/foundation/secrets/route.test.ts: 279 -> ~370",
+   "src/lib/db/org-foundation.ts: 117 -> ~175",
+   "src/lib/db/org-foundation.test.ts: 178 -> ~260",
+   "src/lib/db/org-api-tokens.ts: 239 -> ~255 (revokeOrgApiTokensByName gains an exceptId option; liveTokenPrefixes(org, names))",
+   "src/features/shared/practices/foundation/foundationMarks.ts: 28 -> ~50 (cap 200)",
+   "src/features/shared/practices/foundation/foundationViz.ts: 89 -> ~100 (cap 200)",
+   "src/features/shared/practices/foundation/foundationViz.test.ts: 102 -> ~135 (cap 200)",
+   "src/features/shared/practices/foundation/FoundationRolloutRowView.tsx: 103 -> ~135 (cap 200)",
+   "src/features/shared/practices/foundation/FoundationRow.v2.tsx: 65 -> ~85 (cap 200)",
+   "src/features/shared/practices/foundation/useFoundationRollout.ts: 91 -> ~100 (cap 200)",
+   "src/features/standing/passports/CapabilityMatrixRowView.tsx: 126 -> ~140 (cap 200)",
+   "src/lib/github/reportback-credential.ts: new ~80 (pure: tokenNameFor(fullName) <= 80 chars, unique; reportBackState(...) -> live | failed | credential-revoked | legacy-shared | none)",
+   "src/lib/github/reportback-credential.test.ts: new ~90"
+  ],
+  "acceptance": [
+   "provision a/one then a/two -> the token written into a/one is still live (today ensureOrgApiToken rotate:true on the single org-wide name revokes it). The two tokens carry distinct names from tokenNameFor",
+   "DELETE report-back on a/two -> revokes only a/two's token; a/one's stays live (today revokeOrgApiTokensByName(org, 'conformance report-back') kills every repo's credential)",
+   "re-provision a/one where putRepoSecret 403s -> a/one's previous token stays live and the just-minted token is revoked (mint, write, then retire the old one, never retire before the write)",
+   "getFoundationRollout with a foundation.reportback_provisioned row whose meta.ok=false -> reportBackAt null, reportBack.state 'failed', reason 'missing-permission' for a 403 (today the row reads Provisioned)",
+   "a provisioned row whose recorded tokenPrefix is no longer live in OrgApiToken -> state 'credential-revoked' and the action is Re-provision; a row provisioned under the legacy shared name -> state 'legacy-shared'",
+   "tokenNameFor on a 140-char owner/repo -> <= 80 chars, and two fullNames that share their first 80 chars give different names",
+   "foundationViz summary 'provisioned' counts only state 'live'; foundationBackMark('credential-revoked') -> {state:'missing', word:'Credential revoked'}",
+   "useFoundationRollout: a failed result with reason 'missing-permission' sets an action to the App's configure URL instead of the generic 'GitHub refused the write'"
+  ],
+  "guards": [
+   "OWNER role, the one-repo-per-typed-confirmation rule and the server-derived ASCENT_CONFORMANCE_URL are unchanged: the existing route.test.ts cases for them stay green by design",
+   "the raw token never appears in an audit row (existing case stays green; new meta carries tokenPrefix and a reason class only)"
+  ],
+  "premise": [
+   "src/app/api/report/foundation/secrets/route.ts:42 - TOKEN_NAME = 'conformance report-back' is ONE name per org, for every repo",
+   "src/app/api/report/foundation/secrets/route.ts:151-156 - POST calls ensureOrgApiToken(..., rotate: true) before any secret is written",
+   "src/lib/db/org-api-tokens.ts:163-167 - rotate retires EVERY live token of that name in the org, so provisioning repo N revokes the credential written into repos 1..N-1",
+   "src/app/api/report/foundation/secrets/route.ts:162-176 - the secret write can 403 after the rotation has already revoked the working token",
+   "src/app/api/report/foundation/secrets/route.ts:180-191 - the provisioned audit row is written with ok:false too",
+   "src/lib/db/org-foundation.ts:91-96,106 - getFoundationRollout takes the latest reportback_provisioned row per repo and never reads meta.ok, so a failed write and a revoked credential both read as Provisioned",
+   "src/app/api/report/foundation/secrets/route.ts:227 - DELETE for one repo revokes the org-wide name, killing every other repo's report-back",
+   "src/features/shared/practices/foundation/foundationMarks.ts:18-22 and FoundationRolloutRowView.tsx:33 - the panel's only states are Provisioned / Not provisioned, both keyed on reportBackAt",
+   "src/features/shared/practices/foundation/useFoundationRollout.ts:76-79 - after provisioning the 2nd repo the panel says it 'now reports its conformance back' while the 1st silently stops",
+   "docs/features/github/github-app.md:314 - documents the token as one org API token named 'conformance report-back'"
+  ],
+  "rollback": "Revert the series. Tokens minted under per-repo names stay valid org API tokens with telemetry:write scope. The rollout reader falls back to audit-only state. No schema change.",
+  "gate": "policy-tighten",
+  "doc": "docs/features/github/github-app.md",
+  "runner_up": "An App-permission preflight before 'Install all' / Provision (GET /app/installations/{id} permissions vs the setup.md manifest), so a fleet batch is not discovered as 25 403s.",
+  "body": "## Summary\nThe foundation panel's report-back column shows something false today. Every repo shares one org-wide credential name, so provisioning the second repo revokes the first repo's token. The panel still shows both as Provisioned. Give each repo its own credential and make the row state honest: live / failed / credential revoked / legacy shared. Put the fix on the row itself.\n\n## Description\nToday an owner provisions report-back repo by repo through a typed confirmation, and each success notice says that repo 'now reports its conformance back on every CI run'. Every POST rotates the single `conformance report-back` token, and rotation retires every live token of that name (org-api-tokens.ts:163-167). So after provisioning ten repos, only the last one's CI can post a score. The other nine 401 silently. The panel reads its state from audit rows that never check `ok` or token liveness (org-foundation.ts:91-106), so all ten show Provisioned. Revoking one repo kills all of them. A 403 for missing `Secrets: write` also shows as Provisioned. And because rotation runs before the write, the 403 has already revoked that repo's working token.\n\nThe owner's next decision, which repos need attention, is made blind. The app already has the data: the audit row's `ok` and `tokenPrefix`, and the OrgApiToken table's live prefixes. This card changes three things. (1) Per-repo credential: `tokenNameFor(fullName)` is a stable name of at most 80 chars, and the hash suffix keeps it unique. (2) Order: mint, write both secrets, then retire this repo's previous token. On a failed write, retire the just-minted one instead. (3) A `reportBack` state on the row, joined from audit meta and live token prefixes. The row then offers the action that fits: Re-provision for a revoked or legacy credential, the App's configure URL for a missing permission. The typed one-repo confirmation and the owner gate stay exactly as they are.\n\n## Flow\n- POST secrets: gate (unchanged) -> mint token named tokenNameFor(repo) -> put both secrets -> on success revoke same-name tokens except the new id; on failure revoke the new id\n- DELETE: revoke tokenNameFor(repo) only (plus the legacy shared name ONLY when no other repo still reads legacy-shared)\n- getFoundationRollout: provisioned row + meta.ok + tokenPrefix in live set -> live / failed(reason) / credential-revoked / legacy-shared\n- row view: state word + one action; viz counts only live\n\n## Expected impact\nA fleet of N provisioned repos has N working credentials, not 1, and the panel's 'provisioned' count equals the repos that can actually report. A leaked repo secret now exposes one repo's credential, not the whole org's report-back. The Passports capability matrix stops saying 'provisioned - never reported' for a repo that cannot report. Registry: conformance-checking / declared-then-proven, plus the absent-guard-is-loud law.\n\n## Evaluation\nClaim: provisioning or revoking one repo's report-back never changes another repo's, and the row shows the credential's real state\nBefore: 0 of 8 acceptance cases pass\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first (route.test.ts, org-foundation.test.ts, reportback-credential.test.ts, foundationViz.test.ts)\nResult: better\nGate: policy-tighten (a credential's reach narrows from org-wide-shared to one repo; no auth gate loosens)",
+  "evidence": "secrets/route.ts:42  const TOKEN_NAME = \"conformance report-back\";\nsecrets/route.ts:151-156  ensureOrgApiToken(org, { name: TOKEN_NAME, scopes: [\"telemetry:write\"], createdBy: actorLogin, rotate: true })\norg-api-tokens.ts:163-167  if (existing) { await prisma.orgApiToken.updateMany({ where: { orgId, name, revokedAt: null }, data: { revokedAt: new Date() } }); }\nsecrets/route.ts:227  const revoked = await revokeOrgApiTokensByName(org, TOKEN_NAME);\norg-foundation.ts:93-96  e.action === \"foundation.reportback_provisioned\" ? provisionedAt : revokedAt; if (!target.has(repo)) target.set(repo, e.at);  (meta.ok never read)\nsecrets/route.test.ts:209 pins rotate:true; :257 pins revoke by the shared name, so the current behaviour is tested-in, not accidental."
+ },
+ {
+  "context": "Launch Fleet Map",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "The map's org scan runs on the shared scan-run model, not a third SSE fold",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/components/launch/FleetMap.tsx",
+   "src/components/launch/ConstellationField.tsx",
+   "src/components/org/shared/useScanStream.ts"
+  ],
+  "new_files": [
+   "src/components/launch/useFleetScan.ts",
+   "src/components/launch/fleetScanOutcomeModel.ts",
+   "src/components/launch/fleetScanOutcomeModel.test.ts",
+   "src/components/launch/useFleetScan.dom.test.tsx",
+   "src/components/launch/ConstellationField.Footer.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/onboarding/wizard.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/components/launch/FleetMap.tsx: 300 -> ~215 (cap 300; scanOrg + its scanCtrl/scanGen/recentScan refs move to useFleetScan)",
+   "src/components/launch/ConstellationField.tsx: 290 -> ~262 (cap 300; the error/scanError/overflow footer moves to ConstellationField.Footer.tsx, which also renders the outcome)",
+   "src/components/org/shared/useScanStream.ts: 69 -> ~76 (cap 300; optional AbortSignal on ScanStreamRun, existing callers unchanged)",
+   "src/components/launch/useFleetScan.ts: new ~150 (.ts outside src/features, no hard cap)",
+   "src/components/launch/fleetScanOutcomeModel.ts: new ~90",
+   "src/components/launch/ConstellationField.Footer.tsx: new ~85 (cap 300)",
+   "src/components/launch/fleetScanOutcomeModel.test.ts: new ~120; src/components/launch/useFleetScan.dom.test.tsx: new ~170"
+  ],
+  "acceptance": [
+   "fleetScanOutcome: stream = one in-band `error` frame {error:\"Out of scan credits: 3 watched repos couldn't be scanned.\"}, zero repo frames -> outcome.message is that server text with action {kind:'credits', href:'/pricing'}; never 'No watched repos to scan' (today FleetMap.tsx:154-162 prints exactly that)",
+   "fleetScanOutcome: in-band `error` {error:'Bulk scan failed.'} with zero repo frames -> outcome kind 'failed' carrying that message, not the empty-watchlist copy",
+   "fleetScanOutcome: zero repo frames + `queued` {runId:'r1', queued:5, total:5} -> outcome kind 'queued', pending 5, no error text (the remainder is owed work, route.ts:246)",
+   "fleetScanOutcome: frames repo{a, overall:70} + repo{b, skipped:'no_token'} + result{skippedNoToken:1} -> groups (via rosterGroups) include no_token with action {kind:'reconnect', href: orgTabHref(org,'integrations')}; scored count 1",
+   "fleetScanOutcome: repo{c, error:'boom', charged:true} -> retry action label contains 'already charged once' and retryScope = {repos:['c']} (reuses scanRunRosterModel, no second fold)",
+   "useFleetScan (dom): a `queued` frame starts a queue follow on /api/org/scan/queue?org=..&runId=r1; a snapshot with pending 0 clears recentScan for that org and triggers exactly one /api/app/repos pull for it (today the map never reads the remainder and defers the org for SCAN_SETTLE_MS)",
+   "useFleetScan (dom): unmount mid-stream -> the /api/org/scan fetch was issued with an AbortSignal that is now aborted, and no state update lands after unmount",
+   "useFleetScan (dom): retryFailed(login) after a run whose roster failed ['c'] -> POST /api/org/scan body {org, repos:['c']}"
+  ],
+  "guards": [
+   "applyScanEvent.test.ts and mergeStars.test.ts stay green unchanged: stars are still painted by applyScanEvent per frame; only the outcome/run bookkeeping moves",
+   "useFleetData.dom.test.tsx and useFleetData.cost.dom.test.tsx stay green: the scanCtrl/scanGen/recentScan contract useFleetData reads is preserved by useFleetScan's return value"
+  ],
+  "premise": [
+   "src/components/launch/FleetMap.tsx:106-178 - scanOrg hand-rolls fetch('/api/org/scan') (line 114) + readSSE (line 140); it is a third consumer of that stream beside src/components/org/shared/useScanStream.ts:48-69 (driven by src/components/org/shared/useOrgScanButton.ts:43) and does not use it",
+   "src/components/launch/FleetMap.tsx:141 - the readSSE callback only inspects msg.event === 'repo'; `error`, `notice`, `queued` and `result` frames are ignored",
+   "src/components/launch/FleetMap.tsx:154-162 - when no repo frame applied and none was skipped, the message is hard-coded 'No watched repos to scan. Open the org and watch some repos first.'",
+   "src/app/api/org/scan/route.ts:133 - an out-of-credits run is a 200 stream carrying send('error', {error:'Out of scan credits: ...'}) and zero repo frames, so the map tells a credit-blocked user to go watch repos",
+   "src/app/api/org/scan/route.ts:267 - a server failure is likewise an in-band error frame ('Bulk scan failed.') that the map reports as an empty watchlist",
+   "src/app/api/org/scan/route.ts:246 - a budget-stopped run emits `queued` {runId, queued, total}; the map never follows it, while src/components/org/shared/useOrgScanButton.ts:152-191 polls /api/org/scan/queue via startQueueFollow and folds foldQueueSnapshot",
+   "src/components/org/shared/scanRunRosterModel.ts:81-99,160-180 - foldStreamFrame + rosterGroups already turn exactly these frames into named groups with retry/credits/reconnect actions (landed c2ec4a4e); the map re-counts them into two integers (src/components/launch/FleetMap.tsx:137-150)",
+   "grep -rln 'api/org/scan' src --include=*.test.* -> no file under src/components/launch; the map's scanOrg has no test today",
+   "src/components/org/shared/useScanStream.ts:51-55 - its fetch takes no signal, which is why FleetMap keeps its own AbortController (src/components/launch/FleetMap.tsx:39,44,111)"
+  ],
+  "rollback": "Revert the series: FleetMap.tsx regains scanOrg and ConstellationField.tsx its inline footer; the new files are deleted. useScanStream's optional `signal` field is additive (callers that never pass it behave identically).",
+  "gate": "architecture",
+  "doc": "docs/features/onboarding/wizard.md",
+  "runner_up": "Fold the constellation lifecycle (settleInitialFetch, pullInitial's catch, onRetry, refresh healing, and the scanGen/recentScan race refs spread over FleetMap.tsx + useFleetData.ts) into one pure fleet reducer instead of four independent setConstellations writers.",
+  "body": "## Summary\nThe launch map's Scan button is a third, hand-rolled consumer of POST /api/org/scan. It reads only `repo` frames, so every in-band refusal (out of credits, server failure) and every budget-stopped remainder is reported as 'No watched repos to scan'. Put the map on the transport (useScanStream) and the roster model (scanRunRosterModel) the dashboard button already uses, behind one `useFleetScan` hook and a pure `fleetScanOutcomeModel`.\n\n## Description\nThe stream contract has five frame kinds (repo, notice, queued, result, error). useOrgScanButton folds all of them through foldStreamFrame/foldQueueSnapshot and renders rosterGroups with one remedy per group. FleetMap.scanOrg tallies `applied`/`inapplicable` integers from repo frames only and falls through to a hard-coded empty-watchlist sentence: two implementations of one rule, and only one was fixed (c2ec4a4e). The move: (1) add an optional `signal` to ScanStreamRun so the map keeps its unmount abort; (2) `useFleetScan(installations)` owns scanning/scanError/scanCtrl/scanGen/recentScan, drives useScanStream, paints stars through the unchanged applyScanEvent, folds a roster per org, follows a `queued` run with startQueueFollow and, when it drains, clears recentScan and pulls that org once; (3) `fleetScanOutcome(roster, inBandError, queued)` is the pure answer to 'what does this card say and offer'; (4) ConstellationField's footer is extracted and renders that outcome (message plus the group's one action: Retry failed / Add credits / Reconnect). Registry: batch-undo-commit-window / partial-failure-reselect (laws count-carries-predicate, failure-not-empty-success) and quality-gates / refusal-names-a-reachable-remedy.\n\n## Flow\n- Click Scan -> useFleetScan.scan(login) -> useScanStream({body:{org}, signal}).\n- Each frame -> applyScanEvent (stars) + foldStreamFrame (roster); `error` -> inBandError; `queued` -> queue follow.\n- Stream end -> fleetScanOutcome -> the footer shows the reason and its remedy; a queued tail keeps ticking until drained, then the org is re-pulled.\n\n## Expected impact\nNo map scan ends on a false sentence: an out-of-credits owner is pointed at /pricing, a token-less one at Integrations, and a partial run gets one-click retry of exactly its failures. FleetMap.tsx leaves the 300-LOC cap (300 -> ~215), and the next change to the scan-stream contract lands in one fold for every consumer.\n\n## Evaluation\nClaim: the map reports every scan-stream outcome the dashboard reports, from the same model.\nBefore: 0 of 8 cases pass (model and hook do not exist; the map prints the empty-watchlist copy for cases 1-3)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture (moves a component's stream handling onto shared modules; no route, billing or authz change)",
+  "evidence": "src/components/launch/FleetMap.tsx:141 `if (msg.event === \"repo\" && msg.data) {` is the only branch; FleetMap.tsx:162 `: \"No watched repos to scan. Open the org and watch some repos first.\",`; src/app/api/org/scan/route.ts:133 `send(\"error\", { error: `Out of scan credits: ...` })`; route.ts:246 `send(\"queued\", { runId, queued: remaining, total });`; src/components/org/shared/useOrgScanButton.ts:16 imports emptyRoster/foldQueueSnapshot/foldStreamFrame/retryScope; `wc -l src/components/launch/FleetMap.tsx` = 300."
+ },
+ {
+  "context": "Launch Fleet Map",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Scan what you filtered: the triage match set becomes one scoped fleet scan",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/components/launch/FleetMap.TriageControls.tsx",
+   "src/components/launch/FleetMap.tsx",
+   "src/components/launch/useFleetScan.ts"
+  ],
+  "new_files": [
+   "src/components/launch/fleetScopeModel.ts",
+   "src/components/launch/fleetScopeModel.test.ts",
+   "src/components/launch/FleetMap.ScopeScan.tsx",
+   "src/components/launch/fleetScopeScan.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/onboarding/wizard.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/components/launch/FleetMap.TriageControls.tsx: 137 -> ~146 (cap 300; one `action` ReactNode slot beside the match count)",
+   "src/components/launch/FleetMap.tsx: 300 today; ~215 after card A -> ~240 (cap 300). Without card A first it would cross the cap, so this card is SEQUENCED after card A",
+   "src/components/launch/useFleetScan.ts (created by card A, ~150) -> ~185: scan(login, scope?) + one single-pending multi-org plan with cancel",
+   "src/components/launch/fleetScopeModel.ts: new ~95",
+   "src/components/launch/FleetMap.ScopeScan.tsx: new ~90 (cap 300)",
+   "src/components/launch/fleetScopeModel.test.ts: new ~130; src/components/launch/fleetScopeScan.dom.test.tsx: new ~150"
+  ],
+  "acceptance": [
+   "scopePlan(constellations, matcher=undefined) -> null (no filter, no action; the per-org Scan stays the unfiltered path)",
+   "scopePlan with levels {'unscanned'} over org A {a1 watched unscanned, a2 unwatched unscanned, a3 watched L3} and org B {b1 watched unscanned} -> runs [{org:'A', repos:['a1']}, {org:'B', repos:['b1']}], scanCount 2, excludedUnwatched 1",
+   "scopePlan ignores loading/error orgs but NOT the MAX_STARS slice: a matched watched repo beyond the 80th star of a done org is still in its run",
+   "scopePlan where every match is unwatched -> runs [] with reason 'none-watched' (the button renders disabled-with-reason and never POSTs an empty scope, which the server would widen to the whole watchlist: route.ts:80 only filters when repos is non-empty)",
+   "scopeLabel(plan) -> 'Scan 2 matching watched repos (2 orgs) · 1 unwatched not scanned'",
+   "runPlan (dom, via useFleetScan): plan with 2 runs -> exactly one /api/org/scan POST in flight at a time, bodies {org:'A',repos:['a1']} then {org:'B',repos:['b1']}; per-org Scan buttons read scanDisabled while the plan runs",
+   "runPlan (dom): Cancel after the first run settles -> the second POST is never sent",
+   "runPlan (dom): first run answers 402 -> the plan stops, org A shows the refusal outcome, org B is not scanned"
+  ],
+  "guards": [
+   "fleetMapTriage.test.tsx and fleetMapTriage.url.test.tsx stay green: filter semantics (dim, not remove), URL round-trip and the match count are untouched; the action only reads makeMatcher's predicate"
+  ],
+  "premise": [
+   "src/components/launch/fleetMapDerive.ts:133-150 - makeMatcher already yields the exact predicate the user built (q, level bands incl. 'unscanned', watched-only)",
+   "src/components/launch/fleetMapDerive.ts:177-191 + src/components/launch/FleetMap.TriageControls.tsx:122-124 - the map counts and announces 'N of M match' but offers nothing to do with the set; filtering only dims (src/components/launch/ConstellationField.tsx:84,193)",
+   "src/components/launch/FleetMap.tsx:117,276 - the only scan on the map is per-org and unscoped (body {org: login}), one at a time (scanDisabled)",
+   "src/app/api/org/scan/route.ts:80-83 - the route already accepts `repos:[...]` and intersects it with the watchlist, so a scoped run needs no server change and charges as any scoped run does (the dashboard already sends scoped runs: src/components/org/shared/useOrgScanButton.ts:142,195-198)",
+   "src/components/launch/fleetMapStars.ts:11 - every RepoStar carries `watched`, so the client can say up front which matches will and will not be scanned instead of the server dropping them silently",
+   "src/components/launch/ConstellationField.tsx:58 - stars past MAX_STARS are not drawn, so a filter is the only way to reach (and now act on) them from the map"
+  ],
+  "rollback": "Revert the series: the TriageControls action slot, FleetMap.ScopeScan and fleetScopeModel are additive; useFleetScan's optional scope/plan path is removed and per-org Scan behaves as card A left it.",
+  "gate": "direction",
+  "doc": "docs/features/onboarding/wizard.md",
+  "runner_up": "Watch-and-scan from the map: the empty-watchlist outcome offers 'Watch these N stars and scan' instead of 'open the org and watch some repos first' (not top pick: watching widens cron rescan spend, a billing-adjacent decision).",
+  "body": "## Summary\nThe fleet map lets you build a precise question ('unscanned repos', 'L1 across orgs', 'repos named *api*') and then only dims the answer. Turn the match set into one action, 'Scan 7 matching watched repos (3 orgs)', previewed before it runs and executed as a single pending, cancellable plan of scoped per-org scans.\n\n## Description\nLighting up the dark stars across a fleet today means: filter, read the count, open each org, find the repos, scan the whole watchlist (re-scanning fresh repos too), come back. The app already holds everything the decision needs: makeMatcher's predicate, each star's `watched` flag, and a route that accepts an explicit repo scope and intersects it with the watchlist. A pure `fleetScopeModel` turns (constellations, matcher) into a plan: per-org runs of matched WATCHED repos, the unwatched matches it will not scan (stated as a count up front), and a disabled-with-reason state when nothing is scannable. `FleetMap.ScopeScan` renders the preview label and Scan/Cancel in TriageControls' new action slot. useFleetScan (card A) runs the plan one org at a time under the existing one-scan lock, each run reporting through the same per-card outcome. Registry: batch-undo-commit-window / single-pending-batch-invariant and bounded-fanout-commit; the count-carries-predicate law (the label says what its number counts).\n\n## Flow\n- Filter (e.g. the unscanned band) -> TriageControls shows '9 of 80 match' plus 'Scan 6 matching watched repos (2 orgs) · 3 unwatched not scanned'.\n- Click -> the plan runs org by org via POST /api/org/scan {org, repos}; stars brighten in place; per-org Scan buttons lock with the existing explanation; Cancel stops the plan.\n- A refusal (402/403) stops the plan and shows its outcome on that org's card.\n\n## Expected impact\nFive navigations become one previewed click, and scans are spent only on the repos the user selected rather than on whole watchlists. The pre-scan count makes the size of the action visible before it is taken.\n\n## Evaluation\nClaim: a filtered match set is scannable in one previewed, single-pending action.\nBefore: 0 of 8 cases pass (no plan model, no action)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: direction (a new action on the post-OAuth surface; sequenced after card A's useFleetScan; no route, billing or authz change)",
+  "evidence": "src/components/launch/fleetMapDerive.ts:141-149 makeMatcher returns the predicate or undefined; src/components/launch/FleetMap.TriageControls.tsx:122-124 `no repos match` / `${matchCount.matched} of ${matchCount.total} match` is the only output of a filter; src/components/launch/FleetMap.tsx:117 `body: JSON.stringify({ org: login })` (never scoped); src/app/api/org/scan/route.ts:80-81 `if (Array.isArray(body.repos) && body.repos.length > 0) { const want = new Set(...)`; src/components/launch/fleetMapStars.ts:11 `watched: boolean;`."
+ },
+ {
+  "context": "Data Retention & Purge",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Purge ledgers as one declared table: preview becomes a mode of the deleter",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/lib/db/retention.ts",
+   "src/lib/db/retention-policy.ts"
+  ],
+  "new_files": [
+   "src/lib/db/retention-ledgers.ts",
+   "src/lib/db/retention-counters.ts",
+   "src/lib/db/retention-ledgers.test.ts",
+   "src/lib/db/retention-counters.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/data/retention.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/db/retention.ts: 2808 -> ~2480 (no .tsx cap; shrinks, spirit of the split rule)",
+   "src/lib/db/retention-policy.ts: 351 -> ~365 (no .tsx cap)",
+   "src/lib/db/retention-ledgers.ts: new ~180",
+   "src/lib/db/retention-counters.ts: new ~90",
+   "src/lib/db/retention-ledgers.test.ts: new ~190",
+   "src/lib/db/retention-counters.test.ts: new ~110"
+  ],
+  "acceptance": [
+   "Seeded fake prisma with UsageEvent, ConformanceReport(+findings), OrgMemoryCitation and ControlObservation rows straddling the cutoff (including one row exactly AT the cutoff and one pair's newest row before it): purgeExpiredData({dryRun:true, onlyOrgSlug}) counters === the counters of a following real purgeExpiredData for every aged-ledger key -> equal, key by key",
+   "pruneRepoScans's withRetry throws on the 3rd delete batch after 2 committed batches of 500: the org's OrgPurgeResult in the summary reports scansDeleted=1000 (and the committed dimensions/recommendations), not 0, and errors names the org -> partial result recorded (today the counters live inside pruneRepoScans and are lost on throw)",
+   "The same fault inside the usage-event ledger sweep after 1 committed batch: usageEventsDeleted equals that batch's count, not 0 -> committed counts survive the throw",
+   "Every key of PURGE_COUNTER_KEYS appears in zeroOrgResult(), in the retention.purged audit meta of a real run, and in the PurgeSummary rollup; a key absent from any of the three fails the test -> one list drives all of them",
+   "A test-only ledger descriptor appended to the table (fake model, orgId + createdAt predicate) is counted by dryRun and deleted by a real run with NO edit to purgeExpiredData -> derived, not hand-listed",
+   "The orphan sweep's result row is built from zeroOrgResult() overlaid with auditDeleted, so its per-ledger zeros are produced by the scope rule, not typed by hand -> orphan row keys equal PURGE_COUNTER_KEYS",
+   "A dry run writes no audit row and calls no deleteMany on any ledger (spy) -> preview stays side-effect free",
+   "CRITIC REVISE: for every ledger, the descriptor predicate equals a snapshot of todays inline delete predicate (incl. keep-newest-per-pair and the strict lt cutoff boundary): a row exactly at the cutoff is kept, as today"
+  ],
+  "guards": [
+   "A dry run writes no audit row and calls no deleteMany on any ledger (spy) -> preview stays side-effect free",
+   "dryRun counters === real-run counters for the four aged ledgers (equal today by hand-copied predicates; pinned so the table cannot drift them)"
+  ],
+  "premise": [
+   "src/lib/db/retention.ts:867 - purgeExpiredData's dry run is a separate branch that COUNTS each aged ledger with its own hand-copied predicate (usageEvent.count at :914-915, conformanceReport.count :917, orgMemoryCitation.count :926) while the real path re-writes the same predicates for findMany at :1044-1045, :1071, :1107-1108",
+   "src/lib/db/retention.ts:1800-1811 - the ERASE path already has the right shape: a `drain(find, count, del)` closure where one shared `where` serves both the preview count and the delete; the purge path never adopted it",
+   "src/lib/db/retention.ts:852 - one counter (usageEventsDeleted) is named in 13 places inside purgeExpiredData (:852, :914, :950, :1042, :1162, :1182, :1208, :1246, :1266, :1320, :1394 ...); the same is true of all 15 counters: the dry-run results.push (:941), totalDeleted (:1155), audit meta (:1173), success push (:1199), partialDeleted (:1239), catch push (:1257), orphan zeros (:1308) and the rollup reduce block",
+   "src/lib/db/retention.ts:224-231 + :1005 - pruneRepoScans keeps its counters in locals and returns them only on success; the caller adds `scansDeleted += r.scans` at :1005 after the call returns, so a throw in a later batch discards counts of batches already committed",
+   ".ai/registry-map.json - this context's data-retention pair is state `deviation` with evidence 'src/lib/db/retention.ts:1005 The org receives scan counts only after the entire repo prune returns, so a later batch failure loses counts from earlier committed batches.'",
+   "../ai-registry .../data-retention/techniques/dry-run-preview.md - 'The preview is a mode of the deleter, not a second implementation that counts ... it drifts on the first change that touches only one of them'"
+  ],
+  "rollback": "Pure refactor behind an unchanged purgeExpiredData/PurgeSummary contract: revert the series (new modules + the two edited files) and the old inline branches return; no schema, no data, no route change.",
+  "gate": "architecture",
+  "doc": "docs/features/data/retention.md",
+  "runner_up": "Seal-aware control-ledger sweep: never delete observations from a day that has no ControlLedgerSeal yet (closes the doc's own Known gap; deletes strictly less).",
+  "body": "## Summary\nThe nightly purge counts and deletes every aged ledger with two separately written predicates, and carries 15 counters through ~8 hand-written lists. Declare each purged ledger once, in a table, and let the preview, the delete, the result row, the audit meta and the rollup all derive from it. The same move fixes a recorded registry deviation: counts of committed batches are lost when a later batch throws.\n\n## Description\nThe erase path already got this right with its `drain(find, count, del)` closure (retention.ts:1800). The purge path did not. Its dry run (retention.ts:867) is a second implementation that counts, and the golden path's dry-run-preview technique calls that out as a lie waiting to happen. Today a new ledger such as a wave-5 table has to be edited into about 8 places inside `purgeExpiredData`. If it is missed in the dry-run branch, the preview under-reports. If it is missed in `totalDeleted`, the audit trace is skipped.\n\n- `retention-ledgers.ts`: `PURGE_LEDGERS`, a readonly array of descriptors `{ key, horizon: 'audit', where(orgId, cutoff), orderBy, children?, keepNewestPerPair? }`, plus `sweepLedger(desc, mode: 'count'|'delete', acc)`. The sweep adds into a caller-owned accumulator after every committed batch. The control-observation keep-newest rule and conformance findings-before-report become descriptor fields, not special branches.\n- `retention-counters.ts`: `PURGE_COUNTER_KEYS` (const tuple), `zeroOrgResult()`, `sumDeleted(r)` (excludes digestsWritten and scansCompacted, as today), `rollup(results)`, `auditMeta(r)`. There is also a compile-time assertion that the keys equal the numeric keys of `OrgPurgeResult`.\n- `pruneRepoScans` takes an accumulator instead of returning locals, so the catch block at :1232 sees real partial counts.\n- `purgeExpiredData` becomes a loop over `PURGE_LEDGERS` with one `mode` flag. The budget checks, floor refusal, rotation and orphan/queue/quota sweeps are unchanged.\n\n## Flow\n- Resolve the policy, check the floor and compute the cutoff (unchanged).\n- Scan prune per repo writes into acc (per batch).\n- For each descriptor: sweepLedger(desc, dryRun ? 'count' : 'delete', acc), with a budget check between them.\n- On success or throw: results.push(acc), since there is one row builder.\n- If sumDeleted(acc) > 0 and this is not a dry run: recordAudit(PURGE_ACTION, auditMeta(acc)).\n\n## Expected impact\nThe preview equals the delete by construction, not by comment. Adding a ledger is a one-row edit. The registry deviation at :1005 closes. purgeExpiredData drops by roughly 300 lines.\n\n## Evaluation\nClaim: preview and delete share one predicate per ledger, and committed counts survive a throw\nBefore: 2 of 7 cases pass (the two guards)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first against a fake prisma (retention.test.ts already uses one)\nResult: better\nGate: architecture",
+  "evidence": "retention.ts:914 `usageEventsDeleted = await prisma.usageEvent.count({` / :915 `where: { orgId: org.id, createdAt: { lt: cutoff } },` vs :1044-1045 `prisma.usageEvent.findMany({ where: { orgId: org.id, createdAt: { lt: cutoff } },`; :1005 `scansDeleted += r.scans;` after `const r = await pruneRepoScans(` returns; erase-side :1800 `const drain = async (find, count, del, label) => { if (overBudget()) return 0; if (dryRun) return count(); return pruneAgedLedger(...)`; `grep -n usageEventsDeleted src/lib/db/retention.ts` -> 13 hits in purgeExpiredData alone.",
+  "revise_applied": "add a predicate-snapshot pin against todays inline predicates incl keep-newest-per-pair and the lt boundary"
+ },
+ {
+  "context": "Data Retention & Purge",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Retention card answers 'what does MY edit add, and did the last purge run?'",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "src/features/admin/settings/RetentionCard.tsx",
+   "src/features/admin/settings/RetentionCard.test.tsx",
+   "src/app/api/org/retention/route.ts",
+   "src/app/api/org/retention/route.test.ts",
+   "src/features/admin/settings/settingsData.ts",
+   "src/features/admin/settings/SettingsTab.tsx",
+   "src/features/admin/settings/SettingsTab.v1.tsx",
+   "src/features/admin/settings/SettingsTab.v2.tsx"
+  ],
+  "new_files": [
+   "src/features/admin/settings/RetentionPreviewPanel.tsx",
+   "src/features/admin/settings/retentionPreviewModel.ts",
+   "src/features/admin/settings/retentionPreviewModel.test.ts",
+   "src/features/admin/settings/retentionReceiptModel.ts",
+   "src/features/admin/settings/retentionReceiptModel.test.ts",
+   "src/lib/db/retention-receipt.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/data/retention.md",
+   "docs/features/org-dashboard/org-intelligence.md",
+   "src/features/admin/settings/erasePreviewViz.ts"
+  ],
+  "loc_check": [
+   "src/features/admin/settings/RetentionCard.tsx: 169 -> ~160 (cap 200; the dl block at :146-158 moves out to RetentionPreviewPanel.tsx)",
+   "src/features/admin/settings/RetentionCard.test.tsx: 109 -> ~170 (cap 200)",
+   "src/app/api/org/retention/route.ts: 137 -> ~140 (no .tsx cap; emptyPreview's 22-line hand-list is replaced by the baseline call)",
+   "src/app/api/org/retention/route.test.ts: 148 -> ~195 (no feature cap; outside src/features)",
+   "src/features/admin/settings/settingsData.ts: 17 -> ~20 (cap 200)",
+   "src/features/admin/settings/SettingsTab.tsx: 60 -> ~63 (cap 200)",
+   "src/features/admin/settings/SettingsTab.v1.tsx: 53 -> ~54; SettingsTab.v2.tsx: 70 -> ~71 (cap 200)",
+   "src/features/admin/settings/RetentionPreviewPanel.tsx: new ~110 (no hooks, so no 'use client'; rendered inside the client card)",
+   "src/features/admin/settings/retentionPreviewModel.ts: new ~130; retentionReceiptModel.ts: new ~80; tests ~150 / ~110 (cap 200)",
+   "src/lib/db/retention-receipt.ts: new ~60"
+  ],
+  "acceptance": [
+   "retentionPreviewModel(baseline, proposed) over OrgPurgeResult with controlObservationsDeleted 0 -> 40 and usageEventsDeleted 100 -> 100 -> rows include 'Control observations' (group Governance, now 0, proposed 40, delta +40) and 'Usage events' (delta 0); every numeric counter the body carried yields a row, using the BLAST labels from erasePreviewViz.ts",
+   "proposed.digestsWouldWrite === null -> that row's state 'unknown' and the delta 'unknown', never 0",
+   "A preview response with no `preview` body (failure or missing) -> model state 'unknown' and Save stays disabled; today RetentionCard.tsx:86 substitutes zeros",
+   "Route POST {preview:true} with a draft that differs from the stored columns -> previewOrgRetention is called twice (stored, then proposed) and the body carries {preview, baseline, errors}; with a draft equal to stored -> called once and baseline === preview",
+   "Route preview whose summary.errors is non-empty -> the card renders those errors in a role=alert line instead of dropping them (today route.ts:108 sends them and the card ignores them)",
+   "retentionReceiptModel(lastPurge = retention.purged row at T2 with {scansDeleted:12, usageEventsDeleted:3}, lastSave = retention.updated at T1 < T2) -> state 'applied', 'Last purge removed 15 rows on <T2>'; with T2 < T1 -> state 'not-since-save', copy 'No purge has removed anything since this policy was saved' (the honest wording, because a zero-delete tick writes no row by design); with no purge row -> 'never'",
+   "getRetentionReceipt('acme') queries AuditLog only with orgId = acme's id and action in ['retention.purged','retention.updated'] (spy on the where) -> never reads another org's rows"
+  ],
+  "guards": [],
+  "premise": [
+   "src/features/admin/settings/RetentionCard.tsx:19-24 - the card's PreviewCounts type keeps 5 of the 16 OrgPurgeResult counters; :146-158 renders only Scans, Dimensions, Recommendations, Audit, Digests. Usage events, conformance reports and findings, memory citations, control observations, intervention outcomes, recommendation events and digestsDeleted are never shown, though src/lib/db/retention-policy.ts:143-185 carries them",
+   "src/features/admin/settings/erasePreviewViz.ts:27-58 - the ERASE dialog already labels every one of those counters (e.g. :56 'Usage events', :58 'Control observations', group Governance), so the retention card shows less of the radius than its sibling",
+   "src/features/admin/settings/RetentionCard.tsx:86 - a response without `preview` is replaced by zeros, while the erase preview's contract is 'unknown-on-failure, never zeros' (docs/features/data/retention.md:290-293)",
+   "src/app/api/org/retention/route.ts:102-108 - the preview returns `errors: summary.errors`, and the card never reads them",
+   "src/app/api/org/retention/route.ts:102 - the preview counts the PROPOSED policy only. The owner sees what tonight's purge deletes in total, not what their edit adds over the policy already in force",
+   "src/features/admin/settings/RetentionCard.tsx:110 + :90 - the card promises 'applies on the next nightly purge' and then never shows whether one ran. The only consumer of a retention.purged row is the generic audit filter label (src/features/admin/audit/auditActions.ts:156); `grep -rn 'retention.purged\\|PURGE_ACTION' src` finds no other reader",
+   "src/lib/db/retention.ts:1172 - retention.purged is written only when totalDeleted > 0, so the receipt has to say 'nothing removed since save' and not 'did not run'"
+  ],
+  "rollback": "Revert the series. The route's extra `baseline` field is additive, older clients ignore it, and the receipt is a read-only audit query. No schema change, no write path.",
+  "gate": "contract",
+  "doc": "docs/features/data/retention.md",
+  "runner_up": "Erase card resumes itself: a `complete:false` erase auto-continues pass by pass with a live per-family progress bar instead of asking the owner to click again.",
+  "body": "## Summary\nOwners edit a destructive policy and approve it after seeing five numbers. Those numbers are the absolute total, not the effect of the edit, and the card never says whether the purge it promises ever ran. The card should show the full per-ledger blast radius as a delta between the current and proposed policy, and a receipt for the last purge.\n\n## Description\nThe erase dialog was brought up to the full blast radius in c40708f73. The retention preview was not, and it still hides governance evidence (control observations), the LLM meter (usage events) and conformance history, even though the server already counts them. The decision an owner is making is 'what does tightening 90 to 30 days cost me', and the screen cannot answer it.\n\n- `retentionPreviewModel.ts` (pure): `(baseline: OrgPurgeResult | null, proposed: OrgPurgeResult | null) -> { state: 'ready'|'unknown', groups: [{ title, rows: [{ key, label, now, proposed, delta, unknown }] }] }`. It reuses the BLAST label table from erasePreviewViz.ts, omits counters the body did not carry, and propagates `null` digest counts as unknown.\n- Route: when the draft differs from the stored columns, run previewOrgRetention twice (stored, then proposed) and return `{ preview, baseline, errors }`. This replaces the hand-written `emptyPreview` zero list.\n- `retention-receipt.ts`: `getRetentionReceipt(slug)` returns the newest `retention.purged` and `retention.updated` rows for that org id only.\n- `retentionReceiptModel.ts` (pure) maps those to 'applied' | 'not-since-save' | 'never', with honest copy.\n- `RetentionPreviewPanel.tsx` renders the delta table, the errors line and the receipt strip. RetentionCard keeps the form and the fetch.\n\n## Flow\n- Settings loads, and the receipt strip reads 'Last purge removed 15 rows on Oct 21 · policy saved Oct 3'.\n- The owner edits the audit days and previews.\n- A grouped table appears: Governance > Control observations 0 -> 40 (+40); any errors appear in an alert.\n- Save stays gated on a successful preview, as today.\n\n## Expected impact\nThe owner sees the marginal cost of the edit across every ledger before saving. A failed preview can no longer read as 'deletes nothing'. The promise in 'applies on the next nightly purge' gets a visible receipt.\n\n## Evaluation\nClaim: the card reports the edit's per-ledger delta, reports unknown as unknown, and shows the last-run receipt\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first (pure models plus route spies plus a jsdom card test)\nResult: better\nGate: contract (additive `baseline` field on the preview response)",
+  "evidence": "RetentionCard.tsx:19 `type PreviewCounts = {` ... :24 `digestsWouldWrite: number | null;` (5 fields); :86 `setPreview(data.preview ?? { scansDeleted: 0, dimensionsDeleted: 0, recommendationsDeleted: 0, auditDeleted: 0, digestsWouldWrite: null });`; route.ts:102 `const summary = await previewOrgRetention(org, parsed.stored);` / :108 `errors: summary.errors,`; erasePreviewViz.ts:56 `[\"usageEventsDeleted\", \"Usage events\", \"Governance\"]`, :58 `[\"controlObservationsDeleted\", \"Control observations\", \"Governance\"]`; grep for retention.purged|PURGE_ACTION outside tests -> auditActions.ts, db/index.ts, retention-policy.ts, retention.ts only (no reader)."
+ },
+ {
+  "context": "MCP Server",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One tool registry both doors dispatch through; Athena's private recall retires",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/lib/mcp/handlers.ts",
+   "src/lib/athena/grounding.ts",
+   "src/lib/athena/grounding.test.ts",
+   "src/app/api/mcp/gates.ts",
+   "src/lib/mcp/write-gate.ts"
+  ],
+  "new_files": [
+   "src/lib/mcp/tool-registry.ts",
+   "src/lib/mcp/tool-registry.test.ts",
+   "src/lib/athena/grounding.recall.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/companion/README.md",
+   "docs/features/org-knowledge/skills.md",
+   ".ai/registry-map.json"
+  ],
+  "loc_check": [
+   "src/lib/mcp/handlers.ts: 468 -> ~440 (no cap: .ts outside src/features; switch body moves out)",
+   "src/lib/athena/grounding.ts: 389 -> ~325 (no cap; recallOrgMemoryLocal + ATHENA_RECALL_CANDIDATES + loadWorkingSet dep + PRINCIPAL_SCOPE removed)",
+   "src/lib/athena/grounding.test.ts: 402 -> ~395 (no cap; loadWorkingSet fixture replaced by runTool fixture)",
+   "src/app/api/mcp/gates.ts: 98 -> ~97 (McpPlanGate re-exported from tools.ts)",
+   "src/lib/mcp/write-gate.ts: 219 -> ~219 (import path only)",
+   "src/lib/mcp/tool-registry.ts: new ~110",
+   "src/lib/mcp/tool-registry.test.ts: new ~120",
+   "src/lib/athena/grounding.recall.test.ts: new ~110"
+  ],
+  "acceptance": [
+   "Object.keys(MCP_TOOL_BINDINGS).sort() deep-equals MCP_TOOLS.map(t=>t.name).sort(), and holder:true is bound for exactly claim_followups, get_fix_brief, report_attempt -> pass (red before: module absent)",
+   "athenaToolCatalog over a fixture registry where a non-mutating tool binds holder:true but declares no followups:write scope -> that tool is NOT offered (red before: grounding.ts:143-144 excludes by the followups:write scope heuristic, so it is offered)",
+   "Athena execute(recall_org_memory {query:'zebra'}) over a store of 61 active memories whose only 'zebra' row is the oldest -> count 1 with that row's id (red before: grounding.ts:178 loads the newest 60 then filters, answers count 0 'No stored memory matched')",
+   "Athena recall over a matching population larger than the recall cap -> structuredContent.notConsideredCount > 0 (red before: field never produced on the Athena path)",
+   "Same fixture rows through runTool('recall_org_memory', ..., {countDeliveries:false}) and through Athena execute -> identical structuredContent apart from Athena's untrusted fence (red before: Athena returns namespace '' not null and omits usedChars/charBudget/citing)",
+   "Athena recall -> bumpMemoryAccessCounts not called; MCP door recall -> called once with the delivered ids",
+   "runTool('get_fix_brief','acme',{ids:['r1']}) with no principal -> isError, text names 'named holder'",
+   "CRITIC REVISE: the registry marks holder:true for at least the three tools that require a holder today (pinned by name)"
+  ],
+  "guards": [
+   "Athena recall -> bumpMemoryAccessCounts not called; MCP door recall -> called once with the delivered ids",
+   "runTool('get_fix_brief','acme',{ids:['r1']}) with no principal -> isError, text names 'named holder'"
+  ],
+  "premise": [
+   ".ai/registry-map.json - MCP Server x mcp-tools is recorded state 'deviation': 'src/lib/mcp/handlers.ts:421 Dispatch maintains a separate switch over tool names instead of resolving handlers through the published registry, leaving two authorities for which tools exist' (stale:true, 3 revisions behind)",
+   "src/lib/mcp/handlers.ts:432-467 - a 16-arm switch re-lists every catalog name; holder-need is encoded per arm as `principal ? ... : unattributed(name)` (lines 433-438), not as a property of the tool",
+   "src/lib/athena/grounding.ts:4-6 and 163-165 - Athena keeps its own recall_org_memory 'until that handler uses the same packer' / 'The MCP handler still slices scoreMemories by limit'; that premise is gone: src/lib/mcp/handlers.ts:334 already packs with recallMemories (commit 95105469 'fix(MCP): use shared memory recall packing')",
+   "src/lib/mcp/handlers.ts:307-311 - the MCP door moved query terms INTO the population WHERE because 'Loading the newest 400 and filtering after answered a stored-but-older topic with nothing was recorded, a false absence' (commit 47d10a70); src/lib/athena/grounding.ts:83 + 178-183 still load the newest ATHENA_RECALL_CANDIDATES=60 via lifecycleWorkingSet and filter afterwards - the same bug, fixed at one door only",
+   "src/lib/athena/grounding.ts:139-145 - PRINCIPAL_SCOPE='followups:write' is a heuristic standing in for 'this tool needs a holder'; src/lib/athena/grounding.ts:256 and 268 re-scan MCP_TOOLS by name per call",
+   "src/lib/mcp/tools.ts:44 and src/app/api/mcp/gates.ts:23 - McpPlanGate is declared twice; src/lib/mcp/write-gate.ts:31 imports the gates.ts copy, tools.ts uses its own"
+  ],
+  "rollback": "Three commits (registry + runTool dispatch; Athena consumes runTool recall and the derived holder set; McpPlanGate single declaration). Each reverts independently; the registry module is additive and runTool only gains an optional trailing options arg.",
+  "gate": "architecture",
+  "doc": "docs/features/companion/README.md (Athena recall finds older matching memories, reports notConsideredCount); docs/features/org-knowledge/skills.md for the MCP dispatch note",
+  "runner_up": "Write-ceiling ledger is count-then-run-then-audit (route.ts:246, 272, 288): concurrent calls overshoot perTokenDailyMax, and an audit failure after a successful handler leaves an uncounted write reported to the agent as 'tool failed'.",
+  "body": "## Summary\nBind every MCP tool's handler and holder requirement into one registry keyed by catalog name (src/lib/mcp/tool-registry.ts), dispatch runTool from it, and have Athena derive her tool set and recall from the same door - deleting her private recall_org_memory, which still carries the population-cap false absence the MCP door fixed in 47d10a70.\n\n## Description\nThe registry map records this context as a deviation from mcp-tools: the catalog (tools.ts), the dispatch switch (handlers.ts:432), the write table (write-gate.ts) and Athena's hand-lists (grounding.ts:64, 139) are four authorities on what a tool is. The cost is already concrete: Athena kept a local recall 'until the handler uses the same packer'; the handler now does, then gained a terms-before-cap fix, and Athena's copy did not. Applies mcp-tools/first-party-agent-is-a-principal ('an agent's tool set is computed by excluding writes rather than by granting reads'; one dispatch door) and mcp-tools/server-composition.\n\n## Flow\n- tool-registry.ts: MCP_TOOL_BINDINGS: Record<name, {run(org,args,principal?,opts?), holder: boolean}>; structural test pins keys == MCP_TOOLS names.\n- runTool: validate (unchanged) -> look up binding -> holder && !principal ? unattributed : run. Optional opts {countDeliveries?: boolean} (default true) threads into recallMemory's bumpMemoryAccessCounts.\n- grounding.ts: catalog excludes mutates || binding.holder; recall dispatches deps.runTool(name, slug, args, undefined, {countDeliveries:false}); recallOrgMemoryLocal, ATHENA_RECALL_CANDIDATES, loadWorkingSet and PRINCIPAL_SCOPE deleted; untrusted fence unchanged.\n- gates.ts re-exports McpPlanGate from tools.ts.\n\n## Expected impact\nOne place to add a tool; holder-need becomes a declared fact; Athena stops answering 'nothing recorded' for memories older than the newest 60 and gains notConsideredCount honesty. MCP wire behaviour unchanged (no external-consumer change; no token reads more).\n\n## Evaluation\nClaim: dispatch and Athena's recall derive from one registry and one recall implementation\nBefore: 0 of 5 non-guard cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture",
+  "evidence": "handlers.ts:432 `switch (name) {` ... :433-434 `case \"claim_followups\": return principal ? claimFollowupsTool(org, args, principal) : unattributed(name);`; handlers.ts:311 `const { rows, notConsidered } = await recallPopulation(org, { namespace, terms: q }, null);`; grounding.ts:178 `const rows = await loadWorkingSet(org, { limit: ATHENA_RECALL_CANDIDATES });` then :180-183 filter by terms; grounding.ts:83 `export const ATHENA_RECALL_CANDIDATES = 60;`; grounding.ts:139 `const PRINCIPAL_SCOPE = \"followups:write\" as const;`; git log: 47d10a70 'fix(org-memory): MCP recall_org_memory filters by query terms before the population cap', 95105469 'fix(MCP): use shared memory recall packing'.",
+  "revise_applied": "build after run-3 followups-0 (same handlers.ts arms, McpPrincipal in route.ts); re-anchor; pin holder:true superset of todays three"
+ },
+ {
+  "context": "MCP Server",
+  "slot": "B-architecture (no UI surface)",
+  "lens": "architecture-challenger",
+  "title": "Org-authored tool results leave the agent door redacted, with provenance _meta",
+  "size": "M",
+  "effort": 5,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/lib/mcp/tools.ts",
+   "src/lib/mcp/tools.test.ts",
+   "src/app/api/mcp/route.ts"
+  ],
+  "new_files": [
+   "src/lib/mcp/result-egress.ts",
+   "src/lib/mcp/result-egress.test.ts",
+   "src/app/api/mcp/route.egress.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-knowledge/skills.md",
+   "docs/features/org-knowledge/memory.md",
+   "src/lib/athena/grounding.ts"
+  ],
+  "loc_check": [
+   "src/lib/mcp/tools.ts: 540 -> ~565 (no cap: .ts outside src/features; one resultTrust line per entry + interface doc)",
+   "src/lib/mcp/tools.test.ts: 200 -> ~215 (no cap)",
+   "src/app/api/mcp/route.ts: 344 -> ~356 (no cap; one egress call before serialization + _meta on the result)",
+   "src/lib/mcp/result-egress.ts: new ~90",
+   "src/lib/mcp/result-egress.test.ts: new ~150",
+   "src/app/api/mcp/route.egress.test.ts: new ~130 (new file rather than growing route.test.ts at 347)"
+  ],
+  "acceptance": [
+   "POST /api/mcp tools/call get_skill_lessons where a stored lesson body contains 'ghp_' + 36 alnum chars -> result.structuredContent.lessons[0].body and result.content[0].text contain '[REDACTED]' and not the token; result._meta['ascent.dev/redactions'] === 1 (red before: body returned verbatim)",
+   "tools/call recall_org_memory where a matching memory's content is 'db url postgres://app:s3cretpass@db:5432/x' -> entries[0].content contains 'postgres://[REDACTED]@db' (red before: raw)",
+   "tools/call get_skill whose content holds a secret -> contentHash unchanged, content redacted, _meta['ascent.dev/redactions'] >= 1 so the caller can tell the body no longer hashes to contentHash (red before)",
+   "Every org-authored tool result carries _meta['ascent.dev/provenance'] === 'org-authored'; a get_repo_standing result carries no provenance key (red before: no _meta on any call result)",
+   "Structural: every MCP_TOOLS entry declares resultTrust in {'computed','org-authored'}, and the org-authored set deep-equals [...ATHENA_UNTRUSTED_TOOLS].sort() (red before: field absent)",
+   "egressResult over a nested structuredContent with numbers, booleans, nulls, arrays and object keys -> identical shape and non-string values; only string leaves pass through redactSecrets (red before: module absent)",
+   "tools/call get_repo_standing -> response body byte-identical to before the change"
+  ],
+  "guards": [
+   "tools/call get_repo_standing -> response body byte-identical to before the change"
+  ],
+  "premise": [
+   "src/lib/llm/untrusted.ts:44-48 - the house rule: 'THE PROMPT EGRESS FOR TEXT WRITTEN BY AGENTS ... memory bodies, lane lessons, skill and lesson tool results ... An agent that pasted a token while debugging stores it in its lesson, and every later prompt that quotes the lesson would otherwise hand that token to a model'",
+   "src/lib/athena/grounding.ts:64-70 and 300 - Athena applies wrapUntrusted(sanitizeAgentText(text)) to recall_org_memory, find_skills, get_skill, get_skill_lessons, get_governing_subject",
+   "src/app/api/mcp/route.ts:305-313 - the external door serializes the same handler results with toolResultText and returns structuredContent verbatim; grep 'redact|sanitize|wrapUntrusted' over src/lib/mcp and src/app/api/mcp returns nothing",
+   "src/lib/mcp/tool-result.ts:12-16 - toolResultText exists so 'two doors serving the same tool must not be able to show the model two different renderings of the same answer'; today they do (Athena redacted, MCP raw)",
+   "src/lib/mcp/registry-reads.ts:197 (lesson body), :154 (skill content, contentHash at :161) and src/lib/mcp/handlers.ts:362 (memory content) - the foreign-authored fields reach the external agent unredacted",
+   "src/lib/security/redact.ts:74 - redactSecrets(text) is the existing pure masker (github-token, connection-string, jwt, assignment shapes ...)"
+  ],
+  "rollback": "Two commits (catalog resultTrust + pure result-egress module; route applies it). Reverting the route commit restores verbatim results; the catalog field is inert on its own. No schema or stored-data change.",
+  "gate": "policy-tighten",
+  "doc": "docs/features/org-knowledge/skills.md (MCP door: org-authored results are credential-redacted and carry ascent.dev/provenance + ascent.dev/redactions _meta)",
+  "runner_up": "Surface resultTrust on tools/list as a per-tool _meta hint so a client can fence results before calling; deferred because it changes the cached list bytes for every client.",
+  "body": "## Summary\nThe external MCP door hands org- and agent-authored text (memory bodies, skill bodies, LESSONS.md entries, governing subjects) to third-party coding agents with credential shapes intact, while Athena redacts the same results. Declare each tool's result trust in the catalog, apply one pure egress (redactSecrets over string leaves, shape-preserving) at the door, and stamp additive provenance/redaction _meta.\n\n## Description\nThe redaction rule exists once (untrusted.ts sanitizeAgentText) but is applied at only one of the two doors that serve these handlers, keyed by a hand-list in Athena's file. An external agent's model vendor is a further egress the org did not choose; a token pasted into a lesson travels to it on every get_skill_lessons call. Applies mcp-tools/untrusted-result-handling (data with provenance, never instruction) and prompt-safety/output-sanitization ('deciding which egresses mask and which stay verbatim') + cross-language-rule-parity ('masked on screen but raw in the log'). Backward compatible: result shapes and keys unchanged, content stays JSON text (no fence injected into an external client's parse), _meta keys are namespaced and additive. Narrows, never widens, what a token reads.\n\n## Flow\n- tools.ts: McpToolDef.resultTrust: 'computed' | 'org-authored' (required), org-authored on the five tools Athena fences.\n- result-egress.ts: egressResult(def, result) -> {result, redactions}; walks structuredContent string leaves and result.text through redactSecrets for org-authored tools; identity for computed.\n- route.ts: egress before toolResultText; when org-authored add _meta {'ascent.dev/provenance':'org-authored','ascent.dev/redactions':n}.\n- Parity test pins the catalog's org-authored set to ATHENA_UNTRUSTED_TOOLS so the two doors cannot drift (Athena may later derive from the field; grounding.ts is a shared surface, not edited here).\n\n## Expected impact\nZero raw credential shapes leave the agent door; the org can see per-call redaction counts; Athena and MCP stop disagreeing on the same rule.\n\n## Evaluation\nClaim: org-authored MCP results are redacted with provenance; computed results unchanged\nBefore: 0 of 6 non-guard cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: policy-tighten",
+  "evidence": "grounding.ts:300 `return ATHENA_UNTRUSTED_TOOLS.has(name) ? wrapUntrusted(sanitizeAgentText(text)) : text;` vs route.ts:305 `const text = toolResultText(result);` and :309 `structuredContent: result.structuredContent,`; `grep -rn \"sanitizeAgentText\\|wrapUntrusted\\|redact\" src/lib/mcp src/app/api/mcp` -> no matches; registry-reads.ts:197 `body: l.body,`; handlers.ts:362 `content: r.content,`."
+ }
+]
