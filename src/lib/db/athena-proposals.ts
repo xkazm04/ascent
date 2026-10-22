@@ -11,9 +11,13 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import type { OrgId } from "@/lib/org/ids";
+import { ATHENA_STORED_STATUSES, isStoredStatus, type AthenaStoredStatus } from "@/lib/athena/proposal-lifecycle";
 
-export const ATHENA_PROPOSAL_STATUSES = ["open", "accepted", "declined"] as const;
-export type AthenaProposalStatus = (typeof ATHENA_PROPOSAL_STATUSES)[number];
+// The stored set and its lifecycle live in src/lib/athena/proposal-lifecycle.ts (pure), so the
+// client card and this store read one table. `expired` is written by the sweep
+// (athena-proposals-sweep.ts); a value outside the set reads as `unknown`, never as `open`.
+export const ATHENA_PROPOSAL_STATUSES = ATHENA_STORED_STATUSES;
+export type AthenaProposalStatus = AthenaStoredStatus;
 
 /** `kind` is an action id (the action an acceptance would run) or this, a change to her self-model. */
 export const IDENTITY_DIFF_KIND = "identity_diff";
@@ -26,9 +30,12 @@ export interface AthenaProposalRecord {
   kind: string;
   /** The ask — and, once resolved, its outcome merged in under `outcome`. */
   payload: Record<string, unknown>;
-  status: AthenaProposalStatus;
+  /** `unknown` when the column holds a value this build does not recognise: not actionable. */
+  status: AthenaProposalStatus | "unknown";
   resolvedAt: string | null;
   resolvedBy: string | null;
+  /** When the accept claim was taken; null before a claim (and on rows claimed before the column). */
+  claimedAt: string | null;
   createdAt: string;
 }
 
@@ -42,10 +49,11 @@ type Row = {
   status: string;
   resolvedAt: Date | null;
   resolvedBy: string | null;
+  claimedAt?: Date | null;
   createdAt: Date;
 };
 
-function parsePayload(raw: string): Record<string, unknown> {
+export function parsePayload(raw: string): Record<string, unknown> {
   try {
     const parsed: unknown = JSON.parse(raw);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -56,8 +64,9 @@ function parsePayload(raw: string): Record<string, unknown> {
   }
 }
 
-const asStatus = (s: string): AthenaProposalStatus =>
-  (ATHENA_PROPOSAL_STATUSES as readonly string[]).includes(s) ? (s as AthenaProposalStatus) : "open";
+// FAIL-CLOSED. This used to map an unrecognised status to "open", which turned a corrupt or future
+// value into an Accept button. Unknown is its own state, and the lifecycle refuses every edge from it.
+const asStatus = (s: string): AthenaProposalStatus | "unknown" => (isStoredStatus(s) ? s : "unknown");
 
 const toRecord = (r: Row): AthenaProposalRecord => ({
   id: r.id,
@@ -69,6 +78,7 @@ const toRecord = (r: Row): AthenaProposalRecord => ({
   status: asStatus(r.status),
   resolvedAt: r.resolvedAt?.toISOString() ?? null,
   resolvedBy: r.resolvedBy,
+  claimedAt: r.claimedAt?.toISOString() ?? null,
   createdAt: r.createdAt.toISOString(),
 });
 
@@ -167,9 +177,13 @@ export async function resolveAthenaProposal(
 // and in the release is what guarantees it, and it is why reopening a conversation is safe: the card
 // reads its status from the live row, so a resolved proposal paints an OUTCOME rather than a second
 // Accept button.
+//
+// A claim whose request DIED (timeout, deploy, a thrown stamp) is neither released nor retried: the
+// sweep (athena-proposals-sweep.ts) stamps it `interrupted` once it is ATHENA_CLAIM_STALE_MS old.
 
 /**
- * Step 1. `open → accepted` with `resolvedAt` still NULL — the row is claimed, nothing has run yet.
+ * Step 1. `open → accepted` with `resolvedAt` still NULL and `claimedAt` stamped - the row is
+ * claimed (lifecycle `claimed`), nothing has run yet. A claim nobody stamps is reaped by the sweep.
  * Returns the claimed record, or null when another caller already took it (the 409).
  */
 export async function claimAthenaProposal(
@@ -181,7 +195,8 @@ export async function claimAthenaProposal(
   const prisma = getPrisma();
   const { count } = await prisma.athenaProposal.updateMany({
     where: { id, orgId, status: "open" },
-    data: { status: "accepted", resolvedBy: claimedBy },
+    // claimedAt is what lets the sweep tell a live claim from one whose request died.
+    data: { status: "accepted", resolvedBy: claimedBy, claimedAt: new Date() },
   });
   if (count === 0) return null;
   const row = await prisma.athenaProposal.findFirst({ where: { id, orgId } });

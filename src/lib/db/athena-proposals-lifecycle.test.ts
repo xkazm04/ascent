@@ -23,6 +23,7 @@ vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrism
 import { appendAthenaTurn } from "@/lib/db/athena-threads";
 import {
   claimAthenaProposal,
+  getAthenaProposal,
   releaseAthenaProposal,
   stampAthenaProposal,
 } from "@/lib/db/athena-proposals";
@@ -146,7 +147,7 @@ describe("a turn and the proposals it raised are written in ONE transaction", ()
 });
 
 describe("claim → stamp → release, and the where-clauses that make them safe", () => {
-  it("claims only an OPEN row, and leaves resolvedAt NULL", async () => {
+  it("claims only an OPEN row, stamps WHEN it was claimed, and leaves resolvedAt NULL", async () => {
     const updateMany = vi.fn(async () => ({ count: 1 }));
     mockGetPrisma.mockReturnValue({
       athenaProposal: { updateMany, findFirst: async () => proposalRow({ status: "accepted", resolvedBy: "dev" }) },
@@ -155,7 +156,7 @@ describe("claim → stamp → release, and the where-clauses that make them safe
     const row = await claimAthenaProposal("org-1", "p1", "dev");
     expect(updateMany).toHaveBeenCalledWith({
       where: { id: "p1", orgId: "org-1", status: "open" },
-      data: { status: "accepted", resolvedBy: "dev" },
+      data: { status: "accepted", resolvedBy: "dev", claimedAt: expect.any(Date) },
     });
     expect(row?.status).toBe("accepted");
     expect(row?.resolvedAt).toBeNull();
@@ -203,6 +204,15 @@ describe("claim → stamp → release, and the where-clauses that make them safe
       where: { id: "p1", orgId: "org-1", status: "accepted", resolvedAt: null },
       data: { status: "open", resolvedBy: null },
     });
+  });
+
+  it("reads an unrecognised stored status as unknown, never as open (no fail-open)", async () => {
+    mockGetPrisma.mockReturnValue({
+      athenaProposal: { findFirst: async () => proposalRow({ status: "banana" }) },
+    });
+    const row = await getAthenaProposal("org-1", "p1");
+    expect(row?.status).toBe("unknown");
+    expect(row?.claimedAt).toBeNull();
   });
 
   it("is a no-op without a database rather than a throw", async () => {

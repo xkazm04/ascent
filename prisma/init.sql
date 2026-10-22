@@ -1770,6 +1770,7 @@ CREATE TABLE "AthenaProposal" (
     "status" TEXT NOT NULL DEFAULT 'open',
     "resolvedAt" TIMESTAMP(3),
     "resolvedBy" TEXT,
+    "claimedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AthenaProposal_pkey" PRIMARY KEY ("id")

@@ -2228,9 +2228,12 @@ model AthenaProposal {
   turnId      String // the assistant turn that raised it (scalar: the turn owns no proposal list)
   kind        String
   payloadJson String    @default("{}") // JSON object (TEXT) — the ask, and after resolution its outcome
-  status      String    @default("open") // open | accepted | declined
+  status      String    @default("open") // open | accepted | declined | expired (lifecycle: src/lib/athena/proposal-lifecycle.ts)
   resolvedAt  DateTime?
   resolvedBy  String? // GitHub login of the human who answered
+  // When an accept CLAIMED the row (accepted, resolvedAt still NULL). Null on an unclaimed row and on
+  // claims taken before the column existed. The sweep reads its age to reap a claim whose request died.
+  claimedAt   DateTime?
   createdAt   DateTime  @default(now())
 
   org    Organization @relation(fields: [orgId], references: [id])
