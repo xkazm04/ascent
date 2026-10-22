@@ -432,7 +432,8 @@
         "src/app/api/audit/**",
         "src/features/admin/audit/**",
         "src/lib/db/mode.ts",
-        "src/instrumentation.ts"
+        "src/instrumentation.ts",
+        "src/lib/db/audit-append.ts"
       ]
     },
     {

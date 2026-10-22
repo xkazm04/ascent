@@ -93,10 +93,18 @@ inline comments (most models carry a multi-line design-rationale comment there).
 `src/lib/db/audit-integrity.ts` is the whole mechanism; it is migration-free (no new column) and
 inert when no `AUDIT_SIGNING_SECRET` / `AUTH_SECRET` is set.
 
-1. **Write**: `recordAudit` / `claimOrgAuditOnce` stamp `at` explicitly, then `withAuditSignature()`
-   folds an HMAC-SHA256 over the canonical `(action, orgId, actorId, createdAt, meta)` into
-   `meta._sig`. The secret never leaves the server; each row is independently verifiable (no chain,
-   so concurrent writers can't fork it).
+1. **Write**: every audit row goes through ONE door, `src/lib/db/audit-append.ts`. It stamps `at`
+   once (the signed instant is the stored instant), then `withAuditSignature()` folds an HMAC-SHA256
+   over the canonical `(action, orgId, actorId, createdAt, meta)` into `meta._sig`. `appendAudit`
+   takes the prisma client or a transaction client (so `scan.created`, `recommendation.updated` and
+   `claimOrgAuditOnce` keep their in-transaction atomicity), `appendAuditBatch` signs a `createMany`
+   batch over one shared instant, and `redactAuditRow` is the erasure redaction's re-signing update.
+   Its writers: `recordAudit`, `claimOrgAuditOnce`, `releaseAuditClaim`, `recordConformance`, the
+   scan persist, both recommendation paths, and the erasure redaction. The secret never leaves the
+   server; each row is independently verifiable (no chain, so concurrent writers can't fork it).
+   `src/lib/db/audit-writes.contract.test.ts` fails if any other non-test file calls
+   `auditLog.create/createMany/update/updateMany/upsert`, or if `auditLog.delete/deleteMany` appears
+   outside the retention purge; it strips comments and strings first and carries a seeded violation.
 2. **Read**: `getAuditLog` recomputes the HMAC per row and attaches an `integrity` verdict to every
    `AuditLogEntry`. One HMAC over a few hundred bytes per row, so a 25-row page stays a cheap read
    and the 10k-row CSV cap costs single-digit milliseconds.
