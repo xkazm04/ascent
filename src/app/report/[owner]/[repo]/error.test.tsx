@@ -1,20 +1,30 @@
 // @vitest-environment jsdom
 //
 // The report permalink's segment error boundary: logs the error, shows the digest reference only when
-// there is one, and "Try again" calls reset.
+// there is one, and "Try again" calls reset. It is a RouteError caller now, so the router and Sentry
+// are stubbed the way error.dom.test.tsx stubs them; that file pins refresh-before-reset.
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("@sentry/nextjs", () => ({ captureException: vi.fn() }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
     <a href={typeof href === "string" ? href : "#"} {...rest}>{children}</a>
   ),
 }));
+vi.mock("next/image", () => ({
+  // eslint-disable-next-line @next/next/no-img-element -- a test stub for next/image, not page markup
+  default: ({ alt, ...rest }: { alt: string }) => <img alt={alt} {...rest} />,
+}));
 
 import ReportError from "./error";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe("report permalink error boundary", () => {
   it("renders the failure copy, logs the error, and Try again calls reset", () => {
@@ -24,7 +34,10 @@ describe("report permalink error boundary", () => {
     render(<ReportError error={error} reset={reset} />);
     expect(screen.getByText("Couldn't load this report")).toBeTruthy();
     expect(screen.getByText("Reference: abc123")).toBeTruthy();
-    expect(log).toHaveBeenCalledWith("[report] permalink route error:", error);
+    expect(log).toHaveBeenCalledWith(
+      "[report] permalink route error",
+      expect.objectContaining({ digest: "abc123", message: "kaboom" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(reset).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("link", { name: "Scan another repo" }).getAttribute("href")).toBe("/");
