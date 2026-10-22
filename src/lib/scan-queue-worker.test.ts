@@ -101,7 +101,7 @@ beforeEach(() => {
   h.getInstallationIdForOwner.mockResolvedValue(1);
   h.getInstallationToken.mockResolvedValue("tok");
   h.reserveScanCredit.mockResolvedValue({ skip: false, reserved: true });
-  h.refundScanCredit.mockResolvedValue(undefined);
+  h.refundScanCredit.mockResolvedValue({ refunded: true, balance: 5 });
   h.persistScanReport.mockResolvedValue({ deduped: false });
   h.getRepoSchedule.mockResolvedValue("weekly");
   h.markJobCredit.mockResolvedValue(undefined);
@@ -132,7 +132,7 @@ describe("double-billing across instances", () => {
     expect(b.claimed).toBe(0);
     expect(b.skipped).toBe(1);
     expect(h.reserveScanCredit).toHaveBeenCalledTimes(1);
-    expect(h.reserveScanCredit).toHaveBeenCalledWith("acme", "acme/api", { actor: "queue:cadence" });
+    expect(h.reserveScanCredit).toHaveBeenCalledWith("acme", "acme/api", { actor: "queue:cadence", reservationKey: "scan-job:job_1:1" });
     expect(h.scanRepository).toHaveBeenCalledTimes(1);
   });
 });

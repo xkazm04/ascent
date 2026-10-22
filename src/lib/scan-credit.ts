@@ -6,7 +6,9 @@
 //
 // See src/lib/db/credits.ts for the underlying ledger accounting and docs/features/billing/billing.md.
 
+import { randomUUID } from "node:crypto";
 import { consumeScanCredit, CREDIT_REASON, grantCredits } from "@/lib/db";
+import { refundKeyFor } from "@/lib/db/credit-reservations";
 import { maybeAlertLowCredits } from "@/lib/scan-alerts";
 
 /**
@@ -22,15 +24,21 @@ import { maybeAlertLowCredits } from "@/lib/scan-alerts";
  * BEFORE inference runs, so at debit time no Scan row exists to point at; and `persistScanReport` does
  * not return the row's id, so it is unknown at refund time too. The ledger is append-only — a row is
  * written once — so back-filling the id onto the debit afterwards is not an option we take. It stays
- * optional for the callers that genuinely know it up front (a re-scan of a known row), where it also
- * upgrades `consumeScanCredit`'s idempotency key from a per-invocation `auto:<uuid>` to the natural
- * key `scan:<scanId>`, which is what makes a redelivered debit collapse instead of double-charging.
+ * optional for the callers that genuinely know it up front (a re-scan of a known row), as attribution
+ * only: the debit's idempotency key is the RESERVATION (`reservationKey`, below), never `scan:<scanId>`,
+ * because a scanId-keyed debit let a retry of a REFUNDED reservation run the paid scan for free.
  */
 export interface ScanSpendAttribution {
   /** GitHub login of the viewer who caused the spend, or the honest non-human word for the path. */
   actor?: string;
   /** The Scan row this movement pays for, when it is known BEFORE the debit. Usually undefined. */
   scanId?: string;
+  /**
+   * The RESERVATION this movement belongs to (db/credit-reservations.ts): the debit is written on it and
+   * the refund on `refund:<it>`, so the pair is joinable and each side lands at most once. A queued job
+   * passes `scan-job:<jobId>:<attempt>`; omitted, the reserve mints `scan-hold:<uuid>`.
+   */
+  reservationKey?: string;
 }
 
 /** Outcome of a per-repo credit reservation. */
@@ -62,6 +70,17 @@ export interface ScanCreditReservation {
    * Omitted unless confirmed missing (same contract as consumeScanCredit).
    */
   orgExists?: boolean;
+  /** The ledger key the debit was written on - present exactly when `reserved`. Hand it to
+   *  `refundScanCredit` so the refund names the debit it reverses. */
+  reservationKey?: string;
+}
+
+/** What a refund actually did. `refunded` is true only when the refund row is ON the ledger (written by
+ *  this call or, for a keyed refund, already there); a swallowed failure is `refunded:false`. */
+export interface ScanCreditRefund {
+  refunded: boolean;
+  /** The post-refund balance, or null when nothing was refunded. */
+  balance: number | null;
 }
 
 /**
@@ -80,7 +99,8 @@ export async function reserveScanCredit(
   repoFullName: string,
   opts: ScanSpendAttribution = {},
 ): Promise<ScanCreditReservation> {
-  const res = await consumeScanCredit(orgSlug, { repoFullName, actor: opts.actor, scanId: opts.scanId }).catch(
+  const reservationKey = opts.reservationKey ?? `scan-hold:${randomUUID()}`;
+  const res = await consumeScanCredit(orgSlug, { repoFullName, actor: opts.actor, scanId: opts.scanId, reservationKey }).catch(
     () => null,
   );
   if (!res || (!res.unlimited && !res.ok)) {
@@ -99,24 +119,28 @@ export async function reserveScanCredit(
   // site knows its own size: consumeScanCredit charges exactly one credit on the `charged` path, so
   // the pre-debit balance is balance + 1 — stated here, next to the debit, not assumed downstream.
   if (reserved) await maybeAlertLowCredits(orgSlug, res.balance + 1, res.balance);
-  return { skip: false, reserved, balance: res.balance };
+  return { skip: false, reserved, balance: res.balance, ...(reserved ? { reservationKey } : {}) };
 }
 
 /**
  * Refund a reservation when nothing billable was produced (degrade-to-mock / dedup / throw). No-op
- * unless an overflow credit was actually charged (`reserved`). Best-effort: a failed grant is swallowed.
+ * unless an overflow credit was actually charged (`reserved`).
  *
- * Returns the POST-refund balance, or `null` when nothing was refunded / the grant failed — so a route
- * that already reported `x-ascent-credits-remaining` can correct it without a second read. Every
- * existing caller ignores the value (a widened return is invisible to `await refundScanCredit(...)`).
+ * KEYED: with a `reservationKey` the refund is written on `refund:<key>`, so a second refund of the same
+ * debit (a retry after a lost settle, a second code path) is a no-op rather than a minted credit.
+ * Without one (a reservation made before keys existed) it falls back to grantCredits' per-call key.
+ *
+ * TRUTHFUL: a failed grant is still swallowed (a scan must not fail on bookkeeping), but it is reported
+ * as `refunded:false`, so no caller settles a job as refunded while the credit is in fact still held.
+ * The balance lets a route that already reported `x-ascent-credits-remaining` correct it.
  */
 export async function refundScanCredit(
   orgSlug: string,
   reserved: boolean,
   opts: ScanSpendAttribution & { repoFullName?: string } = {},
-): Promise<number | null> {
-  if (!reserved) return null;
-  return await grantCredits(orgSlug, 1, {
+): Promise<ScanCreditRefund> {
+  if (!reserved) return { refunded: false, balance: null };
+  const balance = await grantCredits(orgSlug, 1, {
     reason: CREDIT_REASON.REFUND,
     // "system" stays the floor, not the answer: it is what a refund fired by a path with no human or
     // job behind it honestly is. A caller that knows better (the viewer who ran the scan, the queue
@@ -124,7 +148,9 @@ export async function refundScanCredit(
     actor: opts.actor ?? "system",
     repoFullName: opts.repoFullName,
     scanId: opts.scanId,
+    ...(opts.reservationKey ? { externalId: refundKeyFor(opts.reservationKey) } : {}),
   }).catch(() => null);
+  return typeof balance === "number" ? { refunded: true, balance } : { refunded: false, balance: null };
 }
 
 /**

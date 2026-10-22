@@ -95,7 +95,7 @@ beforeEach(() => {
   h.getInstallationIdForOwner.mockResolvedValue(1);
   h.getInstallationToken.mockResolvedValue("tok");
   h.reserveScanCredit.mockResolvedValue({ skip: false, reserved: true });
-  h.refundScanCredit.mockResolvedValue(undefined);
+  h.refundScanCredit.mockResolvedValue({ refunded: true, balance: 5 });
   h.persistScanReport.mockResolvedValue({ deduped: false });
   h.markJobCredit.mockResolvedValue(undefined);
   h.scanRepository.mockResolvedValue(report());
@@ -139,7 +139,7 @@ describe("the worker scans an import's tail under the import's own policy", () =
     expect(out.done).toBe(1);
     expect(h.scanRepository.mock.calls[0]![1]).toMatchObject({ token: "tok" });
     expect(h.reserveScanCredit).toHaveBeenCalledTimes(1);
-    expect(h.reserveScanCredit).toHaveBeenCalledWith("acme", "acme/api", { actor: "queue:import" });
+    expect(h.reserveScanCredit).toHaveBeenCalledWith("acme", "acme/api", { actor: "queue:import", reservationKey: "scan-job:job_1:1" });
     expect(h.markJobCredit).toHaveBeenCalledWith("job_1", true);
   });
 

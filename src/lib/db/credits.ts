@@ -348,7 +348,7 @@ export async function countMeteredScansThisMonth(orgSlug: string): Promise<numbe
  */
 export async function consumeScanCredit(
   orgSlug: string,
-  ctx: { repoFullName?: string; scanId?: string; actor?: string } = {},
+  ctx: { repoFullName?: string; scanId?: string; actor?: string; reservationKey?: string } = {},
 ): Promise<{ ok: boolean; balance: number; unlimited: boolean; charged: boolean; orgExists?: boolean }> {
   if (!isDbConfigured()) return { ok: true, balance: 0, unlimited: false, charged: false, orgExists: true };
   const prisma = getPrisma();
@@ -375,8 +375,10 @@ export async function consumeScanCredit(
   // -1 debit did NOT, so a commit-ambiguity blip (the COMMIT acked-lost, then retried) re-ran the whole
   // closure: a SECOND decrement + a SECOND `delta:-1` row → the org charged twice for one scan; and at
   // balance=1 the retry's conditional decrement found 0 and reported a PAID scan as denied. A scanId
-  // gives a natural key; otherwise synthesize a per-invocation id (mirrors grantCredits).
-  const externalId = ctx.scanId ? `scan:${ctx.scanId}` : `auto:${randomUUID()}`;
+  // gives a natural key; otherwise synthesize a per-invocation id (mirrors grantCredits). A caller
+  // `reservationKey` (scan-job:<jobId>:<attempt> / scan-hold:<uuid>, db/credit-reservations.ts) outranks
+  // both: it names the RESERVATION, so its refund can name it back and a re-reserve of it debits once.
+  const externalId = ctx.reservationKey ?? (ctx.scanId ? `scan:${ctx.scanId}` : `auto:${randomUUID()}`);
   try {
     return await withRetry(() =>
       prisma.$transaction(async (tx) => {

@@ -115,9 +115,10 @@ Per job, `drainLane`:
    scores for a monthly fleet.
 3. **Reserves a scan credit** (`reserveScanCredit`, `src/lib/scan-credit.ts`) when the repo is
    metered — not the shared `public` org and not a BYOM org, since BYOM bills inference to the org's
-   own account. The reservation is recorded **on the job row** (`creditCharged`) before any inference,
-   so a crash leaves it attributable to a row rather than to a lost variable; `settleJob` is the only
-   path that clears it. An exhausted balance settles the cadence via `advanceToFullCadence` so a
+   own account. The reservation is a **keyed ledger object**: the debit is written on
+   `scan-job:<jobId>:<attempt>` and its refund on `refund:<that key>` (`src/lib/db/credit-reservations.ts`),
+   so a crash leaves it attributable to the ledger rather than to a lost variable. The job row's
+   `creditCharged` is still stamped (`markJobCredit`) as the display cache `/api/org/scan/queue` reads. An exhausted balance settles the cadence via `advanceToFullCadence` so a
    credit-less org waits its normal cadence instead of re-qualifying every pass.
 4. **Scans, persists, runs the consequences**: `scanRepository` → `persistFleetScan`
    (`src/lib/scan-consequences.ts`): `persistScanReport`, then on a NEW row (not a deduped commit)
@@ -170,8 +171,8 @@ inference for the same burst. The push is now a queue job (`src/lib/push-rescan.
 What the queue buys:
 
 - **A kill is not a loss.** A process killed mid-scan leaves the row `claimed`; `reapExpiredLeases`
-  returns it to `queued` after its 15-minute lease, and the next rescore drain retries it. The
-  `creditCharged` stamp is carried, so the retry does not reserve a second credit.
+  returns it to `queued` after its 15-minute lease, and the next rescore drain retries it. The retry
+  reads the job's held reservation from the ledger and carries it, so it does not reserve a second credit.
 - **One scan per repo across instances.** `claimJobById`'s peer check yields to an older live claim
   on the same repo, so a push job whose repo is already being scanned (by a cadence job, a bulk scan
   or a push job from another instance) is requeued behind that lease instead of buying a second
@@ -295,10 +296,11 @@ count on `result`, and the wizard's reattach poll (`GET /api/org/scan/queue`) no
 follow. Before, a row was written only when a repo was claimed, so an import killed at 300s left no
 trace of the repos it never started. The drain body stays the import's own (it meters the public-scan
 allowance and attributes debits to the signed-in importer). After a successful overflow reserve it
-stamps `creditCharged` on that row (`markJobCredit`) **before** inference, and settles `skipped` /
-`failed` / `done` honestly: `creditRefunded` on a pre-inference refund, left standing on billed
-inference. A process kill at the 300s ceiling never runs `finally`; `reapExpiredLeases` returns the
-row to `queued` without clearing `creditCharged`, and the next `runRescoreJob` carries that credit
+debits on the same `scan-job:<jobId>:<attempt>` key, stamps `creditCharged` on that row (`markJobCredit`)
+**before** inference, and settles `skipped` / `failed` / `done` honestly: `creditRefunded` only when the
+refund actually landed, left standing on billed inference or on a refund that failed. A process kill
+at the 300s ceiling never runs `finally`; `reapExpiredLeases` returns the row to `queued`, and the next
+`runRescoreJob` (or a re-claiming import) finds the held debit on the ledger and carries that credit
 instead of reserving again. One imported repo reserves one credit, whichever process finishes it.
 
 The background worker runs the queued tail without the request that created it, so an import row
@@ -381,8 +383,8 @@ nothing was billed"*. That premise only holds **before `scanRepository` returns*
 
 Since the queue landed the cron and `/api/org/scan` share **one** implementation (`runRescoreJob` in
 `src/lib/scan-queue-worker.ts`). The import drains its own jobs with its own body (public-scan
-allowance, below) but stamps the same `ScanJob.creditCharged` after reserve, so a 300s kill + reap
-cannot double-debit an import either, and its unreached tail runs through `runRescoreJob`. The held reservation is recorded on the job row rather than in a local variable.
+allowance, below) but stamps the same `ScanJob.creditCharged` after reserve and debits on the same job key, so a 300s kill + reap
+cannot double-debit an import either, and its unreached tail runs through `runRescoreJob`. The held reservation is recorded on the ledger rather than in a local variable.
 
 **And the retry now READS it back (2026-09-06).** Being attributable was only half the point: the
 row was written and never consulted, so the sequence this queue exists to survive — reserve, start
@@ -390,11 +392,40 @@ inference, get process-killed at the 300s ceiling, `reapExpiredLeases` requeues 
 lease, deliberately *not* `creditCharged`, since `settleJob` is the only clearer and clears it only
 on a refund) — ended with the next worker reserving a **second** credit for the same job, up to
 `MAX_JOB_ATTEMPTS` = 5 times for one repo. `runRescoreJob` now carries the credit the row already
-holds instead of buying another, and `charged` starts from the row so the refund boundary is
-unchanged. **Not atomic, stated rather than hidden:** a kill landing between `reserveScanCredit` and
-`markJobCredit` still leaves the row saying `false` and that attempt does re-reserve — the window
-narrows from the whole inference to one DB write, which is as far as it goes without one transaction
-across two stores.
+holds instead of buying another, and `charged` starts from it so the refund boundary is unchanged.
+
+**The reservation is a keyed ledger object (2026-10-22).** The flag-only carry had three money holes,
+because the debit and its refund were each written on a fresh `auto:<uuid>` key and nothing tied one
+to the other; `creditCharged` was the only record, written and cleared by best-effort writes:
+
+- **Kill between reserve and mark** (the window this doc used to state as accepted): the debit
+  committed, `markJobCredit` never ran, the reaped row said `false`, and the retry bought a second
+  credit for one scan.
+- **Lost refund**: `refundScanCredit` swallowed a failed grant and the caller still settled
+  `creditRefunded: true`, so `settleJob` cleared the flag and the held credit vanished without a trace.
+- **Double refund**: a committed refund whose `settleJob` write was lost left the flag `true`; the
+  retry carried a credit that had already been returned and refunded it again on a new key, +2 for one -1.
+
+Now the debit is `scan-job:<jobId>:<attempt>` (an interactive scan's hold: `scan-hold:<uuid>`) and the
+refund is `refund:<debit key>`, both in `CreditLedger.externalId`, which is unique. "Does this job hold
+a credit" is `carriedScanReservation`: the newest job debit with no refund row. So the kill window is
+closed (the debit is on the ledger whatever the flag says), a second refund of one debit is a
+unique-key no-op, and `refundScanCredit` returns `{ refunded, balance }` truthfully, so a failed refund
+settles `creditRefunded: false` and the job keeps showing the credit it still holds. The flag is
+consulted only where the ledger cannot answer: a debit made before keys existed (`auto:`), or a ledger
+read that failed, which is exactly the behaviour before keys.
+
+**A scan served free on a refunded key is now charged once.** The attempt is part of the key on
+purpose. When attempt 1 was reserved and refunded but its settle was lost, attempt 2 sees no held
+credit and reserves its own `scan-job:<jobId>:2`; if that attempt runs real inference it is charged
+one credit, which is the stated policy applied correctly. Before, it carried the stale flag and either
+ran the paid scan for free or refunded twice. No price, credit amount or refund rule moved.
+
+**The double-charge window that remains**, stated rather than hidden: a ledger read that FAILS on a
+retry whose earlier attempt holds a keyed debit falls back to the flag, and if that flag also says
+`false` (the mark was lost too), the retry reserves on its own attempt key and the job is charged
+twice. That needs two independent failures on one job, and both debits are joinable to the job by key,
+so the overcharge is visible on the ledger rather than silent.
 
 It tracks the boundary with an `inferenceBilled` flag set immediately after `scanRepository`
 returns, guarded by `report.engine.provider !== "mock"`:
@@ -562,7 +593,8 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 | `src/lib/db/control-observations.ts` | `recordObservations`, `latestObservations`, `listObservationsSince` — the ledger's write side. |
 | `src/lib/cron-auth.ts` | Shared `requireCronAuth` gate for all cron routes. |
 | `src/lib/db/org-watch.ts` | `listDueRescans` / `listDueRescanCandidates` / `listDueProbeCandidates`, `claimRescan`, `advanceToFullCadence`, `advanceScheduleAfterFailure`, `getRepoSchedule`, `setRepoMissing`, `recordScanOutcome`, and the push job's failure backoff (`getLastScanAttempt`, `inFailureBackoff`, `FAILED_RESCAN_BACKOFF_MS`, `CREDIT_SKIP_ERROR`). |
-| `src/lib/scan-credit.ts` | `reserveScanCredit`, `refundScanCredit`, `shouldRefundScan`: shared credit reserve/refund core also used by `/api/org/scan` and `/api/org/import`. |
+| `src/lib/scan-credit.ts` | `reserveScanCredit`, `refundScanCredit`, `shouldRefundScan`: shared credit reserve/refund core also used by `/api/org/scan` and `/api/org/import`. The reserve takes a `reservationKey` (minting `scan-hold:<uuid>` when absent) and the refund returns `{ refunded, balance }`. |
+| `src/lib/db/credit-reservations.ts` | The reservation keys (`scanJobReservationKey`, `refundKeyFor`) and the ledger read of what a job holds (`readScanJobReservation`, `heldScanReservation`, `carriedScanReservation`). |
 | `src/lib/db/org-llm.ts` | `isByomActive`: BYOM detection to skip platform billing. |
 | `src/lib/pool.ts` | `mapPoolUntilDeadline` (array fan-out), `drainUntilDeadline` (supplier fan-out, for the queue), `fleetDeadlineAt`, `SCAN_CONCURRENCY`, `PROBE_CONCURRENCY`. |
 | `src/lib/scan-alerts.ts` | `checkAndAlertRegression` (see [alerts.md](./alerts.md)). |

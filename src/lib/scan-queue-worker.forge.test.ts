@@ -41,7 +41,7 @@ vi.mock("@/lib/db/org-watch", () => ({ getRepoSchedule: vi.fn(async () => null) 
 vi.mock("@/lib/github/app", () => ({ getInstallationToken: h.getInstallationToken }));
 vi.mock("@/lib/scan-alerts", () => ({ checkAndAlertRegression: vi.fn(async () => {}) }));
 vi.mock("@/lib/scan-credit", () => ({
-  refundScanCredit: vi.fn(async () => {}),
+  refundScanCredit: vi.fn(async () => ({ refunded: true, balance: 5 })),
   reserveScanCredit: h.reserveScanCredit,
   shouldRefundScan: () => false,
 }));

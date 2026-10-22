@@ -115,7 +115,7 @@ beforeEach(() => {
   h.getInstallationIdForOwner.mockResolvedValue(1);
   h.getInstallationToken.mockResolvedValue("tok");
   h.reserveScanCredit.mockResolvedValue({ skip: false, reserved: true });
-  h.refundScanCredit.mockResolvedValue(undefined);
+  h.refundScanCredit.mockResolvedValue({ refunded: true, balance: 5 });
   h.persistScanReport.mockResolvedValue({ deduped: false });
   h.getRepoSchedule.mockResolvedValue("weekly");
   h.markJobCredit.mockResolvedValue(undefined);
@@ -158,7 +158,7 @@ describe("push job: success and failure leave the cadence alone", () => {
 
   it("the ledger actor is the queue's: queue:webhook:push", async () => {
     await drain();
-    expect(h.reserveScanCredit).toHaveBeenCalledWith("acme", "acme/api", { actor: "queue:webhook:push" });
+    expect(h.reserveScanCredit).toHaveBeenCalledWith("acme", "acme/api", { actor: "queue:webhook:push", reservationKey: "scan-job:job_1:1" });
   });
 
   it("a scan that throws BEFORE inference records failed, refunds, and never backs the cadence off", async () => {
@@ -320,6 +320,6 @@ describe("a cadence job is unchanged by the push branch", () => {
     expect(h.getRepoSchedule).toHaveBeenCalledWith("repo_1");
     expect(h.advanceToFullCadence).toHaveBeenCalledWith("repo_1", "weekly");
     expect(h.isMeteredScan).not.toHaveBeenCalled();
-    expect(h.reserveScanCredit).toHaveBeenCalledWith("acme", "acme/api", { actor: "queue:cadence" });
+    expect(h.reserveScanCredit).toHaveBeenCalledWith("acme", "acme/api", { actor: "queue:cadence", reservationKey: "scan-job:job_1:1" });
   });
 });

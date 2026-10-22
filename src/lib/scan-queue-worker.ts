@@ -24,6 +24,7 @@ import { splitForgeFullName } from "@/lib/forge/registry";
 import { ambientAllowedFor } from "@/lib/forge/scan-credential";
 import { degradedRead } from "@/lib/org/degraded-read";
 import { DEGRADED_SCAN_ERROR, persistFleetScan } from "@/lib/scan-consequences";
+import { carriedScanReservation, scanJobReservationKey } from "@/lib/db/credit-reservations";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { probeRepository } from "@/lib/scan-probe";
 import { drainUntilDeadline } from "@/lib/pool";
@@ -242,9 +243,9 @@ async function scanCredential(
 /**
  * The paid lane. Byte-for-byte the cron's money policy, moved not rewritten:
  *   • a broken installation token backs off 6h rather than skipping a whole cadence;
- *   • the credit is reserved BEFORE inference and recorded on the JOB ROW (`creditCharged`), which is
- *     now the single record of the reservation — a process kill leaves it attributable, AND the
- *     retry READS it back so the org is not charged a second time for the same job (below);
+ *   • the credit is reserved BEFORE inference on the ledger key `scan-job:<jobId>:<attempt>`, which a
+ *     retry READS back so the org is not charged a second time for the same job (below); the job
+ *     row's `creditCharged` is a display cache of it;
  *   • `inferenceBilled` marks the moment a real (non-mock) report exists: a failure after that keeps
  *     the credit, because the inference genuinely ran and a refund would mint a free scan on retry.
  */
@@ -300,28 +301,26 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
   const metered = push
     ? isMeteredScan(slug, false) && !(await ctx.isByom(slug))
     : slug.toLowerCase() !== "public" && !importPolicy?.mock && !(await ctx.isByom(slug));
-  // A REQUEUED row may already hold a credit. reapExpiredLeases returns a process-killed worker's job
-  // to the queue by clearing state/claimedAt/claimedBy/leaseUntil — and deliberately NOT
-  // `creditCharged`, because settleJob is the only path that clears it and it clears it only on a
-  // refund. So `creditCharged: true` on a claimed row means exactly one thing: a credit was reserved
-  // for this job and never given back. Reserving again would charge the org a second time for one
-  // scan, and up to MAX_JOB_ATTEMPTS times for one repo — precisely in the scenario this queue was
-  // built for (the 300s ceiling killing a worker mid-inference).
-  //
-  // NOT ATOMIC, and the residue is stated rather than hidden: a kill landing between
-  // reserveScanCredit and markJobCredit still leaves the row saying `false`, so that attempt does
-  // re-reserve. This narrows the window from the whole inference (seconds to minutes) to a single DB
-  // write, which is as far as it goes without folding the reservation and the mark into one
-  // transaction across two stores.
-  const carriedCredit = metered && job.creditCharged;
+  // A REQUEUED row may already hold a credit (a process-killed worker's job, returned by
+  // reapExpiredLeases). Reserving again would charge the org a second time for one scan. WHETHER it
+  // holds one is read from the LEDGER, not from `creditCharged`: the debit is keyed
+  // `scan-job:<jobId>:<attempt>` and its refund `refund:<that key>` (db/credit-reservations.ts), so a
+  // debit with no refund row is a held credit, whatever the best-effort flag says. That closes the two
+  // windows the flag left open: a kill between reserve and markJobCredit (flag `false`, credit held:
+  // carried, not re-bought) and a refund whose settle write was lost (flag `true`, credit already
+  // returned: NOT carried, so it is neither refunded twice nor served free; a real retry is charged once
+  // on its own attempt key). `creditCharged` stays as the display cache /api/org/scan/queue reads, and
+  // is the fallback only for a debit made before keys existed or a ledger read that failed.
+  const { carried: carriedCredit, key: heldKey } = metered ? await carriedScanReservation(slug, job) : { carried: false, key: undefined };
   let charged = carriedCredit;
+  let reservationKey = heldKey;
   if (metered && !carriedCredit) {
     // Ledger attribution: no human is in the loop when a job drains, so the honest actor is the queue
     // and the reason the job was enqueued for ("manual" from the dashboard, "cadence" from the cron,
     // "webhook:push" from a push) — the nearest true answer to "what spent this credit", and enough to tell
     // a scheduled rescan's spend apart from a user-triggered one on the same repo.
     const actor = `queue:${actorReason}`;
-    const reservation = await reserveScanCredit(slug, repo, { actor });
+    const reservation = await reserveScanCredit(slug, repo, { actor, reservationKey: scanJobReservationKey(job.id, job.attempts) });
     if (reservation.skip) {
       summary.skippedForCredits += 1;
       if (push) {
@@ -340,12 +339,15 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
       return;
     }
     charged = reservation.reserved;
+    reservationKey = reservation.reservationKey;
     if (charged) await markJobCredit(job.id, true);
   }
   const refundCredit = async () => {
-    // Same repo, same actor as the debit — a `refund` row that names what it reverses.
-    await refundScanCredit(slug, charged, { actor: `queue:${actorReason}`, repoFullName: repo });
-    return charged;
+    // Same repo, same actor as the debit, keyed refund:<debit key> - a `refund` row that names what it
+    // reverses. Returns whether the refund is actually ON the ledger: a failed grant settles
+    // creditRefunded:false, so the flag keeps saying the credit is held instead of erasing it.
+    const out = await refundScanCredit(slug, charged, { actor: `queue:${actorReason}`, repoFullName: repo, reservationKey });
+    return out.refunded;
   };
 
   let inferenceBilled = false;

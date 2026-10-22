@@ -351,6 +351,7 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
       reason: "refund",
       actor: "system",
       repoFullName: "acme/boom",
+      externalId: expect.stringMatching(/^refund:scan-job:/),
     });
     // The failure is surfaced honestly on the repo event, not swallowed.
     expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ repo: "acme/boom", error: "github 500" });
@@ -414,6 +415,7 @@ describe("POST /api/org/import — credit-cap slice + per-repo refund (metered)"
       reason: "refund",
       actor: "system",
       repoFullName: "acme/deg",
+      externalId: expect.stringMatching(/^refund:scan-job:/),
     });
     expect(events.find((e) => e.event === "repo")?.data).toMatchObject({ charged: false });
   });
@@ -579,6 +581,16 @@ describe("POST /api/org/import — creditCharged on the job row (killed-import d
     expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
       expect.stringMatching(/^job_/),
       expect.objectContaining({ state: "failed", error: "github 500", creditRefunded: true }),
+    );
+  });
+
+  it("a refund whose grant fails settles creditRefunded:false, so the held credit stays attributable", async () => {
+    mockScan.mockRejectedValueOnce(new Error("github 500"));
+    mockGrant.mockRejectedValueOnce(new Error("connection reset"));
+    await collectImport({ org: "acme", repos: ["acme/boom"], mock: false, watch: false });
+    expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
+      expect.stringMatching(/^job_/),
+      expect.objectContaining({ state: "failed", creditRefunded: false }),
     );
   });
 

@@ -62,6 +62,7 @@ import {
   type QuotaIdentity,
 } from "@/lib/public-scan-quota";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
+import { carriedScanReservation, scanJobReservationKey, type CarriedReservation } from "@/lib/db/credit-reservations";
 import { DEGRADED_SCAN_ERROR, persistFleetScan, readScanBaseline } from "@/lib/scan-consequences";
 import { drainUntilDeadline, fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequestShared, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
@@ -516,7 +517,7 @@ export async function POST(request: Request) {
         await drainUntilDeadline(supply, SCAN_CONCURRENCY, fleetDeadlineAt(invokedAt, maxDuration), async ({ claim, r }) => {
           // Default: a throw after claim (reserveScanCredit, which the drain rethrows) must not lie
           // `done`. A hard process kill never reaches finally — the reaper returns the row, and
-          // `creditCharged` (stamped below after reserve) is what stops the retry from buying twice.
+          // the debit keyed scan-job:<jobId>:<attempt> is what stops the retry from buying twice.
           let outcome: JobOutcome = { state: "failed", error: "import interrupted" };
           try {
             // RESERVE the credit BEFORE scanning (metered, non-unlimited, non-mock imports). The atomic
@@ -525,8 +526,18 @@ export async function POST(request: Request) {
             // best-effort-debited afterwards (failure swallowed). Refunded below if the scan degrades to
             // mock or throws.
             let reserved = false;
-            if (metered && !unlimited) {
-              const reservation = await reserveScanCredit(org, r.fullName, { actor: importActor });
+            let reservationKey: string | undefined;
+            // A re-claimed row whose earlier attempt already holds a credit (the ledger says so, by its
+            // scan-job:<jobId>:<attempt> key) carries it rather than buying a second one.
+            const held: CarriedReservation = metered && !unlimited ? await carriedScanReservation(org, claim) : { carried: false };
+            if (held.carried) {
+              reserved = true;
+              reservationKey = held.key;
+            } else if (metered && !unlimited) {
+              const reservation = await reserveScanCredit(org, r.fullName, {
+                actor: importActor,
+                reservationKey: scanJobReservationKey(claim.id, claim.attempts),
+              });
               if (reservation.skip) {
                 skippedForCredits += 1;
                 processed += 1;
@@ -536,8 +547,8 @@ export async function POST(request: Request) {
                 return; // finally releases the claim
               }
               reserved = reservation.reserved;
-              // Stamp BEFORE inference so a 300s kill + reap cannot reserve again: the worker reads
-              // creditCharged on the requeued row and carries it.
+              reservationKey = reservation.reservationKey;
+              // The display flag. The retry reads the held credit from the ledger key, not from this.
               if (reserved) await markJobCredit(claim.id, true);
             }
             // The public path's equivalent of reserving a credit: consume one monthly free-scan slot
@@ -564,14 +575,15 @@ export async function POST(request: Request) {
             };
             // One refund verb for both meters: whichever one this run charged, "nothing chargeable was
             // produced" must give it back. A caller that remembered only credits would silently burn a
-            // free public slot on a deduped or degraded scan. Returns whether an overflow credit was
-            // actually held, so settleJob can clear creditCharged only on a real refund.
+            // free public slot on a deduped or degraded scan. Returns whether the credit refund actually
+            // LANDED, so settleJob clears creditCharged only on a real refund and a failed grant leaves
+            // the held credit attributable.
             const refundCredit = async () => {
-              // Stamped with the SAME repo and actor as the debit above, so the reversal is joinable to
-              // the row it reverses instead of landing as an anonymous +1.
-              await refundScanCredit(org, reserved, { actor: importActor, repoFullName: r.fullName });
+              // Stamped with the SAME repo and actor as the debit above, and keyed refund:<debit key>,
+              // so the reversal names the row it reverses and lands at most once.
+              const out = await refundScanCredit(org, reserved, { actor: importActor, repoFullName: r.fullName, reservationKey });
               await refundQuota();
-              return reserved;
+              return out.refunded;
             };
             send("progress", { stage: "scan", repo: r.fullName, index: processed, total: fullNames.length });
             // Set the moment `scanRepository` returns a REAL (non-mock) report: the inference is

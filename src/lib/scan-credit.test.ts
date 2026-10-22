@@ -23,7 +23,7 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/scan-alerts", () => ({ maybeAlertLowCredits: mockAlert }));
 
-import { reserveScanCredit } from "./scan-credit";
+import { refundScanCredit, reserveScanCredit } from "./scan-credit";
 
 describe("reserveScanCredit orgExists", () => {
   beforeEach(() => {
@@ -61,7 +61,53 @@ describe("reserveScanCredit orgExists", () => {
 
     const res = await reserveScanCredit("acme", "acme/repo", { actor: "sam" });
 
-    expect(res).toEqual({ skip: false, reserved: true, balance: 4 });
+    expect(res).toEqual({ skip: false, reserved: true, balance: 4, reservationKey: expect.stringMatching(/^scan-hold:/) });
     expect(res.orgExists).not.toBe(false);
+  });
+});
+
+// The reservation names itself, and the refund names the reservation (refund:<debitKey>), so a
+// refund is idempotent per DEBIT rather than per invocation. And the refund reports the truth: a
+// grant that failed is `refunded:false`, never a silent success the caller settles on.
+describe("reserveScanCredit / refundScanCredit keyed reservation", () => {
+  beforeEach(() => {
+    mockConsume.mockReset();
+    mockGrant.mockReset();
+  });
+
+  it("debits on the caller's reservation key and hands it back", async () => {
+    mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false, charged: true });
+    const res = await reserveScanCredit("acme", "acme/repo", { actor: "queue:manual", reservationKey: "scan-job:J:1" });
+    expect(mockConsume).toHaveBeenCalledWith("acme", expect.objectContaining({ reservationKey: "scan-job:J:1" }));
+    expect(res).toMatchObject({ skip: false, reserved: true, reservationKey: "scan-job:J:1" });
+  });
+
+  it("mints a scan-hold:<uuid> key when the caller has none", async () => {
+    mockConsume.mockResolvedValue({ ok: true, balance: 4, unlimited: false, charged: true });
+    const res = await reserveScanCredit("acme", "acme/repo");
+    expect(res.reservationKey).toMatch(/^scan-hold:[0-9a-f-]{36}$/);
+    expect(mockConsume.mock.calls[0]![1]).toMatchObject({ reservationKey: res.reservationKey });
+  });
+
+  it("refunds on refund:<debitKey> and reports refunded:true with the balance", async () => {
+    mockGrant.mockResolvedValue(5);
+    const out = await refundScanCredit("acme", true, { reservationKey: "scan-job:J:1", repoFullName: "acme/repo" });
+    expect(mockGrant).toHaveBeenCalledWith("acme", 1, expect.objectContaining({ externalId: "refund:scan-job:J:1" }));
+    expect(out).toEqual({ refunded: true, balance: 5 });
+  });
+
+  it("a grant that throws is refunded:false, balance:null - never reported as refunded", async () => {
+    mockGrant.mockRejectedValue(new Error("connection reset"));
+    expect(await refundScanCredit("acme", true, { reservationKey: "scan-job:J:1" })).toEqual({ refunded: false, balance: null });
+  });
+
+  it("a grant that finds no org is refunded:false", async () => {
+    mockGrant.mockResolvedValue(null);
+    expect(await refundScanCredit("acme", true, { reservationKey: "scan-job:J:1" })).toEqual({ refunded: false, balance: null });
+  });
+
+  it("nothing reserved: no grant, refunded:false", async () => {
+    expect(await refundScanCredit("acme", false, { reservationKey: "scan-job:J:1" })).toEqual({ refunded: false, balance: null });
+    expect(mockGrant).not.toHaveBeenCalled();
   });
 });

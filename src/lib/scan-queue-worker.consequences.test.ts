@@ -90,7 +90,7 @@ beforeEach(() => {
   h.claimJobById.mockResolvedValue(job());
   h.settleJob.mockResolvedValue(undefined);
   h.reserveScanCredit.mockResolvedValue({ skip: false, reserved: true });
-  h.refundScanCredit.mockResolvedValue(undefined);
+  h.refundScanCredit.mockResolvedValue({ refunded: true, balance: 5 });
   h.persistScanReport.mockResolvedValue({ deduped: false });
   h.getScanReportByCommit.mockResolvedValue(PREV);
   h.advanceToFullCadence.mockResolvedValue(undefined);

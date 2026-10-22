@@ -225,14 +225,22 @@ export async function scanCreditGate(
   // the last credit). Report the reservation's own balance where it has one; fall back to the read.
   if (res.skip) return { ok: false, reason: "payment_required", balance: res.balance ?? ent.balance };
 
-  let reserved = res.reserved;
+  // At most one refund per reservation is the LEDGER's guarantee: the debit is keyed `scan-hold:<uuid>`
+  // and the refund `refund:<that key>`, so a second refund from another code path is a no-op on the
+  // unique key, not a minted credit. Only a keyless reservation (none in production; a test double)
+  // still needs the old closure flag.
+  const key = res.reservationKey;
+  let refundedKeyless = false;
   const hold: ScanCreditHold = {
     remaining: res.balance,
     refund: async () => {
-      if (!reserved) return;
-      reserved = false; // at most one refund per reservation — a second call must not mint a credit
-      const bal = await refundScanCredit(orgSlug, true, { actor, repoFullName: opts.repoFullName });
-      if (typeof bal === "number") hold.remaining = bal;
+      if (!res.reserved) return;
+      if (!key) {
+        if (refundedKeyless) return;
+        refundedKeyless = true;
+      }
+      const out = await refundScanCredit(orgSlug, true, { actor, repoFullName: opts.repoFullName, reservationKey: key });
+      if (typeof out?.balance === "number") hold.remaining = out.balance;
     },
   };
   return { ok: true, hold };
