@@ -462,7 +462,7 @@ sentence-list. That last rule is what pays for `blocks.ts`.
 
 | Route | Gate | Notes |
 | --- | --- | --- |
-| `GET /api/athena/threads?org=` | `requireOrgRead` | **One boot request**: the ledger PLUS the newest thread's turns, its open proposals, and the engine state. A second hop for what the first query already named is a wasted round trip. |
+| `GET /api/athena/threads?org=` | `requireOrgRead` | **One boot request**: the ledger PLUS the newest thread's turns, its proposals (every status, each with a server-resolved `summary`), and the engine state. A second hop for what the first query already named is a wasted round trip. |
 | `POST /api/athena/threads` | `requireOrgAccess` | Starts a conversation. **No opener, no LLM call** - see below. |
 | `POST /api/athena/[id]/message` | `requireOrgAccess` | One exchange, **SSE** (`SSE_HEADERS` / `makeSseSend`). Frames are named after the event's own `type`, plus a final `done`. |
 
@@ -531,11 +531,41 @@ still loading has lied before anyone spoke to her.
 1. **Blocks render FULL-BLEED beneath the bubble**, escaping its width cap (`-mx-4` cancels the
    transcript's own padding). A paragraph needs a ragged edge and an identity gutter; a table is a
    drawing, and every pixel handed back to the gutter is a column it cannot show.
-2. **Proposal cards** render from the boot payload's open proposals. This is the DISPLAY half only -
-   see the gap below.
+2. **Proposal cards** render from the boot payload's proposals (any status) and are answered in
+   place - see [Answering an offer from the card](#answering-an-offer-from-the-card).
 3. **At most TWO recall chips**, each a derived sentence and never a raw excerpt, rendered *after* the
    answer. When no chip survived, **nothing** renders: an empty strip beats echoing the operator's own
    question back at them.
+
+### Answering an offer from the card
+
+The card under her turn is where the offer is answered. **Accept** and **Decline** call the one door
+(`resolveAthenaProposal` in `stream.ts` -> `POST /api/athena/proposals/[id]/resolve` with
+`{ org, decision }`); nothing else on the client writes a proposal.
+
+- **The card states what Accept would do.** An action payload stores `{ params }` only, so the boot
+  route resolves each proposal's `summary` from the action spec with `athenaActionSummary` - the same
+  function the cron briefing uses - and sends only the sentence (never the spec or its `requiredRole`).
+  A retired action or an identity diff has no spec and falls back to the payload reader.
+- **What the card may show is one pure function**, `cardStateOf` in
+  `src/features/shared/athena/proposalModel.ts`, reading the buttons off the shared lifecycle table.
+  Modes: `ask`, `submitting` (both buttons disabled; an in-flight ref means a double click sends one
+  request), `answered` (the stamped outcome, toned as done, refusal or neutral), `answered_elsewhere`,
+  `held`, `expired`, `unknown`. An `identity_diff` is **decline-only**: the door refuses its accept, so
+  no Accept is rendered for it.
+- **It honours the resolve contract above.** A 409 is answered elsewhere: the card names the lifecycle
+  state, re-reads the boot proposals, and never offers the button again. A 500 after the action failed
+  returns the card to `ask` with the error beside it (the claim was released; a retry is legitimate).
+  A 500 saying the action **ran but was not recorded** is `held`: no button, the door's sentence shown,
+  never a retry. A dead socket re-reads before offering anything, since the answer may have landed.
+- **Answered cards stay legible after a reload.** The boot payload carries the newest thread's resolved
+  and expired proposals too, so a stamped outcome (`payload.outcome.detail`) paints instead of the card
+  vanishing; a claimed row reads as held, an expired one says it expired, an unrecognised status says
+  it cannot be acted on.
+- **Offers raised in a live turn appear without a reload.** A `settled` turn whose `meta.proposalIds`
+  is non-empty makes `useAthenaProposals` re-read the proposals once.
+- **One polite announcement per decision**, only when it settles here (`announcementFor`). The panel's
+  own "waiting on you" count now counts only the `open` ones.
 
 ### What the surface is built out of
 
@@ -778,11 +808,6 @@ only the episodes Athena wrote.
 - No export/import seam to kp's Athena (see above); the document shape is the only preparation.
 - The wider `OrgMemory` erase gap described directly above.
 - Retention (the daily purge) does not age Athena's threads at all — only erasure removes them.
-- **A proposal can be answered through the API, but not yet from the card.** The door is built
-  (`POST /api/athena/proposals/[id]/resolve`, see [The one door](#the-one-door)); what is still missing
-  is the accept/decline control on `AthenaProposalCard`, which renders the ask and says it is waiting.
-  The card deliberately renders no dead button - a control that looks live and does nothing costs more
-  trust than an absent one. This is now the *only* gap between an offer and a click.
 - **The channel choice is not persisted across a hard reload.** `TourStorageState` is the obvious home
   for it, but `useTourEngine.dom.test.tsx:184`/`:202` assert the stored record deep-equals
   `{ open, index }`. A `?tab=` switch already preserves it, since the drawer lives in the layout.
