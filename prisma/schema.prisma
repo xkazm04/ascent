@@ -1538,6 +1538,19 @@ model SessionRevocation {
   updatedAt DateTime @updatedAt
 }
 
+// What the live (Supabase) sign-in learned about a login (oauth-1): the ranked not-yet-installed orgs
+// to suggest and the org whose watchlist it pre-seeded. The dormant custom stack embeds these in its
+// signed cookie; the live stack has no such cookie, so the callback records them here in after() and
+// /onboarding reads them back ONLY for the viewer's own login. One row per login, overwritten per
+// sign-in. Org names only: no token, no secret. Standalone (no FK); suggestedOrgsJson is JSON-in-TEXT
+// per the no-array, no-jsonb DSQL contract.
+model LoginDiscovery {
+  login             String   @id // GitHub login, lowercased
+  suggestedOrgsJson String   @default("[]")
+  seededOrg         String?
+  discoveredAt      DateTime @default(now())
+}
+
 // Cross-instance webhook replay/idempotency store (github-app-installation-webhooks #3). GitHub stamps
 // each delivery with a unique X-GitHub-Delivery id; a captured, still-validly-signed delivery can be
 // re-sent to re-trigger scans/gates. The webhook route's in-memory Map collapses only SAME-instance

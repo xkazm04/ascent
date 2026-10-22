@@ -2770,6 +2770,17 @@ CREATE UNIQUE INDEX "OtlpPointReceipt_orgId_sink_pointKey_key" ON "OtlpPointRece
 -- CreateIndex: the in-request expiry sweep (orgId, createdAt < horizon).
 CREATE INDEX "OtlpPointReceipt_orgId_createdAt_idx" ON "OtlpPointReceipt"("orgId", "createdAt");
 
+-- oauth-1: what the live sign-in discovered for a login (suggested orgs, seeded org), overwritten per
+-- sign-in. See the 20261023120000_login_discovery migration.
+CREATE TABLE "LoginDiscovery" (
+    "login" TEXT NOT NULL,
+    "suggestedOrgsJson" TEXT NOT NULL DEFAULT '[]',
+    "seededOrg" TEXT,
+    "discoveredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "LoginDiscovery_pkey" PRIMARY KEY ("login")
+);
+
 -- Seed the shared "public" organization once. Every anonymous scan persists under this org, so
 -- seeding it here (idempotently) lets the app resolve it with a plain read instead of upserting the
 -- same hot row on every scan — which on Aurora DSQL (optimistic concurrency, no row locks) makes

@@ -161,6 +161,7 @@ export {
   getInstallationIdForOwner,
 } from "@/lib/db/installations";
 export { getSessionVersion, bumpSessionVersion } from "@/lib/db/sessions";
+export { recordLoginDiscovery, getLoginDiscovery, type LoginDiscoverySnapshot } from "@/lib/db/login-discovery";
 export { claimWebhookDelivery, releaseWebhookDelivery } from "@/lib/db/webhook-deliveries";
 export { recordAlertEvent, listAlertEvents, type AlertEventInput, type AlertEventKind, type AlertEventRow } from "@/lib/db/alert-events";
 // Single source of truth for the org-layer surface: org.ts is itself a re-export barrel over the
