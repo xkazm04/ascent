@@ -58,3 +58,26 @@ describe("ScopeFilterBar — rollup vs movers caption", () => {
     expect(screen.getByRole("button", { name: /Platform/ })).toBeInTheDocument();
   });
 });
+
+describe("ScopeFilterBar - counted caption when the rollup's coverage is supplied (rollups-1)", () => {
+  const start = new Date("2026-07-01T00:00:00Z");
+
+  it("names how many repos are carried from an earlier scan", () => {
+    render(<ScopeFilterBar {...empty} window={{ start }} coverage={{ inPeriod: 35, total: 42 }} />);
+    const text = screen.getByTestId("rollup-movers-caption").textContent ?? "";
+    expect(text).toBe(
+      "7 of 42 repos have no scan this period: they count in the fleet average from their earlier scan and do not appear in movers.",
+    );
+    expect(text).not.toContain("\u2014");
+  });
+
+  it("prints no caveat when every repo has a scan this period", () => {
+    render(<ScopeFilterBar {...empty} segments={segments} window={{ start }} coverage={{ inPeriod: 42, total: 42 }} />);
+    expect(screen.queryByTestId("rollup-movers-caption")).toBeNull();
+  });
+
+  it("without coverage keeps the static caption verbatim (back-compat)", () => {
+    render(<ScopeFilterBar {...empty} window={{ start }} coverage={null} />);
+    expect(screen.getByTestId("rollup-movers-caption").textContent).toBe(ROLLUP_MOVERS_CAPTION);
+  });
+});

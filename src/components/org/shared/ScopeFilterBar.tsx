@@ -12,18 +12,27 @@
 // that split so the two counts are not mistaken for a bug. All-time (`start` null/omitted) has no
 // split to disclose. Callers pass the same window they hand the queries; this component does not
 // import from src/features.
+//
+// COUNTED (rollups-1) - a caller that holds the rollup passes `coverage` (periodCoverageModel.ts), and
+// the caption names how many repos are carried, or disappears when none are. Without it the static
+// sentence stays (the tier-1 render that paints before the rollup resolves).
 
 import { SegmentSelector, type SegmentOption } from "@/components/org/shared/SegmentSelector";
 import { TechStackSelector, type TechStackOption } from "@/components/org/shared/TechStackSelector";
+import { periodCoverageCaption } from "@/lib/org/periodCoverageModel";
 
 /** Verbatim the org-rollup.ts header's visible consequence, as a caption. */
 export const ROLLUP_MOVERS_CAPTION =
   "Repos not scanned in-period still count in the fleet average and do not appear in movers.";
 
-function RollupMoversCaption() {
+type Coverage = { inPeriod: number; total: number } | null | undefined;
+
+function RollupMoversCaption({ coverage }: { coverage: Coverage }) {
+  const text = coverage ? periodCoverageCaption(coverage) : ROLLUP_MOVERS_CAPTION;
+  if (!text) return null;
   return (
     <p className="w-full type-caption text-slate-500" role="note" data-testid="rollup-movers-caption">
-      {ROLLUP_MOVERS_CAPTION}
+      {text}
     </p>
   );
 }
@@ -36,6 +45,7 @@ export function ScopeFilterBar({
   className = "flex flex-wrap items-center gap-2",
   gate = true,
   window: orgWindow,
+  coverage,
   children,
 }: {
   segments: SegmentOption[];
@@ -51,19 +61,21 @@ export function ScopeFilterBar({
    * window is active (not all-time), so the rollup-vs-movers split applies and the caption renders.
    */
   window?: { start?: Date | null } | null;
+  /** The rollup's in-period split, when the caller holds it: counts the caption (null = none carried). */
+  coverage?: Coverage;
   /** Trailing affordances rendered after the selectors (e.g. an Export CSV link). */
   children?: React.ReactNode;
 }) {
   const windowActive = orgWindow?.start != null;
   const hasSelectors = segments.length > 0 || techGroups.length > 0 || Boolean(children);
   if (gate && !hasSelectors && !windowActive) return null;
-  if (!hasSelectors) return windowActive ? <RollupMoversCaption /> : null;
+  if (!hasSelectors) return windowActive ? <RollupMoversCaption coverage={coverage} /> : null;
   return (
     <div className={className}>
       {segments.length > 0 && <SegmentSelector segments={segments} active={segmentId} />}
       <TechStackSelector groups={techGroups} active={activeStack?.key ?? null} />
       {children}
-      {windowActive && <RollupMoversCaption />}
+      {windowActive && <RollupMoversCaption coverage={coverage} />}
     </div>
   );
 }

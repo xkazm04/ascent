@@ -13,6 +13,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { OrgEmpty } from "@/components/org/shared/ui";
+import { PeriodCoverageStrip } from "@/components/org/shared/PeriodCoverageStrip";
+import { periodCoverage } from "@/lib/org/periodCoverageModel";
 import { OverviewLedger } from "./OverviewLedger";
 import { OverviewLedgerV2 } from "./OverviewLedger.v2";
 import { isOverviewScopedEmpty, OVERVIEW_SCOPED_EMPTY } from "./overviewEmpty";
@@ -107,8 +109,11 @@ export async function OverviewFleetPanel({
   // Everything it renders is derived HERE, on the server, and handed over serialised — nothing in
   // OverviewLedger awaits.
   const Ledger = theme === "prism" ? OverviewLedgerV2 : OverviewLedger;
+  // The period split, counted and named from this same rollup (no query): null for all time.
+  const coverage = periodCoverage(rollup.repos, win.start);
   return (
     <>
+      <PeriodCoverageStrip slug={slug} coverage={coverage} />
       <Ledger
         {...(theme === "prism" ? { fixFirst } : {})}
         slug={slug}
