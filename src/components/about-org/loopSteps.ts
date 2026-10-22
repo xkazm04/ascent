@@ -6,6 +6,7 @@
 // (`ORG_NAV_GROUPS`) by looking up the lane that holds the tab. Only the one-line `detail` copy is
 // authored here, keyed by stage id. Every claim on this page stays one click from being falsified.
 
+import { DIMENSIONS } from "@/lib/maturity/model";
 import { ORG_STAGES, type OrgStageId } from "@/lib/org/orgJourney";
 import { orgTabHref, type OrgTabId } from "@/lib/org/orgTabs";
 import { DEMO_ORG_SLUG } from "@/lib/site";
@@ -26,7 +27,8 @@ export interface LoopStep {
 const DETAIL: Record<OrgStageId, string> = {
   connect:
     "Map your AI registry repo and install the GitHub App. Ascent reads through the API; it never clones your code.",
-  scan: "Every watched repository is scored across the nine dimensions, then rescanned on a cadence you set.",
+  // The count is imported, never typed: "nine" as a word survives a rubric change silently.
+  scan: `Every watched repository is scored across the ${DIMENSIONS.length} dimensions, then rescanned on a cadence you set.`,
   read: "The rollup says where the fleet stands, what moved, and which gaps are shared across teams.",
   decide:
     "The org-wide gaps, open in half the fleet, are practices to fix once; the ledger marks them so a batch is the right shape.",

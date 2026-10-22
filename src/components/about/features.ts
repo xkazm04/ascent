@@ -7,10 +7,11 @@
 // the one place on the same deck that didn't.
 
 import { DIMENSIONS } from "@/lib/maturity/model";
+import type { AnchoredFeature, ClaimAnchor } from "./claimAnchors";
 
 export type AboutFeatureId = "xray" | "roi" | "adoption" | "risk";
 
-interface AboutFeatureData {
+interface AboutFeatureData extends AnchoredFeature {
   id: AboutFeatureId;
   kicker: string;
   title: string;
@@ -19,6 +20,11 @@ interface AboutFeatureData {
   /** The money line — the one-sentence cost/ROI takeaway. */
   value: string;
 }
+
+// Every claim names the capability it rests on (src/components/about/claimAnchors.ts); the claim gate
+// fails the suite when one of them retires or becomes an alias. Shorthands for the anchors below:
+const tab = (id: Extract<ClaimAnchor, { tab: unknown }>["tab"]): ClaimAnchor => ({ tab: id });
+const DEMO: ClaimAnchor = { illustrative: true };
 
 export const ABOUT_FEATURES: AboutFeatureData[] = [
   {
@@ -32,30 +38,33 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
       "A posture map that separates “fast & ungoverned” from “solid but manual”",
     ],
     value: "Stop guessing which teams are ready to accelerate and which are quietly compounding risk.",
+    anchors: {
+      body: [tab("repositories"), tab("segments"), tab("teams"), tab("executive")],
+      points: [[tab("repositories")], [tab("segments")], [tab("executive")]],
+    },
   },
   {
     id: "roi",
     kicker: "Model before you spend",
     title: "See the payoff before you commit the budget",
     // Copy contract with the paired RoiSimulator diagram: the bullets promise only what the demo
-    // beside them substantiates (live promotions / avg gain / scope); the richer /org-only
-    // capabilities (leverage ranking, goal pace + ETA) live in `body`, explicitly attributed to the
-    // full simulator inside /org so the demo never undercuts the claim next to it.
-    //
-    // "projects which goals each move unlocks, and when" was one claim too far. What a move carries
-    // is `projectedGain` — "+N pts · unlocks LX" (src/lib/db/org-insights.ts:666), a LEVEL, with no
-    // date attached and no join to a goal. The dated projection is real but lives on the goal, not
-    // on the move: src/lib/db/plan.ts:262-267 (etaDays / etaDate / requiredPerWeek), fitted by
-    // src/lib/maturity/forecast.ts. The sentence now says which of the two it means.
-    body: "The what-if simulator recomputes the entire fleet under a hypothetical fix (raise testing, CI/CD, and conventions across these repos) and shows how many repos level up. The full simulator inside /org goes further: it ranks the highest-leverage moves by how many repos they touch and the level each one unlocks, and every goal you set carries its own fitted pace and projected date.",
+    // beside them substantiates (live promotions / avg gain / scope), and are anchored as illustrative.
+    // The body's second sentence names what ships inside /org today. It used to sell the org what-if
+    // simulator, leverage ranking and settable goals; all three retired with the Plan tab on
+    // 2026-08-17 (src/lib/db/plan.ts, foot note), and the deck kept selling them until 2026-10-22.
+    body: "The what-if demo recomputes the entire fleet under a hypothetical fix (raise testing, CI/CD, and conventions across these repos) and shows how many repos level up. Inside /org, the Proposals ledger marks the gaps open across much of the fleet so one practice fixes them in a batch, and the Briefing reads what each cycle delivered.",
     points: [
       "Drag a target and watch promotions, average gain, and scope recompute live",
-      "In /org, leverage ranking surfaces fix-once, apply-fleet-wide moves",
-      "Skip the low-impact initiative that moves two repos, not twenty",
+      "In /org, the Proposals ledger surfaces the fix-once, apply-fleet-wide gaps",
+      "Skip the low-impact fix that moves two repos, not twenty",
     ],
     // Money line names the demo tiles. A dated "6 of 8 repos to L3 by Q3" was a
     // count the sliders never compute (GOLDEN-TRIO: do not lead with ROI).
     value: "Turn a guess about a fix into live promotions, average gain, and repos in scope.",
+    anchors: {
+      body: [DEMO, tab("proposals"), tab("practices"), tab("executive")],
+      points: [[DEMO], [tab("proposals"), tab("practices")], [DEMO]],
+    },
   },
   {
     id: "adoption",
@@ -68,6 +77,10 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
       "Read adoption against real delivery signals: merge rate, PR review",
     ],
     value: "Replace expensive top-down training with the champions you already employ.",
+    anchors: {
+      body: [tab("contributors"), tab("teams")],
+      points: [[tab("contributors"), tab("adoption")], [tab("contributors")], [tab("delivery")]],
+    },
   },
   {
     id: "risk",
@@ -80,5 +93,9 @@ export const ABOUT_FEATURES: AboutFeatureData[] = [
       "Governance evidence ready for audits and security reviews",
     ],
     value: "Avoid the failed audit, the breach, and the 2 a.m. incident before they happen.",
+    anchors: {
+      body: [tab("security"), tab("governance")],
+      points: [[tab("security")], [tab("security"), tab("overview")], [tab("governance"), tab("audit")]],
+    },
   },
 ];

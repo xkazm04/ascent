@@ -20,3 +20,20 @@ describe("ABOUT_FEATURES roi.value copy contract", () => {
     expect(value).not.toMatch(/^ROI\b/i);
   });
 });
+
+describe("ABOUT_FEATURES roi.body sells only what ships", () => {
+  const roi = ABOUT_FEATURES.find((f) => f.id === "roi")!;
+
+  it("names the Proposals ledger, not the retired simulator, ranking or goal controls", () => {
+    expect(roi.body).toMatch(/Proposals ledger/);
+    expect(roi.body).not.toMatch(/full simulator|leverage|every goal you set/i);
+    expect(roi.points.join(" ")).not.toMatch(/leverage ranking|initiative/i);
+  });
+
+  it("prints no em dash in any body or point", () => {
+    for (const f of ABOUT_FEATURES) {
+      expect(f.body, f.id).not.toContain("\u2014");
+      for (const p of f.points) expect(p, f.id).not.toContain("\u2014");
+    }
+  });
+});
