@@ -307,7 +307,9 @@
         "src/lib/branding/deliverable.ts",
         "src/lib/db/org-logo-snapshot.ts",
         "src/lib/net/logo-fetch.ts",
-        "src/lib/net/pinned-get.ts"
+        "src/lib/net/pinned-get.ts",
+        "src/lib/branding/normalize.ts",
+        "src/app/api/org/branding/check/**"
       ]
     },
     {

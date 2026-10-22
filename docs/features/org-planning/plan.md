@@ -418,6 +418,23 @@ heals once on its next render; a failed heal is a negative snapshot not retried 
 render ladder is branded, then branded without the logo, then unbranded, so a logo failure no longer
 strips the brand name and accent. The org erase drains the snapshot (`logoSnapshotsDeleted`).
 
+**Check branding before you save (branding-1, 2026-10-22).** The branding form asks the server what a
+save would do before it does it. `POST /api/org/branding/check` sits behind the save's exact gate
+(same-origin owner, the public org refused, Team plan, 503 when the plan can't be read) and writes
+nothing: no branding row, no logo snapshot, no audit row. It validates through `normalizeBranding`
+(`src/lib/branding/normalize.ts`), the door `setOrgBranding` now persists through, so the check and the
+save cannot drift, and names each rejection's reason (`not-https`, `private-host`, `too-long`,
+`not-hex`). When the logo URL changed it probes it through `fetchSafeLogo`, the save's own fetch, and
+returns only a verdict (`logo: ok | unreachable | rejected | unchecked | none` plus the refusal reason),
+never the bytes; probes are capped at 10 a minute per org. The form debounces the check (600 ms, stale
+answers dropped) and shows the reason under each field ("Must be an https URL", "This URL didn't return
+an image, so the PDF would have no logo"). The PDF-header preview shows "No logo in the PDF" instead of
+a browser-loaded image the PDF would not get, and the Save button names the destructive case: a URL
+that is rejected or unreachable, or a cleared field, over a working logo reads "Save and remove the
+current logo"; other warnings read "Save anyway". Nothing is blocked: the save itself is unchanged.
+Pinned by `normalize.test.ts`, `branding/check/route.test.ts`, `useBrandingCheck.test.ts`,
+`brandingVerdictModel.test.ts` and `BrandingPreview.test.tsx`.
+
 **A failed read is not a fact (2026-10-07).** The share path, the PDF route and the briefing build used to
 turn a database error into a sentence about the world. They no longer do, and each is pinned by a test that
 makes the read fail:
