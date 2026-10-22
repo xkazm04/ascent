@@ -11,7 +11,11 @@
 import { getContributorInsights, getOrgBacklog, getRepoStates } from "@/lib/db";
 import { getOwnAgentSessions } from "@/lib/db/agent-sessions-viewer";
 import { getMentorShare } from "@/lib/db/mentor-share";
+import { getOrgCareCohort } from "@/lib/db/mentor-share-cohort";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 import { emptyDeveloperView, emptyOrgView, type CareOrgView, type DeveloperView } from "./developer-view";
+import { careShareConsents } from "./care-share-contract";
+import { buildCareOrgAggregate } from "./care-org-aggregate";
 import { applyOwnSessionShape, careTelemetryWindowStart } from "./care-session-telemetry";
 import { applyMentorShare } from "./care-share-view";
 
@@ -63,6 +67,12 @@ export async function getDeveloperView(
   // skips them (a shared field wins over telemetry; pinned in developer-view-load.share.test.ts).
   if (share) applyMentorShare(view, share.share, share.sharedAt);
   applyOwnSessionShape(view, ownSessions, now, confirmedEmail);
+  // C4 comparison: ONLY when the viewer's own share consents to the org aggregate, and from the SAME
+  // floored producer the Contributors tab reads. Without consent no cohort is read and `orgBands`
+  // stays null, which the page draws as "comparison off".
+  if (share && careShareConsents(share.share)) {
+    view.orgBands = (await careOrgAggregateFor(orgSlug, insights?.totalContributors ?? 0)).shapeBands;
+  }
   const login = viewerLogin.toLowerCase();
   const me = insights?.contributors.find((c) => c.login.toLowerCase() === login) ?? null;
   if (!me) {
@@ -127,10 +137,19 @@ export async function getDeveloperView(
 /**
  * The org's anonymized care aggregate — the Contributors tab's Care section (§5.2). Floors are the
  * SAME `champions.ts` floors the rest of that tab uses; below them the view suppresses rather than
- * thins. Until C4 lands this is the honest empty aggregate keyed on the real contributor population,
- * so the floor note is truthful about how many people the workspace actually has.
+ * thins. The population is the real contributor count, so the floor note is truthful about how many
+ * people the workspace has; the values are the CONSENTING members' shares (`getOrgCareCohort`), floored
+ * by the one producer `buildCareOrgAggregate`.
  */
 export async function getCareOrgAggregate(orgSlug: string): Promise<CareOrgView> {
   const insights = await getContributorInsights(orgSlug).catch(() => null);
-  return emptyOrgView(insights?.totalContributors ?? 0);
+  return careOrgAggregateFor(orgSlug, insights?.totalContributors ?? 0);
+}
+
+/** The aggregate for a known population. No cohort is read for the public org or under the floor. */
+async function careOrgAggregateFor(orgSlug: string, population: number): Promise<CareOrgView> {
+  const empty = emptyOrgView(population);
+  if (orgSlug === PUBLIC_ORG || empty.belowFloor) return empty;
+  const cohort = await getOrgCareCohort(orgSlug).catch(() => null);
+  return cohort ? buildCareOrgAggregate(population, cohort) : empty;
 }

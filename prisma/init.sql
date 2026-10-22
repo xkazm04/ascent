@@ -2720,6 +2720,9 @@ CREATE TABLE "MentorShare" (
     "sharedAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    -- C4 consent to the anonymous org aggregate; default false keeps every share out. See the
+    -- 20261023130000_mentor_share_org_aggregate migration.
+    "orgAggregate" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "MentorShare_pkey" PRIMARY KEY ("id")
 );

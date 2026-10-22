@@ -3155,6 +3155,10 @@ model MentorShare {
   sharedAt    DateTime
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // C4 consent, mirrored from the payload's `consent.orgAggregate` on every save so the org cohort
+  // read can FILTER on it (src/lib/db/mentor-share-cohort.ts). Default false: every share stored
+  // before this column existed stays out of the anonymous org aggregate until its owner says yes.
+  orgAggregate Boolean @default(false)
 }
 
 // Backlog develop-2026-09-17 row 47: one org's pull credential for an AI-usage provider read by ADMIN

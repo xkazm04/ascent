@@ -125,7 +125,7 @@ export interface DeveloperView {
    * viewer reads it; no org band or aggregate is built from it.
    */
   ownTelemetry: { source: "claude-code"; sessions: number; fields: CareShapeField[] } | null;
-  /** Anonymous org bands for the shared fields — present only if the developer opted into comparison. */
+  /** Anonymous org bands, present only if the developer's own share consents (`consent.orgAggregate`). */
   orgBands: Partial<Record<CareShapeField, CareBand>> | null;
   /**
    * The git-side slice ascent already holds about this login — their OWN numbers, read out of the
@@ -233,6 +233,9 @@ export const SHARING_LEDGER_OFF: DeveloperView["setup"]["sharing"] = [
   { field: "Tests-before-commit ratio", shared: false },
   { field: "Skill invokes", shared: false },
   { field: "Moves kept / dropped", shared: false },
+  // C4: a SWITCH (consent.orgAggregate on the share), never a lock. On, the share's values join the
+  // org's anonymous bands under the floors in `care-org-aggregate.ts`; off, they never leave the row.
+  { field: "Anonymous org bands", shared: false },
   { field: "Transcript text", shared: false, note: "never leaves your machine — not a setting" },
   { field: "Prompts, diffs, file contents", shared: false, note: "never collected" },
   { field: "Per-person rows in org mode", shared: false, note: "unrepresentable in the org view model" },

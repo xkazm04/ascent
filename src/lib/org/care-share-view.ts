@@ -6,11 +6,12 @@
 // honest empty state. `evidence` on a move is ascent's to add from the fleet (C4), never the mentor's,
 // so it is null here. The privacy ledger's switchable rows light up from what the share actually
 // carried; its never-sent rows are copied untouched, and `careNeverSent` locks them whatever they say.
+// "Anonymous org bands" is the share's own consent to the org aggregate (C4): a switch, not a lock.
 //
 // PURE module, no db import: the Developer render is a client component.
 
 import { validateCareShapePayload } from "./care-shape-contract";
-import type { CareSharePayload } from "./care-share-contract";
+import { careShareConsents, type CareSharePayload } from "./care-share-contract";
 import { SHARING_LEDGER_OFF, type CareShapeField, type DeveloperView } from "./developer-view";
 
 /** Which shape fields light each switchable ledger row. */
@@ -25,6 +26,7 @@ const LEDGER_SHAPE_FIELDS: Record<string, readonly CareShapeField[]> = {
 export function careShareLedger(share: CareSharePayload, sharedFields: readonly CareShapeField[]): DeveloperView["setup"]["sharing"] {
   return SHARING_LEDGER_OFF.map((row) => {
     if (row.field === "Moves kept / dropped") return { ...row, shared: share.moves !== undefined };
+    if (row.field === "Anonymous org bands") return { ...row, shared: careShareConsents(share) };
     const fields = LEDGER_SHAPE_FIELDS[row.field];
     return fields ? { ...row, shared: fields.some((f) => sharedFields.includes(f)) } : { ...row };
   });

@@ -63,7 +63,7 @@ describe("CarePrivacyLedger", () => {
 
   it("states the never-sent count as a unit rather than a hand-typed number", () => {
     const { getByText } = render(<CarePrivacyLedger setup={setup(SHARING_LEDGER_OFF)} />);
-    expect(getByText(/8 fields · 3 with no switch at all/)).toBeTruthy();
+    expect(getByText(/9 fields · 3 with no switch at all/)).toBeTruthy();
   });
 
   it("keeps an honest empty state when the mentor has never run", () => {

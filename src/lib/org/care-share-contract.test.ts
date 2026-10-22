@@ -101,3 +101,26 @@ describe("validateCareShare: known fields, types and caps", () => {
     expect(refused({ contract: 1, shape })).toContain("shape: windowDays must be 30");
   });
 });
+
+// C4 (challenge 2026-10-22d, developer-0): consent to the anonymous org aggregate is DATA the producer
+// filters on, and it is off unless the share says so in so many words.
+describe("validateCareShare: consent to the org aggregate", () => {
+  it("refuses a consent flag that is not a boolean, and an unknown consent key", () => {
+    expect(refused({ contract: 1, consent: { orgAggregate: "yes" } })).toContain("consent.orgAggregate: must be a boolean");
+    expect(refused({ contract: 1, consent: { orgAggregate: true, manager: true } })).toContain("consent: unknown key manager");
+    expect(refused({ contract: 1, consent: true })).toContain("consent: must be an object");
+  });
+
+  it("keeps an explicit yes and an explicit no", () => {
+    const yes = validateCareShare({ contract: 1, consent: { orgAggregate: true } });
+    const no = validateCareShare({ contract: 1, consent: { orgAggregate: false } });
+    expect(yes.ok && yes.share.consent).toEqual({ orgAggregate: true });
+    expect(no.ok && no.share.consent).toEqual({ orgAggregate: false });
+  });
+
+  it("a share with no consent section carries none (every existing share stays OUT)", () => {
+    const r = validateCareShare(goodShare());
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.share.consent).toBeUndefined();
+  });
+});

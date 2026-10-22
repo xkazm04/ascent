@@ -2,16 +2,20 @@
 // row `POST /api/me/mentor/share` writes and `getDeveloperView` reads back.
 //
 // Fenced the same way as the viewer's own AgentSession read (`agent-sessions-viewer.ts`):
-//   - the ONLY key is the login the CALLER resolved server-side (`resolveViewerLogin`); there is no
-//     variant that lists, searches or reads by anything else, and a blank login issues no query;
+//   - the ONLY key is the login the CALLER resolved server-side (`resolveViewerLogin`); nothing in
+//     THIS module lists, searches or reads by anything else, and a blank login issues no query. The
+//     one listing read of this table is a separate door, `mentor-share-cohort.ts`: it lists
+//     consenting payloads of an org's members for the anonymous aggregate, never a login or a person;
 //   - the key is normalized (`normalizeLogin`) and matched exactly, never `contains` or insensitive;
 //   - one row per login: a share is a snapshot, so a push REPLACES it and a delete removes it whole.
 //     There is no history table and no soft delete, so "delete my share" leaves nothing behind;
-//   - the stored JSON is re-validated on read: a row the contract no longer accepts reads as no share.
+//   - the stored JSON is re-validated on read: a row the contract no longer accepts reads as no share;
+//   - every save mirrors the payload's consent into `orgAggregate` (false when absent), so pushing a
+//     share without consent withdraws the person from the next org aggregate.
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { normalizeLogin } from "@/lib/db/members";
-import { validateCareShare, type CareSharePayload } from "@/lib/org/care-share-contract";
+import { careShareConsents, validateCareShare, type CareSharePayload } from "@/lib/org/care-share-contract";
 
 /** A stored share as it crosses the wire: `sharedAt` is an ISO string (see `wire-safe.ts`). */
 export interface MentorShareRow {
@@ -42,10 +46,11 @@ export async function saveMentorShare(login: string, share: CareSharePayload, no
   const key = keyOf(login);
   if (!key || !isDbConfigured()) return null;
   const payloadJson = JSON.stringify(share);
+  const orgAggregate = careShareConsents(share);
   await getPrisma().mentorShare.upsert({
     where: { login: key },
-    create: { login: key, payloadJson, sharedAt: now },
-    update: { payloadJson, sharedAt: now },
+    create: { login: key, payloadJson, sharedAt: now, orgAggregate },
+    update: { payloadJson, sharedAt: now, orgAggregate },
   });
   return { share, sharedAt: now.toISOString() };
 }

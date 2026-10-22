@@ -16,6 +16,9 @@
 //                count cap. Refuses rather than repairs, like the shape validator.
 //   ISO DATES    every date is parsed and re-emitted as an ISO string, so it crosses to the client as
 //                the string the view model declares.
+//   CONSENT      `consent.orgAggregate` is the ONLY way a share enters the org's anonymous care
+//                aggregate (C4). It must be a boolean when present, and a share without it is OUT:
+//                every share stored before the flag existed stays out until its owner says yes.
 //
 // PURE module, no db import: the Developer render is a client component.
 
@@ -54,6 +57,13 @@ export interface CareSharePayload {
   journal?: DeveloperView["journal"];
   shape?: CareShapePayload;
   setup?: { hookInstalled: boolean };
+  /** Consent to the anonymous org aggregate. Absent means no: read it through `careShareConsents`. */
+  consent?: { orgAggregate: boolean };
+}
+
+/** True only when the share says yes to the org aggregate in so many words. Absent or false: out. */
+export function careShareConsents(share: Pick<CareSharePayload, "consent"> | null | undefined): boolean {
+  return share?.consent?.orgAggregate === true;
 }
 
 export type CareShareValidation = { ok: true; share: CareSharePayload } | { ok: false; errors: string[] };
@@ -69,7 +79,8 @@ export const CARE_SHARE_IDENTITY_KEYS: ReadonlySet<string> = new Set([
   "login", "githublogin", "user", "userid", "username", "email", "owner", "author", "viewer",
 ]);
 
-const TOP = new Set(["contract", "profile", "moves", "journal", "shape", "setup"]);
+const TOP = new Set(["contract", "profile", "moves", "journal", "shape", "setup", "consent"]);
+const CONSENT = new Set(["orgAggregate"]);
 const PROFILE = new Set(["role", "archetypeHint", "goals"]);
 const MOVE = new Set(["id", "title", "state", "category", "why", "expectedSaving", "tryFor", "droppedReason", "registryPromotable", "at"]);
 const ENTRY = new Set(["at", "line", "kind"]);
@@ -215,6 +226,14 @@ export function validateCareShare(input: unknown): CareShareValidation {
       unknownKeys(input.setup, SETUP, "setup", errors);
       if (typeof input.setup.hookInstalled !== "boolean") errors.push("setup.hookInstalled: must be a boolean");
       else share.setup = { hookInstalled: input.setup.hookInstalled };
+    }
+  }
+  if (input.consent !== undefined) {
+    if (!isObject(input.consent)) errors.push("consent: must be an object");
+    else {
+      unknownKeys(input.consent, CONSENT, "consent", errors);
+      if (typeof input.consent.orgAggregate !== "boolean") errors.push("consent.orgAggregate: must be a boolean");
+      else share.consent = { orgAggregate: input.consent.orgAggregate };
     }
   }
   return errors.length ? { ok: false, errors } : { ok: true, share };
