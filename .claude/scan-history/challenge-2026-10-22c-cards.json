@@ -1,0 +1,853 @@
+[
+ {
+  "context": "Provider Integrations",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Replay-safe OTLP delta ingest: a retried export can never double-count spend",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "prisma/schema.prisma",
+   "src/lib/integrations/otlp-wire.ts",
+   "src/lib/integrations/otlp.ts",
+   "src/lib/integrations/sessions.ts",
+   "src/lib/db/integrations.ts",
+   "src/lib/db/agent-sessions.ts",
+   "src/app/api/integrations/ingest/v1/metrics/route.ts"
+  ],
+  "new_files": [
+   "prisma/migrations/20261023120000_otlp_point_receipt/migration.sql",
+   "src/lib/integrations/otlp-point-key.ts",
+   "src/lib/integrations/otlp-point-key.test.ts",
+   "src/lib/db/otlp-receipts.ts",
+   "src/app/api/integrations/ingest/v1/metrics/route.replay.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/org-intelligence.md",
+   "docs/features/data/data-model.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "prisma/schema.prisma: 3153 -> ~3172 (no cap; one model + relation line on Organization)",
+   "src/lib/integrations/otlp-wire.ts: 93 -> ~100 (no .ts cap outside src/features; spirit 300)",
+   "src/lib/integrations/otlp.ts: 171 -> ~188 (spirit 300)",
+   "src/lib/integrations/sessions.ts: 167 -> ~180 (spirit 300)",
+   "src/lib/db/integrations.ts: 254 -> ~262 (spirit 300; only an optional client param on recordUsage)",
+   "src/lib/db/agent-sessions.ts: 295 -> ~299 (spirit 300; optional client param only, any growth goes to otlp-receipts.ts)",
+   "src/app/api/integrations/ingest/v1/metrics/route.ts: 104 -> ~135",
+   "src/lib/integrations/otlp-point-key.ts: new ~60",
+   "src/lib/db/otlp-receipts.ts: new ~85",
+   "route.replay.test.ts / otlp-point-key.test.ts: new, each < 200"
+  ],
+  "acceptance": [
+   "One delta export (claude_code.cost.usage 0.40 USD on acme/x, startTimeUnixNano=T0, timeUnixNano=T1) POSTed twice -> AiUsageRecord(acme/x, day).costCents == 40, not 80; second response is 202 with stored:0 and duplicates:1 (terminal, never 5xx)",
+   "Same export POSTed twice -> AgentSession(session.id=s1).tokens equals the single-export value (session sink is deduped independently of the usage sink)",
+   "Two exports of the same series with consecutive intervals [T0,T1] and [T1,T2] -> both summed (costCents == a+b); interval identity, not value equality, is the key",
+   "The same export re-serialized (resourceMetrics reordered, attribute arrays reordered, whitespace changed) -> still deduped: the key is derived from series identity + interval, never from body bytes",
+   "recordUsage throws on the 2nd of 3 bucket upserts during the first POST -> transaction rolls back: zero receipts and zero usage rows persist; the retry then stores the full value exactly once",
+   "A datapoint with neither startTimeUnixNano nor timeUnixNano -> admitted (never silently dropped as a duplicate) and counted in the response as unkeyed:1",
+   "Org A and org B send identical series/interval keys -> both stored; the receipt unique constraint is (orgId, sink, pointKey)",
+   "Receipts older than the replay horizon (7 days) for the ingesting org are deleted in the same request, bounded per call; a fresh receipt is untouched"
+  ],
+  "guards": [
+   "Cumulative-temporality datapoints are still skipped and reported as cumulative-temporality (green before, must stay green)",
+   "The normalized JSON contract on /api/integrations/ingest stays replace-mode and unchanged (already idempotent by its unique key)",
+   "401 from a bad/expired ingest token still precedes any receipt write (auth before admission)"
+  ],
+  "premise": [
+   "src/lib/db/integrations.ts:52-54 - mode \"add\" turns tokens/costCents/sessions into Prisma { increment } on every call: re-applying the same export re-adds it",
+   "src/lib/db/integrations.ts:47-70 - recordUsage is a loop of independent upserts with no transaction: a failure mid-batch leaves earlier buckets incremented, so the exporter's retry re-adds them",
+   "src/app/api/integrations/ingest/v1/metrics/route.ts:71-77 - every parsed export is folded with recordUsage(..., { mode: \"add\" }) and recordAgentSessions in parallel; nothing records that this export (or any of its datapoints) was already admitted",
+   "src/lib/db/agent-sessions.ts:31 - delta session counters are written as { increment: s[k] }, so the session sink double-counts on replay too",
+   "src/lib/integrations/otlp-wire.ts:16-21 - OtlpDataPoint declares timeUnixNano but not startTimeUnixNano: the delta interval's start, the field that identifies a delta point, is not even read",
+   "prisma/schema.prisma:1505 - AiUsageRecord's only uniqueness is the (org, source, scope, scopeKey, periodStart) day bucket, which by design absorbs many exports, so it cannot reject a repeated one",
+   "src/lib/integrations/ingest-guard.ts:193-195 - the door itself answers 503 + retry-after:30, i.e. it already expects exporters to retry; a timeout or proxy 502/504 after the write commits produces the same retry with no 503 involved",
+   "grep -rn -i 'dedup|idempot|replay' src/lib/integrations src/lib/db/agent-sessions.ts src/app/api/integrations (non-test) -> no hits besides openai-costs retry pacing: no replay protection exists on the push path"
+  ],
+  "rollback": "Revert the series: the route goes back to direct recordUsage/recordAgentSessions; the new OtlpPointReceipt table is additive (a follow-up down-migration drops it, or it is left inert). No existing column changes, so stored usage is unaffected either way.",
+  "gate": "contract",
+  "doc": "docs/features/org-dashboard/org-intelligence.md",
+  "runner_up": "One admin-pull connector runner + a daily sync job: Copilot gains the sync ledger it lacks (CredentialProvider is 'openai' only, src/lib/db/provider-credentials.ts:20) and both pulls stop depending on an owner pressing Sync now.",
+  "body": "## Summary\nThe Claude Code OTLP push path stores delta counters by INCREMENTING day buckets and session rows, and nothing records which datapoints were already admitted. OTLP delivery is at-least-once: a timeout, a 502/504 from the platform after the write committed, or a mid-batch DB failure makes the exporter resend the same export, and every resend adds the same dollars again. Measured spend is the one tier Ascent calls exact (providers.ts:7); it is also the only tier with no replay defence. This card makes admission idempotent at the store, per datapoint, per sink.\n\n## Description\nApplies usage-event-ingestion (golden path, 'De-duplication is the emitter's promise, enforced by your store') together with its running-total-or-increment technique, which this path already honours for temporality. OTLP carries no transmission id, so the key is the closest emitter-minted identity: series identity (source, metric name, sorted resource attributes, sorted datapoint attributes) plus the delta interval (startTimeUnixNano, timeUnixNano). A delta series cannot legitimately report the same interval twice, so this is identity, not a content hash of values: two genuine increments of equal value in different intervals never collide (acceptance 3). Record this as a deviation note in the doc: the standard prefers an emitter-chosen transmission key, OTLP does not offer one, and interval identity is the substitute.\n\nUniqueness lives in the store: a new OtlpPointReceipt(orgId, sink, pointKey, createdAt) with @@unique([orgId, sink, pointKey]). Admission is one INSERT ... ON CONFLICT DO NOTHING RETURNING pointKey inside an interactive transaction; only returned keys are folded, and the bucket/session writes run in the SAME transaction so a failure rolls back the claim with the write (acceptance 5). Two sinks (usage, sessions) claim independently, preserving the route's existing rule that a session-write failure never fails an ingest whose usage landed (route.ts:66-69). A duplicate is terminal: 202 with duplicates:n, never a retriable status. Receipts expire after a 7-day replay horizon, swept for the ingesting org in-request with a bounded delete, so no retention.ts change is needed.\n\n## Flow\n- otlp-wire.ts: read startTimeUnixNano.\n- otlp-point-key.ts (pure): pointKey(source, resourceAttrs, metricName, dp) -> sha256 hex, or null when the datapoint has no time at all (admitted as unkeyed).\n- otlp.ts / sessions.ts: accept an optional admit(key) predicate so parse stays pure and testable; parseOtlpMetrics also returns the keys it would consume.\n- otlp-receipts.ts: claimPoints(tx, orgId, sink, keys) -> Set of new keys; sweepExpired(tx, orgId).\n- integrations.ts / agent-sessions.ts: optional db client param (default getPrisma()) so they run inside the tx; signatures otherwise unchanged.\n- metrics route: claim -> parse(admit) -> write, per sink, in prisma.$transaction; response gains duplicates and unkeyed.\n\n## Expected impact\nMeasured per-repo spend, AgentSession cost-per-attempt and every Delivery ROI figure built on them stop drifting upward with network weather. Today an inflated number is indistinguishable from real usage: nothing in the store can tell them apart after the fact.\n\n## Evaluation\nClaim: a replayed or partially-failed OTLP export is stored exactly once.\nBefore: 0 of 8 cases pass (1, 2, 4, 5 double-count; 6-8 have no mechanism to test)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first (route.replay.test.ts against the PGlite-backed test db; otlp-point-key.test.ts pure)\nResult: better\nGate: contract (new table + migration; ingest response gains fields, nothing removed)",
+  "evidence": "src/lib/db/integrations.ts:52-55: `mode === \"add\" ? { tokens: { increment: data.tokens }, costCents: { increment: data.costCents }, sessions: { increment: data.sessions }, seats: data.seats, fidelity: data.fidelity } : data;` inside `for (const r of records) { ... await prisma.aiUsageRecord.upsert(...) }` (no $transaction). metrics/route.ts:71-72: `recordUsage(gate.slug, parsed.records, { mode: \"add\" })`. agent-sessions.ts:31: `s.cumulative ? s[k] : { increment: s[k] }`. otlp-wire.ts:16-21: `export interface OtlpDataPoint { asInt?; asDouble?; timeUnixNano?; attributes? }` (no startTimeUnixNano). Grep for dedup|idempot|replay over the push path: only openai-costs.ts retry pacing and ingest-guard.ts:193 'Retry shortly.'",
+  "notes_from_critic": "oauth-1 also adds a prisma migration; ensure a unique migration timestamp prefix"
+ },
+ {
+  "context": "Provider Integrations",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Spend that lands nowhere: reconcile telemetry repos with Delivery, scan the rest",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/features/admin/integrations/integrationModel.ts",
+   "src/features/admin/integrations/integrationLadder.ts",
+   "src/features/admin/integrations/IntegrationsTab.tsx",
+   "src/features/admin/integrations/IntegrationsTab.v1.tsx",
+   "src/features/admin/integrations/ClaudeConnect.v2.tsx"
+  ],
+  "new_files": [
+   "src/lib/db/integrations-attribution.ts",
+   "src/lib/db/integrations-attribution.test.ts",
+   "src/features/admin/integrations/attributionReconcileModel.ts",
+   "src/features/admin/integrations/attributionReconcileModel.test.ts",
+   "src/features/admin/integrations/AttributionReconcile.tsx",
+   "src/features/admin/integrations/useAttributionScan.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/org-intelligence.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/features/admin/integrations/integrationModel.ts: 96 -> ~110 (cap 200)",
+   "src/features/admin/integrations/integrationLadder.ts: 98 -> ~106 (cap 200)",
+   "src/features/admin/integrations/IntegrationsTab.tsx: 61 -> ~66 (cap 200)",
+   "src/features/admin/integrations/IntegrationsTab.v1.tsx: 33 -> ~36 (cap 200)",
+   "src/features/admin/integrations/ClaudeConnect.v2.tsx: 105 -> ~109 (cap 200)",
+   "src/features/admin/integrations/attributionReconcileModel.ts: new ~110 (cap 200)",
+   "src/features/admin/integrations/AttributionReconcile.tsx: new ~120 (cap 200, \"use client\")",
+   "src/features/admin/integrations/useAttributionScan.ts: new ~70 (cap 200, \"use client\")",
+   "src/lib/db/integrations-attribution.ts: new ~80 (spirit 300)"
+  ],
+  "acceptance": [
+   "reconcile(measured=[{repo:'acme/x',costCents:4000},{repo:'acme/y',costCents:1000}], deliverySet={'acme/x'}, fleet={'acme/x'}) -> landed=['acme/x'], outsideFleet=['acme/y'], hiddenCostCents=1000, hiddenShare=0.2",
+   "Case folding: measured 'Acme/X' vs delivery set 'acme/x' -> landed, outsideFleet empty (same lower-case join aiDeliveryModel.ts:80 uses)",
+   "measured 'acme/z' has a Repository row but no row in getOrgPrSignals.perRepo -> bucket inFleetNoSignals with action 'rescan', not 'add' (distinct remedies)",
+   "scanPlan(outsideFleet=['acme/y','acme/w']) -> ImportScanRequest { org, repos:['acme/w','acme/y'] sorted by hidden cost desc, watch:false, schedule:'off' } and a disclosed count of 2 scans before commit; empty outsideFleet -> plan null, action disabled",
+   "No measured repo rows at all -> state 'none': no hidden-spend line and no '$0 hidden' claim (unknown is not zero)",
+   "connectionLadder(claude-code) with status.repos=2 but neither repo in the delivery set -> 'On a repository' step is 'current' with detail naming the hidden spend, not 'reached'",
+   "A 'gitlab:group/p' outside repo with no stored GitLab installation -> listed with 'connect GitLab first', excluded from the scan plan; with a stored installation -> included"
+  ],
+  "guards": [
+   "The Integrations tab stays owner-only: IntegrationsTab.tsx:22 gate runs before the new read (green before by design)",
+   "The scan action goes through the existing /api/org/import route via runImportScan, so its auth, public-org rules, credit reservation and capacity truncation (import/route.ts:139-169, 386) apply unchanged; no new mutating route"
+  ],
+  "premise": [
+   "src/features/bought/delivery/ai/aiDeliveryModel.ts:72 - Delivery's repo list is pr.perRepo.map(...): only repos with scanned PR signals get a row",
+   "src/features/bought/delivery/ai/aiDeliveryModel.ts:80 - measured spend is looked up per row (usage.perRepo[row.fullName.toLowerCase()]); usage keys with no matching row are never read, so their dollars vanish from Delivery without a trace",
+   "src/lib/db/org-signals.ts:192-195 - getOrgPrSignals builds its list from the org's Repository rows and their latest scan's prStats, i.e. the delivery set is 'scanned repos', not 'repos that send telemetry'",
+   "src/lib/db/integrations.ts:162-163 - getProviderIngestStatus counts every scope=repo scopeKey as an attributed repo, whether or not Delivery can show it",
+   "src/features/admin/integrations/ProviderStatus.tsx:112 - the card then reports 'N repos attributed' as success, and integrationLadder.ts:15,22 marks 'On a repository' reached on repos > 0: the surface says healthy exactly when the spend is invisible downstream",
+   "src/features/admin/integrations/integrationModel.ts:18-26 - IntegrationsData carries per-source totals only; there is no per-repo list, so the owner cannot see which repos the spend landed on",
+   "src/components/onboarding/importScan.ts:85 - runImportScan already drives /api/org/import over SSE with per-repo callbacks and insufficient_credits skips; the scan action reuses it rather than adding a route"
+  ],
+  "rollback": "Revert the series: the new read, model, component and hook are additive; the five edited files lose an optional field, one render line and one ladder branch. No schema, no route, no stored state.",
+  "gate": "none",
+  "doc": "docs/features/org-dashboard/org-intelligence.md",
+  "runner_up": "Claude Code setup verified end to end: after copying the env snippet the card waits live for the first export and names each repo it landed on (polling ingest status), instead of a token-only probe.",
+  "body": "## Summary\nAn owner connects Claude Code, the Integrations card turns green with '3 repos attributed', and the AI delivery view shows no spend for two of them, because Delivery only draws repos that have scanned PR signals and silently ignores measured usage on any other repo. The decision 'is my spend actually reaching the ROI view?' is made blind even though both sides of the join are already in the database. This card shows the reconciliation and lets the owner fix it in one move.\n\n## Description\nA server read (integrations-attribution.ts) returns the org's measured scope=repo usage per repo over the Delivery window, joined against the SAME set Delivery joins against (getOrgPrSignals.perRepo, lower-cased) plus Repository existence. One authority for the join, so the reconcile cannot disagree with Delivery. A pure attributionReconcileModel buckets each repo as landed / inFleetNoSignals / outsideFleet, computes hidden spend and its share, and builds the scan plan. AttributionReconcile renders it under the Claude Code connect surface in both compositions (Prism ClaudeConnect.v2, Altimeter IntegrationsTab.v1): '$10.00 of $50.00 measured spend (20%) lands on 1 repository AI delivery cannot show', the repos with their cost, and one 'Scan 1 repository' button whose count is disclosed before it runs. The action uses runImportScan with watch:false/schedule:'off', so it is a one-shot scan the owner chose, never a silent recurring subscription; the import route keeps every gate and credit rule it has. The connection ladder stops calling an invisible attribution 'reached'.\n\nRegistry: adoption-measurement / attribution-provenance-tiers (a number displayed must carry what it is counted over) and the 'unknown is not a value' law for the no-rows state.\n\n## Flow\n- IntegrationsTab (owner-gated) -> getMeasuredAttribution(slug) -> IntegrationsData.attribution (wire-safe: ISO strings, cents).\n- reconcile(attribution) -> buckets + hiddenCostCents + scanPlan.\n- AttributionReconcile: list + disclosed button -> useAttributionScan -> runImportScan -> per-repo progress -> router.refresh() so the buckets re-derive.\n- integrationLadder: claude 'On a repository' becomes reached only when at least one measured repo is landed.\n\n## Expected impact\nThe gap between 'telemetry arrived' and 'ROI shows it' becomes a named, actionable number on the page where the owner connects the provider, and closing it is one click instead of discovering it on another tab, finding the repo names, and importing them by hand.\n\n## Evaluation\nClaim: the owner sees which measured spend Delivery cannot show and can scan those repos in one action.\nBefore: 0 of 7 cases pass (no per-repo read, no model, the ladder reads reached)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first against attributionReconcileModel (pure), integrationLadder, and integrations-attribution (test db)\nResult: better\nGate: none",
+  "evidence": "aiDeliveryModel.ts:72 `const repos: AiRepoRoi[] = pr.perRepo.map((row) => {` and :80 `const u = usage.perRepo[row.fullName.toLowerCase()];` (only lookup site: grep 'usage.perRepo' -> this line alone). integrations.ts:162-163 `if (r.scope === \"repo\") { e.repoKeys.add(r.scopeKey.toLowerCase());`. ProviderStatus.tsx:112 `{status.repos} repo{...} attributed`. integrationLadder.ts:15 `const attributed = (claude?.repos ?? 0) > 0;`. org-signals.ts:192-195 `prisma.repository.findMany({ where: { orgId: org.id, ... }, select: { fullName, name, scans: {...prStats} } })`."
+ },
+ {
+  "context": "Fleet Rollups & Insights",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One latest-real-scan door for every fleet reader, guard-pinned",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/lib/db/org-rollup-latest-scans.ts",
+   "src/lib/db/org-insights.ts",
+   "src/lib/db/org-signals.ts",
+   "src/lib/db/org-teams.ts",
+   "src/lib/db/org-rollup.ts",
+   "src/lib/db/org-rollup-queries.test.ts",
+   "src/lib/db/org-gap-analysis.test.ts",
+   "src/lib/db/org-insights.test.ts",
+   "src/lib/db/org-signals.test.ts",
+   "src/lib/db/teamRollup.test.ts",
+   "src/lib/db/org-rollup-latest-scans.test-helpers.ts"
+  ],
+  "new_files": [
+   "src/lib/db/org-latest-scan-guard.test.ts",
+   "src/lib/db/org-insights.mock-exclusion.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/org-intelligence.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/db/org-rollup-latest-scans.ts: 91 -> ~135 (.ts outside src/features: no hard cap)",
+   "src/lib/db/org-insights.ts: 1286 -> ~1300 (no hard cap; net small, nested selects become one helper call each)",
+   "src/lib/db/org-signals.ts: 635 -> ~650 (no hard cap)",
+   "src/lib/db/org-teams.ts: 616 -> ~620 (no hard cap)",
+   "src/lib/db/org-rollup.ts: 1407 -> ~1415 (no hard cap)",
+   "src/lib/db/org-rollup-queries.test.ts: 113 -> ~230 (no hard cap)",
+   "src/lib/db/org-rollup-latest-scans.test-helpers.ts: 203 -> ~240 (no hard cap)",
+   "src/lib/db/org-latest-scan-guard.test.ts: new ~90",
+   "src/lib/db/org-insights.mock-exclusion.test.ts: new ~120"
+  ],
+  "acceptance": [
+   "org-rollup-queries plan pin: getOrgPractices / getOrgGapAnalysis / getOrgRecommendations / getOrgDiscrepancies / getOrgPrSignals / getOrgGovernance / getOrgDimensionGaps / getOrgActivity / getOrgHeaderSummary / getRepoStates on a 40-repo fixture with 30 scans each -> Scan rows transferred == repos with a scan (40), not 1,200; and the count stays 40 when the fixture ages to 60 scans/repo",
+   "same plan pin for getOrgTeamRollup (needs the last two scans) -> Scan rows transferred <= 2 x repos, issued as groupBy + scanAtBeforePerRepo, never a nested `take: 2`",
+   "equivalence: each migrated reader on the shared in-memory Scan table returns exactly the object the nested-take shape returned (including the tie rule: equal scannedAt -> greatest id wins)",
+   "getOrgGapAnalysis with 4 repos whose latest scan is engineProvider 'mock' (all dims 20) and 3 live repos (all dims 80) -> scanned == 3, commonGaps == [], and no mock repo in repoSpecific",
+   "getOrgPractices with a mock-latest repo scoring 10 on D1 -> that repo is absent from gapRepos/gapRepoRefs and total counts live repos only (same predicate as getOrgRollup's realScored, org-rollup.ts:906)",
+   "guard: a source file under src/lib/db/org-*.ts containing `scans: { orderBy: { scannedAt: \"desc\" }, take: 1` -> guard fails naming file:line; the same text inside a // comment or a string literal -> guard passes (comments and strings stripped first)",
+   "guard seeded violation: the guard run against an inline fixture string carrying a nested `take: 2` -> reports exactly 1 violation (proves the matcher still bites); org-benchmark.ts is the single allowlisted exemption with its reason (BENCHMARK_ELIGIBLE filters columns outside latestScanAtPerRepo's where-contract)",
+   "CRITIC REVISE: the latest-real-scan guard is green on the full tree at the final commit, including org-rework.ts, org-nav-counts.ts, org-practice-shapes.ts, org-stance.ts (migrated or allowlisted with a reason)"
+  ],
+  "guards": [
+   "equivalence case is green-before by design for the shape of the returned objects; it pins that the migration changes row volume and nothing the caller sees (except the two mock-exclusion cases, which are red-before)"
+  ],
+  "premise": [
+   "src/lib/db/org-insights.ts:621 - header measurement: under Prisma 6.19's client query compiler a nested `scans: { take: 1 }` emits a Scan SELECT with no LIMIT, so the org's ENTIRE scan history crosses the wire",
+   "src/lib/db/org-rollup-latest-scans.ts:8 - the measured fix was 'shared so the three call sites cannot drift', and only getOrgRollup / getOrgMovers / getOrgBacklog adopted it (commit f3f0e79d)",
+   "src/lib/db/org-insights.ts:364-365 - getOrgRecommendations still `scans: { orderBy desc, take: 1 }` (and nests recommendations under it)",
+   "src/lib/db/org-insights.ts:996 - getOrgPractices nested take: 1",
+   "src/lib/db/org-insights.ts:1142 - getOrgGapAnalysis nested take: 1",
+   "src/lib/db/org-insights.ts:1243 - getOrgDiscrepancies nested take: 1",
+   "src/lib/db/org-signals.ts:194, :343, :429-430, :562 - getOrgPrSignals, getOrgGovernance, getOrgDimensionGaps, getOrgActivity all nested take: 1",
+   "src/lib/db/org-teams.ts:536-537 - getOrgTeamRollup nested take: 2",
+   "src/lib/db/org-rollup.ts:189-190 and :1304-1305 - getRepoStates and the cache()d getOrgHeaderSummary (shell chip, OG image, /api/org/program) nested take: 1",
+   "src/lib/db/org-rollup.ts:906 - getOrgRollup excludes isMockScore from its numbers; commit 6c281275 'mock scores leave every reader' fixed five readers",
+   "src/lib/db/org-insights.ts:992-997 and :1137-1143 - getOrgPractices and getOrgGapAnalysis select no engineProvider at all, so a mock-floor latest scan feeds byDim, exemplars, gapRepos and commonGaps (two implementations of the mock rule where only some were fixed)",
+   "src/lib/llm/mock.ts:81,103 - the mock engine emits dimension rows, so a mock latest scan does carry dimension scores into those readers"
+  ],
+  "rollback": "Each reader migrates in its own commit (helper first, then insights, signals, teams, rollup, then the guard last); revert any commit independently - return shapes and signatures are unchanged, so no caller moves.",
+  "gate": "architecture",
+  "doc": "docs/features/org-dashboard/org-intelligence.md",
+  "runner_up": "Split org-rollup.ts (1407) and org-insights.ts (1286) into themed sub-modules behind thin barrels, per AGENTS.md's .ts spirit - pure relocation, lower impact than the volume+mock drift.",
+  "body": "## Summary\nThe economics-1 fix (groupBy latest-per-repo, then fetch only those rows) landed in three readers and was explicitly written 'so the call sites cannot drift'. Ten sibling fleet readers still use the nested `scans: { take: N }` shape the module's own header measures as transferring the org's whole scan history, and two of them (practices, gap analysis) still fold mock-floor scans that getOrgRollup refuses. Make `org-rollup-latest-scans.ts` the only door to 'the latest scan per repo', add a real-only option the dimension aggregators use, and pin it with a source-scanning guard.\n\n## Description\nApplies metrics-rollups / cardinality-and-cost ('bounding a grouped read before it ships') and measurement-honesty / co-published-numbers-must-reconcile: the Practices tab, gap analysis and the rollup badge sit on the same pages and must count the same population. The guard follows AGENTS.md's rule for source-scanning gates: strip comments and string literals before matching, and seed a violation that must keep failing.\n\n## Flow\n- Add `readLatestTwoScansPerRepo` (groupBy + scanAtBeforePerRepo + atPairs) beside readLatestScanPerRepo.\n- Migrate getOrgRecommendations, getOrgPractices, getOrgGapAnalysis, getOrgDiscrepancies (insights); getOrgPrSignals, getOrgGovernance, getOrgDimensionGaps, getOrgActivity (signals); getOrgTeamRollup (teams); getRepoStates, getOrgHeaderSummary (rollup).\n- Practices + gap analysis select engineProvider and drop a mock-latest repo, exactly like realScored in getOrgRollup.\n- Prisma doubles move to the shared in-memory Scan table in org-rollup-latest-scans.test-helpers.ts.\n- org-latest-scan-guard.test.ts forbids nested scan `take` under src/lib/db/org-*.ts; org-benchmark.ts allowlisted with reason.\n\n## Expected impact\nEvery org page header (cache()d summary) and every Standing/Shared/Bought tab stops reading O(fleet x age) Scan rows; the Practice Library and gap analysis stop reporting mock placeholders as org gaps beside a badge that excludes them.\n\n## Evaluation\nClaim: all fleet latest-scan reads are bounded and count the same live population\nBefore: 0 of 7 cases pass (equivalence green by design)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture",
+  "evidence": "grep -n 'take: 1\\|take: 2' src/lib/db/org-*.ts -> org-insights.ts:365, :996, :1142, :1243; org-signals.ts:194, :343, :430, :562; org-teams.ts:537; org-rollup.ts:190, :1305; org-benchmark.ts:88, :117. grep 'readLatestScanPerRepo\\|latestScanAtPerRepo' -> only org-rollup.ts:774,1004 and org-insights.ts:204,256,663. grep engineProvider in org-insights.ts getOrgPractices/getOrgGapAnalysis selects -> none (selects are `dimensions: { dimId, score }` only).",
+  "revise_applied": "the guard must be green at HEAD: migrate org-rework.ts:142, org-nav-counts.ts:51, org-practice-shapes.ts:100, org-stance.ts:258 to the door, or allowlist each with a stated reason (add them to the write set if migrated)"
+ },
+ {
+  "context": "Fleet Rollups & Insights",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "The in-period caveat names its repos and rescans them in one click",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/components/org/shared/ScopeFilterBar.tsx",
+   "src/components/org/shared/ScopeFilterBar.test.tsx",
+   "src/features/standing/overview/OverviewFleetPanel.tsx",
+   "src/features/bought/teams/TeamsRollupPanel.tsx"
+  ],
+  "new_files": [
+   "src/lib/org/periodCoverageModel.ts",
+   "src/lib/org/periodCoverageModel.test.ts",
+   "src/components/org/shared/PeriodCoverageStrip.tsx",
+   "src/components/org/shared/PeriodCoverageRescan.tsx",
+   "src/components/org/shared/PeriodCoverageStrip.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/org-intelligence.md"
+  ],
+  "loc_check": [
+   "src/components/org/shared/ScopeFilterBar.tsx: 69 -> ~90 (cap 300)",
+   "src/components/org/shared/ScopeFilterBar.test.tsx: 60 -> ~95 (cap 300)",
+   "src/features/standing/overview/OverviewFleetPanel.tsx: 137 -> ~150 (cap 200)",
+   "src/features/bought/teams/TeamsRollupPanel.tsx: 188 -> ~196 (cap 200; if the coverage computation would push past 200, it is computed in periodCoverageModel.ts and only the <PeriodCoverageStrip> element is added here)",
+   "src/lib/org/periodCoverageModel.ts: new ~90",
+   "src/components/org/shared/PeriodCoverageStrip.tsx: new ~70 (server-safe, no hooks)",
+   "src/components/org/shared/PeriodCoverageRescan.tsx: new ~60 (\"use client\", consumes useOrgScanButton unchanged)"
+  ],
+  "acceptance": [
+   "periodCoverage(rows, start=2026-07-01) with 42 scanned rows, 7 whose latest.scannedAt < start -> { total: 42, inPeriod: 35, carried: 7 repos sorted oldest-first with their lastScoredAt }",
+   "periodCoverage with start=null (All time) -> null (nothing to disclose; the strip and caption do not render)",
+   "of the 7 carried repos, 2 have freshness.queuedRescore=true and 1 is watched=false -> rescanSet == the 4 watched, unqueued fullNames; alreadyQueued == 2; notWatched == 1 (the bulk route scans watched repos only, src/app/api/org/scan/route.ts:75)",
+   "rescanSet empty because every carried repo is already queued -> action state 'queued' (no button, 'N rescans already queued'), never a button that would re-enqueue",
+   "PeriodCoverageRescan click with rescanSet [a/x, a/y] -> calls useOrgScanButton(slug).run({ repos: ['a/x','a/y'] }) exactly once; a second click while running is refused",
+   "ScopeFilterBar given coverage {inPeriod:35,total:42} -> caption reads '7 of 42 repos have no scan this period: they count in the fleet average from their earlier scan and do not appear in movers.'; without coverage -> the existing static ROLLUP_MOVERS_CAPTION (back-compat for the tier-1 render)"
+  ],
+  "guards": [
+   "ScopeFilterBar without a coverage prop renders ROLLUP_MOVERS_CAPTION verbatim - green-before by design (existing ScopeFilterBar.test.tsx cases keep passing)"
+  ],
+  "premise": [
+   "src/components/org/shared/ScopeFilterBar.tsx:20-21 - the caption is a fixed sentence: 'Repos not scanned in-period still count in the fleet average and do not appear in movers.' - it names no count and no repo",
+   "src/components/org/shared/ScopeFilterBar.tsx:58 - it renders whenever window.start is set, regardless of whether ANY repo is actually carried",
+   "src/lib/org/period.ts:41-47 - the documented split: getOrgRollup's current is the latest scan at-or-before the upper bound with no lower bound; movers need a scan inside the window",
+   "src/lib/db/org-rollup.ts:323 - every OrgRepoRow.latest carries scannedAt, and :285-296 (queuedRescore at :289) freshness carries queuedRescore, so the carried set and the already-queued set are derivable from the rollup the panel already holds",
+   "src/features/standing/overview/OverviewFleetPanel.tsx:66-68 - the Overview fleet panel already awaits getOrgRollup(slug, win, ...) for this exact window",
+   "src/app/api/org/scan/route.ts:80-83 - the bulk scan route already accepts an explicit `repos: [...]` scope and intersects it with the watchlist",
+   "src/components/org/shared/useOrgScanButton.ts:39 - ScanScope { repos?: string[] } is the existing client door for a named-repo rescan (credits and auth stay server-side, route.ts:54 requireOrgAccess)"
+  ],
+  "rollback": "Revert the strip commit: ScopeFilterBar's coverage prop is optional and its absence restores the static caption; the model and two new components are leaf files with no other importers.",
+  "gate": "none",
+  "doc": "docs/features/org-dashboard/org-intelligence.md",
+  "runner_up": "Gap analysis 'fix once' action: turn a commonGap with a practiceId into a one-click batch rollout to its weak repos (overlaps the practices apply-batch surface, so ranked second).",
+  "body": "## Summary\nWhen a period is selected, every scoped tab prints the same fixed caveat that some repos are in the average but not in movers. The user cannot tell whether that is 0 repos or 30, which ones, or how stale they are, and has to go to Repositories, filter by last-scan date and rescan by hand. The rollup on the page already knows the answer. Turn the caveat into a counted, named strip with one action: rescan the carried repos.\n\n## Description\nA pure `periodCoverageModel.ts` derives, from the rollup rows and window.start: in-period vs carried counts, the carried repos oldest-first, which are already queued for a rescore, which are unwatched (the bulk route cannot scan them), and the rescan set. `PeriodCoverageStrip` renders it beside the fleet numbers on Overview and Teams; `PeriodCoverageRescan` hands the set to the existing `useOrgScanButton().run({ repos })`, so credits, auth and the durable queue all stay exactly as they are. ScopeFilterBar's caption becomes counted when coverage is supplied and keeps the static sentence otherwise. Applies metrics-rollups / aggregate-honesty ('count-carries-predicate'): the average says which population it stands on.\n\n## Flow\n- Overview / Teams compute coverage from the rollup they already awaited.\n- Strip: '7 of 42 repos have no scan this period (oldest: api, 41 days)' + expandable list + 'Rescan 4' (2 already queued, 1 not watched).\n- Click -> named-repo bulk scan through the existing stream + queue follow; router refresh on settle.\n\n## Expected impact\nA blind disclaimer becomes a decision with its data and its fix on the same surface: five steps (notice, go to Repositories, sort, select, rescan) become one, and the 'is this a bug?' question the caption exists to answer is answered with numbers.\n\n## Evaluation\nClaim: the period split is counted, named and actionable\nBefore: 0 of 6 cases pass (static caption case green by design)\nAfter: 6 of 6\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: none",
+  "evidence": "ScopeFilterBar.tsx:20 `export const ROLLUP_MOVERS_CAPTION = \"Repos not scanned in-period still count in the fleet average and do not appear in movers.\"`; :58 `const windowActive = orgWindow?.start != null;` (no data input). scan/route.ts:80 `if (Array.isArray(body.repos) && body.repos.length > 0) {` filters the watchlist. useOrgScanButton.ts:39 `export type ScanScope = { staleOnlyDays?: number; repos?: string[] };`. No existing consumer passes a carried-repo set: grep 'repos: \\[' in src/components src/features -> only onboarding retryRepo.ts:95 and cockpit starts."
+ },
+ {
+  "context": "Score Charts & Visuals",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One per-dimension share + level-band derivation every report chart reads",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "src/lib/scoring/projections.ts",
+   "src/components/report/dimensionExplorerDerive.ts",
+   "src/components/report/DimensionExplorer.tsx",
+   "src/components/report/DimensionReading.tsx",
+   "src/components/report/DimensionDetail.tsx",
+   "src/components/report/chartScale.ts",
+   "src/components/report/TrendChart.Sparkline.tsx",
+   "src/components/report/DimLine.tsx",
+   "src/components/report/dimensionExplorerDerive.test.ts",
+   "src/components/report/chartScale.test.ts"
+  ],
+  "new_files": [
+   "src/components/report/dimensionShareParity.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md"
+  ],
+  "loc_check": [
+   "src/lib/scoring/projections.ts: 231 -> ~245 (.ts outside src/features, no hard cap)",
+   "src/components/report/dimensionExplorerDerive.ts: 87 -> ~95",
+   "src/components/report/DimensionExplorer.tsx: 88 -> ~90 (cap 300)",
+   "src/components/report/DimensionReading.tsx: 44 -> ~44 (cap 300)",
+   "src/components/report/DimensionDetail.tsx: 97 -> ~99 (cap 300)",
+   "src/components/report/chartScale.ts: 105 -> ~112",
+   "src/components/report/TrendChart.Sparkline.tsx: 76 -> ~77 (cap 300)",
+   "src/components/report/DimLine.tsx: 256 -> ~257 (cap 300; one literal replaced, one import)",
+   "src/components/report/dimensionExplorerDerive.test.ts: 70 -> ~110",
+   "src/components/report/chartScale.test.ts: 107 -> ~135",
+   "src/components/report/dimensionShareParity.test.ts: new ~120"
+  ],
+  "acceptance": [
+   "dimFacts over a D9-dropped org-lens report (8 dims, sum of weights 0.91, D2 score 40 weight 0.15) -> headroom === 0.15/0.91 * 60 (~9.89) and contributes === contributions(report).dimensions[D2].points; today headroom is 9.0 (raw weight) -> red",
+   "parity fixture set (full 9-dim org, D9-dropped, single dimension, all-zero, team lens) -> for every dimension dimFacts.contributes and contributions().points agree within 1e-9, and dimFacts.share === contributions().normalizedWeight; red on the D9-dropped and single-dimension fixtures",
+   "DimensionReading on the D9-dropped fixture renders 'weight 16%' for D2 (round(0.15/0.91*100)), the same percent the ScoreWaterfall row prints as '40 x 16%'; today it prints 'weight 15%' -> red",
+   "DimensionDetail headline on the D9-dropped fixture prints the normalized 'weight 16%', not the raw lens 'weight 15%' -> red",
+   "with @/lib/maturity/model mocked so L4.band = [70, 84]: chartScale LEVEL_BANDS mins === [85, 70, 45, 25, 0] and BAND_EDGES === [0, 25, 45, 70, 85, 100] (derived from LEVELS); today the hand-typed 65 survives -> red",
+   "same mock: explorerSummary counts a 66-scoring dimension as NOT at Integrated or above (threshold read from LEVEL_BY_ID.L4.band[0]); today `>= 65` counts it -> red",
+   "same mock: Sparkline's dashed reference line and DimLine's '65' label sit at y(70) and the label text reads '70' -> red"
+  ],
+  "guards": [
+   "on a full 9-dimension report (sum of weights 1.00 for every ARCHETYPE_WEIGHTS lens) every headroom/contributes/weight% number is identical to today - existing dimensionExplorerDerive.test.ts expectations (headroom 3.0 / 9.0 / 5.6) stay green",
+   "with the real LEVELS the derived LEVEL_BANDS/BAND_EDGES equal today's literals (pure relocation); chartScale.test.ts and the TrendChart/DimLine dom tests stay green"
+  ],
+  "premise": [
+   "src/components/report/dimensionExplorerDerive.ts:49-50 - `contributes: d.weight * d.score, headroom: d.weight * (100 - d.score)` uses the RAW lens weight",
+   "src/lib/scoring/projections.ts:209-213 - contributions() divides by the sum of present weights (`normalizedWeight = d.weight / wsum`), the derivation ScoreWaterfall uses (src/components/report/ScoreWaterfall.tsx:34; :172 prints `{c.score} x {Math.round(c.normalizedWeight * 100)}%`)",
+   "src/lib/scoring/engine.ts:299 - persisted d.weight is `lensW[s.id] ?? def.weight`, not renormalized; src/lib/scoring/engine.ts:357-361 renormalizes only the headline when a dimension is dropped; src/lib/types.ts:903-905 - 'The engine drops D9 and renormalizes'",
+   "src/lib/maturity/model.ts ARCHETYPE_WEIGHTS - every lens sums to 1.00, so the two derivations agree ONLY on a full scan; on a dropped-dimension scan the Dimensions tab ('In reach', src/components/report/DimensionReading.tsx:33-34, and the climber meter src/components/report/DimensionClimberList.tsx:113-117) understates by 1/sum-of-weights and prints a different weight% than the Scoring tab's waterfall for the same dimension",
+   "src/components/report/DimensionDetail.tsx:36 - `weight {Math.round(d.weight * 100)}%` is a third reading of the same fact",
+   "src/components/report/chartScale.ts:7-16 - LEVEL_BANDS mins 85/65/45/25/0 and BAND_EDGES are hand-typed, while src/lib/maturity/model.ts:382-414 owns the bands and src/components/report/AltimeterGauge.tsx:63-73 already derives its strata from LEVELS (proof the derivation is available client-side)",
+   "src/components/report/dimensionExplorerDerive.ts:74 `f.d.score >= 65`, src/components/report/TrendChart.Sparkline.tsx:44 `y(65)`, src/components/report/DimLine.tsx:182-184 `y(65)` + literal '65' - the L4 floor typed four times; src/lib/ui.ts:224-231 states the rule ('retuning a level band in the rubric automatically retunes the colors') these sites break",
+   "grep 'd.weight \\*' over src/components: only dimensionExplorerDerive.ts:49-50 computes with it (DimensionDetail.tsx:36 / DimensionReading.tsx:34 display it); src/lib/scoring/projections.ts:162 uses raw weight for RANKING only, which is scale-invariant and stays"
+  ],
+  "rollback": "Three commits: (1) export `dimensionShares(dims)` from projections.ts and make contributions() call it (pure refactor, guards green); (2) dimFacts/Reading/Detail read the share + parity test; (3) chartScale derives LEVEL_BANDS/BAND_EDGES/L4 floor from LEVELS and the three 65 sites read it. git revert of any one restores its literals; none changes a persisted value or an API shape.",
+  "gate": "architecture",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "Engine-hollow on every per-dimension mark: AltimeterGauge, DimensionClimberList and the DimensionDetail Sparkline never read isMockEngine (grep: only Radar/Ring/Waterfall/Quadrant/TrendChart/DimLine/DimensionTrends do), so a demo scan's Dimensions tab paints solid graded ropes beside a hollow radar.",
+  "body": "## Summary\nThe report states one dimension's share of the headline in three places and two derivations. The waterfall divides by the sum of PRESENT weights (contributions()); the Dimensions explorer, its reading strip and the detail headline multiply by the raw lens weight. On every full scan the lenses sum to 1.00 and nobody notices; on a dropped-dimension scan (D9 unmeasured, a failed detector) the Dimensions tab understates every 'in reach' lever by ~10% and prints 'weight 15%' where the Scoring tab prints 'x 16%' for the same dimension. The level-band edges are the same fork: chartScale hand-types 85/65/45/25 and three sites type the L4 floor 65, while AltimeterGauge already derives its strata from LEVELS.\n\n## Description\nApply data-viz/metric-identity 'one derivation, many surfaces' and 'forced duplication gets a parity gate': export one share derivation from projections.ts (contributions() becomes its first caller), have dimFacts take the share instead of re-multiplying, render the weight% from it in DimensionReading and DimensionDetail, and derive LEVEL_BANDS / BAND_EDGES / the L4 reference from LEVELS. A parity test runs the explorer and the waterfall over shared fixtures (full, dropped, single, all-zero, other lens) so the next change to either side fails loudly.\n\n## Flow\n- projections.ts: `dimensionShares(dims)` -> Map<id, normalizedWeight>; contributions() uses it\n- dimensionExplorerDerive.ts: dimFacts(d, prev, integrity, share); DimensionExplorer computes shares once\n- DimensionReading / DimensionDetail: print Math.round(share*100)\n- chartScale.ts: LEVEL_BANDS mins + BAND_EDGES + L4 floor from LEVELS; Sparkline, DimLine, explorerSummary read it\n- dimensionShareParity.test.ts: shared fixtures, tolerance 1e-9\n\n## Expected impact\nThe two tabs that answer 'where should I invest' stop disagreeing on the lever size on exactly the degraded scans where the reader most needs it; a rubric band retune moves every chart instead of only the Altimeter and the colors.\n\n## Evaluation\nClaim: one share derivation and one band source; parity is gated\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture",
+  "evidence": "dimensionExplorerDerive.ts:49  contributes: d.weight * d.score,\ndimensionExplorerDerive.ts:50  headroom: d.weight * (100 - d.score),\nprojections.ts:209  const wsum = dims.reduce((acc, d) => acc + d.weight, 0);\nprojections.ts:213  const normalizedWeight = wsum > 0 ? d.weight / wsum : 0;\nScoreWaterfall.tsx:172  {c.score} x {Math.round(c.normalizedWeight * 100)}%\nDimensionReading.tsx:34  sub={`overall pts · weight ${Math.round(f.d.weight * 100)}%`}\nDimensionDetail.tsx:36  weight {Math.round(d.weight * 100)}%\nengine.ts:299  weight: lensW[s.id] ?? def.weight, // lens-adjusted weight (shown in UI)\nchartScale.ts:8-12  { min: 85 } { min: 65 } { min: 45 } { min: 25 } { min: 0 }\nchartScale.ts:16  export const BAND_EDGES = [0, 25, 45, 65, 85, 100] as const;\ndimensionExplorerDerive.ts:74  const atL4 = facts.filter((f) => f.d.score >= 65).length;\nTrendChart.Sparkline.tsx:44  y1={y(65)} y2={y(65)}\nDimLine.tsx:182  <text x={3} y={y(65) - 2} ...>65\nAltimeterGauge.tsx:63  {LEVELS.map((l, i) => ( ... y={y(l.band[1])}\norg lens with D9 dropped: sum = 0.91; D2 at 40 -> raw 9.0 vs true 9.89 overall pts in reach"
+ },
+ {
+  "context": "Score Charts & Visuals",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "The waterfall explains the move: a since-last-scan bridge, points by dimension",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/components/report/reportSeries.ts",
+   "src/components/report/ReportView.tsx",
+   "src/components/report/ReportPanels.tsx",
+   "src/components/report/ScoringTab.tsx",
+   "src/components/report/ScoreWaterfall.tsx"
+  ],
+  "new_files": [
+   "src/components/report/scoreBridgeModel.ts",
+   "src/components/report/scoreBridgeModel.test.ts",
+   "src/components/report/ScoreBridge.tsx",
+   "src/components/report/ScoreBridge.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/components/report/reportSeries.ts: 107 -> ~125 (.ts, no hard cap)",
+   "src/components/report/ReportView.tsx: 291 -> ~293 (cap 300; one destructured name + one prop - tight, no other growth allowed)",
+   "src/components/report/ReportPanels.tsx: 109 -> ~112 (cap 300)",
+   "src/components/report/ScoringTab.tsx: 133 -> ~137 (cap 300)",
+   "src/components/report/ScoreWaterfall.tsx: 195 -> ~215 (cap 300; mode toggle only, the bridge body lives in ScoreBridge.tsx)",
+   "src/components/report/scoreBridgeModel.ts: new ~110 (pure, no React)",
+   "src/components/report/ScoreBridge.tsx: new ~140 (presentational; toggle state stays in ScoreWaterfall, which is already \"use client\")",
+   "src/components/report/scoreBridgeModel.test.ts: new ~160; src/components/report/ScoreBridge.dom.test.tsx: new ~110"
+  ],
+  "acceptance": [
+   "scoreBridge(report{overall 62, D2 70 (share 0.15), D3 40 (share 0.14), rest unchanged}, baseline{overall 58, D2 50, D3 45}) -> steps D2 +3.0 pts (0.15*20), D3 -0.7 pts (0.14*-5), sorted by |pts| desc, unchanged dims omitted, plus one residual step 'rounding & reweighting' = 4 - 2.3 = +1.7, and from + sum(steps) === to exactly (58 -> 62)",
+   "a dimension present now but absent from the baseline -> step kind 'entered' carrying its current share*score; one present in the baseline but dropped now -> kind 'left'; neither is silently folded into the residual",
+   "baseline.dimensions undefined (history join skipped) -> {kind:'unavailable', reason:'no-dimensions'} and ScoreWaterfall renders NO 'Since last scan' toggle; baseline null -> no toggle (today's path, unchanged)",
+   "baseline engine 'mock' and current 'claude' -> bridge.caveats includes 'mixed-engines' carrying MIXED_ENGINE_PAIR_NOTE; ScoreBridge renders the caveat ABOVE the steps and still draws them (label, not block)",
+   "baseline rubricVersion vs current engine.rubricVersion where sameRuler -> false -> caveat 'rubric-changed'; sameRuler -> null (legacy row) -> caveat 'rubric-unknown'; same ruler -> no rubric caveat",
+   "ScoreWaterfall with a baseline: toggle 'Now | Since last scan' (aria-pressed); default 'Now' renders today's markup unchanged; clicking 'Since last scan' renders one row per step with signed points and an sr-only 'raised the overall by N points' / 'lowered the overall by N points', and a header '58 -> 62 (+4)' matching the ScoringTab DeltaPill",
+   "computeReportSeries returns baseline {id, overallScore, engineProvider, rubricVersion, dimensions} for the same baselineScan it already uses for overallDelta, so bridge.to - bridge.from === overallDelta for every history fixture in the reportSeries tests"
+  ],
+  "guards": [
+   "existing src/components/report/ScoreWaterfall.dom.test.tsx stays green unchanged: with no baseline prop, or in the default 'Now' mode, the segments/itemization/integrity/mock markup is identical",
+   "overallDelta, prevDimScores, prevPosture and dimSeries outputs of computeReportSeries are unchanged (the new field is additive)"
+  ],
+  "premise": [
+   "src/components/report/ScoringTab.tsx:50 - the ScoreRing carries `<DeltaPill delta={overallDelta} suffix=\"since last scan\" />` and nothing on the tab says which dimensions produced that delta",
+   "src/components/report/ScoreWaterfall.tsx:33-34 - the waterfall reads only the current report (`contributions(report)`); it attributes the level, never the move",
+   "src/components/report/reportSeries.ts:41-61 - the baseline scan is already selected (`baselineScan`) and its per-dimension scores already mapped (`prevDimScores`), then reduced to a delta number and a Map that only the Dimensions tab and the tracker read (src/components/report/ReportPanels.tsx:67, :99)",
+   "src/lib/db/scans-read.ts:310, :314, :324, :329 - HistoryPoint carries overallScore, engineProvider, rubricVersion and dimensions: everything the bridge and its caveats need, no new read",
+   "grep -c weight src/lib/report/compare.ts src/components/report/WhatChanged.tsx src/components/report/WhatChangedParts.tsx -> 0 / 0 / 0: the compare page lists per-dimension SCORE deltas but never converts them to overall POINTS, so a +20 on a 7%-weight dimension reads as a bigger move than a +12 on a 15%-weight one",
+   "src/components/report/chartEngine.ts:164 mixesEngines and :181 MIXED_ENGINE_PAIR_NOTE, src/lib/maturity/attribution.ts:83 sameRuler - the caveat vocabulary exists and is reused, not re-invented",
+   "src/lib/scoring/projections.ts:221-224 - contributions() is deliberately re-centered on the displayed rounded headline so the glass-box shows the rounding gap; the bridge's residual step extends the same honesty to the delta"
+  ],
+  "rollback": "Three commits: (1) scoreBridgeModel + tests (no caller); (2) reportSeries baseline field threaded ReportView -> ReportPanels -> ScoringTab (additive prop, unused); (3) ScoreBridge + the toggle in ScoreWaterfall. Reverting (3) alone returns the waterfall to today's markup; nothing persisted or fetched changes.",
+  "gate": "direction",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "Posture quadrant names its way out: per-axis points to POSTURE_THRESHOLD and the axis dimension with the largest share-weighted headroom, drawn as a target arrow from the dot ('Rigor +7 to AI-native: Testing is the lever').",
+  "body": "## Summary\nThe Scoring tab tells a reader the score moved ('+4 since last scan') and then explains only where the score IS. The waterfall already decomposes the headline into weight x score points; the report already holds the baseline scan and its per-dimension scores. Nobody joins them, so 'why did we gain four points?' is answered by opening /report/compare and doing weighted arithmetic in your head, because the compare page reports raw score deltas, not points.\n\n## Description\nAdd a 'Since last scan' mode to the ScoreWaterfall: a bridge from the previous overall to this one, one signed step per dimension that moved (share x score delta), entered/left steps for dimensions present on one side only, and one explicit 'rounding & reweighting' residual so the bridge sums exactly to the DeltaPill. Mixed engines and a rubric change are stated above the steps with the existing caveat vocabulary - labelled, never hidden. The pure model (scoreBridgeModel.ts) owns all arithmetic; the surface only presents. Applies data-viz/metric-identity (one derivation: shares from contributions(), never re-multiplied) and the waterfall's own identity (parts sum to the headline).\n\n## Flow\n- computeReportSeries exposes the baseline it already picks (additive)\n- ReportView -> ReportPanels -> ScoringTab -> ScoreWaterfall(baseline)\n- Toggle appears only when the baseline carries dimensions\n- Since last scan: '58 -> 62 (+4)', steps biggest |pts| first, residual last, caveats on top\n\n## Expected impact\nThe most-asked question after any re-scan (what moved my number) is answered on the tab that shows the number, in the unit the number is in, with no navigation and no new fetch.\n\n## Evaluation\nClaim: the delta pill becomes attributable in place\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: direction (new report mode)",
+  "evidence": "ScoringTab.tsx:50  {overallDelta !== null && <DeltaPill delta={overallDelta} suffix=\"since last scan\" className=\"mt-3\" />}\nScoreWaterfall.tsx:34  const { dimensions, overallScore, total } = contributions(report);\nreportSeries.ts:41  const baselineScan = scans.find(...) ?? null;\nreportSeries.ts:59  const overallDelta = baselineScan ? report.overallScore - baselineScan.overallScore : null;\nreportSeries.ts:61  const prevDimScores = baselineDims ? new Map(...) : null;\nscans-read.ts:314 engineProvider; :324 rubricVersion; :329 dimensions?: { dimId; score }[]\ngrep -c weight compare.ts / WhatChanged.tsx / WhatChangedParts.tsx -> 0 / 0 / 0\nchartEngine.ts:164 export function mixesEngines(...)\nattribution.ts:83 export function sameRuler(before, after): boolean | null",
+  "notes_from_critic": "consume charts-0 share derivation (landed earlier) rather than re-deriving shares"
+ },
+ {
+  "context": "Usage Metering",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One call-pricing rule: every /usage fold prices a call by one basis + reason",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/lib/db/usage.ts",
+   "src/lib/llm/meter.ts",
+   "src/lib/db/usage-events.ts",
+   "src/app/usage/usageLanePanels.tsx",
+   "src/lib/db/usage.test.ts",
+   "src/lib/llm/meter.test.ts",
+   "src/lib/db/usage-events.test.ts"
+  ],
+  "new_files": [
+   "src/lib/db/usage-pricing.ts",
+   "src/lib/db/usage-pricing.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/billing/usage.md",
+   "context-map.json",
+   "src/lib/db/index.ts"
+  ],
+  "loc_check": [
+   "src/lib/db/usage.ts: 1062 -> ~990 (estimateLlmCostUsd/estimateLlmCostFromTable/unpricedScanCalls move out, re-exported; .ts outside src/features, no hard cap - it shrinks)",
+   "src/lib/llm/meter.ts: 273 -> ~255 (costMicrosFor delegates)",
+   "src/lib/db/usage-events.ts: 382 -> ~392 (teamTotals carries unpricedCalls)",
+   "src/app/usage/usageLanePanels.tsx: 144 -> ~152 (cap 300)",
+   "src/lib/db/usage-pricing.ts: new ~150",
+   "src/lib/db/usage-pricing.test.ts: new ~140"
+  ],
+  "acceptance": [
+   "priceCallGroup({provider:'local',model:'llama3',in:1e6,out:1e6}, envBasis{in:3,out:15}) -> {usd:0, reason:'zero-cost'} (today estimateLlmCostUsd prices local tokens at the env rate: usage.ts:508-526 filters only byom)",
+   "env rates set + one scan group on a model absent from MODEL_PRICES -> scan lane estimatedCostUsd is a number AND scan lane unpricedCalls === 0 (today unpricedScanCalls is table-only, usage.ts:580/874, so the headline says 'floor: +N unpriced' for calls the env rate DID price)",
+   "env rates set, two repos with scans -> sum(byTeam scan-half cost) === sum(byRepo scan-half cost) === byLane[scan].estimatedCostUsd (today team/repo/matrix folds call estimateLlmCostFromTable, usage.ts:797/907, while the lane row uses the env estimate, usage.ts:526/579)",
+   "costMicrosFor('local','sonnet',usage,false) and the scan fold of the same call classify identically: both reason 'zero-cost', priced 0 (today meter.ts:197 returns null = unpriced while usage.ts:714-717 prices $0 and usage.ts:873 excludes it from unpriced)",
+   "teamTotals over ledger rows {teamKey:'@o/a', costMicros:1000000} + {teamKey:'@o/a', costMicros:null} -> {estimatedCostUsd:1, unpricedCalls:1}, and the Spend-by-team row renders '· 1 unpriced' (today TeamUsage has no unpricedCalls, usage-events.ts:99-104, and scanTeamRows drops it, usage.ts:915)",
+   "BYOM group under env rates -> {usd:null, reason:'byom'}, counted unpriced (guard: usage.test.ts:756 stays green)"
+  ],
+  "guards": [
+   "BYOM is never priced under env rates (usage.test.ts:756) - green before by design",
+   "isBillableScan predicate and every scan COUNT untouched - billable tiles identical before/after"
+  ],
+  "premise": [
+   "src/lib/db/usage.ts:508-526 - the env estimate prices `priceable` = every non-BYOM group, including zero-cost `local` provider tokens",
+   "src/lib/db/usage.ts:714-717 - the table fold prices a zero-cost provider at exactly $0 and counts it priced",
+   "src/lib/llm/meter.ts:197 - costMicrosFor returns null for a zero-cost provider, so ledger lanes count the same kind of call as unpriced",
+   "src/lib/db/usage.ts:579-580 - the scan LANE row's cost = env-or-table estimate, but its unpricedCalls = unpricedScanCalls (table-only)",
+   "src/lib/db/usage.ts:797 and :907 - per-repo and per-team scan cells price via estimateLlmCostFromTable only, ignoring the env basis",
+   "src/lib/db/usage.ts:172-175 - doc comment claims the matrix and both tables above it 'reconcile by construction' (false whenever LLM_*_COST_PER_MTOK is set)",
+   "src/lib/db/usage-events.ts:304-320 - teamTotals returns a partial priced sum with no unpriced count; src/lib/db/usage.ts:915 says 'unpricedCalls is dropped: that panel does not report it'",
+   "src/lib/db/usage-events.ts:340 - repoTotals already derives the unpriced count in one query via _count{_all,costMicros}; teamTotals can reuse the trick"
+  ],
+  "rollback": "Revert the series: usage-pricing.ts is additive and usage.ts re-exports the moved functions, so reverting restores the three inline pricers with no call-site edits outside the write set.",
+  "gate": "contract",
+  "doc": "docs/features/billing/usage.md",
+  "runner_up": "Count every swallowed UsageEvent write (bumpCounter swallow, usage-events.ts:146) and disclose 'ledger is a lower bound: N writes dropped' on /usage - the cost-metering golden path forbids a swallow that is uncounted.",
+  "body": "## Summary\nThe price of one model call is decided in three places that disagree: the env-rate estimator (scan lane headline), the built-in table fold (scan per-team/per-repo/matrix cells and the scan unpriced count) and the meter's costMicrosFor (every ledger lane). Move the rule into one module, `src/lib/db/usage-pricing.ts`, that takes (provider, model, byom, tokens) and a resolved basis and returns {usd|null, reason: priced|zero-cost|byom|no-usage|unknown-model}; every fold and the meter call it.\n\n## Description\nRegistry: cost-metering / price-tables ('one table, one authority ... every consumer imports it'). Today with LLM_*_COST_PER_MTOK set: (1) the scan lane prices GPU-local tokens at the operator's hosted rate while the table path prices them $0; (2) env-priced unknown-model scans are still counted 'unpriced', so the headline wrongly reads as a floor; (3) Spend-by-team, Top repositories and the showback matrix price the scan half from the table while the lane row uses env, so the 'reconcile by construction' claim fails. Separately, the ledger counts zero-cost calls as unpriced while the scan lane counts them priced, and the team panel shows a partial sum with no floor. The basis is resolved ONCE per summary and passed to every fold; teamTotals gains the per-field _count trick repoTotals already uses.\n\n## Flow\n- new usage-pricing.ts: resolveScanBasis(env) + priceCallGroup(group, basis) + the reason enum\n- usage.ts: scan lane, scanRepoUsage, scanTeamUsage and unpricedScanCalls all fold through priceCallGroup with the one basis; old exports re-exported\n- meter.ts: costMicrosFor delegates (zero-cost -> 0 micros, reason zero-cost); an explicit caller costMicros:null is still honoured, so lane-cost.ts's local half is unchanged\n- usage-events.ts: TeamUsage.unpricedCalls; mergeTeamUsage sums it; usageLanePanels prints the floor\n\n## Expected impact\nEvery dollar on /usage and in both showback CSVs is produced by one rule; headline, lane, team, repo and matrix reconcile under any basis. No credit, price, quota or charge changes: estimate display only.\n\n## Evaluation\nClaim: one pricing rule makes every /usage fold agree under env rates and local providers\nBefore: 0 of 5 cases pass (BYOM guard green)\nAfter: 6 of 6\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract",
+  "evidence": "usage.ts:508 `const priceable = modelUsage.filter((m) => m.byom !== true);` then :520 estimateLlmCostUsd(pricedInputTokens, ...) with no isZeroCostProvider check. usage.ts:714 `if (isZeroCostProvider(m.provider)) { pricedAny = true; continue; }`. meter.ts:197 `if (isZeroCostProvider(provider)) return null;`. usage.ts:797 `estimatedCostUsd: estimateLlmCostFromTable(models)` (repo), :907 same (team). usage.ts:915 'unpricedCalls is dropped: that panel does not report it.' usage-events.ts:311-312 teamTotals `_count: true, _sum: { costMicros: true }` - no unpriced count."
+ },
+ {
+  "context": "Usage Metering",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Open any spend figure to its calls: priciest first, each unpriced one says why",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/app/usage/page.tsx",
+   "src/app/usage/usageDashboard.tsx",
+   "src/app/usage/usageRepoPanel.tsx",
+   "src/app/usage/usageShowbackPanel.tsx",
+   "src/app/api/usage/route.ts",
+   "src/app/api/usage/route.test.ts"
+  ],
+  "new_files": [
+   "src/lib/db/usage-ledger-read.ts",
+   "src/lib/db/usage-ledger-read.test.ts",
+   "src/app/usage/usageCallsModel.ts",
+   "src/app/usage/usageCallsModel.test.ts",
+   "src/app/usage/usageCallsPanel.tsx",
+   "src/app/usage/usageCallsPanel.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "src/app/usage/usageLanePanels.tsx",
+   "docs/features/billing/usage.md",
+   "context-map.json",
+   "src/lib/db/index.ts"
+  ],
+  "loc_check": [
+   "src/app/usage/page.tsx: 193 -> ~212 (cap 300)",
+   "src/app/usage/usageDashboard.tsx: 279 -> ~290 (cap 300; the panel itself lives in usageCallsPanel.tsx)",
+   "src/app/usage/usageRepoPanel.tsx: 117 -> ~124 (cap 300)",
+   "src/app/usage/usageShowbackPanel.tsx: 137 -> ~144 (cap 300)",
+   "src/app/api/usage/route.ts: 184 -> ~205",
+   "src/app/usage/usageCallsPanel.tsx: new ~150 (cap 300)",
+   "src/app/usage/usageCallsModel.ts: new ~120",
+   "src/lib/db/usage-ledger-read.ts: new ~110"
+  ],
+  "acceptance": [
+   "parseCallsFilter('team:@acme/web') -> {kind:'team', teamKey:'@acme/web'}; 'lane:athena' -> {kind:'lane', lane:'athena'}; 'repo:acme/api' -> {kind:'repo', repoFullName:'acme/api'}; 'unpriced' -> {kind:'unpriced'}; 'lane:bogus' -> null (no panel, never an unfiltered dump)",
+   "unpricedReason({byom:true}) -> 'byom'; ({provider:'local'}) -> 'zero-cost'; ({inputTokens:null,outputTokens:null}) -> 'no-usage'; ({model:'mystery-1', tokens>0, costMicros:null}) -> 'unknown-model'; ({costMicros:1200}) -> null - and only 'unknown-model' carries the 'set LLM_*_COST_PER_MTOK or add a price' fix line",
+   "listLedgerCalls(org, {kind:'team',teamKey:'@o/a'}, since, before) queries usageEvent with {orgId, teamKey, createdAt:{gte:since,lt:before}}, ordered costMicros desc nulls last then createdAt desc, take <= 50 - the SAME window the panel totals used",
+   "summarizeUnpriced(rows) -> per-reason counts that sum to the filtered unpriced count, so a lane's '45 unpriced' breaks into e.g. {byom:38, unknown-model:7}",
+   "GET /api/usage?org=acme&view=calls&calls=lane:athena -> 200 JSON {filter, rows[], byReason, windowSince, windowBefore}; same requireOrgRead gate (non-member -> the same 401/403 as today); org=public -> rows [] (no attribution surface on the anonymous funnel)",
+   "a Top repositories row and each non-empty showback matrix cell render an href to /usage?org=..&days=..&calls=repo:<name> / calls=lane:<l>,team:<t>; an em-dash (nothing recorded) cell renders NO link",
+   "usageCallsPanel given a status:'error' row renders it under 'Failed calls' with its cost, never mixed silently into the priced list"
+  ],
+  "guards": [
+   "existing /api/usage views (csv, json, showback, showback-matrix) stay byte-identical - route.test.ts green by design"
+  ],
+  "premise": [
+   "src/lib/db/usage-events.ts:352-355 - listUsageEvents is documented as 'the audit read behind \"what did the companion actually do\"' and 'the door to it'",
+   "src/lib/db/index.ts:437 - its only reference outside its own file is the barrel re-export (grep -rn listUsageEvents src -> usage-events.ts:355 + index.ts:437; no page, route or component calls it)",
+   "src/app/usage/costHeadline.ts:74-77 - the headline says 'floor: +N calls unpriced' with no way to see which calls",
+   "src/app/usage/usageLanePanels.tsx:99-104 - each lane says 'N of M calls could not be priced (no rate for the model, your own provider account, or no tokens reported)': three reasons in one sentence, so the reader cannot tell which applies or whether a rate would close it",
+   "src/app/usage/usageShowbackPanel.tsx:47-51 and src/app/usage/usageRepoPanel.tsx:46-54 - cells and rows report 'N unpriced' as text only, with no drill-in",
+   "src/app/api/usage/route.ts:145-161 - a view= dispatch already exists; a calls view rides the same requireOrgRead gate (route.ts:118)",
+   "prisma/schema.prisma:2347-2349 - @@index([orgId, createdAt]), ([orgId, lane, createdAt]), ([orgId, teamKey, createdAt]) already serve these filtered reads"
+  ],
+  "rollback": "Revert the series: the calls panel, model and ledger read are new files; page/dashboard/repo/matrix edits only add a link and an optional ?calls= branch, and the route only adds a view.",
+  "gate": "none",
+  "doc": "docs/features/billing/usage.md",
+  "runner_up": "Period-over-period compare on /usage: each lane/team/repo row shows its delta vs the previous equal window (a second getUsageSummary over a shifted usageWindow), so 'why did the bill move' is answered on the page.",
+  "body": "## Summary\n/usage tells an operator '$211.51 · floor: +45 calls unpriced' and 'Team @acme/web · $40' and stops. Every figure becomes a door: clicking a repo row, a matrix cell or the floor opens a calls panel on the same page and window - the underlying UsageEvent rows, most expensive first, failed calls separated, and every unpriced call tagged with its one reason (BYOM / zero-cost / no usage / unknown model) and whether a rate would ever close it.\n\n## Description\nRegistry: cost-metering / spend-observability ('Outlier calls, individually ... a most-expensive-calls view'; 'failed-call spend ... broken down by failure reason'). The ledger already carries everything (provider, model, byom, tokens, costMicros, status, team, repo), and an audit read was written for exactly this and never wired to any surface. The decision the operator makes blind today: is the floor something a configured rate fixes, or closed by design? The app has the per-row data to answer it. Scan-lane rows are out of scope for the row list (Scan is its own ledger); the panel says so.\n\n## Flow\n- click '45 unpriced' / a repo row / a matrix cell -> /usage?org&days&calls=<filter> (server-rendered, no client JS)\n- page parses the filter with usageCallsModel.parseCallsFilter; a bad filter renders no panel\n- usage-ledger-read.listLedgerCalls reads the filtered rows over the SAME UsageWindow the page resolves once (page.tsx:90)\n- usageCallsPanel renders the reason summary + top 50 rows (priced desc, failed group, unpriced with reason + fix line only where a fix exists)\n- view=calls JSON on /api/usage for scripting, same gate\n\n## Expected impact\nTurns three report-only spend panels into an investigable ledger; the floor stops being a shrug. No change to what is metered, priced or charged.\n\n## Evaluation\nClaim: every spend figure on /usage opens to its calls with a per-call unpriced reason\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: none",
+  "evidence": "grep -rn listUsageEvents src -> src/lib/db/index.ts:437 (export) and src/lib/db/usage-events.ts:355 (definition) only. usage-events.ts:352 'The newest metered calls for an org - the audit read behind \"what did the companion actually do\"'. usageLanePanels.tsx:101-103 '{l.unpricedCalls} of {l.calls} call(s) could not be priced (no rate for the model, your own provider account, or no tokens reported).'"
+ },
+ {
+  "context": "GitHub OAuth & Session",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One viewer-workspace resolver: the active org is read by the rule that writes it",
+  "size": "M",
+  "effort": 5,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/lib/viewer-workspace-model.ts",
+   "src/lib/viewer-workspace-model.test.ts",
+   "src/lib/viewer-workspace.ts",
+   "src/lib/viewer-workspace.test.ts",
+   "src/components/Brand.tsx",
+   "src/components/Brand.test.tsx",
+   "src/app/org/page.tsx",
+   "src/app/usage/page.tsx"
+  ],
+  "new_files": [
+   "src/lib/viewer-workspace-model.ts",
+   "src/lib/viewer-workspace-model.test.ts",
+   "src/lib/viewer-workspace.ts",
+   "src/lib/viewer-workspace.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/github/auth.md",
+   "docs/features/org-dashboard/org-intelligence.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/viewer-workspace-model.ts: 0 -> ~70 (cap n/a for .ts outside features; spirit 300)",
+   "src/lib/viewer-workspace-model.test.ts: 0 -> ~130",
+   "src/lib/viewer-workspace.ts: 0 -> ~60",
+   "src/lib/viewer-workspace.test.ts: 0 -> ~110",
+   "src/components/Brand.tsx: 267 -> ~276 (cap 300)",
+   "src/components/Brand.test.tsx: 110 -> ~170 (cap 300)",
+   "src/app/org/page.tsx: 16 -> ~16 (cap 300)",
+   "src/app/usage/page.tsx: 193 -> ~194 (cap 300)"
+  ],
+  "acceptance": [
+   "resolveWorkspace({ dormantSession: null, memberships: [{slug:'acme',role:'owner'},{slug:'beta',role:'viewer'}], cookieOrg: 'beta' }) -> { options: ['acme','beta','public'], active: 'beta' } (today getActiveOrg(null) returns 'public' for the same cookie)",
+   "resolveWorkspace({ dormantSession: null, memberships: [{slug:'acme',role:'owner'}], cookieOrg: 'victim' }) -> active 'acme' (primary membership), never 'victim'",
+   "resolveWorkspace({ dormantSession: null, memberships: [], cookieOrg: 'acme' }) (anonymous or no org) -> { options: ['public'], active: 'public' }",
+   "resolveWorkspace({ dormantSession: {installations:[{id:1,login:'Acme'}]}, memberships: [], cookieOrg: 'acme' }) -> { options: ['Acme','public'], active: 'Acme' } (dormant-stack parity)",
+   "HeaderAccount with supabaseAuthConfigured()=true, viewer 'dana', listOrgsForLogin -> [acme, beta], cookie 'beta' renders <OrgSwitcher orgs=['acme','beta','public'] active='beta'>; with listOrgsForLogin -> [] renders no OrgSwitcher",
+   "OrgIndexPage under the Supabase wall, viewer member of 'acme', cookie 'acme' -> redirect('/org/acme') (today '/org/public')",
+   "Subset property: for every option resolveViewerWorkspace() returns for viewer V, canReadOrg(option) (authz mocked with membership semantics) is true",
+   "listOrgsForLogin rejects / DB unconfigured -> { options: ['public'], active: 'public' }, resolveViewerWorkspace() does not throw (the header renders on every page)"
+  ],
+  "guards": [
+   "case 3 (anonymous collapses to public) and case 4 (dormant-session parity) are green-before by design: they pin that the refactor does not widen what an anonymous or custom-stack viewer can select"
+  ],
+  "premise": [
+   "src/lib/auth.ts:403-414 - orgOptionsForSession builds the selectable set ONLY from the dormant session's installations plus 'public'",
+   "src/lib/auth.ts:422-432 - getActiveOrg validates the ACTIVE_ORG cookie against those options and falls back to installations[0] ?? PUBLIC_ORG; with a null session every cookie resolves to 'public'",
+   "src/app/api/org/active/route.ts:23-32 - the WRITE side was already fixed: it validates the requested org with canReadOrg because orgOptionsForSession(getSession()) 'collapsed to just [\"public\"]' under the Supabase wall; the READ side (getActiveOrg) was not",
+   "src/app/api/org/active/route.test.ts:1-5 - the test header documents that the switcher 'was dead in production' and only the POST was repaired",
+   "src/components/Brand.tsx:75-77 - showSwitcher requires isAuthConfigured() && session (dormant stack); the Supabase branch at Brand.tsx:79-88 renders identity + sign-out and no OrgSwitcher, so production has no switcher to call the repaired POST",
+   "src/app/org/page.tsx:13-15 - bare /org forwards to getActiveOrg(session) with the dormant session, so under the wall it always redirects to /org/public",
+   "src/app/usage/page.tsx:35 - /usage defaults its org to getActiveOrg(session) with the same dormant session",
+   "docs/features/github/auth.md:176 - isAuthConfigured() is documented as 'False in production'",
+   "src/lib/db/members.ts:358-385 - listOrgsForLogin already returns the viewer's memberships sorted by role rank, wrapped in dbReadSafe so the header cannot 500",
+   "src/lib/authz.ts:201-212 - canReadOrg admits a private org under the wall iff viewerOrgRole >= viewer, i.e. a membership, so membership-derived options are a subset of the read gate",
+   "grep 'getActiveOrg(' src (non-test): only src/app/org/page.tsx:14, src/app/usage/page.tsx:35, src/components/Brand.tsx:77 call it; all three pass the dormant session"
+  ],
+  "rollback": "Pure addition of two lib modules plus three call-site swaps; reverting the series restores the getActiveOrg/orgOptionsForSession call sites, which are left untouched in src/lib/auth.ts.",
+  "gate": "architecture",
+  "doc": "docs/features/github/auth.md",
+  "runner_up": "One AuthStack adapter (identity, status, revokeOthers, signOut) so session/revoke-sessions/logout/signin-gate stop each re-branching on authGateEnabled(); logout today clears only the dormant cookie (src/app/api/auth/logout/route.ts:28-43).",
+  "body": "## Summary\nThe active org is written by one rule and read by another. POST /api/org/active was repaired to validate with canReadOrg, the gate the live Supabase stack enforces. getActiveOrg, which every reader uses, still validates against the dormant custom-OAuth session, and that session is never minted in production. So a remembered org cannot be read back, bare /org always lands on /org/public, /usage defaults to public, and the header shows no switcher at all under the wall. Lift the rule into one resolver that both stacks feed and every reader consults.\n\n## Description\nApplies authorization/read-write-predicate-symmetry (laws one-validation-door, one-authority-per-vocabulary): a visibility rule enforced on one path must be enforced on the other in the same terms. Today they disagree in the dangerous direction for UX (the read is stricter than the write, so the choice silently resets) and the code has two vocabularies for 'orgs this viewer may select': dormant installations versus memberships.\n\nA pure `viewer-workspace-model.ts` takes `{ dormantSession, memberships, cookieOrg }` and returns `{ options, active }`: options are dormant installations unioned with memberships (case-insensitive dedupe, original casing kept), then 'public' last. The active org is the cookie if it is an option, else the primary membership or first installation, else 'public'. A thin loader `viewer-workspace.ts` reads getSession(), getViewer()/resolveViewerLogin(), listOrgsForLogin() and the cookie, all in the render/route body (never inside a ReadableStream start(), where cookie reads return null). Brand.tsx's Supabase branch renders OrgSwitcher from it, and /org and /usage use its `active`. auth.ts is not edited: getActiveOrg stays for any dormant-only caller, with no call sites left in the app.\n\nNo authorization moves. The cookie only picks a default tenant, every destination still runs its own gate (org layout, requireOrgRead), and the option set is proven to be a subset of canReadOrg by a property test. selfHosted() is not involved.\n\n## Flow\n- viewer-workspace-model.ts: resolveWorkspace() pure, unit-tested red-first (cases 1-4)\n- viewer-workspace.ts: resolveViewerWorkspace() loader with injected deps, dbReadSafe fallback (cases 7-8)\n- Brand.tsx HeaderAccount: Supabase branch renders <OrgSwitcher> when options.length > 1 (case 5)\n- org/page.tsx and usage/page.tsx: swap getActiveOrg(session) for (await resolveViewerWorkspace()).active (case 6)\n- docs: auth.md function table gains the resolver, org-intelligence.md notes the switcher is live under the wall\n\n## Expected impact\nThe header org switcher exists in production for every member of two or more orgs. A chosen org survives navigation and revisits. /org and /usage open on the viewer's real tenant instead of the public funnel. The next reader of 'which org is this viewer in?' has one function to call, not a dormant-stack trap.\n\n## Evaluation\nClaim: under the Supabase wall the active org written by POST /api/org/active is read back, and the switcher renders\nBefore: 0 of 8 cases pass (cases 3 and 4 are guards, green-before by design; 6 red)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture - one resolver replaces three call sites; no auth predicate changes",
+  "evidence": "src/lib/auth.ts:422-432:\n  const s = session === undefined ? await getSession() : session;\n  const options = orgOptionsForSession(s);\n  ... if (match) return match;\n  return s?.installations[0]?.login ?? PUBLIC_ORG;\nsrc/app/api/org/active/route.ts:24-30: 'This used to validate against orgOptionsForSession(getSession()) ... under the ACTIVE Supabase wall that session is null, so the list collapsed to just [\"public\"] ... canReadOrg is the active-path read gate'\nsrc/components/Brand.tsx:75: const showSwitcher = Boolean(authOn && session && session.installations.length > 0);  (authOn = isAuthConfigured(), Brand.tsx:68)\nsrc/app/org/page.tsx:13-15: const { session } = await getSessionState(); const org = await getActiveOrg(session); redirect(`/org/${...}`)\ngrep getActiveOrg( non-test callers: src/app/org/page.tsx:14, src/app/usage/page.tsx:35, src/components/Brand.tsx:77"
+ },
+ {
+  "context": "GitHub OAuth & Session",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Production sign-in lands on an onboarding that knows your installs and orgs",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "prisma/schema.prisma",
+   "prisma/migrations/20261023120000_login_discovery/migration.sql",
+   "src/lib/db/login-discovery.ts",
+   "src/lib/db/login-discovery.test.ts",
+   "src/lib/db/index.ts",
+   "src/app/auth/callback/route.ts",
+   "src/app/auth/callback/route.test.ts",
+   "src/lib/onboarding-context.ts",
+   "src/lib/onboarding-context.test.ts",
+   "src/app/onboarding/page.tsx",
+   "src/components/onboarding/SessionControls.tsx",
+   "src/components/onboarding/SessionControls.dom.test.tsx"
+  ],
+  "new_files": [
+   "prisma/migrations/20261023120000_login_discovery/migration.sql",
+   "src/lib/db/login-discovery.ts",
+   "src/lib/db/login-discovery.test.ts",
+   "src/lib/onboarding-context.ts",
+   "src/lib/onboarding-context.test.ts",
+   "src/components/onboarding/SessionControls.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/github/auth.md",
+   "docs/features/onboarding/wizard.md",
+   "docs/features/data/data-model.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "prisma/schema.prisma: +~10 (one standalone model beside SessionRevocation, schema.prisma:1518)",
+   "prisma/migrations/20261023120000_login_discovery/migration.sql: 0 -> ~10",
+   "src/lib/db/login-discovery.ts: 0 -> ~60",
+   "src/lib/db/login-discovery.test.ts: 0 -> ~90",
+   "src/lib/db/index.ts: 457 -> ~458 (barrel line)",
+   "src/app/auth/callback/route.ts: 123 -> ~130",
+   "src/app/auth/callback/route.test.ts: 174 -> ~215",
+   "src/lib/onboarding-context.ts: 0 -> ~75",
+   "src/lib/onboarding-context.test.ts: 0 -> ~140",
+   "src/app/onboarding/page.tsx: 130 -> ~124 (cap 300)",
+   "src/components/onboarding/SessionControls.tsx: 53 -> ~68 (cap 300)",
+   "src/components/onboarding/SessionControls.dom.test.tsx: 0 -> ~60 (cap 300)"
+  ],
+  "acceptance": [
+   "Supabase callback GET with a successful exchange (provider_token 't', user_metadata.user_name 'dana') and discoverOrgsForLogin resolving { suggestedOrgs: ['acme','beta'], seededOrg: 'acme' } -> the after() task calls recordLoginDiscovery('dana', { suggestedOrgs: ['acme','beta'], seededOrg: 'acme' }) (today nothing is recorded)",
+   "discoverOrgsForLogin resolving {} (its documented failure shape) -> recordLoginDiscovery is NOT called, so a failed discovery never overwrites a good row",
+   "resolveOnboardingContext({ session: null, viewer: {login:'dana'}, installations: [{id:42,login:'acme'}], discovery: { suggestedOrgs: ['acme','beta'], seededOrg: 'acme' } }) -> { installations: [{login:'acme',id:'42'}], suggestedOrgs: ['beta'], seededOrg: 'acme', controls: 'supabase' } (installed orgs filtered out of suggestions; today the page passes [], [], undefined and renders no controls)",
+   "resolveOnboardingContext with no viewer and no session -> { installations: [], suggestedOrgs: [], seededOrg: undefined, controls: null }, and the discovery reader is never invoked",
+   "resolveOnboardingContext reads discovery ONLY for the resolved viewer's own login: the injected getLoginDiscovery spy is called exactly once, with 'dana', and is never passed a value from searchParams",
+   "resolveOnboardingContext with a dormant session (installations [{id:7,login:'Org'}], suggestedOrgs ['x'], seededOrg 'Org') -> values from the session, controls: 'dormant' (custom-stack parity)",
+   "<SessionControls stack='supabase'/> renders the POST /api/auth/revoke-sessions form and NO 'Re-sync access' control; <SessionControls stack='dormant'/> renders both",
+   "getLoginDiscovery when the DB is unconfigured or the read throws -> null; resolveOnboardingContext returns empty suggestions and does not throw"
+  ],
+  "guards": [
+   "case 6 (dormant session parity) and the dormant half of case 7 are green-before by design: the custom stack keeps exactly its current onboarding"
+  ],
+  "premise": [
+   "src/app/onboarding/page.tsx:43-51 - installations, suggestedOrgs and seededOrg are all read off getSession(), the dormant custom-OAuth cookie",
+   "docs/features/github/auth.md:176 - isAuthConfigured() is 'False in production', so getSessionState() returns {session:null} at src/lib/auth.ts:296 and all three are empty under the wall",
+   "src/components/onboarding/OnboardingPickStep.tsx:60-76 - SeededOrgBanner, InstallationPicker and SuggestedOrgs render only when those props are non-empty, so a production viewer gets none of the three shortcuts and types an org handle blind",
+   "src/app/onboarding/page.tsx:65-69 - the 'Welcome back' candidates are built from the same empty installations + seededOrg, so it cannot fire for an installed org in production",
+   "src/app/onboarding/page.tsx:123 - {session && <SessionControls />}: the revoke form is unreachable under the wall",
+   "src/app/api/auth/revoke-sessions/route.ts:31-34 - the route already works on the Supabase stack (signOut scope 'others' at :50) and its own NOTE says the UI render gate is the remaining gap",
+   "src/app/auth/callback/route.ts:102-106 - the live callback runs discoverOrgsForLogin in after() and discards its return value, so the ranked suggestions it computes are thrown away",
+   "src/lib/auth-discovery.ts:26-28 - DiscoveryResult doc: suggestedOrgs is 'only surfaceable by a caller that has somewhere to put it (the custom stack embeds it in the signed session cookie)'",
+   "src/lib/viewer-installations.ts:32-55 - viewerInstallations() is the dual-stack installation resolver already used by /launch and /api/auth/session; onboarding does not use it",
+   "src/app/api/app/repos/route.ts:81-94 - under the wall the installation picker's repo load gates on requireOrgRead(org) and derives the installation from the org, so membership-derived installations are loadable",
+   "src/components/onboarding/SessionControls.tsx:21-32 - both resync buttons are GitHubSignInButton resync, which goes to /api/auth/login; that route redirects to auth_stack_retired or not_configured unless the custom stack is configured (src/app/api/auth/login/route.ts:22-32), so resync must not render under the wall",
+   "docs/features/github/auth.md:240-247 - both gaps are listed as Known gaps ('Discovered org suggestions aren't surfaced under the wall', 'The \"sign out everywhere else\" button is unreachable in production'); this card closes and deletes them"
+  ],
+  "rollback": "Revert the series. The migration only adds a standalone table (no FK, relationMode prisma), so a down-migration is a DROP TABLE and nothing else reads it. The callback falls back to discarding the result and onboarding to its session-only reads.",
+  "gate": "contract",
+  "doc": "docs/features/github/auth.md",
+  "runner_up": "An Account & sessions panel behind the identity menu (who you are, which stack, installations, sign out everywhere else) instead of burying the controls at the foot of /onboarding.",
+  "body": "## Summary\nA production user who signs in and lands on /onboarding sees a cold start. The page reads installations, discovered org suggestions and the seeded org from the dormant custom-OAuth cookie, which the live Supabase stack never mints. All three wizard shortcuts (installation picker, 'you might want to scan...' suggestions, seeded-org banner) and the 'Welcome back' jump are therefore dead, and so is 'Sign out everywhere else', even though its route already works on the live stack. The sign-in callback computes the ranked org suggestions in after() and then throws them away. Persist what sign-in already learned, read installations through the dual-stack resolver, and render the session controls that work on the live stack.\n\n## Description\nThe user decides which org to scan blind while the app holds the answer. Applies wizard-flows/snapshot-and-resume (\"resume re-runs expensive work already done\": keep the discovery result instead of discarding it) and wizard-flows/progress-communication (the step should reflect what the flow already knows: an installed App should not read as 'not installed').\n\n1. Store: a standalone `LoginDiscovery { login @id (lowercased), suggestedOrgs String[], seededOrg String?, discoveredAt }` beside SessionRevocation, plus `src/lib/db/login-discovery.ts` with recordLoginDiscovery / getLoginDiscovery (dbReadSafe, null when the DB is off).\n2. Producer: the Supabase callback's existing after() task awaits discoverOrgsForLogin and records the result keyed on the identity Supabase just returned from exchangeCodeForSession (user_metadata.user_name). It never uses a request parameter. A failed discovery ({}) does not overwrite.\n3. Reader: `src/lib/onboarding-context.ts` resolveOnboardingContext(deps) picks the dormant session when one exists (unchanged). Otherwise it uses viewerInstallations() plus getLoginDiscovery(viewer.login), drops already-installed orgs from the suggestions, and names which session controls apply ('dormant' | 'supabase' | null). It is awaited in the page body, never inside a stream start().\n4. Surface: onboarding/page.tsx feeds OnboardingFlow and the Welcome-back candidates from the context. SessionControls takes a `stack` prop: under the wall it renders the working revoke form and hides the resync buttons, which cannot complete there.\n\nAuth is untouched. Discovery is read only for the resolved viewer's own login, installations come from memberships, and the repo load is still gated by requireOrgRead. The stored data is the viewer's own public org memberships, which the session cookie used to carry.\n\n## Flow\n- schema + migration: LoginDiscovery table\n- db/login-discovery.ts: record/get, unit-tested (case 8)\n- auth/callback/route.ts after(): discover then record (cases 1-2)\n- onboarding-context.ts: pure-ish resolver with injected deps (cases 3-6)\n- onboarding/page.tsx: consume context; SessionControls stack prop (case 7)\n- docs: delete the two Known gaps in auth.md, update wizard.md shortcuts and data-model.md table list\n\n## Expected impact\nOn the stack that is production, the first screen after sign-in offers the user's installed orgs as one-click sources and the orgs they are most active in as suggestions. The seeded org's ready dashboard is pointed at, a returning user gets the Welcome-back jump, and 'Sign out everywhere else' is reachable. Today a production user can reach none of these.\n\n## Evaluation\nClaim: under the Supabase wall /onboarding receives real installations, persisted suggestions and working session controls\nBefore: 0 of 8 cases pass (case 6 and the dormant half of 7 are guards, green-before by design)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract - new table + migration; no authorization predicate changes",
+  "evidence": "src/app/onboarding/page.tsx:43-51:\n  const session = await getSession();\n  const installations = (session?.installations ?? []).map(...)\n  const suggestedOrgs = session?.suggestedOrgs ?? [];\n  const seededOrg = session?.seededOrg;\nsrc/app/onboarding/page.tsx:123: {session && <SessionControls />}\nsrc/app/auth/callback/route.ts:102-106: after(() => discoverOrgsForLogin(providerToken, login).catch(...))  (return value discarded)\nsrc/lib/auth.ts:296: if (!isAuthConfigured()) return { session: null, status: \"none\" };\ndocs/features/github/auth.md:240-247: Known gaps 'Discovered org suggestions aren't surfaced under the wall' and 'The \"sign out everywhere else\" button is unreachable in production'\ngrep viewerInstallations callers: src/app/api/auth/session/route.ts:45, src/app/launch/page.tsx:69 (onboarding absent)",
+  "notes_from_critic": "providers-0 also adds a prisma migration; use a distinct migration timestamp prefix (not 20261023120000) and build in a different wave"
+ },
+ {
+  "context": "Follow-ups Ledger",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Fence every post-claim write by its claim generation; retire the name holder",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/lib/db/followup-claims.ts",
+   "src/lib/org/followups-claims.ts",
+   "src/lib/mcp/work-tools.ts",
+   "src/lib/mcp/tools.ts",
+   "src/lib/mcp/handlers.ts",
+   "src/app/api/mcp/route.ts",
+   "scripts/ascent-work.mjs",
+   "src/lib/mcp/handlers-write.test.ts"
+  ],
+  "new_files": [
+   "src/lib/db/followup-attempts.ts",
+   "src/lib/db/followup-claims.fence.test.ts",
+   "src/lib/org/followups-fence.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-followups/README.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/db/followup-claims.ts: 458 -> ~340 (reportAttempt + heldFollowups + holder clause move to followup-attempts.ts and are re-exported, so the vi.mock('@/lib/db/followup-claims') in handlers-write.test.ts keeps working; .ts outside src/features, spirit of the 300 rule)",
+   "src/lib/db/followup-attempts.ts: new ~150",
+   "src/lib/org/followups-claims.ts: 154 -> ~190 (pure fenceOf / fenceVerdict / stale refusal text)",
+   "src/lib/mcp/work-tools.ts: 390 -> ~405",
+   "src/lib/mcp/tools.ts: 540 -> ~548 (report_attempt gains a `fence` property)",
+   "src/lib/mcp/handlers.ts: 468 -> ~465 (drop legacyActor)",
+   "src/app/api/mcp/route.ts: 344 -> ~343",
+   "scripts/ascent-work.mjs: 217 -> ~228",
+   "src/lib/mcp/handlers-write.test.ts: 386 -> ~420",
+   "src/lib/db/followup-claims.fence.test.ts: new ~170",
+   "src/lib/org/followups-fence.test.ts: new ~60"
+  ],
+  "acceptance": [
+   "claimFollowups({executor:'remote-agent', leaseMs:45min}) -> each claimed FollowupClaimRow carries fence === its leaseUntil ISO; claimFollowups({executor:'human', leaseMs:null}) -> fence null",
+   "token tok_A claims rec-1 (fence F1); the lease lapses and sweepExpiredLeases releases it; tok_A claims rec-1 again (fence F2); reportAttempt({actor:'agent:tok_A', id:'rec-1', fence:F1, verdict:'resolved'}) -> {refused:'stale-claim'}, row still in_progress with leaseUntil F2, no 'attempt' event and no followup.attempt audit row; the same call with fence F2 -> ok, lease cleared",
+   "reportAttempt on a row held under a live lease with NO fence presented -> {refused:'unfenced'} and nothing written (a leased claim cannot be reported against by holder name alone)",
+   "a row whose claimActor is the legacy 'agent:ci' (token NAME form) -> reportAttempt and heldFollowups for principal actor 'agent:tok_A' do not match it; McpPrincipal has no legacyActor field (tsc) and src/app/api/mcp/route.ts no longer sets one",
+   "claimFollowups on an open row with needsHuman=true (a row reopened by PATCH after an escalation) -> the claimed row reads needsHuman false: a new generation carries none of the previous one's flags",
+   "reportAttemptTool with a stale fence -> a tool error that says the claim was superseded by a newer claim (naming the current lease expiry), distinct from the existing 'You do not hold' text; claimFollowupsTool's structuredContent.claimed[i].fence is present",
+   "ascent-work `run`: the report_attempt call for each id carries the fence returned for that id by claim_followups (asserted on the argument object passed to callTool)",
+   "COORDINATOR REVISE: reportAttempt without a fence on a leased row by its holder is still accepted (legacy path, logs a deprecation once); with a stale fence it is refused 409; with the current fence accepted"
+  ],
+  "guards": [
+   "a human claim (leaseMs null) still survives every sweep and its fence is null - green before by design, kept as a pin",
+   "the existing 'nothing here closes' verdict table (resolved stays in_progress, skipped -> open, needs_human -> flag) is unchanged - green before by design"
+  ],
+  "premise": [
+   "src/lib/db/followup-claims.ts:374 - reportAttempt's holder check is `claimActor: { in: actors }` plus status in_progress; nothing identifies WHICH claim of that holder is being reported on",
+   "src/lib/db/followup-claims.ts:398 - the in-transaction CAS re-guards on the same holder clause only, so a report from a superseded session of the same token writes into the newer claim",
+   "src/lib/db/followup-claims.ts:238 - the claim's data writes status, claimActor, claimExecutor, leaseUntil and never resets needsHuman",
+   "src/lib/db/followup-claims.ts:383 - needs_human sets needsHuman true; grep `needsHuman: false` over src/ (non-test) returns nothing, so no write path ever clears it",
+   "src/lib/db/followup-claims.ts:322-336 - the holderActors legacy arm is described as TRANSITIONAL, ending 'within a day of the deploy' because leases are hours; the change landed in ea78013b on 2026-09-05 (47 days ago)",
+   "src/app/api/mcp/route.ts:278 - the door still populates legacyActor: `agent:${token.name}`, which is the non-unique form the comment says lets token B report on rows token A leased",
+   "src/lib/mcp/work-tools.ts:356-366 - report_attempt passes actor + legacyActor and no claim generation",
+   "scripts/ascent-work.mjs:124-131 - the CLI's report sends id/verdict/reason/branch/pr only; scripts/ascent-work.mjs:172-193 runs claim -> agent -> report per id, the exact long-gap window in which a lease lapses",
+   "../ai-registry/.../remediation-handoff/techniques/handoff-tenancy-and-idempotence.md:111-123 (resolved via index.json subjects['remediation-handoff'].file) - 'A fencing token on every later write... Holder identity is no substitute: the same executor identity claiming again ... looks exactly like the stale holder. Refuse a stale write loudly'"
+  ],
+  "rollback": "Revert the series: followup-attempts.ts is re-exported from followup-claims.ts, so removing it and restoring the inline functions is a pure revert; no schema or migration is involved (the fence is the existing leaseUntil column), and the MCP `fence` argument is additive in the schema.",
+  "gate": "contract",
+  "doc": "docs/features/org-followups/README.md",
+  "runner_up": "Make every in_progress write a claim: Athena's handoff_followups (src/lib/athena/actions-execute.ts:111) and the live-wall accept (src/lib/db/improvement.ts:344) still mark rows in_progress through updateRecommendation with no holder, contradicting followup-claims.ts:9's 'every claim now runs through claimFollowups'.",
+  "body": "## Summary\nThe claim path decides who wins a row with a compare-and-set, but every write after the claim checks only the holder's name. A token whose lease lapsed and was re-claimed by its own second session can still report on the new claim. Mint a fence at claim time, require it on every later write, and drop the name-keyed holder arm that should have gone in September.\n\n## Description\n`reportAttempt` and `heldFollowups` authorize on `claimActor IN (actor, legacyActor)` plus `status = in_progress` (followup-claims.ts:374, :398). The registry technique this module was forged from (remediation-handoff / handoff-tenancy-and-idempotence) names that exact case as the defect: a paused worker does not know its lease lapsed, and the same identity claiming again looks just like the stale holder. `npx ascent work run` makes the window ordinary, because it claims, runs an agent of any length, then reports every id (ascent-work.mjs:172-193).\n\nThe fence costs no schema change. `leaseUntil` is already unique per claim, round-trips at millisecond precision, and is carried across rescans by `claimCarry`. The technique itself says 'the lease value itself will do'. A leased claim's fence is its lease, and an unleased claim (human, local lane) has a null fence, which keeps the 'null is never expired' rule.\n\nTwo debts go with it, because both are generation questions:\n- the transitional `legacyActor` arm (followup-claims.ts:322-336), still populated at the door (mcp/route.ts:278) 47 days after its 'within a day' end date;\n- `needsHuman`, which no write ever clears (followup-claims.ts:238 and :383), so a reopened row carries a stale escalation into its next claim.\n\n## Flow\n- Add pure `fenceOf(leaseUntil)` and `fenceVerdict(stored, presented) -> ok | stale | unfenced` in followups-claims.ts, with a red-first unit test.\n- Move reportAttempt, heldFollowups and the holder clause into followup-attempts.ts, re-exported from followup-claims.ts. The CAS WHERE gains `leaseUntil = fence` when the row is leased, and the result becomes discriminated: ok, not-held, stale-claim or unfenced.\n- claimFollowups returns `fence` on each row, and its data resets `needsHuman: false`.\n- MCP: report_attempt's schema gains `fence`, the tool maps stale-claim and unfenced to their own refusal text, and claim/brief return the fence. Remove `legacyActor` from McpPrincipal and the route.\n- ascent-work.mjs keeps an id -> fence map from the claim and passes it on every report.\n- Doc: the README's claim section gains the fence rule.\n\n## Expected impact\nA superseded session can no longer write an attempt, a needs-human flag or a skipped release into a claim it does not hold, and the two-tokens-named-ci flaw stops being reachable. What could break: an external MCP client that reports without a fence is refused on a leased row. The refusal text names the missing field, and the in-repo client is updated in the same series.\n\n## Evaluation\nClaim: correctness - every post-claim write is fenced to the claim generation that authorized it.\nBefore: 0 of 7 acceptance cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first against the existing CAS-faithful fake Prisma (followup-claims.test.ts pattern) and the handlers-write mock\nResult: better\nGate: contract",
+  "evidence": "followup-claims.ts:374 `where: { id: input.id, claimActor: { in: actors }, status: \"in_progress\", scan: { repo: { orgId: org.id } } }` ; :398 `where: { id: input.id, status: \"in_progress\", claimActor: { in: actors } }` ; :238 `data: { status: \"in_progress\", claimActor: input.actor, claimExecutor: input.executor, leaseUntil }` ; grep -rn \"needsHuman: false\" src (non-test) -> no matches ; mcp/route.ts:278 `legacyActor: `agent:${token.name}`` ; git log -1 --format=%ad ea78013b -> Sat Sep 5 2026 ; scripts/ascent-work.mjs:186 `await report({ id, verdict: \"needs_human\", ... })` with no claim generation",
+  "revise_applied": "COORDINATOR REVISE (contract): an UNFENCED report from an external client stays accepted (backward compatible) and is logged as deprecated; only a STALE fence (present and not matching the live claim generation) is refused. Ascent own CLI (ascent-work.mjs) and MCP tools send the fence."
+ },
+ {
+  "context": "Follow-ups Ledger",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Answer a needs-human row in place: take it, send it back, never prompt held work",
+  "size": "M",
+  "effort": 7,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/features/inflight/proposals/ProposalsWorklist.tsx",
+   "src/features/inflight/proposals/ProposalsTab.tsx",
+   "src/features/inflight/proposals/ProposalDetail.tsx",
+   "src/components/org/followups/FollowupsPromptModal.tsx"
+  ],
+  "new_files": [
+   "src/components/org/followups/claimActionsModel.ts",
+   "src/components/org/followups/claimActionsModel.test.ts",
+   "src/components/org/followups/ClaimRowActions.tsx",
+   "src/features/inflight/proposals/claimBatchActions.ts",
+   "src/lib/db/followup-claims-human.ts",
+   "src/lib/db/followup-claims-human.test.ts",
+   "src/app/api/org/followups/claims/route.ts",
+   "src/app/api/org/followups/claims/route.test.ts"
+  ],
+  "shared_surfaces": [
+   "src/features/admin/audit/auditActions.ts",
+   "context-map.json",
+   "docs/features/org-followups/README.md"
+  ],
+  "loc_check": [
+   "src/features/inflight/proposals/ProposalsWorklist.tsx: 166 -> ~180 (cap 200; the two new batch actions live in claimBatchActions.ts)",
+   "src/features/inflight/proposals/claimBatchActions.ts: new ~70 (cap 200, no 'use client': it builds DecisionAction objects, no hooks)",
+   "src/features/inflight/proposals/ProposalsTab.tsx: 98 -> ~106 (cap 200; resolves viewer login + admin role server-side)",
+   "src/features/inflight/proposals/ProposalDetail.tsx: 85 -> ~90 (cap 200)",
+   "src/components/org/followups/FollowupsPromptModal.tsx: 106 -> ~125 (cap 300)",
+   "src/components/org/followups/ClaimRowActions.tsx: new ~70 (cap 300, 'use client')",
+   "src/components/org/followups/claimActionsModel.ts: new ~110",
+   "src/lib/db/followup-claims-human.ts: new ~150",
+   "src/app/api/org/followups/claims/route.ts: new ~75"
+  ],
+  "acceptance": [
+   "claimActionsFor(row{status:'in_progress', needsHuman:true, claimExecutor:'remote-agent', leaseUntil:null}, viewer{login:'ana', admin:false}) -> ['take-over','send-back']; the same row with needsHuman false and a live lease held by agent:tok_A -> [] for a member and ['send-back'] for an admin",
+   "claimActionsFor(row{status:'in_progress', claimExecutor:'human', claimActor:'ana', leaseUntil:null}, viewer ana) -> ['release']; viewer 'bo' (member) -> []; viewer 'bo' (admin) -> ['release']",
+   "promptPartition(picked, viewer 'ana', now) with rows [open A, in_progress held by ana B, in_progress under agent:tok_A's live lease C] -> {include:[A,B], held:[{id:C, holder:'agent:tok_A', until:<iso>}]}; the modal's buildFixPrompt receives only A and B, and toMark is [A]",
+   "takeOverEscalations('acme', ['rec-1'], 'ana') on an in_progress needsHuman row held by agent:tok_A -> one CAS updateMany (where needsHuman true AND status in_progress AND org) setting claimActor 'ana', claimExecutor 'human', leaseUntil null, needsHuman false; one 'status' event whose note names the displaced holder; one followup.takeover audit row with orgId",
+   "sendBack('acme', ['rec-1'], viewer) -> row open, claim columns null, needsHuman false, one event; a row that is no longer in_progress -> skipped:{id, reason:'not-held'} and nothing written",
+   "POST /api/org/followups/claims {org:'acme', action:'release', ids:[a row held by 'ana']} as member 'bo' -> 403 and no write; as admin -> 200 {released:[id]}; an id from another org -> whole-request 403 with the same body as an unknown id; org 'public' -> 403; 51 ids -> 400 naming the cap of 50",
+   "claimBatchActions(...) -> a 'Take over' action whose appliesTo is true only for needsHuman scan rows, and a 'Send back' action whose appliesTo mirrors claimActionsFor for the viewer; neither applies to a loop proposal"
+  ],
+  "guards": [
+   "isSelectable still admits open and in_progress rows (the bulk resolve/dismiss behaviour is unchanged) - green before by design"
+  ],
+  "premise": [
+   "src/components/org/followups/FollowupChips.tsx:18 - the needs-human chip is documented as 'the ONE row state on this ledger that a machine can raise and only a person can clear', yet grep `needsHuman: false` over src/ (non-test) returns nothing: no surface or route can clear it",
+   "scripts/ascent-work.mjs:178-193 - every unattended `run` reports needs_human for every claimed id, so the flag is the normal outcome of the shipped client, not an edge case",
+   "src/lib/db/followup-claims.ts:381-384 - needs_human leaves the row in_progress with leaseUntil null, the same shape as a human claim, so sweepExpiredLeases (followup-claims.ts:124) never returns it to the queue",
+   "src/lib/db/scans-persist.ts:81 - claimCarry copies needsHuman onto the carried row at every rescan, so a stuck escalation outlives scans",
+   "src/components/org/followups/FollowupChips.tsx:82-110 - RowActions offers only resolve / dismiss (or reopen); there is no release, take-over or send-back, and releaseFollowups (followup-claims.ts:290) is called only by src/lib/local/lane-exit.ts:162",
+   "src/components/org/followups/FollowupsPromptModal.tsx:35-36 - the prompt includes every picked in_progress row whoever holds it ('included in the prompt, not re-marked', :81), including rows under another worker's live lease; the loop lane refuses exactly that because 'A prompt naming work somebody else holds is a prompt asking for a merge conflict' (src/lib/local/loop-lane.ts:1111)",
+   "src/features/inflight/proposals/ProposalsWorklist.tsx:81-127 - the batch bar has Dismiss / Resolve / Approve / Generate fix prompt, no claim verb"
+  ],
+  "rollback": "Revert the series: the new route, db module, model and components are additive files; the three edited feature files and the modal return to their prior imports. No schema change: every write uses existing Recommendation columns.",
+  "gate": "contract",
+  "doc": "docs/features/org-followups/README.md",
+  "runner_up": "A holder facet on the ledger filter (needs a person / held by me / held by an agent) so escalations are a queue rather than a chip scattered through the value order.",
+  "body": "## Summary\nThe ledger can show that an agent gave up on a row ('needs human'), and who holds it, but it offers no action on either fact. The shipped CLI flags every unattended run this way, the flag never clears, and the fix prompt still includes work another agent holds. Add the missing claim verbs (take over, send back, release) and let the prompt leave out held work.\n\n## Description\nThe needs-human chip describes itself as the one state 'only a person can clear' (FollowupChips.tsx:18), but no code path clears it. The row stays in_progress with a null lease, so the lazy sweep treats it like a human claim and never releases it. Rescans carry the flag forward (scans-persist.ts:81). `npx ascent work run` reports needs_human for every id it claimed (ascent-work.mjs:178-193), so a team using the shipped client collects rows that only resolve or dismiss can move. Neither is the decision the person is actually making: 'I'll take this' or 'put it back for the next agent'.\n\nA hand-off has the same gap: a person who handed off a batch and never pasted it cannot release it. And the prompt modal includes rows under another worker's live lease (FollowupsPromptModal.tsx:35-36), a merge conflict the loop lane already refuses (loop-lane.ts:1111). The ledger already has the data each decision needs (claimActor, claimExecutor, leaseUntil, needsHuman on every row, org-insights.ts:720-724).\n\nThis applies remediation-handoff / handoff-tenancy-and-idempotence (one CAS arbiter per write, whole-request refusal for a person's batch, foreign == unknown, a cap of 50, public org refused) to the human verbs.\n\n## Flow\n- `claimActionsModel.ts` (pure): `claimActionsFor(row, viewer, now)` and `promptPartition(rows, viewer, now)`. Authorization: take over = any member, on a needs-human row only; send back = a needs-human row or, for an admin, any claim; release = the holder's own human claim, or an admin.\n- `followup-claims-human.ts`: `takeOverEscalations`, `sendBack` and `releaseHumanClaims`, each an org-scoped compare-and-set with one event per row and one audit row per batch (`followup.takeover` / `followup.release`).\n- `POST /api/org/followups/claims {org, action, ids}`: gate-then-constrain. requireOrgAccess first, then requireOrgRole('admin') whenever the model says the viewer's verb needs it. All ids are checked before anything is written.\n- The surface: ClaimRowActions in the expanded row, Take over N / Send back N on the batch bar (claimBatchActions.ts), and the prompt modal's 'held elsewhere, left out' line.\n\n## Expected impact\nAn escalation becomes a one-click decision instead of a permanent chip, a stalled hand-off can be returned to the queue, and a pasted prompt never sends a person into a row an agent is editing. Measured as needsHuman rows older than one scan (today they never fall) and as prompt batches containing a live foreign lease (target 0). What could break: an admin's send-back pulls work from a live agent, whose late report is then refused as not-held (with card A, refused as stale), which is the intended loud failure.\n\n## Evaluation\nClaim: ux - every claim state the ledger renders has the action that resolves it, and the prompt only names work the viewer may do.\nBefore: 0 of 7 acceptance cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first (pure model, CAS-faithful fake Prisma for the db module, route test with mocked authz)\nResult: better\nGate: contract",
+  "evidence": "FollowupChips.tsx:18 ' * that a machine can raise and only a person can clear.' ; grep -rn \"needsHuman: false\\|needsHuman = false\" src prisma (non-test) -> no output ; grep releaseFollowups callers -> only src/lib/local/lane-exit.ts:162 ; FollowupsPromptModal.tsx:35 `const alreadyOff = open ? items!.filter((i) => i.status === \"in_progress\").length : 0;` ; loop-lane.ts:1111 'A prompt naming work somebody else holds is a prompt asking for a merge conflict' ; ascent-work.mjs:186-193 reports verdict needs_human for every id after `run`"
+ }
+]
