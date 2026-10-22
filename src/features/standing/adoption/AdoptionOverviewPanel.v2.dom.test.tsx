@@ -1,0 +1,68 @@
+// @vitest-environment jsdom
+//
+// The Prism adoption composition states the same populations as the Altimeter one (denominator present, or withheld and said so).
+
+import { describe, expect, it, vi } from "vitest";
+import * as React from "react";
+import { render, screen } from "@testing-library/react";
+import type { AdoptionOverview } from "@/lib/org/adoption";
+
+const { mockBuild } = vi.hoisted(() => ({ mockBuild: vi.fn() }));
+
+vi.mock("@/lib/org/adoption", () => ({ buildAdoptionOverview: mockBuild, adoptionMarkdown: () => "# brief" }));
+vi.mock("@/lib/org/scope", () => ({
+  resolveOrgScope: async () => ({ segments: [], segmentId: null, techGroups: [], activeStack: null, techGroupId: null }),
+}));
+vi.mock("@/components/org/shared/ScopeFilterBar", () => ({ ScopeFilterBar: () => <div data-testid="scope-bar" /> }));
+vi.mock("@/components/CopyForLlm", () => ({ CopyForLlm: () => <button type="button">Copy</button> }));
+vi.mock("next/link", () => ({
+  default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
+}));
+
+const { AdoptionOverviewPanel } = await import("./AdoptionOverviewPanel");
+
+const overview = (over: Partial<AdoptionOverview> = {}): AdoptionOverview => ({
+  org: "acme",
+  generatedOn: "2026-09-05",
+  contributors: { total: 40, aiActive: 18, aiActiveShare: 45 },
+  orgAiShare: 32,
+  orgCommits: 4120,
+  distribution: { high: 6, some: 12, none: 22 },
+  champions: [],
+  delivery: null,
+  knowledgeLeader: null,
+  tools: [],
+  teams: [],
+  teamPairing: null,
+  enablement: [],
+  ...over,
+});
+
+async function renderPanel(a: AdoptionOverview | null) {
+  mockBuild.mockResolvedValue(a);
+  return render(await AdoptionOverviewPanel({ slug: "acme", sp: {}, theme: "prism" }));
+}
+describe("AdoptionOverviewPanel in Prism — the same population statements", () => {
+  it("states the commit population in the masthead", async () => {
+    const { container } = await renderPanel(overview());
+    const text = container.textContent ?? "";
+    expect(text).toContain("32% of commits");
+    expect(text).toContain("4,120 commits");
+  });
+
+  it("drops the count, never a 0, when the naming floor withheld it, and says so", async () => {
+    const { container } = await renderPanel(overview({ orgCommits: null }));
+    const text = container.textContent ?? "";
+    expect(text).toContain("Commit total withheld below the naming floor");
+    expect(text).not.toContain("0 commits");
+  });
+
+  it("keeps the other populations beside it", async () => {
+    const { container } = await renderPanel(
+      overview({ delivery: { typicalHoursToMerge: 12, reviewedRate: 80, mergeRate: 70, aiInvolvedRate: 40, aiGovernedRate: 65, prs: 33 } }),
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("18/40");
+    expect(text).toContain("33 PRs analyzed");
+  });
+});

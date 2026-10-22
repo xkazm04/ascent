@@ -12,15 +12,18 @@ import { Suspense } from "react";
 import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
+import { getTheme } from "@/lib/theme/server";
 import { AdoptionOverviewPanel } from "./AdoptionOverviewPanel";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
 export async function AdoptionTab({ slug, sp }: { slug: string; sp: SearchParams }) {
+  // THEME DUALITY: the panel picks its composition from the theme read here (AdoptionOverview.v1 / .v2).
+  const theme = await getTheme();
   return (
     <div className="stagger-children space-y-6">
       <Suspense fallback={<OrgTabGap minH="min-h-[40rem]" />}>
-        <AdoptionOverviewPanel slug={slug} sp={sp} />
+        <AdoptionOverviewPanel slug={slug} sp={sp} theme={theme} />
       </Suspense>
       <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </div>
