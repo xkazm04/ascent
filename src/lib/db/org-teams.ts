@@ -26,6 +26,7 @@ import { MIN_CHAMPION_COMMITS, canNameIndividuals } from "@/lib/org/champions";
 // placeholder score is not a measurement, so it cannot average into a team maturity figure and
 // cannot be an endpoint of a team mover.
 import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
+import { withLatestScans } from "@/lib/db/org-rollup-latest-scans";
 import { retentionCutoff } from "@/lib/plans";
 
 const TEAM_STRONG = 65; // a team "exemplifies" a dimension at/above this (a mentor candidate)
@@ -525,30 +526,34 @@ export async function getOrgTeamRollup(
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: {
-      id: true,
-      fullName: true,
-      name: true,
-      teams: { select: { slug: true, ownedPaths: true, isDefaultOwner: true } },
-      scans: {
-        orderBy: { scannedAt: "desc" },
-        take: 2,
-        select: {
-          overallScore: true,
-          adoptionScore: true,
-          rigorScore: true,
-          level: true,
-          posture: true,
-          // Provenance for the mock exclusion (isMockScore) — one column on a select already run.
-          engineProvider: true,
-          dimensions: { select: { dimId: true, score: true } },
-        },
+  // Each repo's latest TWO scans through the shared door (groupBy latest, groupBy the one before it,
+  // one pair fetch), never a nested `scans: { take: 2 }`, whose LIMIT never reaches the SQL.
+  const repoScope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  const repos = await withLatestScans(
+    prisma,
+    prisma.repository.findMany({
+      where: repoScope,
+      select: {
+        id: true,
+        fullName: true,
+        name: true,
+        teams: { select: { slug: true, ownedPaths: true, isDefaultOwner: true } },
+        contributors: { select: { login: true, name: true, commits: true, aiCommits: true } },
       },
-      contributors: { select: { login: true, name: true, commits: true, aiCommits: true } },
+    }),
+    repoScope,
+    {
+      overallScore: true,
+      adoptionScore: true,
+      rigorScore: true,
+      level: true,
+      posture: true,
+      // Provenance for the mock exclusion (isMockScore) - one column on a select already run.
+      engineProvider: true,
+      dimensions: { select: { dimId: true, score: true } },
     },
-  });
+    { take: 2 },
+  );
 
   // Plan retention floor: like getOrgMovers, the baseline is entitlement-gated — clamp the window
   // start to the tier's retention cutoff so a Free org's 90d team movers aren't computed against
@@ -564,7 +569,6 @@ export async function getOrgTeamRollup(
   // current side on every surface). Two bounded queries — never the whole scan history.
   // Half-open upper bound (`lt: endExclusive`, falling back to the legacy `lte: end`).
   const upper = upperBound(window);
-  const repoScope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
   const [inWindow, preStart] = await Promise.all([
     prisma.scan.findMany({
       where: { repo: repoScope, scannedAt: { gte: start, ...(upper ?? {}) } },
