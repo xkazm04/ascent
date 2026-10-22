@@ -135,7 +135,7 @@ either an absolute input on `NormalizedGate` or an honest-null skip there.
 The layers:
 
 - The org's **persisted** gate policy (`getOrgGatePolicy`, the same bar the App-mode Check
-  Run and the governance fleet view enforce) is the baseline whenever it exists.
+  Run, the governance fleet view and the MCP `get_gate_verdict` enforce) is the baseline whenever it exists.
 - The repo's **admission** decision (moonshot #8) folds next, via `resolveAdmissionLayer`
   (`src/lib/scoring/gate-admission.ts`) — the one IO seam, called by **both** gate surfaces so the
   public endpoint and the merge-blocking Check Run cannot enforce different bars. Tier → floors added:
@@ -149,6 +149,27 @@ The layers:
   deliberately-relaxed org bar back toward the default.
 - With **no** persisted policy (DB-less / unknown org), params override the archetype default
   per field via `policyFromParams(searchParams, report.archetype)`.
+
+**One resolver folds it for all four surfaces (2026-10-22).** The fold used to be hand-sequenced at
+each caller, and two of the four forgot the admission layer: the governance fleet view and the MCP
+`get_gate_verdict` judged every repo on the org bar alone, so an admitted T0/T1/T2 or `blocked` repo
+counted as passing on the dashboard (and was told "pass" by the agent tool) while the merge-blocking
+Check Run failed it. `src/lib/scoring/gate-resolve.ts` is now the only fold: `resolveRepoGatePolicy`
+(public endpoint, Check Run; one repo, via `resolveAdmissionLayer`) and `resolveFleetGatePolicies`
+(fleet view, MCP; one `listOrgAdmissions` read for the whole org, no N+1). Each caller keeps its own
+org-policy read, because each owns a different fail-closed answer to it. `gate-resolve.test.ts` pins
+that `tightenGatePolicy(` is called only in `gate.ts` and `gate-resolve.ts` (comments and strings
+stripped, with a seeded violation), so the manifest layer lands as one step there. What changed for
+readers:
+
+- **Governance tab:** each repo is judged against its own effective bar, so fleet pass-rates move down
+  for orgs with admitted repos. The advertised policy text, gate URL and CI snippet stay the org-wide
+  bar. `barSet` is true when any repo's effective bar sets the condition. If the admission list cannot
+  be read, the overview carries `admissionUnread: true` and the counts reflect the org bar alone.
+- **MCP `get_gate_verdict`:** folds the repo's admission layer, lists the effective bar in `policy`,
+  and gains an additive `skipped` array (e.g. `admission` for a `blocked` repo, which a rollup row
+  cannot measure). An unreadable admission list is a refusal, not a verdict on the org bar alone.
+- **Public endpoint:** the response body is byte-identical; only the internal sequencing moved.
 
 Without this, any single param (`?min_dimension=1`) replaced the whole persisted policy and
 handed an anonymous caller, or a PR author editing the workflow URL, a green verdict the
@@ -348,7 +369,8 @@ got that layer's stricter form.
 Every produced verdict, from both the API endpoint and the App Check Run, emits one queryable
 line, `[gate:verdict] {…}` (`src/lib/scoring/gate-telemetry.ts`), carrying `surface`, `repo`,
 `ref`, `pass`, **`blocked`**, `degraded`, `authoritative`, the deduped failing `codes`,
-`policySource` (`org` / `params` / `archetype`), and the scored reading.
+`policySource` (`org` / `params` / `archetype`), `layers` (every fold layer that contributed, in
+fold order, e.g. `["org", "admission"]`; additive, `policySource` is unchanged), and the scored reading.
 
 `blocked` is the measurement, and it is deliberately *not* `!pass`: a degraded grade and a
 fork-PR default-branch fallback both fail for reasons that are not "this repo is below the
@@ -487,6 +509,7 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | `src/app/api/gate/[owner]/[repo]/route.ts` | Gate endpoint: score → resolve policy → 200/422/503. |
 | `src/lib/scoring/gate-api.ts` | Wire contract of the public endpoint: `GATE_API_PATH`, `GATE_PASS_STATUS` (200), `GATE_FAIL_STATUS` (422). No imports. |
 | `src/lib/scoring/gate.ts` | `evaluateGate()`, `explicitPolicyFromParams()`, `policyFromParams()`, `tightenGatePolicy()`, `describeGatePolicy()`, `sanitizeGatePolicy()`. |
+| `src/lib/scoring/gate-resolve.ts` | `resolveRepoGatePolicy()` / `resolveFleetGatePolicies()`: the one policy fold every gate surface calls (public endpoint, Check Run, governance fleet view, MCP verdict). |
 | `src/lib/scoring/gate-admission.ts` | `resolveAdmissionLayer()` / `loadCheckStates()`: the one IO seam both gate surfaces read the admission row and the conformance ledger through. |
 | `src/lib/org/admission.ts` | `compileStance()` / `admissionGateOverlay()`: the pure tier → tighten-only fragment. |
 | `src/lib/scoring/gate-comment.ts` | `buildGateComment()`: check title/summary + PR comment markdown. |
