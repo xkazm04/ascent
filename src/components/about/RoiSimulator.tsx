@@ -3,19 +3,29 @@
 // ROI Simulator diagram — the interactive centerpiece, now multi-lever. Drag any dimension target and
 // the whole fleet recomputes live: bars grow from each repo's current score to its projected score,
 // repos that cross a level boundary flash a promotion badge, and the tiles tally promotions / average
-// gain / repos in scope. Mirrors the real /org what-if simulator across several dimensions at once.
+// gain / repos in scope.
+//
+// Card about-1: given a live `fleet` (aboutFleetModel), the rows are real scanned public repos and the
+// sliders raise D2 / D3 / D1 (Testing, CI/CD, Conventions) through projectFleet, the engine's own
+// archetype-weighted blend, so a row agrees with the "+N pts · unlocks LX" the org backlog prints.
+// The invented fleet and its demo weighting `W` below survive only as the illustrative fallback.
 
 import { useState } from "react";
+import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { HairlineGrid, Stat } from "@/components/ui";
 import { scoreHex } from "@/lib/ui";
 import { levelForScore } from "@/lib/maturity/model";
+import type { DimensionId } from "@/lib/types";
+import { fleetCaption, projectFleet, type AboutFleet } from "./aboutFleetModel";
 
 const DIMS = [
-  { key: "testing", label: "Testing" },
-  { key: "cicd", label: "CI / CD" },
-  { key: "conv", label: "Conventions" },
-] as const;
+  { key: "testing", label: "Testing", dim: "D2" },
+  { key: "cicd", label: "CI / CD", dim: "D3" },
+  { key: "conv", label: "Conventions", dim: "D1" },
+] as const satisfies readonly { key: string; label: string; dim: DimensionId }[];
+/** Live rows shown: the pane stays the size of the illustration. */
+const LIVE_ROWS = 8;
 type DimKey = (typeof DIMS)[number]["key"];
 
 const REPOS: { name: string; base: number; testing: number; cicd: number; conv: number }[] = [
@@ -35,21 +45,30 @@ const REPOS: { name: string; base: number; testing: number; cicd: number; conv: 
 // paired copy in features.ts (the `roi` entry's copy contract) honest together.
 const W = 0.16;
 
-export function RoiSimulator() {
+export function RoiSimulator({ fleet }: { fleet?: AboutFleet }) {
   // ABOUT #1: the bars animate `width` (non-transform), which reducedMotion="user" doesn't degrade —
   // gate the growth animation so reduced-motion users get bars rendered at their final width.
   const reduced = useReducedMotion();
   const [t, setT] = useState<Record<DimKey, number>>({ testing: 45, cicd: 30, conv: 30 });
-  const rows = REPOS.map((r) => {
-    const lift = DIMS.reduce((s, d) => s + Math.max(0, t[d.key] - r[d.key]) * W, 0);
-    const next = Math.min(100, Math.round(r.base + lift));
-    const before = levelForScore(r.base);
-    const after = levelForScore(next);
-    return { ...r, next, after, promoted: after.band[0] > before.band[0] };
-  });
+  const live = fleet?.mode === "live" ? fleet.repos.slice(0, LIVE_ROWS) : null;
+  const projection = live
+    ? projectFleet(live, Object.fromEntries(DIMS.map((d) => [d.dim, t[d.key]])))
+    : null;
+  const rows: { name: string; base: number; next: number; after: string; promoted: boolean; href?: string }[] =
+    projection
+      ? projection.rows
+      : REPOS.map((r) => {
+          const lift = DIMS.reduce((s, d) => s + Math.max(0, t[d.key] - r[d.key]) * W, 0);
+          const next = Math.min(100, Math.round(r.base + lift));
+          const before = levelForScore(r.base);
+          const after = levelForScore(next);
+          return { ...r, next, after: after.id, promoted: after.band[0] > before.band[0] };
+        });
   const promotions = rows.filter((r) => r.promoted).length;
   const affected = rows.filter((r) => r.next > r.base).length;
-  const avgGain = Math.round(rows.reduce((s, r) => s + (r.next - r.base), 0) / rows.length);
+  const avgGain = projection
+    ? projection.avgGain
+    : Math.round(rows.reduce((s, r) => s + (r.next - r.base), 0) / rows.length);
 
   return (
     <div>
@@ -76,7 +95,17 @@ export function RoiSimulator() {
       <div className="mt-4 space-y-2 border-t border-divider pt-4">
         {rows.map((r) => (
           <div key={r.name} className="flex items-center gap-3">
-            <span className="w-28 shrink-0 truncate type-caption text-slate-400">{r.name}</span>
+            {r.href ? (
+              <Link
+                href={r.href}
+                title={r.name}
+                className="focus-ring w-28 shrink-0 truncate type-caption text-slate-400 hover:text-white"
+              >
+                {r.name}
+              </Link>
+            ) : (
+              <span className="w-28 shrink-0 truncate type-caption text-slate-400">{r.name}</span>
+            )}
             <div className="relative h-3 flex-1 overflow-hidden rounded-full bg-surface-strong">
               <motion.div
                 className="h-full rounded-full"
@@ -95,7 +124,7 @@ export function RoiSimulator() {
                 a transparent badge on every row was still read by screen readers as a phantom
                 promotion. The fixed-width wrapper preserves row alignment when absent. */}
             <span className="w-8 type-caption text-emerald-400">
-              {r.promoted ? `↑${r.after.id}` : ""}
+              {r.promoted ? `↑${r.after}` : ""}
             </span>
           </div>
         ))}
@@ -130,7 +159,11 @@ export function RoiSimulator() {
           on this site is the register of scanned public repos on `/` — the CTA at the end of the
           deck is the path to it. */}
       <p className="mt-3 text-center type-label tracking-[0.22em] text-slate-600">
-        Illustrative · {REPOS.length} sample repos, demo weighting — not customer data
+        {live ? (
+          fleetCaption({ mode: "live", n: rows.length, newest: fleet?.newest ?? null })
+        ) : (
+          <>Illustrative · {REPOS.length} sample repos, demo weighting — not customer data</>
+        )}
       </p>
     </div>
   );

@@ -4,6 +4,10 @@
 // `snap-deck` class to <html> (which turns on scroll-snap, scoped to this page) and renders one
 // section per viewport plus the right-edge section nav. MotionConfig reducedMotion="user" degrades
 // entrances to fades; each section's animation (Remotion + reveals) re-triggers on entry.
+//
+// Card about-1: `gallery` is the cached public scan gallery the server page read (plain, serialisable
+// props; this file never queries). fleetFrom reduces it once for the X-Ray and ROI panes, and a null or
+// too-small corpus is the labelled illustration.
 
 import dynamic from "next/dynamic";
 import { MotionConfig } from "framer-motion";
@@ -17,6 +21,7 @@ import { AboutCTA } from "./AboutCTA";
 import { DeckNav, type DeckSectionRef } from "@/components/deck/DeckNav";
 import { DeckProgress } from "@/components/deck/DeckProgress";
 import { useSnapDeck } from "@/components/deck/useSnapDeck";
+import { fleetFrom, type AboutFleet, type AboutGallery } from "./aboutFleetModel";
 import { ABOUT_FEATURES, type AboutFeatureId } from "./features";
 
 // The adoption + risk diagrams each pull in the full Remotion runtime — @remotion/player (via
@@ -45,12 +50,12 @@ const RiskRadar = dynamic(() => import("./RiskRadar").then((m) => m.RiskRadar), 
   loading: DiagramPlaceholder,
 });
 
-const DIAGRAM: Record<AboutFeatureId, React.ReactNode> = {
-  xray: <FleetGrid />,
-  roi: <RoiSimulator />,
+const diagram = (fleet: AboutFleet): Record<AboutFeatureId, React.ReactNode> => ({
+  xray: <FleetGrid fleet={fleet} />,
+  roi: <RoiSimulator fleet={fleet} />,
   adoption: <ChampionNetwork />,
   risk: <RiskRadar />,
-};
+});
 
 const SECTIONS: DeckSectionRef[] = [
   { id: "hero", label: "Overview" },
@@ -63,8 +68,9 @@ const SECTIONS: DeckSectionRef[] = [
   { id: "cta", label: "Get started" },
 ];
 
-export function AboutLanding({ heroBg }: { heroBg?: string }) {
+export function AboutLanding({ heroBg, gallery = null }: { heroBg?: string; gallery?: AboutGallery }) {
   useSnapDeck();
+  const DIAGRAM = diagram(fleetFrom(gallery));
 
   return (
     <MotionConfig reducedMotion="user">

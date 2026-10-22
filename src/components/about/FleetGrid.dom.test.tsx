@@ -15,6 +15,8 @@ import { KnowledgeLedger } from "../about-org/KnowledgeLedger";
 import { GovernanceEvidence } from "../about-org/GovernanceEvidence";
 import { NODES } from "./champion/graph";
 import { BLIPS } from "./risk/radar";
+import { fleetFrom } from "./aboutFleetModel";
+import { liveGallery } from "./aboutFleet.fixture";
 
 // ChampionNetwork / RiskRadar only need the stamp in the DOM; the Player is out of scope here.
 vi.mock("./RemotionStage", () => ({
@@ -130,5 +132,35 @@ describe("FleetGrid served frame", () => {
     const cells = html.match(/<button[^>]*aria-label="[^"]*maturity[^"]*"[^>]*>/g) ?? [];
     expect(cells).toHaveLength(40);
     for (const cell of cells) expect(cell).not.toMatch(/opacity\s*:\s*0(?![.\d])/);
+  });
+});
+
+// Card about-1: with a real public corpus the X-Ray is the corpus. Each cell is a link to the repo's own
+// report, and the filters are the postures the data actually carries (features.ts promises a posture map).
+describe("FleetGrid over the live public fleet", () => {
+  const fleet = fleetFrom(liveGallery(12));
+
+  it("renders each repo as a link to its report", () => {
+    render(<FleetGrid fleet={fleet} />);
+    for (const c of fleet.cells) {
+      const link = screen.getByRole("link", { name: new RegExp(`^${c.name},`) });
+      expect(link.getAttribute("href")).toBe(c.href);
+    }
+    expect(screen.queryAllByRole("button", { name: /maturity/ })).toHaveLength(0);
+  });
+
+  it("offers only the postures present as filters, and drops the invented team segments", () => {
+    render(<FleetGrid fleet={fleet} />);
+    expect(screen.getByRole("button", { name: "AI-Native" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fast & Ungoverned" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Getting Started" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Platform" })).toBeNull();
+  });
+
+  it("captions the live corpus, never the sample disclaimer", () => {
+    render(<FleetGrid fleet={fleet} />);
+    const cap = screen.getByText(/^Live · /);
+    expect(cap.textContent).toMatch(/12 public repos scanned by Ascent/);
+    expect(screen.queryByText(/not customer data/i)).toBeNull();
   });
 });

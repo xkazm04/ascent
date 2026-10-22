@@ -10,6 +10,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { RoiSimulator } from "./RoiSimulator";
+import { fleetFrom, projectFleet } from "./aboutFleetModel";
+import { liveGallery } from "./aboutFleet.fixture";
 
 // framer-motion needs window.matchMedia (useReducedMotion) — jsdom doesn't implement it.
 beforeAll(() => {
@@ -45,5 +47,25 @@ describe("RoiSimulator provenance caveat", () => {
     const claimed = Number(label.textContent?.match(/(\d+) sample repos/)?.[1]);
     expect(Number.isFinite(claimed)).toBe(true);
     expect(screen.getAllByText(/^(web-app|api-gateway|mobile-client|design-system|billing|data-pipeline|auth-service|docs-site)$/)).toHaveLength(claimed);
+  });
+});
+
+// Card about-1: on the live corpus the sliders recompute real public repos with the engine's weighting.
+describe("RoiSimulator over the live public fleet", () => {
+  const fleet = fleetFrom(liveGallery(12));
+
+  it("lists real repos, captions them live, and prints engine-true baselines", () => {
+    render(<RoiSimulator fleet={fleet} />);
+    const cap = screen.getByText(/^Live · /);
+    expect(cap.textContent).toMatch(/public repos scanned by Ascent/);
+    expect(cap.textContent).not.toMatch(/demo weighting|not customer data/i);
+    const n = Number(cap.textContent?.match(/(\d+) public repos/)?.[1]);
+    expect(n).toBeGreaterThan(0);
+    const rows = fleet.repos.slice(0, n);
+    const initial = projectFleet(rows, { D2: 45, D3: 30, D1: 30 });
+    for (const r of initial.rows) {
+      expect(screen.getByText(r.name)).toBeTruthy();
+      expect(screen.getAllByText(String(r.next)).length).toBeGreaterThan(0);
+    }
   });
 });

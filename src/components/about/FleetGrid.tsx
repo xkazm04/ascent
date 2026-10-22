@@ -4,34 +4,32 @@
 // Cells reveal in a diagonal stagger while a single azure scan line sweeps once. Filter by segment to
 // re-scan a slice; hover or click a cell to inspect that repo. The distribution strip + count track
 // the active slice. Deterministic data → SSR-stable.
+//
+// Card about-1: `fleet` comes from aboutFleetModel. Live, the cells are the scanned public repos (each
+// a link to its own report, inspected on hover or focus) and the filters are the postures present;
+// with no live corpus it is the labelled 40-cell illustration, unchanged.
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { motion, useInView, useReducedMotion } from "framer-motion";
 import { scoreHex, LEVEL_HEX } from "@/lib/ui";
 import { LEVELS, levelForScore } from "@/lib/maturity/model";
 import { useMounted } from "@/components/report/chartMotion";
+import { ILLUSTRATIVE_FLEET, fleetCaption, type AboutFleet, type FleetCell } from "./aboutFleetModel";
 
-const SEGMENTS = ["Platform", "Web", "Mobile", "Services", "Legacy"] as const;
-type Seg = (typeof SEGMENTS)[number];
 const COLS = 8;
-// Deterministic, integer-only (no trig/random → identical on server + client, stable colours).
-const REPOS = Array.from({ length: 40 }, (_, i) => {
-  const segment = SEGMENTS[i % SEGMENTS.length]!;
-  return {
-    name: `${segment.toLowerCase()}-${String(Math.floor(i / SEGMENTS.length) + 1).padStart(2, "0")}`,
-    segment,
-    score: 15 + Math.round((((i * 37 + 11) % 100) * 0.7)),
-  };
-});
+const MotionLink = motion.create(Link);
 
-export function FleetGrid() {
+export function FleetGrid({ fleet = ILLUSTRATIVE_FLEET }: { fleet?: AboutFleet }) {
+  const REPOS = fleet.cells;
+  const live = fleet.mode === "live";
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: "-60px" });
   // ABOUT #1: reducedMotion="user" only suppresses transform/layout animation, not the scan line's
   // `left` sweep or the strip's `flexGrow` — gate those non-transform animations on reduced motion.
   const reduced = useReducedMotion();
-  const [seg, setSeg] = useState<Seg | "All">("All");
-  const [inspect, setInspect] = useState<(typeof REPOS)[number] | null>(null);
+  const [seg, setSeg] = useState<string>("All");
+  const [inspect, setInspect] = useState<FleetCell | null>(null);
   const [pinned, setPinned] = useState(false);
   // Same contract as deck/Reveal: the served frame is the RESOLVED heatmap. `initial={{ opacity: 0 }}`
   // used to bake opacity:0 into all 40 cells of the SSR HTML, so no-JS, a failed hydration, and print
@@ -42,12 +40,13 @@ export function FleetGrid() {
 
   const shown = seg === "All" ? REPOS : REPOS.filter((r) => r.segment === seg);
   const dist = LEVELS.map((l) => ({ id: l.id, n: shown.filter((r) => levelForScore(r.score).id === l.id).length }));
+  const segLabel = (id: string) => fleet.segments.find((s) => s.id === id)?.label ?? id;
 
   // ABOUT #1: switching segment can strand the current inspection. If the pinned/hovered cell falls
   // OUTSIDE the new slice it becomes `disabled` (off-slice), so its own clear-toggle can never fire and
   // hover is frozen (pinned stays true) — leaving a stale readout that can't be dismissed. Drop the
   // pin + inspection whenever the inspected repo isn't part of the newly selected segment.
-  const selectSeg = (s: Seg | "All") => {
+  const selectSeg = (s: string) => {
     setSeg(s);
     if (inspect && s !== "All" && inspect.segment !== s) {
       setPinned(false);
@@ -58,16 +57,16 @@ export function FleetGrid() {
   return (
     <div ref={ref}>
       <div className="mb-3 flex flex-wrap gap-1">
-        {(["All", ...SEGMENTS] as const).map((s) => (
+        {[{ id: "All", label: "All" }, ...fleet.segments].map((s) => (
           <button
-            key={s}
+            key={s.id}
             type="button"
-            onClick={() => selectSeg(s)}
+            onClick={() => selectSeg(s.id)}
             className={`focus-ring rounded-md px-2.5 py-1 type-label tracking-wider transition ${
-              seg === s ? "bg-accent/15 text-accent" : "text-slate-500 hover:text-white"
+              seg === s.id ? "bg-accent/15 text-accent" : "text-slate-500 hover:text-white"
             }`}
           >
-            {s}
+            {s.label}
           </button>
         ))}
       </div>
@@ -79,32 +78,47 @@ export function FleetGrid() {
             const isPinned = pinned && inspect?.name === r.name;
             const col = i % COLS;
             const row = Math.floor(i / COLS);
+            const shared = {
+              // Off-slice (dimmed) cells are not part of the active filter: take them out of the
+              // keyboard tab order and the accessibility tree so focus + SR announcements match the
+              // visible slice (the count strip) instead of reporting all 40 maturity values.
+              tabIndex: dim ? -1 : undefined,
+              "aria-hidden": dim || undefined,
+              "data-reveal": dim ? undefined : "",
+              style: { backgroundColor: scoreHex(r.score) },
+              initial: false as const,
+              animate: resolved ? { opacity: dim ? 0.1 : 0.92, scale: 1 } : { opacity: 0, scale: 0.4 },
+              transition: resolved
+                ? { duration: 0.35, delay: (col + row) * 0.025, ease: "easeOut" as const }
+                : { duration: 0 },
+              whileHover: dim ? undefined : { scale: 1.16, opacity: 1 },
+              onHoverStart: () => !dim && !pinned && setInspect(r),
+              onHoverEnd: () => !dim && !pinned && setInspect(null),
+              "aria-label": `${r.name}, maturity ${r.score}`,
+            };
+            if (live && r.href) {
+              // A real repo: the cell IS the way into its report. Focus inspects, as hover does.
+              return (
+                <MotionLink
+                  key={r.name}
+                  href={r.href}
+                  {...shared}
+                  className={`focus-ring block aspect-square rounded-[3px]${dim ? " pointer-events-none" : ""}`}
+                  onFocus={() => !dim && setInspect(r)}
+                  onBlur={() => setInspect(null)}
+                />
+              );
+            }
             return (
               <motion.button
                 key={i}
                 type="button"
-                // Off-slice (dimmed) cells are not part of the active filter: take them out of the
-                // keyboard tab order and the accessibility tree so focus + SR announcements match the
-                // visible slice (the count strip) instead of reporting all 40 maturity values.
+                {...shared}
                 disabled={dim}
-                tabIndex={dim ? -1 : undefined}
-                aria-hidden={dim || undefined}
                 aria-pressed={isPinned || undefined}
                 className={`focus-ring aspect-square rounded-[3px]${
                   isPinned ? " ring-2 ring-accent ring-offset-2 ring-offset-ink" : ""
                 }`}
-                data-reveal={dim ? undefined : ""}
-                style={{ backgroundColor: scoreHex(r.score) }}
-                initial={false}
-                animate={resolved ? { opacity: dim ? 0.1 : 0.92, scale: 1 } : { opacity: 0, scale: 0.4 }}
-                transition={
-                  resolved
-                    ? { duration: 0.35, delay: (col + row) * 0.025, ease: "easeOut" }
-                    : { duration: 0 }
-                }
-                whileHover={dim ? undefined : { scale: 1.16, opacity: 1 }}
-                onHoverStart={() => !dim && !pinned && setInspect(r)}
-                onHoverEnd={() => !dim && !pinned && setInspect(null)}
                 onClick={() => {
                   if (dim) return;
                   if (pinned && inspect?.name === r.name) {
@@ -115,7 +129,6 @@ export function FleetGrid() {
                     setPinned(true);
                   }
                 }}
-                aria-label={`${r.name}, maturity ${r.score}`}
               />
             );
           })}
@@ -142,11 +155,13 @@ export function FleetGrid() {
             <span style={{ color: scoreHex(inspect.score) }}>
               {levelForScore(inspect.score).id} {inspect.score}
             </span>{" "}
-            · {inspect.segment}
+            · {segLabel(inspect.segment)}
             {pinned && <span className="text-accent"> · pinned</span>}
           </span>
         ) : (
-          <span className="uppercase tracking-[0.2em] text-slate-500">hover a cell to inspect</span>
+          <span className="uppercase tracking-[0.2em] text-slate-500">
+            {live ? "hover a cell to inspect, click to open its report" : "hover a cell to inspect"}
+          </span>
         )}
         <span className="shrink-0 uppercase tracking-[0.2em] text-slate-500">{shown.length} repos</span>
       </div>
@@ -162,9 +177,10 @@ export function FleetGrid() {
           />
         ))}
       </div>
-      {/* Same Illustrative chrome as RoiSimulator: invented cells, labelled where they render. */}
+      {/* Provenance ships with the cells: the labelled illustration (same chrome as RoiSimulator), or
+          the live corpus size + freshness when the cells are real scanned repos. */}
       <p className="mt-3 text-center type-label tracking-[0.22em] text-slate-600">
-        Illustrative · {REPOS.length} sample repos, not customer data
+        {fleetCaption({ mode: fleet.mode, n: REPOS.length, newest: fleet.newest })}
       </p>
     </div>
   );

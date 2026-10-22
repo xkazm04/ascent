@@ -9,9 +9,12 @@ import { DIMENSIONS, LEVELS } from "@/lib/maturity/model";
 import { DIMENSION_COUNT, LEVEL_COUNT, siteDescription } from "@/lib/site";
 
 vi.mock("@/components/Brand", () => ({ SiteHeader: () => null }));
+const { mockGallery } = vi.hoisted(() => ({ mockGallery: vi.fn() }));
 vi.mock("@/components/about/AboutLanding", () => ({ AboutLanding: () => null }));
+vi.mock("@/lib/db", () => ({ getPublicScanGallery: mockGallery }));
+vi.mock("@/lib/scan-read-door", () => ({ degradeTo: <T,>(_read: string, fallback: T) => () => fallback }));
 
-import { metadata } from "./page";
+import AboutPage, { metadata, revalidate } from "./page";
 
 const ROOT = process.cwd();
 const SURFACE_DIRS = [join(ROOT, "src/app/about"), join(ROOT, "src/components/about")];
@@ -67,5 +70,38 @@ describe("/about does not lead with ROI", () => {
       /score on a \$\{LEVELS\.length\}-level maturity ladder across \$\{DIMENSIONS\.length\} dimensions/,
     );
     expect(hero).toMatch(/with evidence and a roadmap to the next level/);
+  });
+});
+
+// Card about-1: the deck's X-Ray + ROI panes run on the cached public gallery. The page is the server
+// boundary: it reads once, hands plain props to the client deck, and a failed read is the illustration.
+describe("/about reads the public fleet on the server", () => {
+  type El = { type: unknown; props: Record<string, unknown> & { children?: unknown } };
+  const landingProps = (tree: unknown) => {
+    const kids = ((tree as El).props.children as El[]).flat();
+    const landing = kids.find((k) => k && (k.props as { heroBg?: unknown }).heroBg !== undefined);
+    expect(landing).toBeDefined();
+    return landing!.props as { gallery?: unknown; heroBg?: string };
+  };
+
+  it("calls getPublicScanGallery({ recentLimit: 40 }) once and passes the result to AboutLanding", async () => {
+    mockGallery.mockReset();
+    const g = { recent: [], topAiNative: [], totalRepos: 0, dbMode: "static" };
+    mockGallery.mockResolvedValue(g);
+    const props = landingProps(await AboutPage());
+    expect(mockGallery).toHaveBeenCalledTimes(1);
+    expect(mockGallery).toHaveBeenCalledWith({ recentLimit: 40 });
+    expect(props.gallery).toBe(g);
+  });
+
+  it("a rejected read degrades to null (the illustration), never a 500", async () => {
+    mockGallery.mockReset();
+    mockGallery.mockRejectedValue(new Error("Can't reach database server"));
+    const props = landingProps(await AboutPage());
+    expect(props.gallery).toBeNull();
+  });
+
+  it("revalidates on the gallery cache's 60 s window", () => {
+    expect(revalidate).toBe(60);
   });
 });
