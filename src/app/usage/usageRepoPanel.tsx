@@ -21,6 +21,7 @@
 import { Surface } from "@/components/ui";
 // Deep path, not the barrel: the `@/lib/db` re-export is a Director-owned line that lands at merge.
 import type { RepoUsage } from "@/lib/db/usage";
+import { callsHref } from "./usageCallsModel";
 
 /** "$1.23", or the honest absence — the same rule, and the same words, the lane table uses. */
 function money(usd: number): string {
@@ -78,7 +79,8 @@ function Volume({ row }: { row: RepoUsage }) {
   );
 }
 
-export function TopReposPanel({ byRepo, periodDays }: { byRepo: RepoUsage[]; periodDays: number }) {
+/** `org` given = each row opens its calls (`?calls=repo:<name>`) on the same window. */
+export function TopReposPanel({ byRepo, periodDays, org }: { byRepo: RepoUsage[]; periodDays: number; org?: string }) {
   if (byRepo.length === 0) return null;
   return (
     <Surface className="mt-6 p-6">
@@ -93,7 +95,13 @@ export function TopReposPanel({ byRepo, periodDays }: { byRepo: RepoUsage[]; per
               className={`min-w-0 truncate type-mono-sm ${r.fullName ? "text-slate-300" : "text-slate-500"}`}
               title={r.fullName ? undefined : "Metered work with no owning repository — counted, never dropped."}
             >
-              {r.label}
+              {org ? (
+                <a href={callsHref(org, periodDays, { kind: "repo", repoFullName: r.fullName })} className="focus-ring underline decoration-slate-700 underline-offset-2 hover:text-white">
+                  {r.label}
+                </a>
+              ) : (
+                r.label
+              )}
             </span>
             <span className="shrink-0 text-right">
               <span className="block">

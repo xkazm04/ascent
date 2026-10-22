@@ -58,3 +58,21 @@ describe("the top-repositories panel", () => {
     expect(container.textContent).toBe("");
   });
 });
+
+describe("the top-repositories panel opens a repository's calls", () => {
+  it("links each row to its calls on the same org and window", () => {
+    render(<TopReposPanel byRepo={[repo({ fullName: "acme/api" }), repo({ fullName: null })]} periodDays={30} org="acme" />);
+    const [named, orgWide] = screen.getAllByRole("link");
+    const url = new URL(named!.getAttribute("href")!, "http://x");
+    expect(url.pathname).toBe("/usage");
+    expect(url.searchParams.get("org")).toBe("acme");
+    expect(url.searchParams.get("days")).toBe("30");
+    expect(url.searchParams.get("calls")).toBe("repo:acme/api");
+    expect(new URL(orgWide!.getAttribute("href")!, "http://x").searchParams.get("calls")).toBe("repo:");
+  });
+
+  it("renders no link when no org is given", () => {
+    draw([repo({ fullName: "acme/api" })]);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+});

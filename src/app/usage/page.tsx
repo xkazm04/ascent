@@ -9,6 +9,9 @@ import { PUBLIC_ORG } from "@/lib/auth";
 import { resolveViewerWorkspace } from "@/lib/viewer-workspace";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { canReadOrg } from "@/lib/authz";
+import { listLedgerCalls, type LedgerCalls } from "@/lib/db/usage-ledger-read";
+import { parseCallsFilter } from "./usageCallsModel";
+import { CallsPanel } from "./usageCallsPanel";
 
 export const metadata = {
   title: "Usage & metering · Ascent",
@@ -20,9 +23,9 @@ export const dynamic = "force-dynamic";
 export default async function UsagePage({
   searchParams,
 }: {
-  searchParams: Promise<{ org?: string; days?: string }>;
+  searchParams: Promise<{ org?: string; days?: string; calls?: string }>;
 }) {
-  const { org: orgParam, days: daysParam } = await searchParams;
+  const { org: orgParam, days: daysParam, calls: callsParam } = await searchParams;
 
   // The gate used to be `isAuthConfigured() && !session` — the DORMANT custom-OAuth predicate, false
   // in production, so a signed-out visitor was never prompted. resolveSignInState checks the ACTIVE
@@ -113,8 +116,12 @@ export default async function UsagePage({
   // calendar-month count, not the page's ?days= billable window. Same round-trip, same best-effort
   // posture as the credit read.
   let meteredThisMonth: number | null = null;
+  // The `?calls=` drill-in: the ledger rows behind one figure, over this SAME window. A filter that
+  // does not parse renders no panel; the public funnel gets none (no attribution on the anonymous org).
+  const callsFilter = isPublic ? null : parseCallsFilter(callsParam);
+  let calls: LedgerCalls | null = null;
   try {
-    [usage, credit, recon, quotaEvents, meteredThisMonth] = await Promise.all([
+    [usage, credit, recon, quotaEvents, meteredThisMonth, calls] = await Promise.all([
       getUsageSummary(org, days, win),
       org.toLowerCase() === PUBLIC_ORG
         ? Promise.resolve(null)
@@ -122,6 +129,7 @@ export default async function UsagePage({
       org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : getCreditReconciliation(org, win).catch(() => null),
       org.toLowerCase() === PUBLIC_ORG ? getQuotaEventTotals().catch(() => null) : Promise.resolve(null),
       org.toLowerCase() === PUBLIC_ORG ? Promise.resolve(null) : countMeteredScansThisMonth(org).catch(() => null),
+      callsFilter ? listLedgerCalls(org, callsFilter, win.since, win.before).catch(() => null) : Promise.resolve(null),
     ]);
   } catch {
     usage = null;
@@ -188,6 +196,7 @@ export default async function UsagePage({
         notice={notice}
         meteredThisMonth={meteredThisMonth}
         maxDays={maxDays}
+        callsPanel={callsFilter ? <CallsPanel org={org} days={usage.periodDays} filter={callsFilter} calls={calls} /> : undefined}
       />
     </Shell>
   );

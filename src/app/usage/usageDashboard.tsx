@@ -11,6 +11,7 @@ import type { CreditNotice } from "./creditNotice";
 import { timeAgo } from "@/lib/ui";
 import { costHeadline } from "./costHeadline";
 import { TimeframePicker } from "./TimeframePicker";
+import { callsHref } from "./usageCallsModel";
 
 export function UsageDashboard({
   org,
@@ -23,6 +24,7 @@ export function UsageDashboard({
   notice,
   meteredThisMonth,
   maxDays,
+  callsPanel,
 }: {
   org: string;
   usage: UsageSummary;
@@ -37,6 +39,8 @@ export function UsageDashboard({
   meteredThisMonth: number | null;
   /** The largest window this caller may select, straight from `boundUsageDays` — see TimeframePicker. */
   maxDays: number;
+  /** The `?calls=` drill-in (usageCallsPanel), rendered under the cost row it opens from. */
+  callsPanel?: React.ReactNode;
 }) {
   // The shared anonymous funnel has no tenant behind it, so several of this page's claims are true
   // there and false everywhere else. Resolved once, here, rather than asserted in the copy.
@@ -131,6 +135,7 @@ export function UsageDashboard({
         <Stat label="Input tokens" value={usage.inputTokens} sub={`last ${usage.periodDays}d`} />
         <Stat label="Output tokens" value={usage.outputTokens} sub={`last ${usage.periodDays}d`} />
       </div>
+      {callsPanel}
 
       {/* Burn-vs-allotment: calendar-month metered usage vs the plan's included allotment — the same
           period the 402 uses, not the selected ?days= billable window. Hidden when the month-to-date
@@ -229,11 +234,12 @@ export function UsageDashboard({
         byLane={usage.byLane}
         byTeam={usage.byTeam}
         periodDays={usage.periodDays}
+        org={isPublicFunnel ? undefined : org}
       />
 
       {/* Which repositories drove the bill — in dollars since the attribution round, not only in
           scans and tokens. Extracted to its own file when it grew that column (the 300-LOC rule). */}
-      <TopReposPanel byRepo={usage.byRepo} periodDays={usage.periodDays} />
+      <TopReposPanel byRepo={usage.byRepo} periodDays={usage.periodDays} org={isPublicFunnel ? undefined : org} />
 
       <AbuseLimitsPanel quotaEvents={quotaEvents} />
 
@@ -257,6 +263,9 @@ export function UsageDashboard({
         {usage.allLanesUnpricedCalls > 0
           ? `The headline is the sum of every lane and a FLOOR: ${usage.allLanesUnpricedCalls.toLocaleString()} call${usage.allLanesUnpricedCalls === 1 ? "" : "s"} in this period could not be priced and contribute $0 to it.`
           : "The headline is the sum of every lane below."}{" "}
+        {usage.allLanesUnpricedCalls > 0 && !isPublicFunnel && (
+          <a href={callsHref(org, usage.periodDays, { kind: "unpriced" })} className="focus-ring text-slate-400 underline decoration-slate-700 underline-offset-2 hover:text-white">See why each call is unpriced</a>
+        )}{" "}
         {/* MC-B31 (VICTOR-L1-06): this used to tell EVERY reader that "per-org attribution activates
             with auth / the GitHub App" — including a fully-attributed private org looking at its own
             per-team, per-repo, per-lane breakdown, which is that attribution. It belongs to the shared

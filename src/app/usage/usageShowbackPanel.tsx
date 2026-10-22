@@ -14,6 +14,7 @@ import { LANE_LABEL, type UsageLane } from "@/lib/llm/meter";
 // Deep paths, not the barrel: the `@/lib/db` re-export is a Director-owned line that lands at merge.
 import { UNKNOWN_LANE, type LaneKey, type LaneUsage, type TeamUsage } from "@/lib/db/usage-events";
 import { buildShowbackMatrix, type LaneTeamCell } from "@/lib/db/usage-showback";
+import { callsHref } from "./usageCallsModel";
 
 function laneLabel(lane: LaneKey): string {
   return lane === UNKNOWN_LANE ? "Unrecognized lane" : LANE_LABEL[lane as UsageLane];
@@ -27,7 +28,7 @@ function cost(usd: number | null): string {
 
 /** One intersection. `null` in means NOTHING WAS RECORDED for that (lane, team) — rendered as an
  *  em dash, never as 0, because absence of a record is not evidence of no spend. */
-function Cell({ cell }: { cell: LaneTeamCell | null }) {
+function Cell({ cell, href }: { cell: LaneTeamCell | null; href: string | null }) {
   if (!cell) {
     return (
       <td className="border-l border-divider/60 px-3 py-2 text-right align-top">
@@ -40,7 +41,7 @@ function Cell({ cell }: { cell: LaneTeamCell | null }) {
   return (
     <td className="border-l border-divider/60 px-3 py-2 text-right align-top">
       <span className={`block font-mono tabular-nums ${cell.estimatedCostUsd == null ? "text-slate-500" : "text-slate-200"}`}>
-        {cost(cell.estimatedCostUsd)}
+        {href ? <a href={href} className="focus-ring underline decoration-slate-700 underline-offset-2 hover:text-white">{cost(cell.estimatedCostUsd)}</a> : cost(cell.estimatedCostUsd)}
       </span>
       <span className="block type-micro text-slate-500">
         {cell.calls.toLocaleString()} call{cell.calls === 1 ? "" : "s"}
@@ -60,11 +61,14 @@ export function ShowbackMatrixPanel({
   byLane,
   byTeam,
   periodDays,
+  org,
 }: {
   byLaneTeam: LaneTeamCell[];
   byLane: LaneUsage[];
   byTeam: TeamUsage[];
   periodDays: number;
+  /** Given = each recorded ledger cell opens its calls. Scan cells do not: scans keep their own ledger. */
+  org?: string;
 }) {
   // Nothing in the ledger at all: the lane table above already says the period is empty, and a second
   // panel repeating it adds nothing.
@@ -117,7 +121,11 @@ export function ShowbackMatrixPanel({
                       {laneLabel(r.lane)}
                     </th>
                     {r.cells.map((c, i) => (
-                      <Cell key={matrix.teams[i]!.key ?? "org-wide"} cell={c} />
+                      <Cell
+                        key={matrix.teams[i]!.key ?? "org-wide"}
+                        cell={c}
+                        href={org && c && r.lane !== "scan" && r.lane !== UNKNOWN_LANE ? callsHref(org, periodDays, { kind: "cell", lane: r.lane as UsageLane, teamKey: c.teamKey }) : null}
+                      />
                     ))}
                   </tr>
                 ))}

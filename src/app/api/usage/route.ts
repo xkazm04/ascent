@@ -1,10 +1,11 @@
-// GET /api/usage?org=<slug>&days=<n>[&format=csv|json][&view=showback|showback-matrix]
+// GET /api/usage?org=<slug>&days=<n>[&format=csv|json][&view=showback|showback-matrix|calls]
 // Usage metering for an org over a period. Requires DATABASE_URL (returns 503 when off).
 //   - default / format=json (no download): the UsageSummary as JSON
 //   - format=csv  -> per-day CSV, as a file download (finance reconciliation)
 //   - format=json + download: the summary as a pretty JSON file download
 //   - view=showback -> lane totals then team totals (two flat sections)
 //   - view=showback-matrix -> one scope=cell row per byLaneTeam intersection
+//   - view=calls&calls=<filter> -> the ledger calls behind one figure (JSON; display only)
 //
 // EVERY date this route emits is UTC, and the body says so in `timezone`. The window is the
 // half-open `[windowSince, windowBefore)` echoed on the body — UTC-day-anchored, with the upper
@@ -18,7 +19,9 @@
 
 import { NextResponse } from "next/server";
 import { getUsageSummary, isDbConfigured, type UsageSummary } from "@/lib/db";
-import { boundUsageDays, getOrgPlanForUsage } from "@/lib/db/usage";
+import { boundUsageDays, getOrgPlanForUsage, usageWindow } from "@/lib/db/usage";
+import { listLedgerCalls } from "@/lib/db/usage-ledger-read";
+import { groupInputs, parseCallsFilter, summarizeUnpriced } from "@/app/usage/usageCallsModel";
 import { requireOrgRead } from "@/lib/authz";
 import { csvTable } from "@/lib/export/csv";
 import { safeFilenameSlug } from "@/lib/export/filename";
@@ -74,7 +77,7 @@ function toShowbackCsv(summary: UsageSummary, isPublic: boolean): string {
   );
   if (!isPublic) {
     for (const t of summary.byTeam) {
-      rows.push(["team", "", t.label, t.calls, money(t.estimatedCostUsd), ""]);
+      rows.push(["team", "", t.label, t.calls, money(t.estimatedCostUsd), t.unpricedCalls]);
     }
   }
   return csvTable(header, rows);
@@ -129,6 +132,29 @@ export async function GET(request: Request) {
   const isPublic = orgLc === "public";
   const plan = isPublic ? undefined : await getOrgPlanForUsage(org);
   const days = boundUsageDays(searchParams.get("days"), isPublic, plan);
+
+  // The calls drill-in: the ledger rows behind one figure, over the window /usage resolves for the
+  // same `days`. Same gate as above. The public funnel gets no rows (no attribution surface on the
+  // anonymous org), and a filter that does not parse is a 400, never an unfiltered dump.
+  if (searchParams.get("view") === "calls") {
+    const filter = parseCallsFilter(searchParams.get("calls"));
+    if (!filter) return NextResponse.json({ error: "Unknown calls filter." }, { status: 400 });
+    const win = usageWindow(days);
+    try {
+      const read = isPublic ? { rows: [], calls: 0, unpricedGroups: [] } : await listLedgerCalls(org, filter, win.since, win.before);
+      return NextResponse.json({
+        filter,
+        rows: read.rows,
+        calls: read.calls,
+        byReason: summarizeUnpriced(read.unpricedGroups.map(groupInputs)),
+        windowSince: win.since.toISOString(),
+        windowBefore: win.before.toISOString(),
+      });
+    } catch (err) {
+      console.error("[usage] calls read failed", err);
+      return NextResponse.json({ error: "Failed to load calls." }, { status: 500 });
+    }
+  }
 
   try {
     const summary = await getUsageSummary(org, days);

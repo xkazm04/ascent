@@ -21,14 +21,17 @@ vi.mock("next/server", () => ({
 }));
 vi.mock("@/lib/db", () => ({ getUsageSummary: vi.fn(), isDbConfigured: vi.fn() }));
 vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
+vi.mock("@/lib/db/usage-ledger-read", () => ({ listLedgerCalls: vi.fn() }));
 
 import { GET } from "./route";
 import { getUsageSummary, isDbConfigured } from "@/lib/db";
 import { requireOrgRead } from "@/lib/authz";
+import { listLedgerCalls } from "@/lib/db/usage-ledger-read";
 
 const mockGetUsageSummary = vi.mocked(getUsageSummary);
 const mockIsDbConfigured = vi.mocked(isDbConfigured);
 const mockRequireOrgRead = vi.mocked(requireOrgRead);
+const mockListLedgerCalls = vi.mocked(listLedgerCalls);
 
 function get(query: string) {
   return GET(new Request(`http://localhost/api/usage${query}`));
@@ -249,8 +252,8 @@ describe("GET /api/usage?view=showback", () => {
       { lane: "athena", calls: 4, inputTokens: null, outputTokens: null, estimatedCostUsd: null, unpricedCalls: 4 },
     ],
     byTeam: [
-      { teamKey: "@acme/platform", label: "@acme/platform", calls: 12, estimatedCostUsd: 1.5 },
-      { teamKey: null, label: "Org-wide (no repo)", calls: 4, estimatedCostUsd: null },
+      { teamKey: "@acme/platform", label: "@acme/platform", calls: 12, estimatedCostUsd: 1.5, unpricedCalls: 0 },
+      { teamKey: null, label: "Org-wide (no repo)", calls: 4, estimatedCostUsd: null, unpricedCalls: 4 },
     ],
   } as unknown as Awaited<ReturnType<typeof getUsageSummary>>;
 
@@ -272,7 +275,7 @@ describe("GET /api/usage?view=showback", () => {
     expect(rows[0]).toBe("lane,scan,,12,1.500000,0");
     // An unpriceable lane exports an EMPTY cost cell, never 0 — a 0 in a finance export is a claim.
     expect(rows[1]).toBe("lane,athena,,4,,4");
-    expect(rows[3]).toBe("team,,Org-wide (no repo),4,,");
+    expect(rows[3]).toBe("team,,Org-wide (no repo),4,,4");
   });
 
   it("omits the team column entirely for the public funnel — it has no teams to attribute to", async () => {
@@ -441,5 +444,83 @@ describe("GET /api/usage — per-repo spend is additive on the JSON, and the CSV
     // No third `repo` scope block: the file shape downstream sheets key on is unchanged.
     expect(csv).not.toMatch(/^repo,/m);
     expect(csv).not.toContain("acme/api");
+  });
+});
+
+// ===========================================================================
+// The calls drill-in (`?view=calls&calls=<filter>`): the rows behind one figure, as JSON, behind the
+// SAME requireOrgRead gate. The public funnel gets no rows: no attribution surface on the anonymous
+// org. A filter that does not parse is a 400, never an unfiltered dump.
+
+describe("GET /api/usage?view=calls", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockRequireOrgRead.mockResolvedValue(null);
+    mockListLedgerCalls.mockResolvedValue({
+      rows: [{ id: "e1", lane: "athena", costMicros: null, byom: true }],
+      calls: 45,
+      unpricedGroups: [
+        { provider: "anthropic", model: "claude-sonnet-4", byom: true, tokensReported: true, calls: 38 },
+        { provider: "anthropic", model: "mystery-1", byom: null, tokensReported: true, calls: 7 },
+      ],
+    } as never);
+  });
+
+  it("returns the filter, rows, per-reason counts and the window", async () => {
+    const res = await get("?org=acme&view=calls&calls=lane:athena");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.filter).toEqual({ kind: "lane", lane: "athena" });
+    expect(body.rows).toHaveLength(1);
+    expect(body.calls).toBe(45);
+    expect(body.byReason).toEqual({ byom: 38, "zero-cost": 0, "no-usage": 0, "unknown-model": 7 });
+    expect(body.windowSince).toMatch(/T00:00:00\.000Z$/);
+    expect(body.windowBefore).toMatch(/T00:00:00\.000Z$/);
+    const [org, filter, since, before] = mockListLedgerCalls.mock.calls[0]!;
+    expect(org).toBe("acme");
+    expect(filter).toEqual({ kind: "lane", lane: "athena" });
+    expect((since as Date).toISOString()).toBe(body.windowSince);
+    expect((before as Date).toISOString()).toBe(body.windowBefore);
+    expect(mockGetUsageSummary).not.toHaveBeenCalled();
+  });
+
+  it("is behind the SAME gate: a denial is returned verbatim and nothing is read", async () => {
+    mockRequireOrgRead.mockResolvedValue(deny(403));
+    const res = await get("?org=acme&view=calls&calls=lane:athena");
+    expect(res.status).toBe(403);
+    expect(mockListLedgerCalls).not.toHaveBeenCalled();
+  });
+
+  it("serves the public funnel no rows", async () => {
+    const res = await get("?org=public&view=calls&calls=unpriced");
+    expect(res.status).toBe(200);
+    expect((await res.json()).rows).toEqual([]);
+    expect(mockListLedgerCalls).not.toHaveBeenCalled();
+  });
+
+  it("refuses a filter that does not parse", async () => {
+    const res = await get("?org=acme&view=calls&calls=lane:bogus");
+    expect(res.status).toBe(400);
+    expect(mockListLedgerCalls).not.toHaveBeenCalled();
+  });
+});
+
+// The showback CSV's team rows carry the team's real unpriced count (it used to be an empty cell).
+describe("GET /api/usage?view=showback - team unpriced cell", () => {
+  it("fills each team row's unpricedCalls", async () => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockRequireOrgRead.mockResolvedValue(null);
+    mockGetUsageSummary.mockResolvedValue({
+      daily: [],
+      byLane: [],
+      byTeam: [
+        { teamKey: "web", label: "web", calls: 9, estimatedCostUsd: 2, unpricedCalls: 3 },
+        { teamKey: null, label: "Org-wide (no repo)", calls: 4, estimatedCostUsd: null, unpricedCalls: 4 },
+      ],
+    } as never);
+    const rows = (await (await get("?org=acme&view=showback")).text()).trim().split("\n").slice(1);
+    expect(rows).toEqual(["team,,web,9,2.000000,3", "team,,Org-wide (no repo),4,,4"]);
   });
 });

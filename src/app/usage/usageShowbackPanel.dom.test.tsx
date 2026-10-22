@@ -64,3 +64,38 @@ describe("the showback matrix before any team is attributed", () => {
     expect(container.firstChild).toBeNull();
   });
 });
+
+describe("the showback matrix opens a cell's calls", () => {
+  it("links each non-empty ledger cell to calls=lane:<l>,team:<t>; an empty pair renders no link", () => {
+    const cells = [
+      cell({ lane: "athena", teamKey: "platform", calls: 10, estimatedCostUsd: 5 }),
+      cell({ lane: "local", teamKey: null, calls: 4, estimatedCostUsd: null, unpricedCalls: 4 }),
+    ];
+    render(
+      <ShowbackMatrixPanel
+        byLaneTeam={cells}
+        byLane={[laneRow("athena"), laneRow("local")]}
+        byTeam={[teamRow("platform"), teamRow(null)]}
+        periodDays={30}
+        org="acme"
+      />,
+    );
+    const hrefs = screen.getAllByRole("link").map((a) => new URL(a.getAttribute("href")!, "http://x"));
+    expect(hrefs.map((u) => u.searchParams.get("calls")).sort()).toEqual(["lane:athena,team:platform", "lane:local,team:"]);
+    expect(hrefs.every((u) => u.searchParams.get("org") === "acme" && u.searchParams.get("days") === "30")).toBe(true);
+    for (const d of screen.getAllByText("\u2014")) expect(d.closest("a")).toBeNull();
+  });
+
+  it("does not link a scan-lane cell: scans live in their own ledger", () => {
+    render(
+      <ShowbackMatrixPanel
+        byLaneTeam={[cell({ lane: "scan", teamKey: "platform", calls: 2 })]}
+        byLane={[laneRow("scan")]}
+        byTeam={[teamRow("platform")]}
+        periodDays={30}
+        org="acme"
+      />,
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+});
