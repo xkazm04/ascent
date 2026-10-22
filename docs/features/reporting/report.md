@@ -1187,9 +1187,28 @@ re-gated server-side, so forwarding it never widens reach: an org the viewer can
 to the owner rule. `src/app/api/report/export-door.test.ts` pins that no export route reads the
 report or resolves the org around the door (comments and strings stripped, seeded violations).
 
+**Scoped briefing and measured lifts (2026-10-22).** The header chip is now `BriefingComposer`
+(`src/components/report/BriefingComposer.tsx`): "Copy for LLM" still copies the whole briefing in
+one click, and the adjacent **Scope** pill opens a dimension picker with a size readout (lines and
+~tokens at 4 chars/token, computed from the exact string that will be copied), **Copy briefing**,
+and **Copy URL** (the `GET /api/report/llm?repo=...&dims=D3,D9[&org=...]` that serves those same
+bytes). `GET /api/report/llm` accepts `?dims=` in `/api/report/skill`'s grammar (comma list and/or
+repeated params); an id the report does not carry is a **400** (`Unknown dimension: D99`), never a
+silent whole-report widening. A scoped briefing narrows the dimension table, evidence, gaps,
+Flagged-for-review rows and the roadmap to the selection (strengths and risks are report-level and
+stay), and opens with `> Scoped briefing: 1 of 9 dimensions (D3). Overall score and level are
+whole-repository figures.` Selecting nothing, or every dimension, is the whole briefing. Both
+surfaces call `composeBriefing` (`src/lib/report/briefing-scope.ts`), so they cannot disagree. The
+briefing also carries the org's measured lifts: the chip gets the page's own `serverLifts` (threaded
+`ReportView` to `ReportHeader`), and the endpoint reads `getOrgExpectedLifts` only under the org the
+page reads them under (`briefingLiftOrg`: the gated owner org, or public when no `?org=` hint moved
+the read; a hint to another org carries none), so a roadmap line gains `- _measured:_ ...` exactly
+where `ExpectedLiftBasis` shows one on screen, never more. A failed lift read degrades to the
+unmeasured briefing. No `?dims` and an empty ledger is byte-identical to `reportLlmMarkdown(report)`.
+
 | Route | Output | Plan-gated? |
 | --- | --- | --- |
-| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, counted evidence lines, gaps, Flagged-for-review discrepancies when present, `scoreIntegrity` / `governance` / `aiChanges` when recorded, roadmap with `firstStep` when recorded, "Ask"). | **No.** |
+| `/api/report/llm` | `text/markdown`, the LLM briefing (headline, dimension table, counted evidence lines, gaps, Flagged-for-review discrepancies when present, `scoreIntegrity` / `governance` / `aiChanges` when recorded, roadmap with `firstStep` when recorded and the `- _measured:_` clause where the org measured a lift, "Ask"). `?dims=D3,D9` scopes it (400 on an unknown id). | **No.** |
 | `/api/report/share-card` | `image/png` (attachment), the 1200×630 score card. | **No.** |
 | `/api/report/pdf` | `application/pdf` (attachment). | **Yes**, the lowest paid tier (`pro`, shown as Starter) and up. |
 
@@ -1572,6 +1591,8 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/lib/og/report-card.tsx` | `ReportShareCard`: the 1200×630 artwork shared by the permalink's `opengraph-image` and the share-card download. |
 | `src/lib/report/export-read.ts` | `readReportForExport`: the one read door for the PDF, LLM and share-card exports (permalink org rule, gate, optional `beforeRead`, strict read, 404/503, filename stem). |
 | `src/lib/report/report-org.ts` | `resolveReportOrg`: the canReadOrg-gated `?org=` hint, else `readableOrgForOwner`; shared by the permalink and the exports. |
+| `src/lib/report/briefing-scope.ts` | `parseBriefingScope` / `scopeReportForBriefing` / `briefingScopeNote` / `composeBriefing` / `briefingHref` / `briefingPreview` / `briefingLiftOrg`: the scoped LLM briefing shared by the composer and `GET /api/report/llm?dims=`. Pure/client-safe. |
+| `src/components/report/BriefingComposer.tsx` | The header's Copy-for-LLM chip plus its Scope picker (size readout, Copy briefing, Copy URL), fed the page's `serverLifts`. |
 | `src/lib/report/export-href.ts` | `reportExportHref`: the header's export URLs, forwarding the page's `?org=` hint. Pure/client-safe. |
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
 | `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, `firstStep` when present, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document, a Demo scoring box plus "Scored by … coverage N%" line in the **body** when the engine is mock so provenance is not a footer footnote (G9), counted evidence as its own lines under each dimension (G2), and a "Flagged for review" section listing each LLM-vs-detector discrepancy with its recorded outcome so a board PDF cannot hide disagreement the in-app report shows (G1). |
@@ -1743,9 +1764,3 @@ reading and an undated one are statements, not calls to spend a scan slot.
   and on rows where the model omitted it, so old reports and sparse exports render exactly as before.
   The same guardrail keeps counted evidence lines as bullets in the LLM briefing; a templating pass
   must not flatten them into the dimension catalogue table.
-- (Closed 2026-09-05.) ~~The lift map is not yet mounted on the report page.~~ The permalink page reads
-  `getOrgExpectedLifts` in the same `Promise.all` as the recommendations, under the same org, and
-  threads `lifts` through `ReportView` → `ReportPanels` to both the tracker and `RoadmapSteps`, so
-  `ExpectedLiftBasis` and the measured sort toggle are live in-app. **Remaining half:** `reportLlmMarkdown`'s
-  `options.lifts` still has no caller (`ReportHeader.tsx` and `/api/report/llm` do not pass it), so the
-  Copy-for-LLM markdown does not yet carry the basis clause.
