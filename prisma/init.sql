@@ -488,7 +488,7 @@ CREATE TABLE "Playbook" (
     "archived" BOOLEAN NOT NULL DEFAULT false,
     "version" INTEGER NOT NULL DEFAULT 1,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Playbook_pkey" PRIMARY KEY ("id")
 );
@@ -821,7 +821,7 @@ CREATE TABLE "OrgSkill" (
     "registryVersion" TEXT,
     "createdBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "OrgSkill_pkey" PRIMARY KEY ("id")
 );
@@ -843,7 +843,7 @@ CREATE TABLE "OrgSkillDownload" (
     "id" TEXT NOT NULL,
     "skillId" TEXT NOT NULL,
     "count" INTEGER NOT NULL DEFAULT 0,
-    "lastSeen" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastSeen" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "OrgSkillDownload_pkey" PRIMARY KEY ("id")
 );
@@ -961,7 +961,7 @@ CREATE TABLE "OrgMemory" (
     "registryHash" TEXT,
     "createdBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "OrgMemory_pkey" PRIMARY KEY ("id")
 );
@@ -1002,7 +1002,7 @@ CREATE TABLE "OrgDecision" (
     "memoryId" TEXT,
     "snoozedUntil" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "OrgDecision_pkey" PRIMARY KEY ("id")
 );
@@ -1023,7 +1023,7 @@ CREATE TABLE "TechStackGroup" (
     "orgId" TEXT NOT NULL,
     "key" TEXT NOT NULL,
     "label" TEXT NOT NULL,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "TechStackGroup_pkey" PRIMARY KEY ("id")
 );
@@ -1067,7 +1067,7 @@ CREATE TABLE "OrgLlmConfig" (
     "lastValidationError" TEXT,
     "createdBy" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "OrgLlmConfig_pkey" PRIMARY KEY ("id")
 );

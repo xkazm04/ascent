@@ -355,6 +355,7 @@ database (`isDbConfigured()` false) never reaches either wrapper. Each reader re
 | `prisma/schema.prisma` | The 90-model schema (DSQL-safe). |
 | `src/lib/db/client.ts` | Lazy Prisma singleton, DSQL token refresh/retry, `isDbConfigured()`, `dbReadSafe` (degrade an unreachable DB) and its opt-in strict twin `dbReadStrict` / `DbUnavailableError`. |
 | `src/lib/db/mode.ts` | Reports the live backend (`dsql`\|`postgres`\|`pglite`\|`disabled`). |
+| `src/lib/db/migration-chain-model.ts` | Pure helpers for the migration-chain convergence guard (`modelsWithoutMigration`, additivity check, schema-dump normalizer and diff). |
 | `src/lib/db/index.ts` | Barrel re-export of the data layer. |
 | `src/lib/db/scans.ts` | Thin barrel re-exporting the scans-* sub-modules. |
 | `src/lib/db/scans-persist.ts` | Persist/dedup/carry-forward (the module documented above). |
@@ -391,13 +392,60 @@ a pre-existing row reads as "unknown" rather than as a fabricated value:
   root `context-map.json`). `mapBehind` is NOT a column: `buildKnowledgeFleet` derives it as "both
   known and different", so a failed read is never evidence of drift.
 
-**Migration convention followed:** the `#18` tables (`OrgKnowledgeSubject`, `RepoConformanceMap`,
-`RepoConformance`) have no `prisma/migrations/*` entry — they were created in `prisma/init.sql`
-only (commit `d6538af8`), and their later columns (`digest`, `hasContextMap`, `weaklyGovernedJson`)
-landed the same way: in the `CREATE TABLE` block **and** as `ALTER TABLE … ADD COLUMN IF NOT
-EXISTS` beside it, so a fresh bootstrap and an existing data dir both converge. These columns follow
-that exactly; PGlite picks them up on boot via the defaulted-column reconcile, and `init-sql.test.ts`
-holds the mirror to the schema.
+These tables were first created in `prisma/init.sql` only (commit `d6538af8`). That "init.sql-only"
+convention is retired: the chain now creates them in
+`20260831115900_catch_up_unmigrated_tables`, and a schema change ships its migration as well as its
+`init.sql` mirror (see "The migration chain builds the schema" below).
+
+## The migration chain builds the schema (2026-10-22)
+
+There are two roads to the schema. `prisma/init.sql` builds the dev PGlite and the psql bootstrap.
+The committed `prisma/migrations` chain (`npm run db:deploy`, i.e. `prisma migrate deploy`) is the
+self-host road and the production `buildCommand` in `vercel.json`. Before this change only the first
+road was tested (`init-sql.test.ts` holds it to `schema.prisma`). 26 of the 90 models had no
+migration at all, so a fresh `migrate deploy` stopped at `20260831120000` ("relation
+`LaneItemOutcome` does not exist"). Past that point it would still have been 56 columns and 4
+indexes short on tables it does create.
+
+Two additive catch-up steps close the gap. Neither edits a shipped migration:
+
+- `20260831115900_catch_up_unmigrated_tables` creates the 26 tables and their indexes. It is dated one
+  minute before the first step that ALTERs one of them, because a step appended at the end cannot
+  unbreak a replay that halts in the middle. It leaves out `LaneItemOutcome.verifiedAt` and
+  `RepoConformanceMap.registryRemote`, which the shipped `20260831120000` and `20260923120000` add.
+- `20261024120000_catch_up_unmigrated_columns` (last in the chain) adds the 56 columns and 4 indexes.
+  Every column is nullable or defaulted, so it applies to populated tables without a backfill.
+
+Every statement is `IF NOT EXISTS`, so on a database that already has these objects (`db push`,
+`init.sql`, hand-migrated) both steps are no-ops. `init.sql` dropped the `DEFAULT CURRENT_TIMESTAMP` it
+carried on seven `@updatedAt` columns (`Playbook`, `OrgSkill`, `OrgSkillDownload.lastSeen`,
+`OrgMemory`, `OrgDecision`, `TechStackGroup`, `OrgLlmConfig`). Prisma never emits that default (the
+client writes the value), and the chain never had it.
+
+`src/lib/db/migration-chain.test.ts` (pure helpers in `migration-chain-model.ts`) is the
+convergence guard. It runs in-process PGlite only and never touches a real database:
+
+- it replays every `migration.sql` in name order from an empty database, with no failing step allowed;
+- it diffs a normalized dump (tables; columns with type, nullability, default; index names and
+  definitions) of the chain-built store against an `init.sql`-built store, which must be identical;
+  a seeded dropped column proves the diff bites;
+- every `schema.prisma` model must have a `CREATE TABLE` in some migration (comments stripped; a
+  seeded model with no migration proves the matcher bites);
+- both catch-ups, run twice on an `init.sql`-built database, leave the dump byte-identical, and they
+  carry no `DROP`, `DELETE`, `UPDATE`, `TRUNCATE`, `SET DEFAULT`, `ADD CONSTRAINT` or `ALTER ... TYPE`.
+
+So a schema change that lands in `schema.prisma` and `init.sql` without its migration now fails a
+unit test the same day.
+
+**Not fixed by this: the unbaselined production database (P3005).** The production database was
+built with `db push` and has no `_prisma_migrations` history, so `prisma migrate deploy` in the Vercel
+`buildCommand` fails with P3005 ("the database schema is not empty") before any step runs. That
+hazard predates this change and is unchanged by it. Baselining is an owner action against the real
+database. Note that `prisma migrate resolve --applied 0_init` alone (as `docs/DEPLOY.md` describes)
+is not enough for a database pushed at a later schema: most shipped steps use plain `CREATE TABLE`
+and would fail on tables that already exist. Every step whose objects the database already holds has
+to be marked applied. The two catch-ups are safe either way, because they are `IF NOT EXISTS`
+no-ops there.
 
 ## Known gaps
 
