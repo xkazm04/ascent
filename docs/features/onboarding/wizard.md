@@ -417,6 +417,15 @@ cluster, each repo a star:
   per-org backoff, up to 15 min) and also offers **Retry**, which immediately
   re-fetches that installation (clears backoff, shows the loading skeleton, then
   done or a new error message). Scan stays hidden until the org is `done`.
+- **Scan** (per org) runs the same `POST /api/org/scan` stream the dashboard header does, through
+  `useFleetScan` on the shared transport (`useScanStream`, aborted on unmount) and the shared roster
+  (`scanRunRosterModel`). Stars brighten per `repo` frame (`applyScanEvent`); the card then says how
+  the run ended (`fleetScanOutcome`): an in-band refusal shows the server's own sentence (out of
+  credits links **Add credits** to `/pricing`), a partial run names its groups with one remedy
+  (**Retry N failed**, a scoped re-scan of exactly the failures, flagged when already charged once;
+  **Reconnect** to Integrations for a token-less skip), and a budget-stopped `queued` remainder is
+  followed via `/api/org/scan/queue` until it drains, then that org is re-pulled once. The
+  empty-watchlist sentence is kept only for a run that saw no repo at all.
 - A live fleet-wide tally (orgs / repos / scanned / avg maturity) updates as each org
   streams in.
 - Fleet triage (Find a repo, level bands, watched-only, org sort) lives in the URL:
@@ -459,6 +468,8 @@ cluster, each repo a star:
 | `src/app/api/org/getting-started/route.ts` | `GET` the derived checklist + the caller's stamp (polling-safe). |
 | `src/app/launch/page.tsx` | Post-OAuth cinematic entrance. |
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
+| `src/components/launch/useFleetScan.ts` | The map's per-org Scan: shared stream + roster, queued follow, retry of failures, the refs the live refresh reads. |
+| `src/components/launch/fleetScanOutcomeModel.ts` | Pure: the card's sentence and one remedy for a finished org scan. |
 | `src/components/report/SkillDownload.tsx` | Report-header SKILL.md pill + `SkillDownloadList` for the wizard done step (one pill per scored repo). |
 | `src/lib/onboarding/step0.ts` | Step 0 of the generated skill, in two lanes: `reference` (the foundation PR and local install - a derived path/sha256/purpose table pointing at the files already committed) and `embed` (the markdown download - every body verbatim, each block stamped with the guidance-projection provenance header outside its fence). |
 | `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`GET /api/report/skill` and the foundation PR). Emits two instruction files with the same trackIds: `.claude/skills/ascent-onboard/SKILL.md` (Claude Code, kept; default download) and `.agents/skills/ascent-onboard/SKILL.md` (vendor-neutral, plus a one-line "also linked from Claude's path" header). `?format=json` returns both. Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |

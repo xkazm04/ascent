@@ -655,7 +655,13 @@
             "src/components/launch/useFleetData.test.ts",
             "src/components/launch/useFleetData.dom.test.tsx",
             "src/components/launch/useFleetData.cost.dom.test.tsx",
-            "src/components/launch/FleetMap.constants.test.ts"
+            "src/components/launch/FleetMap.constants.test.ts",
+            "src/components/launch/useFleetScan.ts",
+            "src/components/launch/useFleetScan.dom.test.tsx",
+            "src/components/launch/fleetScanOutcomeModel.ts",
+            "src/components/launch/fleetScanOutcomeModel.test.ts",
+            "src/components/launch/ConstellationField.Footer.tsx",
+            "src/components/launch/ConstellationField.Footer.test.tsx"
           ],
           "target": null,
           "apiRoutes": []
