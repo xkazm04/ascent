@@ -38,7 +38,7 @@ All four are additive, org-scoped, and JSON-in-TEXT per the schema's no-`jsonb` 
 | --- | --- |
 | `AthenaThread` | One conversation. `@@index([orgId, updatedAt])` serves the rail. |
 | `AthenaTurn` | One message: `role`, `content`, `metaJson`, token counts, `legs`. |
-| `AthenaProposal` | Something she asked for that a human has not answered. `open` \| `accepted` \| `declined`. |
+| `AthenaProposal` | Something she asked for that a human has not answered. Stored `status`: `open` \| `accepted` \| `declined` \| `expired`; nullable `claimedAt` (migration `20261022120000_athena_proposal_claimed_at`). See [The states, written down](#the-states-written-down). |
 | `AthenaIdentity` | Two tiers per org: `constitution` and `self_model`. |
 
 **Episodes have no table.** What she remembers is written into the org's existing memory store as
@@ -194,6 +194,50 @@ released and the operator gets a 500.
 **A resolved proposal can never be re-opened, re-stamped or flipped by anything.** Status is read from
 the live row rather than from the turn that produced it, which is what makes reopening a conversation
 safe: an answered card paints an outcome, not a second Accept button.
+
+### The states, written down
+
+`src/lib/athena/proposal-lifecycle.ts` (pure: no Prisma, importable by the client card) is the one
+table every reader uses. `lifecycleOf(row, nowMs)` derives the state from `status`, `resolvedAt` and
+`claimedAt`; `transition(state, event)` returns `{ ok: true, next, by }` or
+`{ ok: false, conflict: true, current }`.
+
+| Lifecycle state | Stored as | Legal edges (driver) |
+| --- | --- | --- |
+| `open` | `status = 'open'` | accept -> `claimed` (human), decline -> `declined` (human), expire -> `expired` (sweep) |
+| `claimed` | `accepted`, `resolvedAt` NULL, `claimedAt` within `ATHENA_CLAIM_STALE_MS` (10 min) | stamp -> `accepted` (resolver), release -> `open` (resolver, only when the executor threw) |
+| `claimed_stale` | `accepted`, `resolvedAt` NULL, `claimedAt` older than 10 min **or NULL** (a claim taken before the column existed) | stamp -> `accepted` (a late resolver), interrupt -> `accepted` (sweep). **Never released.** |
+| `accepted` / `declined` / `expired` | closed, `resolvedAt` set | none |
+| `unknown` | any other `status` value | none. An unrecognised value used to read as `open`; it now refuses every edge |
+
+**Every hold names its reaper.** `sweepAthenaProposals(orgId, nowMs)`
+(`src/lib/db/athena-proposals-sweep.ts`), run by the daily cron before each org's cycle:
+
+- a **stale claim** is stamped with `outcome: { ok: false, kind: "interrupted" }` and closed, its status
+  left `accepted` (a human did accept). It is **never** released back to open: the executor may have
+  run, its outcome is unknown, and `record_memory` is not idempotent, so a retry could write twice.
+- an **open ask older than `ATHENA_PROPOSAL_TTL_DAYS` (14)** is written `status: "expired"` with
+  `outcome: { ok: false, kind: "expired" }`. Expiry is a write with a recorded reason, not a read-side
+  filter, so `listOpenAthenaProposals` (and the cycle briefing built on it) simply stops returning it.
+
+Each closed row gets its own audit entry (`athena_proposal.interrupted` / `athena_proposal.expired`).
+Both writes are compare-and-sets on the resolver's own guards, at most 200 rows per hold per run.
+
+### What the resolve route answers (the contract the card builds on)
+
+`POST /api/athena/proposals/[id]/resolve` with `{ org, decision }`:
+
+| Response | When | What the card should do |
+| --- | --- | --- |
+| **200** `{ id, status: "accepted" \| "declined", outcome, summary }` | Accepted and stamped, declined, or auto-declined as `retired` / `invalid` | Paint the outcome (`outcome.ok`, `outcome.kind`, `outcome.detail`); the row is closed |
+| **409** `{ error, status: <lifecycle state> }` | The row is not `open`: `claimed` (someone's accept is running), `claimed_stale`, `accepted`, `declined`, `expired` or `unknown`; or a claim/stamp lost a race | Refetch and paint the named state; never offer the button again |
+| **409** `{ error }` (no `status`) | An `identity_diff` sent through the action door, or a lost compare-and-set | Refetch |
+| **500** "The action failed. Nothing was changed." (or the thrown message) | The executor THREW; the claim was released | The row is open again: the click may be retried |
+| **500** "The action ran, but its outcome was not recorded..." | The executor ran and the stamp threw | **Do not retry.** The row stays claimed and the sweep stamps it `interrupted`; the accept is already audited with `outcome: "unstamped"` |
+| 400 / 403 / 404 | Bad decision, role or stance refusal, unknown id | Show the error |
+
+Every path on which the executor ran writes an `athena_proposal.accepted` audit row, including a thrown
+or lost stamp (`outcome: "unstamped"`, `ranOutcome` keeping what the action reported).
 
 ## The one door
 
@@ -671,7 +715,8 @@ call, so an absorbed run leaves no empty untitled thread behind.
 | **schedule** | `30 7 * * *`, chosen not to collide with rescan (06:00 daily), purge (04:00 daily) or digest (13:00 Mondays), and to land *after* the rescan so the standing she briefs on is fresh. |
 
 The response body carries `orgs`, `briefed`, `absorbedRuns`, `absorbedOutcomes`, `proposalsRaised`,
-`skippedAlreadyRan`, `skippedNoOrg`, `skippedLiveTurn`, `skippedNoLanding`, `skippedNoStanding`,
+`proposalsExpired`, `claimsInterrupted` (the per-org proposal sweep, which runs before the period claim;
+a sweep that throws is an `errors` entry, never a skipped cycle), `skippedAlreadyRan`, `skippedNoOrg`, `skippedLiveTurn`, `skippedNoLanding`, `skippedNoStanding`,
 `skippedNoEngine`, `remaining`, `truncated` and `errors`.
 
 **The fleet it considers** is `listOrgsWithWatchedRepos()` minus `PUBLIC_ORG` — an org with no watched
