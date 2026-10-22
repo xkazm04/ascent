@@ -20,3 +20,10 @@ export function deltaFootnote(deltaLabel: string): string {
     ? "each repo's two latest scans"
     : `the selected period (${deltaLabel})`;
 }
+
+/**
+ * (D) The attribution mechanics, demoted out of the tab's lede and its closing footnote. Both said
+ * some of this; neither said all of it, and it sat permanently above and below a populated grid.
+ */
+export const ATTRIBUTION_HINT =
+  "Teams are parsed from each repo's CODEOWNERS at scan time, so this view is as current as the last scan. A repo counts toward EVERY team that owns part of it, which means the repo counts here sum to more than the fleet: these are figures about responsibility, never a ranking.";

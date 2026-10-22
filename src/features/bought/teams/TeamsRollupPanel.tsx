@@ -7,7 +7,9 @@ import { TeamsMatrix } from "./TeamsMatrix";
 import { TeamsSignals } from "./TeamsSignals";
 import { TeamsStandings } from "./TeamsStandings";
 import { TeamsUnowned } from "./TeamsUnowned";
-import { deltaFootnote, teamAnchorId } from "./teamsShared";
+import { ATTRIBUTION_HINT, deltaFootnote, teamAnchorId } from "./teamsShared";
+import { teamsRollupV2 } from "./TeamsRollupPanel.v2";
+import type { ThemeId } from "@/lib/theme/theme";
 import { getOrgTeamRollup, getTeamStandingsProvenance } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
@@ -19,14 +21,7 @@ import { explainTeamStandings } from "@/lib/org/teamStandings";
 import { WhyChip } from "@/components/org/viz";
 import { scoreHex } from "@/lib/ui";
 
-/**
- * (D) The attribution mechanics, demoted out of the tab's lede and its closing footnote. Both said
- * some of this; neither said all of it, and it sat permanently above and below a populated grid.
- */
-const ATTRIBUTION_HINT =
-  "Teams are parsed from each repo's CODEOWNERS at scan time, so this view is as current as the last scan. A repo counts toward EVERY team that owns part of it, which means the repo counts here sum to more than the fleet: these are figures about responsibility, never a ranking.";
-
-export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key: string]: string | string[] | undefined } }) {
+export async function TeamsRollupPanel({ slug, sp, theme = "altimeter" }: { slug: string; sp: { [key: string]: string | string[] | undefined }; theme?: ThemeId }) {
   // Optional segment + tech-stack scope (parity with Contributors/Delivery): bogus id/key → whole fleet.
   const { barProps, segmentId, techGroupId, activeStack } = await resolveOrgScope(slug, sp);
 
@@ -103,6 +98,15 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
   // filter these standings are NOT what that scan captured, so the stamp says fleet-wide instead of
   // implying the filtered decomposition was the thing recorded.
   const scoped = segmentId != null || techGroupId != null;
+
+  if (theme === "prism") {
+    return teamsRollupV2({
+      slug, rollup, standings, decisions, decisionsFailed, deltaLabel, dims: DIMS, filterBar,
+      capturedAt: standingsProvenance?.generatedAt ?? null,
+      capturedScopeNote: scoped && standingsProvenance ? "captured fleet-wide, not for this filter" : null,
+      exportLink: <ExportCsvLink org={slug} kind="teams" segmentId={segmentId} stack={activeStack?.key} className="shrink-0" />,
+    });
+  }
 
   return (
     <div>
