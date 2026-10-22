@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import { DeveloperHome } from "./DeveloperHome";
+import { DeveloperHomeShell as DeveloperHome } from "./DeveloperHomeShell";
 import { emptyDeveloperView, type DeveloperView } from "@/lib/org/developer-view";
 
 function view(over: Partial<DeveloperView> = {}): DeveloperView {

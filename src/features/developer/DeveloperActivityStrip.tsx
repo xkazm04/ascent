@@ -18,7 +18,7 @@ import { CareShareBar } from "./CareShareBar";
 import type { CareActivityState, DeveloperView } from "@/lib/org/developer-view";
 
 /** The empty/degraded states — where a reader has no picture and genuinely needs the sentence. */
-function ActivityAbsence({ state, login }: { state: CareActivityState; login: string | null }) {
+export function ActivityAbsence({ state, login }: { state: CareActivityState; login: string | null }) {
   const mark = state === "absent" || state === "signed-out" ? "missing" : "not-judged";
   const body =
     state === "withheld" ? (

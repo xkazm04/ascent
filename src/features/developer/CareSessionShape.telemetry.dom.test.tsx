@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { CareSessionShape } from "./CareSessionShape";
-import { DeveloperHome } from "./DeveloperHome";
+import { DeveloperHomeShell as DeveloperHome } from "./DeveloperHomeShell";
 import { emptyDeveloperView, type DeveloperView } from "@/lib/org/developer-view";
 
 function measured(sessionsPerWeek: number | null, sessions: number): DeveloperView {

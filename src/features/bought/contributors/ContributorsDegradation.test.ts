@@ -10,7 +10,10 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-const PANEL = fs.readFileSync(path.resolve(__dirname, "ContributorsInsightsPanel.tsx"), "utf8");
+// The panel keeps the reads and empty states; the Altimeter body (and its decisions note) lives in ContributorsBody.v1.
+const PANEL = ["ContributorsInsightsPanel.tsx", "ContributorsBody.v1.tsx"]
+  .map((f) => fs.readFileSync(path.resolve(__dirname, f), "utf8"))
+  .join("\n");
 
 describe("ContributorsInsightsPanel degrades per section", () => {
   it("settles each read instead of rejecting the whole tab on one blip", () => {

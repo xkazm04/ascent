@@ -31,7 +31,7 @@ const PLOT_H = VB_H - PAD.top - PAD.bottom;
 const BASE_Y = PAD.top + PLOT_H;
 
 /** Chart chrome, not level semantics — see the header. */
-const SERIES_INK = ["#3b9eff", "#94a3b8"] as const;
+const SERIES_INK = ["var(--color-accent)", "#94a3b8"] as const;
 
 const fmt = (v: number): string => (Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10));
 const short = (s: string): string => (s.length > 8 ? `${s.slice(0, 7)}…` : s);
