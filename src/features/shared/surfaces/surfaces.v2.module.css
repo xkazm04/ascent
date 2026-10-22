@@ -1,0 +1,17 @@
+/* The Prism surfaces index has no card chrome, but the previews and the playground still read the --kb-*
+   bindings that library.module.css declares on .library. Same bindings, none of the box. */
+.scope {
+  --kb-bg: var(--color-ink);
+  --kb-panel: var(--color-surface);
+  --kb-stage: color-mix(in srgb, var(--color-surface-strong) 40%, var(--color-ink));
+  --kb-text: var(--color-slate-100);
+  --kb-muted: var(--color-slate-400);
+  --kb-line: var(--color-divider);
+  --kb-accent: var(--color-accent);
+  --kb-green: var(--color-success-soft);
+  --kb-danger: var(--color-danger-soft);
+  --kb-warn: var(--color-warn);
+  color: var(--kb-text);
+}
+.scope a { text-decoration: none; }
+.scope button, .scope input, .scope select { font: inherit; }

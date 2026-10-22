@@ -17,6 +17,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
+import { GhostAction } from "@/components/kit";
+import { useIsPrism } from "@/lib/theme/useIsPrism";
 import { AthenaComposer } from "./AthenaComposer";
 import { AthenaTurnView } from "./AthenaTurnView";
 import { AthenaWaiting } from "./AthenaWaiting";
@@ -40,6 +42,7 @@ export function AthenaPanel({
 }) {
   const s = useAthenaThread(slug);
   const scroller = useRef<HTMLDivElement | null>(null);
+  const prism = useIsPrism();
 
   // A new turn belongs at the bottom of the view, not wherever the last one left the scroll position.
   useEffect(() => {
@@ -83,14 +86,19 @@ export function AthenaPanel({
           <div className="border-l-2 border-accent/50 pl-3">
             <Kicker>Athena</Kicker>
             <p className="mt-1 type-body-sm leading-relaxed text-slate-300">{restingLine(next, library)}</p>
-            {next && (
-              <Link
-                href={next.href}
-                className="focus-ring mt-2 inline-block rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
-              >
-                {next.cta}
-              </Link>
-            )}
+            {next &&
+              (prism ? (
+                <GhostAction href={next.href} className="mt-2">
+                  {next.cta}
+                </GhostAction>
+              ) : (
+                <Link
+                  href={next.href}
+                  className="focus-ring mt-2 inline-block rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 transition hover:border-accent hover:text-white"
+                >
+                  {next.cta}
+                </Link>
+              ))}
           </div>
         )}
 

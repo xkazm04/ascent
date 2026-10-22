@@ -13,6 +13,8 @@
 
 import { useId, useState } from "react";
 import { TextArea } from "@/components/ui";
+import { PrimaryAction } from "@/components/kit";
+import { useIsPrism } from "@/lib/theme/useIsPrism";
 
 /** Mirrors `MESSAGE_MAX` in the message route, which rejects anything longer. */
 const MESSAGE_MAX = 8_000;
@@ -20,6 +22,8 @@ const MESSAGE_MAX = 8_000;
 export function AthenaComposer({ onSend, sending }: { onSend: (text: string) => void; sending: boolean }) {
   const [text, setText] = useState("");
   const id = useId();
+  // The send control's treatment differs per look (paper block with the spectrum underline in Prism), so read the theme.
+  const prism = useIsPrism();
 
   const submit = () => {
     const trimmed = text.trim();
@@ -56,13 +60,19 @@ export function AthenaComposer({ onSend, sending }: { onSend: (text: string) => 
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="type-caption text-slate-600">Enter sends · Shift+Enter for a new line</span>
-        <button
-          type="submit"
-          disabled={sending || text.trim().length === 0}
-          className="focus-ring rounded-lg bg-accent px-3 py-1.5 type-body-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {sending ? "Thinking…" : "Ask"}
-        </button>
+        {prism ? (
+          <PrimaryAction type="submit" disabled={sending || text.trim().length === 0}>
+            {sending ? "Thinking…" : "Ask"}
+          </PrimaryAction>
+        ) : (
+          <button
+            type="submit"
+            disabled={sending || text.trim().length === 0}
+            className="focus-ring rounded-lg bg-accent px-3 py-1.5 type-body-sm font-semibold text-on-accent transition hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {sending ? "Thinking…" : "Ask"}
+          </button>
+        )}
       </div>
     </form>
   );

@@ -7,19 +7,21 @@ import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { SurfacesTab } from "@/features/shared/surfaces/SurfacesTab";
 
+import { getTheme } from "@/lib/theme/server";
 import { KnowledgeSectionSwitch } from "./KnowledgeSectionSwitch";
 import { KnowledgeTab } from "./KnowledgeTab";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-export function KnowledgeSection({ slug, sp = {} }: { slug: string; sp?: SearchParams }) {
+export async function KnowledgeSection({ slug, sp = {} }: { slug: string; sp?: SearchParams }) {
   const surfaces = sp.section === "surfaces";
+  const theme = await getTheme();
   return (
     <div className="space-y-4">
-      <KnowledgeSectionSwitch slug={slug} active={surfaces ? "surfaces" : "subjects"} />
+      <KnowledgeSectionSwitch slug={slug} active={surfaces ? "surfaces" : "subjects"} theme={theme} />
       {surfaces ? (
         <>
-          <SurfacesTab slug={slug} />
+          <SurfacesTab slug={slug} theme={theme} />
           <NextMoveLink href={orgTabHref(slug, "executive")} to="executive" />
         </>
       ) : (

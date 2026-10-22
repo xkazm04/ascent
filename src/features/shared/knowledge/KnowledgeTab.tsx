@@ -24,10 +24,12 @@ import { fixtureKnowledgeView } from "@/lib/org/knowledge-view.fixture";
 
 import { KnowledgeLoom } from "./KnowledgeLoom";
 import { KnowledgePreviewShell } from "./KnowledgePreviewShell";
+import { KnowledgeBodyV2, KnowledgeNoticeV2 } from "./KnowledgeTab.v2";
+import { getTheme } from "@/lib/theme/server";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-function Notice({ title, body }: { title: string; body: React.ReactNode }) {
+function NoticeV1({ title, body }: { title: string; body: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-divider bg-ink px-6 py-8">
       <Kicker tone="muted">Knowledge base</Kicker>
@@ -43,7 +45,9 @@ const one = (sp: SearchParams, key: string): string | null => {
 };
 
 export async function KnowledgeTab({ slug, sp = {} }: { slug: string; sp?: SearchParams }) {
-  const view = await getKnowledgeView(slug);
+  const [view, theme] = await Promise.all([getKnowledgeView(slug), getTheme()]);
+  const prism = theme === "prism";
+  const Notice = prism ? KnowledgeNoticeV2 : NoticeV1;
 
   if (view.status === "unmapped") {
     const notice = (
@@ -96,6 +100,10 @@ export async function KnowledgeTab({ slug, sp = {} }: { slug: string; sp?: Searc
         }
       />
     );
+  }
+
+  if (prism) {
+    return <KnowledgeBodyV2 view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />;
   }
 
   return (
