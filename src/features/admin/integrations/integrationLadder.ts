@@ -1,5 +1,6 @@
 // Connection and spend ladders. A step with no reading is `unmeasured`, never a zero.
 import type { LadderState, LadderStep } from "@/components/kit";
+import { ladderAttribution } from "./attributionReconcileModel";
 import { statusFor, type IntegrationLevelId, type IntegrationsData } from "./integrationModel";
 
 function step(key: string, label: string, state: LadderState, detail: string): LadderStep {
@@ -12,7 +13,10 @@ export function spendLadder(data: IntegrationsData): LadderStep[] {
   const openaiKey = Boolean(data.openai.connection?.hasCredential);
   const source = openaiKey || Boolean(claude);
   const recorded = Boolean(openaiStatus) || Boolean(claude);
-  const attributed = (claude?.repos ?? 0) > 0;
+  // Attributed means AI delivery can show it, once the reconcile has been read; the repo count alone
+  // said "reached" exactly when the spend was invisible downstream.
+  const reading = ladderAttribution(claude?.attribution);
+  const attributed = reading ? reading.landed : (claude?.repos ?? 0) > 0;
   return [
     step("source", "Cost source", source ? "reached" : "open", source ? "A provider that reports cost is connected." : "None connected."),
     step("landed", "Spend recorded", recorded ? "reached" : source ? "open" : "unmeasured", recorded ? "A cost row has landed." : "Not measured."),
@@ -20,7 +24,7 @@ export function spendLadder(data: IntegrationsData): LadderStep[] {
       "repo",
       "On a repository",
       attributed ? "reached" : claude ? "current" : "unmeasured",
-      attributed ? "At least one repository is attributed." : claude ? "Received, but nothing landed on a repository." : "Not measured.",
+      reading ? reading.detail : attributed ? "At least one repository is attributed." : claude ? "Received, but nothing landed on a repository." : "Not measured.",
     ),
   ];
 }
@@ -49,14 +53,17 @@ function gitlabLadder(data: IntegrationsData): LadderStep[] {
 function claudeLadder(data: IntegrationsData): LadderStep[] {
   const status = statusFor(data, "claude-code");
   const ready = data.ingestToken.length > 0;
-  const landed: LadderState = status ? (status.repos > 0 ? "reached" : "current") : ready ? "open" : "unmeasured";
-  const detail = !status
+  const reading = status && status.repos > 0 ? ladderAttribution(status.attribution) : null;
+  const onRepo = reading ? reading.landed : (status?.repos ?? 0) > 0;
+  const landed: LadderState = status ? (onRepo ? "reached" : "current") : ready ? "open" : "unmeasured";
+  const fallback = !status
     ? ready
       ? "No telemetry received yet."
       : "Not measured."
     : status.repos > 0
       ? "Telemetry landed on a repository."
       : "Received, but nothing landed on a repository.";
+  const detail = reading ? reading.detail : fallback;
   return [
     step("ingest", "Ingest secret", ready ? "reached" : "current", ready ? "This deployment can issue a token." : "INTEGRATIONS_INGEST_SECRET is not set."),
     step("landed", "Telemetry landed", landed, detail),

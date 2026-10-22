@@ -2,6 +2,7 @@
 // Connection is a word (connected / not configured). Fidelity is a mark, never a hue.
 import type { CellState } from "@/components/kit";
 import type { ForgeInstallationRow } from "@/lib/db/forge-installations";
+import type { AttributionWire } from "@/lib/db/integrations-attribution";
 import type { ProviderConnectionRow } from "@/lib/db/provider-credentials";
 import { FIDELITY_META, PROVIDERS, type Fidelity } from "@/lib/integrations/providers";
 
@@ -14,6 +15,9 @@ export interface IngestWire {
   seats: number;
   sessions: number;
   measured: boolean;
+  /** Claude Code only: which repos its measured spend landed on, and whether AI delivery can show
+   *  them. Carried on the status row so every surface that already receives the status reads it. */
+  attribution?: AttributionWire;
 }
 
 export interface IntegrationsData {

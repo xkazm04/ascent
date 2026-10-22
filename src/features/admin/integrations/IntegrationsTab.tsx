@@ -12,6 +12,7 @@ import { hasOrgRole } from "@/lib/authz";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { listForgeInstallations } from "@/lib/db/forge-installations";
 import { getProviderConnection } from "@/lib/db/provider-credentials";
+import { getMeasuredAttribution } from "@/lib/db/integrations-attribution";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { getTheme } from "@/lib/theme/server";
 import type { IntegrationsData } from "./integrationModel";
@@ -37,6 +38,9 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
   // Secret-free rows: ForgeInstallationRow and ProviderConnectionRow carry hasCredential only.
   const forgeInstallations = await listForgeInstallations(slug).catch(() => []);
   const openaiConnection = await getProviderConnection(slug, "openai").catch(() => null);
+  // After the owner gate: which repos the measured spend landed on, against Delivery's own set.
+  const measured = await getMeasuredAttribution(slug).catch(() => null);
+  const gitlabConnected = forgeInstallations.some((row) => row.forge === "gitlab" && row.hasCredential);
   const theme = await getTheme();
   const encryptionConfigured = isEncryptionConfigured();
   const data: IntegrationsData = {
@@ -52,6 +56,7 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
       seats: status.seats,
       sessions: status.sessions,
       measured: status.measured,
+      ...(status.source === "claude-code" && measured ? { attribution: { ...measured, gitlabConnected } } : {}),
     })),
     forgeInstallations,
     openai: { connection: openaiConnection, encryptionConfigured },
