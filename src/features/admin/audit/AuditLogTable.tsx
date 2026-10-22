@@ -3,6 +3,9 @@
 // The table body (+ integrity banner, error banner, loading pill, empty state, load-more) for the
 // audit-trail viewer. Extracted from AuditLogViewer.tsx (JSX region split, per
 // docs/ORG-TABS-REFACTOR.md) to keep the viewer under the 200-LOC cap.
+//
+// `tamperedView` swaps the rows for the whole-trail sweep's tampered entries (useAuditIntegritySweep);
+// the paged `entries` and `cursor` are untouched, so "back to trail" returns to the same position.
 
 import type { AuditLogEntry } from "@/lib/db";
 import { timeAgo } from "@/lib/ui";
@@ -16,28 +19,58 @@ export function AuditLogTable({
   error,
   cursor,
   onLoadMore,
+  onVerifyAll,
+  sweepRun = false,
+  tamperedView = null,
 }: {
   entries: AuditLogEntry[];
   loading: boolean;
   error: string | null;
   cursor: string | null;
   onLoadMore: () => void;
+  /** Runs the whole-trail sweep; offered from the page banner until a sweep is in. */
+  onVerifyAll?: () => void;
+  sweepRun?: boolean;
+  tamperedView?: { entries: AuditLogEntry[]; total: number; onBack: () => void } | null;
 }) {
+  const rows = tamperedView?.entries ?? entries;
   // Per-row tamper-evidence, verified on READ by getAuditLog (the same verdict the CSV export carries).
   // The column is hidden entirely when the deployment has no signing secret — every row would read
   // "no-secret", which is noise, not evidence. `unsigned` legacy rows keep the column meaningful without
   // being alarming; only a genuine signature MISMATCH raises the banner below.
-  const showIntegrity = entries.some((e) => e.integrity && e.integrity !== "no-secret");
-  const tamperedCount = entries.filter((e) => e.integrity === "tampered").length;
+  // The banner counts the rows LOADED so far and says so ("on this page"): a page count must not read
+  // like a verdict on the trail. The whole-trail answer is the sweep (AuditIntegrityStrip).
+  const showIntegrity = rows.some((e) => e.integrity && e.integrity !== "no-secret");
+  const tamperedCount = tamperedView ? 0 : entries.filter((e) => e.integrity === "tampered").length;
+  const one = tamperedCount === 1;
 
   return (
     <>
       {tamperedCount > 0 && (
         <div role="alert" className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 type-body text-red-300">
           <span className="type-mono-sm uppercase tracking-widest">Integrity failure</span>:{" "}
-          {tamperedCount} {tamperedCount === 1 ? "entry does" : "entries do"} not match the signature recorded
-          when {tamperedCount === 1 ? "it was" : "they were"} written. {tamperedCount === 1 ? "That row" : "Those rows"}{" "}
-          may have been altered directly in the database; do not file {tamperedCount === 1 ? "it" : "them"} as evidence.
+          {tamperedCount} {one ? "entry on this page does" : "entries on this page do"} not match the signature
+          recorded when {one ? "it was" : "they were"} written. {one ? "That row" : "Those rows"} may have been
+          altered directly in the database; do not file {one ? "it" : "them"} as evidence.
+          {onVerifyAll && !sweepRun && (
+            <>
+              {" "}Older entries are not checked until you load them.{" "}
+              <button type="button" onClick={onVerifyAll} className="focus-ring underline hover:text-white">
+                Verify all matching entries
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {tamperedView && (
+        <div data-testid="tampered-view" className="mb-3 type-body-sm text-slate-300">
+          {tamperedView.entries.length < tamperedView.total
+            ? `Showing the first ${tamperedView.entries.length} of ${tamperedView.total} tampered entries - `
+            : `Showing ${tamperedView.total} tampered ${tamperedView.total === 1 ? "entry" : "entries"} - `}
+          <button type="button" onClick={tamperedView.onBack} className="focus-ring underline hover:text-white">
+            back to trail
+          </button>
         </div>
       )}
 
@@ -65,7 +98,7 @@ export function AuditLogTable({
             </span>
           </div>
         )}
-        {entries.length === 0 ? (
+        {rows.length === 0 ? (
           <EmptyState
             variant="section"
             icon="🗒️"
@@ -85,7 +118,7 @@ export function AuditLogTable({
               </tr>
             }
           >
-            {entries.map((e) => (
+            {rows.map((e) => (
               <tr key={e.id} className="align-top text-slate-300">
                 <td className="whitespace-nowrap px-4 py-2 type-body-sm text-slate-400" title={e.at}>
                   {timeAgo(e.at)}
@@ -115,7 +148,7 @@ export function AuditLogTable({
         )}
       </div>
 
-      {cursor && (
+      {cursor && !tamperedView && (
         <div className="mt-4 flex justify-center">
           <button
             onClick={onLoadMore}

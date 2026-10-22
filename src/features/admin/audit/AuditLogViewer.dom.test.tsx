@@ -141,7 +141,7 @@ describe("AuditLogViewer — per-row integrity verdict", () => {
     expect(screen.getByText("Verified")).toBeInTheDocument();
     expect(screen.getByText("Unsigned")).toBeInTheDocument();
     expect(screen.getByText("Tampered")).toBeInTheDocument();
-    expect(screen.getByRole("alert").textContent).toContain("1 entry does not match");
+    expect(screen.getByRole("alert").textContent).toContain("1 entry on this page does not match");
   });
 
   it("hides the integrity column entirely when the deployment has no signing secret", () => {
