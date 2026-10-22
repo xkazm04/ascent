@@ -94,6 +94,19 @@ on `/leaderboard`. The landing `topAiNative` holds verified cards only (card por
 mock-engine card can reach the board only on the recency fallback, where its rank cell is `·` and it
 wears the amber `demo` chip instead of the rubric one; the mixed-rubric note counts verified rows only.
 
+**The register can be read through one archetype lens** (card landing-1). Each stored headline was
+weighted under its own repo's lens (`overallScoreFor(dimensions, archetype)`), so the ranked board
+orders numbers from up to three weightings. A switch above the board (`RegisterLensSwitch`) offers
+`As scored` (the default, today's board, with a "rows weighted under N lenses" note) or Solo / Team /
+Org, which re-weights every row in the browser with the engine's own `overallScoreFor` and
+`levelForScore` (`shared/registerLensModel.ts`, no copy of the weights), ranks with the shared `byRank`
+comparator, and marks each row's signed move against the as-scored order. A row is re-weightable only
+when the engine reproduces its stored overall under its OWN lens; any other row (and every mock row)
+stays on the as-scored board only and is counted under the lens view, so the page never prints a
+recompute that contradicts the report a row links to. A note under a lens view says the figures were
+re-weighted in the browser and that each report keeps the score it was scored under. The switch is
+not rendered on the recency fallback, because a lens view is a ranking.
+
 **The register footer links the capped landing board to `/leaderboard`.** The deck
 gallery is a slice (`getPublicScanGallery` `recentLimit`/`topLimit`); the crawlable,
 paginated ranking of the same corpus lives on `/leaderboard`. That path is a real
