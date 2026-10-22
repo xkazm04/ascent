@@ -58,6 +58,7 @@ import {
   type JsonRpcRequest,
 } from "@/lib/mcp/protocol";
 import { MCP_TOOLS, toolsForScopes, toolsListEnvelope } from "@/lib/mcp/tools";
+import { egressResult, stampResultMeta } from "@/lib/mcp/result-egress";
 import { countTokenWritesToday, gateOpen, planRefusal, resolveMcpGates } from "@/app/api/mcp/gates";
 import { rateLimitKeyed, rateLimitRequest, tooManyRequests, GATE_RATE_LIMIT, MCP_RATE_LIMIT } from "@/lib/rate-limit";
 import { readCappedBody } from "@/lib/integrations/ingest-guard";
@@ -300,17 +301,20 @@ export async function POST(req: Request) {
             actorId,
           );
         }
+        // THE EGRESS (src/lib/mcp/result-egress.ts). An org-authored result (memory, skill bodies,
+        // lessons, governing subjects) has its credential shapes redacted BEFORE serialization, so the
+        // text and the structured payload agree, and its `_meta` gains the provenance and the count.
+        // A computed result is the same object back, so its bytes are what they always were.
+        const egressed = egressResult(def, result);
         // Serialized by the shared helper, not inline: Athena dispatches these same handlers in-process
         // (src/lib/athena/grounding.ts), and both doors must show the model byte-identical text.
-        const text = toolResultText(result);
-        return rpc(
-          ok(id, {
-            content: [{ type: "text", text }],
-            structuredContent: result.structuredContent,
-            isError: Boolean(result.isError),
-          }),
-          200,
-        );
+        const text = toolResultText(egressed.result);
+        const envelope = ok(id, {
+          content: [{ type: "text", text }],
+          structuredContent: egressed.result.structuredContent,
+          isError: Boolean(egressed.result.isError),
+        });
+        return rpc(egressed.meta ? stampResultMeta(envelope, egressed.meta) : envelope, 200);
       } catch (e) {
         console.error("[mcp] tool failed", { tool: name, err: e });
         // A crash is reported as a TOOL EXECUTION error, not a protocol error: the revision says
