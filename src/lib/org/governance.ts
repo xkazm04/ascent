@@ -8,6 +8,7 @@ import { getOrgGatePolicy, getOrgRollup } from "@/lib/db";
 import { defaultGatePolicy, describeGatePolicy, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
 import { GATE_API_PATH, GATE_FAIL_STATUS, GATE_PASS_STATUS } from "@/lib/scoring/gate-api";
 import { ciWith, readFleetGatePolicies } from "@/lib/scoring/gate-resolve";
+import { gateSnapshotOf } from "@/lib/org/fleet-gate-snapshot";
 
 export interface GovernanceFailure {
   name: string;
@@ -176,19 +177,7 @@ export async function buildGovernanceOverview(
     const repoPolicy = fleet.policyFor(r.fullName);
     if (repoPolicy.requireProtectedBranch) barGovernance = true;
     if (typeof repoPolicy.minAiGovernedRate === "number") barProvenance = true;
-    const result = evaluateGateLite(
-      {
-        level: s.level,
-        overall: s.overall,
-        posture: s.posture,
-        dims: s.dims,
-        protected: s.protected,
-        govReadable: s.govReadable,
-        aiGovernedRate: s.aiGovernedRate,
-        aiPrSample: s.aiPrSample,
-      },
-      repoPolicy,
-    );
+    const result = evaluateGateLite(gateSnapshotOf(s), repoPolicy);
     if (result.pass) {
       passing += 1;
       continue;
