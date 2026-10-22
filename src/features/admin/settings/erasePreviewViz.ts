@@ -155,3 +155,10 @@ export function erasePreviewStates(rows: MatrixRow[]): VizState[] {
 /** The (D) Disclosed caveat on the picture — what an empty cell means HERE, in the reader's terms. */
 export const ERASE_MATRIX_HINT =
   "An empty cell is nothing to erase, not an unknown: your organization, its repositories, its members and everything you configured are never in the Erased column. Scan history, repo caches, the improvement loop, Athena, memory, the registry, governance ledgers and stored secrets always are. The audit trail is the only row that moves — redacting it puts it in BOTH columns, because redaction destroys who did what while keeping the record that it happened.";
+
+/** One counter's family label and group, read from the same table the erase dialog draws, so the
+ *  retention preview names a ledger in the words its sibling uses. `null` for a key the table lacks. */
+export function blastLabel(key: string): { label: string; group: string } | null {
+  const hit = BLAST.find(([k]) => k === key);
+  return hit ? { label: hit[1], group: hit[2] } : null;
+}
