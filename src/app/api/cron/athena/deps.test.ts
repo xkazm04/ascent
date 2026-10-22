@@ -24,7 +24,10 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/memory/coverage", () => ({ getMemoryCoverage: h.getMemoryCoverage }));
 vi.mock("@/lib/db/org-shared", () => ({ hasFleetGrade: h.hasFleetGrade }));
-vi.mock("@/lib/maturity/model", () => ({ levelForScore: h.levelForScore }));
+vi.mock("@/lib/maturity/model", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/maturity/model")>()),
+  levelForScore: h.levelForScore,
+}));
 vi.mock("@/lib/window", () => ({ resolveWindow: h.resolveWindow, weekRangeParams: h.weekRangeParams }));
 vi.mock("@/lib/db/athena", () => ({
   appendAthenaTurn: vi.fn(),
