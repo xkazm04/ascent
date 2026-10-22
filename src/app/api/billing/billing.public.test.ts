@@ -51,6 +51,7 @@ vi.mock("@/lib/polar", () => ({
 import { PUT } from "./autorecharge/route";
 import { GET as checkout } from "./checkout/route";
 import { GET as portal } from "./portal/route";
+import { GET as checkoutStatus } from "./checkout/status/route";
 import { setOrgAutoRecharge } from "@/lib/db/org-settings";
 import { getOrgId } from "@/lib/db";
 import { getPolar, polarCustomerPortalUrl } from "@/lib/polar";
@@ -90,5 +91,23 @@ describe("/api/billing/{autorecharge,checkout,portal} as a signed-in non-member"
     expect((await portal(get("portal", "public"))).status).toBe(403);
     expect(getOrgId).not.toHaveBeenCalled();
     expect(polarCustomerPortalUrl).not.toHaveBeenCalled();
+  });
+});
+
+// The read-only checkout status route (the return banner's poll) holds the same line: a stranger is
+// refused at the owner gate and nobody may read a Polar checkout in the name of the public org.
+describe("/api/billing/checkout/status as a signed-in non-member", () => {
+  const status = (org: string) => new Request(`http://localhost/api/billing/checkout/status?org=${org}&checkout_id=co_1`);
+
+  it("control: a private org refuses the stranger at the owner gate, before any Polar read", async () => {
+    expect((await checkoutStatus(status("acme"))).status).toBe(403);
+    expect(getPolar).not.toHaveBeenCalled();
+  });
+
+  it.each(["public", "Public"])("refuses reading a checkout for %j", async (org) => {
+    const res = await checkoutStatus(status(org));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: expect.stringMatching(/public org/i) });
+    expect(getPolar).not.toHaveBeenCalled();
   });
 });

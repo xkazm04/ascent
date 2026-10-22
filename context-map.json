@@ -3668,14 +3668,21 @@
             "src/app/pricing/pricingCta.ts",
             "src/app/api/billing/billing.public.test.ts",
             "src/app/api/billing/portal/route.test.ts",
-            "src/app/api/billing/portal/route.ts"
+            "src/app/api/billing/portal/route.ts",
+            "src/app/api/billing/checkout/status/route.ts",
+            "src/app/api/billing/checkout/status/route.test.ts",
+            "src/lib/billing/checkoutReturnModel.ts",
+            "src/lib/billing/checkoutReturnModel.test.ts",
+            "src/components/org/shared/useCheckoutReturn.ts",
+            "src/components/org/shared/useCheckoutReturn.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
             "/api/billing/checkout",
             "/api/billing/webhook",
             "/api/org/plan",
-            "/api/plan-enquiry"
+            "/api/plan-enquiry",
+            "/api/billing/checkout/status"
           ]
         },
         {

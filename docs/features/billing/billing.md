@@ -334,6 +334,33 @@ It replaces a CTA that was a `mailto:` when `ASCENT_CONTACT_EMAIL` happened to b
    `externalCustomerId` and `metadata.org`, and 303-redirects the browser to it. No credits or plan change
    happen here: the trust boundary for the actual grant is the webhook signature.
 
+## Return banner and checkout status (`GET /api/billing/checkout/status?org=<slug>&checkout_id=<id>`)
+
+The checkout's success URL is `/org/<slug>?credits=pending&checkout_id={CHECKOUT_ID}`; Polar substitutes
+the placeholder (it is appended unencoded so Polar recognises it). `resolveBillingReturn`
+(`src/features/standing/overview/overviewBilling.ts`) reads `checkout_id` and strips it from the dismiss
+href along with `credits`. `BillingReturnNotice` then follows THIS purchase instead of printing a claim:
+`useCheckoutReturn` polls the status route (2s, 4s, 8s, capped at 15s), stops at a terminal state, and calls
+`router.refresh()` once when the purchase lands so the credits and plan chips repaint.
+
+The status route is **read-only** (it creates, grants and charges nothing). It holds the checkout guards
+(Polar off 503, prefetch 204, same-origin, public org refused, owner-gated before any Polar read), then
+gate-then-constrain: the Polar checkout's `externalCustomerId` (else `metadata.org`, the webhook's own
+binding) must equal the gated org, or the answer is a uniform 404 `Unknown checkout.`, the same as an id
+Polar does not know. For a succeeded checkout it finds the order (`orders.list({ checkoutId })`) and the
+local grant record, and `src/lib/billing/checkoutReturnModel.ts` folds those facts into one state:
+
+| State | When | Banner |
+| --- | --- | --- |
+| `confirming` | checkout `open` / `confirmed` | payment processing; no "received" claim |
+| `paid` | `succeeded`, grant record not written yet | payment confirmed, delivering |
+| `landed` | the grant record exists: the CreditLedger row `polar:<orderId>` under this org for a pack; the org's plan plus a live Subscription row for the order's subscription for a tier | `+500 credits, balance 620` / the plan |
+| `stalled` | paid and not landed after 10 minutes | alert: Polar is retrying delivery, do not buy again, quote order `<id>`; keeps polling |
+| `failed` / `expired` | Polar checkout status | nothing was delivered |
+| `unverified` | no `checkout_id` (bookmark, legacy link) or a 4xx from the route | "We could not confirm this payment yet"; never "Payment received" |
+
+`?credits=error` (session creation failed) still renders the "not charged" alert unchanged.
+
 ## Customer portal (`GET /api/billing/portal?org=<slug>`)
 
 Owners cancel, update a payment method, or download invoices in Polar's hosted customer portal — one
