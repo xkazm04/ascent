@@ -8,22 +8,13 @@
 // pass read memory as truth, so Keep promotes through the same memory door a person's own write uses,
 // and Discard is soft. A settled row leaves the review queue for the settled archive.
 
-import { useState } from "react";
 import { InlineEmpty } from "@/components/org/shared/ui";
 import { DecisionTable, type DecisionAction, type DecisionColumn } from "@/components/org/shared/DecisionTable";
 import { timeAgo } from "@/lib/ui";
-import { settleLoopLesson } from "@/features/inflight/live/cockpit/loopClient";
 import type { LoopLessonRow } from "@/features/inflight/live/cockpit/loopTypes";
 import { LessonsFilterBar } from "./LessonsFilterBar";
-import {
-  applyLessonFilters,
-  emptyLessonFilters,
-  isPendingLesson,
-  lessonNamespace,
-  settledStatus,
-  type LessonAction,
-  type LessonFilters,
-} from "./lessonsModel";
+import { isPendingLesson, lessonNamespace } from "./lessonsModel";
+import { useLessonsView } from "./useLessonsView";
 
 const STATUS_CLASS: Record<string, string> = {
   pending: "border-divider text-slate-400",
@@ -32,28 +23,7 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 export function LessonsWorklist({ org, initial }: { org: string; initial: LoopLessonRow[] }) {
-  const [lessons, setLessons] = useState<LoopLessonRow[]>(initial);
-  const [filters, setFilters] = useState<LessonFilters>(emptyLessonFilters);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const shown = applyLessonFilters(lessons, filters);
-
-  // One POST per candidate, in order. A refusal leaves that row in the queue and says why — nothing
-  // was settled, so nothing may look settled.
-  const settle = async (rows: LoopLessonRow[], action: LessonAction) => {
-    setError(null);
-    for (const r of rows) {
-      setBusy(r.id);
-      try {
-        const updated = await settleLoopLesson(org, r.id, action);
-        setLessons((ls) => ls.map((l) => (l.id === r.id ? { ...l, ...updated, status: settledStatus(action) } : l)));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not settle that lesson.");
-      }
-    }
-    setBusy(null);
-  };
+  const { lessons, filters, setFilters, selected, setSelected, busy, error, shown, settle } = useLessonsView({ org, initial });
 
   const columns: DecisionColumn<LoopLessonRow>[] = [
     { key: "namespace", header: "Namespace", cell: (r) => <span className="whitespace-nowrap type-caption text-slate-400">{lessonNamespace(r)}</span> },

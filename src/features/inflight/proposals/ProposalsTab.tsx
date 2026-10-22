@@ -10,11 +10,7 @@
 // client-side), and the details of the recent loop runs — the same bounded read the Live tab makes,
 // done here in the server component rather than as N browser round trips.
 
-import Link from "next/link";
-import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { ScopeFilterBar } from "@/components/org/shared/ScopeFilterBar";
 import { PersonalBacklog } from "@/components/org/PersonalBacklog";
-import { LocalRescanButton } from "@/components/org/followups/LocalRescanButton";
 import { rowsFromBacklog } from "@/components/org/followups/followupsModel";
 import { getOrgBacklog, isPersonalOrg, listLocalPairings } from "@/lib/db";
 import { getLoopRunDetail, listLoopRuns } from "@/lib/db/loop-runs";
@@ -24,9 +20,10 @@ import { resolveViewerLogin } from "@/lib/access";
 import { VIEWER_FALLBACK } from "@/components/org/followups/claimActionsModel";
 import { selfHosted } from "@/lib/env";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
-import { orgTabHref } from "@/lib/org/orgTabs";
-import { ProposalsWorklist } from "./ProposalsWorklist";
+import { getTheme } from "@/lib/theme/server";
+import type { ProposalsTabData } from "./proposalsTabData";
+import { proposalsV1 } from "./ProposalsTab.v1";
+import { proposalsV2 } from "./ProposalsTab.v2";
 import { mergeProposals, pendingLoopProposals } from "./proposalsModel";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -50,7 +47,7 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
   const pairedRepos = selfHosted()
     ? (await listLocalPairings(slug).catch(() => [])).filter((r) => r.localPath != null).map((r) => r.fullName)
     : [];
-  const [backlog, details, canReview, login, admin] = await Promise.all([
+  const [backlog, details, canReview, login, admin, theme] = await Promise.all([
     getOrgBacklog(slug, segmentId, new Date(), techGroupId, { includeClosed: true }),
     recentRunDetails(slug),
     // The loop review gate is owner-only, as on the Live tab's sheet; the route re-checks it.
@@ -59,6 +56,7 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
     // re-checks both; this only decides which buttons draw.
     resolveViewerLogin(),
     hasOrgRole(slug, "admin"),
+    getTheme(),
   ]);
   const viewer = { login: login ?? VIEWER_FALLBACK, admin };
   const followups = backlog ? rowsFromBacklog(backlog) : [];
@@ -71,35 +69,16 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
   // `?dim=D3` — the deep link the Delivery/Tech-stack surfaces emit: seeds the Dimension filter.
   const initialDim = typeof sp.dim === "string" && /^D[1-9]$/.test(sp.dim) ? sp.dim : undefined;
 
-  return (
-    <div className="stagger-children space-y-5">
-      <SectionHeader
-        title="Proposals"
-        description="Every proposed change waiting on a decision, in one ledger."
-        right={
-          <span className="type-mono-sm text-slate-400">
-            <span className="tabular-nums text-slate-100">{active.length}</span> open ·{" "}
-            <span className="tabular-nums text-accent">{handedOff}</span> handed off ·{" "}
-            <span className="tabular-nums text-slate-100">{loop.length}</span> from the loop ·{" "}
-            <span className="tabular-nums text-white">+{points}</span> pts on the table
-          </span>
-        }
-      />
-      <ScopeFilterBar {...barProps} className="flex flex-wrap items-center justify-end gap-2" />
-      {pairedRepos.length > 0 && <LocalRescanButton org={slug} repos={pairedRepos} />}
-
-      {rows.length === 0 ? (
-        <SectionEmpty>No proposals yet. Scan some repositories and their gaps land here; so does a loop run&apos;s unreviewed work.</SectionEmpty>
-      ) : (
-        <ProposalsWorklist org={slug} rows={rows} initialDim={initialDim} canReview={canReview} viewer={viewer} />
-      )}
-      {/* A second route to the same stage's loop-lesson ledger; the next move below stays alone. */}
-      <nav aria-label="Related views" className="flex justify-end">
-        <Link href={orgTabHref(slug, "lessons")} className="focus-ring type-caption text-accent transition hover:text-white">
-          Loop lessons →
-        </Link>
-      </nav>
-      {rows.length > 0 && <NextMoveLink href={orgTabHref(slug, "live")} to="live" />}
-    </div>
-  );
+  const data: ProposalsTabData = {
+    slug,
+    rows,
+    barProps,
+    pairedRepos,
+    initialDim,
+    canReview,
+    viewer,
+    counts: { open: active.length, handedOff, loop: loop.length, points },
+  };
+  // THEME DUALITY: the theme picks the composition (ProposalsTab.v1.tsx Altimeter, ProposalsTab.v2.tsx Prism).
+  return theme === "prism" ? proposalsV2(data) : proposalsV1(data);
 }

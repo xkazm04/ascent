@@ -4,14 +4,17 @@
 //
 // SERVER component, filename PINNED as LessonsTab.tsx. One read — every candidate, any status — so
 // the settled archive is the same rows filtered client-side, never a second round trip.
+//
+// THEME DUALITY: the theme picks the composition (LessonsTab.v1.tsx Altimeter, LessonsTab.v2.tsx Prism).
 
-import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
+import { SectionEmpty } from "@/components/org/shared/ui";
 import { isPersonalOrg } from "@/lib/db";
 import { listLoopLessons } from "@/lib/db/loop-lessons";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
-import { orgTabHref } from "@/lib/org/orgTabs";
-import { LessonsWorklist } from "./LessonsWorklist";
+import { getTheme } from "@/lib/theme/server";
+import { lessonsV1 } from "./LessonsTab.v1";
+import { lessonsV2 } from "./LessonsTab.v2";
 import { lessonCounts } from "./lessonsModel";
+import type { LessonsTabData } from "./lessonsTabData";
 
 export async function LessonsTab({ slug }: { slug: string }) {
   // A personal workspace runs no loop, so it has no candidates; the rail hides the tab, this is the
@@ -19,27 +22,7 @@ export async function LessonsTab({ slug }: { slug: string }) {
   if (await isPersonalOrg(slug)) {
     return <SectionEmpty>Lesson candidates come from loop runs over an organization&apos;s fleet.</SectionEmpty>;
   }
-  const lessons = await listLoopLessons(slug, undefined, 200);
-  const c = lessonCounts(lessons);
-
-  return (
-    <div className="stagger-children space-y-5">
-      <SectionHeader
-        title="Lessons"
-        description="What the loop's agents say this fleet taught them, held for a decision."
-        right={
-          <span className="type-mono-sm text-slate-400">
-            <span className="tabular-nums text-slate-100">{c.pending}</span> awaiting review ·{" "}
-            <span className="tabular-nums text-accent">{c.kept}</span> kept · <span className="tabular-nums">{c.discarded}</span> discarded
-          </span>
-        }
-      />
-      {lessons.length === 0 ? (
-        <SectionEmpty>No lesson candidates yet. When a loop run&apos;s agent reports something a repository taught it, it lands here for review.</SectionEmpty>
-      ) : (
-        <LessonsWorklist org={slug} initial={lessons} />
-      )}
-      {lessons.length > 0 && <NextMoveLink href={orgTabHref(slug, "live")} to="live" />}
-    </div>
-  );
+  const [lessons, theme] = await Promise.all([listLoopLessons(slug, undefined, 200), getTheme()]);
+  const data: LessonsTabData = { slug, lessons, counts: lessonCounts(lessons) };
+  return theme === "prism" ? lessonsV2(data) : lessonsV1(data);
 }

@@ -1,37 +1,20 @@
 "use client";
 
-// The Proposals ledger — the Follow-ups worklist's shape (filter, tick a batch, act from a sticky bar,
-// expand a row in place), now over BOTH sources of proposed work (proposalsModel.ts) and drawn by the
-// shared DecisionTable. The batch actions are source-aware and only offered when the selection holds
-// rows they apply to:
-//
-//   Dismiss N           — either source (a follow-up PATCH, or the loop review's `dismissed`)
-//   Resolve N           — scan follow-ups only, by hand
-//   Approve N           — loop proposals only (the loop review's `approved`)
-//   Generate fix prompt — scan follow-ups only; hands the batch to a local agent
-//   Take over N / Send back N - held scan follow-ups, per the claim table (claimBatchActions.ts)
+// The Proposals ledger (Altimeter composition) — the Follow-ups worklist's shape (filter, tick a batch, act
+// from a sticky bar, expand a row in place) over BOTH sources of proposed work (proposalsModel.ts), drawn by
+// the shared DecisionTable. State and the source-aware batch actions live in useProposalsView, which the
+// Prism composition (ProposalsWorklist.v2.tsx) calls too.
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { SectionEmpty } from "@/components/org/shared/ui";
-import { DecisionTable, type DecisionAction } from "@/components/org/shared/DecisionTable";
+import { DecisionTable } from "@/components/org/shared/DecisionTable";
 import { FilterMenu } from "@/components/kit";
 import { FollowupsFilterBar } from "@/components/org/followups/FollowupsFilterBar";
 import { FollowupsPromptModal } from "@/components/org/followups/FollowupsPromptModal";
-import { dimensionSpread, emptyFilters, isSelectable, patchStatuses, type FollowUpFilters, type FollowUpRow } from "@/components/org/followups/followupsModel";
+import { isSelectable } from "@/components/org/followups/followupsModel";
 import type { ClaimViewer } from "@/components/org/followups/claimActionsModel";
-import { reviewLoopDeliverable } from "@/features/inflight/live/cockpit/loopClient";
-import { claimBatchActions } from "./claimBatchActions";
 import { ProposalDetail } from "./ProposalDetail";
-import { proposalColumns } from "./ProposalColumns";
-import {
-  SOURCE_LABEL,
-  applyProposalFilters,
-  isLoopProposal,
-  isScanProposal,
-  type LoopProposal,
-  type ProposalRow,
-} from "./proposalsModel";
+import { SOURCE_LABEL, isScanProposal, type ProposalRow } from "./proposalsModel";
+import { useProposalsView } from "./useProposalsView";
 
 const SOURCE_OPTIONS = (["loop", "scan"] as const).map((v) => ({ value: v, label: SOURCE_LABEL[v] }));
 
@@ -69,105 +52,35 @@ export function ProposalsWorklist({
   /** Who is looking, for the claim verbs: login and admin role, resolved server-side. */
   viewer: ClaimViewer;
 }) {
-  const router = useRouter();
-  const [filters, setFilters] = useState<FollowUpFilters>(() => ({ ...emptyFilters(), dims: new Set(initialDim ? [initialDim] : []) }));
-  const [sources, setSources] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [promptFor, setPromptFor] = useState<FollowUpRow[] | null>(null);
-
-  const scanRows = useMemo(() => rows.filter(isScanProposal), [rows]);
-  const spread = useMemo(() => dimensionSpread(scanRows), [scanRows]);
-  const columns = useMemo(() => proposalColumns(org, spread), [org, spread]);
-  const shown = applyProposalFilters(rows, filters, sources, spread);
-  const orgWideDims = [...spread.values()].filter((s) => s.orgWide).length;
-
-  const review = async (picked: LoopProposal[], verdict: "approved" | "dismissed") => {
-    for (const r of picked) await reviewLoopDeliverable(org, r.laneId, r.cover, verdict);
-  };
-  const actions: DecisionAction<ProposalRow>[] = [
-    {
-      key: "dismiss",
-      label: "Dismiss",
-      busyLabel: "Dismissing…",
-      tone: "neutral",
-      run: async (picked) => {
-        await patchStatuses(picked.filter(isScanProposal).map((r) => r.id), "dismissed");
-        await review(picked.filter(isLoopProposal), "dismissed");
-        router.refresh();
-      },
-    },
-    {
-      key: "resolve",
-      label: "Resolve",
-      busyLabel: "Resolving…",
-      tone: "positive",
-      appliesTo: isScanProposal,
-      run: async (picked) => {
-        await patchStatuses(picked.filter(isScanProposal).map((r) => r.id), "done");
-        router.refresh();
-      },
-    },
-    {
-      key: "approve",
-      label: "Approve",
-      busyLabel: "Approving…",
-      tone: "positive",
-      appliesTo: isLoopProposal,
-      run: async (picked) => {
-        await review(picked.filter(isLoopProposal), "approved");
-        router.refresh();
-      },
-    },
-    {
-      key: "prompt",
-      label: "Generate fix prompt →",
-      busyLabel: "Generating…",
-      tone: "primary",
-      countless: true,
-      appliesTo: isScanProposal,
-      run: (picked) => {
-        setPromptFor(picked.filter(isScanProposal));
-        return false; // the modal settles the batch; the selection stays until it does
-      },
-    },
-    ...claimBatchActions({ org, viewer, onDone: () => router.refresh() }),
-  ];
-
-  const toggleSource = (v: string) =>
-    setSources((s) => {
-      const next = new Set(s);
-      if (next.has(v)) next.delete(v);
-      else next.add(v);
-      return next;
-    });
+  const v = useProposalsView({ org, rows, initialDim, viewer });
 
   return (
     // data-tour: the getting-started `gap-engaged` step spotlights this ledger — engaging with a gap
     // IS resolving, dismissing or handing off a row here.
     <div data-tour="backlog-recs" className="space-y-4">
-      <FollowupsFilterBar rows={rows} filters={filters} onChange={setFilters} shown={shown.length} orgWideDims={orgWideDims}>
-        <FilterMenu label="Source" options={SOURCE_OPTIONS} selected={sources} onToggle={toggleSource} onClear={() => setSources(new Set())} />
+      <FollowupsFilterBar rows={rows} filters={v.filters} onChange={v.setFilters} shown={v.shown.length} orgWideDims={v.orgWideDims}>
+        <FilterMenu label="Source" options={SOURCE_OPTIONS} selected={v.sources} onToggle={v.toggleSource} onClear={v.clearSources} />
       </FollowupsFilterBar>
 
       <DecisionTable
         caption="Proposals ledger"
-        rows={shown}
+        rows={v.shown}
         allRows={rows}
         rowId={(r) => r.id}
         rowLabel={(r) => r.title}
-        columns={columns}
-        selected={selected}
-        onSelectedChange={setSelected}
+        columns={v.columns}
+        selected={v.selected}
+        onSelectedChange={v.setSelected}
         isSelectable={(r) => (r.source === "scan" ? isSelectable(r) : canReview)}
         isMuted={(r) => r.source === "scan" && !isSelectable(r)}
         renderDetail={(r) => <ProposalDetail org={org} row={r} canReview={canReview} viewer={viewer} />}
         summary={(picked) => <Summary picked={picked} />}
-        actions={actions}
+        actions={v.actions}
         minWidth={880}
         empty={<SectionEmpty>Nothing matches. Widen the filters, or switch to the resolved archive.</SectionEmpty>}
       />
 
-      <FollowupsPromptModal org={org} viewer={viewer} items={promptFor} onClose={() => setPromptFor(null)} onHandedOff={() => setSelected(new Set())} />
+      <FollowupsPromptModal org={org} viewer={viewer} items={v.promptFor} onClose={() => v.setPromptFor(null)} onHandedOff={() => v.setSelected(new Set())} />
     </div>
   );
 }
