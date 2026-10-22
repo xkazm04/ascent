@@ -3345,7 +3345,15 @@
             "src/lib/history/repoHistoryAccess.ts",
             "src/lib/history/repoHistoryAccess.test.ts",
             "src/lib/history/repoHistoryNotice.ts",
-            "src/app/api/history/route.access.test.ts"
+            "src/app/api/history/route.access.test.ts",
+            "src/app/trends/trendPairModel.ts",
+            "src/app/trends/trendPairModel.test.ts",
+            "src/app/trends/TimelineAnnotations.pair.dom.test.tsx",
+            "src/components/report/TrendChart.Annotations.tsx",
+            "src/components/report/TrendChart.pick.dom.test.tsx",
+            "src/components/report/DimensionTrendsGrid.tsx",
+            "src/components/report/DimensionTrendsCompareBar.tsx",
+            "src/components/report/DimensionTrends.compare.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
