@@ -10,7 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { requireSameOrigin } from "@/lib/auth";
-import { requireOrgRole } from "@/lib/authz";
+import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 
 /**
  * Run the owner-gated same-origin preamble for an org POST. Returns the parsed `{ org, body }` on
@@ -35,7 +35,9 @@ export async function requireOrgOwnerPost<T = unknown>(
   if (!body.org) {
     return NextResponse.json({ error: opts?.missingOrgError ?? "Provide { org }." }, { status: 400 });
   }
-  const denied = await requireOrgRole(body.org, "owner");
+  // requireOrgAdmin's composition, spelled out so route tests that mock @/lib/authz with only these two
+  // exports keep working: the shared public org has no owner, so no caller of this preamble acts on it.
+  const denied = refusePublicOrgAdmin(body.org) ?? (await requireOrgRole(body.org, "owner"));
   if (denied) return denied;
   return { org: body.org, body };
 }

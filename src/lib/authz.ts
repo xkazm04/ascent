@@ -290,8 +290,9 @@ export async function hasOrgRole(org: string, min: OrgRole): Promise<boolean> {
  * public org's data, settings, membership or credentials; such a route must also call
  * {@link refusePublicOrgAdmin}, as erase, retention, llm-provider, members, invites, credits/grant
  * and tokens do. The open default is deliberate and unchanged, because hasOrgRole callers (the report
- * permalink, the executive tab) read it on public orgs. Other owner/admin routes that still rely on
- * this gate alone for public are listed in docs/security/scan-2026-10-07.md.
+ * permalink, the executive tab) read it on public orgs. For an owner/admin WRITE call
+ * {@link requireOrgAdmin} instead, which adds the refusal; src/app/api/org/admin-routes-refuse-public.test.ts
+ * fails any owner/admin route that calls this gate with no public refusal in its code.
  *
  * Use for owner/admin-only actions: billing/credit grants, member admin, destructive deletes. For
  * "any member may act" use requireOrgAccess; for reads use requireOrgRead.
@@ -353,4 +354,16 @@ export function refusePublicOrgAdmin(org: string): NextResponse | null {
     { error: "The shared public org has no owner, so its data, settings and members can't be changed here." },
     { status: 403 },
   );
+}
+
+/**
+ * THE door for owner/admin writes: {@link refusePublicOrgAdmin} first, then {@link requireOrgRole}.
+ * On every org but PUBLIC_ORG it answers exactly what requireOrgRole answers; on PUBLIC_ORG it answers
+ * the refusal's 403 on every deployment, auth-off included (the public org has no owner anywhere).
+ *
+ * requireOrgRole stays open on public for the hasOrgRole READ callers (ADR 2026-10-07); a route that
+ * destroys or rewrites org data, settings, membership or credentials calls this instead.
+ */
+export async function requireOrgAdmin(org: string, min: "admin" | "owner"): Promise<NextResponse | null> {
+  return refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, min));
 }

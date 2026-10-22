@@ -39,7 +39,7 @@ vi.mock("@/lib/db/practice-adoption", () => ({
 vi.mock("@/lib/practices/apply", () => ({ applyPracticeToRepo: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => false }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: () => false, resolveViewerLogin: vi.fn(async () => "alice") }));
-vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null), requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => { const requireOrgRole = vi.fn(async () => null); return { requireOrgAccess: vi.fn(async () => null), requireOrgRole, requireOrgAdmin: requireOrgRole }; });
 vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
 
 import { POST } from "./route";

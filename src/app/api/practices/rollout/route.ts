@@ -26,7 +26,7 @@ import { getOrgId, recordAudit } from "@/lib/db";
 import { listBehindRepos, listDriftedRepos } from "@/lib/db/practice-adoption";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgAccess, requireOrgRole } from "@/lib/authz";
+import { requireOrgAccess, requireOrgAdmin } from "@/lib/authz";
 import { classifyPrWriteError, MINT_FAILED, requirePrWriteTarget, type PrWriteCoordinate } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import type { BatchResult } from "@/features/shared/practices/practiceApplyShared";
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
 
   // GATE FIRST, then constrain every query by the gated org. This pushes into customer repos, so the
   // floor is `admin` — identical to apply-batch, and deliberately above the member gate the GET uses.
-  const denied = await requireOrgRole(org, "admin");
+  const denied = await requireOrgAdmin(org, "admin");
   if (denied) return denied;
 
   const parsed = body.repos

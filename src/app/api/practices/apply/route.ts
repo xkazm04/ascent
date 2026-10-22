@@ -12,7 +12,7 @@ import { AppApiError, isAppConfigured } from "@/lib/github/app";
 import { getOrgId } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgRole } from "@/lib/authz";
+import { requireOrgAdmin } from "@/lib/authz";
 import { mapPrWriteError, MINT_FAILED, requirePrWriteTarget, type PrWriteTarget } from "@/lib/github/pr-route";
 
 export const runtime = "nodejs";
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
   // Tenant gate: this opens a PR (a WRITE) using the org's installation token, so require the caller
   // to hold at least the "admin" role in that org — not merely be a member. This has the same blast
   // radius as other org-wide mutations (segment delete, credit grants), which already require admin.
-  const denied = await requireOrgRole(org, "admin");
+  const denied = await requireOrgAdmin(org, "admin");
   if (denied) return denied;
 
   try {

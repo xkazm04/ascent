@@ -22,7 +22,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { resolveViewerLogin } from "@/lib/access";
-import { requireOrgRole } from "@/lib/authz";
+import { requireOrgAdmin } from "@/lib/authz";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { getRepoLocalPath } from "@/lib/db";
 import { getOrgId } from "@/lib/db/org-rollup";
@@ -106,7 +106,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   } else {
     const guard = selfHostGuard();
     if (guard) return guard;
-    const denied = await requireOrgRole(slug, "owner");
+    const denied = await requireOrgAdmin(slug, "owner");
     if (denied) return denied;
     if (!autopilotEnabled()) {
       return localRefusal("autopilot-off", "Autopilot is not enabled on this deployment — set ASCENT_AUTOPILOT=1 with the claude CLI on PATH.");

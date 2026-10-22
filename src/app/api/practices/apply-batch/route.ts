@@ -14,7 +14,7 @@ import { AppApiError, isAppConfigured } from "@/lib/github/app";
 import { getOrgId } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgRole } from "@/lib/authz";
+import { requireOrgAdmin } from "@/lib/authz";
 import { classifyPrWriteError, MINT_FAILED, requirePrWriteTarget, type PrWriteBatchCoordinate } from "@/lib/github/pr-route";
 import { mapPool, SCAN_CONCURRENCY } from "@/lib/pool";
 import type { BatchResult } from "@/features/shared/practices/practiceApplyShared";
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
   // Tenant gate: this opens PRs (WRITES) with the org's installation token — require at least the
   // "admin" role, matching other org-wide mutations of comparable blast radius (segment delete,
   // credit grants), not merely "member".
-  const denied = await requireOrgRole(org, "admin");
+  const denied = await requireOrgAdmin(org, "admin");
   if (denied) return denied;
 
   // Dedupe before the cap: the API is a public surface (the UI sends from a Set, but a raw caller

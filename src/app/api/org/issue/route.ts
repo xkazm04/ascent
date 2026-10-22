@@ -17,7 +17,7 @@ import { AppApiError, getInstallationToken, isAppConfigured } from "@/lib/github
 import { getInstallationIdForOwner, getOrgId, isDbConfigured, recordAudit } from "@/lib/db";
 import { isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
-import { requireOrgRole } from "@/lib/authz";
+import { requireOrgAdmin } from "@/lib/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
   // other customer-repo writers hold: /api/report/passport/pr and the foundation PR writer). Resolve
   // the org first, gate it, and pass the SAME normalized owner into the installation lookup and the
   // write below, so a mismatched repo coordinate cannot be written through another org's token.
-  const denied = await requireOrgRole(parsed.owner, "admin");
+  const denied = await requireOrgAdmin(parsed.owner, "admin");
   if (denied) return denied;
 
   const installId = isDbConfigured() ? await getInstallationIdForOwner(parsed.owner).catch(() => null) : null;

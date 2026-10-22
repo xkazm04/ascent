@@ -84,6 +84,7 @@ import {
   openOrgDashboardsEnabled,
   refusePublicOrgAdmin,
   requireOrgAccess,
+  requireOrgAdmin,
   requireOrgRead,
   requireOrgRole,
   sessionHasInstallation,
@@ -504,5 +505,42 @@ describe("refusePublicOrgAdmin (2026-10-07: nobody may administer the shared pub
     mockGetViewer.mockResolvedValue({ id: "v", login: "stranger" });
     mockGetMembershipRole.mockResolvedValue(null);
     expect(await requireOrgRole("public", "owner")).toBeNull();
+  });
+});
+
+describe("requireOrgAdmin (the one door for owner/admin writes)", () => {
+  const refusalBody = async () => (await refusePublicOrgAdmin("public")!.json()) as unknown;
+
+  it.each([
+    ["public", "owner"],
+    [" Public ", "admin"],
+  ] as const)("refuses %j at %s with the refusePublicOrgAdmin 403, auth-off included", async (org, min) => {
+    // Auth fully off (the beforeEach default): requireOrgRole alone would answer null here.
+    const res = await requireOrgAdmin(org, min);
+    expect(res?.status).toBe(403);
+    expect(await res!.json()).toEqual(await refusalBody());
+  });
+
+  it("refuses public under the wall too, where requireOrgRole alone admits any signed-in viewer", async () => {
+    mockAuthGateEnabled.mockReturnValue(true);
+    mockGetViewer.mockResolvedValue({ id: "v", login: "stranger" });
+    expect(await requireOrgRole("public", "owner")).toBeNull();
+    expect((await requireOrgAdmin("public", "owner"))?.status).toBe(403);
+  });
+
+  // GUARD (green-before by design once the export exists): the door adds only the public refusal.
+  it("on a real org answers exactly what requireOrgRole answers (owner passes, member is refused)", async () => {
+    mockAuthGateEnabled.mockReturnValue(true);
+    mockGetViewer.mockResolvedValue({ id: "v", login: "alice" });
+    mockOrgHasOwner.mockResolvedValue(true);
+    mockGetMembershipRole.mockResolvedValue("owner");
+    expect(await requireOrgAdmin("acme", "owner")).toBeNull();
+    expect(await requireOrgRole("acme", "owner")).toBeNull();
+    mockGetMembershipRole.mockResolvedValue("member");
+    const door = await requireOrgAdmin("acme", "owner");
+    const role = await requireOrgRole("acme", "owner");
+    expect(door?.status).toBe(403);
+    expect(door?.status).toBe(role?.status);
+    expect(await door!.json()).toEqual(await role!.json());
   });
 });

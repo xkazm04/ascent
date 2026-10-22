@@ -29,7 +29,7 @@
 // half survived.
 
 import { NextResponse } from "next/server";
-import { requireOrgRole } from "@/lib/authz";
+import { requireOrgAdmin } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { selfHostGuard } from "@/lib/api/self-host";
 import { parseRepoUrl } from "@/lib/github/source";
@@ -74,7 +74,7 @@ async function gate(requestedOrg?: unknown) {
     };
   }
 
-  const roleDenied = await requireOrgRole(org.slug, "owner");
+  const roleDenied = await requireOrgAdmin(org.slug, "owner");
   if (roleDenied) return { denied: roleDenied };
   return { org };
 }

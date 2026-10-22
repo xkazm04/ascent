@@ -23,12 +23,16 @@ vi.mock("@/lib/db", () => ({
   getInstallationIdForOwner: vi.fn(),
 }));
 vi.mock("@/lib/db/org-admission", () => ({ listOrgAdmissions: vi.fn(async () => []) }));
-vi.mock("@/lib/authz", () => ({
-  requireOrgRole: vi.fn(async () => null),
-  refusePublicOrgAdmin: vi.fn((org: string) =>
-    org.toLowerCase() === "public" ? Response.json({ error: "The shared public org has no owner." }, { status: 403 }) : null,
-  ),
-}));
+// A NextResponse (the real helper returns one), so requireOrgOwnerPost's refusal passes the route's instanceof check.
+vi.mock("@/lib/authz", async () => {
+  const { NextResponse } = await import("next/server");
+  return {
+    requireOrgRole: vi.fn(async () => null),
+    refusePublicOrgAdmin: vi.fn((org: string) =>
+      org.toLowerCase() === "public" ? NextResponse.json({ error: "The shared public org has no owner." }, { status: 403 }) : null,
+    ),
+  };
+});
 vi.mock("@/lib/auth", () => ({ requireSameOrigin: vi.fn(() => null) }));
 
 import { POST } from "./route";

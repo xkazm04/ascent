@@ -60,7 +60,7 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: () => true,
 }));
 
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => { const requireOrgRole = vi.fn(async () => null); return { requireOrgRole, requireOrgAdmin: requireOrgRole }; });
 
 import { POST } from "./route";
 import { createRepoIssue } from "@/lib/github/issues";

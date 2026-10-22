@@ -90,7 +90,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/db/org-admission", () => ({ orgTracksRepo: vi.fn(async () => false) }));
 
-vi.mock("@/lib/authz", () => ({ requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => { const requireOrgRole = vi.fn(async () => null); return { requireOrgRole, requireOrgAdmin: requireOrgRole }; });
 
 import { POST } from "./route";
 import { artifactFingerprint } from "@/lib/practices/fingerprint";

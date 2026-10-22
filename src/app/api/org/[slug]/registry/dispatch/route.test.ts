@@ -50,7 +50,7 @@ vi.mock("@/lib/registry/api", async (importOriginal) => {
     },
   };
 });
-vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole }));
+vi.mock("@/lib/authz", () => ({ requireOrgRole: h.requireOrgRole, requireOrgAdmin: h.requireOrgRole }));
 vi.mock("@/lib/api/self-host", () => ({ selfHostGuard: h.selfHost }));
 vi.mock("@/lib/local/agent", () => ({ autopilotEnabled: h.autopilot }));
 vi.mock("@/lib/db", () => ({ getRepoLocalPath: h.localPath }));

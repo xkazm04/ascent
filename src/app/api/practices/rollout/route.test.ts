@@ -37,7 +37,7 @@ vi.mock("@/lib/practices/apply", () => ({
 }));
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => true }));
 vi.mock("@/lib/access", () => ({ authGateEnabled: () => true, resolveViewerLogin: vi.fn(async () => "alice") }));
-vi.mock("@/lib/authz", () => ({ requireOrgAccess: vi.fn(async () => null), requireOrgRole: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => { const requireOrgRole = vi.fn(async () => null); return { requireOrgAccess: vi.fn(async () => null), requireOrgRole, requireOrgAdmin: requireOrgRole }; });
 
 import { POST } from "./route";
 import { getInstallationIdForOwner } from "@/lib/db";
