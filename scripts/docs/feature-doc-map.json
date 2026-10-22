@@ -374,7 +374,8 @@
         "src/lib/outcomes/**",
         "src/lib/db/outcomes.ts",
         "src/lib/corpus/**",
-        "src/lib/db/repo-deployments.ts"
+        "src/lib/db/repo-deployments.ts",
+        "src/lib/history/**"
       ]
     },
     {

@@ -3341,7 +3341,11 @@
             "src/components/report/WhatChanged.dom.test.tsx",
             "src/lib/report/exemplar-load.test.ts",
             "src/lib/report/exemplar.test.ts",
-            "src/lib/report/recommendation-identity.ts"
+            "src/lib/report/recommendation-identity.ts",
+            "src/lib/history/repoHistoryAccess.ts",
+            "src/lib/history/repoHistoryAccess.test.ts",
+            "src/lib/history/repoHistoryNotice.ts",
+            "src/app/api/history/route.access.test.ts"
           ],
           "target": null,
           "apiRoutes": [

@@ -493,6 +493,23 @@ for every other caller is unchanged) and catch `DbUnavailableError`: an unreacha
 "Scan history is unavailable right now … try again", never "No scans recorded yet" and never a 500. A repo
 that truly has no scans still gets "No scans recorded yet". Any other error propagates.
 
+**One read ladder for all three surfaces.** `/trends`, `/report/compare` and `/api/history` walk the same
+decision, `resolveRepoHistoryAccess` (`src/lib/history/repoHistoryAccess.ts`): repo present, repo parses,
+database configured, readable org, plan window, strict read (db-down matched by code), and, when the
+windowed read is empty, a one-row unwindowed probe. It is io-free (each surface injects its own read and
+probe) and returns one state: `missing-repo`, `invalid-repo`, `no-db`, `db-down`, `outside-window`,
+`empty` or `ok`. The pages turn a non-ok state into a notice through `repoHistoryNotice`
+(`repoHistoryNotice.ts`), one copy for both pages where only the surface noun differs; the API maps it to a
+status code (missing/invalid 400, no database 503, unreachable 500, outside the window 200 empty with
+`x-ascent-history-hidden: window`, ok 200 with its ETag). The sign-in gate is not part of the ladder: each
+surface keeps its own and walks the ladder after it, so who can read what is unchanged.
+
+- **One depth.** Trends and Compare both read `HISTORY_SCAN_CAP` (200) scans. Compare used to read 60, so
+  a scan the trends chart plotted past the 60th could not be opened as `?a=` / `?b=` on Compare and fell
+  back to the default pair with the "no longer in the comparison window" notice.
+- **A compare link survives sign-in.** The sign-in prompt's `next` (`historyReturnPath`) keeps `repo`,
+  `a`, `b` and `against`; it used to keep only `repo`, so a shared pair link landed on the default pair.
+
 - `GET /api/history?repo=owner/repo` → `RepositoryHistory` (repo + `HistoryPoint[]`).
   Requires `DATABASE_URL` (503 otherwise); org-scoped and session-gated when auth is on.
 - `DimensionTrends` (`src/components/report/DimensionTrends.tsx`) fetches history and
@@ -529,9 +546,10 @@ per-repo history surfaces now do too. **One helper decides it** (`resolveHistory
 query is today's. Set, the scan read gains `scannedAt >= since` and the compacted tail drops every period
 that ended before it. `/trends` and `/report/compare` print one line (*"Showing the last 30 days: the
 Free plan's history window."*); a `?a`/`?b` id older than the window falls back like an id beyond the
-60-scan window. If the clamped series is empty but older scans exist the page says the scans fall outside
+200-scan depth. If the clamped series is empty but older scans exist the page says the scans fall outside
 the plan's window instead of "No scans recorded yet". `/api/history` (JSON and CSV) returns the window start
-in `x-ascent-history-since`; the CSV keeps its columns and its file name gains `-last<N>d`; the ETag carries
+in `x-ascent-history-since`, and when the window hides every scan that exists it answers the empty series with
+`x-ascent-history-hidden: window` (its ETag differs from a truly empty answer); the CSV keeps its columns and its file name gains `-last<N>d`; the ETag carries
 the window length, so two windows over the same scans never share a validator.
 
 ### What a read costs
@@ -548,9 +566,9 @@ window, a scan ceiling is `min(cap, scans in the window)`.
 | `/trends` first paint | window 1, org id 1, repo 1, scans 1 (no dimension join), compacted tail 1 (only when the scans do not fill the limit), deployments 2 | scans `min(200, in window)`; digests `200 − scans`; deployments 500 |
 | `/api/history` JSON | window 1, org id 1, repo 1, scans 1 plus the dimension relation load 1, tail 1 only with `?compacted=1` | scans `min(limit ≤ 200, default 30, in window)`; dimension rows ≤ 9 × scans |
 | CSV export | as the JSON, at `limit` 200, with `compacted=1` from the button | scans `min(200, in window)`; dimension rows ≤ 1800; digests `200 − scans` |
-| one `/report/compare` render | window 1, org id 1, repo 1, scans 1 plus dimensions 1, two full scan loads (about 2 each, with dimensions and recommendations), exemplar picker (below) | scans `min(60, in window)`; 2 full scans |
+| one `/report/compare` render | window 1, org id 1, repo 1, scans 1 plus dimensions 1, two full scan loads (about 2 each, with dimensions and recommendations), exemplar picker (below) | scans `min(200, in window)`; dimension rows ≤ 9 × scans; 2 full scans |
 
-When the window hides every scan, `/trends` and Compare make one extra single-row read to tell "outside the
+When the window hides every scan, `/trends`, Compare and `/api/history` make one extra single-row read to tell "outside the
 window" from "never scanned".
 
 **The heaviest read is the compare page's exemplar picker, unchanged by the window:**
