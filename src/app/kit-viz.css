@@ -1,32 +1,32 @@
-/* ── Kit viz and promoted parts, Prism expression (phase 2 of retiring Altimeter, 2026-10-22) ─────────
+/* ── Kit viz and promoted parts ─────────────────────────────────────────────────────────────────────
    The chart components (ScoreRing, AltimeterGauge, RadarChart, StackRadarChart, MatrixGrid heat cells,
    LevelBadge) paint with inline SVG attributes (scoreHex, LEVEL_HEX), so tokens cannot reach them. They
-   carry data-kit / data-role hooks and the rules below override the presentation attributes in Prism
-   only; Altimeter keeps the attributes untouched. Language: lightness carries level and score (paper
-   ramp), hue is spent only where it names a dimension (--spec-N), mono is evidence only. Unlayered, so
-   it beats the Tailwind utilities the components still carry. Sibling of kit.css (split to stay readable). */
+   carry data-kit / data-role hooks and the rules below override the presentation attributes. Language:
+   lightness carries level and score (paper ramp), hue is spent only where it names a dimension
+   (--spec-N), mono is evidence only. Unlayered, so it beats the Tailwind utilities the components still
+   carry. Sibling of kit.css (split to stay readable). */
 
 /* `data-dimension="N"` (1..9) gives any element its dimension's hue as --dim-hue. */
-html[data-theme="prism"] [data-dimension="1"] { --dim-hue: var(--spec-1); }
-html[data-theme="prism"] [data-dimension="2"] { --dim-hue: var(--spec-2); }
-html[data-theme="prism"] [data-dimension="3"] { --dim-hue: var(--spec-3); }
-html[data-theme="prism"] [data-dimension="4"] { --dim-hue: var(--spec-4); }
-html[data-theme="prism"] [data-dimension="5"] { --dim-hue: var(--spec-5); }
-html[data-theme="prism"] [data-dimension="6"] { --dim-hue: var(--spec-6); }
-html[data-theme="prism"] [data-dimension="7"] { --dim-hue: var(--spec-7); }
-html[data-theme="prism"] [data-dimension="8"] { --dim-hue: var(--spec-8); }
-html[data-theme="prism"] [data-dimension="9"] { --dim-hue: var(--spec-9); }
+html:root [data-dimension="1"] { --dim-hue: var(--spec-1); }
+html:root [data-dimension="2"] { --dim-hue: var(--spec-2); }
+html:root [data-dimension="3"] { --dim-hue: var(--spec-3); }
+html:root [data-dimension="4"] { --dim-hue: var(--spec-4); }
+html:root [data-dimension="5"] { --dim-hue: var(--spec-5); }
+html:root [data-dimension="6"] { --dim-hue: var(--spec-6); }
+html:root [data-dimension="7"] { --dim-hue: var(--spec-7); }
+html:root [data-dimension="8"] { --dim-hue: var(--spec-8); }
+html:root [data-dimension="9"] { --dim-hue: var(--spec-9); }
 
 /* Score ring: a paper arc on a hairline track; the level is a glyph and a word in a lightness, not a hue. */
-html[data-theme="prism"] [data-kit="score-ring"] [data-role="ring-track"] { stroke: var(--hair); }
-html[data-theme="prism"] [data-kit="score-ring"] [data-role="ring-arc"] { stroke: var(--color-white); stroke-linecap: butt; }
-html[data-theme="prism"] [data-kit="score-ring"] [data-role="ring-score"] {
+html:root [data-kit="score-ring"] [data-role="ring-track"] { stroke: var(--hair); }
+html:root [data-kit="score-ring"] [data-role="ring-arc"] { stroke: var(--color-white); stroke-linecap: butt; }
+html:root [data-kit="score-ring"] [data-role="ring-score"] {
   fill: var(--color-white);
   font-family: var(--font-display);
   font-weight: 300;
   letter-spacing: -0.03em;
 }
-html[data-theme="prism"] [data-kit="score-ring"] [data-role="ring-level"] {
+html:root [data-kit="score-ring"] [data-role="ring-level"] {
   fill: var(--color-slate-300);
   font-family: var(--font-sans);
   font-weight: 400;
@@ -35,36 +35,36 @@ html[data-theme="prism"] [data-kit="score-ring"] [data-role="ring-level"] {
 
 /* Elevation gauge: strata are paper washes, each rope takes its DIMENSION's hue (the one place hue names
    something here), score numerals are the figure role, labels are sans. */
-html[data-theme="prism"] [data-kit="altimeter-gauge"] text {
+html:root [data-kit="altimeter-gauge"] text {
   font-family: var(--font-sans);
   text-transform: none;
   letter-spacing: 0.01em;
 }
-html[data-theme="prism"] [data-kit="altimeter-gauge"] [data-role="gauge-stratum"] { fill: var(--color-white); }
-html[data-theme="prism"] [data-kit="altimeter-gauge"] > g:not([data-dimension]) > text { fill: var(--color-slate-400); }
-html[data-theme="prism"] [data-kit="altimeter-gauge"] [data-role="gauge-rope"] { stroke: var(--dim-hue, var(--color-slate-300)); }
-html[data-theme="prism"] [data-kit="altimeter-gauge"] [data-role="gauge-marker"] { fill: var(--dim-hue, var(--color-slate-300)); }
-html[data-theme="prism"] [data-kit="altimeter-gauge"] [data-role="gauge-score"] {
+html:root [data-kit="altimeter-gauge"] [data-role="gauge-stratum"] { fill: var(--color-white); }
+html:root [data-kit="altimeter-gauge"] > g:not([data-dimension]) > text { fill: var(--color-slate-400); }
+html:root [data-kit="altimeter-gauge"] [data-role="gauge-rope"] { stroke: var(--dim-hue, var(--color-slate-300)); }
+html:root [data-kit="altimeter-gauge"] [data-role="gauge-marker"] { fill: var(--dim-hue, var(--color-slate-300)); }
+html:root [data-kit="altimeter-gauge"] [data-role="gauge-score"] {
   fill: var(--color-white);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 
 /* Radar: one paper profile; each axis is ruled in its dimension's hue at half strength; labels are sans. */
-html[data-theme="prism"] [data-kit="radar"] text { font-family: var(--font-sans); letter-spacing: 0.01em; }
-html[data-theme="prism"] [data-kit="radar"] [data-role="radar-axis"] { stroke: var(--dim-hue, var(--hair)); stroke-opacity: 0.5; }
-html[data-theme="prism"] [data-kit="radar"] [data-role="radar-shape"] { fill-opacity: 0.12; stroke-width: 1.5; stroke-linejoin: round; }
-html[data-theme="prism"] [data-kit="stack-radar"] text { font-family: var(--font-sans); letter-spacing: 0.01em; fill: var(--color-slate-400); }
-html[data-theme="prism"] [data-kit="stack-radar"] .stroke-divider { stroke: var(--hair); }
+html:root [data-kit="radar"] text { font-family: var(--font-sans); letter-spacing: 0.01em; }
+html:root [data-kit="radar"] [data-role="radar-axis"] { stroke: var(--dim-hue, var(--hair)); stroke-opacity: 0.5; }
+html:root [data-kit="radar"] [data-role="radar-shape"] { fill-opacity: 0.12; stroke-width: 1.5; stroke-linejoin: round; }
+html:root [data-kit="stack-radar"] text { font-family: var(--font-sans); letter-spacing: 0.01em; fill: var(--color-slate-400); }
+html:root [data-kit="stack-radar"] .stroke-divider { stroke: var(--hair); }
 
 /* Matrix heat cells: the score is LIGHTNESS (paper at 6..36% over void), never hue. Hatched, outlined and
    void cells keep their state encoding (those marks carry no data-state in the measured group). */
-html[data-theme="prism"] [data-kit="matrix-grid"] [data-mark]:is([data-state="measured"], [data-state="decided"], [data-state="superseded"]) {
+html:root [data-kit="matrix-grid"] [data-mark]:is([data-state="measured"], [data-state="decided"], [data-state="superseded"]) {
   fill: var(--color-white);
   fill-opacity: calc(0.06 + var(--heat, 0.5) * 0.3);
   stroke: var(--hair);
 }
-html[data-theme="prism"] [data-kit="matrix-grid"] [data-score] {
+html:root [data-kit="matrix-grid"] [data-score] {
   color: var(--color-white) !important;
   font-family: var(--font-sans);
   font-weight: 400;
@@ -72,7 +72,7 @@ html[data-theme="prism"] [data-kit="matrix-grid"] [data-score] {
 }
 
 /* Level badge: a hairline tag at 3px; the level is the glyph, the id and a paper lightness (L1 dim .. L5 paper). */
-html[data-theme="prism"] [data-kit="level-badge"] {
+html:root [data-kit="level-badge"] {
   border-color: var(--hair-strong);
   background-color: transparent;
   border-radius: 3px;
@@ -80,20 +80,20 @@ html[data-theme="prism"] [data-kit="level-badge"] {
   font-weight: 600;
   letter-spacing: 0.01em;
 }
-html[data-theme="prism"] [data-kit="level-badge"][data-level="L1"] { color: var(--color-slate-500); }
-html[data-theme="prism"] [data-kit="level-badge"][data-level="L2"] { color: var(--color-slate-400); }
-html[data-theme="prism"] [data-kit="level-badge"][data-level="L3"] { color: var(--color-slate-300); }
-html[data-theme="prism"] [data-kit="level-badge"][data-level="L4"] { color: var(--color-slate-200); }
-html[data-theme="prism"] [data-kit="level-badge"][data-level="L5"] { color: var(--color-white); }
+html:root [data-kit="level-badge"][data-level="L1"] { color: var(--color-slate-500); }
+html:root [data-kit="level-badge"][data-level="L2"] { color: var(--color-slate-400); }
+html:root [data-kit="level-badge"][data-level="L3"] { color: var(--color-slate-300); }
+html:root [data-kit="level-badge"][data-level="L4"] { color: var(--color-slate-200); }
+html:root [data-kit="level-badge"][data-level="L5"] { color: var(--color-white); }
 
 /* Notice: a ruled line, not a box. Error = paper edge, info = hairline edge. */
-html[data-theme="prism"] [data-kit="notice"] { border-left: 2px solid var(--hair-strong); padding-left: 0.75rem; }
-html[data-theme="prism"] [data-kit="notice"][data-tone="error"] { border-left-color: var(--color-white); }
+html:root [data-kit="notice"] { border-left: 2px solid var(--hair-strong); padding-left: 0.75rem; }
+html:root [data-kit="notice"][data-tone="error"] { border-left-color: var(--color-white); }
 
 /* FillBar: a paper fill on a hairline wash; BarRow aligns a name, a bar and a readout. */
-html[data-theme="prism"] [data-kit="fill-bar"] { background: rgba(242, 238, 230, 0.1); }
-html[data-theme="prism"] [data-kit="bar-row"] { border-color: var(--hair); }
+html:root [data-kit="fill-bar"] { background: rgba(242, 238, 230, 0.1); }
+html:root [data-kit="bar-row"] { border-color: var(--hair); }
 
 /* SortHead: sentence-case sans like every Prism table head; the active column reads in paper. */
-html[data-theme="prism"] [data-kit="sort-head"] { font-family: var(--font-sans); }
-html[data-theme="prism"] [data-kit="sort-head"] [data-role="sort-button"]:hover { color: var(--color-white); }
+html:root [data-kit="sort-head"] { font-family: var(--font-sans); }
+html:root [data-kit="sort-head"] [data-role="sort-button"]:hover { color: var(--color-white); }

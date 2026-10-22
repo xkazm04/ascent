@@ -4,7 +4,7 @@
 // shared chrome can be assumed to have loaded. It REPLACES the document, so it must render its own
 // <html>/<body> and stays fully self-contained with inline styles (no Tailwind, no imports that
 // could be the thing that failed). Ordinary page/segment errors are handled by nearer error.tsx
-// boundaries with the full branded UI. Colours are the Prism palette (src/app/theme-prism.css) as literals,
+// boundaries with the full branded UI. Colours are the palette in src/app/globals.css as literals,
 // since no stylesheet can be assumed here.
 
 import * as Sentry from "@sentry/nextjs";

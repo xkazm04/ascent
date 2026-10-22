@@ -157,10 +157,10 @@ button.chip[aria-pressed="true"] { background: #16213a; color: var(--text); bord
 .desk.portal { position: static; background: none; border-radius: 0; }
 
 /* Prism: the Altimeter blue tokens re-point to paper and the cool greys (docs/design/BRAND-PRISM.md). */
-:global(html[data-theme="prism"]) .desk {
+:global(html:root) .desk {
   --bg: #05060a; --panel: #0a0c13; --panel2: #0f111a; --panel3: #151823; --line: #1c2030; --line2: #262a37;
   --text: #f2eee6; --dim: #a6abbd; --faint: #7d8296;
   --blue: #f2eee6; --blue2: #d6d4d0; --blue-ink: #f2eee6; --blue3: #f2eee6; --blue-line: rgba(242, 238, 230, .32);
   --blue-soft: #b7bbcc; --blue-mid: #a1a6ba; --blue-hi: #c3c4cb; --blue-well: #262a37; --blue-well2: #1c2030; --line3: #3a3e50;
 }
-:global(html[data-theme="prism"]) .desk :where(.btn.primary) { color: var(--color-on-accent); }
+:global(html:root) .desk :where(.btn.primary) { color: var(--color-on-accent); }

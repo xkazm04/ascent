@@ -35,10 +35,10 @@ export function contrast(a: string, b: string): number {
 }
 
 const INK = token("ink");
-// Tailwind's own shades, which the app uses above its re-based floor and does not redefine.
-const SLATE_400 = "#94a3b8";
-const SLATE_300 = "#cbd5e1";
-const SLATE_200 = "#e2e8f0";
+// The ramp steps above the two re-based shades (slate-400 and up), listed as the constants they are.
+const SLATE_400 = "#b7bbcc";
+const SLATE_300 = "#c3c4cb";
+const SLATE_200 = "#dcd9d3";
 
 describe("text colour contrast on the canvas", () => {
   // 4.5:1 is the AA floor for body text. Every colour here is used with `text-*` in the app.

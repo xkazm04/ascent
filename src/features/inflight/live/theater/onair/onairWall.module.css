@@ -89,10 +89,10 @@
 .ctl[data-armed] { color: var(--amber); border-color: rgba(243, 178, 58, .6); }
 
 /* Prism: the Altimeter blue tokens re-point to paper and the cool greys (docs/design/BRAND-PRISM.md). */
-:global(html[data-theme="prism"]) .wall {
+:global(html:root) .wall {
   --bg: #05060a; --panel: #0a0c13; --panel2: #0f111a; --panel3: #151823; --line: #1c2030; --line2: #262a37;
   --text: #f2eee6; --dim: #a6abbd; --faint: #7d8296;
   --blue: #f2eee6; --blue2: #d6d4d0; --blue-ink: #f2eee6; --blue3: #f2eee6; --blue-line: rgba(242, 238, 230, .32);
   --blue-soft: #b7bbcc; --blue-mid: #a1a6ba; --blue-hi: #c3c4cb; --blue-well: #262a37; --blue-well2: #1c2030; --line3: #3a3e50; --cyan: #b7bbcc; --white: #f2eee6; --text2: #b7bbcc; --head: #dcd9d3; --well: #05060a; --tile: #151823; --tiledone: #262a37;
 }
-:global(html[data-theme="prism"]) .wall :where(.btn.primary) { color: var(--color-on-accent); }
+:global(html:root) .wall :where(.btn.primary) { color: var(--color-on-accent); }

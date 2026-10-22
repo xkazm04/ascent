@@ -4,7 +4,6 @@ import { BRAND_INK, jsonLdScript, publicBaseUrl, siteDescription, SITE_TAGLINE }
 import { siteStructuredData } from "@/lib/site-jsonld";
 import { ModalRoot } from "@/components/ui/ModalRoot";
 import { DevInspector } from "./_dev-inspector/DevInspector";
-import { THEME_ATTR } from "@/lib/theme/theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -52,7 +51,6 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      data-theme={THEME_ATTR}
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       // Browser extensions mutate <html> attributes before hydration.

@@ -1,22 +1,21 @@
 @import "tailwindcss";
-@import "./theme-prism.css";
 @import "./kit.css";
 @import "./kit-viz.css";
 @import "./kit-modules.css";
 
-/* Ascent — "Altimeter" identity: cold slate canvas, a single confident azure accent,
-   elevation-strata motif, mono tabular stats. */
+/* Ascent — "Prism" identity (docs/design/BRAND-PRISM.md): a void canvas, a paper accent (colour names a
+   dimension, it never decorates a control), hairline structure, mono tabular stats. */
 /* brand accent — plain @theme so the CSS vars are emitted to :root and utilities
    (bg-accent, text-accent, border-accent, bg-accent-soft, …) are generated. */
 @theme {
-  --color-accent: #3b9eff;
-  --color-accent-soft: #7bbcff;
+  --color-accent: #f2eee6;
+  --color-accent-soft: #d6d4d0;
   /* Paired with the TS-side BRAND_INK in src/lib/site.ts (viewport themeColor + PWA manifest read
      that constant — CSS @theme vars aren't importable there). Change BOTH together. */
-  --color-ink: #080d1a;
+  --color-ink: #05060a;
   /* Foreground used ON the accent (button text on bg-accent) — a near-black that was
      previously hardcoded as #04070e across connect/onboarding/auth. Utility: text-on-accent. */
-  --color-on-accent: #04070e;
+  --color-on-accent: #07080c;
   /* Danger family for error banners (was raw red-500/300 literals). Opacity modifiers
      (bg-danger/5, border-danger/30, text-danger) work like any token. */
   --color-danger: #ef4444;
@@ -33,9 +32,9 @@
      (bg-surface/40) so the body's altimeter gradient shows through; `divider` is the single hairline
      token for card borders + rules (replaces the slate-800/slate-700 drift). Utilities generated:
      bg-surface, bg-surface-strong, border-divider, text-* … all accept opacity modifiers. */
-  --color-surface: #0f172a;          /* slate-900 — panel base; use bg-surface/40 */
-  --color-surface-strong: #020617;   /* slate-950 — deeper panel; bg-surface-strong/40 */
-  --color-divider: #1e293b;          /* slate-800 — hairline rules + card borders */
+  --color-surface: #151823;          /* graphite — panel base; use bg-surface/40 */
+  --color-surface-strong: #0a0c13;   /* deeper panel; bg-surface-strong/40 */
+  --color-divider: #262a37;          /* hairline rules + card borders */
   /* Direction-tone triad (rising / falling / flat) — paired with the TS-side DIRECTION_TONE in
      src/components/ui/format.ts, which must keep literal hex (it feeds inline styles, canvas-adjacent
      consumers, and tests that assert exact hexes — CSS vars aren't importable there). Change BOTH
@@ -43,32 +42,39 @@
   --color-tone-rising: #84cc16;      /* lime-500 — score moving up */
   --color-tone-falling: #f97316;     /* orange-500 — score moving down (= --color-warn) */
   --color-tone-flat: #94a3b8;        /* slate-400 — holding / within-noise */
-
-  /* ── READABLE MUTED TEXT (2026-09-20) ────────────────────────────────────────────────────────
-     The app is dark-only (#080d1a), and its de-emphasised text is written with the stock slate
-     ramp — `text-slate-500` 1061 times, `text-slate-600` 338 times, for timestamps, ids, units,
-     captions, em-dash placeholders and mono labels. Measured against the canvas, the stock values
-     are BELOW the readable floor:
-
-         slate-600 #475569 → 2.56:1     (WCAG AA needs 4.5:1 for body text, 3:1 for large)
-         slate-500 #64748b → 4.08:1
-         slate-400 #94a3b8 → 7.56:1     (fine — unchanged)
-
-     Re-basing the two shades here fixes every one of those 1399 call sites at once, which is the
-     only honest way to fix a palette problem: a sweep of the utilities would churn 300 files and
-     the next `text-slate-500` anyone types would be unreadable again. Values are chosen to keep the
-     ramp's ORDER intact (600 stays a step under 500, which stays a step under 400), so nothing that
-     relies on the hierarchy inverts — what changes is where the bottom of the ramp sits.
-
-         slate-600 → #64748b = 4.08:1   (exactly the old 500: the de-emphasis step, now legible)
-         slate-500 → #77879d = 5.30:1   (the workhorse muted text, now clear of AA with margin)
-
-     The handful of non-text uses (a meter's threshold line, a 1.5px dot, a bar fill: ~21 sites)
-     move with them and read slightly brighter, which on this canvas is an improvement, not a cost.
-     Anything darker than the ramp's new floor is a BORDER token (`--color-divider`), not text. */
-  --color-slate-600: #64748b;
-  --color-slate-500: #77879d;
+  /* Micro text floor: a 12px mono/sans caption on void read as "not readable" (2026-09-30). */
+  --text-micro: 0.8125rem;
+  --text-micro--line-height: 1.125rem;
 }
+
+/* ── The cool ramp (readable muted text) ─────────────────────────────────────────────────────────
+   The app is dark-only, and its de-emphasised text is the stock slate ramp (`text-slate-500` ~1000
+   call sites, `text-slate-600` ~340). The ramp is re-pointed here onto the cool paper/graphite scale so
+   the muted steps stay >= 5.9:1 on graphite (globals.contrast.test.ts holds the floor), fixing every call
+   site at once instead of sweeping them. Informational blue is not a Prism hue (accent is paper, colour
+   names a dimension), so the stock sky / blue / indigo / cyan ramps (info chips, categorical badges,
+   links) sit on the same ramp. Status colours (danger, warn, success, tone-*, stock red / amber /
+   emerald / lime / orange) are deliberately not re-pointed (BRAND-PRISM open conflict 1).
+   `static` keeps every step emitted even when only an inline style or a CSS module reads the variable. */
+@theme static {
+  --color-white: #f2eee6;
+  --color-slate-50: #f2eee6;
+  --color-slate-100: #ebe7df;
+  --color-slate-200: #dcd9d3;
+  --color-slate-300: #c3c4cb;
+  --color-slate-400: #b7bbcc;
+  --color-slate-500: #a1a6ba;
+  --color-slate-600: #9196ab;
+  --color-slate-700: #3a3e50;
+  --color-slate-800: #262a37;
+  --color-slate-900: #151823;
+  --color-slate-950: #0a0c13;
+  --color-sky-50: var(--color-slate-50); --color-sky-100: var(--color-slate-100); --color-sky-200: var(--color-slate-200); --color-sky-300: var(--color-slate-300); --color-sky-400: var(--color-slate-400); --color-sky-500: var(--color-slate-500); --color-sky-600: var(--color-slate-600); --color-sky-700: var(--color-slate-700); --color-sky-800: var(--color-slate-800); --color-sky-900: var(--color-slate-900); --color-sky-950: var(--color-slate-950);
+  --color-blue-50: var(--color-slate-50); --color-blue-100: var(--color-slate-100); --color-blue-200: var(--color-slate-200); --color-blue-300: var(--color-slate-300); --color-blue-400: var(--color-slate-400); --color-blue-500: var(--color-slate-500); --color-blue-600: var(--color-slate-600); --color-blue-700: var(--color-slate-700); --color-blue-800: var(--color-slate-800); --color-blue-900: var(--color-slate-900); --color-blue-950: var(--color-slate-950);
+  --color-indigo-50: var(--color-slate-50); --color-indigo-100: var(--color-slate-100); --color-indigo-200: var(--color-slate-200); --color-indigo-300: var(--color-slate-300); --color-indigo-400: var(--color-slate-400); --color-indigo-500: var(--color-slate-500); --color-indigo-600: var(--color-slate-600); --color-indigo-700: var(--color-slate-700); --color-indigo-800: var(--color-slate-800); --color-indigo-900: var(--color-slate-900); --color-indigo-950: var(--color-slate-950);
+  --color-cyan-50: var(--color-slate-50); --color-cyan-100: var(--color-slate-100); --color-cyan-200: var(--color-slate-200); --color-cyan-300: var(--color-slate-300); --color-cyan-400: var(--color-slate-400); --color-cyan-500: var(--color-slate-500); --color-cyan-600: var(--color-slate-600); --color-cyan-700: var(--color-slate-700); --color-cyan-800: var(--color-slate-800); --color-cyan-900: var(--color-slate-900); --color-cyan-950: var(--color-slate-950);
+}
+
 
 /* ── The type scale ───────────────────────────────────────────────────────────────────────────────
    ONE source of truth for every font size in the app, in two layers:
@@ -126,9 +132,6 @@
   --text-5xl--line-height: 1;
   --text-6xl: 3.8125rem;
   --text-6xl--line-height: 1;
-  /* The floor. Nothing in the app renders below 12px; the old 10/11px captions were the reason. */
-  --text-micro: 0.75rem;
-  --text-micro--line-height: 1rem;
 }
 
 @utility type-micro {
@@ -201,6 +204,25 @@
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
+/* Tokens Tailwind does not generate utilities from. The three type stacks are the landing's own
+   (KIT-V2-LANGUAGE.md decision D2); they win over the inline Geist stacks above for every
+   `var(--font-*)` reader (body, type-* classes), while the `font-sans` / `font-mono` UTILITIES still
+   resolve to the inline Geist stacks. --color-tone-flat is re-pointed here (not in @theme) because the
+   TS-side DIRECTION_TONE.flat keeps #94a3b8 and format.test.ts pins the @theme value to it. */
+:root {
+  --color-tone-flat: #b7bbcc;
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", ui-monospace, monospace;
+  --hair: rgba(242, 238, 230, 0.13);
+  --hair-strong: rgba(242, 238, 230, 0.32);
+  --ease-prism: cubic-bezier(0.2, 0.7, 0.1, 1);
+  /* the Spectral Nine, one hue per dimension D1..D9, for kit parts and dimension marks */
+  --spec-1: #ff5a5f; --spec-2: #ff8a3d; --spec-3: #ffc247; --spec-4: #d4f15b; --spec-5: #62e59a;
+  --spec-6: #38d9d0; --spec-7: #4cb2ff; --spec-8: #7c83ff; --spec-9: #bc6dff;
+  --spec: linear-gradient(90deg, var(--spec-1), var(--spec-2), var(--spec-3), var(--spec-4), var(--spec-5), var(--spec-6), var(--spec-7), var(--spec-8), var(--spec-9));
+}
+
 html {
   color-scheme: dark;
   /* Reserve the scrollbar's width even when no scrollbar is showing, so nothing reflows sideways when
@@ -257,7 +279,7 @@ html.snap-deck {
   scroll-snap-stop: always;
 }
 
-/* Decorative connector — a linear hairline + glowing azure node in the bottom margin of each section,
+/* Decorative connector — a linear hairline + glowing paper node in the bottom margin of each section,
    threading the full-viewport sections together so they don't read as disconnected screens. Hidden on
    each deck's final section (no next section to point to). Desktop-only (min-width matches Tailwind's
    `lg`): below lg, DeckNav's fixed bottom bar occupies the bottom margin the connector renders in, so
@@ -271,7 +293,7 @@ html.snap-deck {
     width: 1px;
     height: 2.75rem;
     transform: translateX(-50%);
-    background: linear-gradient(to bottom, transparent, var(--color-divider) 45%, rgba(59, 158, 255, 0.55));
+    background: linear-gradient(to bottom, transparent, var(--color-divider) 45%, rgba(242, 238, 230, 0.5));
     pointer-events: none;
   }
   .snap-deck section[id]::before {
@@ -285,7 +307,7 @@ html.snap-deck {
     transform: translateX(-50%);
     border-radius: 9999px;
     background: var(--color-accent);
-    box-shadow: 0 0 9px 1px rgba(59, 158, 255, 0.45);
+    box-shadow: 0 0 9px 1px rgba(242, 238, 230, 0.4);
     pointer-events: none;
   }
 }
@@ -436,7 +458,7 @@ html.snap-deck {
   transform: scaleX(0);
   transform-origin: 0 50%;
   pointer-events: none;
-  background: linear-gradient(90deg, rgba(59, 158, 255, 0) 0%, var(--color-accent) 45%, var(--color-accent-soft) 100%);
+  background: linear-gradient(90deg, rgba(242, 238, 230, 0) 0%, var(--color-accent) 45%, var(--color-accent-soft) 100%);
 }
 @supports (animation-timeline: scroll()) {
   .deck-progress {
@@ -447,12 +469,12 @@ html.snap-deck {
 
 
 body {
-  background-color: #080d1a;
-  color: #e2e8f0;
+  background-color: #05060a;
+  color: #f2eee6;
   font-family: var(--font-sans);
 }
 
-/* The altimeter canvas wash, moved off `body`'s own background. It used to be two gradients on the
+/* The canvas wash, moved off `body`'s own background. It used to be two gradients on the
    body painted with `background-attachment: fixed` — which is the single most reliable way to make a
    long page scroll badly: a fixed attachment pins the background to the VIEWPORT while the element
    scrolls, so the browser has to re-resolve and repaint a 70rem × 42rem radial gradient on the main
@@ -467,9 +489,54 @@ body::before {
   z-index: -2;
   pointer-events: none;
   background-image:
-    radial-gradient(70rem 42rem at 50% -12%, rgba(59, 158, 255, 0.1), transparent 60%),
-    linear-gradient(180deg, #0b1322 0%, #080d1a 58%);
+    radial-gradient(ellipse 70% 60% at 60% -10%, rgba(124, 131, 255, 0.09), transparent 62%),
+    linear-gradient(180deg, #0a0c13 0%, #05060a 58%);
 }
+
+/* Primary control: a paper block with the spectrum as its underline (winner .btn.primary).
+   `html:root` is the html element at the specificity (0,1,1) the former theme-attribute prefix carried,
+   so the cascade order against CSS modules and the kit rules is unchanged. */
+html:root .bg-accent {
+  position: relative;
+  border-radius: 3px;
+}
+html:root button.bg-accent::after,
+html:root a.bg-accent::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 3px;
+  background: var(--spec);
+  border-radius: 0 0 3px 3px;
+  pointer-events: none;
+}
+
+/* Muted text that is also faded (`text-slate-* opacity-40/50/60`, 90+ call sites) multiplies two
+   dimmings: the fade wins and the text lands under 3:1. A static fade on a slate text element is
+   floored at 0.85; disabled controls and state variants (hover:/group-hover:) keep theirs. */
+html:root :is([class*="text-slate-"]):is([class~="opacity-40"], [class~="opacity-50"], [class~="opacity-60"], [class~="opacity-70"]):not(:disabled, [aria-disabled="true"]) {
+  opacity: 0.85;
+}
+
+/* Page ground: a 48px hairline grid at 2.5% paper, fading out toward the bottom of the first screen.
+   Structure, not decoration: it gives dense tables and charts a ruler to sit on and costs nothing
+   where the page is quiet. (On the marketing decks the grain below replaces it, as it always has.) */
+html:root body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(242, 238, 230, 0.028) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(242, 238, 230, 0.028) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 70%);
+  mask-image: linear-gradient(180deg, #000 0%, transparent 70%);
+}
+@media print { html:root body::after { display: none; } }
 
 /* Paper grain — the print-relief texture the generated hero backdrops already imply, at a strength
    (~3%) meant to be felt rather than seen: it breaks up the large flat gradient fields so they stop
@@ -489,8 +556,8 @@ html.snap-deck body::after {
 }
 
 ::selection {
-  background: #3b9eff;
-  color: #04070e;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 * {
@@ -719,12 +786,12 @@ html.snap-deck body::after {
    that brightens with its maturity and twinkles as scan data streams in. */
 .launch-sky {
   background:
-    radial-gradient(1px 1px at 18% 26%, rgba(226, 232, 240, 0.5), transparent),
-    radial-gradient(1px 1px at 72% 62%, rgba(226, 232, 240, 0.35), transparent),
-    radial-gradient(1.5px 1.5px at 42% 82%, rgba(123, 188, 255, 0.4), transparent),
-    radial-gradient(1px 1px at 86% 18%, rgba(226, 232, 240, 0.3), transparent),
-    radial-gradient(1px 1px at 56% 12%, rgba(226, 232, 240, 0.25), transparent),
-    radial-gradient(1px 1px at 32% 54%, rgba(226, 232, 240, 0.22), transparent);
+    radial-gradient(1px 1px at 18% 26%, rgba(242, 238, 230, 0.5), transparent),
+    radial-gradient(1px 1px at 72% 62%, rgba(242, 238, 230, 0.35), transparent),
+    radial-gradient(1.5px 1.5px at 42% 82%, rgba(242, 238, 230, 0.4), transparent),
+    radial-gradient(1px 1px at 86% 18%, rgba(242, 238, 230, 0.3), transparent),
+    radial-gradient(1px 1px at 56% 12%, rgba(242, 238, 230, 0.25), transparent),
+    radial-gradient(1px 1px at 32% 54%, rgba(242, 238, 230, 0.22), transparent);
   background-repeat: no-repeat;
 }
 
@@ -782,8 +849,8 @@ html.snap-deck body::after {
     box-shadow 0.4s ease;
 }
 .launch-constellation:hover {
-  border-color: rgba(59, 158, 255, 0.4);
-  box-shadow: 0 0 24px -8px rgba(59, 158, 255, 0.35);
+  border-color: var(--hair-strong);
+  box-shadow: 0 0 24px -8px rgba(242, 238, 230, 0.2);
 }
 
 /* ── Fleet Command: the live transformation war-room (/org/[slug]/live) ────────
@@ -824,7 +891,7 @@ html.snap-deck body::after {
 /* A row briefly flares accent the moment its score updates. */
 @keyframes ascent-flash {
   from {
-    background-color: rgba(59, 158, 255, 0.22);
+    background-color: rgba(242, 238, 230, 0.16);
   }
   to {
     background-color: transparent;
