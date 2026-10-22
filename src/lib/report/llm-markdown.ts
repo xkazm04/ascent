@@ -48,6 +48,12 @@ export interface ReportMarkdownOptions {
    * green without either being touched.
    */
   exemplarSection?: string | null;
+  /**
+   * The partiality line of a dimension-scoped briefing (export-1, `composeBriefing` in
+   * ./briefing-scope.ts), rendered as a blockquote right under the repo URL so a pasted text keeps its
+   * scope marker. Absent or empty is byte-identical to the whole-report briefing.
+   */
+  scopeNote?: string | null;
 }
 
 /** What `exemplarMarkdownSection` needs: the diff, and optionally the practices that transfer it. */
@@ -277,6 +283,10 @@ export function reportLlmMarkdown(report: ScanReport, options: ReportMarkdownOpt
   out.push("");
   out.push(`${repo.url}`);
   out.push("");
+  if (options.scopeNote) {
+    out.push(`> ${options.scopeNote}`);
+    out.push("");
+  }
 
   // --- Caveats first (G9: mock/engine-mix in the body, not the generated-by footer). ---
   if (incomplete) {
