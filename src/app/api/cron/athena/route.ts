@@ -36,7 +36,7 @@ import {
   runOrgCycle,
   type CycleSkipReason,
 } from "@/lib/athena/cycle";
-import { buildOrgCycleDeps } from "./deps";
+import { buildOrgCycleDeps, sweepOrgProposals } from "./deps";
 import { asOrgSlug } from "@/lib/org/ids";
 
 export const runtime = "nodejs";
@@ -81,6 +81,8 @@ export async function GET(request: Request) {
   let absorbedOutcomes = 0;
   let skippedAlreadyRan = 0;
   let skippedNoOrg = 0;
+  let proposalsExpired = 0;
+  let claimsInterrupted = 0;
   const skips: Record<CycleSkipReason, number> = { no_landing: 0, live_turn: 0, no_standing: 0, no_engine: 0 };
   const errors: string[] = [];
 
@@ -95,6 +97,18 @@ export async function GET(request: Request) {
         if (!orgId) {
           skippedNoOrg += 1;
           return;
+        }
+
+        // THE REAPER FIRST, so the briefing below never recites an ask that is about to be closed.
+        // It runs before the period claim on purpose: it spends nothing, its writes are compare-and-sets,
+        // and a stale claim should not wait a day because another invocation owns the window. A sweep
+        // that throws is an error entry for this org - never a reason to skip its cycle or anyone else's.
+        try {
+          const swept = await sweepOrgProposals({ org: asOrgSlug(org), orgId });
+          proposalsExpired += swept.expired;
+          claimsInterrupted += swept.interrupted;
+        } catch (err) {
+          errors.push(`${org}: proposal sweep: ${err instanceof Error ? err.message : "failed"}`);
         }
 
         // AT-MOST-ONCE, ATOMICALLY, BEFORE THE SPEND. One conditional insert whose affected-row count
@@ -146,6 +160,8 @@ export async function GET(request: Request) {
     absorbedRuns,
     absorbedOutcomes,
     proposalsRaised,
+    proposalsExpired,
+    claimsInterrupted,
     skippedAlreadyRan,
     skippedNoOrg,
     skippedLiveTurn: skips.live_turn,

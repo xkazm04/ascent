@@ -22,8 +22,10 @@ import {
   getAthenaIdentityPair,
   latestAthenaActivity,
   listOpenAthenaProposals,
+  sweepAthenaProposals,
   writeAthenaEpisode,
 } from "@/lib/db/athena";
+import { recordOrgAudit } from "@/lib/db/scans-audit";
 import { getOrgMovers, getOrgRollup, getOrgSkillUsageRows } from "@/lib/db";
 import { hasFleetGrade } from "@/lib/db/org-shared";
 import { getMemoryCoverage } from "@/lib/memory/coverage";
@@ -50,6 +52,37 @@ function summarize(kind: string, payload: Record<string, unknown>): string {
 
 const daysSince = (iso: string, now: number): number =>
   Math.max(0, Math.floor((now - Date.parse(iso)) / 86_400_000));
+
+/**
+ * The reaper, run per org BEFORE the cycle so the briefing never recites an ask the sweep is about to
+ * close. Each closed row gets its own audit row: an interrupted claim is an AI-originated action whose
+ * outcome is unknown, and an expiry is a decision made on nobody's click - both must be on the trail.
+ * An audit failure never un-sweeps a row (the row write is the fact; the trail is best-effort here).
+ */
+export async function sweepOrgProposals(ctx: {
+  org: OrgSlug;
+  orgId: OrgId;
+}): Promise<{ expired: number; interrupted: number }> {
+  const { org, orgId } = ctx;
+  const res = await sweepAthenaProposals(orgId);
+  for (const p of res.interrupted) {
+    await recordOrgAudit("athena_proposal.interrupted", org, {
+      proposalId: p.id,
+      threadId: p.threadId,
+      kind: p.kind,
+      outcome: "interrupted",
+    }).catch(() => false);
+  }
+  for (const p of res.expired) {
+    await recordOrgAudit("athena_proposal.expired", org, {
+      proposalId: p.id,
+      threadId: p.threadId,
+      kind: p.kind,
+      outcome: "expired",
+    }).catch(() => false);
+  }
+  return { expired: res.expired.length, interrupted: res.interrupted.length };
+}
 
 export function buildOrgCycleDeps(ctx: { org: OrgSlug; orgId: OrgId; signal?: AbortSignal }): OrgCycleDeps {
   const { org, orgId } = ctx;

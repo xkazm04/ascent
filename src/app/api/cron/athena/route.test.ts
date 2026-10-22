@@ -31,6 +31,7 @@ const h = vi.hoisted(() => ({
   getOrgId: vi.fn(async (slug: string) => (slug === "ghost" ? null : `id_${slug}`)),
   claimOrgAuditOnce: vi.fn(async () => ({ claimed: true, id: "aud_1" })),
   releaseAuditClaim: vi.fn(async () => {}),
+  sweepOrgProposals: vi.fn(async () => ({ expired: 0, interrupted: 0 })),
   runOrgCycle: vi.fn(async () => ({
     org: "acme",
     skipped: null as string | null,
@@ -71,7 +72,7 @@ vi.mock("@/lib/athena/cycle", async (importOriginal) => ({
   runOrgCycle: h.runOrgCycle,
 }));
 
-vi.mock("./deps", () => ({ buildOrgCycleDeps: vi.fn(() => ({})) }));
+vi.mock("./deps", () => ({ buildOrgCycleDeps: vi.fn(() => ({})), sweepOrgProposals: h.sweepOrgProposals }));
 
 import { GET, maxDuration } from "./route";
 import { ATHENA_CYCLE_MAX_DURATION_S, ATHENA_CYCLE_ACTION, ATHENA_CYCLE_PERIOD_MS } from "@/lib/athena/cycle";
@@ -103,6 +104,7 @@ beforeEach(() => {
   h.listOrgsWithWatchedRepos.mockResolvedValue(["acme"]);
   h.getOrgId.mockImplementation(async (slug: string) => (slug === "ghost" ? null : `id_${slug}`));
   h.claimOrgAuditOnce.mockResolvedValue({ claimed: true, id: "aud_1" });
+  h.sweepOrgProposals.mockResolvedValue({ expired: 0, interrupted: 0 });
   h.mapPoolUntilDeadline.mockImplementation(async (items, _c, _d, fn) => {
     for (const [i, item] of items.entries()) await fn(item, i);
     return { remaining: [], attempted: items.length, truncated: false };
@@ -261,5 +263,32 @@ describe("the declared ceiling", () => {
 
   it("leaves real headroom for the epilogue after the last lane drains", () => {
     expect(ATHENA_CYCLE_MAX_DURATION_S * 1000).toBeGreaterThan(FLEET_FINALIZE_RESERVE_MS * 2);
+  });
+});
+
+describe("the reaper runs before the cycle", () => {
+  it("sweeps each org BEFORE runOrgCycle and reports the counts", async () => {
+    h.sweepOrgProposals.mockResolvedValue({ expired: 2, interrupted: 1 });
+    const res = await GET(authed());
+    expect(res.status).toBe(200);
+    expect(h.sweepOrgProposals).toHaveBeenCalledWith({ org: "acme", orgId: "id_acme" });
+    expect(h.sweepOrgProposals.mock.invocationCallOrder[0]!).toBeLessThan(
+      h.runOrgCycle.mock.invocationCallOrder[0]!,
+    );
+    expect(await res.json()).toMatchObject({ proposalsExpired: 2, claimsInterrupted: 1 });
+  });
+
+  it("a sweep that throws is an error entry, never a skipped cycle", async () => {
+    h.listOrgsWithWatchedRepos.mockResolvedValue(["acme", "beta"]);
+    h.sweepOrgProposals.mockImplementation(async ({ org }: { org: string }) => {
+      if (org === "acme") throw new Error("lock timeout");
+      return { expired: 1, interrupted: 0 };
+    });
+    const res = await GET(authed());
+    expect(res.status).toBe(207);
+    const body = await res.json();
+    expect(body.errors).toEqual(["acme: proposal sweep: lock timeout"]);
+    expect(body).toMatchObject({ proposalsExpired: 1, claimsInterrupted: 0 });
+    expect(h.runOrgCycle).toHaveBeenCalledTimes(2);
   });
 });
