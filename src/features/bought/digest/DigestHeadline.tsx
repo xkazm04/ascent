@@ -25,7 +25,7 @@ function repos(n: number): string {
   return `${n} ${n === 1 ? "repository" : "repositories"}`;
 }
 
-function cohortHint(h: WeeklyDigest["headline"]): string {
+export function cohortHint(h: WeeklyDigest["headline"]): string {
   if (h.cohortSize == null) {
     return (
       "No repository has a scan on both sides of this week, so there is no cohort to measure a delta over. " +

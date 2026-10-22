@@ -18,6 +18,7 @@ const { mockBuild, mockMarkdown } = vi.hoisted(() => ({
   mockMarkdown: vi.fn(() => "# Weekly digest\n"),
 }));
 
+vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 vi.mock("@/lib/org/digest", () => ({ buildWeeklyDigest: mockBuild }));
 vi.mock("@/lib/org/digest-markdown", () => ({ weeklyDigestMarkdown: mockMarkdown }));
 vi.mock("next/link", () => ({
