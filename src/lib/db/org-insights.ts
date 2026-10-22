@@ -26,7 +26,7 @@ import { classifyDelta } from "@/lib/maturity/noise";
 // The ONE mock-floor predicate, from the producer that defines it (org-rollup.ts). A movers pair is a
 // before/after MEASUREMENT, so an endpoint the scanner never scored cannot be one of its ends.
 import { isMockScore, type OrgWindow } from "@/lib/db/org-rollup";
-import { atPairs, latestFirst, latestScanAtPerRepo, readLatestScanPerRepo, scanAtBeforePerRepo } from "@/lib/db/org-rollup-latest-scans";
+import { atPairs, latestFirst, latestScanAtPerRepo, readLatestScanPerRepo, scanAtBeforePerRepo, withLatestScans } from "@/lib/db/org-rollup-latest-scans";
 // The single canonical parser for stored `string[]` columns (the explore questions live in one) — reuse
 // it here rather than forking a second parser, exactly as scans-read/scans-recommendations do.
 import { parseStringArray } from "@/lib/db/json-columns";
@@ -352,34 +352,35 @@ export async function getOrgRecommendations(
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: {
-      name: true,
+  // The latest scan per repo through the shared door (org-rollup-latest-scans.ts), never a nested
+  // `scans: { take: 1 }`: that shape's LIMIT never reaches the SQL, so it transferred the org's whole
+  // scan history (and every recommendation nested under it) to keep one scan per repo.
+  const scope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  const repos = await withLatestScans(
+    prisma,
+    prisma.repository.findMany({
+      where: scope,
       // Read only so `repoFullName` can be matched precisely. `OrgRec.repos` keeps carrying the BARE
       // name it always has — every other consumer renders that string, and widening it here would be
       // a change to the shape rather than to the filter.
-      fullName: true,
-      scans: {
-        orderBy: { scannedAt: "desc" },
-        take: 1,
-        select: {
-          // Dimension scores + archetype feed projectedGain — the engine-true "+N pts" per move, so the
-          // overview can NAME the highest-leverage decision (and its maturity gain), not just rank gaps.
-          archetype: true,
-          dimensions: { select: { dimId: true, score: true } },
-          recommendations: {
-            // `kind: "gap"` only: a craft entry (what would make a strong dimension exemplary) is not
-            // a follow-up the team owes and must never become debt or a loop batch (r10).
-            where: { status: { in: ["open", "in_progress"] }, kind: "gap" },
-            // rationale + explore carry the companion voice (why the gap matters + questions to explore)
-            // onto the org surface — same rows already read, so no extra query.
-            select: { title: true, dimId: true, impact: true, rationale: true, explore: true },
-          },
-        },
+      select: { id: true, name: true, fullName: true },
+    }),
+    scope,
+    {
+      // Dimension scores + archetype feed projectedGain - the engine-true "+N pts" per move, so the
+      // overview can NAME the highest-leverage decision (and its maturity gain), not just rank gaps.
+      archetype: true,
+      dimensions: { select: { dimId: true, score: true } },
+      recommendations: {
+        // `kind: "gap"` only: a craft entry (what would make a strong dimension exemplary) is not
+        // a follow-up the team owes and must never become debt or a loop batch (r10).
+        where: { status: { in: ["open", "in_progress"] }, kind: "gap" },
+        // rationale + explore carry the companion voice (why the gap matters + questions to explore)
+        // onto the org surface - same rows already read, so no extra query.
+        select: { title: true, dimId: true, impact: true, rationale: true, explore: true },
       },
     },
-  });
+  );
 
   const w = weightsFor("org");
   // Per-repo dims + archetype, so a rec-group can compute the projected gain over exactly its affected repos.
@@ -678,7 +679,7 @@ export async function getOrgBacklog(
   const scanRows = latestPairs.length
     ? await prisma.scan.findMany({
         where: { OR: latestPairs },
-        // archetype feeds projectedGain — the engine-true "+N pts · unlocks LX" per item, so the backlog
+        // archetype feeds projectedGain - the engine-true "+N pts · unlocks LX" per item, so the backlog
         // can be prioritized on points, not just impact words.
         select: { id: true, repoId: true, archetype: true },
       })
@@ -972,9 +973,23 @@ export function summarizePracticePrs(
  * has nothing usable for either function's per-dimension aggregates and must be excluded consistently
  * (getOrgGapAnalysis in particular counts `perRepo.length` as its scanned-population denominator).
  */
-function repoDims(r: { scans: { dimensions: { dimId: string; score: number }[] }[] }): { dimId: string; score: number }[] | null {
-  const dims = r.scans[0]?.dimensions;
-  return dims?.length ? dims : null;
+/** A repo's latest-scan dimension scores, or null when it has none to contribute. A repo whose LATEST
+ *  scan is the mock floor (isMockScore) contributes nothing: the same `realScored` predicate getOrgRollup
+ *  applies, so the Practice Library and the gap analysis count the population the badge beside them
+ *  counts. The repo is dropped, not swapped for an older live scan (that would move the snapshot instant). */
+function repoDims(r: { scans: { engineProvider: string; dimensions: { dimId: string; score: number }[] }[] }): { dimId: string; score: number }[] | null {
+  const scan = r.scans[0];
+  if (!scan || isMockScore(scan.engineProvider)) return null;
+  return scan.dimensions.length ? scan.dimensions : null;
+}
+
+/** Latest-scan dimension scores per repo, through the door, for the two dimension aggregators. */
+function reposWithLatestDims(prisma: ReturnType<typeof getPrisma>, orgId: string, segmentId?: string | null, techGroupId?: string | null) {
+  const scope = { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  return withLatestScans(prisma, prisma.repository.findMany({ where: scope, select: { id: true, name: true, fullName: true } }), scope, {
+    engineProvider: true,
+    dimensions: { select: { dimId: true, score: true } },
+  });
 }
 
 /** The org's playbook: for each practice, who exemplifies it and who could adopt it next. */
@@ -988,14 +1003,7 @@ export async function getOrgPractices(orgSlug: string, segmentId?: string | null
   // starter PR this org has opened (folded per-practice in memory). No per-practice or per-repo query:
   // the PR read is a single indexed org lookup regardless of fleet or practice count.
   const [repos, prRows] = await Promise.all([
-    prisma.repository.findMany({
-      where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-      select: {
-        name: true,
-        fullName: true,
-        scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
-      },
-    }),
+    reposWithLatestDims(prisma, org.id, segmentId, techGroupId),
     prisma.improvementPr.findMany({
       where: { orgId: org.id },
       select: { practiceId: true, repoFullName: true, prNumber: true, prUrl: true, state: true, impactDim: true },
@@ -1134,14 +1142,7 @@ export async function getOrgGapAnalysis(orgSlug: string, segmentId?: string | nu
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: {
-      name: true,
-      fullName: true,
-      scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { dimensions: { select: { dimId: true, score: true } } } },
-    },
-  });
+  const repos = await reposWithLatestDims(prisma, org.id, segmentId, techGroupId);
 
   // Per dimension: [{repo, score}]. Per repo: its dim→score map.
   const byDim = new Map<string, { name: string; fullName: string; score: number }[]>();
@@ -1238,9 +1239,9 @@ export async function getOrgDiscrepancies(orgSlug: string): Promise<OrgDiscrepan
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id },
-    select: { name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { discrepancies: true } } },
+  const scope = { orgId: org.id };
+  const repos = await withLatestScans(prisma, prisma.repository.findMany({ where: scope, select: { id: true, name: true } }), scope, {
+    discrepancies: true,
   });
 
   const groups = new Map<string, { count: number; repos: Set<string>; examples: Set<string> }>();
