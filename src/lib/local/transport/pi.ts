@@ -137,7 +137,7 @@ export function piArgs(input: PiArgvInput): string[] {
  *
  * The knowledge lives here rather than in `resolveLocalEndpoint` because it is Pi's protocol
  * requirement, not the deployment's: the same endpoint must keep serving the Claude transport as the
- * root it already is. An operator who configured the variable WITH `/v1` is not punished for it.
+ * root it already is.
  */
 export function piBaseUrl(baseUrl: string): string {
   const root = baseUrl.replace(/\/+$/, "");

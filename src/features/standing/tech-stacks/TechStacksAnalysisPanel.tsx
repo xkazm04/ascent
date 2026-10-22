@@ -1,10 +1,10 @@
 // The stack maturity spread + the profiles/analysis board — the Tech Stacks tab's data region, under
 // its own <Suspense> boundary because listTechStackSummaries is its own read. the board is
-// TechStacksAnalysis.v2.
+// TechStacksAnalysis.
 
 import { DIMS } from "@/components/shared/dashboard/ui";
 import { StackSpreadStrip } from "./StackSpreadStrip";
-import { TechStacksAnalysisV2 } from "./TechStacksAnalysis.v2";
+import { TechStacksAnalysis } from "./TechStacksAnalysis";
 import { orderStacks } from "./stackMeasure";
 import { listTechStackSummaries } from "@/lib/db";
 
@@ -21,7 +21,7 @@ export async function TechStacksAnalysisPanel({ slug }: { slug: string }) {
   return (
     <div className="space-y-8">
       <StackSpreadStrip stacks={stacks} />
-      <TechStacksAnalysisV2 org={slug} stacks={stacks} fleet={fleet} dims={DIMS} />
+      <TechStacksAnalysis org={slug} stacks={stacks} fleet={fleet} dims={DIMS} />
     </div>
   );
 }

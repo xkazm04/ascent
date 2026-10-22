@@ -1,5 +1,5 @@
 // The composition kit — the shared building blocks one level above buttons. Import from "@/components/kit".
-// Styling: data-kit hooks in src/app/kit.css (Altimeter base + Prism expression).
+// Styling: data-kit hooks in src/app/kit.css.
 export { Panel } from "./Panel";
 export type { PanelPad } from "./Panel";
 export { Section } from "./Section";
@@ -24,7 +24,7 @@ export { Trend } from "./Trend";
 export { bandDomain } from "./trendDomain";
 export type { TrendDomain, TrendEdge } from "./trendDomain";
 
-// v2 language (docs/design/KIT-V2-LANGUAGE.md): type roles, structure, identity marks.
+// Language (docs/design/KIT-V2-LANGUAGE.md): type roles, structure, identity marks.
 export { Display, Eyebrow, Lede, Caption, MonoPath } from "./Type";
 export type { DisplayLevel } from "./Type";
 export { Frame } from "./Frame";

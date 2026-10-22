@@ -1,4 +1,4 @@
-// Prism reading of the six registry steps. The state machine stays in registrySteps.
+// Reading of the six registry steps. The state machine stays in registrySteps.
 // Ladder has no skipped, blocked, or multi-current state, so the v1 word travels as detail
 // and only the first active or blocked step is current.
 
@@ -44,7 +44,7 @@ export function migrationMark(state: MigrationStep["state"]): { state: CellState
   }
 }
 
-/** The affordances the v1 stepper drew inline. Migrate stays on the artifact frame. */
+/** Migrate stays on the artifact frame. */
 export function stepHasAction(view: RegistryView, step: RegistryStep): boolean {
   if (step.id === "choose" && step.state === "active") return true;
   if (step.id === "permissions" && step.state === "blocked" && !!view.capabilities.installUrl) return true;

@@ -1,4 +1,4 @@
-// What the Lessons tab reads once on the server and hands to a composition (v1 Altimeter, v2 Prism).
+// What the Lessons tab reads once on the server and hands to a composition.
 import type { LoopLessonRow } from "@/features/inflight/live/cockpit/loopTypes";
 
 export interface LessonsTabData {

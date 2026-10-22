@@ -19,7 +19,7 @@ vi.mock("@/lib/db", () => ({ getOrgBranding: m.branding, getCreditState: m.credi
 vi.mock("@/lib/plans", () => ({ planAllowsWhiteLabel: () => false }));
 vi.mock("@/lib/db/org-impact", () => ({ getOrgImpactLedger: m.ledger }));
 vi.mock("@/lib/db/org-program", () => ({ getOrgProgram: m.program }));
-vi.mock("./ExecutiveTab.v2", () => ({ executiveV2: (v: unknown) => v, executiveEmptyV2: () => null }));
+vi.mock("./ExecutiveTabView", () => ({ executiveView: (v: unknown) => v, executiveEmptyView: () => null }));
 
 import { ExecutiveTab } from "./ExecutiveTab";
 

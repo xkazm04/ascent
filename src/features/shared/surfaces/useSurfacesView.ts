@@ -1,6 +1,6 @@
 "use client";
 
-// The Surfaces gallery's state, shared by both compositions (v1 Altimeter, v2 Prism) so they cannot drift:
+// The Surfaces gallery's state, shared by both compositions so they cannot drift:
 // the filters, the open subject from the URL, and the href builder that keeps the Knowledge base section.
 
 import { useState } from "react";

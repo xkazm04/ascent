@@ -15,7 +15,7 @@
 import { useState } from "react";
 import { Kicker } from "@/components/ui";
 import { REGISTRY_DEMO_STATES, fixtureRegistryView } from "@/lib/org/registry-view.fixture";
-import { RegistryPanelV2 } from "./RegistryPanel.v2";
+import { RegistryPanel } from "./RegistryPanel";
 import { RegistryPreviewContext } from "./useRegistryMutation";
 
 const CHIP = "focus-ring rounded-md px-2.5 py-1.5 type-mono-sm transition-colors";
@@ -79,7 +79,7 @@ export function RegistryPreviewShell({
             </span>
           </div>
           <RegistryPreviewContext.Provider value>
-            <RegistryPanelV2 view={shown} slug={slug} />
+            <RegistryPanel view={shown} slug={slug} />
           </RegistryPreviewContext.Provider>
         </div>
       ) : (

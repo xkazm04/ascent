@@ -69,7 +69,7 @@ race: 155,108 px diff). After the fix two runs are pixel-identical and the v2 wi
    mock `@/lib/theme/server` in any test that imports a module entry.
 6. **The `EXERCISE:` placeholder in "Pitfalls" should list**: smooth-scroll pin; `OutcomeSection` owning review
    state means the v2 summary and the level must share ONE `useOutcomeMatrix` call (they do: it is called once in
-   `OutcomeSectionV2`); a `Bash` heredoc containing an apostrophe fails in this harness, write such files with the
+   `OutcomeSectionView`); a `Bash` heredoc containing an apostrophe fails in this harness, write such files with the
    editor tool.
 7. **The kit-0 ledger cannot open a second batch for a module already in-batch** (`inflight/live` sat in `kit-0`),
    so this exercise's kit parts are recorded under `kit-0`. Either close `kit-0` at its gate or allow `open-batch

@@ -1,7 +1,7 @@
 "use client";
 
 // The share-panel state both Developer compositions share: Share buttons anywhere open the panel in the
-// Setup block, and the block scrolls into view. One hook so v1 and v2 cannot drift.
+// Setup block, and the block scrolls into view.
 
 import { useRef, useState } from "react";
 

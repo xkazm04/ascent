@@ -11,7 +11,7 @@ import { Frame, Lede } from "@/components/kit";
 import { getUnitEconomics } from "@/lib/db/unit-economics";
 import type { ResolvedWindow } from "@/lib/window";
 import { settle } from "../deliveryLoad";
-import { UnitEconomicsV2 } from "./UnitEconomics.v2";
+import { UnitEconomicsSection } from "./UnitEconomics";
 
 const FAILED = "Unit economics couldn't load right now. Try refreshing this page.";
 
@@ -30,6 +30,6 @@ export async function UnitEconomicsPanel({
   }
   if (!view) return null;
   return (
-    <UnitEconomicsV2 slug={slug} view={view} periodTitle={period.title} />
+    <UnitEconomicsSection slug={slug} view={view} periodTitle={period.title} />
   );
 }

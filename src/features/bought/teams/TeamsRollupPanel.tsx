@@ -8,7 +8,7 @@ import { TeamsSignals } from "./TeamsSignals";
 import { TeamsStandings } from "./TeamsStandings";
 import { TeamsUnowned } from "./TeamsUnowned";
 import { ATTRIBUTION_HINT, deltaFootnote, teamAnchorId } from "./teamsShared";
-import { teamsRollupV2 } from "./TeamsRollupPanel.v2";
+import { teamsRollupView } from "./TeamsRollupPanelView";
 import { getOrgTeamRollup, getTeamStandingsProvenance } from "@/lib/db";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
@@ -98,7 +98,7 @@ export async function TeamsRollupPanel({ slug, sp }: { slug: string; sp: { [key:
   // implying the filtered decomposition was the thing recorded.
   const scoped = segmentId != null || techGroupId != null;
 
-  return teamsRollupV2({
+  return teamsRollupView({
     slug, rollup, standings, decisions, decisionsFailed, deltaLabel, dims: DIMS, filterBar,
     capturedAt: standingsProvenance?.generatedAt ?? null,
     capturedScopeNote: scoped && standingsProvenance ? "captured fleet-wide, not for this filter" : null,

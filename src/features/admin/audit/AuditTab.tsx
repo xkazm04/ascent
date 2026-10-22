@@ -10,11 +10,11 @@
 //     would be a second tenant check that can drift from the real one;
 //   - its old route (src/app/org/[slug]/audit/page.tsx) is now nothing but a redirect() — links in
 //     already-sent digest emails still resolve.
-// The composition is AuditTab.v2 (Prism).
+// The composition is AuditTabView.
 // Its leaf parts (AuditLogViewer, AuditLogCells) sit beside it in the same group folder.
 
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
-import { auditV2 } from "./AuditTab.v2";
+import { auditView } from "./AuditTabView";
 import { AuditHealthNotice } from "./AuditHealthNotice";
 import { getAuditLog } from "@/lib/db";
 import { getAuditHealth } from "@/lib/db/audit-health";
@@ -39,5 +39,5 @@ export async function AuditTab({ slug }: { slug: string }) {
     );
   }
 
-  return auditV2(slug, page, health);
+  return auditView(slug, page, health);
 }

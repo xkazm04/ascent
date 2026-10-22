@@ -290,7 +290,7 @@ describe("journey first-run stages and Scan-entry links: a removed link is notic
     expect(gaps(withoutLink(tree, "members", "repositories")).noOutbound).toEqual(["members"]);
   });
 
-  // The empty-state literal counted per composition, so deleting Executive's (executiveEmptyV2) is noticed
+  // The empty-state literal counted per composition, so deleting Executive's (executiveEmptyView) is noticed
   // even if the graph edge survives elsewhere.
   it.each([["security", 1], ["executive", 1]] as const)("%s renders %i Scan-entry link(s) to repositories", (tab, count) => {
     const found = tree
@@ -308,13 +308,13 @@ describe("journey first-run stages and Scan-entry links: a removed link is notic
   });
 });
 
-// A themed Connect tab renders its link in its Prism composition. The per-file literal count is pinned here.
+// A themed Connect tab renders its link in its composition. The per-file literal count is pinned here.
 describe("Connect tabs carry the link in their composition", () => {
   const tree = readTree();
   const WHERE: [file: string, literals: number][] = [
-    ["src/features/shared/registry/RegistryPanel.v2.tsx", 1],
-    ["src/features/admin/integrations/IntegrationsView.v2.tsx", 1],
-    ["src/features/admin/settings/SettingsTab.v2.tsx", 1],
+    ["src/features/shared/registry/RegistryPanel.tsx", 1],
+    ["src/features/admin/integrations/IntegrationsView.tsx", 1],
+    ["src/features/admin/settings/SettingsTabView.tsx", 1],
   ];
   it.each(WHERE)("%s renders %i next-move link(s) to repositories", (file, literals) => {
     const f = tree.find((x) => x.path === file);
@@ -329,7 +329,7 @@ describe("Settings carries its Members sibling link in every composition", () =>
   const tree = readTree();
   const PLAIN_LINK = /<Link href=\{orgTabHref\(slug, "members"\)\}/g;
   it.each([
-    "src/features/admin/settings/SettingsTab.v2.tsx",
+    "src/features/admin/settings/SettingsTabView.tsx",
   ])("%s renders one plain Members link", (file) => {
     const f = tree.find((x) => x.path === file);
     expect(f).toBeDefined();

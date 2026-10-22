@@ -1,4 +1,4 @@
-// Props both governance compositions share. The panel resolves them once; v1 and v2 must not
+// Props both governance compositions share.
 // each re-fetch the overview or the owner check.
 import type { ReactNode } from "react";
 import type { GovernanceOverview } from "@/lib/org/governance";

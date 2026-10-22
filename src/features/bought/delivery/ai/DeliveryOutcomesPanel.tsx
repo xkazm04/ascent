@@ -9,7 +9,7 @@ import { Frame, Lede } from "@/components/kit";
 import { getDeliveryOutcomes } from "@/lib/db/delivery-outcomes";
 import type { ResolvedWindow } from "@/lib/window";
 import { settle } from "../deliveryLoad";
-import { DeliveryOutcomesV2 } from "./DeliveryOutcomes.v2";
+import { DeliveryOutcomesView } from "./DeliveryOutcomes";
 
 const FAILED = "Delivery outcomes couldn't load right now. Try refreshing this page.";
 
@@ -28,6 +28,6 @@ export async function DeliveryOutcomesPanel({
   }
   if (!outcomes) return null;
   return (
-    <DeliveryOutcomesV2 slug={slug} outcomes={outcomes} periodTitle={period.title} />
+    <DeliveryOutcomesView slug={slug} outcomes={outcomes} periodTitle={period.title} />
   );
 }

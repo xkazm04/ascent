@@ -8,7 +8,7 @@
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { isPersonalOrg } from "@/lib/db";
 import { listLoopLessons } from "@/lib/db/loop-lessons";
-import { lessonsV2 } from "./LessonsTab.v2";
+import { lessonsView } from "./LessonsTabView";
 import { lessonCounts } from "./lessonsModel";
 import type { LessonsTabData } from "./lessonsTabData";
 
@@ -20,5 +20,5 @@ export async function LessonsTab({ slug }: { slug: string }) {
   }
   const lessons = await listLoopLessons(slug, undefined, 200);
   const data: LessonsTabData = { slug, lessons, counts: lessonCounts(lessons) };
-  return lessonsV2(data);
+  return lessonsView(data);
 }

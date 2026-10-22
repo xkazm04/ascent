@@ -15,7 +15,7 @@ import type { ReactNode } from "react";
 import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { PeriodCoverageStrip } from "@/components/shared/scope/PeriodCoverageStrip";
 import { periodCoverage } from "@/lib/org/periodCoverageModel";
-import { OverviewLedgerV2 } from "./OverviewLedger.v2";
+import { OverviewLedger } from "./OverviewLedger";
 import { isOverviewScopedEmpty, OVERVIEW_SCOPED_EMPTY } from "./overviewEmpty";
 import { buildScoreBadges, buildTrendPoints } from "./overviewStanding";
 import { buildTrajectories } from "./repoTrajectory";
@@ -108,7 +108,7 @@ export async function OverviewFleetPanel({
   return (
     <>
       <PeriodCoverageStrip slug={slug} coverage={coverage} />
-      <OverviewLedgerV2
+      <OverviewLedger
         fixFirst={fixFirst}
         slug={slug}
         search={search ?? ""}

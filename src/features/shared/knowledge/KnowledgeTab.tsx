@@ -19,7 +19,7 @@ import { getKnowledgeView } from "@/lib/org/knowledge-view";
 import { fixtureKnowledgeView } from "@/lib/org/knowledge-view.fixture";
 
 import { KnowledgePreviewShell } from "./KnowledgePreviewShell";
-import { KnowledgeBodyV2, KnowledgeNoticeV2 } from "./KnowledgeTab.v2";
+import { KnowledgeBody, KnowledgeNotice } from "./KnowledgeTabView";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -30,7 +30,7 @@ const one = (sp: SearchParams, key: string): string | null => {
 
 export async function KnowledgeTab({ slug, sp = {} }: { slug: string; sp?: SearchParams }) {
   const view = await getKnowledgeView(slug);
-  const Notice = KnowledgeNoticeV2;
+  const Notice = KnowledgeNotice;
 
   if (view.status === "unmapped") {
     const notice = (
@@ -85,5 +85,5 @@ export async function KnowledgeTab({ slug, sp = {} }: { slug: string; sp?: Searc
     );
   }
 
-  return <KnowledgeBodyV2 view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />;
+  return <KnowledgeBody view={view} slug={slug} initialDomain={one(sp, "domain")} initialSubject={one(sp, "subject")} />;
 }

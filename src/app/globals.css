@@ -565,7 +565,7 @@ html.snap-deck body::after {
   scrollbar-color: #1e293b transparent;
 }
 
-/* Elevation-strata rule-lines — the Altimeter signature motif. Apply to a positioned
+/* Apply to a positioned
    container; renders faint horizontal rules like an altimeter gauge. */
 .strata {
   background-image: repeating-linear-gradient(

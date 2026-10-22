@@ -1,7 +1,7 @@
 // G6-24: the commit-activity caption hardcoded "weeks" as a literal plural while the adjacent repo count
 // in the same sentence was already correctly conditional, so a single-week fleet read "...over 1 weeks."
 // This asserts the same conditional pluralization pattern used for `repos` is now applied to `weeks`.
-// The caption lives in DeliveryActivity.v2.
+// The caption lives in DeliveryActivity.
 
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
@@ -9,7 +9,7 @@ import path from "node:path";
 
 const read = (name: string) => fs.readFileSync(path.resolve(__dirname, name), "utf8");
 
-describe.each([["DeliveryActivity.v2.tsx", read("DeliveryActivity.v2.tsx")]])("delivery commit-activity caption pluralization (G6-24) in %s", (_name, SOURCE) => {
+describe.each([["DeliveryActivity.tsx", read("DeliveryActivity.tsx")]])("delivery commit-activity caption pluralization (G6-24) in %s", (_name, SOURCE) => {
   it("no longer hardcodes an unconditional 'weeks' literal", () => {
     expect(SOURCE).not.toMatch(/\{activity\.weeks\} weeks\b/);
   });

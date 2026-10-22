@@ -21,7 +21,7 @@ import { VIEWER_FALLBACK } from "@/components/shared/followups/claimActionsModel
 import { selfHosted } from "@/lib/env";
 import { resolveOrgScope } from "@/lib/org/scope";
 import type { ProposalsTabData } from "./proposalsTabData";
-import { proposalsV2 } from "./ProposalsTab.v2";
+import { proposalsView } from "./ProposalsTabView";
 import { mergeProposals, pendingLoopProposals } from "./proposalsModel";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -76,5 +76,5 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
     viewer,
     counts: { open: active.length, handedOff, loop: loop.length, points },
   };
-  return proposalsV2(data);
+  return proposalsView(data);
 }

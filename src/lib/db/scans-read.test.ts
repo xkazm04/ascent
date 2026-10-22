@@ -703,7 +703,7 @@ describe("scanContentKey / findScanByScannedAt — content identity for sha-less
   };
 
   it("pins the v2 key shape (rubricVersion is instrument identity) and forbids the v1 shape", () => {
-    // v2 folds rubricVersion in with the engine; v1 omitted it, so two same-score different-rubric
+    // Folds rubricVersion in with the engine; v1 omitted it, so two same-score different-rubric
     // reports hashed to one identity. The old canonical string must never be produced.
     expect(scanContentKey(base)).toBe("70|L3|60|80|anthropic|claude|r10|D1:90,D2:55");
     expect(scanContentKey(base)).not.toBe("70|L3|60|80|anthropic|claude|D1:90,D2:55");

@@ -1,6 +1,6 @@
 // The Delivery tab's core data region — PR signals, branch governance, commit activity and the AI
 // delivery ROI/governance read. One Promise.allSettled (G4-10: a failing query degrades only its own
-// section, never the tab). DeliveryCore.v2 (Prism) renders it;
+// section, never the tab). DeliveryCore renders it;
 // both receive this same resolved view.
 
 import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
@@ -10,7 +10,7 @@ import { getOrgActivity, getOrgGovernance, getOrgPrSignals, getOrgUsageRollup } 
 import { aiRoiSpendKind, aiRoiUnavailableMessage, settle } from "./deliveryLoad";
 import type { OrgScope } from "@/lib/org/scope";
 import type { ResolvedWindow } from "@/lib/window";
-import { DeliveryCoreV2 } from "./DeliveryCore.v2";
+import { DeliveryCore } from "./DeliveryCore";
 
 export async function DeliveryCorePanel({
   slug,
@@ -94,5 +94,5 @@ export async function DeliveryCorePanel({
     withholdAllocatedRoi,
     aiUnavailable,
   };
-  return <DeliveryCoreV2 {...view} />;
+  return <DeliveryCore {...view} />;
 }

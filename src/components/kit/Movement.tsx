@@ -17,7 +17,7 @@ export function Movement({
   /** The window the move was measured over ("vs last week"): printed, never tooltip-only. */
   basis?: string | null;
   title?: string;
-  /** Pins the glyph colour to a class (Altimeter strips) instead of the direction-triad inline style. */
+  /** Pins the glyph colour to a class (strips) instead of the direction-triad inline style. */
   toneClass?: (up: boolean) => string;
   basisClass?: string;
   className?: string;

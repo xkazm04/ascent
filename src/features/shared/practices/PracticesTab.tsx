@@ -9,8 +9,7 @@
 // OrgTabChunks call site: the tech-stack scope must resolve before getOrgPractices can be scoped by
 // it, so the reads are sequential/coupled rather than independent sources.
 //
-// Theme picks the composition after the reads: PracticesTab.v1 is the shipped markup, PracticesPageV2
-// is the Prism composition. Both receive the same PracticesPageData.
+// The reads feed PracticesPage, which renders the PracticesPageData.
 
 import { getOrgPractices, getOrgRollupShared, getPlaybookAdoption, listOrgRepoNames, listPlaybooks } from "@/lib/db";
 import { getFoundationRollout } from "@/lib/db/org-foundation";
@@ -25,7 +24,7 @@ import { DIMENSIONS } from "@/lib/maturity/model";
 import { registryBlobBase, getRegistrySync } from "@/lib/org/registry-sync";
 import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { degraded } from "./practicesDegradedRead";
-import { PracticesPageV2 } from "./PracticesPage.v2";
+import { PracticesPage } from "./PracticesPage";
 import type { PracticesPageData } from "./practicesData";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -89,7 +88,7 @@ export async function PracticesTab({ slug, sp }: { slug: string; sp: SearchParam
     coherence: rollup && rollup.repos.length > 0 ? buildCoherenceRows(rollup.repos) : null,
   };
   return (
-    <PracticesPageV2
+    <PracticesPage
       data={data}
       filters={<ScopeFilterBar segments={[]} segmentId={null} techGroups={techGroups} activeStack={activeStack} />}
     />

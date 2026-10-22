@@ -4,13 +4,13 @@
 // SERVER component, filename PINNED as DeliveryTab.tsx. No auth work — the org layout's canReadOrg
 // gate already ran. `resolveOrgScope` + `resolveOrgWindow` are each called ONCE and the promises
 // handed to both regions below (the OverviewTab pattern) — awaiting a promise twice does not re-run
-// the query. DeliveryTab.v2.tsx (Prism) keeps the four suspense boundaries and the same period.
+// the query. DeliveryTabView.tsx keeps the four suspense boundaries and the same period.
 
 import { resolveOrgScope } from "@/lib/org/scope";
 import { resolveOrgWindow } from "@/lib/org/period";
 import { NextMoveLink } from "@/components/shared/dashboard/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
-import { DeliveryTabV2 } from "./DeliveryTab.v2";
+import { DeliveryTabView } from "./DeliveryTabView";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -26,7 +26,7 @@ export async function DeliveryTab({ slug, sp }: { slug: string; sp: SearchParams
   const props = { slug, scope, period };
   return (
     <>
-      <DeliveryTabV2 {...props} />
+      <DeliveryTabView {...props} />
       <NextMoveLink href={orgTabHref(slug, "overview")} to="overview" />
     </>
   );

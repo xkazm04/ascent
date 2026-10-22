@@ -1,7 +1,7 @@
 "use client";
 
 // The proposed-batch ledger's BODY — empty states, the head with its keep-all box, and the rows — shared by both
-// compositions of the ledger (v1 header in CockpitBatchLedger, the Prism header in CockpitBatchLedger.v2). Only the
+// Only the
 // header above it differs per theme; `dimMark` lets a composition name a row's dimension its own way.
 import type { ReactNode } from "react";
 import { OrgTable, SectionEmpty } from "@/components/shared/dashboard/ui";

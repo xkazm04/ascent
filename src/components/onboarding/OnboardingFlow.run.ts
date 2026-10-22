@@ -170,7 +170,7 @@ export function encodeSnapshot(snap: Omit<ResumeSnapshot, "version">): string {
   return JSON.stringify({ ...snap, version: 2 });
 }
 
-/** Read a stored snapshot (v1 or v2). Malformed input is no snapshot; a malformed plan is no plan. */
+/** Malformed input is no snapshot; a malformed plan is no plan. */
 export function decodeSnapshot(raw: string | null): ResumeSnapshot | null {
   if (!raw) return null;
   let v: unknown;

@@ -16,8 +16,8 @@
 //   - Privacy disclosure. /connect's "where your code goes" notice can now say "nowhere" honestly.
 //
 // CONFIG. Both variables are REQUIRED and neither has a guessed default:
-//   LOCAL_LLM_BASE_URL   e.g. http://localhost:11434/v1 (Ollama) · http://localhost:1234/v1 (LM
-//                        Studio) · http://localhost:8000/v1 (vLLM). Ports differ per runtime, so
+//   LOCAL_LLM_BASE_URL   e.g.
+//                        Ports differ per runtime, so
 //                        there is no default that is right more often than it is wrong.
 //   LOCAL_LLM_MODEL      the exact tag you have pulled, e.g. "qwen2.5-coder:14b".
 //   LOCAL_LLM_API_KEY    optional; most local servers ignore auth entirely, so it is omitted unless set.

@@ -28,7 +28,7 @@ export function Panel({
   /** `2xl` (default) or `xl` for the tighter in-band panels. */
   radius?: "xl" | "2xl";
   className?: string;
-  /** Prism background pattern; no effect in Altimeter. */
+  /** Background pattern. */
   pattern?: KitPattern;
   id?: string;
   role?: React.AriaRole;

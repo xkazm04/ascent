@@ -44,7 +44,7 @@ export function RepoDimensionHeatmap({
   // GC: column sort — a dimension header click ranks the fleet by that dimension, WEAKEST FIRST
   // (the actionable view: "who needs help on CI?"), a second click flips to strongest-first, a third
   // restores the caller's default (overall maturity) order. A ?dim= deep-link seeds the same sort.
-  // The sort/mean model is shared with the v2 matrix (heatmapModel.ts).
+  // The sort/mean model is shared with the matrix (heatmapModel.ts).
   const { sort, sorted, avgs, cycleSort, hasMissing } = useHeatMatrix(rows, dims, initialSortDim);
   return (
     <Surface className="p-5">

@@ -2,7 +2,7 @@
 // Owner-only: the layout already gated org READ; this tab requires the owner role because it
 // manages credentials. The check runs first, before any card is built.
 //
-// After the gate and the reads, IntegrationsViewV2 (Prism) renders the IntegrationsData.
+// After the gate and the reads, IntegrationsView renders the IntegrationsData.
 
 import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { ingestToken, isIngestConfigured } from "@/lib/integrations/ingest-token";
@@ -14,7 +14,7 @@ import { getProviderConnection } from "@/lib/db/provider-credentials";
 import { getMeasuredAttribution } from "@/lib/db/integrations-attribution";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import type { IntegrationsData } from "./integrationModel";
-import { IntegrationsViewV2 } from "./IntegrationsView.v2";
+import { IntegrationsView } from "./IntegrationsView";
 
 export async function IntegrationsTab({ slug }: { slug: string }) {
   if (!(await hasOrgRole(slug, "owner"))) {
@@ -58,5 +58,5 @@ export async function IntegrationsTab({ slug }: { slug: string }) {
     openai: { connection: openaiConnection, encryptionConfigured },
     encryptionConfigured,
   };
-  return <IntegrationsViewV2 data={data} />;
+  return <IntegrationsView data={data} />;
 }

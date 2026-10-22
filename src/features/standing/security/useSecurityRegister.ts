@@ -1,7 +1,7 @@
 "use client";
 
-// The Security register's state: ONE hook both compositions (SecurityRiskRegister v1, .v2) call, so the
-// sort, the "show all" slice and the D9 drill-in target cannot drift between Altimeter and Prism. The matrix
+// The Security register's state: ONE hook the register calls, so the
+// The matrix
 // above the table and the table are both driven by the SAME `visible` slice.
 import { useMemo, useState } from "react";
 import type { HeatTarget } from "@/components/shared/recs/RepoDimensionModal";

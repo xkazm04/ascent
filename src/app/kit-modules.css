@@ -1,9 +1,9 @@
-/* ── Flattening rules for the phase-1 Prism compositions (docs/design/PRISM-MIGRATION-GAPS.md) ─────────
+/* ── Flattening rules for the phase-1 compositions (docs/design/PRISM-MIGRATION-GAPS.md) ─────────
    The same four rules kit.css applies to the older modules (governance, passports, practices, delivery),
    written once for the modules phase 1 added. Each v2 root carries data-role="<module>-v2". They exist
    because the v2 frames still host v1 interiors (tables, care bodies, chart legends, forms) written with
    card radii, mono caps and the slate-600 floor:
-     1. the muted floor is slate-400 (slate-600 was an Altimeter-only contrast concession);
+     1. the muted floor is slate-400 (slate-600 was a contrast concession the kit does not make);
      2. no radius above 4px on a working surface (kit parts keep their own 3/4px);
      3. leftover mono caps become the sentence-case eyebrow, except honesty tags (they ARE mono caps);
      4. inputs take the 3px hairline control.

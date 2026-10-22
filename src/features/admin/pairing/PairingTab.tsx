@@ -20,7 +20,7 @@ import { orgTabHref } from "@/lib/org/orgTabs";
 import { getOrgRegistry } from "@/lib/db/org-registry";
 import { getRegistryCapabilities } from "@/lib/registry/capabilities";
 import { resolveLocalRegistry } from "@/lib/registry/local-source";
-import { pairingV2 } from "./PairingTab.v2";
+import { pairingView } from "./PairingTabView";
 import type { PairingData } from "./pairingData";
 import type { RegistryPairingView } from "./pairingClient";
 
@@ -73,5 +73,5 @@ export async function PairingTab({ slug }: { slug: string }) {
 
   const [pairings, registry] = await Promise.all([listLocalPairings(slug), registryPairingView(slug)]);
   const data: PairingData = { pairings, registry };
-  return pairingV2(slug, data);
+  return pairingView(slug, data);
 }

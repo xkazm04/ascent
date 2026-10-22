@@ -1,6 +1,6 @@
 "use client";
 
-// Adoption-ledger actions shared by the Altimeter strip and the Prism frame.
+// Adoption-ledger actions shared by the drift strip and frame.
 import { useState } from "react";
 import { adoptionIsMeaningful, buildAdoptionTiles, type AdoptionTile } from "./practiceAdoptionRows";
 import { readApiResponse, type BatchResult } from "./practiceApplyShared";

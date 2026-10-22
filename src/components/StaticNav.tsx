@@ -10,7 +10,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
-/** Generated ascending-chevron mark + mono wordmark (Altimeter identity). Lives here (not Brand.tsx)
+/** Lives here (not Brand.tsx)
  *  because it must stay importable from a CLIENT component with no server-only baggage — Brand.tsx
  *  pulls @/lib/auth (session/DB reads) at module scope, which can't be bundled into a client component
  *  (see RouteError.tsx, the reason this got split out: G6-13). Brand.tsx re-exports this for its own

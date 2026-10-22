@@ -20,12 +20,21 @@
 // job. A settled run still drifts the field and is still `setOutcome`'d; the rail simply keeps showing
 // the inspector, with the selection intact, because the outcome now has a better place to be.
 //
-// This file is the ENTRY: it picks the composition by theme (v1 = the shipped layout, v2 = Prism) and owns the props
-// contract both take. The state is `useLiveCockpitView`; each composition is layout only.
-
-import { LiveCockpitV2 } from "./LiveCockpit.v2";
+// The state is `useLiveCockpitView`; this file is layout only and owns the props contract.
+import { useHashFlag } from "@/components/kit";
+import { liveViewHref } from "../LiveViewSwitch";
+import { OutcomeSectionView } from "../outcome/OutcomeSectionView";
+import { CockpitBatchLedgerView } from "./CockpitBatchLedgerView";
+import { CockpitField } from "./CockpitField";
+import { CockpitMasthead } from "./CockpitMasthead";
+import { CockpitRail } from "./CockpitRail";
+import { CockpitSetupDialog } from "./CockpitSetupDialog";
+import { PriceListPanelView } from "./PriceListPanelView";
+import { dialsSummary } from "./RunSetupModal";
+import { driveHeaderCaption, runnerStopHint } from "./runnerModel";
 import type { LoopRunDetail, LoopRunRecord, LoopRunSummary } from "./loopTypes";
 import type { ObservatoryHistory, ObservatorySeed } from "../observatory";
+import { useLiveCockpitView } from "./useLiveCockpitView";
 
 export interface LiveCockpitProps {
   slug: string;
@@ -55,6 +64,121 @@ export interface LiveCockpitProps {
   cockpitHref?: string;
 }
 
+const NO_DETAILS: LoopRunDetail[] = [];
+
 export function LiveCockpit(props: LiveCockpitProps) {
-  return <LiveCockpitV2 {...props} />;
+  const { slug, seeds, isOwner, wallHref, runDetails = NO_DETAILS } = props;
+  const { c, loop, drive, railMode, runner, listOpen, toggleList, setupOpen, setSetupOpen, openRepo } = useLiveCockpitView(props);
+  const [outcomeOpen] = useHashFlag("outcome");
+  const live = loop.live || drive.live;
+  const stopLabel = runner ? "Stop runner" : undefined;
+  const stopping = loop.busy || drive.busy;
+
+  return (
+    <section aria-label="Loop cockpit" data-role="cockpit-v2" className="space-y-12">
+      {!outcomeOpen && (
+        <>
+          <CockpitMasthead
+            slug={slug}
+            fleetCount={seeds.length}
+            active={loop.active}
+            laneCount={c.laneCount}
+            live={live}
+            driveCaption={driveHeaderCaption(drive.drive, drive.live)}
+            wallHref={wallHref}
+            ledgerHref={props.ledgerHref ?? liveViewHref({}, "ledger")}
+            cockpitHref={props.cockpitHref ?? liveViewHref({}, "cockpit")}
+            onOpenSetup={c.canRun ? () => setSetupOpen(true) : undefined}
+            setupSummary={dialsSummary(c.dials)}
+            onStop={c.stop}
+            stopLabel={stopLabel}
+            stopCaption={runner ? runnerStopHint(runner) : null}
+            stopping={stopping}
+            stopRequested={loop.stopRequested || drive.drive?.stopRequested === true}
+            stopHorizonMs={loop.stopHorizonMs}
+          />
+          <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,25rem)]" data-role="cockpit-stage">
+            <CockpitField
+              bare
+              bodies={c.bodies}
+              selected={c.selected}
+              onSelect={c.setSelected}
+              scanning={c.scanning}
+              drift={c.drift}
+              onOpen={openRepo}
+              listOpen={listOpen}
+              onToggleList={toggleList}
+            />
+            <aside aria-label="Selection and run" data-role="cockpit-rail" className="min-w-0 border-t border-divider pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+              <CockpitRail
+                slug={slug}
+                mode={railMode}
+                setup={c.setup}
+                setupMessage={c.setupMessage}
+                liveDrive={drive.live ? drive.drive : null}
+                interruptedDrive={c.interruptedDrive}
+                runDetail={loop.detail}
+                runLive={loop.live}
+                batch={c.batch}
+                dials={c.dials}
+                canRun={c.canRun}
+                busy={stopping}
+                loopError={loop.error}
+                driveError={drive.error}
+                onRun={(input) => void c.startRun(input)}
+                onDrive={(input) => void c.startDrive(input)}
+                onOpenRunner={() => {
+                  c.setDial("mode", "runner");
+                  setSetupOpen(true);
+                }}
+                onStopRun={() => loop.activeId && void loop.stop(loop.activeId)}
+                onStopDrive={() => void drive.stop()}
+                onResumeDrive={() => void c.resumeDrive()}
+                onDismissDrive={c.dismissDrive}
+                onRetryLane={(laneId) => void loop.retry(laneId)}
+                onResumeRepo={(repo) => void drive.resumeRepo(repo)}
+                remoteArm={c.remoteArm}
+              />
+            </aside>
+          </div>
+          <CockpitBatchLedgerView
+            proposals={c.batch.proposals}
+            pruned={c.batch.pruned}
+            onTogglePrune={c.batch.togglePrune}
+            dimFocus={c.dials.dimFocus}
+            unpaired={c.batch.unpaired}
+            loading={c.batch.loading}
+            empty={c.batch.repos.length === 0}
+            repair={{ slug, canRepair: isOwner, onRepaired: c.batch.reload }}
+          />
+        </>
+      )}
+      <OutcomeSectionView
+        slug={slug}
+        canReview={isOwner}
+        runDetails={runDetails}
+        liveDetail={loop.detail}
+        openedDetail={c.outcome}
+        selectedId={c.outcome?.run.id ?? loop.activeId}
+        driveOutcome={c.driveOutcome}
+        onOpen={(id) => void c.openRun(id)}
+        onDismissDrive={c.backToInspect}
+        nowMs={props.nowMs}
+        aside={
+          live ? (
+            <button
+              type="button"
+              onClick={c.stop}
+              disabled={stopping}
+              className="focus-ring rounded-[3px] border border-danger/60 px-3 py-2 type-body-sm font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
+            >
+              {stopLabel ?? "Stop"}
+            </button>
+          ) : null
+        }
+      />
+      {!outcomeOpen && <PriceListPanelView slug={slug} />}
+      <CockpitSetupDialog c={c} open={setupOpen} onClose={() => setSetupOpen(false)} runnerRepos={props.runnerRepos ?? props.pairedRepos} />
+    </section>
+  );
 }

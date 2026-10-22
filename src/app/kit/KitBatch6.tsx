@@ -1,6 +1,6 @@
 "use client";
 
-// Kit batch 6 specimen (2026-10-22): the parts promoted out of the phase-1 Prism compositions (Notice,
+// Kit batch 6 specimen (2026-10-22): the parts promoted out of the phase-1 compositions (Notice,
 // FilterBar + FilterCount, FillBar + BarRow, SortHead, DecisionLedger, Display/Caption as inline elements),
 // then the Live desk and On Air wall palettes. Synthetic data only.
 import { useState } from "react";

@@ -17,7 +17,7 @@
 //     `.animate-arrive-in` on a direct child — the cascade already animates it.
 //   - No skeletons anywhere: a waiting region is an empty reserved-height <OrgTabGap>.
 
-import { OverviewTabV2 } from "./OverviewTab.v2";
+import { OverviewTabView } from "./OverviewTabView";
 import { resolveBillingReturn } from "./overviewBilling";
 import { resolveOverviewInputs, type OverviewSearchParams } from "./overviewInputs";
 import { PersonalOverview } from "@/components/org/personal/PersonalOverview";
@@ -44,5 +44,5 @@ export async function OverviewTab({ slug, sp }: { slug: string; sp: OverviewSear
   }
 
   const inputs = await resolveOverviewInputs(slug, sp);
-  return <OverviewTabV2 slug={slug} billingNotice={billingNotice} i={inputs} />;
+  return <OverviewTabView slug={slug} billingNotice={billingNotice} i={inputs} />;
 }

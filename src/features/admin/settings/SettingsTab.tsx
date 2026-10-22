@@ -8,11 +8,11 @@
 // by absence; a pinned test (SettingsTab.test.tsx) asserts the non-owner render contains no `/erase/i`,
 // `/retention/i`, or `/manage billing/i`. Do not move this check behind any card render.
 //
-// After the gate and the reads, SettingsTab.v2.tsx (Prism) renders the SettingsData cards.
+// After the gate and the reads, SettingsTabView.tsx renders the SettingsData cards.
 //
 // Its old route (src/app/org/[slug]/settings/page.tsx) is now a redirect().
 
-import { settingsV2 } from "./SettingsTab.v2";
+import { settingsView } from "./SettingsTabView";
 import type { SettingsData } from "./settingsData";
 import { OrgEmpty } from "@/components/shared/dashboard/ui";
 import { getCreditState, getOrgLlmConfig } from "@/lib/db";
@@ -55,5 +55,5 @@ export async function SettingsTab({ slug }: { slug: string }) {
     portalEnabled: polarEnabled(),
     encryptionConfigured: isEncryptionConfigured(),
   };
-  return settingsV2(data);
+  return settingsView(data);
 }

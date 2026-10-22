@@ -6,7 +6,7 @@
 // it — plus the shared assessment prompt + the validateAssessment safety net.
 //
 // Config: OPENAI_API_KEY (required), OPENAI_MODEL (default gpt-4o-mini), OPENAI_BASE_URL (override
-// for Azure / self-hosted; default https://api.openai.com/v1). Select with LLM_PROVIDER=openai.
+// Select with LLM_PROVIDER=openai.
 //
 // This class is also the ENGINE behind the first-class `local` provider (src/lib/llm/local.ts): a
 // local Ollama / vLLM / LM Studio server speaks this exact protocol. Everything that differs there —

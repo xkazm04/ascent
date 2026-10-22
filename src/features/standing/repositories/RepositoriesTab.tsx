@@ -15,8 +15,8 @@ import { orgTabHref, DEFAULT_ORG_TAB } from "@/lib/org/orgTabs";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { OrgTabGap } from "@/components/shared/dashboard/OrgTabGap";
 import { FleetTabs } from "./FleetTabs";
-import { SegmentsSectionV2 } from "./SegmentsSection.v2";
-import { RepositoriesTabV2 } from "./RepositoriesTab.v2";
+import { SegmentsSection } from "./SegmentsSection";
+import { RepositoriesTabView } from "./RepositoriesTabView";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -40,7 +40,7 @@ export async function RepositoriesTab({
       <div className="stagger-children space-y-6">
         <FleetTabs slug={slug} active="segments" />
         <Suspense fallback={<OrgTabGap minH="min-h-[32rem]" />}>
-          <SegmentsSectionV2 slug={slug} searchParams={sp} />
+          <SegmentsSection slug={slug} searchParams={sp} />
         </Suspense>
       </div>
     );
@@ -51,5 +51,5 @@ export async function RepositoriesTab({
   // boundaries costs one lookup, and both panels then read one `getOrgRollupShared` at the same
   // (segmentId, techGroupId). Deliberately NOT awaited here.
   const scope = resolveOrgScope(slug, sp);
-  return <RepositoriesTabV2 slug={slug} sp={sp} scope={scope} />;
+  return <RepositoriesTabView slug={slug} sp={sp} scope={scope} />;
 }

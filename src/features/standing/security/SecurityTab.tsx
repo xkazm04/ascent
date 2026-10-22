@@ -14,7 +14,7 @@
 import { buildGateSnippet, buildSecurityOverview, securityMarkdown } from "@/lib/org/security";
 import { getOrgSupplyChain } from "@/lib/security/supply-chain";
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
-import { securityV2 } from "./SecurityTab.v2";
+import { securityView } from "./SecurityTabView";
 import type { SecurityTabData } from "./securityTabData";
 import { PersonalSecurity } from "@/components/org/personal/PersonalSecurity";
 import { isPersonalOrg } from "@/lib/db";
@@ -76,5 +76,5 @@ export async function SecurityTab({ slug, sp }: { slug: string; sp: SearchParams
     comparisonLabel: period.comparisonLabel,
     stack: { groups: techGroups, active: activeStack?.key ?? null },
   };
-  return securityV2(data);
+  return securityView(data);
 }

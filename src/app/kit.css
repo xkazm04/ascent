@@ -147,7 +147,7 @@ html:root [data-kit="chip"][data-dimension="9"] { --chip-hue: var(--spec-9); }
 
 /* ══ KIT V2 (docs/design/KIT-V2-LANGUAGE.md) ═════════════════════════════════════════════════════
    The landing's STRUCTURE, not its palette: type roles, shape, hairline containers. Everything is
-   scoped to html:root; the parts' Altimeter look stays in their utility classes.
+   scoped to html:root; the parts' base look stays in their utility classes.
    Sizes are the language spec's dashboard steps (fixed rem, taken from the 1440 landing column). */
 
 /* Theme-wide rule D3: a mono uppercase label becomes the eyebrow (sans, sentence case, +0.02em). Unlayered,
@@ -301,7 +301,7 @@ html:root [data-kit="dimension-line"] [data-role="dimension-value"] {
 }
 
 /* Hue-versus-meaning ruling (decided 2026-09-30, KIT-HANDOFF.md): hue names a dimension and nothing else. A
-   shortfall to the floor is a HATCHED span in the dimension's own hue (Altimeter keeps it `hidden`), and a
+   shortfall to the floor is a HATCHED span in the dimension's own hue, and a
    healthy full-height bar is desaturated a step so a dimension never shouts at full saturation on good news. */
 html:root [data-kit="dimension-line"] [data-role="dimension-shortfall"] { display: block; }
 html:root [data-role="dimension-bar"][data-high],
@@ -338,7 +338,7 @@ html:root [data-role="toolbar-readout"] {
 }
 
 
-/* ── Background patterns (Prism) ─────────────────────────────────────────────────────────────────
+/* ── Background patterns ─────────────────────────────────────────────────────────────────
    `data-pattern="<name>"` on any kit part (Frame, Panel, Masthead via their `pattern` prop, or a plain
    element). All are quiet (<= 7% paper), sit UNDER content, and each has a meaning so it never merely
    decorates:
@@ -407,13 +407,13 @@ html:root [data-role="settings-v2"] [data-kit="setting-row"] {
 }
 html:root [data-role="settings-v2"] [data-kit="setting-row"] { padding-block: 1rem; }
 
-/* Matrix cells (DimensionMatrix.v2): the hue bar draws only in the sorted column and under the pointer; every
+/* Matrix cells (DimensionMatrix): the hue bar draws only in the sorted column and under the pointer; every
    other cell is its number alone, so nine hues do not compete on every row. Cells keep their height. */
 html:root [data-role="matrix-cell"] [data-role="matrix-bar"] { opacity: 0; transition: opacity 0.25s var(--ease-prism); }
 html:root td[data-sorted] [data-role="matrix-bar"],
 html:root [data-role="matrix-cell"]:is(:hover, :focus-visible) [data-role="matrix-bar"] { opacity: 1; }
 
-/* ── Governance tab (kit-4, 2026-09-30): islands the v2 frames still host (policy sub-forms, stance
+/* ── Governance tab (kit-4, 2026-09-30): islands the frames still host (policy sub-forms, stance
    editor, verify button). Radius stays within 4px; muted meaning text stays at slate-400, not 600. ── */
 html:root [data-role="governance-v2"] .text-slate-600 {
   color: var(--color-slate-400);
@@ -507,7 +507,7 @@ html:root [data-role="practices-v2"] :is(
   }
 }
 
-/* ── Delivery tab (kit-5, 2026-09-30): stat labels and domain islands the v2 frames still host
+/* ── Delivery tab (kit-5, 2026-09-30): stat labels and domain islands the frames still host
    (trend multiples, activity chart, spend ribbon, ROI map, DORA). Sentence case, readable mute,
    radius within 4px. Status hues on those islands drop to paper; the words keep the meaning.
    The masthead aside clears the shell's guided-setup tab at 1280. ── */

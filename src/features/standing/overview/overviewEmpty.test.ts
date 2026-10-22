@@ -49,15 +49,15 @@ describe("OverviewFleetPanel — the gate is the helper, before the ledger", () 
     expect(panel).toMatch(/OVERVIEW_SCOPED_EMPTY/);
     expect(panel).toMatch(/<OrgEmpty/);
     const emptyAt = panel.indexOf("isOverviewScopedEmpty(rollup)");
-    const ledgerAt = panel.indexOf("<OverviewLedgerV2");
+    const ledgerAt = panel.indexOf("<OverviewLedger");
     expect(emptyAt).toBeGreaterThan(-1);
     expect(ledgerAt).toBeGreaterThan(emptyAt);
   });
 });
 
-// The tab has one composition (OverviewTab.v2.tsx, Prism); the
+// The tab has one composition (OverviewTabView.tsx, Prism); the
 // streaming rules bind it, so it is scanned.
-describe.each(["OverviewTab.v2.tsx"])("%s — Fix-first loading gap and fleet panel stay independent", (file) => {
+describe.each(["OverviewTabView.tsx"])("%s — Fix-first loading gap and fleet panel stay independent", (file) => {
   const tab = read(file);
 
   it("still reserves OverviewFixFirstGap while the punch-list streams", () => {

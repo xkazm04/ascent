@@ -17,7 +17,7 @@ vi.mock("@/lib/org/decision-map", () => ({ decisionMap: async () => ({}) }));
 vi.mock("@/lib/org/scope", () => ({ resolveOrgScope: async () => ({ segments: [], segmentId: null, techGroupId: null }) }));
 vi.mock("@/lib/org/passport-display", async (orig) => ({ ...(await orig<typeof import("@/lib/org/passport-display")>()), passportStackChips: () => [] }));
 vi.mock("./autonomy/autonomyModel", async (orig) => ({ ...(await orig<typeof import("./autonomy/autonomyModel")>()), deriveAutonomy: () => ({}) }));
-vi.mock("./PassportsSwitcher.v2", () => ({ PassportsSwitcherV2: () => null }));
+vi.mock("./PassportsSwitcher", () => ({ PassportsSwitcher: () => null }));
 
 const { PassportsTab } = await import("./PassportsTab");
 
@@ -54,7 +54,7 @@ const passport = (): AppPassport =>
     evidence: { confidence: 0.8 },
   }) as unknown as AppPassport;
 
-/** Walk the returned element tree for the first node carrying a `rows` prop (PassportsSwitcherV2). */
+/** Walk the returned element tree for the first node carrying a `rows` prop (PassportsSwitcher). */
 function findRows(node: ReactNode): unknown[] | null {
   if (Array.isArray(node)) {
     for (const n of node) {

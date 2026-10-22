@@ -1,7 +1,6 @@
 "use client";
 
-// The Lessons ledger's state: ONE hook both compositions (LessonsWorklist v1, .v2) call, so Altimeter and
-// Prism cannot drift on filters, selection or how a keep/discard settles.
+// The Lessons ledger's state, in ONE hook: filters, selection and how a keep/discard settles.
 import { useState } from "react";
 import { settleLoopLesson } from "@/features/inflight/live/cockpit/loopClient";
 import type { LoopLessonRow } from "@/features/inflight/live/cockpit/loopTypes";

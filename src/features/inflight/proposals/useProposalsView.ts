@@ -1,7 +1,7 @@
 "use client";
 
-// The Proposals ledger's state and actions: ONE hook both compositions (ProposalsWorklist v1, .v2) call, so
-// the Altimeter and Prism ledgers cannot drift on filters, selection or what a batch action does.
+// The Proposals ledger's state and actions: ONE hook the ledger calls, so
+// the ledger's views cannot drift on filters, selection or what a batch action does.
 // Batch actions are source-aware and only offered when the selection holds rows they apply to:
 //
 //   Dismiss N           — either source (a follow-up PATCH, or the loop review's `dismissed`)

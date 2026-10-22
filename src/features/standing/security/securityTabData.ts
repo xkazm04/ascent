@@ -1,4 +1,4 @@
-// What the Security tab reads once on the server and hands to a composition (v1 Altimeter, v2 Prism).
+// What the Security tab reads once on the server and hands to a composition.
 // The derived values (markdown brief, CI gate snippet, advisory rows, the degraded flag) are computed ONCE in
 // the entry so the two compositions cannot disagree about what the register shows.
 import type { ComponentProps } from "react";

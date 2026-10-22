@@ -1,12 +1,12 @@
 // The governance tab's single data-bearing region: resolves scope, builds the fleet gate overview,
-// and hands the props to the Prism composition. One panel, one Suspense
+// and hands the props to the composition. One panel, one Suspense
 // boundary (GovernanceTab): every card derives from the same `buildGovernanceOverview` read.
 
 import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { buildGovernanceOverview } from "@/lib/org/governance";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { hasOrgRole } from "@/lib/authz";
-import { GovernanceViewV2 } from "./GovernanceView.v2";
+import { GovernanceBoard } from "./GovernanceBoard";
 import type { GovernanceSearchParams } from "./governanceView";
 
 export async function GovernancePanel({
@@ -36,5 +36,5 @@ export async function GovernancePanel({
     scoped,
     filterBar: <ScopeFilterBar {...barProps} />,
   };
-  return <GovernanceViewV2 {...props} />;
+  return <GovernanceBoard {...props} />;
 }

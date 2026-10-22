@@ -4,7 +4,7 @@
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/Brand";
 import { KitParts } from "./KitParts";
-import { KitV2 } from "./KitV2";
+import { KitLanguage } from "./KitLanguage";
 import { KitBatch3 } from "./KitBatch3";
 import { KitBatch4 } from "./KitBatch4";
 import { KitViz } from "./KitViz";
@@ -103,7 +103,7 @@ export default function KitSpecimen() {
           </div>
         </section>
 
-        <KitV2 />
+        <KitLanguage />
         <KitBatch3 />
         <KitBatch4 />
         <KitViz />

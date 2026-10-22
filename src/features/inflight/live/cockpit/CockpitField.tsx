@@ -18,7 +18,7 @@ export interface CockpitFieldProps {
   onOpen: (fullName: string) => void;
   listOpen: boolean;
   onToggleList: () => void;
-  /** No card around it: the Prism composition lets the sky sit on the page (a hairline, not a box). */
+  /** No card around it: the composition lets the sky sit on the page (a hairline, not a box). */
   bare?: boolean;
 }
 

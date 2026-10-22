@@ -1,4 +1,4 @@
-// The shape the Contributors body composition (v2 Prism) takes: everything the panel
+// The shape the Contributors body composition takes: everything the panel
 // read and settled, so the two cannot disagree about data. Types only.
 
 import type { ReactNode } from "react";

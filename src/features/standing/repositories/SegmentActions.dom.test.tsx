@@ -12,7 +12,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 import { PUSH_RESCAN_DISCLOSURE } from "@/lib/org/repo-schedule";
 import { SegmentActions } from "./SegmentActions";
-import { SegmentActionsV2 } from "./SegmentActions.v2";
+import { SegmentActionsView } from "./SegmentActionsView";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -80,7 +80,7 @@ describe("SegmentActions cadence dropdown (#5)", () => {
 describe("SegmentActions push-rescan disclosure", () => {
   it.each([
     ["classic", SegmentActions],
-    ["v2", SegmentActionsV2],
+    ["v2", SegmentActionsView],
   ])("%s: the bulk cadence control is described by the push-rescan sentence", (_n, Comp) => {
     render(<Comp org="acme" segmentId="seg1" repos={["acme/web"]} taggedCount={1} />);
     const ids = (cadenceSelect().getAttribute("aria-describedby") ?? "").split(" ");

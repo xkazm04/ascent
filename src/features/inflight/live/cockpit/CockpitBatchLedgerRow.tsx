@@ -32,7 +32,7 @@ export function BatchLedgerRow({
   points: React.ReactNode;
   /** Replaces the note in the proposal cell (the broken row's inline re-pair). */
   detail?: React.ReactNode;
-  /** The dimension cell, when a composition names dimensions its own way (Prism v2). Absent = the plain id. */
+  /** The dimension cell, when a composition names dimensions its own way. Absent = the plain id. */
   dimMark?: (dimId: string, label: string) => React.ReactNode;
 }) {
   const muted = row.kind !== "item" || pruned;

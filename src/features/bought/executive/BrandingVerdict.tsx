@@ -1,5 +1,5 @@
-// branding-1: the server's per-field verdict under a branding input, shared by the Altimeter and
-// Prism forms. Renders nothing until the check has answered for the current draft. No hooks.
+// branding-1: the server's per-field verdict under a branding input, shared by the form and
+// Forms. Renders nothing until the check has answered for the current draft. No hooks.
 
 export function BrandingVerdict({ id, note }: { id: string; note: string | undefined }) {
   if (!note) return null;

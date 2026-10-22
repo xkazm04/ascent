@@ -9,9 +9,9 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { RepositoriesViewV2 } from "./RepositoriesView.v2";
+import { RepositoriesView } from "./RepositoriesView";
 import { OrgEmpty, POSTURE_ORDER } from "@/components/shared/dashboard/ui";
-import { MissingReposPanelV2 } from "./MissingReposPanel.v2";
+import { MissingReposPanelView } from "./MissingReposPanelView";
 import { getOrgRollupShared, listMissingRepos } from "@/lib/db";
 import type { OrgScope } from "@/lib/org/scope";
 import { isAppConfigured } from "@/lib/github/app";
@@ -107,7 +107,7 @@ export async function RepositoriesLeaderboardPanel({
   const csvTitle = posture || segmentId || activeStack ? "Download the currently filtered repos as CSV" : "Download the full fleet as CSV";
 
   return (
-    <RepositoriesViewV2
+    <RepositoriesView
       slug={slug}
       rollup={rollup}
       leaderboard={leaderboard}
@@ -118,7 +118,7 @@ export async function RepositoriesLeaderboardPanel({
       csvHref={csvHref}
       scope={resolved}
       schedulable={schedulable}
-      missing={<MissingReposPanelV2 org={slug} repos={missing} />}
+      missing={<MissingReposPanelView org={slug} repos={missing} />}
       queue={queue}
       nextMove={
         <>

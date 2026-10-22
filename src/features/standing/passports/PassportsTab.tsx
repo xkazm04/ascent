@@ -137,6 +137,6 @@ export async function PassportsTab({ slug, sp }: { slug: string; sp: SearchParam
       </>
     ),
   };
-  const { passportsV2 } = await import("./PassportsTab.v2");
-  return passportsV2(data);
+  const { passportsView } = await import("./PassportsTabView");
+  return passportsView(data);
 }

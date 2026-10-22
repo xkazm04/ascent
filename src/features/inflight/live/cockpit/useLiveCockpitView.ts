@@ -1,6 +1,6 @@
 "use client";
 
-// The cockpit's view state, shared by BOTH compositions (v1 = shipped, v2 = Prism). Everything a layout needs
+// Everything a layout needs
 // that is not markup lives here, so the two themes cannot diverge in behaviour: the state machine
 // (`useCockpit`), the rail's mode, the standing runner, the fleet-list fold, the setup dialog flag and the
 // navigation into a repo's report.

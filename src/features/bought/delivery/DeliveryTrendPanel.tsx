@@ -56,7 +56,7 @@ export function DeliveryTrendPanel({
   points: TrendPanelPoint[];
   /** False for duration metrics (time-to-merge), where a FALLING line is the good news. */
   higherIsBetter?: boolean;
-  /** Prism: drop the card shell. Default keeps the Altimeter class string. */
+  /** Prism: drop the card shell. */
   plain?: boolean;
 }) {
   const present = points

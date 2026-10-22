@@ -20,7 +20,7 @@ export interface MastheadFigure {
   value: ReactNode;
   /** Status of the value, drawn as `data-tone` + a leading glyph + a screen-reader word; the value stays paper. */
   tone?: MastheadTone;
-  /** Colour for the value. Kept for Altimeter callers; a v2 caller passes `tone` instead (hue names a dimension). */
+  /** Colour for the value. */
   color?: string;
   /** Beneath the value: movement with its basis, an exclusion note, a goal. */
   detail?: ReactNode;
@@ -44,7 +44,7 @@ export function Masthead({
   lede?: ReactNode;
   figures?: MastheadFigure[];
   aside?: ReactNode;
-  /** Prism background pattern (`spectral` suits a masthead); no effect in Altimeter. */
+  /** Background pattern (`spectral` suits a masthead). */
   pattern?: KitPattern;
   className?: string;
 }) {

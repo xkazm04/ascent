@@ -89,7 +89,7 @@ export async function runScanConsequences(
   const orgId = (await step(tag, "org lookup", () => getOrgId(orgSlug).catch(degradeTo(`${tag}: getOrgId`, null)))) ?? undefined;
   if (orgId) {
     // The scan row's id is not returned by persistScanReport; the commit sha is the stable identity of
-    // what was observed, which is what `lastScanId` is read as ("as of what"). A pre-census (v1) shape
+    // what was observed, which is what `lastScanId` is read as ("as of what").
     // reconciles to nothing rather than asserting that every tracked artifact vanished.
     await step(tag, "practice adoption reconcile", () =>
       reconcilePracticeAdoption(orgId, `${report.repo.owner}/${report.repo.name}`, report.repo.headSha ?? "", report.practiceShape),

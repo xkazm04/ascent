@@ -10,7 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { PracticeLibraryV2 } from "./PracticeLibrary.v2";
+import { PracticeLibrary } from "./PracticeLibrary";
 import { usePracticesLibrary } from "./usePracticesLibrary";
 import { practiceIdFromHash } from "./usePracticeHash";
 import type { OrgPractice } from "@/lib/db";
@@ -52,7 +52,7 @@ function Harness({ practices }: { practices: OrgPractice[] }) {
   });
   return (
     <>
-      <PracticeLibraryV2 rows={lib.rows} rollout={lib.rollout} fleetSize={1} onOpen={lib.open} onCreate={() => {}} />
+      <PracticeLibrary rows={lib.rows} rollout={lib.rollout} fleetSize={1} onOpen={lib.open} onCreate={() => {}} />
       <output data-testid="open">{lib.openRow?.label ?? ""}</output>
     </>
   );

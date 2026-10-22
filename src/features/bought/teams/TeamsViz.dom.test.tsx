@@ -20,7 +20,7 @@ import type { TeamRollup } from "@/lib/db";
 import type { TeamStandings as TeamStandingsModel } from "@/lib/org/teamStandings";
 
 const PANEL = fs.readFileSync(path.resolve(__dirname, "TeamsRollupPanel.tsx"), "utf8");
-const PANEL_V2 = fs.readFileSync(path.resolve(__dirname, "TeamsRollupPanel.v2.tsx"), "utf8");
+const PANEL_VIEW = fs.readFileSync(path.resolve(__dirname, "TeamsRollupPanelView.tsx"), "utf8");
 
 const team = (over: Partial<TeamRollup> = {}): TeamRollup =>
   ({
@@ -155,7 +155,7 @@ describe("TeamsRollupPanel — the demoted sentences are gone from the source", 
   });
 
   it("keeps the Δ footnote derived from the one label, and only that claim", () => {
-    expect(PANEL_V2).toMatch(/Δ compares \{deltaFootnote\((p.deltaLabel)\)\}/);
+    expect(PANEL_VIEW).toMatch(/Δ compares \{deltaFootnote\((p.deltaLabel)\)\}/);
     expect(PANEL).not.toMatch(/GitHub Teams \(GraphQL\) attribution is on the roadmap/);
   });
 });

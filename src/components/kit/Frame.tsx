@@ -1,5 +1,5 @@
-// Frame: the v2 container, a hairline-ruled band with no fill and no radius. In Prism this is what a dashboard
-// section is (the landing has no card boxes); Panel stays for focus objects. In Altimeter it renders as a
+// Frame: the container, a hairline-ruled band with no fill and no radius. In Prism this is what a dashboard
+// section is (the landing has no card boxes); Panel stays for focus objects.
 // plain ruled band too, so a module can adopt Frame in both themes and still read as the shipped app.
 import type { ReactNode } from "react";
 
@@ -30,7 +30,7 @@ export function Frame({
   as?: "section" | "div" | "aside" | "header" | "footer";
   id?: string;
   className?: string;
-  /** Prism background pattern (kit.css `data-pattern`); no effect in Altimeter. */
+  /** Background pattern (kit.css `data-pattern`). */
   pattern?: KitPattern;
   "aria-label"?: string;
   "aria-labelledby"?: string;

@@ -1,4 +1,4 @@
-// Shared briefing fixtures for the Prism composition tests. Not a render path.
+// Shared briefing fixtures for the composition tests. Not a render path.
 import type { ImpactLedger, ImpactRow } from "@/lib/db/org-impact";
 import type { OrgRec } from "@/lib/db";
 import type { BriefingGoal, ExecBriefing } from "@/lib/org/briefing";

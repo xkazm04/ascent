@@ -1,7 +1,7 @@
 "use client";
 
-// Prism marks for the automation × production scatter. No band hue: a shape names the production
-// band, and a placeholder stays the shared not-judged hatch. Altimeter keeps PassportScatter's circles.
+// Marks for the automation × production scatter. No band hue: a shape names the production
+// band, and a placeholder stays the shared not-judged hatch.
 import type { LegendExtra } from "@/components/shared/viz";
 import { stateFill, stateStroke, stateTitle } from "@/components/shared/viz";
 import { BAND_LABEL } from "@/lib/org/passport-display";

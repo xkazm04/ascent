@@ -4,12 +4,12 @@
 
 import { registryPreviewEnabled } from "@/lib/env";
 import { getRegistryView } from "@/lib/org/registry-view";
-import { RegistryPanelV2 } from "./RegistryPanel.v2";
+import { RegistryPanel } from "./RegistryPanel";
 import { RegistryPreviewShell } from "./RegistryPreviewShell";
 
 export async function RegistryTab({ slug }: { slug: string }) {
   const view = await getRegistryView(slug);
-  const panel = <RegistryPanelV2 view={view} slug={slug} />;
+  const panel = <RegistryPanel view={view} slug={slug} />;
   return (
     <RegistryPreviewShell slug={slug} enabled={registryPreviewEnabled() && view.status === "unmapped"}>
       {panel}

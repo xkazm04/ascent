@@ -1,7 +1,7 @@
 "use client";
 
 // App Readiness Passport hero — the first thing seen on a repo report. A fusion of two prototyped
-// directions: the Altimeter instrument panel (strata motif, sub-rung "equalizer", instrument readout)
+// directions: the instrument panel (strata motif, sub-rung "equalizer", instrument readout)
 // as the frame, with the two achieved readiness ratings rendered as embossed Credential Stamp SEALS in
 // the top-right of the header. Motion is entry-only (seals press in once, equalizer bars grow once) and
 // reduced-motion shows everything at rest. Fed report.passport (or the /api/report/passport fallback)

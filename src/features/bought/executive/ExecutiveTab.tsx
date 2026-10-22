@@ -1,5 +1,5 @@
 // Org dashboard "Briefing" tab (id: executive). SERVER component, filename PINNED.
-// ExecutiveTab.v2 (Prism) composes the ExecutiveView after the reads. The public share page does not come through here.
+// ExecutiveTabView composes the ExecutiveView after the reads. The public share page does not come through here.
 
 import { buildExecBriefing, briefingMarkdown } from "@/lib/org/briefing";
 import { briefingShareEnabled } from "@/lib/briefing-share";
@@ -11,7 +11,7 @@ import { degradedRead } from "@/lib/org/degraded-read";
 import { planAllowsWhiteLabel } from "@/lib/plans";
 import { hasOrgRole } from "@/lib/authz";
 import { orgWindowBounds, resolveOrgWindow } from "@/lib/org/period";
-import { executiveV2, executiveEmptyV2 } from "./ExecutiveTab.v2";
+import { executiveView, executiveEmptyView } from "./ExecutiveTabView";
 import type { ExecutiveView } from "./executiveView";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -22,7 +22,7 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
   const { techGroups, activeStack, techGroupId } = await resolveStackScope(slug, sp);
   const briefing = await buildExecBriefing(slug, orgWindowBounds(period), period.title, segmentId, techGroupId);
 
-  if (!briefing) return executiveEmptyV2(slug);
+  if (!briefing) return executiveEmptyView(slug);
 
   // One ownership check feeds sharing and white-label. Impact and the program are independent reads.
   const [impact, program, isOwner] = await Promise.all([
@@ -41,5 +41,5 @@ export async function ExecutiveTab({ slug, sp }: { slug: string; sp: SearchParam
     md: briefingMarkdown(briefing),
     impact, program, canShare, branding, canBrand,
   };
-  return executiveV2(view);
+  return executiveView(view);
 }

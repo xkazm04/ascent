@@ -3,7 +3,7 @@
 // reads in DeliveryCorePanel, so a slow trend query can't hold the rest of the tab hostage.
 
 import { Frame, Lede } from "@/components/kit";
-import { DeliveryTrendV2 } from "./DeliveryTrend.v2";
+import { DeliveryTrend } from "./DeliveryTrend";
 import { getOrgDeliveryTrend } from "@/lib/db/org-delivery-trend";
 import type { OrgScope } from "@/lib/org/scope";
 import type { ResolvedWindow } from "@/lib/window";
@@ -35,5 +35,5 @@ export async function DeliveryTrendDataPanel({
   if (!trend) return null;
 
   const view = { trend, range: period.key, from: period.from, to: period.to, periodTitle: period.title };
-  return <DeliveryTrendV2 {...view} />;
+  return <DeliveryTrend {...view} />;
 }

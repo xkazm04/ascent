@@ -1,4 +1,4 @@
-// What the Proposals tab reads once on the server and hands to a composition (v1 Altimeter, v2 Prism).
+// What the Proposals tab reads once on the server and hands to a composition.
 // Both compositions take this same shape, so the reads and the counts cannot differ between themes.
 import type { ComponentProps } from "react";
 import type { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";

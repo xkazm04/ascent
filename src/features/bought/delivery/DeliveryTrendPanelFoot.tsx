@@ -27,7 +27,7 @@ export function DeliveryTrendPanelFoot({
   toneValue: number;
   unit: "%" | "h";
   voids: number;
-  /** Prism: paper number, no status hue. Default keeps the Altimeter delta color. */
+  /** Prism: paper number, no status hue. */
   paper?: boolean;
 }) {
   return (

@@ -101,7 +101,7 @@ it is built:
 1. **Hue names a dimension and nothing else.** Status colours (warn, danger, success, tone) never stand in for a
    dimension, and a dimension hue never stands in for a status.
 2. **A row that shows both** carries status on a non-hue channel: a glyph and a word (`MastheadFigure.tone`,
-   the `▾` below-floor mark in `DimensionMatrix.v2`) or lightness. The number itself stays paper.
+   the `▾` below-floor mark in `DimensionMatrix`) or lightness. The number itself stays paper.
 3. **Never a dimension in a status hue at full saturation on a healthy value.** Prism desaturates a bar at 85% or
    more (`data-high`, `filter: saturate(0.75)`), and a shortfall to the floor is a hatched span in the dimension's
    own hue (`dimension-shortfall`), a pattern rather than an alarm colour.

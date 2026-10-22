@@ -1,4 +1,4 @@
-// The repo × dimension matrix's model, shared by the Altimeter heatmap and the v2 matrix: row shape, the
+// The repo × dimension matrix's model, shared by the matrix and its detail modal: row shape, the
 // absent-measurement-aware column mean, and the weakest-first sort cycle (dimension header click). Pure, so
 // the two compositions cannot disagree about a mean or about what a repeated click does.
 import { useMemo, useState } from "react";

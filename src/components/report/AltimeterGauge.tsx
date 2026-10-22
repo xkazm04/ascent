@@ -1,6 +1,6 @@
 "use client";
 
-// AltimeterGauge — the nine dimensions as nine climbers on ONE elevation gauge. The five maturity
+// The five maturity
 // bands are the strata (L1 Manual at the valley floor, L5 Autonomous at the summit); every dimension
 // hangs a rope from the floor up to its score, with a hollow marker where the previous scan left it.
 // Reading it is spatial: what is high, what is low, who moved, and how far the next rung is — the

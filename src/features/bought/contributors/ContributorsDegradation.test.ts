@@ -10,8 +10,8 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-// The panel keeps the reads and empty states; the Prism body (and its decisions note) lives in ContributorsBody.v2.
-const PANEL = ["ContributorsInsightsPanel.tsx", "ContributorsBody.v2.tsx"]
+// The panel keeps the reads and empty states; the Prism body (and its decisions note) lives in ContributorsBodyView.
+const PANEL = ["ContributorsInsightsPanel.tsx", "ContributorsBodyView.tsx"]
   .map((f) => fs.readFileSync(path.resolve(__dirname, f), "utf8"))
   .join("\n");
 

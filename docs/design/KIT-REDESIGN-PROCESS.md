@@ -128,7 +128,7 @@ fire `hashchange`, so same-page levels use `LevelLink onClick` (buttons never sc
 (4) Move focus to the level heading on open and assert it in the drive script. (5) While the level is open it is the
 only thing on the page. (6) The server cannot see a hash: a deep link renders the overview, then the level after
 hydration; acceptable on operator surfaces, say so in the batch note. (7) The summary on the page and the level share
-ONE data call (`useOutcomeMatrix` once in `OutcomeSectionV2`), never two.
+ONE data call (`useOutcomeMatrix` once in `OutcomeSectionView`), never two.
 
 ## Ledger and commands
 

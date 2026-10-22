@@ -114,7 +114,7 @@ function validateItem(raw: unknown): PlanItem | null {
   return { recommendationId, approach, files, moves };
 }
 
-/** Strict v1 validation of an already-parsed value. Null = unreadable. */
+/** Null = unreadable. */
 export function validatePlan(raw: unknown): LanePlan | null {
   if (!isObj(raw) || raw.v !== 1) return null;
   const intent = str(raw.intent, PLAN_BOUNDS.intent);

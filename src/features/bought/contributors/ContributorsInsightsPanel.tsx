@@ -9,7 +9,7 @@ import { resolveOrgWindow } from "@/lib/org/period";
 import { decisionMap } from "@/lib/org/decision-map";
 import { enablementTargets } from "@/lib/org/adoption";
 import { isViewer } from "./ContributorsYouPointer";
-import { ContributorsBodyV2 } from "./ContributorsBody.v2";
+import { ContributorsBody } from "./ContributorsBodyView";
 // The Delivery tab's settle helper, reused rather than re-implemented: one classification of a
 // settled query ("null value" vs "actually failed") for every tab that degrades per section.
 import { settle } from "@/features/bought/delivery/deliveryLoad";
@@ -86,5 +86,5 @@ export async function ContributorsInsightsPanel({
   const enablement = enablementTargets(insights);
 
   const body = { slug, insights, period, filterBar, viewerLogin, segmentId, activeStack, decisions, decisionsFailed, enablement, meInRoster };
-  return <ContributorsBodyV2 {...body} />;
+  return <ContributorsBody {...body} />;
 }

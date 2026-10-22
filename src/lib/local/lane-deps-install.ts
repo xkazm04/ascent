@@ -22,7 +22,7 @@
 //      already be on its way to `git worktree remove`, which follows a junction.
 //   4. Only a LINKED worktree is ever worked on; a main checkout answers `{ changed: false }`.
 //
-// WHAT v1 DOES NOT HANDLE. Only a JavaScript manifest triggers this (npm / pnpm / yarn, picked from the
+// Only a JavaScript manifest triggers this (npm / pnpm / yarn, picked from the
 // root lockfile). A Python, Go or Rust manifest change — or a JS manifest in a repository with no root
 // `package.json` — returns `{ changed: false }`, and the lane goes on exactly as it did before this
 // module existed: the guard then judges the change against the dependencies the checkout already has.
@@ -91,7 +91,7 @@ async function changedPaths(dir: string, before: string): Promise<string[] | nul
 
 /**
  * Install the dependencies a session's JS manifest change needs, in the lane worktree, scripts off.
- * Never throws. See the header for the safety rule and what v1 leaves alone.
+ * Never throws.
  */
 export async function installChangedDependencies(input: DepsInstallInput, overrides: Partial<DepsInstallDeps> = {}): Promise<DepsInstallOutcome> {
   const deps: DepsInstallDeps = { ...defaultDeps, ...overrides };

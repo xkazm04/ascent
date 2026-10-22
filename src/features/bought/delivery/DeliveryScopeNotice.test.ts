@@ -3,7 +3,7 @@
 // scan, and nothing on screen said so, under a period control sitting right above them. The panel is
 // an async server component over four db reads, so the mount is pinned at the source level.
 //
-// DeliveryNotice.v2 states the split above the PR section, and the tab hands down the period it
+// DeliveryNotice states the split above the PR section, and the tab hands down the period it
 // already resolved.
 
 import { describe, expect, it } from "vitest";
@@ -12,13 +12,13 @@ import path from "node:path";
 
 const read = (name: string) => fs.readFileSync(path.resolve(__dirname, name), "utf8");
 const PANEL = read("DeliveryCorePanel.tsx");
-const V2 = read("DeliveryCore.v2.tsx");
-const NOTICE = read("DeliveryNotice.v2.tsx");
+const V2 = read("DeliveryCore.tsx");
+const NOTICE = read("DeliveryNotice.tsx");
 const TAB = read("DeliveryTab.tsx");
 
 describe("Delivery core panel scope notice", () => {
   it("mounts the notice above the snapshot sections", () => {
-    expect(V2.indexOf("<DeliveryNoticeV2")).toBeLessThan(V2.indexOf("<DeliveryPrV2"));
+    expect(V2.indexOf("<DeliveryNotice")).toBeLessThan(V2.indexOf("<DeliveryPr"));
   });
 
   // The /org redesign demoted the notice's second half into a WhyChip on the notice itself (§2.1 D):
@@ -43,9 +43,9 @@ describe("Delivery core panel scope notice", () => {
 
   it("takes the period from the tab rather than re-resolving it without the search params", () => {
     // A local resolveOrgWindow({}) here would silently drop an explicit ?range= and name the cookie's
-    // period on a shared link. Meaning preserved: the Prism composition still receives that period object.
+    // period on a shared link. Meaning preserved: the composition still receives that period object.
     expect(PANEL).not.toMatch(/resolveOrgWindow/);
-    expect(TAB).toContain("<DeliveryTabV2 {...props} />");
+    expect(TAB).toContain("<DeliveryTabView {...props} />");
     expect(TAB).toMatch(/resolveOrgWindow\(sp\)/);
   });
 });

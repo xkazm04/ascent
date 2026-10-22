@@ -71,14 +71,14 @@ export interface RepoPracticeShape {
   version: "1" | "2";
   entries: ShapeEntry[];
   /**
-   * MOONSHOT #33 — every practice-artifact blob in the tree, with digests. Absent on a v1 shape,
+   * MOONSHOT #33 — every practice-artifact blob in the tree, with digests.
    * which makes adoption reconciliation a no-op for scans taken before this landed (correct: an old
    * scan is not evidence that a file was removed).
    */
   artifacts?: CensusArtifact[];
   /**
    * The tree this census was taken over was TRUNCATED, so "path absent" proves nothing. Reconciliation
-   * refuses to mark a row `removed` when this is true. Absent on a v1 shape.
+   * refuses to mark a row `removed` when this is true.
    */
   truncated?: boolean;
 }

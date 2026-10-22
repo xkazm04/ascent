@@ -1,4 +1,4 @@
-// The authenticated Briefing tab (Prism). Internal-only affordances are ON here (deep links into the org
+// The authenticated Briefing tab. Internal-only affordances are ON here (deep links into the org
 // dashboard, PDF, branded header); share/briefing/[token]/page.test.tsx pins the public page keeps them
 // off. The async server component is rendered to static markup. Impact Ledger wiring lives in
 // ExecutiveTab.impact.test.tsx and the Goals section in ExecutiveTab.goals.test.tsx (200-line cap).

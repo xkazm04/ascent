@@ -216,7 +216,7 @@ export function compareScopes(repos: OrgRepoRow[], a: CompareScope, b: CompareSc
 /**
  * Resolve the A/B selection from two caller-supplied ids against the segments that actually exist.
  *
- * Both Segments views computed this inline and identically (`SegmentsSection.tsx`, `.v2.tsx`), which
+ * Both Segments views computed this inline and identically (`SegmentsSection.tsx`), which
  * is why it moved here: the selection decides which rollup slice is drawn, so it belongs beside the
  * producer that slices it and is testable without rendering a page.
  *

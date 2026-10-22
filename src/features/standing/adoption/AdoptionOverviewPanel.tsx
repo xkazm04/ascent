@@ -9,7 +9,7 @@ import { buildAdoptionOverview, adoptionMarkdown } from "@/lib/org/adoption";
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
 import { ScopeFilterBar } from "@/components/shared/scope/ScopeFilterBar";
 import { resolveOrgScope } from "@/lib/org/scope";
-import { adoptionV2 } from "./AdoptionOverview.v2";
+import { adoptionView } from "./AdoptionOverview";
 import type { AdoptionViewProps } from "./adoptionViewProps";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
@@ -39,5 +39,5 @@ export async function AdoptionOverviewPanel({ slug, sp }: { slug: string; sp: Se
 
   const md = adoptionMarkdown(a);
   const props: AdoptionViewProps = { a, slug, filterBar, md };
-  return adoptionV2(props);
+  return adoptionView(props);
 }

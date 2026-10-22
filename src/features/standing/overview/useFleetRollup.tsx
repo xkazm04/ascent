@@ -1,7 +1,7 @@
 "use client";
 
 // The fleet rollup's state and derivations — grouping mode, the Type/Stack/Level filters, the option
-// lists, the ordered groups and the shown set's summary — shared by the Altimeter card and the v2 ruled
+// lists, the ordered groups and the shown set's summary — shared by the ruled
 // rollup so the two cannot rank or filter differently. No markup here beyond the option glyphs.
 import { useState } from "react";
 import { postureLabel } from "@/components/shared/dashboard/ui";

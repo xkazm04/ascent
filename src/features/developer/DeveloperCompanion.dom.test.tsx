@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// The Developer home renders the v2 composition (masthead + Frames).
+// The Developer home renders the composition (masthead + Frames).
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { DeveloperCompanion } from "./DeveloperCompanion";

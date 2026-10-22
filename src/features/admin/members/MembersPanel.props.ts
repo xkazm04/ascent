@@ -1,4 +1,4 @@
-// Props of the member roster (MembersPanel.v2, Prism).
+// Props of the member roster (MembersPanel, Prism).
 import type { InviteRow, Member } from "./MembersTypes";
 
 export interface MembersPanelProps {

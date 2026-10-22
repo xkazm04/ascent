@@ -88,7 +88,7 @@
 .ctl[data-on] { color: var(--green); border-color: rgba(55, 207, 140, .5); }
 .ctl[data-armed] { color: var(--amber); border-color: rgba(243, 178, 58, .6); }
 
-/* Prism: the Altimeter blue tokens re-point to paper and the cool greys (docs/design/BRAND-PRISM.md). */
+/* The blue tokens re-point to paper and the cool greys (docs/design/BRAND-PRISM.md). */
 :global(html:root) .wall {
   --bg: #05060a; --panel: #0a0c13; --panel2: #0f111a; --panel3: #151823; --line: #1c2030; --line2: #262a37;
   --text: #f2eee6; --dim: #a6abbd; --faint: #7d8296;

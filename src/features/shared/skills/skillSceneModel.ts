@@ -1,4 +1,4 @@
-// Prism shaping for the skills library. Verdicts stay the server's. Unknown stays "not measured", never 0.
+// Shaping for the skills library. Verdicts stay the server's. Unknown stays "not measured", never 0.
 import type { CellState, LadderState, LadderStep } from "@/components/kit";
 import type { SkillRow } from "@/lib/db";
 import { skillCategoryLabel } from "@/lib/org/skill-categories";

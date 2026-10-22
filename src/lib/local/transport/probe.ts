@@ -155,7 +155,7 @@ function runBin(bin: string, args: string[], timeoutMs = STEP_TIMEOUT_MS): Promi
  *
  * `LocalEndpoint.baseUrl` is what the CLI talks to; the capability endpoints (`/api/ps`,
  * `/api/tags`, `/api/version`) hang off the server itself, one level up from whatever compatibility
- * shim path the client uses. Stripping a trailing `/v1` or `/api` is the whole conversion.
+ * shim path the client uses.
  */
 function serverRoot(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "").replace(/\/(v1|api)$/i, "");

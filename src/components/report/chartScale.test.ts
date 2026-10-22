@@ -123,7 +123,7 @@ describe("xScale", () => {
 });
 
 // The level-band edges belong to the rubric (LEVELS in @/lib/maturity/model), the source the
-// AltimeterGauge strata and the score colors already read. The chart ramp, the explorer's
+// The chart ramp, the explorer's
 // "at Integrated or above" count and the two sparkline L4 references used to hand-type 65; with the
 // rubric's L4 floor moved to 70 here, every one of them must move with it.
 describe("level bands follow the rubric (L4 floor retuned to 70)", () => {

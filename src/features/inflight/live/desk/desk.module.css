@@ -156,7 +156,7 @@ button.chip[aria-pressed="true"] { background: #16213a; color: var(--text); bord
 /* The portal root for the fixed surfaces (DeskPortal.tsx): tokens and type only, no box of its own. */
 .desk.portal { position: static; background: none; border-radius: 0; }
 
-/* Prism: the Altimeter blue tokens re-point to paper and the cool greys (docs/design/BRAND-PRISM.md). */
+/* The blue tokens re-point to paper and the cool greys (docs/design/BRAND-PRISM.md). */
 :global(html:root) .desk {
   --bg: #05060a; --panel: #0a0c13; --panel2: #0f111a; --panel3: #151823; --line: #1c2030; --line2: #262a37;
   --text: #f2eee6; --dim: #a6abbd; --faint: #7d8296;

@@ -36,7 +36,7 @@ export interface ResumeSnapshot {
    *  abandoning the run or re-running it, which would scan and charge the same repos twice. */
   runId?: string | null;
   /** v2 (first-run-onboarding-wizard#A): the snapshot records WHAT the run is, not only where the
-   *  user was. Absent on a v1 snapshot, which still resumes; only the plan-dependent disclosures then
+   *  user was.
    *  fall back to their defaults. Encode/decode through OnboardingFlow.run.ts, never by hand. */
   version?: 2;
   /** The run's resolved request plan, so a re-attached done screen discloses live vs preview truthfully

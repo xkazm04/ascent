@@ -1,5 +1,5 @@
 // PrimaryAction / GhostAction: the landing's two buttons. Primary = paper block + spectrum underline (Prism;
-// the underline is drawn by kit.css), Altimeter falls back to the accent-filled brand button. Renders a link when
+// Renders a link when
 // `href` is given, else a button. Server-safe: pass `onClick` only from a client component.
 import Link from "next/link";
 import type { ReactNode } from "react";

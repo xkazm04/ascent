@@ -13,9 +13,9 @@
 // was a strictly narrower read of the same numbers.
 
 import { listTechStackGroups } from "@/lib/db";
-import { techStacksV2 } from "./TechStacksTab.v2";
+import { techStacksView } from "./TechStacksTabView";
 
 export async function TechStacksTab({ slug }: { slug: string }) {
   const groups = await listTechStackGroups(slug);
-  return techStacksV2(slug, groups.length);
+  return techStacksView(slug, groups.length);
 }

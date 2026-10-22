@@ -2,7 +2,7 @@
 //
 // moonshot #35 — the rollout panel's HONEST STATES (its two write doors are pinned in the sibling
 // FoundationRolloutPanel.actions.dom.test.tsx, split off for the 200-LOC features cap), asserted on the
-// Prism table, where each axis is a CellMark (a state + a word, so unknown stays visibly unknown):
+// Table, where each axis is a CellMark (a state + a word, so unknown stays visibly unknown):
 //   • a never-reported repo shows "—", never "0%", and carries the `unmeasured` mark;
 //   • an un-provisioned repo reads "Not provisioned", never "off";
 //   • a repo Ascent opened no PR in is "No Ascent PR" (unmeasured), not counted as un-adopted;

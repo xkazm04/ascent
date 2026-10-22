@@ -18,7 +18,7 @@
 // place for the authorization answer to live, and it is the one that would drift.
 
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
-import { FoundationRolloutV2 } from "./FoundationRollout.v2";
+import { FoundationRollout } from "./FoundationRollout";
 import { useFoundationRollout } from "./useFoundationRollout";
 
 export function FoundationRolloutPanel({
@@ -30,5 +30,5 @@ export function FoundationRolloutPanel({
 }) {
   const state = useFoundationRollout(slug, rows);
   if (rows.length === 0) return null;
-  return <FoundationRolloutV2 rows={rows} state={state} />;
+  return <FoundationRollout rows={rows} state={state} />;
 }

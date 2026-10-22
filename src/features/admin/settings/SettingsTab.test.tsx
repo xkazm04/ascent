@@ -41,7 +41,7 @@ function findType(node: React.ReactNode, type: unknown): React.ReactElement | nu
   }
   const el = node as React.ReactElement<{ children?: React.ReactNode; control?: React.ReactNode }>;
   if (el.type === type) return el;
-  // SettingRow (Prism) carries its control in a prop, not in children.
+  // SettingRow carries its control in a prop, not in children.
   return findType(el.props?.children ?? null, type) ?? findType(el.props?.control ?? null, type);
 }
 

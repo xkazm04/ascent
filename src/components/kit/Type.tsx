@@ -1,6 +1,6 @@
 // Kit v2 typographic set: the landing type roles (docs/design/KIT-V2-LANGUAGE.md section 1) as parts.
 // Server-safe, no state. Sizes live in src/app/kit.css keyed by data-level so the two themes share one API;
-// the Altimeter fallback is the app's own type-* classes, so these render sensibly in both looks.
+// the parts resolve to the app's own type-* classes.
 import type { ElementType, ReactNode } from "react";
 
 export type DisplayLevel = "page" | "section" | "figure" | "named";

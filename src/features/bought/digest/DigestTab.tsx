@@ -15,7 +15,7 @@
 import { buildWeeklyDigest } from "@/lib/org/digest";
 import { weeklyDigestMarkdown } from "@/lib/org/digest-markdown";
 import { SectionEmpty } from "@/components/shared/dashboard/ui";
-import { digestV2 } from "./DigestTab.v2";
+import { digestView } from "./DigestTabView";
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -45,5 +45,5 @@ export async function DigestTab({ slug, sp }: { slug: string; sp: SearchParams }
 
   const md = weeklyDigestMarkdown(d);
 
-  return digestV2(slug, d, md);
+  return digestView(slug, d, md);
 }

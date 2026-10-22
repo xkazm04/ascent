@@ -67,7 +67,7 @@ export function PassportScatter({
   onCohort?: (cohort: PassportCohort) => void;
   /** Point clicked — the parent focuses that repo's table row. */
   onPoint?: (name: string) => void;
-  /** `paper` draws no status hue. Altimeter omits it, so the default marks stay the band palette. */
+  /** `paper` draws no status hue. */
   marks?: "band" | "paper";
 }) {
   const paper = marks === "paper";

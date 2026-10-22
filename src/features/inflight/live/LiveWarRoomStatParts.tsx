@@ -34,7 +34,7 @@ export function DeltaChip({ delta, size }: { delta: number; size: string }) {
 
 /** Tiny single-series trend line: de-emphasis stroke, current point in the accent with a surface
  *  ring. No legend (one series — the cell label names it); the aria-label carries the values.
- *  `fixedDomain` (Prism) draws against the level bands the series touches instead of its own min and max, so a
+ *  `fixedDomain` draws against the level bands the series touches instead of its own min and max, so a
  *  one-point wobble is not autoscaled into a cliff. */
 export function Sparkline({ points, box, fixedDomain = false }: { points: number[]; box: { w: number; h: number }; fixedDomain?: boolean }) {
   const W = box.w;
