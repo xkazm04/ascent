@@ -5,12 +5,13 @@
 // person. The card therefore always offers "edit in your local profile" rather than an in-app form:
 // the machine holds the source of truth, ascent holds the history.
 
-import { Kicker } from "@/components/ui";
+import { chipButtonClass, Kicker } from "@/components/ui";
 import { timeAgo } from "@/lib/ui";
 import { CareAction, CareLinkAction } from "./CareBits";
 import type { DeveloperView } from "@/lib/org/developer-view";
 
-export function CareProfileCard({ profile }: { profile: DeveloperView["profile"] }) {
+/** `onShare` opens the share panel in the Setup card, the one door a share has into this page. */
+export function CareProfileCard({ profile, onShare }: { profile: DeveloperView["profile"]; onShare?: () => void }) {
   const shared = Boolean(profile.sharedAt);
 
   return (
@@ -59,7 +60,11 @@ export function CareProfileCard({ profile }: { profile: DeveloperView["profile"]
         </span>
         {shared ? (
           <>
-            <CareAction label="Share an update" intent="mentor.share" />
+            {onShare ? (
+              <button type="button" className={chipButtonClass("idle")} onClick={onShare}>
+                Share an update
+              </button>
+            ) : null}
             <CareLinkAction label="Edit in your local profile.md" intent="profile.openLocal" />
           </>
         ) : (

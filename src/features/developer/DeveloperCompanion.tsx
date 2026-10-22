@@ -17,6 +17,7 @@
 // A consent guarantee never moved into a hover — it either became a visible invariant or stayed
 // visible as text (the moves board's "nothing here is assigned to you").
 
+import { useRef, useState } from "react";
 import { Dateline } from "@/components/ui";
 import { Card, SectionHeader } from "@/components/org/shared/ui";
 import { WhyChip } from "@/components/org/viz";
@@ -28,6 +29,7 @@ import { CareRepoGaps } from "./CareRepoGaps";
 import { CareJournal } from "./CareJournal";
 import { CarePrivacyLedger, CareSetupStrip } from "./CarePrivacyLedger";
 import { CareWhyStrip } from "./CareWhyStrip";
+import { CareShareUpload } from "./CareShareUpload";
 import { DeveloperActivityStrip } from "./DeveloperActivityStrip";
 import { careKeptSaving, type DeveloperView } from "@/lib/org/developer-view";
 
@@ -39,6 +41,13 @@ const ACTIVITY_HINT =
 export function DeveloperCompanion({ view, slug }: { view: DeveloperView; slug: string }) {
   const saving = careKeptSaving(view.moves);
   const kept = view.moves.filter((m) => m.state === "kept").length;
+  // The share panel mounts only when asked for: every Share button opens it in the Setup card.
+  const [sharing, setSharing] = useState(false);
+  const setupRef = useRef<HTMLDivElement>(null);
+  const openShare = () => {
+    setSharing(true);
+    setupRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div className="space-y-8">
@@ -61,7 +70,7 @@ export function DeveloperCompanion({ view, slug }: { view: DeveloperView; slug: 
       </section>
 
       <Card>
-        <CareProfileCard profile={view.profile} />
+        <CareProfileCard profile={view.profile} onShare={openShare} />
       </Card>
 
       <section>
@@ -90,10 +99,13 @@ export function DeveloperCompanion({ view, slug }: { view: DeveloperView; slug: 
       </section>
 
       <Card>
-        <SectionHeader size="sm" title="Setup" />
-        <div className="mt-3">
-          <CareSetupStrip setup={view.setup} />
+        <div ref={setupRef}>
+          <SectionHeader size="sm" title="Setup" />
         </div>
+        <div className="mt-3">
+          <CareSetupStrip setup={view.setup} onShare={openShare} />
+        </div>
+        {sharing ? <CareShareUpload view={view} onClose={() => setSharing(false)} /> : null}
         <CarePrivacyLedger setup={view.setup} />
       </Card>
     </div>

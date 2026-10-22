@@ -13,7 +13,7 @@
 // could send it. Guarded by `CarePrivacyLedger.dom.test.tsx`, which seeds a ledger claiming those
 // rows ARE shared and proves the cells stay empty.
 
-import { Kicker } from "@/components/ui";
+import { chipButtonClass, Kicker } from "@/components/ui";
 import { SectionEmpty } from "@/components/org/shared/ui";
 import { Legend, MatrixGrid, StateSwatch } from "@/components/org/viz";
 import { timeAgo } from "@/lib/ui";
@@ -21,7 +21,8 @@ import { CareAction, CareCopyAction } from "./CareBits";
 import { CARE_LEDGER_AXES, careLedgerRows, careNeverSentCount } from "./careLedgerRows";
 import type { DeveloperView } from "@/lib/org/developer-view";
 
-export function CareSetupStrip({ setup }: { setup: DeveloperView["setup"] }) {
+/** `onShare` opens the share panel (`CareShareUpload`): the real door, since the CLI cannot authenticate. */
+export function CareSetupStrip({ setup, onShare }: { setup: DeveloperView["setup"]; onShare?: () => void }) {
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
       <span className="type-mono-sm tabular-nums text-slate-400">
@@ -40,13 +41,14 @@ export function CareSetupStrip({ setup }: { setup: DeveloperView["setup"] }) {
         last share <span className="text-slate-300">{setup.lastShareAt ? timeAgo(setup.lastShareAt) : "never"}</span>
       </span>
       <div className="flex flex-wrap items-center gap-2">
-        {setup.mentorInstalled ? (
-          <CareAction label="Share again" intent="mentor.share" />
-        ) : (
-          <CareAction label="Install the mentor" intent="mentor.install" />
-        )}
+        {setup.mentorInstalled ? null : <CareAction label="Install the mentor" intent="mentor.install" />}
+        {onShare ? (
+          <button type="button" className={chipButtonClass("idle")} onClick={onShare}>
+            {setup.lastShareAt ? "Share again" : "Paste a share"}
+          </button>
+        ) : null}
         {/* The install path's one real action: the command is on the page to take, by button or by
-            hand. The other Care buttons log their intent; a label saying "Copy" cannot. */}
+            hand. Install still logs its intent; a label saying "Copy" cannot. */}
         <CareCopyAction command="npx ascent mentor init" />
       </div>
     </div>

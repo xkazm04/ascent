@@ -32,6 +32,7 @@ const SHORT_LABEL: Record<string, string> = {
   "Tests-before-commit ratio": "Tests ratio",
   "Skill invokes": "Skill invokes",
   "Moves kept / dropped": "Moves",
+  "Anonymous org bands": "Org bands",
   "Transcript text": "Transcripts",
   "Prompts, diffs, file contents": "Prompts, diffs",
   "Per-person rows in org mode": "Who you are",

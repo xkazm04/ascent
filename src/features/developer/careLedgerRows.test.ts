@@ -62,4 +62,9 @@ describe("careLedgerRows", () => {
     expect(CARE_LEDGER_AXES).toHaveLength(2);
     for (const axis of CARE_LEDGER_AXES) expect(axis.length).toBeLessThanOrEqual(6);
   });
+
+  it("gives every shipped row a label short enough for the 104-unit gutter, the org bands row included", () => {
+    for (const row of careLedgerRows(SHARING_LEDGER_OFF)) expect(row.label.length, row.id).toBeLessThanOrEqual(14);
+    expect(careLedgerRows(SHARING_LEDGER_OFF).find((r) => r.id === "anonymous-org-bands")?.label).toBe("Org bands");
+  });
 });
