@@ -24,28 +24,21 @@ import {
   getHeadHint,
   type RepositoryHistory,
 } from "@/lib/db";
-import { PUBLIC_ORG, isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
+import { PUBLIC_ORG, isAuthConfigured } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { hasOrgRole, canReadOrg } from "@/lib/authz";
 import { EMPTY_LIFTS, getOrgExpectedLifts } from "@/lib/outcomes/expected-lift-load";
 import { scanMaxCacheAgeMs } from "@/lib/scan-cache";
 import { degradeTo, reportDegradedRead, reportFailedRead } from "@/lib/scan-read-door";
+import { resolveReportOrg } from "@/lib/report/report-org";
 import { parseRepoParam } from "./repoParam";
 import { reportMetadata } from "./reportMetadata";
 import { PermalinkPanels, ReportMasthead } from "./PermalinkPanels";
 
 export const dynamic = "force-dynamic";
 
-/** Resolve the org a report is read under. An explicit `?org={slug}` wins when the viewer may read it
- *  — an in-app link from a dashboard whose org SLUG differs from the repo OWNER login (e.g. a rebranded
- *  org) uses it so the report resolves under the owning tenant instead of dead-ending on the owner→
- *  public fallback. Gated by canReadOrg, so the hint can never reach another tenant's private report;
- *  without it (external/shared links), it falls back to owner→readable-org, unchanged. */
-async function resolveReportOrg(owner: string, sp: { org?: string | string[] | undefined }): Promise<string> {
-  const hint = typeof sp.org === "string" ? sp.org.trim().toLowerCase() : undefined;
-  if (hint && (await canReadOrg(hint))) return hint;
-  return readableOrgForOwner(owner);
-}
+// The org a report is read under (a canReadOrg-gated ?org= hint, else owner to readable org) is
+// src/lib/report/report-org.ts, shared with the report exports so a download reads what the page shows.
 
 /** Successful empty = never scanned. A throw = unavailable, not cold (G4) — and reported, so the
  *  operator learns of the blip the reader was shown. `strict` makes a CONFIGURED-but-unreachable DB a
@@ -70,7 +63,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { owner, repo } = await params;
   const { name, sha } = parseRepoParam(repo);
-  const orgSlug = await resolveReportOrg(owner, await searchParams);
+  const orgSlug = await resolveReportOrg(owner, (await searchParams).org);
   const read = await readPermalinkReport(owner, name, sha, orgSlug);
   // ./reportMetadata dates a stale reading: an unfurl is read by people who never open the app.
   return reportMetadata({
@@ -129,7 +122,7 @@ async function ReportPermalinkBody({
   const sp = await searchParams;
   // Permalink Re-test stays here (`?fresh=1` only). Bouncing to `/report?repo=` dropped the durable URL.
   if (sp.fresh === "1" || sp.fresh === "true") return <ReportClient repo={sha ? `${repoRef}@${sha}` : repoRef} />;
-  const orgSlug = await resolveReportOrg(owner, sp);
+  const orgSlug = await resolveReportOrg(owner, sp.org);
   const read = await readPermalinkReport(owner, name, sha, orgSlug);
   const scanRef = sha ? `${repoRef}@${sha}` : repoRef;
   // G4: a thrown read is not an empty corpus — do not invite a metered live scan on a blip.

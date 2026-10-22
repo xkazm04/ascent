@@ -30,12 +30,12 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/auth", () => ({ readableOrgForOwner: vi.fn() }));
-vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
+vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(), canReadOrg: vi.fn(async () => false) }));
 vi.mock("@/lib/db", () => ({ isDbConfigured: vi.fn(), getScanReportByCommit: vi.fn() }));
 
 import { GET } from "./route";
 import { readableOrgForOwner } from "@/lib/auth";
-import { requireOrgRead } from "@/lib/authz";
+import { canReadOrg, requireOrgRead } from "@/lib/authz";
 import { isDbConfigured, getScanReportByCommit } from "@/lib/db";
 import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
 
@@ -388,5 +388,43 @@ describe("GET /api/report/llm — additive fields stay on the one generator", ()
     const res = await get("acme/api");
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(reportLlmMarkdown(full));
+  });
+});
+
+// export-0 (challenge-2026-10-22d): the endpoint reads the report the permalink reads. The page
+// honours a `?org=` hint only after canReadOrg; the endpoint now takes the same door, so under a
+// rebranded org the body is the briefing the CopyForLlm chip on /report/acme/app?org=rebrand copied.
+describe("GET /api/report/llm - the ?org hint, gated like the permalink", () => {
+  const getWithOrg = (org: string) =>
+    GET(new Request(`https://x.test/api/report/llm?repo=${encodeURIComponent("acme/app")}&org=${org}`));
+  const UNDER_REBRAND = makeReport({ overallScore: 77 });
+  const UNDER_OWNER = makeReport({ overallScore: 12 });
+
+  beforeEach(() => {
+    mockGetReport.mockImplementation(async (_o, _n, opts) =>
+      (opts as { orgSlug?: string }).orgSlug === "rebrand" ? UNDER_REBRAND : UNDER_OWNER,
+    );
+  });
+
+  it("reads under the hinted org when canReadOrg allows it", async () => {
+    vi.mocked(canReadOrg).mockImplementation(async (o) => o === "rebrand");
+    await getWithOrg("rebrand");
+    expect(mockRequireOrgRead).toHaveBeenCalledWith("rebrand");
+    expect((mockGetReport.mock.calls[0][2] as { orgSlug?: string }).orgSlug).toBe("rebrand");
+  });
+
+  it("serves reportLlmMarkdown(report read under the hinted org) byte for byte", async () => {
+    vi.mocked(canReadOrg).mockImplementation(async (o) => o === "rebrand");
+    const res = await getWithOrg("rebrand");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(reportLlmMarkdown(UNDER_REBRAND));
+  });
+
+  it("guard: an unreadable hint falls back to readableOrgForOwner and never reads under it", async () => {
+    vi.mocked(canReadOrg).mockResolvedValue(false);
+    const res = await getWithOrg("other");
+    expect(mockReadableOrg).toHaveBeenCalledWith("acme");
+    expect(mockGetReport.mock.calls.map((c) => (c[2] as { orgSlug?: string }).orgSlug)).toEqual(["acme"]);
+    expect(await res.text()).toBe(reportLlmMarkdown(UNDER_OWNER));
   });
 });

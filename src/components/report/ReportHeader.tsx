@@ -14,6 +14,7 @@ import { CopyForLlm } from "@/components/CopyForLlm";
 import { ReportPermalinkShare, levelLine } from "@/components/report/ReportPermalinkShare";
 import { liveScanCopyPermalink } from "@/components/report/liveScanPermalink";
 import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
+import { reportExportHref } from "@/lib/report/export-href";
 
 // Chip hints: `title=` fires only on pointer hover, so every hinted chip ALSO carries the hint as
 // sr-only text — screen-reader users hear the explanation inline, and hover users get the tooltip.
@@ -186,7 +187,7 @@ export function ReportHeader({
               any error branch returns JSON — a plain <a> gave no pending feedback and navigated the
               user onto a raw JSON page on failure (pdf-llm-export #1). */}
           <DownloadButton
-            href={`/api/report/pdf?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
+            href={reportExportHref("pdf", repo, params.get("org"))}
             className={pillClass({ focusRing: true, textSm: true })}
             title="Download this report as a PDF"
             // PDF export is a Pro-plan+ entitlement (planAllowsPdfExport); a Free-tier org's click 403s.
@@ -201,7 +202,7 @@ export function ReportHeader({
               download for a slide or a Slack message (G5-04) — one renderer, so what you paste is
               what the link previews. */}
           <DownloadButton
-            href={`/api/report/share-card?repo=${encodeURIComponent(`${repo.owner}/${repo.name}${repo.headSha ? `@${repo.headSha}` : ""}`)}`}
+            href={reportExportHref("share-card", repo, params.get("org"))}
             className={pillClass({ focusRing: true, textSm: true })}
             title="Download a shareable score card (PNG)"
           >

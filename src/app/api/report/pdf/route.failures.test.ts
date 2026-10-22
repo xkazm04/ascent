@@ -19,7 +19,7 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/auth", () => ({ readableOrgForOwner: vi.fn(async () => "acme"), PUBLIC_ORG: "public" }));
-vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null) }));
+vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(async () => null), canReadOrg: vi.fn(async () => false) }));
 vi.mock("@/lib/db", () => ({ getScanReportByCommit: vi.fn(), isDbConfigured: () => true, getCreditState: vi.fn() }));
 vi.mock("@react-pdf/renderer", () => ({ renderToBuffer: vi.fn() }));
 vi.mock("@/lib/pdf/report-document", () => ({ ReportDocument: () => null }));
@@ -61,5 +61,18 @@ describe("report PDF failure doors", () => {
     expect((await get()).status).toBe(500);
     expect(report).toHaveBeenCalledTimes(2);
     expect(report).toHaveBeenCalledWith(boom, expect.objectContaining({ message: expect.stringContaining("report/pdf") }));
+  });
+});
+
+// export-0 (challenge-2026-10-22d): a configured-but-unreachable DB is a 503 try-again, never the 404
+// "Scan it first". The read is STRICT (the default reader resolves an outage to null -> 404).
+describe("report PDF export: strict read", () => {
+  it("reads strict and maps a DbUnavailableError to 503", async () => {
+    const { DbUnavailableError } = await import("@/lib/db/client");
+    vi.mocked(getScanReportByCommit).mockRejectedValueOnce(new DbUnavailableError(new Error("ECONNREFUSED")));
+    const res = await get();
+    expect(getScanReportByCommit).toHaveBeenCalledWith("acme", "app", expect.objectContaining({ strict: true }));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toMatch(/^Couldn't load this report right now/);
   });
 });

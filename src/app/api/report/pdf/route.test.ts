@@ -21,7 +21,7 @@ vi.mock("next/server", () => ({
   },
 }));
 vi.mock("@/lib/auth", () => ({ readableOrgForOwner: vi.fn(), PUBLIC_ORG: "public" }));
-vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn() }));
+vi.mock("@/lib/authz", () => ({ requireOrgRead: vi.fn(), canReadOrg: vi.fn(async () => false) }));
 vi.mock("@/lib/db", () => ({
   getScanReportByCommit: vi.fn(),
   isDbConfigured: vi.fn(() => true),
@@ -33,7 +33,7 @@ vi.mock("@/lib/pdf/report-document", () => ({ ReportDocument: () => null }));
 
 import { GET } from "./route";
 import { readableOrgForOwner } from "@/lib/auth";
-import { requireOrgRead } from "@/lib/authz";
+import { canReadOrg, requireOrgRead } from "@/lib/authz";
 import { getCreditState, getScanReportByCommit, isDbConfigured } from "@/lib/db";
 import { renderToBuffer } from "@react-pdf/renderer";
 
@@ -274,5 +274,35 @@ describe("GET /api/report/pdf", () => {
     // The runtime can't reject the header (a CR/LF in a header value throws on construction) — proves
     // the sanitized value is actually settable on a Response, not merely string-clean.
     expect(() => new Response("x", { headers: { "content-disposition": disposition } })).not.toThrow();
+  });
+});
+
+// export-0 (challenge-2026-10-22d): the plan gate is evaluated against the org the report is read
+// under. A canReadOrg-gated `?org=` hint (the permalink's rule) moves both, together.
+describe("GET /api/report/pdf - the ?org hint", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsDbConfigured.mockReturnValue(true);
+    mockReadableOrg.mockResolvedValue("public");
+    mockRequireOrgRead.mockResolvedValue(null);
+    mockGetCreditState.mockResolvedValue({ balance: 0, plan: "pro", unlimited: false, orgExists: true });
+    mockGetReport.mockResolvedValue(REPORT);
+    mockRender.mockResolvedValue(Buffer.from("%PDF-1.7 fake"));
+  });
+
+  it("plan-checks the hinted org the report is read under", async () => {
+    vi.mocked(canReadOrg).mockImplementation(async (o) => o === "rebrand");
+    const res = await GET(new Request("http://localhost/api/report/pdf?repo=acme/app&org=rebrand"));
+    expect(res.status).toBe(200);
+    expect(mockGetCreditState).toHaveBeenCalledWith("rebrand");
+    expect((mockGetReport.mock.calls[0][2] as { orgSlug?: string }).orgSlug).toBe("rebrand");
+  });
+
+  it("guard: an unreadable hint falls back to the owner rule (public stays unmetered)", async () => {
+    vi.mocked(canReadOrg).mockResolvedValue(false);
+    const res = await GET(new Request("http://localhost/api/report/pdf?repo=acme/app&org=other"));
+    expect(res.status).toBe(200);
+    expect(mockGetCreditState).not.toHaveBeenCalled();
+    expect((mockGetReport.mock.calls[0][2] as { orgSlug?: string }).orgSlug).toBe("public");
   });
 });

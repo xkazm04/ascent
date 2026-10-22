@@ -1,13 +1,15 @@
-// GET /api/report/llm?repo=owner/name[@sha]  -> text/markdown
+// GET /api/report/llm?repo=owner/name[@sha][&org=slug]  -> text/markdown
 //
 // The machine-readable twin of the report header's "Copy for LLM" chip (G5-17): the same briefing a
 // human copies out of the page, fetchable by a script, a CI step, or an agent that was handed a repo
 // name instead of a browser. Both surfaces call `reportLlmMarkdown` — one generator, so the endpoint
 // can never drift from the button (pinned in route.test.ts by comparing the two byte-for-byte).
 //
-// ACCESS. Read-gated exactly like the sibling PDF/skill exports: `readableOrgForOwner` resolves the
-// owning org for THIS viewer (an unauthenticated caller resolves to PUBLIC_ORG, so a private repo's
-// report is simply not found) and `requireOrgRead` is applied before the report is read.
+// ACCESS. Read through the shared export door, `readReportForExport` (src/lib/report/export-read.ts):
+// the org is resolved by the permalink's own rule (a `?org=` hint only after canReadOrg, else the
+// owner's readable org - an unauthenticated caller resolves to PUBLIC_ORG, so a private repo's report
+// is simply not found), gated before the read, and read STRICT (an outage is a 503, never a 404). So
+// under `?org=` the body is the briefing the chip on that same permalink copied.
 //
 // NOT PLAN-GATED, deliberately, unlike `/api/report/pdf`. The PDF is a rendered artifact sold as a Pro
 // entitlement — a distinct deliverable. This markdown is the exact text the free in-page copy button
@@ -20,59 +22,22 @@
 // never triggers a scan.
 
 import { NextResponse } from "next/server";
-import { reportHandledError } from "@/lib/api/respond";
-import { getScanReportByCommit, isDbConfigured } from "@/lib/db";
-import { readableOrgForOwner } from "@/lib/auth";
-import { requireOrgRead } from "@/lib/authz";
-import { parseRepoParam } from "@/lib/report/repoParam";
+import { readReportForExport } from "@/lib/report/export-read";
 import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
-import { safeFilenameSegment } from "@/lib/export/filename";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  if (!isDbConfigured())
-    return NextResponse.json({ error: "Markdown export requires a database." }, { status: 503 });
-  const params = new URL(request.url).searchParams;
-  const q = params.get("repo");
-  if (!q) return NextResponse.json({ error: "Missing ?repo=owner/name." }, { status: 400 });
-  const parsed = parseRepoParam(q);
-  if (!parsed) return NextResponse.json({ error: "Invalid repo. Use owner/name." }, { status: 400 });
+  const read = await readReportForExport(request, { label: "report/llm", noun: "Markdown export" });
+  if (!read.ok) return read.response;
 
-  // Gate BEFORE the read — a private report's briefing is as sensitive as the report itself.
-  const orgSlug = await readableOrgForOwner(parsed.owner);
-  const denied = await requireOrgRead(orgSlug);
-  if (denied) return denied;
-
-  // Distinguish "no saved scan" (a genuine 404) from "the lookup FAILED" (transient infra), matching
-  // the PDF route: collapsing both into 404 tells a caller to re-scan a repo that already has a report.
-  let report;
-  try {
-    report = await getScanReportByCommit(parsed.owner, parsed.name, { headSha: parsed.sha, orgSlug });
-  } catch (err) {
-    console.error("[report/llm] report lookup failed", err);
-    reportHandledError(err, { message: "report/llm report lookup failed" });
-    return NextResponse.json(
-      { error: "Couldn't load this report right now. Please try again in a moment." },
-      { status: 503 },
-    );
-  }
-  if (!report) {
-    return NextResponse.json(
-      { error: "No saved scan for this repository yet. Scan it first, then export." },
-      { status: 404 },
-    );
-  }
-
-  const body = reportLlmMarkdown(report);
+  const body = reportLlmMarkdown(read.report);
   // `inline` (not `attachment`): the primary caller is a script/agent piping the body into a prompt,
   // and a browser hitting the URL should be able to read it. The filename still rides along so a
-  // "save as" lands on a sensible name. Every interpolated segment is sanitized first — the sha is
+  // "save as" lands on a sensible name. The door sanitizes every stem segment - the sha is
   // caller-supplied and unvalidated, so it must not be able to inject a header.
-  const filename = `ascent-${safeFilenameSegment(parsed.owner)}-${safeFilenameSegment(parsed.name)}${
-    parsed.sha ? "-" + safeFilenameSegment(parsed.sha.slice(0, 7)) : ""
-  }.md`;
+  const filename = `${read.stem}.md`;
   return new NextResponse(body, {
     headers: {
       "content-type": "text/markdown; charset=utf-8",
