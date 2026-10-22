@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { ScanReport } from "@/lib/types";
 import { integrityNotes } from "@/lib/maturity/attribution";
 import { contributions } from "@/lib/scoring/projections";
@@ -20,7 +21,14 @@ import {
   isMockEngine,
   mockHollowInset,
 } from "@/components/report/chartEngine";
-import { Kicker, Surface } from "@/components/ui";
+import { Kicker, Surface, chipButtonClass } from "@/components/ui";
+import { scoreBridge, type ReportBaseline } from "@/components/report/scoreBridgeModel";
+import { ScoreBridge } from "@/components/report/ScoreBridge";
+
+const MODES = [
+  { key: "now", label: "Now" },
+  { key: "since", label: "Since last scan" },
+] as const;
 
 /**
  * Glass-box score waterfall — the single biggest objection to any rating is "it's a black box",
@@ -30,7 +38,11 @@ import { Kicker, Surface } from "@/components/ui";
  * itemization below lists each contribution and whether the dimension lifts the overall above its
  * weighted mean (▲) or drags it below (▼) — so the score reads as the visible sum of its parts.
  */
-export function ScoreWaterfall({ report }: { report: ScanReport }) {
+export function ScoreWaterfall({ report, baseline }: { report: ScanReport; baseline?: ReportBaseline | null }) {
+  // "Since last scan" bridges the move; the toggle exists only when the baseline carries dimensions.
+  const [mode, setMode] = useState<"now" | "since">("now");
+  const bridge = scoreBridge(report, baseline);
+  const bridged = bridge.kind === "bridge" && mode === "since" ? bridge : null;
   const { dimensions, overallScore, total } = contributions(report);
   const mounted = useMounted();
   const reduced = usePrefersReducedMotion();
@@ -73,123 +85,145 @@ export function ScoreWaterfall({ report }: { report: ScanReport }) {
         </span>
       </div>
 
-      {/* Stacked 0..100 track — colored segments reach the headline; the faint tail is the headroom. */}
-      <ScoreBarTrack
-        className="mt-4 flex h-4 w-full overflow-hidden rounded-full bg-slate-800"
-        role="img"
-        aria-label={`Overall score ${overallScore} of 100, composed of ${ranked.length} weighted dimension contributions${noteLine ? `. Integrity: ${noteLine}` : ""}${mock ? MOCK_SR_SUFFIX : ""}`}
-      >
-        {segments.map((s, i) => {
-          const { width, transition } = fillBarStyle({ pct: s.points, index: i, mounted, reduced, stagger: 50, cap: 400 });
-          const ink = s.score === null ? AGGREGATE_HEX : scoreHex(s.score);
-          return (
+      {bridge.kind === "bridge" && (
+        <div className="mt-3 flex gap-1" role="group" aria-label="Waterfall view">
+          {MODES.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              aria-pressed={mode === m.key}
+              onClick={() => setMode(m.key)}
+              className={chipButtonClass("idle", `px-2 py-0.5 ${mode === m.key ? "border-accent text-white" : ""}`)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {bridged ? (
+        <ScoreBridge bridge={bridged} />
+      ) : (
+        <>
+          {/* Stacked 0..100 track — colored segments reach the headline; the faint tail is the headroom. */}
+          <ScoreBarTrack
+            className="mt-4 flex h-4 w-full overflow-hidden rounded-full bg-slate-800"
+            role="img"
+            aria-label={`Overall score ${overallScore} of 100, composed of ${ranked.length} weighted dimension contributions${noteLine ? `. Integrity: ${noteLine}` : ""}${mock ? MOCK_SR_SUFFIX : ""}`}
+          >
+            {segments.map((s, i) => {
+              const { width, transition } = fillBarStyle({ pct: s.points, index: i, mounted, reduced, stagger: 50, cap: 400 });
+              const ink = s.score === null ? AGGREGATE_HEX : scoreHex(s.score);
+              return (
+                <div
+                  key={s.key}
+                  data-segment={s.key}
+                  data-mock={mock || undefined}
+                  data-integrity={s.mark || undefined}
+                  className="h-full shrink-0 border-r border-slate-950/40 last:border-r-0"
+                  style={{
+                    width,
+                    backgroundColor: mock ? MOCK_HOLLOW_FILL : ink,
+                    boxShadow: mock ? mockHollowInset(ink) : undefined,
+                    transition,
+                  }}
+                  title={s.title}
+                />
+              );
+            })}
+            {/* Headroom to 100. Its width is the honest remainder (flex-1 absorbs the float residue), but
+                a non-zero headroom keeps a 2px floor so the "distance left" indicator can never be
+                rounded out of existence — a zero headroom (a perfect 100) still renders nothing. */}
             <div
-              key={s.key}
-              data-segment={s.key}
-              data-mock={mock || undefined}
-              data-integrity={s.mark || undefined}
-              className="h-full shrink-0 border-r border-slate-950/40 last:border-r-0"
-              style={{
-                width,
-                backgroundColor: mock ? MOCK_HOLLOW_FILL : ink,
-                boxShadow: mock ? mockHollowInset(ink) : undefined,
-                transition,
-              }}
-              title={s.title}
+              data-headroom
+              className="h-full flex-1"
+              style={{ minWidth: headroom > 0 ? "0.125rem" : 0 }}
+              title={`${fmtPts(headroom)} pts of headroom to 100`}
             />
-          );
-        })}
-        {/* Headroom to 100. Its width is the honest remainder (flex-1 absorbs the float residue), but
-            a non-zero headroom keeps a 2px floor so the "distance left" indicator can never be
-            rounded out of existence — a zero headroom (a perfect 100) still renders nothing. */}
-        <div
-          data-headroom
-          className="h-full flex-1"
-          style={{ minWidth: headroom > 0 ? "0.125rem" : 0 }}
-          title={`${fmtPts(headroom)} pts of headroom to 100`}
-        />
-      </ScoreBarTrack>
+          </ScoreBarTrack>
 
-      {aggregated && (
-        <p className="mt-2 type-body-sm text-slate-500">
-          The grey sliver aggregates {aggregated.count} dimensions contributing under {fmtPts(MICRO_POINTS)} pts each.
-          Each is itemized in full below.
-        </p>
+          {aggregated && (
+            <p className="mt-2 type-body-sm text-slate-500">
+              The grey sliver aggregates {aggregated.count} dimensions contributing under {fmtPts(MICRO_POINTS)} pts each.
+              Each is itemized in full below.
+            </p>
+          )}
+
+          {noteLine ? (
+            <p
+              className="mt-2 type-body-sm text-amber-300/80"
+              title={notes.map((n) => n.hint).join(" ")}
+              data-testid="score-waterfall-integrity"
+            >
+              {noteLine}
+            </p>
+          ) : null}
+
+          {mock && (
+            <p className="mt-2 flex items-start gap-2 type-body-sm text-slate-500">
+              <svg aria-hidden viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0">
+                <rect x={2} y={3} width={8} height={6} fill={MOCK_HOLLOW_FILL} stroke="currentColor" strokeWidth={1.5} />
+              </svg>
+              <span>{MOCK_SNAPSHOT_NOTE}</span>
+            </p>
+          )}
+
+          {/* Itemized contributions — biggest first; ▲ lifts the overall, ▼ drags it below the mean. */}
+          <ul className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            {ranked.map((c) => {
+              // Round to display precision before classifying, so a value shown as "0.0" never wears
+              // an arrow. The ±0.05 band keeps a dimension sitting on the weighted mean neutral.
+              const lift = c.signed > 0.05 ? "up" : c.signed < -0.05 ? "down" : "flat";
+              const liftColor =
+                lift === "up" ? "text-emerald-400" : lift === "down" ? "text-red-400" : "text-slate-400";
+              return (
+                <li key={c.dimension} className="flex items-center gap-3 type-body" data-dimension={c.dimension}>
+                  <span
+                    aria-hidden
+                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                    style={
+                      mock
+                        ? { backgroundColor: MOCK_HOLLOW_FILL, boxShadow: mockHollowInset(scoreHex(c.score)) }
+                        : { backgroundColor: scoreHex(c.score) }
+                    }
+                  />
+                  <span className="w-20 shrink-0 truncate text-slate-300">{DIMENSION_SHORT[c.dimension]}</span>
+                  {c.mark ? (
+                    <span
+                      data-integrity={c.mark}
+                      className={
+                        c.mark === "widened" || c.mark === "unmeasured"
+                          ? "shrink-0 rounded-sm bg-amber-500/10 px-1.5 type-mono-sm text-amber-300"
+                          : "shrink-0 type-mono-sm text-slate-500"
+                      }
+                    >
+                      {c.mark}
+                    </span>
+                  ) : null}
+                  <span className="flex-1 type-mono-sm text-slate-400">
+                    {c.score} × {Math.round(c.normalizedWeight * 100)}%
+                  </span>
+                  <span className="w-12 shrink-0 text-right font-mono tabular-nums text-slate-200">+{fmtPts(c.points)}</span>
+                  <span
+                    className={`w-12 shrink-0 text-right type-mono-sm tabular-nums ${liftColor}`}
+                    title="Lift vs your weighted-mean score: ▲ pulls the overall up, ▼ drags it down"
+                    data-lift={lift}
+                  >
+                    {/* The title is hover-only and the glyph reads as "black up-pointing triangle", so the
+                        meaning rides in words for assistive tech too (the PrSignalsPanel basis idiom). */}
+                    <span aria-hidden>{lift === "flat" ? "·" : `${lift === "up" ? "▲+" : "▼"}${fmtPts(Math.abs(c.signed))}`}</span>
+                    <span className="sr-only">
+                      {lift === "flat"
+                        ? "at the weighted mean"
+                        : `${lift === "up" ? "lifts the overall by" : "drags the overall down by"} ${fmtPts(Math.abs(c.signed))} points`}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
-
-      {noteLine ? (
-        <p
-          className="mt-2 type-body-sm text-amber-300/80"
-          title={notes.map((n) => n.hint).join(" ")}
-          data-testid="score-waterfall-integrity"
-        >
-          {noteLine}
-        </p>
-      ) : null}
-
-      {mock && (
-        <p className="mt-2 flex items-start gap-2 type-body-sm text-slate-500">
-          <svg aria-hidden viewBox="0 0 12 12" className="mt-1 h-3 w-3 shrink-0">
-            <rect x={2} y={3} width={8} height={6} fill={MOCK_HOLLOW_FILL} stroke="currentColor" strokeWidth={1.5} />
-          </svg>
-          <span>{MOCK_SNAPSHOT_NOTE}</span>
-        </p>
-      )}
-
-      {/* Itemized contributions — biggest first; ▲ lifts the overall, ▼ drags it below the mean. */}
-      <ul className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2">
-        {ranked.map((c) => {
-          // Round to display precision before classifying, so a value shown as "0.0" never wears
-          // an arrow. The ±0.05 band keeps a dimension sitting on the weighted mean neutral.
-          const lift = c.signed > 0.05 ? "up" : c.signed < -0.05 ? "down" : "flat";
-          const liftColor =
-            lift === "up" ? "text-emerald-400" : lift === "down" ? "text-red-400" : "text-slate-400";
-          return (
-            <li key={c.dimension} className="flex items-center gap-3 type-body" data-dimension={c.dimension}>
-              <span
-                aria-hidden
-                className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                style={
-                  mock
-                    ? { backgroundColor: MOCK_HOLLOW_FILL, boxShadow: mockHollowInset(scoreHex(c.score)) }
-                    : { backgroundColor: scoreHex(c.score) }
-                }
-              />
-              <span className="w-20 shrink-0 truncate text-slate-300">{DIMENSION_SHORT[c.dimension]}</span>
-              {c.mark ? (
-                <span
-                  data-integrity={c.mark}
-                  className={
-                    c.mark === "widened" || c.mark === "unmeasured"
-                      ? "shrink-0 rounded-sm bg-amber-500/10 px-1.5 type-mono-sm text-amber-300"
-                      : "shrink-0 type-mono-sm text-slate-500"
-                  }
-                >
-                  {c.mark}
-                </span>
-              ) : null}
-              <span className="flex-1 type-mono-sm text-slate-400">
-                {c.score} × {Math.round(c.normalizedWeight * 100)}%
-              </span>
-              <span className="w-12 shrink-0 text-right font-mono tabular-nums text-slate-200">+{fmtPts(c.points)}</span>
-              <span
-                className={`w-12 shrink-0 text-right type-mono-sm tabular-nums ${liftColor}`}
-                title="Lift vs your weighted-mean score: ▲ pulls the overall up, ▼ drags it down"
-                data-lift={lift}
-              >
-                {/* The title is hover-only and the glyph reads as "black up-pointing triangle", so the
-                    meaning rides in words for assistive tech too (the PrSignalsPanel basis idiom). */}
-                <span aria-hidden>{lift === "flat" ? "·" : `${lift === "up" ? "▲+" : "▼"}${fmtPts(Math.abs(c.signed))}`}</span>
-                <span className="sr-only">
-                  {lift === "flat"
-                    ? "at the weighted mean"
-                    : `${lift === "up" ? "lifts the overall by" : "drags the overall down by"} ${fmtPts(Math.abs(c.signed))} points`}
-                </span>
-              </span>
-            </li>
-          );
-        })}
-      </ul>
     </Surface>
   );
 }
