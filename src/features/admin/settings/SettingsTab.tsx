@@ -19,6 +19,7 @@ import type { SettingsData } from "./settingsData";
 import { OrgEmpty } from "@/components/org/shared/ui";
 import { getCreditState, getOrgLlmConfig } from "@/lib/db";
 import { getOrgRetention } from "@/lib/db/retention";
+import { getRetentionReceipt } from "@/lib/db/retention-receipt";
 import { hasOrgRole } from "@/lib/authz";
 import { planAllowsByom } from "@/lib/plans";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
@@ -36,10 +37,11 @@ export async function SettingsTab({ slug }: { slug: string }) {
     return <OrgEmpty title="Owner only" body="Organization settings are available to organization owners." href={orgTabHref(slug, "overview")} cta="← Overview" />;
   }
   const configRead = getOrgLlmConfig(slug);
-  const [config, credit, retention, laneRouting, theme] = await Promise.all([
+  const [config, credit, retention, retentionReceipt, laneRouting, theme] = await Promise.all([
     configRead,
     getCreditState(slug).catch(() => null),
     getOrgRetention(slug).catch(() => null),
+    getRetentionReceipt(slug).catch(() => null),
     // Where each LLM lane runs for this org, plus the "if switched on" preview of a saved provider.
     // Never throws: an unreadable state renders as "could not be read", not as a platform guess.
     configRead.then((c) => loadLaneRouting(slug, c)),
@@ -49,6 +51,7 @@ export async function SettingsTab({ slug }: { slug: string }) {
     slug,
     config,
     retention,
+    retentionReceipt,
     laneRouting,
     plan: credit?.plan ?? "free",
     planAllowed: planAllowsByom(credit?.plan),

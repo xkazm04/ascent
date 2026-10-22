@@ -35,6 +35,22 @@ const PREVIEW = {
   },
 };
 
+const RECEIPT = {
+  lastPurge: { at: "2026-10-21T02:00:00.000Z", meta: { scansDeleted: 12, usageEventsDeleted: 3 } },
+  lastSave: { at: "2026-10-03T08:00:00.000Z", meta: {} },
+};
+
+const FULL = (over: Record<string, number | null>) => ({
+  scansDeleted: 4, dimensionsDeleted: 8, recommendationsDeleted: 1, recommendationEventsDeleted: 0, auditDeleted: 2,
+  outcomesDeleted: 0, usageEventsDeleted: 100, conformanceReportsDeleted: 0, conformanceFindingsDeleted: 0,
+  memoryCitationsDeleted: 0, controlObservationsDeleted: 0, digestsWritten: 0, scansCompacted: 0, digestsDeleted: 0,
+  digestsWouldWrite: 0, ...over,
+});
+
+function respond(body: unknown) {
+  vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200, json: async () => body } as Response);
+}
+
 function previewBtn() {
   return screen.getByTestId("retention-preview") as HTMLButtonElement;
 }
@@ -44,7 +60,7 @@ function saveBtn() {
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn());
-  render(<RetentionCard slug="acme" initial={INITIAL} />);
+  render(<RetentionCard slug="acme" initial={INITIAL} receipt={RECEIPT} />);
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -105,5 +121,48 @@ describe("RetentionCard — dry-run before save", () => {
 
     fireEvent.change(screen.getByLabelText(/Audit log days/i), { target: { value: "90" } });
     expect(saveBtn().disabled).toBe(true);
+  });
+});
+
+describe("RetentionCard - what the edit adds, and the last purge", () => {
+  it("shows every ledger as now, proposed and delta, including governance evidence", async () => {
+    respond({ dryRun: true, baseline: FULL({}), preview: FULL({ controlObservationsDeleted: 40 }), errors: [] });
+    fireEvent.click(previewBtn());
+    const row = await screen.findByTestId("retention-row-controlObservationsDeleted");
+    expect(row.textContent).toContain("Control observations");
+    expect(row.textContent).toContain("+40");
+    expect(screen.getByTestId("retention-row-usageEventsDeleted").textContent).toContain("Usage events");
+    expect(screen.getByTestId("retention-row-memoryCitationsDeleted")).toBeTruthy();
+    expect(saveBtn().disabled).toBe(false);
+  });
+
+  it("renders unknown and keeps Save disabled when the response carries no preview", async () => {
+    respond({ dryRun: true, errors: [] });
+    fireEvent.click(previewBtn());
+    await screen.findByText(/could not be counted/i);
+    expect(screen.queryByTestId("retention-row-scansDeleted")).toBeNull();
+    expect(saveBtn().disabled).toBe(true);
+  });
+
+  it("shows a null digest count as unknown, never 0", async () => {
+    respond({ dryRun: true, baseline: FULL({}), preview: FULL({ digestsWouldWrite: null }), errors: [] });
+    fireEvent.click(previewBtn());
+    const row = await screen.findByTestId("retention-row-digestsWouldWrite");
+    expect(row.textContent).toMatch(/unknown/);
+  });
+
+  it("surfaces the preview errors in an alert instead of dropping them", async () => {
+    respond({ dryRun: true, baseline: FULL({}), preview: FULL({}), errors: ["acme: usage sweep failed"] });
+    fireEvent.click(previewBtn());
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("acme: usage sweep failed"));
+  });
+
+  it("shows the last purge receipt for this org, with no em dash in the new copy", async () => {
+    const strip = screen.getByTestId("retention-receipt");
+    expect(strip.textContent).toContain("Last purge removed 15 rows on 2026-10-21");
+    respond({ dryRun: true, baseline: FULL({}), preview: FULL({ controlObservationsDeleted: 40 }), errors: ["x"] });
+    fireEvent.click(previewBtn());
+    const panel = await screen.findByTestId("retention-preview-panel");
+    expect(`${strip.textContent} ${panel.textContent}`).not.toContain("\u2014");
   });
 });

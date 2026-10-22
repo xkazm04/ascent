@@ -2,7 +2,9 @@
 
 // Org settings → per-org retention + compaction (the four Organization columns). Owner-only by
 // absence: SettingsTab gates the tab before this card is built. Saving writes columns only; the
-// nightly purge applies them. Preview is a dry-run of the proposed policy and is required before save.
+// nightly purge applies them. Preview is a dry-run of the proposed policy and is required before save;
+// it shows every ledger as a delta over the policy in force, and the receipt strip says whether a
+// purge has removed anything since the policy was saved (RetentionPreviewPanel.tsx).
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -12,17 +14,15 @@ import {
   type OrgRetentionColumns,
   type OrgRetentionView,
 } from "@/lib/db/retention-policy";
+import type { RetentionReceipt } from "@/lib/db/retention-receipt";
+import { retentionPreviewModel, type RetentionPreviewModel } from "./retentionPreviewModel";
+import { retentionReceiptModel } from "./retentionReceiptModel";
+import { RetentionPreviewPanel, RetentionReceiptStrip } from "./RetentionPreviewPanel";
 
 const INPUT =
   "mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 placeholder:text-slate-600 disabled:opacity-50";
 
-type PreviewCounts = {
-  scansDeleted: number;
-  dimensionsDeleted: number;
-  recommendationsDeleted: number;
-  auditDeleted: number;
-  digestsWouldWrite: number | null;
-};
+type PreviewState = { model: RetentionPreviewModel; errors: string[] };
 
 function intStr(n: number | null): string {
   return n == null ? "" : String(n);
@@ -45,7 +45,15 @@ function draftFromForm(form: { maxScans: string; auditDays: string; compact: str
   });
 }
 
-export function RetentionCard({ slug, initial }: { slug: string; initial: OrgRetentionView | null }) {
+export function RetentionCard({
+  slug,
+  initial,
+  receipt = null,
+}: {
+  slug: string;
+  initial: OrgRetentionView | null;
+  receipt?: RetentionReceipt | null;
+}) {
   const router = useRouter();
   const stored = initial?.stored;
   const [maxScans, setMaxScans] = useState(intStr(stored?.retentionMaxScans ?? null));
@@ -53,7 +61,7 @@ export function RetentionCard({ slug, initial }: { slug: string; initial: OrgRet
   const [compact, setCompact] = useState(compactStr(stored?.retentionCompact ?? null));
   const [digestMonths, setDigestMonths] = useState(intStr(stored?.retentionDigestMonths ?? null));
   const [busy, setBusy] = useState<"preview" | "save" | null>(null);
-  const [preview, setPreview] = useState<PreviewCounts | null>(null);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -63,7 +71,9 @@ export function RetentionCard({ slug, initial }: { slug: string; initial: OrgRet
   );
   const draftKey = parsed.ok ? keyOf(parsed.stored) : null;
   const canPreview = Boolean(initial) && parsed.ok && busy === null;
-  const canSave = canPreview && previewKey === draftKey && preview !== null;
+  // A preview that could not be counted keeps Save disabled: unknown is never read as "deletes nothing".
+  const canSave = canPreview && previewKey === draftKey && preview?.model.state === "ready";
+  const receiptModel = useMemo(() => retentionReceiptModel(receipt), [receipt]);
 
   async function post(previewFlag: boolean) {
     if (!parsed.ok || busy) return;
@@ -76,14 +86,15 @@ export function RetentionCard({ slug, initial }: { slug: string; initial: OrgRet
         body: JSON.stringify({ org: slug, ...parsed.stored, ...(previewFlag ? { preview: true } : {}) }),
       });
       const data = (await res.json().catch(() => null)) as
-        | { error?: string; preview?: PreviewCounts; purged?: boolean }
+        | { error?: string; preview?: unknown; baseline?: unknown; errors?: unknown; purged?: boolean }
         | null;
       if (!res.ok || !data) {
         setMsg({ kind: "err", text: data?.error ?? `Request failed (${res.status}).` });
         return;
       }
       if (previewFlag) {
-        setPreview(data.preview ?? { scansDeleted: 0, dimensionsDeleted: 0, recommendationsDeleted: 0, auditDeleted: 0, digestsWouldWrite: null });
+        const errors = Array.isArray(data.errors) ? data.errors.filter((e): e is string => typeof e === "string") : [];
+        setPreview({ model: retentionPreviewModel(data.baseline, data.preview), errors });
         setPreviewKey(draftKey);
         return;
       }
@@ -114,6 +125,7 @@ export function RetentionCard({ slug, initial }: { slug: string; initial: OrgRet
         scans into monthly digests. Blank inherits the deployment default; 0 keeps everything. Saving
         updates the policy; it never deletes data.
       </p>
+      {initial && <RetentionReceiptStrip receipt={receiptModel} />}
       {!initial ? (
         <p className="mt-4 type-body-sm text-orange-200">Retention is unavailable without a database.</p>
       ) : (
@@ -143,16 +155,7 @@ export function RetentionCard({ slug, initial }: { slug: string; initial: OrgRet
       {parsed.ok === false && initial && (
         <p role="alert" className="mt-3 type-body-sm text-orange-300">{parsed.error}</p>
       )}
-      {preview && (
-        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 type-body-sm text-slate-300 sm:grid-cols-4">
-          <dt className="text-slate-500">Scans</dt><dd>{preview.scansDeleted}</dd>
-          <dt className="text-slate-500">Dimensions</dt><dd>{preview.dimensionsDeleted}</dd>
-          <dt className="text-slate-500">Recommendations</dt><dd>{preview.recommendationsDeleted}</dd>
-          <dt className="text-slate-500">Audit</dt><dd>{preview.auditDeleted}</dd>
-          <dt className="text-slate-500">Digests (would write)</dt>
-          <dd>{preview.digestsWouldWrite == null ? "unknown" : preview.digestsWouldWrite}</dd>
-        </dl>
-      )}
+      {preview && <RetentionPreviewPanel model={preview.model} errors={preview.errors} />}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button type="button" data-testid="retention-preview" onClick={() => void post(true)} disabled={!canPreview} className="rounded-lg border border-slate-700 px-3 py-1.5 type-body-sm text-slate-300 hover:border-accent hover:text-white disabled:opacity-50">
           {busy === "preview" ? "Previewing…" : "Preview what the next purge would delete"}

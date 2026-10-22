@@ -39,7 +39,7 @@ export function settingsV1(d: SettingsData) {
       <ModelScorecard />
       {/* Retention then erasure: both owner-gated by the entry, so a non-owner never renders either
           control (rather than seeing them disabled). Save on RetentionCard never purges. */}
-      <RetentionCard slug={slug} initial={retention} />
+      <RetentionCard slug={slug} initial={retention} receipt={d.retentionReceipt} />
       <DataErasureCard slug={slug} />
       {/* A second route to the same stage's Members tab; the next move below stays alone. */}
       <nav aria-label="Related views" className="flex justify-end">

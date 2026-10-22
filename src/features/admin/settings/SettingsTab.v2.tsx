@@ -54,7 +54,7 @@ export function settingsV2(d: SettingsData) {
         <SectionHead eyebrow="Data" title="What is kept," named="and what can go." />
         <div className="mt-5 space-y-8">
           {/* Both owner-gated by the entry: a non-owner never renders either control. Save never purges. */}
-          <RetentionCard slug={slug} initial={retention} />
+          <RetentionCard slug={slug} initial={retention} receipt={d.retentionReceipt} />
           <DataErasureCard slug={slug} />
         </div>
       </Frame>

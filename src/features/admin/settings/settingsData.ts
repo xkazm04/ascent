@@ -2,12 +2,15 @@
 // composition the theme picks. Pure types: nothing here reads a request.
 import type { OrgLlmConfigPublic } from "@/lib/db";
 import type { OrgRetentionView } from "@/lib/db/retention-policy";
+import type { RetentionReceipt } from "@/lib/db/retention-receipt";
 import type { LaneRouting } from "@/lib/llm/lane-routes-load";
 
 export interface SettingsData {
   slug: string;
   config: OrgLlmConfigPublic | null;
   retention: OrgRetentionView | null;
+  /** This org's newest retention.purged / retention.updated rows; null when unreadable. */
+  retentionReceipt: RetentionReceipt | null;
   laneRouting: LaneRouting | null;
   plan: string;
   planAllowed: boolean;
