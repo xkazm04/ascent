@@ -15,18 +15,21 @@
  *
  * Cost-aware + safe: it is OPT-IN. The matching `turbopack.rules` entry is only
  * registered when `DEV_INSPECT=1` (see next.config.ts), and this loader also
- * re-checks the flag and short-circuits to a no-op otherwise — so a normal
- * `npm run dev` and every production build pay nothing and `@babel/core` is
- * never even required.
+ * re-checks the flag through devInspectEnabled (dev-inspect-flag.cjs, which
+ * returns false in production before it reads DEV_INSPECT) and short-circuits
+ * to a no-op otherwise. A normal `npm run dev` and every production build pay
+ * nothing, and `@babel/core` is never even required.
  */
+
+const { devInspectEnabled } = require("./dev-inspect-flag.cjs");
 
 let babel; // lazily required only when actually transforming
 
 module.exports = function sourceLocLoader(source, inputMap, meta) {
   const callback = this.async();
 
-  // Hard gate: do nothing unless explicitly launched in inspect mode.
-  if (process.env.DEV_INSPECT !== "1") {
+  // Hard gate: do nothing unless explicitly launched in inspect mode (never in production).
+  if (!devInspectEnabled()) {
     return callback(null, source, inputMap, meta);
   }
 

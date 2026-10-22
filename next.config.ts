@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import path from "path";
+import devInspectFlag from "./scripts/dev-inspector/dev-inspect-flag.cjs";
 
 // Content-Security-Policy — REPORT-ONLY starter, derived from what the app actually loads today
 // (not an aspirational lockdown). Sources, verified against the code:
@@ -95,9 +96,10 @@ const nextConfig: NextConfig = {
 // DevInspector — dev-only source-location stamping (press `;` then `i`, then
 // right-click a component to copy its `src/.../File.tsx:LINE`). Opt-in: the
 // Turbopack loader is only registered when launched via `npm run dev:inspect`
-// (which sets DEV_INSPECT=1), so a normal `npm run dev` and every production
-// build are completely unaffected. See scripts/dev-inspector/.
-if (process.env.DEV_INSPECT === "1") {
+// (which sets DEV_INSPECT=1), so a normal `npm run dev` is unaffected, and
+// devInspectEnabled() returns false under NODE_ENV=production before it reads
+// the flag, so no production build can register it. See scripts/dev-inspector/.
+if (devInspectFlag.devInspectEnabled()) {
   const loader = path.join(process.cwd(), "scripts", "dev-inspector", "source-loc-loader.cjs");
   nextConfig.turbopack = {
     ...nextConfig.turbopack,

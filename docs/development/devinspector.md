@@ -24,6 +24,16 @@ with `data-loc` only when `DEV_INSPECT=1`; the overlay
 from production. The `dev:inspect` script in [`package.json`](../../package.json) is just
 `cross-env DEV_INSPECT=1 next dev`.
 
+The flag has one definition, `devInspectEnabled()` in
+[`scripts/dev-inspector/dev-inspect-flag.cjs`](../../scripts/dev-inspector/dev-inspect-flag.cjs). It
+returns false under `NODE_ENV=production` **before** it reads `DEV_INSPECT`, so a stray
+`DEV_INSPECT=1` on `next build` (a copied `.env`, a CI job reusing a dev profile) registers no loader
+and stamps nothing. Both gates call it: `next.config.ts` (rule registration) and
+`source-loc-loader.cjs` (per-module re-check). Only the exact value `1` arms it. Nothing else may read
+the variable, and every `/api/dev` route must call `seedRequestAuthorized` as its first statement;
+both, plus the overlay's `NODE_ENV === "development"` mount in `src/app/layout.tsx`, are pinned by
+[`src/app/api/dev/dev-surfaces-gated.test.ts`](../../src/app/api/dev/dev-surfaces-gated.test.ts).
+
 HUD copy stays two formats: Claude `path:line` (default right-click) and VS Code
 `code -g path:line` (HUD-only). Alt+right-click is still "innermost element", not a format switch.
 
