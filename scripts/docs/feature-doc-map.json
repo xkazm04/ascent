@@ -149,7 +149,8 @@
         "src/lib/db/scan-jobs.ts",
         "src/app/api/cron/probe/**",
         "src/lib/scan-import-policy.ts",
-        "src/lib/scan-consequences.ts"
+        "src/lib/scan-consequences.ts",
+        "src/lib/db/credit-reservations.ts"
       ]
     },
     {
