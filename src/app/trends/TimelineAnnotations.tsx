@@ -6,11 +6,17 @@
 // 4f3a91c", "1 failed deploy before this scan") instead of merely descriptive; `TrendChart` draws the
 // same list in-chart against the same `TrendAnnotation` contract.
 //
+// Each event names a MOVE between two scans, so beside the single-scan "report" link it offers
+// "what changed": the compare page's diff of this scan against the marker's baseline (`prevScanId`),
+// which attributes the move to its signals. A rubric marker links too; the compare page's ruler note
+// says the move measured the rubric. No real baseline (oldest scan, compacted point): no link.
+//
 // Server component (no hooks).
 
 import { githubCommitUrl, reportPermalink } from "@/lib/ui";
 import type { TrendAnnotation } from "@/app/trends/annotations";
 import { deployColor } from "@/app/trends/deployTone";
+import { pairCompareHref } from "@/app/trends/trendPairModel";
 
 const TONE: Record<TrendAnnotation["kind"], { color: string; glyph: string; word: string }> = {
   promotion: { color: "#34d399", glyph: "▲", word: "Promotion" },
@@ -47,6 +53,7 @@ export function TimelineAnnotations({
           // Links take the FULL sha (a truncated one resolves to no scan); the short one is display only.
           const href = a.commitSha ? reportPermalink(repoFullName, a.commitSha) : null;
           const commit = githubCommitUrl(repoFullName, a.commitSha);
+          const diff = pairCompareHref(repoFullName, { afterId: a.scanId, beforeId: a.prevScanId ?? null });
           return (
             // Kind-scoped key: a deploy marker and a score event can pin to the same scan.
             <li key={`${a.kind}:${a.scanId}`}className="flex flex-wrap items-baseline gap-x-2 type-body-sm text-slate-400">
@@ -58,6 +65,11 @@ export function TimelineAnnotations({
                 {tone.word} {a.label}
               </span>
               <span className="text-slate-400">{a.detail}</span>
+              {diff && (
+                <a href={diff} className="font-mono text-slate-500 underline hover:text-white">
+                  what changed
+                </a>
+              )}
               {href && (
                 <a href={href} className="font-mono text-slate-500 underline hover:text-white">
                   report
