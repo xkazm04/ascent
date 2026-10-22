@@ -10,12 +10,13 @@
 //     would be a second tenant check that can drift from the real one;
 //   - its old route (src/app/org/[slug]/audit/page.tsx) is now nothing but a redirect() — links in
 //     already-sent digest emails still resolve.
+// THEME DUALITY: the theme picks the composition (AuditTab.v1 Altimeter, AuditTab.v2 Prism).
 // Its leaf parts (AuditLogViewer, AuditLogCells) sit beside it in the same group folder.
 
-import { SectionEmpty, SectionHeader } from "@/components/org/shared/ui";
-import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
-import { orgTabHref } from "@/lib/org/orgTabs";
-import { AuditLogViewer } from "./AuditLogViewer";
+import { SectionEmpty } from "@/components/org/shared/ui";
+import { getTheme } from "@/lib/theme/server";
+import { auditV1 } from "./AuditTab.v1";
+import { auditV2 } from "./AuditTab.v2";
 import { AuditHealthNotice } from "./AuditHealthNotice";
 import { getAuditLog } from "@/lib/db";
 import { getAuditHealth } from "@/lib/db/audit-health";
@@ -40,21 +41,5 @@ export async function AuditTab({ slug }: { slug: string }) {
     );
   }
 
-  return (
-    <div>
-      <SectionHeader
-        className="mb-4"
-        title="Audit trail"
-        description={
-          <>
-            Every recorded action for <span className="font-mono">{slug}</span>: who did
-            what, and the scan it touched. Newest first.
-          </>
-        }
-      />
-      <AuditHealthNotice health={health} />
-      <AuditLogViewer org={slug} initial={page} />
-      <NextMoveLink href={orgTabHref(slug, "executive")} to="executive" />
-    </div>
-  );
+  return (await getTheme()) === "prism" ? auditV2(slug, page, health) : auditV1(slug, page, health);
 }
