@@ -3,15 +3,15 @@ import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { RepoScanNotice } from "@/components/EmptyState";
 import { ScanComparePicker } from "@/components/report/ScanComparePicker";
 import { WhatChanged } from "@/components/report/WhatChanged";
-import { parseRepoUrl } from "@/lib/github/source";
 import { getScanComparison, isDbConfigured } from "@/lib/db";
 import type { ScanComparison } from "@/lib/db/scans";
 import { readableOrgForOwner } from "@/lib/auth";
 import { resolveViewerLogin } from "@/lib/access";
-import { historyOutsideWindowNote, historyWindowNote, resolveHistoryWindow, type HistoryWindow } from "@/lib/history/window";
+import { historyWindowNote, resolveHistoryWindow } from "@/lib/history/window";
+import { historyReturnPath, resolveRepoHistoryAccess } from "@/lib/history/repoHistoryAccess";
+import { repoHistoryNotice } from "@/lib/history/repoHistoryNotice";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { SignInNotice } from "@/components/SignInNotice";
-import { isDbDown } from "@/app/trends/dbDown";
 import { diffScans } from "@/lib/report/compare";
 import { HEADER_ACTION_LINK_CLASS } from "@/components/report/pill";
 import { listExemplarOptions, loadSubjectFacets } from "@/lib/report/exemplar-load";
@@ -47,104 +47,43 @@ export default async function ComparePage({
   if (needsSignIn) {
     return (
       <Shell>
-        <SignInNotice
-          next={repo ? `/report/compare?repo=${encodeURIComponent(repo)}` : "/report/compare"}
-          provider={provider}
-          expired={expired}
-        />
+        {/* The whole request, pair included: a shared compare link must land on its pair after sign-in. */}
+        <SignInNotice next={historyReturnPath("compare", { repo, a, b, against })} provider={provider} expired={expired} />
       </Shell>
     );
   }
 
-  if (!repo) {
-    return (
-      <Shell>
-        <Notice title="No repository specified" body="Add ?repo=owner/repo to compare its scans." />
-      </Shell>
-    );
-  }
-  const parsed = parseRepoUrl(repo);
-  if (!parsed) {
-    return (
-      <Shell>
-        <Notice title="Invalid repository" body="Use the form owner/repo or a GitHub URL." />
-      </Shell>
-    );
-  }
-  if (!isDbConfigured()) {
-    return (
-      <Shell>
-        <Notice
-          title="Comparison needs a database"
-          body="Scan history is a Phase 2 feature: set DATABASE_URL (local Postgres or Aurora DSQL) to record scans and compare them."
-          repo={`${parsed.owner}/${parsed.repo}`}
-        />
-      </Shell>
-    );
-  }
-
-  const orgSlug = await readableOrgForOwner(parsed.owner);
-  // STRICT: an unreachable database must not read as "No scans recorded yet" (the refusal /api/history
-  // makes too); it gets its own honest notice, never a 500.
-  // The plan's sold history window, the floor /trends and the personal overview read under. A ?a/?b id
-  // older than it simply is not in the list, so it falls back like an id beyond the 60-scan window.
-  const viewerLogin = await resolveViewerLogin();
-  let historyWindow: HistoryWindow;
-  let comparison: ScanComparison | null;
-  let hiddenByWindow = false;
-  try {
-    historyWindow = await resolveHistoryWindow(orgSlug, viewerLogin);
-    comparison = await getScanComparison(parsed.owner, parsed.repo, {
-      orgSlug,
-      afterId: a,
-      beforeId: b,
-      limit: 60,
-      strict: true,
-      since: historyWindow.since,
-    });
-    // Empty under a floor: say whether older scans exist, so the page never claims "never scanned".
-    if (historyWindow.since && (!comparison || comparison.scans.length === 0)) {
-      const any = await getScanComparison(parsed.owner, parsed.repo, { orgSlug, limit: 1, strict: true });
-      hiddenByWindow = (any?.scans.length ?? 0) > 0;
-    }
-  } catch (err) {
-    if (!isDbDown(err)) throw err;
-    return (
-      <Shell>
-        <Notice
-          title="Scan history is unavailable right now"
-          body={`We could not read the scan history for ${parsed.owner}/${parsed.repo}. Try again in a moment.`}
-          repo={`${parsed.owner}/${parsed.repo}`}
-        />
-      </Shell>
-    );
-  }
-
-  // `after` is null only when no scans exist, so it rides the same guard — and the exemplar axis then
+  // The shared history ladder (src/lib/history/repoHistoryAccess.ts): parse, database, org, plan window,
+  // strict read, db-down, hidden-by-window probe, empty. Compare reads at the SAME depth as /trends
+  // (HISTORY_SCAN_CAP), so every scan the trends chart plots resolves as ?a/?b here. A ?a/?b id older
+  // than the plan window simply is not in the list and falls back to the default pair.
+  const access = await resolveRepoHistoryAccess<ScanComparison>({
+    repo,
+    surface: "compare",
+    deps: {
+      dbConfigured: isDbConfigured(),
+      resolveOrg: readableOrgForOwner,
+      resolveWindow: async (org) => resolveHistoryWindow(org, await resolveViewerLogin()),
+      read: ({ owner, repo: name, orgSlug, limit, since }) =>
+        getScanComparison(owner, name, { orgSlug, afterId: a, beforeId: b, limit, strict: true, since }),
+      probe: async ({ owner, repo: name, orgSlug }) =>
+        (await getScanComparison(owner, name, { orgSlug, limit: 1, strict: true }))?.scans.length ?? 0,
+    },
+  });
+  // `after` is null only when no scans exist, so it rides the same guard, and the exemplar axis then
   // has a subject scan without needing the pair.
+  if (access.kind !== "ok" || !access.data.after) {
+    const state = access.kind === "ok" ? ({ kind: "empty" } as const) : access;
+    const notice = repoHistoryNotice(state, "compare", "repo" in access ? access.repo : undefined);
+    return (
+      <Shell>
+        <Notice {...notice} />
+      </Shell>
+    );
+  }
+  const { data: comparison, orgSlug, window: historyWindow } = access;
+  const subject = access.data.after;
   const windowNote = historyWindowNote(historyWindow);
-  if (hiddenByWindow) {
-    return (
-      <Shell>
-        <Notice
-          title="Scans fall outside your plan's history window"
-          body={historyOutsideWindowNote(historyWindow, `${parsed.owner}/${parsed.repo}`)}
-          repo={`${parsed.owner}/${parsed.repo}`}
-        />
-      </Shell>
-    );
-  }
-  if (!comparison || comparison.scans.length === 0 || !comparison.after) {
-    return (
-      <Shell>
-        <Notice
-          title="No scans recorded yet"
-          body={`We haven't stored any scans for ${parsed.owner}/${parsed.repo}. Run a scan to start tracking changes.`}
-          repo={`${parsed.owner}/${parsed.repo}`}
-        />
-      </Shell>
-    );
-  }
 
   // The TIME axis needs two scans. The EXEMPLAR axis does not — it compares this scan against another
   // repository — and gating the whole page on the pair made the exemplar diff unreachable for exactly
@@ -155,7 +94,6 @@ export default async function ComparePage({
     comparison.scans.length >= 2 && comparison.before && comparison.after
       ? { before: comparison.before, after: comparison.after }
       : null;
-  const subject = comparison.after;
   const diff = pair ? diffScans(pair.before, pair.after) : null;
   const repoRef = comparison.repo.fullName;
 
@@ -171,8 +109,8 @@ export default async function ComparePage({
   });
 
   // Requested ids the server did NOT honor (trends-comparison 07-16 #2). getScanComparison resolves
-  // ?a/?b only within the newest-`limit` window, so a bookmarked compare URL whose scan aged past the
-  // 60th slot (retention keeps ~200), a stale/mistyped id, or the degenerate a===b fall back to the
+  // ?a/?b only within the newest-`limit` window (HISTORY_SCAN_CAP, the depth /trends plots), so a
+  // bookmarked compare URL whose scan aged past that cap or out of the plan window, a stale/mistyped id, or the degenerate a===b fall back to the
   // default pair — previously with ZERO indication, silently breaking the shareable-URL contract
   // (the saved link later shows different numbers). Detect the substitution here by comparing the
   // requested ids against the resolved pair and say so above the picker.
