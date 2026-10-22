@@ -178,6 +178,8 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // segment.bulk_tag: the same class of act, a many-row membership write, and the meta carries counts
   // only (added / removed), never the repo list.
   { value: "segment.rule_applied", label: "Segment rule applied", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  // playbooks-1: an edited playbook re-rolled to adopters on an older version (draft PRs, admin only).
+  { value: "playbook.revision_opened", label: "Playbook revision PRs", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
 ];
 
 export const ACTION_META: Record<string, { label: string; cls: string }> = Object.fromEntries(
