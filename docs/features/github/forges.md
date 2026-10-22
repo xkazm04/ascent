@@ -154,6 +154,23 @@ route is added — the row is addressed by `(org, forge, externalId)`, all suppl
 `Organization.githubInstallId` is untouched and remains the GitHub read path. Migrating a live
 identity column onto `Installation` deserves its own release.
 
+**A scan credential is bound to the forge that issued it.** `scanRepository` resolves its token
+through `bindScanToken` (`src/lib/forge/scan-credential.ts`) with the routed forge, so no caller can
+send a GitHub credential to another forge's host:
+
+- An explicit `token` flows only when `ScanOptions.tokenForge` (default `github`) matches the routed
+  forge. An unlabelled token is a GitHub one, so it is dropped for a `gitlab:` coordinate and the scan
+  runs token-less. The drop is logged on the server (`[scan] ... forge-bound token`), naming both
+  forges and never the value.
+- The ambient `GITHUB_TOKEN` is offered to a GitHub scan only (`ambientAllowedFor`), whatever
+  `noAmbientToken` says. The two scan routes use the same predicate.
+- The rescan queue worker never mints the org's GitHub installation token for a non-GitHub row (and
+  does not skip one as a broken installation it never used); `/api/org/import` builds the scan options
+  per entry, so a mixed batch's minted token rides its GitHub entries only.
+- A GitLab body `token` on `POST /api/scan` is currently dropped too: the scan lifecycle does not yet
+  carry `tokenForge`, so it reaches `scanRepository` unlabelled. The org's stored GitLab credential
+  (`getForgeCredential`) is not wired into any scan path yet.
+
 ## Plan gates
 
 Non-GitHub forges are **not** a paid feature. `selfHosted()` turns every plan gate off anyway, and
@@ -200,3 +217,4 @@ and forge-agnostic.
 | `src/app/api/org/import/route.test.ts` | import persists GitLab permalinks on the stored `Installation.host` |
 | `src/lib/forge/gitlab/mappers.test.ts` | fixture-driven mappers — an unmapped `Governance` field is `false`, "no sample" is null not 0%, an unjoinable deployment is dropped |
 | `scripts/forge/equality.mts` | the byte-identity release gate |
+| `src/lib/forge/scan-credential.test.ts`, `src/lib/scan.forge-credential.test.ts`, `src/lib/scan-queue-worker.forge.test.ts`, `src/app/api/org/import/route.forge-credential.test.ts` | a GitHub credential (installation token or ambient `GITHUB_TOKEN`) never reaches a GitLab scan from `scanRepository`, the rescan worker or the import; a labelled GitLab token still flows; GitHub scans keep their token |

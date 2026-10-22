@@ -167,6 +167,11 @@ credential, so GitHub answers `404` for the private repo just as it does for a m
 is then a bare `204` and a `?ref=` is `404 REF_NOT_FOUND` for both. Both routes call the guard where
 they compute the scope token, after their own limiters (the peek limiter, the stream's burst limiter).
 
+**A scan's token is bound to the forge it was issued for.** `scanRepository` itself refuses to send a
+GitHub credential (an installation token, or the ambient `GITHUB_TOKEN`) to a non-GitHub coordinate,
+so a `gitlab:` scan from any entry point (routes, import, rescan worker) runs token-less. Details in
+[`docs/features/github/forges.md`](../github/forges.md#credentials).
+
 Cost for a public repo: one extra REST call cold, and a `304` warm (the ETag is remembered in memory
 per instance; GitHub does not bill an authorized `304`). The repo body carries counters such as
 `pushed_at`, so an active repo revalidates as a billed `200` more often than a quiet one. Callers
