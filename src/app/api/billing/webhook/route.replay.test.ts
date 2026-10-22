@@ -68,6 +68,7 @@ vi.mock("@/lib/db", () => ({
         if (args.update.stripeId !== undefined) cur.stripeId = args.update.stripeId;
         return cur;
       },
+      findUnique: async (args: { where: { orgId: string } }) => world.subs[args.where.orgId] ?? null,
     },
   })),
 }));

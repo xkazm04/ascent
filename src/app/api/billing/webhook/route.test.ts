@@ -34,7 +34,7 @@ vi.mock("@/lib/db", () => ({
   setOrgPlan: vi.fn(async () => true),
   isDbConfigured: vi.fn(() => true),
   getOrgId: vi.fn(async (): Promise<string | null> => "org_acme"),
-  getPrisma: vi.fn(() => ({ subscription: { upsert: cap.upsert } })),
+  getPrisma: vi.fn(() => ({ subscription: { upsert: cap.upsert, findUnique: vi.fn(async () => null) } })),
 }));
 vi.mock("@/lib/polar", () => ({
   creditsForProduct: vi.fn(() => 0),

@@ -17,23 +17,20 @@
 // order. All downgrades go through setOrgPlan(org, "free"), which is naturally idempotent (updateMany to
 // a fixed value), so a webhook redelivery or two lifecycle events for the same cancellation converge on
 // the same state without a per-event ledger key. See docs/features/billing/billing.md + src/lib/db/credits.ts.
+// Every downgrade is SCOPED to the subscription that granted the tier (Subscription.stripeId, live only
+// while its status is "active"): one decision, src/lib/billing/tierRevocationModel.ts, asked from one
+// site, applyTierRevocation, so a revoke/refund for an already-replaced subscription never strips the tier
+// its replacement is paying for.
 //
 // Fails CLOSED when POLAR_WEBHOOK_SECRET is unset — no secret means no way to verify authenticity, so
 // the route 503s instead of trusting an unverified body.
 
 import { NextResponse } from "next/server";
 import { Webhooks } from "@polar-sh/nextjs";
-import {
-  clawbackOrderRefund,
-  getCreditState,
-  getOrgId,
-  getPrisma,
-  grantCredits,
-  isDbConfigured,
-  setOrgPlan,
-} from "@/lib/db";
+import { clawbackOrderRefund, getCreditState, grantCredits, setOrgPlan } from "@/lib/db";
 import { creditsForProduct, getPolar, planForProduct } from "@/lib/polar";
-import { PLAN_ORDER, type PlanId } from "@/lib/plans";
+import { decideTierRevocation, subscriptionEntitlesTier } from "@/lib/billing/tierRevocationModel";
+import { getOrgSubscription, upsertOrgSubscription } from "@/lib/billing/subscriptionRecord";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,44 +51,6 @@ function bindOrg(subject: {
 }): string | null {
   const metaOrg = subject.metadata && typeof subject.metadata.org === "string" ? subject.metadata.org : null;
   return subject.customer?.externalId ?? metaOrg;
-}
-
-// Subscription statuses that still ENTITLE the org to its paid tier. `past_due` keeps access during
-// Polar's payment-retry window (the tier is revoked only once retries are exhausted → `subscription.
-// revoked`), and `trialing` is a live trial. Anything else (canceled / unpaid / incomplete[_expired])
-// means the customer is not currently owed the tier.
-const ENTITLING_SUB_STATUSES = new Set(["active", "trialing", "past_due"]);
-
-/** Rank of a stored plan string in the upgrade order; unknown/blank ranks as free (0). */
-function planRank(plan: string | null | undefined): number {
-  const i = PLAN_ORDER.indexOf((plan ?? "") as PlanId);
-  return i >= 0 ? i : 0;
-}
-
-/**
- * Downgrade guard: only remove what THIS subscription/order actually conferred. The realistic
- * collision is a KNOWN plan product: an org bought Pro via Polar, was later hand-upgraded to
- * `enterprise` via the owner override (/api/org/plan under ASCENT_ALLOW_PLAN_CHANGES), and the
- * now-redundant Pro subscription lapses/refunds. Unconditionally flooring to `free` would strip the
- * manual enterprise grant over a subscription that never granted it — a silent entitlement outage
- * for exactly the population the override serves. Returns the org's current plan when it OUTRANKS
- * the tier the dying subscription conferred (skip the downgrade), or null when the downgrade should
- * proceed (current tier equal/lower — including the idempotent already-free replay).
- */
-async function retainedHigherPlan(org: string, subPlan: string): Promise<string | null> {
-  const state = await getCreditState(org);
-  return planRank(state.plan) > planRank(subPlan) ? state.plan : null;
-}
-
-/** Whether an order's embedded subscription still entitles the buyer to a paid tier. A one-time order
- *  carries no subscription (null) — nothing to reconcile against, so it entitles. A subscription that has
- *  already ended (endedAt set) never entitles regardless of its status label. */
-function subscriptionEntitlesTier(
-  sub: { status?: string | null; endedAt?: Date | null } | null | undefined,
-): boolean {
-  if (!sub) return true; // one-time / legacy order with no subscription — can't prove it's lapsed
-  if (sub.endedAt) return false; // already ended
-  return ENTITLING_SUB_STATUSES.has(String(sub.status ?? ""));
 }
 
 /**
@@ -118,27 +77,6 @@ async function currentSubscription(order: {
     const why = err instanceof Error ? err.message : String(err);
     throw new Error(`[billing/webhook] order ${order.id}: could not read subscription ${order.subscriptionId} from Polar (${why}) — tier not applied, will retry`);
   }
-}
-
-/**
- * Conversion event `freeToPaidConversion` reads. Polar fulfilment already writes Organization.plan;
- * without this row the table stays empty and the KPI is null (not 0%). `stripeId` holds the Polar
- * subscription id in the existing column. Update never includes createdAt.
- */
-async function upsertOrgSubscription(
-  org: string,
-  data: { status: "active" | "inactive"; stripeId: string | null },
-): Promise<void> {
-  if (!isDbConfigured()) return;
-  const orgId = await getOrgId(org);
-  if (!orgId) {
-    throw new Error(`[billing/webhook] cannot record Subscription for "${org}": org id not found, will retry`);
-  }
-  await getPrisma().subscription.upsert({
-    where: { orgId },
-    create: { orgId, status: data.status, stripeId: data.stripeId },
-    update: { status: data.status, stripeId: data.stripeId },
-  });
 }
 
 /**
@@ -169,21 +107,39 @@ async function downgradeSubscription(
     console.warn(`[billing/webhook] ${cause} for subscription ${sub.id}: no org bound; cannot downgrade`);
     return;
   }
-  // Never floor the org PAST a tier this subscription didn't confer (manual override retained).
-  const higher = await retainedHigherPlan(org, plan);
-  if (higher) {
+  await applyTierRevocation(org, sub.id, plan, `${cause} for subscription ${sub.id}`);
+}
+
+/**
+ * The single tier-revocation site. Reads the org's current plan and its Subscription row (the record of
+ * which Polar subscription granted that plan), asks decideTierRevocation, and on "downgrade" makes both
+ * writes: setOrgPlan(free) and the Subscription row inactive. A revoke for a subscription that is not the
+ * live grantor (it was replaced) is retained, and so is a tier that outranks what the dying subscription
+ * conferred (manual override). `dyingSubId` is null for a one-time plan order, which falls back to the
+ * rank guard alone.
+ */
+async function applyTierRevocation(org: string, dyingSubId: string | null, plan: string, label: string): Promise<void> {
+  const [state, record] = await Promise.all([getCreditState(org), getOrgSubscription(org)]);
+  const decision = decideTierRevocation({
+    dyingSubId,
+    dyingPlan: plan,
+    current: { plan: state.plan, grantingSubId: record?.stripeId ?? null, grantingStatus: record?.status ?? null },
+  });
+  if (decision.action === "retain") {
     console.info(
-      `[billing/webhook] ${cause} for subscription ${sub.id}: "${org}" current ${higher} > sub ${plan} — manual override retained, no downgrade`,
+      decision.reason === "replaced"
+        ? `[billing/webhook] ${label}: "${org}" ${decision.plan} is held by granting subscription ${decision.grantingSubId}, not ${dyingSubId}; no downgrade`
+        : `[billing/webhook] ${label}: "${org}" current ${decision.plan} > ${plan}; manual override retained, no downgrade`,
     );
     return;
   }
   const ok = await setOrgPlan(org, FREE_PLAN);
   if (!ok) {
-    console.warn(`[billing/webhook] ${cause} for subscription ${sub.id}: org "${org}" not found; downgrade skipped`);
+    console.warn(`[billing/webhook] ${label}: org "${org}" not found; downgrade skipped`);
     return;
   }
-  await upsertOrgSubscription(org, { status: "inactive", stripeId: sub.id });
-  console.info(`[billing/webhook] ${cause}: "${org}" downgraded to ${FREE_PLAN} (subscription ${sub.id}, was ${plan})`);
+  await upsertOrgSubscription(org, { status: "inactive", stripeId: dyingSubId ?? record?.stripeId ?? null });
+  console.info(`[billing/webhook] ${label}: "${org}" downgraded to ${FREE_PLAN} (was ${plan})`);
 }
 
 export const POST = secret
@@ -319,21 +275,10 @@ export const POST = secret
         // Gated on the RAW cumulative amounts (refundedAmount >= gross), not the derived clamped
         // fraction, so rounding/clamping can never smuggle a partial refund past the "full only" rule.
         if (plan && order.refundedAmount >= gross) {
-          // Same guard as downgradeSubscription: a full refund of a Pro order must not floor an org
-          // that currently holds a HIGHER, separately-granted tier (hand-set enterprise override).
-          const higher = await retainedHigherPlan(org, plan);
-          if (higher) {
-            console.info(
-              `[billing/webhook] full refund of plan order ${order.id}: "${org}" current ${higher} > order tier ${plan} — manual override retained, no downgrade`,
-            );
-            return;
-          }
-          const ok = await setOrgPlan(org, FREE_PLAN);
-          if (ok) {
-            console.info(`[billing/webhook] full refund of plan order ${order.id}: "${org}" downgraded to ${FREE_PLAN} (was ${plan})`);
-          } else {
-            console.warn(`[billing/webhook] full refund of plan order ${order.id}: org "${org}" not found; downgrade skipped`);
-          }
+          // Same decision as downgradeSubscription: a full refund of an order from a subscription that is no
+          // longer the grantor (a replaced subscription's old renewal) leaves the replacement's tier alone;
+          // a higher, separately-granted tier (manual override) is retained.
+          await applyTierRevocation(org, order.subscriptionId ?? null, plan, `full refund of plan order ${order.id}`);
         }
       },
       // subscription.revoked — the customer has LOST ACCESS: immediate cancellation, a cancel-at-period-end
