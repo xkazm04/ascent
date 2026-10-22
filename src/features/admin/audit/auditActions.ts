@@ -33,6 +33,10 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // off, and the actor column (`agent:<token name>`) is where the difference actually shows.
   { value: "followup.claim", label: "Follow-up claimed", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "followup.attempt", label: "Follow-up attempt", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  // followups-1 - a PERSON answering a held row: take over a needs-human escalation, or send back /
+  // release a claim to the queue. Same violet family: a human claim verb on the same ledger.
+  { value: "followup.takeover", label: "Follow-up taken over", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
+  { value: "followup.release", label: "Follow-up released", cls: "border-violet-500/40 bg-violet-500/10 text-violet-300" },
   { value: "loop.remote_run_started", label: "Remote run armed", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   // The standing runner's decisions (spark theater-upgrade): a major plan approved / rejected / sent back,
   // and a direction revoked or closed by its owner.
