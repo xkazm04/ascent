@@ -153,3 +153,41 @@ describe("galleryCardFrom — the rubric is a provenance qualifier here too", ()
     expect(card?.currentRubric).toBe(false);
   });
 });
+
+// Card about-1: /about's ROI pane recomputes each public repo with the engine's own lens, so the gallery
+// card carries the archetype its scan was weighted under. Wire-safe string, passed through unvalidated:
+// weightsFor already falls back to the org lens for an unknown id.
+describe("galleryCardFrom - archetype rides on the card", () => {
+  const withArchetype = (archetype: string) =>
+    ({
+      id: "r1",
+      owner: "acme",
+      name: "web",
+      fullName: "acme/web",
+      primaryLanguage: null,
+      stars: 0,
+      scans: [
+        {
+          headSha: null,
+          overallScore: 40,
+          level: "L2",
+          levelName: "Assisted",
+          adoptionScore: 40,
+          rigorScore: 40,
+          posture: "early",
+          scannedAt: new Date("2026-10-20T00:00:00.000Z"),
+          rubricVersion: SCORING_RUBRIC_VERSION,
+          archetype,
+          dimensions: [{ dimId: "D2", score: 30 }],
+        },
+      ],
+    }) as never;
+
+  it("carries the scan's archetype", () => {
+    expect(galleryCardFrom(withArchetype("team"))?.archetype).toBe("team");
+  });
+
+  it("passes an unknown archetype through without throwing", () => {
+    expect(galleryCardFrom(withArchetype("library"))?.archetype).toBe("library");
+  });
+});

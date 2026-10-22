@@ -829,6 +829,10 @@ export interface PublicRepoCard {
    *  60 s cache window, so a rubric bump takes at most one revalidation to show — the bump itself does
    *  NOT re-scan anything, which is the whole reason the qualifier has to exist. */
   currentRubric: boolean;
+  /** The archetype lens this scan was weighted under ("solo" | "team" | "org"), passed through as
+   *  stored: weightsFor falls back to the org lens for an unknown id. Lets /about recompute a public
+   *  repo with the engine's own weighting (projectedGain) instead of a demo constant. */
+  archetype: string;
 }
 
 export interface PublicScanGallery {
@@ -873,6 +877,7 @@ const GALLERY_REPO_SELECT = Prisma.validator<Prisma.RepositorySelect>()({
       posture: true,
       scannedAt: true,
       rubricVersion: true,
+      archetype: true,
       dimensions: { select: { dimId: true, score: true } },
     },
   },
@@ -908,6 +913,7 @@ export function galleryCardFrom(r: GalleryRepoRow): PublicRepoCard | null {
     rubricVersion: s.rubricVersion,
     // Never `!= current`: a null column is unknown, and unknown is not current.
     currentRubric: s.rubricVersion === SCORING_RUBRIC_VERSION,
+    archetype: s.archetype,
   };
 }
 
