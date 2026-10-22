@@ -10,6 +10,7 @@ import { ACCENT_HEX_LABEL } from "./BrandingSettings";
 import { BrandingPreview } from "./BrandingPreview";
 import { accentContrastWarning } from "./brandingContrast";
 import { useBrandingSettings } from "./useBrandingSettings";
+import { BrandingVerdict, saveButtonLabel } from "./BrandingVerdict";
 
 export function BrandingSettingsV2({ slug, initial }: { slug: string; initial: OrgBranding }) {
   const s = useBrandingSettings(slug, initial);
@@ -31,6 +32,7 @@ export function BrandingSettingsV2({ slug, initial }: { slug: string; initial: O
           <div className="min-w-0 flex-1 space-y-4">
             <FormField label="Brand name" htmlFor="brand-name">
               <Input id="brand-name" value={s.brandName} onChange={(e) => s.setBrandName(e.target.value)} maxLength={80} placeholder="Acme Inc." />
+              <BrandingVerdict id="brand-name-verdict" note={s.view.notes.brandName} />
             </FormField>
             <FormField label={<>Accent{!s.colorSet && <span className="text-slate-400"> (default)</span>}</>} htmlFor="brand-accent-hex">
               <span className="flex flex-wrap items-center gap-2">
@@ -74,10 +76,11 @@ export function BrandingSettingsV2({ slug, initial }: { slug: string; initial: O
                   </GhostAction>
                 )}
               </span>
+              <BrandingVerdict id="brand-accent-verdict" note={s.view.notes.brandColor} />
             </FormField>
             <FormField label="Logo URL (https)" htmlFor="brand-logo">
               <span className="flex items-center gap-2">
-                <Input id="brand-logo" value={s.logoUrl} onChange={(e) => s.setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" />
+                <Input id="brand-logo" value={s.logoUrl} onChange={(e) => s.setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" aria-describedby={s.view.notes.logoUrl ? "brand-logo-verdict" : undefined} />
                 {s.preview && !s.previewBroken && (
                   // eslint-disable-next-line @next/next/no-img-element -- arbitrary external host; next/image would require remotePatterns per customer CDN
                   <img
@@ -89,10 +92,11 @@ export function BrandingSettingsV2({ slug, initial }: { slug: string; initial: O
                   />
                 )}
               </span>
+              <BrandingVerdict id="brand-logo-verdict" note={s.view.notes.logoUrl} />
             </FormField>
             <div className="flex flex-wrap items-center gap-2">
               <PrimaryAction type="button" onClick={s.save} disabled={s.state === "saving"}>
-                {s.state === "saving" ? "Saving…" : "Save"}
+                {saveButtonLabel(s.state === "saving", s.view.saveLabel)}
               </PrimaryAction>
               <DownloadButton
                 href={`/api/org/briefing/pdf?org=${encodeURIComponent(slug)}`}
@@ -103,7 +107,7 @@ export function BrandingSettingsV2({ slug, initial }: { slug: string; initial: O
               </DownloadButton>
             </div>
           </div>
-          <BrandingPreview brandName={s.brandName} brandColor={s.brandColor} logoUrl={s.logoUrl} />
+          <BrandingPreview brandName={s.brandName} brandColor={s.brandColor} logoUrl={s.logoUrl} logoVerdict={s.view.logoVerdict} />
         </div>
         {contrastWarning && (
           <p id="brand-accent-warning" className="mt-4 type-body-sm text-slate-400">

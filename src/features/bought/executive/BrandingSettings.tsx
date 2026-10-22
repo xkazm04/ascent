@@ -10,6 +10,7 @@ import { DownloadButton } from "@/components/report/DownloadButton";
 import { chipButtonClass } from "@/components/ui";
 import { BrandingPreview } from "./BrandingPreview";
 import { useBrandingSettings } from "./useBrandingSettings";
+import { BrandingVerdict, saveButtonLabel } from "./BrandingVerdict";
 export { accentContrastOnWhite, accentContrastOnDark, accentContrastWarning, MIN_ACCENT_CONTRAST } from "./brandingContrast";
 import { accentContrastWarning } from "./brandingContrast";
 
@@ -24,6 +25,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
     state, msg,
     preview, previewBroken, setPreviewBroken,
     save,
+    view,
   } = useBrandingSettings(slug, initial);
 
   const field = "rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-body-sm text-slate-200 placeholder:text-slate-600";
@@ -49,6 +51,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
         <label className="flex flex-col gap-1 type-mono-sm text-slate-500">
           Brand name
           <input value={brandName} onChange={(e) => setBrandName(e.target.value)} maxLength={80} placeholder="Acme Inc." className={`${field} w-44`} />
+          <BrandingVerdict id="brand-name-verdict" note={view.notes.brandName} />
         </label>
         <label className="flex flex-col gap-1 type-mono-sm text-slate-500">
           <span>
@@ -98,11 +101,12 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
               </button>
             )}
           </span>
+          <BrandingVerdict id="brand-accent-verdict" note={view.notes.brandColor} />
         </label>
         <label className="flex flex-1 flex-col gap-1 type-mono-sm text-slate-500">
           Logo URL (https)
           <span className="flex items-center gap-2">
-            <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" className={`${field} min-w-[12rem] flex-1`} />
+            <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://acme.com/logo.png" aria-describedby={view.notes.logoUrl ? "brand-logo-verdict" : undefined} className={`${field} min-w-[12rem] flex-1`} />
             {/* Saved-logo thumbnail (org-branding #4): success is visible instead of PDF-only. */}
             {preview && !previewBroken && (
               // eslint-disable-next-line @next/next/no-img-element -- arbitrary external host; next/image would require remotePatterns config per customer CDN
@@ -115,9 +119,10 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
               />
             )}
           </span>
+          <BrandingVerdict id="brand-logo-verdict" note={view.notes.logoUrl} />
         </label>
-        <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className="rounded-lg border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white hover:bg-accent/20 disabled:opacity-50">
-          {state === "saving" ? "Saving…" : "Save"}
+        <button onClick={save} disabled={state === "saving"} aria-busy={state === "saving"} className={`rounded-lg border px-3 py-1.5 type-body-sm font-medium text-white disabled:opacity-50 ${view.saveIntent === "destructive" ? "border-orange-400/60 bg-orange-500/10 hover:bg-orange-500/20" : "border-accent/50 bg-accent/10 hover:bg-accent/20"}`}>
+          {saveButtonLabel(state === "saving", view.saveLabel)}
         </button>
         {/* Disabled while saving so the PDF export cannot race the branding write. */}
         <DownloadButton
@@ -128,7 +133,7 @@ export function BrandingSettings({ slug, initial }: { slug: string; initial: Org
           <span aria-hidden>↓</span> Download branded PDF
         </DownloadButton>
         </div>
-        <BrandingPreview brandName={brandName} brandColor={brandColor} logoUrl={logoUrl} />
+        <BrandingPreview brandName={brandName} brandColor={brandColor} logoUrl={logoUrl} logoVerdict={view.logoVerdict} />
       </div>
       {/* org-branding #1: WARN (never block) when the accent would be near-invisible on the white PDF
           or the dark share chrome. Associated to the colour input via aria-describedby; not a live

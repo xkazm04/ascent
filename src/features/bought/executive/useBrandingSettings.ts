@@ -4,6 +4,8 @@
 import { useState } from "react";
 import type { OrgBranding } from "@/lib/db/branding";
 import { DEFAULT_BRAND_ACCENT } from "@/lib/branding/color";
+import { useBrandingCheck } from "./useBrandingCheck";
+import { brandingVerdictModel } from "./brandingVerdictModel";
 
 export function useBrandingSettings(slug: string, initial: OrgBranding) {
   const [brandName, setBrandName] = useState(initial.brandName ?? "");
@@ -23,6 +25,12 @@ export function useBrandingSettings(slug: string, initial: OrgBranding) {
   // server-side probe below, which checks the PDF renderer's own guarded fetch).
   const [preview, setPreview] = useState(initial.logoUrl ?? null);
   const [previewBroken, setPreviewBroken] = useState(false);
+
+  // branding-1: the server's no-write verdict on the current draft, before any save. The model names
+  // the destructive case (a save that leaves the PDF without the logo it has today) on the button.
+  const draft = { brandName: brandName.trim(), brandColor: colorSet ? brandColor.trim() : "", logoUrl: logoUrl.trim() };
+  const { verdict, checking } = useBrandingCheck(slug, draft);
+  const view = brandingVerdictModel({ storedLogoUrl: preview, draft, verdict });
 
   async function save() {
     setState("saving");
@@ -70,5 +78,6 @@ export function useBrandingSettings(slug: string, initial: OrgBranding) {
     state, msg,
     preview, previewBroken, setPreviewBroken,
     save,
+    view, checking,
   };
 }
