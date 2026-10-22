@@ -389,6 +389,7 @@
         "src/lib/entitlement.ts",
         "src/lib/credit-estimate.ts",
         "src/lib/db/credits.ts",
+        "src/lib/billing/**",
         "src/app/api/billing/**",
         "src/app/api/org/credits/**",
         "src/app/api/org/plan/**",

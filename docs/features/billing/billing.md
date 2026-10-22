@@ -389,13 +389,22 @@ Handled events:
   - Plan: a **full** refund/chargeback (`refundedAmount >= netAmount`, tested on the raw cumulative
     amounts so rounding can't smuggle a partial past this) additionally calls `setOrgPlan(org, "free")`. A
     partial refund of a subscription invoice does **not** revoke the tier.
-  - Both paths first check `retainedHigherPlan`: if the org's *current* plan outranks (via `PLAN_ORDER`)
-    the tier this specific order/subscription conferred, the downgrade is skipped: protects a manually
-    hand-set higher tier (via `/api/org/plan`, see below) from being stripped by an unrelated lapsing
-    subscription.
+  - Every downgrade (refund, revoke, immediate cancel) goes through one site, `applyTierRevocation`,
+    which asks one pure decision, `decideTierRevocation` (`src/lib/billing/tierRevocationModel.ts`).
+    **Revocation is scoped to the granting subscription**: the grant records which Polar subscription
+    conferred the tier in `Subscription.stripeId` (`src/lib/billing/subscriptionRecord.ts`), and a
+    revoke/refund for a *different* subscription while that row is `active` is retained, so an owner
+    who cancels and re-subscribes, or changes plan by buying a new subscription (e.g. Team to Starter),
+    is not floored to `free` when the old subscription's revoke or an old renewal's refund arrives.
+    An `inactive` row, no row, or a one-time plan order (no subscription id) falls back to the rank
+    guard: if the org's *current* plan outranks (via `PLAN_ORDER`) the tier this order/subscription
+    conferred, the downgrade is skipped, which protects a manually hand-set higher tier (via
+    `/api/org/plan`, see below). The same rank guard still applies when the dying subscription *is*
+    the grantor. A downgrade makes two writes on every path: `setOrgPlan(org, "free")` and the
+    Subscription row `inactive` (the full-refund path used to skip the second).
 - **`subscription.revoked`**: the authoritative "access is definitively gone" signal (immediate
   cancellation, an elapsed cancel-at-period-end window, or exhausted payment retries) → downgrades to
-  `free` via the shared `downgradeSubscription` helper (same retained-higher-plan guard).
+  `free` via the shared `downgradeSubscription` helper (same `applyTierRevocation` decision).
 - **`subscription.canceled`**: if `cancelAtPeriodEnd` is true, access is retained until
   `currentPeriodEnd` and **no** downgrade happens yet (the matching `subscription.revoked` will fire when
   the period ends); if false (an immediate cancellation), downgrades now.
@@ -550,9 +559,12 @@ into a $ estimate on `/usage`, useful for calibrating pack/plan prices against r
   scans crossing the monthly-allowance boundary can overshoot the free allowance by a small, bounded
   amount (never paid credits, which are hard-gated). A fully atomic bound would need a monthly-usage
   counter (schema change).
-- **Stale out-of-order tier resurrection**: the `order.paid` stale-paid fence only catches an event whose
-  *own* payload shows the subscription already lapsed; a redelivery carrying a stale but still-"active"
-  snapshot would still apply. The revoke/refund handlers are the authoritative correction for this case.
+- **Stale out-of-order tier resurrection (webhook-only deployments)**: with a Polar access token
+  configured, the `order.paid` stale-paid fence fetches the subscription's *current* state from Polar
+  (`currentSubscription`) and a failed fetch throws so Polar retries. Without a token (a webhook-only
+  deployment) there is nothing to fetch, so the fence falls back to the event's own snapshot and a
+  redelivery carrying a stale but still-"active" snapshot would still apply. The revoke/refund handlers
+  are the authoritative correction for that case.
 - **What `/pricing` advertises but nothing enforces** (audited 2026-08-14 against every `planAllows*`
   predicate and every plan comparison in the codebase). The **metered** half of the pricing page is real
   (allowance, credits, unlimited tier, retention), and so is every capability in `PLAN_CAPABILITIES`
