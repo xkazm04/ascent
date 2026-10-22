@@ -4,6 +4,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, segmentScope, techGroupScope } from "@/lib/db/org-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { withLatestScans } from "@/lib/db/org-rollup-latest-scans";
 import { dayKeyInZone, daysBetweenDayKeys, resolveOrgTimeZone } from "@/lib/org/timezone";
 import { parseStringArray } from "@/lib/db/json-columns";
 import type { PrStats } from "@/lib/types";
@@ -189,10 +190,8 @@ export async function getOrgPrSignals(orgSlug: string, segmentId?: string | null
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: { fullName: true, name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { prStats: true } } },
-  });
+  const scope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  const repos = await withLatestScans(prisma, prisma.repository.findMany({ where: scope, select: { id: true, fullName: true, name: true } }), scope, { prStats: true });
 
   // Finite-or-null guard for the W1a fields: historical blobs written before revertRate /
   // medianHoursToFirstReview existed simply lack the keys, and a drifted blob could carry garbage.
@@ -338,10 +337,8 @@ export async function getOrgGovernance(orgSlug: string, segmentId?: string | nul
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: { fullName: true, name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { governance: true } } },
-  });
+  const scope = { orgId, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  const repos = await withLatestScans(prisma, prisma.repository.findMany({ where: scope, select: { id: true, fullName: true, name: true } }), scope, { governance: true });
 
   const perRepo: RepoGovernance[] = [];
   for (const r of repos) {
@@ -421,16 +418,9 @@ export async function getOrgDimensionGaps(
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: {
-      fullName: true,
-      scans: {
-        orderBy: { scannedAt: "desc" },
-        take: 1,
-        select: { dimensions: { where: { dimId }, select: { gaps: true, evidence: true, summary: true } } },
-      },
-    },
+  const scope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  const repos = await withLatestScans(prisma, prisma.repository.findMany({ where: scope, select: { id: true, fullName: true } }), scope, {
+    dimensions: { where: { dimId }, select: { gaps: true, evidence: true, summary: true } },
   });
 
   const out = new Map<string, RepoDimensionGaps>();
@@ -555,11 +545,12 @@ export async function getOrgActivity(orgSlug: string, segmentId?: string | null,
   if (!org) return null;
   const tz = resolveOrgTimeZone(org.timezone);
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    // scannedAt anchors each trailing weekly series to a real calendar week (its last element is the
-    // week of the scan), so different-cadence repos sum the SAME week, not the same array index.
-    select: { scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { commitActivity: true, scannedAt: true } } },
+  const scope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  // scannedAt anchors each trailing weekly series to a real calendar week (its last element is the
+  // week of the scan), so different-cadence repos sum the SAME week, not the same array index.
+  const repos = await withLatestScans(prisma, prisma.repository.findMany({ where: scope, select: { id: true } }), scope, {
+    commitActivity: true,
+    scannedAt: true,
   });
 
   // Bug-fix (fleet-rollups-insights #1): each repo's commitActivity is GitHub's trailing weekly series

@@ -13,11 +13,16 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
   mockGetPrisma: vi.fn(),
 }));
 
-vi.mock("@/lib/db/client", () => ({
-  isDbConfigured: mockIsDbConfigured,
-  getPrisma: mockGetPrisma,
-  withRetry: (fn: () => unknown) => fn(),
-}));
+// The readers pick each repo's latest scan through the door (org-rollup-latest-scans.ts); this adapter
+// serves the nested `scans: [latest]` fixtures below as the Scan table that door reads.
+vi.mock("@/lib/db/client", async () => {
+  const { servingNestedScans } = await import("./org-rollup-latest-scans.test-helpers");
+  return {
+    isDbConfigured: mockIsDbConfigured,
+    getPrisma: (...a: unknown[]) => servingNestedScans(mockGetPrisma(...a)),
+    withRetry: (fn: () => unknown) => fn(),
+  };
+});
 
 import { getOrgPrSignals } from "./org-signals";
 
