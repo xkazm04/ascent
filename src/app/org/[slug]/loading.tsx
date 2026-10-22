@@ -11,10 +11,8 @@ import { OrgTabGap } from "@/components/org/shell/OrgTabGap";
 // a lie told during the one moment the user is paying attention. What replaces it is the quiet gap —
 // invisible for 150ms, then a calm fade, with the height still reserved so nothing jumps.
 //
-// KEPT, not deleted, for the duration of the migration: the shell's own <Suspense> boundaries make
-// this redundant for `?tab=` navigations, but the 20 tabs that are still their own routes have no
-// loading.tsx of their own and would otherwise block on a hard navigation with nothing on screen.
-// Delete this file when MIGRATED_ORG_TAB_IDS covers every tab.
+// KEPT after the `?tab=` migration finished: the shell's per-panel <Suspense> covers a tab switch, but
+// a hard navigation still awaits the page's header summary before the shell renders at all.
 export default function OrgLoading() {
   return <OrgTabGap minH="min-h-[32rem]" />;
 }

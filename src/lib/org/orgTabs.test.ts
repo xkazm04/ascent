@@ -1,22 +1,18 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import { describe, expect, it } from "vitest";
 import {
   buildOrgTabUrl,
   buildUrl,
   clearedTabScopedParams,
   DEFAULT_ORG_TAB,
-  isMigratedOrgTab,
   isOrgTabId,
-  legacyOrgTabPath,
-  MIGRATED_ORG_TAB_IDS,
   ORG_NAV_GROUPS,
+  ORG_TAB_REACH,
   ORG_TAB_IDS,
   ORG_TABS_NOT_IN_NAV,
   orgTabAliasTarget,
   orgTabHref,
   orgTabLabel,
+  orgTabReach,
   PERSONAL_TAB_IDS,
   resolveActiveOrgTab,
   TAB_SCOPED_PARAM_KEYS,
@@ -172,10 +168,6 @@ describe("org tab catalog", () => {
     expect(navIds).not.toContain("developer");
     expect(orgTabLabel("developer")).toBe("Developer");
     expect(orgTabHref("acme", "developer")).toBe("/org/developer?org=acme");
-  });
-
-  it("every migrated tab is a real id", () => {
-    for (const id of MIGRATED_ORG_TAB_IDS) expect(isOrgTabId(id)).toBe(true);
   });
 
   it("labels every id", () => {
@@ -340,13 +332,13 @@ describe("orgTabHref", () => {
   });
 
   // Regression pin: pairing was born as a ?tab= panel and has NO legacy route — omitting it from
-  // MIGRATED_ORG_TAB_IDS sent the rail to /org/<slug>/pairing, a page that has never existed.
+  // the old migration hand-list sent the rail to /org/<slug>/pairing, a page that has never existed.
   it("points pairing at the ?tab= shell (it never had a legacy route)", () => {
     expect(orgTabHref("acme", "pairing")).toBe("/org/acme?tab=pairing");
   });
 
   // Same regression pin as `pairing`: the digest was born inside the shell and has NO legacy route,
-  // so leaving it out of MIGRATED_ORG_TAB_IDS would point the rail at /org/<slug>/digest — a 404.
+  // so leaving it out of the old migration hand-list pointed the rail at /org/<slug>/digest - a 404.
   it("points the weekly digest at the ?tab= shell (it never had a legacy route)", () => {
     expect(orgTabHref("acme", "digest")).toBe("/org/acme?tab=digest");
   });
@@ -358,46 +350,58 @@ describe("orgTabHref", () => {
     expect(orgTabHref("acme", "overview")).toBe("/org/acme?tab=overview");
   });
 
-  it("points an un-migrated tab at its legacy route", () => {
-    const unmigrated = ORG_TAB_IDS.find((id) => !isMigratedOrgTab(id) && id !== "developer");
-    // Every id except `developer` has now migrated into the `?tab=` shell, so this only asserts
-    // anything while one is left behind. Kept (rather than deleted) so re-adding a legacy tab is
-    // covered again the moment it happens.
-    if (unmigrated) expect(orgTabHref("acme", unmigrated)).toBe(`/org/acme/${unmigrated}`);
-  });
-
-  // §5.1 — `developer` is a rail item but NOT a `?tab=` panel: it is the personalized route, with the
-  // org carried as a query param. Both helpers must agree, because 58 link sites reach for one or the
-  // other and `/org/<slug>/developer` is only a redirect stub.
+  // §5.1 - `developer` is NOT a `?tab=` panel: it is the personalized route, with the org carried as
+  // a query param, because `/org/<slug>/developer` is only a redirect stub.
   it("points `developer` at the personalized route with the org as a param", () => {
     expect(orgTabHref("acme", "developer")).toBe("/org/developer?org=acme");
-    expect(legacyOrgTabPath("acme", "developer")).toBe("/org/developer?org=acme");
     expect(orgTabHref("acme corp/x", "developer")).toBe(`/org/developer?org=${encodeURIComponent("acme corp/x")}`);
   });
 
-  it("agrees with legacyOrgTabPath for every un-migrated tab", () => {
+  // An alias links straight to the view that replaced it: an internal link must not bounce off the
+  // page's alias redirect (Back would land on the redirect and bounce forward again).
+  it("points an alias id at its target view, never at itself", () => {
+    expect(orgTabHref("acme", "followups")).toBe("/org/acme?tab=proposals");
+    expect(orgTabHref("acme", "surfaces")).toBe("/org/acme?tab=knowledge&section=surfaces");
+  });
+
+  it("points every panel id at its own ?tab= url", () => {
+    const panels = ORG_TAB_IDS.filter((id) => orgTabReach(id).kind === "panel");
+    expect(panels).toHaveLength(26);
+    for (const id of panels) expect(orgTabHref("acme", id), id).toBe(`/org/acme?tab=${id}`);
+  });
+});
+
+// The reach table: ONE declaration per id of HOW it is reached (a shell panel, an alias of a panel, a
+// standalone route) and whether the rail shows it. The not-in-nav set, the alias targets and the
+// off-rail labels are derived from it, so a new tab is one entry, not four edits in two files.
+describe("orgTabReach", () => {
+  it("declares a reach for every id: two aliases, one route, the rest panels", () => {
+    expect(Object.keys(ORG_TAB_REACH).sort()).toEqual([...ORG_TAB_IDS].sort());
+    expect(ORG_TAB_IDS.filter((id) => orgTabReach(id).kind === "alias").sort()).toEqual(["followups", "surfaces"]);
+    expect(ORG_TAB_IDS.filter((id) => orgTabReach(id).kind === "route")).toEqual(["developer"]);
+    expect(ORG_TAB_IDS.filter((id) => orgTabReach(id).kind === "panel")).toHaveLength(26);
+  });
+
+  it("derives the not-in-nav set from rail:false, and every nav item is rail:true", () => {
+    const offRail = ORG_TAB_IDS.filter((id) => !orgTabReach(id).rail);
+    expect([...ORG_TABS_NOT_IN_NAV].sort()).toEqual([...offRail].sort());
+    expect([...ORG_TABS_NOT_IN_NAV].sort()).toEqual(["developer", "followups", "segments", "surfaces"]);
+    for (const id of navIds) expect(orgTabReach(id).rail, id).toBe(true);
+    expect(ORG_TAB_IDS.filter((id) => orgTabReach(id).rail).sort()).toEqual([...navIds].sort());
+  });
+
+  it("aliases only ever target a panel", () => {
     for (const id of ORG_TAB_IDS) {
-      if (isMigratedOrgTab(id)) continue;
-      expect(orgTabHref("acme", id)).toBe(legacyOrgTabPath("acme", id));
+      const target = orgTabAliasTarget(id);
+      if (target) expect(orgTabReach(target.tab).kind, id).toBe("panel");
     }
   });
 
-  // The seam's one real hazard, and the bug it shipped: a tab whose panel IS registered in
-  // OrgTabChunks but whose id was never added to MIGRATED_ORG_TAB_IDS. Nothing above catches that —
-  // the href helpers happily agree on `/org/<slug>/<id>` — but the page redirects `?tab=<id>` to
-  // that path, and for a tab born inside the shell no such route exists, so the rail link 404s and
-  // the panel never renders. `knowledge` shipped exactly this way. An un-migrated tab must own a
-  // real legacy route directory; `developer` is exempt (its legacy path is the static
-  // /org/developer route, asserted above).
-  it("gives every un-migrated tab a real legacy route to redirect to", () => {
-    const appDir = path.join(process.cwd(), "src", "app", "org", "[slug]");
-    for (const id of ORG_TAB_IDS) {
-      if (isMigratedOrgTab(id) || id === "developer") continue;
-      expect(
-        fs.existsSync(path.join(appDir, id, "page.tsx")),
-        `un-migrated tab "${id}" has no src/app/org/[slug]/${id}/page.tsx to redirect to — ` +
-          `add it to MIGRATED_ORG_TAB_IDS if its panel is registered in OrgTabChunks`,
-      ).toBe(true);
-    }
+  // The seam is gone: the hand-list that shipped three 404'd rail links no longer exists to forget.
+  it("no longer exports the migration seam", async () => {
+    const keys = Object.keys(await import("./orgTabs"));
+    expect(keys).not.toContain("MIGRATED_ORG_TAB_IDS");
+    expect(keys).not.toContain("isMigratedOrgTab");
+    expect(keys).not.toContain("legacyOrgTabPath");
   });
 });

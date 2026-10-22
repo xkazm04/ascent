@@ -8,7 +8,6 @@ import type { NavCounts } from "@/lib/org/nav-counts";
 import {
   buildOrgTabUrl,
   DEFAULT_ORG_TAB,
-  isMigratedOrgTab,
   ORG_NAV_GROUPS,
   orgTabHref,
   orgTabLabel,
@@ -23,14 +22,13 @@ import { AdminIcon, BoughtIcon, InFlightIcon, SharedIcon, StandingIcon } from "@
  * groups (Standing · Shared · In flight · Bought · Admin) beside a panel holding only the selected
  * group's tabs. Presentation is unchanged from the pre-refactor OrgNav; what moved is the
  * catalog (now src/lib/org/orgTabs.ts, so a server component can read it) and the navigation model:
- * a migrated tab is a `?tab=` push on the shell route instead of a full page navigation.
+ * a tab switch is a `?tab=` push on the shell route instead of a full page navigation.
  *
  * A module carries a badge when it has items awaiting a decision. `counts` is keyed by tab id and
  * supplied by the shell (getNavCounts); a section's rail badge is the sum of its tabs', so a
  * collapsed group still tells you there's work inside it. See src/lib/org/nav-counts.ts.
  *
- * Every item is a real `<a href>` (orgTabHref) — middle-click and "open in new tab" still work, and
- * an un-migrated tab simply navigates to its legacy route.
+ * Every item is a real `<a href>` (orgTabHref) — middle-click and "open in new tab" still work.
  */
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -112,9 +110,9 @@ export function OrgTabNav({
       href: orgTabHref(slug, t.id),
       active: t.id === active,
       count: t.countKey ? counts?.[t.countKey] : undefined,
-      // Only a migrated tab can be a same-route push; an un-migrated one keeps the default <Link>
-      // navigation to its legacy route. Delete this branch when the migration completes.
-      onSelect: isMigratedOrgTab(t.id) ? () => select(t.id) : undefined,
+      // Every rail item is a `?tab=` panel (ORG_TAB_REACH: rail implies panel), so a select is a
+      // same-route push.
+      onSelect: () => select(t.id),
     }));
     return {
       key: g.key,

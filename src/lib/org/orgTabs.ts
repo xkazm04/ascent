@@ -14,17 +14,14 @@
 export const ORG_TAB_IDS = [
   // Overview
   "overview",
-  // The former Follow-ups ledger's id. Since 2026-09-15 it is an ALIAS, not a rail item: the org page
-  // redirects `?tab=followups` to `?tab=proposals`, because links already sitting in inboxes use it.
+  // An ALIAS of `proposals` since 2026-09-15 (see ORG_TAB_REACH): links in inboxes still use it.
   "followups",
   "executive",
   // The weekly digest — trailing 7 days, fixed window, a leadership-update page.
   "digest",
   // Fleet
   "repositories",
-  // Segments is a SUB-VIEW of the Repositories tab (the two Fleet views were merged), reached from
-  // inside it rather than from the rail — a valid id, intentionally absent from ORG_NAV_GROUPS
-  // below. It is also why the Repositories tab must read the RAW tab id, not the normalized one
+  // Segments is a SUB-VIEW of the Repositories tab, reached from inside it (rail:false). It is why the Repositories tab must read the RAW tab id, not the normalized one
   // (gotcha #6 in the design doc): `?tab=segments` renders Repositories in segments mode.
   "segments",
   "tech-stacks",
@@ -50,14 +47,9 @@ export const ORG_TAB_IDS = [
   "skills",
   "memory",
   // The registry's fourth lane: Reference Knowledge Bundles under `knowledge/<domain>/`. Overview
-  // only — no drill-down route. Having no pre-refactor page is exactly why it MUST be in
-  // MIGRATED_ORG_TAB_IDS: that set means "renders as a panel in the shell", and a tab outside it
-  // is redirected by /org/[slug]/page.tsx to `/org/<slug>/<id>` — a route this tab never had, so
-  // leaving it out 404s the rail link and blanks `?tab=knowledge`.
+  // only, no drill-down route; born inside the shell with no pre-refactor page.
   "knowledge",
-  // Visual UI surface library: interactive studies and knowledge references. Since 2026-10-06 an
-  // ALIAS, not a rail item: it is the `?tab=knowledge&section=surfaces` section of the Knowledge base,
-  // and the org page redirects `?tab=surfaces` there (see `orgTabAliasTarget`).
+  // An ALIAS of `?tab=knowledge&section=surfaces` since 2026-10-06 (see ORG_TAB_REACH).
   "surfaces",
   // UC3 "individual care". A first-class id (label / a11y / href contract), but NEITHER a `?tab=`
   // panel NOR a rail item: it is the personalized route `/org/developer`, which every signed-in
@@ -84,14 +76,92 @@ export type OrgTabId = (typeof ORG_TAB_IDS)[number];
 const TAB_IDS: ReadonlySet<OrgTabId> = new Set(ORG_TAB_IDS);
 
 /**
+ * HOW each id is reached - the one declaration the rail, the router and the href helper derive their
+ * own subsets from (registry app-shell / navigation-model: "reachability is registry metadata"):
+ *
+ *   panel - rendered by the `?tab=` shell (src/components/org/shell/orgTabPanels.tsx, whose map is
+ *           exhaustive over `OrgPanelTabId`, so a panel id with no panel is a tsc error).
+ *   alias - a former id kept valid for links already in inboxes; the org page redirects it to `tab`
+ *           (plus `extra`, a section param) and `orgTabHref` links straight there.
+ *   route - a standalone route, never a `?tab=` panel (`developer`, the personalized home).
+ *
+ * `rail` says whether ORG_NAV_GROUPS shows it; `label` names an off-rail id (a rail id's label is its
+ * nav item's). Adding a tab is ONE entry here (plus its nav item / panel) - the compiler rejects a
+ * missing id, and the former hand-list that had to be kept in step (and shipped three 404'd rail links
+ * when it was not) is gone.
+ */
+export type OrgTabReach =
+  | { kind: "panel"; rail: boolean; label?: string }
+  | { kind: "alias"; rail: false; tab: OrgTabId; extra?: Record<string, string>; label: string }
+  | { kind: "route"; rail: false; label: string };
+
+export const ORG_TAB_REACH = {
+  overview: { kind: "panel", rail: true },
+  // The former Follow-ups ledger, merged into Proposals 2026-09-15.
+  followups: { kind: "alias", rail: false, tab: "proposals", label: "Proposals" },
+  executive: { kind: "panel", rail: true },
+  digest: { kind: "panel", rail: true },
+  repositories: { kind: "panel", rail: true },
+  // A sub-view of Repositories reached from inside it: its own panel key, rendering RepositoriesTab
+  // in segments mode.
+  segments: { kind: "panel", rail: false, label: "Segments" },
+  "tech-stacks": { kind: "panel", rail: true },
+  passports: { kind: "panel", rail: true },
+  live: { kind: "panel", rail: true },
+  proposals: { kind: "panel", rail: true },
+  lessons: { kind: "panel", rail: true },
+  security: { kind: "panel", rail: true },
+  adoption: { kind: "panel", rail: true },
+  delivery: { kind: "panel", rail: true },
+  contributors: { kind: "panel", rail: true },
+  teams: { kind: "panel", rail: true },
+  practices: { kind: "panel", rail: true },
+  registry: { kind: "panel", rail: true },
+  skills: { kind: "panel", rail: true },
+  memory: { kind: "panel", rail: true },
+  knowledge: { kind: "panel", rail: true },
+  // The former UI surfaces tab, folded into the Knowledge base as `?section=surfaces` (2026-10-06).
+  surfaces: { kind: "alias", rail: false, tab: "knowledge", extra: { section: "surfaces" }, label: "Knowledge base" },
+  // Reached from the HEADER identity menu, not the rail; `/org/<slug>/developer` is a redirect stub.
+  developer: { kind: "route", rail: false, label: "Developer" },
+  members: { kind: "panel", rail: true },
+  governance: { kind: "panel", rail: true },
+  integrations: { kind: "panel", rail: true },
+  pairing: { kind: "panel", rail: true },
+  audit: { kind: "panel", rail: true },
+  settings: { kind: "panel", rail: true },
+} as const satisfies Record<OrgTabId, OrgTabReach>;
+
+type ReachTable = typeof ORG_TAB_REACH;
+
+/** The ids the `?tab=` shell renders as a panel - derived from the reach table, never re-listed. */
+export type OrgPanelTabId = { [K in OrgTabId]: ReachTable[K]["kind"] extends "panel" ? K : never }[OrgTabId];
+
+// Compile-time: every alias targets a panel (an alias of an alias, or of the route, fails here).
+type AliasTargets = { [K in OrgTabId]: ReachTable[K] extends { kind: "alias"; tab: infer T } ? T : never }[OrgTabId];
+const _aliasTargetsArePanels: AliasTargets extends OrgPanelTabId ? true : false = true;
+void _aliasTargetsArePanels;
+
+export function orgTabReach(id: OrgTabId): OrgTabReach {
+  return ORG_TAB_REACH[id];
+}
+
+export function isOrgPanelTabId(id: OrgTabId): id is OrgPanelTabId {
+  return ORG_TAB_REACH[id].kind === "panel";
+}
+
+/**
  * Ids that are aliases of another tab's view: the org page redirects them to `tab` (plus `extra`, a
  * section param) with every other param riding along, so a link already in an inbox lands on the
- * current view instead of the landing tab. Null for every id that renders as itself.
+ * current view instead of the landing tab. Null for every id that renders as itself. Derived from
+ * `ORG_TAB_REACH`.
  */
-export function orgTabAliasTarget(id: OrgTabId): { tab: OrgTabId; extra?: Record<string, string> } | null {
-  if (id === "followups") return { tab: "proposals" };
-  if (id === "surfaces") return { tab: "knowledge", extra: { section: "surfaces" } };
-  return null;
+export function orgTabAliasTarget(id: OrgTabId): { tab: OrgPanelTabId; extra?: Record<string, string> } | null {
+  const reach: OrgTabReach = ORG_TAB_REACH[id];
+  if (reach.kind !== "alias") return null;
+  // Safe: `_aliasTargetsArePanels` above proves every alias `tab` is a panel id.
+  const tab = reach.tab as OrgPanelTabId;
+  return reach.extra ? { tab, extra: { ...reach.extra } } : { tab };
 }
 
 export function isOrgTabId(value: string | null | undefined): value is OrgTabId {
@@ -146,7 +216,7 @@ export interface OrgNavGroup {
  * The rationale is in docs/AI-SDLC-COMPANION-PLAN.md §Wave 1. A nav grouped by DATA TYPE reads as a
  * filing cabinet and answers no question anyone is actually asked; grouped by the journey it reads as
  * a story with a next move. NOTHING about the tab universe changed: `ORG_TAB_IDS`, `PERSONAL_TAB_IDS`,
- * `MIGRATED_ORG_TAB_IDS`, every id, every href and every legacy redirect are untouched — this is a
+ * `ORG_TAB_REACH`, every id, every href and every legacy redirect are untouched — this is a
  * regrouping and a relabelling of the module layer only.
  *
  * "In flight" is deliberately the SMALLEST group and the one a returning org lands in (see
@@ -237,22 +307,14 @@ export const ORG_NAV_GROUPS: readonly OrgNavGroup[] = [
 ];
 
 /**
- * Ids that are deliberately NOT rail items — reachable only from inside another tab. Listed
- * explicitly so the `ORG_NAV_GROUPS` ⟷ `ORG_TAB_IDS` completeness test can tell "intentionally
- * absent" from "forgot to add it to the nav".
+ * Ids that are deliberately NOT rail items - reachable only from inside another tab, from the header
+ * identity menu (`developer`), or as an alias. Derived from `rail: false` in `ORG_TAB_REACH`, so the
+ * `ORG_NAV_GROUPS` / `ORG_TAB_IDS` completeness test can tell "intentionally absent" from "forgot to
+ * add it to the nav" without a second hand-list.
  */
-export const ORG_TABS_NOT_IN_NAV: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
-  "segments",
-  // The former Follow-ups id — an alias the org page redirects to `proposals` (2026-09-15).
-  "followups",
-  // The former UI surfaces tab — folded into the Knowledge base as `?section=surfaces` (2026-10-06).
-  "surfaces",
-  // `developer` left the rail: the personalized route is reached from the HEADER identity menu (your
-  // own name, on every page, signed in or not in an org), which is the one place a personal surface
-  // belongs — it is not an org-scoped view and never was. Still a full id: label, href contract and
-  // the `/org/<slug>/developer` redirect stub all remain.
-  "developer",
-]);
+export const ORG_TABS_NOT_IN_NAV: ReadonlySet<OrgTabId> = new Set<OrgTabId>(
+  ORG_TAB_IDS.filter((id) => !ORG_TAB_REACH[id].rail),
+);
 
 /**
  * The tabs a PERSONAL workspace (Organization.kind === "personal") shows. An individual's public-repo
@@ -281,14 +343,14 @@ export const PERSONAL_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
   "developer",
 ]);
 
-/** Every tab's label, derived from the nav catalog (plus the not-in-nav ids). For the a11y
- *  announcement and any breadcrumb — never re-declare a label at a call site. */
+/** Every tab's label, derived from the nav catalog plus the off-rail ids' `label` in the reach table.
+ *  For the a11y announcement and any breadcrumb - never re-declare a label at a call site. */
 const LABELS: ReadonlyMap<OrgTabId, string> = new Map<OrgTabId, string>([
   ...ORG_NAV_GROUPS.flatMap((g) => g.items.map((i) => [i.id, i.label] as [OrgTabId, string])),
-  ["segments", "Segments"],
-  ["followups", "Proposals"],
-  ["surfaces", "Knowledge base"],
-  ["developer", "Developer"],
+  ...ORG_TAB_IDS.flatMap((id) => {
+    const reach: OrgTabReach = ORG_TAB_REACH[id];
+    return !reach.rail && reach.label ? [[id, reach.label] as [OrgTabId, string]] : [];
+  }),
 ]);
 
 export function orgTabLabel(id: OrgTabId): string {
@@ -412,8 +474,8 @@ export function buildOrgTabUrl(slug: string, id: OrgTabId, search: string): stri
 }
 
 /**
- * Which tab is showing, from the two places the answer can live during (and after) the migration:
- * the `?tab=` param on the shell route, and the path segment on a not-yet-migrated legacy route.
+ * Which tab is showing, from the two places the answer can live: the `?tab=` param on the shell
+ * route, and the path segment on a drill-in route under `/org/<slug>/<tab>`.
  * Pure so the rail's "you are here" and the server page agree without either re-deriving it.
  *
  * An unrecognized value in either position resolves to `fallback` rather than erroring — a stale
@@ -440,82 +502,19 @@ export function resolveActiveOrgTab(
   return isOrgTabId(tabParam) ? tabParam : fallback;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Migration seam — DELETE THIS BLOCK once all 22 tabs live in the shell
-// ---------------------------------------------------------------------------------------------
-
 /**
- * The tabs that have actually been migrated into the `?tab=` shell. The shell lands first with the
- * old routes still working, so a tab is only reachable at `?tab=<id>` once its panel is registered
- * in OrgTabChunks — otherwise `?tab=security` would render an empty page.
+ * THE helper every internal link to an org tab uses. One edit site for the next rename. Reads the
+ * reach table: a panel is its `?tab=` url; an alias links straight to its target view (no redirect
+ * hop, so Back never bounces off the page's alias redirect); the route id is its standalone page,
+ * with the org carried as a query param (`/org/<slug>/developer` is only a redirect stub - see
+ * docs/REGISTRY-AND-CARE-IMPL.md §5.1).
  *
- * A module agent migrating a tab does three things: move the panel under the new folder, register it
- * in `OrgTabChunks`, and add its id HERE. When the set equals `ORG_TAB_IDS`, delete this constant,
- * `legacyOrgTabPath` and the fallback branch in `orgTabHref` — `orgTabHref` then collapses to
- * `buildUrl(slug, { tab: id }, "")`.
- */
-export const MIGRATED_ORG_TAB_IDS: ReadonlySet<OrgTabId> = new Set<OrgTabId>([
-  "overview",
-  "audit",
-  "executive",
-  "live",
-  "security",
-  "passports",
-  "governance",
-  "members",
-  "integrations",
-  "settings",
-  "skills",
-  "memory",
-  "repositories",
-  "segments",
-  "tech-stacks",
-  "teams",
-  "contributors",
-  "adoption",
-  "delivery",
-  "practices",
-  "followups",
-  "registry",
-  // Born migrated (2026-08-19): pairing never had a legacy route — it exists ONLY as a `?tab=` panel.
-  // Omitting it here sent the rail to /org/<slug>/pairing, a page that has never existed.
-  "pairing",
-  "knowledge",
-  // Born migrated (2026-09-01): the weekly digest never had a legacy route — it exists ONLY as a
-  // `?tab=` panel, so omitting it here would send the rail to /org/<slug>/digest, a page that has
-  // never existed (the exact bug `pairing` and `knowledge` each shipped once).
-  "digest",
-  // Born migrated (2026-09-06): a `?tab=` panel only, same as knowledge/digest.
-  "surfaces",
-  // Born migrated (2026-09-15): `?tab=` panels only, split out of the Live cockpit.
-  "proposals",
-  "lessons",
-]);
-
-export function isMigratedOrgTab(id: OrgTabId): boolean {
-  return MIGRATED_ORG_TAB_IDS.has(id);
-}
-
-/** The pre-refactor route for a tab. Still the real page for un-migrated tabs; for migrated ones it
- *  is a `redirect()` stub kept forever, because 58 link sites — including the weekly digest email
- *  and alert pushes already sitting in inboxes — point at these paths. */
-export function legacyOrgTabPath(slug: string, id: OrgTabId): string {
-  const base = `/org/${encodeURIComponent(slug)}`;
-  // `developer` is not a legacy route and never becomes a `?tab=` panel: it is the personalized
-  // route, org context carried as a query param. Handled here as well as in `orgTabHref` so no caller
-  // can build `/org/<slug>/developer` (which is only a redirect stub) by reaching for the low-level
-  // helper. See docs/REGISTRY-AND-CARE-IMPL.md §5.1.
-  if (id === "developer") return `/org/developer?org=${encodeURIComponent(slug)}`;
-  return id === DEFAULT_ORG_TAB ? base : `${base}/${id}`;
-}
-
-/**
- * THE helper every internal link to an org tab uses. One edit site for the next rename.
- *
- * Returns the canonical `?tab=` href for a migrated tab and the legacy route for one that has not
- * moved yet, so the tree stays green at every step of the migration and no call site needs to know
- * which world a tab is in.
+ * The pre-refactor `/org/<slug>/<tab>` routes are `redirect()` stubs kept forever, because link
+ * sites already sitting in inboxes (the weekly digest email, alert pushes) point at them.
  */
 export function orgTabHref(slug: string, id: OrgTabId): string {
-  return isMigratedOrgTab(id) ? buildUrl(slug, { tab: id }, "") : legacyOrgTabPath(slug, id);
+  const reach: OrgTabReach = ORG_TAB_REACH[id];
+  if (reach.kind === "route") return `/org/${id}?org=${encodeURIComponent(slug)}`;
+  if (reach.kind === "alias") return buildUrl(slug, { tab: reach.tab, ...reach.extra }, "");
+  return buildUrl(slug, { tab: id }, "");
 }

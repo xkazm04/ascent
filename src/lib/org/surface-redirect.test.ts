@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getRedirectUrl, unstable_getResponseFromNextConfig } from "next/experimental/testing/server";
 import nextConfig from "../../../next.config";
-import { isOrgTabId, ORG_NAV_GROUPS, PERSONAL_TAB_IDS, isMigratedOrgTab } from "./orgTabs";
+import { isOrgTabId, ORG_NAV_GROUPS, PERSONAL_TAB_IDS, orgTabHref, orgTabReach } from "./orgTabs";
 
 describe("promoted surface library", () => {
   it("permanently redirects the experimental URL, preserving deep links and scope", async () => {
@@ -34,6 +34,7 @@ describe("promoted surface library", () => {
     expect(isOrgTabId("surfaces")).toBe(true);
     expect(ORG_NAV_GROUPS.flatMap(g => g.items).filter(i => i.id === "surfaces")).toEqual([]);
     expect(PERSONAL_TAB_IDS.has("surfaces")).toBe(true);
-    expect(isMigratedOrgTab("surfaces")).toBe(true);
+    expect(orgTabReach("surfaces")).toMatchObject({ kind: "alias", tab: "knowledge", rail: false });
+    expect(orgTabHref("studio", "surfaces")).toBe("/org/studio?tab=knowledge&section=surfaces");
   });
 });

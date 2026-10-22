@@ -6,7 +6,7 @@ import { canReadOrg } from "@/lib/authz";
 import { levelForScore } from "@/lib/maturity/model";
 import { degradedRead } from "@/lib/org/degraded-read";
 import { resolveLandingTab } from "@/lib/org/landing";
-import { buildUrl, isMigratedOrgTab, isOrgTabId, legacyOrgTabPath, orgTabAliasTarget } from "@/lib/org/orgTabs";
+import { buildUrl, isOrgPanelTabId, isOrgTabId, orgTabAliasTarget, orgTabHref } from "@/lib/org/orgTabs";
 
 // Kept from the layout's contract: the tenant gate must never be cached.
 export const dynamic = "force-dynamic";
@@ -85,10 +85,8 @@ export default async function OrgDashboardPage({
     redirect(buildUrl(slug, { tab: alias.tab, ...alias.extra }, qs.toString()));
   }
 
-  // MIGRATION SEAM (delete with MIGRATED_ORG_TAB_IDS): a valid id whose panel isn't registered in
-  // OrgTabChunks yet still has a working route of its own — send the deep link there rather than
-  // rendering an empty shell. Once every tab is registered this branch is dead code.
-  if (!isMigratedOrgTab(tab)) redirect(legacyOrgTabPath(slug, tab));
+  // The one `route` id (`developer`, the personalized home) is never a panel: send it to its page.
+  if (!isOrgPanelTabId(tab)) redirect(orgTabHref(slug, tab));
 
   return <OrgTabChunks slug={slug} tab={tab} sp={sp} />;
 }
