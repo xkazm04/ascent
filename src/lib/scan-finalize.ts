@@ -7,7 +7,7 @@
 // response vs SSE events) and calls the shared refund()/persist routine.
 
 import { cacheSet } from "@/lib/cache";
-import { getOrgId, getScanReportByCommit, isDbConfigured, persistScanReport } from "@/lib/db";
+import { getScanReportByCommit, isDbConfigured, persistScanReport } from "@/lib/db";
 import {
   consumePublicScanQuota,
   refundPublicScanQuota,
@@ -15,12 +15,13 @@ import {
   type QuotaScope,
 } from "@/lib/public-scan-quota";
 import { getViewer } from "@/lib/access";
-import { checkAndAlertRegression } from "@/lib/scan-alerts";
-import { recordScanMemories } from "@/lib/memory/scan-feed";
-import { reconcilePracticeAdoption } from "@/lib/db/practice-adoption";
 import { degradeTo } from "@/lib/scan-read-door";
 import type { ScanReport } from "@/lib/types";
 import type { ScanCacheLookup } from "@/lib/scan-cache";
+// The classification moved to scan-consequences.ts (the fleet executors share it); re-exported so
+// every existing importer of this module is unchanged.
+import { classifyScanResult, isAuthoritativeScanResult, runScanConsequences, type ScanResultClass } from "@/lib/scan-consequences";
+export { classifyScanResult, isAuthoritativeScanResult, type ScanResultClass };
 
 /** Quota header fields surfaced to the client (only set when the monthly gate actually enforced). */
 export interface ScanQuotaHeaders {
@@ -90,39 +91,6 @@ export async function consumeScanQuota(
     quotaResetAt: quota.resetAt,
     quotaScope: quota.signedIn ? "user" : "anon",
     refund,
-  };
-}
-
-/** The cache-poisoning guards: a degrade-to-mock or low-coverage report must skip both caches. */
-export interface ScanResultClass {
-  /** The LLM was requested but the engine fell back to MockProvider (transient failure) — no real
-   *  inference, deterministic floor, so it must NOT be cached/persisted under the ::llm key. */
-  degradedToMock: boolean;
-  /** Silent per-file fetch failures degraded coverage without failing the LLM — skip caching too. */
-  lowCoverage: boolean;
-  /** The PR slice behind D6/D7/D8 was truncated (graphql.ts's `partial`), so the scores understate.
-   *  graphql.ts documents that partial results must not be cached; until now nothing read the flag and
-   *  a truncated slice was persisted as authoritative — silently deflating large/rate-limited repos. */
-  partialPrSlice: boolean;
-}
-
-/**
- * May this report be cached and persisted? Written over the classification's VALUES rather than an
- * enumerated list of flags, so adding a vector to {@link ScanResultClass} / {@link classifyScanResult}
- * closes persistence AND every caller that gates on authority (the stream route's completion email,
- * via `finalizeScanRun`'s `willPersist`) with no edit at a single call site. Every field of
- * `ScanResultClass` is, by construction, a "this report is poisoned" boolean.
- */
-export function isAuthoritativeScanResult(cls: ScanResultClass): boolean {
-  return !Object.values(cls).some(Boolean);
-}
-
-/** Derive the cache-poisoning guards from a report. Identical in both scan routes. */
-export function classifyScanResult(report: ScanReport, mock: boolean): ScanResultClass {
-  return {
-    partialPrSlice: report.prPartial === true,
-    degradedToMock: report.engine.provider === "mock" && !mock,
-    lowCoverage: report.confidence < 0.5,
   };
 }
 
@@ -200,43 +168,12 @@ export async function cacheAndPersistScan(
       persistedOk = false;
       console.error(`[${opts.tag}] persistence failed`, err);
     }
-    // Live intelligence for the INTERACTIVE paths (/api/scan + /api/scan/stream both flow through here):
-    // a user's manual rescan that regresses should alert, not just the cron/webhook rescans. Wired ONCE
-    // in this shared layer, mirroring the cron/webhook call shape (getScanReportByCommit baseline →
-    // getOrgId → checkAndAlertRegression). Only on a NEW scored row (skips a dedup/failed persist).
-    // Kept OUTSIDE the persist try so an alert hiccup can't flip persistedOk; checkAndAlertRegression is
-    // itself never-throwing and honors the SAME per-repo cooldown claim, so it can neither double-alert
-    // with cron nor fail the scan.
-    if (newRowWritten) {
-      try {
-        const orgId = (await getOrgId(opts.orgSlug).catch(degradeTo(`${opts.tag}: getOrgId`, null))) ?? undefined;
-        // MOONSHOT #33 — reconcile the repo's practice ADOPTION ledger against the census this scan
-        // took (conflict ruling W2-#1: the hook lives here, not in scans-persist.ts). It runs after
-        // the row is written and outside the persist try, so a projection failure can neither fail nor
-        // roll back a scan that has already landed; `reconcilePracticeAdoption` swallows its own errors
-        // and returns null. A pre-census (v1) shape reconciles to nothing rather than asserting that
-        // every tracked artifact vanished.
-        if (orgId) {
-          await reconcilePracticeAdoption(
-            orgId,
-            `${report.repo.owner}/${report.repo.name}`,
-            // The scan row's id is not returned by persistScanReport; the commit sha is the stable
-            // identity of what was observed, which is what `lastScanId` is read as ("as of what").
-            report.repo.headSha ?? "",
-            report.practiceShape,
-          );
-        }
-        const outcome = await checkAndAlertRegression(prev, report, { orgId, orgSlug: opts.orgSlug });
-        // Auto-feed Shared Org Memory from what this scan OBSERVED (regression / maturity band change).
-        // Piggybacks on the baseline + verdict already computed above, so it costs no extra scan work
-        // and can never disagree with the alert. Never-throwing by contract (src/lib/memory/scan-feed.ts).
-        await recordScanMemories(orgId, prev, report, outcome);
-      } catch (err) {
-        // Defense-in-depth: checkAndAlertRegression is contractually never-throwing, but a regression
-        // alert must NEVER fail an already-persisted scan, so swallow anything that slips through.
-        console.error(`[${opts.tag}] regression alert failed (scan unaffected)`, err instanceof Error ? err.message : err);
-      }
-    }
+    // Live intelligence on a NEW scored row (skips a dedup/failed persist): the adoption ledger, the
+    // regression alert and the scan memories, through the one consequence seam every executor shares
+    // (src/lib/scan-consequences.ts). Kept OUTSIDE the persist try so a consequence hiccup can't flip
+    // persistedOk; runScanConsequences never rejects and the alert honors the SAME per-repo cooldown
+    // claim, so it can neither double-alert with cron nor fail the scan.
+    if (newRowWritten) await runScanConsequences(prev, report, { orgSlug: opts.orgSlug, tag: opts.tag });
   }
   // True only when a later `/report/{owner}/{repo}` hit will serve THIS scan. DB-off, scoped,
   // non-authoritative, and a thrown persist all stay false — rewriting the live-scan address bar
