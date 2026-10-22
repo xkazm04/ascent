@@ -14,7 +14,8 @@ more (G8-48; `CRON_ALLOW_QUERY_KEY=1` is a temporary hatch), since query strings
 access/CDN/proxy logs and Referer headers, and this endpoint can delete data. A missing/empty
 `CRON_SECRET` fails closed (503). Requires `DATABASE_URL`; a DB-unconfigured deploy also fails
 closed (503) unless `RETENTION_ALLOW_NO_DB=1` opts into a deliberate no-op skip (e.g. the
-keyless MVP).
+keyless MVP). That rule is declared for every cron job in one table (`src/lib/cron-jobs.ts`,
+`cronPrecondition`); the purge's opt-in env stays `RETENTION_ALLOW_NO_DB`.
 
 ## Retention policy (`src/lib/db/retention.ts`)
 

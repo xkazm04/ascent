@@ -133,6 +133,7 @@
       "sourceGlobs": [
         "src/app/api/cron/rescan/**",
         "src/lib/cron-auth.ts",
+        "src/lib/cron-jobs.ts",
         "src/lib/pool.ts",
         "src/lib/scan-credit.ts",
         "src/lib/db/org-watch.ts",

@@ -381,6 +381,10 @@ silent rather than training the inbox filter.
   `maxDuration: 300`. Orgs are processed with bounded concurrency (`mapPool`, concurrency 4)
   and a soft deadline (270s); past it, remaining orgs are counted as `remaining` instead of
   silently dropped when the platform kills the function.
+- **Missing DB:** an authorized run on a deploy without `DATABASE_URL` answers **503** (since
+  2026-10-22; it was a green 200 skip) so the cron monitor turns red. `CRON_ALLOW_NO_DB=1` keeps the
+  quiet 200 `{skipped}` for an intentionally DB-less deployment. The rule is the one cron-job
+  table's (`cronPrecondition`, `src/lib/cron-jobs.ts`; see [rescan.md](rescan.md)).
 - **`CRON_SECRET` auth:** via the shared `requireCronAuth` gate (`src/lib/cron-auth.ts`),
   which this route hand-rolled until G8-48 promoted the strict contract into the helper. Fails
   closed: a missing/empty `CRON_SECRET` 503s rather than running unauthenticated. The secret

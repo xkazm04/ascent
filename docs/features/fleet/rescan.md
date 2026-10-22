@@ -8,7 +8,26 @@ The fleet runs at **two speeds**, over one durable queue (`ScanJob`, `src/lib/db
 | `probe` | `GET /api/cron/probe` (`maxDuration = 60`) | hourly (`15 * * * *`) | **free on every plan** — ~3 REST calls, under 2s | `ControlObservation` rows only |
 
 Both are guarded by the shared `CRON_SECRET` (`src/lib/cron-auth.ts`, `requireCronAuth`) and require
-the GitHub App + `DATABASE_URL`.
+`DATABASE_URL`; the GitHub App is optional (without it the rescan only seals the control ledger and
+the probe skips, both a 200).
+
+**One cron-job table (2026-10-22).** Every scheduled job (rescan, probe, purge, digest, athena) is
+declared once in `src/lib/cron-jobs.ts` (`CRON_JOBS`: path, schedule, required vs optional
+prerequisites, the remedy for each, and the quiet-skip opt-in env). `vercel.json` stays
+hand-written (the schedules are an operator decision) and `cron-jobs.test.ts` fails when it, the
+table, or the `src/app/api/cron/*/route.ts` directories disagree. Derived from it:
+
+- **The missing-DB answer.** `cronPrecondition(name)` answers an authorized request on a deploy
+  without `DATABASE_URL` with **503**, so a cron monitor turns red; rescan, probe and digest used to
+  answer a green 200 skip. `CRON_ALLOW_NO_DB=1` restores the quiet 200 `{skipped}` for an
+  intentionally DB-less deployment (the purge keeps its own `RETENTION_ALLOW_NO_DB`). The athena
+  route still answers its own 503 with no opt-in; it is declared in the table but not yet swapped.
+- **Readiness in `/api/health`.** An internal caller (the `CRON_SECRET` bearer) gets `crons`, keyed
+  by job: `{ state, missing, remedy }`, where `state` is `ready`, `degraded` (an optional
+  prerequisite missing, a partial run, with `runs` / `skips`) or `blocked` (a required one
+  missing: `CRON_SECRET` or the DB). The remedy names env vars, never values. `autoscan` is kept as
+  the rescan projection (`{ ready, cronSecret, githubApp, db }`). The health bearer check is
+  `cronSecretMatches` from `cron-auth.ts`, the same constant-time compare the cron routes use.
 
 A third trigger has no cron of its own but runs **on the same queue**: the **push rescan**
 (`POST /api/app/webhook`, a default-branch push to a repo that is watched **and** on an autoscan

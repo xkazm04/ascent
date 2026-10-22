@@ -72,7 +72,8 @@ The hosted deployment targets **Vercel**:
   (`prisma migrate deploy`), not `db:push`. Baseline is `prisma/migrations/0_init`; an existing DB
   first built with `db push` needs a one-time `prisma migrate resolve --applied 0_init`.
 - **Autoscans:** set `CRON_SECRET` (the cron routes fail closed without it) and configure the GitHub
-  App. Verify readiness at `GET /api/health` → `autoscan.ready`.
+  App. Verify readiness at `GET /api/health` → `autoscan.ready` (the rescan), and every scheduled job at
+  `crons.<job>.state` (`ready` / `degraded` / `blocked`, with the `remedy` that fixes it).
 
 ## Deploy & rollback
 
