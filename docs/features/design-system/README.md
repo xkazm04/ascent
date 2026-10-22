@@ -671,3 +671,29 @@ Live cockpit's computed-style contract for `roles-check.mjs`.
 - `Ladder` and `CellMark`: status without hue. Tiers, bands and matrix cells say reached / current / open / not
   measured (or met / partial / missing / not measured) as a glyph, a word and a lightness; unknown is hatched.
   Use these instead of colouring a measured cell by score. Specimen: `/kit`, "Batch 4".
+
+## The error card you can act on (`src/components/ui/RouteError.tsx`, 2026-10-22)
+
+`RouteError` is the one App Router error card: the root boundary (`src/app/error.tsx`, full screen),
+the org shell (`src/app/org/[slug]/error.tsx`, compact) and, since this change, the report permalink
+(`src/app/report/[owner]/[repo]/error.tsx`, full screen, secondary action "Scan another repo") all
+render it. The rules it follows live in the pure `src/components/ui/routeErrorModel.ts`.
+
+- **Retries count.** "Try again" still runs `router.refresh()` and then `reset()`, and now records the
+  try in sessionStorage, keyed by the error digest (or, for a digest-less client throw, by the route
+  plus a short hash of the message). The remounted card says "Try again (1 try so far)", so the user
+  can see the retry happened. After two failed tries the card says the error is not transient and the
+  primary action becomes reporting it, with retry kept as a secondary. Blocked storage reads as zero
+  tries and never throws. The count is read through `useSyncExternalStore` with a server snapshot of
+  zero, so the escalated state never renders during SSR or hydration.
+- **A prefilled report, private by construction.** When the deployment names its repository
+  (`NEXT_PUBLIC_SOURCE_REPO_URL`), "Report this" opens a new issue on that tracker (`FEEDBACK_URL`)
+  with `rel="noopener noreferrer"`. The issue carries the digest, the boundary label and the route with
+  any share or invite token replaced by `[token]` (`/live/shared/`, `/share/briefing/`, `/invite/`)
+  and the query string and fragment dropped. It never carries the error message, the stack or any
+  identity. With no repository configured the card offers "Copy details" (the same text, to the
+  clipboard) instead of a link to someone else's tracker.
+- **Sentry, once.** Each error is forwarded with `Sentry.captureException`, tagged with the boundary
+  label and digest, once per error key however often the card remounts. It is a no-op without
+  `NEXT_PUBLIC_SENTRY_DSN` (see `src/instrumentation-client.ts`). `global-error.tsx` keeps its own
+  capture; it only catches a throw in the root layout, which never reaches this card.
