@@ -169,7 +169,7 @@ export interface OrgPurgeResult {
    *  newest row of a `(repoFullName, controlId)` pair. `ControlLedgerSeal` has no counterpart here on
    *  purpose: a sealed day keeps its seal after its rows are gone, so a deleted window stays
    *  DETECTABLE (the surviving rows no longer reproduce the day's root) instead of looking like a day
-   *  on which nothing was observed. See {@link pruneControlObservations}. */
+   *  on which nothing was observed. See the `controlObservationsDeleted` row of PURGE_LEDGERS. */
   controlObservationsDeleted: number;
   /** MOONSHOT #32 — `ScanDigest` rows created or updated by the fold. The compliance trace has to
    *  say what SURVIVED, not only what died: these are the summaries the deleted scans became. */
