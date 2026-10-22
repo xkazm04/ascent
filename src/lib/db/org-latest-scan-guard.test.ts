@@ -79,10 +79,25 @@ export function nestedScanTakeLines(src: string): number[] {
   return lines;
 }
 
+/** The fleet readers the guard scans: every org-*.ts, plus the playbook adoption/lift readers (playbooks-0),
+ *  which read the same per-repo scans from outside that prefix. */
+export const GUARDED = /^(org|playbook)-.*\.ts$/;
+
+/** Every Scan findMany that is NOT a pair fetch through the door (`where: atPairs(`), as 1-based lines. */
+export function unboundedScanReadLines(src: string): number[] {
+  const code = stripCommentsAndStrings(src);
+  const lines: number[] = [];
+  const call = /\.scan\.findMany\(\s*/g;
+  for (let m = call.exec(code); m; m = call.exec(code)) {
+    if (!/^\{\s*where\s*:\s*atPairs\(/.test(code.slice(m.index + m[0].length))) lines.push(code.slice(0, m.index).split("\n").length);
+  }
+  return lines;
+}
+
 function violations(): string[] {
   const out: string[] = [];
   for (const f of readdirSync(DB_DIR)) {
-    if (!/^org-.*\.ts$/.test(f) || /\.test(-helpers)?\.ts$/.test(f) || f in ALLOWLIST) continue;
+    if (!GUARDED.test(f) || /\.test(-helpers)?\.ts$/.test(f) || f in ALLOWLIST) continue;
     for (const line of nestedScanTakeLines(readFileSync(join(DB_DIR, f), "utf8"))) out.push(`${f}:${line}`);
   }
   return out;
@@ -98,6 +113,26 @@ describe("the latest-scan door is the only way a src/lib/db/org-*.ts module asks
       expect(reason.length).toBeGreaterThan(40);
       expect(nestedScanTakeLines(readFileSync(join(DB_DIR, f), "utf8")).length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("the playbook lift reads Scan only through the door (playbooks-0)", () => {
+  it("the guarded set covers the playbook adoption and lift readers", () => {
+    const files = readdirSync(DB_DIR).filter((f) => GUARDED.test(f) && !/\.test(-helpers)?\.ts$/.test(f));
+    expect(files).toEqual(expect.arrayContaining(["playbook-adoption.ts", "playbook-lift.ts"]));
+  });
+
+  it("neither reader issues a Scan findMany that is not an atPairs fetch (no whole-history timeline)", () => {
+    for (const f of ["playbook-adoption.ts", "playbook-lift.ts"]) {
+      expect([f, unboundedScanReadLines(readFileSync(join(DB_DIR, f), "utf8"))]).toEqual([f, []]);
+    }
+  });
+
+  it("seeded violation: the old whole-history timeline read reports its line; a commented copy passes", () => {
+    const old = 'const a = 1;\nconst rows = await prisma.scan.findMany({\n  where: { repoId: { in: ids } },\n  orderBy: { scannedAt: "asc" },\n});\n';
+    expect(unboundedScanReadLines(old)).toEqual([2]);
+    expect(unboundedScanReadLines(old.split("\n").map((l) => `// ${l}`).join("\n"))).toEqual([]);
+    expect(unboundedScanReadLines("await prisma.scan.findMany({ where: atPairs(pairs), select })")).toEqual([]);
   });
 });
 

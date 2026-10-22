@@ -1,8 +1,8 @@
 // getPlaybookAdoption lift-math honesty (Test Mastery — Playbooks, critical #2). Pins the
-// "only-after-a-later-scan" invariant: lift is credited ONLY from a scan dated strictly AFTER the
-// adoption (`current.at > baseline.at`), where the baseline is the latest scan at-or-before
-// `appliedAt`. A repo whose only post-apply data is actually a pre-adoption scan yields no lift —
-// not a fabricated improvement. Also pins the genuine before→after delta, the never-rescanned
+// "only-after-a-later-scan" invariant: lift is credited ONLY from a scan at-or-after the adoption
+// boundary, where the baseline is the latest scan STRICTLY before it (playbooks-0: a scan AT the
+// boundary is after-side; see src/lib/org/playbookLiftModel.ts). A repo whose only post-apply data is
+// actually a pre-adoption scan yields no lift, not a fabricated improvement. Also pins the genuine before→after delta, the never-rescanned
 // "pending" case, and cross-repo aggregation (avg lift + distinct repo count). Read-only function,
 // in-memory Prisma fake (no DB), mirrors src/lib/db/credits.test.ts harness.
 
@@ -18,6 +18,7 @@ vi.mock("@/lib/db/client", () => ({
   getPrisma: mockGetPrisma,
 }));
 
+import { latestScanReads } from "./org-rollup-latest-scans.test-helpers";
 import { applyPlaybook, getPlaybookAdoption, createPlaybook, getPlaybook, stampPlaybookApplications, updatePlaybook } from "./playbooks";
 
 // ---- fixture types (only the fields getPlaybookAdoption selects) ----
@@ -42,10 +43,9 @@ interface ScanFx {
 
 /**
  * In-memory Prisma fake for getPlaybookAdoption. The function only READS: one org findUnique, then
- * findMany over playbook / playbookApplication / repository / scan. We honor the `where`/`in` filters
- * the function relies on (orgId match, fullName ∈ set, repoId ∈ set) so the fixture behaves like the
- * real query layer; ordering is applied for the scan timeline (scannedAt asc) since the function trusts
- * it. `org: null` simulates an unknown slug (early {} return).
+ * findMany over playbook / playbookApplication / repository, and the latest-scan door's scan reads.
+ * We honor the `where`/`in` filters the function relies on (orgId match, fullName ∈ set) so the
+ * fixture behaves like the real query layer. `org: null` simulates an unknown slug (early {} return).
  */
 function fakePrisma(opts: {
   orgId?: string | null;
@@ -82,20 +82,17 @@ function fakePrisma(opts: {
           .map((r) => ({ id: r.id, fullName: r.fullName }));
       }),
     },
-    scan: {
-      findMany: vi.fn(async ({ where }: { where: { repoId: { in: string[] } } }) => {
-        const wanted = new Set(where.repoId.in);
-        return opts.scans
-          .filter((s) => wanted.has(s.repoId))
-          .slice()
-          .sort((a, b) => a.scannedAt.getTime() - b.scannedAt.getTime())
-          .map((s) => ({
-            repoId: s.repoId,
-            scannedAt: s.scannedAt,
-            dimensions: s.dimensions.map((d) => ({ dimId: d.dimId, score: d.score })),
-          }));
-      }),
-    },
+    // The lift reads through the latest-scan door (playbooks-0): groupBy + the pair fetch, served by the
+    // shared in-memory Scan table, which answers them the way Postgres would.
+    scan: latestScanReads(() =>
+      opts.scans.map((s, i) => ({
+        id: `scan_${String(i).padStart(4, "0")}`,
+        repoId: s.repoId,
+        scannedAt: s.scannedAt,
+        engineProvider: "anthropic",
+        dimensions: s.dimensions.map((d) => ({ dimId: d.dimId, score: d.score })),
+      })),
+    ),
   };
 }
 
@@ -127,11 +124,13 @@ describe("getPlaybookAdoption — only-after-adoption lift invariant", () => {
       appliedRepos: ["acme/repo"],
       lift: null,
       measured: 0,
+      unpaired: { noBefore: 0, noAfter: 1, mock: 0, noDimension: 0 },
     });
   });
 
-  it("a scan dated exactly AT the apply time is a baseline, never an 'after' (boundary: <= apply, strict > baseline)", async () => {
-    // Two scans: one exactly at appliedAt (baseline) and... nothing later. current === baseline → no lift.
+  it("a single scan dated exactly AT the apply time has no baseline: no-before, no lift (boundary resolves toward after)", async () => {
+    // playbooks-0 flipped this boundary on purpose: a scan AT appliedAt is after-side, so the lone scan
+    // leaves the application with no pre-adoption reading. Same output as before (lift null, measured 0).
     const prisma = fakePrisma({
       playbooks: [{ id: "pb_1", dimId: "D5" }],
       apps: [{ playbookId: "pb_1", repoFullName: "acme/repo", appliedAt: D("2026-02-10T00:00:00Z") }],
@@ -142,7 +141,7 @@ describe("getPlaybookAdoption — only-after-adoption lift invariant", () => {
 
     const out = await getPlaybookAdoption("acme");
 
-    expect(out["pb_1"]).toMatchObject({ lift: null, measured: 0 });
+    expect(out["pb_1"]).toMatchObject({ lift: null, measured: 0, unpaired: { noBefore: 1 } });
   });
 
   it("a genuine before(pre-apply)→after(post-apply) pair yields the correct lift delta (40→70 = 30)", async () => {
@@ -164,6 +163,7 @@ describe("getPlaybookAdoption — only-after-adoption lift invariant", () => {
       appliedRepos: ["acme/repo"],
       lift: 30,
       measured: 1,
+      unpaired: { noBefore: 0, noAfter: 0, mock: 0, noDimension: 0 },
     });
   });
 
@@ -201,6 +201,7 @@ describe("getPlaybookAdoption — only-after-adoption lift invariant", () => {
       appliedRepos: ["acme/repo"],
       lift: null,
       measured: 0,
+      unpaired: { noBefore: 1, noAfter: 0, mock: 0, noDimension: 0 },
     });
   });
 
@@ -251,6 +252,7 @@ describe("getPlaybookAdoption — cross-repo aggregation math", () => {
       appliedRepos: ["acme/a", "acme/b"],
       lift: 30,
       measured: 1,
+      unpaired: { noBefore: 0, noAfter: 1, mock: 0, noDimension: 0 },
     });
   });
 

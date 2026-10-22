@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { StateSwatch, STATE_HINT } from "@/components/org/viz";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
+import { liftSampleNote } from "@/lib/org/playbookLiftModel";
 
 export function PlaybookAdoptionRow({
   playbook: p,
@@ -83,10 +84,11 @@ export function PlaybookAdoptionRow({
         // The badge always shows its SAMPLE: `measured` is the server's honesty companion (how many
         // applications had a pre-apply baseline + a later scan) — without it "▲ +9 avg" backed by 1 of
         // 12 repos reads as fleet-wide improvement (ambiguity-ui 07-16 playbooks #3). Both counts come
-        // from the same server snapshot (adoption), not the optimistic local `applied` chip set.
+        // from the same server snapshot (adoption), not the optimistic local `applied` chip set. The
+        // title names why each other application has no number (playbooks-0: liftSampleNote).
         <span
           className={`font-mono ${lift > 0 ? "text-emerald-300" : lift < 0 ? "text-orange-300" : "text-slate-400"}`}
-          title={`Average ${p.dimId} change in applied repos since they applied this playbook: measured in ${adoption?.measured ?? 0} of ${adoption?.repos ?? 0} adopting repos (only repos with a scan before and after adoption count)`}
+          title={liftSampleNote({ measured: adoption?.measured ?? 0, repos: adoption?.repos ?? 0, unpaired: adoption?.unpaired })}
         >
           {lift > 0 ? `▲ +${lift}` : lift < 0 ? `▼ ${lift}` : "± 0"} avg {p.dimId} since{" "}
           <span className="text-slate-500">

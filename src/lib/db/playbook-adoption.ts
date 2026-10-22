@@ -16,14 +16,19 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { readPlaybookLiftPairs } from "@/lib/db/playbook-lift";
+import { foldLift, type LiftPair, type LiftUnpaired } from "@/lib/org/playbookLiftModel";
 
 export interface PlaybookAdoption {
   repos: number; // distinct repos that applied this playbook
   appliedRepos: string[];
-  /** Avg dimension-score lift (the playbook's dim) in applied repos since they applied it; null when
-   *  not measurable (no post-application scan). `measured` is how many applications backed the number. */
+  /** Avg dimension-score lift (the playbook's dim) over the applications with a PAIRED before/after
+   *  reading (src/lib/org/playbookLiftModel.ts); null when none pairs. `measured` is how many did. */
   lift: number | null;
   measured: number;
+  /** Why every other application has no number: `measured` + the four counts = applications. Present
+   *  whenever the playbook has an application; absent on fixtures written before it existed. */
+  unpaired?: LiftUnpaired;
   /** Repos with this playbook's draft PR open but not yet seen landed. Not counted in `repos`. Absent
    *  on fixtures written before row 40, which a reader treats as none. */
   proposedRepos?: string[];
@@ -58,9 +63,9 @@ export async function stampLandedPlaybook(orgId: string, playbookId: string, rep
 
 /**
  * Adoption analytics per playbook: how many repos applied it, and the average dimension-score lift in
- * those repos since they applied it (current score − the score at apply time). Honest — only counts an
- * application toward `lift` when there's a scan after the apply date, and never counts a repo whose
- * playbook PR is still open (see the header). Keyed by playbook id.
+ * those repos since they applied it (the latest scan minus the latest scan strictly before the
+ * adoption boundary; see playbookLiftModel.ts for the boundary and the named statuses). Never counts a
+ * repo whose playbook PR is still open (see the header). Keyed by playbook id.
  */
 export async function getPlaybookAdoption(orgSlug: string): Promise<Record<string, PlaybookAdoption>> {
   if (!isDbConfigured()) return {};
@@ -99,55 +104,37 @@ export async function getPlaybookAdoption(orgSlug: string): Promise<Record<strin
   const repos = await prisma.repository.findMany({ where: { orgId, fullName: { in: fullNames } }, select: { id: true, fullName: true } });
   const repoIdByName = new Map(repos.map((r) => [r.fullName, r.id]));
 
-  // Per applied repo, the timeline of each dimension's score (oldest→newest), to find before/after.
-  const scanRows = await prisma.scan.findMany({
-    where: { repoId: { in: [...repoIdByName.values()] } },
-    select: { repoId: true, scannedAt: true, dimensions: { select: { dimId: true, score: true } } },
-    orderBy: { scannedAt: "asc" },
-  });
-  const timeline = new Map<string, Map<string, { at: Date; score: number }[]>>();
-  for (const s of scanRows) {
-    const byDim = timeline.get(s.repoId) ?? new Map<string, { at: Date; score: number }[]>();
-    timeline.set(s.repoId, byDim);
-    for (const d of s.dimensions) {
-      const arr = byDim.get(d.dimId) ?? [];
-      arr.push({ at: s.scannedAt, score: d.score });
-      byDim.set(d.dimId, arr);
-    }
-  }
+  // Lift: one before/after pair per application, read through the latest-scan door (playbook-lift.ts)
+  // and classified by the pure model (src/lib/org/playbookLiftModel.ts).
+  const liftPairs = await readPlaybookLiftPairs(
+    prisma,
+    apps.map((a) => ({
+      repoId: repoIdByName.get(a.repoFullName),
+      dimId: dimByPlaybook.get(a.playbookId),
+      appliedAt: a.appliedAt,
+      scanStamped: a.appliedBy === LANDED_BY_SCAN,
+    })),
+  );
 
   const out: Record<string, PlaybookAdoption> = {};
-  const byPlaybook = new Map<string, typeof apps>();
+  const byPlaybook = new Map<string, { repo: string; pair: LiftPair }[]>();
   for (const pid of proposed.keys()) byPlaybook.set(pid, []);
-  for (const a of apps) {
+  apps.forEach((a, i) => {
     const arr = byPlaybook.get(a.playbookId) ?? [];
-    arr.push(a);
+    arr.push({ repo: a.repoFullName, pair: liftPairs[i]! });
     byPlaybook.set(a.playbookId, arr);
-  }
+  });
   for (const [pid, list] of byPlaybook) {
     const open = [...(proposed.get(pid) ?? [])].sort();
     if (list.length === 0 && open.length === 0) continue;
-    const dimId = dimByPlaybook.get(pid);
-    let liftSum = 0;
-    let measured = 0;
-    if (dimId) {
-      for (const a of list) {
-        const repoId = repoIdByName.get(a.repoFullName);
-        const series = repoId ? timeline.get(repoId)?.get(dimId) : undefined;
-        if (!series || series.length === 0) continue;
-        const baseline = [...series].reverse().find((p) => p.at <= a.appliedAt);
-        const current = series[series.length - 1];
-        if (baseline && current && current.at > baseline.at) {
-          liftSum += current.score - baseline.score;
-          measured += 1;
-        }
-      }
-    }
+    const { lift, measured, unpaired } = foldLift(list.map((l) => l.pair));
+    const applied = [...new Set(list.map((l) => l.repo))];
     out[pid] = {
-      repos: new Set(list.map((a) => a.repoFullName)).size,
-      appliedRepos: [...new Set(list.map((a) => a.repoFullName))],
-      lift: measured > 0 ? Math.round(liftSum / measured) : null,
+      repos: applied.length,
+      appliedRepos: applied,
+      lift,
       measured,
+      ...(list.length > 0 ? { unpaired } : {}),
       ...(open.length > 0 ? { proposedRepos: open } : {}),
     };
   }
