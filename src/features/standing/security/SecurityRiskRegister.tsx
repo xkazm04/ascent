@@ -14,23 +14,16 @@
 //
 // The D9 number is computed, not judged — see src/lib/security/checks.ts.
 
-import { useMemo, useState } from "react";
 import Link from "next/link";
 import { OrgTable } from "@/components/org/shared/ui";
 import { StateSwatch, stateTitle } from "@/components/org/viz";
 import { heatCell } from "@/lib/ui";
-import { RepoDimensionModal, type HeatTarget } from "@/components/org/shared/RepoDimensionModal";
+import { RepoDimensionModal } from "@/components/org/shared/RepoDimensionModal";
 import type { SecurityRegisterRow } from "@/lib/org/security";
-import {
-  DEFAULT_DIR,
-  presentAdvisoryChips,
-  sortRows,
-  VISIBLE_DEFAULT,
-  type RegisterAdvisories,
-  type SortKey,
-} from "@/features/standing/security/securityRegisterShared";
+import { presentAdvisoryChips, VISIBLE_DEFAULT, type RegisterAdvisories } from "@/features/standing/security/securityRegisterShared";
 import { SecurityCheckMatrix } from "./SecurityCheckMatrix";
-import { CoverageCell, Th, type ThSort } from "./SecurityRiskRegisterParts";
+import { CoverageCell, Th } from "./SecurityRiskRegisterParts";
+import { useSecurityRegister } from "./useSecurityRegister";
 
 export type { RegisterAdvisories };
 
@@ -50,23 +43,7 @@ export function SecurityRiskRegister({
    *  links landed on a Dependabot page showing something entirely different. */
   advisoriesDemo?: boolean;
 }) {
-  const [target, setTarget] = useState<HeatTarget | null>(null);
-  const [showAll, setShowAll] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("risk");
-  const [dir, setDir] = useState<"asc" | "desc">("asc");
-  const advByRepo = useMemo(() => (advisories ? new Map(advisories.map((a) => [a.fullName, a])) : null), [advisories]);
-  const sorted = useMemo(() => sortRows(rows, sortKey, dir, advByRepo), [rows, sortKey, dir, advByRepo]);
-  const visible = showAll ? sorted : sorted.slice(0, VISIBLE_DEFAULT);
-
-  function toggle(k: SortKey) {
-    if (sortKey === k) setDir((d) => (d === "asc" ? "desc" : "asc"));
-    else {
-      setSortKey(k);
-      setDir(DEFAULT_DIR[k]);
-    }
-  }
-
-  const sort: ThSort = { key: sortKey, dir, onSort: toggle };
+  const { target, setTarget, showAll, toggleShowAll, advByRepo, visible, sort } = useSecurityRegister(rows, advisories);
 
   return (
     <>
@@ -184,7 +161,7 @@ export function SecurityRiskRegister({
       {rows.length > VISIBLE_DEFAULT && (
         <button
           type="button"
-          onClick={() => setShowAll((s) => !s)}
+          onClick={toggleShowAll}
           className="focus-ring mt-3 rounded-md border border-slate-700 px-3 py-1.5 type-mono-sm text-slate-300 transition hover:border-accent hover:text-white"
         >
           {showAll ? "Show fewer" : `Show all ${rows.length} repos`}
