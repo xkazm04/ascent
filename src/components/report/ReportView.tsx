@@ -179,7 +179,7 @@ export function ReportView({
   // sparkline series, prior posture). All pure history×report shaping — extracted to computeReportSeries.
   // Memoize on [history, report] so switching the section tab — which re-renders via
   // `tab`/`recs`/`fetchedPassport` state — doesn't recompute the whole series set.
-  const { scans, trendPoints, overallDelta, prevDimScores, prevPosture, dimSeries } = useMemo(
+  const { scans, trendPoints, overallDelta, prevDimScores, prevPosture, dimSeries, baseline } = useMemo(
     () => computeReportSeries(history, report),
     [history, report],
   );
@@ -268,6 +268,7 @@ export function ReportView({
             prevPosture={prevPosture}
             prevDimScores={prevDimScores}
             dimSeries={dimSeries}
+            baseline={baseline}
           />
         </div>
       </div>

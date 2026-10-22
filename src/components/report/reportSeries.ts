@@ -2,6 +2,7 @@ import type { DimensionId, ScanReport } from "@/lib/types";
 import type { RepositoryHistory } from "@/lib/db/scans";
 import { axisScore } from "@/lib/maturity/model";
 import { type TrendPoint } from "@/components/report/TrendChart";
+import type { ReportBaseline } from "@/components/report/scoreBridgeModel";
 
 export type ReportSeries = {
   scans: RepositoryHistory["scans"];
@@ -10,6 +11,8 @@ export type ReportSeries = {
   prevDimScores: Map<string, number> | null;
   prevPosture: { adoption: number; rigor: number } | null;
   dimSeries: Map<string, TrendPoint[]> | null;
+  /** The SAME scan overallDelta diffs against, for the waterfall's since-last-scan bridge. Additive. */
+  baseline: ReportBaseline | null;
 };
 
 // Reconcile the live report with persisted history. `history.scans` is newest-first and
@@ -103,5 +106,15 @@ export function computeReportSeries(history: RepositoryHistory | null, report: S
     return m;
   })();
 
-  return { scans, trendPoints, overallDelta, prevDimScores, prevPosture, dimSeries };
+  const baseline: ReportBaseline | null = baselineScan
+    ? {
+        id: baselineScan.id,
+        overallScore: baselineScan.overallScore,
+        engineProvider: baselineScan.engineProvider,
+        rubricVersion: baselineScan.rubricVersion,
+        ...(baselineDims ? { dimensions: baselineDims } : {}),
+      }
+    : null;
+
+  return { scans, trendPoints, overallDelta, prevDimScores, prevPosture, dimSeries, baseline };
 }

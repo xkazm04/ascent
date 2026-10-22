@@ -11,6 +11,7 @@ import { PosturePanel } from "@/components/report/PosturePanel";
 import { ScoreWaterfall } from "@/components/report/ScoreWaterfall";
 import { LevelLadder, ListCard } from "@/components/report/ReportCards";
 import { Surface } from "@/components/ui";
+import type { ReportBaseline } from "@/components/report/scoreBridgeModel";
 
 export function ScoringTab({
   report,
@@ -20,6 +21,7 @@ export function ScoringTab({
   histError,
   scans,
   prevPosture,
+  baseline,
 }: {
   report: ScanReport;
   isMock: boolean;
@@ -28,6 +30,7 @@ export function ScoringTab({
   histError: boolean;
   scans: HistoryPoint[];
   prevPosture: { adoption: number; rigor: number } | null;
+  baseline?: ReportBaseline | null;
 }) {
   const { repo, level } = report;
 
@@ -63,7 +66,7 @@ export function ScoringTab({
       </Surface>
 
       {/* Glass-box score waterfall — the headline, attributed to each dimension */}
-      <ScoreWaterfall report={report} />
+      <ScoreWaterfall report={report} baseline={baseline} />
 
       {/* Posture — Adoption × Rigor */}
       <PosturePanel report={report} prev={prevPosture} />

@@ -17,6 +17,7 @@ import { RoadmapSandbox } from "@/components/report/RoadmapSandbox";
 import { ContributorsPanel } from "@/components/report/ContributorsPanel";
 import { NextLevelPath, RoadmapSteps, TrustLadder } from "@/components/report/roadmapPieces";
 import type { RoadmapLifts } from "@/components/report/roadmapPriority";
+import type { ReportBaseline } from "@/components/report/scoreBridgeModel";
 import { RecommendationTracker } from "@/components/report/RecommendationTracker";
 
 export interface ReportPanelsProps {
@@ -38,6 +39,8 @@ export interface ReportPanelsProps {
   prevPosture: { adoption: number; rigor: number } | null;
   prevDimScores: Map<string, number> | null;
   dimSeries: Map<string, TrendPoint[]> | null;
+  /** The scan overallDelta diffs against, for the waterfall's since-last-scan bridge. */
+  baseline?: ReportBaseline | null;
 }
 
 export function ReportPanels(props: ReportPanelsProps) {
@@ -60,6 +63,7 @@ export function ReportPanels(props: ReportPanelsProps) {
           histError={props.histError}
           scans={props.scans}
           prevPosture={props.prevPosture}
+          baseline={props.baseline}
         />
       )}
 
