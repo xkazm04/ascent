@@ -9,9 +9,13 @@ import { AiGovernedRateRowV2 } from "./AiGovernedRateRow.v2";
 import { DimensionFloorRowsV2 } from "./DimensionFloorRows.v2";
 import { GatePolicyFieldsV2 } from "./GatePolicyFields.v2";
 import { RequireChecksRowsV2 } from "./RequireChecksRows.v2";
+import { usePolicyPreview } from "./usePolicyPreview";
+import { PolicyImpactStrip } from "./PolicyImpactStrip";
+import { guardSave } from "./policyPreviewModel";
 
 export function GatePolicyEditorV2({ org, initial }: { org: string; initial: GatePolicy | null }) {
   const f = useGatePolicyEditor(org, initial);
+  const p = usePolicyPreview(org, f.draft);
   return (
     <div className="mt-8">
       <Eyebrow>Edit policy</Eyebrow>
@@ -19,9 +23,10 @@ export function GatePolicyEditorV2({ org, initial }: { org: string; initial: Gat
       <DimensionFloorRowsV2 floors={f.otherFloors} onChange={f.setDimFloor} />
       <AiGovernedRateRowV2 enabled={f.aiGoverned} rate={f.aiGovernedRate} onEnabled={f.setAiGoverned} onRate={f.setAiGovernedRate} />
       <RequireChecksRowsV2 checks={f.requireChecks} onAdd={f.addRequireCheck} onRemove={f.removeRequireCheck} />
+      <PolicyImpactStrip preview={p} />
       <div className="mt-4 flex flex-wrap items-center gap-3" aria-busy={f.busy !== null}>
-        <PrimaryAction onClick={() => f.save()} disabled={f.busy !== null}>
-          {f.busy === "save" ? "Saving…" : "Save policy"}
+        <PrimaryAction onClick={() => guardSave(p, f.save, (m) => window.confirm(m))} disabled={f.busy !== null}>
+          {f.busy === "save" ? "Saving…" : p.saveLabel}
         </PrimaryAction>
         <GhostAction onClick={f.reset} disabled={f.busy !== null}>
           Reset to default

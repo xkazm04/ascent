@@ -13,6 +13,9 @@ import { appliesWhen, useGatePolicyEditor } from "./useGatePolicyEditor";
 import { AiGovernedRateRow } from "./AiGovernedRateRow";
 import { DimensionFloorRows } from "./DimensionFloorRows";
 import { RequireChecksRows } from "./RequireChecksRows";
+import { usePolicyPreview } from "./usePolicyPreview";
+import { PolicyImpactStrip } from "./PolicyImpactStrip";
+import { guardSave } from "./policyPreviewModel";
 
 export { appliesWhen };
 
@@ -20,6 +23,7 @@ const LEVELS: LevelId[] = ["L1", "L2", "L3", "L4", "L5"];
 
 export function GatePolicyEditor({ org, initial }: { org: string; initial: GatePolicy | null }) {
   const f = useGatePolicyEditor(org, initial);
+  const p = usePolicyPreview(org, f.draft);
 
   return (
     <div className="mt-4 border-t border-slate-800 pt-4">
@@ -102,13 +106,14 @@ export function GatePolicyEditor({ org, initial }: { org: string; initial: GateP
         onRate={f.setAiGovernedRate}
       />
       <RequireChecksRows checks={f.requireChecks} onAdd={f.addRequireCheck} onRemove={f.removeRequireCheck} />
+      <PolicyImpactStrip preview={p} />
       <div className="mt-3 flex flex-wrap items-center gap-2" aria-busy={f.busy !== null}>
         <button
-          onClick={() => f.save()}
+          onClick={() => guardSave(p, f.save, (m) => window.confirm(m))}
           disabled={f.busy !== null}
           className="rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
         >
-          {f.busy === "save" ? "Saving…" : "Save policy"}
+          {f.busy === "save" ? "Saving…" : p.saveLabel}
         </button>
         <button
           onClick={f.reset}

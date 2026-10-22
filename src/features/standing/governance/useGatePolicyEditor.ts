@@ -186,6 +186,8 @@ export function useGatePolicyEditor(org: string, initial: GatePolicy | null) {
     busy,
     msg,
     applies,
+    // The current draft, for the read-only impact preview (usePolicyPreview); Save still builds its own.
+    draft: buildPolicy(),
     save: () => post(buildPolicy(), "save"),
     reset,
   };
