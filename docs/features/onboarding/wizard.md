@@ -433,6 +433,18 @@ cluster, each repo a star:
   a share, or `/launch?levels=L1` restores the L1 band. Find-a-repo writes `q` through
   a short debounce and `router.replace` (no history spam); the other controls write
   immediately. `?next=` is preserved. Defaults are omitted (`sort=name`, empty filters).
+- **Scan what you filtered.** With a filter active, the match count is joined by one action
+  (`FleetMap.ScopeScan`, built from the pure `fleetScopeModel.scopePlan`): "Scan N matching watched
+  repos (K orgs) · M unwatched not scanned", with what it draws said before the click ("Draws up
+  to N scan credits, one per repo, one org at a time."). The plan reads every repo of a loaded org,
+  including stars past the 80 drawn, keeps only WATCHED matches (the route intersects `repos` with
+  the watchlist), and never sends an empty scope (which the route would widen to the whole
+  watchlist): when every match is unwatched the button is disabled with that reason.
+  `useFleetScan.runPlan` runs it as one pending batch through the ordinary scoped
+  `POST /api/org/scan {org, repos}`, one org at a time under the map's one-scan lock (a double
+  click starts one plan; per-org Scan stays locked between runs). **Stop after this org** cancels
+  before the next org; a refusal (402/403), an in-band error or a network failure stops the plan,
+  with that org's card showing the outcome. No server change; each run charges as any scoped run.
 
 ## Key files
 
@@ -470,6 +482,8 @@ cluster, each repo a star:
 | `src/components/launch/FleetMap.tsx` | Animated constellation star-map of the fleet. |
 | `src/components/launch/useFleetScan.ts` | The map's per-org Scan: shared stream + roster, queued follow, retry of failures, the refs the live refresh reads. |
 | `src/components/launch/fleetScanOutcomeModel.ts` | Pure: the card's sentence and one remedy for a finished org scan. |
+| `src/components/launch/fleetScopeModel.ts` | Pure: the triage match set as per-org scoped runs, the unwatched it skips, the label and draw note, the per-org lock. |
+| `src/components/launch/FleetMap.ScopeScan.tsx` | The "Scan what you filtered" action in TriageControls' action slot (preview, disabled-with-reason, Stop after this org). |
 | `src/components/report/SkillDownload.tsx` | Report-header SKILL.md pill + `SkillDownloadList` for the wizard done step (one pill per scored repo). |
 | `src/lib/onboarding/step0.ts` | Step 0 of the generated skill, in two lanes: `reference` (the foundation PR and local install - a derived path/sha256/purpose table pointing at the files already committed) and `embed` (the markdown download - every body verbatim, each block stamped with the guidance-projection provenance header outside its fence). |
 | `src/lib/onboarding/skill.ts` | Generated per-repo `ascent-onboard` SKILL.md (`GET /api/report/skill` and the foundation PR). Emits two instruction files with the same trackIds: `.claude/skills/ascent-onboard/SKILL.md` (Claude Code, kept; default download) and `.agents/skills/ascent-onboard/SKILL.md` (vendor-neutral, plus a one-line "also linked from Claude's path" header). `?format=json` returns both. Footer credits this deployment (`publicBaseUrl()`), never a hardcoded product domain; when that origin is set, one extra line names Standing › Passports as the org control matrix after `--json` doctor report-back. |

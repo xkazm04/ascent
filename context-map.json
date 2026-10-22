@@ -669,7 +669,11 @@
             "src/components/launch/fleetScanOutcomeModel.ts",
             "src/components/launch/fleetScanOutcomeModel.test.ts",
             "src/components/launch/ConstellationField.Footer.tsx",
-            "src/components/launch/ConstellationField.Footer.test.tsx"
+            "src/components/launch/ConstellationField.Footer.test.tsx",
+            "src/components/launch/fleetScopeModel.ts",
+            "src/components/launch/fleetScopeModel.test.ts",
+            "src/components/launch/FleetMap.ScopeScan.tsx",
+            "src/components/launch/fleetScopeScan.dom.test.tsx"
           ],
           "target": null,
           "apiRoutes": []
