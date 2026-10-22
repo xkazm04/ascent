@@ -27,7 +27,6 @@ vi.mock("@/lib/authz", () => ({ hasOrgRole: async () => true }));
 vi.mock("@/lib/live-share", () => ({ liveShareEnabled: () => false }));
 vi.mock("../LiveWarRoom", () => ({ LiveWarRoom: () => <div data-testid="war-room" /> }));
 vi.mock("../cockpit", () => ({ LiveCockpit: () => <div data-testid="cockpit" /> }));
-vi.mock("../AutopilotBand", () => ({ AutopilotBand: () => <div data-testid="autopilot-band" /> }));
 vi.mock("./ledgerLoad", () => ({ hasStandingRunner: vi.fn(async () => h.runner) }));
 vi.mock("./LedgerTab", () => ({ LedgerTab: (p: { slug: string }) => <div data-testid="ledger">{p.slug}</div> }));
 vi.mock("../desk/DeskTab", () => ({ DeskTab: (p: { slug: string }) => <div data-testid="desk">{p.slug}</div> }));
@@ -102,7 +101,6 @@ describe("LiveTab view routing", () => {
     h.runner = true;
     await view({ view: "wall" });
     expect(screen.getByTestId("war-room")).toBeInTheDocument();
-    expect(screen.queryByTestId("autopilot-band")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open loop cockpit/ })).toBeInTheDocument();
     expect(screen.queryByTestId("ledger")).not.toBeInTheDocument();
     expect(screen.queryByTestId("cockpit")).not.toBeInTheDocument();

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Chips, rollup cards, and compare tiles must label tagged vs scored, and a missing average must
+// Chips and rollup cards must label tagged vs scored, and a missing average must
 // never print as 0 scored / 0/N scanned.
 
 import { describe, it, expect, vi } from "vitest";
@@ -15,7 +15,6 @@ vi.mock("next/navigation", () => ({
 import { compareCountSub, taggedScoredLabel } from "./segmentCounts";
 import { SegmentChips } from "./RepoSegmentsPanel.parts";
 import { SegmentCard } from "./SegmentCard";
-import { SegmentsComparePanel } from "./SegmentsComparePanel";
 import type { SegmentComparison, SegmentSummary } from "@/lib/db";
 
 const summary = (over: Partial<SegmentSummary> & { name: string }): SegmentSummary =>
@@ -70,7 +69,7 @@ describe("compareCountSub", () => {
   });
 });
 
-describe("chips, cards, and compare tiles", () => {
+describe("chips and cards", () => {
   it("labels the chip count as tagged", () => {
     render(
       <SegmentChips
@@ -94,29 +93,5 @@ describe("chips, cards, and compare tiles", () => {
   it("shows both counts on a scored card", () => {
     render(<SegmentCard s={summary({ name: "platform", id: "platform" })} org="acme" repos={["a/x"]} taggedCount={5} />);
     expect(screen.getByText("5 tagged · 2 scored")).toBeInTheDocument();
-  });
-
-  it("compare tiles distinguish tagged vs scored and never print 0/ for a missing side", () => {
-    const comparison: SegmentComparison = {
-      a: summary({ name: "platform", id: "platform" }),
-      b: unscanned("new"),
-      deltas: { overall: null, adoption: null, rigor: null },
-      dimDeltas: [],
-    };
-    render(
-      <SegmentsComparePanel
-        options={[{ id: "platform", name: "platform" }, { id: "new", name: "new" }]}
-        aId="platform"
-        bId="new"
-        comparison={comparison}
-        taggedById={{ platform: 5, new: 4 }}
-        org="acme"
-        watched={new Set(["a/x"])}
-      />,
-    );
-    expect(screen.getByText(/5 tagged · 2 scored/)).toBeInTheDocument();
-    expect(screen.getByText(/no scans yet · 4 tagged/)).toBeInTheDocument();
-    expect(screen.queryByText(/0\//)).toBeNull();
-    expect(screen.queryByText(/0 scored/)).toBeNull();
   });
 });

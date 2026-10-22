@@ -3952,7 +3952,6 @@
         "src/app/api/org/segments/[id]/repos/route.ts",
         "src/features/standing/repositories/useRepoSegmentsPanel.ts",
         "src/components/shared/scope/SegmentSelector.tsx",
-        "src/features/standing/repositories/SegmentComparePicker.tsx",
         "src/app/api/org/repositories/route.ts",
         "src/app/api/org/segments/[id]/repos/bulk/route.ts"
       ],
@@ -5994,7 +5993,6 @@
         "src/app/api/org/followups/handoff/route.ts",
         "src/app/api/org/followups/handoff/route.test.ts",
         "src/components/shared/followups/FollowupsPromptModal.tsx",
-        "src/components/shared/followups/FollowupsFilterBar.tsx",
         "src/components/shared/followups/FollowupChips.tsx",
         "src/components/shared/followups/followupsModel.ts",
         "docs/features/org-followups/README.md",

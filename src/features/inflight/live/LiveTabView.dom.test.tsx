@@ -35,7 +35,6 @@ vi.mock("@/features/inflight/live/LiveWarRoom", () => ({
   LiveWarRoom: (p: { readOnly?: boolean }) => <div data-testid="war-room">{p.readOnly ? "read-only" : "live"}</div>,
 }));
 vi.mock("./cockpit", () => ({ LiveCockpit: (p: { wallHref: string }) => <div data-testid="cockpit">{p.wallHref}</div> }));
-vi.mock("./AutopilotBand", () => ({ AutopilotBand: () => <div data-testid="autopilot-band" /> }));
 // No standing runner, so the default view is the cockpit (the Ledger's own routing is pinned in
 // ledger/ledgerView.dom.test.tsx).
 vi.mock("./ledger/ledgerLoad", () => ({ hasStandingRunner: async () => false }));
@@ -56,7 +55,6 @@ describe("LiveTab view routing", () => {
   it("renders the wall with a cockpit link but no second start control", async () => {
     render(await LiveTab({ slug: "acme", sp: { tab: "live", view: "wall" } }));
     expect(screen.getByTestId("war-room")).toHaveTextContent("live");
-    expect(screen.queryByTestId("autopilot-band")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open loop cockpit/ })).toHaveAttribute("href", "?tab=live&view=cockpit");
     expect(screen.queryByTestId("cockpit")).not.toBeInTheDocument();
   });
@@ -67,6 +65,5 @@ describe("the kiosk share route", () => {
     render(await SharedLivePage({ params: Promise.resolve({ token: "t" }) }));
     expect(screen.getByTestId("war-room")).toHaveTextContent("read-only");
     expect(screen.queryByTestId("cockpit")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("autopilot-band")).not.toBeInTheDocument();
   });
 });

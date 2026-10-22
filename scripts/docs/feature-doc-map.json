@@ -41,8 +41,7 @@
         "src/app/api/org/gate-policy/**",
         "src/lib/github/checks.ts",
         "src/lib/github/pr-gate.ts",
-        "src/lib/db/org-gate.ts",
-        "src/features/standing/governance/GatePolicyEditor.tsx"
+        "src/lib/db/org-gate.ts"
       ]
     },
     {
@@ -491,9 +490,7 @@
         "src/lib/api/self-host.ts",
         "src/features/admin/pairing/**",
         "src/app/api/org/local/**",
-        "src/components/shared/followups/LocalRescanButton.tsx",
-        "src/features/inflight/live/AutopilotBand.tsx",
-        "src/features/inflight/live/AutopilotBandParts.tsx"
+        "src/components/shared/followups/LocalRescanButton.tsx"
       ]
     },
     {
