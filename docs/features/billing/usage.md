@@ -247,6 +247,23 @@ fail-closed "store unreachable" branch, keeps their own per-minute budget intact
 per-IP hit was recorded up front, so during global saturation an innocent caller's own allowance
 drained on requests that were never served.
 
+**The per-IP cap holds under concurrency (2026-10-22).** The shared door used to *check* the per-IP
+window, await the store, and only then record the hit, so every same-IP request in flight during
+that network hop saw the pre-burst count: a script firing 25 requests in parallel got all 25 past a
+20/min cap and could spend the fleet's global budget on its own. The caller's slot is now
+**reserved** before the store is awaited (`reserveHit` in `src/lib/rate-limit-window.ts`) and
+**released** if the request is then refused globally or by the fail-closed outage branch, so the
+rule above still holds. All three doors (`rateLimitRequest`, `rateLimitKeyed`,
+`rateLimitRequestShared`) are thin wrappers over one pipeline, `src/lib/rate-limit-charge.ts`. No
+limit, window or fail-open/closed default changed.
+
+**Every refusal is counted, by limiter and layer.** The pipeline itself bumps the `QuotaEvent` tally
+the `/usage` abuse panel reads: `rate_limit` scoped by limiter name (`scan`, `scan-peek`, `gate`,
+`mcp`, ...) for the caller's own budget, and `<limiter>:global` when the shared budget refused. A
+shared-store **outage** counted nothing, so it goes on its own `rate_limit_unavailable` kind, which
+the abuse panel never reads. Routes do not add their own count beside a limiter call
+(`src/lib/rate-limit-charge.sites.test.ts` fails if one does).
+
 `ORG_REPOS` (`10`/min per IP, `60`/min global) covers `GET /api/org/repos`, the App-free public org
 listing behind the onboarding selector — added 2026-08-28, when it was the last public endpoint with
 no limiter. It is the costliest of them per call: `listOrgRepos` pages up to 5 × 100 repos against the
@@ -392,6 +409,7 @@ gate, the default mock gate) still have a per-instance global ceiling.
 | `src/app/usage/costHeadline.ts` | The "Est. cost" tile's value + caption: all-lane sum, lane scope, pricing basis, unpriced floor. |
 | `src/lib/db/kpi-metrics.ts` | `avgLlmCostPerActiveOrg()` — per-tenant LLM cost across every lane, beside `avgLlmCostPerScan()`. `freeToPaidConversion()` — share of orgs that scanned free and subscribed inside the window; **null** (not 0%) while the `Subscription` table has never been written. |
 | `src/lib/rate-limit.ts` | Sliding-window limiter: sync per-IP burst + sync/shared global ceiling. |
+| `src/lib/rate-limit-charge.ts` | The one charge pipeline: reserve the caller slot, charge the global ceiling (memory or store), keep or release, and count each refusal by limiter and layer. |
 | `src/app/api/quota/route.ts` | `GET /api/quota` peek. Charges `rateLimitRequestShared` (`QUOTA_PEEK_RATE_LIMIT`) so the global ceiling is fleet-wide when a shared store is configured. |
 | `src/lib/public-scan-limit.ts` | The free public-scan allowance + window — the ONE source both the gate and the marketing copy read. |
 | `src/lib/public-scan-quota.ts` | The persistent rolling-30-day public-scan gate: window math, bucket derivation, fail-open stance, the 429. |
