@@ -1169,8 +1169,23 @@ fails, the visible manual-copy textarea receives focus. Unmounting clears feedba
 timers and prevents late clipboard completions from calling the previous UI owner.
 
 Two export routes sit beside the PDF, both keyed the same way (`?repo=owner/name[@sha]`), both
-read-gated by the owning org (`readableOrgForOwner` → `requireOrgRead`, gate before read), and both
-404 rather than trigger a scan when the repo has no persisted report.
+read-gated by the owning org (gate before read), and both 404 rather than trigger a scan when the
+repo has no persisted report.
+
+**One read door: an export reads what the permalink reads (2026-10-22).** The PDF, LLM and
+share-card routes all go through `readReportForExport` (`src/lib/report/export-read.ts`): parse
+`?repo`, resolve the org with the permalink's own rule (`resolveReportOrg` in
+`src/lib/report/report-org.ts`: an optional `&org={slug}` hint is honoured **only** after
+`canReadOrg`, otherwise `readableOrgForOwner`, exactly as before), `requireOrgRead`, the PDF's plan
+gate (`beforeRead`, evaluated against that same org), then a **strict** `getScanReportByCommit`.
+A configured-but-unreachable database therefore answers **503** "Couldn't load this report right
+now", never the 404 "Scan it first"; an empty store is still 404. The report header forwards the
+page's `?org=` to the PDF and share-card hrefs (`reportExportHref`,
+`src/lib/report/export-href.ts`), so on `/report/acme/app?org=rebrand` the download, the
+`/api/report/llm?org=rebrand` body and the Copy-for-LLM chip are the same report. The hint is
+re-gated server-side, so forwarding it never widens reach: an org the viewer cannot read falls back
+to the owner rule. `src/app/api/report/export-door.test.ts` pins that no export route reads the
+report or resolves the org around the door (comments and strings stripped, seeded violations).
 
 | Route | Output | Plan-gated? |
 | --- | --- | --- |
@@ -1555,6 +1570,9 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/lib/report/llm-markdown.ts` | `reportLlmMarkdown()`: the single briefing generator behind both the copy chip and the endpoint. Pure/client-safe and deterministic. Leads with the mock-provenance block when `engine.provider === "mock"` (G9: body, not the generated-by footer). Emits a Flagged-for-review section (claim + `discrepancyOutcome` label/hint) when `discrepancies` is non-empty (G1). Counted evidence lines emit as their own bullets, not flattened into the dimension table (G2). Additive **Score integrity**, **Governance**, and **AI-attributed changes** sections when `scoreIntegrity` / `governance` / `aiChanges` are recorded; each heading is omitted when its field is absent or empty. Roadmap rows include `firstStep` when the scan recorded one (G2). |
 | `src/app/api/report/share-card/route.ts` | Downloadable PNG share card (attachment), rendered from the shared OG card. |
 | `src/lib/og/report-card.tsx` | `ReportShareCard`: the 1200×630 artwork shared by the permalink's `opengraph-image` and the share-card download. |
+| `src/lib/report/export-read.ts` | `readReportForExport`: the one read door for the PDF, LLM and share-card exports (permalink org rule, gate, optional `beforeRead`, strict read, 404/503, filename stem). |
+| `src/lib/report/report-org.ts` | `resolveReportOrg`: the canReadOrg-gated `?org=` hint, else `readableOrgForOwner`; shared by the permalink and the exports. |
+| `src/lib/report/export-href.ts` | `reportExportHref`: the header's export URLs, forwarding the page's `?org=` hint. Pure/client-safe. |
 | `src/app/api/report/pdf/route.ts` | Single-report PDF export. Read-gated by the owning org, then plan-gated (`planAllowsPdfExport`, the lowest paid tier `pro` and up); `PUBLIC_ORG` reports are exempt from the plan check, matching the unmetered public-scan model. |
 | `src/lib/pdf/report-document.tsx` | The exported PDF's layout (`@react-pdf/renderer`). Includes a "Roadmap & recommendations" section (title, impact/effort, `firstStep` when present, rationale, sorted quick-wins-first, same ordering as the in-app roadmap), a caveat box surfacing `report.warnings` near the top, a fallback "Incomplete scan" banner for a sparse/zero-dimension report so a degraded scan's PDF reads as caveated rather than a confident empty document, a Demo scoring box plus "Scored by … coverage N%" line in the **body** when the engine is mock so provenance is not a footer footnote (G9), counted evidence as its own lines under each dimension (G2), and a "Flagged for review" section listing each LLM-vs-detector discrepancy with its recorded outcome so a board PDF cannot hide disagreement the in-app report shows (G1). |
 | `src/components/report/ReportClient.tsx` | Live-scan orchestration: SSE stream, progress UI, validation. |

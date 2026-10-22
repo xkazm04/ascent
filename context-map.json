@@ -3236,7 +3236,13 @@
             "src/lib/pdf/theme.tsx",
             "src/lib/pdf/export-response.ts",
             "src/lib/report/llm-markdown.exemplar.test.ts",
-            "src/components/CopyForLlm.lifecycle.test.tsx"
+            "src/components/CopyForLlm.lifecycle.test.tsx",
+            "src/lib/report/export-read.ts",
+            "src/lib/report/export-read.test.ts",
+            "src/lib/report/report-org.ts",
+            "src/lib/report/export-href.ts",
+            "src/app/api/report/export-door.test.ts",
+            "src/components/report/ReportHeader.exportHref.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
