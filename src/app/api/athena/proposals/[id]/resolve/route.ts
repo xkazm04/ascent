@@ -29,6 +29,13 @@
 // `resolvedAt IS NULL`. If the work THROWS, the claim is released — and the release is itself guarded
 // on `status = 'accepted' AND resolvedAt IS NULL`, so it can only ever undo a claim, never a resolution.
 //
+// THE STATES ARE READ OFF ONE TABLE (src/lib/athena/proposal-lifecycle.ts), not off `status` alone. Only
+// `open` may be accepted or declined; every other state (claimed, claimed_stale, accepted, declined,
+// expired, unknown) is a 409 whose body names the current lifecycle state. If the STAMP fails after the
+// action ran, the row is NOT released (the side effect happened; re-opening would offer it twice): the
+// accept is still audited with outcome `unstamped`, the operator gets a 500 that says the action ran
+// but was not recorded, and the sweep stamps the claim `interrupted` once it is stale.
+//
 // GATING IS READ OFF THE SPEC (`requiredRole`), never from a list kept here — a second list is how a
 // catalog and its gate drift apart. The org's own published stance is CONSULTED rather than restated:
 // when it declares `provenance.requireHumanApproval`, an accept must be attributable to a named human,
@@ -60,6 +67,7 @@ import {
   type AthenaActionOutcome,
 } from "@/lib/athena/actions";
 import { executeAthenaAction } from "@/lib/athena/actions-execute";
+import { lifecycleOf, transition } from "@/lib/athena/proposal-lifecycle";
 import { gateAthenaOrg, refused } from "@/app/api/athena/gate";
 
 export const runtime = "nodejs";
@@ -90,11 +98,13 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 
   const proposal = await getAthenaProposal(gated.orgId, id);
   if (!proposal) return NextResponse.json({ error: "Proposal not found." }, { status: 404 });
-  if (proposal.status !== "open") {
-    // Not an error the operator caused — someone (possibly them, twice) already answered it. 409 is
-    // the honest code: the request is well-formed, the state has moved on.
+  const gate = transition(lifecycleOf(proposal), decision);
+  if (!gate.ok) {
+    // Not an error the operator caused - someone (possibly them, twice) already answered it, it
+    // expired, or its stored state is one this build cannot act on. 409 is the honest code: the
+    // request is well-formed, the state has moved on. `status` names the LIFECYCLE state.
     return NextResponse.json(
-      { error: "That proposal has already been answered.", status: proposal.status },
+      { error: "That proposal has already been answered.", status: gate.current },
       { status: 409 },
     );
   }
@@ -204,10 +214,16 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   // The outcome is MERGED INTO payloadJson (there is no outcome column and there must not be one), so
   // one row tells you both what was offered and what came of it. A refusal is stamped too: "it ran and
   // declined to act" is a resolution, and re-offering it would only refuse again.
-  const stamped = await stampAthenaProposal(gated.orgId, id, { ...outcome });
-  if (!stamped) {
-    return NextResponse.json({ error: "That proposal has already been answered." }, { status: 409 });
+  // The action HAS RUN by this line, so every path below writes the audit row, a thrown or lost stamp
+  // included. An AI-originated change must never land without one.
+  let stamped: Awaited<ReturnType<typeof stampAthenaProposal>> | "threw";
+  try {
+    stamped = await stampAthenaProposal(gated.orgId, id, { ...outcome });
+  } catch (err) {
+    console.error("[athena] stamp failed after the action ran", { proposalId: id, kind: proposal.kind, err });
+    stamped = "threw";
   }
+  const recorded = stamped !== null && stamped !== "threw";
 
   await recordOrgAudit(
     "athena_proposal.accepted",
@@ -216,13 +232,30 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       proposalId: id,
       threadId: proposal.threadId,
       kind: proposal.kind,
-      outcome: outcome.kind,
+      // `unstamped`: the action ran but its outcome is not on the row. `ranOutcome` keeps what it did.
+      outcome: recorded ? outcome.kind : "unstamped",
+      ...(recorded ? {} : { ranOutcome: outcome.kind }),
       ok: outcome.ok,
       summary,
       ...(outcome.data ? { data: outcome.data } : {}),
     },
     actor ?? undefined,
   );
+
+  if (stamped === "threw") {
+    // Deliberately NOT released: the side effect happened, so the claim is left for the sweep to stamp
+    // `interrupted` rather than reopened as an Accept that would run it a second time.
+    return NextResponse.json(
+      {
+        error:
+          "The action ran, but its outcome was not recorded. It will not be run again; check whether it took effect.",
+      },
+      { status: 500 },
+    );
+  }
+  if (!stamped) {
+    return NextResponse.json({ error: "That proposal has already been answered." }, { status: 409 });
+  }
 
   return say({ id, status: "accepted", outcome, summary });
 }

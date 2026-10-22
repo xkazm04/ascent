@@ -323,3 +323,46 @@ describe("decline", () => {
     expect((await post("decline")).status).toBe(200);
   });
 });
+
+describe("a stamp that throws after the action ran", () => {
+  it("answers 500 naming that it ran unrecorded, still audits, and leaves the claim for the sweep", async () => {
+    h.stampAthenaProposal.mockRejectedValue(new Error("deadlock"));
+    const res = await post("accept");
+    expect(res.status).toBe(500);
+    const body = await json(res);
+    expect(String(body.error)).toMatch(/ran/i);
+    expect(String(body.error)).toMatch(/not recorded/i);
+    expect(String(body.error)).not.toContain(String.fromCharCode(0x2014));
+    expect(h.recordOrgAudit).toHaveBeenCalledWith(
+      "athena_proposal.accepted",
+      "acme",
+      expect.objectContaining({ proposalId: "p1", outcome: "unstamped", ranOutcome: "ruled" }),
+      "dev",
+    );
+    // The action's side effect already happened: re-opening the row would offer to run it twice.
+    expect(h.releaseAthenaProposal).not.toHaveBeenCalled();
+  });
+
+  it("audits an action that ran even when the stamp lost the row to the sweep", async () => {
+    h.stampAthenaProposal.mockResolvedValue(null);
+    expect((await post("accept")).status).toBe(409);
+    expect(h.recordOrgAudit).toHaveBeenCalledWith(
+      "athena_proposal.accepted",
+      "acme",
+      expect.objectContaining({ proposalId: "p1", outcome: "unstamped" }),
+      "dev",
+    );
+  });
+
+  it("409s a stale claim and an unknown status with the named current state, running nothing", async () => {
+    h.getAthenaProposal.mockResolvedValue(proposal({ status: "banana" }));
+    const res = await post("decline");
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ status: "unknown" });
+    h.getAthenaProposal.mockResolvedValue(proposal({ status: "expired", resolvedAt: "then" }));
+    const res2 = await post("accept");
+    expect(res2.status).toBe(409);
+    expect(await json(res2)).toMatchObject({ status: "expired" });
+    expect(h.executeAthenaAction).not.toHaveBeenCalled();
+  });
+});
