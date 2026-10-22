@@ -73,6 +73,12 @@ vi.mock("@/lib/llm/text-org", () => ({ resolveLegRunnerForOrg: h.resolveLegRunne
 vi.mock("@/lib/llm/config", () => ({ supportsToolCalling: h.supportsToolCalling }));
 vi.mock("@/lib/llm/tool-loop", () => ({ runToolLoop: h.runToolLoop }));
 vi.mock("@/lib/mcp/handlers", () => ({ runTool: h.runTool, toolResultText: (r: { text?: string }) => r.text ?? "" }));
+// The real tool registry (Athena's catalog reads its holder flags) with its handler modules stubbed:
+// a binding resolves its handler only when called, and dispatch here goes through `h.runTool`.
+vi.mock("@/lib/mcp/work-tools", () => ({}));
+vi.mock("@/lib/mcp/registry-reads", () => ({}));
+vi.mock("@/lib/mcp/registry-writes", () => ({}));
+vi.mock("@/lib/mcp/exemplar-tool", () => ({}));
 
 const { GET, POST } = await import("@/app/api/athena/threads/route");
 

@@ -1,12 +1,13 @@
 // GROUNDING — how Athena reaches this organization's real data, and the gate she reaches it through.
 //
 // She dispatches the SAME tools the MCP door serves (src/lib/mcp/tools.ts), in-process, through the
-// same handlers (src/lib/mcp/handlers.ts) — with ONE exception. `recall_org_memory` is packed here
-// through `lifecycleWorkingSet` + `recallMemories` (the Memory tab's value model) rather than through
-// `runTool`, until that handler uses the same packer. One catalog, one serializer: an agent asking
-// the MCP endpoint for `get_repo_standing` and Athena answering the same question from the dashboard
-// must not be able to disagree about the fleet. They also must not disagree about which memory
-// matters, which is why this door will not borrow a ranking that is not the org's.
+// same dispatcher (`runTool`, which resolves every name through src/lib/mcp/tool-registry.ts) - with
+// no exception. `recall_org_memory` used to be packed here by a private copy that loaded the newest 60
+// rows and filtered afterwards, the false absence the MCP door had already fixed (query terms go into
+// the population before the cap). That copy is gone: Athena asks the door's own recall, with
+// `countDeliveries: false`, and gets the door's answer, never more. One catalog, one dispatcher, one
+// serializer: an agent asking the MCP endpoint and Athena answering from the dashboard cannot
+// disagree about the fleet or about which memory matters.
 //
 // ── THE GATE IS OURS, AND IT IS STRICTER THAN THE DOOR WE BORROWED FROM ─────────────────────────
 //
@@ -46,12 +47,10 @@
 // NOT fenced, because ascent authored it.
 
 import type { AthenaTool, ToolCall } from "@/lib/llm/leg";
-import { MCP_TOOLS } from "@/lib/mcp/tools";
-import { toolResultText, type ToolResult } from "@/lib/mcp/handlers";
-import { fail } from "@/lib/mcp/tool-result";
+import { MCP_TOOLS, type McpToolDef } from "@/lib/mcp/tools";
+import { toolResultText, type RunToolOptions, type ToolResult } from "@/lib/mcp/handlers";
+import { MCP_TOOL_BINDINGS } from "@/lib/mcp/tool-registry";
 import { sanitizeAgentText, wrapUntrusted } from "@/lib/llm/untrusted";
-import { lifecycleWorkingSet } from "@/lib/db/org-memory-lifecycle";
-import { DEFAULT_CHAR_BUDGET, recallMemories, type RecallCandidate } from "@/lib/memory/recall";
 
 /** The one tool that reads the org's memory store. */
 export const ATHENA_MEMORY_TOOL = "recall_org_memory";
@@ -76,19 +75,6 @@ export const ATHENA_UNTRUSTED_TOOLS = new Set([
  */
 export const ATHENA_TOOL_RESULT_MAX = 12_000;
 
-/**
- * How many stored memories the tool path considers before ranking. The ranking, not this number,
- * decides — same bound the prefetch path uses in `src/app/api/athena/gate.ts`.
- */
-export const ATHENA_RECALL_CANDIDATES = 60;
-
-/** A working-set row the memory tool can rank. Structurally satisfied by db `MemoryRow`. */
-export interface AthenaMemoryRow extends RecallCandidate {
-  tags?: string[];
-  source?: string;
-  notUsefulCount?: number;
-}
-
 export interface AthenaGroundingDeps {
   /** May the caller read this org AT ALL. In the routes this is `canReadOrg` from @/lib/authz. */
   canReadOrg: (org: string) => Promise<boolean>;
@@ -104,14 +90,18 @@ export interface AthenaGroundingDeps {
    * route supplies it, the tools appear with no further change here.
    */
   skillsAllowed?: (org: string) => Promise<boolean>;
-  /** Dispatch. In the routes this is `runTool` from @/lib/mcp/handlers, unchanged. */
-  runTool: (name: string, org: string, args: Record<string, unknown>) => Promise<ToolResult>;
   /**
-   * Working set for `recall_org_memory`. Production omits this; grounding loads
-   * `lifecycleWorkingSet` (every namespace — never the write-check helper). Tests inject a fixture
-   * so the adapter is the thing under test, not Prisma.
+   * Dispatch. In the routes this is `runTool` from @/lib/mcp/handlers, unchanged. Athena never passes
+   * a principal; she passes `{ countDeliveries: false }` on recall so a chat turn is not counted as an
+   * agent using a memory.
    */
-  loadWorkingSet?: (org: string, opts: { limit: number }) => Promise<AthenaMemoryRow[]>;
+  runTool: (
+    name: string,
+    org: string,
+    args: Record<string, unknown>,
+    principal?: undefined,
+    opts?: RunToolOptions,
+  ) => Promise<ToolResult>;
 }
 
 export interface AthenaGrounding {
@@ -121,104 +111,44 @@ export interface AthenaGrounding {
   execute: (call: ToolCall) => Promise<string>;
 }
 
-/**
- * The catalog as the leg transports want it — the MCP definitions minus their server-side `scopes`.
- *
- * Filtered on the tool's OWN `mutates` marker and `planGate` rather than on a list kept here: a write
- * tool added by a future lane is refused to Athena the moment it is marked, with no edit to this file
- * and no chance of the list being forgotten.
- *
- * AND ON THE PRINCIPAL SCOPE, for the same structural reason. `mutates` catches the writes; it does
- * not catch `get_fix_brief`, which reads — but reads only rows a named HOLDER holds, and this runner
- * has no principal to be one (`runTool` fails it closed with "acts on this organization's work queue
- * on behalf of a named holder, and this call carried none"). Offering it was offering a tool whose
- * every invocation was a refusal: the model spends a turn on it, reports the capability as broken, and
- * the org's tokens paid for both. `followups:write` is the catalog's own marker for "this tool needs a
- * holder", so a future work tool disappears from here the moment it declares that scope.
- */
-const PRINCIPAL_SCOPE = "followups:write" as const;
+/** The registry the catalog is computed from: the definitions and whether each needs a holder. */
+export interface AthenaToolRegistry {
+  tools: readonly McpToolDef[];
+  bindings: Readonly<Record<string, { holder: boolean }>>;
+}
 
-export function athenaToolCatalog(opts: { memoryAllowed: boolean; skillsAllowed?: boolean }): AthenaTool[] {
+const DEFAULT_REGISTRY: AthenaToolRegistry = { tools: MCP_TOOLS, bindings: MCP_TOOL_BINDINGS };
+
+/**
+ * The catalog as the leg transports want it - the MCP definitions minus their server-side `scopes`.
+ *
+ * COMPUTED BY EXCLUSION from the one registry, never by a list kept here: a write tool added by a
+ * future lane is refused to Athena the moment it is marked `mutates`, and a tool that acts for a
+ * named holder disappears the moment its binding declares `holder: true`. The holder is a property
+ * of the binding, not inferred from a scope: `get_fix_brief` READS, so `mutates` does not catch it,
+ * but it reads only rows a named holder holds and this runner has no principal to be one, so every
+ * call would be a refusal. A name with no binding at all is withheld too (dispatch would answer
+ * "Unknown tool"), which is the fail-closed reading of a registry that drifted.
+ */
+export function athenaToolCatalog(opts: {
+  memoryAllowed: boolean;
+  skillsAllowed?: boolean;
+  registry?: AthenaToolRegistry;
+}): AthenaTool[] {
   const open = { memory: opts.memoryAllowed, skills: Boolean(opts.skillsAllowed) };
-  return MCP_TOOLS.filter((t) => !t.mutates)
-    .filter((t) => !t.scopes.includes(PRINCIPAL_SCOPE))
+  const { tools, bindings } = opts.registry ?? DEFAULT_REGISTRY;
+  return tools
+    .filter((t) => !t.mutates)
+    .filter((t) => Object.prototype.hasOwnProperty.call(bindings, t.name) && bindings[t.name]?.holder === false)
     .filter((t) => !t.planGate || open[t.planGate])
     .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
 }
 
+/** The catalog by name, built once: `execute` asks it per call instead of re-scanning the list. */
+const TOOL_BY_NAME: ReadonlyMap<string, McpToolDef> = new Map(MCP_TOOLS.map((t) => [t.name, t]));
+
 const argsOf = (call: ToolCall): Record<string, unknown> =>
   call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args : {};
-
-const memoryLimitOf = (args: Record<string, unknown>): number => {
-  const n = typeof args.limit === "number" ? args.limit : NaN;
-  return Number.isFinite(n) ? Math.max(1, Math.min(20, Math.floor(n))) : 5;
-};
-
-const haystackOf = (row: AthenaMemoryRow): string =>
-  `${row.content} ${(row.tags ?? []).join(" ")}`.toLowerCase();
-
-/**
- * `recall_org_memory` for this door. Term overlap is a RELEVANCE FILTER; packing is `recallMemories`
- * — the same value model the Memory tab and Athena's prefetch already use. The MCP handler still
- * slices `scoreMemories` by `limit` (sibling finding); dispatching through it would let a tool-
- * calling turn disagree with the Memory tab about which note matters.
- *
- * Deliveries are NOT bumped here. This is a companion side-read, the same posture as prefetch:
- * counting chat-tool deliveries would feed the Memory tab's ranking from an operator conversation,
- * and Athena cannot `cite_memory` to distinguish use from delivery anyway.
- */
-async function recallOrgMemoryLocal(
-  org: string,
-  args: Record<string, unknown>,
-  loadWorkingSet: (org: string, opts: { limit: number }) => Promise<AthenaMemoryRow[]>,
-): Promise<ToolResult> {
-  const query = typeof args.query === "string" ? args.query.trim() : "";
-  if (!query) return fail("Provide a `query` describing what you are about to do or decide.");
-
-  const rows = await loadWorkingSet(org, { limit: ATHENA_RECALL_CANDIDATES });
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const matched = rows.filter((r) => {
-    const hay = haystackOf(r);
-    return terms.some((t) => hay.includes(t));
-  });
-
-  if (matched.length === 0) {
-    return {
-      structuredContent: {
-        org,
-        query,
-        count: 0,
-        entries: [],
-        note: "No stored memory matched. That means nothing was recorded on this topic, not that the approach is endorsed.",
-      },
-    };
-  }
-
-  const packed = recallMemories(matched, { now: Date.now(), charBudget: DEFAULT_CHAR_BUDGET })
-    .selected.slice(0, memoryLimitOf(args));
-
-  return {
-    structuredContent: {
-      org,
-      query,
-      count: packed.length,
-      entries: packed.map((s) => {
-        const r = s.memory as AthenaMemoryRow;
-        return {
-          id: r.id,
-          kind: r.kind,
-          namespace: r.namespace ?? "",
-          content: r.content,
-          tags: r.tags ?? [],
-          source: r.source ?? "",
-          confidence: r.confidence,
-          citedCount: r.citedCount ?? 0,
-          notUsefulCount: r.notUsefulCount ?? 0,
-        };
-      }),
-    },
-  };
-}
 
 /**
  * Build the grounding for one turn.
@@ -243,9 +173,6 @@ export async function createAthenaGrounding(
   const skillsAllowed = deps.skillsAllowed ? await deps.skillsAllowed(slug).catch(() => false) : false;
   const tools = athenaToolCatalog({ memoryAllowed, skillsAllowed });
   const offered = new Set(tools.map((t) => t.name));
-  const loadWorkingSet =
-    deps.loadWorkingSet ??
-    ((orgSlug: string, opts: { limit: number }) => lifecycleWorkingSet(orgSlug, opts, null));
 
   const execute = async (call: ToolCall): Promise<string> => {
     const name = call?.name ?? "";
@@ -253,7 +180,7 @@ export async function createAthenaGrounding(
     // A WRITE TOOL IS REFUSED BY NAME, before the offered-tools check, so the answer explains itself
     // rather than reading as "that tool does not exist". Athena reports nobody's behaviour: the write
     // tools exist for the agent that did the work, and she did not do it.
-    if (MCP_TOOLS.find((t) => t.name === name)?.mutates) {
+    if (TOOL_BY_NAME.get(name)?.mutates) {
       return `I can read this organization's data, but I do not write to it. "${name}" reports what an agent did with a skill or a memory, and that report has to come from the agent that did the work — not from me relaying a conversation.`;
     }
 
@@ -265,7 +192,7 @@ export async function createAthenaGrounding(
     if (name === ATHENA_MEMORY_TOOL && !memoryAllowed) {
       return "Shared Org Memory is a Team-plan feature and is not available for this workspace, so there is nothing recorded that I can read here.";
     }
-    if (!skillsAllowed && MCP_TOOLS.find((t) => t.name === name)?.planGate === "skills") {
+    if (!skillsAllowed && TOOL_BY_NAME.get(name)?.planGate === "skills") {
       return "The Skills Library is not available for this workspace, so there are no curated skills or registry subjects I can read here.";
     }
     if (!offered.has(name)) {
@@ -276,11 +203,12 @@ export async function createAthenaGrounding(
 
     let result: ToolResult;
     try {
-      // Memory is the exception: pack with the org's value model, never the MCP handler, until
-      // that handler does the same. Every other tool still shares one implementation.
+      // ONE implementation for every tool, memory included. Recall is the door's own recall (terms
+      // before the cap, the shared packer, notConsideredCount), told not to count this side-read as a
+      // delivery: Athena cannot cite_memory, so a delivery here would be use-evidence nobody used.
       result =
         name === ATHENA_MEMORY_TOOL
-          ? await recallOrgMemoryLocal(slug, argsOf(call), loadWorkingSet)
+          ? await deps.runTool(name, slug, argsOf(call), undefined, { countDeliveries: false })
           : await deps.runTool(name, slug, argsOf(call));
     } catch (err) {
       return `Tool "${name}" failed: ${err instanceof Error ? err.message : String(err)}`;
