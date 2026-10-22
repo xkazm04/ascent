@@ -55,7 +55,7 @@ export type {
 } from "./retention-policy";
 import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans";
-import { redactAuditIdentity } from "@/lib/db/audit-integrity";
+import { redactAuditRow } from "@/lib/db/audit-append";
 import { ATHENA_MEMORY_SOURCE } from "@/lib/db/athena-episodes";
 import { purgeStalePublicScanQuota } from "@/lib/public-scan-quota";
 import {
@@ -1515,16 +1515,7 @@ async function redactOrgAudit(
     await withRetry(
       () =>
         prisma.$transaction(async (tx) => {
-          for (const row of rows) {
-            const redacted = redactAuditIdentity(
-              { action: row.action, orgId: row.orgId, createdAt: new Date(row.at).toISOString() },
-              redactedAt,
-            );
-            await tx.auditLog.update({
-              where: { id: row.id },
-              data: { actorId: redacted.actorId, meta: JSON.stringify(redacted.meta) },
-            });
-          }
+          for (const row of rows) await redactAuditRow(tx, row, redactedAt);
         }),
       { label: "erase.redact-audit" },
     );
