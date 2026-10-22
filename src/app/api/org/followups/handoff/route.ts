@@ -21,6 +21,14 @@
 // 403 above: one foreign or unknown id and nothing is claimed. Before 2026-09-24 this route called
 // `handoffRecommendations`, which moved the status and wrote no claim column, so the ledger's claim
 // line stayed blank after a hand-off. Original spec: docs/specs/2026-08-30-followups-handoff-batch.md.
+//
+// ORIGIN "sandbox" (roadmap-1), optional and additive: { ids, origin: "sandbox", projectedDelta }.
+// The Roadmap Sandbox commits through this same door instead of a loop of status-only PATCHes. It
+// does not know the org, and a caller-supplied org beside caller-supplied ids is never trusted, so
+// that branch RESOLVES the org from the first id's row (resolve-then-gate, as the per-id PATCH does)
+// and ignores any `org` in the body; `allOrNothingTenancy` then refuses the batch if any other id
+// belongs elsewhere. An unknown first id is the same 403 as a foreign one. The note is the signed
+// sandbox projection (sandboxCommitNote). A body WITHOUT `origin` takes the default branch, unchanged.
 
 import { NextResponse } from "next/server";
 import { PUBLIC_ORG } from "@/lib/auth";
@@ -28,6 +36,8 @@ import { resolveViewerLogin } from "@/lib/access";
 import { requireOrgAccess } from "@/lib/authz";
 import { dbGuard } from "@/lib/api/orgPlan";
 import { claimFollowups } from "@/lib/db/followup-claims";
+import { getRecommendationOrgSlug } from "@/lib/db/scans-recommendations";
+import { sandboxCommitNote } from "@/components/report/sandboxCommitModel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +50,8 @@ export async function POST(request: Request) {
   if (guard) return guard;
 
   const body = (await request.json().catch(() => ({}))) as { org?: unknown; ids?: unknown };
+  const origin = (body as { origin?: unknown } | null)?.origin;
+  if (origin !== undefined) return sandboxHandoff(body as SandboxBody);
   const org = typeof body.org === "string" ? body.org.trim().toLowerCase() : "";
   const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
   if (!org) return NextResponse.json({ error: "Missing 'org'." }, { status: 400 });
@@ -67,6 +79,50 @@ export async function POST(request: Request) {
   // Unknown and foreign ids get the SAME whole-request refusal — no existence oracle.
   if (!outcome || outcome.refused.some((r) => r.reason === "unknown")) {
     return NextResponse.json({ error: "One or more items do not belong to this organization." }, { status: 403 });
+  }
+  return NextResponse.json({ marked: outcome.claimed.map((c) => c.id), skipped: outcome.refused });
+}
+
+interface SandboxBody {
+  ids?: unknown;
+  origin?: unknown;
+  projectedDelta?: unknown;
+}
+
+const FOREIGN = "One or more items do not belong to this organization.";
+
+/** The `origin: "sandbox"` branch: org resolved from the first row, then the same human claim. */
+async function sandboxHandoff(body: SandboxBody) {
+  if (body.origin !== "sandbox") return NextResponse.json({ error: "Unknown 'origin'." }, { status: 400 });
+  const delta = body.projectedDelta;
+  if (typeof delta !== "number" || !Number.isFinite(delta)) {
+    return NextResponse.json({ error: "'projectedDelta' must be a finite number." }, { status: 400 });
+  }
+  const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
+  if (ids.length === 0) return NextResponse.json({ error: "Missing 'ids'." }, { status: 400 });
+  if (ids.length > MAX_BATCH) return NextResponse.json({ error: `At most ${MAX_BATCH} items per hand-off.` }, { status: 400 });
+
+  const owner = await getRecommendationOrgSlug(ids[0]!);
+  if (!owner) return NextResponse.json({ error: FOREIGN }, { status: 403 });
+  const org = owner.trim().toLowerCase();
+  if (org === PUBLIC_ORG) {
+    return NextResponse.json({ error: "Follow-up tracking is available for your own organization's scans." }, { status: 403 });
+  }
+  const denied = await requireOrgAccess(org);
+  if (denied) return denied;
+
+  const actor = (await resolveViewerLogin()) ?? BROWSER_HOLDER;
+  const outcome = await claimFollowups({
+    org,
+    ids,
+    actor,
+    executor: "human",
+    leaseMs: null,
+    note: sandboxCommitNote(delta),
+    allOrNothingTenancy: true,
+  });
+  if (!outcome || outcome.refused.some((r) => r.reason === "unknown")) {
+    return NextResponse.json({ error: FOREIGN }, { status: 403 });
   }
   return NextResponse.json({ marked: outcome.claimed.map((c) => c.id), skipped: outcome.refused });
 }
