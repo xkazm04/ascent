@@ -13,6 +13,11 @@
 // A budget-stopped run's `queued` remainder is followed through startQueueFollow (the shared ceiling)
 // until it drains; then the org's recentScan marker is cleared and its /api/app/repos list pulled once,
 // instead of the map deferring that org for SCAN_SETTLE_MS and never reading the remainder at all.
+//
+// runPlan executes a fleetScopeModel plan ("Scan what you filtered") as ONE pending batch: each run is
+// an ordinary scoped scan, one org at a time under the same lock; Cancel stops it before the next org
+// (the in-flight org finishes, so nothing it was charged for is thrown away); a refusal, an in-band
+// error or a network failure stops it, with that org's card saying why.
 
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 import { useScanStream } from "@/components/org/shared/useScanStream";
@@ -22,6 +27,7 @@ import type { Installation } from "./FleetMap.constants";
 import { applyScanEvent } from "./applyScanEvent";
 import { type FleetQueued, type FleetScanOutcome, fleetScanOutcome, refusedOutcome } from "./fleetScanOutcomeModel";
 import { type Constellation, mapRepos } from "./fleetMapStars";
+import { type ScopePlan, scanDisabledFor } from "./fleetScopeModel";
 import { mergeStars } from "./mergeStars";
 
 interface FleetRun {
@@ -34,6 +40,9 @@ interface FleetRun {
 
 /** A scoped scan (a retry of named failures); omitted = the org's whole watchlist. */
 export type FleetScanScope = { repos?: string[] };
+
+/** How one scan ended, for the plan runner: anything but "ok" stops a plan. */
+type ScanEnd = "ok" | "stopped" | "busy";
 
 const NETWORK_ERROR = "Network error: scan didn't run. Try again.";
 
@@ -49,6 +58,8 @@ export function useFleetScan(installations: Installation[], setConstellations: D
   const scanningRef = useRef<string | null>(null);
   const follows = useRef<Map<string, () => void>>(new Map());
   const alive = useRef(true);
+  const planRef = useRef<{ cancelled: boolean } | null>(null);
+  const [plan, setPlan] = useState<{ cancelling: boolean } | null>(null);
 
   useEffect(() => {
     alive.current = true;
@@ -116,8 +127,15 @@ export function useFleetScan(installations: Installation[], setConstellations: D
     follows.current.set(login, startQueueFollow({ read, onCeiling, immediate: false }));
   }
 
+  /** The per-org Scan (and Retry): a no-op while a plan holds the lock. */
   async function scan(login: string, scope?: FleetScanScope) {
-    if (scanningRef.current) return;
+    if (planRef.current) return;
+    await scanOrg(login, scope);
+  }
+
+  async function scanOrg(login: string, scope?: FleetScanScope): Promise<ScanEnd> {
+    if (scanningRef.current) return "busy";
+    let end: ScanEnd = "ok";
     scanningRef.current = login;
     setScanning(login);
     setScanError((e) => {
@@ -140,6 +158,7 @@ export function useFleetScan(installations: Installation[], setConstellations: D
       onRefused: (d, status) => {
         if (!live()) return;
         const error = status >= 200 && status < 300 ? "Scan failed to start." : (d?.error ?? null);
+        end = "stopped";
         putRun(login, { ...run, refused: { error, status, code: d?.code } });
       },
       onMessage: (msg) => {
@@ -147,7 +166,10 @@ export function useFleetScan(installations: Installation[], setConstellations: D
         setConstellations((cur) => applyScanEvent(cur, login, msg));
         const { event, data } = msg;
         if (!event || !data) return;
-        if (event === "error") run = { ...run, inBandError: String(data.error ?? "Scan failed.") };
+        if (event === "error") {
+          end = "stopped";
+          run = { ...run, inBandError: String(data.error ?? "Scan failed.") };
+        }
         else if (event === "queued") {
           const runId = String(data.runId ?? "");
           const pending = Number(data.queued);
@@ -162,6 +184,7 @@ export function useFleetScan(installations: Installation[], setConstellations: D
         if (run.queued && run.queued.pending > 0) followQueue(login, run.queued.runId);
       },
       onNetworkError: () => {
+        end = "stopped";
         if (live()) setScanError((m) => ({ ...m, [login]: NETWORK_ERROR }));
       },
       onSettled: () => {
@@ -171,6 +194,32 @@ export function useFleetScan(installations: Installation[], setConstellations: D
         setScanning((s) => (s === login ? null : s));
       },
     });
+    return ctrl.signal.aborted ? "stopped" : end;
+  }
+
+  /** Run a scoped plan one org at a time. Synchronously claims the lock, so a double click starts one. */
+  async function runPlan(p: ScopePlan) {
+    if (planRef.current || scanningRef.current) return;
+    const token = { cancelled: false };
+    planRef.current = token;
+    setPlan({ cancelling: false });
+    try {
+      for (const r of p.runs) {
+        if (token.cancelled || !alive.current) break;
+        if (r.repos.length === 0) continue; // an empty scope widens to the whole watchlist server-side
+        if ((await scanOrg(r.org, { repos: r.repos })) !== "ok") break;
+      }
+    } finally {
+      if (planRef.current === token) planRef.current = null;
+      if (alive.current) setPlan(null);
+    }
+  }
+
+  /** Stop the plan before its next org; the org in flight finishes and reports as usual. */
+  function cancelPlan() {
+    if (!planRef.current) return;
+    planRef.current.cancelled = true;
+    setPlan({ cancelling: true });
   }
 
   /** Re-scan exactly the last run's failures through the ordinary scoped POST (same credit rules). */
@@ -192,5 +241,10 @@ export function useFleetScan(installations: Installation[], setConstellations: D
     return out;
   }, [runs, scanning]);
 
-  return { scanning, scanError, outcomes, scan, retryFailed, scanCtrl, scanGen, recentScan };
+  const planActive = plan !== null;
+  return {
+    scanning, scanError, outcomes, scan, retryFailed, scanCtrl, scanGen, recentScan,
+    runPlan, cancelPlan, planActive, planCancelling: plan?.cancelling ?? false,
+    scanDisabledFor: (login: string) => scanDisabledFor(login, scanning, planActive),
+  };
 }

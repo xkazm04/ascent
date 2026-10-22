@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { type MatchCount, type SortKey } from "./fleetMapDerive";
 import { LEVEL_BANDS, SORTS } from "./FleetMap.constants";
 
@@ -24,6 +24,7 @@ export function TriageControls({
   filterActive,
   matchCount,
   onClear,
+  action,
 }: {
   query: string;
   setQuery: (v: string) => void;
@@ -37,6 +38,8 @@ export function TriageControls({
   /** Fleet-wide tally of repos passing the active filter (see countMatches). */
   matchCount: MatchCount;
   onClear: () => void;
+  /** Something to DO with the match set, beside its count (FleetMap passes the scoped ScopeScan). */
+  action?: ReactNode;
 }) {
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -123,6 +126,7 @@ export function TriageControls({
               ? `no repos match · ${matchCount.total} charted`
               : `${matchCount.matched} of ${matchCount.total} match`}
           </span>
+          {action}
           <button
             type="button"
             onClick={onClear}
@@ -132,6 +136,8 @@ export function TriageControls({
           </button>
         </>
       )}
+      {/* A running scoped plan keeps its Cancel even after the filter is cleared. */}
+      {!filterActive && action}
     </div>
   );
 }

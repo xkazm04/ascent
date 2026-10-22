@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet } from "./FleetMapChrome";
 import { FleetHeader } from "./FleetMap.Header";
+import { ScopeScan } from "./FleetMap.ScopeScan";
 import { missionControlHref, type Installation } from "./FleetMap.constants";
 import { TriageControls } from "./FleetMap.TriageControls";
 import { useFleetData } from "./useFleetData";
@@ -15,6 +16,7 @@ import {
   launchTriageHref, makeMatcher, orderConstellations, resolveLaunchTriage, showTriageControls,
 } from "./fleetMapDerive";
 import { type Constellation, DENSE_FLEET_STARS } from "./fleetMapStars";
+import { scopePlan } from "./fleetScopeModel";
 
 export function FleetMap({
   installations,
@@ -109,6 +111,8 @@ export function FleetMap({
   // How much of the fleet survives the filter. Because filtering DIMS rather than removes, a
   // zero-match query and "the whole fleet is faint" look identical — the count says which it is.
   const matchCount = useMemo(() => countMatches(constellations, matcher), [constellations, matcher]);
+  // "Scan what you filtered": the match set's watched repos as scoped per-org runs (fleetScopeModel).
+  const plan = useMemo(() => scopePlan(constellations, matcher), [constellations, matcher]);
 
   // Order the org cards by the chosen key; loaded constellations rank ahead of loading/error ones.
   const ordered = useMemo(() => orderConstellations(constellations, sortKey), [constellations, sortKey]);
@@ -154,6 +158,15 @@ export function FleetMap({
             setSortKey={(v) => { setSort(v); commit({ sortKey: v }); }}
             filterActive={filterActive}
             matchCount={matchCount}
+            action={
+              <ScopeScan
+                plan={plan}
+                active={fleetScan.planActive}
+                cancelling={fleetScan.planCancelling}
+                onRun={() => plan && void fleetScan.runPlan(plan)}
+                onCancel={fleetScan.cancelPlan}
+              />
+            }
             onClear={() => {
               setQuery("");
               setLevels(new Set());
@@ -176,7 +189,7 @@ export function FleetMap({
                 onScan={() => void fleetScan.scan(c.login)}
                 onRetry={onRetry}
                 scanning={scanning === c.login}
-                scanDisabled={scanning !== null && scanning !== c.login}
+                scanDisabled={fleetScan.scanDisabledFor(c.login)}
                 scanError={scanError[c.login]}
                 scanOutcome={outcomes[c.login]}
                 onRetryFailed={() => void fleetScan.retryFailed(c.login)}
