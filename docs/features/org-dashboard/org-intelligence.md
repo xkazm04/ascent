@@ -2061,6 +2061,40 @@ and a 202 on a payload it cannot parse would read to the collector as "delivered
 ever persists. `/v1/logs` authenticates and 202-accepts without parsing; the token/cost signal
 lives in metrics; folding log events into usage is a later step.
 
+### Spend that lands nowhere: reconcile with Delivery (2026-10-22)
+
+AI delivery draws a row only for a repo with scanned pull-request signals (`getOrgPrSignals.perRepo`)
+and looks measured spend up by that row's lower-cased fullName, so measured Claude Code spend on any
+other repo used to vanish from Delivery without a trace, while this page counted it as "N repos
+attributed" and the ladder marked it reached.
+
+- **The read.** `getMeasuredAttribution` (`src/lib/db/integrations-attribution.ts`) sums measured
+  `scope=repo` Claude Code spend per repo over the **Delivery default window** (last 90 days) and
+  returns it beside **Delivery's own join set** (`getOrgPrSignals.perRepo`, whole org) and the fleet
+  (Repository rows). One authority for the join, so this page cannot disagree with Delivery. It runs
+  after the owner gate and rides on the Claude Code status row.
+- **The buckets** (`attributionReconcileModel.ts`, pure): *landed* (Delivery shows it), *in the fleet
+  with no PR signals* (remedy: rescan from Repositories), *outside the fleet* (remedy: scan it to add
+  it). A `gitlab:` repo outside the fleet with no stored GitLab installation reads "Connect GitLab
+  first" and is left out of the scan.
+- **The surface.** Under the Claude Code connect panel in both compositions: "$10.00 of $50.00 measured
+  spend (20%) lands on 1 repository AI delivery cannot show", each hidden repo with its cost and
+  remedy, and one **Scan N repositories** button. With no measured repo rows it renders nothing: no
+  "$0 hidden" line, because unknown is not zero.
+- **The scan is a one-shot import, disclosed before it runs.** The button calls `runImportScan`
+  against the existing `POST /api/org/import` with `watch:false`, `schedule:"off"`, `mock:false`,
+  most hidden cost first. Its caption names the cost (1 scan credit per repository, N in all, from
+  the monthly allowance or prepaid credits). The route is unchanged, so its auth, public-org rules,
+  credit reservation, capacity truncation and forge-bound tokens all apply; a repo skipped for
+  credits shows as skipped. The page refreshes when the stream ends and the buckets re-derive.
+- **The ladders.** Claude Code's "Telemetry landed" step and the spend ladder's "On a repository" step
+  are **reached only when at least one measured repo lands on Delivery**; with measured repos and none
+  landed they are `current`, and the detail names the hidden dollars. Without a reconcile read they
+  keep the repo-count reading.
+- **Known gap:** the provider card's "N repos attributed" sentence (`ProviderStatus.tsx`) still
+  counts every attributed repo, including the ones Delivery cannot show; the reconcile line beside it
+  is what says which.
+
 ### Replay-safe delta ingest (2026-10-22)
 
 OTLP delivery is at-least-once: a timeout, a proxy 502/504 after the write committed, or a mid-batch
