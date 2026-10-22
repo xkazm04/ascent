@@ -422,6 +422,24 @@ is owner-gated. POST is same-origin then owner. All four fields are required on 
 `preview: true` counts what the *proposed* policy would delete and writes nothing. A save writes the
 four columns, records `retention.updated` with `purged: false`, and does not run the purge.
 
+**What the edit adds.** When the draft differs from the stored columns, the preview runs the same
+dry run twice (stored, then proposed) and answers `{ dryRun, stored, preview, baseline, errors }`;
+a draft equal to the stored policy runs once and `baseline === preview`. `errors` merges both
+runs. A missing result row is sent as `null` (unknown), never as a zero-filled row. The card
+(`RetentionPreviewPanel.tsx`, model `retentionPreviewModel.ts`) draws one row per counter the
+body carried, derived from `PURGE_COUNTER_KEYS` plus `digestsWouldWrite` and labelled from the
+erase dialog's table (`blastLabel` in `erasePreviewViz.ts`): Now, Proposed, and Edit adds. A
+`null` count reads "unknown" in both the value and the delta; a response with no `preview`
+renders "could not be counted" and keeps Save disabled; the preview's `errors` render in an
+alert.
+
+**Last-purge receipt.** `getRetentionReceipt(slug)` (`src/lib/db/retention-receipt.ts`) reads
+the newest `retention.purged` and `retention.updated` AuditLog rows with `orgId` = this org's
+id only (an unknown slug reads nothing; the orphan sweep's org-less rows are never seen). The
+strip says "Last purge removed N rows on <day>" when the purge row is newer than the save, and
+"No purge has removed anything since this policy was saved" otherwise. It never says "did not
+run": a purge that deletes nothing writes no row by design, so absence means nothing removed.
+
 ## Key files
 
 | File | Role |
@@ -436,6 +454,9 @@ four columns, records `retention.updated` with `purged: false`, and does not run
 | `src/lib/db/retention-ledgers.test.ts` | Predicate-snapshot pins: the literal predicates and the surviving rows, including the cutoff boundary. |
 | `src/lib/db/retention.test.ts` | Policy + purge + erasure + compaction tests. |
 | `src/features/admin/settings/RetentionCard.tsx` | Owner Settings card: four fields, floor refusal, dry-run required before save. |
+| `src/features/admin/settings/RetentionPreviewPanel.tsx` | Per-ledger delta table (now, proposed, edit adds), the preview errors alert, and the last-purge receipt strip. |
+| `src/features/admin/settings/retentionPreviewModel.ts` / `retentionReceiptModel.ts` | Pure models: rows from `PURGE_COUNTER_KEYS`, unknown never 0; receipt states applied / not-since-save / never / unknown. |
+| `src/lib/db/retention-receipt.ts` | `getRetentionReceipt`: this org's newest `retention.purged` / `retention.updated` rows, org-id scoped. |
 | `src/lib/db/scan-digest.ts` | The digest fold (pure), the in-transaction upsert, the tail read, digest ageing, and `getCompactionCoverage`. |
 | `src/lib/db/scan-digest.test.ts` / `scan-digest-read.test.ts` | The pure fold's exactness + the persistence half. |
 | `src/components/report/TrendChart.CompactedBand.tsx` | The dashed-run path split, the legend, and the compacted tooltip lines. |

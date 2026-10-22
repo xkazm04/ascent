@@ -164,7 +164,10 @@
         "src/features/admin/settings/RetentionCard*",
         "src/lib/db/scan-digest*.ts",
         "src/lib/db/retention-ledgers*.ts",
-        "src/lib/db/retention-counters*.ts"
+        "src/lib/db/retention-counters*.ts",
+        "src/lib/db/retention-receipt*.ts",
+        "src/features/admin/settings/RetentionPreviewPanel*",
+        "src/features/admin/settings/retention*Model*.ts"
       ]
     },
     {
