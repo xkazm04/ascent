@@ -121,6 +121,6 @@ describe("applyResult", () => {
     expect(r.openCount).toBe(2);
     expect(r.error?.status).toBe(status);
     expect(r.error?.message).toBeTruthy();
-    expect(r.error?.message).not.toContain("—");
+    expect(r.error?.message).not.toContain(String.fromCharCode(0x2014));
   });
 });

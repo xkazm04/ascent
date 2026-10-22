@@ -1,8 +1,9 @@
 "use client";
 
-// Cell-click detail for the Repositories heatmap: a repo's ONE dimension — score provenance,
-// evaluation (summary/evidence/gaps) and the open recommendations ("next steps") — lazily fetched
-// from /api/org/repo-dimension when a cell is clicked, so the fleet grid itself stays lightweight.
+// Cell-click detail for the Repositories heatmap: a repo's ONE dimension (score provenance,
+// evaluation, and the dimension's tracked "next steps" with their status and in-place verdicts,
+// RepoDimensionNextSteps), lazily fetched from /api/org/repo-dimension when a cell is clicked, so the
+// fleet grid itself stays lightweight.
 // Reuses the report's DimensionDetail so a heatmap drill-in reads identically to the per-repo report.
 //
 // Built on the brand `Modal`, which PORTALS into the app's ModalRoot. It used to render a hand-rolled
@@ -17,9 +18,10 @@ import Link from "next/link";
 import type { ScanReport } from "@/lib/types";
 import { Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui";
 import { DimensionDetail } from "@/components/report/DimensionDetail";
-import { MarkdownLite } from "@/components/report/MarkdownLite";
 import type { TrendPoint } from "@/components/report/TrendChart";
-import { DIMENSION_SHORT, EFFORT_CLASS, IMPACT_CLASS } from "@/lib/ui";
+import { DIMENSION_SHORT } from "@/lib/ui";
+import type { DimensionStep } from "@/lib/org/dimensionStepsModel";
+import { RepoDimensionNextSteps } from "./RepoDimensionNextSteps";
 
 export interface HeatTarget {
   fullName: string;
@@ -33,7 +35,14 @@ interface DimData {
   overall: number;
   level: { id: string; name: string };
   dimension: ScanReport["dimensions"][number];
-  nextSteps: ScanReport["roadmap"];
+  /** The dimension's steps with tracked status (or the bare roadmap, untracked). */
+  steps: DimensionStep[];
+  tracked: boolean;
+  /** The tracking read FAILED (not "nothing tracked"): statuses are unknown. */
+  trackingError?: boolean;
+  /** The viewer may write a verdict through PATCH /api/recommendations/:id. */
+  canAct: boolean;
+  viewerLogin?: string | null;
   /** This dimension's score over recent scans (oldest→newest) — the DimensionDetail sparkline. */
   series?: TrendPoint[];
   /** The dimension's score on the prior scan — drives DimensionDetail's "since last scan" delta. */
@@ -43,11 +52,6 @@ interface DimData {
    *  row scored before the field. */
   scoreIntegrity?: ScanReport["scoreIntegrity"];
 }
-
-/** Below this the dimension is not yet "green" (L4 starts at 65) and a follow-up is owed. Mirrors
- *  the engine's guarantee (buildDimensionFollowUps); named here so the empty-state copy can be honest
- *  about WHY there is nothing to do rather than saying "not a gap" about a 60. */
-const FOLLOW_UP_BELOW = 65;
 
 export function RepoDimensionModal({
   org,
@@ -113,7 +117,16 @@ export function RepoDimensionModal({
                   prevScore={data.prevScore}
                   integrity={data.scoreIntegrity}
                 />
-                <NextSteps steps={data.nextSteps} score={data.dimension.score} />
+                <RepoDimensionNextSteps
+                  key={`${data.repo}:${data.dimension.id}:${data.scannedAt}`}
+                  org={org}
+                  steps={data.steps ?? []}
+                  score={data.dimension.score}
+                  tracked={data.tracked}
+                  trackingError={data.trackingError}
+                  canAct={data.canAct}
+                  viewerLogin={data.viewerLogin}
+                />
               </>
             )}
           </ModalBody>
@@ -130,53 +143,5 @@ export function RepoDimensionModal({
         </>
       )}
     </Modal>
-  );
-}
-
-function NextSteps({ steps, score }: { steps: ScanReport["roadmap"]; score: number }) {
-  return (
-    <div className="mt-5 border-t border-divider pt-4">
-      <div className="type-body-sm font-semibold uppercase tracking-wide text-slate-500">Next steps</div>
-      {steps.length === 0 ? (
-        // Two different silences. Above the line the dimension has genuinely earned "nothing owed";
-        // below it a missing follow-up is a scan that predates the guarantee, and the honest copy
-        // says so rather than certifying a 40 as "not a gap".
-        <p className="mt-1 type-body-sm text-slate-500">
-          {score >= FOLLOW_UP_BELOW
-            ? "No open recommendations: this dimension is in the green band, so nothing is owed here yet."
-            : "No follow-up on record for this dimension. Scans now carry one for every dimension below the green band; re-scan to get it."}
-        </p>
-      ) : (
-        <ul className="mt-2 space-y-2.5">
-          {steps.map((r, i) => (
-            <li key={i} className="rounded-lg border border-divider bg-surface/40 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-white">{r.title}</span>
-                <span className={`rounded border px-1.5 py-0.5 type-caption ${IMPACT_CLASS[r.impact] ?? "border-slate-700 text-slate-400"}`}>
-                  impact {r.impact}
-                </span>
-                <span className={`rounded border px-1.5 py-0.5 type-caption ${EFFORT_CLASS[r.effort] ?? "border-slate-700 text-slate-400"}`}>
-                  effort {r.effort}
-                </span>
-                {r.levelUnlock && (
-                  <span className="rounded border border-slate-700 px-1.5 py-0.5 type-caption text-slate-400">{r.levelUnlock}</span>
-                )}
-              </div>
-              {r.rationale && <MarkdownLite text={r.rationale} className="mt-1.5 type-body-sm text-slate-300" />}
-              {r.explore && r.explore.length > 0 && (
-                <ul className="mt-2 space-y-1 type-body-sm text-slate-400">
-                  {r.explore.map((q, j) => (
-                    <li key={j} className="flex gap-2">
-                      <span className="select-none text-slate-600">→</span>
-                      <span>{q}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   );
 }
