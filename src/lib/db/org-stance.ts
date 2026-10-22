@@ -11,6 +11,7 @@
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { withLatestScans } from "@/lib/db/org-rollup-latest-scans";
 import { parsePassportJson } from "@/lib/analyze/passport";
 import { sanitizeStance, type StanceRepoFacts } from "@/lib/org/stance";
 import type { AiStance, PrStats } from "@/lib/types";
@@ -246,20 +247,13 @@ export async function getStanceRepoFacts(orgSlug: string): Promise<StanceRepoFac
   const prisma = getPrisma();
 
   const [repos, unapproved, acks] = await Promise.all([
-    prisma.repository.findMany({
-      where: { orgId: org.id },
-      select: {
-        id: true,
-        name: true,
-        fullName: true,
-        passportJson: true,
-        scans: {
-          orderBy: { scannedAt: "desc" },
-          take: 1,
-          select: { overallScore: true, level: true, prStats: true },
-        },
-      },
-    }),
+    // The latest scan per repo through the shared door, never a nested `scans: { take: 1 }`.
+    withLatestScans(
+      prisma,
+      prisma.repository.findMany({ where: { orgId: org.id }, select: { id: true, name: true, fullName: true, passportJson: true } }),
+      { orgId: org.id },
+      { overallScore: true, level: true, prStats: true },
+    ),
     // MERGED without an approving review — the exact population AiChange exists to evidence.
     prisma.aiChange.groupBy({
       by: ["repoId"],

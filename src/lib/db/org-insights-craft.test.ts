@@ -16,11 +16,16 @@ const { mockIsDbConfigured, mockGetPrisma } = vi.hoisted(() => ({
   mockGetPrisma: vi.fn(),
 }));
 
-vi.mock("@/lib/db/client", () => ({
-  isDbConfigured: mockIsDbConfigured,
-  getPrisma: mockGetPrisma,
-  dbReadSafe: async <T>(fn: () => Promise<T>, fallback: T) => fn().catch(() => fallback),
-}));
+// The readers pick each repo's latest scan through the door (org-rollup-latest-scans.ts); this adapter
+// serves the nested `scans: [latest]` fixtures below as the Scan table that door reads.
+vi.mock("@/lib/db/client", async () => {
+  const { servingNestedScans } = await import("./org-rollup-latest-scans.test-helpers");
+  return {
+    isDbConfigured: mockIsDbConfigured,
+    getPrisma: (...a: unknown[]) => servingNestedScans(mockGetPrisma(...a)),
+    dbReadSafe: async <T>(fn: () => Promise<T>, fallback: T) => fn().catch(() => fallback),
+  };
+});
 vi.mock("@/lib/db/followup-claims", () => ({
   sweepExpiredLeases: vi.fn(async () => 0),
 }));
@@ -190,13 +195,14 @@ describe("craft is excluded from every debt and finding path BY CONSTRUCTION", (
     const seen: Args[] = [];
     const client = {
       organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme" })) },
-      repository: {
+      repository: { findMany: vi.fn(async () => [{ id: "repo_1" }]) },
+      scan: {
+        // The latest-scan door: a GROUP BY pick, then the pair fetch where the filter lives.
+        groupBy: vi.fn(async () => [{ repoId: "repo_1", _max: { scannedAt: new Date(0) } }]),
         findMany: vi.fn(async (args: Args = {}) => {
-          // The nested select is where the filter lives; reach in and record it.
-          const select = (args.select as Args | undefined)?.scans as Args | undefined;
-          const inner = (select?.select as Args | undefined)?.recommendations as Args | undefined;
+          const inner = (args.select as Args | undefined)?.recommendations as Args | undefined;
           if (inner) seen.push(inner.where as Args);
-          return [{ scans: [{ recommendations: [] }] }];
+          return [{ id: "scan_1", repoId: "repo_1", scannedAt: new Date(0), recommendations: [] }];
         }),
       },
       invite: { count: vi.fn(async () => 0) },

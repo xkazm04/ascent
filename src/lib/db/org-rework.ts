@@ -6,6 +6,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug, segmentScope, techGroupScope } from "@/lib/db/org-shared";
+import { withLatestScans } from "@/lib/db/org-rollup-latest-scans";
 import type { PrStats } from "@/lib/types";
 
 /** One repo's rework row. All rates are 0..100 whole percents, or null = "no sample". */
@@ -137,10 +138,9 @@ export async function getOrgRework(
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) },
-    select: { fullName: true, name: true, scans: { orderBy: { scannedAt: "desc" }, take: 1, select: { prStats: true } } },
-  });
+  // The latest scan per repo through the shared door, never a nested `scans: { take: 1 }`.
+  const scope = { orgId: org.id, ...segmentScope(segmentId), ...techGroupScope(techGroupId) };
+  const repos = await withLatestScans(prisma, prisma.repository.findMany({ where: scope, select: { id: true, fullName: true, name: true } }), scope, { prStats: true });
 
   return buildOrgRework(repos.map((r) => ({ fullName: r.fullName, name: r.name, prStats: r.scans[0]?.prStats ?? null })));
 }

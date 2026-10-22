@@ -11,12 +11,13 @@
 //
 // Recommendation rows accumulate across re-scans (they carry forward matched by dimId+title), so a
 // flat `recommendation.count()` would count every historical scan and disagree with what /backlog
-// lists. The count is scoped to each repo's LATEST scan — the same "take: 1, orderBy scannedAt desc"
-// window getOrgBacklog reads — selecting only ids so the payload stays tiny.
+// lists. The count is scoped to each repo's LATEST scan, picked through the shared latest-scan door
+// (org-rollup-latest-scans.ts) as getOrgBacklog picks it, selecting only ids so the payload stays tiny.
 
 import { cache } from "react";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
+import { withLatestScans } from "@/lib/db/org-rollup-latest-scans";
 import { applyPassportOverrides, parsePassportJson, parsePassportOverrides } from "@/lib/analyze/passport";
 
 /** Unresolved counts keyed by the org route segment the badge belongs to. */
@@ -43,19 +44,14 @@ export const getOrgNavCounts = cache(async (orgSlug: string): Promise<OrgNavCoun
   if (!org) return null;
 
   const [repos, members] = await Promise.all([
-    prisma.repository.findMany({
-      where: { orgId: org.id },
-      select: {
-        scans: {
-          orderBy: { scannedAt: "desc" },
-          take: 1,
-          // `kind: "gap"` by construction. A badge is a promise that the number goes down when you act
-          // on it; a craft entry is unbounded by design (there is always a next rung), so counting one
-          // would print a number that can never clear — exactly the failure this module's header
-          // refuses for derived counts. Craft has its own ledger, which only ever goes UP.
-          select: { recommendations: { where: { status: { in: UNRESOLVED }, kind: "gap" }, select: { id: true } } },
-        },
-      },
+    // The latest scan per repo through the shared door (two bounded statements), never a nested
+    // `scans: { take: 1 }`, whose LIMIT never reaches the SQL: this runs in EVERY org shell.
+    withLatestScans(prisma, prisma.repository.findMany({ where: { orgId: org.id }, select: { id: true } }), { orgId: org.id }, {
+      // `kind: "gap"` by construction. A badge is a promise that the number goes down when you act
+      // on it; a craft entry is unbounded by design (there is always a next rung), so counting one
+      // would print a number that can never clear - exactly the failure this module's header
+      // refuses for derived counts. Craft has its own ledger, which only ever goes UP.
+      recommendations: { where: { status: { in: UNRESOLVED }, kind: "gap" }, select: { id: true } },
     }),
     prisma.invite.count({ where: { orgId: org.id, status: "pending", expiresAt: { gt: new Date() } } }),
   ]);

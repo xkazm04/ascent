@@ -1,6 +1,6 @@
 // Unit tests for the org rail's badge counts. The Prisma client is mocked; a fakePrisma captures the
 // query shapes so we pin the two things a wrong badge would quietly get wrong:
-//   - the backlog count is scoped to each repo's LATEST scan (take:1, scannedAt desc) and to the
+//   - the backlog count is scoped to each repo's LATEST scan (the latest-scan door) and to the
 //     unresolved statuses — a flat count would tally every historical re-scan's carried-forward rows
 //     and print a number that disagrees with what /backlog lists;
 //   - a pending invite that has already EXPIRED is not "awaiting a decision", so it never badges.
@@ -8,9 +8,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const { mockGetPrisma } = vi.hoisted(() => ({ mockGetPrisma: vi.fn() }));
-vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: () => true }));
+// The readers pick each repo's latest scan through the door (org-rollup-latest-scans.ts); this adapter
+// serves the nested `scans: [latest]` fixtures below as the Scan table that door reads.
+vi.mock("@/lib/db/client", async () => {
+  const { servingNestedScans } = await import("./org-rollup-latest-scans.test-helpers");
+  return { getPrisma: (...a: unknown[]) => servingNestedScans(mockGetPrisma(...a)), isDbConfigured: () => true };
+});
 
 import { getOrgNavCounts, listOrgRepoNames } from "@/lib/db/org-nav-counts";
+import { servingNestedScans } from "./org-rollup-latest-scans.test-helpers";
 
 type Where = Record<string, unknown>;
 
@@ -76,14 +82,13 @@ describe("getOrgNavCounts", () => {
     mockGetPrisma.mockReturnValue(fake.client);
     await getOrgNavCounts("acme");
 
-    const scans = fake.calls.repoFindMany[0]!.select.scans as {
-      take: number;
-      orderBy: { scannedAt: string };
-      select: { recommendations: { where: { status: { in: string[] } } } };
-    };
-    expect(scans.take).toBe(1);
-    expect(scans.orderBy).toEqual({ scannedAt: "desc" });
-    expect(scans.select.recommendations.where.status.in).toEqual(["open", "in_progress"]);
+    // The latest scan is a GROUP BY pick (never a nested `take: 1`), then a pair fetch carrying the
+    // recommendation filter.
+    expect(fake.calls.repoFindMany[0]!.select.scans).toBeUndefined();
+    const served = servingNestedScans(fake.client);
+    expect(served.scan.groupBy).toHaveBeenCalledTimes(1);
+    const pair = (served.scan.findMany as unknown as { mock: { calls: [{ select: { recommendations: { where: { status: { in: string[] } } } } }][] } }).mock.calls[0]![0];
+    expect(pair.select.recommendations.where.status.in).toEqual(["open", "in_progress"]);
     expect(fake.calls.repoFindMany[0]!.where).toMatchObject({ orgId: "org_1" });
   });
 

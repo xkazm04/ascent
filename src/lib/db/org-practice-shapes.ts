@@ -11,6 +11,7 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
+import { withLatestScans } from "@/lib/db/org-rollup-latest-scans";
 import { parsePracticeShape } from "@/lib/analyze/practice-shape";
 import type { ShapeSource } from "@/lib/org/practice-mining";
 import type { RegistryPracticeSource } from "@/lib/practices/registry-artifact";
@@ -91,16 +92,12 @@ export async function getOrgPracticeShapes(orgSlug: string): Promise<ShapeSource
   const org = await getOrgBySlug(orgSlug);
   if (!org) return null;
 
-  const repos = await getPrisma().repository.findMany({
-    where: { orgId: org.id },
-    select: {
-      fullName: true,
-      scans: {
-        orderBy: { scannedAt: "desc" },
-        take: 1,
-        select: { practiceShape: true, dimensions: { select: { dimId: true, score: true } } },
-      },
-    },
+  // The latest scan per repo through the shared door, never a nested `scans: { take: 1 }`.
+  const prisma = getPrisma();
+  const scope = { orgId: org.id };
+  const repos = await withLatestScans(prisma, prisma.repository.findMany({ where: scope, select: { id: true, fullName: true } }), scope, {
+    practiceShape: true,
+    dimensions: { select: { dimId: true, score: true } },
   });
 
   const out: ShapeSource[] = [];
