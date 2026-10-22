@@ -265,7 +265,9 @@
         "src/app/org/[slug]/developer/**",
         "src/app/api/me/mentor/**",
         "src/lib/db/mentor-share.ts",
-        "src/lib/db/agent-sessions-viewer.ts"
+        "src/lib/db/agent-sessions-viewer.ts",
+        "src/lib/db/mentor-share-cohort.ts",
+        "src/lib/org/care-org-aggregate.ts"
       ]
     },
     {

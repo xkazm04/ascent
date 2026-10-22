@@ -11,7 +11,7 @@ Context-map group: **Data & Persistence** (`data`).
 
 ## Implementation roots
 
-- `prisma/schema.prisma` (**89 models**), `prisma/init.sql`, `prisma/migrations/**` (81 migrations)
+- `prisma/schema.prisma` (**89 models**), `prisma/init.sql`, `prisma/migrations/**` (82 migrations)
 - `src/lib/db/**`: client, scans, retention, and one module per feature area
 - `src/lib/db/index.ts`: barrel; `src/lib/db/mode.ts`, `src/instrumentation.ts` (embedded PGlite)
 

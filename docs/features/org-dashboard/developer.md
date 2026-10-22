@@ -157,7 +157,7 @@ Since 2026-09-24 (C3) the care loop has a data layer. `/api/me/mentor/share`
 
 | Verb | Does |
 | --- | --- |
-| `POST` | Replaces your share with a validated snapshot `{ contract: 1, profile?, moves?, journal?, shape?, setup? }`. A section you leave out is not shared this time; nothing from an earlier push survives in it. |
+| `POST` | Replaces your share with a validated snapshot `{ contract: 1, profile?, moves?, journal?, shape?, setup?, consent? }`. A section you leave out is not shared this time; nothing from an earlier push survives in it. |
 | `GET` | Returns your share and its `sharedAt` (an ISO string), or 404 when you have none. |
 | `DELETE` | Removes your share. The row is deleted, not hidden: there is no history table and no soft delete. 404 when there was nothing to remove. |
 
@@ -174,7 +174,9 @@ Since 2026-09-24 (C3) the care loop has a data layer. `/api/me/mentor/share`
   capped at 64 KB and refused with 413 before it is parsed. A move carries no `evidence`: fleet evidence
   is ascent's to add (C4), and the page shows it as the `missing` void.
 - **One row per person, not per workspace.** `MentorShare` is keyed by your login, so the same care
-  memory follows you into every workspace you open this page in, and no org can read it.
+  memory follows you into every workspace you open this page in, and no org can read it. The only
+  way any of it reaches an org is the consent switch below, and then only as anonymous, floored
+  aggregates.
 - **Read back on the next load.** `getDeveloperView` reads the share beside the contributor snapshot
   and folds it in with `applyMentorShare` (`src/lib/org/care-share-view.ts`) **before** the telemetry
   fold, so a field you shared wins over the value ascent measured (a guard test pins the order). The
@@ -221,6 +223,34 @@ And `CareShareBar` separates *no commits for a share to be a share of* (the void
 0%** (an empty track beside a real zero) — the org-side `AiBar` fix from Wave 1, on the surface where
 it is most personal.
 
+### Consent to the anonymous org aggregate (C4)
+
+Since 2026-10-22 a share can say `consent: { orgAggregate: true }`. It is the only path from your
+share into anything an org sees, and the rules are structural:
+
+- **Off by default.** A share without `consent` is out, and so is every share stored before the flag
+  existed: `MentorShare.orgAggregate` is `Boolean @default(false)` (migration
+  `20261023130000_mentor_share_org_aggregate`). `consent.orgAggregate` must be a boolean; anything
+  else is refused with 400 (`validateCareShare`).
+- **Withdrawing is a push.** `saveMentorShare` mirrors the validated flag into the column on every
+  save, so a share pushed without consent (or a `DELETE`) takes you out of the next aggregate.
+- **One cohort door, no names out.** `getOrgCareCohort(slug)` (`src/lib/db/mentor-share-cohort.ts`)
+  reads `payloadJson` only, `where orgAggregate = true AND login in` the org's Membership logins, and
+  re-checks consent on every validated payload. A sharer who is not a member is never read; the
+  result carries no login and no row id; the public org reads nothing. Its only caller is the
+  aggregate producer, and no route exposes it, so no manager can read one person through it.
+- **Suppressed in the producer.** `buildCareOrgAggregate` (`src/lib/org/care-org-aggregate.ts`) is
+  the one producer. Under `CHAMPION_MIN_POP` the whole aggregate is empty (no cohort is even read);
+  a shape field needs 5 people who sent a NUMBER for it (`careBandFromSharers`), otherwise it gets
+  `below-sharer-floor`; a kept-move title is listed only when at least 5 distinct sharers kept it
+  (`CARE_KEPT_MOVE_MIN`), because a free-text title kept by one or two people names them. Adoption
+  counts consenting shares only (`setUp`), and those that sent at least one shape value
+  (`sharing`). Asks and outcomes stay empty: the contract has no source for them.
+- **Your bands are the same aggregate.** When your own share consents, `getDeveloperView` sets
+  `orgBands` to that aggregate's `shapeBands`; without consent no cohort is read and `orgBands` stays
+  null, which the page draws as "comparison off". The privacy ledger's **Anonymous org bands** row
+  is the switch (on when you consented), never a lock.
+
 ## Relation to Contributors (§5.2)
 
 Contributors is the **org's view of all developers**; this page is a **developer's view of themself**.
@@ -247,7 +277,8 @@ The line between them is enforced in two directions:
   `developer-view.test.ts`). Below the floor `CareOrgView.bandGaps` carries `below-sharer-floor` and
   `CareOrgBands` names the withheld fields in a line instead of drawing a thin band. At exactly 5 the
   quartiles equal the 2nd, 3rd and 4th values; the extremes are never shown, so the set cannot be
-  rebuilt. No producer fills `shapeBands` yet (C4).
+  rebuilt. Since C4 (2026-10-22) `buildCareOrgAggregate` fills `shapeBands` from consenting
+  members' shares only.
 
 ## Files
 
@@ -271,6 +302,8 @@ The line between them is enforced in two directions:
 | Share body contract (pure) | `src/lib/org/care-share-contract.ts` |
 | Share into the view (pure fold + ledger) | `src/lib/org/care-share-view.ts` |
 | The viewer's own share read / write / delete | `src/lib/db/mentor-share.ts` (table `MentorShare`) |
+| The consenting org cohort read (payloads only, no login) | `src/lib/db/mentor-share-cohort.ts` |
+| The one floored org care aggregate producer (pure) | `src/lib/org/care-org-aggregate.ts` |
 
 `developer-view.ts` is deliberately **pure** (types + constants + helpers) with the `@/lib/db` reads
 split into the `-load.ts` sibling, because the render is a client component and imports those helpers —
@@ -278,9 +311,9 @@ the same client/server boundary split as `skill-usage-load.ts`.
 
 ## Known gaps
 
-- **No real floored org aggregate** (C4). `getCareOrgAggregate` returns the honest empty aggregate
-  keyed on the real contributor population and reads no share, so shape bands, most-kept moves and
-  adoption counts stay empty even when people share.
+- **No producer sends consent yet.** The contract and the producer accept `consent.orgAggregate`,
+  but nothing that can reach the route sends it (see the next gap), so every aggregate stays empty
+  until a sharer opts in.
 - **`npx ascent mentor share` cannot authenticate.** The route accepts the browser session only. The
   only bearer tokens in the product (`org-api-tokens.ts`, the MCP door) are org-scoped and carry no
   person, so accepting one here would let any holder write as anyone. A CLI share needs a per-user
