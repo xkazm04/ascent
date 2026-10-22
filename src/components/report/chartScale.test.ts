@@ -1,5 +1,21 @@
-import { describe, it, expect } from "vitest";
-import { vScale, xScale } from "@/components/report/chartScale";
+import { describe, it, expect, vi } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { DimensionResult } from "@/lib/types";
+import { BAND_EDGES, L4_FLOOR, LEVEL_BANDS, vScale, xScale } from "@/components/report/chartScale";
+import { dimFacts, explorerSummary } from "@/components/report/dimensionExplorerDerive";
+import { Sparkline } from "@/components/report/TrendChart.Sparkline";
+import { DimLine } from "@/components/report/DimLine";
+import type { TrendPoint } from "@/components/report/TrendChart";
+
+// The rubric with its L4 (Integrated) floor retuned 65 -> 70, so a chart that still hand-types 65
+// is caught. Only LEVELS / LEVEL_BY_ID move; the scale helpers below do not read the rubric at all.
+vi.mock("@/lib/maturity/model", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/maturity/model")>();
+  const LEVELS = actual.LEVELS.map((l) => (l.id === "L4" ? { ...l, band: [70, 84] as [number, number] } : l));
+  return { ...actual, LEVELS, LEVEL_BY_ID: Object.fromEntries(LEVELS.map((l) => [l.id, l])) };
+});
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 // These are the load-bearing, defensive scale helpers every SVG line chart (TrendChart, Sparkline,
 // DimLine) routes through. Their whole reason for existing is the NaN/clamp guard documented at
@@ -103,5 +119,36 @@ describe("xScale", () => {
         expect(Number.isFinite(x(i))).toBe(true);
       }
     }
+  });
+});
+
+// The level-band edges belong to the rubric (LEVELS in @/lib/maturity/model), the source the
+// AltimeterGauge strata and the score colors already read. The chart ramp, the explorer's
+// "at Integrated or above" count and the two sparkline L4 references used to hand-type 65; with the
+// rubric's L4 floor moved to 70 here, every one of them must move with it.
+describe("level bands follow the rubric (L4 floor retuned to 70)", () => {
+  it("LEVEL_BANDS mins and BAND_EDGES are derived from LEVELS", () => {
+    expect(LEVEL_BANDS.map((b) => b.min)).toEqual([85, 70, 45, 25, 0]);
+    expect([...BAND_EDGES]).toEqual([0, 25, 45, 70, 85, 100]);
+    expect(L4_FLOOR).toBe(70);
+  });
+
+  it("explorerSummary does not count a 66 as Integrated or above", () => {
+    const d = { id: "D2", name: "D2", score: 66, weight: 0.15, signalScore: 66, llmScore: 66, summary: "", evidence: [], strengths: [], gaps: [] } as DimensionResult;
+    expect(explorerSummary([dimFacts(d, undefined)])!.atL4).toBe(0);
+    expect(explorerSummary([dimFacts({ ...d, score: 70 }, undefined)])!.atL4).toBe(1);
+  });
+
+  it("Sparkline's dashed L4 reference sits at y(70)", () => {
+    const html = renderToStaticMarkup(createElement(Sparkline, { points: [{ at: "2026-07-01T00:00:00.000Z", score: 50 }, { at: "2026-07-02T00:00:00.000Z", score: 60 }] as TrendPoint[] }));
+    const y70 = vScale(34, 3, 3)(70);
+    expect(html).toMatch(new RegExp(`<line[^>]*y1="${y70}"[^>]*stroke-dasharray="2 3"`));
+    expect(html).not.toContain(`y1="${vScale(34, 3, 3)(65)}"`);
+  });
+
+  it("DimLine's threshold label reads 70 and sits at y(70)", () => {
+    const html = renderToStaticMarkup(createElement(DimLine, { values: [50, 60], meta: [{ at: "2026-07-01T00:00:00.000Z", engine: "claude-cli" }, { at: "2026-07-02T00:00:00.000Z", engine: "claude-cli" }] }));
+    expect(html).toMatch(new RegExp(`<text[^>]*y="${vScale(90, 8, 8)(70) - 2}"[^>]*>70</text>`));
+    expect(html).not.toMatch(/>65<\/text>/);
   });
 });

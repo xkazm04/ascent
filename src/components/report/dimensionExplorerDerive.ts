@@ -9,6 +9,7 @@ import { DIMENSION_BY_ID, levelForScore, nextLevel } from "@/lib/maturity/model"
 import { scoreProvenance, type ScoreProvenance } from "@/lib/scoring/provenance";
 import type { ScoreIntegrity } from "@/lib/types";
 import { DIMENSION_SHORT } from "@/lib/ui";
+import { L4_FLOOR } from "@/components/report/chartScale";
 
 export interface DimFacts {
   d: DimensionResult;
@@ -20,9 +21,13 @@ export interface DimFacts {
   next: MaturityLevel | null;
   /** Points to the next band's floor (null at L5). */
   toNext: number | null;
-  /** Overall points this dimension currently contributes (weight × score). */
+  /** This dimension's share of the headline: its weight over the sum of the PRESENT weights
+   *  (dimensionShares in @/lib/scoring/projections, the same number the Scoring tab's waterfall
+   *  prints). Equals the raw lens weight on a full scan; larger on a dropped-dimension scan. */
+  share: number;
+  /** Overall points this dimension currently contributes (share × score). */
   contributes: number;
-  /** Overall points still in reach if this dimension went to 100 (weight × (100 − score)). */
+  /** Overall points still in reach if this dimension went to 100 (share × (100 − score)). */
   headroom: number;
   /** Since-last-scan delta, null when there is no previous scan or it lacked this dimension. */
   delta: number | null;
@@ -35,6 +40,9 @@ export function dimFacts(
   d: DimensionResult,
   prevScore: number | undefined,
   integrity?: ScoreIntegrity | null,
+  /** From dimensionShares(report.dimensions). Omitted only where no report context exists, where
+   *  the raw lens weight is the best available reading. */
+  share: number = d.weight,
 ): DimFacts {
   const level = levelForScore(d.score);
   const next = nextLevel(level.id);
@@ -46,8 +54,9 @@ export function dimFacts(
     level,
     next,
     toNext: next ? Math.max(0, next.band[0] - d.score) : null,
-    contributes: d.weight * d.score,
-    headroom: d.weight * (100 - d.score),
+    share,
+    contributes: share * d.score,
+    headroom: share * (100 - d.score),
     delta: prevScore !== undefined ? d.score - prevScore : null,
     divergence: d.llmScore - d.signalScore,
     provenance: scoreProvenance(d, integrity),
@@ -71,7 +80,7 @@ export function explorerSummary(facts: DimFacts[]): ExplorerSummary | null {
   const leader = byScore[0]!;
   const trailer = byScore[byScore.length - 1]!;
   const lever = [...facts].sort((a, b) => b.headroom - a.headroom)[0]!;
-  const atL4 = facts.filter((f) => f.d.score >= 65).length;
+  const atL4 = facts.filter((f) => f.d.score >= L4_FLOOR).length;
   const gap = leader.d.score - trailer.d.score;
   const parts = [`${leader.short} leads at ${leader.d.score}`];
   if (facts.length > 1) parts.push(`${trailer.short} trails ${gap} pts`);

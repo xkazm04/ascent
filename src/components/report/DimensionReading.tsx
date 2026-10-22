@@ -31,7 +31,7 @@ export function DimensionReading({ f }: { f: DimFacts }) {
         className="bg-ink p-4"
         label="In reach"
         value={`+${f.headroom.toFixed(1)}`}
-        sub={`overall pts · weight ${Math.round(f.d.weight * 100)}%`}
+        sub={`overall pts · weight ${Math.round(f.share * 100)}%`}
       />
       <Stat
         className="bg-ink p-4"

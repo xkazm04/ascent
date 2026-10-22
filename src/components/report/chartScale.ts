@@ -1,19 +1,37 @@
 // Shared scale + band plumbing for the dependency-free SVG charts (TrendChart, Sparkline,
 // DimLine). Each chart previously re-derived the same 0..100 y-scale, index→x mapping, and level
 // band/gridline definitions inline; centralizing them here is composition over duplication and
-// keeps every chart's bands in lockstep with the maturity ramp. Pure functions — no React.
+// keeps every chart's bands in lockstep with the maturity ramp. Pure functions, no React; the only
+// import is the rubric (@/lib/maturity/model, pure and client-safe, as AltimeterGauge proves).
 
-/** Maturity level bands (top→bottom) shaded behind the overall-score chart. */
-export const LEVEL_BANDS = [
-  { min: 85, color: "rgba(34,197,94,0.10)" }, // L5
-  { min: 65, color: "rgba(132,204,22,0.08)" }, // L4
-  { min: 45, color: "rgba(234,179,8,0.07)" }, // L3
-  { min: 25, color: "rgba(249,115,22,0.06)" }, // L2
-  { min: 0, color: "rgba(239,68,68,0.05)" }, // L1
-] as const;
+import type { LevelId } from "@/lib/types";
+import { LEVEL_BY_ID, LEVELS } from "@/lib/maturity/model";
 
-/** Score values where the level bands meet — used for y-gridlines/labels. */
-export const BAND_EDGES = [0, 25, 45, 65, 85, 100] as const;
+/** The shading tint per level. Only the COLOR lives here; every band edge is read from the rubric
+ *  (LEVELS, the source AltimeterGauge's strata and the score colors read), so a band retune in the
+ *  rubric moves every chart instead of leaving a hand-typed copy behind. */
+const BAND_TINT: Record<LevelId, string> = {
+  L5: "rgba(34,197,94,0.10)",
+  L4: "rgba(132,204,22,0.08)",
+  L3: "rgba(234,179,8,0.07)",
+  L2: "rgba(249,115,22,0.06)",
+  L1: "rgba(239,68,68,0.05)",
+};
+
+/** Maturity level bands (top→bottom, L5→L1) shaded behind the overall-score chart. */
+export const LEVEL_BANDS: readonly { min: number; color: string }[] = [...LEVELS]
+  .reverse()
+  .map((l) => ({ min: l.band[0], color: BAND_TINT[l.id] }));
+
+/** Score values where the level bands meet (every level's floor, plus the 100 cap), ascending -
+ *  used for y-gridlines/labels. */
+export const BAND_EDGES: readonly number[] = Array.from(new Set([...LEVELS.map((l) => l.band[0]), 100])).sort(
+  (a, b) => a - b,
+);
+
+/** The L4 (Integrated) floor: the explorer's "at Integrated or above" count and the sparklines'
+ *  reference line both read it. */
+export const L4_FLOOR: number = LEVEL_BY_ID.L4.band[0];
 
 /**
  * A 0..100 score → y-pixel scale for a chart of `height` with `top`/`bottom` insets. Higher score

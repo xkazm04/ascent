@@ -5,7 +5,7 @@
 
 import { scoreHex } from "@/lib/ui";
 import { ChartTooltip, PointTooltip, useChartHover } from "@/components/report/chartHover";
-import { vScale, xScale } from "@/components/report/chartScale";
+import { L4_FLOOR, vScale, xScale } from "@/components/report/chartScale";
 import type { TrendPoint } from "@/components/report/TrendChart";
 
 /** Tiny inline trend line for a single dimension's score history (0..100 scale). */
@@ -40,8 +40,8 @@ export function Sparkline({
         onPointerMove={hover.onPointerMove}
         onPointerLeave={hover.onPointerLeave}
       >
-        {/* Reference line at the L4 (Advanced) threshold — a real band edge, not an arbitrary 50. */}
-        <line x1={0} x2={width} y1={y(65)} y2={y(65)} stroke="var(--color-divider)" strokeWidth={1} strokeDasharray="2 3" />
+        {/* Reference line at the L4 (Integrated) floor, read from the rubric - a real band edge. */}
+        <line x1={0} x2={width} y1={y(L4_FLOOR)} y2={y(L4_FLOOR)} stroke="var(--color-divider)" strokeWidth={1} strokeDasharray="2 3" />
         {points.length > 1 && <path d={path} fill="none" stroke={scoreHex(last)} strokeWidth={1.75} />}
         {points.map((p, i) => (
           <circle

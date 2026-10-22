@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { DimensionResult } from "@/lib/types";
+import type { DimensionResult, ScanReport } from "@/lib/types";
+import { contributions, dimensionShares } from "@/lib/scoring/projections";
 import { dimFacts, explorerSummary, provenanceLabel } from "@/components/report/dimensionExplorerDerive";
 
 const dim = (over: Partial<DimensionResult> & Pick<DimensionResult, "id" | "score" | "weight">): DimensionResult => ({
@@ -66,5 +67,27 @@ describe("explorerSummary", () => {
 
   it("is null for a scan that scored nothing", () => {
     expect(explorerSummary([])).toBeNull();
+  });
+});
+
+// A dropped dimension (D9 unmeasured) leaves the org lens summing to 0.91. The headline renormalizes
+// over the PRESENT weights, so a dimension's share - and the points it has in reach - is its weight
+// over 0.91, not its raw lens weight. The explorer read the raw weight and understated every lever.
+describe("dimFacts on a dropped-dimension scan", () => {
+  const ORG = { D1: 0.15, D2: 0.15, D3: 0.14, D4: 0.12, D5: 0.09, D6: 0.07, D7: 0.07, D8: 0.12 } as const;
+  const dims = (Object.keys(ORG) as (keyof typeof ORG)[]).map((id) =>
+    dim({ id, score: id === "D2" ? 40 : 70, weight: ORG[id] }),
+  );
+  const report = { overallScore: 66, dimensions: dims } as unknown as ScanReport;
+
+  it("sizes the lever on the renormalized share the waterfall uses", () => {
+    const shares = dimensionShares(dims);
+    const d2 = dims.find((d) => d.id === "D2")!;
+    const f = dimFacts(d2, undefined, null, shares.get("D2"));
+    expect(f.headroom).toBeCloseTo((0.15 / 0.91) * 60, 9); // ~9.89, not the raw 9.0
+    expect(f.headroom.toFixed(1)).toBe("9.9");
+    const c = contributions(report).dimensions.find((x) => x.dimension === "D2")!;
+    expect(f.contributes).toBe(c.points);
+    expect(f.share).toBe(c.normalizedWeight);
   });
 });

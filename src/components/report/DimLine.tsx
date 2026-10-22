@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { BAND_EDGES, CHART_INK, levelBandRects, vScale, xScale } from "@/components/report/chartScale";
+import { BAND_EDGES, CHART_INK, L4_FLOOR, levelBandRects, vScale, xScale } from "@/components/report/chartScale";
 import { ChartTooltip, PointTooltip, useChartHover, useCoarseTapToOpen } from "@/components/report/chartHover";
 import { MOCK_SR_SUFFIX, isMockEngine } from "@/components/report/chartEngine";
 import type { TrendAnnotation } from "@/app/trends/annotations";
@@ -178,9 +178,9 @@ export function DimLine({
           <line key={b} x1={0} x2={W} y1={y(b)} y2={y(b)} stroke="var(--color-divider)" strokeWidth={1} strokeDasharray="2 4" />
         ))}
         {/* One mid-scale reference so the sparkline reads as a quantitative chart, not a floating
-            squiggle — the L4 "Integrated" threshold (65) anchors the otherwise-unlabeled bands. */}
-        <text x={3} y={y(65) - 2} fontSize={8} className="fill-slate-600">
-          65
+            squiggle: the L4 "Integrated" floor (from the rubric) anchors the otherwise-unlabeled bands. */}
+        <text x={3} y={y(L4_FLOOR) - 2} fontSize={8} className="fill-slate-600">
+          {L4_FLOOR}
         </text>
         {annotationMarks.map(({ ann, i }) => (
           <g key={ann.scanId} data-annotation={ann.scanId}>

@@ -19,6 +19,7 @@ import { AltimeterGauge } from "@/components/report/AltimeterGauge";
 import { DimensionClimberList, sortClimbers, type ClimberSort } from "@/components/report/DimensionClimberList";
 import { DimensionReading } from "@/components/report/DimensionReading";
 import { dimFacts, explorerSummary } from "@/components/report/dimensionExplorerDerive";
+import { dimensionShares } from "@/lib/scoring/projections";
 import { EmptyState } from "@/components/EmptyState";
 import { Kicker, SectionHeading, Surface } from "@/components/ui";
 
@@ -31,7 +32,9 @@ export function DimensionExplorer({
   prevDimScores: Map<string, number> | null;
   dimSeries: Map<string, TrendPoint[]> | null;
 }) {
-  const facts = report.dimensions.map((d) => dimFacts(d, prevDimScores?.get(d.id), report.scoreIntegrity));
+  // One share per dimension, the derivation the Scoring tab's waterfall reads (contributions()).
+  const shares = dimensionShares(report.dimensions);
+  const facts = report.dimensions.map((d) => dimFacts(d, prevDimScores?.get(d.id), report.scoreIntegrity, shares.get(d.id)));
   const [selectedId, setSelectedId] = useState<DimensionId | null>(facts[0]?.id ?? null);
   const [sort, setSort] = useState<ClimberSort>("rubric");
   const reduced = usePrefersReducedMotion();
@@ -79,7 +82,7 @@ export function DimensionExplorer({
         <div key={sel.id} className="animate-fade-in space-y-4">
           <DimensionReading f={sel} />
           <Surface radius="2xl" className="p-5">
-            <DimensionDetail d={sel.d} prevScore={prevDimScores?.get(sel.id)} series={dimSeries?.get(sel.id)} integrity={report.scoreIntegrity} />
+            <DimensionDetail d={sel.d} prevScore={prevDimScores?.get(sel.id)} series={dimSeries?.get(sel.id)} integrity={report.scoreIntegrity} share={sel.share} />
           </Surface>
         </div>
       </div>

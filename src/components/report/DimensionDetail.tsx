@@ -15,8 +15,13 @@ export function DimensionDetail({
   prevScore,
   series,
   integrity,
+  share,
 }: {
   d: ScanReport["dimensions"][number];
+  /** This dimension's share of the headline (dimensionShares). The weight% is printed from it so the
+   *  headline agrees with the Scoring tab's waterfall on a dropped-dimension scan; a caller with no
+   *  report context omits it and the raw lens weight is shown. */
+  share?: number;
   prevScore?: number;
   series?: TrendPoint[];
   /** The scan's `scoreIntegrity`. The provenance track needs it to draw THIS dimension's real band —
@@ -33,7 +38,7 @@ export function DimensionDetail({
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="type-mono-sm text-slate-500">{d.id}</span>
         <span className="type-lede font-semibold text-white">{d.name}</span>
-        <span className="type-body-sm text-slate-500">weight {Math.round(d.weight * 100)}%</span>
+        <span className="type-body-sm text-slate-500">weight {Math.round((share ?? d.weight) * 100)}%</span>
         {delta !== null && delta !== 0 && (
           <span className={`type-body-sm font-semibold ${delta > 0 ? "text-emerald-400" : "text-red-400"}`}>
             {delta > 0 ? "▲+" : "▼"}
