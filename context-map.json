@@ -419,7 +419,15 @@
             "src/app/api/org/forge/installation/route.ts",
             "src/app/api/org/forge/installation/route.public.test.ts",
             "src/app/api/report/foundation/pr-batch/route.test.ts",
-            "src/app/api/report/foundation/secrets/route.test.ts"
+            "src/app/api/report/foundation/secrets/route.test.ts",
+            "src/lib/github/webhook/payload.ts",
+            "src/lib/github/webhook/owner-bind.ts",
+            "src/lib/github/webhook/arms.ts",
+            "src/lib/github/webhook/arms.test.ts",
+            "src/lib/github/webhook/lifecycle-arm.ts",
+            "src/lib/github/webhook/control-arms.ts",
+            "src/lib/github/webhook/ai-change-arm.ts",
+            "src/lib/github/webhook/owner-bound-arms.test.ts"
           ],
           "target": null,
           "apiRoutes": [

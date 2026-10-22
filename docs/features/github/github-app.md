@@ -102,6 +102,48 @@ passes 25 MB. A 413 reaches neither `verifyWebhook` nor the delivery claim. The 
 | `pull_request_review` (submitted, approved) | Record the approving review as `AiChange` evidence within seconds instead of at the next scan's cadence (moonshot #1, below). |
 | `pull_request` (closed, merged) | Record the merge as `AiChange` evidence, alongside the gate arm above. |
 
+### The arm table and its one bind (2026-10-22)
+
+The route (`route.ts`) only reads the bounded body, verifies the signature, parses, and claims the
+delivery. It then hands the delivery to the arm table, `WEBHOOK_ARMS` in
+`src/lib/github/webhook/arms.ts`: one row per event above, each declaring its preconditions (App,
+database), its **bind** and its effects. The signature check still runs before any parse or write.
+
+A valid signature proves a delivery is authentic. It does not prove that the installation it names
+owns the org it names. So every arm that writes org data needs a `BoundDelivery`, and the only way to
+get one is `bindDelivery` (`src/lib/github/webhook/owner-bind.ts`). When the bind is refused, the
+arm logs, releases the delivery once and writes nothing. There are two bind modes:
+
+- **stored or GitHub**: the stored owner mapping must match the payload installation. An owner with
+  no mapping is checked live with GitHub, and the confirmed pair is saved. The arms that mint a
+  token use this mode.
+- **stored only**: the stored mapping must match, and an owner with no mapping is refused. No GitHub
+  call is made and no token is minted. The AI-change arms use this mode.
+
+| Event | Bind | Effects |
+| --- | --- | --- |
+| `installation` | GitHub-confirmed: every write follows `getInstallation` / `confirmRevocationWithGitHub` and is keyed by the installation id | Installation mapping, pause, resume, teardown |
+| `installation_repositories` | GitHub-confirmed: the watch reconcile works from the live repo list | Watch flags, auto-watch |
+| `pull_request` | Owner (stored or GitHub) before the gate mints a token; owner (stored only) before the merge evidence | Check Run + comment; `AiChange` |
+| `pull_request_review` | Owner (stored only) | `AiChange` approval |
+| `check_run` | Owner (stored or GitHub) | Check Run + comment |
+| `push` | Owner (stored or GitHub), checked after the cheap `isRepoAutoscanned` test; the registry lane binds through `ownerMatches` | Rescore job; registry pass |
+| `branch_protection_rule`, `repository_ruleset`, `repository` | Owner (stored or GitHub), bound **once**: the probe, the `repository.deleted` unwatch and the attribution share that one bound value | Probe job; unwatch; attribution row |
+| `member`, `team` | Owner (stored or GitHub) | Probe jobs |
+
+**Three arms used to write without a bind, and now do not (2026-10-22).** The repo-control
+attribution ran even after the probe had refused the owner, because the refusal returned nothing the
+caller could check. So a mismatched delivery still wrote an actor-attributed row into the named org's
+governance ledger. `pull_request_review` and `pull_request.closed` wrote `AiChange` approval and
+merge evidence for whatever org the payload's owner login named. All three now write only under the
+bound org.
+
+`arms.test.ts` checks the table as data, not by scanning source. An arm that declares a tenant write
+with bind `none` fails. So does an event declared twice. The table's events must also equal the
+first-column events of the event table above and of the bind table here (other cells name functions,
+so only the first column is read). A new arm with no doc row fails, and a seeded violation of each
+rule is pinned so the checks are known to work.
+
 ### The payload is never trusted for control STATE
 
 A `branch_protection_rule.deleted` delivery means **"re-read this repository"**, never "protection is
@@ -141,6 +183,8 @@ Two honest limits:
   not carry, so a trailer-only AI PR is invisible to this path and is picked up at the next scan — a
   bounded under-count in the direction the pack already discloses (the population is a lower bound),
   never an over-count.
+- **An org with no stored installation mapping gets no live evidence.** The bind on this path reads
+  the stored mapping only, so it never calls GitHub. Such an org gets its `AiChange` rows from its next scan.
 - A repository that has never been scanned has no `Repository` row, and this path does **not** create
   one: an `AiChange` with no scan behind it would enter the conformance population as evidence from a
   repository the product has never assessed.
@@ -380,7 +424,10 @@ for, and failing would strand the id forever). See
 | `src/lib/github/app.ts` | JWT + installation-token minting, `githubAppFetch`, `listInstallationRepos` / `listInstallationReposResult`, `verifyWebhook`. |
 | `src/lib/github/write.ts` | `openDraftPr`: seed a starter artifact; refuses an existing base file by design. |
 | `src/lib/github/admission-write.ts` | `proposeManagedBlock` (merge-append, dry-run first) + ruleset apply/revert. |
-| `src/app/api/app/webhook/route.ts` | `installation` / `pull_request` / `push` handling. |
+| `src/app/api/app/webhook/route.ts` | Bounded read, signature check, parse, delivery claim, then `dispatchWebhook`. |
+| `src/lib/github/webhook/arms.ts` | The event table (`WEBHOOK_ARMS`), its bind and effects declarations, the PR-gate and push arms. |
+| `src/lib/github/webhook/owner-bind.ts` | `bindDelivery` (the one door to a `BoundDelivery`), `installationMatchesOwner`, `confirmRevocationWithGitHub`. |
+| `src/lib/github/webhook/{lifecycle-arm,control-arms,ai-change-arm,payload}.ts` | Installation lifecycle + reconcile, control probes + attribution, live AI-change evidence, the payload type. |
 | `src/app/api/app/setup/route.ts` | Post-install redirect + upsert. |
 | `src/app/api/app/repos/route.ts` | List repos for an installation (+ DB watch/schedule). Surfaces `listInstallationReposResult.truncated` on the wire. |
 | `src/lib/db/installations.ts` | Installation persistence on `Organization`. |
