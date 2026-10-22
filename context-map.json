@@ -3683,7 +3683,13 @@
             "src/components/leaderboard/ScorecardSummary.tsx",
             "src/app/scorecard/[owner]/page.tsx",
             "src/app/scorecard/[owner]/opengraph-image.tsx",
-            "src/app/scorecard/[owner]/page.test.tsx"
+            "src/app/scorecard/[owner]/page.test.tsx",
+            "src/lib/register/corpus.ts",
+            "src/lib/register/corpus.test.ts",
+            "src/lib/register/public-corpus-door.test.ts",
+            "src/lib/db/scans-gallery.ts",
+            "src/lib/db/scans-gallery.ranking.test.ts",
+            "src/components/landing/RegisterChips.tsx"
           ],
           "target": null,
           "apiRoutes": []

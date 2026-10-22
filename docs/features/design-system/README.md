@@ -87,6 +87,13 @@ rating taken on an earlier instrument, unlike a mock score, which is not a ratin
 at all; dropping every pre-bump row would empty the register on the day of each
 bump and publish something less true.
 
+**A mock score is a `demo` row, never a ranked one, and the chips are one component.**
+`src/components/landing/RegisterChips.tsx` (`DemoChip`, `RubricChip`, `RegisterChips`) is the single
+copy of the provenance qualifiers both public rankings draw: `IndexGallery` here and `LeaderboardTable`
+on `/leaderboard`. The landing `topAiNative` holds verified cards only (card portfolio-0), so a
+mock-engine card can reach the board only on the recency fallback, where its rank cell is `·` and it
+wears the amber `demo` chip instead of the rubric one; the mixed-rubric note counts verified rows only.
+
 **The register footer links the capped landing board to `/leaderboard`.** The deck
 gallery is a slice (`getPublicScanGallery` `recentLimit`/`topLimit`); the crawlable,
 paginated ranking of the same corpus lives on `/leaderboard`. That path is a real

@@ -59,6 +59,25 @@ Two crawlable, unauthenticated surfaces built on one read module, `src/lib/regis
    an earlier instrument — and de-ranking every pre-bump row would empty the board on the day of each
    bump (r13→r14→r15 inside 48 hours) and publish a register that is *less* true.
 
+**One public-corpus door (card portfolio-0).** Both invariants are stated once, in
+`src/lib/register/corpus.ts`: `publicCorpusWhere(orgId)` (the tenancy where), `publicRowOrNull` (the
+per-row check), `isRankableScan(engine)` (the ENGINE half of `BENCHMARK_ELIGIBLE` only, so a
+stale-rubric row stays ranked; `mock` and an unknown engine are never ranked) and the one `byRank`
+comparator. `/leaderboard` (`register/data.ts`) and the landing register plus the /about live fleet
+(`getPublicScanGallery`, now in `src/lib/db/scans-gallery.ts`) both build on it, so the landing board
+titled "The register" no longer ranks mock floors: `topAiNative` holds verified cards only, in the same
+order as `getPublicRegister().entries`, and a mock row appears only on the recency fallback, un-numbered
+with the same `demo` chip (`src/components/landing/RegisterChips.tsx`, shared with `LeaderboardTable`).
+The gallery's leaderboard-only extra fetch re-asserts `orgId` + `isPrivate: false` beside the id list,
+and `galleryCardFrom` refuses a private row. The register's candidate window is two `groupBy`s (rankable
+scans, preview scans), so a corpus with 500 mock-high repos can no longer crowd the model-scored repos
+out of the cap. The /about X-Ray and ROI panes count verified, current-rubric cards only before the
+`LIVE_MIN` threshold. The mock literal itself lives once, in `src/lib/corpus/eligibility.ts`
+(`MOCK_ENGINE`, `isMockEngine`), which `BENCHMARK_ELIGIBLE`, `isMockScore` (fleet rollups) and
+`isRankableScan` all read. `src/lib/register/public-corpus-door.test.ts` pins that every Prisma read in
+`src/lib/register/**` and `db/scans-gallery.ts` carries `publicCorpusWhere` (comments and strings
+stripped first, with a seeded violation).
+
 **A miss is not a 404.** `getPublicOrgScorecard` used to return `null` for persistence-off, a thrown
 query, an empty corpus, and an invalid owner prefix, and `/scorecard/[owner]` 404'd all of them. The
 tagged read (`ok` / `empty` / `unavailable`) keeps invalid owner grammar as the only 404. The other
@@ -1647,6 +1666,8 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/features/standing/passports/capabilityViz.ts` | The declared × proven × enforced grid, one row per capability, over assessed repos only. Prism renders it through `MarkGrid.v2`, not a heat fill. |
 | `src/features/standing/passports/autonomy/clearanceLadder.ts` | The clearance perimeter: nested `BandLadder` bands per tier, with placeholder-scanned clearances on the edge. Prism maps those bands through `clearanceSteps.ts` onto a `Ladder` (T0 to T3, plus the placeholder edge). |
 | `src/lib/register/data.ts` | The public register read layer: `getPublicRegister` / `getPublicOrgScorecard`. Public-org + `isPrivate:false` on every query; mock-engine scans carried as `verified:false` and never ranked; `rubricVersion` + `currentRubric` carried so a stale-rubric row is qualified. `getPublicOrgScorecard` returns a tagged `{ kind: "ok" \| "empty" \| "unavailable" }` so a failed or empty read cannot collapse into a 404. `avgOverall` / `avgAdoption` / `avgRigor` are `null` when `verifiedCount === 0` (not `0`). |
+| `src/lib/register/corpus.ts` | The public-corpus door: `publicCorpusWhere`, `publicRowOrNull`, `isRankableScan` (engine half of `BENCHMARK_ELIGIBLE`), `RANKABLE_ENGINE_WHERE` / `PREVIEW_ENGINE_WHERE`, `byRank`. Pure. |
+| `src/lib/db/scans-gallery.ts` | `getPublicScanGallery` / `galleryCardFrom` (re-exported by `scans-read.ts`): the landing register + /about fleet read. Tenancy per query and per row; `verified` per card; `topAiNative` = verified cards in `byRank` order. |
 | `src/app/leaderboard/page.tsx` | The register page: server-rendered ranking, `?page=` pagination, per-page canonical + OG. A null register omits the ranking lede and names persistence-off / read-failure; mock-only empty-verified stays the preview branch; never prints `0 public repos rated`. |
 | `src/components/leaderboard/LeaderboardTable.tsx` | The ranked table. `ranked={false}` draws the unranked preview section; a `demo` chip marks every unverified row, a `rubric rNN` chip every stale-rubric one. |
 | `src/components/leaderboard/RegisterPager.tsx` | Anchor-based pager (`rel=prev/next`) + the shared scan CTA. |
