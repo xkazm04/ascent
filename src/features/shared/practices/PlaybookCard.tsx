@@ -12,6 +12,7 @@ import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief"
 import { PlaybookApplyControls } from "@/features/shared/practices/PlaybookCardActions";
 import { PlaybookAdoptionRow } from "@/features/shared/practices/PlaybookCardAdoption";
 import { PlaybookApplyBatch } from "@/features/shared/practices/PlaybookApplyBatch";
+import { PlaybookRevisionRollout } from "@/features/shared/practices/PlaybookRevisionRollout";
 import { usePlaybookCard } from "@/features/shared/practices/usePlaybookCard";
 import type { PlaybookAdoption, PlaybookRow } from "@/lib/db";
 
@@ -111,6 +112,9 @@ export function PlaybookCard({
         onBusyChange={c.setBatchBusy}
         onApplied={(repos) => c.setProposed((a) => [...new Set([...a, ...repos])])}
       />
+
+      {/* playbooks-1: an edited playbook (v > 1) re-rolled to the adopters still on an older version. */}
+      <PlaybookRevisionRollout playbookId={p.id} org={slug} version={p.version} />
 
       {/* Always mounted, toggled by `open`, so Modal's portal is armed before the Cancel-focus effect
           runs. `pick` can't change while the overlay is up, so openPr() reads the confirmed repo. */}

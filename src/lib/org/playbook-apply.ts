@@ -41,8 +41,15 @@ export async function applyPlaybookToRepo(input: {
   actorLogin: string | null;
   /** Flags the audit row as part of a fleet rollout (mirrors the practices batch's `batch: true`). */
   batch?: boolean;
+  /**
+   * REVISION MODE (playbooks-1, /api/org/playbooks/[id]/revise only). Re-roll the CURRENT version over
+   * a file that already landed: commit to the ledger's `artifactPath` (the file that landed, even if the
+   * title has since changed, so no second file is seeded beside it) and let openDraftPr replace it only
+   * when the base bytes still hash to `baseDigest`, the ledger's landed digest.
+   */
+  revision?: { artifactPath: string; baseDigest: string };
 }): Promise<{ pr: OpenPrResult; fullName: string }> {
-  const { token, org, playbook, parsed, base, actorLogin } = input;
+  const { token, org, playbook, parsed, base, actorLogin, revision } = input;
   const id = playbook.id;
   const dimLabel = DIMENSION_SHORT[playbook.dimId as DimensionId] ?? playbook.dimId;
   const brief = playbookMarkdown(playbook, dimLabel);
@@ -51,7 +58,22 @@ export async function applyPlaybookToRepo(input: {
 
   // Single-sourced with the adoption row below: the ledger keys on `artifactPath`, so the path the PR
   // commits and the path the ledger records must be one expression, not two that can drift apart.
-  const playbookPath = `docs/playbooks/${id}-${slug(playbook.title)}.md`;
+  const playbookPath = revision?.artifactPath ?? `docs/playbooks/${id}-${slug(playbook.title)}.md`;
+  const v = playbook.version;
+  const copy = revision
+    ? {
+        replaceIfBaseDigest: revision.baseDigest,
+        commitMessage: `docs: update "${playbook.title}" playbook to v${v} (via Ascent)`,
+        prTitle: `Update playbook to v${v}: ${playbook.title}`,
+        prBody:
+          `${brief}\n\n---\nThis updates \`${playbookPath}\` in place to v${v}. The file keeps the name it landed ` +
+          `under, so a renamed playbook does not leave a second copy beside it.`,
+      }
+    : {
+        commitMessage: `docs: adopt "${playbook.title}" playbook (via Ascent)`,
+        prTitle: `Adopt playbook: ${playbook.title}`,
+        prBody: brief,
+      };
 
   const ctxRepo = await fetchRepoContext(parsed, token);
   const pr = await openDraftPr({
@@ -62,13 +84,12 @@ export async function applyPlaybookToRepo(input: {
     // human title slug: two distinct playbooks whose titles slug identically (e.g. "Our CI standard" /
     // "Our CI Standard!") used to collide on the SAME branch/file, so applying B reused A's open PR and
     // overwrote it with B's content while adoption was recorded against B's id. (playbooks #2)
-    branch: `ascent/playbook-${id}-${slug(playbook.title)}`,
+    // A revision gets its own per-version branch, so a v3 rollout never reuses a v1 adoption branch.
+    branch: revision ? `ascent/playbook-${id}-v${v}` : `ascent/playbook-${id}-${slug(playbook.title)}`,
     base,
     path: playbookPath,
     content: fileBody,
-    commitMessage: `docs: adopt "${playbook.title}" playbook (via Ascent)`,
-    prTitle: `Adopt playbook: ${playbook.title}`,
-    prBody: brief,
+    ...copy,
   });
 
   try {
@@ -90,8 +111,10 @@ export async function applyPlaybookToRepo(input: {
   // Since row 40 it is also the ONLY record a PR open writes: the adoption mark follows the ledger's
   // first landing. Playbook PRs bypass `ImprovementPr` entirely, so the file's presence on the default
   // branch is the merge evidence.
-  // `playbook:<id>` namespaces the id away from the nine catalog practices; `patternVersion` is null
-  // because an authored playbook has no mined house pattern to be a version of.
+  // `playbook:<id>` namespaces the id away from the nine catalog practices. `patternVersion` is null on a
+  // first apply; a REVISION records the playbook version it carries (house-only readers ignore it: they
+  // filter on `source: "house"`). Over a live `adopted` row the state stays adopted and only
+  // proposedHash/patternVersion move, so the landed baseline survives until the revision itself lands.
   //
   // In its OWN try, and AFTER the audit row: the audit trail is the record that must survive, so a
   // projection that cannot resolve its org must not cost the org its audit entry.
@@ -103,7 +126,7 @@ export async function applyPlaybookToRepo(input: {
         repoFullName: ctxRepo.fullName,
         practiceId: `playbook:${id}`,
         source: "playbook",
-        patternVersion: null,
+        patternVersion: revision ? v : null,
         artifactPath: playbookPath,
         proposedHash: contentDigest(fileBody),
         prNumber: pr.number,
