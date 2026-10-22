@@ -201,7 +201,7 @@ not take, instead of stealing rows and having two workers write into the same ga
 
 | Column | Meaning |
 | --- | --- |
-| `claimActor` | Who holds it — `agent:<token name>`, `autopilot`, a login. |
+| `claimActor` | Who holds it: `agent:<token id>` (the token's id, not its name, since 2026-09-05), `autopilot`, a login. |
 | `claimExecutor` | *What* holds it: `local` \| `remote-agent` \| `human`. |
 | `leaseUntil` | When the claim lapses. **`null` on an in-progress row means a human took it** — an unleased claim the sweep must never reclaim, and never read as "expired". |
 | `needsHuman` | An agent tried and stopped deliberately. An **escalation flag, not a status**: the row stays `in_progress` and stays counted as open. A fifth status would have hidden it from every "what is open" figure in the product. |
@@ -254,6 +254,33 @@ none is gated exactly as it was.
 The gate is still one pure function over one input struct; the admission read is best-effort, so an
 unreadable governance table falls back to the derived tier rather than reporting no queue.
 
+### Every post-claim write is fenced to its claim generation (2026-10-22)
+
+The holder clause says WHO holds a row; it cannot say WHICH of that holder's claims a later write
+speaks for. A token whose lease lapsed, was swept and was claimed again by its own second session
+looked exactly like the stale holder, so a report from the first session landed on the second claim.
+`npx ascent work run` made that window ordinary: it claims, runs an agent of any length, then reports.
+
+- **The fence is the lease.** Every claimed row (`claim_followups` and the browser
+  hand-off) carries `fence`: its `leaseUntil` ISO for a leased claim, `null` for an unleased one
+  (a human hand-off, a local lane). No column was added; `leaseUntil` is already unique per claim and
+  carried across rescans with the claim.
+- **`report_attempt` takes an optional `fence`.** A fence that is not the live claim generation is
+  refused as a conflict (`refused: "stale-claim"`, `status: 409`) with a sentence saying the claim
+  was superseded and naming the current lease expiry, distinct from "You do not hold". Nothing is
+  written: no event, no lease change, no `followup.attempt` audit row. The current fence is accepted.
+  The in-transaction compare-and-set also guards on the lease it read, so a sweep and re-claim cannot
+  slip between the read and the write.
+- **An unfenced report is still accepted** from the holder, for external MCP clients written before
+  the fence existed; it logs a deprecation once per actor. `scripts/ascent-work.mjs` sends the fence
+  on every report (`run` keeps an id to fence map from the claim; `report` takes `--fence`).
+- **A new claim starts clean.** The claim resets `needsHuman` to false, so a row reopened after an
+  escalation does not carry the previous generation's flag into its next claim.
+- **The legacy holder arm stays, documented.** `holderActors` still accepts the pre-2026-09-05
+  `agent:<token name>` form because the MCP door still hands `legacyActor` to external callers and an
+  unleased row reported on in that form can still be briefed or re-reported. It is removed when the
+  door stops populating it.
+
 ### Nothing in the protocol closes a row
 
 This is load-bearing, and the section below ("Only the trailer and title-disappearance close a row")
@@ -274,7 +301,8 @@ is exactly as much of a claim as the trailer it also wrote — and every claim a
 | File | Role |
 | --- | --- |
 | `src/lib/org/followups.ts` (+ `.test.ts`, `followups-lease.test.ts`) | Trailer, resolve rule, prompt builder, and the pure lease/`claimability` layer + `buildAgentBrief`. |
-| `src/lib/db/followup-claims.ts` (+ `.test.ts`) | **The one claim path**: compare-and-set claim, release, lazy sweep, attempt. |
+| `src/lib/db/followup-claims.ts` (+ `.test.ts`) | **The one claim path**: compare-and-set claim, release, lazy sweep. Re-exports `followup-attempts.ts`. |
+| `src/lib/db/followup-attempts.ts` (+ `followup-claims.fence.test.ts`) | The claimed row shape (with its `fence`), `reportAttempt` (fenced) and `heldFollowups`. |
 | `src/lib/db/org-insights.ts` (`getOrgBacklog`) | The Proposals ledger read. Sweeps expired leases before assembling rows so a lapsed claim reads as open. |
 | `src/lib/mcp/work-tools.ts` (+ `handlers-write.test.ts`) | `claim_followups` / `get_fix_brief` / `report_attempt`. |
 | `scripts/ascent-work.mjs` · `examples/ascent-work.action.yml` | The zero-dep client and a reference Action (outside `.github/`, so it never runs here). |

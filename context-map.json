@@ -2461,7 +2461,8 @@
             "src/features/inflight/proposals/proposalsModel.ts",
             "src/features/inflight/proposals/proposalsModel.test.ts",
             "src/components/org/shared/DecisionTable.tsx",
-            "src/components/org/shared/DecisionTable.hidden.dom.test.tsx"
+            "src/components/org/shared/DecisionTable.hidden.dom.test.tsx",
+            "src/lib/db/followup-attempts.ts"
           ],
           "target": null,
           "apiRoutes": [
