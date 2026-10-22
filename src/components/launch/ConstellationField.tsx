@@ -5,6 +5,8 @@ import type { CSSProperties } from "react";
 import { reportPermalink, scoreHex } from "@/lib/ui";
 import { meanOverall, moverDelta } from "./fleetMapDerive";
 import { Pill } from "./FleetMapChrome";
+import { ConstellationFooter } from "./ConstellationField.Footer";
+import type { FleetScanOutcome } from "./fleetScanOutcomeModel";
 import {
   ACCENT,
   appendedStarPosition,
@@ -28,6 +30,8 @@ export function ConstellationField({
   scanning = false,
   scanDisabled = false,
   scanError,
+  scanOutcome,
+  onRetryFailed,
   matcher,
   animateStars = true,
 }: {
@@ -41,6 +45,10 @@ export function ConstellationField({
   /** A manual-scan failure (quota/permission/server/network) for this org — shown inline so a blocked
    *  scan reports a reason instead of silently reverting, while keeping the stars + Scan button. */
   scanError?: string;
+  /** How the last map scan of this org ended (fleetScanOutcome): its sentence and its one remedy. */
+  scanOutcome?: FleetScanOutcome;
+  /** Re-scan exactly the failures named in `scanOutcome` (its retry action). */
+  onRetryFailed?: () => void;
   /** When set, stars that fail the predicate are dimmed (not removed) — the fleet filter (MAP-4). */
   matcher?: (r: RepoStar) => boolean;
   /** Twinkle the hydrated stars. FleetMap turns this OFF once the fleet is large (launch-fleet-map #7):
@@ -257,34 +265,14 @@ export function ConstellationField({
         )}
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2 type-body-sm">
-        {c.status === "error" ? (
-          <span className="flex min-w-0 items-center gap-2 text-amber-400/80">
-            <span className="min-w-0 truncate">{c.message}</span>
-            {onRetry && (
-              <button
-                type="button"
-                onClick={() => onRetry(c.id)}
-                title={`Retry loading ${c.login}'s repositories`}
-                aria-label={`Retry ${c.login}`}
-                className="shrink-0 rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 type-mono-sm font-medium text-white transition hover:bg-accent/20"
-              >
-                Retry
-              </button>
-            )}
-          </span>
-        ) : scanError ? (
-          <span role="alert" className="text-amber-400/80">{scanError}</span>
-        ) : (
-          <span className="text-slate-500">{overflow > 0 ? `+${overflow} more stars` : " "}</span>
-        )}
-        <Link
-          href={`/org/${encodeURIComponent(c.login)}`}
-          className="font-mono uppercase tracking-widest text-accent hover:text-accent-soft"
-        >
-          open →
-        </Link>
-      </div>
+      <ConstellationFooter
+        c={c}
+        overflow={overflow}
+        onRetry={onRetry}
+        scanError={scanError}
+        scanOutcome={scanOutcome}
+        onRetryFailed={onRetryFailed}
+      />
     </div>
   );
 }

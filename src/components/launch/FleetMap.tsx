@@ -3,14 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { readSSE } from "@/lib/sse";
 import { ConstellationField } from "./ConstellationField";
 import { EmptyFleet } from "./FleetMapChrome";
 import { FleetHeader } from "./FleetMap.Header";
 import { missionControlHref, type Installation } from "./FleetMap.constants";
 import { TriageControls } from "./FleetMap.TriageControls";
 import { useFleetData } from "./useFleetData";
-import { applyScanEvent } from "./applyScanEvent";
+import { useFleetScan } from "./useFleetScan";
 import {
   type LaunchTriage, type SortKey, TRIAGE_QUERY_DEBOUNCE_MS, countMatches, fleetStats,
   launchTriageHref, makeMatcher, orderConstellations, resolveLaunchTriage, showTriageControls,
@@ -31,20 +30,10 @@ export function FleetMap({
   const [constellations, setConstellations] = useState<Constellation[]>(() =>
     installations.map((i) => ({ id: i.id, login: i.login, status: "loading" as const })),
   );
-  // Org login currently scanning from the map (MAP-2) + an abort handle for cleanup.
-  const [scanning, setScanning] = useState<string | null>(null);
-  // Per-org manual-scan error (quota/permission/server/network), shown inline without destroying the
-  // constellation's stars or its Scan button — so the user learns WHY a scan didn't run and can retry.
-  const [scanError, setScanError] = useState<Record<string, string>>({});
-  const scanCtrl = useRef<AbortController | null>(null);
-  // Bumped each time a manual scan begins. The auto-refresh captures it at fetch start and discards
-  // its result if it changed — covering the case where a scan starts AND finishes during the refresh's
-  // network round-trip (then scanCtrl.current is null again, so the abort-handle check alone misses it).
-  const scanGen = useRef(0);
-  useEffect(() => () => scanCtrl.current?.abort(), []);
-  // Completion time of the most recent successful scan per org, so the live refresh can defer that
-  // org until its fresh scores have propagated (SCAN_SETTLE_MS) rather than dimming it back down.
-  const recentScan = useRef<Map<string, number>>(new Map());
+  // The map's Scan button (MAP-2): shared transport + roster model, and the scanCtrl/scanGen/recentScan
+  // refs the live refresh below reads (useFleetScan).
+  const fleetScan = useFleetScan(installations, setConstellations);
+  const { scanning, scanError, outcomes, scanCtrl, scanGen, recentScan } = fleetScan;
 
   // URL is source of truth for q/levels/watched/sort; Find-a-repo is a debounced draft.
   const router = useRouter();
@@ -90,92 +79,6 @@ export function FleetMap({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce the Find-a-repo draft only
   }, [query]);
-
-  // Scan an org's watched repos straight from the map — reuses the dashboard's SSE bulk scan and
-  // brightens each star in place as results land, so a near-empty grey field can be lit up on the
-  // spot (the page the OAuth callback deliberately lands on).
-  function clearScanError(login: string) {
-    setScanError((e) => {
-      if (!e[login]) return e;
-      const next = { ...e };
-      delete next[login];
-      return next;
-    });
-  }
-
-  async function scanOrg(login: string) {
-    if (scanning) return;
-    setScanning(login);
-    clearScanError(login); // a fresh attempt clears any prior error for this org
-    scanGen.current += 1; // mark a new live scan so a concurrent auto-refresh discards its stale result
-    const ctrl = new AbortController();
-    scanCtrl.current = ctrl;
-    try {
-      const res = await fetch("/api/org/scan", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: login }),
-        signal: ctrl.signal,
-      });
-      if (!res.ok) {
-        // Surface the real reason (quota 402 / permission 403 / server 500) instead of silently
-        // reverting "Scanning…" → "Scan", which looks identical to "nothing watched" and makes a
-        // blocked paying user retry fruitlessly.
-        const data = (await res.json().catch(() => null)) as { error?: string } | null;
-        setScanError((m) => ({ ...m, [login]: data?.error ?? `Scan failed (${res.status}).` }));
-        return;
-      }
-      if (!res.body) {
-        setScanError((m) => ({ ...m, [login]: "Scan failed to start." }));
-        return;
-      }
-      // Tally the stream's outcomes OUTSIDE the state updater (updaters can re-run under StrictMode):
-      // a 200 stream that applies zero scores used to revert "Scanning…" → "Scan" with no message —
-      // indistinguishable from "nothing watched", the exact silent-reversion failure the !res.ok branch
-      // above exists to prevent. Count applicable repo events vs skipped/errored ones so the scan always
-      // ends with an explicit outcome. (ambiguity-ui-scan-2026-07-16 launch-fleet-map #1)
-      let applied = 0;
-      let inapplicable = 0;
-      let firstReason: string | null = null;
-      await readSSE(res.body, (msg) => {
-        if (msg.event === "repo" && msg.data) {
-          if (msg.data.error || msg.data.skipped) {
-            inapplicable += 1;
-            if (firstReason === null) {
-              const reason = msg.data.error ?? msg.data.skipped;
-              if (typeof reason === "string" && reason.trim()) firstReason = reason.trim();
-            }
-          } else if (msg.data.repo) {
-            applied += 1;
-          }
-        }
-        setConstellations((cur) => applyScanEvent(cur, login, msg));
-      });
-      if (applied === 0) {
-        // Scan ran but nothing landed on the map — say why instead of silently reverting. The per-repo
-        // skip/error reasons the server streamed were previously discarded invisibly.
-        setScanError((m) => ({
-          ...m,
-          [login]:
-            inapplicable > 0
-              ? `Scan finished, but no scores updated: ${inapplicable} repo${inapplicable === 1 ? "" : "s"} skipped or errored${firstReason ? ` (${firstReason})` : ""}.`
-              : "No watched repos to scan. Open the org and watch some repos first.",
-        }));
-      }
-      // Mark this org just-scanned so the live refresh defers it past the propagation window.
-      // eslint-disable-next-line react-hooks/purity -- Date.now() runs in an async scan handler (post-await), not during render
-      recentScan.current.set(login, Date.now());
-    } catch (e) {
-      // An aborted scan (Cancel / unmount / navigation) is expected — stay silent. Any other failure
-      // (a genuine network error) is surfaced so the user knows the scan didn't run.
-      if ((e as { name?: string } | null)?.name !== "AbortError") {
-        setScanError((m) => ({ ...m, [login]: "Network error: scan didn't run. Try again." }));
-      }
-    } finally {
-      if (scanCtrl.current === ctrl) scanCtrl.current = null;
-      setScanning((s) => (s === login ? null : s));
-    }
-  }
 
   // Initial per-org fetch + the MAP-6 ~90s visible-tab live refresh (see useFleetData).
   const { onRetry } = useFleetData(installations, setConstellations, scanCtrl, scanGen, recentScan);
@@ -270,11 +173,13 @@ export function FleetMap({
                 c={c}
                 matcher={matcher}
                 animateStars={animateStars}
-                onScan={() => scanOrg(c.login)}
+                onScan={() => void fleetScan.scan(c.login)}
                 onRetry={onRetry}
                 scanning={scanning === c.login}
                 scanDisabled={scanning !== null && scanning !== c.login}
                 scanError={scanError[c.login]}
+                scanOutcome={outcomes[c.login]}
+                onRetryFailed={() => void fleetScan.retryFailed(c.login)}
               />
             ))}
           </div>
