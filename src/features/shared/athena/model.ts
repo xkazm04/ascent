@@ -26,12 +26,16 @@ import type { AthenaProposalRecord } from "@/lib/db/athena-proposals";
 /** At most two chips, and each one a derived sentence — never a raw memory excerpt. */
 export const ATHENA_VIEW_MAX_CHIPS = 2;
 
+/** A proposal as the boot payload sends it: the record plus the summary the server resolved from the action spec. */
+export type AthenaProposalWire = AthenaProposalRecord & { summary?: string | null };
+
 /** `GET /api/athena/threads?org=` — one boot request (see the route's header). */
 export interface AthenaBoot {
   threads: AthenaThreadRecord[];
   thread: AthenaThreadRecord | null;
   turns: AthenaTurnRecord[];
-  proposals: AthenaProposalRecord[];
+  /** The newest thread's proposals, ANY status, so an answered card paints its outcome after reload. */
+  proposals: AthenaProposalWire[];
   degraded: boolean;
   engine?: { degraded: boolean; reason?: string | null; provider?: string | null; model?: string | null };
 }

@@ -17,14 +17,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AthenaPhase } from "@/lib/athena/turn";
 import type { AthenaTurnRecord } from "@/lib/db/athena-threads";
-import type { AthenaProposalRecord } from "@/lib/db/athena-proposals";
-import type { AthenaBoot } from "./model";
+import type { AthenaBoot, AthenaProposalWire } from "./model";
 import { createAthenaThread, fetchAthenaBoot, streamAthenaMessage } from "./stream";
+import { useAthenaProposals, type AthenaProposalsState } from "./useAthenaProposals";
 
 export interface AthenaThreadState {
   loading: boolean;
   turns: AthenaTurnRecord[];
-  proposals: AthenaProposalRecord[];
+  /** The newest thread's offers, any status (useAthenaProposals owns them). */
+  proposals: AthenaProposalWire[];
+  /** Answering them: this tab's per-card state and the one door. */
+  asks: AthenaProposalsState;
   /** No engine is configured for this org — she still answers, in one quiet line. */
   degraded: boolean;
   phase: AthenaPhase | null;
@@ -54,7 +57,8 @@ const localTurn = (n: number, content: string): AthenaTurnRecord => ({
 export function useAthenaThread(org: string): AthenaThreadState {
   const [loading, setLoading] = useState(true);
   const [turns, setTurns] = useState<AthenaTurnRecord[]>([]);
-  const [proposals, setProposals] = useState<AthenaProposalRecord[]>([]);
+  const asks = useAthenaProposals(org);
+  const { seed, afterSettled } = asks;
   const [degraded, setDegraded] = useState(false);
   const [phase, setPhase] = useState<AthenaPhase | null>(null);
   const [tool, setTool] = useState<string | null>(null);
@@ -78,7 +82,7 @@ export function useAthenaThread(org: string): AthenaThreadState {
         if (!alive.current) return;
         threadId.current = boot.thread?.id ?? null;
         setTurns(Array.isArray(boot.turns) ? boot.turns : []);
-        setProposals(Array.isArray(boot.proposals) ? boot.proposals : []);
+        seed(boot.proposals);
         setDegraded(boot.degraded === true);
       } catch (err) {
         // A failed boot is not a dead panel: the composer stays usable and the first send will make
@@ -94,7 +98,7 @@ export function useAthenaThread(org: string): AthenaThreadState {
       alive.current = false;
       controller.abort();
     };
-  }, [org]);
+  }, [org, seed]);
 
   const send = useCallback(
     (raw: string) => {
@@ -127,7 +131,10 @@ export function useAthenaThread(org: string): AthenaThreadState {
               if (event.type === "phase") setPhase(event.phase);
               else if (event.type === "recall") setLiveChips(event.chips.map((c) => c.insight));
               else if (event.type === "tool") setTool(event.name);
-              else if (event.type === "settled") setTurns((t) => [...t, event.turn]);
+              else if (event.type === "settled") {
+                setTurns((t) => [...t, event.turn]);
+                afterSettled(event.turn);
+              }
               else setError(event.message);
             },
           });
@@ -143,8 +150,8 @@ export function useAthenaThread(org: string): AthenaThreadState {
         }
       })();
     },
-    [org, sending],
+    [org, sending, afterSettled],
   );
 
-  return { loading, turns, proposals, degraded, phase, tool, liveChips, sending, waitingSince, error, send };
+  return { loading, turns, proposals: asks.proposals, asks, degraded, phase, tool, liveChips, sending, waitingSince, error, send };
 }

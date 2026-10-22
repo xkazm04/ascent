@@ -14,12 +14,12 @@
 // store verbatim into the drawer would put untrusted, member-written text on screen as if it were hers.
 
 import type { AthenaTurnRecord } from "@/lib/db/athena-threads";
-import type { AthenaProposalRecord } from "@/lib/db/athena-proposals";
 import { AthenaChart } from "./AthenaChart";
 import { AthenaProse } from "./AthenaProse";
 import { AthenaProposalCard } from "./AthenaProposalCard";
 import { AthenaTable } from "./AthenaTable";
-import { turnBlocks, turnChips } from "./model";
+import { turnBlocks, turnChips, type AthenaProposalWire } from "./model";
+import type { AthenaProposalsState } from "./useAthenaProposals";
 
 function Speaker({ who }: { who: string }) {
   return (
@@ -30,10 +30,13 @@ function Speaker({ who }: { who: string }) {
 export function AthenaTurnView({
   turn,
   proposals,
+  asks,
 }: {
   turn: AthenaTurnRecord;
-  /** The open proposals raised BY this turn. Empty for every turn that raised none. */
-  proposals: AthenaProposalRecord[];
+  /** The proposals raised BY this turn, any status. Empty for every turn that raised none. */
+  proposals: AthenaProposalWire[];
+  /** The one door and this tab's per-card answers. Absent = display only. */
+  asks?: Pick<AthenaProposalsState, "local" | "decide">;
 }) {
   if (turn.role === "user") {
     return (
@@ -66,7 +69,12 @@ export function AthenaTurnView({
       {proposals.length > 0 && (
         <div className="mt-3 space-y-2">
           {proposals.map((p) => (
-            <AthenaProposalCard key={p.id} proposal={p} />
+            <AthenaProposalCard
+              key={p.id}
+              proposal={p}
+              local={asks?.local[p.id]}
+              onDecide={asks ? (d) => asks.decide(p.id, d) : undefined}
+            />
           ))}
         </div>
       )}

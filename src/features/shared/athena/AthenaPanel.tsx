@@ -17,10 +17,10 @@
 import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Kicker } from "@/components/ui";
-import type { AthenaProposalRecord } from "@/lib/db/athena-proposals";
 import { AthenaComposer } from "./AthenaComposer";
 import { AthenaTurnView } from "./AthenaTurnView";
 import { AthenaWaiting } from "./AthenaWaiting";
+import type { AthenaProposalWire } from "./model";
 import { restingLine, type AthenaLibrarySnapshot, type AthenaNextStep } from "./restingLine";
 import { useAthenaThread } from "./useAthenaThread";
 
@@ -49,13 +49,14 @@ export function AthenaPanel({
 
   const { proposals } = s;
   const byTurn = useMemo(() => {
-    const map = new Map<string, AthenaProposalRecord[]>();
+    const map = new Map<string, AthenaProposalWire[]>();
     for (const p of proposals) map.set(p.turnId, [...(map.get(p.turnId) ?? []), p]);
     return map;
   }, [proposals]);
 
   const last = s.turns[s.turns.length - 1];
-  const openAsks = proposals.length;
+  // The boot payload now carries answered offers too; only the open ones are "waiting on you".
+  const openAsks = proposals.filter((p) => p.status === "open").length;
   // The error already lives in a `role="alert"` below; naming it here too would announce it twice.
   const announcement =
     openAsks > 0
@@ -94,7 +95,7 @@ export function AthenaPanel({
         )}
 
         {s.turns.map((turn) => (
-          <AthenaTurnView key={turn.id} turn={turn} proposals={byTurn.get(turn.id) ?? []} />
+          <AthenaTurnView key={turn.id} turn={turn} proposals={byTurn.get(turn.id) ?? []} asks={s.asks} />
         ))}
 
         <AthenaWaiting phase={s.phase} tool={s.tool} since={s.waitingSince} />

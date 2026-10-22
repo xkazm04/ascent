@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 import { IDENTITY_DIFF_KIND } from "@/lib/db/athena-proposals";
 import { restingLine } from "./restingLine";
 import { proposalSummary, proposalTitle } from "./AthenaProposalCard";
+import { IDENTITY_DIFF } from "./proposalModel";
 import { stripFences } from "./AthenaProse";
 
 const EMPTY_SCANNED = { hasScans: true, skillCount: 0, memoryCount: 0 } as const;
@@ -69,6 +70,8 @@ describe("restingLine — the checklist's voice, not a second opinion", () => {
 describe("proposalTitle / proposalSummary", () => {
   it("pins the identity-diff literal to the constant the database actually stores", () => {
     expect(IDENTITY_DIFF_KIND).toBe("identity_diff");
+    // The card model carries the same literal (it cannot value-import the Prisma module).
+    expect(IDENTITY_DIFF).toBe(IDENTITY_DIFF_KIND);
     expect(proposalTitle(IDENTITY_DIFF_KIND)).toMatch(/believes about this org/);
   });
 

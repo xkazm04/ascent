@@ -12,6 +12,7 @@
 import { readSSE, type SSEMessage } from "@/lib/sse";
 import type { AthenaEvent, AthenaPhase } from "@/lib/athena/turn";
 import type { AthenaTurnRecord } from "@/lib/db/athena-threads";
+import { parseResolveResponse, type AthenaDecision, type ResolveResult } from "./proposalModel";
 
 const PHASES: readonly AthenaPhase[] = ["recalling", "grounding", "thinking"];
 
@@ -113,4 +114,29 @@ export async function streamAthenaMessage(opts: {
     // An aborted read is the caller unmounting or cancelling; it is not an answer that failed.
     if (!signal?.aborted) onEvent({ type: "error", message: "The connection dropped mid-answer." });
   }
+}
+
+/**
+ * Answer one offer through the one door. Never throws: every outcome, a dead socket included, comes
+ * back typed (see proposalModel.ts for what each one means to the card). An unreachable server is not
+ * a "nothing happened": the request may have landed, so the caller re-reads before offering it again.
+ */
+export async function resolveAthenaProposal(
+  org: string,
+  id: string,
+  decision: AthenaDecision,
+  signal?: AbortSignal,
+): Promise<ResolveResult> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/athena/proposals/${encodeURIComponent(id)}/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ org, decision }),
+      signal,
+    });
+  } catch {
+    return { kind: "unreachable", error: "Couldn't reach the server. Checking whether the answer landed." };
+  }
+  return parseResolveResponse(res.status, await res.json().catch(() => null));
 }

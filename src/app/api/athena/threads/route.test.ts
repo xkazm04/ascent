@@ -143,9 +143,36 @@ describe("GET is ONE boot request", () => {
     expect(body.threads).toHaveLength(2);
     expect(body.thread.id).toBe("th-new");
     expect(body.turns).toHaveLength(1);
-    // Only what is still awaiting an answer — a resolved proposal is already transcript.
-    expect(body.proposals.map((p: { id: string }) => p.id)).toEqual(["p1"]);
+    // Resolved ones come back too, so an answered card paints its outcome after a reload.
+    expect(body.proposals.map((p: { id: string }) => p.id)).toEqual(["p1", "p2"]);
     expect(h.listAthenaTurns).toHaveBeenCalledWith("org-1", "th-new");
+  });
+
+  it("each proposal carries the server-resolved summary, its outcome, and no requiredRole", async () => {
+    h.listAthenaThreads.mockResolvedValue([{ id: "th-new", orgId: "org-1", title: "", createdAt: "a", updatedAt: "b" }]);
+    const params = {
+      module: "security",
+      itemKey: "acme/api::branch-protection",
+      ruling: "dismissed",
+      rationale: "Mirror of an upstream repo.",
+      title: "Branch protection (acme/api)",
+    };
+    const outcome = { ok: true, kind: "ruled", detail: "Ruled." };
+    h.listThreadAthenaProposals.mockResolvedValue([
+      { id: "p1", status: "open", orgId: "org-1", threadId: "th-new", turnId: "t1", kind: "rule_on_finding", payload: { params }, resolvedAt: null, resolvedBy: null, claimedAt: null, createdAt: "c" },
+      { id: "p2", status: "accepted", orgId: "org-1", threadId: "th-new", turnId: "t1", kind: "rule_on_finding", payload: { params, outcome }, resolvedAt: "d", resolvedBy: "me", claimedAt: "d", createdAt: "c" },
+      { id: "p3", status: "open", orgId: "org-1", threadId: "th-new", turnId: "t1", kind: "identity_diff", payload: { ops: [] }, resolvedAt: null, resolvedBy: null, claimedAt: null, createdAt: "c" },
+    ]);
+    const { athenaActionSummary } = await import("@/lib/athena/actions");
+
+    const res = await get("?org=acme");
+    const text = await res.text();
+    const body = JSON.parse(text);
+    expect(body.proposals[0].summary).toBe(athenaActionSummary("rule_on_finding", params));
+    expect(body.proposals[0].summary).toBe("Dismiss Branch protection (acme/api) (security)");
+    expect(body.proposals[1]).toMatchObject({ status: "accepted", payload: { outcome } });
+    expect(body.proposals[2].summary).toBeNull();
+    expect(text).not.toContain("requiredRole");
   });
 
   it("does not query a transcript when the org has no threads yet", async () => {
