@@ -23,6 +23,8 @@
 
 import type { MatrixCell, MatrixRow, VizState } from "@/components/org/viz";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
+import { canReport } from "@/lib/github/reportback-credential";
+import { reportBackOf } from "./foundationMarks";
 
 /** The three axes, in rollout order: what we proposed, what we wired, what came back. */
 export const FOUNDATION_AXES = ["PR", "Report-back", "Conformance"] as const;
@@ -37,7 +39,7 @@ export interface FoundationViz {
   states: VizState[];
   /** Repos where Ascent opened the foundation PR — a declaration, not a merge. */
   declared: number;
-  /** Repos wired to report their own conformance back. */
+  /** Repos holding a LIVE per-repo credential. Failed, revoked and legacy-shared ones do not count. */
   provisioned: number;
   /** Repos that have actually reported at least once — the only measured cohort. */
   reporting: number;
@@ -49,9 +51,11 @@ function cellsFor(row: FoundationRolloutRow): MatrixCell[] {
   // `declared`, not `measured`: the PR is a draft proposal. `not-judged`, not a zero: a hand-committed
   // foundation never passes through Ascent and is unobservable here.
   const pr: MatrixCell = row.foundationPrAt ? { state: "declared" } : { state: "not-judged" };
-  // Ascent wrote these secrets itself, so provisioning IS an observation. Its absence is a void:
-  // "not provisioned" is not "off" — the repo may still run the doctor locally, unseen.
-  const back: MatrixCell = row.reportBackAt ? { state: "measured" } : { state: "missing" };
+  // Ascent wrote these secrets itself, so a live credential IS an observation. A legacy shared one is
+  // a claim one rotation from silence (declared); failed, revoked and absent are voids.
+  const backState = reportBackOf(row).state;
+  const back: MatrixCell =
+    backState === "live" ? { state: "measured" } : backState === "legacy-shared" ? { state: "declared" } : { state: "missing" };
   const conf: MatrixCell =
     typeof row.conformance === "number" ? { state: "measured", score: row.conformance } : { state: "missing" };
   return [pr, back, conf];
@@ -61,7 +65,7 @@ function cellsFor(row: FoundationRolloutRow): MatrixCell[] {
  *  weakest reports. The grid's top row is therefore the next repo to act on. */
 function urgency(r: FoundationRolloutRow): number {
   if (!r.foundationPrAt) return 0;
-  if (!r.reportBackAt) return 1;
+  if (!canReport(reportBackOf(r))) return 1;
   if (r.conformance == null) return 2;
   return 3;
 }
@@ -82,7 +86,7 @@ export function foundationViz(rows: readonly FoundationRolloutRow[]): Foundation
     overflow: Math.max(0, ordered.length - shown.length),
     states: (["measured", "declared", "not-judged", "missing"] as VizState[]).filter((s) => present.has(s)),
     declared: rows.filter((r) => r.foundationPrAt != null).length,
-    provisioned: rows.filter((r) => r.reportBackAt != null).length,
+    provisioned: rows.filter((r) => reportBackOf(r).state === "live").length,
     reporting: rows.filter((r) => r.conformance != null).length,
     unjudged: rows.filter((r) => r.foundationPrAt == null).length,
   };

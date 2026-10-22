@@ -21,11 +21,23 @@
 //    survives it.
 //  • **The raw token never enters an audit row** — only its `askl_`-prefixed display prefix, matching
 //    org-api-tokens' capability model.
+//  • **One credential per repo.** Each repo's token carries its own name (tokenNameFor), so
+//    provisioning or revoking one repo can never retire another repo's credential. The order is mint,
+//    write, THEN retire this repo's previous token; a failed write retires the just-minted one
+//    instead, so there is never a window where the repo holds no working credential.
 
 import { NextResponse } from "next/server";
 import { AppApiError, isAppConfigured } from "@/lib/github/app";
-import { isDbConfigured, recordOrgAudit } from "@/lib/db";
-import { ensureOrgApiToken, revokeOrgApiTokensByName } from "@/lib/db/org-api-tokens";
+import { getInstallationIdForOwner, isDbConfigured, recordOrgAudit } from "@/lib/db";
+import { createOrgApiToken, revokeOrgApiToken, revokeOrgApiTokensByName } from "@/lib/db/org-api-tokens";
+import { getFoundationRollout } from "@/lib/db/org-foundation";
+import {
+  LEGACY_TOKEN_NAME,
+  failureReason,
+  tokenNameFor,
+  type ReportBackFailure,
+} from "@/lib/github/reportback-credential";
+import { appConfigureUrl } from "@/lib/ui";
 import { PUBLIC_ORG, isAuthConfigured, requireSameOrigin, readableOrgForOwner } from "@/lib/auth";
 import { authGateEnabled, resolveViewerLogin } from "@/lib/access";
 import { requireOrgRole } from "@/lib/authz";
@@ -38,13 +50,35 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-/** The one token name this route owns. Rotating by name is what keeps the written value knowable. */
-const TOKEN_NAME = "conformance report-back";
-
 interface SecretResult {
   repo: string;
   ok: boolean;
   error?: string;
+  /** Failure class, for the panel's next action. Never the raw GitHub body. */
+  reason?: ReportBackFailure;
+  /** The App's Configure page, on a missing-permission failure, when the installation is known. */
+  configureUrl?: string;
+}
+
+/**
+ * May this repo's provision or teardown retire the LEGACY shared token? Only when this repo is the one
+ * reading legacy-shared and no OTHER repo still does. A failed read answers no: revoking one repo must
+ * never revoke another's, so an unknown keeps the legacy token alive.
+ */
+async function mayRetireLegacy(org: string, fullName: string): Promise<boolean> {
+  try {
+    const rows = await getFoundationRollout(org);
+    const self = fullName.toLowerCase();
+    const legacy = rows.filter((r) => r.reportBack?.state === "legacy-shared").map((r) => r.repo.toLowerCase());
+    return legacy.includes(self) && legacy.every((r) => r === self);
+  } catch {
+    return false;
+  }
+}
+
+async function configureUrlFor(org: string): Promise<string | undefined> {
+  const id = await getInstallationIdForOwner(org).catch(() => null);
+  return id ? appConfigureUrl(id) : undefined;
 }
 
 interface Gated {
@@ -145,14 +179,14 @@ export async function POST(request: Request) {
     const ctx = await requirePrWriteContext(org);
     if (ctx instanceof Response) return ctx;
 
-    // ROTATE, always. A reused token's raw value is unrecoverable (only its hash is stored), so the
+    // MINT FRESH, always. A reused token's raw value is unrecoverable (only its hash is stored), so the
     // only way to be certain the value written into the repo is the one that works is to mint it here.
-    // The previous token of this name is revoked in the same call.
-    const minted = await ensureOrgApiToken(org, {
-      name: TOKEN_NAME,
+    // Nothing is retired yet: the repo's previous token stays live until the write has landed.
+    const tokenName = tokenNameFor(fullName);
+    const minted = await createOrgApiToken(org, {
+      name: tokenName,
       scopes: ["telemetry:write"],
       createdBy: actorLogin,
-      rotate: true,
     });
     if (!minted?.token) {
       return NextResponse.json({ error: "Couldn't mint a report-back token for this org." }, { status: 500 });
@@ -165,14 +199,29 @@ export async function POST(request: Request) {
       results.push({ repo: fullName, ok: true });
     } catch (err) {
       const classified = classifyPrWriteError(err);
+      const reason = failureReason(classified?.status);
+      const configureUrl = reason === "missing-permission" ? await configureUrlFor(org) : undefined;
       results.push({
         repo: fullName,
         ok: false,
+        reason,
+        ...(configureUrl ? { configureUrl } : {}),
         error:
-          classified?.status === 403
+          reason === "missing-permission"
             ? "The installation lacks Secrets write access. Update the GitHub App's permissions."
             : (classified?.message ?? "Failed to write the repository secrets."),
       });
+    }
+
+    const ok = results[0]!.ok;
+    if (ok) {
+      // The write landed: retire this repo's PREVIOUS credential (same name, any id but the new one),
+      // and the legacy shared token too when this repo held it and no other repo still depends on it.
+      await revokeOrgApiTokensByName(org, tokenName, { exceptId: minted.summary.id });
+      if (await mayRetireLegacy(org, fullName)) await revokeOrgApiTokensByName(org, LEGACY_TOKEN_NAME);
+    } else {
+      // The write failed: the repo still holds its previous token, so the just-minted one is the orphan.
+      await revokeOrgApiToken(org, minted.summary.id);
     }
 
     // The raw token is NEVER in the meta — only the display prefix, which is enough to recognize the
@@ -183,9 +232,11 @@ export async function POST(request: Request) {
       {
         repo: fullName,
         tokenPrefix: minted.summary.tokenPrefix,
+        tokenName,
         secrets: [...CONFORMANCE_SECRETS],
-        reusedToken: minted.reused,
-        ok: results[0]!.ok,
+        reusedToken: false,
+        ok,
+        ...(results[0]!.reason ? { reason: results[0]!.reason } : {}),
       },
       actorLogin ?? undefined,
     );
@@ -224,7 +275,10 @@ export async function DELETE(request: Request) {
     // Revoke the credential too, ALWAYS — including when the secret removal failed. Leaving a live
     // bearer token behind because a delete 403'd is the worse of the two failures: the secret can be
     // removed by hand in GitHub, but a token nobody knows about cannot be noticed.
-    const revoked = await revokeOrgApiTokensByName(org, TOKEN_NAME);
+    // Only THIS repo's name: every other repo's credential is untouched. The legacy shared token goes
+    // too, but only when this repo held it and no other repo still reads legacy-shared.
+    let revoked = await revokeOrgApiTokensByName(org, tokenNameFor(fullName));
+    if (await mayRetireLegacy(org, fullName)) revoked += await revokeOrgApiTokensByName(org, LEGACY_TOKEN_NAME);
 
     await recordOrgAudit(
       "foundation.reportback_revoked",

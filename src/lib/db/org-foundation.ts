@@ -10,7 +10,8 @@
 // HONEST NULLS are the whole contract of the row type below and are restated in the panel's legend:
 //   • `conformance: null` means NEVER REPORTED. It is not 0 — a repo that has never run the doctor and
 //     a repo that scored 0% are opposite facts, and collapsing them would invent a basis (G4).
-//   • `reportBackAt: null` means NOT PROVISIONED (or provisioned and later revoked). It is not "off".
+//   • `reportBackAt: null` means the repo CANNOT report: never provisioned, revoked, a failed write, or a
+//     credential retired since. It is not "off". `reportBack.state` says which.
 //   • `foundationPrAt: null` means no install PR was ever opened through Ascent. A repo whose team
 //     hand-committed `.ai/` is therefore null here, which is true of what ASCENT knows.
 //
@@ -20,6 +21,15 @@
 
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgId } from "@/lib/db/org-rollup";
+import { getInstallationIdForOwner } from "@/lib/db/installations";
+import {
+  canReport,
+  provisionRecordOf,
+  reportBackState,
+  type ProvisionRecord,
+  type ReportBackStatus,
+} from "@/lib/github/reportback-credential";
+import { appConfigureUrl } from "@/lib/ui";
 
 /** One repo's rollout standing. Every timestamp is an ISO string — see the header. */
 export interface FoundationRolloutRow {
@@ -27,8 +37,14 @@ export interface FoundationRolloutRow {
   repo: string;
   /** When Ascent last opened/updated the foundation PR here. Null = never installed through Ascent. */
   foundationPrAt: string | null;
-  /** When report-back was provisioned. Null once revoked — and null is "not provisioned", not "off". */
+  /** When report-back was provisioned, set only while the repo CAN report (live or legacy-shared). */
   reportBackAt: string | null;
+  /**
+   * The credential's real state: the latest provision row's `ok` joined with whether the token it
+   * recorded is still live. Optional on the type so hand-built fixtures stay valid; readers fall back
+   * to `reportBackAt` (see reportBackOf in the foundation feature).
+   */
+  reportBack?: ReportBackStatus;
   /** Latest reported conformance %, or null for NEVER REPORTED. Never 0-as-unknown. */
   conformance: number | null;
   conformanceAt: string | null;
@@ -41,10 +57,10 @@ const ROLLOUT_ACTIONS = [
   "foundation.reportback_revoked",
 ] as const;
 
-function metaRepo(meta: string): string | null {
+function parseMeta(meta: string): Record<string, unknown> | null {
   try {
-    const parsed = JSON.parse(meta) as Record<string, unknown>;
-    return typeof parsed.repo === "string" ? parsed.repo.toLowerCase() : null;
+    const parsed = JSON.parse(meta) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
   } catch {
     return null;
   }
@@ -67,7 +83,7 @@ export async function getFoundationRollout(orgSlug: string): Promise<FoundationR
   if (!orgId) return [];
   const prisma = getPrisma();
 
-  const [repos, events] = await Promise.all([
+  const [repos, events, liveTokens] = await Promise.all([
     prisma.repository.findMany({
       where: { orgId },
       select: { fullName: true, aiConformance: true, aiConformanceAt: true },
@@ -79,6 +95,8 @@ export async function getFoundationRollout(orgSlug: string): Promise<FoundationR
       orderBy: [{ at: "desc" }],
       take: 2000,
     }),
+    // Display prefixes only: enough to tell a live credential from a retired one, useless as a bearer.
+    prisma.orgApiToken.findMany({ where: { orgId, revokedAt: null }, select: { tokenPrefix: true } }),
   ]);
   if (repos.length === 0) return [];
 
@@ -86,9 +104,14 @@ export async function getFoundationRollout(orgSlug: string): Promise<FoundationR
   const installedAt = new Map<string, Date>();
   const provisionedAt = new Map<string, Date>();
   const revokedAt = new Map<string, Date>();
+  const provisionRecord = new Map<string, ProvisionRecord>();
   for (const e of events) {
-    const repo = metaRepo(e.meta);
-    if (!repo) continue;
+    const meta = parseMeta(e.meta);
+    const repo = typeof meta?.repo === "string" ? meta.repo.toLowerCase() : null;
+    if (!meta || !repo) continue;
+    if (e.action === "foundation.reportback_provisioned" && !provisionRecord.has(repo)) {
+      provisionRecord.set(repo, provisionRecordOf(meta));
+    }
     const target =
       e.action === "foundation.pr_opened"
         ? installedAt
@@ -98,20 +121,39 @@ export async function getFoundationRollout(orgSlug: string): Promise<FoundationR
     if (!target.has(repo)) target.set(repo, e.at);
   }
 
-  return repos.map((r) => {
+  const livePrefixes = new Set(liveTokens.map((t) => t.tokenPrefix));
+  // The Configure page is only worth a lookup when some row needs it (a missing-permission failure).
+  let configureUrl: string | null | undefined;
+  const configureFor = async () => {
+    if (configureUrl === undefined) {
+      const id = await getInstallationIdForOwner(orgSlug).catch(() => null);
+      configureUrl = id ? appConfigureUrl(id) : null;
+    }
+    return configureUrl;
+  };
+
+  const rows: FoundationRolloutRow[] = [];
+  for (const r of repos) {
     const key = r.fullName.toLowerCase();
     const provisioned = provisionedAt.get(key) ?? null;
     const revoked = revokedAt.get(key) ?? null;
     // A revoke that is NEWER than the provision means report-back is gone. A revoke that is OLDER means
-    // it was torn down and set up again — the current state is provisioned.
-    const live = provisioned && (!revoked || revoked <= provisioned) ? provisioned : null;
-    return {
+    // it was torn down and set up again, so the current state is the latest provision's.
+    const current = provisioned && (!revoked || revoked <= provisioned) ? provisioned : null;
+    const reportBack = reportBackState(current ? (provisionRecord.get(key) ?? null) : null, livePrefixes);
+    if (reportBack.reason === "missing-permission") {
+      const url = await configureFor();
+      if (url) reportBack.configureUrl = url;
+    }
+    rows.push({
       repo: r.fullName,
       foundationPrAt: installedAt.get(key)?.toISOString() ?? null,
-      reportBackAt: live ? live.toISOString() : null,
+      reportBackAt: current && canReport(reportBack) ? current.toISOString() : null,
+      reportBack,
       // `?? null` and NOT `?? 0`: absence is absence.
       conformance: typeof r.aiConformance === "number" ? r.aiConformance : null,
       conformanceAt: r.aiConformanceAt ? r.aiConformanceAt.toISOString() : null,
-    };
-  });
+    });
+  }
+  return rows;
 }

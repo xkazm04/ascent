@@ -134,5 +134,16 @@ describe("CapabilityMatrix", () => {
       render(<CapabilityMatrix repos={[repo("acme/read", readout())]} rollout={[rollout({})]} />);
       expect(screen.getByText(/not provisioned/i)).toBeTruthy();
     });
+
+    it("a revoked credential reads as revoked, never 'provisioned · never reported'", () => {
+      render(
+        <CapabilityMatrix
+          repos={[repo("acme/read", readout())]}
+          rollout={[{ ...rollout({}), reportBack: { state: "credential-revoked" as const } }]}
+        />,
+      );
+      expect(screen.getByText("credential revoked")).toBeTruthy();
+      expect(screen.queryByText(/never reported/i)).toBeNull();
+    });
   });
 });

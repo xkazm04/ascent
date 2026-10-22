@@ -4,7 +4,14 @@
 // paper beside "reported". Never-reported is unmeasured, never zero.
 import { CELL, CellMark, GhostAction, MonoPath } from "@/components/kit";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
-import { foundationBackMark, foundationConformanceMark, foundationPrMark } from "./foundationMarks";
+import {
+  BACK_TITLE,
+  foundationBackMark,
+  foundationConformanceMark,
+  foundationPrMark,
+  reportBackAction,
+  reportBackOf,
+} from "./foundationMarks";
 
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : null);
 
@@ -22,7 +29,8 @@ export function FoundationRowV2({
   const pr = foundationPrMark(row);
   const back = foundationBackMark(row);
   const conformance = foundationConformanceMark(row);
-  const provisioned = row.reportBackAt != null;
+  const backState = reportBackOf(row).state;
+  const action = reportBackAction(row);
   return (
     <tr>
       <td className={CELL}>
@@ -42,12 +50,16 @@ export function FoundationRowV2({
         </span>
       </td>
       <td className={CELL}>
-        <span className="flex flex-wrap items-center gap-2">
+        <span className="flex flex-wrap items-center gap-2" title={BACK_TITLE[backState]}>
           <CellMark state={back.state}>{back.word}</CellMark>
-          {provisioned && <span className="text-slate-400">{day(row.reportBackAt)}</span>}
-          <GhostAction disabled={busy} onClick={provisioned ? onRevoke : onProvision}>
-            {provisioned ? "Remove" : "Set up report-back"}
-          </GhostAction>
+          {row.reportBackAt && <span className="text-slate-400">{day(row.reportBackAt)}</span>}
+          {action.kind === "configure" ? (
+            <GhostAction href={action.href}>{action.label}</GhostAction>
+          ) : (
+            <GhostAction disabled={busy} onClick={action.kind === "revoke" ? onRevoke : onProvision}>
+              {action.label}
+            </GhostAction>
+          )}
         </span>
       </td>
       <td className={CELL}>

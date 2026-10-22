@@ -43,13 +43,29 @@ export function Cell({ capability, row }: { capability: string; row: CapabilityM
  * and where is it proving itself?" was answered across three tabs with the join living in the
  * reader's head. This is that cross-link: the same honest nulls the Repositories tab's legend states,
  * restated here rather than re-derived — `null` conformance is NEVER REPORTED, not 0%, and an absent
- * `reportBackAt` is NOT PROVISIONED, not "off".
+ * `reportBackAt` is NOT PROVISIONED, not "off". A failed write or a credential revoked since reads as
+ * itself, never as "provisioned · never reported": that repo cannot report, so silence is expected.
  */
 function ReportBackCell({ rollout }: { rollout: FoundationRolloutRow | undefined }) {
   if (!rollout) {
     return (
       <td className="px-4 py-2.5 type-body-sm text-slate-600" title="This repository is not in the fleet rollout read.">
         —
+      </td>
+    );
+  }
+  const state = rollout.reportBack?.state;
+  if (state === "failed" || state === "credential-revoked") {
+    return (
+      <td
+        className="px-4 py-2.5 type-body-sm text-amber-300/90"
+        title={
+          state === "failed"
+            ? "The last report-back provision failed, so this repo holds no working credential."
+            : "The credential written into this repo was revoked since. Re-provision it from the Practices tab."
+        }
+      >
+        {state === "failed" ? "provision failed" : "credential revoked"}
       </td>
     );
   }

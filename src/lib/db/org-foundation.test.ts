@@ -16,8 +16,10 @@ vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: ()
 vi.mock("@/lib/db/org-rollup", () => ({
   getOrgId: async (slug: string) => (slug === "acme" ? "org_acme" : null),
 }));
+vi.mock("@/lib/db/installations", () => ({ getInstallationIdForOwner: async () => "4242" }));
 
 import { getFoundationRollout } from "@/lib/db/org-foundation";
+import { LEGACY_TOKEN_NAME, tokenNameFor } from "@/lib/github/reportback-credential";
 
 const T = (iso: string) => new Date(iso);
 
@@ -32,8 +34,12 @@ interface AuditRow {
   at: Date;
 }
 
-function db(repos: RepoRow[], events: AuditRow[]) {
+/** The display prefix every fixture provision row records, live unless a test says otherwise. */
+const LIVE = "askl_LIVE000";
+
+function db(repos: RepoRow[], events: AuditRow[], livePrefixes: string[] = [LIVE]) {
   mockGetPrisma.mockReturnValue({
+    orgApiToken: { findMany: vi.fn(async () => livePrefixes.map((tokenPrefix) => ({ tokenPrefix }))) },
     repository: { findMany: vi.fn(async () => repos) },
     // The module relies on newest-first ordering; the fake honours it so the test exercises the real
     // "first sighting wins" fold rather than an accidentally-sorted fixture.
@@ -46,9 +52,13 @@ const repo = (fullName: string, conformance: number | null = null, at: Date | nu
   aiConformance: conformance,
   aiConformanceAt: at,
 });
-const ev = (action: string, repoName: string, at: string): AuditRow => ({
+const ev = (action: string, repoName: string, at: string, meta: Record<string, unknown> = {}): AuditRow => ({
   action,
-  meta: JSON.stringify({ repo: repoName }),
+  meta: JSON.stringify(
+    action === "foundation.reportback_provisioned"
+      ? { repo: repoName, ok: true, tokenPrefix: LIVE, tokenName: tokenNameFor(repoName), ...meta }
+      : { repo: repoName, ...meta },
+  ),
   at: T(at),
 });
 
@@ -174,5 +184,48 @@ describe("wire safety + degradation", () => {
   it("an org with no repos yields []", async () => {
     db([], [ev("foundation.pr_opened", "acme/app", "2026-08-01T00:00:00Z")]);
     expect(await getFoundationRollout("acme")).toEqual([]);
+  });
+});
+
+describe("report-back state is joined from the audit row's ok and the live token set", () => {
+  const P = "foundation.reportback_provisioned";
+
+  it("a provision row with meta.ok=false for a 403 is failed / missing-permission, not Provisioned", async () => {
+    db([repo("acme/app")], [ev(P, "acme/app", "2026-08-02T00:00:00Z", { ok: false, reason: "missing-permission" })]);
+    const row = (await getFoundationRollout("acme"))[0]!;
+    expect(row.reportBackAt).toBeNull();
+    expect(row.reportBack).toEqual({
+      state: "failed",
+      reason: "missing-permission",
+      configureUrl: "https://github.com/settings/installations/4242",
+    });
+  });
+
+  it("a provision row whose token prefix is no longer live is credential-revoked", async () => {
+    db([repo("acme/app")], [ev(P, "acme/app", "2026-08-02T00:00:00Z", { tokenPrefix: "askl_GONE000" })]);
+    const row = (await getFoundationRollout("acme"))[0]!;
+    expect(row.reportBack).toEqual({ state: "credential-revoked" });
+    expect(row.reportBackAt).toBeNull();
+  });
+
+  it("a row provisioned under the legacy shared name reads legacy-shared, and can still report", async () => {
+    db([repo("acme/app")], [ev(P, "acme/app", "2026-08-02T00:00:00Z", { tokenName: LEGACY_TOKEN_NAME })]);
+    const row = (await getFoundationRollout("acme"))[0]!;
+    expect(row.reportBack).toEqual({ state: "legacy-shared" });
+    expect(row.reportBackAt).toBe("2026-08-02T00:00:00.000Z");
+  });
+
+  it("a live per-repo credential reads live; a revoked repo reads none", async () => {
+    db(
+      [repo("acme/app"), repo("acme/api")],
+      [
+        ev(P, "acme/app", "2026-08-01T00:00:00Z"),
+        ev(P, "acme/api", "2026-08-01T00:00:00Z"),
+        ev("foundation.reportback_revoked", "acme/api", "2026-08-02T00:00:00Z"),
+      ],
+    );
+    const byRepo = Object.fromEntries((await getFoundationRollout("acme")).map((r) => [r.repo, r.reportBack]));
+    expect(byRepo["acme/app"]).toEqual({ state: "live" });
+    expect(byRepo["acme/api"]).toEqual({ state: "none" });
   });
 });

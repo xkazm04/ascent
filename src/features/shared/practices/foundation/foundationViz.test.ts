@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import { rendersValue } from "@/components/org/viz";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
 import { FOUNDATION_AXES, FOUNDATION_GRID_ROWS, foundationViz } from "./foundationViz";
+import { foundationBackMark, reportBackAction } from "./foundationMarks";
 
 const row = (over: Partial<FoundationRolloutRow> & { repo: string }): FoundationRolloutRow => ({
   foundationPrAt: null,
@@ -98,5 +99,41 @@ describe("fleet counts", () => {
       row({ repo: "a/z" }),
     ]);
     expect(viz).toMatchObject({ declared: 2, provisioned: 1, reporting: 1, unjudged: 1 });
+  });
+});
+
+describe("report-back credential states", () => {
+  const at = "2026-08-02T00:00:00.000Z";
+  const st = (repo: string, state: string, extra: Record<string, unknown> = {}) =>
+    row({ repo, reportBackAt: state === "live" || state === "legacy-shared" ? at : null, reportBack: { state, ...extra } as never });
+
+  it("'provisioned' counts only live credentials", () => {
+    const viz = foundationViz([st("a/l", "live"), st("a/s", "legacy-shared"), st("a/f", "failed"), st("a/r", "credential-revoked")]);
+    expect(viz.provisioned).toBe(1);
+    expect(cellsOf(viz.rows, "a/l")[1]).toEqual({ state: "measured" });
+    expect(cellsOf(viz.rows, "a/r")[1]).toEqual({ state: "missing" });
+  });
+
+  it("each state reads as its own word, and none prints an em dash", () => {
+    expect(foundationBackMark(st("a/r", "credential-revoked"))).toEqual({ state: "missing", word: "Credential revoked" });
+    expect(foundationBackMark(st("a/f", "failed", { reason: "missing-permission" }))).toEqual({ state: "missing", word: "Failed" });
+    expect(foundationBackMark(st("a/s", "legacy-shared"))).toEqual({ state: "partial", word: "Legacy shared" });
+    expect(foundationBackMark(st("a/l", "live"))).toEqual({ state: "met", word: "Provisioned" });
+    for (const s of ["live", "failed", "credential-revoked", "legacy-shared", "none"]) {
+      expect(JSON.stringify([foundationBackMark(st("a/x", s)), reportBackAction(st("a/x", s))])).not.toContain("\u2014");
+    }
+  });
+
+  it("offers the one action that fits the state", () => {
+    expect(reportBackAction(st("a/r", "credential-revoked"))).toEqual({ kind: "provision", label: "Re-provision" });
+    expect(reportBackAction(st("a/s", "legacy-shared"))).toEqual({ kind: "provision", label: "Re-provision" });
+    expect(reportBackAction(st("a/l", "live"))).toEqual({ kind: "revoke", label: "Remove" });
+    expect(reportBackAction(st("a/f", "failed", { reason: "missing-permission", configureUrl: "https://github.com/settings/installations/1" }))).toEqual({
+      kind: "configure",
+      label: "Grant Secrets write",
+      href: "https://github.com/settings/installations/1",
+    });
+    expect(reportBackAction(st("a/f", "failed", { reason: "write-failed" }))).toEqual({ kind: "provision", label: "Retry" });
+    expect(reportBackAction(row({ repo: "a/n" }))).toEqual({ kind: "provision", label: "Set up report-back" });
   });
 });

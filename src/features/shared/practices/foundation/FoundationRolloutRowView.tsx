@@ -15,6 +15,7 @@
 import { StateSwatch } from "@/components/org/viz";
 import { scoreHex } from "@/lib/ui";
 import type { FoundationRolloutRow } from "@/lib/db/org-foundation";
+import { BACK_TITLE, foundationBackMark, reportBackAction, reportBackOf } from "./foundationMarks";
 
 const shortDate = (iso: string | null) =>
   iso ? new Date(iso).toISOString().slice(0, 10) : null;
@@ -30,7 +31,15 @@ export function FoundationRolloutRowView({
   onProvision: () => void;
   onRevoke: () => void;
 }) {
-  const provisioned = row.reportBackAt != null;
+  const backState = reportBackOf(row).state;
+  const back = foundationBackMark(row);
+  const action = reportBackAction(row);
+  const swatch = backState === "live" ? "measured" : backState === "legacy-shared" ? "declared" : "missing";
+  const actionClass = `focus-ring rounded-md border px-2 py-1 type-label tracking-widest transition disabled:opacity-40 ${
+    action.kind === "revoke"
+      ? "border-slate-700 text-slate-400 hover:border-danger/50 hover:text-danger-soft"
+      : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
+  }`;
   return (
     <tr>
       <td className="px-4 py-2.5 type-mono-sm text-white">{row.repo}</td>
@@ -54,32 +63,28 @@ export function FoundationRolloutRowView({
 
       <td className="px-4 py-2.5 type-body-sm">
         <div className="flex flex-wrap items-center gap-2">
-          {provisioned ? (
-            <span className="inline-flex items-center gap-1.5 text-emerald-300">
-              <StateSwatch state="measured" />
-              Provisioned <span className="font-mono text-slate-500">{shortDate(row.reportBackAt)}</span>
-            </span>
-          ) : (
-            <span
-              className="inline-flex items-center gap-1.5 text-slate-500"
-              title="Ascent has written no report-back secrets here. That is not 'off' — the repo may still run .ai/doctor.mjs locally, unseen."
-            >
-              <StateSwatch state="missing" />
-              Not provisioned
-            </span>
-          )}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={provisioned ? onRevoke : onProvision}
-            className={`focus-ring rounded-md border px-2 py-1 type-label tracking-widest transition disabled:opacity-40 ${
-              provisioned
-                ? "border-slate-700 text-slate-400 hover:border-danger/50 hover:text-danger-soft"
-                : "border-slate-700 text-slate-300 hover:border-accent hover:text-white"
-            }`}
+          <span
+            className={`inline-flex items-center gap-1.5 ${backState === "live" ? "text-emerald-300" : "text-slate-500"}`}
+            title={BACK_TITLE[backState]}
           >
-            {provisioned ? "Remove" : "Set up report-back"}
-          </button>
+            <StateSwatch state={swatch} />
+            {back.word}
+            {row.reportBackAt && <span className="font-mono text-slate-500">{shortDate(row.reportBackAt)}</span>}
+          </span>
+          {action.kind === "configure" ? (
+            <a href={action.href} target="_blank" rel="noreferrer" className={actionClass}>
+              {action.label}
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={action.kind === "revoke" ? onRevoke : onProvision}
+              className={actionClass}
+            >
+              {action.label}
+            </button>
+          )}
         </div>
       </td>
 
