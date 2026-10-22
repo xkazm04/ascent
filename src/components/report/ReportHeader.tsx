@@ -10,11 +10,11 @@ import { pillClass } from "@/components/report/pill";
 import { SkillDownload } from "@/components/report/SkillDownload";
 import { FoundationPrButton } from "@/components/report/FoundationPrButton";
 import { ScoreIntegrityChip } from "@/components/report/ScoreIntegrityChip";
-import { CopyForLlm } from "@/components/CopyForLlm";
+import { BriefingComposer } from "@/components/report/BriefingComposer";
 import { ReportPermalinkShare, levelLine } from "@/components/report/ReportPermalinkShare";
 import { liveScanCopyPermalink } from "@/components/report/liveScanPermalink";
-import { reportLlmMarkdown } from "@/lib/report/llm-markdown";
 import { reportExportHref } from "@/lib/report/export-href";
+import type { LiftDistribution } from "@/lib/outcomes/aggregate";
 
 // Chip hints: `title=` fires only on pointer hover, so every hinted chip ALSO carries the hint as
 // sr-only text — screen-reader users hear the explanation inline, and hover users get the tooltip.
@@ -49,6 +49,7 @@ export function ReportHeader({
   installFoundation,
   lastSeenHead,
   freshnessWindowMs,
+  lifts,
 }: {
   report: ScanReport;
   isMock: boolean;
@@ -65,6 +66,8 @@ export function ReportHeader({
    *  renders its single muted line unchanged. */
   lastSeenHead?: string | null;
   freshnessWindowMs?: number | null;
+  /** The page's server-read measured lift map, so the briefing carries the roadmap's measured clause. */
+  lifts?: ReadonlyMap<string, LiftDistribution> | null;
 }) {
   const { repo } = report;
   const params = useSearchParams();
@@ -208,13 +211,8 @@ export function ReportHeader({
           >
             <span aria-hidden>↓</span> Share card
           </DownloadButton>
-          {/* The same briefing `GET /api/report/llm?repo=…` serves — one generator (reportLlmMarkdown),
-              so the clipboard payload and the endpoint body are identical by construction (G5-17). */}
-          <CopyForLlm
-            text={reportLlmMarkdown(report)}
-            label="Copy for LLM"
-            ariaLabel={`Copy the ${repo.owner}/${repo.name} maturity briefing for an LLM`}
-          />
+          {/* Copy for LLM + its dimension scope: one composition with GET /api/report/llm (G5-17). */}
+          <BriefingComposer report={report} lifts={lifts} org={params.get("org")} />
           {/* The pill keeps its one-click default download; the co-located picker beside it exposes the
               generator's maintainer multiselect (?dims=) so a session can be scoped to chosen dimensions. */}
           <SkillDownload

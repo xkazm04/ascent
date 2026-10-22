@@ -233,6 +233,7 @@ export function ReportView({
         installFoundation={installFoundation}
         lastSeenHead={lastSeenHead}
         freshnessWindowMs={freshnessWindowMs}
+        lifts={serverLifts}
       />
 
       {/* App Readiness Passport — the first thing seen: the two-axis trust scorecard for this codebase,
