@@ -162,7 +162,9 @@
         "src/lib/db/retention-policy*.ts",
         "src/lib/db/retention-org.test.ts",
         "src/features/admin/settings/RetentionCard*",
-        "src/lib/db/scan-digest*.ts"
+        "src/lib/db/scan-digest*.ts",
+        "src/lib/db/retention-ledgers*.ts",
+        "src/lib/db/retention-counters*.ts"
       ]
     },
     {

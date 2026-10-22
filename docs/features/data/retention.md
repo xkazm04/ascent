@@ -76,6 +76,20 @@ Per org enforcing a policy:
 It also sweeps org-less audit entries (anonymous public scans) under the global default, and
 sweeps expired `PublicScanQuota` rows on every pass.
 
+**One ledger table, one predicate per ledger.** The audit-horizon ledgers (`UsageEvent`,
+`ConformanceReport` with its findings deleted first in the same transaction, `OrgMemoryCitation`, and
+`ControlObservation` with its keep-newest-per-pair rule) are declared once in `PURGE_LEDGERS`
+(`src/lib/db/retention-ledgers.ts`). The dry run and the delete are two modes of the same
+`sweepLedger` over the same descriptor, so the preview is the number that dies by construction, and
+a new ledger is one row in that table. Every cutoff is a strict `lt`: a row exactly at the cutoff is
+kept. The per-org counters are declared once too (`PURGE_COUNTER_KEYS`,
+`src/lib/db/retention-counters.ts`): the result row, the `retention.purged` audit meta and the run
+rollup all derive from that list.
+
+**Committed batches keep their counts.** Every sweep (scans, audit, each ledger) adds into the org's
+counters after each committed batch, not when the sweep returns. When a later batch throws, the org's
+result row still reports what earlier batches deleted, and the error names the org.
+
 **DSQL-safe:** deletes run in small batches; serialization conflicts (Aurora DSQL's OC###
 codes, 40P01 deadlock, Prisma P2034) are retried with jittered backoff via the shared
 `withRetry` (`src/lib/db/client.ts`).
@@ -103,7 +117,7 @@ so "the number you were shown is the number that dies" still holds.
 ## The control ledger, and the seal that must beat the purge
 
 `ControlObservation` ages out on the org's **`auditDays`** horizon
-(`pruneControlObservations`), with one rule that is the whole design: the **newest** observation of
+(the `controlObservationsDeleted` row of `PURGE_LEDGERS` in `src/lib/db/retention-ledgers.ts`), with one rule that is the whole design: the **newest** observation of
 every `(repoFullName, controlId)` pair is ALWAYS kept, excluded in the delete predicate rather than
 filtered out of a page. The posture surfaces read the latest row per pair, so a plain date sweep would
 delete the current standing of every control an org had not re-observed inside the window, and the
@@ -417,6 +431,9 @@ four columns, records `retention.updated` with `purged: false`, and does not run
 | `src/app/api/org/retention/route.ts` | Owner Settings read/write of the four override columns; dry-run preview; never purges. |
 | `src/lib/db/retention.ts` | `resolveRetention`, `purgeExpiredData` (batched, OCC-retrying, budgeted, rotated), `eraseOrgData`, `getOrgRetention` / `setOrgRetention` / `previewOrgRetention`. |
 | `src/lib/db/retention-policy.ts` | Floors, parse/validate of the four columns, purge contracts (no DB). |
+| `src/lib/db/retention-ledgers.ts` | `PURGE_LEDGERS` (the audit-horizon ledgers, one descriptor each) and `sweepLedger` (count or delete mode over one predicate). |
+| `src/lib/db/retention-counters.ts` | `PURGE_COUNTER_KEYS` and the row, audit-meta, gate and rollup helpers derived from it (no DB). |
+| `src/lib/db/retention-ledgers.test.ts` | Predicate-snapshot pins: the literal predicates and the surviving rows, including the cutoff boundary. |
 | `src/lib/db/retention.test.ts` | Policy + purge + erasure + compaction tests. |
 | `src/features/admin/settings/RetentionCard.tsx` | Owner Settings card: four fields, floor refusal, dry-run required before save. |
 | `src/lib/db/scan-digest.ts` | The digest fold (pure), the in-transaction upsert, the tail read, digest ageing, and `getCompactionCoverage`. |
@@ -450,7 +467,7 @@ four columns, records `retention.updated` with `purged: false`, and does not run
   Preserving the non-identifying half would need `meta` split into typed columns (or a
   `subjectRef`/`subjectDetail` pair) — a schema migration plus a per-action classification of which
   keys identify a person. Until then the surviving row is deliberately minimal.
-- **The purge does not refuse to delete an UNSEALED ledger day.** `pruneControlObservations` sweeps
+- **The purge does not refuse to delete an UNSEALED ledger day.** The control-ledger sweep (`PURGE_LEDGERS`) sweeps
   on age alone; it does not consult the seal table. The schedule makes this safe in practice (the
   sealer is a day behind, the horizon is many days wide — see above), and the failure condition is
   reported as `sealBacklogRemaining` rather than hidden, but it is reported, not *prevented*: an org

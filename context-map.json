@@ -3888,7 +3888,13 @@
             "src/lib/db/retention-policy.test.ts",
             "src/app/api/org/retention/route.public.test.ts",
             "src/app/api/org/retention/route.test.ts",
-            "src/app/api/org/retention/route.ts"
+            "src/app/api/org/retention/route.ts",
+            "src/lib/db/retention-ledgers.ts",
+            "src/lib/db/retention-ledgers.test.ts",
+            "src/lib/db/retention-ledgers.table.test.ts",
+            "src/lib/db/retention-counters.ts",
+            "src/lib/db/retention-counters.test.ts",
+            "src/lib/db/retention-purge.fixture.ts"
           ],
           "target": null,
           "apiRoutes": [
