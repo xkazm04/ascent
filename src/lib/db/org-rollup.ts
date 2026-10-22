@@ -20,7 +20,7 @@ import { forecastTrajectory, type Forecast, type SeriesPoint } from "@/lib/matur
 import { levelForScore } from "@/lib/maturity/model";
 import { GroupedMean, dateRange, getOrgBySlug, normalizeOrgSlug, roundedMean, segmentScope, techGroupScope, upperBound } from "@/lib/db/org-shared";
 import { retentionCutoff } from "@/lib/plans";
-import { latestFirst, readLatestScanPerRepo } from "@/lib/db/org-rollup-latest-scans";
+import { latestFirst, readLatestScanPerRepo, withLatestScans } from "@/lib/db/org-rollup-latest-scans";
 import { dayKeyInZone } from "@/lib/org/timezone";
 import { asOrgId, type OrgId } from "@/lib/org/ids";
 import { noteReadFailure } from "@/lib/org/degraded-read";
@@ -179,19 +179,13 @@ export async function getRepoStates(orgSlug: string): Promise<Record<string, Rep
   const prisma = getPrisma();
   const orgId = await getOrgId(orgSlug);
   if (!orgId) return {};
-  const repos = await prisma.repository.findMany({
-    where: { orgId },
-    select: {
-      fullName: true,
-      watched: true,
-      scanSchedule: true,
-      scans: {
-        orderBy: { scannedAt: "desc" },
-        take: 1,
-        select: { level: true, overallScore: true, scannedAt: true, engineProvider: true },
-      },
-    },
-  });
+  // The latest scan per repo through the shared door, never a nested `scans: { take: 1 }` (economics-1).
+  const repos = await withLatestScans(
+    prisma,
+    prisma.repository.findMany({ where: { orgId }, select: { id: true, fullName: true, watched: true, scanSchedule: true } }),
+    { orgId },
+    { level: true, overallScore: true, scannedAt: true, engineProvider: true },
+  );
   const out: Record<string, RepoState> = {};
   for (const r of repos)
     out[r.fullName] = {
@@ -1296,17 +1290,15 @@ export const getOrgHeaderSummary = cache(async (orgSlug: string): Promise<OrgHea
   const prisma = getPrisma();
   const org = await prisma.organization.findUnique({ where: { slug: normalizeOrgSlug(orgSlug) }, select: { id: true, kind: true } });
   if (!org) return null;
-  const repos = await prisma.repository.findMany({
-    where: { orgId: org.id, OR: [{ watched: true }, { scans: { some: {} } }] },
-    select: {
-      watched: true,
-      scans: {
-        orderBy: { scannedAt: "desc" },
-        take: 1,
-        select: { overallScore: true, adoptionScore: true, rigorScore: true, posture: true, engineProvider: true },
-      },
-    },
-  });
+  // The latest scan per repo through the shared door (two GROUP BY-bounded statements beside the repo
+  // read), never a nested `scans: { take: 1 }`: this runs in EVERY org shell, and that shape transferred
+  // the org's whole scan history to keep one row per repo (economics-1).
+  const repos = await withLatestScans(
+    prisma,
+    prisma.repository.findMany({ where: { orgId: org.id, OR: [{ watched: true }, { scans: { some: {} } }] }, select: { id: true, watched: true } }),
+    { orgId: org.id },
+    { overallScore: true, adoptionScore: true, rigorScore: true, posture: true, engineProvider: true },
+  );
   // One pass over the same latest-scan-per-repo rows the counts already need. `scanned` is the rollup's
   // definition of the word: a repo with at least one scan (an unscanned watched repo contributes to
   // repoCount and nothing else).

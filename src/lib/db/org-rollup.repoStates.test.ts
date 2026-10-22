@@ -9,9 +9,15 @@ const { mockGetPrisma, mockIsDbConfigured } = vi.hoisted(() => ({
   mockIsDbConfigured: vi.fn(() => true),
 }));
 
-vi.mock("@/lib/db/client", () => ({ getPrisma: mockGetPrisma, isDbConfigured: mockIsDbConfigured }));
+// The readers pick each repo's latest scan through the door (org-rollup-latest-scans.ts); this adapter
+// serves the nested `scans: [latest]` fixtures below as the Scan table that door reads.
+vi.mock("@/lib/db/client", async () => {
+  const { servingNestedScans } = await import("./org-rollup-latest-scans.test-helpers");
+  return { getPrisma: (...a: unknown[]) => servingNestedScans(mockGetPrisma(...a)), isDbConfigured: mockIsDbConfigured };
+});
 
 import { getRepoStates } from "@/lib/db/org-rollup";
+import { servingNestedScans } from "./org-rollup-latest-scans.test-helpers";
 
 function prismaWith(rows: unknown[]) {
   const findMany = vi.fn(async () => rows);
@@ -62,7 +68,9 @@ describe("getRepoStates: scannedAt and preview", () => {
     expect(states["acme/never"]).toEqual({ watched: false, scanSchedule: "off", level: null, overall: null, scannedAt: null, preview: false });
     expect(typeof states["acme/live"]!.scannedAt).toBe("string");
 
-    const args = findMany.mock.calls[0]![0] as { select: { scans: { select: Record<string, unknown> } } };
-    expect(args.select.scans.select).toMatchObject({ scannedAt: true, engineProvider: true });
+    // The latest scan comes through the door's pair fetch, not a nested `scans` select.
+    expect((findMany.mock.calls[0] as unknown as [{ select: Record<string, unknown> }])[0].select.scans).toBeUndefined();
+    const pair = (servingNestedScans(prisma).scan.findMany as unknown as { mock: { calls: [{ select: Record<string, unknown> }][] } }).mock.calls[0]![0];
+    expect(pair.select).toMatchObject({ scannedAt: true, engineProvider: true });
   });
 });
