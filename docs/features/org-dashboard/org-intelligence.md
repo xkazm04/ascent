@@ -233,6 +233,22 @@ preview (mock-engine) rows in place; mock provenance stays disclosed wherever ro
 labels (the "mock placeholder" convention in the Overview rollup / Clearance cards) until the live
 rows land. See [the wizard doc](../onboarding/wizard.md) for the wizard half.
 
+**The run's end is a roster (2026-10-22).** A finished "Scan all watched" no longer ends in three
+count sentences ("N failed. See the Repositories tab." and two skip counts). `useOrgScanButton`
+keeps a roster (`src/components/org/shared/scanRunRosterModel.ts`, pure) that folds the stream's
+per-repo `repo` frames, the `notice`/`result` credit totals and the background tail's
+`GET /api/org/scan/queue` rows by repo identity, re-deriving every count from the lists.
+`ScanRunRoster` names each failed or skipped repo under the fix it needs, with one action per
+group: **Retry N failed** (an ordinary scoped `POST /api/org/scan` of exactly the failures, so the
+server's watchlist intersection and per-repo credit rules apply as for any run), **See credit
+packs** (out of credits), **Reconnect on Integrations** (installation token unavailable), and no
+action for repos already being scanned or not scanned for another scheduler reason. A failure the
+org was charged for discloses it on the button ("1 already charged once; a retry is a new scan"). A
+scan the provider degraded to the deterministic floor (stream `error` with `charged:false`, or a
+worker job settled `skipped` with `LLM unavailable: not persisted`) is a retryable engine failure
+("nothing was saved or charged"), never a finished scan. Up-front credit skips arrive as a count
+with no names, so that group shows the count and the names it has.
+
 `/me` is now reachable from **every** page: the header's signed-in identity
 (`IdentityLink` in `src/components/Brand.tsx`, rendered by `HeaderAccount`, which both `SiteHeader`
 and `OrgHeader` mount) links to it. Previously it did not: under the ACTIVE Supabase login the
@@ -1622,6 +1638,7 @@ consumed by another model, which gains nothing from prose we generated for it.
 | --- | --- | --- |
 | `/api/org/import` | `POST` (SSE) | Bulk-import: list an org's public repos, scan each, persist, optionally watch + schedule. Powers free-tier onboarding without installing the App. |
 | `/api/org/scan` | `POST` (SSE) | Scan every **watched** repo (uses the installation token for private repos). Drives `OrgScanButton`. |
+| `/api/org/scan/queue` | `GET` | One run's job states (`?org=&runId=`, gate-then-constrain): per-state counts, `pending`, and `repos[]` of `{ repo, state, error, charged }` (`charged` = a failed job still holding its credit). Feeds the scan button's background tail and its roster. |
 | `/api/org/watch` | `POST` | Toggle a repo's `watched` flag (`setRepoWatch`). |
 | `/api/org/schedule` | `POST` | Set a repo's autoscan period off/daily/weekly/monthly (`setRepoSchedule`, computes `nextScanAt`). Drives the rescan [cron](../fleet/rescan.md). |
 | `/api/org/repos` | `GET` | List an org's public repos (onboarding picker). |
@@ -2917,6 +2934,7 @@ survivor is a unit line: that one, `4 open · 9 settled`, and
 | `src/components/OrgSwitcher.tsx` | Org/installation picker (persists active org). |
 | `src/features/standing/overview/Trajectory.tsx` | Forecast "GPS" card. Mounted by `/trends` (`TrajectoryPanel`), the personal overview and, since 2026-09-05, the org Overview ledger (`OverviewTrajectoryCard`, beside the standing strip, behind the same presentability gate the personal tier uses; renders nothing below it). |
 | `src/components/org/shared/OrgScanButton.tsx` | Scan-all-watched button (SSE progress). |
+| `src/components/org/shared/ScanRunRoster.tsx` | The scan run's end: failed/skipped repos by fix, with Retry / credits / reconnect actions (model: `scanRunRosterModel.ts`). |
 | `src/features/admin/audit/AuditLogViewer.tsx` | Audit trail viewer. |
 | `src/features/inflight/proposals/` · `src/components/org/followups/` | The Proposals ledger (Follow-ups until 2026-09-15; replaced the Backlog panel 2026-08-17): `ProposalsWorklist` (scan + loop rows, source-aware bulk bar), `FollowupsPromptModal` (fix prompt + hand-off), `FollowupHistory` (per-row timeline), `followupsModel.ts` (filters, selection, org-wide spread, `patchStatuses` bulk runner), `proposalsModel.ts` (the loop fold). |
 | `src/features/inflight/lessons/` | The Lessons ledger (split out of the Live cockpit 2026-09-15). |
