@@ -233,7 +233,7 @@ Guardrails, each load-bearing:
   (`markStaleRunsStopped`, on the band's GET the same way `GET /api/org/loop` does it) rather than
   being trusted or resumed.
 
-UI: `AutopilotBand` (+ `AutopilotBandParts`) in `src/features/inflight/live/` — picker, cycle
+UI: the loop cockpit in `src/features/inflight/live/cockpit/` (setup dialog, runner panel, masthead) — picker, cycle
 count, start/stop, live log; polls the job every 4s only while one runs, and refreshes the wall once
 per finished run. Routes: `GET/POST /api/org/local/autopilot`. GET is member-gated and served on
 managed cloud (`{ enabled: false, job }`, `job` null unless a remote single-repo run exists) so a

@@ -363,7 +363,7 @@ Three rules now hold, and they are the vocabulary the whole loop answers to:
    | --- | --- | --- |
    | An agent's trailer nothing adjudicated | *claimed resolved — awaiting the rescan* (muted italic) | `CockpitVerdicts` |
    | ONE item the rescan ruled on (`verifiedAt` set) | *closed by the rescan* (accent) | `CockpitVerdicts` |
-   | A LANE's count of the rescan's adjudicated set | *N verified closed* | `LaneRail`, `AutopilotBandParts`, the lane log |
+   | A LANE's count of the rescan's adjudicated set | *N verified closed* | `LaneRail`, the lane log |
    | `diff.closedGapCount`, a scan-diff quantity | *N gaps no longer raised* | `OutcomeSection`, `takeaway()` |
 
    The outcome sheet's gap cells had the same split still to make: `KIND_META.closed` labelled every
@@ -976,16 +976,16 @@ The cockpit itself no longer renders lessons.
 
 ### The Prism composition of the cockpit (v2, 2026-09-29)
 
-`LiveCockpit` always renders `LiveCockpit.v2.tsx`; the Altimeter `LiveCockpit.v1.tsx` (the body above) was deleted 2026-10-22 with the theme switch. What v2 changes:
+`LiveCockpit` always renders `LiveCockpit.tsx`; the Altimeter `LiveCockpit.v1.tsx` (the body above) was deleted 2026-10-22 with the theme switch. What v2 changes:
 
 - **One dominant element.** A `Masthead` (statement "The fleet, **in adoption × rigor**", two figures:
   repos in scope and the loop's state, both from `headerStatus`, the same model v1 prints as a caption)
   with the view switch, gear, Wall and Stop as its aside. The sky sits on the page with no card
   (`CockpitField bare`); the rail is a ruled column beside it, not a second card.
-- **Sections are Frames with a statement head**: the proposed batch (`CockpitBatchLedger.v2`, same
+- **Sections are Frames with a statement head**: the proposed batch (`CockpitBatchLedgerView`, same
   `CockpitBatchTable` body and polarity, each row's dimension named by hue via `DimensionMark`) and the
-  price list (`PriceListPanel.v2`, every rate still printed with its `n`).
-- **The outcome is two levels** (`OutcomeSection.v2`): a run strip on the page (newest first; a lift
+  price list (`PriceListPanelView`, every rate still printed with its `n`).
+- **The outcome is two levels** (`OutcomeSectionView`): a run strip on the page (newest first; a lift
   the pair could not attribute is an em dash, never a 0) and the full matrix behind `#outcome` with a
   breadcrumb, Back, Esc and focus moved into the level. While the level is open it is the only thing
   on the page. Opening a run from the strip drifts the field (as the sheet column does) and opens the
@@ -5740,7 +5740,7 @@ not chrome for it. What replaced it is unit and window: `org-wide scan · overal
 - **`CockpitSetup`'s four paragraphs** (`hosted`, `no-repos`, `autopilot-off`, `not-owner`). Every
   branch of that component *is* a degraded/empty state, which is the redesign's own designated home
   (O) for exactly this copy. Live's densest prose was already sitting where the law wants it.
-- **The verify-mode copy (now `RunSetupSafety`) and `AutopilotBand`'s dispatch line.** These
+- **The verify-mode copy (now `RunSetupSafety`) and the former autopilot band's dispatch line.** These
   explain what a control the operator is about to flip will *do* — execute the repository's own check
   inside a worktree, record lanes as UNVERIFIED, dispatch an editing agent into a real working copy.
   A live operational surface legitimately says that, and shortening it would remove a consequence

@@ -288,7 +288,7 @@ under the Supabase wall `getSession()` is null and this collapses to the viewer,
 | Admin | Members | `org/[slug]/members` | `src/app/org/[slug]/members/` | Membership + roles. |
 | Admin | Integrations | `org/[slug]/integrations` | `src/app/org/[slug]/integrations/` | Connect AI coding providers: Claude Code (measured, OTel push), Copilot (seats-only, admin pull) and OpenAI (allocated cost, admin pull with an owner-supplied Admin key). See [Provider integrations](#provider-integrations-orgslugintegrations-owner-only). |
 | Admin | Audit | `org/[slug]/audit` | `src/app/org/[slug]/audit/page.tsx` | Searchable, keyset-paginated audit trail. |
-| Admin | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. **2026-09-23:** under the provider boundary matrix, a **Where each lane runs** card lists, per LLM lane (scans, Athena, board narrative, shared memory, lane summaries), the engine, model and whose account answers for this org, flags the two lanes a connected provider never carries, and adds an **If switched on** column for a saved-but-off provider. Owner-only like every card here; read-only. See [llm-providers](../scanning/llm-providers.md#settings-ui). **2026-09-30 (kit-3, Prism only):** the entry (`SettingsTab.tsx`, owner gate first) picks `SettingsTab.v1.tsx` (Altimeter, unchanged) or `SettingsTab.v2.tsx` by theme. Prism leads with a masthead stating where inference runs (plan, provider, lanes on the platform), an Account frame of kit `SettingRow`s (plan control, secret encryption, retention jump), then hairline frames for Inference, Bring your own model, Evidence and Data; the cards keep their headers and behavior, their boxes are flattened by `data-role="settings-v2"` rules in `kit.css`. Roles: `scripts/kit/roles/settings.json`. |
+| Admin | Settings | `org/[slug]/settings` | `src/app/org/[slug]/settings/` | Org-level settings. **2026-09-23:** under the provider boundary matrix, a **Where each lane runs** card lists, per LLM lane (scans, Athena, board narrative, shared memory, lane summaries), the engine, model and whose account answers for this org, flags the two lanes a connected provider never carries, and adds an **If switched on** column for a saved-but-off provider. Owner-only like every card here; read-only. See [llm-providers](../scanning/llm-providers.md#settings-ui). **2026-09-30 (kit-3, Prism only):** the entry (`SettingsTab.tsx`, owner gate first) picks `SettingsTab.v1.tsx` (Altimeter, unchanged) or `SettingsTabView.tsx` by theme. Prism leads with a masthead stating where inference runs (plan, provider, lanes on the platform), an Account frame of kit `SettingRow`s (plan control, secret encryption, retention jump), then hairline frames for Inference, Bring your own model, Evidence and Data; the cards keep their headers and behavior, their boxes are flattened by `data-role="settings-v2"` rules in `kit.css`. Roles: `scripts/kit/roles/settings.json`. |
 
 ### The Overview ledger (2026-08-17)
 
@@ -1931,7 +1931,7 @@ and never a dollar figure, so a synced Copilot org can no longer read "$0.00 ove
 days". Before this the panel keyed on the literal `claude-code` id, so Copilot showed a green
 "Available" badge with nothing to click while its finished sync route had no caller.
 
-**Prism composition (2026-09-30).** With `data-theme="prism"` the tab is a kit composition (`IntegrationsView.v2`): a masthead, a spend ladder (an unknown reading stays "not measured", never a zero), and one hairline Frame per integration opened from a list row. The hash is `#gitlab`, `#claude-code`, `#copilot`, or `#openai`, and Esc or Back returns to the list. Connection status is the words "connected" and "not configured" with a glyph, never a status hue. Fidelity is a word on a `CellMark` (seats-only is unmeasured, not a failed allocated). Altimeter keeps the card stack. The routes, the ingest-token mask (both surfaces stay masked until Reveal, and Copy still copies the working token), and the rule that a secret is never echoed from the server are unchanged.
+**Prism composition (2026-09-30).** With `data-theme="prism"` the tab is a kit composition (`IntegrationsView`): a masthead, a spend ladder (an unknown reading stays "not measured", never a zero), and one hairline Frame per integration opened from a list row. The hash is `#gitlab`, `#claude-code`, `#copilot`, or `#openai`, and Esc or Back returns to the list. Connection status is the words "connected" and "not configured" with a glyph, never a status hue. Fidelity is a word on a `CellMark` (seats-only is unmeasured, not a failed allocated). Altimeter keeps the card stack. The routes, the ingest-token mask (both surfaces stay masked until Reveal, and Copy still copies the working token), and the rule that a secret is never echoed from the server are unchanged.
 
 **Available capabilities are stored facts, not a roadmap (2026-09-17).** Claude Code's catalog
 row lists only what Test + OTel metrics persist: per-repo tokens and cost via the
@@ -3357,7 +3357,7 @@ per-metric definition moved from a standing `<p>` into a `WhyChip`. `DeliverySlo
 gated fit readouts a shape: the true slope angle in a goodness-signed colour, and a **hatched** mark
 with no numeral where `forecastInsufficiency` refuses to state one.
 
-**Prism composition (kit).** `DeliveryTab` renders `DeliveryTab.v2`. Prism is a masthead, hairline frames, and kit tables. Hue is not a status color: figures stay paper, and status is a glyph plus a word. A figure that was not measured is a void, not a zero. Locked AI spend (fidelity `none`) stays empty, and spend-derived verdicts stay suppressed by the model. The trend, the activity chart, the spend ribbon, the ROI map, and the DORA marks stay domain drawings. The kit has no part for a broken series, a non-percent axis, or a pressable row.
+**Prism composition (kit).** `DeliveryTab` renders `DeliveryTabView`. Prism is a masthead, hairline frames, and kit tables. Hue is not a status color: figures stay paper, and status is a glyph plus a word. A figure that was not measured is a void, not a zero. Locked AI spend (fidelity `none`) stays empty, and spend-derived verdicts stay suppressed by the model. The trend, the activity chart, the spend ribbon, the ROI map, and the DORA marks stay domain drawings. The kit has no part for a broken series, a non-percent axis, or a pressable row.
 
 ## Known gaps
 
@@ -3487,9 +3487,9 @@ The markup takes the Prism expression (`src/app/kit.css`; Prism is the only look
 
 ### The Overview under the Prism theme (v2 composition, 2026-09-29)
 
-`OverviewTab.tsx` renders `OverviewTab.v2.tsx` (Prism; the Altimeter `OverviewTab.v1.tsx` layout described above was deleted 2026-10-22). Both take the inputs from `overviewInputs.ts`
+`OverviewTab.tsx` renders `OverviewTabView.tsx` (Prism; the Altimeter `OverviewTab.v1.tsx` layout described above was deleted 2026-10-22). Both take the inputs from `overviewInputs.ts`
 (period, window, scope promise, `?dim=`, query string) and render the same panels, so a deep link resolves
-identically in both. The data region picks `OverviewLedger` or `OverviewLedger.v2` inside `OverviewFleetPanel`.
+identically in both. The data region renders `OverviewLedger` inside `OverviewFleetPanel`.
 
 What v2 changes is structure, not colour:
 
@@ -3499,18 +3499,18 @@ What v2 changes is structure, not colour:
   paper: hue names a dimension, never a status. The trend is the kit `Trend`, drawn against the level bands the
   series touches, and says so in words below three scans instead of drawing a line), then the Fix first band as a slot
   under it (still its own Suspense boundary), the trajectory, the dimensions, the repo matrix, posture, fleet.
-- **Dimensions as spectral lines** (`DimensionLedger.v2`, `DimensionLedgerRow.v2`): three SDLC phases, nine
+- **Dimensions as spectral lines** (`DimensionLedger`, `DimensionLedgerRow`): three SDLC phases, nine
   `DimensionLine`s. Hue names the dimension, the bar is the fleet average, the tick is the green floor, and a
   dimension below the floor draws the gap up to it as a hatched span in its own hue. A
   dimension no scored repo carries is **not judged** (an empty track and the words, decided by
   `belowGreen.of === 0`). When no dimension has a movement baseline the section says so once instead of drawing
   nine void marks.
-- **Repo matrix** (`DimensionMatrix.v2`): same cells, sort and detail modal as the heatmap
+- **Repo matrix** (`DimensionMatrix`): same cells, sort and detail modal as the heatmap
   (`heatmapModel.ts`), drawn as scores; the hairline bar in the dimension's hue shows only in the sorted column
   and under the pointer. A score below the green floor carries a `▾` glyph and a screen-reader word (the number
   stays paper, never a status hue), the Fleet average row is the table's `foot`, an absent cell is the void,
   never a 0.
-- **Fleet** (`FleetRollup.v2`, `FleetGroup.v2`): ruled cohorts in one column instead of a two-column card grid.
+- **Fleet** (`FleetRollup`, `FleetGroup`): ruled cohorts in one column instead of a two-column card grid.
 - **Shared, not duplicated:** `heatmapModel.ts` (sort/mean), `postureModel.ts`, `useFleetRollup.tsx`,
   `trajectoryRead.ts` (v1's `OverviewTrajectoryCard` reads the same `trajectoryView` gate).
 - **Table chrome elsewhere (kit-3, 2026-09-30).** The Audit log and Members tables, the dimension heatmap and
@@ -3520,8 +3520,8 @@ What v2 changes is structure, not colour:
 
 ### Repositories in Prism (kit-3, first pass)
 
-`RepositoriesTab` renders `RepositoriesTab.v2` (same scope promise, same panels).
-The leaderboard region becomes `RepositoriesView.v2`: a `Masthead` (repo count as the statement; average score,
+`RepositoriesTab` renders `RepositoriesTabView` (same scope promise, same panels).
+The leaderboard region becomes `RepositoriesView`: a `Masthead` (repo count as the statement; average score,
 4-week commits and merged PRs as figures, each a `VoidMark` when unmeasured), a posture `Segmented` nav (label plus
 count, no status dot), scope and Export CSV on one toolbar, and a ruled list of the new kit **`RepoRow`**
 (`src/components/kit/RepoRow.tsx`; roles for name, stack, score, movement, chips, cells, actions). Passports and
@@ -3530,13 +3530,13 @@ Security will migrate to it later. Sort, selection and bulk-tag share `useRepoLe
 Second pass (kit-6): Context Health, Segments, missing repos, the bulk bar, and the per-repo cadence
 select are Prism compositions. The v1 files are deleted.
 
-- Context half-life (`ContextHalfLife.v2`) is a `Frame` and `SectionHead`, a `StatStrip` of paper
+- Context half-life (`ContextHalfLife`) is a `Frame` and `SectionHead`, a `StatStrip` of paper
   figures (`VoidMark` when coverage or half-life was not measured; a dead-reference count of 0 stays 0),
   decay bands as `CellMark`s, and urgent repos as a `HairlineList` of `ListRow`s.
-- Missing repos (`MissingReposPanel.v2`) are a `HairlineList` of `RepoRow`s. Unwatch is the same POST.
-- Cadence (`ScheduleSelect.v2`) and the bulk bar (`RepoLeaderboardBulkBar.v2`) are `FormField` plus
+- Missing repos (`MissingReposPanelView`) are a `HairlineList` of `RepoRow`s. Unwatch is the same POST.
+- Cadence (`ScheduleSelect`) and the bulk bar (`RepoLeaderboardBulkBar`) are `FormField` plus
   `Select`. Selection and add-to-segment stay on `useRepoLeaderboard`.
-- Segments (`SegmentsSection.v2`) keep the same reads. The manager, maturity table, and comparison are
+- Segments (`SegmentsSection`) keep the same reads. The manager, maturity table, and comparison are
   frames. An unscanned cell is `CellMark` unmeasured. Dimension rows are `DimensionLine`s.
 
 The decay scatter is not redrawn: no kit chart plots it without a status hue. Segment colors stay,
@@ -3545,7 +3545,7 @@ rollup carries no per-repo delta.
 
 ### Governance in Prism (kit-4, 2026-09-30)
 
-`GovernancePanel` renders `GovernanceView.v2` (the Altimeter card layout was deleted 2026-10-22). It gets one `buildGovernanceOverview` plus the owner check.
+`GovernancePanel` renders `GovernanceBoard` (the Altimeter card layout was deleted 2026-10-22). It gets one `buildGovernanceOverview` plus the owner check.
 Prism leads with a `Masthead`: the pass rate is the statement, passing / failing / scanned / not-judged are
 figures. Each figure's status is a glyph and a screen-reader word; the number stays paper. A repo that
 scored nothing is its own figure, never a zero inside the rate. An empty fleet says nothing is judged yet

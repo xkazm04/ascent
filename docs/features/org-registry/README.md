@@ -21,7 +21,7 @@ their source of truth from it once it is mapped.
 | --- | --- |
 | `src/lib/org/registry-view.ts` | `RegistryView` type + `getRegistryView(slug)` — real data only |
 | `src/lib/org/registry-view.fixture.ts` | fixture views selected by the preview switcher (dev only) |
-| `src/features/shared/registry/RegistryTab.tsx` | server tab — takes `slug` only; it reads nothing from the URL. renders `RegistryPanel.v2` |
+| `src/features/shared/registry/RegistryTab.tsx` | server tab — takes `slug` only; it reads nothing from the URL. renders `RegistryPanel` |
 | `src/features/shared/registry/RegistryInstrumentPanel.tsx` | the mono readout column (repo, shas, webhook, sink, counts) |
 | `src/features/shared/registry/registryModel.ts` | the shared pure derivations (six steps, repo tree, verdict line) |
 | `src/features/shared/registry/RegistryPreviewShell.tsx` | the fixture-state switcher, gated by `registryPreviewEnabled()` |
@@ -87,8 +87,8 @@ switcher were cut).
 
 ### Prism composition
 
-`RegistryTab` renders `RegistryPanel.v2`; the Altimeter `RegistryPanel.v1` (the panel above) was deleted 2026-10-22.
-Prism renders `RegistryPanel.v2` from the kit: a masthead, the six steps as a `Ladder` with `ListRow`
+`RegistryTab` renders `RegistryPanel`; the Altimeter `RegistryPanel.v1` (the panel above) was deleted 2026-10-22.
+Prism renders `RegistryPanel` from the kit: a masthead, the six steps as a `Ladder` with `ListRow`
 levels (`#step-<id>`), the connect form on `FormField`, and migration as `CellMark` (glyph and word).
 A count the view did not measure stays unmeasured. The known gaps below are unchanged.
 

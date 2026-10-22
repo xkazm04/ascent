@@ -524,11 +524,12 @@ over the whole product, so it is not a thing to catch in review.
 
 The Altimeter / Prism duality is retired (phase 3 of the migration). The root layout always renders
 `<html data-theme="prism">`; the attribute is kept so every `html[data-theme="prism"]` selector in
-`theme-prism.css`, `kit*.css` and `globals.css` stays valid. There is no header switch, no `ascent-theme`
+`kit*.css` and `globals.css` carry the whole look. There is no header switch, no `ascent-theme`
 cookie (a stale one is never read), no `?theme=` link, no boot script and no localStorage migration, and
 `/kit` needs no lock. Org tabs render their Prism composition directly (the `*.v1.tsx` Altimeter
-compositions are deleted); the `.v2` file naming survives as history. The unattributed base CSS in
-`globals.css` (the Altimeter defaults that Prism overrides) is still present and is follow-up cleanup.
+compositions are deleted). The cleanup pass (2026-10-22) dropped the `.v2` file naming, folded the Prism tokens into
+`globals.css` (`theme-prism.css` and `src/lib/theme/` are gone), and rewrote the kit selectors from
+`html[data-theme="prism"]` to `html:root` (same specificity, no attribute).
 Reading the cookie no longer makes routes dynamic.
 
 - **Foundation layer** `src/app/theme-prism.css` re-points the colour tokens under
@@ -547,7 +548,7 @@ Reading the cookie no longer makes routes dynamic.
   `DimensionLine`, `EvidencePanel`, `Plate`, `SpectralRule`, `HonestyTag`, `PrimaryAction`, `GhostAction`.
   In Prism `.type-label` renders as the sentence-case eyebrow theme-wide, table heads and stat figures take the
   v2 type roles, radii shrink to 3-4px, and the Prism theme adopts the landing's font stacks. Per-module
-  redesign recipe and the `<Module>.v2.tsx` chosen-at-the-entry convention: `docs/design/KIT-REDESIGN-PROCESS.md`.
+  redesign recipe: `docs/design/KIT-REDESIGN-PROCESS.md` (written when a `.v2` file sat beside each entry; those files now carry the plain name).
 - **Specimen** `/kit` (development only; a production build returns 404) shows the type scale, muting
   levels, Spectral Nine, status colours and every part in its states, plus a v2-language section that sets each primitive beside a crop of the landing it is
   measured from (`public/dev/kit-ref/`), synthetic data throughout, and a batch-3 section (`src/app/kit/KitBatch3.tsx`) for the table options, the shortfall span, masthead tone and `Trend`.

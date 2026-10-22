@@ -1,6 +1,6 @@
 # Prism migration gaps (phases 1 to 3 of retiring Altimeter)
 
-Status: **2026-10-22, phase 3 landed: the theme switch is retired and Prism is the only look** (see "Done in phase 3"). Written at phase 1: find everything not yet in Prism, migrate what can be migrated
+Status: **2026-10-22, phase 4 landed: Altimeter leftovers removed (see "Done in phase 4"); phase 3 retired the theme switch and Prism is the only look**. Written at phase 1: find everything not yet in Prism, migrate what can be migrated
 without changing the Altimeter render. Phase 2 finishes what is listed under "Remaining"; phase 3 deletes the
 switch (`KIT-REDESIGN-PROCESS.md`, "Retiring the duality").
 
@@ -104,12 +104,24 @@ inline Altimeter blue (`#3b9eff`) and cannot read the theme: needs a decision (R
 
 * **Prism is forced, not defaulted.** `src/app/layout.tsx` always emits `<html data-theme="prism">` (`THEME_ATTR` in `src/lib/theme/theme.ts`). Removed: the `ascent-theme` cookie reader/writer (a stale `altimeter` cookie is never read), the `?theme=` link, the localStorage migration, `THEME_BOOT_SCRIPT`, `ThemeSwitch`, `ThemeSlot` (both headers) and `PrismLock`. `getTheme()`/`useIsPrism()`/the `theme` prop are gone from every tab.
 * **Branches collapsed.** Each `<Tab>.tsx` entry renders its Prism composition directly; the 26 `*.v1.tsx` Altimeter compositions and the components only they used are deleted. `/` always renders `PrismLanding` (`?landing=prism` is ignored).
-* Scripts under `scripts/kit/` still set an `ascent-theme` cookie; it is now inert and harmless.
 
-## Dead Altimeter code left for follow-up
+## Done in phase 4 (2026-10-22, Altimeter leftovers removed)
 
-* The no-attribute base styles in `globals.css` (Prism overrides win, so they are unreachable but not removed) and the `html[data-theme="prism"]` prefix on every Prism selector (could be dropped once the base is rewritten).
-* Shared Altimeter-shaped interior components listed in Remaining 2 are still used by the Prism compositions.
+* **One token set.** The Prism values replaced the Altimeter ones in `globals.css` (`@theme` colours, `@theme static` for the slate / sky / blue / indigo / cyan ramps and `--color-white`, a plain `:root` block for the rest); `theme-prism.css` and `src/lib/theme/` are deleted and `<html>` no longer carries `data-theme`. Base rules that Prism overrode (body, canvas wash, `::selection`, deck connectors, launch sky, constellation hover, flash keyframes) were rewritten in place.
+* **Selector prefix.** `html[data-theme="prism"]` became `html:root` in `kit*.css`, the grid / control rules now in `globals.css` and the two live CSS modules. `html:root` has the same specificity (0,1,1), so the cascade against CSS modules and base rules is unchanged by construction.
+* **Orphans deleted** (import-graph sweep from `src/app` + `scripts`): AutopilotBand(+Parts), ChampionsCard, TeamAdoption, AdoptionSpectrum v1, GatePolicyEditor v1 (+ its three rows and tests), the v1 segment compare viz, FleetDecayScatter, RegistryActions / RegistryCapabilityNote, FollowupsFilterBar, `OverviewLedger` v1 (its data type moved to `overviewLedgerData.ts`), `scripts/proto-shot.mjs`.
+* **`.v2` naming dropped** (265 files). Where `<X>.tsx` was a pure pass-through the two were folded (MembersPanel, DeveloperCompanion, MemoryTab, SkillsTab, SurfacesTab, LiveCockpit); where the entry still loads data or holds logic the composition became `<X>View.tsx` (and `GovernanceView` became `GovernanceBoard`, because `governanceView.ts` differs only by case on this filesystem). `FooV2` identifiers lost the suffix (`FooView` where `Foo` was taken). Maps, docs and comments follow.
+* `scripts/kit/*` no longer set the inert cookie or run Altimeter checks; `.claude/kit/config.md` describes one look.
+
+## Deferred from phase 4
+
+* `font-sans` / `font-mono` utilities still resolve to the inline Geist stacks (`@theme inline`), while `var(--font-*)` readers get the Prism stacks from `:root`. Switching the utilities would change rendered fonts, so it waits for the visual pass.
+* `--color-tone-flat` is re-pointed in `:root` (not `@theme`) because `DIRECTION_TONE.flat` in TS keeps `#94a3b8` and `format.test.ts` pins the pair.
+* `BRAND_INK` (`lib/site.ts`, viewport `themeColor` and the PWA manifest) is still the Altimeter `#080d1a`; the page uses `#05060a`. `og-brand.tsx` and `global-error.tsx` keep their own literals.
+* `data-role="<module>-v2"` hook values (CSS in `kit-modules.css`, drive scripts) keep the `-v2` spelling.
+* `docs/design/KIT-*.md` still describe the `<Module>.v2.tsx` recipe as a process; `src/app/kit/KitLanguage.tsx` and the kit comments still say "v2 language".
+* Comments mentioning an Altimeter twin were rewritten mechanically; a few multi-line sentences may still read oddly.
+* `docs/design/BRAND-PRISM.md` keeps its name: Prism is the brand.
 
 ## Owner decisions
 

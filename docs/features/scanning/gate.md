@@ -452,7 +452,7 @@ The fix is round-trip and deliberately **not** a merging POST: a POST that merge
 subset could never *clear* a field, so unchecking "Require a protected default branch" would silently
 stop working. The form owns exactly what it shows. **When a field gains a control, add it to
 `EDITED_POLICY_FIELDS` in the same change** — otherwise the editor would show it *and* stash a stale
-copy, and the stash would win. Pinned by `GatePolicyEditor.roundtrip.test.tsx`.
+copy, and the stash would win.
 
 ### A write that drops a bar says so
 

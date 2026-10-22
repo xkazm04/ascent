@@ -50,7 +50,7 @@ archive), then, only for members, `ApiTokensPanel`. The shell mounts
 
 ### Prism composition (2026-09-30)
 
-Prism (`SkillsTab.v2`) uses the same reads, the same `useSkillsLibrary` filters
+Prism (`SkillsTab`) uses the same reads, the same `useSkillsLibrary` filters
 and archive, and the same adopt, copy, download and token requests. The library
 is a masthead, a lifecycle ladder, and pressable rows. Opening a row sets
 `#skill-<id>` (Esc or Back returns). Drift is a glyph plus a word: active,
@@ -1155,7 +1155,7 @@ as Trace.
 | `src/lib/api-token-auth.ts` | `authorizeOrgApi()`: token-or-session gate for skills routes. |
 | `src/features/shared/skills/SkillsPanel.tsx` | Client orchestrator. Lists sink B usage for skills this org has not mirrored. |
 | `src/features/shared/skills/SkillsLifecycle.tsx` | The tab's first sight: the reuse matrix + the use-over-time track. |
-| `src/features/shared/skills/SkillsTab.tsx` | Tab entry; renders `SkillsTab.v2` (Prism). |
+| `src/features/shared/skills/SkillsTab.tsx` | Tab entry; renders `SkillsTab` (Prism). |
 | `src/features/shared/skills/skillSceneModel.ts` | Prism ladder and cell words. Unknown is "not measured". |
 | `src/features/shared/skills/skillLifecycleViz.ts` | Pure view model: usage state → `VizState`, badge word, evidence line, reuse rows, outcome states. |
 | `src/features/shared/skills/skillDormancyTrack.ts` | Pure view model: the use-over-time lanes and the derived observation instant. |
