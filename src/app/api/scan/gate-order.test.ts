@@ -114,7 +114,7 @@ import { authGateEnabled, getViewer } from "@/lib/access";
 import { getScanReportByCommit, isDbConfigured, persistScanReport, recordQuotaEvent } from "@/lib/db";
 import { consumePublicScanQuota, refundPublicScanQuota } from "@/lib/public-scan-quota";
 import { isMeteredScan, checkScanEntitlement } from "@/lib/entitlement";
-import { refundScanCredit } from "@/lib/scan-credit";
+import { refundScanCredit, reserveScanCredit } from "@/lib/scan-credit";
 import { resolveScanScope } from "@/lib/scan-scope-server";
 
 const mockAuth = vi.mocked(resolveScanAuth);
@@ -193,7 +193,9 @@ describe("G8-49 — /api/scan and /api/scan/stream answer the pre-scan gates ide
       expect(res.headers.get("retry-after")).toBe("7");
     });
 
-    it("records the `rate_limit` quota event when it throttles — on BOTH routes", async () => {
+    it("leaves the `rate_limit` quota event to the limiter pipeline - the route adds no second count", async () => {
+      // The limiter's own charge pipeline counts every refusal by limiter and layer (pinned in
+      // src/lib/rate-limit-charge.test.ts). A hand-placed count here, on top of it, would double-count.
       mockShared.mockResolvedValue({ ok: false, retryAfterSec: 7 } as Awaited<
         ReturnType<typeof rateLimitRequestShared>
       >);
@@ -201,7 +203,37 @@ describe("G8-49 — /api/scan and /api/scan/stream answer the pre-scan gates ide
 
       await post();
 
-      expect(mockRecordQuotaEvent).toHaveBeenCalledWith("rate_limit", "scan");
+      expect(mockShared).toHaveBeenCalledTimes(1);
+      expect(mockRecordQuotaEvent.mock.calls.some(([kind]) => kind === "rate_limit")).toBe(false);
+    });
+
+    it("charges the rate limiter BEFORE the monthly quota consume", async () => {
+      await post();
+
+      expect(mockConsumeQuota).toHaveBeenCalled();
+      expect(mockShared.mock.invocationCallOrder[0]!).toBeLessThan(mockConsumeQuota.mock.invocationCallOrder[0]!);
+    });
+
+    it("charges the rate limiter BEFORE the credit reservation on a metered scan", async () => {
+      mockAuth.mockResolvedValue({ orgSlug: "acme", token: "ghs_x" } as Awaited<ReturnType<typeof resolveScanAuth>>);
+      vi.mocked(isMeteredScan).mockReturnValue(true);
+      vi.mocked(checkScanEntitlement).mockResolvedValue({
+        allowed: true,
+        unlimited: false,
+        balance: 5,
+        withinAllowance: false,
+        allowanceRemaining: 0,
+      } as Awaited<ReturnType<typeof checkScanEntitlement>>);
+
+      try {
+        await post();
+      } finally {
+        vi.mocked(isMeteredScan).mockReturnValue(false); // clearAllMocks keeps implementations
+      }
+
+      const reserve = vi.mocked(reserveScanCredit);
+      expect(reserve).toHaveBeenCalled();
+      expect(mockShared.mock.invocationCallOrder[0]!).toBeLessThan(reserve.mock.invocationCallOrder[0]!);
     });
 
     it("never consumes a monthly free slot for a throttled request (limiter stays before the quota)", async () => {

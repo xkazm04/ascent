@@ -19,7 +19,6 @@ import { respondError } from "@/lib/api/respond";
 import { resolveScanAuth } from "@/lib/scan";
 import { isPersistedScanFresh } from "@/lib/scan-cache";
 import { resolveScanScope, UNSCOPED, type ResolvedScanScope } from "@/lib/scan-scope-server";
-import { recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequest, tooManyRequests, PEEK_RATE_LIMIT } from "@/lib/rate-limit";
 import { scanAuthGate, scanCreditGate, scanRateLimitGate } from "@/lib/scan-gates";
 import type { QuotaScope } from "@/lib/public-scan-quota";
@@ -113,7 +112,7 @@ async function runScan(
   if (opts.peek && opts.req) {
     const rl = rateLimitRequest(opts.req, PEEK_RATE_LIMIT);
     if (!rl.ok) {
-      void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // observability on the throttled peek path
+      // Counted by the limiter itself, under its own name (scan-peek): see src/lib/rate-limit-charge.ts.
       // Whole result: the peek limiter is per-IP and in-memory, so the refusal can honestly state
       // the caller's own budget and window — the client meter polling this path can then back off
       // to a rate that fits instead of guessing from a bare Retry-After.

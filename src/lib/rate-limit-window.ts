@@ -179,7 +179,8 @@ export function checkWindow(key: string, limit: number, windowMs: number): { ok:
 }
 
 /** Record one ADMITTED hit for `key`. Re-reads the window rather than reusing the array a preceding
- *  `checkWindow` trimmed, because the shared path awaits a network hop in between. */
+ *  `checkWindow` trimmed. A caller with an await between its check and its record must not use this
+ *  pair (the cap does not hold across the await): it takes a `reserveHit` instead. */
 export function recordHit(key: string, windowMs: number): void {
   const now = Date.now();
   const cutoff = now - windowMs;
@@ -196,3 +197,40 @@ export function hit(key: string, limit: number, windowMs: number): { ok: boolean
   return r;
 }
 
+
+/**
+ * Check `key` against `limit`/`windowMs` and, iff it is admitted, RESERVE the slot in the same
+ * synchronous step. Returns the reservation's token (the timestamp it pushed) for `releaseHit`.
+ *
+ * WHY A RESERVATION AND NOT check-then-record: a caller whose next gate is an AWAIT (the shared store)
+ * cannot check now and record later, because every same-key request that arrives during the await sees
+ * the same pre-burst count and passes the cap too. Taking the slot before the await makes the cap hold
+ * under concurrency; releasing it on a later refusal keeps QUOTA #3 (a request that was not served
+ * spends nothing of the caller's own budget).
+ */
+export function reserveHit(
+  key: string,
+  limit: number,
+  windowMs: number,
+): { ok: true; token: number } | { ok: false; retryAfterSec: number } {
+  const r = checkWindow(key, limit, windowMs);
+  if (!r.ok) return { ok: false, retryAfterSec: r.retryAfterSec };
+  const token = Date.now();
+  const recent = windows.get(key) ?? [];
+  recent.push(token);
+  windows.set(key, recent);
+  return { ok: true, token };
+}
+
+/** Give back one reservation taken by `reserveHit`. Removal is by VALUE (one entry equal to `token`),
+ *  so a window trimmed or extended since the reservation still loses exactly one slot; a token that
+ *  has already aged out is simply gone and nothing is removed. */
+export function releaseHit(key: string, token: number): void {
+  const recent = windows.get(key);
+  if (!recent) return;
+  const i = recent.lastIndexOf(token);
+  if (i < 0) return;
+  recent.splice(i, 1);
+  if (recent.length) windows.set(key, recent);
+  else windows.delete(key);
+}

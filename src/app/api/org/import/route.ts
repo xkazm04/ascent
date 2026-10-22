@@ -25,7 +25,6 @@ import {
   isDbConfigured,
   persistTeamStandings,
   reconcileListedRepos,
-  recordQuotaEvent,
   recordScanOutcome,
   setRepoSchedule,
   setRepoWatch,
@@ -96,7 +95,7 @@ export async function POST(request: Request) {
   // Bulk scan = up to 100 GitHub ingests + (optionally) LLM completions per call. Rate-limit hard.
   const rl = await rateLimitRequestShared(request, ORG_IMPORT_RATE_LIMIT);
   if (!rl.ok) {
-    void recordQuotaEvent("rate_limit", "org-import").catch(() => {}); // class C: best-effort telemetry on the 429 path
+    // The refusal is counted by the limiter's charge pipeline (src/lib/rate-limit-charge.ts), by layer.
     // Whole result, not just the delay: a bulk import refused by the FLEET ceiling is not the
     // operator's own overuse, and one refused because the shared store was unreachable counted
     // nothing at all. The body/headers name that scope so a CI import can tell the three apart.

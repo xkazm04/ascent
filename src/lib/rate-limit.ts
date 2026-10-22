@@ -20,8 +20,7 @@
 // in-memory ceiling instead. Note the per-IP burst cap is in-memory and keeps working either way,
 // so failing open is a bounded (not unlimited) degradation.
 
-import { sharedWindowStore, SHARED_STORE_BREAKER_MS } from "@/lib/rate-limit-store";
-import { checkWindow, recordHit, hit } from "@/lib/rate-limit-window";
+import { chargeShared, chargeSync } from "@/lib/rate-limit-charge";
 import { trustedProxyHops } from "@/lib/env";
 
 /**
@@ -134,14 +133,17 @@ export interface RateLimitResult {
  * traffic. (A per-IP-rejected request still never reaches the global window, per QUOTA #1.)
  *
  * QUOTA #3 (the symmetric complement of #1): a request refused by the GLOBAL ceiling must not spend
- * the caller's own per-IP slot either. The per-IP window is CHECKED first (so the QUOTA #1 ordering
- * is unchanged — an over-cap IP still never reaches the global window) but RECORDED only once the
- * global window has admitted. Otherwise, during global saturation an innocent caller's 20/min budget
+ * the caller's own per-IP slot either. The per-IP slot is RESERVED first (so the QUOTA #1 ordering
+ * is unchanged - an over-cap IP still never reaches the global window) and RELEASED if the global
+ * window then refuses. Otherwise, during global saturation an innocent caller's 20/min budget
  * drains on requests that were never served, and a later `evaluated: false` refusal claiming "no
- * budget of yours was exceeded" would be untrue.
+ * budget of yours was exceeded" would be untrue. (Reserve, not check-then-record: the shared door
+ * awaits the store between the two, and a check does not hold across an await.)
+ *
+ * The rules live once, in rate-limit-charge.ts, which also counts every refusal by limiter and layer.
  */
 export function rateLimitRequest(req: Request, cfg: RateLimitConfig): RateLimitResult {
-  return chargeWindows(`${cfg.name}:ip:${clientIp(req)}`, cfg);
+  return chargeSync(`${cfg.name}:ip:${clientIp(req)}`, cfg);
 }
 
 /**
@@ -162,104 +164,26 @@ export function rateLimitRequest(req: Request, cfg: RateLimitConfig): RateLimitR
  * per-IP check in front of it as the cheap first gate.
  */
 export function rateLimitKeyed(key: string, cfg: RateLimitConfig): RateLimitResult {
-  return chargeWindows(`${cfg.name}:key:${key}`, cfg);
-}
-
-/** The per-caller + global charge, shared by both entry points so the QUOTA rules above have ONE
- *  implementation. `callerKey` is already namespaced by the caller. */
-function chargeWindows(callerKey: string, cfg: RateLimitConfig): RateLimitResult {
-  const p = checkWindow(callerKey, cfg.perIp, cfg.windowMs);
-  if (!p.ok) return perIpRefusal(cfg, p.retryAfterSec);
-  const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-  if (!g.ok) return globalRefusal(cfg, g.retryAfterSec); // served nothing → charge nothing per-caller
-  recordHit(callerKey, cfg.windowMs);
-  return { ok: true, retryAfterSec: 0 };
-}
-
-/** A refusal by the caller's OWN budget: fully named, because the caller can act on it. */
-function perIpRefusal(cfg: RateLimitConfig, retryAfterSec: number): RateLimitResult {
-  return {
-    ok: false,
-    retryAfterSec,
-    scope: "ip",
-    limiter: cfg.name,
-    limit: cfg.perIp,
-    windowSec: Math.max(1, Math.round(cfg.windowMs / 1000)),
-    evaluated: true,
-  };
-}
-
-/** A refusal by the SHARED budget: named coarsely on purpose — no limit, no remaining (see
- *  RateLimitResult.limit). The caller still learns the one fact that changes its behaviour: this is
- *  not your traffic, so slowing down may not clear it. */
-function globalRefusal(cfg: RateLimitConfig, retryAfterSec: number): RateLimitResult {
-  return { ok: false, retryAfterSec, scope: "global", limiter: cfg.name, evaluated: true };
-}
-
-function sharedFailOpen(): boolean {
-  const raw = process.env.ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN?.trim().toLowerCase();
-  return raw === "1" || raw === "true";
+  return chargeSync(`${cfg.name}:key:${key}`, cfg);
 }
 
 /**
- * Cross-instance variant of `rateLimitRequest`: per-IP burst is charged in-process exactly as
- * before (synchronously, no network), and the GLOBAL ceiling is charged against the shared store
- * when one is configured — so a fleet of N instances shares ONE budget instead of N.
+ * Cross-instance variant of `rateLimitRequest`: the per-IP burst is charged in-process, and the GLOBAL
+ * ceiling is charged against the shared store when one is configured, so a fleet of N instances shares
+ * ONE budget instead of N.
  *
- * QUOTA #1 still holds: a request already over its per-IP cap is rejected WITHOUT touching the
- * global window (or the store), so one abuser can't spend everyone's budget on its own rejections.
+ * The caller's per-IP slot is RESERVED before the store is awaited and released if the request is then
+ * refused (globally, or because the store is unreachable): the per-IP cap holds however many same-IP
+ * requests are in flight together, and a refusal still spends nothing of the caller's own budget
+ * (QUOTA #3). QUOTA #1 holds too: a request already over its per-IP cap never reaches the store.
  *
- * With no store configured (the default, and every test/dev run) this is byte-for-byte the
- * in-memory behavior of `rateLimitRequest`, just wrapped in a resolved promise.
- *
- * When the store IS configured but unreachable, the result is a 429 (fail closed) unless
- * ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN is set, in which case the in-memory ceiling takes over. See
- * the file header for the reasoning.
+ * With no store configured (the default, and every test/dev run) there is no await and the verdict is
+ * exactly `rateLimitRequest`'s, wrapped in a resolved promise. When the store IS configured but
+ * unreachable, the result is a 429 (fail closed) unless ASCENT_RATE_LIMIT_SHARED_FAIL_OPEN is set, in
+ * which case the in-memory ceiling takes over. See the file header and rate-limit-charge.ts.
  */
 export async function rateLimitRequestShared(req: Request, cfg: RateLimitConfig): Promise<RateLimitResult> {
-  const ipKey = `${cfg.name}:ip:${clientIp(req)}`;
-  // QUOTA #3: checked now, recorded only on an admit — a global refusal, and the fail-closed
-  // "unavailable" refusal below, must leave the caller's own burst budget untouched.
-  const p = checkWindow(ipKey, cfg.perIp, cfg.windowMs);
-  if (!p.ok) return perIpRefusal(cfg, p.retryAfterSec);
-  const admit = (): RateLimitResult => {
-    recordHit(ipKey, cfg.windowMs);
-    return { ok: true, retryAfterSec: 0 };
-  };
-
-  const store = sharedWindowStore();
-  if (!store) {
-    const g = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-    return g.ok ? admit() : globalRefusal(cfg, g.retryAfterSec);
-  }
-
-  const g = await store.hit(`ascent:rl:${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-  if (g) return g.ok ? admit() : globalRefusal(cfg, g.retryAfterSec);
-
-  if (sharedFailOpen()) {
-    // Degraded but SERVED when the in-memory ceiling admits — so the per-IP slot is spent, exactly
-    // as on the healthy path.
-    const local = hit(`${cfg.name}:__global__`, cfg.global, cfg.windowMs);
-    return local.ok ? admit() : globalRefusal(cfg, local.retryAfterSec);
-  }
-  // Fail closed — and say so honestly. NO LIMIT WAS EVALUATED here: the store never answered, so
-  // nothing was counted and no window is draining. The old code returned one full window (60s),
-  // which is the shape of a real drain estimate and reads to a client as "the budget is full for a
-  // minute" — a refusal dressed up as a measurement. The only quantity that is actually known is
-  // when the limiter can next produce a real answer: the driver's breaker re-probes the store after
-  // SHARED_STORE_BREAKER_MS, so that is what we advertise, with `evaluated: false` and
-  // `scope: "unavailable"` so the caller can tell an outage from its own overuse. Trade-off: a
-  // shorter Retry-After means clients come back sooner during a store outage; that is bounded by
-  // the per-IP burst cap, which is in-memory and still enforced. The caller's per-IP window was
-  // checked but NOT recorded (QUOTA #3), so `evaluated: false` — "no budget of yours was exceeded"
-  // — is now literally true: this refusal costs the caller nothing.
-  return {
-    ok: false,
-    retryAfterSec: Math.max(1, Math.ceil(SHARED_STORE_BREAKER_MS / 1000)),
-    scope: "unavailable",
-    limiter: cfg.name,
-    evaluated: false,
-  };
+  return chargeShared(`${cfg.name}:ip:${clientIp(req)}`, cfg);
 }
 
 /**

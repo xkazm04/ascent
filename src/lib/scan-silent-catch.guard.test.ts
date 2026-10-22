@@ -62,7 +62,6 @@ const C_USER_INPUT = "decoding user input: a malformed %-sequence keeps the raw 
 
 /** `file#enclosing function` → exact count of allowed silent sites, and why they are legitimate. */
 const ALLOWLIST: Record<string, { count: number; reason: string }> = {
-  "src/app/api/scan/route.ts#runScan": { count: 1, reason: C_TELEMETRY },
   "src/app/api/scan/route.ts#POST": { count: 1, reason: C_BODY },
   "src/app/api/scan/stream/route.ts#POST": { count: 1, reason: C_BODY },
   "src/app/api/scan/stream/route.ts#start": { count: 2, reason: C_STREAM },
@@ -81,7 +80,6 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
   "src/lib/cache.ts#normalizeRepoName": { count: 1, reason: C_USER_INPUT },
   "src/lib/cache.ts#coalesceScan": { count: 3, reason: "progress fan-out to a dead listener (a closed SSE controller) must not break the shared scan; the promise rejection still reaches every awaiting caller (`.then(evict, evict)` is cleanup)" },
   "src/lib/github/security-posture.ts#fetchAdvisoryCount": { count: 1, reason: "body parse whose null is rejected one line below by a throw into the ingest's sensorFailed door" },
-  "src/lib/scan-gates.ts#scanRateLimitGate": { count: 1, reason: C_TELEMETRY },
   "src/lib/sse-server.ts#makeSseSend": { count: 1, reason: C_STREAM },
   "src/lib/sse.ts#readSSE": { count: 1, reason: `${C_STREAM}; the original error is rethrown` },
 };

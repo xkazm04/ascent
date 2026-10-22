@@ -198,6 +198,8 @@ describe("getQuotaEventTotals — partition + aggregate read shape", () => {
     const args = findMany.mock.calls[0][0] as { where: { kind: { in: string[] } } };
     expect(args.where.kind.in.sort()).toEqual(["quota_deny", "rate_limit"]);
     expect(args.where.kind.in).not.toContain("landing_view");
+    // A shared-store OUTAGE counted nothing and is not abuse: it has its own kind, kept off this panel.
+    expect(args.where.kind.in).not.toContain("rate_limit_unavailable");
   });
 
   it("ignores an unknown/malformed kind — it falls into neither bucket but still counts toward total", async () => {

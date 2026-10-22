@@ -10,6 +10,11 @@ import { bumpCounter } from "@/lib/db/best-effort";
 export type QuotaEventKind =
   | "quota_deny"
   | "rate_limit"
+  // A shared limiter store OUTAGE (scope = limiter name): the request was refused fail-closed with NO
+  // limit evaluated and nothing counted. Its own kind so an operator can see outages, and NOT in
+  // ABUSE_KINDS below, so a store blip never reads as abuse on /usage. Emitted only by
+  // src/lib/rate-limit-charge.ts.
+  | "rate_limit_unavailable"
   // Scan-outcome tallies (KPI: scan pipeline error rate). A failed scan writes no Scan row — the table
   // only holds successes — so without these counters a pipeline failure burns quota and LLM spend and
   // leaves no trace at all. Classified and emitted by src/lib/scan-outcome.ts.
@@ -44,7 +49,9 @@ export async function recordQuotaEvent(kind: QuotaEventKind, scope: string): Pro
 export interface QuotaEventTotals {
   /** Monthly (rolling 30-day) free-scan denials, by scope (anon / signed-in). */
   quotaDenies: { scope: string; count: number }[];
-  /** Per-minute rate-limit trips, by limiter name (gate, …). */
+  /** Per-minute rate-limit trips, by limiter name ("gate", "scan-peek", ...) for the caller's own
+   *  budget and "<limiter>:global" for the shared one. Every door is counted, by
+   *  src/lib/rate-limit-charge.ts. */
   rateLimitTrips: { scope: string; count: number }[];
   /** All counted events. */
   total: number;

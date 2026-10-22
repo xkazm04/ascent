@@ -40,7 +40,6 @@
 // What both share and must never change: the rate limiter runs BEFORE the quota counter, so throttled
 // traffic can never burn a monthly free-scan slot.
 
-import { recordQuotaEvent } from "@/lib/db";
 import { rateLimitRequestShared, SCAN_RATE_LIMIT, type RateLimitResult } from "@/lib/rate-limit";
 import { authGateEnabled, type Viewer } from "@/lib/access";
 import { publicScanSignInRequired } from "@/lib/env";
@@ -66,14 +65,13 @@ const PASS: ScanGatePass = { ok: true };
 
 /**
  * Burst/global rate limit for the EXPENSIVE scan path (shared per-IP + fleet-wide budget across both
- * routes). Records the `rate_limit` quota event on rejection — the observability side effect both
- * routes carried inline. Callers render `retryAfterSec` themselves (JSON routes: `tooManyRequests`).
+ * routes). The `rate_limit` quota event for a refusal is recorded by the limiter's own charge
+ * pipeline (src/lib/rate-limit-charge.ts), by limiter and layer, so this gate adds none. Callers render `retryAfterSec` themselves (JSON routes: `tooManyRequests`).
  * MUST be sequenced before the quota consume so throttled traffic never burns a free slot.
  */
 export async function scanRateLimitGate(req: Request): Promise<ScanGatePass | ScanRateLimitRejection> {
   const rl = await rateLimitRequestShared(req, SCAN_RATE_LIMIT);
   if (rl.ok) return PASS;
-  void recordQuotaEvent("rate_limit", "scan").catch(() => {}); // QUOTA #2: observability on the costly scan path
   return { ok: false, reason: "rate_limited", retryAfterSec: rl.retryAfterSec, rl };
 }
 
