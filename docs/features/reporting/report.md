@@ -928,9 +928,24 @@ title via the shared `RoadmapFirstStep` (blank omitted, matching the tracker). P
 projected delta survived only as a rounded number inside an English event-trail note: a number
 nothing could ever read back or reconcile.
 
-Successful sandbox commits now update the report's recommendation state as each PATCH returns, so
+Successful sandbox commits update the report's recommendation state when the commit returns, so
 switching to the Roadmap tab shows the new `in_progress` status immediately. Failed rows stay open
 and can be retried; the completion message no longer asks for a page reload.
+
+**2026-10-22: the commit previews its extent and lands as one claim.** Before writing, the commit bar
+(`SandboxCommitPreview`) lists every applied item in one bucket: **will start** (persisted and open),
+**skip** with the status that stops it (in progress with the owner, done, dismissed), or **not
+tracked** (no persisted rec for this scan), summarized as e.g. "Start 2 · 1 already on the tracker
+(1 in progress) · 1 not tracked for this scan". An empty start disables the button with that same
+breakdown as its reason, instead of the old "already tracked, or have no persisted match". Commit is
+ONE `POST /api/org/followups/handoff { ids, origin: "sandbox", projectedDelta }`, not a loop of
+status-only PATCHes: the route resolves the org from the first id's row, gates it, and claims through
+`claimFollowups` (executor `human`, no lease, whole-request tenancy) with the signed sandbox note,
+so a sandbox-committed row reads "claimed by <login>" on the Follow-ups ledger. After the commit each
+started row reads **tracked**, **held by someone else**, **no longer open** or **failed**, and the
+summary is built from those rows. A 403/503 is the blocked state with no per-row list. The pure half
+(`planSandboxCommit`, `summarizeSandboxPlan`, `commitOutcomeRows`, the note) is
+`sandboxCommitModel.ts`.
 
 A **`SandboxScenario`** row now holds the model whole: the per-dimension overrides, the roadmap items
 the scenario selected, the baseline it was modeled against (score, level, `scannedAt`), and
@@ -1541,6 +1556,8 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/components/report/chartEngine.ts` | Mock-vs-model point provenance predicates + chart/pair caveat copy. |
 | `src/components/report/deltas.tsx` | `DeltaPill` / `DeltaTag` chips. |
 | `src/components/report/RoadmapSandbox.tsx` | The what-if orchestrator: sliders → live hero recompute. |
+| `src/components/report/sandboxCommitModel.ts` | The sandbox commit's pure model: start / skip / unmatched plan, the extent line, per-row outcomes, the signed note. |
+| `src/components/report/SandboxCommitPreview.tsx` | The commit bar's before (what it will start and skip) and after (tracked / held / failed per row) lists. |
 | `src/components/report/RoadmapSandboxParts.tsx` | Sandbox presentational pieces: sliders, level transition, Try-it simulators (`RoadmapFirstStep` under each title). |
 | `src/components/report/RoadmapSandboxScenario.tsx` | The sandbox's durable half: scenario load/save/discard IO, the item identity key, and the guarded one-shot restore. |
 | `src/components/report/RoadmapSandboxScenarioBar.tsx` | The saved-plan bar: save/update/discard controls plus projected-vs-actual once a newer scan lands. |

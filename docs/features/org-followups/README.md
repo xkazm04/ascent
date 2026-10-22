@@ -156,6 +156,14 @@ not re-marked; closed or held items are skipped and reported as `{ id, reason }`
 otherwise, with nothing claimed: `claimFollowups`' `allOrNothingTenancy`), public funnel refused,
 ≤ 50 ids per hand-off.
 
+The Roadmap Sandbox's commit bar uses the same door with `{ ids, origin: "sandbox", projectedDelta }`
+(2026-10-22). That branch takes no `org` (one in the body is ignored): it resolves the org from the
+first id's row, refuses the public funnel and an unknown first id with the same 403 as a foreign one,
+gates with `requireOrgAccess`, and claims with the signed note "Committed from sandbox simulation,
+projected <n> pts overall." A non-finite `projectedDelta` or any other `origin` is a 400. A body
+without `origin` takes the ledger's branch above, unchanged. Rows committed from a report therefore
+carry a holder here like any hand-off.
+
 Row vocabulary (`FollowupChips.tsx`): impact/effort as one-letter chips (`IMPACT_CLASS` /
 `EFFORT_CLASS`), status pill (`open` · `handed off` with the live-dot · `resolved` · `dismissed`),
 `+pts`, and **resolve / dismiss / reopen** by hand via the per-item PATCH — the human half of the
