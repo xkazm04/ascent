@@ -303,6 +303,7 @@ Other key functions (from the sibling modules, re-exported through the `scans.ts
 | Function | Role |
 | --- | --- |
 | `findScanByCommit` / `getScanReportByCommit` | Dedup lookup / reconstruct a full `ScanReport` from rows (used by cache, diff, alerts). |
+| `SCAN_REPORT_COLUMNS` / `encodeScanColumns` / `decodeScanColumns` (`scan-row-codec.ts`) | The one Scan-row codec: each optional report blob column (`prStats`, `governance`, `commitActivity`, `techStackJson`, `passportJson`, `scoreIntegrityJson`, `platformSignalsJson`, `sensorFailuresJson`, `contextHealthJson`, `manifestJson`, `guidanceGraphJson`, `practiceShape`, `warningsJson`) declared once with an encode and a decode half. `persistScanReport` writes through it and `getScanReportByCommit` reads through it, so a report rebuilt from the DB (a DB-tier cache hit, a permalink, an export, a foundation PR, a lane install) carries the same context health, manifest readout, guidance graph, practice shape and platform signals the fresh scan had. A NULL or unreadable column leaves the field ABSENT ("not assessed"). Every other Scan column is named in `SCAN_COLUMN_EXCEPTIONS` with its reason; tsc and `scans-persist.test.ts` fail on a column with no decode decision. |
 | `getHeadHint` | Durable `headSha`/`headEtag` for cross-instance conditional requests. |
 | `getRepositoryHistory` | Recent scans + per-dimension scores for trend charts. |
 | `getScanComparison` | Diffs two scans' dimensions/recommendations for the compare view. |

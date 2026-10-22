@@ -464,7 +464,8 @@
         "src/instrumentation.ts",
         "src/lib/db/audit-append.ts",
         "src/lib/db/audit-walk.ts",
-        "src/lib/db/migration-chain-model.ts"
+        "src/lib/db/migration-chain-model.ts",
+        "src/lib/db/scan-row-codec.ts"
       ]
     },
     {

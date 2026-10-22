@@ -3944,7 +3944,11 @@
             "src/lib/db/scans-shared.test.ts",
             "src/lib/db/scans-read.doors.test.ts",
             "src/lib/db/scans-read.strict.test.ts",
-            "src/lib/db/scans-read.window.test.ts"
+            "src/lib/db/scans-read.window.test.ts",
+            "src/lib/db/scan-row-codec.ts",
+            "src/lib/db/scan-row-codec.test.ts",
+            "src/lib/db/scan-row-codec.test-helpers.ts",
+            "src/lib/db/scans-read.reconstruct.test.ts"
           ],
           "target": null,
           "apiRoutes": []
