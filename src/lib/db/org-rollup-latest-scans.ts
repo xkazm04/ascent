@@ -16,6 +16,11 @@
 // `scannedAt`, the one with the lexicographically GREATEST `id` wins. Scan ids are uuids, so this is
 // arbitrary with respect to write order, but it is deterministic: it no longer depends on the order the
 // database happens to return rows in, which is all the nested `take` ever had.
+//
+// THE DOOR (rollups-0, challenge-2026-10-22): three call sites adopting it did not stop the drift -
+// fifteen other fleet readers kept the nested shape. Every src/lib/db/org-*.ts reader now asks through
+// `withLatestScans` (bottom of this file), and src/lib/db/org-latest-scan-guard.test.ts fails on a
+// nested `scans: { take }` anywhere under src/lib/db/org-*.ts (org-benchmark.ts allowlisted, with why).
 
 import type { Prisma } from "@prisma/client";
 import type { getPrisma } from "@/lib/db/client";
@@ -88,4 +93,62 @@ export async function readLatestScanPerRepo<S extends Prisma.ScanSelect & { id: 
   if (pairs.length === 0) return new Map();
   const rows = (await prisma.scan.findMany({ where: atPairs(pairs), select })) as unknown as (Prisma.ScanGetPayload<{ select: S }> & Pickable)[];
   return pickLatestPerRepo(rows);
+}
+
+/**
+ * The latest TWO scans per repo (newest first, by {@link latestFirst}) under a bound: the shape a
+ * "since last scan" delta needs. Three constant statements - the latest pick, the pick strictly before
+ * it ({@link scanAtBeforePerRepo}), one pair fetch of both - never a nested `take: 2`, which like
+ * `take: 1` is applied after the fetch and so transfers the org's entire history.
+ */
+export async function readLatestTwoScansPerRepo<S extends Prisma.ScanSelect & { id: true; repoId: true; scannedAt: true }>(
+  prisma: Db,
+  where: Prisma.ScanWhereInput,
+  select: S,
+): Promise<Map<string, Prisma.ScanGetPayload<{ select: S }>[]>> {
+  const latest = await latestScanAtPerRepo(prisma, where);
+  if (latest.length === 0) return new Map();
+  const before = await scanAtBeforePerRepo(prisma, latest);
+  const rows = (await prisma.scan.findMany({ where: atPairs([...latest, ...before]), select })) as unknown as (Prisma.ScanGetPayload<{ select: S }> & Pickable)[];
+  const out = new Map<string, (Prisma.ScanGetPayload<{ select: S }> & Pickable)[]>();
+  for (const r of [...rows].sort(latestFirst)) {
+    const held = out.get(r.repoId) ?? [];
+    if (held.length < 2) out.set(r.repoId, [...held, r]);
+  }
+  return out;
+}
+
+/** The scan columns the door always fetches (it needs them to pick), merged into a caller's select. */
+type DoorSelect<S extends Prisma.ScanSelect> = S & { id: true; repoId: true; scannedAt: true };
+
+/**
+ * THE DOOR for a fleet reader that wants "each repo's latest scan" beside its repository read: the
+ * repository rows come back carrying `scans: [latest]` (or `[latest, previous]` with `take: 2`, or
+ * `[]` for a never-scanned repo), so the code below a call site reads the shape it always did.
+ *
+ * `repos` is the caller's own repository read, already started (it must select `id`); `scope` is the
+ * SAME repository where-fragment (org + segment/stack slice), applied to the scan pick through the
+ * relation so the two reads run in parallel. Nothing here filters on a scan column, which is what keeps
+ * {@link latestScanAtPerRepo}'s contract: a filter such as "latest LIVE scan" belongs to the caller,
+ * AFTER the pick (a mock-latest repo is dropped, not swapped for an older live scan).
+ *
+ * src/lib/db/org-latest-scan-guard.test.ts forbids a nested `scans: { take }` under src/lib/db/org-*.ts,
+ * so this is the only way left to ask the question.
+ */
+export async function withLatestScans<R extends { id: string }, S extends Prisma.ScanSelect>(
+  prisma: Db,
+  repos: Promise<R[]>,
+  scope: Prisma.RepositoryWhereInput,
+  select: S,
+  opts: { take?: 1 | 2 } = {},
+): Promise<(R & { scans: Prisma.ScanGetPayload<{ select: DoorSelect<S> }>[] })[]> {
+  const full = { ...select, id: true, repoId: true, scannedAt: true } as DoorSelect<S>;
+  const where: Prisma.ScanWhereInput = { repo: scope };
+  const [rows, byRepo] = await Promise.all([
+    repos,
+    opts.take === 2
+      ? readLatestTwoScansPerRepo(prisma, where, full)
+      : readLatestScanPerRepo(prisma, where, full).then((m) => new Map([...m].map(([k, v]) => [k, [v]]))),
+  ]);
+  return rows.map((r) => ({ ...r, scans: byRepo.get(r.id) ?? [] }));
 }

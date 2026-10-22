@@ -84,11 +84,61 @@ export async function unrecorded<T>(fn: { getMockImplementation(): ((...a: never
 }
 
 /** Flatten repository rows that carry their latest scan nested as `scans: [scan]` (the shape these
- *  doubles were written for) into table rows. A scan without an id gets `latest_<repoId>`. */
+ *  doubles were written for) into table rows. A scan without an id gets `latest_<repoId>`; a scan
+ *  without a `scannedAt` gets one that keeps the array's newest-first order (index 0 is the latest). */
 export function scansOfRepoRows(repos: readonly { id: string; scans?: readonly Record<string, unknown>[] }[]): FakeScan[] {
+  const t0 = Date.parse("2026-01-01T00:00:00Z");
   return repos.flatMap((r) =>
-    (r.scans ?? []).map((s, i) => ({ id: `latest_${r.id}${i ? `_${i}` : ""}`, ...s, repoId: r.id }) as FakeScan),
+    (r.scans ?? []).map(
+      (s, i) => ({ id: `latest_${r.id}${i ? `_${i}` : ""}`, scannedAt: new Date(t0 - i * 60_000), ...s, repoId: r.id }) as FakeScan,
+    ),
   );
+}
+
+type RepoRow = { id?: string; scans?: readonly Record<string, unknown>[] } & Record<string, unknown>;
+type NestedDouble = { repository?: { findMany?: (...a: never[]) => unknown }; scan?: Record<string, unknown> } & Record<string, unknown>;
+const served = new WeakMap<object, unknown>();
+
+/**
+ * Adapt a prisma double written for the OLD nested `scans: [latest]` shape to the latest-scan door
+ * (`withLatestScans`), without rewriting its fixtures: every repository row gets an id (its own, else
+ * `repo_<index>`), and `scan.groupBy` / the pair `scan.findMany` serve the nested scans of the rows
+ * that read returned, as a table ({@link scansOfRepoRows}). The repository delegate is still called
+ * (so its recorded calls stay assertable); the door ignores the nested scans it returns. A double that
+ * already has a `scan.groupBy` serves its own table and is returned untouched, as is a non-object.
+ * Memoized per double, so every `getPrisma()` in one test sees the same adapter.
+ */
+export function servingNestedScans<T>(prisma: T): T {
+  const p = prisma as unknown as NestedDouble;
+  if (p == null || typeof p !== "object" || typeof p.repository?.findMany !== "function" || p.scan?.groupBy) return prisma;
+  const hit = served.get(p);
+  if (hit) return hit as T;
+  const orig = p.repository.findMany as (...a: unknown[]) => unknown;
+  let last: Promise<RepoRow[]> = Promise.resolve([]);
+  let table: Promise<FakeScan[]> = Promise.resolve([]);
+  const repoFind = vi.fn((...args: unknown[]) => {
+    last = Promise.resolve(orig(...args)).then((rows) =>
+      ((rows ?? []) as RepoRow[]).map((r, i) => ({ ...r, id: r.id ?? `repo_${i}` })),
+    );
+    return last;
+  });
+  const otherFind = p.scan?.findMany as ((...a: unknown[]) => unknown) | undefined;
+  const out = {
+    ...p,
+    repository: { ...p.repository, findMany: repoFind },
+    scan: {
+      ...p.scan,
+      groupBy: vi.fn(async (args: { where?: Where }) => {
+        table = last.then((rows) => scansOfRepoRows(rows as { id: string }[]));
+        return groupLatest(await table, args.where);
+      }),
+      findMany: vi.fn(async (args: { where?: Where } = {}) =>
+        args.where && "OR" in args.where ? (await table).filter((r) => matchesScanWhere(args.where, r)) : (otherFind?.(args) ?? []),
+      ),
+    },
+  };
+  served.set(p, out);
+  return out as unknown as T;
 }
 
 // ── A whole-fleet double + the OLD read shapes as an oracle (economics-1 equivalence/shape tests) ──
@@ -111,6 +161,10 @@ export interface Read {
   target: string;
   args: Record<string, unknown>;
   rows: unknown[];
+  /** Scan rows this call moved over the wire: a Scan findMany's rows, or for a repository read with a
+   *  nested `scans` relation EVERY scan of the repos it returned (the relation `take` is applied after
+   *  the fetch under Prisma 6.19's client query compiler - the measurement in org-insights.ts). */
+  scanRows: number;
 }
 
 /**
@@ -121,37 +175,64 @@ export interface Read {
 export function fleetPrisma(fleet: Fleet, plan = "enterprise") {
   const reads: Read[] = [];
   const repoById = new Map(fleet.repos.map((r) => [r.id, r]));
-  const rec = <T>(target: string, answer: (args: Record<string, unknown>) => T[]) =>
+  const rec = <T>(target: string, answer: (args: Record<string, unknown>) => T[], scanRows: (rows: T[], args: Record<string, unknown>) => number = () => 0) =>
     vi.fn(async (args: Record<string, unknown> = {}) => {
       const rows = answer(args);
-      reads.push({ target, args, rows });
+      reads.push({ target, args, rows, scanRows: scanRows(rows, args) });
       return rows;
     });
+  // A nested relation select's `where: { dimId }` (getOrgDimensionGaps) is applied, so both read shapes
+  // answer with the same dimension rows.
+  const dimsFor = (s: FleetScan, sel: unknown) => {
+    const dimId = (sel as { dimensions?: { where?: { dimId?: string } } } | undefined)?.dimensions?.where?.dimId;
+    const dims = (s.dimensions as { dimId: string }[] | undefined) ?? [];
+    return dimId ? dims.filter((d) => d.dimId === dimId) : dims;
+  };
+  const nested = (repoId: string, scansArg: { take?: number; select?: unknown }) =>
+    (oldPick(fleet, undefined, scansArg.take ?? Number.MAX_SAFE_INTEGER).get(repoId) ?? []).map((s) => ({ ...s, dimensions: dimsFor(s, scansArg.select) }));
+  const scansArgOf = (args: Record<string, unknown>) => (args.select as { scans?: { take?: number; select?: unknown } } | undefined)?.scans;
   const sortBy = (rows: FleetScan[], orderBy: unknown) => {
     const dir = (orderBy as { scannedAt?: "asc" | "desc" } | undefined)?.scannedAt;
     if (!dir) return rows;
     return [...rows].sort((a, b) => (dir === "asc" ? 1 : -1) * (a.scannedAt.getTime() - b.scannedAt.getTime()));
   };
-  const withRepo = (s: FleetScan) => {
+  const withRepo = (s: FleetScan, sel?: unknown) => {
     const r = repoById.get(s.repoId)!;
-    return { ...s, dimensions: [], repo: { fullName: r.fullName, name: r.name } };
+    return { ...s, dimensions: dimsFor(s, sel), repo: { fullName: r.fullName, name: r.name } };
   };
   const prisma = {
     // The org lookup answers one object (and is not part of the scan plan, so it is not recorded).
-    organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme", plan })) },
+    organization: { findUnique: vi.fn(async () => ({ id: "org_1", slug: "acme", plan, kind: "org", timezone: null })) },
     repository: {
-      findMany: rec("repository.findMany", () => fleet.repos.map((r) => ({ ...r, owner: "acme", isPrivate: false, watched: true, scanSchedule: "weekly" }))),
+      // Serves the OLD nested `scans` relation too (newest first, ties to the greatest id, the relation
+      // `take` kept), so a reader can be run in either shape against one fleet.
+      findMany: rec(
+        "repository.findMany",
+        (args) =>
+          fleet.repos.map((r) => {
+            const scansArg = scansArgOf(args);
+            const row = { ...r, owner: "acme", isPrivate: false, watched: true, scanSchedule: "weekly", passportJson: null, teams: [], contributors: [] };
+            return scansArg ? { ...row, scans: nested(r.id, scansArg) } : row;
+          }),
+        (rows, args) => (scansArgOf(args) ? fleet.scans.filter((s) => rows.some((r) => r.id === s.repoId)).length : 0),
+      ),
     },
     scan: {
       groupBy: rec("scan.groupBy", (args) => groupLatest(fleet.scans, args.where as Where)),
-      findMany: rec("scan.findMany", (args) =>
-        sortBy(fleet.scans.filter((s) => matchesScanWhere(args.where as Where, s)), args.orderBy).map(withRepo),
+      findMany: rec(
+        "scan.findMany",
+        (args) => sortBy(fleet.scans.filter((s) => matchesScanWhere(args.where as Where, s)), args.orderBy).map((s) => withRepo(s, args.select)),
+        (rows) => rows.length,
       ),
     },
     scanDigest: { findMany: rec("scanDigest.findMany", () => []) },
     scanDimension: { findMany: rec("scanDimension.findMany", () => []) },
     controlObservation: { groupBy: rec("controlObservation.groupBy", () => []) },
     scanJob: { findMany: rec("scanJob.findMany", () => []) },
+    improvementPr: { findMany: rec("improvementPr.findMany", () => []) },
+    invite: { count: vi.fn(async () => 0) },
+    aiChange: { groupBy: rec("aiChange.groupBy", () => []) },
+    orgArtifactAck: { findMany: rec("orgArtifactAck.findMany", () => []) },
   };
   return { prisma, reads };
 }
@@ -183,13 +264,14 @@ export function makeFleet(repos: number, perRepo: number): Fleet {
 }
 
 /** The OLD shape, as the database would have answered it before the plan was cut: every scan of the
- *  repo under the bound, newest first, the first `take` kept (nested `take` / `distinct` semantics). */
+ *  repo under the bound, newest first (an equal `scannedAt` to the greatest id, the door's TIE RULE),
+ *  the first `take` kept (nested `take` / `distinct` semantics). */
 export function oldPick(fleet: Fleet, bound: Range | undefined, take = 1): Map<string, FleetScan[]> {
   const out = new Map<string, FleetScan[]>();
   for (const r of fleet.repos) {
     const picked = fleet.scans
       .filter((s) => s.repoId === r.id && inRange(s.scannedAt, bound))
-      .sort((a, b) => b.scannedAt.getTime() - a.scannedAt.getTime())
+      .sort((a, b) => b.scannedAt.getTime() - a.scannedAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
       .slice(0, take);
     if (picked.length) out.set(r.id, picked);
   }
@@ -200,4 +282,27 @@ export function oldPick(fleet: Fleet, bound: Range | undefined, take = 1): Map<s
  *  take and `distinct` were applied after the fetch). */
 export function oldTransfer(fleet: Fleet, bound: Range | undefined): number {
   return fleet.scans.filter((s) => inRange(s.scannedAt, bound)).length;
+}
+
+/**
+ * Give every scan of a fleet the per-scan payloads the fleet readers aggregate - dimension rows, an
+ * open gap recommendation, and the prStats / governance / commitActivity / discrepancies blobs - each
+ * varying by scan, so a reader that read the WRONG scan of a repo returns a visibly different object.
+ */
+export function enrichFleet(fleet: Fleet): Fleet {
+  const scans = fleet.scans.map((s, k) => {
+    const v = (s.overallScore + k) % 100;
+    return {
+      ...s,
+      archetype: "service",
+      dimensions: ["D1", "D2", "D3"].map((dimId, d) => ({ dimId, score: (v + d * 17) % 100, signalScore: v, llmScore: v, gaps: `["gap ${s.id}"]`, evidence: "[]", summary: s.id })),
+      recommendations: [{ id: `rec_${s.id}`, title: `Fix ${v % 5}`, dimId: `D${1 + (v % 3)}`, impact: v % 2 ? "high" : "medium", rationale: s.id, explore: "[]" }],
+      prStats: JSON.stringify({ analyzed: 10 + (v % 7), reviewedRate: v, mergeRate: 50, tools: [] }),
+      governance: JSON.stringify({ protected: v % 2 === 0, requiresPullRequest: true, requiredApprovals: v % 3, requiresStatusChecks: true, requiresSignatures: false, ruleCount: 1, readable: true }),
+      commitActivity: JSON.stringify([v % 9, (v + 1) % 9, (v + 2) % 9]),
+      discrepancies: JSON.stringify([{ dimension: `D${1 + (v % 3)}`, claim: `claim ${s.id}` }]),
+      practiceShape: null,
+    } as FleetScan;
+  });
+  return { repos: fleet.repos, scans };
 }
