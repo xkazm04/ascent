@@ -152,6 +152,9 @@ export class GitLabSource implements RepoSource {
     const meta: RepoMeta = {
       owner: parsed.owner,
       name: parsed.repo,
+      // The adapter's own fact, read by the persist and watch layers (persistedForgeOf) instead of
+      // re-inferring it from a url that, on a self-managed instance, no host-less parser recognizes.
+      forge: "gitlab",
       url: project.web_url ?? `${gitlabWebBase(this.host)}/${fullPath}`,
       ...(project.description ? { description: project.description } : {}),
       stars: project.star_count ?? 0,

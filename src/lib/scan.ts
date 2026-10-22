@@ -18,7 +18,8 @@ import {
 } from "@/lib/github/source";
 import { parseForgeUrl, resolveForge } from "@/lib/forge/registry";
 import { bindScanToken, warnDroppedScanToken } from "@/lib/forge/scan-credential";
-import type { ForgeId } from "@/lib/forge/types";
+import { resolveOrgForgeHost, UNSAFE_FORGE_HOST_MESSAGE } from "@/lib/forge/org-forge-host";
+import type { ForgeHost, ForgeId } from "@/lib/forge/types";
 import { getProviderForOrg } from "@/lib/llm";
 import { BedrockProvider } from "@/lib/llm/bedrock";
 import type { LLMProvider } from "@/lib/llm/provider";
@@ -192,12 +193,34 @@ export async function scanRepository(input: string, opts: ScanOptions = {}): Pro
   }
 }
 
+/** An input that explicitly addresses gitlab.com (a pasted URL, an scp remote, a host-qualified path). */
+const NAMES_PUBLIC_GITLAB = /(^|[/@.:])gitlab\.com([/:]|$)/i;
+
 async function runScanRepository(input: string, opts: ScanOptions = {}): Promise<ScanReport> {
   // FORGE ROUTING (moonshot #4). `parseForgeUrl` tries an explicit `<forge>:` prefix, then each
   // registered forge GITHUB FIRST — so every input that parsed before parses to the same
   // `{owner, repo}` through the same GitHub parser, and only inputs GitHub REJECTED (an explicit
   // gitlab.com URL, a `gitlab:` coordinate) can reach another adapter.
-  const routed = parseForgeUrl(input);
+  let routed = parseForgeUrl(input);
+  // THE INSTANCE (card github-data-1). An org's GitLab may be self-managed; its host lives on the org's
+  // Installation row and is resolved ONCE here, then handed to the parser, the source and the
+  // enrichments, so no read can fall back to gitlab.com at the same path. A GitHub coordinate never
+  // consults it, and neither does an input that names gitlab.com itself (it asked for the public host).
+  // An input nothing parsed host-less is retried against the org's host (a pasted self-managed web
+  // url); an unsafe host refuses a gitlab coordinate and is never fetched.
+  let host: ForgeHost | undefined;
+  if (opts.orgSlug && (!routed || routed.forge === "gitlab") && !NAMES_PUBLIC_GITLAB.test(input)) {
+    const resolved = await resolveOrgForgeHost(opts.orgSlug, "gitlab");
+    if ("refused" in resolved) {
+      if (routed) throw new GitHubError("UPSTREAM", UNSAFE_FORGE_HOST_MESSAGE, 502);
+    } else if (resolved.host) {
+      const reparsed = parseForgeUrl(input, resolved.host);
+      if (reparsed?.forge === "gitlab") {
+        routed = reparsed;
+        host = resolved.host;
+      }
+    }
+  }
   if (!routed) {
     throw new GitHubError(
       "INVALID_URL",
@@ -228,7 +251,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
 
   // An explicitly injected source still wins (local mode, the loop lane, tests). Otherwise the forge
   // builds it — and for GitHub that is `new GitHubPublicSource()`, the same construction as before.
-  const source = opts.source ?? forge.source();
+  const source = opts.source ?? forge.source(host);
   // DESTINATION BINDING: a credential reaches only the forge that issued it, and the ambient GITHUB_TOKEN
   // only a GitHub scan. Applied HERE so no caller can route a GitHub credential to another forge's host.
   const bound = bindScanToken({ forge: forge.id, token: opts.token, tokenForge: opts.tokenForge, noAmbientToken: opts.noAmbientToken, ambient: process.env.GITHUB_TOKEN });
@@ -245,6 +268,7 @@ async function runScanRepository(input: string, opts: ScanOptions = {}): Promise
       parsed,
       source,
       forge,
+      host,
       token,
       ref: opts.ref,
       headSha: opts.headSha,

@@ -14,7 +14,7 @@ import type { DeploymentRecord } from "@/lib/github/deployments";
 import { PR_HEAD_INVENTORY_CAP, withPrHeadApps, type AppInventory } from "@/lib/github/check-suites";
 import type { CiHealth } from "@/lib/github/actions-health";
 import { resolveForge } from "@/lib/forge/registry";
-import type { EnrichmentSource, Forge } from "@/lib/forge/types";
+import type { EnrichmentSource, Forge, ForgeHost } from "@/lib/forge/types";
 import { DIMENSIONS } from "@/lib/maturity/model";
 import type { Governance, GuidanceFreshness, PrStats, RepoSnapshot, ScanSensorId, SecurityExposure, SecurityPosture } from "@/lib/types";
 
@@ -29,6 +29,11 @@ export interface IngestPhaseInput {
    * a fallback path; it is the same code, reached through one indirection.
    */
   forge?: Forge;
+  /**
+   * The self-managed instance the snapshot was read from (card github-data-1), handed to the
+   * enrichment set so the MR/governance/CI reads go to the SAME host. Unset = the forge's public host.
+   */
+  host?: ForgeHost;
   /** Resolved GitHub token (already ambient-guarded upstream). Absent ⇒ every enrichment is skipped. */
   token?: string;
   /** Explicit git ref (PR gating). Wins over `headSha`. */
@@ -130,7 +135,7 @@ export async function ingestRepository(input: IngestPhaseInput): Promise<IngestP
   // exactly the value the token-less branch already produced (`null` / `[]`), never to a zero. That
   // equivalence is the whole honest-nulls argument: a forge with fewer observables FLOORS a score
   // through paths the rubric already had, instead of being scored against a different rubric.
-  const enrich: EnrichmentSource = (input.forge ?? resolveForge()).enrich?.() ?? {};
+  const enrich: EnrichmentSource = (input.forge ?? resolveForge()).enrich?.(input.host) ?? {};
 
   // Pull-request ingestion (GraphQL) runs in parallel with the REST snapshot fetch, then is
   // awaited before analysis so PR signals fold into the dimension scores (F4). GraphQL needs a

@@ -10,6 +10,7 @@ import { writeConformanceReport } from "@/lib/db/org-conformance";
 import type { CheckLevel } from "@/lib/standard/check-ids";
 import type { Schedule } from "@/lib/org/repo-schedule";
 import { forgeFromWebUrl } from "@/lib/forge/registry";
+import type { ForgeId } from "@/lib/forge/types";
 
 // Keyed on the canonical Schedule vocabulary (installationRepoTypes) so the cadence set can't drift
 // from the route validators / UI options — a missing or extra key is a compile error here.
@@ -164,6 +165,9 @@ export interface RepoRef {
   isPrivate?: boolean;
   /** ISO of the repo's last scan, when known — lets a bulk scan skip still-fresh repos. */
   lastScanAt?: string | null;
+  /** The forge the lister read this repo from (the import's entries carry it). Wins over inferring it
+   *  from `url`, which cannot recognize a self-managed GitLab host (card github-data-1). */
+  forge?: ForgeId;
 }
 
 /** Upsert a repo (from an installation listing) and set its watched flag. */
@@ -179,7 +183,7 @@ export async function setRepoWatch(orgSlug: string, repo: RepoRef, watched: bool
       // #4 — the forge this row lives on, inferred from the url the lister gave us. Anything not
       // positively identified persists as `github`, which is what the schema defaults to and what
       // every pre-#4 row already is.
-      forge: forgeFromWebUrl(repo.url),
+      forge: repo.forge ?? forgeFromWebUrl(repo.url),
       owner: repo.owner,
       name: repo.name,
       fullName: repo.fullName,
@@ -278,7 +282,7 @@ export async function seedWatchlist(orgSlug: string, repos: RepoRef[]): Promise<
       update: {}, // respect any later user choice — only seed repos we've never recorded
       create: {
         orgId: org.id,
-        forge: forgeFromWebUrl(r.url), // #4 — see the note on the upsert above.
+        forge: r.forge ?? forgeFromWebUrl(r.url), // #4 - see the note on the upsert above.
         owner: r.owner,
         name: r.name,
         fullName: r.fullName,

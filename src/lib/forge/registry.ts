@@ -132,6 +132,18 @@ export function forgeFromWebUrl(url: string | undefined | null): ForgeId {
   return "github";
 }
 
+/**
+ * The forge a scanned repo PERSISTS under (card github-data-1). The source's own `meta.forge` wins
+ * for a forge whose web url a host-less parse cannot recognize (a self-managed GitLab); everything
+ * else falls back to {@link forgeFromWebUrl}. A `local` working copy is deliberately NOT persisted as
+ * `local`: it keeps the identity of its url (a github.com url means `github`), which is the row the
+ * private-scan scrub and the local rescan route already read.
+ */
+export function persistedForgeOf(meta: { forge?: ForgeId | null; url?: string | null }): ForgeId {
+  if (meta.forge === "gitlab") return "gitlab";
+  return forgeFromWebUrl(meta.url);
+}
+
 /** The inverse of {@link forgeFullName}: split a persisted fullName back into forge + coordinate.
  *  An unprefixed value is GitHub — which is what every pre-#4 row is. */
 export function splitForgeFullName(fullName: string): { forge: ForgeId; fullName: string } {

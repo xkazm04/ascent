@@ -1,6 +1,8 @@
 // The `local` Forge record — the self-hosted working-copy ingestion path, which has been a
 // `RepoSource` since local mode shipped and is registered here so `resolveForge` has an answer for
-// every value `Repository.forge` can hold (a repo scanned locally persists `forge: "local"`).
+// every value `Repository.forge` can hold. A repo scanned locally does NOT persist `forge: "local"`:
+// its meta carries `forge: "local"`, but the persist layer (`persistedForgeOf`) keeps the identity of
+// its url, so a working copy of a github.com repo lands on that repo's `github` row.
 //
 // The one thing this adapter CANNOT do is manufacture its own source: `LocalFsSource` is constructed
 // with the absolute path of a paired working copy, and that pairing lives in the org's local-mode

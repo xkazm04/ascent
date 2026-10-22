@@ -32,7 +32,7 @@ import { appendAudit } from "@/lib/db/audit-append";
 // `recordObservations` its writer; this path is a second SOURCE into the same ledger, not a second
 // implementation of it.
 import { latestObservations, recordObservations } from "@/lib/db/control-observations";
-import { forgeFromWebUrl, prefixForge } from "@/lib/forge/registry";
+import { persistedForgeOf, prefixForge } from "@/lib/forge/registry";
 import { storableScanReport } from "@/lib/private-scan-store";
 import { HEARTBEAT_AFTER_MS, diffSamples, governanceToSamples } from "@/lib/scan-probe-controls";
 
@@ -130,9 +130,9 @@ export async function persistScanReport(
   const prisma = getPrisma();
   const orgSlug = canonicalOrgSlug(opts.orgSlug ?? DEFAULT_ORG_SLUG);
   const headSha = report.repo.headSha ?? null;
-  // Which forge this report came from (moonshot #4), inferred from the repo's own web url — see
-  // `forgeFromWebUrl` for why that inference is safe and what replaces it.
-  const forge = forgeFromWebUrl(report.repo.url);
+  // Which forge this report came from (moonshot #4): the source's own `meta.forge` when it stamped
+  // one (GitLab, so a self-managed url is not mistaken for GitHub), else inferred from the web url.
+  const forge = persistedForgeOf(report.repo);
   // Canonical (lowercased) key so reads and writes agree regardless of the casing a caller typed.
   // For GitHub this is BYTE-IDENTICAL to what it always was, so not one existing row moves and the
   // live `@@unique([orgId, fullName])` needs no migration; a non-GitHub repo is namespaced in the
