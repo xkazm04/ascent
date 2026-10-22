@@ -1735,6 +1735,22 @@ Org membership and role enforcement are wired end to end, backed by the `User` /
   still omits the token (it is the capability, shown once on the create/resend response). The
   Members roster (`InviteList`) is a one-click **resend** — owners who lost the link no longer
   have to revoke and re-create.
+- **Batch invite: one paste, previewed, then one confirm** (members-1, 2026-10-22). Typing or
+  pasting several GitHub logins/emails into the invite field (comma, semicolon, space or newline
+  separated; a leading `@` is dropped, everything compares lower-cased) switches the form into a
+  preview: `src/lib/org/invite-batch.ts` (pure) classifies each target against the roster and the
+  pending list the tab already loaded, with no request, as new, already a member (with their role),
+  already pending, invalid, or a repeat. The confirm sends ONE `POST /api/org/invites`
+  `{ org, action: "batch", role, targets, notify? }`; the server runs the same classifier against
+  the rows it reads itself and has the final say, behind the same gate as a single invite (public
+  org refused, then owner), with role capped at `admin` and at most 25 targets. It never mints an
+  invite for an existing member, a pending invitee or a repeat in the same batch; each created
+  invite is mailed (email targets) and audited (`org.member.invited`) exactly as a single invite
+  is. The response is `{ results[] }` in input order (`created` with its invite + token +
+  `emailed`, `already_member` with `role`, `already_pending` with `inviteId`, `invalid`,
+  `duplicate`, `failed`); created rows join the pending list with a copyable link, and an
+  already-pending row offers resend. One target keeps the original body and no preview. The
+  single-invite path still does not check for an existing member or pending invite.
 - **The invite is now delivered** (G7-02): creating an invite with an `email` sends **one**
   transactional message to that address via the shared email transport (`src/lib/email/invite.ts`).
   *Trigger*: an owner's `POST /api/org/invites` with `email` set, or the same route with

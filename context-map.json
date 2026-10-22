@@ -908,7 +908,13 @@
             "src/features/admin/members/MemberInvites.resend.test.tsx",
             "src/features/admin/members/MembersPanel.readonly.test.tsx",
             "src/features/admin/members/MembersTab.access.test.tsx",
-            "src/features/admin/members/MembersTab.public.test.tsx"
+            "src/features/admin/members/MembersTab.public.test.tsx",
+            "src/lib/org/invite-batch.ts",
+            "src/lib/org/invite-batch.test.ts",
+            "src/app/api/org/invites/route.batch.test.ts",
+            "src/features/admin/members/useMemberInvites.ts",
+            "src/features/admin/members/InviteBatchPreview.tsx",
+            "src/features/admin/members/MemberInvites.batch.test.tsx"
           ],
           "target": null,
           "apiRoutes": [
