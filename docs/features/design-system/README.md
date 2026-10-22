@@ -369,12 +369,32 @@ contributor count from `NODES`; `RiskRadar` names the sample alert count from
 leave the caption lying. `RoiSimulator.dom.test.tsx` and `FleetGrid.dom.test.tsx`
 pin the rendered labels.
 
-The simulator was kept rather than deleted in favour of the landing register of real
-scanned repos: the register is server-fetched on `/` (and absent entirely when no DB
-is configured), while this deck is a client orchestrator whose `roi` section copy in
-`features.ts` describes the what-if simulator specifically. Promoting the register
-here is a structural move, not a caption fix — and a labelled demo beside a real
-register elsewhere is honest, whereas an unlabelled one is not.
+**With a public corpus, the X-Ray and ROI panes are the corpus (card about-1, the MC-B6
+ceiling).** `src/app/about/page.tsx` is a Server Component: it reads
+`getPublicScanGallery({ recentLimit: 40 })` (the same `unstable_cache`d read the landing
+register uses, 60 s window, `export const revalidate = 60`) and hands the plain gallery to the
+client deck. A failed read degrades through `degradeTo(...)` to `null`; with no
+`DATABASE_URL` the read returns `null` without a query, so the page never 500s and `next
+build` needs no database. `src/components/about/aboutFleetModel.ts` (pure, client-safe; its
+`@/lib/db` import is type-only) reduces it:
+
+- `fleetFrom(gallery)` keeps only cards scored under the CURRENT rubric, then applies
+  `LIVE_MIN` (6). Below it the panes stay the labelled illustration above, verbatim: a
+  degraded corpus never claims to be live and never pads a count.
+- Live, every X-Ray cell is a link to that repo's own report permalink, the filters are the
+  postures present in the data (`POSTURE_META` order; an absent posture is not offered), and
+  the caption reads `Live · N public repos scanned by Ascent · newest YYYY-MM-DD`.
+- The ROI sliders raise D2 / D3 / D1 (Testing, CI/CD, Conventions) on up to 8 live repos via
+  `projectFleet`, which re-runs `overallScoreFor` under each card's own archetype lens (the
+  gallery card now carries `archetype`). A row equals the card's overall plus the engine's
+  delta and a promotion is the band crossing `projectedGain` reports, so the pane and the org
+  backlog's "+N pts · unlocks LX" cannot disagree. `W = 0.16` survives only in illustrative
+  mode.
+
+`aboutFleetModel.test.ts`, the live blocks in `FleetGrid.dom.test.tsx` /
+`RoiSimulator.dom.test.tsx` and `src/app/about/page.test.ts` pin it. `/about` still builds
+as dynamic (ƒ) because the site header reads the session, so `revalidate` is the declared
+window rather than a served-static guarantee.
 
 The paired `roi` money line in `features.ts` names those same live tiles
 (promotions, average gain, repos in scope). It must not carry a dated N-of-M
