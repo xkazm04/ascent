@@ -27,7 +27,7 @@ import {
 } from "@/lib/db/scans-read";
 import { syncTechStackGroups } from "@/lib/db/tech-groups";
 import { applyRecTransitionEffects } from "@/lib/db/rec-transition-effects";
-import { withAuditSignature } from "@/lib/db/audit-integrity";
+import { appendAudit } from "@/lib/db/audit-append";
 // MOONSHOT #1 — the control ledger. `governanceToSamples`/`diffSamples` are W3-L's PURE mappers and
 // `recordObservations` its writer; this path is a second SOURCE into the same ledger, not a second
 // implementation of it.
@@ -796,35 +796,18 @@ export async function persistScanReport(
 
         // Audit entry through the same tx, so a scan is never persisted unaudited (the compliance
         // gap the old best-effort write could leave). Mirrors recordAudit's "scan.created" shape.
-        // SIGNED like every other audit write (exemplar: recordConformance in org-watch.ts). This
-        // path used to JSON.stringify the meta directly, so the highest-volume action in the product
-        // landed with no `_sig` and verified as "unsigned" on every read — in the one table whose
-        // whole purpose is tamper-evidence. `at` is stamped explicitly because canonical() signs
-        // createdAt: letting the DB default the timestamp would sign a different instant than the row
-        // stores, and the row would verify as `tampered` forever.
-        const auditActorId = opts.actorId ?? null;
-        const auditAt = new Date();
-        await tx.auditLog.create({
-          data: {
-            action: "scan.created",
-            at: auditAt,
-            meta: JSON.stringify(
-              withAuditSignature({
-                action: "scan.created",
-                orgId,
-                actorId: auditActorId,
-                createdAt: auditAt.toISOString(),
-                meta: {
-                  repo: fullName,
-                  scanId: scan.id,
-                  headSha,
-                  level: report.level.id,
-                  score: report.overallScore,
-                },
-              }),
-            ),
-            orgId,
-            actorId: auditActorId,
+        // SIGNED through the one audit door (audit-append.ts), which stamps the instant it signs: the
+        // highest-volume action in the product once landed here unsigned.
+        await appendAudit(tx, {
+          action: "scan.created",
+          orgId,
+          actorId: opts.actorId ?? null,
+          meta: {
+            repo: fullName,
+            scanId: scan.id,
+            headSha,
+            level: report.level.id,
+            score: report.overallScore,
           },
         });
 
