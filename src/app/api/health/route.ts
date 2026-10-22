@@ -6,24 +6,25 @@
 // an expired-token client self-heals without a redeploy. Always 200 when persistence is disabled
 // (the MVP runs with no DB); 503 when the DB is configured but unreachable.
 //
-// Also reports `autoscan` readiness: the Vercel-cron rescan path fail-closes without CRON_SECRET
-// and additionally needs the GitHub App + a DB, so a deploy missing any of these silently never
-// autoscans. Surfacing it here lets a monitor catch that misconfiguration instead of discovering
-// it as "scans mysteriously stopped".
+// Also reports per-job cron readiness (`crons`): every scheduled job in the one table
+// (src/lib/cron-jobs.ts) as ready / degraded (an optional prerequisite missing, a partial run) /
+// blocked (a required one missing), each with the instruction that fixes it - so one GET names every
+// dead schedule instead of only the rescan. `autoscan` stays as the rescan projection (the
+// docs/DEPLOY.md contract): the rescan fail-closes without CRON_SECRET and needs the GitHub App + a DB.
 
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { dbHealthCheck, getDbMode, isDbConfigured, pgliteBootError } from "@/lib/db";
-import { isAppConfigured } from "@/lib/github/app";
+import { cronSecretMatches } from "@/lib/cron-auth";
+import { cronReadiness, liveCronProbe } from "@/lib/cron-jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function autoscanReadiness() {
-  const cronSecret = Boolean(process.env.CRON_SECRET);
-  const githubApp = isAppConfigured();
-  const db = isDbConfigured();
-  return { ready: cronSecret && githubApp && db, cronSecret, githubApp, db };
+function cronDetail() {
+  const probe = liveCronProbe();
+  const crons = cronReadiness(probe);
+  const { cronSecret, githubApp, db } = probe;
+  return { autoscan: { ready: crons.rescan.state === "ready", cronSecret, githubApp, db }, crons };
 }
 
 // The detailed fields (dbMode, autoscan readiness) describe deployment TOPOLOGY — the specific backend
@@ -35,14 +36,12 @@ function autoscanReadiness() {
 // is nothing to protect, matching the prior always-on behavior). A PRODUCTION deploy missing the secret
 // is exactly the misconfigured deploy this route's autoscan tripwire exists to flag — it must not also
 // hand its topology and secret-presence map to anonymous probes, so prod-without-secret is treated as
-// anonymous-only. The bearer comparison is constant-time (timingSafeEqual over equal-length buffers)
-// so the unauthenticated endpoint doesn't expose a variable-time secret compare.
+// anonymous-only. The bearer comparison is cron-auth.ts's constant-time cronSecretMatches (the one
+// compare every cron route uses) so the unauthenticated endpoint doesn't expose a variable-time compare.
 function isInternalCaller(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return process.env.NODE_ENV !== "production";
-  const expected = Buffer.from(`Bearer ${secret}`);
-  const presented = Buffer.from(request.headers.get("authorization") ?? "");
-  return presented.length === expected.length && timingSafeEqual(presented, expected);
+  return cronSecretMatches(request.headers.get("authorization") ?? "", `Bearer ${secret}`);
 }
 
 export async function GET(request: Request) {
@@ -58,7 +57,7 @@ export async function GET(request: Request) {
   const detail = isInternalCaller(request)
     ? {
         dbMode: getDbMode(),
-        autoscan: autoscanReadiness(),
+        ...cronDetail(),
         ...(bootError ? { pgliteBoot: { ok: false, error: bootError } } : {}),
       }
     : {};

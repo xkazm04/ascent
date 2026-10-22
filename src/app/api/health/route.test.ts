@@ -142,7 +142,7 @@ describe("GET /api/health — DB check fails (the no-leak invariant)", () => {
     expect(text).not.toContain(LEAKY_ERROR);
 
     // No field is derived from result.error — the internal body has only the safe keys.
-    expect(Object.keys(body).sort()).toEqual(["autoscan", "db", "dbMode", "reconnected", "status"]);
+    expect(Object.keys(body).sort()).toEqual(["autoscan", "crons", "db", "dbMode", "reconnected", "status"]);
     expect("error" in body).toBe(false);
   });
 
@@ -175,7 +175,7 @@ describe("GET /api/health — DB check fails (the no-leak invariant)", () => {
       expect(text).not.toContain(secret);
     }
     expect(text).not.toContain(LEAKY_ERROR);
-    expect(Object.keys(body).sort()).toEqual(["autoscan", "db", "dbMode", "reconnected", "status"]);
+    expect(Object.keys(body).sort()).toEqual(["autoscan", "crons", "db", "dbMode", "reconnected", "status"]);
     expect("error" in body).toBe(false);
   });
 });
