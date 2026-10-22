@@ -823,6 +823,18 @@ binds the agent already holding a lease, not only the next claimer. `list_open_r
 filters by repository before the cap and names an empty result (it used to filter after, on bare repo
 names, so every `repo` argument returned zero). Athena's catalog offers no tool that needs a principal.
 
+**Org-authored results leave the door redacted (2026-10-22).** Every catalog entry declares
+`resultTrust`: `org-authored` on `recall_org_memory`, `find_skills`, `get_skill`, `get_skill_lessons`
+and `get_governing_subject` (pinned to Athena's `ATHENA_UNTRUSTED_TOOLS`, so the two doors cannot
+drift), `computed` on the rest. Before serialization the route runs `egressResult`
+(`src/lib/mcp/result-egress.ts`): every string leaf of an org-authored result goes through the same
+`redactSecrets` Athena's `sanitizeAgentText` uses, so a token pasted into a lesson or memory reaches
+an external agent as `[REDACTED]`. Shapes and keys are unchanged and no prompt fence is injected; the
+result's `_meta` gains `ascent.dev/provenance: "org-authored"` and `ascent.dev/redactions: n`
+beside the protocol's `serverInfo`. `get_skill` keeps the stored body's `contentHash`, so a non-zero
+redaction count is how a caller knows `content` no longer hashes to it. Computed results are
+byte-identical, and `resultTrust` is not on the wire: `tools/list` keeps its pinned digest.
+
 `mcp:read` is the **door** scope and is deliberately separate from the resource scopes beside it: a
 token holding it alone sees only the org-standing tools, and `memory:read` / `skills:read` unlock
 their families *on top*. So granting an agent the door does not silently grant it the org's memory or
@@ -1133,6 +1145,7 @@ as Trace.
 | `src/lib/org/skill-categories.ts` | Closed category set. |
 | `src/lib/mcp/tools.ts` | The tool catalog: scopes, plan gates, the `mutates` marker. |
 | `src/lib/mcp/write-gate.ts` | `WRITE_TOOL_POLICY` + `assertWriteAllowed` — the write door's policy table. |
+| `src/lib/mcp/result-egress.ts` | The agent-door egress: redacts org-authored results (string leaves, shape kept) and stamps provenance `_meta`. |
 | `src/lib/mcp/registry-reads.ts` | Skill / lesson / subject projections. |
 | `src/lib/mcp/registry-writes.ts` | The two write handlers. |
 | `src/lib/mcp/skill-match.ts` | Pure ranking + the declared `CATEGORY_DIMENSIONS` map. |
