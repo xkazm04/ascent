@@ -23,9 +23,13 @@ const co = (
   avgOverall: number,
   trajectory: PortfolioCompany["trajectory"],
   scannedCount = 5,
+  mockCount = 0,
 ): PortfolioCompany => ({
   org,
   scannedCount,
+  realScoredCount: scannedCount - mockCount,
+  mockCount,
+  dims: {},
   avgOverall,
   levelId: "L3",
   levelName: "Managed",
@@ -59,7 +63,13 @@ describe("summarizePortfolio", () => {
     expect(p.totalRepos).toBe(15);
   });
   it("is empty-safe", () => {
-    expect(summarizePortfolio([])).toMatchObject({ avgOverall: 0, rising: 0, falling: 0, flat: 0, totalRepos: 0 });
+    expect(summarizePortfolio([])).toMatchObject({ avgOverall: 0, rising: 0, falling: 0, flat: 0, totalRepos: 0, mockExcluded: 0 });
+  });
+
+  it("counts the scored population the averages are over, and discloses the mock floors it excluded", () => {
+    const p = summarizePortfolio([co("a", 50, null, 6, 2), co("b", 60, null, 3, 0)]);
+    expect(p.totalRepos).toBe(7);
+    expect(p.mockExcluded).toBe(2);
   });
 });
 
@@ -67,10 +77,14 @@ function rollup(
   org: string,
   averages: { overall: number | null; adoption: number | null; rigor: number | null },
   scannedCount = 3,
+  extra: { dimAverages?: { dimId: string; avg: number }[]; realScoredCount?: number; mockCount?: number } = {},
 ) {
   return {
     org,
     scannedCount,
+    realScoredCount: extra.realScoredCount ?? scannedCount,
+    mockCount: extra.mockCount ?? 0,
+    dimAverages: extra.dimAverages ?? [],
     avgOverall: averages.overall,
     avgAdoption: averages.adoption,
     avgRigor: averages.rigor,
@@ -92,6 +106,25 @@ describe("buildPortfolio — a miss is tagged, not dropped into one empty", () =
     expect(read.portfolio.companies.map((c) => c.org)).toEqual(["acme"]);
     expect(read.empty).toEqual([]);
     expect(read.unavailable).toEqual([]);
+  });
+
+  it("carries the rollup dimension averages (an absent dim stays absent) and the real/mock split", async () => {
+    mockRollup.mockResolvedValue(
+      rollup("acme", { overall: 70, adoption: 40, rigor: 50 }, 6, {
+        dimAverages: [
+          { dimId: "D1", avg: 60 },
+          { dimId: "D3", avg: 20 },
+        ],
+        realScoredCount: 4,
+        mockCount: 2,
+      }) as never,
+    );
+    const [c] = (await buildPortfolio(["acme"])).portfolio.companies;
+    expect(c?.dims).toEqual({ D1: 60, D3: 20 });
+    expect(c?.dims.D2).toBeUndefined();
+    expect(c?.realScoredCount).toBe(4);
+    expect(c?.mockCount).toBe(2);
+    expect(c?.scannedCount).toBe(6);
   });
 
   it("tags a successful rollup with no fleet grade as empty, not unavailable", async () => {

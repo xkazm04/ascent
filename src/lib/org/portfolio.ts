@@ -13,6 +13,12 @@ import { humanizeDays } from "@/lib/maturity/forecast";
 export interface PortfolioCompany {
   org: string;
   scannedCount: number;
+  /** Live-scored repos: the denominator of every average on this row (mock floors excluded). */
+  realScoredCount: number;
+  /** Scanned repos on the deterministic mock floor, excluded from the averages and disclosed. */
+  mockCount: number;
+  /** Per-dimension fleet averages over the live-scored population. An absent key is unmeasured, not 0. */
+  dims: Record<string, number>;
   avgOverall: number;
   levelId: string;
   levelName: string;
@@ -38,7 +44,10 @@ export interface Portfolio {
   rising: number;
   falling: number;
   flat: number;
+  /** Live-scored repos across the book: the population the averages are over. */
   totalRepos: number;
+  /** Mock-floor repos across the book, excluded from every average above. */
+  mockExcluded: number;
 }
 
 /** Tagged portfolio assembly: graded companies plus the two honest misses that used to share one drop. */
@@ -114,7 +123,10 @@ export function summarizePortfolio(companies: PortfolioCompany[]): Portfolio {
     rising: sorted.filter((c) => c.trajectory === "rising").length,
     falling: sorted.filter((c) => c.trajectory === "falling").length,
     flat: sorted.filter((c) => c.trajectory === "flat" || c.trajectory === null).length,
-    totalRepos: sorted.reduce((a, c) => a + c.scannedCount, 0),
+    // The scored population, not scannedCount: a mock floor is excluded from the averages beside
+    // this count, so counting it here overstated the denominator. It is disclosed separately.
+    totalRepos: sorted.reduce((a, c) => a + c.realScoredCount, 0),
+    mockExcluded: sorted.reduce((a, c) => a + c.mockCount, 0),
   };
 }
 
@@ -146,6 +158,9 @@ async function readPortfolioOrg(org: string): Promise<PortfolioOrgRead> {
     company: {
       org,
       scannedCount: rollup.scannedCount,
+      realScoredCount: rollup.realScoredCount,
+      mockCount: rollup.mockCount,
+      dims: Object.fromEntries(rollup.dimAverages.map((d) => [d.dimId, d.avg])),
       avgOverall: rollup.avgOverall,
       levelId: level.id,
       levelName: level.name,

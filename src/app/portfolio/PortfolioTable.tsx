@@ -36,7 +36,15 @@ export function PortfolioTable({ portfolio }: { portfolio: Portfolio }) {
         <Tile label="Companies" value={companies.length} sub="in this book" />
         <Tile label="Avg maturity" value={portfolio.avgOverall} color={scoreHex(portfolio.avgOverall)} sub="one vote each" />
         <Tile label="Rising / Falling" value={`${portfolio.rising} / ${portfolio.falling}`} sub={`${portfolio.flat} holding`} />
-        <Tile label="Repos in scope" value={portfolio.totalRepos} sub="scanned across the book" />
+        <Tile
+          label="Repos in scope"
+          value={portfolio.totalRepos}
+          sub={
+            portfolio.mockExcluded > 0
+              ? `live-scored; ${portfolio.mockExcluded} mock excluded`
+              : "live-scored across the book"
+          }
+        />
       </div>
 
       <div className="mt-6">
@@ -79,7 +87,16 @@ export function PortfolioTable({ portfolio }: { portfolio: Portfolio }) {
               <td className="px-4 py-3 font-mono tabular-nums text-slate-300">
                 {c.percentile != null ? `${c.percentile}th` : "—"}
               </td>
-              <td className="px-4 py-3 font-mono tabular-nums text-slate-400">{c.scannedCount}</td>
+              <td className="px-4 py-3 font-mono tabular-nums text-slate-400">
+                <span data-portfolio-copy>
+                  {c.realScoredCount} of {c.scannedCount}
+                </span>
+                {c.mockCount > 0 && (
+                  <span className="block type-caption text-slate-500" data-portfolio-copy>
+                    {c.mockCount} mock excluded
+                  </span>
+                )}
+              </td>
             </tr>
           ))}
         </OrgTable>

@@ -2,11 +2,19 @@
 // engineering maturity into one comparable table for a PE / portfolio engineering lead. Every org is
 // authorized individually (canReadOrg) so the comparison can never surface a tenant the viewer can't
 // already read; an unreadable/unknown slug is silently dropped and counted, not leaked.
+//
+// With no ?orgs the book opens on the viewer's workspace (resolveViewerWorkspace, minus public). That
+// list is a header convenience, not an authorization: every slug in it is re-gated through canReadOrg
+// below exactly as a typed slug is, so the default never widens what the viewer can read.
 
 import { SiteFooter, SiteHeader } from "@/components/Brand";
 import { EmptyState } from "@/components/EmptyState";
 import { canReadOrg } from "@/lib/authz";
 import { buildPortfolio, PORTFOLIO_EMPTY_COPY, portfolioEmptyKind, summarizePortfolio } from "@/lib/org/portfolio";
+import { resolveBook } from "@/lib/org/portfolioBookModel";
+import { resolveViewerWorkspace } from "@/lib/viewer-workspace";
+import { BookChips } from "./BookChips";
+import { PortfolioMatrix } from "./PortfolioMatrix";
 import { PortfolioTable } from "./PortfolioTable";
 
 export const dynamic = "force-dynamic";
@@ -18,17 +26,18 @@ export const metadata = {
 
 export default async function PortfolioPage({ searchParams }: { searchParams: Promise<{ orgs?: string }> }) {
   const sp = await searchParams;
-  const requested = (typeof sp.orgs === "string" ? sp.orgs : "")
-    .split(/[\s,]+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
-    .slice(0, 50);
-  const dedup = [...new Set(requested)];
+  const typed = typeof sp.orgs === "string" ? sp.orgs : null;
+  const workspace = await resolveViewerWorkspace();
+  const workspaceOptions = workspace.options;
+  const dedup = resolveBook({ requested: typed?.split(/[\s,]+/) ?? [], explicit: typed !== null, workspaceOptions }).orgs;
+  const fromWorkspace = resolveBook({ requested: [], explicit: false, workspaceOptions }).orgs;
 
-  // Authorize per org — only the ones the viewer may read survive (no cross-tenant leak).
-  const readable = (await Promise.all(dedup.map(async (o) => ((await canReadOrg(o)) ? o : null)))).filter(
-    (o): o is string => o !== null,
-  );
+  // Authorize per org: only the ones the viewer may read survive (no cross-tenant leak). The workspace
+  // orgs offered as chips pass the SAME gate, so a chip never names an org the viewer cannot read.
+  const gated = new Map<string, boolean>();
+  await Promise.all([...new Set([...dedup, ...fromWorkspace])].map(async (o) => gated.set(o, await canReadOrg(o))));
+  const readable = dedup.filter((o) => gated.get(o));
+  const choices = [...new Set([...readable, ...fromWorkspace.filter((o) => gated.get(o))])];
   const read = readable.length
     ? await buildPortfolio(readable)
     : { portfolio: summarizePortfolio([]), empty: [] as string[], unavailable: [] as string[] };
@@ -70,6 +79,8 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
           </button>
         </form>
 
+        <BookChips book={readable} choices={choices} />
+
         {hidden > 0 && (
           <p className="mt-3 type-body-sm text-warn">
             {hidden} organization{hidden === 1 ? "" : "s"} hidden (no read access, or no such org).
@@ -80,7 +91,10 @@ export default async function PortfolioPage({ searchParams }: { searchParams: Pr
           {emptyKind ? (
             <EmptyState icon="🗂️" title={PORTFOLIO_EMPTY_COPY[emptyKind].title} body={PORTFOLIO_EMPTY_COPY[emptyKind].body} />
           ) : (
-            <PortfolioTable portfolio={read.portfolio} />
+            <>
+              <PortfolioTable portfolio={read.portfolio} />
+              <PortfolioMatrix companies={read.portfolio.companies} />
+            </>
           )}
         </div>
       </main>
