@@ -26,6 +26,7 @@ import { getOrgBySlug } from "@/lib/db/org-shared";
 import { getLatestHousePattern, getLatestHousePatterns } from "@/lib/db/house-pattern-versions";
 import { reconcileAdoption, tallyTransitions, type LedgerRow } from "@/lib/practices/reconcile";
 import { stampLandedPlaybook } from "@/lib/db/playbook-adoption";
+import { stampRevisionLanded } from "@/lib/db/playbook-revision";
 import type { RepoPracticeShape } from "@/lib/analyze/practice-shape";
 
 /** Where an adoption came from. `house` is the only source that is version-tracked. */
@@ -41,7 +42,8 @@ export interface PracticeAdoptionRow {
   /** Catalog id, `registry:<slug>` or `playbook:<uuid>`. */
   practiceId: string;
   source: AdoptionSource;
-  /** `HousePatternVersion.version` when `source === "house"`; null means NOT VERSION-TRACKED, not v0. */
+  /** `HousePatternVersion.version` when `source === "house"`; on a `playbook` row, the playbook version its
+   *  last revision proposal carried (playbooks-1). Null means NOT VERSION-TRACKED, not v0. */
   patternVersion: number | null;
   artifactPath: string;
   state: AdoptionState;
@@ -217,7 +219,7 @@ export async function reconcilePracticeAdoption(
     const prisma = getPrisma();
     const rows = await prisma.practiceAdoption.findMany({
       where: { orgId, repoFullName },
-      select: { id: true, artifactPath: true, state: true, adoptedHash: true, adoptedOutline: true, practiceId: true },
+      select: { id: true, artifactPath: true, state: true, adoptedHash: true, adoptedOutline: true, practiceId: true, proposedHash: true, patternVersion: true },
     });
     if (rows.length === 0) return null;
 
@@ -238,6 +240,7 @@ export async function reconcilePracticeAdoption(
       state: r.state,
       adoptedHash: r.adoptedHash,
       adoptedOutline: r.adoptedOutline,
+      proposedHash: r.proposedHash,
       // A playbook PR bypasses ImprovementPr entirely (applyPlaybookToRepo opens it directly), so it
       // has no merge fact to read. Treating it as merged would claim an adoption that may still be an
       // open draft; treating it as never-merged would strand it in `proposed` forever. The file being
@@ -254,14 +257,21 @@ export async function reconcilePracticeAdoption(
       if (t.to === "checked") {
         await prisma.practiceAdoption.update({ where: { id: t.id }, data: base });
       } else if (t.to === "adopted") {
+        const prev = rowById.get(t.id);
+        // adopted -> adopted is only ever the REBASELINE edge (a landed revision, reconcile.ts): the
+        // baseline moves, the adoption date is history and stays.
+        const rebaseline = prev?.state === "adopted";
         await prisma.practiceAdoption.update({
           where: { id: t.id },
-          data: { ...base, state: "adopted", adoptedHash: t.adoptedHash, adoptedOutline: t.adoptedOutline, adoptedAt: now, driftedAt: null },
+          data: { ...base, state: "adopted", adoptedHash: t.adoptedHash, adoptedOutline: t.adoptedOutline, ...(rebaseline ? {} : { adoptedAt: now }), driftedAt: null },
         });
+        // playbooks-1: a landed playbook revision moves the repo's mark to the version it carried.
+        if (rebaseline && prev.practiceId.startsWith("playbook:") && prev.patternVersion !== null) {
+          await stampRevisionLanded(orgId, prev.practiceId.slice("playbook:".length), repoFullName, prev.patternVersion);
+        }
         // Row 40: a playbook PR's FIRST landing is what earns the playbook's adoption mark (the PR
         // route no longer stamps it at draft-open). Only the proposed -> adopted edge: a drifted row
         // healing back must not re-create a mark someone removed. Never throws.
-        const prev = rowById.get(t.id);
         if (prev?.state === "proposed" && prev.practiceId.startsWith("playbook:")) {
           await stampLandedPlaybook(orgId, prev.practiceId.slice("playbook:".length), repoFullName);
         }

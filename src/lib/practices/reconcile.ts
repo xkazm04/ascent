@@ -33,6 +33,8 @@ export interface LedgerRow {
   state: string;
   adoptedHash: string | null;
   adoptedOutline: string | null;
+  /** The digest of the body Ascent last PROPOSED for this path. Only the rebaseline edge reads it. */
+  proposedHash?: string | null;
   /** The `ImprovementPr` for this (repo, practice) is `merged`. Resolved by the caller, read-only. */
   merged: boolean;
 }
@@ -97,6 +99,20 @@ export function reconcileAdoption(
     // returns to `adopted`. Self-healing is deliberate: a reverted edit should clear the finding.
     if (seen.bodyHash === row.adoptedHash) {
       out.push(row.state === "adopted" ? { id: row.id, to: "checked" } : { id: row.id, to: "adopted", adoptedHash: seen.bodyHash, adoptedOutline: seen.outlineHash });
+      continue;
+    }
+
+    // REBASELINE (playbooks-1). Ascent re-proposed over a live adoption (a playbook revision), and the
+    // default branch now carries exactly those bytes: the revision landed, so it is the new baseline,
+    // not drift. Checked before the cosmetic allowance, which would otherwise keep the OLD baseline
+    // when only prose moved. Never for a drifted/removed row: a hand edit stays the user's decision.
+    if (
+      row.state === "adopted" &&
+      row.proposedHash != null &&
+      row.proposedHash !== row.adoptedHash &&
+      seen.bodyHash === row.proposedHash
+    ) {
+      out.push({ id: row.id, to: "adopted", adoptedHash: seen.bodyHash, adoptedOutline: seen.outlineHash });
       continue;
     }
 

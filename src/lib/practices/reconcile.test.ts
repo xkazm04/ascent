@@ -128,3 +128,32 @@ describe("tallyTransitions", () => {
     expect(tallyTransitions(ts)).toEqual({ adopted: 0, drifted: 1, removed: 1 });
   });
 });
+
+// playbooks-1: a landed REVISION is a new baseline, not drift. Ascent re-proposed over an adopted row
+// (proposedHash moved), and the scan now sees exactly those bytes on the default branch.
+describe("reconcileAdoption - rebaseline after a landed revision", () => {
+  const revised = seen({ bodyHash: "sha256-n1:v3", outlineHash: "sha256-n1:out3" });
+
+  it("an adopted row whose census body equals its proposedHash rebaselines to the new bytes", () => {
+    expect(reconcileAdoption([row({ proposedHash: "sha256-n1:v3" })], [revised], false)).toEqual([
+      { id: "r1", to: "adopted", adoptedHash: "sha256-n1:v3", adoptedOutline: "sha256-n1:out3" },
+    ]);
+  });
+
+  it("rebaselines even when only prose moved (the cosmetic allowance must not swallow the new baseline)", () => {
+    const prose = seen({ bodyHash: "sha256-n1:v3" });
+    expect(reconcileAdoption([row({ proposedHash: "sha256-n1:v3" })], [prose], false)).toEqual([
+      { id: "r1", to: "adopted", adoptedHash: "sha256-n1:v3", adoptedOutline: "sha256-n1:out" },
+    ]);
+  });
+
+  it("guard: different bytes than proposed still read as drift", () => {
+    expect(reconcileAdoption([row({ proposedHash: "sha256-n1:v3" })], [seen({ bodyHash: "sha256-n1:x", outlineHash: "sha256-n1:y" })], false)).toEqual([
+      { id: "r1", to: "drifted" },
+    ]);
+  });
+
+  it("guard: a drifted row is never rebaselined (a hand edit is the user's decision)", () => {
+    expect(reconcileAdoption([row({ state: "drifted", proposedHash: "sha256-n1:v3" })], [revised], false)).toEqual([]);
+  });
+});
