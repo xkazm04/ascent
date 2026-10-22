@@ -1,6 +1,6 @@
-# Prism migration gaps (phases 1 and 2 of retiring Altimeter)
+# Prism migration gaps (phases 1 to 3 of retiring Altimeter)
 
-Status: **2026-10-22.** Phase 1 of 3: find everything not yet in Prism, migrate what can be migrated
+Status: **2026-10-22, phase 3 landed: the theme switch is retired and Prism is the only look** (see "Done in phase 3"). Written at phase 1: find everything not yet in Prism, migrate what can be migrated
 without changing the Altimeter render. Phase 2 finishes what is listed under "Remaining"; phase 3 deletes the
 switch (`KIT-REDESIGN-PROCESS.md`, "Retiring the duality").
 
@@ -9,7 +9,7 @@ theme-neutral (tokens only, no Altimeter literals) and so renders correctly unde
 **Nothing here was seen rendered**: no dev server was running, so no Prism shots, no Altimeter pair-check
 (`scripts/kit/pairdiff.py`), no roles files. The Altimeter guarantee rests on the edits being
 value-identical (`color-mix` over `--color-accent` / `--color-ink`, CSS variables with the old value as default,
-entry components that still return the old markup) and on the test suite (full `vitest run`: 19989 passed).
+entry components that still return the old markup) and on the test suite (full `vitest run`: 19989 passed; phase 3: 19739 passed (-259 from deleted Altimeter and theme tests), build exit 0).
 
 ## What the token layer does and does not cover
 
@@ -88,7 +88,7 @@ inline Altimeter blue (`#3b9eff`) and cannot read the theme: needs a decision (R
 * `fleetMapStars.ts` `ACCENT`, `PracticeCascade` stroke, repositories `Sparkline`, `AthenaChart`: `var(--color-accent)`.
 * Live desk and on-air wall CSS modules: every blue literal became a scope variable with the old value as default, plus a
   `:global(html[data-theme="prism"])` block re-pointing the palette; inline blues in `RoundsSection` / `FlightLog*`.
-* `src/app/page.tsx`: landing follows the theme (`page.doors.test.ts` mocks `getTheme`).
+* `src/app/page.tsx`: landing followed the theme (superseded in phase 3: always Prism).
 * 13 org tabs gained `*.v2.tsx` compositions (table above); `NextMoveLink` kept in the three admin v2 files so
   `tab-link-graph.test.ts` keeps seeing the edges.
 
@@ -99,6 +99,18 @@ inline Altimeter blue (`#3b9eff`) and cannot read the theme: needs a decision (R
 * **Flattening rules** for the new v2 modules: `src/app/kit-modules.css` (roots gained `data-role` on Security, Adoption, Tech stacks, Proposals, Lessons; the others already had one). Remaining item 2 below is therefore half done: the interiors still carry their markup, now with their radius, muting floor, caps and inputs corrected by CSS.
 * **Polish**: Prism focus floor for bare links and buttons, `type-*` roles in place of `text-[..rem]` in Passports v2, ad hoc error paragraphs became `Notice`.
 * Still **not seen rendered** (no dev server was running on :3100 for either phase); see the report of this pass.
+
+## Done in phase 3 (2026-10-22, theme switch retired)
+
+* **Prism is forced, not defaulted.** `src/app/layout.tsx` always emits `<html data-theme="prism">` (`THEME_ATTR` in `src/lib/theme/theme.ts`). Removed: the `ascent-theme` cookie reader/writer (a stale `altimeter` cookie is never read), the `?theme=` link, the localStorage migration, `THEME_BOOT_SCRIPT`, `ThemeSwitch`, `ThemeSlot` (both headers) and `PrismLock`. `getTheme()`/`useIsPrism()`/the `theme` prop are gone from every tab.
+* **Branches collapsed.** Each `<Tab>.tsx` entry renders its Prism composition directly; the 26 `*.v1.tsx` Altimeter compositions and the components only they used are deleted. `/` always renders `PrismLanding` (`?landing=prism` is ignored).
+* Scripts under `scripts/kit/` still set an `ascent-theme` cookie; it is now inert and harmless.
+
+## Dead Altimeter code left for follow-up
+
+* The no-attribute base styles in `globals.css` (Prism overrides win, so they are unreachable but not removed) and the `html[data-theme="prism"]` prefix on every Prism selector (could be dropped once the base is rewritten).
+* The Altimeter landing deck `src/components/landing/prototypes/**` (`IndexLanding` and its sections/tests): no route reaches it any more. It carries the self-hosted setup panel and public gallery the Prism landing still lacks (Remaining 5), so port those before deleting it.
+* Shared Altimeter-shaped interior components listed in Remaining 2 are still used by the Prism compositions.
 
 ## Owner decisions
 
@@ -112,5 +124,5 @@ inline Altimeter blue (`#3b9eff`) and cannot read the theme: needs a decision (R
 3. **Out-of-layout / non-themeable surfaces**: `global-error.tsx`; canvas in `FleetMap`; `chartScale.ts` canvases; OG images, email and PDF (intentionally brand-fixed, skip).
 4. **Public routes have no Prism composition**: `/pricing`, `/report/**`, `/launch`, `/about*`, `/onboarding`, `/portfolio`, `/usage`, `/leaderboard`, `/scorecard`, `/trends` render through tokens only. HANDOFF decision "poster scale vs dashboards" applies.
 5. **Prism landing parity**: self-hosted setup block, gallery rail, header/footer, `selfHosted` flag.
-6. **Phase 3 must know**: delete `PrismLock` and the Altimeter notes in `docs/features/design-system/README.md`; the kit CSS lives in three files (`kit.css`, `kit-viz.css`, `kit-modules.css`) that all key on `html[data-theme="prism"]`, so removing the switch means either keeping the attribute on `<html>` or dropping that prefix. Components with hooks added this pass (`data-kit`, `data-role`, `data-dimension`, `--heat`) are inert in Altimeter. `useIsPrism` is still used by Athena, the Live headline sparkline and the war room.
+6. ~~Phase 3 must know~~ (done 2026-10-22): the attribute is kept on `<html>`, so `kit.css`, `kit-viz.css` and `kit-modules.css` selectors are unchanged. `useIsPrism` is gone.
 7. Not run: `npx eslint`, `npm run copy:check`.

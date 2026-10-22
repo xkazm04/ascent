@@ -3357,7 +3357,7 @@ per-metric definition moved from a standing `<p>` into a `WhyChip`. `DeliverySlo
 gated fit readouts a shape: the true slope angle in a goodness-signed colour, and a **hatched** mark
 with no numeral where `forecastInsufficiency` refuses to state one.
 
-**Prism composition (kit).** `DeliveryTab` reads `getTheme()` and renders `DeliveryTab.v2` when the theme is Prism. Altimeter keeps the previous markup (`*.v1`). Prism is a masthead, hairline frames, and kit tables. Hue is not a status color: figures stay paper, and status is a glyph plus a word. A figure that was not measured is a void, not a zero. Locked AI spend (fidelity `none`) stays empty, and spend-derived verdicts stay suppressed by the model. The trend, the activity chart, the spend ribbon, the ROI map, and the DORA marks stay domain drawings. The kit has no part for a broken series, a non-percent axis, or a pressable row.
+**Prism composition (kit).** `DeliveryTab` renders `DeliveryTab.v2`. Prism is a masthead, hairline frames, and kit tables. Hue is not a status color: figures stay paper, and status is a glyph plus a word. A figure that was not measured is a void, not a zero. Locked AI spend (fidelity `none`) stays empty, and spend-derived verdicts stay suppressed by the model. The trend, the activity chart, the spend ribbon, the ROI map, and the DORA marks stay domain drawings. The kit has no part for a broken series, a non-percent axis, or a pressable row.
 
 ## Known gaps
 
@@ -3483,14 +3483,11 @@ attribute seats to repositories; money figures remain empty.
 The Overview's period row is a kit `Toolbar` with a `Segmented` range switch, the Fix first band is a
 `Panel tone="accent"` over `ListRows`, the headline strip and the posture and dimension cards are
 `Panel`s, and the org shared `Card`/`Tile`/`OrgTable`/`SectionHeader` delegate to `@/components/kit`.
-Altimeter renders as before; under the header's Prism theme the same markup takes the Prism expression
-(`src/app/kit.css`). See `docs/features/design-system/README.md`.
+The markup takes the Prism expression (`src/app/kit.css`; Prism is the only look since 2026-10-22). See `docs/features/design-system/README.md`.
 
 ### The Overview under the Prism theme (v2 composition, 2026-09-29)
 
-The tab has **two compositions chosen at its entry by theme**: `OverviewTab.tsx` awaits `getTheme()` and
-renders `OverviewTab.v1.tsx` (Altimeter, the shipped layout above, moved unchanged; pixel-identical at
-1920x1080 and 1440x3200) or `OverviewTab.v2.tsx` (Prism). Both take the inputs from `overviewInputs.ts`
+`OverviewTab.tsx` renders `OverviewTab.v2.tsx` (Prism; the Altimeter `OverviewTab.v1.tsx` layout described above was deleted 2026-10-22). Both take the inputs from `overviewInputs.ts`
 (period, window, scope promise, `?dim=`, query string) and render the same panels, so a deep link resolves
 identically in both. The data region picks `OverviewLedger` or `OverviewLedger.v2` inside `OverviewFleetPanel`.
 
@@ -3518,21 +3515,20 @@ What v2 changes is structure, not colour:
   `trajectoryRead.ts` (v1's `OverviewTrajectoryCard` reads the same `trajectoryView` gate).
 - **Table chrome elsewhere (kit-3, 2026-09-30).** The Audit log and Members tables, the dimension heatmap and
   the Delivery activity table twin are the kit `DataTable` (Prism gets the hairline band, 13px sans heads and
-  tabular figures; Altimeter keeps its rules, with a slightly smaller head type on Audit and Members). The
+  tabular figures; the Altimeter rules were retired with the theme switch). The
   Contributors summary tiles and the Care adoption tiles are `StatStrip`/`StatTile`.
 
 ### Repositories in Prism (kit-3, first pass)
 
-`RepositoriesTab` reads the theme once and, in Prism, renders `RepositoriesTab.v2` (same scope promise, same panels).
+`RepositoriesTab` renders `RepositoriesTab.v2` (same scope promise, same panels).
 The leaderboard region becomes `RepositoriesView.v2`: a `Masthead` (repo count as the statement; average score,
 4-week commits and merged PRs as figures, each a `VoidMark` when unmeasured), a posture `Segmented` nav (label plus
 count, no status dot), scope and Export CSV on one toolbar, and a ruled list of the new kit **`RepoRow`**
 (`src/components/kit/RepoRow.tsx`; roles for name, stack, score, movement, chips, cells, actions). Passports and
-Security will migrate to it later. Sort, selection and bulk-tag share `useRepoLeaderboard` with Altimeter, which is
-unchanged (0 px).
+Security will migrate to it later. Sort, selection and bulk-tag share `useRepoLeaderboard`.
 
 Second pass (kit-6): Context Health, Segments, missing repos, the bulk bar, and the per-repo cadence
-select are Prism compositions. Altimeter still renders the v1 files.
+select are Prism compositions. The v1 files are deleted.
 
 - Context half-life (`ContextHalfLife.v2`) is a `Frame` and `SectionHead`, a `StatStrip` of paper
   figures (`VoidMark` when coverage or half-life was not measured; a dead-reference count of 0 stays 0),
@@ -3549,8 +3545,7 @@ rollup carries no per-repo delta.
 
 ### Governance in Prism (kit-4, 2026-09-30)
 
-`GovernanceTab` reads `getTheme()` and `GovernancePanel` renders `GovernanceView.v1` (Altimeter, the shipped
-card layout, moved unchanged) or `GovernanceView.v2`. Both get one `buildGovernanceOverview` plus the owner check.
+`GovernancePanel` renders `GovernanceView.v2` (the Altimeter card layout was deleted 2026-10-22). It gets one `buildGovernanceOverview` plus the owner check.
 Prism leads with a `Masthead`: the pass rate is the statement, passing / failing / scanned / not-judged are
 figures. Each figure's status is a glyph and a screen-reader word; the number stays paper. A repo that
 scored nothing is its own figure, never a zero inside the rate. An empty fleet says nothing is judged yet
@@ -3577,6 +3572,6 @@ detail from `ledgerIntegrityLine`, `FLEET_UNJUDGED_NOTE`, and the incomplete rea
 
 ## Prism compositions for the remaining tabs (2026-10-22)
 
-Under `data-theme="prism"` the Security, Adoption, Tech stacks, Proposals, Lessons, Members, Audit, Pairing, Weekly digest, Teams, Contributors, Knowledge, UI surfaces and Developer home tabs now render a kit composition (a masthead that states the finding, ruled Frames instead of cards, status as a glyph and a word); the Athena drawer swaps its two actions for kit actions. Each entry reads the theme and picks `*.v1.tsx` (Altimeter, unchanged) or `*.v2.tsx`, sharing one view hook, so behavior, data and every next-move link are identical in both themes. Interior tables, charts and Care or Loom bodies are still the shared components restyled by tokens; the open list is `docs/design/PRISM-MIGRATION-GAPS.md`.
+The Security, Adoption, Tech stacks, Proposals, Lessons, Members, Audit, Pairing, Weekly digest, Teams, Contributors, Knowledge, UI surfaces and Developer home tabs now render a kit composition (a masthead that states the finding, ruled Frames instead of cards, status as a glyph and a word); the Athena drawer swaps its two actions for kit actions. Each entry reads the theme and picks `*.v1.tsx` (Altimeter, unchanged) or `*.v2.tsx`, sharing one view hook, so behavior, data and every next-move link are identical in both themes. Interior tables, charts and Care or Loom bodies are still the shared components restyled by tokens; the open list is `docs/design/PRISM-MIGRATION-GAPS.md`.
 
 **Prism kit parts (2026-10-22, phase 2):** the v2 compositions now share kit `Notice`, `FilterBar`/`FilterCount`, `SortHead`, `DecisionLedger` and `BarRow` instead of local copies (Proposals, Lessons, Overview matrix, Security register, Adoption champions, Members and Registry errors). `MatrixGrid` heat cells are paper lightness in Prism. New `data-role="<tab>-v2"` roots on Security, Adoption, Tech stacks, Proposals and Lessons carry the flattening rules in `src/app/kit-modules.css`. Behavior is unchanged.

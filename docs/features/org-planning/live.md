@@ -976,10 +976,7 @@ The cockpit itself no longer renders lessons.
 
 ### The Prism composition of the cockpit (v2, 2026-09-29)
 
-`LiveTab` (server) reads the theme cookie (`getTheme()`) and passes `theme` to `LiveCockpit`; `prism`
-renders `LiveCockpit.v2.tsx`, anything else the shipped `LiveCockpit.v1.tsx` (the body above, moved
-unchanged). Both compose the same panels from the same hooks, so a theme cannot change behaviour, only
-structure. What v2 changes:
+`LiveCockpit` always renders `LiveCockpit.v2.tsx`; the Altimeter `LiveCockpit.v1.tsx` (the body above) was deleted 2026-10-22 with the theme switch. What v2 changes:
 
 - **One dominant element.** A `Masthead` (statement "The fleet, **in adoption × rigor**", two figures:
   repos in scope and the loop's state, both from `headerStatus`, the same model v1 prints as a caption)

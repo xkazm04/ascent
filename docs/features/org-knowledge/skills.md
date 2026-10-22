@@ -46,8 +46,7 @@ outcome data (degrades to `{}` on failure), the org's repo list (for the
 adopt-picker), plan/credit state, and membership/admin role. It renders
 `SkillsPanel` (the same for every reader of the org; admins additionally get
 archive), then, only for members, `ApiTokensPanel`. The shell mounts
-`SkillsTab`, which reads the theme and keeps that markup for Altimeter
-(`SkillsTab.v1`).
+`SkillsTab`, which renders the Prism composition (the Altimeter `SkillsTab.v1` was deleted 2026-10-22).
 
 ### Prism composition (2026-09-30)
 
@@ -57,8 +56,7 @@ is a masthead, a lifecycle ladder, and pressable rows. Opening a row sets
 `#skill-<id>` (Esc or Back returns). Drift is a glyph plus a word: active,
 dormant, never used, new, or not measured. Unknown stays "not measured", not a
 zero. The adopted and ran caveats appear only when that step is unmeasured.
-Token name and scopes are labelled fields. Altimeter keeps the matrix,
-the use-over-time track, and the expanding card. The track's known limit (two
+Token name and scopes are labelled fields. The Altimeter matrix, use-over-time track and expanding card were deleted. The track's known limit (two
 instants, not a series) still holds: Prism states that same rollup in words and
 does not invent the missing events.
 
@@ -1157,7 +1155,7 @@ as Trace.
 | `src/lib/api-token-auth.ts` | `authorizeOrgApi()`: token-or-session gate for skills routes. |
 | `src/features/shared/skills/SkillsPanel.tsx` | Client orchestrator. Lists sink B usage for skills this org has not mirrored. |
 | `src/features/shared/skills/SkillsLifecycle.tsx` | The tab's first sight: the reuse matrix + the use-over-time track. |
-| `src/features/shared/skills/SkillsTab.tsx` | Theme entry. Altimeter stays `SkillsTab.v1`; Prism is `SkillsTab.v2`. |
+| `src/features/shared/skills/SkillsTab.tsx` | Tab entry; renders `SkillsTab.v2` (Prism). |
 | `src/features/shared/skills/skillSceneModel.ts` | Prism ladder and cell words. Unknown is "not measured". |
 | `src/features/shared/skills/skillLifecycleViz.ts` | Pure view model: usage state → `VizState`, badge word, evidence line, reuse rows, outcome states. |
 | `src/features/shared/skills/skillDormancyTrack.ts` | Pure view model: the use-over-time lanes and the derived observation instant. |

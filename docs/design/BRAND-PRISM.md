@@ -1,10 +1,10 @@
 # Brand foundation: Prism
 
-Status: **seed for the `/kit` setup track (S2 Gate 0), not yet adopted by the app.** Chosen by the
+Status: **adopted: Prism is the app's only look (2026-10-22, the theme switch is retired).** Chosen by the
 owner on 2026-09-29 from the `landing-brand` contest (winner A/1, seat `claude-opus-5-5@xhigh`).
 Source of truth for the look while the port lands: the contest entry
 `.contest/arena/landing-brand/entries/claude-claude-opus-5-5_xhigh/variant-1/` (git-ignored; its
-`NOTES.md` is the author's statement). The ported landing is `/?landing=prism`
+`NOTES.md` is the author's statement). The ported landing is `/`
 (`src/components/landing/prism/`) and, once it exists, outranks the contest file as the reference.
 
 ## The idea, in one sentence

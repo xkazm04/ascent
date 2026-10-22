@@ -177,9 +177,9 @@ crossing it changed neither level nor tagline. It now draws `AGENT_BAND`
 floor of, both read from `LEVELS`. `levelRamp.test.ts` pins that it stays a real band
 floor and is not the posture threshold.
 
-## The Prism landing (`/?landing=prism`, 2026-09-29)
+## The Prism landing (`/`, 2026-09-29)
 
-**2026-10-22:** `/` now follows the theme cookie as well: with `data-theme="prism"` the page renders this landing, with Altimeter it renders the deck, and `?landing=prism` still previews Prism under Altimeter. The `noindex` metadata stays on the explicit query only. Prism landing does not yet render the self-hosted setup panel or the public gallery that the deck carries (see `docs/design/PRISM-MIGRATION-GAPS.md`).
+**2026-10-22 (phase 3):** `/` always renders this landing; `?landing=prism` is ignored and the preview `noindex` is gone. The Altimeter deck (`components/landing/prototypes/**`) is no longer reachable from any route and is follow-up cleanup. The Prism landing does not yet render the self-hosted setup panel or the public gallery that the deck carried (see `docs/design/PRISM-MIGRATION-GAPS.md`).
 
 The winner of the `landing-brand` contest (variant A/1, "Prism"), ported next to the
 current deck and selected with `/?landing=prism`. **`/` is unchanged and remains the
@@ -609,20 +609,17 @@ it reads the overrides out of the stylesheet, measures every colour the app writ
 canvas, and fails if one drops under AA — a palette regression is one hex in a diff and damage spread
 over the whole product, so it is not a thing to catch in review.
 
-## Theme duality and the composition kit (2026-09-29, kit batch 0)
+## Prism is the only look, and the composition kit (2026-09-29, kit batch 0; duality retired 2026-10-22)
 
-Two looks coexist until the redesign covers every route, then one is retired.
+The Altimeter / Prism duality is retired (phase 3 of the migration). The root layout always renders
+`<html data-theme="prism">`; the attribute is kept so every `html[data-theme="prism"]` selector in
+`theme-prism.css`, `kit*.css` and `globals.css` stays valid. There is no header switch, no `ascent-theme`
+cookie (a stale one is never read), no `?theme=` link, no boot script and no localStorage migration, and
+`/kit` needs no lock. Org tabs render their Prism composition directly (the `*.v1.tsx` Altimeter
+compositions are deleted); the `.v2` file naming survives as history. The unattributed base CSS in
+`globals.css` (the Altimeter defaults that Prism overrides) is still present and is follow-up cleanup.
+Reading the cookie no longer makes routes dynamic.
 
-- **Altimeter** is the shipped look and is the *absence* of a theme attribute. **Prism** is the
-  candidate identity chosen in the `landing-brand` contest (`docs/design/BRAND-PRISM.md`).
-- The header carries an Altimeter / Prism tab switch (`ThemeSlot` reads the theme on the server and hands it to
-  the client `ThemeSwitch`, in both `SiteHeader` and `OrgHeader`). The choice is the **cookie**
-  `ascent-theme` (`getTheme()` in `src/lib/theme/server.ts`), so the server renders `<html data-theme>` and a
-  route may render a different LAYOUT per theme with no flash; `ThemeSwitch` writes the cookie and calls
-  `router.refresh()`. A blocking inline script in `<head>` (`src/lib/theme/theme.ts`) only handles a
-  `?theme=prism|altimeter` link and a one-time migration of the old localStorage value, reloading once when
-  the wanted look differs from what the server rendered (sessionStorage-guarded). Reading the cookie makes
-  previously static routes dynamic; that cost is duality scaffolding and goes when one theme is retired.
 - **Foundation layer** `src/app/theme-prism.css` re-points the colour tokens under
   `html[data-theme="prism"]` (slate ramp, surface, divider, accent = paper, ink) so every route restyles
   at once. Status colours are deliberately not re-pointed (BRAND-PRISM.md, open conflict 1). What tokens
@@ -688,7 +685,7 @@ Live cockpit's computed-style contract for `roles-check.mjs`.
 
 ## Kit is Prism-only; viz treatments and promoted parts (2026-10-22, phase 2)
 
-Phase 2 of retiring Altimeter. `/kit` no longer depends on the header switch: `PrismLock` pins `data-theme="prism"` on `<html>` while the specimen is mounted (and restores it, so a visit never changes the saved theme); phase 3 deletes it. The Altimeter-only notes are gone from the specimen.
+Phase 2 of retiring Altimeter. `/kit` no longer depends on the header switch. (Phase 3 deleted the switch and `PrismLock`.)
 
 - **Batch 5 (`KitViz`)**: Prism treatments, with specimens, for the components that existed only in Altimeter form. They paint with inline SVG attributes (`scoreHex`, `LEVEL_HEX`), so each now carries `data-kit` / `data-role` hooks (attributes only, Altimeter markup otherwise unchanged) and `src/app/kit-viz.css` overrides the presentation attributes in Prism: **ScoreRing** (paper arc on a hairline track, level by glyph and word), **AltimeterGauge** (each rope takes its dimension hue via `data-dimension` -> `--dim-hue`, strata are paper washes, sans labels), **RadarChart** (paper profile, axes ruled in dimension hues at 50%), **StackRadarChart** (sans labels, hairline rings), **MatrixGrid heat cells** (score is paper lightness 6..36% via a `--heat` custom property on the mark; hatched/outlined/void states untouched), **LevelBadge / ScorePill** (hairline 3px tag, L1 dim to L5 paper). Hue is spent only where it names a dimension.
 - **Batch 6 (`KitBatch6`, `KitLive`)**: parts promoted from the phase-1 v2 files, each used by two or more call sites: `Notice` (the ruled status banner, 10 sites), `FilterBar` + `FilterCount` (Proposals and Lessons), `SortHead` (Overview matrix, Security register), `DecisionLedger` (moved from `features/inflight/proposals/DecisionLedger.v2.tsx`; Proposals and Lessons), `FillBar` / `BarRow` (Adoption champions), plus `Display as="span"` and `Caption as`. The specimen also renders the **Live desk** (answers strip, lane pips) and **On Air wall** (station bug, answer cells) from their real CSS modules, whose Prism palette overrides came in phase 1. A section header with a `WhyChip` slot needs no part: `SectionHead actions` already is that slot.

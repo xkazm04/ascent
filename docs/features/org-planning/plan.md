@@ -354,7 +354,7 @@ so the panel's refusals are unit-testable without a DOM (`leverageMoves.test.ts`
 `impactView.test.ts`), with the render layer pinned separately in `LeverageBars.dom.test.tsx`,
 `briefingMarks.dom.test.tsx` and `ImpactLedger.dom.test.tsx`.
 
-**Prism composition.** On the Briefing tab, Prism (`getTheme() === "prism"`) renders `ExecutiveTab.v2`: a masthead (the fleet level is the statement, headline figures in paper with a glyph and a word), hairline frames, dimension lines for strengths, risks and shared gaps, a rung ladder for the transition programme, and form fields for that programme and for briefing branding. Altimeter keeps `ExecutiveTab.v1`. The public share page, the board PDF, and copy-for-LLM still use the shared briefing blocks. An unknown score is "not measured", not 0.
+**Prism composition.** On the Briefing tab, `ExecutiveTab.v2` renders (Prism is the only look): a masthead (the fleet level is the statement, headline figures in paper with a glyph and a word), hairline frames, dimension lines for strengths, risks and shared gaps, a rung ladder for the transition programme, and form fields for that programme and for briefing branding. Altimeter keeps `ExecutiveTab.v1`. The public share page, the board PDF, and copy-for-LLM still use the shared briefing blocks. An unknown score is "not measured", not 0.
 
 **Issued share links are an inventory, not just an API.** The Briefing tab mounts
 `ShareLinkInventory` (`src/features/bought/executive/`) for owners only (`canShare`, already
