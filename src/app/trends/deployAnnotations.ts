@@ -62,6 +62,8 @@ export function deriveDeployAnnotations(
     out.push({
       at: scan.scannedAt,
       scanId: scan.id,
+      // "What this deploy changed": the older real scan is the baseline; none for the oldest scan.
+      prevScanId: older?.id ?? null,
       kind: "deploy",
       label: failed > 0 ? `${failed} failed` : deps.length === 1 ? "deploy" : `${deps.length} deploys`,
       detail: `Deployment status, not incidents: ${deps.length} deployment${deps.length === 1 ? "" : "s"}${failed > 0 ? ` (${failed} failed)` : ""}: ${listed.join("; ")}.`,

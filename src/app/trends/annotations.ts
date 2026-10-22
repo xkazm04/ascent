@@ -24,6 +24,7 @@
 import { DEFAULT_THRESHOLDS } from "@/lib/alerts";
 import type { HistoryPoint } from "@/lib/db/scans";
 import { sameRuler } from "@/lib/maturity/attribution";
+import { previousRealScanId } from "@/app/trends/trendPairModel";
 
 export type TrendAnnotationKind = "promotion" | "demotion" | "regression" | "rubric" | "deploy";
 
@@ -41,6 +42,9 @@ export interface TrendAnnotation {
   at: string;
   /** Scan id — stable React key, and a handle for deep-linking. */
   scanId: string;
+  /** The older real scan this move is measured against: the compare pair's baseline (`?b=` beside
+   *  `?a=scanId`). Null when there is no real predecessor (the baseline scan, or a compacted point). */
+  prevScanId?: string | null;
   kind: TrendAnnotationKind;
   /** Short on-chart chip, e.g. "L3 → L4" or "−7". */
   label: string;
@@ -78,7 +82,7 @@ export function deriveTrendAnnotations(
     const prev = scans[i + 1]!; // safe: i + 1 <= scans.length - 1
     const delta = now.overallScore - prev.overallScore;
     const sha = now.headSha ? now.headSha.slice(0, 7) : null;
-    const base = { at: now.scannedAt, scanId: now.id, delta, sha, commitSha: now.headSha };
+    const base = { at: now.scannedAt, scanId: now.id, prevScanId: previousRealScanId(prev), delta, sha, commitSha: now.headSha };
 
     if (sameRuler(prev.rubricVersion, now.rubricVersion) === false) {
       out.push({
