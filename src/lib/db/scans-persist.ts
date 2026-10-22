@@ -28,6 +28,7 @@ import {
 import { syncTechStackGroups } from "@/lib/db/tech-groups";
 import { applyRecTransitionEffects } from "@/lib/db/rec-transition-effects";
 import { appendAudit } from "@/lib/db/audit-append";
+import { encodeScanColumns } from "@/lib/db/scan-row-codec";
 // MOONSHOT #1 — the control ledger. `governanceToSamples`/`diffSamples` are W3-L's PURE mappers and
 // `recordObservations` its writer; this path is a second SOURCE into the same ledger, not a second
 // implementation of it.
@@ -514,48 +515,15 @@ export async function persistScanReport(
             // difference to refuse a lift measured across a mock/real boundary. `?? null` keeps a
             // hand-built or legacy report UNKNOWN — which is not the same claim as "not degraded".
             engineDegraded: report.engine.degraded ?? null,
-            // The ScoreIntegrity record — the levers that move a headline on an UNCHANGED commit.
-            // Persisted so a reconstructed report and a run-over-run comparison can attribute a delta
-            // to them instead of reporting it as repository change. Null = the row predates the column.
-            scoreIntegrityJson: report.scoreIntegrity ? JSON.stringify(report.scoreIntegrity) : null,
-            // What this scan could see of the GITHUB-side folds (observed / carried / unavailable).
-            // A worktree rescan cannot observe them, so without this the loop's own scans recorded a
-            // floor on D2/D3/D4 that read exactly like a measured shortfall. Null = the question was
-            // never asked, which is UNKNOWN and not "unavailable" — see PlatformSignalRecord.
-            platformSignalsJson: report.platformSignals ? JSON.stringify(report.platformSignals) : null,
-            // The GitHub sensors whose read THREW (typed). Without it a DB-tier gate hit rehydrated a
-            // report whose failed reads looked like legitimate absence. `[]` is written as "[]" (the scan
-            // ran and nothing threw); a report that never carried the list stays NULL, which is UNKNOWN.
-            sensorFailuresJson: report.sensorFailures ? JSON.stringify(report.sensorFailures) : null,
             headline: report.headline,
             strengths: JSON.stringify(report.strengths),
             risks: JSON.stringify(report.risks),
             discrepancies: JSON.stringify(report.discrepancies ?? []),
-            prStats: report.prStats ? JSON.stringify(report.prStats) : null,
-            governance: report.governance ? JSON.stringify(report.governance) : null,
-            commitActivity: report.commitActivity ? JSON.stringify(report.commitActivity) : null,
-            techStackJson: report.techStack ? JSON.stringify(report.techStack) : null,
-            passportJson: report.passport ? JSON.stringify(report.passport) : null,
-            // Context Health (W4) — per-scan history; the latest is also cached on
-            // Repository.contextHealthJson above. Display-only (never scored). Null on a
-            // reconstructed snapshot, which must read as "not assessed", never as absent context.
-            contextHealthJson: report.contextHealth ? JSON.stringify(report.contextHealth) : null,
-            // #13 — what this scan read in the repo's own .ai/manifest.yaml. Per-scan history; the
-            // latest is cached on Repository.manifestJson above. Display-only (never scored, G5).
-            // Null on a reconstructed snapshot, which reads as "not assessed by this scan" — never
-            // as a repo that declares no contract.
-            manifestJson: report.manifest ? JSON.stringify(report.manifest) : null,
-            // #15 — the guidance arbiter's verdict for this scan. Per-scan history; the latest is
-            // cached on Repository.guidanceGraphJson above. Null on a reconstructed snapshot AND on
-            // every pre-r11 row, both of which read as "not assessed" — never as coherence 0.
-            guidanceGraphJson: report.guidanceGraph ? JSON.stringify(report.guidanceGraph) : null,
-            // W6 — practice shape. Per-scan like contextHealth; the org miner reads each repo's
-            // LATEST. Null on a reconstructed snapshot, which reads as "not extracted", never as
-            // "this repo has no structure".
-            practiceShape: report.practiceShape ? JSON.stringify(report.practiceShape) : null,
-            // Reliability caveats (degrade-to-mock / low-coverage / no-token / stack-fit) — persisted so a
-            // reloaded scan keeps its disclosure instead of reading as a confident full scan (P1-5).
-            warningsJson: report.warnings?.length ? JSON.stringify(report.warnings) : null,
+            // Every optional report blob with its own column (prStats ... practiceShape, warningsJson,
+            // platformSignalsJson, sensorFailuresJson, the passport, contextHealth, manifest, guidanceGraph)
+            // is encoded by the ONE codec the reconstruction decodes with, so a column cannot be written
+            // without a read-back. The strings are byte-identical to the former hand-list.
+            ...encodeScanColumns(report),
             // AI-usage indicator — persisted so a reloaded report reproduces the fresh scan's detection
             // (PR-level + guidance-file) instead of a lossy re-derivation from contributors (aiUsage fix).
             aiUsageJson: report.aiUsage ? JSON.stringify(report.aiUsage) : null,

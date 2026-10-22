@@ -7,20 +7,16 @@ import type {
   Contributor,
   DimensionId,
   DimensionResult,
-  Discrepancy,
   Effort,
-  Governance,
   Impact,
   LevelId,
   LlmRoadmapItem,
   PersistedRecommendation,
   PlatformSignalRecord,
-  PrStats,
   ProviderName,
   RepoArchetype,
   ScanReport,
   ScoreIntegrity,
-  TechStack,
 } from "@/lib/types";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
@@ -39,7 +35,7 @@ import { asCraftAxis } from "@/lib/scoring/craft";
 import { reportPermalink } from "@/lib/ui";
 import { canonicalOrgSlug, canonicalRepoFullName, DEFAULT_ORG_SLUG, parseStringArray, resolveOrgId, toPersistedRec } from "@/lib/db/scans-shared";
 import { digestToPoint, readDigestTail } from "@/lib/db/scan-digest";
-import { parseSensorFailures } from "@/lib/db/scan-sensor-failures";
+import { SCAN_REPORT_COLUMNS, decodeScanColumns, parseDiscrepancies, parseJsonObject } from "@/lib/db/scan-row-codec";
 // The standing-regression rule itself is PURE and lives beside the other detectors in the alert
 // layer; this module only supplies it with persisted readings and, for the concerns it raises, the
 // evidence strings behind the two named scans.
@@ -644,7 +640,7 @@ async function loadComparableScan(
     },
   });
   if (!scan) return null;
-  const integrity = parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson);
+  const integrity = SCAN_REPORT_COLUMNS.scoreIntegrityJson.decode(scan.scoreIntegrityJson);
   return {
     id: scan.id,
     scannedAt: scan.scannedAt.toISOString(),
@@ -665,7 +661,7 @@ async function loadComparableScan(
     ...(scan.rubricVersion ? { rubricVersion: scan.rubricVersion } : {}),
     ...(integrity ? { scoreIntegrity: integrity } : {}),
     ...(() => {
-      const ps = parsePlatformSignals(scan.platformSignalsJson);
+      const ps = SCAN_REPORT_COLUMNS.platformSignalsJson.decode(scan.platformSignalsJson);
       return ps ? { platformSignals: ps } : {};
     })(),
     headSha: scan.headSha,
@@ -1064,50 +1060,8 @@ async function loadLatestRecommendations(
 // ---- Pinned snapshot reconstruction (shareable permalinks) -------------------
 // parseStringArray now lives in scans-shared (the dependency sink) — imported above.
 
-function parseJson<T>(s: string | null | undefined): T | null {
-  if (!s) return null;
-  try {
-    return JSON.parse(s) as T;
-  } catch (err) {
-    // Every column read here was written by JSON.stringify, so a parse failure is damage: the field
-    // reads as absent (the shape guards below), and the log is what tells it apart from "never set".
-    console.warn("[scans-read] persisted JSON column unreadable; reading it as absent:", err);
-    return null;
-  }
-}
-
-/**
- * Parse persisted JSON that MUST be a plain object. A valid-JSON-but-wrong-shape row (stored as an
- * array, number, or string) returns null instead of being blindly cast to T — so a corrupted
- * `prStats`/`governance` column can't reach client charts as something that isn't the expected
- * object (where field access / numeric coercion would render NaN or throw).
- */
-function parseJsonObject<T>(s: string | null | undefined): T | null {
-  const p = parseJson<unknown>(s);
-  return p !== null && typeof p === "object" && !Array.isArray(p) ? (p as T) : null;
-}
-
-/**
- * Parse persisted JSON that MUST be an array of finite numbers. Non-array input returns null;
- * non-finite/non-number entries (NaN, strings, an object slipped into the array) are dropped. This
- * guards the commit-activity sparkline from a `.map` on a non-array or a NaN-positioned SVG point
- * when a row was hand-edited or written by an older/buggy path.
- */
-function parseNumberArray(s: string | null | undefined): number[] | null {
-  const p = parseJson<unknown>(s);
-  if (!Array.isArray(p)) return null;
-  return p.filter((n): n is number => typeof n === "number" && Number.isFinite(n));
-}
-
-/** Parse the persisted `discrepancies` JSON into validated Discrepancy[]. JSON `[]` is a measured
- *  empty list; null / malformed / non-array return null so unread is not "found none". */
-function parseDiscrepancies(s: string | null | undefined): Discrepancy[] | null {
-  const p = parseJson<unknown>(s);
-  if (!Array.isArray(p)) return null;
-  return p
-    .filter((d): d is { dimension: string; claim: string } => !!d && typeof d.dimension === "string" && typeof d.claim === "string")
-    .map((d) => ({ dimension: d.dimension as DimensionId, claim: d.claim }));
-}
+// The JSON-column parsers (parseJsonObject / parseNumberArray / parseDiscrepancies) live in
+// ./scan-row-codec beside the column table that uses them.
 
 /**
  * Map a persisted posture id back to its canonical Posture object. The four full objects come from
@@ -1239,7 +1193,9 @@ async function loadScanReportByCommit(
   // the warningsJson column existed. Deduped: a fresh row's persisted set already carries the stack-fit
   // caveat, so guard against doubling it.
   const stackFit = stackFitFromLanguage(repo.primaryLanguage);
-  const persistedWarnings = parseStringArray(scan.warningsJson) ?? [];
+  // Every codec column (scan-row-codec.ts) decoded once. An undecoded column is ABSENT, never null.
+  const decoded = decodeScanColumns(scan);
+  const persistedWarnings = decoded.warnings ?? [];
   const warnings =
     stackFit && !persistedWarnings.includes(stackFit.caveat)
       ? [...persistedWarnings, stackFit.caveat]
@@ -1249,7 +1205,7 @@ async function loadScanReportByCommit(
   // not the bot-commit fraction (which ≈ the Renovate/Dependabot rate). Mirrors the fresh-scan
   // detectAiUsage (P0-5/P2-1). The persisted snapshot's tree/commits aren't available on read, so
   // guidance-file-only detection isn't recoverable here — a small residual vs the fresh scan.
-  const prStats = parseJsonObject<PrStats>(scan.prStats);
+  const prStats = decoded.prStats ?? null;
   const aiInPrs = prStats && prStats.aiInvolvedRate > 0 ? prStats.aiInvolvedRate : 0;
   const aiSignals: string[] = [];
   if (aiInPrs > 0) {
@@ -1268,9 +1224,8 @@ async function loadScanReportByCommit(
     };
   // Passport reconstruction with owner overrides, for parity with getRepoPassport (P2-1) — the report
   // page's fallback fetch can now be dropped since the reconstructed report carries the passport.
-  const pp = parsePassportJson(scan.passportJson);
+  const pp = decoded.passport;
   const passport = pp ? applyPassportOverrides(pp, parsePassportOverrides(repo.passportOverridesJson)) : undefined;
-  const sensorFailures = parseSensorFailures(scan.sensorFailuresJson);
 
   return {
     repo: {
@@ -1301,14 +1256,15 @@ async function loadScanReportByCommit(
     // under today's threshold — an immutable permalink must not drift when the maturity model is tuned.
     // postureFor stays the fallback for a legacy row whose posture column is missing/unrecognized.
     posture: POSTURE_BY_ID[scan.posture] ?? postureFor(scan.adoptionScore, scan.rigorScore),
+    // The codec fields first (prStats, governance, commitActivity, techStack, scoreIntegrity,
+    // sensorFailures, platformSignals, contextHealth, manifest, guidanceGraph, practiceShape). The
+    // passport and warnings are overwritten below with their read-side merges.
+    ...decoded,
     aiUsage,
     contributors,
     prStats,
-    governance: parseJsonObject<Governance>(scan.governance),
-    commitActivity: parseNumberArray(scan.commitActivity),
     // Reader completeness (P2-1): tech stack, passport, and token/latency usage ARE persisted but were
     // dropped on read — a reconstructed/permalinked report now carries them, matching the fresh scan.
-    techStack: parseJsonObject<TechStack>(scan.techStackJson) ?? undefined,
     passport,
     usage:
       scan.inputTokens != null || scan.outputTokens != null || scan.llmLatencyMs != null
@@ -1322,16 +1278,8 @@ async function loadScanReportByCommit(
     discrepancies: parseDiscrepancies(scan.discrepancies) ?? [],
     confidence: scan.confidence,
     ...(warnings.length ? { warnings } : {}),
-    // The integrity record round-trips onto the reconstructed report, so a permalinked or reloaded
-    // report can explain a headline the same way the fresh scan could. Undefined on a legacy row —
-    // "not recorded", never "nothing fired".
-    ...(parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)
-      ? { scoreIntegrity: parseJsonObject<ScoreIntegrity>(scan.scoreIntegrityJson)! }
-      : {}),
-    // The typed list of GitHub sensors whose read THREW, so the gate on a DB-tier hit
-    // (lookupPersistedScanByCommit) still says "read FAILED" instead of scoring the null as absence.
-    // A NULL/unreadable column leaves the key ABSENT: unknown, never [] ("no sensor failed").
-    ...(sensorFailures ? { sensorFailures } : {}),
+    // scoreIntegrity and sensorFailures ride on `decoded` above: a NULL/unreadable column leaves the key
+    // ABSENT, so a legacy row reads "not recorded" and an unknown failure list is never [].
     scannedAt: scan.scannedAt.toISOString(),
     engine: {
       provider: scan.engineProvider as ProviderName,

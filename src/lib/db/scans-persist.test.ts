@@ -79,6 +79,7 @@ import { ensureOrgId } from "./scans-shared";
 import { DEDUP_KEY_VERSION, scanContentKey } from "./scans-read";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { verifyAudit } from "./audit-integrity";
+import { undecidedColumns } from "./scan-row-codec";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────
 
@@ -1848,5 +1849,24 @@ describe("persistScanReport - status consequences of a rescan close", () => {
 
     expect(res).toMatchObject({ scanId: "scan_new", deduped: false });
     warn.mockRestore();
+  });
+});
+
+// Card scan-persist-0: every scalar key persistScanReport writes onto the Scan row has a decode
+// decision - a codec column (decoded back onto the reconstructed report) or a named exception. The
+// list is captured from the real write, never typed by hand, so a column added to scan.create with no
+// read-back fails here. The seeded case in scan-row-codec.test.ts proves undecidedColumns bites.
+describe("persistScanReport - every written Scan column has a decode decision", () => {
+  it("each scalar key of the scan.create payload is a codec column or a named exception", async () => {
+    const { prisma, createdScans } = fakePrisma({ previousRecs: null });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    await persistScanReport(makeReport({ headSha: "sha_codec" }));
+
+    const relations = new Set(["dimensions", "recommendations", "repo"]);
+    const written = Object.keys(createdScans[0]!).filter((k) => !relations.has(k));
+    expect(written.length).toBeGreaterThan(30);
+    expect(undecidedColumns(written)).toEqual([]);
   });
 });
