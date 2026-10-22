@@ -355,7 +355,7 @@ foundation's CI job (`node .ai/doctor.mjs --json`) posts its conformance score t
 | Secret | Value |
 |---|---|
 | `ASCENT_CONFORMANCE_URL` | `<this deployment's origin>/api/report/conformance`, derived **server-side** (configured public origin, else the request's own) and never from the request body — a caller must not be able to point someone else's CI at a host of their choosing. A self-hosted install therefore provisions report-back to *itself*, with no configuration. |
-| `ASCENT_CONFORMANCE_TOKEN` | a freshly minted org API token named `conformance report-back`, scoped `telemetry:write` (it can report a score and nothing else). |
+| `ASCENT_CONFORMANCE_TOKEN` | a freshly minted org API token scoped `telemetry:write` (it can report a score and nothing else), named for THIS repo by `tokenNameFor(owner/repo)` (`src/lib/github/reportback-credential.ts`: `report-back <owner/repo>`, at most 80 chars, a hash suffix keeps two long names that share their first 80 chars distinct). One credential per repo, never one shared across the org. |
 
 Secrets are sealed with libsodium `crypto_box_seal` against the repo's own public key
 (`node:crypto` has X25519 but neither XSalsa20 nor Poly1305, so there is no stdlib path). The module
@@ -370,12 +370,31 @@ Four properties make this defensible, and each is structural rather than a conve
 - **Owner, not admin, plus a typed `owner/repo` confirmation, one repo at a time.** Writing a
   credential has a larger blast radius than a draft PR and is the one action here that takes effect
   with no review step after it. `POST`/`DELETE /api/report/foundation/secrets`.
-- **The token is always MINTED, never re-read.** A reused token's raw value cannot be recovered (only
-  its hash is stored), so `ensureOrgApiToken(..., { rotate: true })` retires every live token of that
-  name and mints a new one — the value written into the repo is always one Ascent just produced.
+- **The token is always MINTED, never re-read, and one repo's credential never touches another's.**
+  A reused token's raw value cannot be recovered (only its hash is stored), so every provision mints
+  a fresh token under the repo's own name. The order is mint, write both secrets, THEN retire that
+  repo's previous token (`revokeOrgApiTokensByName(org, name, { exceptId })`). A failed write retires
+  the just-minted token instead, so the repo keeps the credential it already had: there is never a
+  window with none. `DELETE` revokes only that repo's name.
 - **Reversible.** `DELETE` removes both secrets *and* revokes the token, and revokes it even when the
   secret removal failed: a secret can be deleted by hand in GitHub, but a live bearer token nobody
   knows about cannot be noticed.
+
+**Legacy shared credentials.** Before per-repo names, every repo's token was minted under one org-wide
+name, `conformance report-back`, and each provision rotated it, silently revoking every repo provisioned
+before. A repo still holding a live token under that name reads **Legacy shared** and keeps working
+until it is re-provisioned. The legacy token is revoked only by its holder's re-provision or teardown,
+and only when no other repo still reads legacy-shared; an unreadable rollout keeps it alive.
+
+**Row states.** `getFoundationRollout` joins the latest `foundation.reportback_provisioned` row's
+`ok`, `tokenName` and `tokenPrefix` with the org's live token prefixes, so each repo carries a
+`reportBack.state`: **live** (Provisioned), **failed** (the recorded write failed; a 403 is reason
+`missing-permission` and the row links the App's Configure page, "Grant Secrets write"),
+**credential-revoked** (the token it recorded is no longer live; action Re-provision),
+**legacy-shared** (action Re-provision), or **none**. `reportBackAt` is set only for states that can
+still report (live, legacy-shared), and the panel's "provisioned" count is live only. A failed 403
+write never reads Provisioned. The Passports capability matrix shows "provision failed" /
+"credential revoked" instead of "provisioned, never reported".
 
 Three audit actions record it — `foundation.batch_opened`, `foundation.reportback_provisioned`,
 `foundation.reportback_revoked` — and the raw token appears in **none** of them; only its `askl_`
