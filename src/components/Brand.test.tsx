@@ -174,3 +174,35 @@ describe("HeaderAccount - the org switcher under the Supabase wall", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 });
+
+// /portfolio had no door: nothing in the app linked to it. The identity menu offers it once the
+// viewer can read two or more real orgs, because that is exactly the book the page opens on.
+describe("HeaderAccount - the Portfolio entry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.isAuthConfigured.mockReturnValue(false);
+    h.supabaseAuthConfigured.mockReturnValue(true);
+    h.getSession.mockResolvedValue(null);
+    h.getViewer.mockResolvedValue({ login: "dana" });
+    h.cookie = undefined;
+  });
+
+  it("appears after the personal rows when the viewer reads two or more orgs", async () => {
+    h.listOrgsForLogin.mockResolvedValue([
+      { slug: "acme", name: "Acme", role: "owner" },
+      { slug: "beta", name: "Beta", role: "viewer" },
+    ]);
+    render(await HeaderAccount());
+    fireEvent.click(screen.getByRole("button", { name: /dana/ }));
+    const hrefs = screen.getAllByRole("menuitem").map((r) => r.getAttribute("href"));
+    expect(hrefs).toEqual(["/me", "/org/developer", "/portfolio"]);
+    expect(screen.getByText("Compare the orgs you can read").textContent).not.toContain("\u2014");
+  });
+
+  it("is absent with a single org (a book of one is not a comparison)", async () => {
+    h.listOrgsForLogin.mockResolvedValue([{ slug: "acme", name: "Acme", role: "owner" }]);
+    render(await HeaderAccount());
+    fireEvent.click(screen.getByRole("button", { name: /dana/ }));
+    expect(screen.getAllByRole("menuitem").map((r) => r.getAttribute("href"))).not.toContain("/portfolio");
+  });
+});

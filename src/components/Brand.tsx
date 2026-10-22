@@ -12,6 +12,7 @@ import { SiteFooterCore } from "@/components/SiteFooterCore";
 import { HEADER_INNER, HEADER_NAV, HEADER_SHELL, Logo, MarketingNavLinks } from "@/components/StaticNav";
 import { scoreHex } from "@/lib/ui";
 import { resolveViewerWorkspace } from "@/lib/viewer-workspace";
+import { showPortfolioEntry } from "@/lib/org/portfolioBookModel";
 
 // Logo now lives in the dependency-free StaticNav.tsx (G6-13) — re-exported here so existing
 // server-component importers (not-found.tsx, share/briefing) keep their `@/components/Brand` path.
@@ -51,8 +52,12 @@ const IDENTITY_MENU_ITEMS = [
   { href: "/org/developer", label: "Developer", hint: "Your loop, gaps and care" },
 ] as const;
 
-function IdentityLink({ login, image, signOut }: { login: string; image?: string | null; signOut?: React.ReactNode }) {
-  return <IdentityMenu login={login} image={image} items={IDENTITY_MENU_ITEMS} signOut={signOut} />;
+// Offered only once the viewer can read two or more real orgs: /portfolio opens on exactly that book.
+const PORTFOLIO_ITEM = { href: "/portfolio", label: "Portfolio", hint: "Compare the orgs you can read" } as const;
+
+function IdentityLink(props: { login: string; image?: string | null; signOut?: React.ReactNode; portfolio?: boolean }) {
+  const items = props.portfolio ? [...IDENTITY_MENU_ITEMS, PORTFOLIO_ITEM] : IDENTITY_MENU_ITEMS;
+  return <IdentityMenu login={props.login} image={props.image} items={items} signOut={props.signOut} />;
 }
 
 /**
@@ -77,6 +82,7 @@ export async function HeaderAccount() {
   const workspace = await resolveViewerWorkspace();
   const switcher =
     workspace.options.length > 1 ? <OrgSwitcher orgs={workspace.options} active={workspace.active} /> : null;
+  const portfolio = showPortfolioEntry(workspace.options);
 
   if (supaOn) {
     // Sign out moved INSIDE the identity menu: it is an action on the identity, and leaving it beside
@@ -84,7 +90,7 @@ export async function HeaderAccount() {
     return viewer ? (
       <span className="flex items-center gap-3">
         {switcher}
-        <IdentityLink login={viewer.login} image={viewer.avatar} signOut={<SignOutButton />} />
+        <IdentityLink login={viewer.login} image={viewer.avatar} signOut={<SignOutButton />} portfolio={portfolio} />
       </span>
     ) : (
       <SupabaseSignInButton variant="nav" next="/" />
@@ -100,6 +106,7 @@ export async function HeaderAccount() {
         <IdentityLink
           login={session.login}
           image={session.image}
+          portfolio={portfolio}
           signOut={
             <form action="/api/auth/logout" method="post" className="contents">
               <button type="submit" className="focus-ring rounded-sm hover:text-white">
