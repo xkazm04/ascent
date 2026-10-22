@@ -169,7 +169,9 @@ they compute the scope token, after their own limiters (the peek limiter, the st
 
 **A scan's token is bound to the forge it was issued for.** `scanRepository` itself refuses to send a
 GitHub credential (an installation token, or the ambient `GITHUB_TOKEN`) to a non-GitHub coordinate,
-so a `gitlab:` scan from any entry point (routes, import, rescan worker) runs token-less. Details in
+so a `gitlab:` scan from any entry point (routes, import, rescan worker) never carries a GitHub token.
+It carries a GitLab token only when one was supplied for it (a body token on `POST /api/scan` is
+labelled GitLab for a `gitlab:` coordinate); otherwise it runs token-less. Details in
 [`docs/features/github/forges.md`](../github/forges.md#credentials).
 
 Cost for a public repo: one extra REST call cold, and a `304` warm (the ETag is remembered in memory
