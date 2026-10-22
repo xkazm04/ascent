@@ -15,6 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { requireCronAuth } from "@/lib/cron-auth";
+import { cronPrecondition } from "@/lib/cron-jobs";
 import { noteReadFailure } from "@/lib/org/degraded-read";
 import { isDbConfigured } from "@/lib/db";
 // Deep path, not the barrel: `db/index.ts` is Director-owned, and its two `export *` lines for the
@@ -34,8 +35,12 @@ export async function GET(request: Request) {
   // credential) — this one mints installation tokens, so it is credentialed work even though it is free.
   const denied = requireCronAuth(request);
   if (denied) return denied;
-  if (!isAppConfigured() || !isDbConfigured()) {
-    return NextResponse.json({ skipped: "GitHub App + database required." });
+  // Missing DB (required): 503, or the quiet skip behind CRON_ALLOW_NO_DB=1 (src/lib/cron-jobs.ts).
+  const unready = cronPrecondition("probe", isDbConfigured());
+  if (unready) return unready;
+  // Missing App (optional): nothing to probe, so the pass is a 200 skip (health reports it "degraded").
+  if (!isAppConfigured()) {
+    return NextResponse.json({ skipped: "GitHub App required." });
   }
 
   // A failed step answers null (never 0: "nothing was due") and is NAMED in `errors`; the pass still

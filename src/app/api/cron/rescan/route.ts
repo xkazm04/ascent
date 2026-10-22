@@ -31,6 +31,7 @@ import { sealAllPendingDays } from "@/lib/db/control-observations";
 // at merge. Nothing else about these imports changes when they do.
 import { enqueueDueRescans, queueDepth, reapExpiredLeases } from "@/lib/db/scan-jobs";
 import { requireCronAuth } from "@/lib/cron-auth";
+import { cronPrecondition } from "@/lib/cron-jobs";
 import { noteReadFailure } from "@/lib/org/degraded-read";
 import { isAppConfigured } from "@/lib/github/app";
 import { authGateEnabled } from "@/lib/access";
@@ -50,9 +51,9 @@ export async function GET(request: Request) {
   // route that mints every org's token and spends LLM budget can't drift from the other cron handlers.
   const denied = requireCronAuth(request);
   if (denied) return denied;
-  if (!isDbConfigured()) {
-    return NextResponse.json({ skipped: "GitHub App + database required." });
-  }
+  // Missing DB (required): 503, or the quiet skip behind CRON_ALLOW_NO_DB=1 (src/lib/cron-jobs.ts).
+  const unready = cronPrecondition("rescan", isDbConfigured());
+  if (unready) return unready;
 
   // A failed step answers null (never 0: "nothing was due") and is NAMED here, then in `errors`. The pass
   // still answers 200: one failed step never fails the rest. docs/adr/2026-10-07-failed-read-is-not-absence.md.
@@ -81,8 +82,10 @@ export async function GET(request: Request) {
     return null;
   });
 
+  // Missing App (optional): a legitimate partial run - the ledger is sealed, the rest skipped. /api/health
+  // names this state "degraded" from the same table.
   if (!isAppConfigured()) {
-    return NextResponse.json({ skipped: "GitHub App + database required.", ledgerSeal, errors: stepErrors });
+    return NextResponse.json({ skipped: "GitHub App required.", ledgerSeal, errors: stepErrors });
   }
 
   // Reap first: a pass killed at the 300s ceiling leaves claimed rows behind, and a worker that never

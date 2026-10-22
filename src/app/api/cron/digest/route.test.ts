@@ -263,12 +263,12 @@ describe("GET /api/cron/digest — auth fail-closed + per-tenant routing + parti
 
   // ---- (3) DB-not-configured short-circuit (auth still passes first) -------
 
-  it("authorizes first, then skips (no dispatch) when the DB is not configured", async () => {
+  it("authorizes first, then 503s (no dispatch) when the DB is not configured - a monitor must turn red", async () => {
     mockIsDb.mockReturnValue(false);
     const res = await GET(req({ auth: `Bearer ${SECRET}` }));
     const body = await bodyOf(res);
-    expect(res.status ?? 200).toBe(200);
-    expect(body.skipped).toBeDefined();
+    expect(res.status).toBe(503);
+    expect(body.error).toBeDefined();
     expect(mockListOrgs).not.toHaveBeenCalled();
     expect(mockDispatch).not.toHaveBeenCalled();
   });

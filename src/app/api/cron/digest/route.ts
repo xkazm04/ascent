@@ -14,7 +14,7 @@
 // noise floor keeps cross-org semantics comparable ("beyond measurement jitter"), not an alarm the
 // org tunes. The AlertsControl UI states the same scope, so the two surfaces agree.
 //
-// Guarded by CRON_SECRET when set. No-op without a DB.
+// Guarded by CRON_SECRET (fail closed). Without a DB it answers 503 unless CRON_ALLOW_NO_DB=1.
 
 import { NextResponse } from "next/server";
 import {
@@ -36,6 +36,7 @@ import {
 import { deliverAlert } from "@/lib/alert-door";
 import { hasFleetGrade } from "@/lib/db/org-shared";
 import { requireCronAuth } from "@/lib/cron-auth";
+import { cronPrecondition } from "@/lib/cron-jobs";
 import {
   buildFleetDigestMessage,
   creditsAlertThreshold,
@@ -84,7 +85,10 @@ export async function GET(request: Request) {
   // fleet-data exfil from places the Authorization header never reaches.
   const denied = requireCronAuth(request);
   if (denied) return denied;
-  if (!isDbConfigured()) return NextResponse.json({ skipped: "Database required." });
+  // Missing DB: 503 (a cron monitor must turn red), or the quiet skip behind CRON_ALLOW_NO_DB=1 - the
+  // one rule in src/lib/cron-jobs.ts that every cron route answers through.
+  const unready = cronPrecondition("digest", isDbConfigured());
+  if (unready) return unready;
 
   const base = publicBaseUrl();
   const orgs = await listOrgsWithWatchedRepos();

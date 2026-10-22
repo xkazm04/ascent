@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { isDbConfigured, purgeExpiredData } from "@/lib/db";
 import { requireCronAuth } from "@/lib/cron-auth";
+import { cronPrecondition } from "@/lib/cron-jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,22 +31,12 @@ export async function GET(request: Request) {
   // DELETE-everything run from places the Authorization header never reaches.
   const denied = requireCronAuth(request);
   if (denied) return denied;
-  if (!isDbConfigured()) {
-    // A DB-unconfigured deploy must NOT report a green 200 (data-retention 07-16 #4): the handler's own
-    // invariant is "degraded is never green" (207/500 below) because cron monitors only watch the HTTP
-    // status — yet a production deploy that loses/renames DATABASE_URL would keep returning 200 daily
-    // while every retention window silently stops being enforced. Fail closed with 503, matching the
-    // CRON_SECRET-unset branch (the same "misconfigured deploy" class). A GENUINELY DB-less deployment
-    // (the keyless MVP, where a scheduled purge is a deliberate no-op) opts into the quiet green skip
-    // explicitly via RETENTION_ALLOW_NO_DB=1.
-    if (process.env.RETENTION_ALLOW_NO_DB === "1") {
-      return NextResponse.json({ skipped: "Database required." });
-    }
-    return NextResponse.json(
-      { error: "Database is not configured (DATABASE_URL unset). Set RETENTION_ALLOW_NO_DB=1 for an intentionally DB-less deployment." },
-      { status: 503 },
-    );
-  }
+  // A DB-unconfigured deploy must NOT report a green 200 (data-retention 07-16 #4): the handler's own
+  // invariant is "degraded is never green" (207/500 below) because cron monitors only watch the HTTP
+  // status. 503, unless a GENUINELY DB-less deployment opts into the quiet skip via
+  // RETENTION_ALLOW_NO_DB=1. The rule now lives once, in src/lib/cron-jobs.ts, for every cron route.
+  const unready = cronPrecondition("purge", isDbConfigured());
+  if (unready) return unready;
 
   // Preview mode (data-retention 07-16 #2): `?dryRun=1` (or `true`) counts what every effective policy
   // WOULD delete — per-repo stale-scan totals + in-window audit rows — without deleting anything or
