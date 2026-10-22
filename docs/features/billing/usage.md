@@ -44,7 +44,9 @@ honest default; the funnel's own scans never reach this ledger anyway (the scan 
 provider reported nothing (the `claude-cli` path reports no usage at all and still writes a
 token-less row, so the *call* is visible even when its cost is not), when the org runs BYOM (it paid
 its own vendor; Ascent has no figure), or when the model has no `MODEL_PRICES` rate. `unpricedCalls`
-is reported per lane so a `$0.00` line reads as "nothing to price", not "free". Since 2026-09-05
+is reported per lane so a partial sum reads as a floor. A zero-cost (`local`) provider is **not**
+unpriced: its price is exactly `$0`, and the meter writes `costMicros: 0` for it (it used to write
+`null`, so the ledger lanes counted as "unpriced" the same kind of call the scan lane priced at `$0`). Since 2026-09-05
 the **scan lane applies the same BYOM rule**: scans with `engineByom: true` are grouped separately,
 never priced (a BYOM-only window prices as `null`, never `$0.00`, and the env-rate override is
 refused when every token is BYOM), and `UsageSummary.byomScans` drives a "N BYOM scans, unpriced"
@@ -139,6 +141,17 @@ which no longer takes `days`):
 - `estimatedCostUsd` / `costBasis`: the **scan lane's** cost and the basis that priced it
   (`LLM_*_COST_PER_MTOK` env override > the built-in per-model table > none). Scan-scoped because it
   is folded from the `Scan` token totals; it is *not* the page's headline.
+- **One call-pricing rule** (`src/lib/db/usage-pricing.ts`, 2026-10-22). `priceCallGroup(group, basis)`
+  returns `{ usd, reason }` with `reason` one of `priced | zero-cost | byom | no-usage |
+  unknown-model`, and it is the only place a call is priced: the scan lane row, its unpriced count,
+  the per-repo and per-team scan halves, the matrix's scan row and the meter's `costMicrosFor` all
+  call it. The basis (`resolveScanBasis`: env rates when both are set, else the table) is resolved
+  **once** per summary and handed to every fold. So, with `LLM_*_COST_PER_MTOK` set: local tokens
+  price at `$0` (not at the hosted env rate), a scan the env rate priced is never also counted
+  unpriced (the headline no longer says "floor" for it), and `byTeam` / `byRepo` / `byLaneTeam`'s
+  scan halves sum to the scan lane row. A window with nothing priceable (BYOM-only, token-less only)
+  is `null` under either basis. These are display estimates: no credit, quota, plan gate or charge
+  reads them; the billable unit stays the `isBillableScan` count.
 - `allLanesCostUsd` / `allLanesUnpricedCalls`: the sum of **every** lane in `byLane`, and the count
   of calls no basis could price. This pair is what the "Est. cost" tile shows, so the headline equals
   the "Spend by lane" table by construction. `allLanesCostUsd` is `null` — never `0` — when nothing
@@ -146,7 +159,9 @@ which no longer takes `days`):
   `allLanesUnpricedCalls`, which makes the headline a **floor**, and the tile says so
   (`… · floor: +34 calls unpriced`). Before this the tile priced the scan lane alone and understated
   the page's own itemization by up to 78% on an org with companion/agent spend.
-- `byTeam`: per-code-owning-team calls and cost. A **LEFT** join (`Scan → Repository →
+- `byTeam`: per-code-owning-team calls, cost and `unpricedCalls` (the panel prints `· N unpriced`
+  beside a partial sum, as Top repositories does; `teamTotals` derives it in the same one query via
+  the per-field `_count` trick `repoTotals` uses). A **LEFT** join (`Scan → Repository →
   RepoTeam(isDefaultOwner)`); a repo with no owning team lands in an explicit `Org-wide (no repo)`
   bucket rather than dropping out — an inner join would silently shrink the org's own total. Empty
   for the public funnel. The non-scan lanes join the same way: a lane that knows its repo resolves
@@ -361,7 +376,8 @@ gate, the default mock gate) still have a per-instance global ceiling.
 | File | Role |
 | --- | --- |
 | `src/lib/db/usage.ts` | `getUsageSummary()`: totals, provider mix, zero-filled daily series, the lane + team folds. `boundUsageDays(raw, isPublic, plan?)` caps `?days=` at the plan's `retentionDays` (Free 30). `since = max(window.since, retentionCutoff)`. |
-| `src/lib/llm/meter.ts` | The meter chokepoint: lane vocabulary, pure cost math (`costMicrosFor`), fire-and-forget `meter()`. |
+| `src/lib/llm/meter.ts` | The meter chokepoint: lane vocabulary, pure cost math (`costMicrosFor` / `meterCallPrice`, delegating to `priceCallGroup`), fire-and-forget `meter()`. |
+| `src/lib/db/usage-pricing.ts` | THE call-pricing rule: `priceCallGroup`, `foldCallGroups`, `resolveScanBasis`, and the moved `estimateLlmCostUsd` / `estimateLlmCostFromTable` / `unpricedScanCalls` (re-exported from `usage.ts`). Pure, no db client. |
 | `src/lib/db/usage-events.ts` | `recordUsageEvent()` (best-effort writer) + `laneTotals()` / `teamTotals()` / `listUsageEvents()`. |
 | `src/app/usage/usageRepoPanel.tsx` | **Top repositories** with a cost column (em dash + "not a measured zero" tooltip for unknown; `· N unpriced` for partials), captioned by metered scans, last N days, UTC. Per-repo cost rides `GET /api/usage` JSON additively; both CSVs keep their shape (G19). |
 | `src/app/usage/usageDashboard.tsx` | The page's panel order: tiles → trend → provider mix → allotment → lane/team → the showback matrix. |
