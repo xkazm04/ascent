@@ -16,6 +16,7 @@
 // register needs the worded state back — `scans-gallery.test.ts` pins that contract.
 
 import Link from "next/link";
+import { useState } from "react";
 import type { PublicScanGallery } from "@/lib/db";
 import { dbModeLabel } from "@/lib/db/mode";
 import type { DimensionId } from "@/lib/types";
@@ -24,6 +25,8 @@ import { scoreHex, timeAgo, DIMENSION_SHORT } from "@/lib/ui";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { Kicker } from "@/components/ui";
 import { RegisterChips } from "@/components/landing/RegisterChips";
+import { registerLens, type RegisterLens } from "../shared/registerLensModel";
+import { LensNotes, MoveMarker, RegisterLensSwitch } from "./RegisterLensSwitch";
 
 // The five headline dimensions surfaced as register columns — the highest-weighted signals in the
 // rubric (AI Tooling, Testing, CI/CD, Agentic, AI Process). The sixth column is the overall average.
@@ -56,6 +59,10 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
   // only through the recency fallback, where it is un-numbered and chipped `demo` (card portfolio-0).
   const ranked = topAiNative.length > 0;
   const board = ranked ? topAiNative : recent;
+  // Card landing-1: the board read through one archetype lens. "as-scored" (the default) is the board
+  // exactly as stored; a lens re-weights the rows the engine can reproduce and ranks within that lens.
+  const [lensChoice, setLensChoice] = useState<RegisterLens>("as-scored");
+  const view = registerLens(board, lensChoice, { ranked });
   const latestScannedAt = recent[0]?.scannedAt;
   // Counted over the board ACTUALLY RENDERED (ranked or recency), never over the whole corpus: the note
   // says "on this page", so it has to be about the rows on this page.
@@ -91,6 +98,10 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
       </div>
 
       {/* Column header — aligned to the row track; dimension labels only show where their columns do. */}
+      {view.offered && (
+        <RegisterLensSwitch lens={view.lens} onChange={setLensChoice} lensesOnBoard={view.lensesOnBoard} />
+      )}
+
       <div className={`${GRID} border-b border-divider/70 pb-2 pt-3 font-mono type-micro uppercase tracking-wider text-slate-500`}>
         <span aria-hidden />
         <span>Repository</span>
@@ -103,29 +114,32 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
       </div>
 
       <div className="divide-y divide-divider">
-        {board.map((c, i) => (
+        {view.rows.map(({ card: c, score, levelName, rank, move }) => (
           <Link
             key={c.fullName}
             href={c.href}
             className={`focus-ring group items-center py-4 transition hover:bg-white/[0.02] ${GRID}`}
           >
-            <span className="type-mono-sm tabular-nums text-slate-600">{ranked ? String(i + 1).padStart(2, "0") : "·"}</span>
+            <span className="type-mono-sm tabular-nums text-slate-600">{ranked ? String(rank).padStart(2, "0") : "·"}</span>
             <span className="min-w-0">
               <span className="block truncate type-body font-semibold text-white group-hover:text-accent" title={c.fullName}>
                 {c.fullName}
               </span>
               <span className="type-label tracking-widest text-slate-500">
-                {c.levelName} · {timeAgo(c.scannedAt)}
+                {levelName} · {timeAgo(c.scannedAt)}
+                <MoveMarker move={move} />
                 <RegisterChips row={c} className="normal-case tracking-normal" />
               </span>
             </span>
             {FEATURED_DIMS.map((d) => (
               <ScoreCell key={d} score={c.dimensions[d]} className="hidden md:block" />
             ))}
-            <ScoreCell score={c.overall} big />
+            <ScoreCell score={score} big />
           </Link>
         ))}
       </div>
+
+      <LensNotes lens={view.lens} withheld={view.withheld} />
 
       {/* A rank is a claim that the rows share a ruler. When they do not, the register says so under the
           board rather than leaving it to a per-row chip — the same disclosure /leaderboard carries
