@@ -68,6 +68,12 @@ vi.mock("@/lib/cache", () => ({
   makeCacheKey: vi.fn(() => "k"),
 }));
 
+// Status consequences (roadmap-0): the post-commit effects call is asserted, never run for real here.
+const { mockApplyEffects } = vi.hoisted(() => ({
+  mockApplyEffects: vi.fn<(t: unknown, s: unknown) => Promise<{ applied: string[]; failed: string[] }>>(async () => ({ applied: [], failed: [] })),
+}));
+vi.mock("@/lib/db/rec-transition-effects", () => ({ applyRecTransitionEffects: mockApplyEffects }));
+
 import { persistScanReport } from "./scans-persist";
 import { ensureOrgId } from "./scans-shared";
 import { DEDUP_KEY_VERSION, scanContentKey } from "./scans-read";
@@ -1764,5 +1770,83 @@ describe("persistScanReport — sensorFailures reaches the row (scan honesty sur
     await persistScanReport(makeReport({ headSha: "sha_unknown" }));
 
     expect(createdScans[0]!.sensorFailuresJson).toBeNull();
+  });
+});
+
+// ── Status consequences: a rescan close reaches Shared Org Memory (roadmap-0) ───────────────────
+// The rescan witness is the trustworthy close, yet only the PATCH route used to feed memory. Each
+// resolved row now fires the same consequences module after the transaction commits.
+describe("persistScanReport - status consequences of a rescan close", () => {
+  const prevInProgress: PrevRec = {
+    id: "rec_ip",
+    dimId: "D2",
+    title: "No coverage threshold fails a run",
+    status: "in_progress",
+    assigneeLogin: "octocat",
+    targetDate: null,
+  };
+  const resolvingReport = (headSha: string) =>
+    makeReport({
+      headSha,
+      roadmap: [],
+      resolvedFollowUpIds: ["rec_ip"],
+      dimensions: [{ id: "D2", name: "Automated Testing", weight: 0.15, score: 70, signalScore: 70, llmScore: 70, summary: "", evidence: [], strengths: [], gaps: [] }],
+    });
+
+  beforeEach(() => {
+    mockApplyEffects.mockReset();
+    mockApplyEffects.mockResolvedValue({ applied: [], failed: [] });
+  });
+
+  it("a row resolved by its Ascent-Resolves trailer fires the effects ONCE, after commit, on the repo scope", async () => {
+    const { prisma, createdResolved } = fakePrisma({ previousRecs: [prevInProgress], previousDims: [{ dimId: "D2", score: 61 }] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+
+    const res = await persistScanReport(resolvingReport("sha_fx1"));
+
+    expect(createdResolved[0]).toMatchObject({ status: "done" });
+    expect(res?.closedFollowUpIds).toEqual(["rec_ip"]);
+    expect(mockApplyEffects).toHaveBeenCalledTimes(1);
+    expect(mockApplyEffects).toHaveBeenCalledWith(
+      { from: "in_progress", to: "done", title: "No coverage threshold fails a run", dimension: "D2" },
+      { recommendationId: "rec_done_1", orgId: "org_1", repoFullName: "acme/widget", actor: null },
+    );
+  });
+
+  it("a deduped persist fires nothing", async () => {
+    const { prisma } = fakePrisma({ previousRecs: [prevInProgress] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue({ id: "scan_existing" });
+
+    const res = await persistScanReport(resolvingReport("sha_fx2"));
+
+    expect(res).toMatchObject({ deduped: true });
+    expect(mockApplyEffects).not.toHaveBeenCalled();
+  });
+
+  it("a persist that lost the cross-instance race fires nothing (its resolved rows never committed)", async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "x" });
+    const { prisma } = fakePrisma({ previousRecs: [prevInProgress], previousDims: [{ dimId: "D2", score: 61 }], scanCreateThrows: p2002 });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "scan_winner" });
+
+    const res = await persistScanReport(resolvingReport("sha_fx3"));
+
+    expect(res).toMatchObject({ scanId: "scan_winner", deduped: true });
+    expect(mockApplyEffects).not.toHaveBeenCalled();
+  });
+
+  it("an effects rejection never costs the persist its scanId", async () => {
+    const { prisma } = fakePrisma({ previousRecs: [prevInProgress], previousDims: [{ dimId: "D2", score: 61 }] });
+    mockGetPrisma.mockReturnValue(prisma);
+    mockFindScanByCommit.mockResolvedValue(null);
+    mockApplyEffects.mockRejectedValue(new Error("memory store down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const res = await persistScanReport(resolvingReport("sha_fx4"));
+
+    expect(res).toMatchObject({ scanId: "scan_new", deduped: false });
+    warn.mockRestore();
   });
 });

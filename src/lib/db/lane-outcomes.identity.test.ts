@@ -23,6 +23,8 @@ const events: Record<string, unknown>[] = [];
 let laneVerdict: string | null = "verified";
 
 vi.mock("@/lib/db/org-shared", () => ({ getOrgBySlug: vi.fn(async (slug: string) => (slug === "kiro" ? { id: "org-kiro" } : null)) }));
+// The close's status consequences are pinned in lane-outcomes.close.test.ts; inert here.
+vi.mock("@/lib/db/rec-transition-effects", () => ({ applyRecTransitionEffects: vi.fn(async () => ({ applied: [], failed: [] })) }));
 vi.mock("@/lib/db/client", () => ({
   isDbConfigured: () => true,
   dbReadSafe: async <T,>(fn: () => Promise<T>, fallback: T) => fn().catch(() => fallback),
@@ -55,6 +57,13 @@ vi.mock("@/lib/db/client", () => ({
         if (!row) throw new Error("no row");
         row.status = data.status;
         return row;
+      },
+      // The craft close is a compare-and-set now (roadmap-0): it only matches a row not yet done.
+      updateMany: async ({ where, data }: { where: { id: string; status: { not: string } }; data: { status: string } }) => {
+        const row = recs.find((r) => r.id === where.id && r.status !== where.status.not);
+        if (!row) return { count: 0 };
+        row.status = data.status;
+        return { count: 1 };
       },
     },
     repository: { findUnique: async () => ({ id: "repo-1" }) },

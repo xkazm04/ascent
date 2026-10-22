@@ -26,6 +26,7 @@ import {
   scanDedupKey,
 } from "@/lib/db/scans-read";
 import { syncTechStackGroups } from "@/lib/db/tech-groups";
+import { applyRecTransitionEffects } from "@/lib/db/rec-transition-effects";
 import { withAuditSignature } from "@/lib/db/audit-integrity";
 // MOONSHOT #1 — the control ledger. `governanceToSamples`/`diffSamples` are W3-L's PURE mappers and
 // `recordObservations` its writer; this path is a second SOURCE into the same ledger, not a second
@@ -454,9 +455,13 @@ export async function persistScanReport(
     // where a crash mid-way left a scan with no contributors or no audit row.
     let dedupedByRace = false;
     let scanId: string;
+    // The rows this transaction closed as `done`, for the post-commit status consequences below.
+    // Reset at the top of the body: a retried transaction must not carry a rolled-back attempt's ids.
+    let closedDone: { id: string; title: string; dimId: string }[] = [];
     try {
     scanId = await prisma.$transaction(
       async (tx) => {
+        closedDone = [];
         // Engine upgrade: retire the mock scan of this SAME commit first, so the live scan can take its
         // (repoId, headSha) slot — the @@unique constraint permits only one scan per commit, and Scan's
         // children don't cascade (relationMode="prisma"), so delete events → recommendations →
@@ -634,6 +639,7 @@ export async function persistScanReport(
           await tx.recommendationEvent.create({
             data: { recommendationId: done.id, actor: null, kind: "status", fromValue: "in_progress", toValue: "done", note: carryEventNote(note, row.id) },
           });
+          closedDone.push({ id: done.id, title: row.title, dimId: row.dimId });
         }
 
         // Rows the rescan kept open for a stated reason. An unpaired keep (not restated, but its
@@ -887,6 +893,21 @@ export async function persistScanReport(
     await appendScanObservations(orgSlug, repo.id, fullName, scanId, report).catch((err) => {
       console.warn(`[scans-persist] control observations failed for ${fullName}:`, err);
     });
+
+    // The rescan witness is the trustworthy close, so it earns the same consequences a human close
+    // does (src/lib/report/rec-transitions.ts): "this gap was closed" reaches Shared Org Memory. Only
+    // when THIS transaction committed - a race loser's resolved rows never landed - and best-effort
+    // like the hooks around it (the effects module never throws; the catch is belt and braces).
+    if (!dedupedByRace) {
+      for (const row of closedDone) {
+        await applyRecTransitionEffects(
+          { from: "in_progress", to: "done", title: row.title, dimension: row.dimId },
+          { recommendationId: row.id, orgId, repoFullName: fullName, actor: null },
+        ).catch((err) => {
+          console.warn(`[scans-persist] status consequences failed for ${fullName}:`, err);
+        });
+      }
+    }
 
     await syncTechStackGroups(orgId, repo.id, report.techStack).catch((err) => {
       // Best-effort — grouping is display metadata and must never break a scan persist. But swallowing

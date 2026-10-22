@@ -37,6 +37,8 @@
 import { parseStringArray } from "./json-columns";
 import { dbReadSafe, getPrisma, isDbConfigured } from "@/lib/db/client";
 import { getOrgBySlug } from "@/lib/db/org-shared";
+import { applyRecTransitionEffects } from "@/lib/db/rec-transition-effects";
+import type { RecStatus } from "@/lib/types";
 // The SAME identity `decideInProgress` / `isRestated` / the craft ledger carry status across a rescan
 // with. A deferral that keys on anything else is a deferral the next rescan silently drops.
 import { normalizeRecTitle } from "@/lib/report/recommendation-identity";
@@ -296,6 +298,7 @@ export async function recordLaneOutcomes(input: RecordOutcomesInput): Promise<La
   // outcome ledger the rows it just wrote.
   await closeBuiltCraftRungs({
     orgId: org.id,
+    repoFullName: input.repoFullName,
     laneId: input.laneId,
     cycle: input.cycle,
     ids: claimedTrailerIds(input.batchIds, input.report),
@@ -347,18 +350,26 @@ export function claimedTrailerIds(batchIds: readonly string[], report: LaneRepor
  * moved" witness. This is the craft asymmetry `decideInProgress` already documents, applied at the one
  * moment both facts are in hand.
  */
-async function closeBuiltCraftRungs(input: { orgId: string; laneId: string; cycle: number; ids: readonly string[]; now: Date }): Promise<string[]> {
+async function closeBuiltCraftRungs(input: { orgId: string; repoFullName: string; laneId: string; cycle: number; ids: readonly string[]; now: Date }): Promise<string[]> {
   if (input.ids.length === 0) return [];
   const prisma = getPrisma();
   const lane = await prisma.loopRunLane.findUnique({ where: { id: input.laneId }, select: { verifyVerdict: true } }).catch(() => null);
   if (!lane || lane.verifyVerdict !== "verified") return [];
-  const rows: { id: string }[] = await prisma.recommendation
-    .findMany({ where: { id: { in: [...input.ids] }, kind: "craft", status: { not: "done" } }, select: { id: true } })
+  const rows: { id: string; title: string; dimId: string; status: string }[] = await prisma.recommendation
+    .findMany({
+      where: { id: { in: [...input.ids] }, kind: "craft", status: { not: "done" } },
+      select: { id: true, title: true, dimId: true, status: true },
+    })
     .catch(() => []);
   const closed: string[] = [];
   for (const row of rows) {
-    const done = await prisma.recommendation.update({ where: { id: row.id }, data: { status: "done" } }).catch(() => null);
-    if (!done) continue;
+    // COMPARE-AND-SET: the read above is not a lock. A row that went `done` since (a rescan, a human
+    // close, a parallel lane) matches nothing here, so it gets no second event and no second
+    // consequence - the close happens exactly once, by whichever writer got there first.
+    const cas = await prisma.recommendation
+      .updateMany({ where: { id: row.id, status: { not: "done" } }, data: { status: "done" } })
+      .catch(() => null);
+    if (!cas || cas.count === 0) continue;
     closed.push(row.id);
     await prisma.recommendationEvent
       .create({
@@ -374,6 +385,12 @@ async function closeBuiltCraftRungs(input: { orgId: string; laneId: string; cycl
         },
       })
       .catch(() => null);
+    // The same consequences every other close fires (src/lib/report/rec-transitions.ts): a built
+    // rung is a closed gap, and Shared Org Memory hears about it. Post-write, never-throwing.
+    await applyRecTransitionEffects(
+      { from: row.status as RecStatus, to: "done", title: row.title, dimension: row.dimId },
+      { recommendationId: row.id, orgId: input.orgId, repoFullName: input.repoFullName, actor: "autopilot" },
+    ).catch(() => null);
   }
   return closed;
 }
