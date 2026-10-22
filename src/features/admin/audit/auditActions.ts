@@ -124,6 +124,9 @@ const ACTIONS: { value: string; label: string; cls: string }[] = [
   // reason that is safe to offer at all. The decline is slate: a considered "no" changed nothing.
   { value: "athena_proposal.accepted", label: "Athena action accepted", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "athena_proposal.declined", label: "Athena action declined", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
+  // The reaper (cron/athena sweep). Interrupted is amber: an accepted action whose outcome is unknown.
+  { value: "athena_proposal.interrupted", label: "Athena action interrupted", cls: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { value: "athena_proposal.expired", label: "Athena ask expired", cls: "border-slate-600 bg-slate-700/30 text-slate-300" },
   { value: "passport.pr_opened", label: "Passport PR", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { value: "passport.overrides_set", label: "Passport overrides", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
   { value: "passport.declines_set", label: "Passport declines", cls: "border-sky-500/40 bg-sky-500/10 text-sky-300" },
