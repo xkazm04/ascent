@@ -23,7 +23,13 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof import("react")>("react");
-  return { ...actual, useEffect: () => {} };
+  // RouteError reads its retry count through useSyncExternalStore (app-shell-1); outside React's render
+  // that hook also needs a dispatcher, so answer with the server snapshot (0 retries), as SSR would.
+  return {
+    ...actual,
+    useEffect: () => {},
+    useSyncExternalStore: (_sub: unknown, _client: unknown, server: () => unknown) => server(),
+  };
 });
 
 // RouteError also calls useRouter(): "Try again" now runs router.refresh() BEFORE reset(), because
