@@ -1,9 +1,10 @@
-// Athena's store, as one import. A thin RE-EXPORT BARREL over four themed modules — the same shape
+// Athena's store, as one import. A thin RE-EXPORT BARREL over five themed modules - the same shape
 // `src/lib/db/loop-runs.ts` and `src/lib/db/org.ts` use, so call sites import `@/lib/db/athena` and
 // never have to know which file a function moved to.
 //
 //   athena-threads.ts    conversations + turns (titles derived, token counts nullable)
 //   athena-proposals.ts  her open asks and how a human answered them
+//   athena-proposals-sweep.ts  the reaper: stale claims interrupted, aged asks expired
 //   athena-identity.ts   constitution (write-locked BY ABSENCE of a writer) + self-model
 //   athena-episodes.ts   what she remembers — OrgMemory rows, not a table of her own
 //
@@ -44,6 +45,13 @@ export {
   type AthenaProposalStatus,
   type CreateProposalInput,
 } from "@/lib/db/athena-proposals";
+
+export {
+  ATHENA_SWEEP_BATCH,
+  sweepAthenaProposals,
+  type AthenaSweepResult,
+  type SweptProposal,
+} from "@/lib/db/athena-proposals-sweep";
 
 export {
   ATHENA_TIERS,
