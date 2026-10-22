@@ -36,6 +36,9 @@ export interface ScanStreamRun {
   onNetworkError: () => void;
   /** Runs after every path above (success, refusal, or throw), like the caller's own `finally`. */
   onSettled?: () => void;
+  /** Optional cancel handle (the launch map aborts on unmount). An aborted run calls neither
+   *  onStreamEnd nor onNetworkError: a cancel is not a network failure. Omitted = unchanged behaviour. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -52,6 +55,7 @@ export function useScanStream() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(run.body),
+        ...(run.signal ? { signal: run.signal } : {}),
       });
       if (!res.ok || !res.body) {
         const d = (await res.json().catch(() => null)) as ScanRefusal | null;
@@ -59,9 +63,10 @@ export function useScanStream() {
         return;
       }
       await readSSE(res.body, run.onMessage);
+      if (run.signal?.aborted) return;
       run.onStreamEnd();
     } catch {
-      run.onNetworkError();
+      if (!run.signal?.aborted) run.onNetworkError();
     } finally {
       run.onSettled?.();
     }
