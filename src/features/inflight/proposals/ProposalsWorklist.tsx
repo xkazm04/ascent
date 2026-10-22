@@ -9,6 +9,7 @@
 //   Resolve N           — scan follow-ups only, by hand
 //   Approve N           — loop proposals only (the loop review's `approved`)
 //   Generate fix prompt — scan follow-ups only; hands the batch to a local agent
+//   Take over N / Send back N - held scan follow-ups, per the claim table (claimBatchActions.ts)
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -18,7 +19,9 @@ import { FilterMenu } from "@/components/kit";
 import { FollowupsFilterBar } from "@/components/org/followups/FollowupsFilterBar";
 import { FollowupsPromptModal } from "@/components/org/followups/FollowupsPromptModal";
 import { dimensionSpread, emptyFilters, isSelectable, patchStatuses, type FollowUpFilters, type FollowUpRow } from "@/components/org/followups/followupsModel";
+import type { ClaimViewer } from "@/components/org/followups/claimActionsModel";
 import { reviewLoopDeliverable } from "@/features/inflight/live/cockpit/loopClient";
+import { claimBatchActions } from "./claimBatchActions";
 import { ProposalDetail } from "./ProposalDetail";
 import { proposalColumns } from "./ProposalColumns";
 import {
@@ -56,12 +59,15 @@ export function ProposalsWorklist({
   rows,
   initialDim,
   canReview,
+  viewer,
 }: {
   org: string;
   rows: ProposalRow[];
   initialDim?: string;
   /** Owner-only: the loop review gate. A viewer who cannot rule cannot tick a loop proposal. */
   canReview: boolean;
+  /** Who is looking, for the claim verbs: login and admin role, resolved server-side. */
+  viewer: ClaimViewer;
 }) {
   const router = useRouter();
   const [filters, setFilters] = useState<FollowUpFilters>(() => ({ ...emptyFilters(), dims: new Set(initialDim ? [initialDim] : []) }));
@@ -124,6 +130,7 @@ export function ProposalsWorklist({
         return false; // the modal settles the batch; the selection stays until it does
       },
     },
+    ...claimBatchActions({ org, viewer, onDone: () => router.refresh() }),
   ];
 
   const toggleSource = (v: string) =>
@@ -153,14 +160,14 @@ export function ProposalsWorklist({
         onSelectedChange={setSelected}
         isSelectable={(r) => (r.source === "scan" ? isSelectable(r) : canReview)}
         isMuted={(r) => r.source === "scan" && !isSelectable(r)}
-        renderDetail={(r) => <ProposalDetail org={org} row={r} canReview={canReview} />}
+        renderDetail={(r) => <ProposalDetail org={org} row={r} canReview={canReview} viewer={viewer} />}
         summary={(picked) => <Summary picked={picked} />}
         actions={actions}
         minWidth={880}
         empty={<SectionEmpty>Nothing matches. Widen the filters, or switch to the resolved archive.</SectionEmpty>}
       />
 
-      <FollowupsPromptModal org={org} items={promptFor} onClose={() => setPromptFor(null)} onHandedOff={() => setSelected(new Set())} />
+      <FollowupsPromptModal org={org} viewer={viewer} items={promptFor} onClose={() => setPromptFor(null)} onHandedOff={() => setSelected(new Set())} />
     </div>
   );
 }

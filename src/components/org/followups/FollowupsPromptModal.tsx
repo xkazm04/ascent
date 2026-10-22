@@ -5,20 +5,31 @@
 // (POST /api/org/followups/handoff) and refreshes the ledger. Copying without handing off is allowed —
 // a user may want to read the prompt before committing the batch — but the button says which state
 // they are leaving in.
+//
+// A picked row somebody else is working (another worker's live lease, another person's hand-off) is
+// LEFT OUT of the prompt and named in one line instead (promptPlan, claimActionsModel.ts): a prompt
+// naming work somebody else holds is a prompt asking for a merge conflict.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui";
 import { FOLLOWUP_TRAILER, buildFixPrompt } from "@/lib/org/followups";
 import type { FollowUpRow } from "./followupsModel";
+import { promptPlan, type ClaimViewer } from "./claimActionsModel";
+
+/** The body when every picked row is held by somebody else: nothing to paste. */
+const HELD_ALL = "Every follow-up you picked is held by another worker, so this prompt names none of them.";
 
 export function FollowupsPromptModal({
   org,
+  viewer,
   items,
   onClose,
   onHandedOff,
 }: {
   org: string;
+  /** Whose prompt this is: their own claims stay in, everyone else's held work is left out. */
+  viewer: Pick<ClaimViewer, "login">;
   /** null = closed. */
   items: FollowUpRow[] | null;
   onClose: () => void;
@@ -29,11 +40,12 @@ export function FollowupsPromptModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const plan = promptPlan(items ?? [], viewer);
   const open = items !== null && items.length > 0;
-  const prompt = open ? buildFixPrompt(items!, { org, generatedAt: new Date().toISOString().slice(0, 10) }) : "";
-  const repos = open ? new Set(items!.map((i) => i.repo)).size : 0;
-  const alreadyOff = open ? items!.filter((i) => i.status === "in_progress").length : 0;
-  const toMark = open ? items!.filter((i) => i.status === "open").map((i) => i.id) : [];
+  const prompt = plan.include.length > 0 ? buildFixPrompt(plan.include, { org, generatedAt: new Date().toISOString().slice(0, 10) }) : HELD_ALL;
+  const repos = open ? new Set(plan.include.map((i) => i.repo)).size : 0;
+  const alreadyOff = open ? plan.include.filter((i) => i.status === "in_progress").length : 0;
+  const { held, toMark } = plan;
 
   const copy = async () => {
     try {
@@ -71,7 +83,7 @@ export function FollowupsPromptModal({
     <Modal open={open} onClose={onClose} ariaLabel="Fix prompt for the selected follow-ups" size="reading" locked={busy}>
       <ModalHeader
         kicker="Fix prompt"
-        title={`${items?.length ?? 0} follow-up${items?.length === 1 ? "" : "s"} · ${repos} repositor${repos === 1 ? "y" : "ies"}`}
+        title={`${plan.include.length} follow-up${plan.include.length === 1 ? "" : "s"} · ${repos} repositor${repos === 1 ? "y" : "ies"}`}
         context={`Paste into your local agent. Each resolving commit should carry \`${FOLLOWUP_TRAILER}: <id>\`; the next scan of the default branch closes what landed.`}
       />
       <ModalBody>
@@ -79,6 +91,11 @@ export function FollowupsPromptModal({
         {alreadyOff > 0 && (
           <p className="mt-3 type-caption text-slate-500">
             {alreadyOff} of these {alreadyOff === 1 ? "is" : "are"} already handed off — included in the prompt, not re-marked.
+          </p>
+        )}
+        {held.length > 0 && (
+          <p className="mt-3 type-caption text-warn" title={held.map((h) => `${h.id}: ${h.holder}${h.until ? ` until ${h.until}` : ""}`).join("; ")}>
+            {held.length} held elsewhere, left out: {[...new Set(held.map((h) => h.holder))].join(", ")}.
           </p>
         )}
         {error && <p className="mt-3 type-body-sm text-danger">{error}</p>}

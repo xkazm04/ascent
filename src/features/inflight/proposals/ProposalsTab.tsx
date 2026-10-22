@@ -20,6 +20,8 @@ import { getOrgBacklog, isPersonalOrg, listLocalPairings } from "@/lib/db";
 import { getLoopRunDetail, listLoopRuns } from "@/lib/db/loop-runs";
 import type { LoopRunDetail } from "@/lib/db/loop-runs-types";
 import { hasOrgRole } from "@/lib/authz";
+import { resolveViewerLogin } from "@/lib/access";
+import { VIEWER_FALLBACK } from "@/components/org/followups/claimActionsModel";
 import { selfHosted } from "@/lib/env";
 import { resolveOrgScope } from "@/lib/org/scope";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
@@ -48,12 +50,17 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
   const pairedRepos = selfHosted()
     ? (await listLocalPairings(slug).catch(() => [])).filter((r) => r.localPath != null).map((r) => r.fullName)
     : [];
-  const [backlog, details, canReview] = await Promise.all([
+  const [backlog, details, canReview, login, admin] = await Promise.all([
     getOrgBacklog(slug, segmentId, new Date(), techGroupId, { includeClosed: true }),
     recentRunDetails(slug),
     // The loop review gate is owner-only, as on the Live tab's sheet; the route re-checks it.
     hasOrgRole(slug, "owner"),
+    // The claim verbs: who is looking, and whether the admin-only verbs are theirs. The claims route
+    // re-checks both; this only decides which buttons draw.
+    resolveViewerLogin(),
+    hasOrgRole(slug, "admin"),
   ]);
+  const viewer = { login: login ?? VIEWER_FALLBACK, admin };
   const followups = backlog ? rowsFromBacklog(backlog) : [];
   const loop = pendingLoopProposals(details);
   const rows = mergeProposals(followups, loop);
@@ -84,7 +91,7 @@ export async function ProposalsTab({ slug, sp }: { slug: string; sp: SearchParam
       {rows.length === 0 ? (
         <SectionEmpty>No proposals yet. Scan some repositories and their gaps land here; so does a loop run&apos;s unreviewed work.</SectionEmpty>
       ) : (
-        <ProposalsWorklist org={slug} rows={rows} initialDim={initialDim} canReview={canReview} />
+        <ProposalsWorklist org={slug} rows={rows} initialDim={initialDim} canReview={canReview} viewer={viewer} />
       )}
       {/* A second route to the same stage's loop-lesson ledger; the next move below stays alone. */}
       <nav aria-label="Related views" className="flex justify-end">

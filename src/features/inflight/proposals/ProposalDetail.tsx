@@ -2,7 +2,8 @@
 
 // A Proposals row, expanded in place. A scan follow-up keeps the body the Follow-ups ledger gave it
 // (rationale, explore questions, the per-row resolve/dismiss, its timeline); a loop proposal shows its
-// evidence, the one-row approve/dismiss gate, and the way back to the run that armed it.
+// evidence, the one-row approve/dismiss gate, and the way back to the run that armed it. A scan row a
+// worker holds also carries its claim verbs (take over / send back / release, ClaimRowActions).
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -10,6 +11,8 @@ import Link from "next/link";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { RowActions } from "@/components/org/followups/FollowupChips";
 import { FollowupHistory } from "@/components/org/followups/FollowupHistory";
+import { ClaimRowActions } from "@/components/org/followups/ClaimRowActions";
+import type { ClaimViewer } from "@/components/org/followups/claimActionsModel";
 import { reviewLoopDeliverable } from "@/features/inflight/live/cockpit/loopClient";
 import type { LoopProposal, ProposalRow } from "./proposalsModel";
 
@@ -57,7 +60,7 @@ function LoopProposalDetail({ org, row, canReview }: { org: string; row: LoopPro
   );
 }
 
-export function ProposalDetail({ org, row, canReview }: { org: string; row: ProposalRow; canReview: boolean }) {
+export function ProposalDetail({ org, row, canReview, viewer }: { org: string; row: ProposalRow; canReview: boolean; viewer: ClaimViewer }) {
   if (row.source === "loop") return <LoopProposalDetail org={org} row={row} canReview={canReview} />;
   return (
     <>
@@ -74,6 +77,7 @@ export function ProposalDetail({ org, row, canReview }: { org: string; row: Prop
       )}
       <div className="mt-2 flex items-center gap-4">
         <RowActions r={row} />
+        <ClaimRowActions org={org} r={row} viewer={viewer} />
         {row.assigneeLogin && <span className="type-caption text-slate-500">owner {row.assigneeLogin}</span>}
         <span className="type-caption text-slate-600">id {row.id}</span>
       </div>
