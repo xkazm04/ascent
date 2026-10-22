@@ -143,7 +143,8 @@
         "src/lib/scan-queue-worker.ts",
         "src/lib/db/scan-jobs.ts",
         "src/app/api/cron/probe/**",
-        "src/lib/scan-import-policy.ts"
+        "src/lib/scan-import-policy.ts",
+        "src/lib/scan-consequences.ts"
       ]
     },
     {
