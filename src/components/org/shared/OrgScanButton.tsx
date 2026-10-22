@@ -6,9 +6,10 @@ import Link from "next/link";
 import { Meter } from "@/components/org/shared/ui";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { useOrgScanButton } from "./useOrgScanButton";
+import { ScanRunRoster } from "./ScanRunRoster";
 
 export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount: number }) {
-  const { p, hintId, noWatched, inert, run, pct, isDemoOrg } = useOrgScanButton(org, watchedCount);
+  const { p, hintId, noWatched, inert, run, retryFailed, pct, isDemoOrg } = useOrgScanButton(org, watchedCount);
 
   return (
     <div className="flex flex-col items-end gap-1">
@@ -65,26 +66,11 @@ export function OrgScanButton({ org, watchedCount }: { org: string; watchedCount
             </p>
           </div>
         )}
-        {!p.running && p.failed > 0 && !p.error && (
-          <p className="type-body-sm text-warn">
-            {p.failed} {p.failed === 1 ? "repo" : "repos"} failed to scan. See the Repositories tab.
-          </p>
-        )}
-        {!p.running && p.skipped > 0 && !p.error && (
-          <p className="type-body-sm text-warn">
-            {p.skipped} {p.skipped === 1 ? "repo" : "repos"} skipped (out of scan credits).
-          </p>
-        )}
-        {/* A DIFFERENT failure with a different fix: the org's installation token could not be
-            minted. Its own line rather than a shared "skipped" count, because "buy credits" and
-            "reconnect the GitHub App" are not the same instruction — and because a fleet where every
-            repo skips this way used to settle as a clean, empty success. */}
-        {!p.running && p.skippedNoToken > 0 && !p.error && (
-          <p className="type-body-sm text-warn">
-            {p.skippedNoToken} {p.skippedNoToken === 1 ? "repo" : "repos"} skipped — GitHub App access
-            unavailable. Reconnect the installation on Connect.
-          </p>
-        )}
+        {/* The run's end as a roster: each failed or skipped repo named under the fix it needs
+            (retry / credits / reconnect the App on Integrations / wait), with the failures
+            re-selected so one click retries exactly them. Credits and no-token stay separate
+            groups: "buy credits" and "reconnect the GitHub App" are not the same instruction. */}
+        {!p.running && !p.error && <ScanRunRoster org={org} roster={p.roster} onRetry={() => void retryFailed()} busy={inert} />}
         {/* Time-budget stop — distinct from the network-error state below, and no longer an ASK.
             The repos this run reached are persisted; the remainder is a queued job the background
             worker finishes, so the surface is a count that ticks down on its own (polled in

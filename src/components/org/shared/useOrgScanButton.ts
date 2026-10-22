@@ -13,23 +13,20 @@ import { useScanStream } from "@/components/org/shared/useScanStream";
 import { startQueueFollow } from "@/components/org/shared/queueFollow";
 import { consumeUpgradeScanFlag } from "@/components/onboarding/upgradeScan";
 import { DEMO_ORG_SLUG } from "@/lib/site";
+import { emptyRoster, foldQueueSnapshot, foldStreamFrame, retryScope, type ScanRunRoster } from "./scanRunRosterModel";
 
 interface Progress {
   running: boolean;
   done: number;
   total: number;
   current: string;
-  /** Per-repo scan failures observed during the bulk run (from the server's `repo` events). */
-  failed: number;
-  /** Repos skipped for lack of prepaid scan credits (`notice` up front, `repo.skipped` mid-run,
-   *  authoritative total on the final `result`) — a truncated paid run must not read as success. */
-  skipped: number;
-  /** Repos skipped because the org's installation token could not be minted (revoked, suspended, or
-   *  the repo removed from the install). A DIFFERENT problem from running out of credits, with a
-   *  different fix, so it is a different counter: the `result` handler below overwrites `skipped`
-   *  with the authoritative credits-only total, which used to erase these entirely and settle a
-   *  token-less fleet as a clean, empty success. */
-  skippedNoToken: number;
+  /** Every non-scored repo BY NAME, grouped by the fix it needs (scanRunRosterModel.ts). It replaced
+   *  three counters (failed / skipped-for-credits / skipped-no-token) that threw the names away: the
+   *  stream's `repo` frames, the `notice`/`result` credit totals and the queue poll's settled rows
+   *  all fold into it keyed by repo, and every count is re-derived from its lists. Credits and
+   *  no-token stay separate groups because "buy credits" and "reconnect the App" are different fixes
+   *  (a single overwritten counter once settled a token-less fleet as a clean, empty success). */
+  roster: ScanRunRoster;
   /** Set when the server stopped claiming new work to stay inside its wall-clock budget. Since
    *  moonshot #10 the remainder is a DURABLE QUEUE, not a list the user must re-drive: the background
    *  worker finishes it, and this carries the run handle so the hook can poll how much is left. Kept
@@ -44,7 +41,7 @@ export type ScanScope = { staleOnlyDays?: number; repos?: string[] };
 export function useOrgScanButton(org: string, watchedCount: number) {
   const router = useRouter();
   const startScan = useScanStream();
-  const [p, setP] = useState<Progress>({ running: false, done: 0, total: watchedCount, current: "", failed: 0, skipped: 0, skippedNoToken: 0 });
+  const [p, setP] = useState<Progress>({ running: false, done: 0, total: watchedCount, current: "", roster: emptyRoster() });
   const hintId = useId();
   // a11y (ambiguity-ui 2026-07-16 #5): natively-disabled buttons leave the tab order and `title` is
   // hover-only, so keyboard/SR users found dead controls with no reason. Keep them focusable with
@@ -65,7 +62,7 @@ export function useOrgScanButton(org: string, watchedCount: number) {
     // rather than showing a misleading "0/<all watched>" (or an instant 100% on a tiny stale subset).
     // A CONTINUE scope names its repos explicitly, so its denominator IS known.
     const initialTotal = scope?.repos ? scope.repos.length : scope ? 0 : watchedCount;
-    setP({ running: true, done: 0, total: initialTotal, current: "starting…", failed: 0, skipped: 0, skippedNoToken: 0 });
+    setP({ running: true, done: 0, total: initialTotal, current: "starting…", roster: emptyRoster(scope?.repos) });
     await startScan({
       body: { org, ...scope },
       onRefused: (d, status) => setP((s) => ({ ...s, running: false, error: d?.error ?? `Failed (${status}).` })),
@@ -74,24 +71,18 @@ export function useOrgScanButton(org: string, watchedCount: number) {
         if (event === "progress")
           setP((s) => ({ ...s, done: Number(data.index) || s.done, total: Number(data.total) || s.total, current: String(data.repo ?? "") }));
         else if (event === "repo") {
-          // The server emits one `repo` event per repo: `error` on a per-repo failure, `skipped`
-          // with a REASON (insufficient_credits | no_token | in_progress). The old consumer ignored
-          // both, so a partial run still read as N/N success — count them so the partial outcome is
-          // visible. The reason is kept, not flattened: this comment used to say `skipped` meant a
-          // lost credit reservation, and that assumption is what made overwriting the whole counter
-          // with `skippedForCredits` on `result` look safe.
-          if (data.error) setP((s) => ({ ...s, failed: s.failed + 1 }));
-          else if (data.skipped === "no_token") setP((s) => ({ ...s, skippedNoToken: s.skippedNoToken + 1 }));
-          else if (data.skipped) setP((s) => ({ ...s, skipped: s.skipped + 1 }));
+          // One `repo` frame per repo: `error` (+ `charged`) on a failure, `skipped` with a REASON
+          // (insufficient_credits | no_token | in_progress), otherwise scored. The roster keeps the
+          // name and reason, so a partial run is visible AND retryable, not a bare count.
+          setP((s) => ({ ...s, roster: foldStreamFrame(s.roster, event, data) }));
         } else if (event === "notice") {
           // Up-front partial coverage: the prepaid balance covers only `scanning` of the watched
-          // repos; the rest are skipped before the run starts. Count them and let `scanning` fix
+          // repos; the rest are skipped (a count, no names) before the run starts. `scanning` fixes
           // the denominator (also fills the unknown total of a scoped run).
-          const skippedN = Number(data.skipped);
           const scanning = Number(data.scanning);
           setP((s) => ({
             ...s,
-            skipped: s.skipped + (Number.isFinite(skippedN) && skippedN > 0 ? skippedN : 0),
+            roster: foldStreamFrame(s.roster, event, data),
             total: Number.isFinite(scanning) && scanning > 0 ? scanning : s.total,
           }));
         } else if (event === "queued") {
@@ -112,17 +103,8 @@ export function useOrgScanButton(org: string, watchedCount: number) {
             }));
           }
         } else if (event === "result") {
-          // Final summary — skippedForCredits is the authoritative total (up-front slice +
-          // mid-run reservation losses), so prefer it over the incremental count.
-          const skippedN = Number(data.skippedForCredits);
-          const noTokenN = Number(data.skippedNoToken);
-          setP((s) => ({
-            ...s,
-            skipped: Number.isFinite(skippedN) ? skippedN : s.skipped,
-            // Authoritative too, and kept separate — overwriting a single counter with the
-            // credits-only total is what erased the token failures.
-            skippedNoToken: Number.isFinite(noTokenN) ? noTokenN : s.skippedNoToken,
-          }));
+          // Final summary: skippedForCredits / skippedNoToken are the authoritative totals.
+          setP((s) => ({ ...s, roster: foldStreamFrame(s.roster, event, data) }));
         } else if (event === "error") setP((s) => ({ ...s, running: false, error: String(data.error) }));
       },
       onStreamEnd: () => {
@@ -177,10 +159,16 @@ export function useOrgScanButton(org: string, watchedCount: number) {
         // A failed poll is NOT evidence the work vanished — keep the last known count rather than
         // silently showing "finished" for a run still in the queue.
         if (!res.ok || cancelled) return "more";
-        const d = (await res.json()) as { pending?: number };
+        const d = (await res.json()) as { pending?: number; repos?: unknown };
         const pending = Number(d.pending);
         if (cancelled || !Number.isFinite(pending)) return "more";
-        setP((s) => (s.queued?.runId === queuedRunId ? { ...s, queued: pending > 0 ? { ...s.queued, pending } : undefined } : s));
+        // The poll's rows carry each settled job's outcome and reason: a failure the worker settled
+        // after the stream closed joins the roster (keyed by repo) instead of only shrinking a count.
+        setP((s) =>
+          s.queued?.runId === queuedRunId
+            ? { ...s, roster: foldQueueSnapshot(s.roster, d), queued: pending > 0 ? { ...s.queued, pending } : undefined }
+            : s,
+        );
         if (pending === 0) {
           router.refresh(); // the fleet's rows are now current — reload them
           return "stop";
@@ -202,11 +190,18 @@ export function useOrgScanButton(org: string, watchedCount: number) {
     };
   }, [org, queuedRunId, router]);
 
+  // One click on the re-selected failures: an ordinary scoped scan (the server intersects it with the
+  // watchlist and reserves per repo as for any run), so nothing about what is charged moves here.
+  async function retryFailed() {
+    const { repos } = retryScope(p.roster);
+    if (repos.length) await run({ repos });
+  }
+
   const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
   // The curated demo org is seeded with synthetic histories, not live-scannable repos — a "Stale only"
   // rescan there has nothing real to refresh, so hide it (the full "Scan all watched" stays for the
   // demo walkthrough). Slug is the canonical lower-cased org row casing; DEMO_ORG_SLUG is pre-lowered.
   const isDemoOrg = org.trim().toLowerCase() === DEMO_ORG_SLUG;
 
-  return { p, hintId, noWatched, inert, run, pct, isDemoOrg };
+  return { p, hintId, noWatched, inert, run, retryFailed, pct, isDemoOrg };
 }
