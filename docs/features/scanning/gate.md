@@ -472,6 +472,31 @@ them **only** under `previousPolicy` — a field nobody diffs — while `status`
 no longer a writer that can lose a bar, but it is not the only writer (the admission overlay, the
 API, a future editor), and a control that can vanish without the log saying so is not a control.
 
+### Preview before saving (2026-10-22)
+
+The warning above arrives after the bar is gone and after the sweep has re-posted Check Runs. So
+both theme editors now preview a draft BEFORE the write: `usePolicyPreview` debounces the draft to
+`POST /api/org/gate-policy/preview` (owner-gated, public org refused, like the write) and
+`PolicyImpactStrip` renders the answer under the form:
+*"Saving turns 1 repo red, 0 green; 1 cannot be judged on the new protection bar"*, then the repos
+that flip (name and overall score), then *"Removes: required controls (...)"*.
+
+- The route is **read-only**: no `setOrgGatePolicy`, no audit row, no `after()` sweep (pinned by its
+  test). It sanitizes the draft exactly as the write does; a draft that sanitizes to nothing comes
+  back as `effective: null` and the strip says it previews the archetype default.
+- `gatePolicyImpact` (`src/lib/org/gate-policy-impact.ts`, pure) runs `evaluateGateLite` twice per
+  repo over the same snapshots (`fleet-gate-snapshot.ts`, the mapping the governance tab uses), each
+  side on the policy the fleet resolver (`gate-resolve.ts`) returns for that repo, so an admitted
+  repo is held to its folded bar on both sides and nothing re-folds. Incomplete scans are counted
+  apart and never flip. `untested` counts repos a draft would hold to a bar that cannot be judged for
+  them and that they were not already skipped on. `removed` is `diffGatePolicy`, the diff the POST
+  reports, moved to the near side of the write.
+- The admission list is read once for both sides; an unreadable one is `admissionUnread` and the
+  strip says the preview uses the org bar alone and CI may be stricter. It is never shown as clean.
+- When the draft removes a bar, Save reads *"Save and remove N bar"* and asks for confirmation naming
+  the bars. Only the latest draft's answer is ever shown (`policyPreviewModel` discards older
+  sequence numbers). Save itself is unchanged: same body, same sweep, same audit row.
+
 ### The audit row
 
 Every save writes an `org.gate_policy` audit row carrying **the bar itself**, not just that it
@@ -517,6 +542,10 @@ all, so the new bar simply applies on each PR's next push or CI run.
 | `src/lib/github/checks.ts` | `createCheckRun()`, `upsertStickyComment()`. |
 | `src/app/api/org/gate-policy/route.ts` | Persist the org bar (owner-gated) + sweep open PRs; diff the write and name what it dropped. |
 | `src/lib/scoring/gate-diff.ts` | Field-level diff of a policy write, in `describeGatePolicy`'s wording — the audit `status` clause and the editor's removal warning. |
+| `src/app/api/org/gate-policy/preview/route.ts` | Read-only, owner-gated preview of a draft bar: which repos flip, which bars go untested, which bars it removes. |
+| `src/lib/org/gate-policy-impact.ts` | `gatePolicyImpact()`: before/after over the fleet through the resolver, plus the removed-bar diff. |
+| `src/lib/org/fleet-gate-snapshot.ts` | The one rollup-row to `GateSnapshot` mapping (governance tab and preview). |
+| `src/features/standing/governance/PolicyImpactStrip.tsx` | The preview under both editors; state in `usePolicyPreview` / `policyPreviewModel`. |
 | `src/features/standing/governance/GatePolicyEditor.tsx` | The owner's policy form, incl. when the bar applies. |
 | `src/features/standing/governance/DimensionFloorRows.tsx` | Per-dimension floors (D1–D8) in that form. |
 | `src/features/standing/governance/RequireChecksRows.tsx` | Add/remove `requireChecks` doctor check ids in that form. |
