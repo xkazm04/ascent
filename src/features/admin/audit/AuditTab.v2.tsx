@@ -1,7 +1,7 @@
 // The Prism composition of the Audit tab: a masthead that answers the one question an examiner opens this
 // tab with (is the trail complete?), then the trail itself in a ruled Frame. Same page, same viewer and the
 // same health notice as v1. Server-safe (the viewer is the client part).
-import Link from "next/link";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { Frame, Masthead, SectionHead, type MastheadFigure } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { AuditLogPage } from "@/lib/db";
@@ -37,11 +37,7 @@ export function auditV2(slug: string, page: AuditLogPage, health: AuditHealth) {
           <AuditLogViewer org={slug} initial={page} />
         </div>
       </Frame>
-      <nav aria-label="Related views" className="flex justify-end">
-        <Link href={orgTabHref(slug, "executive")} className="focus-ring type-caption text-accent transition hover:text-white">
-          Executive →
-        </Link>
-      </nav>
+      <NextMoveLink href={orgTabHref(slug, "executive")} to="executive" />
     </div>
   );
 }

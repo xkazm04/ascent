@@ -1,7 +1,7 @@
 // The Prism composition of the Pairing tab: a masthead that states how much of the fleet reads from disk,
 // then the registry step and the fleet step as ruled Frames (the steps keep their own cards for the forms).
 // Same data and the same step components as v1. Server-safe.
-import Link from "next/link";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { Frame, Masthead, SectionHead, type MastheadFigure } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { PairingList } from "./PairingList";
@@ -47,11 +47,7 @@ export function pairingV2(slug: string, { pairings, registry }: PairingData) {
           <PairingList org={slug} initial={pairings} />
         </div>
       </Frame>
-      <nav aria-label="Related views" className="flex justify-end">
-        <Link href={orgTabHref(slug, "repositories")} className="focus-ring type-caption text-accent transition hover:text-white">
-          Repositories →
-        </Link>
-      </nav>
+      <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 // The Prism composition of the member roster: a masthead that states who holds the keys (owners, admins,
 // the rest, pending invites), then hairline Frames for the roster and for invites instead of a heading over
 // a boxed table. Same hook, same table and invite panel as v1.
-import Link from "next/link";
+import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { Caption, Frame, Masthead, SectionHead, type MastheadFigure } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { MemberInvites } from "./MemberInvites";
@@ -75,11 +75,7 @@ export function MembersPanelV2({ slug, initial, initialInvites, selfLogin, canMa
           </div>
         </Frame>
       )}
-      <nav aria-label="Related views" className="flex justify-end">
-        <Link href={orgTabHref(slug, "repositories")} className="focus-ring type-caption text-accent transition hover:text-white">
-          Repositories →
-        </Link>
-      </nav>
+      <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />
     </div>
   );
 }
