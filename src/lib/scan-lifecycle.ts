@@ -365,6 +365,10 @@ export interface ScanLifecycleInput {
   coordinate: ScanCoordinate;
   orgSlug: string;
   token: string | undefined;
+  /** The forge that issued `token` (absent = GitHub, scanRepository's fail-closed default). Threaded
+   *  so a caller-supplied GitLab credential reaches a `gitlab:` scan instead of being dropped by the
+   *  destination binding (src/lib/forge/scan-credential.ts). */
+  tokenForge?: ForgeId;
   noAmbientToken: boolean;
   scoping: ResolvedScanScope;
   mock: boolean;
@@ -436,6 +440,7 @@ export async function runScanLifecycle<T>(
   const doScan = (signal?: AbortSignal, emit = adapter.onProgress) =>
     scanRepository(input.url, {
       token: input.token,
+      ...(input.tokenForge ? { tokenForge: input.tokenForge } : {}),
       noAmbientToken: input.noAmbientToken,
       mock: input.mock,
       signal,

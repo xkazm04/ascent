@@ -70,6 +70,10 @@ async function runScan(
 
   // GitHub App installation token takes precedence over any explicit body token.
   let token = opts.token;
+  // A BODY token for a GitLab coordinate is the caller's GitLab credential: label it so the destination
+  // binding lets it reach that forge. Every other token (the installation mint below, a body token on a
+  // GitHub coordinate) stays unlabelled, i.e. GitHub, and can never be sent to a GitLab host.
+  const tokenForge = opts.token !== undefined && forgeId === "gitlab" ? ("gitlab" as const) : undefined;
   let orgSlug = "public";
   // Set when the owner is an installed org the caller may NOT mint for: ingesting it with the ambient
   // operator PAT would leak the private repo the mint gate just denied. Token-less ⇒ private repos 404.
@@ -159,6 +163,7 @@ async function runScan(
       coordinate,
       orgSlug,
       token,
+      tokenForge,
       noAmbientToken,
       scoping,
       mock: opts.mock,
