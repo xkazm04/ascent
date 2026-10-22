@@ -3,6 +3,7 @@
 // Claude Code OTel setup. The token and the environment snippet share one mask until Reveal.
 import { Caption, GhostAction, Input, MonoPath, PrimaryAction, SettingRow, Textarea } from "@/components/kit";
 import { PROVIDERS } from "@/lib/integrations/providers";
+import { AttributionReconcile } from "./AttributionReconcile";
 import { CapabilityNotes } from "./CapabilityNotes.v2";
 import { ConnectNotice, StatusSentence } from "./ConnectNotice";
 import { CopyControl } from "./CopyControl";
@@ -60,6 +61,7 @@ function ClaudeConfigured({
         <MonoPath>OTEL_EXPORTER_OTLP_PROTOCOL=http/json</MonoPath>: Ascent decodes OTLP over JSON only, and the exporter&apos;s default protobuf wire format is rejected (415).
       </p>
       <StatusSentence line={line} />
+      <AttributionReconcile slug={slug} attribution={status?.attribution} />
       <SettingRow label="Ingest endpoint" description="Read only. The metrics URL Claude Code posts to." control={<span />} />
       <QuietField label="Ingest endpoint" htmlFor="claude-endpoint">
         <span className="flex items-start gap-2">

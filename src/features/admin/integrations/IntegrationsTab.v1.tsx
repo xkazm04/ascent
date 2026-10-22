@@ -3,9 +3,10 @@ import { SectionHeader } from "@/components/org/shared/ui";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import type { ProviderIngestStatus } from "@/lib/db";
+import { AttributionReconcile } from "./AttributionReconcile";
 import { ForgeInstallationCard } from "./ForgeInstallationCard";
 import { IntegrationsPanel } from "./IntegrationsPanel";
-import type { IntegrationsData } from "./integrationModel";
+import { statusFor, type IntegrationsData } from "./integrationModel";
 
 export function integrationsV1(data: IntegrationsData) {
   const statuses: ProviderIngestStatus[] = data.statuses.map((status) => ({ ...status, lastReceived: new Date(status.lastReceived) }));
@@ -27,6 +28,7 @@ export function integrationsV1(data: IntegrationsData) {
         statuses={statuses}
         openai={data.openai}
       />
+      <AttributionReconcile slug={data.slug} attribution={statusFor(data, "claude-code")?.attribution} />
       <NextMoveLink href={orgTabHref(data.slug, "repositories")} to="repositories" />
     </div>
   );
