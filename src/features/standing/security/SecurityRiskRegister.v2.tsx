@@ -4,7 +4,7 @@
 // Altimeter register: the D9 matrix first, then the auditable per-repo ledger as ruled rows (score as a
 // figure you can open, gate verdict as a word and a glyph, gaps, advisories, the report link).
 import Link from "next/link";
-import { CELL, DataTable, GhostAction, HEAD_CELL, VoidMark } from "@/components/kit";
+import { CELL, DataTable, Display, GhostAction, HEAD_CELL, VoidMark } from "@/components/kit";
 import { RepoDimensionModal } from "@/components/org/shared/RepoDimensionModal";
 import type { SecurityRegisterRow } from "@/lib/org/security";
 import { VISIBLE_DEFAULT, type RegisterAdvisories } from "./securityRegisterShared";
@@ -60,11 +60,11 @@ export function SecurityRiskRegisterV2({
                   <button
                     type="button"
                     onClick={() => setTarget({ fullName: r.fullName, name: r.name, dimId: "D9" })}
-                    className="focus-ring text-[1.25rem] font-light tabular-nums text-white hover:text-accent"
+                    className="focus-ring hover:text-accent"
                     title={`${r.name} · Security (D9): ${r.score}, open per-check evidence and next steps`}
                     aria-label={`${r.name} security score ${r.score}, open detail`}
                   >
-                    {r.score}
+                    <Display as="div" level="figure">{r.score}</Display>
                   </button>
                 ) : (
                   // The scan carried no D9 row. `score` is the fail-closed substitute for banding: printing it would publish a 0 nobody measured.
