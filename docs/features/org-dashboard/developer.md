@@ -249,7 +249,38 @@ share into anything an org sees, and the rules are structural:
 - **Your bands are the same aggregate.** When your own share consents, `getDeveloperView` sets
   `orgBands` to that aggregate's `shapeBands`; without consent no cohort is read and `orgBands` stays
   null, which the page draws as "comparison off". The privacy ledger's **Anonymous org bands** row
-  is the switch (on when you consented), never a lock.
+  is the switch (on when you consented), never a lock. Its matrix label is **Org bands**, short
+  enough for the ledger's label gutter.
+
+### Bring your share in from the page
+
+Since 2026-10-22 the page is the door a share has into the route. The route accepts the browser
+session only (the CLI has no per-user credential, see Known gaps), and the page already holds that
+session, so the Setup card carries the panel (`CareShareUpload`, `src/features/developer/CareShareUpload.tsx`).
+**Share again** in the Setup strip (labelled **Paste a share** before anything was stored) and
+**Share an update** on the profile card open it; both used to `console.info` their intent.
+
+- **Paste or drop, then preview.** The developer pastes a share or drops / chooses a `.json` file.
+  `careSharePreview` (`shareUploadModel.ts`, pure) runs the server's own door on it in the browser:
+  the UTF-8 byte cap first (never parsed when over 64 KB), then `validateCareShare`, then
+  `careShareLedger`. So a never-sent or identity key is refused, by path, before anything leaves the
+  page, with the same sentences the route would return. A ready share shows **what leaves** (profile,
+  move and journal counts, shape fields, the hook flag), the ledger it would light on the same
+  `MatrixGrid`, and **what you stop sharing**: a push replaces the stored share whole, so every
+  section the stored share carries and this one omits is named (profile, moves, journal, session
+  shape, anonymous org bands).
+- **Consent is your tick, never the file's.** "Add my shared values to the anonymous org bands" is a
+  checkbox that starts OFF. A file that says `consent.orgAggregate: true` is reported ("It stays off
+  until you tick the box") and is not obeyed: the body that leaves carries the checkbox value. When
+  the box is off and the file names no consent, the exact pasted text is sent.
+- **One-click commit, delete behind a confirm.** `careShareClient.ts` sends one same-origin
+  `POST /api/me/mentor/share` (the route is unchanged) and maps its answer: 200 refreshes the page so
+  it renders the stored share; 400 shows the server's own `errors`; 401 reads "Sign in to share"; 413
+  and 503 are named. **Delete my share** (shown once something is stored) first asks "Delete your
+  stored share?" and sends nothing; **Delete it** sends one `DELETE` and refreshes; a 404 reads
+  "Nothing was stored for you".
+- **Never on a preview fixture.** When `view.demo` is set, Commit and Delete are disabled and no
+  request can be made; the paste still previews.
 
 ## Relation to Contributors (§5.2)
 
@@ -293,6 +324,9 @@ The line between them is enforced in two directions:
 | The render | `src/features/developer/DeveloperCompanion.tsx` |
 | Sub-components | `.../DeveloperActivityStrip.tsx`, `CareBits`, `CareCopyAction`, `CarePreviewBanner`, `CareProfileCard`, `CareMovesBoard`, `CareSessionShape`, `CareShapeRow`, `CareShareBar`, `CareRepoGaps`, `CareJournal`, `CarePrivacyLedger`, `CareWhyStrip`. Each renders exactly one layout since 2026-09-05; the Climb/Cockpit prototype branches are gone. |
 | Privacy-ledger row model (pure) | `src/features/developer/careLedgerRows.ts` |
+| Share panel (paste, preview, commit, delete) | `src/features/developer/CareShareUpload.tsx` |
+| Share preview over the server's validator + ledger (pure) | `src/features/developer/shareUploadModel.ts` |
+| Share route client (POST / DELETE, status to state) | `src/features/developer/careShareClient.ts` |
 | Shared viz kit | `@/components/org/viz` — `MatrixGrid`, `Distribution`, `StateSwatch`, `Legend`, `WhyChip`. No state encoding, hatch, dash or legend is re-implemented in this directory. |
 | Shared org shell | `src/components/org/shell/OrgShell.tsx` (+ `src/lib/org/orgShellGate.ts`) |
 | Contributors relation | `src/features/bought/contributors/ContributorsYouPointer.tsx`, `ContributorsCareSection.tsx`, `CareOrgAggregate.tsx` |
@@ -311,20 +345,22 @@ the same client/server boundary split as `skill-usage-load.ts`.
 
 ## Known gaps
 
-- **No producer sends consent yet.** The contract and the producer accept `consent.orgAggregate`,
-  but nothing that can reach the route sends it (see the next gap), so every aggregate stays empty
-  until a sharer opts in.
+- **Consent reaches the route through the page only.** The share panel is the one producer that
+  sends `consent.orgAggregate`, and only when the developer ticks it; until sharers do, every
+  aggregate stays empty.
 - **`npx ascent mentor share` cannot authenticate.** The route accepts the browser session only. The
   only bearer tokens in the product (`org-api-tokens.ts`, the MCP door) are org-scoped and carry no
   person, so accepting one here would let any holder write as anyone. A CLI share needs a per-user
   credential that does not exist yet; until then nothing on a developer's machine can reach the route
-  without a browser session, and the page has no upload or delete control of its own.
-- **Most actions are unwired.** Share, Install mentor, Mark kept/dropped, Promote to registry and
+  without a browser session. The page's share panel (above) is the door in the meantime: the file
+  the mentor writes is pasted or dropped there, by hand.
+- **Most actions are unwired.** Install mentor, Mark kept/dropped, Promote to registry and
   "author as registry skill" `console.info` their intent; the PR-opening bridge to the registry lands
   with C4. The one exception since 2026-09-05: **"Copy `npx ascent mentor init`" really writes the
   clipboard** (`CareCopyAction`, with a selectable `<code>` fallback where the Clipboard API is
   absent), because a button labelled Copy is a promise about the clipboard. Both mentor commands
-  render as selectable code.
+  render as selectable code. Since 2026-10-22 the Share buttons are real too: they open the share
+  panel.
 - **The `/mentor` skill does not exist yet** (C2) — nothing can share to this page until it ships in the
   `npx ascent` distributable.
 - (Closed 2026-09-08.) ~~Every absence on this page is narrated in one paragraph.~~ The four reasons

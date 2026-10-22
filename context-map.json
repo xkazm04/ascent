@@ -1882,7 +1882,13 @@
             "src/lib/org/care-share-view.ts",
             "src/lib/org/developer-view-load.share.test.ts",
             "src/lib/org/developer-view-load.session-email.test.ts",
-            "src/lib/org/developer-view-load.session-shape.test.ts"
+            "src/lib/org/developer-view-load.session-shape.test.ts",
+            "src/features/developer/CareShareUpload.tsx",
+            "src/features/developer/CareShareUpload.dom.test.tsx",
+            "src/features/developer/shareUploadModel.ts",
+            "src/features/developer/shareUploadModel.test.ts",
+            "src/features/developer/careShareClient.ts",
+            "src/features/developer/careShareClient.test.ts"
           ],
           "target": null,
           "apiRoutes": [
