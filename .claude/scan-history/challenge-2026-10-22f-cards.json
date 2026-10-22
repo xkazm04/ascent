@@ -1,0 +1,384 @@
+[
+ {
+  "context": "Quotas & Rate Limiting",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One limiter charge pipeline: reserve the caller slot before the store await",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/lib/rate-limit.ts",
+   "src/lib/rate-limit-window.ts",
+   "src/lib/scan-gates.ts",
+   "src/app/api/scan/route.ts",
+   "src/app/api/org/import/route.ts",
+   "src/lib/db/quota-events.ts",
+   "src/app/api/scan/gate-order.test.ts"
+  ],
+  "new_files": [
+   "src/lib/rate-limit-charge.ts",
+   "src/lib/rate-limit-charge.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/billing/usage.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/rate-limit.ts: 529 -> ~455 (no cap: .ts outside src/features; shrinks, as chargeWindows + the rateLimitRequestShared body move out)",
+   "src/lib/rate-limit-window.ts: 198 -> ~228 (no cap: .ts outside src/features) - adds reserveHit/releaseHit",
+   "src/lib/rate-limit-charge.ts: new ~170 (no cap)",
+   "src/lib/rate-limit-charge.test.ts: new ~190",
+   "src/lib/scan-gates.ts: 239 -> ~236",
+   "src/app/api/scan/route.ts: 425 -> ~423",
+   "src/app/api/org/import/route.ts: 726 -> ~724",
+   "src/lib/db/quota-events.ts: 65 -> ~72",
+   "src/app/api/scan/gate-order.test.ts: 555 -> ~556 (the one route-level event assertion becomes a pipeline assertion)"
+  ],
+  "acceptance": [
+   "Shared store fake whose hit() resolves after 20ms with {ok:true}; 25 concurrent rateLimitRequestShared(sameIpReq, SCAN_RATE_LIMIT) (perIp 20) -> exactly 20 ok, 5 refused with scope 'ip' and evaluated true (today: 25 ok, because all 25 pass checkWindow before any recordHit)",
+   "Same 25-way burst, store returns {ok:false, retryAfterSec:9} for every hit -> all refused scope 'global'; afterwards the IP's window holds 0 hits, so a later sequential burst admits a full 20 (QUOTA #3 still true under concurrency: reserved slots are released on a global refusal)",
+   "Store returns null (unreachable), fail-closed default -> scope 'unavailable', evaluated false, the reserved per-caller slot is released, and recordQuotaEvent is called with ('rate_limit_unavailable','scan'), never with kind 'rate_limit'",
+   "rateLimitRequest(req, PEEK_RATE_LIMIT) refused per-IP -> recordQuotaEvent('rate_limit','scan-peek') is emitted by the pipeline (today the route records 'scan' for the scan-peek limiter)",
+   "rateLimitRequest(req, GATE_RATE_LIMIT) and rateLimitKeyed(tokenId, MCP_RATE_LIMIT) refused -> events ('rate_limit','gate') and ('rate_limit','mcp') (today: no event at all for gate, mcp, quota-peek, contact, org-repos or ingest)",
+   "A global-layer refusal on any door -> event ('rate_limit','<limiter>:global'), so /usage separates 'your budget' from 'everyone's budget' trips",
+   "Repo-wide grep: recordQuotaEvent(\"rate_limit\" appears in no file outside src/lib/rate-limit-charge.ts (the three hand-placed call sites are gone)"
+  ],
+  "guards": [
+   "With no shared store configured, a sequential run of rateLimitRequestShared returns exactly the verdict sequence rateLimitRequest returns for the same requests (green-before by design: the no-store path has no await, so it never raced)",
+   "getQuotaEventTotals() never counts 'rate_limit_unavailable' rows (green-before by design: ABUSE_KINDS already filters to quota_deny + rate_limit)"
+  ],
+  "premise": [
+   "src/lib/rate-limit.ts:223 - rateLimitRequestShared CHECKS the per-IP window (checkWindow, records nothing)",
+   "src/lib/rate-limit.ts:236 - then awaits the network hop store.hit(...) before any per-IP record",
+   "src/lib/rate-limit.ts:225-228 - the per-IP hit is recorded only inside admit(), after the await, so N concurrent same-IP requests all observe the pre-burst count",
+   "src/lib/rate-limit-window.ts:181-182 - recordHit's own comment concedes the await gap ('the shared path awaits a network hop in between') but only re-reads the window, it does not re-check the cap",
+   "src/lib/rate-limit.ts:124-128 - QUOTA #1's stated purpose is keeping one abuser from spending the shared global budget; under the race one IP can spend up to the full global (120) instead of its 20",
+   "src/lib/rate-limit.ts:168-177 vs :219-263 - the QUOTA #1/#3 rule is implemented twice (chargeWindows for the sync/keyed doors, an inline copy in rateLimitRequestShared); the comment at :168 claims ONE implementation",
+   "src/lib/rate-limit-store.ts:11-16 - the shared store is the multi-instance production posture, i.e. the race lives exactly where the fleet ceiling matters",
+   "src/app/api/scan/route.ts:114-116 - the PEEK_RATE_LIMIT (name 'scan-peek', rate-limit.ts:409) refusal is recorded as scope 'scan'",
+   "src/lib/scan-gates.ts:74-76 - any !rl.ok, including scope 'unavailable' (a store outage, nothing counted), is recorded as a 'rate_limit' trip",
+   "grep recordQuotaEvent(\"rate_limit\" in src (non-test): only src/app/api/org/import/route.ts:98, src/app/api/scan/route.ts:116, src/lib/scan-gates.ts:76 - the gate, mcp, quota, plan-enquiry, org/repos and ingest doors (rate-limit.ts callers at gate route:104/143/194, mcp route:104/126, plan-enquiry:38, quota:24, org/repos:25, ingest-guard.ts:177) count nothing",
+   "src/lib/db/quota-events.ts:44-45 - the /usage panel documents rate-limit trips 'by limiter name (gate, …)', a series no code writes for 'gate'",
+   "grep rateLimiterStats in src (non-test): defined rate-limit-window.ts:71 and re-exported rate-limit.ts:50, read by nothing"
+  ],
+  "rollback": "Revert the series: rate-limit-charge.ts is new and the three exported entry points keep their names and signatures, so no caller or vi.mock('@/lib/rate-limit') changes; restoring rate-limit.ts/rate-limit-window.ts and re-adding the three recordQuotaEvent lines restores today's behaviour exactly.",
+  "gate": "architecture",
+  "doc": "docs/features/billing/usage.md",
+  "runner_up": "A required per-config `ceiling: \"fleet\" | \"instance\"` declaration plus one async door, so the prose 'Adoption status' door list in usage.md:370-374 becomes a typed table a guard test checks against every route.",
+  "body": "## Summary\nThe limiter's per-caller burst cap is not enforced under concurrency on the shared-store path, and the QUOTA #1/#3 rule that is supposed to have one implementation has two. Fold both entry paths into one charge pipeline that RESERVES the caller's slot synchronously before any await and releases it on a global or unavailable refusal, and let that pipeline - not three hand-placed route lines - count every refusal by limiter and layer.\n\n## Description\n`rateLimitRequestShared` checks the per-IP window, awaits the shared store, then records the per-IP hit. Every same-IP request that arrives during that await sees the same pre-burst count, so a script that fires its requests in parallel gets all of them past the per-IP cap and spends the fleet's global budget on its own - the exact lever QUOTA #1 exists to remove, on the inference-spending scan path, in the multi-instance posture the store was built for. The sync path (`chargeWindows`) has no await and is fine, which is why no test caught it: there is no concurrent test with a slow store.\n\nThe fix is limiter-topology's 'consume atomically across layers': reserve -> charge global -> commit or release. `rate-limit-window.ts` gains `reserveHit(key, limit, windowMs)` (check-and-push in one synchronous step, returning a token) and `releaseHit(key, token)` (value-keyed removal, the same shape public-scan-quota's `removeHit` uses for its refunds). `rate-limit-charge.ts` owns the single pipeline `charge(callerKey, cfg, {shared})`; `rateLimitRequest`, `rateLimitKeyed` and `rateLimitRequestShared` become one-line wrappers with unchanged signatures, so no route or route test mock changes.\n\nThe same pipeline emits the refusal telemetry (refusal-contract: 'refusals count on their own series'; limit-observability: 'every count names its predicate'): `rate_limit` scoped by limiter name, `<limiter>:global` for the shared layer, and a separate `rate_limit_unavailable` kind for outages that counted nothing. That removes the mislabelled peek event, the outage-counted-as-abuse event, and the six silent doors.\n\nNo number, window, fail-open/closed default or door posture changes. No quota is raised or removed.\n\n## Flow\n- reserveHit(callerKey) -> over cap: refuse 'ip' (nothing reserved)\n- global: in-memory hit, or await store.hit\n- admitted -> keep the reservation\n- global refused / store null + fail-closed -> releaseHit, refuse 'global' / 'unavailable'\n- store null + fail-open -> in-memory global; refused -> releaseHit\n- every refusal -> one recordQuotaEvent with (kind, limiter[:global])\n\n## Expected impact\nThe stated 20/min/IP cap holds for a parallel script on a shared-store deployment (today it admits up to the 120 global). /usage shows trips for every door, split by layer, with outages on their own line. One implementation of the QUOTA rules instead of two.\n\n## Evaluation\nClaim: the per-caller cap holds under concurrency and every refusal is counted once, by limiter and layer\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first in src/lib/rate-limit-charge.test.ts with a delayed fake SharedWindowStore (via __setSharedWindowStore) and a mocked @/lib/db/quota-events\nResult: better\nGate: architecture - correctness of an existing limit and its telemetry; no policy, plan or charge change",
+  "evidence": "src/lib/rate-limit.ts:219-237:\n  const ipKey = `${cfg.name}:ip:${clientIp(req)}`;\n  const p = checkWindow(ipKey, cfg.perIp, cfg.windowMs);\n  if (!p.ok) return perIpRefusal(cfg, p.retryAfterSec);\n  const admit = (): RateLimitResult => { recordHit(ipKey, cfg.windowMs); return { ok: true, retryAfterSec: 0 }; };\n  ...\n  const g = await store.hit(`ascent:rl:${cfg.name}:__global__`, cfg.global, cfg.windowMs);\n  if (g) return g.ok ? admit() : globalRefusal(cfg, g.retryAfterSec);\nsrc/lib/rate-limit-window.ts:181-182: 'Re-reads the window rather than reusing the array a preceding `checkWindow` trimmed, because the shared path awaits a network hop in between.'\ngrep -n 'Promise.all|concurren' src/lib/rate-limit.test.ts -> no matches (968 lines, no concurrent case).\ngrep recordQuotaEvent(\"rate_limit\" src (non-test): org/import/route.ts:98 ('org-import'), scan/route.ts:116 ('scan' for the scan-peek limiter), scan-gates.ts:76 ('scan', also on scope 'unavailable').\nRegistry: software-engineering/rate-limiting (map state 'deviation', stale:true) - techniques limiter-topology ('Consume atomically across layers'; 'it belongs on its own counter, distinct from refusals the limiter actually evaluated'), refusal-contract ('In telemetry: refusals count on their own series'), limit-observability ('every count names its predicate')."
+ },
+ {
+  "context": "Quotas & Rate Limiting",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "A throttled scan counts down its Retry-After and resumes itself",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "src/components/report/useReportScan.ts",
+   "src/components/report/ReportClient.tsx",
+   "src/components/report/ReportRescanAlert.tsx"
+  ],
+  "new_files": [
+   "src/components/report/scanThrottleModel.ts",
+   "src/components/report/scanThrottleModel.test.ts",
+   "src/components/report/useThrottleResume.ts",
+   "src/components/report/ThrottledNotice.tsx",
+   "src/components/report/ThrottledNotice.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/components/report/useReportScan.ts: 479 -> ~495 (no cap: .ts outside src/features; only the classify branch lands here, the timing lives in useThrottleResume.ts)",
+   "src/components/report/ReportClient.tsx: 116 -> ~134 (cap 300)",
+   "src/components/report/ReportRescanAlert.tsx: 100 -> ~118 (cap 300)",
+   "src/components/report/scanThrottleModel.ts: new ~120 (pure, no React)",
+   "src/components/report/useThrottleResume.ts: new ~75",
+   "src/components/report/ThrottledNotice.tsx: new ~105 (cap 300, 'use client')",
+   "src/components/report/scanThrottleModel.test.ts: new ~160",
+   "src/components/report/ThrottledNotice.dom.test.tsx: new ~120"
+  ],
+  "acceptance": [
+   "parseThrottle(429, {code:'rate_limited', scope:'ip', limiter:'scan', limit:20, windowSec:60, retryAfterSec:34}, null, now) -> {scope:'ip', limiter:'scan', retryAt: now+34000, limit:20, windowSec:60}",
+   "parseThrottle(429, {code:'rate_limit_unavailable', scope:'unavailable', retryAfterSec:3}, null, now) -> {scope:'unavailable', retryAt: now+3000}; parseThrottle(429, null, '12', now) (legacy body / unreadable JSON) -> {scope:'unknown', retryAt: now+12000}",
+   "parseThrottle(429, {code:'monthly_quota', ...}) -> null and parseThrottle(402|401, ...) -> null (the monthly-quota salvage, credits and sign-in paths are untouched)",
+   "throttleStep(t, now < retryAt, autoUsed 0, visible true, rng=()=>0.5) -> {kind:'wait', ms: retryAt - now + 1000} (jitter in [0, 2000] from the injected rng, so a herd refused together does not return together)",
+   "throttleStep(t, now >= retryAt, autoUsed 2, visible true) -> {kind:'manual'} (at most two automatic resumes per report visit); throttleStep(..., visible false) -> {kind:'paused'} (a hidden tab never auto-resumes)",
+   "useReportScan: /api/scan/stream answers 429 {code:'rate_limited', scope:'global', retryAfterSec:20} -> state {status:'error', throttled:{scope:'global', ...}} and isTransientScanError(cls) === false, so no immediate Retry/Try again is offered (today: generic 'Couldn't scan that repo' + 'Try again')",
+   "ThrottledNotice with retryAt = now+5s under fake timers: 'Resume now' is disabled until retryAt, then onResume is called exactly once after the jittered wait; scope 'global' renders copy saying the shared budget is busy and it is not the visitor's traffic",
+   "Re-test of a mounted report that is throttled -> report stays mounted, the rescan alert shows the countdown instead of Retry, and the auto-resume calls retest() (rescan mode, prior report never blanked)"
+  ],
+  "guards": [
+   "A 429 monthly_quota still runs the latest=1 salvage peek and lands on QuotaStaleNotice/QuotaBlocked (green-before by design; parseThrottle returns null for it)"
+  ],
+  "premise": [
+   "src/components/report/useReportScan.ts:312 - only code 'monthly_quota' is classified among 429s",
+   "src/components/report/useReportScan.ts:339-341 - every other refusal, including the per-minute 'rate_limited' and 'rate_limit_unavailable' 429s, settles as an unclassified error ('Scan failed (429).' or the server's prose)",
+   "src/components/report/ReportClient.tsx:75-78 - an unclassified error renders <Empty title=\"Couldn't scan that repo\">",
+   "src/components/report/ReportClientEmpty.tsx:35-45 - the unclassified (transient) branch's primary action is 'Try again' to /report?repo=…&fresh=1, an immediate re-request",
+   "src/components/report/ReportRescanAlert.tsx:21-23 - isTransientScanError is true for a throttle (no class), so the re-test banner offers an immediate Retry",
+   "src/lib/rate-limit.ts:353-369 - the per-IP 429 body already carries code, scope, limiter, limit, windowSec and retryAfterSec plus a retry-after header",
+   "src/lib/rate-limit.ts:333-344 - a global 429 says 'not caused by your traffic alone' with its own retryAfterSec; :315-331 unavailable says no budget was exceeded",
+   "src/lib/rate-limit-window.ts:166-170 - retryAfterSec is the honest drain time of the oldest in-window hit, not a constant, so a client that waits it out is admitted",
+   "src/app/api/scan/stream/route.ts:74-75 - the stream route returns this whole result as a plain JSON 429 before the SSE opens, which is the response useReportScan.ts:262 reads",
+   "src/lib/scan-gates.ts:40-41 - the rate limiter runs before the quota counter, so a throttled attempt never burns a monthly free slot; a bounded auto-resume therefore costs the visitor nothing"
+  ],
+  "rollback": "Revert the series: the four new files go away and the three edited files drop one class field and one branch each; a throttled scan falls back to today's generic error. No server, API or limiter change to unwind.",
+  "gate": "none",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "When a throttled first scan has a saved report at another commit, serve it via the existing peek=1&latest=1 salvage under the countdown, so the wait shows an answer instead of a wall.",
+  "body": "## Summary\nWhen the per-minute limiter refuses a scan, the report page shows 'Couldn't scan that repo' and a 'Try again' that re-trips the same window. The server already tells the client which budget refused and exactly when it drains. Use it: a throttled scan becomes a countdown that names whose budget it is and resumes itself when the window opens.\n\n## Description\nThe limiter's refusal is one of the more honest in the codebase: scope (`ip`, `global`, `unavailable`), limiter, the caller's own limit and window, and a computed Retry-After from the oldest in-window hit. The report client ignores all of it. Only `monthly_quota` is classified among 429s; a `rate_limited` or `rate_limit_unavailable` refusal falls through to the generic error, whose action is an immediate retry. That retry is refused again (the window has not drained), which teaches the visitor the product is broken, on the free funnel the limiter exists to protect.\n\nThe leap is a missing mode, 'wait and resume'. A pure `scanThrottleModel.ts` parses the refusal into a `Throttle` and decides the next step (`wait` with jitter, `resume`, `paused` while the tab is hidden, `manual` after two automatic resumes). `useThrottleResume.ts` runs the timer. `ThrottledNotice.tsx` renders the countdown with copy per scope: your own pace (with the stated limit and window), the shared budget is busy (not your traffic), or the limiter was unreachable and nothing was counted. In re-test mode the report stays mounted and the rescan alert shows the same countdown instead of Retry.\n\nThis follows the registry's refusal-contract: retry-after is single-caller-true, so the client honours it rather than guessing, and it adds its own jitter so callers refused together do not come back together. No limit, window or policy changes. Auto-resume is bounded (at most two per visit, never from a hidden tab) and costs no monthly slot because the limiter runs before the quota (scan-gates.ts:40-41).\n\n## Flow\n- 429 rate_limited / rate_limit_unavailable -> parseThrottle -> ScanErrorClass.throttled\n- ReportClient -> ThrottledNotice (countdown, scope copy, disabled 'Resume now')\n- retryAt + jitter, tab visible, autoUsed < 2 -> retest()\n- autoUsed == 2 -> 'Resume now' enabled, no further auto resumes\n- monthly_quota / 402 / 401 -> unchanged paths\n\n## Expected impact\nA throttled visitor reaches a report with no action, instead of hitting an error and a retry that fails. Fewer wasted refused requests against the limiter (no immediate re-trip). The one refusal a CI integration could already diagnose becomes diagnosable to a human too.\n\n## Evaluation\nClaim: a per-minute refusal enters a throttled state that waits out the honest Retry-After and resumes, without touching the monthly-quota, credits or sign-in paths\nBefore: 0 of 8 cases pass\nAfter: 8 of 8\nMethod: gate - pure model tests plus a dom test with fake timers, written red-first\nResult: better\nGate: none",
+  "evidence": "src/components/report/useReportScan.ts:312: if (res.status === 429 && data?.code === \"monthly_quota\") {\nsrc/components/report/useReportScan.ts:339-341: } else { settleError(data?.error ?? `Scan failed (${res.status}).`); }\nsrc/components/report/ReportRescanAlert.tsx:21-23: return !cls.blocked && !cls.authRequired && !cls.notFound && !cls.credits;  (a throttle is 'transient' -> Retry)\nsrc/components/report/ReportClientEmpty.tsx:44-45: label: \"Try again\", href: `/report?repo=${encodeURIComponent(repo)}&fresh=1`\ngrep -rn 'rate_limited|rate_limit_unavailable' src/components -> no matches: no client reads the per-minute refusal's code or scope.\nRegistry: software-engineering/rate-limiting, technique refusal-contract ('It is single-caller-true'; 'De-correlating that wave is the caller's job - jitter belongs on the consuming side')."
+ },
+ {
+  "context": "Database Client & Schema",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "The migration chain builds the schema: 26 unmigrated tables caught up, converge",
+  "size": "L",
+  "effort": 7,
+  "impact": 9,
+  "risk": 7,
+  "write_set": [
+   "prisma/migrations/20260831115900_catch_up_unmigrated_tables/migration.sql",
+   "prisma/migrations/20261023130000_catch_up_unmigrated_columns/migration.sql",
+   "prisma/init.sql",
+   "src/lib/db/migration-chain.test.ts",
+   "src/lib/db/migration-chain-model.ts"
+  ],
+  "new_files": [
+   "prisma/migrations/20260831115900_catch_up_unmigrated_tables/migration.sql",
+   "prisma/migrations/20261023130000_catch_up_unmigrated_columns/migration.sql",
+   "src/lib/db/migration-chain.test.ts",
+   "src/lib/db/migration-chain-model.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/data/data-model.md",
+   "docs/SELF-HOSTING.md",
+   "docs/DEPLOY.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "prisma/migrations/20260831115900_catch_up_unmigrated_tables/migration.sql: 0 -> ~430 (SQL, no cap; lifted from init.sql's CREATE TABLE/INDEX blocks for the 26 tables, rewritten IF NOT EXISTS)",
+   "prisma/migrations/20261023130000_catch_up_unmigrated_columns/migration.sql: 0 -> ~75 (56 ADD COLUMN IF NOT EXISTS + 4 CREATE INDEX IF NOT EXISTS)",
+   "prisma/init.sql: 2792 -> ~2792 (7 lines edited: drop DEFAULT CURRENT_TIMESTAMP on @updatedAt/lastSeen columns the chain never had, e.g. init.sql:491)",
+   "src/lib/db/migration-chain.test.ts: 0 -> ~150 (.ts outside src/features; 300 spirit)",
+   "src/lib/db/migration-chain-model.ts: 0 -> ~90"
+  ],
+  "acceptance": [
+   "Replay every prisma/migrations/*/migration.sql in name order into a fresh in-process PGlite -> no step throws (today: 20260831120000_add_lane_outcome_verified_at throws relation \"LaneItemOutcome\" does not exist; 20260923120000 throws on RepoConformanceMap)",
+   "Dump {tables, columns(type,nullability,default), index names+defs} from a chain-built store and from an init.sql-built store -> identical (today: 26 tables, 56 columns on shared tables, 4 indexes and 7 column defaults differ)",
+   "modelsWithoutMigration(schema.prisma text, concatenated migration SQL) -> [] (today returns 26 names incl. Installation, UsageEvent, ScanJob, LaneItemOutcome, RepoConformanceMap)",
+   "modelsWithoutMigration on a synthetic schema adding `model Foo { id String @id }` with no migration -> [\"Foo\"] (seeded violation proves the matcher bites)",
+   "Exec both catch-up migrations against a store built from init.sql (the shape an already-migrated or db-push'd database has) -> no error and an unchanged schema dump (IF NOT EXISTS no-ops on existing stores)",
+   "Both catch-up migrations, comments stripped -> contain no DELETE / UPDATE / TRUNCATE / DROP / ALTER COLUMN ... TYPE (additive only)",
+   "CRITIC REVISE: on a DB built from prisma/init.sql, running both catch-up migrations twice leaves the schema dump byte-identical; the additivity check rejects any DROP, SET DEFAULT, ADD CONSTRAINT or ALTER TYPE in them"
+  ],
+  "guards": [
+   "Case 4 is a self-test of the matcher (a seeded violation), not of the tree",
+   "Case 6 is satisfied by construction once the files exist; it pins additivity against a future 'cleanup' edit"
+  ],
+  "premise": [
+   "vercel.json:3 - production buildCommand is `npm run db:deploy && npm run build`, i.e. prisma migrate deploy on every deploy",
+   "docs/SELF-HOSTING.md:114 - the documented self-host path on a fresh Postgres is `npm run db:deploy   # apply committed migrations`",
+   "docs/DEPLOY.md:72 - 'Baseline is prisma/migrations/0_init': the chain is declared the fresh-install road",
+   "prisma/migrations/20260831120000_add_lane_outcome_verified_at/migration.sql:16 - ALTER TABLE \"LaneItemOutcome\" ADD COLUMN \"verifiedAt\", but no migration ever CREATEs LaneItemOutcome (it exists only at prisma/init.sql:2375, added by bad3135f 'models and columns in schema.prisma + init.sql')",
+   "prisma/migrations/20260923120000_add_conformance_registry_remote/migration.sql:11 - ALTERs RepoConformanceMap, which no migration creates (prisma/init.sql:2038 only)",
+   "prisma/schema.prisma:3125 model Installation, :2350 UsageEvent, :2965 ScanJob, :2817 LaneItemOutcome - 26 of 89 models have no CREATE TABLE in any of the 82 migrations (loop over `^model` names vs concatenated migration.sql)",
+   "src/lib/db/init-sql.test.ts:24-31 - the only parity guard compares schema.prisma to init.sql; nothing compares either to the migration chain, so the 26-table gap is invisible to CI",
+   "src/lib/db/pglite-boot.ts:33 - dev boots from init.sql and never from migrations, so no developer ever walks the chain road"
+  ],
+  "rollback": "Revert the series. The catch-up steps are IF NOT EXISTS no-ops on every existing store, so a store that already applied them is unchanged. If a deployed _prisma_migrations row then names a removed folder, forward-fix by restoring the file (never edit an applied step).",
+  "gate": "architecture",
+  "doc": "docs/features/data/data-model.md",
+  "runner_up": "Generate prisma/init.sql from `prisma migrate diff --from-empty` + seed (retires the 134 hand ALTER lines and the regex attribute-parity suite). Smaller once the chain converges; today its regeneration diff (~2100 lines, measured) busts the 800-line budget.",
+  "body": "## Summary\nThe committed Prisma migration chain cannot build Ascent's database. 26 of 89 models (Installation, UsageEvent, ScanJob, LaneItemOutcome, the conformance, registry, control-ledger and memory-proposal tables) were added to schema.prisma and init.sql with no migration. So `prisma migrate deploy` on a fresh Postgres stops at 20260831120000 with relation \"LaneItemOutcome\" does not exist. Get past that and it still lacks 56 columns and 4 indexes on tables it does create. That is the documented self-host path (SELF-HOSTING.md:114) and the production buildCommand (vercel.json:3).\n\n## Description\nThe repo has three roads to the current schema: init.sql (PGlite dev, psql bootstrap), the migration chain (self-host, production) and schema.prisma. Its guards check only init.sql against schema.prisma. The registry's migrations golden path ('Two roads must arrive at one schema') and its schema-drift-detection technique (the convergence test) describe this failure exactly: each road is tested only by its own population, and dev never walks the chain. The move is additive and has two halves.\n\n(1) Two catch-up migrations. The first is timestamped just before the first breaking step and creates the 26 tables (IF NOT EXISTS). It leaves out LaneItemOutcome.verifiedAt and RepoConformanceMap.registryRemote so the two shipped ALTERs still apply. The second is appended at the end and adds the 56 columns and 4 indexes (IF NOT EXISTS). No shipped step is edited.\n\n(2) A convergence test. It replays the chain into an in-process PGlite (12 s measured), builds a second store from init.sql, and diffs normalized schema dumps. A static check also fails on any model with no migration CREATE TABLE. The 7 updatedAt DEFAULTs that init.sql carries and Prisma never emits are aligned in init.sql. Hand-mirroring remains after this, but it can no longer drift silently: a forgotten migration fails CI the same day.\n\n## Flow\n- write migration-chain.test.ts red-first (cases 1-3 fail today, measured)\n- migration-chain-model.ts: modelsWithoutMigration + schema-dump normalizer (pure)\n- catch-up 1: the 26 tables lifted from init.sql's blocks, the two later-ALTERed columns left out\n- catch-up 2: the 56 columns and 4 indexes; align 7 init.sql DEFAULTs\n- docs: data-model.md names the convergence guard; the SELF-HOSTING/DEPLOY command now works as written\n\n## Expected impact\nA fresh self-hosted Postgres and a fresh production database become buildable from `db:deploy`, and every future schema change that skips its migration fails a unit test. Recorded deviation from the append-only rule: the first catch-up is inserted before an already-shipped step (20260831120000), because a corrective step appended after it cannot unbreak the fresh replay. It is a new step, not an edit, and a no-op on every store that already passed that point.\n\n## Evaluation\nClaim: the chain builds the same schema init.sql builds\nBefore: 0 of 6 cases pass (the chain halts at the 0831 step; 26/56/4/7 drift measured on PGlite 0.5.3)\nAfter: 6 of 6\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture (adds production migrations; additive IF NOT EXISTS only)",
+  "evidence": "Scratch PGlite replay (node, the repo's @electric-sql/pglite): `FAIL 20260831120000_add_lane_outcome_verified_at relation \"LaneItemOutcome\" does not exist`; `FAIL 20260923120000_add_conformance_registry_remote relation \"RepoConformanceMap\" does not exist`; `tables init 89 chain 63 missing from chain: ConformanceFinding, ConformanceReport, ControlLedgerSeal, ControlObservation, HousePatternVersion, Installation, InterventionOutcome, LaneItemOutcome, OrgKnowledgeSubject, OrgMemoryCandidate, OrgMemoryCitation, OrgMemoryProposal, OrgSkillLesson, OrgSkillTrace, OrgSkillUsageSample, PracticeAdoption, RegistryDispatch, RegistrySignal, RegistrySignalContribution, RepoAdmission, RepoConformance, RepoConformanceMap, RepoMemoryMirror, ScanDigest, ScanJob, UsageEvent`; `cols missing on tables chain has: 56 Organization.repoMemoryMirror, Organization.retentionCompact, Repository.forge, Repository.externalId, Recommendation.leaseUntil, ...`; `indexes missing on tables chain has: 4 ImprovementPr_orgId_loopLaneId_idx, Repository_orgId_forge_idx, Recommendation_status_leaseUntil_idx, OrgSkillEvent_skillId_dedupeKey_key`; `chain attr mismatches: 7 Playbook.updatedAt ... OrgMemory.updatedAt` (init.sql has DEFAULT CURRENT_TIMESTAMP, e.g. init.sql:491). grep of the 26 names across prisma/migrations: only LaneItemOutcome (20260831120000) and RepoConformanceMap (20260923120000) are referenced at all. Today's three migrations (athena claimedAt, OtlpPointReceipt, LoginDiscovery) do carry their DDL, so the gap is historical, and nothing stops it recurring.",
+  "revise_applied": "case 5 becomes the exact no-op proof: build a PGlite DB from prisma/init.sql, dump schema, exec BOTH catch-up migrations TWICE, dump again => byte-identical; additivity grep also rejects SET DEFAULT / ADD CONSTRAINT / DROP / ALTER TYPE. State the pre-existing P3005 unbaselined-prod hazard in docs (not implied fixed); retire the init.sql-only convention text at data-model.md:393-399."
+ },
+ {
+  "context": "Database Client & Schema",
+  "slot": "B-architecture (no UI surface)",
+  "lens": "architecture-challenger",
+  "title": "Auth-expiry self-heal moves into the client: 131 raw getPrisma files recover",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 7,
+  "write_set": [
+   "src/lib/db/client.ts",
+   "src/lib/db/client.test.ts",
+   "src/lib/db/client-heal.ts",
+   "src/lib/db/client-heal.test.ts"
+  ],
+  "new_files": [
+   "src/lib/db/client-heal.ts",
+   "src/lib/db/client-heal.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/data/data-model.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/db/client.ts: 843 -> ~835 (newClient wraps through withSelfHeal; dbReadSafe/dbReadStrict auth branches consult the fence; .ts outside src/features, no hard cap, and the heal lives in the new sibling so client.ts does not grow)",
+   "src/lib/db/client.test.ts: 1055 -> ~1065 (the @prisma/client mock gains $extends; no other growth)",
+   "src/lib/db/client-heal.ts: 0 -> ~120",
+   "src/lib/db/client-heal.test.ts: 0 -> ~170"
+  ],
+  "acceptance": [
+   "Healed client whose first findMany throws {code:'P1000'} -> reconnectDb called once, the same model+operation+args re-run on the fresh client, resolves its value",
+   "First attempt throws {code:'P2002'} (live-DB error) -> rethrown unchanged, reconnect never called",
+   "Both attempts throw auth-expiry -> the second error propagates; reconnect called exactly once (no loop)",
+   "An operation inside an interactive $transaction callback throws auth-expiry -> rethrown, no reconnect, never replayed outside the transaction",
+   "dbReadSafe(fn) where fn's query throws auth-expiry once -> exactly ONE reconnect in total (client heal and wrapper do not both recover)",
+   "$queryRaw throwing auth-expiry -> rethrown unchanged (raw ops out of scope, documented)",
+   "Source guard (comments and strings stripped): every `new PrismaClient(` in src/lib/db/client.ts is an argument of withSelfHeal( -> pass; a seeded unwrapped construction fails"
+  ],
+  "guards": [
+   "Cases 2 and 6 are green-before by design: they pin that the heal does not widen what is retried"
+  ],
+  "premise": [
+   "src/lib/db/client.ts:318 - dbReadSafe's doc says 'the entire read surface flows through this wrapper', which is the reason reconnect was put there",
+   "src/lib/db/client.ts:325 dbReadSafe, :372 dbReadStrict, :775 withDb - recovery is opt-in per call site",
+   "grep: 152 non-test files call getPrisma(); 131 of them use none of dbReadSafe / dbReadStrict / withDb( / runWithReconnect, so an IAM-token lapse there is a 500, not a reconnect",
+   "docs/features/data/data-model.md:336 - 'Most readers wrap their query in dbReadSafe(fn, fallback)', yet dbReadSafe appears in 20 files",
+   "src/lib/db/client.ts:536 newClient - the single construction point for every PrismaClient (PGlite adapter, pg adapter, bare), so a query extension installed there covers every caller",
+   "src/lib/db/client.ts:678 getPrisma - returns the cached client synchronously; it only kicks a proactive refresh inside the margin, and the reactive path (runWithReconnect, :746) is reachable only through the wrappers",
+   "`grep -rn '$extends' src` -> no hits: no client-level policy exists today"
+  ],
+  "rollback": "Revert the series: newClient stops wrapping, and the per-call recovery in dbReadSafe / withDb (left intact) resumes exactly as today. No data or schema is involved.",
+  "gate": "contract",
+  "doc": "docs/features/data/data-model.md",
+  "runner_up": "Split client.ts (843 lines: DSQL config, error taxonomy, read doors, retry, lifecycle) into themed modules behind a barrel. Pure relocation, below the impact floor on its own.",
+  "body": "## Summary\nAuth-expiry recovery (reconnect with a fresh DSQL token, retry once) exists only in the opt-in wrappers dbReadSafe / dbReadStrict / withDb. 131 of the 152 files that touch the database call getPrisma() raw, so on a token lapse (a cold thaw, or a mint stall past the refresh margin) they 500 instead of healing. The move: install the recovery once, as a Prisma query extension at the one construction point (newClient), so every model operation self-heals. The wrappers keep only the decisions they own: degrade-to-fallback, strict, and OCC retry.\n\n## Description\nThe docs and the code comment both describe this policy as universal ('the entire read surface flows through this wrapper', 'Most readers wrap their query in dbReadSafe'). The measured surface says otherwise. This is invariant placement: put the rule where it cannot be bypassed rather than at every caller.\n\nA new client-heal.ts exports withSelfHeal(client, deps): `$extends({ query: { $allOperations } })`. On isAuthExpiryError it awaits reconnectDb() and re-runs the same model operation once on the fresh client. An AsyncLocalStorage flag fences re-entry, so dbReadSafe's own branch does not reconnect a second time. Inside an interactive transaction it rethrows: a transaction is pinned to one connection, and replaying a statement on another client would escape it. Raw SQL is out of scope and rethrows. OCC retry deliberately stays opt-in, because whether to retry a multi-statement write is the caller's call. Deps are injected so the tests run with no database.\n\n## Flow\n- write client-heal.test.ts red-first against a fake client exposing $extends\n- client-heal.ts: withSelfHeal + transaction/re-entry fence\n- client.ts newClient: all three constructions pass through withSelfHeal; the dbReadSafe/Strict auth branches consult the fence\n- client.test.ts: the @prisma/client mock gains $extends\n- data-model.md: the heal is a property of the client; dbReadSafe is the degrade door\n\n## Expected impact\nA DSQL token lapse heals on every model read and write instead of only in the 20 wrapped files, and the docs' claim becomes true by construction.\n\n## Evaluation\nClaim: every model operation recovers an auth expiry exactly once, and never inside a transaction\nBefore: 0 of 7 cases pass (no extension exists)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (changes the retry behaviour of the shared client)",
+  "evidence": "Loop over `grep -rlF 'getPrisma()' src` (tests excluded), counting files matching none of `dbReadSafe|dbReadStrict|withDb\\(|runWithReconnect` -> '152 getPrisma files, 131 with no reconnect wrapper'. dbReadSafe: 20 files / 78 hits; dbReadStrict 3 files; withDb 5 files; runWithReconnect 1 file. client.ts:318 ' * through {@link withDb} (one production caller), while the entire read surface flows through this'. data-model.md:336 'Most readers wrap their query in `dbReadSafe(fn, fallback)`.' `grep -rn '$extends' src` -> empty.",
+  "rehomed": "impact 5 after critic revise (below floor 7): re-homed to the ordinary backlog, not built"
+ },
+ {
+  "context": "Scan Persistence & History",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One Scan-row codec: every persisted report column decodes back onto the report",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/lib/db/scans-persist.ts",
+   "src/lib/db/scans-read.ts"
+  ],
+  "new_files": [
+   "src/lib/db/scan-row-codec.ts",
+   "src/lib/db/scan-row-codec.test.ts",
+   "src/lib/db/scans-read.reconstruct.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/data/data-model.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/db/scans-persist.ts: 941 -> ~890 (no hard cap: a .ts outside src/features; the ~40-field report-column block of scan.create moves to the codec)",
+   "src/lib/db/scans-read.ts: 1568 -> ~1510 (no hard cap; the report-column half of loadScanReportByCommit's return and the private parseJson* helpers move to the codec)",
+   "src/lib/db/scan-row-codec.ts: new ~200",
+   "src/lib/db/scan-row-codec.test.ts: new ~170",
+   "src/lib/db/scans-read.reconstruct.test.ts: new ~170 (the 1146-line scans-read.test.ts is not grown)"
+  ],
+  "acceptance": [
+   "A persisted Scan row whose manifestJson is an ok ManifestReadout declaring a `test` capability -> getScanReportByCommit(owner, name) returns report.manifest deep-equal to that readout (today: undefined)",
+   "The same row shape for guidanceGraphJson, contextHealthJson, practiceShape and platformSignalsJson -> report.guidanceGraph / contextHealth / practiceShape / platformSignals each decode through the existing parser (parseGuidanceGraphJson, parseContextHealthJson, parsePracticeShape, parsePlatformSignals) and equal the stored value (today: all four absent)",
+   "The same row with those five columns NULL -> the five keys are ABSENT on the report (not null, not [], not {}), so 'not assessed by this scan' stays distinguishable from a measured empty",
+   "A corrupt manifestJson ('{not json') -> report.manifest absent, one console.warn, every other field still decodes (no throw, no null report)",
+   "Codec round-trip: for a fixture ScanReport with every codec-declared field set, decodeScanColumns(encodeScanColumns(report)) equals the report on every declared field; an entry added to SCAN_REPORT_COLUMNS without a decode half fails tsc (the table is typed Record<field, {encode, decode}>)",
+   "Completeness guard: each scalar key persistScanReport passes to tx.scan.create (captured by the existing Prisma mock) is either a SCAN_REPORT_COLUMNS column or named in an explicit WRITE_ONLY list with a reason (repoId, headSha, dedupKey, levelName, inputTokens as billable basis) -> a column written with no decode decision fails the test",
+   "buildManifest(a reconstructed report whose persisted scan read an ok manifest with `test: npm test`) -> the generated .ai/manifest.yaml carries `npm test`, the observed contract that the comment at src/lib/standard/manifest.ts:320-322 promises (today: the generic first-install body)"
+  ],
+  "guards": [
+   "The existing sensorFailures round-trip (src/lib/db/scans-read.test.ts:465) and the techStack/passport/scoreIntegrity reconstruction pass before the change by design: they move into the codec unchanged",
+   "The existing scans-persist.test.ts write assertions for contextHealthJson/manifestJson/guidanceGraphJson (lines 488-630) pass before the change by design: the encoded strings stay byte-identical"
+  ],
+  "premise": [
+   "src/lib/db/scans-persist.ts:542 - contextHealthJson is written onto every Scan row",
+   "src/lib/db/scans-persist.ts:547 - manifestJson is written onto every Scan row",
+   "src/lib/db/scans-persist.ts:551 - guidanceGraphJson is written onto every Scan row",
+   "src/lib/db/scans-persist.ts:555 - practiceShape is written onto every Scan row",
+   "src/lib/db/scans-persist.ts:525 - platformSignalsJson is written onto every Scan row",
+   "src/lib/db/scans-read.ts:1394 - loadScanReportByCommit reads the scan with `include`, so every scalar column, these five included, is already in hand",
+   "src/lib/db/scans-read.ts:1496-1567 - the rebuilt ScanReport sets none of contextHealth, manifest, guidanceGraph, practiceShape or platformSignals (grep -n 'contextHealth\\|guidanceGraph\\|practiceShape' src/lib/db/scans-read.ts returns no hits)",
+   "src/lib/db/scans-read.ts:672 - loadComparableScan decodes platformSignalsJson itself, a second separate decode of the same column",
+   "src/lib/db/org-rollup.ts:858-860 - a third site decodes the same contextHealth/manifest/guidanceGraph blobs (off Repository) with the existing parsers, so the decoders exist and the report reconstruction does not use them",
+   "src/lib/scan-cache.ts:188-192 - the cross-instance DB tier returns the reconstructed report AS the scan result and warms the in-memory tier with it (cacheSet), so an unchanged-commit rescan served from the DB is missing all five fields on that instance",
+   "src/app/api/report/foundation/pr/route.ts:64-68 - the foundation PR is built from getScanReportByCommit. src/lib/standard/manifest.ts:323 then reads report.manifest (always undefined on this path) and :58/:79 read report.guidanceGraph (always undefined). The agents block, the guidance block and the observed contract are lost, although the comment at :320-322 says every generation path, the foundation PR included, regenerates OVER the repo's existing contract",
+   "src/lib/onboarding/stack.ts:94 and src/lib/onboarding/skill.ts:218 - the declared commands and the 'already proven' section read report.manifest; src/lib/local/lane-install.ts:122 passes them a reconstructed report"
+  ],
+  "rollback": "Revert the series. The codec is one new module plus two call-site swaps. No schema change, no migration, and no stored row changes: only the read path decodes more, and the encode output is byte-identical",
+  "gate": "contract",
+  "doc": "docs/features/data/data-model.md",
+  "runner_up": "Per-scan contributor history (a ScanContributor join) so a pinned @sha permalink stops blanking its people. Not taken: it needs a schema change on the sibling seam (prisma/init.sql)",
+  "body": "## Summary\nThe Scan row is written by one hand-list (the ~40-field scan.create in persistScanReport) and read back by a different hand-list (the return of loadScanReportByCommit). Five columns written on every scan (contextHealthJson, manifestJson, guidanceGraphJson, practiceShape, platformSignalsJson) are never decoded back. Every reconstructed report is missing them: a DB-tier cache hit, a permalink, a foundation PR, a lane install, a regression baseline. Replace the two lists with one declared column codec.\n\n## Description\nThis is the parallel-copy defect described by the registry technique software-engineering / data-access / row-mapping: 'a field is added, the type and the insert learn about it, one of the read paths does not, and the field silently round-trips as its default'. The parsers already exist (context-health-read.ts:43, readout.ts:109, guidance-graph.ts:536, practice-shape.ts:286, platform-carry.ts:222), and org-rollup.ts uses three of them. Only the report reconstruction never learned the columns. The repair is SCAN_REPORT_COLUMNS in src/lib/db/scan-row-codec.ts: one entry per report-derived Scan column, each with an encode half (report -> column string|null) and a decode half (column -> report field, or ABSENT). scans-persist.ts uses encodeScanColumns. scans-read.ts uses decodeScanColumns, and loadComparableScan uses it for platformSignals. A completeness test lists what persist writes, so the next column cannot be written without a decode decision.\n\n## Flow\n- persistScanReport spreads encodeScanColumns(report) into the tx.scan.create data (the strings are byte-identical)\n- loadScanReportByCommit spreads decodeScanColumns(scan) into the rebuilt report, and an absent column stays absent\n- loadComparableScan reads platformSignals through the same decode half\n- the guard test fails when a written column has neither a codec entry nor a WRITE_ONLY reason\n\n## Expected impact\nA report served from the DB tier, a permalink, a foundation PR and a lane install carry the same contextHealth, manifest, guidanceGraph, practiceShape and platformSignals the fresh scan had. The foundation PR regenerates over the repo's observed contract, which manifest.ts already claims it does. Adding a Scan column becomes a one-site edit.\n\n## Evaluation\nClaim: correctness - 5 of 5 report columns that are written but never read back decode onto the reconstructed report\nBefore: 0 of 7 cases pass (the guards pass by design)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (what a reconstructed ScanReport carries changes; no stored data changes)",
+  "evidence": "grep -n 'contextHealth\\|guidanceGraph\\|practiceShape' src/lib/db/scans-read.ts -> no hits. grep -n 'platformSignals' src/lib/db/scans-read.ts -> only the comparison (595, 644, 672) and the platform readers (1050-1095), none inside loadScanReportByCommit (1369-1568). scans-persist.ts:525/542/547/551/555 write all five. scan-cache.ts:188 `const persisted = await getScanReportByCommit(owner, repo, { headSha, orgSlug })`, :191 `cacheSet(cacheKey, persisted)`. foundation/pr/route.ts:64 `const report = await getScanReportByCommit(...)`, :68 `const files = buildFoundation(report)`. standard/index.ts:64-65 buildFoundation -> buildStandardFiles + buildOnboardingSkillFile. manifest.ts:323 `buildManifestData(report, { observed: report.manifest ?? null })`."
+ },
+ {
+  "context": "Scan Persistence & History",
+  "slot": "B-architecture (no UI surface)",
+  "lens": "architecture-challenger",
+  "title": "Carry-forward as a pure plan: no kept in-progress claim vanishes on rescan",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/lib/db/scans-persist.ts"
+  ],
+  "new_files": [
+   "src/lib/db/scan-carry-plan.ts",
+   "src/lib/db/scan-carry-plan.test.ts",
+   "src/lib/db/scans-persist.carry.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-followups/README.md",
+   "docs/features/data/data-model.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/db/scans-persist.ts: 941 -> ~790 (no hard cap: a .ts outside src/features; the decision loop at 398-451 and the three row-copy blocks at 589-607 / 619-636 / 656-675 move out)",
+   "src/lib/db/scan-carry-plan.ts: new ~190",
+   "src/lib/db/scan-carry-plan.test.ts: new ~190",
+   "src/lib/db/scans-persist.carry.test.ts: new ~150 (the 1852-line scans-persist.test.ts is not grown)"
+  ],
+  "acceptance": [
+   "A previous in_progress gap row in D5 that the new scan does NOT restate, real engines on both ends, D5 moving +2 (inside SCORE_NOISE_BAND) -> decideInProgress says keep/within-noise. The plan lists it as an UNPAIRED keep, and persist writes it onto the new scan as in_progress with its assignee, targetDate and claim (claimActor/leaseUntil), plus a same-status event carrying the within-noise note. Today it falls into the paired branch (scans-persist.ts:441-443), the findFirst by its old title at :652 finds nothing, :676 skips it with `continue`, and the claimed row disappears from the latest scan",
+   "The same setup with the previous scan's engineProvider 'mock' and this one real -> keep/mock-scan; the row is carried forward as in_progress with the mock-scan note (today it vanishes the same way)",
+   "A previous in_progress row 'Add CI lint' that the new scan restates as 'add CI lint.' (the normalized-title tier), claimed by an Ascent-Resolves trailer -> keep/claimed-but-restated; the same-status event attaches to the NEW row the carry produced, found by its roadmap index and not by the old title (today findFirst({dimId, title: old title}) misses and the note is dropped)",
+   "Pairing comes from `restated`, not from a hand-list of reasons: for every keep reason in InProgressDecision, planCarryForward marks the row paired if and only if isRestated(...) is true. This is a table test over the whole reason union, so a new reason cannot land in the wrong branch",
+   "One row copier: the resolved-done copy, the kept copy and the carried copy all come from one copyRecRow(prev, status) built on the select at scans-persist.ts:359. A test lists that select's fields and asserts each non-identity field is either copied or named as reset (status, and the claim on a done row), so the class of miss fixed in 50974709 (claim fields dropped on one copy) becomes a test failure",
+   "planCarryForward is pure and deterministic: two calls on the same (prevRecs, report, resolvedIds, engines) return equal plans, and PersistResult.closedFollowUpIds equals the plan's resolved ids exactly, so a withRetry replay cannot carry ids from a rolled-back attempt"
+  ],
+  "guards": [
+   "The existing scans-persist.test.ts cases for carry-forward, trailer resolve, the no-movement keep, the craft-unclaimed keep and the rubric-changed keep pass before the change by design, because the plan reproduces them. Only within-noise and mock-scan change, from lost to carried"
+  ],
+  "premise": [
+   "src/lib/org/followups.ts:145 - decideInProgress returns restated/claimed-but-restated for every restated row before any movement rule runs, so the within-noise (:177) and mock-scan (:173) keeps can only happen for a row the new scan did not restate",
+   "src/lib/db/scans-persist.ts:437 - the unpaired-keep branch is a hand-list of three reasons (no-movement, craft-unclaimed, rubric-changed); within-noise and mock-scan are not in it",
+   "src/lib/db/scans-persist.ts:441-449 - every other keep is pushed paired:true, and any carry pairing to it that is not a title-tier restatement is nulled, so an un-restated within-noise/mock-scan row gets no carried row",
+   "src/lib/db/scans-persist.ts:651-655 - a paired keep is looked up with findFirst({ scanId, dimId, title: row.title }), using the PREVIOUS row's title",
+   "src/lib/db/scans-persist.ts:589 - the carried row is created with the NEW roadmap title r.title, which differs from the old title on a normalized-tier match (src/lib/org/followups.ts:231-232)",
+   "src/lib/db/scans-persist.ts:676 - `if (!target) continue;`: a miss silently drops the keep, writing neither a row nor an event",
+   "src/lib/db/scans-persist.ts:589-607, 619-636, 656-675 - three hand-copies of the same ~13 recommendation fields",
+   "git 50974709 'fix(Follow-ups Ledger): Carry claimActor, leaseUntil and needsHuman across scan persist' - the field sets of those copies have already drifted once",
+   "grep -n 'within-noise\\|mock-scan' src/lib/db/scans-persist.test.ts -> no hits: neither keep reason is tested through persist"
+  ],
+  "rollback": "Revert the series: one new pure module plus its call site in scans-persist.ts. No schema change, no stored row rewritten, no scan deleted. Rows carried by the fixed rule on scans persisted in the meantime remain valid in_progress rows",
+  "gate": "architecture",
+  "doc": "docs/features/org-followups/README.md",
+  "runner_up": "Durable post-commit consequences as an outbox: the control observations, rec-transition effects and tech-group sync at scans-persist.ts:876-901 are lost if the process dies after commit. Not taken: it needs a new table on the sibling schema seam",
+  "body": "## Summary\nThe follow-up decision that rules what a rescan does with each in-progress claim sits inline in persistScanReport's retried transaction. It splits keeps into paired and unpaired with a hand-list of three reasons, and it finds a paired keep's new row by the OLD title. Two keep reasons (within-noise, mock-scan) land in the wrong branch. A claimed row that the rescan explicitly KEPT open is then neither carried nor closed: it vanishes from the latest scan's ledger along with its assignee and lease. Move the decision into a pure planCarryForward and one row copier.\n\n## Description\nThis is a state machine hiding in a hand-list. InProgressDecision has seven keep reasons. Persist's branch names three of them, so the other four default to 'paired', which is only correct for the two restated ones. The registry technique software-engineering / data-access / transactions-and-units-of-work applies: compute the unit of work before the transaction opens and let the transaction only apply it, so neither a unit applied twice on retry nor a half-decided write can happen. planCarryForward(prevRecs, report, resolvedIds, engines) returns { carry[j], resolved[], keptPaired[{prevIndex, nextIndex, note}], keptUnpaired[{prevIndex, note}] }. Pairing comes from isRestated. A paired keep is addressed by the next row's index (the transaction collects the created ids in roadmap order), not by a title lookup. copyRecRow(prev, status) replaces the three field copies.\n\n## Flow\n- read the previous scan (unchanged), then call planCarryForward outside the transaction\n- the transaction writes the carry rows, the resolved done rows, the unpaired keeps, and the keep events by plan index\n- closedFollowUpIds and the post-commit rec-transition effects read plan.resolved\n\n## Expected impact\nA claimed follow-up whose dimension moved inside the noise band, or whose comparison crossed the mock floor, stays in progress with its owner, its lease and a ledger note saying why, instead of disappearing. The keep note for a row restated under a normalized title lands. The carry rule can be unit-tested without the Prisma transaction mock that makes scans-persist.test.ts 1852 lines long.\n\n## Evaluation\nClaim: correctness - today 0 of 2 un-restated keep reasons (within-noise, mock-scan) survive a rescan\nBefore: 0 of 6 cases pass (guards pass by design)\nAfter: 6 of 6\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture",
+  "evidence": "scans-persist.ts:437 `} else if (decision.reason === \"no-movement\" || decision.reason === \"craft-unclaimed\" || decision.reason === \"rubric-changed\") {`. :442-443 `const note = keepNote(...); if (note) keptRows.push({ row: r, note, paired: true });`. :652-654 `tx.recommendation.findFirst({ where: { scanId: scan.id, dimId: row.dimId, title: row.title } })`. :676 `if (!target) continue;`. followups.ts:145 `if (restated) return { kind: \"keep\", reason: claimed ? \"claimed-but-restated\" : \"restated\" };`. :173 `if (verdict.kind === \"mock-scan\") return { kind: \"keep\", reason: \"mock-scan\" };`. :177 `return { kind: \"keep\", reason: verdict.delta > 0 ? \"within-noise\" : \"no-movement\" };`. keepNote at :206-208 and :219-220 returns a non-empty note for both, so both are pushed paired:true."
+ }
+]
