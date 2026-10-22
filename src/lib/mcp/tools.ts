@@ -39,6 +39,7 @@
 
 import type { SkillTokenScope } from "@/lib/db";
 import { META, ok } from "./protocol";
+import type { ResultTrust } from "./result-egress";
 
 /** The plan-gated resource families the catalog knows about (see `src/app/api/mcp/gates.ts`). */
 export type McpPlanGate = "memory" | "skills";
@@ -64,6 +65,16 @@ export interface McpToolDef {
    * marked tool has a policy row. Athena refuses every tool carrying it outright.
    */
   mutates?: true;
+  /**
+   * Who wrote the text in this tool's RESULT. `org-authored` means members, agents or the org's
+   * registry wrote it (memory bodies, skill bodies, lessons, governing subjects), so the route passes
+   * the result through `egressResult` (src/lib/mcp/result-egress.ts): credential shapes are redacted
+   * and the call result's `_meta` states the provenance and the redaction count. `computed` is
+   * ascent's own arithmetic and leaves the door unchanged. Required, so a new tool must decide; the
+   * org-authored set is pinned to Athena's `ATHENA_UNTRUSTED_TOOLS`. Server-side only: `toWireTool`
+   * omits it, so `tools/list` is unchanged.
+   */
+  resultTrust: ResultTrust;
   inputSchema: Record<string, unknown>;
 }
 
@@ -93,6 +104,7 @@ const repoArg = {
 export const MCP_TOOLS: readonly McpToolDef[] = [
   {
     name: "cite_memory",
+    resultTrust: "computed",
     title: "Cite a recalled memory",
     description:
       "Report whether a memory this door delivered to you was actually USED in what you did, or was " +
@@ -131,6 +143,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "claim_followups",
+    resultTrust: "computed",
     title: "Claim follow-ups to work",
     description:
       "Take one or more of this organization's open follow-ups off its queue so you can work them, " +
@@ -170,6 +183,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "compare_against_exemplar",
+    resultTrust: "computed",
     title: "Compare against an exemplar",
     description:
       "How one repository compares, signal by signal, against a named peer: another repository in " +
@@ -194,6 +208,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "find_skills",
+    resultTrust: "org-authored",
     title: "Find applicable skills",
     description:
       "Which of this organization's own curated skills apply to the task you are about to do. These " +
@@ -216,6 +231,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_ai_stance",
+    resultTrust: "computed",
     title: "AI stance",
     description:
       "The organization's declared position on AI-assisted development: permitted tools and models, " +
@@ -241,6 +257,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_fix_brief",
+    resultTrust: "computed",
     title: "Brief for claimed follow-ups",
     description:
       "The working brief for follow-ups YOU currently hold: each gap as the scan stated it, plus the " +
@@ -263,6 +280,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_gate_verdict",
+    resultTrust: "computed",
     title: "CI gate verdict",
     description:
       "Whether a repository currently clears the organization's maturity gate, and every specific " +
@@ -277,6 +295,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_governing_subject",
+    resultTrust: "org-authored",
     title: "Governing registry subject",
     description:
       "The subject in this organization's AI registry whose declared `use_when` governs the file you " +
@@ -296,6 +315,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_practice_shape",
+    resultTrust: "computed",
     title: "Practice shape",
     description:
       "The reusable SHAPE of a practice this organization already does well: what the artifact " +
@@ -312,6 +332,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_repo_standing",
+    resultTrust: "computed",
     title: "Repository standing",
     description:
       "How a repository (or the whole fleet) scores on the AI-native maturity model: overall level, " +
@@ -322,6 +343,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_skill",
+    resultTrust: "org-authored",
     title: "Read a skill",
     description:
       "The full text of one of this organization's skills — the SKILL.md body it publishes, plus its " +
@@ -338,6 +360,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_skill_lessons",
+    resultTrust: "org-authored",
     title: "Lessons from a skill",
     description:
       "What people and agents in this organization actually learned running a skill: the entries from " +
@@ -355,6 +378,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "list_open_recommendations",
+    resultTrust: "computed",
     title: "Open recommendations",
     description:
       "The organization's open, tracked improvement recommendations: the gaps it has already decided " +
@@ -371,6 +395,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "recall_org_memory",
+    resultTrust: "org-authored",
     title: "Recall org memory",
     description:
       "Search the organization's durable engineering memory (decisions, incidents and conventions it " +
@@ -392,6 +417,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "report_attempt",
+    resultTrust: "computed",
     title: "Report an attempt on a follow-up",
     description:
       "Tell this organization what you did with ONE follow-up you hold: `resolved`, `skipped` or " +
@@ -426,6 +452,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "report_skill_invoke",
+    resultTrust: "computed",
     title: "Report a skill invocation",
     description:
       "Tell this organization that you actually ran one of its skills. The Skills Library ranks and " +

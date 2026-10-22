@@ -10,6 +10,7 @@ import {
 } from "./tools";
 import type { SkillTokenScope } from "@/lib/db";
 import { META } from "./protocol";
+import { ATHENA_UNTRUSTED_TOOLS } from "@/lib/athena/grounding";
 
 describe("the tool catalog", () => {
   // The revision asks servers to return tools deterministically so clients can cache the list and
@@ -196,5 +197,23 @@ describe("tools/list scope-model copy", () => {
     );
     expect(door).toContain(TOOLS_LIST_SCOPE_COPY);
     expect(full).toContain(TOOLS_LIST_SCOPE_COPY);
+  });
+});
+
+// The two doors that serve these handlers must agree on WHICH results are text the org wrote: Athena
+// fences and redacts them by a set in her own file, the MCP door redacts by this catalog field. A
+// tool added to one list and not the other is a credential that leaves through the looser door.
+describe("result trust - the catalog declares who authored each result", () => {
+  it("declares resultTrust on every tool, from the two known values", () => {
+    for (const t of MCP_TOOLS) expect(["computed", "org-authored"], t.name).toContain(t.resultTrust);
+  });
+
+  it("marks exactly the tools Athena fences as org-authored", () => {
+    const orgAuthored = MCP_TOOLS.filter((t) => t.resultTrust === "org-authored").map((t) => t.name);
+    expect(orgAuthored).toEqual([...ATHENA_UNTRUSTED_TOOLS].sort());
+  });
+
+  it("keeps resultTrust off the wire - tools/list is unchanged by it", () => {
+    for (const t of MCP_TOOLS) expect(toWireTool(t)).not.toHaveProperty("resultTrust");
   });
 });
