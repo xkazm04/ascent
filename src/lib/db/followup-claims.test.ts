@@ -362,7 +362,7 @@ describe("the browser hand-off shape — executor human, no lease, whole-request
   it("guard: writes the claim columns — the viewer holds it, as a human, on no lease the sweep can reclaim", async () => {
     const res = await handoff(["rec-1"]);
     expect(res!.claimed).toEqual([
-      { id: "rec-1", repo: "acme/api", title: rows[0]!.title, claimActor: "alice", claimExecutor: "human", leaseUntil: null, needsHuman: false },
+      { id: "rec-1", repo: "acme/api", title: rows[0]!.title, claimActor: "alice", claimExecutor: "human", leaseUntil: null, needsHuman: false, fence: null },
     ]);
     expect(rows[0]).toMatchObject({ status: "in_progress", claimActor: "alice", claimExecutor: "human", leaseUntil: null });
     expect(events[0]!.note).toContain("executor human; no lease");

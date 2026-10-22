@@ -18,6 +18,7 @@
 // door dispatched it, and Athena dispatches these same handlers in-process for the read side.
 
 import { claimFollowups, heldFollowups, reportAttempt, type FollowupClaimRow } from "@/lib/db/followup-claims";
+import { staleClaimText } from "@/lib/org/followups-claims";
 import { getActiveOrgStance, getStanceRepoFacts } from "@/lib/db/org-stance";
 import { getRepoAdmission } from "@/lib/db/org-admission";
 import type { AdmissionMode } from "@/lib/org/admission";
@@ -176,7 +177,7 @@ export async function claimFollowupsTool(org: string, args: Args, principal: Mcp
       autonomyTier: gate.tier,
       next:
         res.claimed.length > 0
-          ? "Call get_fix_brief with these ids for the working brief and this organization's perimeter, then report_attempt on each before your lease expires."
+          ? "Call get_fix_brief with these ids for the working brief and this organization's perimeter, then report_attempt on each before your lease expires, passing each row's `fence` so a report from a superseded session cannot land on a newer claim."
           : "Nothing was claimed. Every id you named is held by another worker or is no longer open.",
     },
   };
@@ -358,12 +359,20 @@ export async function reportAttemptTool(org: string, args: Args, principal: McpP
     id,
     actor,
     legacyActor: principal.legacyActor,
+    // OPTIONAL and additive: an external client that sends none is still accepted (and logged as
+    // deprecated by the store); only a fence that names a superseded claim generation is refused.
+    fence: str(args, "fence"),
     verdict,
     reason,
     branch: str(args, "branch"),
     prUrl: str(args, "prUrl"),
     tokenId: principal.tokenId,
   });
+  if (row && "refused" in row) {
+    // A CONFLICT, distinct from "not held": the caller is the holder, but of an earlier generation.
+    const message = staleClaimText(id, row.leaseUntil);
+    return { structuredContent: { error: message, refused: "stale-claim", status: 409, leaseUntil: row.leaseUntil }, text: message, isError: true };
+  }
   if (!row) {
     return fail(
       `You do not hold "${id}", so there is nothing to report against it. A lease that expired released its rows; claim again with claim_followups.`,

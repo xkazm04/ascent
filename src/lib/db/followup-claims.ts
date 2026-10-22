@@ -34,13 +34,24 @@
 // that is wrong on a deployment whose scheduler is down.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-import { Prisma } from "@prisma/client";
 import { getPrisma, isDbConfigured } from "@/lib/db/client";
 import { recordAudit } from "@/lib/db/scans-audit";
 import { getOrgBySlug } from "@/lib/db/org-shared";
-import type { AttemptVerdict, ClaimExecutor } from "@/lib/org/followups";
+import type { ClaimExecutor } from "@/lib/org/followups";
+import { CLAIM_SELECT, toClaimRow, type ClaimedRowShape, type FollowupClaimRow } from "@/lib/db/followup-attempts";
 
 export type { ClaimExecutor };
+// The row shape and every post-claim write (`reportAttempt`, `heldFollowups`) live in
+// `followup-attempts.ts`, re-exported here so callers and test mocks of this module stay unchanged.
+export {
+  heldFollowups,
+  isStaleClaim,
+  reportAttempt,
+  toClaimRow,
+  type FollowupClaimRow,
+  type ReportAttemptInput,
+  type StaleClaimRefusal,
+} from "@/lib/db/followup-attempts";
 
 /** Why a claim was refused. Each is a fact about the CALLER's own row, never about another tenant. */
 export type ClaimRefusal =
@@ -51,55 +62,6 @@ export type ClaimRefusal =
   /** Unknown to this organization. Deliberately the same answer for "does not exist": a work door
    *  must not be an oracle for which recommendation ids exist in other tenants. */
   | "unknown";
-
-/**
- * One claimed row as it crosses to a client. WIRE-SAFE: `leaseUntil` is an ISO string, mapped with
- * `.toISOString()` here — a `Date` would type-check in the ledger and throw at `getTime()`.
- */
-export interface FollowupClaimRow {
-  id: string;
-  repo: string;
-  title: string;
-  claimActor: string | null;
-  claimExecutor: ClaimExecutor | null;
-  leaseUntil: string | null;
-  needsHuman: boolean;
-}
-
-interface ClaimedRowShape {
-  id: string;
-  title: string;
-  claimActor: string | null;
-  claimExecutor: string | null;
-  leaseUntil: Date | null;
-  needsHuman: boolean;
-  scan: { repo: { fullName: string } };
-}
-
-const asExecutor = (v: string | null): ClaimExecutor | null =>
-  v === "local" || v === "remote-agent" || v === "human" ? v : null;
-
-export function toClaimRow(r: ClaimedRowShape): FollowupClaimRow {
-  return {
-    id: r.id,
-    repo: r.scan.repo.fullName,
-    title: r.title,
-    claimActor: r.claimActor,
-    claimExecutor: asExecutor(r.claimExecutor),
-    leaseUntil: r.leaseUntil ? r.leaseUntil.toISOString() : null,
-    needsHuman: r.needsHuman,
-  };
-}
-
-const CLAIM_SELECT = {
-  id: true,
-  title: true,
-  claimActor: true,
-  claimExecutor: true,
-  leaseUntil: true,
-  needsHuman: true,
-  scan: { select: { repo: { select: { fullName: true } } } },
-} satisfies Prisma.RecommendationSelect;
 
 /**
  * Return every `in_progress` row whose lease has PASSED to `open`, clearing the claim columns and
@@ -235,7 +197,10 @@ export async function claimFollowups(input: ClaimFollowupsInput): Promise<ClaimF
         scan: { repo: { orgId: org.id } },
         OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }],
       },
-      data: { status: "in_progress", claimActor: input.actor, claimExecutor: input.executor, leaseUntil },
+      // A NEW GENERATION CARRIES NONE OF THE PREVIOUS ONE'S FLAGS. `needsHuman` was an escalation
+      // about an earlier claim; a row reopened and claimed again starts clean, and `leaseUntil` is
+      // the fresh fence every later write of this claim must present.
+      data: { status: "in_progress", claimActor: input.actor, claimExecutor: input.executor, leaseUntil, needsHuman: false },
     });
     if (res.count !== 1) {
       // CONSUME THE VERDICT HONESTLY: read back what beat us, so "held" and "not-open" are two
@@ -314,145 +279,4 @@ export async function releaseFollowups(ids: readonly string[], why: string, acto
       .catch(() => null);
   }
   return released;
-}
-
-/**
- * THE HOLDER CLAUSE — the set of `claimActor` values that count as "this caller".
- *
- * Normally one value. It takes a second, TRANSITIONAL one because the MCP door changed the identity
- * it stores: a holder used to be `agent:<token name>` and is now `agent:<token id>`. Token names are
- * not unique (`createOrgApiToken` enforces nothing), so the old form made two live tokens named `ci`
- * one holder — token B could brief and report on rows token A leased. The new form cannot: an id is
- * unique by construction.
- *
- * The legacy arm exists ONLY so rows claimed before that change stay workable by the token that
- * claimed them, and it carries the old form's flaw for exactly those rows and no new ones. HOW IT
- * ENDS: leases are hours, not weeks, so every row stored in the old form has lapsed and been swept
- * back to the queue within a day of the deploy. Once that has passed, drop `legacyActor` from these
- * two inputs and from `McpPrincipal`, and the dual-match disappears with it.
- */
-function holderActors(actor: string, legacyActor?: string | null): string[] {
-  return legacyActor && legacyActor !== actor ? [actor, legacyActor] : [actor];
-}
-
-export interface ReportAttemptInput {
-  org: string;
-  id: string;
-  actor: string;
-  /** TRANSITIONAL second holder form accepted alongside `actor` — see `holderActors`. */
-  legacyActor?: string | null;
-  verdict: AttemptVerdict;
-  reason: string;
-  branch?: string | null;
-  prUrl?: string | null;
-  tokenId?: string | null;
-}
-
-/**
- * Record what a worker says it did with ONE row it holds. Returns the row's state afterwards, or
- * `null` when the id is not this org's, is not held by this actor, or persistence is off.
- *
- * THE VERDICT TABLE — and every line of it is the same rule stated three ways: nothing here closes.
- *   • `resolved` → the row STAYS `in_progress`, the lease is cleared. The rescan owns it now; it
- *     closes when the gap stops being raised and the dimension moves. An agent's "I fixed it" is
- *     exactly as much of a claim as the commit trailer it also wrote.
- *   • `skipped` → back to `open`, lease cleared, claim columns cleared. The work was not done, so
- *     the row belongs to whoever comes next rather than to the session that walked away from it.
- *   • `needs_human` → stays `in_progress` with `needsHuman = true` and no lease. The agent tried and
- *     stopped DELIBERATELY, which is a different fact from a lapsed lease, and the flag is an
- *     escalation rather than a status: the work is visibly still open rather than quietly closed by
- *     a machine that gave up.
- */
-export async function reportAttempt(input: ReportAttemptInput): Promise<FollowupClaimRow | null> {
-  if (!isDbConfigured()) return null;
-  const org = await getOrgBySlug(input.org);
-  if (!org) return null;
-  const prisma = getPrisma();
-
-  const actors = holderActors(input.actor, input.legacyActor);
-  const held = await prisma.recommendation.findFirst({
-    where: { id: input.id, claimActor: { in: actors }, status: "in_progress", scan: { repo: { orgId: org.id } } },
-    select: { id: true },
-  });
-  if (!held) return null;
-
-  const data =
-    input.verdict === "skipped"
-      ? { status: "open", claimActor: null, claimExecutor: null, leaseUntil: null }
-      : input.verdict === "needs_human"
-        ? { leaseUntil: null, needsHuman: true }
-        : { leaseUntil: null };
-
-  const note = [
-    input.reason.trim().slice(0, 600) || "(no reason given)",
-    input.branch ? `branch ${input.branch}` : null,
-    input.prUrl ? input.prUrl : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-  const updated = await prisma.$transaction(async (tx) => {
-    // Guarded on the holder again inside the transaction: the read above and this write must not
-    // straddle a sweep that released the row to somebody else.
-    const res = await tx.recommendation.updateMany({
-      where: { id: input.id, status: "in_progress", claimActor: { in: actors } },
-      data,
-    });
-    if (res.count !== 1) return null;
-    await tx.recommendationEvent.create({
-      data: {
-        recommendationId: input.id,
-        actor: input.actor,
-        // `attempt` is the row's own vocabulary for "the worker's account", distinct from `status`
-        // (what the ledger did) — so a reader can tell a claim apart from a ruling in the timeline.
-        kind: "attempt",
-        fromValue: null,
-        toValue: input.verdict,
-        note,
-      },
-    });
-    return tx.recommendation.findUnique({ where: { id: input.id }, select: CLAIM_SELECT });
-  });
-  if (!updated) return null;
-
-  await recordAudit(
-    "followup.attempt",
-    {
-      id: input.id,
-      actor: input.actor,
-      verdict: input.verdict,
-      tokenId: input.tokenId ?? null,
-      branch: input.branch ?? null,
-      prUrl: input.prUrl ?? null,
-    },
-    { orgId: org.id },
-  ).catch(() => false);
-
-  return toClaimRow(updated as ClaimedRowShape);
-}
-
-/**
- * The rows `actor` currently holds, of the ids given. `get_fix_brief`'s authorization boundary: a row
- * claimed by somebody else is refused BY ID rather than silently dropped, so an agent asking for five
- * briefs and getting three knows which two it lost.
- */
-export async function heldFollowups(
-  orgSlug: string,
-  ids: readonly string[],
-  actor: string,
-  legacyActor?: string | null,
-): Promise<FollowupClaimRow[]> {
-  if (!isDbConfigured()) return [];
-  const org = await getOrgBySlug(orgSlug);
-  if (!org) return [];
-  const rows = await getPrisma().recommendation.findMany({
-    where: {
-      id: { in: [...new Set(ids)] },
-      claimActor: { in: holderActors(actor, legacyActor) },
-      status: "in_progress",
-      scan: { repo: { orgId: org.id } },
-    },
-    select: CLAIM_SELECT,
-  });
-  return rows.map((r) => toClaimRow(r as ClaimedRowShape));
 }

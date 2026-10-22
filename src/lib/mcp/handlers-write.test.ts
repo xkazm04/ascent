@@ -25,7 +25,11 @@ const claimRow = (id: string, repo = "acme/api") => ({
   claimExecutor: "remote-agent" as const,
   leaseUntil: "2026-08-30T12:45:00.000Z",
   needsHuman: false,
+  fence: "2026-08-30T12:45:00.000Z" as string | null,
 });
+
+/** The live generation the store holds; a report presenting any other fence is a stale one. */
+const LIVE_FENCE = "2026-08-30T12:45:00.000Z";
 
 /** Ledger row as `getOrgBacklog` returns it. `status` is what `openBatch` would filter on. */
 const ledgerItem = (id: string, status: "open" | "in_progress" = "open") => ({
@@ -53,6 +57,7 @@ vi.mock("@/lib/db/followup-claims", () => ({
   heldFollowups: vi.fn(async (_org: string, wanted: string[]) => heldRows.filter((r) => wanted.includes(r.id)).map((r) => claimRow(r.id, r.repo))),
   reportAttempt: vi.fn(async (input: Record<string, unknown>) => {
     attempts.push(input);
+    if (typeof input.fence === "string" && input.fence !== LIVE_FENCE) return { refused: "stale-claim", leaseUntil: LIVE_FENCE };
     // The store's real contract, mirrored: `skipped` reopens, the other two leave the row IN PROGRESS.
     return { ...claimRow(input.id as string), leaseUntil: null };
   }),
@@ -89,7 +94,7 @@ vi.mock("@/lib/db/org-insights", () => ({
 
 const { claimFollowupsTool, getFixBriefTool, reportAttemptTool } = await import("@/lib/mcp/work-tools");
 const { runTool } = await import("@/lib/mcp/handlers");
-const { MAX_CLAIM_COUNT } = await import("@/lib/mcp/tools");
+const { MAX_CLAIM_COUNT, MCP_TOOLS } = await import("@/lib/mcp/tools");
 
 /** The verified caller. `actor` is the TOKEN ID form (`agent:<id>`); `label` is the token's name,
  *  which is a display string and never the identity. */
@@ -382,5 +387,41 @@ describe("get_fix_brief — a repo that no longer admits agents", () => {
     expect(out.refused).toEqual([]);
     // T2 is allowed and flagged — the one derivation, `claimability`'s, reaching the brief text.
     expect(out.briefs[0]!.brief).toMatch(/human review is required/i);
+  });
+});
+
+describe("report_attempt - the claim fence", () => {
+  it("claim_followups returns each claimed row's fence", async () => {
+    const res = await claimFollowupsTool("acme", { repo: "acme/api", ids: ["rec-1"] }, P());
+    const out = res.structuredContent as { claimed: { id: string; fence: string | null }[] };
+    expect(out.claimed[0]!.fence).toBe(LIVE_FENCE);
+  });
+
+  it("carries the presented fence into the store", async () => {
+    await reportAttemptTool("acme", { id: "rec-1", verdict: "resolved", reason: "r", fence: LIVE_FENCE }, P());
+    expect(attempts[0]).toMatchObject({ fence: LIVE_FENCE });
+  });
+
+  it("a stale fence is a conflict that says the claim was superseded, naming the current lease", async () => {
+    const res = await reportAttemptTool("acme", { id: "rec-1", verdict: "resolved", reason: "r", fence: "2026-08-30T12:00:00.000Z" }, P());
+    expect(res.isError).toBe(true);
+    expect(String(res.text)).toContain("superseded by a newer claim");
+    expect(String(res.text)).toContain(LIVE_FENCE);
+    expect(String(res.text)).not.toContain("You do not hold");
+    expect(String(res.text)).not.toContain("\u2014");
+    expect(res.structuredContent).toMatchObject({ refused: "stale-claim", status: 409, leaseUntil: LIVE_FENCE });
+  });
+
+  it("an unfenced report stays accepted for external clients", async () => {
+    const res = await reportAttemptTool("acme", { id: "rec-1", verdict: "resolved", reason: "r" }, P());
+    expect(res.isError).toBeFalsy();
+    expect(attempts[0]!.fence ?? null).toBeNull();
+  });
+
+  it("the report_attempt schema declares an optional fence", () => {
+    const def = MCP_TOOLS.find((t) => t.name === "report_attempt")!;
+    const schema = def.inputSchema as { properties: Record<string, unknown>; required: string[] };
+    expect(schema.properties.fence).toBeDefined();
+    expect(schema.required).not.toContain("fence");
   });
 });

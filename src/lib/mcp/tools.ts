@@ -414,6 +414,11 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         reason: { type: "string", description: "One sentence in your own words. Required — a verdict with no reason is not an account." },
         branch: { type: "string", description: "The branch your work is on, if any." },
         prUrl: { type: "string", description: "The pull request you opened, if any." },
+        fence: {
+          type: "string",
+          description:
+            "The `fence` claim_followups returned for this id. Optional, but send it: a report carrying a fence from a superseded claim is refused, so a session whose lease lapsed cannot write into a newer claim.",
+        },
       },
       required: ["id", "verdict", "reason"],
       additionalProperties: false,

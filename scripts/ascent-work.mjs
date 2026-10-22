@@ -27,7 +27,7 @@
 //   node scripts/ascent-work.mjs claim  --repo owner/name [--count 3] [--lease 45]
 //   node scripts/ascent-work.mjs brief  --ids id1,id2
 //   node scripts/ascent-work.mjs report --id id --verdict resolved|skipped|needs_human \
-//                                       --reason "..." [--branch b] [--pr url]
+//                                       --reason "..." [--branch b] [--pr url] [--fence f]
 //   node scripts/ascent-work.mjs run    --repo owner/name [--count 3] -- <your agent command>
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -113,7 +113,7 @@ async function claim(args) {
   });
   const s = structured(res);
   for (const r of s.refused ?? []) process.stderr.write(`  refused ${r.id}: ${r.reason}\n`);
-  return (s.claimed ?? []).map((c) => c.id);
+  return s.claimed ?? [];
 }
 
 async function brief(ids) {
@@ -128,6 +128,9 @@ async function report(args) {
     reason: args.reason || die("--reason is required: a verdict with no reason is not an account."),
     ...(args.branch ? { branch: String(args.branch) } : {}),
     ...(args.pr ? { prUrl: String(args.pr) } : {}),
+    // THE CLAIM FENCE: which claim generation this report speaks for. A report from a session whose
+    // lease lapsed (and was claimed again) is refused instead of landing on the newer claim.
+    ...(typeof args.fence === "string" && args.fence ? { fence: args.fence } : {}),
   });
   return structured(res);
 }
@@ -153,7 +156,7 @@ async function main() {
   const cmd = args._[0];
 
   if (cmd === "claim") {
-    const ids = await claim(args);
+    const ids = (await claim(args)).map((c) => c.id);
     process.stdout.write(`${ids.join("\n")}\n`);
     return;
   }
@@ -169,7 +172,11 @@ async function main() {
   }
   if (cmd === "run") {
     if (args.rest.length === 0) die("`run` needs an agent command after `--`.");
-    const ids = await claim(args);
+    const claimed = await claim(args);
+    const ids = claimed.map((c) => c.id);
+    // id -> fence, as the claim returned it. The agent run between claim and report is the long gap in
+    // which a lease lapses, so every report names the generation it was claimed under.
+    const fences = new Map(claimed.map((c) => [c.id, c.fence ?? null]));
     if (ids.length === 0) {
       // NOT AN ERROR. An empty queue is a real answer about this repository, and a CI step that went
       // red on it would page somebody because there was nothing to fix.
@@ -185,6 +192,7 @@ async function main() {
     for (const id of ids) {
       await report({
         id,
+        fence: fences.get(id) ?? undefined,
         verdict: "needs_human",
         reason:
           code === 0
@@ -202,7 +210,7 @@ async function main() {
       "",
       "  claim  --repo owner/name [--ids a,b] [--count 3] [--lease 45]",
       "  brief  --ids a,b",
-      "  report --id id --verdict resolved|skipped|needs_human --reason '...' [--branch b] [--pr url]",
+      "  report --id id --verdict resolved|skipped|needs_human --reason '...' [--branch b] [--pr url] [--fence f]",
       "  run    --repo owner/name [--count 3] -- <your agent command>",
       "",
       "  ASCENT_TOKEN   org API token with mcp:read + followups:write + telemetry:write",

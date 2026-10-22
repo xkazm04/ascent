@@ -152,3 +152,41 @@ export interface AgentPerimeter {
   leaseUntil: string;
   stance: AiStance | null;
 }
+
+// ─── The claim FENCE: which GENERATION of a claim a later write speaks for ─────────────────────────
+//
+// Holder identity is no substitute for a fence. A worker that paused past its lease does not know it
+// lapsed, and the same token claiming the row again from a second session looks exactly like the
+// stale holder. So every claim mints a fence and a later write presents it. The fence costs no column:
+// a leased claim's fence IS its `leaseUntil`, which is unique per claim, round-trips at millisecond
+// precision and is carried across rescans with the claim. An unleased claim (a human hand-off, a local
+// lane) has a null fence, which keeps the "null is never expired" rule above intact.
+
+/** The fence a claim row carries: its lease ISO, or null for an unleased claim. */
+export function fenceOf(leaseUntil: string | null): string | null {
+  return leaseUntil ?? null;
+}
+
+/**
+ * Does a presented fence speak for the claim the row holds NOW?
+ *   - `ok`: it matches (or the row is unleased and nothing was presented);
+ *   - `stale`: something was presented and it is not the live generation, including a row whose lease
+ *     has since been cleared and a value that is not a date at all;
+ *   - `unfenced`: nothing was presented against a leased row. The door still ACCEPTS that from an
+ *     external client (backward compatible) and logs it as deprecated; only `stale` is refused.
+ */
+export type FenceVerdict = "ok" | "stale" | "unfenced";
+
+export function fenceVerdict(stored: string | null, presented: string | null | undefined): FenceVerdict {
+  if (presented == null || presented.trim() === "") return stored == null ? "ok" : "unfenced";
+  if (stored == null) return "stale";
+  const a = Date.parse(stored);
+  const b = Date.parse(presented);
+  return Number.isFinite(a) && Number.isFinite(b) && a === b ? "ok" : "stale";
+}
+
+/** The refusal an agent reads when its fence is from a superseded claim. Distinct from "not held". */
+export function staleClaimText(id: string, currentLeaseUntil: string | null): string {
+  const now = currentLeaseUntil ? `the claim that holds it now has a lease expiring ${currentLeaseUntil}` : "the claim that holds it now has no lease";
+  return `Your claim on "${id}" was superseded by a newer claim: the fence you presented is not the live claim generation, and ${now}. Nothing was written. A report from an earlier session must not land on a later one; claim again with claim_followups and report with the fence it returns.`;
+}
