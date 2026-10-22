@@ -11,19 +11,17 @@ import {
   advanceScheduleAfterFailure,
   advanceToFullCadence,
   getInstallationIdForOwner,
-  getOrgId,
   getLastScanAttempt,
   getScanReportByCommit,
   inFailureBackoff,
   isByomActive,
-  persistScanReport,
   recordScanOutcome,
   CREDIT_SKIP_ERROR,
 } from "@/lib/db";
 import { claimJob, claimJobById, markJobCredit, reapExpiredLeases, settleJob, type ScanJobRow, type ScanLane } from "@/lib/db/scan-jobs";
 import { getInstallationToken } from "@/lib/github/app";
 import { degradedRead } from "@/lib/org/degraded-read";
-import { checkAndAlertRegression } from "@/lib/scan-alerts";
+import { DEGRADED_SCAN_ERROR, persistFleetScan } from "@/lib/scan-consequences";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
 import { probeRepository } from "@/lib/scan-probe";
 import { drainUntilDeadline } from "@/lib/pool";
@@ -36,9 +34,10 @@ import type { ScanProgress } from "@/lib/types";
  *  reason runs the PUSH branch of {@link runRescoreJob}; every other reason is untouched by it. */
 export const PUSH_JOB_REASON = "webhook:push";
 
-/** The scan outcome a push rescan records when the provider degraded to the deterministic floor. A
- *  failed outcome on purpose: the failure backoff then covers the outage instead of every push in it. */
-export const PUSH_DEGRADED_ERROR = "LLM unavailable: not persisted";
+/** The scan outcome a rescan records when the provider degraded to the deterministic floor (any
+ *  reason since 2026-10-22; the name is from when only push was guarded). A failed outcome on purpose:
+ *  the failure backoff then covers the outage instead of every push or cadence pass in it. */
+export const PUSH_DEGRADED_ERROR = DEGRADED_SCAN_ERROR;
 
 export interface DrainOptions {
   concurrency: number;
@@ -354,28 +353,28 @@ async function runRescoreJob(job: ScanJobRow, slug: string, ctx: OrgContext, sum
       onProgress: opts.onScanProgress ? (p) => opts.onScanProgress?.(repo, p) : undefined,
     });
     inferenceBilled = report.engine.provider !== "mock";
-    // DEGRADE-TO-MOCK GUARD (push only). A push asks for a real grade; a provider outage still returns
-    // a report stamped "mock", the deterministic FLOOR. Persisting it would make the floor the repo's
-    // current reading and the next regression baseline, and the alert would blame the customer's repo
-    // for our outage. So: no persist, no alert, refund, and a FAILED outcome so the backoff covers
-    // the outage.
-    if (push && !inferenceBilled) {
+    // DEGRADE-TO-MOCK GUARD, every reason (push learned it first, 93ccd721). A real grade was asked
+    // for; a provider outage still returns a report stamped "mock", the deterministic FLOOR. Persisting
+    // it would make the floor the repo's current reading and the next regression baseline, and the
+    // alert would blame the customer's repo for our outage. persistFleetScan refuses it (a REQUESTED
+    // mock import still persists); here: refund, a FAILED outcome so the backoff covers the outage, and
+    // a cadence job takes the 6h failure backoff rather than its full slot. A new row runs the same
+    // consequences the interactive scan does (adoption ledger, alert, scan memories).
+    const fleet = await persistFleetScan(report, { orgSlug: slug, mockRequested: importPolicy?.mock === true, prev, tag: "queue-worker" });
+    if (fleet.degraded) {
       const refunded = await refundCredit();
+      if (job.repoId && !push) await advanceScheduleAfterFailure(job.repoId).catch(degradedRead("queue-worker schedule advance after degrade", undefined));
       await recordScanOutcome(slug, repo, { ok: false, error: PUSH_DEGRADED_ERROR }).catch(
-        degradedRead("queue-worker scan-outcome write (push degraded)", undefined),
+        degradedRead("queue-worker scan-outcome write (degraded)", undefined),
       );
       await settleJob(job.id, { state: "skipped", error: PUSH_DEGRADED_ERROR, creditRefunded: refunded });
       summary.skipped += 1;
       opts.onRepo?.({ repo, stage: "error", error: PUSH_DEGRADED_ERROR, charged: false });
       return;
     }
-    const persisted = await persistScanReport(report, { orgSlug: slug });
+    const { persisted } = fleet;
     let refunded = false;
     if (shouldRefundScan(report, persisted)) refunded = await refundCredit();
-    if (persisted && !persisted.deduped) {
-      const orgId = (await getOrgId(slug).catch(degradedRead("queue-worker org lookup (regression alert)", null))) ?? undefined;
-      await checkAndAlertRegression(prev, report, { orgId, orgSlug: slug });
-    }
     if (!push) await settleCadence(job);
     await recordScanOutcome(slug, repo, { ok: true }).catch(degradedRead("queue-worker scan-outcome write (ok)", undefined));
     await settleJob(job.id, {

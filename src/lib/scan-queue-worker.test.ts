@@ -173,7 +173,9 @@ describe("the refund boundary is carried over unedited", () => {
     // Attributed: the refund names the repo it reverses and the queue reason that spent the credit
     // ("cadence" here — a scheduled rescan), so ledger spend is joinable rather than an anonymous +1.
     expect(h.refundScanCredit).toHaveBeenCalledWith("acme", true, { actor: "queue:cadence", repoFullName: "acme/api" });
-    expect(h.settleJob.mock.calls[0]![1]).toMatchObject({ state: "done", creditRefunded: true });
+    // Since 2026-10-22 the degrade guard holds for every reason: the floor is not persisted and the job
+    // settles `skipped`. The refund above is byte-identical to what it was when the row was persisted.
+    expect(h.settleJob.mock.calls[0]![1]).toMatchObject({ state: "skipped", creditRefunded: true });
   });
 
   it("the credit is recorded ON THE JOB ROW before any inference runs", async () => {
