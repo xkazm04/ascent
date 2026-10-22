@@ -123,6 +123,32 @@ inert when no `AUDIT_SIGNING_SECRET` / `AUTH_SECRET` is set.
 A file-level SHA-256 of the CSV bytes also ships in the `x-ascent-content-sha256` response header.
 That proves the *download* wasn't edited; the per-row `_sig` proves the *rows* weren't.
 
+#### `GET /api/audit/integrity`: one verdict over the whole filtered trail
+
+The viewer pages 25 rows at a time, so a per-row badge and a page banner only describe the rows a
+reader has loaded: no banner on page one says nothing about page forty. `src/lib/db/audit-walk.ts`
+is the ONE filtered-trail walk (`walkAuditLog`, getAuditLog pages of 100 under a 10,000-row cap,
+newest first). The CSV export and the integrity sweep both run on it, so the sweep checks exactly
+the rows the CSV files (`src/app/api/audit/route.csv-bytes.test.ts` pins the export byte for byte).
+
+- **Route**: read-only, gated by `requireOrgRead` like `/api/audit` (503 without a DB, 400 without
+  `org`, the gate's denial verbatim with no walk), takes the same `action/actorId/since/until`
+  filters through the same `auditFiltersFromParams`, `cache-control: no-store`. Returns
+  `{scanned, ok, unsigned, tampered, noSecret, truncated, tamperedEntries, cap}`; `tamperedEntries`
+  holds at most 50 rows while `tampered` is the true count. It never writes an audit row.
+- **Viewer**: a strip above the table, "Verify all matching entries", runs it over the APPLIED
+  filters (the query the CSV link is built from, never typed-but-unapplied inputs). The words come
+  from `src/features/admin/audit/auditIntegrityModel.ts`: `verified` ("N of N verified"),
+  `verified-with-unsigned` (neutral, never an alarm), `tampered` (alert, plus "Show the N tampered",
+  which swaps the table to those rows; "back to trail" restores the paged rows and cursor),
+  `partial` (names the 10,000 cap and says the oldest matching rows were not checked, the same
+  honesty as the CSV's `-PARTIAL` filename), `unverifiable` (no signing secret), and "nothing to
+  verify" for zero matches. A partial or unverifiable sweep is never shown as clean. Changing the
+  applied filters drops the summary, since it no longer describes the rows on screen.
+- **Page banner**: the tamper banner counts loaded rows and says so ("1 entry on this page does not
+  match ..."), offering the sweep until one has run, instead of a count that reads like a trail
+  verdict.
+
 #### `GET /api/audit/verify` — the control ledger's day chain
 
 A separate mechanism from the per-row `_sig` above: `ControlLedgerSeal` holds one sha256 root per
