@@ -5,7 +5,6 @@
 // Requires DATABASE_URL (Phase 2). Returns 503 when persistence is disabled.
 
 import { NextResponse } from "next/server";
-import { parseRepoUrl } from "@/lib/github/source";
 import { getRepositoryHistory, isDbConfigured, type RepositoryHistory } from "@/lib/db";
 import { sha256Hex } from "@/lib/db/audit-integrity";
 import { isAuthConfigured, readableOrgForOwner } from "@/lib/auth";
@@ -15,6 +14,7 @@ import { DIMENSIONS } from "@/lib/maturity/model";
 import { csvTable } from "@/lib/export/csv";
 import { HISTORY_SCAN_CAP } from "@/lib/history/limits";
 import { resolveHistoryWindow } from "@/lib/history/window";
+import { resolveRepoHistoryAccess, resolveRepoHistoryTarget } from "@/lib/history/repoHistoryAccess";
 import { safeFilenameSlug } from "@/lib/export/filename";
 import { reportHandledError } from "@/lib/api/respond";
 
@@ -55,14 +55,16 @@ function historyToCsv(history: RepositoryHistory): string {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const repo = searchParams.get("repo");
-  if (!repo) {
+  // The shared history ladder's prelude (src/lib/history/repoHistoryAccess.ts), answered BEFORE the
+  // sign-in gate below, exactly as it was: a malformed request is 400 whoever sends it.
+  const target = resolveRepoHistoryTarget(repo, isDbConfigured());
+  if (target.kind === "missing-repo") {
     return NextResponse.json({ error: "Missing 'repo' query parameter." }, { status: 400 });
   }
-  const parsed = parseRepoUrl(repo);
-  if (!parsed) {
+  if (target.kind === "invalid-repo") {
     return NextResponse.json({ error: "Invalid repository reference." }, { status: 400 });
   }
-  if (!isDbConfigured()) {
+  if (target.kind === "no-db") {
     return NextResponse.json(
       { error: "History is unavailable: no database configured (Phase 2 feature)." },
       { status: 503 },
@@ -88,7 +90,8 @@ export async function GET(request: Request) {
     // slug differs from the owner login (e.g. a rebranded org). The gate keeps it from reaching
     // another tenant's private history.
     const orgHint = searchParams.get("org")?.trim().toLowerCase();
-    const orgSlug = orgHint && (await canReadOrg(orgHint)) ? orgHint : await readableOrgForOwner(parsed.owner);
+    const resolveOrg = async (owner: string) =>
+      orgHint && (await canReadOrg(orgHint)) ? orgHint : await readableOrgForOwner(owner);
     const wantCsv = searchParams.get("format") === "csv";
     // `?dims=0` requests the lightweight overall-only series (skips the per-dimension fan-out) for
     // callers that chart only the overall line; the default (and any CSV export) returns dimensions.
@@ -107,24 +110,39 @@ export async function GET(request: Request) {
     // endpoint keeps getting retained scans only.
     const includeCompacted = searchParams.get("compacted") === "1";
     // The plan's sold history window (src/lib/history/window.ts), the same floor /trends and Compare
-    // read under. Null = no clamp (signed out, unlimited plan, self-host).
-    const historyWindow = await resolveHistoryWindow(orgSlug, await resolveViewerLogin());
-    const sinceHeader: Record<string, string> = historyWindow.since
-      ? { "x-ascent-history-since": historyWindow.since.toISOString() }
-      : {};
-    const history = await getRepositoryHistory(parsed.owner, parsed.repo, {
-      orgSlug,
-      since: historyWindow.since,
-      includeDimensions,
+    // read under. Null = no clamp (signed out, unlimited plan, self-host). The read is STRICT: an
+    // unreachable DB is the ladder's db-down (500 below) rather than "no scans", since an empty series
+    // reads as "Baseline established" on the trend panel, a false fact.
+    const access = await resolveRepoHistoryAccess<RepositoryHistory>({
+      repo,
+      surface: "api",
       limit,
-      includeCompacted,
-      // An unreachable DB throws (caught below → 500) rather than answering "no scans" — an empty series
-      // reads as "Baseline established" on the trend panel, a false fact.
-      strict: true,
+      deps: {
+        dbConfigured: true, // answered above
+        resolveOrg,
+        resolveWindow: async (org) => resolveHistoryWindow(org, await resolveViewerLogin()),
+        read: ({ owner, repo: name, orgSlug, limit: depth, since }) =>
+          getRepositoryHistory(owner, name, { orgSlug, since, includeDimensions, limit: depth, includeCompacted, strict: true }),
+        probe: async ({ owner, repo: name, orgSlug }) =>
+          (await getRepositoryHistory(owner, name, { orgSlug, limit: 1, includeDimensions: false, strict: true }))?.scans.length ?? 0,
+      },
     });
+    if (access.kind === "db-down") throw access.error;
+    if (access.kind !== "ok" && access.kind !== "empty" && access.kind !== "outside-window") {
+      // Unreachable: the prelude answered every other state above.
+      throw new Error(`history ladder: unexpected state ${access.kind}`);
+    }
+    const historyWindow = access.window;
+    // Every scan exists but the plan window hides it: still a 200 with an empty series (the existing
+    // contract), now flagged so a client can say "outside your window" instead of "never scanned".
+    const hidden = access.kind === "outside-window";
+    const sinceHeader: Record<string, string> = {
+      ...(historyWindow.since ? { "x-ascent-history-since": historyWindow.since.toISOString() } : {}),
+      ...(hidden ? { "x-ascent-history-hidden": "window" } : {}),
+    };
     const payload =
-      history ??
-      { repo: { owner: parsed.owner, name: parsed.repo, fullName: `${parsed.owner}/${parsed.repo}` }, scans: [] };
+      (access.kind === "outside-window" ? null : access.data) ??
+      { repo: { owner: access.target.owner, name: access.target.repo, fullName: access.repo }, scans: [] };
 
     if (wantCsv) {
       const file = `ascent-trends-${safeFilenameSlug(payload.repo.fullName, "repo")}-${payload.scans[0]?.scannedAt?.slice(0, 10) ?? "history"}${historyWindow.days != null ? `-last${historyWindow.days}d` : ""}.csv`;
@@ -172,7 +190,7 @@ export async function GET(request: Request) {
     // The window length is part of the validator too: the same scans under a 30- and a 365-day window
     // are two different answers (the floor moves with the clock, so the day count, not the date, is the
     // stable marker), and a 304 must never hand one window's body to the other.
-    const etag = `W/"h${includeDimensions ? "f" : "l"}${includeCompacted ? "c" : ""}${historyWindow.days != null ? `w${historyWindow.days}` : ""}${payload.scans.length}-${seriesSig}"`;
+    const etag = `W/"h${includeDimensions ? "f" : "l"}${includeCompacted ? "c" : ""}${hidden ? "x" : ""}${historyWindow.days != null ? `w${historyWindow.days}` : ""}${payload.scans.length}-${seriesSig}"`;
     const headers: Record<string, string> = {
       etag,
       ...sinceHeader,
