@@ -95,9 +95,9 @@ not a tenant.
 - No recurring or bulk scan of public repos: a repo in `public` is refreshed only when someone rescans it
   from its report page, charged to that viewer. Auth-off deployments (local, demo, seeding) keep the old
   defaults on purpose, so behaviour differs by deployment.
-- The refusal is per-route, not structurally enforced: a new admin route on `public` is open until it calls
-  the helper. No source-scanning guard like `id-routes-gated.test.ts` covers it at head. That is a gap, not
-  a decision.
+- The refusal is per-route, enforced since 2026-10-22 by `src/app/api/org/admin-routes-refuse-public.test.ts`:
+  an owner/admin route that does not call `requireOrgAdmin`, `refusePublicOrgAdmin` or compare against
+  `PUBLIC_ORG` fails the suite. Member-level gates are outside that guard.
 - Non-members' scans in `public` belong to no one and are visible in the shared corpus.
 - Pre-fix residue (grants, memberships, plan changes made on `public` before 2026-10-07) was not swept: the
   operator recorded that nothing is exposed on the hosted site and no residue work is planned

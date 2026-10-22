@@ -223,9 +223,11 @@ every deployment, auth-off included. Erase, retention, llm-provider (and its pro
 invites, credits/grant and tokens do (security scan 2026-10-07), as do plan, segments, gate-policy, alerts rules, branding, admission (grants, rulesets, proposals), ai-stance (including ack/apply/apply-batch), integrations token and OpenAI, billing autorecharge/checkout/portal, forge installation, live-share and the skills/memory archive routes (follow-up O1-O12). The Settings and Members tabs render the non-owner view for `public`, and `acceptInvite` answers `not_found` for an invite to it. `requireOrgRole`'s open default is
 deliberate, because `hasOrgRole` callers read it on public orgs.
 
+Owner/admin writes now go through one door, `requireOrgAdmin(org, "admin" | "owner")` = `refusePublicOrgAdmin(org) ?? requireOrgRole(org, min)`, and the shared `requireOrgOwnerPost` preamble refuses `public` itself (closing briefing share mint and revoke). Practices apply/apply-batch/rollout, `org/issue`, registry dispatch and `local/projects` moved onto it (members-0, 2026-10-22). `src/app/api/org/admin-routes-refuse-public.test.ts` fails any `src/app/api/**/route.ts` whose code calls an owner/admin `requireOrgRole` or `requireOrgOwnerPost` without `requireOrgAdmin`, `refusePublicOrgAdmin` or an explicit `PUBLIC_ORG` comparison, unless it sits in the guard's reasoned allowlist. It matches code with comments stripped, and seeded fixtures prove it still fails.
+
 ## Known gaps
 
-- **A few write routes on `public` are still open.** The program route (Executive Briefing, awaiting
+- **A few member-level write routes on `public` are still open.** The owner/admin routes are guarded (above); the guard does not cover member-level gates. The program route (Executive Briefing, awaiting
   the operator), `segments/[id]/repos`, `segments/[id]/rule`, the member-level `skills/[id]` and
   `memory/[id]` PATCH, and the integrations sync routes still rely on the open `requireOrg*` default.
   Listed in the follow-up of [`docs/security/scan-2026-10-07.md`](../../security/scan-2026-10-07.md).
