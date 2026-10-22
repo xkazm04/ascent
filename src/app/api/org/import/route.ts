@@ -23,7 +23,6 @@ import {
   getInstallationIdForOwner,
   isByomActive,
   isDbConfigured,
-  persistScanReport,
   persistTeamStandings,
   reconcileListedRepos,
   recordQuotaEvent,
@@ -62,6 +61,7 @@ import {
   type QuotaIdentity,
 } from "@/lib/public-scan-quota";
 import { refundScanCredit, reserveScanCredit, shouldRefundScan } from "@/lib/scan-credit";
+import { DEGRADED_SCAN_ERROR, persistFleetScan, readScanBaseline } from "@/lib/scan-consequences";
 import { drainUntilDeadline, fleetDeadlineAt, SCAN_CONCURRENCY } from "@/lib/pool";
 import { rateLimitRequestShared, tooManyRequests, ORG_IMPORT_RATE_LIMIT } from "@/lib/rate-limit";
 import { SSE_HEADERS, makeSseSend } from "@/lib/sse-server";
@@ -575,41 +575,56 @@ export async function POST(request: Request) {
             // imports never reserve in the first place, so their refund is a no-op either way.)
             let inferenceBilled = false;
             try {
+              // The regression baseline, read BEFORE the fresh row lands (never throws; null = first scan).
+              const prev = await readScanBaseline(r.fullName, org, "org/import");
               const report = await scanRepository(r.fullName, scanOpts);
               inferenceBilled = report.engine.provider !== "mock";
-              const persisted = await persistScanReport(report, { orgSlug: org });
-              // Refund the reservation when nothing billable was produced: either the scan degraded to
-              // mock (no real inference) OR the commit was unchanged since the last scan (`deduped` — no
-              // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
-              let refunded = false;
-              if (shouldRefundScan(report, persisted)) refunded = await refundCredit();
-              // Watchlist + schedule writes are bookkeeping AFTER a billable, persisted scan, so keep them
-              // in their OWN best-effort try: a failure here must NOT reach the outer catch (which refunds
-              // the credit and reports the repo as { error }). The notable failure is the lazy Organization
-              // upsert inside setRepoWatch losing a P2002 create race on a brand-new org's first parallel
-              // import — previously that refunded a genuinely-billed, persisted scan and flagged a scored
-              // repo "error". The sibling /api/org/watch route keeps these writes serial for the same reason.
-              if (watch) {
-                try {
-                  await setRepoWatch(org, r, true);
-                  if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
-                } catch (werr) {
-                  console.error("[org/import] watchlist write failed", r.fullName, werr instanceof Error ? werr.message : werr);
+              // The fleet's one persist door (src/lib/scan-consequences.ts), shared with the worker that
+              // scans this import's queued tail: a degraded-to-mock floor is refused, and a new row runs
+              // the adoption ledger, the regression alert and the scan memories.
+              const fleet = await persistFleetScan(report, { orgSlug: org, mockRequested: mock, prev, tag: "org/import" });
+              if (fleet.degraded) {
+                // Not the repo's reading, so not a level: an error frame. The refund is the one a
+                // provider="mock" report always got (shouldRefundScan), so no billing moves.
+                const refunded = await refundCredit();
+                if (watch) await recordScanOutcome(org, r.fullName, { ok: false, error: DEGRADED_SCAN_ERROR }).catch(degradedRead("org/import scan outcome write (recordScanOutcome)", undefined));
+                send("repo", { repo: r.fullName, error: DEGRADED_SCAN_ERROR, charged: false });
+                outcome = { state: "skipped", error: DEGRADED_SCAN_ERROR, creditRefunded: refunded };
+              } else {
+                const { persisted } = fleet;
+                // Refund the reservation when nothing billable was produced: either the scan degraded to
+                // mock (no real inference) OR the commit was unchanged since the last scan (`deduped`, no
+                // new scored row). Mirrors the cron rescan's refund policy: a dedup run is free.
+                let refunded = false;
+                if (shouldRefundScan(report, persisted)) refunded = await refundCredit();
+                // Watchlist + schedule writes are bookkeeping AFTER a billable, persisted scan, so keep them
+                // in their OWN best-effort try: a failure here must NOT reach the outer catch (which refunds
+                // the credit and reports the repo as { error }). The notable failure is the lazy Organization
+                // upsert inside setRepoWatch losing a P2002 create race on a brand-new org's first parallel
+                // import - previously that refunded a genuinely-billed, persisted scan and flagged a scored
+                // repo "error". The sibling /api/org/watch route keeps these writes serial for the same reason.
+                if (watch) {
+                  try {
+                    await setRepoWatch(org, r, true);
+                    if (schedule !== "off") await setRepoSchedule(org, r.fullName, schedule);
+                  } catch (werr) {
+                    console.error("[org/import] watchlist write failed", r.fullName, werr instanceof Error ? werr.message : werr);
+                  }
                 }
+                send("repo", {
+                  repo: r.fullName,
+                  level: report.level.id,
+                  overall: report.overallScore,
+                  posture: report.posture.id,
+                  adoption: report.adoptionScore,
+                  rigor: report.rigorScore,
+                  contributors: report.contributors?.length ?? 0,
+                });
+                // Only record an outcome once the repo row exists (watch=true upserts it above); the
+                // public funnel (watch=false) may not have persisted a Repository row, so skip then.
+                if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(degradedRead("org/import scan outcome write (recordScanOutcome)", undefined));
+                outcome = { state: "done", creditRefunded: refunded };
               }
-              send("repo", {
-                repo: r.fullName,
-                level: report.level.id,
-                overall: report.overallScore,
-                posture: report.posture.id,
-                adoption: report.adoptionScore,
-                rigor: report.rigorScore,
-                contributors: report.contributors?.length ?? 0,
-              });
-              // Only record an outcome once the repo row exists (watch=true upserts it above); the
-              // public funnel (watch=false) may not have persisted a Repository row, so skip then.
-              if (watch) await recordScanOutcome(org, r.fullName, { ok: true }).catch(degradedRead("org/import scan outcome write (recordScanOutcome)", undefined));
-              outcome = { state: "done", creditRefunded: refunded };
             } catch (err) {
               // Refund a PRE-inference failure only. Once scanRepository has returned a real report the
               // inference is paid for; refunding a persist failure would let a transient DB error hand

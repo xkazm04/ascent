@@ -591,13 +591,13 @@ describe("POST /api/org/import — creditCharged on the job row (killed-import d
     );
   });
 
-  it("settles done + creditRefunded when a mock-degraded scan refunds", async () => {
+  it("settles skipped + creditRefunded when a mock-degraded scan refunds (the floor is not persisted)", async () => {
     mockScan.mockResolvedValue(report);
     await collectImport({ org: "acme", repos: ["acme/deg"], mock: false, watch: false });
     expect(mockGrant).toHaveBeenCalledTimes(1);
     expect(vi.mocked(settleJob)).toHaveBeenCalledWith(
       expect.stringMatching(/^job_/),
-      expect.objectContaining({ state: "done", creditRefunded: true }),
+      expect.objectContaining({ state: "skipped", creditRefunded: true }),
     );
   });
 

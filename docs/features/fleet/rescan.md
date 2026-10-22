@@ -100,12 +100,27 @@ Per job, `drainLane`:
    so a crash leaves it attributable to a row rather than to a lost variable; `settleJob` is the only
    path that clears it. An exhausted balance settles the cadence via `advanceToFullCadence` so a
    credit-less org waits its normal cadence instead of re-qualifying every pass.
-4. **Scans, persists, alerts** — `scanRepository` → `persistScanReport` → `checkAndAlertRegression`
-   (skipped on a deduped commit), then `advanceToFullCadence` and `recordScanOutcome(ok: true)`.
+4. **Scans, persists, runs the consequences**: `scanRepository` → `persistFleetScan`
+   (`src/lib/scan-consequences.ts`): `persistScanReport`, then on a NEW row (not a deduped commit)
+   `runScanConsequences`, the same set the interactive `/api/scan` routes run: reconcile the
+   practice adoption ledger, `checkAndAlertRegression`, then `recordScanMemories` from the alert's
+   own verdict. Each step is guarded on its own and none can fail the job. Then
+   `advanceToFullCadence` and `recordScanOutcome(ok: true)`. Until 2026-10-22 a fleet scan fired
+   the alert only, so an org whose repos refresh on cadence never moved its adoption ledger or its
+   scan memories without a hand rescan.
    The cadence is settled from the repo's persisted **anchor** (`Repository.scanSlotAt`), not from
    `Date.now()`: `nextScanAt` doubles as the claim lease, so without the anchor every run's queue
    delay plus scan duration was added permanently and "daily"/"weekly" drifted later forever. A slot
    missed during an outage is **skipped forward** to the next future one, never scheduled in the past.
+   - **A degrade to mock is not persisted, on every reason** (since 2026-10-22; push only before). A
+     scan that asked for a real grade and came back `engine.provider = "mock"` (a provider outage) is
+     the deterministic floor: `persistFleetScan` refuses it, so it never becomes the repo's latest
+     reading or the next regression baseline, and nothing is alerted. The job records a failed outcome
+     ("LLM unavailable: not persisted"), settles `skipped`, and a cadence job takes
+     `advanceScheduleAfterFailure` (the **6h failure backoff**) instead of its full slot, so the next
+     pass retries after the outage rather than a week later. The credit is refunded exactly as before:
+     `shouldRefundScan` already refunded every `provider = "mock"` report, so no billing moves. A mock
+     the caller REQUESTED (a preview import's tail) is not degraded and still persists.
 5. **On a throw** — refunds only a PRE-inference failure (see "Refund boundary" below), backs off 6h
    via `advanceScheduleAfterFailure`, and records the outcome so the dashboard can flag the repo as
    broken rather than "never scanned".
@@ -165,7 +180,8 @@ reason runs exactly as in "Flow — the rescore lane" above. For a push job:
   `skipped`.
 - **A degrade to mock** is not persisted and sends no regression alert. The credit is refunded, the
   job settles `skipped`, and a failed outcome ("LLM unavailable: not persisted") is recorded, so the
-  failure backoff covers the outage instead of every push in it.
+  failure backoff covers the outage instead of every push in it. Since 2026-10-22 this is the rule
+  for every reason (step 4 above); the push branch only differs in leaving the cadence alone.
 - Success, a thrown scan, the pre-inference refund rule and the `creditCharged` carry are the
   worker's ordinary paths.
 
@@ -274,6 +290,11 @@ carries that request's scan policy on its `reason` (`import:<token>[+mock][+funn
   auth-off seeding path), and `none` sets `noAmbientToken`. Without it, a token-less anonymous import's
   tail would fall back to the operator PAT. Only an `install` row can be skipped as `no_token`.
 - **Mock.** A preview import's tail stays a free mock scan and reserves no credit.
+- **Consequences.** The import's inline head goes through the same `persistFleetScan` as its tail
+  (since 2026-10-22): it reads the regression baseline before scanning, a new row runs the adoption
+  ledger, the alert and the scan memories, and a real-grade (`mock: false`) scan that degraded to
+  mock is not persisted: its `repo` frame carries `error` with `charged: false` instead of a level,
+  the credit is refunded as it always was, and the job settles `skipped`.
 - **Public funnel.** That allowance is metered per request, so the worker cannot finish such a row. The
   import settles its own unreached funnel tail `skipped` and sends a `time_budget` notice; a funnel row
   the worker still finds is settled `skipped` without a scan or a charge.
@@ -526,6 +547,7 @@ through the calendar (a flat 30-day step fires 12.2 times a year, one day earlie
 | `src/lib/db/org-llm.ts` | `isByomActive`: BYOM detection to skip platform billing. |
 | `src/lib/pool.ts` | `mapPoolUntilDeadline` (array fan-out), `drainUntilDeadline` (supplier fan-out, for the queue), `fleetDeadlineAt`, `SCAN_CONCURRENCY`, `PROBE_CONCURRENCY`. |
 | `src/lib/scan-alerts.ts` | `checkAndAlertRegression` (see [alerts.md](./alerts.md)). |
+| `src/lib/scan-consequences.ts` | The one post-scan consequence seam: `runScanConsequences` (adoption ledger, alert, scan memories; never rejects), `persistFleetScan` (degrade guard, persist, consequences on a new row) for the worker and the import head, and `classifyScanResult` (re-exported by `scan-finalize.ts`, whose `cacheAndPersistScan` calls the same seam). |
 | `src/lib/push-rescan.ts` | The push rescan's enqueue-and-drain: `pushRescanBucket` (the aligned window), `pushRescanMinIntervalMs`, `enqueueAndDrainPushRescan`. Called by `src/app/api/app/webhook/route.ts`. |
 | `src/lib/scan-import-policy.ts` | `importJobReason` / `decodeImportReason`: the import request's credential, mock and public-funnel facts, carried on the job's `reason` for the worker. |
 
