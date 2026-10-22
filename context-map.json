@@ -461,7 +461,11 @@
             "src/lib/signin-gate.test.ts",
             "src/lib/signin-gate.ts",
             "src/lib/access.identity.test.ts",
-            "src/app/api/auth/revoke-sessions/route.test.ts"
+            "src/app/api/auth/revoke-sessions/route.test.ts",
+            "src/lib/viewer-workspace.ts",
+            "src/lib/viewer-workspace.test.ts",
+            "src/lib/viewer-workspace-model.ts",
+            "src/lib/viewer-workspace-model.test.ts"
           ],
           "target": null,
           "apiRoutes": [

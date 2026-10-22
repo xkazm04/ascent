@@ -64,6 +64,8 @@
         "src/lib/access.ts",
         "src/lib/authz.ts",
         "src/lib/signin-gate.ts",
+        "src/lib/viewer-workspace.ts",
+        "src/lib/viewer-workspace-model.ts",
         "src/lib/supabase/**",
         "src/proxy.ts",
         "src/app/auth/**",

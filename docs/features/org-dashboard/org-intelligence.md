@@ -30,8 +30,11 @@ DB/auth/empty guards and the org header, and shows the persistent nav rail
 (`src/components/org/shell/OrgTabNav.tsx`), a two-level `SectionRailNav`: an icon rail of
 module groups beside a panel holding only the selected group's pages. The active org is
 chosen via `OrgSwitcher` (`src/components/OrgSwitcher.tsx`), persisted through
-`POST /api/org/active` into the `ascent_active_org` cookie; `getActiveOrg()` reads it
-(falling back to the first installation or `public`).
+`POST /api/org/active` into the `ascent_active_org` cookie; `resolveViewerWorkspace()`
+(`src/lib/viewer-workspace.ts`) reads it back with the same `canReadOrg` predicate the write uses
+(falling back to the primary membership, then `public`). The switcher renders in the header under the
+live Supabase login for any viewer with at least one readable org (2026-10-22; before that it rendered
+only for the dormant custom-OAuth session, so production had none and `/org` always opened `public`).
 
 The same nav definition renders a filtered subset for a PERSONAL workspace
 (`Organization.kind === "personal"`): only Overview, Security, Follow-ups, Skills and Memory,

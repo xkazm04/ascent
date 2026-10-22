@@ -175,8 +175,9 @@ transient blip shouldn't log everyone out, bounded by the short access TTL.
 | `getSessionState()` | Revocation check + silent refresh; distinguishes `none` / `expired` / `active`. |
 | `isAuthConfigured()` | Env guard for this stack. **False in production**: do not use it to decide whether anyone is signed in. |
 | `readableOrgForOwner(owner)` | Org slug a viewer may read. |
-| `orgOptionsForSession()` | Orgs the viewer can switch between. |
-| `getActiveOrg()` | Reads `ascent_active_org`, falls back to first installation or `public`. |
+| `orgOptionsForSession()` | Dormant-only: the session's installations plus `public`. No app call site reads it any more; use `resolveViewerWorkspace()`. |
+| `getActiveOrg()` | Dormant-only: reads `ascent_active_org` against the dormant session (so under the wall every cookie resolves to `public`). No app call site reads it any more; use `resolveViewerWorkspace()`. |
+| `resolveViewerWorkspace()` (`src/lib/viewer-workspace.ts`) | The ONE reader of the active org, for both stacks: the header `OrgSwitcher`, bare `/org` and `/usage`'s default org. Gathers the dormant installations, the viewer's memberships (`listOrgsForLogin`) and the cookie, keeps only the orgs `canReadOrg` admits (the predicate `POST /api/org/active` writes with), then applies the pure `resolveWorkspace()` (`src/lib/viewer-workspace-model.ts`): options deduped case-insensitively with `public` last; active = the cookie if it is an option, else the primary membership, else the first installation, else `public`. Never throws (any failed read collapses to `public` only). Await it in the render/route body, never inside a `ReadableStream` `start()`. |
 | `safeNext()` | Validates a post-login redirect (blocks absolute / protocol-relative / control-char URLs). Shared with the Supabase callback. |
 | `buildAuthorizeUrl()` | Browser redirect to `{githubWebBase()}/login/oauth/authorize`. |
 | `exchangeCodeForToken()` | `POST {githubWebBase()}/login/oauth/access_token`. |
