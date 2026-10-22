@@ -1,17 +1,21 @@
 // GET /api/org/repo-dimension?org=X&repo=owner/name&dim=D1  →  one dimension's detail for a repo.
 //
 // Powers the Repositories heatmap's cell-click modal. The heatmap grid is fed by the lean org rollup
-// (just {dimId, score} per cell); the RICH per-dimension metadata — summary/evidence/strengths/gaps,
-// the signal↔LLM provenance, and the open recommendations ("next steps") — lives on ScanDimension /
-// Recommendation and is fetched HERE, on demand, so the fleet page payload stays small. Read-gated by
+// (just {dimId, score} per cell). The RICH per-dimension metadata (summary/evidence/strengths/gaps,
+// the signal↔LLM provenance, and the dimension's tracked recommendations, the "next steps") lives on
+// ScanDimension / Recommendation and is fetched HERE, on demand, so the fleet page payload stays small. Read-gated by
 // canReadOrg (the endpoint is directly reachable, not just from the already-authorized page), and the
 // underlying getScanReportByCommit re-checks tenant scope — a private repo never leaks cross-org.
 
 import { NextResponse } from "next/server";
-import { getScanReportByCommit, getRepositoryHistory } from "@/lib/db";
-import { canReadOrg } from "@/lib/authz";
+import { getLatestRecommendations, getScanReportByCommit, getRepositoryHistory } from "@/lib/db";
+import type { PersistedRecommendation } from "@/lib/types";
+import { canReadOrg, requireOrgAccess } from "@/lib/authz";
+import { resolveViewerLogin } from "@/lib/access";
+import { PUBLIC_ORG } from "@/lib/org-constants";
 import { respondError } from "@/lib/api/respond";
-import { degradedRead } from "@/lib/org/degraded-read";
+import { degradedRead, noteReadFailure } from "@/lib/org/degraded-read";
+import { buildSteps } from "@/lib/org/dimensionStepsModel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,12 +42,24 @@ export async function GET(request: Request) {
   // drill-in earns the second query, and the modal reads both to answer "where is it" AND "which way".
   // A FAILED read is not "no scan": the report read answers 503 (reported); the history read only draws
   // the sparkline, so it degrades to an empty series with a door.
-  const [read, history] = await Promise.all([
+  //
+  // The persisted recommendations run beside them: they carry the id, status, owner and due date the
+  // roadmap drops, so a dismissed or done step is never shown as open. `strict` makes a FAILED read
+  // throw instead of resolving null, because a failed tracking read is not "nothing tracked" (it
+  // would show every step as open): it degrades to the bare roadmap WITH a trackingError flag.
+  const [read, history, recsRead] = await Promise.all([
     getScanReportByCommit(owner, name, { orgSlug: org }).then(
       (report) => ({ ok: true as const, report }),
       (err: unknown) => ({ ok: false as const, err }),
     ),
     getRepositoryHistory(owner, name, { orgSlug: org, limit: 12 }).catch(degradedRead("repo-dimension history", null)),
+    getLatestRecommendations(owner, name, { orgSlug: org, strict: true }).then(
+      (r) => ({ ok: true as const, items: (r?.items ?? null) as PersistedRecommendation[] | null }),
+      (err: unknown) => {
+        noteReadFailure("repo-dimension recommendations", err);
+        return { ok: false as const, items: null };
+      },
+    ),
   ]);
   if (!read.ok) return respondError(503, "Couldn't load this repository's scan right now. Try again.", { cause: read.err });
   const report = read.report;
@@ -54,9 +70,24 @@ export async function GET(request: Request) {
   if (!dimension) {
     return NextResponse.json({ error: `Dimension ${dim} isn't in the latest scan.` }, { status: 404 });
   }
-  // Open roadmap items for this dimension are the "next steps" — the same recommendations the report
-  // roadmap surfaces, scoped to the one dimension the user clicked.
+  // The roadmap items for this dimension, untracked. Kept one release for any reader of the old
+  // payload; the modal reads `steps` below.
   const nextSteps = report.roadmap.filter((r) => r.dimension === dim);
+  const steps = buildSteps(dim, recsRead.items, report.roadmap);
+  const tracked = recsRead.items !== null;
+  // canAct: may this viewer write a verdict through PATCH /api/recommendations/:id? The same gate that
+  // route applies (requireOrgAccess on the row's org, which is this org: the recs read is org-scoped),
+  // plus its public-org 403. False when nothing is tracked, so no control is offered that would fail.
+  const canAct =
+    tracked &&
+    org !== PUBLIC_ORG &&
+    (await requireOrgAccess(org).then(
+      (denied) => denied === null,
+      degradedRead("repo-dimension write access", false),
+    ));
+  const viewerLogin = canAct
+    ? await resolveViewerLogin().catch(degradedRead("repo-dimension viewer login", null))
+    : null;
 
   // This dimension's score over its recent scans. history.scans is most-recent-first; keep only scans
   // that carry the dim (a legacy scan predating it simply doesn't plot), take prevScore from the point
@@ -74,6 +105,11 @@ export async function GET(request: Request) {
     level: { id: report.level.id, name: report.level.name },
     dimension,
     nextSteps,
+    steps,
+    tracked,
+    ...(recsRead.ok ? {} : { trackingError: true }),
+    canAct,
+    viewerLogin,
     series,
     prevScore,
     // The provenance track cannot draw THIS dimension's real band without it: a flagged dimension's
