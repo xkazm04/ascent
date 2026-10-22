@@ -20,7 +20,15 @@ vi.mock("@/lib/db/client", () => ({ isDbConfigured: mockIsDbConfigured, getPrism
 
 import { getOrgRollup } from "./org-rollup";
 import { getOrgMovers } from "./org-insights";
-import { fleetPrisma, makeFleet, type Read } from "./org-rollup-latest-scans.test-helpers";
+import { getOrgDiscrepancies, getOrgGapAnalysis, getOrgPractices, getOrgRecommendations } from "./org-insights";
+import { getOrgActivity, getOrgDimensionGaps, getOrgGovernance, getOrgPrSignals } from "./org-signals";
+import { getOrgTeamRollup } from "./org-teams";
+import { getOrgHeaderSummary, getRepoStates } from "./org-rollup";
+import { getOrgRework } from "./org-rework";
+import { getOrgNavCounts } from "./org-nav-counts";
+import { getOrgPracticeShapes } from "./org-practice-shapes";
+import { getStanceRepoFacts } from "./org-stance";
+import { enrichFleet, fleetPrisma, makeFleet, type Read } from "./org-rollup-latest-scans.test-helpers";
 
 const START = new Date("2026-04-01T00:00:00Z");
 const END_X = new Date("2026-07-01T00:00:00Z");
@@ -109,5 +117,68 @@ describe("the bounds each pick is taken under", () => {
     const reads = await planFor(() => getOrgRollup("acme", WINDOW, "seg_1", "grp_1"), 5, 30);
     const scoped = { orgId: "org_1", segments: { some: { segmentId: "seg_1" } }, techGroups: { some: { groupId: "grp_1" } } };
     for (const g of groupBys(reads)) expect((g.args.where as { repo: unknown }).repo).toEqual(scoped);
+  });
+});
+
+// ── Every OTHER fleet reader of "the latest scan per repo" goes through the same door ──────────────
+// (rollups-0, challenge-2026-10-22: "one latest-real-scan door for every fleet reader"). Each of these
+// used a nested `scans: { orderBy desc, take: 1 }` (the team rollup a `take: 2`), which the module
+// header of org-rollup-latest-scans.ts measures as transferring the org's whole scan history. The pin
+// is on VOLUME: Scan rows moved over the wire equal the repos with a scan, and do not grow with age.
+
+const LATEST_READERS: [string, () => Promise<unknown>][] = [
+  ["getOrgPractices", () => getOrgPractices("acme")],
+  ["getOrgGapAnalysis", () => getOrgGapAnalysis("acme")],
+  ["getOrgRecommendations", () => getOrgRecommendations("acme")],
+  ["getOrgDiscrepancies", () => getOrgDiscrepancies("acme")],
+  ["getOrgPrSignals", () => getOrgPrSignals("acme")],
+  ["getOrgGovernance", () => getOrgGovernance("acme")],
+  ["getOrgDimensionGaps", () => getOrgDimensionGaps("acme", "D2")],
+  ["getOrgActivity", () => getOrgActivity("acme")],
+  ["getOrgHeaderSummary", () => getOrgHeaderSummary("acme")],
+  ["getRepoStates", () => getRepoStates("acme")],
+  ["getOrgRework", () => getOrgRework("acme")],
+  ["getOrgNavCounts", () => getOrgNavCounts("acme")],
+  ["getOrgPracticeShapes", () => getOrgPracticeShapes("acme")],
+  ["getStanceRepoFacts", () => getStanceRepoFacts("acme")],
+];
+
+async function volumeFor(run: () => Promise<unknown>, repos: number, perRepo: number) {
+  const fake = fleetPrisma(enrichFleet(makeFleet(repos, perRepo)));
+  mockGetPrisma.mockReturnValue(fake.prisma);
+  await run();
+  return { reads: fake.reads, scanRows: fake.reads.reduce((n, r) => n + r.scanRows, 0) };
+}
+
+describe.each(LATEST_READERS)("%s - latest scan per repo through the door", (_name, run) => {
+  it("moves one Scan row per scanned repo (40 for 40 repos x 30 scans, not 1,200) and stays 40 at 60 scans/repo", async () => {
+    expect((await volumeFor(run, 40, 30)).scanRows).toBe(40);
+    expect((await volumeFor(run, 40, 60)).scanRows).toBe(40);
+  });
+
+  it("carries no nested relation `take`, joins no scans onto the repository read, and picks by GROUP BY", async () => {
+    const { reads } = await volumeFor(run, 20, 30);
+    for (const r of reads) expect([r.target, hasNestedTake(r.args)]).toEqual([r.target, false]);
+    for (const r of reads.filter((x) => x.target === "repository.findMany")) {
+      expect((r.args.select as Record<string, unknown> | undefined)?.scans).toBeUndefined();
+    }
+    expect(groupBys(reads).map((g) => [g.args.by, g.args._max])).toEqual([[["repoId"], { scannedAt: true }]]);
+  });
+});
+
+describe("getOrgTeamRollup - the latest TWO scans per repo through the door", () => {
+  it("moves at most 2 Scan rows per repo however old the fleet is", async () => {
+    expect((await volumeFor(() => getOrgTeamRollup("acme"), 40, 30)).scanRows).toBeLessThanOrEqual(80);
+    expect((await volumeFor(() => getOrgTeamRollup("acme"), 40, 60)).scanRows).toBeLessThanOrEqual(80);
+  });
+
+  it("issues groupBy latest + scanAtBeforePerRepo + one pair fetch, never a nested `take: 2`", async () => {
+    const { reads } = await volumeFor(() => getOrgTeamRollup("acme"), 20, 30);
+    for (const r of reads) expect([r.target, hasNestedTake(r.args)]).toEqual([r.target, false]);
+    const picks = groupBys(reads);
+    expect(picks).toHaveLength(2);
+    // The second pick is per repo: each repo's latest scan strictly before its own latest.
+    expect((picks[1]!.args.where as { OR: unknown[] }).OR).toHaveLength(20);
+    expect(scanReads(reads).filter((r) => r.target === "scan.findMany")).toHaveLength(1);
   });
 });
