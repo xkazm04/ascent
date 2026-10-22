@@ -375,7 +375,8 @@
         "src/lib/db/outcomes.ts",
         "src/lib/corpus/**",
         "src/lib/db/repo-deployments.ts",
-        "src/lib/history/**"
+        "src/lib/history/**",
+        "src/lib/db/rec-transition-effects*.ts"
       ]
     },
     {

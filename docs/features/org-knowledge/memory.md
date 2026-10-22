@@ -583,7 +583,10 @@ namespaced to the repo's full name:
   or demotion. Both directions are recorded, not just demotions.
 - **Recommendation closed**: when a recommendation's status becomes `done`
   (not `dismissed`, which means "decided not to do this" rather than "the gap
-  closed"), a memory records the closure.
+  closed"), a memory records the closure. Every close path fires it through
+  one consequences module (`src/lib/report/rec-transitions.ts`): a person's
+  PATCH, a rescan that resolves an in-progress row, and a craft rung closed
+  at the end of a verified loop lane.
 
 All three funnel through one write path that checks the last 25 same-
 namespace scan-pipeline memories for an exact content match or a ≥0.95

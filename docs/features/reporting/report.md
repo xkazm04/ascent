@@ -862,7 +862,7 @@ Picking **Dismissed** does not fire the PATCH immediately. The row opens an inli
 piece of context the assessment has no way to derive: "we build with Bazel, so this gap doesn't
 apply here."
 
-The reason travels as the PATCH's existing `note`. `/api/recommendations/[id]` then calls
+The reason travels as the PATCH's existing `note`. `/api/recommendations/[id]` then (through the consequences module below) calls
 `recordRecommendationDismissal`, which writes an **`OrgDecision`** (the same store the org's
 security/teams/passport/contributor decisions live in) under the module `roadmap` and an itemKey of
 `${repoFullName}::rec:${dim}:${fnv1a(normalizeRecTitle(title))}`. The hash runs over
@@ -888,6 +888,35 @@ Two rules keep this from becoming a silent memory hole:
 `roadmap` is *not* a `FindingModule`: `/api/org/decision` still refuses it and the org nav badges
 never look its keys up. It is an `OrgDecision` row purely so it flows through the one
 standing-decision path, rather than forking a second suppression list.
+
+### Every close fires the same consequences
+
+What a status change *means* lives in one place, not in the PATCH route. `planRecTransition`
+(`src/lib/report/rec-transitions.ts`, pure) maps a `{ from, to, reason }` move to its effects:
+
+| Move | Effects |
+| --- | --- |
+| anything -> `done` | `close-memory`: a "Recommendation closed on <repo>" row in Shared Org Memory |
+| anything -> `dismissed` with a non-blank reason | `standing-dismissal` (the decision above) |
+| `dismissed` (or an unknown prior state) -> any other status | `reopen-decision` (lift the decision) |
+| `dismissed` -> `done` | both `close-memory` and `reopen-decision` |
+| a dismissal without a reason, `open` -> `in_progress`, a same-status write | nothing |
+
+`applyRecTransitionEffects` (`src/lib/db/rec-transition-effects.ts`) runs the plan through the
+existing writers after the status write commits and never throws: a failing writer is logged and
+reported in `failed`, and the next effect still runs. Three writers call it:
+
+- **`PATCH /api/recommendations/:id`**, with the prior state unknown, so a non-dismissed post-state
+  lifts any standing dismissal defensively, as the route always did. Its responses are unchanged.
+- **The rescan witness** in `persistScanReport`: each in-progress row the rescan resolves to `done`
+  fires `close-memory` on the repo's org and full name, after the transaction commits. A deduped
+  persist, or one that lost the cross-instance race, fires nothing.
+- **The loop's craft-rung close** at lane end (`lane-outcomes.ts`). That close is now a
+  compare-and-set (`updateMany` where status is not `done`), so a row that went `done`
+  concurrently gets no second event and no second consequence.
+
+So Org Memory's "recommendation-closed" rows now record the closes a rescan measured and the rungs a
+verified lane built, not only the ones a person clicked.
 
 ### The Roadmap Sandbox remembers the plan
 
