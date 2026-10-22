@@ -24,7 +24,7 @@ All charts are **dependency-free inline SVG** (no D3/recharts) to keep the bundl
 | `/report/[owner]/[repo]` | `src/app/report/[owner]/[repo]/page.tsx` | Hybrid | Server-renders a persisted scan (`getScanReportByCommit`, optional `@sha`); a successful empty lookup is `ColdScanGate` (no auto-scan); a thrown lookup is `PermalinkReadError` (no Scan now). Shareable permalink. `generateMetadata` claims a score only when a snapshot exists. Permalink **Re-test** stays on this path with `?fresh=1` (does not bounce to `/report?repo=`); that query mounts the live scanner on the durable URL, keeps a pinned `@sha`, and is stripped from the bar after persist so a reload cannot re-fire. |
 | `/report/compare` | `src/app/report/compare/page.tsx` | Server | `getScanComparison()` (needs DB). **Two axes:** time (`?a=`/`?b=` — two scans of this repo) and exemplar (`?against=` — this repo vs a peer repo, the org's best, or the public cohort). |
 | `/trends` | `src/app/trends/page.tsx` | Server | `getRepositoryHistory()` (needs DB), to `HISTORY_SCAN_CAP`, the same depth the CSV export uses. Range-filtered chart, plus an all-time trajectory panel and timeline annotations. |
-| `/portfolio` | `src/app/portfolio/page.tsx` | Server | `buildPortfolio()` over `?orgs=` slugs the viewer `canReadOrg`. Cross-org fleet-of-fleets table. |
+| `/portfolio` | `src/app/portfolio/page.tsx` | Server | `buildPortfolio()` over `?orgs=` slugs (or, with no `?orgs`, the viewer's workspace orgs), each re-gated with `canReadOrg`. Cross-org fleet-of-fleets table plus a company x dimension matrix. |
 
 ## The public register + org scorecards (G7-05 / G7-06)
 
@@ -131,6 +131,24 @@ had no live-scored fleet, or the rollup threw / persistence was off. Those are n
 failed read is not a claim that none of the orgs have scans; no access is not a claim they are
 unscanned; absence of a fleet grade is not a score of 0. A mixed empty+unavailable miss with no
 rows is named as a read failure, because a failed read is not proof of absence.
+
+**The book opens on what you can read (card portfolio-1).** With no `?orgs` the page seeds the book
+from `resolveViewerWorkspace().options` minus `public` (`resolveBook` in
+`src/lib/org/portfolioBookModel.ts`), then re-gates every slug through `canReadOrg` exactly as a
+typed slug is: the default never widens what a viewer can read, and an org the gate refuses is neither
+fetched nor shown as a chip. An explicit `?orgs=` (even empty) wins, so an emptied book stays on the
+prompt. `BookChips` renders each readable company as a plain include/exclude link
+(`bookToggleHref`), so the URL stays shareable and works without JS. The identity menu offers
+**Portfolio** once the viewer can read two or more non-public orgs (`showPortfolioEntry`).
+
+**Honest denominators.** Each row carries the rollup's `realScoredCount` and `mockCount`: the Repos
+column reads "scored of scanned" with an "N mock excluded" note, and "Repos in scope" sums the scored
+population the averages are over (it used to sum `scannedCount`, counting mock floors the averages
+exclude). **The matrix** (`PortfolioMatrix`) reads `dimAverages` already on each rollup (no new
+query): an unmeasured dimension is a void mark, never a 0; each company's weakest present dimension is
+outlined (ties by `DIMENSIONS` order); and one line names the book gap, the dimension with the lowest
+one-vote-per-company mean, with its `n`. A dimension only one company measures is not chosen over one
+two or more share.
 
 ### Cold permalink (`ColdScanGate` + `ColdScanTeaser`)
 
