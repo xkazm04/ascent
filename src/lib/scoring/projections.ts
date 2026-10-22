@@ -186,6 +186,22 @@ export function cheapestPathToNextLevel(report: ScanReport): LevelPath {
 // ---------------------------------------------------------------------------
 
 /**
+ * Each dimension's share of the headline: its lens weight over the sum of the PRESENT dimensions'
+ * weights. This is the one derivation every surface that states "how much of the score is this
+ * dimension" reads (the Scoring tab's waterfall via {@link contributions}, the Dimensions tab's
+ * weight% and points "in reach" via dimFacts). On a full scan every lens sums to 1, so the share is
+ * the raw weight; on a dropped-dimension scan (D9 unmeasured, a failed detector) the raw weight
+ * understates the share by 1/sum, which is exactly the fork this function exists to close. An empty
+ * or all-zero-weight set yields 0 for every id rather than a NaN.
+ */
+export function dimensionShares(
+  dims: readonly { id: DimensionId; weight: number }[],
+): Map<DimensionId, number> {
+  const wsum = dims.reduce((acc, d) => acc + d.weight, 0);
+  return new Map(dims.map((d) => [d.id, wsum > 0 ? d.weight / wsum : 0]));
+}
+
+/**
  * Decompose the overall headline into each dimension's signed marginal point contribution — the
  * first step toward a fully auditable "why this score" view.
  *
@@ -206,11 +222,11 @@ export function cheapestPathToNextLevel(report: ScanReport): LevelPath {
  */
 export function contributions(report: ScanReport): ContributionBreakdown {
   const dims = report.dimensions;
-  const wsum = dims.reduce((acc, d) => acc + d.weight, 0);
+  const shares = dimensionShares(dims);
   const overall = report.overallScore;
 
   const out: DimensionContribution[] = dims.map((d) => {
-    const normalizedWeight = wsum > 0 ? d.weight / wsum : 0;
+    const normalizedWeight = shares.get(d.id) ?? 0;
     return {
       dimension: d.id,
       name: d.name,
