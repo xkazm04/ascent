@@ -158,6 +158,7 @@ import type { RoundLane } from "@/lib/db/loop-rounds";
 // /api/app/repos row and read by the onboarding select step (repoStanding.ts). `scannedAt` comes off
 // Scan.scannedAt and getRepoStates `.toISOString()`s it.
 import type { RepoState } from "@/lib/db/org-rollup";
+import type { RetentionReceipt, RetentionReceiptRow } from "@/lib/db/retention-receipt";
 
 /** The keys of `T` whose (non-null) type is a `Date`. `never` when there are none. */
 export type DateBearingKeys<T> = {
@@ -294,5 +295,9 @@ export const WIRE_TYPES = {
   // Backlog row 47: GET/PUT /api/integrations/openai return it and OpenAISetup holds it. Every
   // timestamp (lastSyncAt/From/Through, updatedAt) is the ISO string toRow() maps; no key field.
   ProviderConnectionRow: true satisfies WireSafe<ProviderConnectionRow>,
+  // retention-1: GET /api/org/retention returns the purge receipt the RetentionCard renders. `at` is
+  // the ISO string the reader maps from AuditEntry.createdAt.
+  RetentionReceipt: true satisfies WireSafe<RetentionReceipt>,
+  RetentionReceiptRow: true satisfies WireSafe<RetentionReceiptRow>,
 } as const;
 
