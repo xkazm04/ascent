@@ -3,7 +3,7 @@ import { GitHubSignInButton } from "@/components/GitHubSignInButton";
 import { SupabaseSignInButton, SignOutButton } from "@/components/SupabaseAuthButtons";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { IdentityMenu } from "@/components/header/IdentityMenu";
-import { getActiveOrg, getSession, isAuthConfigured, orgOptionsForSession } from "@/lib/auth";
+import { getSession, isAuthConfigured } from "@/lib/auth";
 import { getViewer, supabaseAuthConfigured } from "@/lib/access";
 import { isDbConfigured, listOrgsForLogin } from "@/lib/db";
 import { demoOrgHref } from "@/lib/site";
@@ -11,6 +11,7 @@ import { ThemeSlot } from "@/components/theme/ThemeSlot";
 import { SiteFooterCore } from "@/components/SiteFooterCore";
 import { HEADER_INNER, HEADER_NAV, HEADER_SHELL, Logo, MarketingNavLinks } from "@/components/StaticNav";
 import { scoreHex } from "@/lib/ui";
+import { resolveViewerWorkspace } from "@/lib/viewer-workspace";
 
 // Logo now lives in the dependency-free StaticNav.tsx (G6-13) — re-exported here so existing
 // server-component importers (not-found.tsx, share/briefing) keep their `@/components/Brand` path.
@@ -70,17 +71,19 @@ export async function HeaderAccount() {
   // dormant custom-OAuth branches below (unchanged).
   const supaOn = supabaseAuthConfigured();
   const viewer = supaOn ? await getViewer() : null;
-  // Show the org switcher only when the viewer actually has an org to switch to — with no
-  // installations the menu would just read "Public" and be pointless.
-  const showSwitcher = Boolean(authOn && session && session.installations.length > 0);
-  const orgOptions = showSwitcher ? orgOptionsForSession(session) : [];
-  const activeOrg = showSwitcher ? await getActiveOrg(session) : "public";
+  // One resolver for both stacks (memberships under the Supabase wall, installations under the dormant
+  // session), filtered through canReadOrg - the predicate POST /api/org/active writes with. Shown only
+  // when there is a real org to switch to: with just "public" the menu would be pointless.
+  const workspace = await resolveViewerWorkspace();
+  const switcher =
+    workspace.options.length > 1 ? <OrgSwitcher orgs={workspace.options} active={workspace.active} /> : null;
 
   if (supaOn) {
     // Sign out moved INSIDE the identity menu: it is an action on the identity, and leaving it beside
     // the name would put two same-weight controls where the menu now says which is which.
     return viewer ? (
       <span className="flex items-center gap-3">
+        {switcher}
         <IdentityLink login={viewer.login} image={viewer.avatar} signOut={<SignOutButton />} />
       </span>
     ) : (
@@ -90,7 +93,7 @@ export async function HeaderAccount() {
   if (authOn && session) {
     return (
       <span className="flex items-center gap-3">
-        {showSwitcher && <OrgSwitcher orgs={orgOptions} active={activeOrg} />}
+        {switcher}
         {/* Was a link to /connect — the GitHub-App install flow, not an identity destination. Same
             IdentityLink as the Supabase branch above, so the two can't say different things about
             what clicking your own name does. */}

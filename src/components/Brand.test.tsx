@@ -19,6 +19,8 @@ const h = vi.hoisted(() => ({
   orgOptionsForSession: vi.fn(() => [] as string[]),
   getViewer: vi.fn(async () => null as null | { login: string; avatar?: string }),
   supabaseAuthConfigured: vi.fn(() => true),
+  listOrgsForLogin: vi.fn(async () => [] as Array<{ slug: string; name: string; role: string }>),
+  cookie: undefined as string | undefined,
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -26,15 +28,35 @@ vi.mock("@/lib/auth", () => ({
   isAuthConfigured: h.isAuthConfigured,
   getActiveOrg: h.getActiveOrg,
   orgOptionsForSession: h.orgOptionsForSession,
+  ACTIVE_ORG_COOKIE: "ascent_active_org",
 }));
-vi.mock("@/lib/access", () => ({ getViewer: h.getViewer, supabaseAuthConfigured: h.supabaseAuthConfigured }));
-vi.mock("@/lib/db", () => ({ isDbConfigured: () => false, listOrgsForLogin: vi.fn(async () => []) }));
+vi.mock("@/lib/access", () => ({
+  getViewer: h.getViewer,
+  supabaseAuthConfigured: h.supabaseAuthConfigured,
+  // The workspace resolver's identity read, over the same mocks the header's own reads use.
+  resolveViewerLogin: async () => (await h.getSession())?.login ?? (await h.getViewer())?.login ?? null,
+}));
+vi.mock("@/lib/db", () => ({ isDbConfigured: () => false, listOrgsForLogin: h.listOrgsForLogin }));
+// canReadOrg with membership semantics, so the resolver's subset filter runs for real in these cases.
+vi.mock("@/lib/authz", () => ({
+  canReadOrg: async (org: string) =>
+    org === "public" || (await h.listOrgsForLogin()).some((m) => m.slug === org.toLowerCase()),
+}));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: (n: string) => (n === "ascent_active_org" && h.cookie ? { value: h.cookie } : undefined) }),
+}));
 vi.mock("@/components/GitHubSignInButton", () => ({ GitHubSignInButton: () => <button>Sign in</button> }));
 vi.mock("@/components/SupabaseAuthButtons", () => ({
   SupabaseSignInButton: () => <button>Sign in</button>,
   SignOutButton: () => <button>Sign out</button>,
 }));
-vi.mock("@/components/OrgSwitcher", () => ({ OrgSwitcher: () => <div>switcher</div> }));
+vi.mock("@/components/OrgSwitcher", () => ({
+  OrgSwitcher: ({ orgs, active }: { orgs: string[]; active: string }) => (
+    <div data-testid="org-switcher" data-orgs={orgs.join(",")} data-active={active}>
+      switcher
+    </div>
+  ),
+}));
 
 import { HeaderAccount } from "@/components/Brand";
 
@@ -47,6 +69,8 @@ describe("HeaderAccount — the personal-workspace door", () => {
     h.getViewer.mockResolvedValue(null);
     h.orgOptionsForSession.mockReturnValue([]);
     h.getActiveOrg.mockResolvedValue("public");
+    h.listOrgsForLogin.mockResolvedValue([]);
+    h.cookie = undefined;
   });
 
   it("opens a menu on the identity under the LIVE Supabase login, with /me still the first row", async () => {
@@ -105,6 +129,48 @@ describe("HeaderAccount — the personal-workspace door", () => {
   it("offers no workspace link at all when nobody is signed in", async () => {
     render(await HeaderAccount());
     expect(screen.queryByRole("link", { name: /\/me/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+});
+
+// The org switcher was missing under the LIVE Supabase login: it rendered only for the dormant
+// custom-OAuth session, which production never mints, so the repaired POST /api/org/active had no
+// caller and a remembered org could not be chosen from the header at all.
+describe("HeaderAccount - the org switcher under the Supabase wall", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    h.isAuthConfigured.mockReturnValue(false);
+    h.supabaseAuthConfigured.mockReturnValue(true);
+    h.getSession.mockResolvedValue(null);
+    h.getViewer.mockResolvedValue({ login: "dana" });
+    h.cookie = undefined;
+  });
+
+  it("renders the viewer's memberships plus public, with the remembered org active", async () => {
+    h.listOrgsForLogin.mockResolvedValue([
+      { slug: "acme", name: "Acme", role: "owner" },
+      { slug: "beta", name: "Beta", role: "viewer" },
+    ]);
+    h.cookie = "beta";
+    render(await HeaderAccount());
+    const sw = screen.getByTestId("org-switcher");
+    expect(sw).toHaveAttribute("data-orgs", "acme,beta,public");
+    expect(sw).toHaveAttribute("data-active", "beta");
+    // The identity menu is still there beside it.
+    expect(screen.getByRole("button", { name: /dana/ })).toBeInTheDocument();
+  });
+
+  it("renders no switcher for a viewer with no org (the menu would only read Public)", async () => {
+    h.listOrgsForLogin.mockResolvedValue([]);
+    h.cookie = "acme";
+    render(await HeaderAccount());
+    expect(screen.queryByTestId("org-switcher")).toBeNull();
+  });
+
+  it("renders no switcher for a signed-out visitor", async () => {
+    h.getViewer.mockResolvedValue(null);
+    render(await HeaderAccount());
+    expect(screen.queryByTestId("org-switcher")).toBeNull();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 });

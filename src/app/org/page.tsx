@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getActiveOrg, getSessionState } from "@/lib/auth";
+import { resolveViewerWorkspace } from "@/lib/viewer-workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,6 @@ export const dynamic = "force-dynamic";
  * signed-out visitor (resolved to "public") simply lands on the sign-in prompt there.
  */
 export default async function OrgIndexPage() {
-  const { session } = await getSessionState();
-  const org = await getActiveOrg(session);
+  const { active: org } = await resolveViewerWorkspace();
   redirect(`/org/${encodeURIComponent(org)}`);
 }

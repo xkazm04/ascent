@@ -5,7 +5,8 @@ import { UsageDashboard } from "./usageDashboard";
 import { countMeteredScansThisMonth, getCreditReconciliation, getCreditState, getQuotaEventTotals, getUsageSummary, isDbConfigured, type CreditReconciliation, type CreditState, type QuotaEventTotals, type UsageSummary } from "@/lib/db";
 import { creditNotice } from "./creditNotice";
 import { boundUsageDays, getOrgPlanForUsage, usageWindow } from "@/lib/db/usage";
-import { getActiveOrg, PUBLIC_ORG } from "@/lib/auth";
+import { PUBLIC_ORG } from "@/lib/auth";
+import { resolveViewerWorkspace } from "@/lib/viewer-workspace";
 import { resolveSignInState } from "@/lib/signin-gate";
 import { canReadOrg } from "@/lib/authz";
 
@@ -26,13 +27,13 @@ export default async function UsagePage({
   // The gate used to be `isAuthConfigured() && !session` — the DORMANT custom-OAuth predicate, false
   // in production, so a signed-out visitor was never prompted. resolveSignInState checks the ACTIVE
   // Supabase wall first and names the button that actually works.
-  const { needsSignIn, provider, expired, session } = await resolveSignInState();
+  const { needsSignIn, provider, expired } = await resolveSignInState();
 
   // An explicit ?org= wins; otherwise follow the org remembered via the header switcher (which itself
-  // falls back to the first installation, else public). Resolved BEFORE the sign-in wall so the wall
+  // falls back to the primary membership, else public). Resolved BEFORE the sign-in wall so the wall
   // can special-case the public funnel the way canReadOrg does. Safe for an anonymous session (null):
   // the option set collapses to public, so a stray active-org cookie can't resolve to a private slug.
-  const org = orgParam || (await getActiveOrg(session));
+  const org = orgParam || (await resolveViewerWorkspace()).active;
 
   // Only prompt sign-in for a NON-public org. The shared public org's usage is readable anonymously —
   // canReadOrg(PUBLIC_ORG) is unconditionally true and the sibling GET /api/usage?org=public serves
