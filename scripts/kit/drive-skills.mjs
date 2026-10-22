@@ -8,7 +8,6 @@ if (/:3000(\/|$)/.test(base)) { console.error("refusing :3000"); process.exit(2)
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-await ctx.addCookies([{ name: "ascent-theme", value: "prism", url: base }]);
 const page = await ctx.newPage();
 const errs = [];
 page.on("pageerror", (e) => errs.push(String(e)));

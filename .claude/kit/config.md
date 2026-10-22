@@ -46,9 +46,8 @@ first ported surface and the visual reference; the kit contest (S5) must quote i
   (`systemPrefix: components/`); a batch that touches `components/report` or `components/org` must
   add it to the ledger by hand at S0.
 - **Integrated-page shooter (built 2026-09-29):** `node scripts/kit/shoot.mjs --base http://localhost:3002
-  --themes altimeter,prism --sizes 1280x800,1920x1080,1440x3200 --routes "/org/kiro?tab=live" --out <dir>`.
-  Real route in the real shell, per theme (stored via localStorage `ascent-theme`; `?theme=prism` also
-  works), dismisses the setup drawer, exits 1 on page/console errors or an empty mount. It refuses
+  --sizes 1280x800,1920x1080,1440x3200 --routes "/org/kiro?tab=live" --out <dir>`.
+  Real route in the real shell, per size, dismisses the setup drawer, exits 1 on page/console errors or an empty mount. It refuses
   port 3000 (**another product, KandiDate, lives there**). Only ONE `next dev` can run per checkout:
   if it says a server exists, use the URL it prints (3002 on 2026-09-29) instead of starting another.
   The data tape is the seeded local DB (org `kiro`: repos kp, systedo-case; `scripts/seed-org.mjs`):
@@ -100,20 +99,12 @@ Carried in from the landing contest (owner words, 2026-09-29 and the contest led
 - Open question for S2, do not decide alone: how much of the landing's poster-scale expression
   survives into dashboards. The landing scales on a fixed 16:10 frame (`--U`); dashboards cannot.
 
-## Theme duality (the campaign's scaffolding)
+## Theme
 
-Two looks coexist until every route is covered, then one is retired (that is "ready to migrate"):
-
-- **altimeter** = the shipped look; the absence of `data-theme` on `<html>`.
-- **prism** = `html[data-theme="prism"]`, defined in `src/app/theme-prism.css` (token re-points) and,
-  for composed parts, in `src/app/kit.css` (`data-kit="<part>"` rules).
-- Switch: header tab switcher `ThemeSwitch` (both SiteHeader and OrgHeader), stored in localStorage
-  `ascent-theme`, restored pre-paint by `THEME_BOOT_SCRIPT` (`src/lib/theme/theme.ts`).
-- Rule for every batch: the Altimeter render must not regress (pair it); the Prism render is what the
-  owner gates. The token layer restyles ALL routes at once; batches migrate what tokens cannot reach
-  (literal hex, inline styles, hand-rolled look-alikes) and recompose surfaces from the kit.
-- Exit criteria to retire altimeter: coverage.json has every reachable module approved, and the owner
-  says so at a gate.
+Prism is the only look (the Altimeter/Prism duality was retired 2026-10-22). Tokens live in `src/app/globals.css`;
+composed-part rules are in `src/app/kit.css` (`data-kit="<part>"`, scoped `html:root`). Rule for every batch: the
+render is what the owner gates; the token layer restyles all routes at once, and batches migrate what tokens cannot
+reach (literal hex, inline styles, hand-rolled look-alikes) and recompose surfaces from the kit.
 
 ## Skill improvement log
 

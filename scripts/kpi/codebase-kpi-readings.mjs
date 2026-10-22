@@ -116,14 +116,6 @@ function uiBarrelAdoption() {
   return { value: rate(used.length, names.length), numerator: used.length, denominator: names.length, evidence: { unused } };
 }
 
-// ── Landing Page Prototypes · prototype surface (non-test files, direction down) ─────────────────
-// Files under src/components/landing/prototypes that are not tests. A prototype gallery exists to
-// graduate variants into the product or delete them; the number should fall, not grow.
-function prototypeSurface() {
-  const files = walk("src/components/landing/prototypes").filter((p) => /\.tsx?$/.test(p) && !isTest(p));
-  return { value: files.length, numerator: files.length, denominator: null, evidence: { files } };
-}
-
 // ── Marketing About Page · reduced-motion coverage of framer-motion components (%) ───────────────
 // Non-test files under src/components/about and src/components/about-org that import framer-motion;
 // share that reference the reduced-motion gate (useReducedMotion, motionReveal, or MotionConfig
@@ -161,7 +153,6 @@ const out = {
   schemaInitSqlParity: schemaInitParity(),
   devRoutesAcceptingQuerySecret: devRoutesQuerySecret(),
   uiBarrelExportAdoption: uiBarrelAdoption(),
-  landingPrototypeSurface: prototypeSurface(),
   aboutReducedMotionCoverage: aboutReducedMotion(),
 };
 

@@ -1,5 +1,4 @@
 // Drives the Integrations Prism level: open a row, Esc, Back, prev/next, deep link, and the empty secret field.
-// Altimeter ignores the hash and keeps the card stack.
 //   node scripts/kit/drive-integrations.mjs [--base http://localhost:3001]
 import { chromium } from "@playwright/test";
 
@@ -13,9 +12,8 @@ const check = (name, ok, extra = "") => {
   if (!ok) fails++;
 };
 
-async function fresh(theme, url = URL) {
+async function fresh(url = URL) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await ctx.addCookies([{ name: "ascent-theme", value: theme, url: base }]);
   const page = await ctx.newPage();
   const errs = [];
   page.on("pageerror", (e) => errs.push(String(e)));
@@ -31,7 +29,7 @@ async function fresh(theme, url = URL) {
 }
 
 {
-  const { page, errs, ctx } = await fresh("prism");
+  const { page, errs, ctx } = await fresh();
   check("prism: overview, no level", (await page.locator("[data-surface='overview']").count()) === 1 && (await page.locator("[data-role='level-nav']").count()) === 0);
   check("prism: statement", (await page.locator("main").innerText()).includes("Spend reaches a repository"));
   await page.getByRole("button", { name: /GitLab/ }).click();
@@ -62,7 +60,7 @@ async function fresh(theme, url = URL) {
 }
 
 {
-  const { page, errs, ctx } = await fresh("prism", `${URL}#openai`);
+  const { page, errs, ctx } = await fresh(`${URL}#openai`);
   await page.waitForTimeout(400);
   check("deep link: openai level", (await page.evaluate(() => location.hash)) === "#openai" && (await page.locator("[data-surface='level']").count()) === 1);
   const text = await page.locator("main").innerText();
@@ -70,16 +68,6 @@ async function fresh(theme, url = URL) {
   check("deep link: no console errors", errs.length === 0, errs[0] ?? "");
   await page.goBack();
   await page.waitForTimeout(400);
-  await ctx.close();
-}
-
-{
-  const { page, errs, ctx } = await fresh("altimeter", `${URL}#gitlab`);
-  const text = await page.locator("main").innerText();
-  const folded = text.toLowerCase();
-  check("altimeter: card stack remains", folded.includes("how spend maps to repos") && !folded.includes("spend reaches a repository"));
-  check("altimeter: no level nav", (await page.locator("[data-role='level-nav']").count()) === 0);
-  check("altimeter: no console errors", errs.length === 0, errs[0] ?? "");
   await ctx.close();
 }
 

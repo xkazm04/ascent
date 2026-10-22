@@ -3,7 +3,7 @@
 // section 1-2) demands. A deviation is fixed in the part's CSS, never per module; an owner-accepted departure is
 // listed in the role's "accept" array and printed, so the review that moved the design stays visible.
 //   node scripts/kit/roles-check.mjs --roles scripts/kit/roles/overview.json [--base http://localhost:3002]
-//        [--route "/org/kiro?tab=overview"] [--theme prism] [--size 1440x900]
+//        [--route "/org/kiro?tab=overview"] [--size 1440x900]
 // Values: a number (px, tolerance 0.6), a string (exact), or [min, max]. Exit 1 on any un-accepted deviation.
 import { chromium } from "@playwright/test";
 import { readFileSync } from "node:fs";
@@ -13,12 +13,10 @@ const base = arg("base", "http://localhost:3002");
 if (/:3000(\/|$)/.test(base)) { console.error("refusing :3000 (another product)"); process.exit(2); }
 const spec = JSON.parse(readFileSync(arg("roles"), "utf8"));
 const route = arg("route", spec.route ?? "/org/kiro?tab=overview");
-const theme = arg("theme", "prism");
 const [w, h] = arg("size", "1440x900").split("x").map(Number);
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: w, height: h } });
-await ctx.addCookies([{ name: "ascent-theme", value: theme, url: base }]);
 const page = await ctx.newPage();
 await page.goto(base + route, { waitUntil: "networkidle", timeout: 120000 });
 await page.waitForTimeout(1500);
@@ -48,6 +46,6 @@ for (const [name, role] of Object.entries(spec.roles)) {
     if (!ok) { console.log(`${accepted ? "ACCEPTED" : "DEVIATION"} ${name}.${prop}: want ${JSON.stringify(want)} got ${have}${role.why ? "  (" + role.why + ")" : ""}`); if (!accepted) bad++; }
   }
 }
-console.log(`${bad ? "FAIL" : "ok"}: ${Object.keys(spec.roles).length} roles, ${checked} properties, ${bad} deviation(s) at ${w}x${h} ${theme}`);
+console.log(`${bad ? "FAIL" : "ok"}: ${Object.keys(spec.roles).length} roles, ${checked} properties, ${bad} deviation(s) at ${w}x${h}`);
 await browser.close();
 process.exit(bad ? 1 : 0);

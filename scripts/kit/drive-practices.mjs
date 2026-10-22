@@ -12,9 +12,8 @@ const check = (name, ok, extra = "") => {
   if (!ok) fails++;
 };
 
-async function fresh(theme, url = URL) {
+async function fresh(url = URL) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await ctx.addCookies([{ name: "ascent-theme", value: theme, url: base }]);
   const p = await ctx.newPage();
   const errs = [];
   p.on("pageerror", (e) => errs.push(String(e)));
@@ -32,7 +31,7 @@ async function fresh(theme, url = URL) {
 const masthead = (p) => p.locator("[data-role='practices-v2'] [data-kit='masthead']").count();
 const level = (p) => p.locator("[data-role='practice-level']").count();
 // A fully adopted library has no gap repo, so PracticeApply returns nothing. That is the same
-// rule as Altimeter. Either the apply control or the "no gaps" sentence must be on the level.
+// rule. Either the apply control or the "no gaps" sentence must be on the level.
 async function minedDetail(p) {
   const save = (await p.getByRole("button", { name: "Save as playbook" }).count()) > 0;
   const apply = (await p.getByText("Apply to a repo").count()) > 0;
@@ -42,7 +41,7 @@ async function minedDetail(p) {
 
 let practiceHash = "";
 {
-  const { p, errs, ctx } = await fresh("prism");
+  const { p, errs, ctx } = await fresh();
   const rows = p.locator("[data-role='practices-v2'] button[id^='practice-']");
   const rowCount = await rows.count();
   check("prism: a mined practice row is on the overview", rowCount > 0);
@@ -93,18 +92,10 @@ let practiceHash = "";
 }
 
 {
-  const { p, errs, ctx } = await fresh("prism", URL + practiceHash);
+  const { p, errs, ctx } = await fresh(URL + practiceHash);
   check("deep link opens the level after hydration", practiceHash !== "" && (await level(p)) === 1, practiceHash);
   check("deep link keeps the mined detail on screen", await minedDetail(p));
   check("no console errors (deep link)", errs.length === 0, errs[0]?.slice(0, 160));
-  await ctx.close();
-}
-
-{
-  const { p, errs, ctx } = await fresh("altimeter");
-  check("altimeter: v1 library, no prism composition", (await p.locator("[data-role='practices-v2']").count()) === 0 && (await p.getByText("Practice Library").count()) > 0);
-  check("altimeter: no practice level", (await level(p)) === 0);
-  check("no console errors (altimeter)", errs.length === 0, errs[0]?.slice(0, 160));
   await ctx.close();
 }
 
