@@ -218,7 +218,8 @@
         "src/lib/org/admission*.ts",
         "src/app/api/org/admission/**",
         "src/app/api/integrations/**",
-        "src/lib/db/provider-credentials.ts"
+        "src/lib/db/provider-credentials.ts",
+        "src/lib/db/otlp-receipts.ts"
       ]
     },
     {

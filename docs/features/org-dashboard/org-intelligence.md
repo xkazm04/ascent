@@ -2004,8 +2004,8 @@ reported** rather than silently skipped:
 | `no-repo-attr` | The resource carries no `git.repository`, so the spend can't be attributed to a repository. |
 | `unsupported-host` | The remote resolves to a forge Ascent has no adapter for — Bitbucket, Azure DevOps, an unrecognized self-hosted host. **GitLab remotes no longer land here** (moonshot #4): `resolveGitRepo` routes through the forge registry, so `gitlab.com/group/project` resolves to `gitlab:group/project` — the same identity a GitLab scan persists — and its spend joins the repo row. What remains genuinely unreadable still **names the host** so the report is actionable, and never silently vanishes. See [`docs/features/github/forges.md`](../github/forges.md). |
 
-`parseOtlpMetrics` returns `{ records, received, skipped, unsupportedHosts }`, and the **202 body
-carries `received` / `stored` / `skipped`-by-reason** plus a plain-language `note` when anything was
+`parseOtlpMetrics` returns `{ records, received, skipped, unsupportedHosts, keys, duplicates, unkeyed }`, and the **202 body
+carries `received` / `stored` / `skipped`-by-reason / `duplicates` / `unkeyed`** plus a plain-language `note` when anything was
 dropped (omitted entirely when nothing was).
 
 Per provider, the Integrations card shows **last received** time and what landed (distinct repos
@@ -2021,6 +2021,38 @@ previously-invisible failure, called out in orange with the `git.repository` fix
 and a 202 on a payload it cannot parse would read to the collector as "delivered" while nothing
 ever persists. `/v1/logs` authenticates and 202-accepts without parsing; the token/cost signal
 lives in metrics; folding log events into usage is a later step.
+
+### Replay-safe delta ingest (2026-10-22)
+
+OTLP delivery is at-least-once: a timeout, a proxy 502/504 after the write committed, or a mid-batch
+database failure makes the exporter resend the same export, and the push path stores delta counters by
+**incrementing** the day bucket and the session row. Every resend used to add the same dollars again,
+and nothing in the store could tell the inflated figure from real usage afterwards.
+
+`/v1/metrics` now admits each datapoint **once per sink**. Its key (`otlpPointKey`,
+`src/lib/integrations/otlp-point-key.ts`) is the sha256 of the series identity (source, metric name,
+sorted resource attributes, sorted datapoint attributes) plus the delta interval
+(`startTimeUnixNano`, `timeUnixNano`). It is identity, not a hash of the value or the body bytes: two
+real increments of equal value in consecutive intervals are both summed, and the same export
+re-serialized in any order or whitespace is recognized. Each sink (`usage`, `sessions`) claims its keys
+in `OtlpPointReceipt` with `INSERT ... ON CONFLICT DO NOTHING` **inside the transaction that writes
+it** (`withAdmittedPoints`, `src/lib/db/otlp-receipts.ts`), so a failure rolls the claim back with the
+write and the retry stores the full value exactly once. A usage-write failure answers **503 with
+`retry-after`**; a resend answers a terminal **202** with `stored: 0` and `duplicates: n`, never a
+retriable status. A session-write failure still never fails an ingest whose usage landed.
+
+- A datapoint with **no timestamp at all** has no interval identity: it is admitted and counted as
+  `unkeyed`, never silently dropped as a duplicate.
+- Receipts are per org (`@@unique([orgId, sink, pointKey])`) and expire after a **7-day replay
+  horizon**; each ingest deletes up to 500 of its own org's expired receipts.
+- Auth is unchanged and still runs first: a bad or revoked token gets 401 before any receipt is written.
+- Measured spend is display-only, so nothing Ascent charges changes.
+- **Deviation from the usage-event-ingestion standard:** it keys de-duplication on an emitter-chosen
+  transmission id. OTLP carries none, so series + interval identity is the substitute. A delta series
+  cannot legitimately report one interval twice, which is what makes the substitute sound.
+- **Known gap:** the org erase in `src/lib/db/retention.ts` does not drain `OtlpPointReceipt`. The
+  rows are opaque hashes with no user data, but an erased org never ingests again, so its receipts
+  are not swept by the 7-day horizon either.
 
 ### OpenAI Admin Costs connector (2026-09-24)
 
