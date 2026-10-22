@@ -1,0 +1,845 @@
+[
+ {
+  "context": "Org Overview & Standing",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Retire the finished tab-migration seam: one reach table, an exhaustive panel map",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/lib/org/orgTabs.ts",
+   "src/lib/org/orgTabs.test.ts",
+   "src/lib/org/surface-redirect.test.ts",
+   "src/components/org/shell/OrgTabChunks.tsx",
+   "src/components/org/shell/OrgTabNav.tsx",
+   "src/app/org/[slug]/page.tsx",
+   "src/app/org/[slug]/loading.tsx"
+  ],
+  "new_files": [
+   "src/components/org/shell/orgTabPanels.tsx",
+   "src/lib/org/orgTabReach.types.test.ts",
+   "src/app/org/[slug]/page.tabs.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/org-intelligence.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/org/orgTabs.ts: 521 -> ~470 (.ts outside features; 300 rule is .tsx-only, spirit: it shrinks)",
+   "src/lib/org/orgTabs.test.ts: 403 -> ~390 (test, outside features; vacuous seam tests replaced, not added)",
+   "src/lib/org/surface-redirect.test.ts: 39 -> ~39",
+   "src/components/org/shell/OrgTabChunks.tsx: 238 -> ~45 (cap 300)",
+   "src/components/org/shell/orgTabPanels.tsx: new ~120 (cap 300; server module, NO 'use client')",
+   "src/components/org/shell/OrgTabNav.tsx: 144 -> ~142 (cap 300)",
+   "src/app/org/[slug]/page.tsx: 94 -> ~86 (cap 300)",
+   "src/app/org/[slug]/loading.tsx: 20 -> ~16 (comment only)",
+   "src/lib/org/orgTabReach.types.test.ts: new ~30",
+   "src/app/org/[slug]/page.tabs.test.tsx: new ~70 (cap 300)"
+  ],
+  "acceptance": [
+   "orgTabReach(id) is defined for EVERY ORG_TAB_IDS entry: followups and surfaces -> {kind:'alias'}, developer -> {kind:'route'}, the other 26 -> {kind:'panel'}; an id with no reach entry fails tsc (Record<OrgTabId, Reach>)",
+   "orgTabHref('acme', 'followups') -> '/org/acme?tab=proposals' and orgTabHref('acme','surfaces') -> '/org/acme?tab=knowledge&section=surfaces' (an internal link no longer bounces off the page's alias redirect; today both return '/org/acme?tab=<alias>')",
+   "for every id with kind 'panel': orgTabHref('acme', id) === '/org/acme?tab=' + id; orgTabHref('acme','developer') === '/org/developer?org=acme' (guard)",
+   "ORG_TABS_NOT_IN_NAV equals the set derived from reach (rail:false) = {segments, followups, surfaces, developer}, and every ORG_NAV_GROUPS item has rail:true - the hand-listed set is gone",
+   "page: GET /org/acme?tab=<each panel id> renders OrgTabChunks with that tab and calls redirect() zero times (mock next/navigation); ?tab=followups redirects to /org/acme?tab=proposals carrying ?range=",
+   "compile-time: a panel map object missing one OrgPanelTabId key, written with `satisfies Record<OrgPanelTabId, PanelDef>`, carries @ts-expect-error in orgTabReach.types.test.ts (tsc fails if exhaustiveness ever stops biting); an alias id as a panel key is likewise rejected",
+   "the module no longer exports MIGRATED_ORG_TAB_IDS, isMigratedOrgTab or legacyOrgTabPath-as-fallback: `Object.keys(await import('./orgTabs'))` contains none of the first two"
+  ],
+  "guards": [
+   "orgTabHref('acme','developer') === '/org/developer?org=acme' (green before by design)",
+   "?tab=segments still renders RepositoriesTab with mode='segments' (green before by design)",
+   "per-panel-id href equality for the 26 panel ids (green before: every one is already in MIGRATED_ORG_TAB_IDS)"
+  ],
+  "premise": [
+   "src/lib/org/orgTabs.ts:444 - '// Migration seam - DELETE THIS BLOCK once all 22 tabs live in the shell'",
+   "src/lib/org/orgTabs.ts:457 - MIGRATED_ORG_TAB_IDS hand-lists 28 ids; ORG_TAB_IDS (orgTabs.ts:14-81) has 29; the only id missing is 'developer', which is a static route and never a panel - the migration is finished but the seam is still load-bearing",
+   "src/lib/org/orgTabs.ts:480-490 - four 'Born migrated' comments record that pairing, knowledge and digest each SHIPPED a 404'd rail link because a new tab was registered in OrgTabChunks but not added to this hand-list ('the exact bug `pairing` and `knowledge` each shipped once', :486)",
+   "src/components/org/shell/OrgTabChunks.tsx:56-229 - a 26-branch `tab === \"x\" ? <Suspense>...</Suspense> : null` chain; nothing type-checks it against the id union, so a valid migrated id without a branch renders a blank panel with no error (followups/surfaces are in MIGRATED_ORG_TAB_IDS at orgTabs.ts:478,489 and have no branch; only the page's earlier alias redirect keeps them from rendering blank)",
+   "src/components/org/shell/OrgTabChunks.tsx:231 - stale comment: 'The other 6 tabs are still their own routes'",
+   "src/app/org/[slug]/loading.tsx:15-17 - claims '20 tabs that are still their own routes' and 'Delete this file when MIGRATED_ORG_TAB_IDS covers every tab'",
+   "src/lib/org/orgTabs.test.ts:362-366 - the un-migrated-href test is vacuous today ('if (unmigrated) expect(...)': the find returns undefined)",
+   "src/components/org/shell/OrgTabNav.tsx:117 - onSelect branches on isMigratedOrgTab, always true for a rail item",
+   "src/lib/org/orgTabs.ts:91-95 + :244-258 + :286-292 - alias targets, the not-in-nav set and the extra labels are three more hand-lists keyed by the same ids",
+   "src/app/org/[slug]/page.tsx:88-91 - 'MIGRATION SEAM ... Once every tab is registered this branch is dead code'",
+   "grep: isMigratedOrgTab/MIGRATED_ORG_TAB_IDS are referenced only by orgTabs.ts, page.tsx:9,91, OrgTabNav.tsx:11,117, OrgTabChunks.tsx:232 (comment), loading.tsx:17 (comment), orgTabs.test.ts and surface-redirect.test.ts:4,37"
+  ],
+  "rollback": "Three commits (reach table + derived sets in orgTabs.ts with tests; exhaustive orgTabPanels map replacing the OrgTabChunks chain; page/nav/loading seam deletion). Each reverts with git revert; no schema, no data, no URL a user holds changes meaning (aliases and legacy redirect stubs under src/app/org/[slug]/<tab>/page.tsx are untouched).",
+  "gate": "architecture",
+  "doc": "docs/features/org-dashboard/org-intelligence.md",
+  "runner_up": "Make getOrgRollup request-cache()d so Overview's standing strip, Fix first and the fleet panel can stream as separate boundaries instead of one (OverviewFleetPanel.tsx:7-9 says the split would buy a duplicate query).",
+  "body": "## Summary\nThe ?tab= migration is complete - every id but `developer` is a shell panel - yet the shell still routes through the migration seam: a 28-entry hand-list (MIGRATED_ORG_TAB_IDS) that has already shipped three 404'd rail links, a 26-branch ternary chain no type checks, and three more id-keyed hand-lists (aliases, not-in-nav, extra labels). Replace them with ONE reach declaration per id and an exhaustive, compiler-checked panel map.\n\n## Description\nApplies registry app-shell / navigation-model: 'the section vocabulary is closed and owned' and 'Reachability is registry metadata' - declaring HOW each destination is reached (panel, alias of another panel, standalone route; in the rail or not) is what lets the rail, the router and the href helper derive their own subsets instead of keeping private lists. Today adding a tab is four edits in two files with a test that only catches one of the failure modes (orgTabs.test.ts:386-402 catches the 404, nothing catches the blank panel).\n\nShape: `ORG_TAB_REACH: Record<OrgTabId, { kind: 'panel' } | { kind: 'alias'; tab: OrgPanelTabId; extra?: Record<string,string>; label?: string } | { kind: 'route' }>` plus `rail: boolean`; `OrgPanelTabId` is derived from it. `orgTabAliasTarget`, `ORG_TABS_NOT_IN_NAV` and the alias labels become derivations. `orgTabHref` collapses to buildUrl for panels, the alias target for aliases (no redirect hop - navigation-model's 'back keeps bouncing off a redirect'), and the developer route. `orgTabPanels.tsx` (server, no 'use client') holds `{ minH, render(slug, sp) }` per panel id `satisfies Record<OrgPanelTabId, PanelDef>`; `segments` is just a second key whose render passes mode='segments', which answers the 'Do NOT simplify into a Record' warning at OrgTabChunks.tsx:14 (that warning was about a Record of COMPONENTS; a Record of render functions maps two ids onto one component). OrgTabChunks keeps the error boundary, the keyed remount and the per-panel Suspense, unchanged in behaviour.\n\n## Flow\n- add reach table + derived sets to orgTabs.ts, red-first tests for reach/href/not-in-nav\n- add orgTabPanels.tsx with the satisfies-Record map and the @ts-expect-error fixture\n- shrink OrgTabChunks to a lookup; delete the page's migration branch, OrgTabNav's isMigratedOrgTab branch, MIGRATED_ORG_TAB_IDS, isMigratedOrgTab; correct loading.tsx's stale comment (keep the file: the page still awaits the header summary before the shell renders)\n\n## Expected impact\nA new born-in-shell tab cannot ship a 404 rail link or a blank panel: forgetting the panel is a tsc error, forgetting the reach entry is a tsc error. Alias links stop costing a server redirect. ~200 lines of hand-maintained switch and lists removed.\n\n## Evaluation\nClaim: the tab universe has one reach authority and an exhaustive panel map\nBefore: 0 of 7 cases pass (aliases href to themselves, the seam exports exist, no reach table, no exhaustiveness fixture)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first, plus tsc over the @ts-expect-error fixture\nResult: better\nGate: architecture",
+  "evidence": "orgTabs.ts:457-493 MIGRATED_ORG_TAB_IDS = overview, audit, executive, live, security, passports, governance, members, integrations, settings, skills, memory, repositories, segments, tech-stacks, teams, contributors, adoption, delivery, practices, followups, registry, pairing, knowledge, digest, surfaces, proposals, lessons (28) vs ORG_TAB_IDS 29 incl. developer. orgTabs.ts:486 '(the exact bug `pairing` and `knowledge` each shipped once)'. OrgTabChunks.tsx:231 '{/* The other 6 tabs are still their own routes...'. loading.tsx:17 'Delete this file when MIGRATED_ORG_TAB_IDS covers every tab.' orgTabs.test.ts:366 'if (unmigrated) expect(orgTabHref(\"acme\", unmigrated))...' (unmigrated is undefined). Registry: ../ai-registry/knowledge/software-engineering/ui-surfaces/shell-and-navigation/app-shell/techniques/navigation-model.md ('Reachability is registry metadata'; use_when 'adding a section updates one list but not the other', 'back keeps bouncing off a redirect')."
+ },
+ {
+  "context": "Org Overview & Standing",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Decide a heatmap cell's next step in place: tracked status, start/done/dismiss",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/app/api/org/repo-dimension/route.ts",
+   "src/app/api/org/repo-dimension/route.test.ts",
+   "src/components/org/shared/RepoDimensionModal.tsx"
+  ],
+  "new_files": [
+   "src/lib/org/dimensionStepsModel.ts",
+   "src/lib/org/dimensionStepsModel.test.ts",
+   "src/components/org/shared/RepoDimensionNextSteps.tsx",
+   "src/components/org/shared/RepoDimensionNextSteps.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/org-intelligence.md"
+  ],
+  "loc_check": [
+   "src/app/api/org/repo-dimension/route.ts: 85 -> ~120 (route, no tsx cap)",
+   "src/app/api/org/repo-dimension/route.test.ts: 67 -> ~130",
+   "src/components/org/shared/RepoDimensionModal.tsx: 182 -> ~125 (cap 300; NextSteps moves out)",
+   "src/components/org/shared/RepoDimensionNextSteps.tsx: new ~180 ('use client'; cap 300)",
+   "src/lib/org/dimensionStepsModel.ts: new ~110 (pure, no React)",
+   "src/lib/org/dimensionStepsModel.test.ts: new ~150",
+   "src/components/org/shared/RepoDimensionNextSteps.dom.test.tsx: new ~110 (cap 300)"
+  ],
+  "acceptance": [
+   "route: GET /api/org/repo-dimension?org=acme&repo=acme/app&dim=D3 with getLatestRecommendations returning D3 recs {id:r1,status:open},{id:r2,status:dismissed},{id:r3,status:done} and one D5 rec -> response.steps has exactly the 3 D3 items, each carrying id, status, assigneeLogin, targetDate, projectedPoints; response.tracked === true",
+   "route: getLatestRecommendations REJECTS -> still 200, steps built from report.roadmap with tracked:false and a trackingError flag (a failed tracking read is not 'all open'), and the failure is noted via degradedRead; returns null (no DB / public org) -> tracked:false, no error flag",
+   "model orderSteps: open and in_progress steps first (in that order), done and dismissed folded into `closed` with a count; openCount for [open, dismissed, done] === 1",
+   "model actionsFor: open -> ['start','done','dismiss']; in_progress -> ['done','dismiss']; done|dismissed -> ['reopen']; any step with tracked:false or org === 'public' -> [] (read-only, mirrors the PATCH route's public-org 403)",
+   "model patchFor: ('start', step unassigned, viewer 'ana') -> {status:'in_progress', assigneeLogin:'ana'}; ('start', step assigned to 'bo') -> {status:'in_progress'} (never steals an owner); ('dismiss', reason 'we use Bazel') -> {status:'dismissed', note:'we use Bazel'}; ('dismiss', '') -> {status:'dismissed'} with no note key",
+   "model applyResult: a 200 PersistedRecommendation replaces the step by id in place and recomputes openCount; a 403/409 leaves the step unchanged and yields a RowError message, never an optimistic removal (verdict either writes or throws, never nothing)",
+   "surface (dom): a modal for a 52-score dimension whose only steps are dismissed renders '1 dismissed, none open' and a Reopen control - not 'No follow-up on record ... re-scan to get it'",
+   "surface (dom): clicking Start on an open step issues exactly one PATCH /api/recommendations/r1 with the patchFor body; the control is busy and a double-press does not send a second request",
+   "CRITIC REVISE: GET /api/org/repo-dimension returns canAct (viewer has write access to the recommendation); the modal model actionsFor(item, canAct=false) returns [] so a read-only viewer is offered no Start/Done/Dismiss/Reopen (no action that would 403)"
+  ],
+  "guards": [
+   "route still answers 503 on a failed report read and 404 on no stored scan (existing route.test.ts cases, green before by design)"
+  ],
+  "premise": [
+   "src/app/api/org/repo-dimension/route.ts:57-59 - comment says 'Open roadmap items for this dimension are the \"next steps\"', but the code is `report.roadmap.filter((r) => r.dimension === dim)` - no status filter",
+   "src/lib/db/scans-read.ts:1405-1420 - report.roadmap is mapped from scan.recommendations dropping id, status, assigneeLogin and targetDate, so the route cannot tell a dismissed or done recommendation from an open one",
+   "src/components/org/shared/RepoDimensionModal.tsx:136-182 - NextSteps renders every step as an open 'Next steps' card (title, impact, effort, rationale) with no status, owner or action; the only exit is 'Full report' (:121-123)",
+   "src/components/org/shared/RepoDimensionModal.tsx:146-147 - when steps is empty the copy is 'No open recommendations' / 'No follow-up on record ... re-scan to get it' - it never knows about closed ones",
+   "src/lib/db/scans-read.ts:1205-1276 - getLatestRecommendations already returns the same recs WITH id/status/assigneeLogin/targetDate/projectedPoints, org-scoped and with the public-org private-repo guard",
+   "src/app/api/recommendations/[id]/route.ts:1-11,45-60 - PATCH status/assignee/targetDate/note already exists, resolve-then-gate on the row's org (getRecommendationOrgSlug -> requireOrgAccess) and 403s the public org; dismissal with a note feeds the next scan (:143-155)",
+   "src/components/report/recommendationRowUi.tsx:130 - DismissReasonPrompt (reason optional, skip is an equal button) is an exported, reusable control",
+   "grep RepoDimensionModal: used by the Overview heatmap (src/features/standing/overview/RepoDimensionHeatmap.tsx:159), the Prism matrix (src/features/standing/overview/DimensionMatrix.v2.tsx:137) and the Security risk register (src/features/standing/security/SecurityRiskRegister.tsx:193) - one change reaches three surfaces"
+  ],
+  "rollback": "Two commits: (1) route + pure model + tests (the response gains `steps`/`tracked`, `nextSteps` kept for one release so nothing breaks), (2) the extracted RepoDimensionNextSteps surface. Reverting (2) restores the read-only list; reverting (1) restores the old payload. No schema change; writes go through the existing PATCH route, so no new authorization surface.",
+  "gate": "contract",
+  "doc": "docs/features/org-dashboard/org-intelligence.md",
+  "runner_up": "Fix first's 'Decide N findings' becomes a decide-here band (accept/dismiss the top finding through the existing decision route) instead of a link to the queue.",
+  "body": "## Summary\nThe heatmap cell is where a lead finds the weak spot - a 41 on D3 for one repo - and the modal lists the dimension's 'next steps'. But that list is the raw scan roadmap: it does not know which steps are already in progress, done or dismissed, so it shows a dismissed gap as an open step, and when everything is closed it tells you to re-scan. It reports state it should let you act on: to start, finish or dismiss one you have to leave for the full report, find the row, and act there. Make the drill-in a decision point.\n\n## Description\nThe route reads the persisted recommendations for the cell (getLatestRecommendations, already org-scoped) beside the report it already reads, and returns them as `steps` with status, owner, due date and projected points. A pure `dimensionStepsModel.ts` owns ordering (open, in progress, then closed folded with a count), which actions a step offers by status, the PATCH body each action sends, and how a result lands. The modal's NextSteps moves to `RepoDimensionNextSteps.tsx` (client) and gains Start (assigns you only if unowned), Done, Dismiss (with the report's DismissReasonPrompt, so the reason still feeds the next scan) and Reopen - all through the existing PATCH /api/recommendations/:id, which already resolves the row's org and gates it. Applies registry triage-queues / verdict-write-back: the verdict lands in the system of record through one door, a control is not offered when there is no route for it (read-only on the public org or with tracking off), and every verdict either writes or throws - never an optimistic removal that the next refresh resurrects. A failed tracking read is surfaced as such rather than shown as 'all open' (async-ui-states failure-states).\n\n## Flow\n- red-first: route.test cases for steps/tracked/trackingError; model tests for ordering, actionsFor, patchFor, applyResult\n- route reads recs in parallel with the report and history, degraded on failure\n- extract NextSteps into RepoDimensionNextSteps.tsx with the actions; modal keeps the fetch and frame\n\n## Expected impact\nA cell drill-in goes from read -> leave -> find -> act (4 steps across two pages) to act-in-place (1), on the Overview heatmap, the Prism matrix and the Security risk register at once. The modal stops presenting closed work as open, which today is a decision made on wrong data.\n\n## Evaluation\nClaim: the drill-in shows tracked status and writes verdicts through the existing tracking route\nBefore: 0 of 8 cases pass (route returns untracked roadmap; no model; no actions)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (repo-dimension response gains steps/tracked; nextSteps kept)",
+  "evidence": "route.ts:57-59: '// Open roadmap items for this dimension are the \"next steps\" ...' then 'const nextSteps = report.roadmap.filter((r) => r.dimension === dim);'. scans-read.ts:1405 'const roadmap: LlmRoadmapItem[] = scan.recommendations.map((r) => ({ title: r.title, dimension: ..., impact, effort, rationale, firstStep, explore, levelUnlock, kind }))' - no id/status. LlmRoadmapItem (src/lib/types.ts:652-673) has no status field; PersistedRecommendation (types.ts:62-91) carries id/status/assigneeLogin/targetDate/projectedPoints. RepoDimensionModal.tsx:116 '<NextSteps steps={data.nextSteps} score={data.dimension.score} />'. Registry: ../ai-registry/knowledge/software-engineering/operations/service-operations/triage-queues/techniques/verdict-writeback.md ('every verdict either defers, or writes, or throws - never nothing'; 'an item whose source has no route for a given verdict can be detected at render time (the control is not offered)').",
+  "revise_applied": "canAct gate on actions"
+ },
+ {
+  "context": "Trends & Comparison",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One repo-history read ladder for /trends, /report/compare and /api/history",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/app/trends/page.tsx",
+   "src/app/report/compare/page.tsx",
+   "src/app/api/history/route.ts"
+  ],
+  "new_files": [
+   "src/lib/history/repoHistoryAccess.ts",
+   "src/lib/history/repoHistoryNotice.ts",
+   "src/lib/history/repoHistoryAccess.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/app/trends/page.tsx: 260 -> ~205 (cap 300)",
+   "src/app/report/compare/page.tsx: 253 -> ~195 (cap 300)",
+   "src/app/api/history/route.ts: 190 -> ~180 (.ts, no hard cap; shrinks)",
+   "src/lib/history/repoHistoryAccess.ts: new ~130 (.ts, outside src/features)",
+   "src/lib/history/repoHistoryNotice.ts: new ~60",
+   "src/lib/history/repoHistoryAccess.test.ts: new ~170"
+  ],
+  "acceptance": [
+   "resolveRepoHistoryAccess({repo: undefined}) -> {kind:'missing-repo'}; {repo:'not a repo'} -> {kind:'invalid-repo'}; dbConfigured false -> {kind:'no-db', repo:'o/r'} - no read is attempted (read spy called 0 times)",
+   "read throws {code:'DB_UNAVAILABLE'} -> {kind:'db-down'}; read throws any other error -> the error propagates (not swallowed into a state)",
+   "window {since: D, days: 30} and windowed read returns 0 scans while the unwindowed probe returns 1 -> {kind:'outside-window', window}; probe returns 0 -> {kind:'empty'}; with no window the probe is never called",
+   "the compare surface and the trends surface read at the SAME depth: resolveRepoHistoryAccess(..., surface:'compare') calls the read with limit === HISTORY_SCAN_CAP (200), not 60 - so a scan id the trends chart shows (e.g. the 80th newest) resolves as ?a= on compare instead of tripping the 'no longer in the comparison window' fallback",
+   "historyReturnPath('compare', {repo:'o/r', a:'s1', b:'s2', against:'org:best'}) -> '/report/compare?repo=o%2Fr&a=s1&b=s2&against=org%3Abest' (the sign-in prompt's `next` keeps the pair; today it keeps only repo)",
+   "repoHistoryNotice({kind:'empty'}, 'trends', 'o/r') and (..., 'compare', ...) return the same title 'No scans recorded yet' with the surface-specific tail ('to start the trend' / 'to start tracking changes'), and {kind:'db-down'} returns 'Scan history is unavailable right now' for both - copy single-sourced",
+   "/api/history maps the same states to status codes: missing/invalid -> 400, no-db -> 503, db-down -> 500, outside-window -> 200 empty with header x-ascent-history-hidden: window (new), ok -> 200 with the existing ETag"
+  ],
+  "guards": [
+   "existing src/app/trends/page.window.dom.test.tsx, page.unavailable.dom.test.tsx, src/app/report/compare/page.window.dom.test.tsx, page.unavailable.dom.test.tsx, src/app/api/history/route.*.test.ts stay green unchanged - extraction preserves behaviour",
+   "the API's sign-in predicate stays byte-identical ((authGateEnabled() || isAuthConfigured()) && !viewer -> 401) and both pages keep resolveSignInState(): the ladder starts AFTER each surface's gate, so no gate is loosened or tightened by this card"
+  ],
+  "premise": [
+   "src/app/trends/page.tsx:52-165 and src/app/report/compare/page.tsx:46-147 hand-sequence the same ladder: resolveSignInState -> !repo notice -> parseRepoUrl notice -> isDbConfigured notice -> readableOrgForOwner -> resolveHistoryWindow -> strict read -> isDbDown catch -> hiddenByWindow probe -> outside-window notice -> 'No scans recorded yet' notice",
+   "src/app/trends/page.tsx:110 and src/app/report/compare/page.tsx:94 both declare `let hiddenByWindow = false;` and probe an unwindowed limit-1 read (trends 123-129, compare 107-108); src/app/api/history/route.ts:111-124 applies the same window but has no probe, so an all-hidden repo answers a plain empty series",
+   "src/app/report/compare/page.tsx:101 reads `limit: 60` while src/app/trends/page.tsx:114 reads HISTORY_SCAN_CAP; src/lib/history/limits.ts:1 calls that cap 'The ONE scan-history depth every \"same history, different surface\" path shares'",
+   "src/lib/db/scans-read.ts:767 and :785 honour ?a/?b only when `ids.has(...)` within that newest-`limit` list, so the 60 vs 200 split means an id visible on /trends can be silently substituted on /report/compare (the notice at compare/page.tsx:215-226 exists because of this)",
+   "src/app/report/compare/page.tsx:51 builds the sign-in `next` from repo only, dropping a/b/against - a shared pair link lands on the default pair after sign-in",
+   "src/app/api/history/route.ts:80 gates on `(authGateEnabled() || isAuthConfigured())` while src/lib/signin-gate.ts:41 (used by both pages) gates on authGateEnabled() alone - two implementations of one rule; out of scope to change here (would be an auth change), pinned by a guard",
+   "git log: b371e123 (failed read is not 'No scans recorded yet'), d4457259 (history window) and 83c51521 (DbUnavailableError by code) each had to edit the trends page and the compare page (and the route) separately - the change class lands N times"
+  ],
+  "rollback": "Each step is one commit: (1) add repoHistoryAccess + notice + tests (no caller), (2) migrate /trends, (3) migrate /report/compare incl. the depth and next-path change, (4) migrate /api/history. git revert of 2-4 restores the hand-sequenced pages; step 1 is inert on its own.",
+  "gate": "architecture",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "Kill the second /api/history round-trip in DimensionTrends (the server already reads the same series; stream the per-dimension rows from the page via a deferred Promise prop instead of an IntersectionObserver fetch that can 401 under a different gate).",
+  "body": "## Summary\nThe three repo-history surfaces each hand-sequence the same nine-step access ladder (parse, db, org, plan window, strict read, db-down, hidden-by-window probe, empty). Lift it into one io-free decision `resolveRepoHistoryAccess` returning a discriminated state, with one notice mapper, and have the two pages and the API consume it.\n\n## Description\nEvery history policy change in the last month (window floor, strict db-down, DbUnavailableError by code) was applied file by file, and the copies have already drifted: the compare page reads 60 scans where the shared cap says 200, the API has no hidden-by-window signal, and the compare sign-in `next` drops the pair. Registry: module-design / io-free-core (the decision is tested today through 6-12 vi.mock calls per page test; it becomes a pure function over injected reads) and diff-comparison / pair-and-baseline-selection (a requested pair must be honoured, not substituted, which needs the same depth on both surfaces).\n\n## Flow\n- repoHistoryAccess.ts: `resolveRepoHistoryAccess({repo, surface, deps:{dbConfigured, resolveOrg, resolveWindow, read, probe}})` -> missing-repo | invalid-repo | no-db | db-down | outside-window | empty | ok{orgSlug, window, data}; depth from HISTORY_SCAN_CAP for both surfaces; `historyReturnPath(surface, params)`.\n- repoHistoryNotice.ts: state -> {title, body} per surface noun.\n- /trends and /report/compare: keep their own sign-in gate, then switch on the state; /api/history maps states to status codes and adds x-ascent-history-hidden.\n\n## Expected impact\nOne place to change the next history policy; compare honours any scan the trends chart shows; a shared compare link survives sign-in. Unblocks the slot-B card's deep links past the 60th scan.\n\n## Evaluation\nClaim: the ladder is one decision with one depth.\nBefore: 0 of 7 cases pass (module absent; compare depth 60; next drops the pair)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first, existing page/route suites as guards\nResult: better\nGate: architecture",
+  "evidence": "compare/page.tsx:101 `limit: 60,` | trends/page.tsx:114 `limit: HISTORY_SCAN_CAP,` | limits.ts:14 `export const HISTORY_SCAN_CAP = 200;` | scans-read.ts:733 `Math.min(200, Math.trunc(opts.limit ?? 60) || 60)` | scans-read.ts:767 `opts.afterId && ids.has(opts.afterId) ? opts.afterId : scans[0]!.id` | grep hiddenByWindow -> only trends/page.tsx:110,129,145 and compare/page.tsx:94,108,126 | compare/page.tsx:51 `next={repo ? `/report/compare?repo=${encodeURIComponent(repo)}` : ...}` | route.ts:80 vs signin-gate.ts:41"
+ },
+ {
+  "context": "Trends & Comparison",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Trends explains its own moves: every event and any two points open their diff",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/app/trends/annotations.ts",
+   "src/app/trends/deployAnnotations.ts",
+   "src/app/trends/TimelineAnnotations.tsx",
+   "src/components/report/TrendChart.tsx",
+   "src/components/report/DimensionTrends.tsx"
+  ],
+  "new_files": [
+   "src/app/trends/trendPairModel.ts",
+   "src/app/trends/trendPairModel.test.ts",
+   "src/components/report/TrendChart.Annotations.tsx",
+   "src/components/report/DimensionTrendsGrid.tsx",
+   "src/components/report/DimensionTrendsCompareBar.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/app/trends/annotations.ts: 118 -> ~126",
+   "src/app/trends/deployAnnotations.ts: 100 -> ~104",
+   "src/app/trends/TimelineAnnotations.tsx: 77 -> ~95 (cap 300)",
+   "src/components/report/TrendChart.tsx: 276 -> ~270 (cap 300) - would cross with the pick mode added, so the annotation-mark block (lines 143-167) moves to new TrendChart.Annotations.tsx (~45)",
+   "src/components/report/DimensionTrends.tsx: 284 -> ~215 (cap 300) - would cross, so the per-dimension card grid (lines 224-278) moves to new DimensionTrendsGrid.tsx (~95, 'use client' only if it keeps the retry handler; it receives it as a prop so it stays hook-free)",
+   "src/components/report/DimensionTrendsCompareBar.tsx: new ~60 ('use client')",
+   "src/app/trends/trendPairModel.ts: new ~110 (pure, no React)",
+   "src/app/trends/trendPairModel.test.ts: new ~160"
+  ],
+  "acceptance": [
+   "deriveTrendAnnotations on newest-first [s3(L3), s2(L2), s1] -> the promotion marker on s3 carries prevScanId 's2'; a marker whose predecessor is a compacted point (id 'digest:...') carries prevScanId null",
+   "pairCompareHref('o/r', {afterId:'s3', beforeId:'s2'}) -> '/report/compare?repo=o%2Fr&a=s3&b=s2'; with beforeId null, a compacted id (isCompactedPointId) on either side, or afterId === beforeId -> null (no link offered rather than a self-diff or a non-scan pair)",
+   "pickReducer over chronological ids: pick(s1) -> {selected:['s1']}; pick(s4) -> pair with compare href a=s4 (newer) b=s1 (older) regardless of click order; pick(s4) again -> deselects; a third pick replaces the older of the two; pick(compacted id) -> state unchanged",
+   "TimelineAnnotations renders a 'what changed' link for a regression marker with prevScanId -> href is the pair URL; for a rubric marker the link is present and the compare page's existing rubric note explains it; for a marker with prevScanId null no link renders",
+   "deriveDeployAnnotations: a deploy pinned to scan s5 with older real scan s4 -> marker carries prevScanId 's4' ('what this deploy changed'); a deploy pinned to the oldest real scan -> prevScanId null",
+   "TrendChart with onPick set: clicking the hovered point calls onPick(point.id) and does NOT router.push the report permalink; without onPick the existing click-to-report behaviour is unchanged (ScoringTab and org callers unaffected)",
+   "DimensionTrends compare mode: toggling 'Compare two scans' then picking two points renders a bar 'Compare <date> -> <date>' linking to the pair href; switching the range toggle so a picked point leaves the slice clears that pick"
+  ],
+  "guards": [
+   "src/components/report/TrendChart.dom.test.tsx, TrendChart.deploy.dom.test.tsx, DimensionTrends.dom.test.tsx, src/app/trends/annotations.test.ts, annotations.ruler.test.ts, TimelineAnnotations.dom.test.tsx stay green: the new fields and props are additive and the default click path is untouched"
+  ],
+  "premise": [
+   "src/app/trends/annotations.ts:76-81 already walks (newer, older) pairs and knows `prev` for every marker, but the marker it emits keeps only `scanId: now.id` - the baseline of the move it describes is thrown away",
+   "src/app/trends/TimelineAnnotations.tsx:48 and :61-65 give each event only 'report' (that one scan's permalink) and 'commit' links; an event like 'Regression: overall score fell 7 points' has no way to open the diff that explains it",
+   "src/components/report/TrendChart.tsx:114 - clicking a point can only `router.push(activeHref)` to a single-scan report; there is no way to select two points",
+   "src/app/report/compare/page.tsx accepts ?a=&b= (ScanComparePicker.tsx:79-82 builds them) and diffScans attributes every move to its signals (src/lib/report/compare.ts:295-339 'Why it moved'), yet grep for '/report/compare?repo' finds only repo-only links (trends/page.tsx:213, PersonalOverview.tsx:66, ScoringTab.tsx:93,105) - no surface in the app ever deep-links a pair, so reaching a specific move means re-finding both scans by timestamp in two 60-200 option dropdowns",
+   "src/app/trends/deployAnnotations.ts:57 already computes `const older = real[i + 1];` for each deploy marker, i.e. the pair 'before / after this deploy' exists and is discarded",
+   "src/lib/db/scans-read.ts:344 `isCompactedPointId` exists for exactly the guard a compacted predecessor needs"
+  ],
+  "rollback": "Three commits: (1) trendPairModel + prevScanId on both annotation derivers (data only, inert), (2) TimelineAnnotations links, (3) TrendChart pick prop + extractions + DimensionTrends compare bar. Reverting 3 then 2 restores today's surface; the extractions in 3 are pure relocation.",
+  "gate": "direction",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "Inline 'Why it moved' on the trends timeline itself (top attribution line per event, computed server-side from diffScans for the annotated pairs) - bigger leap but loads two ComparableScans with evidence per event; the link-first card above is the step that makes it cheap later.",
+  "body": "## Summary\nThe trends page reports moves (promotion, regression, deploy, any dip on the line) but cannot act on them: each event links to one scan's report, never to the diff that explains it, and nothing in the app deep-links a compare pair. Carry the predecessor on every marker, link each event to its pair diff, and add a two-point pick mode on the overall chart.\n\n## Description\nThe data is already in hand: deriveTrendAnnotations walks (newer, older) pairs and deriveDeployAnnotations computes the older real scan, then both drop it. The compare page already takes ?a/?b and already narrates 'Why it moved'. Today the reader sees 'fell 7 points at 4f3a91c', goes to Compare, and hunts two timestamps across two dropdowns. Registry: diff-comparison / pair-and-baseline-selection - the temporal baseline species ('what just changed?') with the pair displayed and sides named by role (baseline = older, candidate = newer, whatever the click order), self-pairs and non-scan (compacted) pairs refused rather than rendered as findings.\n\n## Flow\n- trendPairModel.ts (pure): pairCompareHref, previousRealScanId, pickReducer (empty -> one -> pair, chronological roles, compacted refused).\n- annotations.ts / deployAnnotations.ts: add prevScanId.\n- TimelineAnnotations: 'what changed' link per event.\n- TrendChart: optional onPick/picked props and TrendPoint.id; annotation marks extracted.\n- DimensionTrends: 'Compare two scans' toggle + CompareBar; card grid extracted.\n\n## Expected impact\nOne click from any event or any two points to the attributed diff, instead of a five-step dropdown hunt. Pairs past the 60th scan resolve once the slot-A card unifies the compare depth; before it, the compare page's existing 'no longer in the comparison window' notice keeps the failure honest.\n\n## Evaluation\nClaim: every trend event and any chosen pair reaches its diff in one click.\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first (pure model + dom tests)\nResult: better\nGate: direction",
+  "evidence": "annotations.ts:81 `const base = { at: now.scannedAt, scanId: now.id, delta, sha, commitSha: now.headSha };` (prev is in scope at :78, not carried) | TimelineAnnotations.tsx:48 `const href = a.commitSha ? reportPermalink(repoFullName, a.commitSha) : null;` | TrendChart.tsx:114 `else if (activeHref && tap.shouldOpen(a)) router.push(activeHref);` | deployAnnotations.ts:57 `const older = real[i + 1];` | grep '/report/compare?repo' src (non-test): trends/page.tsx:213, PersonalOverview.tsx:66, ScoringTab.tsx:93, ScoringTab.tsx:105, compare/page.tsx:51 - none carries a= or b= | wc -l TrendChart.tsx 276, DimensionTrends.tsx 284"
+ },
+ {
+  "context": "Org Import, Scan & Watchlist",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Fleet scans get the post-scan consequences interactive scans get: one module",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/lib/scan-finalize.ts",
+   "src/lib/scan-queue-worker.ts",
+   "src/app/api/org/import/route.ts",
+   "src/lib/scan-queue-worker.test.ts",
+   "src/lib/scan-queue-worker.push.test.ts",
+   "docs/features/fleet/rescan.md"
+  ],
+  "new_files": [
+   "src/lib/scan-consequences.ts",
+   "src/lib/scan-consequences.test.ts",
+   "src/lib/scan-queue-worker.consequences.test.ts",
+   "src/app/api/org/import/route.consequences.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/practices.md",
+   "docs/features/org-knowledge/memory.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/scan-finalize.ts: 246 -> ~215 (.ts outside features, spirit of 300)",
+   "src/lib/scan-queue-worker.ts: 407 -> ~400 (.ts outside features; push-only degrade branch generalised, alert call replaced by one consequence call)",
+   "src/app/api/org/import/route.ts: 706 -> ~712 (.ts route, already over the spirit; net growth held to a prev read + one call, no new branch bodies)",
+   "src/lib/scan-consequences.ts: new ~120",
+   "src/lib/scan-consequences.test.ts: new ~160",
+   "src/lib/scan-queue-worker.consequences.test.ts: new ~170 (sibling split, scan-queue-worker.test.ts is already 352)",
+   "src/app/api/org/import/route.consequences.test.ts: new ~170 (sibling split, route.test.ts is already 946)",
+   "src/lib/scan-queue-worker.push.test.ts: 325 -> ~330 (degrade constant import only)"
+  ],
+  "acceptance": [
+   "drainLane('rescore') over a cadence job whose scan returns a NEW live row -> reconcilePracticeAdoption called once with (orgId, 'acme/api', report.repo.headSha, report.practiceShape) and recordScanMemories called once with the RegressionOutcome checkAndAlertRegression returned (today: neither is called; only the alert is)",
+   "drainLane('rescore') over a cadence (non-push) job whose scan was NOT mock-requested but came back engine.provider='mock' -> persistScanReport NOT called, checkAndAlertRegression NOT called, recordScanOutcome(ok:false, error:PUSH_DEGRADED_ERROR), settleJob state 'skipped', advanceScheduleAfterFailure called instead of advanceToFullCadence (today: the floor is persisted as the repo's latest reading and alerted on)",
+   "POST /api/org/import (mock:false, token minted) of a repo that already has a persisted report -> getScanReportByCommit read BEFORE persistScanReport, and checkAndAlertRegression + reconcilePracticeAdoption called for the new row (today: the import head calls neither, while the same import's queued tail does, via the worker)",
+   "POST /api/org/import (mock:false) whose scan degrades to provider 'mock' -> persistScanReport NOT called, the SSE `repo` frame carries `error` (not a level), settleJob outcome is not 'done'",
+   "runScanConsequences where reconcilePracticeAdoption throws -> resolves (never rejects), checkAndAlertRegression and recordScanMemories still run, and the caller's settleJob still records 'done'",
+   "persistFleetScan over a deduped persist ({deduped:true}) -> no consequence runs (no alert, no reconcile, no memory write)"
+  ],
+  "guards": [
+   "A mock-REQUESTED import row (importPolicy.mock) is still persisted by the worker: classifyScanResult(report, mock=true).degradedToMock is false, so the free preview path is unchanged (green before by design)",
+   "The degraded path's credit handling is unchanged: refundScanCredit is called exactly as today, because shouldRefundScan already refunds every provider='mock' report (src/lib/scan-credit.ts:134-139) - no billing semantics move (green before by design)",
+   "cacheAndPersistScan (interactive /api/scan, /api/scan/stream) still runs reconcile -> alert -> memories exactly once per new row, in that order: pure relocation (green before by design)",
+   "push-job tests in scan-queue-worker.push.test.ts stay green unchanged: the push branch is the rule being generalised, not edited"
+  ],
+  "premise": [
+   "src/lib/scan-finalize.ts:210 - the post-persist consequence set runs only `if (newRowWritten)` inside cacheAndPersistScan, the single-repo interactive path",
+   "src/lib/scan-finalize.ts:220 - reconcilePracticeAdoption (practice adoption ledger) is called here and nowhere else in src (grep: only scan-finalize.ts:220 calls it)",
+   "src/lib/scan-finalize.ts:233 - recordScanMemories (scan-fed org memory) is called here and nowhere else in src (grep: only definition at src/lib/memory/scan-feed.ts:285 and this call)",
+   "src/lib/scan-queue-worker.ts:372 - the fleet worker persists with a bare persistScanReport, and :375-378 then fires ONLY checkAndAlertRegression: no practice reconcile, no memory feed",
+   "src/app/api/cron/rescan/route.ts:109 and src/lib/push-rescan.ts:94 - cadence rescans and push rescans both run through drainLane, so neither ever reaches the consequence set",
+   "src/lib/scan-queue-worker.ts:362 - the degrade-to-mock guard (no persist, no alert) is `if (push && !inferenceBilled)`: push only; its own comment at :357-361 states why the floor must never be persisted as the repo's reading, a reason that holds for every reason, not just push",
+   "src/app/api/org/import/route.ts:578-585 - the import head scans, persists with a bare persistScanReport and refunds; no alert, no reconcile, no memory, no degrade guard",
+   "src/app/api/org/import/route.test.ts:22 - the import suite mocks @/lib/scan-alerts with only maybeAlertLowCredits, i.e. the route has no checkAndAlertRegression call to stub",
+   "src/lib/scan-queue-worker.ts:251 - the import's queued TAIL runs through runRescoreJob, so one import fires alerts for the repos the 300s budget did not reach and not for the ones it did",
+   "docs/features/org-dashboard/practices.md:564 - the doc says adoption reconciles 'after a scan persists', which is true only for the interactive path"
+  ],
+  "rollback": "Three commits (extract module + scan-finalize relocation; worker adoption of it incl. general degrade guard; import head adoption). Each reverts independently with git revert; the extracted module has no schema or wire change.",
+  "gate": "architecture",
+  "doc": "docs/features/fleet/rescan.md",
+  "runner_up": "Retire the import route's hand-rolled per-repo executor (route.ts:489-635) by giving drainLane a request-bound meter hook, so the import head and tail are one runRescoreJob - larger, and the public-funnel per-request quota makes the hook a policy seam worth its own gate.",
+  "body": "## Summary\nEvery consequence of a fresh scan beyond the row itself - the practice-adoption ledger, the regression/promotion alert, the scan-fed org memory - and the guard that refuses to persist a degraded-to-mock floor live inside `cacheAndPersistScan`, which only the two single-repo interactive routes call. The fleet runs three other executors (the queue worker for cron cadence, push and Scan-all; the import route's inline head) and each re-derived a subset: the worker fires the alert only and guards degradation for push only; the import head does neither. Extract the post-persist decision into `src/lib/scan-consequences.ts` and route all three through it.\n\n## Description\nTwo implementations of one rule where only one was fixed, three times over. The push branch learned (93ccd721) that a provider outage must not persist the deterministic floor as the repo's current reading nor alert on it; the cadence and manual branches of the SAME function still do. Practice adoption (`proposed -> adopted -> drifted`) and scan memories were wired 'once in the shared layer' - but the shared layer is the interactive one, so an org whose repos refresh on a weekly cadence (the default import enrols every repo in it, route.ts:191) never advances its adoption ledger or its scan memories unless a person rescans one repo by hand. The new module exports `runScanConsequences(prev, report, {orgSlug, tag})` (never throws; reconcile -> alert -> memories, the exact block from scan-finalize.ts:210-240 relocated) and `persistFleetScan(report, {orgSlug, mockRequested, prev, tag})` (classifyScanResult's degradedToMock guard -> persistScanReport -> consequences on a new row). Only degradedToMock is applied on the fleet side; lowCoverage/partialPrSlice stay persisted as today because skipping them would raise a refund question this card refuses to touch.\n\n## Flow\n- extract: move scan-finalize.ts:210-240 into runScanConsequences; cacheAndPersistScan calls it (relocation, guards green)\n- worker: replace persist+alert (:372-378) with persistFleetScan; the `push && !inferenceBilled` branch becomes `degraded` for every non-mock-requested reason, cadence branch advances on failure instead of the full slot\n- import head: read prev before scanning, call persistFleetScan instead of bare persistScanReport; a degraded result reports the repo as an error frame\n- docs: rescan.md names the one consequence seam; practices.md:564 and memory.md scan-feed section point at it (shared surfaces)\n\n## Expected impact\nCadence, push, Scan-all and import scans start feeding the adoption ledger and org memory (today they are the majority of an org's scans and feed neither). A provider outage during a cadence pass stops writing L1-floor rows that become the next regression baseline. One place to add the next consequence.\n\n## Evaluation\nClaim: fleet scans run the same post-persist consequences and degrade guard as interactive scans.\nBefore: 0 of 6 cases pass\nAfter: 6 of 6\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture",
+  "evidence": "grep -rn 'reconcilePracticeAdoption\\|recordScanMemories' src --include=*.ts (non-test): only src/lib/scan-finalize.ts:220,233 call them. grep -rn 'checkAndAlertRegression' src (non-test): scan-finalize.ts:229, scan-queue-worker.ts:377 - not import/route.ts. scan-queue-worker.ts:362 `if (push && !inferenceBilled) {` ... :372 `const persisted = await persistScanReport(report, { orgSlug: slug });` :375-377 `if (persisted && !persisted.deduped) { ... await checkAndAlertRegression(prev, report, { orgId, orgSlug: slug }); }`. import/route.ts:578-580 `const report = await scanRepository(r.fullName, scanOpts); inferenceBilled = ...; const persisted = await persistScanReport(report, { orgSlug: org });`. Registry: background-jobs (software-engineering/backend-platform/work-execution) law one-validation-door; fleet-orchestration/result-harvest (a run that only looks finished)."
+ },
+ {
+  "context": "Org Import, Scan & Watchlist",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "A finished fleet scan leaves a roster: failures named by fix, one-click retry",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "src/components/org/shared/useOrgScanButton.ts",
+   "src/components/org/shared/OrgScanButton.tsx",
+   "src/app/api/org/scan/queue/route.ts",
+   "src/app/api/org/scan/queue/route.test.ts",
+   "docs/features/org-dashboard/org-intelligence.md"
+  ],
+  "new_files": [
+   "src/components/org/shared/scanRunRosterModel.ts",
+   "src/components/org/shared/scanRunRosterModel.test.ts",
+   "src/components/org/shared/ScanRunRoster.tsx",
+   "src/components/org/shared/ScanRunRoster.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/fleet/rescan.md",
+   "src/components/onboarding/useImportReattach.ts"
+  ],
+  "loc_check": [
+   "src/components/org/shared/useOrgScanButton.ts: 212 -> ~225 (counters fold into the model; adds retryFailed)",
+   "src/components/org/shared/OrgScanButton.tsx: 111 -> ~120 (cap 300; the three warn lines become <ScanRunRoster/>)",
+   "src/app/api/org/scan/queue/route.ts: 61 -> ~64 (per-repo `error` and `charged`)",
+   "src/app/api/org/scan/queue/route.test.ts: 100 -> ~125",
+   "src/components/org/shared/scanRunRosterModel.ts: new ~130 (pure; named *Model.ts to avoid the case-insensitive collision with ScanRunRoster.tsx)",
+   "src/components/org/shared/ScanRunRoster.tsx: new ~110 (cap 300; props-only, no hooks, no 'use client' needed - rendered inside the client OrgScanButton)",
+   "src/components/org/shared/scanRunRosterModel.test.ts: new ~160",
+   "src/components/org/shared/ScanRunRoster.dom.test.tsx: new ~100"
+  ],
+  "acceptance": [
+   "foldStreamFrame over `repo` frames {repo:'a/x',error:'boom',charged:false}, {repo:'a/y',skipped:'no_token'}, {repo:'a/z',level:'L3',overall:61} -> roster.failed=['a/x'], roster.skipped.no_token=['a/y'], roster.scored=['a/z']",
+   "foldQueueSnapshot over {repos:[{repo:'a/q',state:'failed',error:'lease expired after max attempts'},{repo:'a/x',state:'failed',error:'boom'}]} after the stream above -> failed=['a/x','a/q'] keyed by repo (no double count of a/x), a/q's reason = the snapshot error, failedCount re-derived from the list = 2",
+   "retryScope(roster) -> {repos:['a/x','a/q']}: failed only; skipped-for-credits, no_token, in_progress and scored repos excluded",
+   "a failed entry from a frame with charged:true -> entry.chargedOnce === true, and the roster's retry label discloses it ('1 already charged once; a retry is a new scan')",
+   "rosterGroups(roster) -> insufficient_credits group carries action {kind:'credits'}, no_token group carries action {kind:'reconnect', href: orgTabHref(org,'integrations')}, in_progress group carries no action",
+   "GET /api/org/scan/queue for a run with one failed job (error 'boom', creditCharged true) and one done job -> repos = [{repo,state:'failed',error:'boom',charged:true},{repo,state:'done',error:null,charged:false}]; pending/total unchanged",
+   "useOrgScanButton.retryFailed() after a run with two failures -> startScan called once with body {org, repos:['a/x','a/q']} and the roster resets to those two as pending"
+  ],
+  "guards": [
+   "The queue response stays a superset: useImportReattach's isQueueSnapshot accepts it because it checks only repo/state per row (src/components/onboarding/useImportReattach.ts:56-66) - green before by design",
+   "A retry is an ordinary scoped POST /api/org/scan: the server keeps intersecting with the watchlist and reserving per repo, so nothing about what is charged moves - green before by design",
+   "Existing ceiling/autostart dom tests for useOrgScanButton stay green unchanged"
+  ],
+  "premise": [
+   "src/components/org/shared/OrgScanButton.tsx:68-71 - a partial failure renders as '{n} repos failed to scan. See the Repositories tab.' - a count with no names and no action",
+   "src/components/org/shared/useOrgScanButton.ts:83-85 - the hook receives every per-repo `repo` frame with its repo name and error, then keeps only `failed + 1` / `skipped + 1`; the identities are discarded",
+   "src/app/api/org/scan/route.ts:214 - the server already tells the client WHICH repo failed and whether it was `charged`",
+   "src/app/api/org/scan/queue/route.ts:59 - the poll behind the background tail returns `repos: jobs.map((j) => ({ repo: j.repoFullName, state: j.state }))`: no reason, so a failure the worker settled after the stream closed is invisible except as a shrinking pending count",
+   "src/lib/db/scan-jobs.ts:59-64 - ScanJobRow already carries `error` and `creditCharged`; the route drops them",
+   "src/components/onboarding/useImportReattach.ts:69-71 - its own comment records the gap: 'A failed job carries no reason on this endpoint either'",
+   "src/components/org/shared/useOrgScanButton.ts:42 - ScanScope already supports `{ repos: string[] }` and run() accepts it (:62), so a retry needs no new endpoint"
+  ],
+  "rollback": "Two commits (queue route additive fields + model/tests; roster component + hook wiring). Reverting the second restores the three count lines; the first is an additive JSON field nobody else depends on.",
+  "gate": "contract",
+  "doc": "docs/features/org-dashboard/org-intelligence.md",
+  "runner_up": "Scan-all pre-flight preview (N will be charged, M likely unchanged and will dedupe-and-refund, K in failure backoff) before the click - needs a head-commit read the probe does not take today, so it waits on a probe change.",
+  "body": "## Summary\nThe fleet scan's finish line is three warn sentences: 'N failed. See the Repositories tab.', 'N skipped (out of scan credits)', 'N skipped - reconnect'. The hook was handed every repo's name, reason and charged flag and threw them away to keep counters. Make the run's end a roster: each failed or skipped repo named, grouped by the fix it needs (retry / buy credits / reconnect the App / wait), failures re-selected so one click retries exactly them, and the background tail's outcomes folded in as the poll sees them.\n\n## Description\nToday the user has the data-free version of a decision the app holds the data for. To retry three failed repos they must go to Repositories, find them among the fleet, and rescan each. Failures the worker settles after the stream closed are worse: the poll returns states only (queue/route.ts:59), so they never surface at all. The move is a pure `scanRunRosterModel.ts` that folds both sources by repo identity (stream `repo` frames and queue snapshots), re-derives every count from the list rather than incrementing (registry technique batch-undo-commit-window/partial-failure-reselect: revert exactly what failed, re-derive the count, re-select the failures), and exposes `retryScope()`. The queue route adds `error` and `charged` per row from fields ScanJobRow already has. A failure whose inference already ran (charged) is marked so the retry button says plainly that a retry is a new scan - the user stops deciding blind.\n\n## Flow\n- queue route: repos[] gains error + charged (additive; reattach validator unaffected)\n- model: foldStreamFrame / foldQueueSnapshot / rosterGroups / retryScope, all pure and keyed by repo\n- hook: keeps the roster instead of three counters; retryFailed() calls run({repos: retryScope().repos})\n- component: ScanRunRoster renders groups with their one action each (Retry N failed, Add credits, Reconnect on Integrations); the polite live region still carries the summary sentence\n\n## Expected impact\nA partial fleet run goes from 'see another tab and hunt' to one click on the right repos. Background-tail failures become visible with their reason. 'Buy credits' and 'reconnect' stop sharing a counter's ambiguity.\n\n## Evaluation\nClaim: the end of a fleet scan names each non-scored repo with its fix and retries the failures in one action.\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (additive fields on GET /api/org/scan/queue)",
+  "evidence": "useOrgScanButton.ts:83 `if (data.error) setP((s) => ({ ...s, failed: s.failed + 1 }));` OrgScanButton.tsx:70 `{p.failed} {p.failed === 1 ? \"repo\" : \"repos\"} failed to scan. See the Repositories tab.` queue/route.ts:59 `repos: jobs.map((j) => ({ repo: j.repoFullName, state: j.state })),` useImportReattach.ts comment: 'A failed job carries no reason on this endpoint either'. grep -n retry over useOrgScanButton.ts/OrgScanButton.tsx: no matches. Registry: software-engineering batch-undo-commit-window technique partial-failure-reselect (use_when 'offering a retry after a partial bulk failure'); async-ui-states/failure-states."
+ },
+ {
+  "context": "CI Gate & Status Checks",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One effective-policy resolver: fleet view and MCP verdict fold admission too",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/lib/scoring/gate-resolve.ts",
+   "src/lib/scoring/gate-resolve.test.ts",
+   "src/app/api/gate/[owner]/[repo]/route.ts",
+   "src/lib/github/pr-gate.ts",
+   "src/lib/org/governance.ts",
+   "src/lib/org/governance.admission.test.ts",
+   "src/lib/mcp/handlers.ts",
+   "src/lib/mcp/handlers.gate.test.ts",
+   "src/lib/scoring/gate-telemetry.ts",
+   "src/lib/scoring/gate-telemetry.test.ts",
+   "src/lib/mcp/handlers.fleet.test.ts",
+   "src/lib/org/governance.test.ts"
+  ],
+  "new_files": [
+   "src/lib/scoring/gate-resolve.ts",
+   "src/lib/scoring/gate-resolve.test.ts",
+   "src/lib/org/governance.admission.test.ts",
+   "src/lib/mcp/handlers.gate.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/scanning/gate.md",
+   "docs/features/org-dashboard/practices.md",
+   "docs/features/org-knowledge/skills.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/scoring/gate-resolve.ts: 0 -> ~140 (no .ts cap outside src/features; kept under 300 in spirit)",
+   "src/lib/scoring/gate-resolve.test.ts: 0 -> ~170",
+   "src/app/api/gate/[owner]/[repo]/route.ts: 423 -> ~385 (fold lines 282-295 collapse to one resolver call; .ts, 300 cap is .tsx-only)",
+   "src/lib/github/pr-gate.ts: 222 -> ~200",
+   "src/lib/org/governance.ts: 297 -> ~303 (only the call + per-repo overlay lookup land here; the fleet fold lives in gate-resolve.ts. .ts, spirit cap 300 - if it crosses, move ciWith/APP_CHECK_* (lines 100-107) into gate-resolve.ts)",
+   "src/lib/mcp/handlers.ts: 457 -> ~462 (already over 300; .ts, untouched by the .tsx rule; net +5)",
+   "src/lib/scoring/gate-telemetry.ts: 105 -> ~115",
+   "src/lib/org/governance.admission.test.ts: 0 -> ~140",
+   "src/lib/mcp/handlers.gate.test.ts: 0 -> ~120"
+  ],
+  "acceptance": [
+   "Fleet parity, tier floor: org with saved policy {minLevel:L2} (no AI bar); repo A's admission row granted T2 (overlay minAiGovernedRate:90); rollup latest.aiGovernedRate=80, aiPrSample=10 -> buildGovernanceOverview counts A as failing with byReason.provenance=1 and A's reasons include 'below the required 90%'. Today: A counted in `passing` (governance.ts:128 uses savedPolicy alone).",
+   "Fleet parity, posture: org saved policy {minLevel:L2} (no forbidPostures); repo B admission T0, rollup posture 'ungoverned' -> B fails with byReason.posture=1. Today: B passes.",
+   "MCP parity: get_gate_verdict on repo A (fixture above) -> structuredContent.pass=false and failures contain code 'provenance'; structuredContent.policy (describeGatePolicy texts) includes the '>= 90% of AI-attributed merged PRs' row. Today: pass=true and no such row (handlers.ts:101 ignores admission).",
+   "MCP honesty: repo C admitted mode 'blocked' -> get_gate_verdict returns a new additive `skipped` array containing code 'admission' (evaluateGateLite cannot measure aiInvolvedRate) instead of a silent pass. Today: no `skipped` key at all.",
+   "Fleet read failure is loud, not permissive: listOrgAdmissions throws -> buildGovernanceOverview returns `admissionUnread: true` and does not report the org-only pass rate as the CI bar (or rethrows to the tab error boundary - pick one, test pins it). Today: admission is never read, so no failure mode exists. [CRITIC: pin the unread-admission outcome to admissionUnread: true]",
+   "Telemetry: a check-run verdict where an admission overlay applied logs `layers: [\"org\",\"admission\"]` in the [gate:verdict] line while `policySource` stays exactly 'org' (additive field, existing log readers unchanged). Today: no `layers` key.",
+   "resolveRepoGatePolicy is the only fold: grep of src (comments/strings stripped, per AGENTS.md source-scanning rule, with a seeded violation fixture) finds `tightenGatePolicy(` called only inside src/lib/scoring/gate.ts and src/lib/scoring/gate-resolve.ts. Today: route.ts:283,289,290 and pr-gate.ts:137 call it directly."
+  ],
+  "guards": [
+   "Byte-identical public wire: GET /api/gate/o/r with no org row, no admission row and ?min_overall=60 returns the same JSON body and status as before (existing route.test.ts + route.admission.test.ts stay green; they mock @/lib/scoring/gate-admission, which the resolver imports, so the mocks still bind).",
+   "Check-run parity already holds: runPrGate and GET /api/gate produce the same `policy` for (org policy P, admission T1, no params) - green before, kept green after."
+  ],
+  "premise": [
+   "src/lib/scoring/gate.ts:7-12 - header declares ONE ordered fold: effective = tighten(tighten(tighten(org ?? archetype, admission), manifest), params)",
+   "src/app/api/gate/[owner]/[repo]/route.ts:282-290 - the public endpoint hand-sequences that fold (base, withAdmission, then two different param branches)",
+   "src/lib/github/pr-gate.ts:134-137 - the Check Run hand-sequences it a second time (resolveAdmissionLayer + tightenGatePolicy)",
+   "src/lib/org/governance.ts:121-128 - the fleet view reads getOrgGatePolicy only; `policy = savedPolicy ?? defaultGatePolicy(ORG_POLICY_ARCHETYPE)` - no admission layer",
+   "src/lib/org/governance.ts:166 - its own comment: 'the dashboard's pass-rate must match the CI gate it advertises'",
+   "src/lib/mcp/handlers.ts:99-101 - get_gate_verdict: 'an agent must never be told it would pass a bar that CI then blocks', then `policy = (await getOrgGatePolicy(org)) ?? defaultGatePolicy(\"org\")` - no admission layer, and no `skipped` in the result (handlers.ts:116-125)",
+   "src/lib/org/admission.ts:150-173 - admissionGateOverlay adds requireProtectedBranch / minAiGovernedRate 100|90 / forbidPostures ungoverned / forbidAiAuthorship per tier/mode; minAiGovernedRate and forbidPostures are both judgeable by evaluateGateLite from rollup fields (gate.ts:821-825, governance.ts:178-188)",
+   "src/lib/db/org-admission.ts:292-319 - listOrgAdmissions is a non-seeding, non-N+1 fleet read (stored rows + passport-derived tiers) - the batch input the fleet fold needs already exists",
+   "docs/features/scanning/gate.md:137-140 - the doc claims the org policy is 'the same bar the App-mode Check Run and the governance fleet view enforce' and the admission seam is 'called by both gate surfaces' - true for two of four surfaces",
+   "src/lib/scoring/gate-telemetry.ts:27-29 - policySource is a single enum; gate-as-code.md decision 9 recommends a layer list"
+  ],
+  "rollback": "Revert the series: gate-resolve.ts and its tests are new files; the four call sites return to their inline folds; the telemetry `layers` field and MCP `skipped` field are additive and disappear with the revert. No schema, no wire-field removal.",
+  "gate": "architecture",
+  "doc": "docs/features/scanning/gate.md",
+  "runner_up": "Route the App check through the public route's two-tier commit-pinned scan cache (lookupPersistedScanByCommit) so the merge-blocking check stops re-ingesting a head the webhook already scored.",
+  "body": "## Summary\nThe gate's policy fold - org ?? archetype, then admission, then params - is the product's central invariant, and it is hand-sequenced at every caller. Two callers (public endpoint, Check Run) remember the admission layer; two (governance fleet view, MCP get_gate_verdict) do not. So a T0/T1/T2 or blocked repo is held to a stricter bar by the merge-blocking check than the dashboard pass-rate and the agent-facing verdict admit. Extract one resolver and make all four surfaces call it.\n\n## Description\nNew `src/lib/scoring/gate-resolve.ts`:\n- `resolveRepoGatePolicy({ orgSlug, repoFullName, archetype, explicit?, padParamsWithArchetype })` -> `{ policy, orgPolicy, admission, layers }`, wrapping getOrgGatePolicy + resolveAdmissionLayer + tightenGatePolicy in the documented order, preserving the route's no-org-policy policyFromParams branch byte-for-byte, failing closed (throws) exactly where the two callers do today.\n- `resolveFleetGatePolicies(orgSlug, archetype)` -> `{ base, policyFor(fullName), layersFor(fullName) }`, one listOrgAdmissions read + admissionGateOverlay per repo, no N+1.\nThe route and pr-gate replace their inline folds with the first; governance.ts and the MCP handler use the second (MCP also surfaces `skipped`). Telemetry gains an additive `layers` list (gate-as-code decision 9) beside the unchanged `policySource`. Applies registry technique quality-gates/policy-projection: 'Enumerate the effective policy, not the declared one ... Two places computing precedence is two policies.'\n\n## Flow\n- Public GET /api/gate: resolver(explicit params) -> evaluateGate (body unchanged)\n- App check: resolver(no params) -> evaluateGate\n- Governance tab: fleet resolver -> per-repo policy -> evaluateGateLite\n- MCP get_gate_verdict: fleet resolver for one repo -> evaluateGateLite -> + skipped\n- Manifest layer (#5) later lands as one more step inside the resolver, not a fifth call-site edit.\n\n## Expected impact\nThe dashboard pass-rate and the agent's 'would I pass?' answer stop being more permissive than the merge-blocking check for every admitted repo. The #5 manifest layer gets one insertion point instead of four. Not a wire change: the public endpoint body is byte-identical, MCP and telemetry only gain fields.\n\n## Evaluation\nClaim: all four gate surfaces evaluate the same effective policy per repo.\nBefore: 0 of 7 acceptance cases pass (fleet/MCP ignore admission; no layers; tighten called in 4 places)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first; the two guards stay green throughout\nResult: better\nGate: architecture - fleet pass-rate numbers move for orgs with admitted repos; tab copy should say per-repo admission floors are included.",
+  "evidence": "$ grep -rn \"evaluateGateLite\\|resolveAdmissionLayer\\|getOrgGatePolicy(\\|tightenGatePolicy(\" src --include=*.ts | grep -v test\nsrc/app/api/gate/[owner]/[repo]/route.ts:240:      orgPolicy = await getOrgGatePolicy(orgSlug);\nsrc/app/api/gate/[owner]/[repo]/route.ts:269:      admissionLayer = await resolveAdmissionLayer(orgSlug, coordinate);\nsrc/app/api/gate/[owner]/[repo]/route.ts:283:    const withAdmission = tightenGatePolicy(base, admissionLayer.overlay);\nsrc/app/api/gate/[owner]/[repo]/route.ts:289:      ? tightenGatePolicy(withAdmission, explicit)\nsrc/app/api/gate/[owner]/[repo]/route.ts:290:      : tightenGatePolicy(policyFromParams(searchParams, report.archetype), admissionLayer.overlay);\nsrc/lib/github/pr-gate.ts:123:    const orgPolicy = (await getOrgGatePolicy(orgSlug)) ?? undefined;\nsrc/lib/github/pr-gate.ts:134:    const admissionLayer = await resolveAdmissionLayer(orgSlug, fullName);\nsrc/lib/github/pr-gate.ts:137:    const policy = tightenGatePolicy(base, admissionLayer.overlay);\nsrc/lib/mcp/handlers.ts:101:  const policy = (await getOrgGatePolicy(org)) ?? defaultGatePolicy(\"org\");\nsrc/lib/mcp/handlers.ts:102:  const verdict = evaluateGateLite(\nsrc/lib/org/governance.ts:124:    getOrgGatePolicy(orgSlug),\nsrc/lib/org/governance.ts:178:    const result = evaluateGateLite(\n(resolveAdmissionLayer: 2 callers; getOrgGatePolicy-as-bar: 4 callers.)\nsrc/lib/org/admission.ts:158-164: case \"T1\": requireProtectedBranch=true; minAiGovernedRate=100; case \"T2\": minAiGovernedRate=90",
+  "revise_applied": "add handlers.fleet.test.ts + governance.test.ts to write set; extend their @/lib/db/org-admission mocks with listOrgAdmissions; acceptance 5 pinned to admissionUnread: true (not pick one)"
+ },
+ {
+  "context": "CI Gate & Status Checks",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Preview a gate-policy edit: repos that flip red/green and bars removed, pre-Save",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/app/api/org/gate-policy/preview/route.ts",
+   "src/app/api/org/gate-policy/preview/route.test.ts",
+   "src/lib/org/gate-policy-impact.ts",
+   "src/lib/org/gate-policy-impact.test.ts",
+   "src/lib/org/fleet-gate-snapshot.ts",
+   "src/lib/org/governance.ts",
+   "src/features/standing/governance/policyPreviewModel.ts",
+   "src/features/standing/governance/policyPreviewModel.test.ts",
+   "src/features/standing/governance/usePolicyPreview.ts",
+   "src/features/standing/governance/PolicyImpactStrip.tsx",
+   "src/features/standing/governance/useGatePolicyEditor.ts",
+   "src/features/standing/governance/GatePolicyEditor.tsx",
+   "src/features/standing/governance/GatePolicyEditor.v2.tsx"
+  ],
+  "new_files": [
+   "src/app/api/org/gate-policy/preview/route.ts",
+   "src/app/api/org/gate-policy/preview/route.test.ts",
+   "src/lib/org/gate-policy-impact.ts",
+   "src/lib/org/gate-policy-impact.test.ts",
+   "src/lib/org/fleet-gate-snapshot.ts",
+   "src/features/standing/governance/policyPreviewModel.ts",
+   "src/features/standing/governance/policyPreviewModel.test.ts",
+   "src/features/standing/governance/usePolicyPreview.ts",
+   "src/features/standing/governance/PolicyImpactStrip.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/scanning/gate.md",
+   "docs/features/org-dashboard/org-intelligence.md",
+   "context-map.json",
+   "scripts/docs/feature-doc-map.json"
+  ],
+  "loc_check": [
+   "src/app/api/org/gate-policy/preview/route.ts: 0 -> ~85",
+   "src/lib/org/gate-policy-impact.ts: 0 -> ~130",
+   "src/lib/org/fleet-gate-snapshot.ts: 0 -> ~35 (the rollup-row -> GateSnapshot mapping now inline at governance.ts:178-188 and handlers.ts:102-113)",
+   "src/lib/org/governance.ts: 297 -> ~290 (mapping extracted)",
+   "src/features/standing/governance/policyPreviewModel.ts: 0 -> ~120 (cap 200; *Model.ts name avoids the case-insensitive collision with PolicyImpactStrip.tsx)",
+   "src/features/standing/governance/usePolicyPreview.ts: 0 -> ~70 (cap 200, \"use client\")",
+   "src/features/standing/governance/PolicyImpactStrip.tsx: 0 -> ~90 (cap 200, \"use client\" only if it holds handlers; render-only otherwise)",
+   "src/features/standing/governance/useGatePolicyEditor.ts: 192 -> ~195 (cap 200: only exposes `draft: buildPolicy()`; the preview state lives in usePolicyPreview, NOT here)",
+   "src/features/standing/governance/GatePolicyEditor.tsx: 141 -> ~146 (cap 200)",
+   "src/features/standing/governance/GatePolicyEditor.v2.tsx: 36 -> ~40 (cap 200)",
+   "src/features/standing/governance/policyPreviewModel.test.ts: 0 -> ~150 (cap 200)",
+   "src/lib/org/gate-policy-impact.test.ts: 0 -> ~170",
+   "src/app/api/org/gate-policy/preview/route.test.ts: 0 -> ~120"
+  ],
+  "acceptance": [
+   "gatePolicyImpact(snapshots=[A{overall:55,level:L3,dims ok}], current={minLevel:L2}, candidate={minLevel:L2,minOverall:60}) -> { before:{passing:1}, after:{passing:0}, newlyFailing:[{fullName:A, reasons:['Overall score 55 is below the required 60.']}], newlyPassing:[] }",
+   "Relaxing: repo B fails current {minDimension:40} with D3=35, candidate {minDimension:30} -> newlyPassing=[B], newlyFailing=[]",
+   "Honest nulls: candidate adds requireProtectedBranch; repo C has govReadable=false -> C is NOT in newlyFailing; impact.untested.governance=1 (the bar would be skipped for C, said before save)",
+   "Incomplete snapshots are excluded from both sides and counted in impact.unjudged.incomplete, never in newlyFailing/newlyPassing (same rule governance.ts applies)",
+   "Removed bars before save: current has requireChecks ['control.prepush.lint'], candidate omits it -> impact.removed=[{label:'required controls', was:'control.prepush.lint'}] (diffGatePolicy, the same diff the POST now reports only AFTER the write)",
+   "POST /api/org/gate-policy/preview: non-owner -> 403; shared public org -> refused (refusePublicOrgAdmin); owner -> 200 and setOrgGatePolicy, recordOrgAudit and the PR sweep are NOT called; a candidate that sanitizes to null is previewed as the archetype default and says so (`effective: null`)",
+   "policyPreviewModel reducer: draft edits -> state 'stale'; a response tagged with an older draft seq is discarded; the latest seq's response -> 'ready' with summary 'Saving turns 1 repo red, 0 green; 1 cannot be judged on the new protection bar'",
+   "policyPreviewModel: when impact.removed is non-empty, `saveNeedsConfirm` is true and the confirm copy names the removed bars"
+  ],
+  "guards": [
+   "Existing POST /api/org/gate-policy behaviour is untouched: its route.test.ts and GatePolicyEditor*.test.tsx stay green (preview is additive; Save still posts the same body)."
+  ],
+  "premise": [
+   "src/features/standing/governance/useGatePolicyEditor.ts:84-93 - the editor's only network call is the POST that WRITES the policy; nothing evaluates a draft",
+   "src/features/standing/governance/useGatePolicyEditor.ts:127-135 - removed bars are reported only after the save ('Policy saved - but this save also REMOVED ...'), i.e. after the bar is already gone",
+   "src/app/api/org/gate-policy/route.ts:212,232 - diffGatePolicy runs after setOrgGatePolicy; the diff already exists, just on the wrong side of the write",
+   "src/app/api/org/gate-policy/route.ts:184 - a save immediately schedules a sweep that re-posts Check Runs on up to 20 open PRs (route.ts:41-43), so a blind save flips merge statuses org-wide",
+   "src/lib/org/governance.ts:121-128,178-188 - the fleet pass/fail per repo is already computable server-side from the rollup with evaluateGateLite against ANY policy; the editor's owner simply never gets to run it against the draft",
+   "src/lib/scoring/gate.ts:832 - evaluateGateLite(snap, policy) is pure, so before/after over the same snapshots is two loops, no rescan",
+   "src/features/standing/governance/GatePolicyEditor.v2.tsx:13 and GatePolicyEditor.tsx:20 - both theme editors share useGatePolicyEditor, so one hook + one strip serves both",
+   "docs/BACKLOG.md:102,281 - the only 'dry-run' item on file is the admission PROPOSAL modal (MC-X3), a different surface; no gate-policy impact preview is filed"
+  ],
+  "rollback": "Delete the preview route, the impact/model/hook/strip files and the snapshot helper; revert the three small editor edits and inline the snapshot mapping back into governance.ts. Read-only feature, no schema, no stored state.",
+  "gate": "none",
+  "doc": "docs/features/scanning/gate.md",
+  "runner_up": "Turn GovernanceFailingReposCard from a list of failure sentences into per-repo next moves (open the fix PR / follow-up for the failing criterion) using the reasons it already renders.",
+  "body": "## Summary\nAn owner editing the org's merge-blocking bar decides blind: the form shows the fields, Save writes them, a sweep re-posts Check Runs on open PRs, and only then does the tab reveal which repos went red - and only then is the owner told the save also removed a bar. The app already holds every input needed to answer 'what will this do?' before the click. Add a live impact preview to the policy editor.\n\n## Description\nAs the owner edits, the editor debounces the draft to `POST /api/org/gate-policy/preview` (owner-gated, read-only, writes nothing, schedules nothing). The server sanitizes the draft, reads the rollup once, and runs pure `gatePolicyImpact(snapshots, current, candidate)`: evaluateGateLite twice over the same snapshots, returning before/after pass counts, `newlyFailing` / `newlyPassing` with the first failure sentence per repo, `untested` counts per skippable criterion (bars the fleet cannot judge for some repos - quality-gates/unmeasurable-criteria), `unjudged.incomplete`, and `removed` from diffGatePolicy. A `PolicyImpactStrip` under both editors renders 'Saving turns 3 repos red (a, b, c), 1 green; 2 cannot be judged on the protection bar', and Save asks for confirmation when the draft removes a bar. The rollup->GateSnapshot mapping duplicated in governance.ts and the MCP handler moves to `fleet-gate-snapshot.ts` so the preview and the tab judge identical inputs. Registry: quality-gates/policy-projection ('a dashboard pass rate disagrees with the gate') - the preview is one more projection of the same enumeration, computed by the same evaluator, never a second rule.\n\n## Flow\n- Owner changes Min overall 50 -> 60\n- usePolicyPreview: state stale -> request(seq n) -> ready\n- Strip: '+3 red: repo-a (55), repo-b (58), repo-c (41) | 0 green | 1 not judged'\n- Owner unticks a required control -> strip adds 'removes: required controls (control.prepush.lint)' and Save becomes 'Save and remove 1 bar'\n- Save -> existing POST, sweep, audit (unchanged)\n\n## Expected impact\nThe five-step loop (edit, save, wait for sweep, read fleet card, re-edit) becomes one glance before saving; the 'REMOVED' warning moves from post-mortem to pre-commit on the org's merge-blocking control. Scope note: if the slot-A resolver card lands first, gatePolicyImpact takes the per-repo admission overlay from resolveFleetGatePolicies; both cards edit governance.ts, so sequence them (A first) rather than run in parallel.\n\n## Evaluation\nClaim: an owner sees which repos flip and which bars disappear before the write.\nBefore: 0 of 8 cases pass (no preview route, no impact model)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first against gate-policy-impact.ts, the preview route and policyPreviewModel.ts\nResult: better\nGate: none - read-only, owner-gated like the write it previews, no wire change to /api/gate or action.yml.",
+  "evidence": "src/features/standing/governance/useGatePolicyEditor.ts:89:      const res = await fetch(\"/api/org/gate-policy\", {   (the only fetch in the hook - the write)\nsrc/features/standing/governance/useGatePolicyEditor.ts:131:                  text: `Policy saved — but this save also REMOVED ${removed\nsrc/app/api/org/gate-policy/route.ts:212:  const stored = await setOrgGatePolicy(org, clean);\nsrc/app/api/org/gate-policy/route.ts:232:  const changes = diffGatePolicy(previous, stored ?? null);\nsrc/app/api/org/gate-policy/route.ts:184:  after(() => sweepOpenPrGates(org, Number(installationId), repos));\n$ grep -rn -i \"preview\\|dry.run\\|would fail\\|newly\" src/features/standing/governance/*.ts* src/app/api/org/gate-policy/route.ts | grep -v test\nsrc/features/standing/governance/gatePolicyReconcile.ts:149:    // ci-gate-status-checks #2: seed D9 from the persisted value; default 50 when newly enabled.\n(no preview anywhere in the editor path)"
+ },
+ {
+  "context": "Marketing About Page",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Every marketing claim names the capability it rests on; a retired one fails CI",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 4,
+  "write_set": [
+   "src/components/about/features.ts",
+   "src/components/about/features.test.ts",
+   "src/components/about-org/orgFeatures.ts",
+   "src/components/about-org/loopSteps.ts",
+   "src/app/about-org/page.tsx"
+  ],
+  "new_files": [
+   "src/components/about/claimAnchors.ts",
+   "src/components/about/claimAnchors.test.ts",
+   "src/components/about-org/orgFaq.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/design-system/README.md",
+   "src/lib/org/orgTabs.ts"
+  ],
+  "loc_check": [
+   "src/components/about/features.ts: 84 -> ~110 (no cap, .ts outside src/features)",
+   "src/components/about/features.test.ts: 22 -> ~35 (no cap)",
+   "src/components/about-org/orgFeatures.ts: 85 -> ~100 (no cap)",
+   "src/components/about-org/loopSteps.ts: 58 -> ~59 (no cap)",
+   "src/app/about-org/page.tsx: 83 -> ~40 (cap 300; FAQ payload moves to orgFaq.ts)",
+   "NEW src/components/about/claimAnchors.ts: ~70",
+   "NEW src/components/about/claimAnchors.test.ts: ~130",
+   "NEW src/components/about-org/orgFaq.ts: ~70"
+  ],
+  "acceptance": [
+   "resolveClaimAnchor({ tab: 'proposals' }) -> { ok: true }; resolveClaimAnchor({ tab: 'segments' }) -> { ok: true } (a sub-view that renders); resolveClaimAnchor({ tab: 'followups' }) -> { ok: false, reason: /alias of proposals/ } (orgTabAliasTarget non-null); resolveClaimAnchor({ tab: 'plan' as never }) -> { ok: false, reason: /not an org tab/ }",
+   "every entry of ABOUT_FEATURES exposes `anchors` per point and per body, and every anchor resolves -> assertClaimsAnchored(ABOUT_FEATURES) does not throw (red today: features.ts declares no anchors at all, AboutFeatureData at features.ts:13-21 is text only)",
+   "no rendered claim on /about or /about-org (ABOUT_FEATURES, ABOUT_ORG_FEATURES, ORG_FAQ, LOOP_STEPS) matches /full simulator inside \\/org|every goal you set|leverage ranking|the backlog (carries|tracks)|what-if simulator, a shared/i -> [] (red today: features.ts:50, features.ts:53, orgFeatures.ts:48, about-org/page.tsx:40, about-org/page.tsx:48)",
+   "ORG_FAQ (orgFaq.ts) is the single source of the FAQPage payload: faqLd().mainEntity[i].acceptedAnswer.text === ORG_FAQ[i].answer for every i, and each ORG_FAQ entry carries >= 1 anchor that resolves",
+   "seeded violation: assertClaimsAnchored([{ text: 'Track it in the backlog', anchors: [{ tab: 'followups' }] }]) throws, and the message names the claim text and the alias target -> the gate is proven to bite",
+   "a claim with an EMPTY anchors array throws 'unanchored claim' unless it is marked { illustrative: true } -> unanchored prose cannot be added silently",
+   "no claim text in LOOP_STEPS spells the dimension count as a word: DETAIL.scan renders `${DIMENSIONS.length} dimensions` -> /\\bnine dimensions\\b/i matches nothing (red today: loopSteps.ts:169)"
+  ],
+  "guards": [
+   "resolveClaimAnchor({ tab: 'proposals' }) -> ok is green the moment the module exists (positive control for the alias case)",
+   "ORG_FAQ / faqLd() equality: green-by-construction once the payload is moved, kept as a regression guard"
+  ],
+  "premise": [
+   "src/components/about/features.ts:50 - the /about ROI body promises 'The full simulator inside /org ... ranks the highest-leverage moves ... and every goal you set carries its own fitted pace and projected date'",
+   "src/components/about/features.ts:53 - point 'In /org, leverage ranking surfaces fix-once, apply-fleet-wide moves'",
+   "src/lib/db/plan.ts:592-595 - 'The Initiatives and What-if simulator sections ... simulateOrgFixes, goalImpactsForScenario, rankOrgInvestments were retired with the Plan tab on 2026-08-17, along with src/lib/scoring/orgsim.ts and the /api/org/initiatives + /api/org/simulate routes'",
+   "src/lib/db/plan.ts:2-4 - goals are 'Read-only in the product since 2026-08-17 ... the management UI that wrote them ... retired', so 'every goal you set' sells a control that does not exist",
+   "src/app/about-org/page.tsx:40 - the FAQ rich-result text sells 'a planning surface with a what-if simulator'",
+   "src/app/about-org/page.tsx:48 and src/components/about-org/orgFeatures.ts:48 - 'the backlog tracks/carries every remaining gap with an owner and a due date'; src/lib/org/orgTabs.ts:43 - 'the Plan and Backlog tabs were retired 2026-08-17 in favour of the Follow-ups ledger'",
+   "src/components/about/RoiSimulator.tsx:6 - header comment 'Mirrors the real /org what-if simulator' (the retired one)",
+   "src/components/about-org/loopSteps.ts:169 - 'scored across the nine dimensions' typed as a word, while features.ts:4-7 states the deck rule 'NUMBERS ARE IMPORTED, NEVER TYPED'",
+   "src/components/about-org/AboutOrgQuestions.tsx:51-56 and src/components/about-org/loopSteps.ts:179-190 - /about-org already binds SOME claims to an OrgTabId (and loopSteps throws on a non-rail tab, :181); /about's features.ts and the FAQ payload do not, so the pattern exists in two of five claim sources",
+   "git log -- src/components/about: 80c1a1fa, 674dfca3, ec7a576f, bb7ee011, 6a497f0f ('retire the stale claims'), f02f84aa - six one-off copy corrections for the same defect class, each by hand after a reader found it"
+  ],
+  "rollback": "Revert the series: claimAnchors.ts/test and orgFaq.ts are new files; features.ts/orgFeatures.ts/loopSteps.ts/about-org page revert to their prior text. No schema, route, or runtime-behaviour change.",
+  "gate": "contract",
+  "doc": "docs/features/design-system/README.md",
+  "runner_up": "One deck manifest per page (section id, label, component, last-flag) that derives DeckNav SECTIONS and data-deck-last instead of three hand-lists (AboutLanding.tsx:55-64, AboutOrgLanding.tsx:35-43, the landing deck) kept in step with component ids by comment only.",
+  "body": "## Summary\nThe /about and /about-org decks still sell the what-if simulator, leverage ranking, settable goals and the Backlog, all retired on 2026-08-17. The fix is structural: each claim declares the capability it rests on (an OrgTabId that renders, a route, or an explicit illustrative flag), one resolver checks it against the shipping tab catalog, and a test fails when the capability retires.\n\n## Description\n/about-org already does half of this: AboutOrgQuestions and loopSteps key every row to an OrgTabId, and loopSteps throws when a tab leaves the rail. /about's features.ts and the FAQ JSON-LD payload are free text, so a capability retired in the product stays sold on the marketing page until a reader notices. That has happened six times (80c1a1fa, 674dfca3, ec7a576f, bb7ee011, 6a497f0f, f02f84aa) and is happening now (features.ts:50,53; about-org/page.tsx:40,48; orgFeatures.ts:48). This card applies registry public-claim-provenance: promise-only-what-ships (name the mechanism or delete the sentence) and provenance-as-a-build-gate (make the invariant unshippable rather than restated in review).\n\n## Flow\n- claimAnchors.ts: `type ClaimAnchor = { tab: OrgTabId } | { route: string } | { illustrative: true }`; resolveClaimAnchor() checks isOrgTabId, rejects orgTabAliasTarget()!==null (followups, surfaces) and names the target; assertClaimsAnchored(claims) throws on any unresolved or empty anchor list.\n- features.ts / orgFeatures.ts move to the SPECS pattern orgFeatures already uses: each point is { text, anchors }, and the rendered string[] shape that AboutFeature consumes is unchanged (no .tsx touched).\n- Retired claims are rewritten to what ships: the roi body points at Proposals (fix-once gaps) and the Briefing's read-only goal pace; the backlog lines point at Proposals.\n- FAQ payload moves out of about-org/page.tsx into orgFaq.ts with anchors; page.tsx keeps only faqLd() mapping.\n- loopSteps DETAIL.scan derives the dimension count.\n- claimAnchors.test.ts runs assertClaimsAnchored over all five claim sources plus a seeded violation.\n\n## Expected impact\nThe next tab retirement or alias breaks CI on the marketing claim that depended on it, in the same PR, instead of a stranger finding it. Five live false claims (two of them in a search rich result) are removed today.\n\n## Evaluation\nClaim: every /about and /about-org capability claim resolves to a shipping, non-alias capability, and a retired one fails the suite.\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (marketing copy contract; no auth, billing or runtime change)",
+  "evidence": "features.ts:50 \"The full simulator inside /org goes further: it ranks the highest-leverage moves by how many repos they touch and the level each one unlocks, and every goal you set carries its own fitted pace and projected date.\" | features.ts:53 \"In /org, leverage ranking surfaces fix-once, apply-fleet-wide moves\" | plan.ts:592-595 \"...simulateOrgFixes, goalImpactsForScenario, rankOrgInvestments) were retired with the Plan tab on 2026-08-17, along with src/lib/scoring/orgsim.ts and the /api/org/initiatives + /api/org/simulate routes.\" | `ls src/lib/scoring/orgsim.ts` -> No such file | about-org/page.tsx:40 \"a planning surface with a what-if simulator\" | orgTabs.ts:43 \"// Plan (the Plan and Backlog tabs were retired 2026-08-17 in favour of the Follow-ups ledger)\" | orgTabs.ts:91-95 orgTabAliasTarget: followups -> proposals, surfaces -> knowledge | loopSteps.ts:169 \"scored across the nine dimensions\""
+ },
+ {
+  "context": "Marketing About Page",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "/about X-Ray and ROI panes run on the real scanned public fleet",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/app/about/page.tsx",
+   "src/app/about/page.test.ts",
+   "src/components/about/AboutLanding.tsx",
+   "src/components/about/FleetGrid.tsx",
+   "src/components/about/FleetGrid.dom.test.tsx",
+   "src/components/about/RoiSimulator.tsx",
+   "src/components/about/RoiSimulator.dom.test.tsx",
+   "src/lib/db/scans-read.ts"
+  ],
+  "new_files": [
+   "src/components/about/aboutFleetModel.ts",
+   "src/components/about/aboutFleetModel.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/design-system/README.md",
+   "src/lib/db/index.ts",
+   "src/lib/db/scans.ts"
+  ],
+  "loc_check": [
+   "src/app/about/page.tsx: 27 -> ~45 (cap 300)",
+   "src/app/about/page.test.ts: 40+ -> ~60 (no cap; must vi.mock @/lib/db)",
+   "src/components/about/AboutLanding.tsx: 95 -> ~105 (cap 300)",
+   "src/components/about/FleetGrid.tsx: 171 -> ~190 (cap 300; selection/derivation lives in aboutFleetModel.ts)",
+   "src/components/about/FleetGrid.dom.test.tsx: 134 -> ~165 (cap 300)",
+   "src/components/about/RoiSimulator.tsx: 137 -> ~150 (cap 300; projection math moves to aboutFleetModel.ts)",
+   "src/components/about/RoiSimulator.dom.test.tsx: 49 -> ~85 (cap 300)",
+   "src/lib/db/scans-read.ts: 1562 -> ~1566 (.ts, no cap; +archetype on PublicRepoCard + GALLERY_REPO_SELECT)",
+   "NEW src/components/about/aboutFleetModel.ts: ~120",
+   "NEW src/components/about/aboutFleetModel.test.ts: ~140"
+  ],
+  "acceptance": [
+   "fleetFrom(null) -> { mode: 'illustrative', cells.length: 40 } with the existing sample caption; fleetFrom(gallery with 12 current-rubric cards) -> { mode: 'live', cells.length: 12 }, each cell { name: card.fullName, score: card.overall, segment: card.posture, href: card.href }",
+   "degraded never claims live: fleetFrom(gallery with fewer than LIVE_MIN (6) current-rubric cards) -> mode 'illustrative'; cards with currentRubric === false are excluded from the live set before the threshold is applied",
+   "projectFleet(liveRepos, {}) -> every row.next === row.base === card.overall, promotions 0, avgGain 0 (baseline invariant: recomputed with overallScoreFor(dims, card.archetype), the headline function, not the demo W = 0.16)",
+   "projectFleet(liveRepos, { D2: 100 }) row for one repo equals card.overall + projectedGain(dims, archetype, 'D2').points, and promoted === (projectedGain(...).unlocks !== null) -> the pane and the org backlog's '+N pts · unlocks LX' cannot disagree",
+   "fleetCaption({ mode: 'live', n: 12, newest: '2026-10-20T..' }) -> 'Live · 12 public repos scanned by Ascent · newest 2026-10-20', with no 'demo weighting' and no 'not customer data'; illustrative mode keeps today's caption verbatim",
+   "galleryCardFrom(row with scans[0].archetype 'library') -> card.archetype === 'library'; an unknown archetype string passes through and weightsFor falls back to the org lens (no throw)",
+   "FleetGrid in live mode renders each cell as a link (role link, name contains card.fullName) to card.href, segment filters read the posture ids present in the data, and an empty posture is not offered as a filter",
+   "AboutPage server component calls getPublicScanGallery({ recentLimit: 40 }) once, passes the result to AboutLanding, and a rejected promise degrades to null (illustrative), never a 500"
+  ],
+  "guards": [
+   "illustrative-mode caption verbatim (case 5, second half) and FleetGrid's existing 40-cell SSR visibility test are green-before by design: the fallback path must not regress"
+  ],
+  "premise": [
+   "src/components/about/FleetGrid.tsx:18-25 - the X-Ray's 40 repos are generated from an integer formula (score: 15 + ((i*37+11)%100)*0.7), segments invented ('Platform','Web','Mobile','Services','Legacy')",
+   "src/components/about/RoiSimulator.tsx:192-201 - eight hand-typed repos; :207 'const W = 0.16' 'Deliberately NOT the production weighting'; :304 caption 'Illustrative · N sample repos, demo weighting — not customer data'",
+   "docs/BACKLOG.md MC-B6 row - 'Labelled, not deleted (the register is server-fetched on `/` while `/about` is a client deck). Ceiling: the \"a live scan substitutes for proof\" limb is untouched' - this card is that ceiling; the stated blocker is not real because src/app/about/page.tsx:20-26 is already a Server Component that passes a prop (heroBg) into the client AboutLanding",
+   "src/app/page.tsx:113 - the landing already server-fetches getPublicScanGallery() with degradeTo(..., null); src/lib/db/scans-read.ts:990-1011 returns null when no DB / no public scans and is unstable_cache'd (revalidate 60, scans-read.ts:978-980)",
+   "src/lib/db/scans-read.ts:803-831 - PublicRepoCard already carries per-dimension scores (D1..D9), posture, overall, href (report permalink) and currentRubric; it lacks only archetype (galleryCardFrom :886-912)",
+   "src/lib/scoring/projections.ts:66-84 - projectedGain(dims, archetype, dimId) is the engine-true per-dimension what-if over stored dimension rows, reusing overallScoreFor + levelForScore; the about pane reimplements a fake version of it",
+   "src/components/about/features.ts:31-32 - the X-Ray copy promises 'A posture map that separates fast & ungoverned from solid but manual', but the grid segments by invented team names, not posture"
+  ],
+  "rollback": "Revert the series: page.tsx stops fetching and AboutLanding falls back to no props, which is exactly the illustrative mode the model keeps; the one-field archetype addition on PublicRepoCard is additive and unused elsewhere.",
+  "gate": "direction",
+  "doc": "docs/features/design-system/README.md",
+  "runner_up": "Per-claim 'see it in the demo' deep links on /about's feature points (the /about-org Questions ledger pattern), so each bullet is one click from its real view; smaller and partly downstream of card A's anchors.",
+  "body": "## Summary\nToday the /about deck's two interactive diagrams are invented. The X-Ray is 40 formula-generated repos and the ROI simulator is 8 hand-typed repos at a weighting the code says is not the production one. Both now carry 'not customer data' captions. Ascent already scans a public corpus and serves it, cached, to the landing page. This card feeds that corpus into both panes: the X-Ray shows real public repos, each cell links to its real report and the filters are real postures, and the ROI sliders recompute real repos with the engine's own weighting. The illustrative fallback only renders when there is no live data.\n\n## Description\nThe MC-B6 fix labelled the invented data instead of replacing it, because '/about is a client deck'. That blocker does not hold: AboutPage is a Server Component that already hands AboutLanding a prop. A visitor using the X-Ray today is exploring noise, and the ROI pane apologises for itself in the same caption it uses for its numbers. After this card, the decision the page asks the reader to make ('is this tool's scoring credible?') is made on real scored repositories they can click into, and the what-if numbers match the '+N pts · unlocks LX' figure the product prints on the backlog (projectedGain). Registry: public-claim-provenance / degraded-never-claims-live (fall back to labelled illustrative, never pad a live count) and build-time-derivation-off-the-client-bundle (the server reduces the corpus to a bounded card list; the client never queries).\n\n## Flow\n- scans-read.ts: add `archetype` to GALLERY_REPO_SELECT scans and to PublicRepoCard (string, wire-safe).\n- page.tsx: `const gallery = await getPublicScanGallery({ recentLimit: 40 }).catch(degradeTo('about: gallery', null))`; `export const revalidate = 60` matching the cache tag; pass it to AboutLanding.\n- aboutFleetModel.ts (pure, no React): fleetFrom(gallery) -> { mode, cells, segments }, LIVE_MIN, the currentRubric filter, projectFleet(repos, targets) on overallScoreFor(dims, archetype), and fleetCaption(mode, n, newest).\n- FleetGrid: when live, cells are Links to card.href, filters are postures, and the caption is the live caption. Illustrative mode stays exactly as it is now.\n- RoiSimulator: sliders target D2 / D3 / D1 (Testing, CI/CD, Conventions) on the live repos via projectFleet. W = 0.16 survives only inside illustrative mode. The stale 'Mirrors the real /org what-if simulator' header goes.\n\n## Expected impact\nThe deck's proof sections become proof: a buyer can click a cell into a real public report, and the ROI tile arithmetic is the product's own. When there is no data (self-hosted with an empty DB, or the DB is down), the page renders today's labelled illustration and never claims live.\n\n## Evaluation\nClaim: with a public corpus present, both /about diagrams render real scanned repos with engine-true projections and links; without one, they degrade to the labelled illustration.\nBefore: 0 of 8 cases pass\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: direction (changes what the marketing page shows; public repos only, already public on / and /leaderboard)",
+  "evidence": "FleetGrid.tsx:18-24 `const REPOS = Array.from({ length: 40 }, (_, i) => { ... score: 15 + Math.round((((i * 37 + 11) % 100) * 0.7)) }` | RoiSimulator.tsx:207 `const W = 0.16;` with :202-206 'Deliberately NOT the production weighting' | RoiSimulator.tsx:304 'Illustrative · {REPOS.length} sample repos, demo weighting — not customer data' | about/page.tsx:24 `<AboutLanding heroBg={HERO_BG} />` (server -> client prop already flows) | app/page.tsx:113 `const gallery = await getPublicScanGallery().catch(degradeTo(\"landing: getPublicScanGallery\", null));` | scans-read.ts:812-815 PublicRepoCard.dimensions + posture | projections.ts:66-84 projectedGain(dims, archetype, dimId) | grep 'archetype' scans-read.ts: present on report/recommendation selects (:576,:626,:1245) but absent from galleryCardFrom (:886-912)"
+ },
+ {
+  "context": "Athena Companion",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "The proposal gate as a written state machine with a reaper: claimed, expired",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "prisma/schema.prisma",
+   "src/lib/db/athena-proposals.ts",
+   "src/lib/db/athena.ts",
+   "src/app/api/athena/proposals/[id]/resolve/route.ts",
+   "src/app/api/cron/athena/route.ts",
+   "src/app/api/cron/athena/deps.ts",
+   "src/app/api/cron/athena/route.test.ts",
+   "src/lib/db/athena-proposals-lifecycle.test.ts"
+  ],
+  "new_files": [
+   "prisma/migrations/20261022120000_athena_proposal_claimed_at/migration.sql",
+   "src/lib/athena/proposal-lifecycle.ts",
+   "src/lib/athena/proposal-lifecycle.test.ts",
+   "src/lib/db/athena-proposals-sweep.ts",
+   "src/lib/db/athena-proposals-sweep.test.ts"
+  ],
+  "shared_surfaces": [
+   "src/features/admin/audit/auditActions.ts",
+   "docs/features/companion/README.md",
+   "docs/features/data/data-model.md"
+  ],
+  "loc_check": [
+   "src/lib/db/athena-proposals.ts: 235 -> ~255 (no hard cap, .ts outside features; sweep goes to the new sibling, not here)",
+   "src/lib/db/athena-proposals-sweep.ts: new -> ~110",
+   "src/lib/athena/proposal-lifecycle.ts: new -> ~120 (pure, no Prisma)",
+   "src/lib/db/athena.ts: 66 -> ~72 (barrel re-export)",
+   "src/app/api/athena/proposals/[id]/resolve/route.ts: 228 -> ~250 (stamp failure handled, claimedAt passed)",
+   "src/app/api/cron/athena/route.ts: 177 -> ~195 (one sweep call per org before the cycle, two counters)",
+   "src/app/api/cron/athena/deps.ts: 156 -> ~160",
+   "src/lib/db/athena-proposals-lifecycle.test.ts: existing -> +~40",
+   "src/app/api/cron/athena/route.test.ts: 265 -> ~295 (test, outside features: no cap)"
+  ],
+  "acceptance": [
+   "lifecycleOf({status:'accepted', resolvedAt:null, claimedAt: now-20min}, now) -> 'claimed_stale' ; same row with claimedAt now-1min -> 'claimed' (claimed is a derived, named state, not an implied pair)",
+   "lifecycleOf({status:'banana'}) -> 'unknown' and canAccept('unknown') === false (today asStatus maps any unknown status to 'open', athena-proposals.ts:59-60 - fail-open)",
+   "transition('declined','accept') / transition('expired','accept') / transition('claimed','decline') -> {ok:false, conflict:true, current} ; transition('open','accept') -> {ok:true, next:'claimed'}",
+   "sweepAthenaProposals(orgId, now) over a row claimed 20 min ago with resolvedAt null -> row stamped status 'accepted', resolvedAt set, payload.outcome.kind === 'interrupted', ok:false; it is NEVER released back to 'open' (record_memory is not idempotent, so re-running an unknown-outcome executor could double-write)",
+   "sweepAthenaProposals over an 'open' row created 15 days ago (ATHENA_PROPOSAL_TTL_DAYS = 14) -> status 'expired', payload.outcome.kind === 'expired', and listOpenAthenaProposals no longer returns it (so the cycle briefing stops reciting a dead ask)",
+   "resolve route: executor succeeds, stampAthenaProposal throws -> response 500 naming that the action ran but was not recorded, an 'athena_proposal.accepted' audit row is still written with outcome 'unstamped', and the row is left claimed for the sweep (today the throw escapes at route.ts:207 with no audit and a row stuck accepted+unstamped forever)",
+   "cron/athena: sweep runs per org BEFORE runOrgCycle and the body reports proposalsExpired / claimsInterrupted counts; a sweep that throws for one org is an error entry, never a skipped cycle for the others"
+  ],
+  "guards": [
+   "transition('open','accept') -> claimed and the compare-and-set 409 on a second accept are green-before by design (claim/stamp/release semantics at athena-proposals.ts:162-164 are preserved, only made explicit)"
+  ],
+  "premise": [
+   "src/lib/db/athena-proposals.ts:15 - ATHENA_PROPOSAL_STATUSES is open|accepted|declined; there is no 'claimed' or 'expired' value, so 'claimed' is inferred from status='accepted' AND resolvedAt IS NULL (athena-proposals.ts:162-164, 172-173)",
+   "src/lib/db/athena-proposals.ts:59-60 - asStatus maps any unrecognised status string to 'open' (fail-open classification)",
+   "prisma/schema.prisma:2224-2242 - AthenaProposal has no claimedAt or expiresAt column, so a claim's age cannot be computed and no ask can expire",
+   "src/app/api/athena/proposals/[id]/resolve/route.ts:192-196 - the claim is released only when the executor THROWS inside this request; a process killed between claim (182) and stamp (207) leaves the row accepted+unstamped with no reaper",
+   "src/app/api/athena/proposals/[id]/resolve/route.ts:207-224 - stampAthenaProposal is not in a try; a thrown stamp skips recordOrgAudit entirely although the executor's side effect already happened",
+   "src/lib/db/athena-proposals.ts:99-107 - listOpenAthenaProposals filters status 'open' only, so a stuck claim is absent from every list; src/app/api/athena/threads/route.ts:54 filters the boot to open too - the row is 'pending to every query, absent from every screen'",
+   "src/app/api/cron/athena/deps.ts:99-107 - the cycle briefing recites every open ask with ageDays and nothing ever closes them, so a 60-day-old ask is re-briefed daily",
+   "src/lib/athena/actions-execute.ts:250-260 - record_memory calls createOrgMemory unconditionally (no idempotency key), so a stale claim must not be re-opened for retry",
+   "grep: claimAthenaProposal / releaseAthenaProposal / stampAthenaProposal have exactly one non-test caller, src/app/api/athena/proposals/[id]/resolve/route.ts:182,195,207"
+  ],
+  "rollback": "Revert the series; the migration only ADDS a nullable claimedAt column (no data rewritten), and rows the sweep marked 'expired' read as 'unknown' on the old build only if the lifecycle commit is reverted alone - revert the sweep commit first, then the lifecycle, then the column.",
+  "gate": "architecture",
+  "doc": "docs/features/companion/README.md",
+  "runner_up": "One settleCompletion() for turn.ts and cycle.ts - the action-then-block parse order and meta assembly are restated twice (turn.ts:279-297, cycle.ts:230-308) and have already drifted (cycle meta lacks toolsCalled).",
+  "body": "## Summary\nAthena's one door is a gate with an implied state machine: 'claimed' is the pair (accepted, resolvedAt NULL), nothing records when a claim was taken, unknown statuses read as open, and no ask ever expires. Make the lifecycle a pure, enumerated module and give every hold a reaper.\n\n## Description\nThe registry's hitl-approval subject (techniques gate-state-machines and review-queues; law creation-names-reaper) says every gate state is written down, illegal transitions are conflicts returned with the current state, and a pending item names its reaper - expiry is a WRITE with a recorded reason, never a read-side filter. Today: a claim that dies mid-request (function timeout, deploy, a thrown stamp) leaves a row that is neither open nor resolved, invisible to the drawer and to the cycle, with an AI-originated side effect possibly applied and no audit row. Open asks accumulate forever and are re-briefed daily by the cron cycle.\n\n## Flow\n- proposal-lifecycle.ts (pure): states open | claimed | claimed_stale | accepted | declined | expired | unknown, derived from (status, resolvedAt, claimedAt, createdAt, now); a transition table naming who may drive each edge; ATHENA_PROPOSAL_TTL_DAYS and ATHENA_CLAIM_STALE_MS as the one clock.\n- Migration adds nullable claimedAt; claimAthenaProposal sets it.\n- asStatus stops defaulting to 'open'; unknown is its own non-actionable state.\n- athena-proposals-sweep.ts: stale claims are stamped 'interrupted' (never reopened - an unknown-outcome executor is not retried); aged open asks become 'expired'. Each writes an audit row.\n- Resolve route wraps the stamp: a thrown stamp still audits and leaves the row for the sweep.\n- cron/athena runs the sweep per org before the cycle and reports the counts.\n\n## Expected impact\nNo AI-originated change can land without an audit row; no proposal can be stranded invisible; the briefing stops reciting dead asks; the B-slot card (answering from the card) gets a closed status set to render.\n\n## Evaluation\nClaim: the proposal gate's states and expiries are enumerated and enforced by one module plus a sweep.\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture (new status value + column; tightens, never loosens: a stale claim resolves to a refusal, not a retry)",
+  "evidence": "athena-proposals.ts:15 `export const ATHENA_PROPOSAL_STATUSES = [\"open\", \"accepted\", \"declined\"] as const;` | :59-60 `const asStatus = (s) => (...).includes(s) ? s : \"open\";` | :162-164 `claim status='open' / stamp resolvedAt IS NULL / release status='accepted' AND resolvedAt NULL` | schema.prisma:2231-2233 `status String @default(\"open\") // open | accepted | declined` `resolvedAt DateTime?` (no claimedAt) | resolve/route.ts:207 `const stamped = await stampAthenaProposal(gated.orgId, id, { ...outcome });` outside any try, audit at :212 | grep -rn claimAthenaProposal src (non-test): only resolve/route.ts:182"
+ },
+ {
+  "context": "Athena Companion",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Answer her offer where she made it: Accept/Decline on the card, outcome painted",
+  "size": "L",
+  "effort": 6,
+  "impact": 9,
+  "risk": 5,
+  "write_set": [
+   "src/features/shared/athena/AthenaProposalCard.tsx",
+   "src/features/shared/athena/AthenaTurnView.tsx",
+   "src/features/shared/athena/AthenaPanel.tsx",
+   "src/features/shared/athena/useAthenaThread.ts",
+   "src/features/shared/athena/stream.ts",
+   "src/features/shared/athena/model.ts",
+   "src/features/shared/athena/voice.test.ts",
+   "src/app/api/athena/threads/route.ts",
+   "src/app/api/athena/threads/route.test.ts"
+  ],
+  "new_files": [
+   "src/features/shared/athena/proposalModel.ts",
+   "src/features/shared/athena/proposalModel.test.ts",
+   "src/features/shared/athena/useAthenaProposals.ts",
+   "src/features/shared/athena/AthenaProposalCard.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/companion/README.md"
+  ],
+  "loc_check": [
+   "src/features/shared/athena/AthenaProposalCard.tsx: 56 -> ~120 (cap 200)",
+   "src/features/shared/athena/useAthenaThread.ts: 150 -> ~165 (cap 200; proposal state lives in the new useAthenaProposals.ts, not here)",
+   "src/features/shared/athena/useAthenaProposals.ts: new -> ~100 (cap 200, 'use client')",
+   "src/features/shared/athena/proposalModel.ts: new -> ~130 (cap 200, pure, no React; name distinct from AthenaProposalCard.tsx)",
+   "src/features/shared/athena/proposalModel.test.ts: new -> ~170 (cap 200)",
+   "src/features/shared/athena/AthenaProposalCard.dom.test.tsx: new -> ~120 (cap 200)",
+   "src/features/shared/athena/stream.ts: 116 -> ~150 (cap 200)",
+   "src/features/shared/athena/model.ts: 115 -> ~125 (cap 200; AthenaBoot.proposals gains summary)",
+   "src/features/shared/athena/AthenaPanel.tsx: 116 -> ~125 (cap 200)",
+   "src/features/shared/athena/AthenaTurnView.tsx: 86 -> ~92 (cap 200)",
+   "src/features/shared/athena/voice.test.ts: 109 -> ~115 (cap 200)",
+   "src/app/api/athena/threads/route.ts: 70 -> ~90 (cap 300 n/a, .ts)",
+   "src/app/api/athena/threads/route.test.ts: 207 -> ~240 (test outside features)"
+  ],
+  "acceptance": [
+   "cardStateOf({status:'open', kind:'rule_on_finding'}) -> {mode:'ask', canAccept:true, canDecline:true} ; cardStateOf({status:'open', kind:'identity_diff'}) -> {mode:'ask', canAccept:false, canDecline:true} (the door 409s an identity_diff accept, resolve/route.ts:125-130, so no Accept is rendered for it)",
+   "accept(proposal) -> POST /api/athena/proposals/<id>/resolve with body {org, decision:'accept'} and the card enters 'submitting' (both buttons disabled - a double click cannot send twice)",
+   "server answers 200 {status:'accepted', outcome:{ok:false, kind:'refused', detail:'Every one of those items had already moved on'}} -> card enters 'answered' painting outcome.detail with a refusal tone, no buttons",
+   "server answers 409 'already been answered' -> card enters 'answered elsewhere' and re-reads the boot proposals (never re-enables Accept); server answers 500 -> card returns to 'ask' with the error beside it (the door released the claim, so a retry is legitimate)",
+   "GET /api/athena/threads boot: each proposal carries summary === athenaActionSummary(kind, payload.params) (e.g. 'Dismiss Branch protection (acme/api) (security)'), and the newest thread's RESOLVED proposals are returned with their outcome so an answered card paints its outcome after reload; requiredRole is NOT on the wire",
+   "a 'settled' turn whose meta.proposalIds is non-empty -> useAthenaProposals re-reads proposals once, and the new cards appear under that turn without a page reload (today they appear only after the drawer remounts)"
+  ],
+  "guards": [
+   "proposalTitle('identity_diff') -> 'A change to what she believes about this org' stays green (voice.test.ts pins it)"
+  ],
+  "premise": [
+   "src/features/shared/athena/AthenaProposalCard.tsx:6-10 - the card says the accept/decline path is 'a separate work package' and deliberately renders no button",
+   "grep -rn \"athena/proposals\" src (non-test) -> only the route's own header comment, src/app/api/athena/proposals/[id]/resolve/route.ts:1; no client code calls the one door",
+   "docs/features/companion/README.md:736-740 - Known gap: 'A proposal can be answered through the API, but not yet from the card ... This is now the only gap between an offer and a click.'",
+   "src/lib/athena/actions.ts:553-557 - athenaActionPayload stores only {params}; summary is 'resolved from the spec at render time'",
+   "src/features/shared/athena/AthenaProposalCard.tsx:36 - proposalSummary reads summary|reason|title|description|line from the payload, none of which an action payload carries, so every action card renders a bare title like 'Rule on finding' with no sentence",
+   "src/app/api/cron/athena/deps.ts:46-49 - the cron cycle DOES resolve the summary server-side via athenaActionSummary: two implementations of one rule, only the server one correct",
+   "src/features/shared/athena/useAthenaThread.ts:81 - proposals are set only at boot; :130 the settled handler appends the turn and never the proposals its meta.proposalIds names (src/lib/db/athena-threads.ts:292)",
+   "src/app/api/athena/threads/route.ts:54 - boot filters to status 'open', so after a reload an answered offer vanishes instead of painting its outcome (contradicting the README's 'an answered card paints an outcome')"
+  ],
+  "rollback": "Revert the series; the resolve route and schema are untouched, so the card falls back to today's display-only render and the boot payload's extra fields are ignored by the old client.",
+  "gate": "contract",
+  "doc": "docs/features/companion/README.md",
+  "runner_up": "An org-wide 'waiting on you' tray: the drawer shows only the newest thread's asks (threads/route.ts:41-46) while the cycle briefs on every open ask in the org (deps.ts:101).",
+  "body": "## Summary\nHer whole safety story ends at a click nobody can make: the one door is built, audited and re-validating, but the card under her answer has no Accept, no Decline and not even the sentence saying what it would do. Make the offer answerable where it was made.\n\n## Description\nToday an operator who agrees with Athena must leave the drawer and perform the action by hand on another tab (claim the follow-ups, rule the finding, write the memory) - five steps for something the app already holds as one validated, role-gated, audited request. Worse, the card cannot tell them what Accept would do: the payload carries params only, the client's summary reader looks for fields no writer writes, and the server-side summary (used by the cron briefing) never reaches the drawer. Offers raised in a live turn do not even appear until the drawer remounts. Registry: hitl-approval / review-queues - the decision surface shows the ask, the clock and the outcome; a queue is a view of state, so a decision made elsewhere removes the item on refresh rather than leaving a live button.\n\n## Flow\n- proposalModel.ts (pure): card states ask | submitting | answered | answered_elsewhere | failed, derived from the record + the last resolve response; identity_diff is decline-only.\n- stream.ts: resolveAthenaProposal(org, id, decision) -> typed result (200 outcome | 409 | 403 | 500).\n- useAthenaProposals.ts: owns the proposal list, per-card pending state, and a one-shot re-read after a settled turn with proposalIds.\n- threads GET: proposals carry a server-resolved summary and the newest thread's resolved ones come back with their outcome.\n- AthenaProposalCard: Accept / Decline, the outcome line after, a polite announcement only when a decision settles.\n- Delete the Known gap in docs/features/companion/README.md.\n\n## Expected impact\nThe offer-to-effect path goes from leave-the-drawer-and-redo-it-by-hand to one click, through the door that already re-validates, gates on role and audits. Every card states what it would do. Answered cards stay legible after reload.\n\n## Evaluation\nClaim: an operator can answer an Athena offer from the card, and the card states the ask and the outcome.\nBefore: 0 of 6 cases pass\nAfter: 6 of 6\nMethod: gate - acceptance tests written red-first (proposalModel.test.ts, AthenaProposalCard.dom.test.tsx, threads route.test.ts)\nResult: better\nGate: contract (the boot payload gains summary and resolved rows; the resolve route's contract is consumed, not changed)",
+  "evidence": "AthenaProposalCard.tsx:6 `decision — the accept/decline path and the API behind it are a separate work package, and inventing` | :9 `So the card states the ask and says plainly that it is waiting. It does NOT render a dead button:` | :36 `for (const key of [\"summary\", \"reason\", \"title\", \"description\", \"line\"])` | actions.ts:555-556 `export function athenaActionPayload(action) { return { params: action.params }; }` | deps.ts:46-48 `function summarize(kind, payload) { ... return athenaActionSummary(kind, params) ?? kind; }` | useAthenaThread.ts:130 `else if (event.type === \"settled\") setTurns((t) => [...t, event.turn]);` | threads/route.ts:54 `proposals: proposals.filter((p) => p.status === \"open\"),` | grep \"athena/proposals\" src non-test: only resolve/route.ts:1 (a comment)"
+ }
+]
