@@ -1,6 +1,7 @@
 // GET    /api/org/invites?org=slug                         -> { invites[] }   list pending invites
 // POST   /api/org/invites { org, role, email?, githubLogin?, notify? } -> { invite, emailed }  create
 // POST   /api/org/invites { org, id, action: "resend", notify? } -> { invite, emailed }  rotate + re-mail
+// POST   /api/org/invites { org, action: "batch", role, targets[], notify? } -> { results[] }  up to 25 at once
 // DELETE /api/org/invites?org=slug&id=inviteId              -> { ok }          revoke a pending invite
 //
 // Member-lifecycle acts on an invite are audited: org.member.invited (create),
@@ -25,7 +26,7 @@
 // so the UI can tell the owner to share the link manually rather than implying a delivery.
 
 import { NextResponse } from "next/server";
-import { createInvite, isDbConfigured, listPendingInvites, recordOrgAudit, revokeInvite } from "@/lib/db";
+import { createInvite, isDbConfigured, listOrgMembers, listPendingInvites, recordOrgAudit, revokeInvite } from "@/lib/db";
 import { resendInvite, type PendingInvite } from "@/lib/db/invites";
 import { refusePublicOrgAdmin, requireOrgRole } from "@/lib/authz";
 import { isOrgRole } from "@/lib/db/members";
@@ -34,6 +35,7 @@ import { resolveViewerLogin } from "@/lib/access";
 import { dispatchInviteEmail } from "@/lib/email/invite";
 import { publicBaseUrl } from "@/lib/site";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
+import { EMAIL_SHAPE, GITHUB_LOGIN, INVITE_BATCH_MAX, classifyInviteTargets } from "@/lib/org/invite-batch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,9 +49,8 @@ export const dynamic = "force-dynamic";
 // pin that an unconfirmed Supabase account at that address could satisfy via acceptInvite's login
 // comparison. The other half of that pair lives in getViewer (src/lib/access.ts), which no longer lets
 // an unconfirmed address become `viewer.login`. Route tests pin both.
-const GITHUB_LOGIN = /^[A-Za-z0-9-]{1,39}$/;
-// Minimal email shape: a single @ with non-empty, space-free local and domain parts (the domain has a dot).
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// GITHUB_LOGIN and EMAIL_SHAPE live in src/lib/org/invite-batch.ts so the batch classifier and this
+// single-invite path share one definition (members-1).
 
 export async function GET(request: Request) {
   if (!isDbConfigured()) return NextResponse.json({ error: "Invites require a database." }, { status: 503 });
@@ -118,6 +119,7 @@ export async function POST(request: Request) {
     ).catch(() => {});
     return NextResponse.json({ invite, emailed });
   }
+  if (body.action === "batch") return postBatch(body);
   if (!body.org || !body.role || !isOrgRole(body.role)) {
     return NextResponse.json({ error: "Provide { org, role: admin|member|viewer }." }, { status: 400 });
   }
@@ -167,6 +169,63 @@ export async function POST(request: Request) {
     actor ?? undefined,
   ).catch(() => {});
   return NextResponse.json({ invite, emailed });
+}
+
+// Batch invite (members-1): up to INVITE_BATCH_MAX targets in one request, behind the SAME gate as a
+// single invite (public refusal, then owner). The server re-classifies every target against the roster
+// and the pending list it reads itself, so a stale or hand-built client plan can never mint an invite
+// for an existing member or a second live link for a pending invitee. Each created invite is delivered
+// and audited exactly as a single invite is (org.member.invited, one row per created invite).
+async function postBatch(body: { org?: string; role?: string; targets?: unknown; notify?: boolean }) {
+  if (!body.org || !body.role || !isOrgRole(body.role)) {
+    return NextResponse.json({ error: "Provide { org, role: admin|member|viewer }." }, { status: 400 });
+  }
+  if (body.role === "owner") {
+    return NextResponse.json(
+      { error: "Owner can't be granted by invite. Promote an existing member to owner instead." },
+      { status: 400 },
+    );
+  }
+  const targets = body.targets;
+  if (!Array.isArray(targets) || targets.length === 0 || !targets.every((t) => typeof t === "string")) {
+    return NextResponse.json({ error: "Provide targets: a list of GitHub logins or emails." }, { status: 400 });
+  }
+  if (targets.length > INVITE_BATCH_MAX) {
+    return NextResponse.json({ error: `A batch invites at most ${INVITE_BATCH_MAX} people.` }, { status: 400 });
+  }
+  const role = body.role;
+  const org = normalizeOrgSlug(body.org);
+  const denied = refusePublicOrgAdmin(org) ?? (await requireOrgRole(org, "owner"));
+  if (denied) return denied;
+  const actor = await resolveViewerLogin();
+  const [members, pending] = await Promise.all([listOrgMembers(org), listPendingInvites(org)]);
+  const plan = classifyInviteTargets(targets as string[], members, pending);
+  const results: Record<string, unknown>[] = [];
+  // Sequential on purpose: one insert, one mail, one audit row at a time, in input order.
+  for (const row of plan) {
+    const { target, outcome } = row;
+    if (outcome === "already_member") results.push({ target, outcome, role: row.role });
+    else if (outcome === "already_pending") results.push({ target, outcome, inviteId: row.inviteId });
+    else if (outcome !== "invite") results.push({ target, outcome });
+    else {
+      const value = target.trim().replace(/^@+/, "").toLowerCase();
+      const pin = row.kind === "email" ? { email: value } : { githubLogin: value };
+      const invite = await createInvite(org, { role, ...pin, invitedBy: actor });
+      if (!invite) {
+        results.push({ target, outcome: "failed" });
+        continue;
+      }
+      const emailed = await deliverInvite(invite, org, actor, body.notify);
+      await recordOrgAudit(
+        "org.member.invited",
+        org,
+        { org, role, target: value, emailed },
+        actor ?? undefined,
+      ).catch(() => {});
+      results.push({ target, outcome: "created", invite, emailed });
+    }
+  }
+  return NextResponse.json({ results });
 }
 
 export async function DELETE(request: Request) {

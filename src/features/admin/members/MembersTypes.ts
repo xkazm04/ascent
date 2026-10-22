@@ -25,3 +25,14 @@ export interface InviteRow {
   token?: string | null;
   expiresAt: string;
 }
+
+/** The `emailed` wire vocabulary of a create/resend response; null means no address was involved. */
+export type DeliveryStatus = "sent" | "skipped" | "failed";
+
+/** One row of a POST /api/org/invites { action: "batch" } response, in the caller's input order.
+ *  The server re-classified the target (src/lib/org/invite-batch.ts) and has the final say. */
+export type InviteBatchResult =
+  | { target: string; outcome: "created"; invite: InviteRow; emailed: DeliveryStatus | null }
+  | { target: string; outcome: "already_member"; role: OrgRole }
+  | { target: string; outcome: "already_pending"; inviteId: string }
+  | { target: string; outcome: "invalid" | "duplicate" | "failed" };

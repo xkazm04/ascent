@@ -84,7 +84,7 @@ export function MembersPanel({
         removed.
       </p>
 
-      {canManage && <MemberInvites slug={slug} initialInvites={initialInvites} />}
+      {canManage && <MemberInvites slug={slug} initialInvites={initialInvites} members={p.members} />}
 
       <div className="mt-6">
         <NextMoveLink href={orgTabHref(slug, "repositories")} to="repositories" />

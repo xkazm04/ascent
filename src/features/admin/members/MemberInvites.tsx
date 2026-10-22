@@ -5,11 +5,12 @@
 // capability, shown once on the create/resend response. `emailed` is disclosed so a provider-less
 // deploy is not a silent success.
 
-import { useState } from "react";
 import type { OrgRole } from "@/lib/db/members";
 import { INVITE_ROLES } from "@/features/admin/members/memberRoles";
 import { InviteList } from "./InviteList";
-import type { InviteRow } from "./MembersTypes";
+import type { InviteRow, Member } from "./MembersTypes";
+import { useMemberInvites } from "./useMemberInvites";
+import { InviteBatchPreview, InviteBatchResults } from "./InviteBatchPreview";
 
 // Re-exported so the panel and the tab keep importing it from here (pure relocation).
 export type { InviteRow };
@@ -37,104 +38,22 @@ const DELIVERY: Record<"sent" | "skipped" | "failed", { alert: boolean; cls: str
   },
 };
 
-export function MemberInvites({ slug, initialInvites }: { slug: string; initialInvites: InviteRow[] }) {
-  const [invites, setInvites] = useState<InviteRow[]>(initialInvites);
-  const [inviteTarget, setInviteTarget] = useState("");
-  const [inviteRole, setInviteRole] = useState<OrgRole>("member");
-  const [inviteBusy, setInviteBusy] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-  // Outcome of the last create/resend mail. Cleared on the next attempt so a stale line never sits
-  // above a different invite.
-  const [delivery, setDelivery] = useState<{ to: string; status: keyof typeof DELIVERY } | null>(null);
+const NO_MEMBERS: readonly Member[] = [];
 
-  function noteDelivery(row: InviteRow, emailed: unknown) {
-    const status = emailed as string | null;
-    if (row.email && status && status in DELIVERY) {
-      setDelivery({ to: row.email, status: status as keyof typeof DELIVERY });
-    }
-  }
-
-  async function sendInvite() {
-    const target = inviteTarget.trim();
-    if (!target || inviteBusy) return;
-    setInviteBusy(true);
-    setInviteError(null);
-    setDelivery(null);
-    const payload = target.includes("@") ? { email: target } : { githubLogin: target };
-    try {
-      const res = await fetch("/api/org/invites", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, role: inviteRole, ...payload }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error ?? "Failed to create invite.");
-      const row = d.invite as InviteRow;
-      setInvites((xs) => [row, ...xs]);
-      noteDelivery(row, d.emailed);
-      setInviteTarget("");
-    } catch (e) {
-      setInviteError(e instanceof Error ? e.message : "Failed to create invite.");
-    } finally {
-      setInviteBusy(false);
-    }
-  }
-
-  async function resendInvite(id: string) {
-    setInviteError(null);
-    setDelivery(null);
-    try {
-      const res = await fetch("/api/org/invites", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ org: slug, id, action: "resend" }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error ?? "Failed to resend invite.");
-      const row = d.invite as InviteRow;
-      setInvites((xs) => xs.map((i) => (i.id === id ? { ...i, ...row } : i)));
-      noteDelivery(row, d.emailed);
-    } catch (e) {
-      setInviteError(e instanceof Error ? e.message : "Failed to resend invite.");
-    }
-  }
-
-  async function revokeInvite(id: string) {
-    // Targeted re-insert only: a whole-array snapshot would resurrect a concurrent revoke.
-    const idx = invites.findIndex((i) => i.id === id);
-    const removed = idx >= 0 ? invites[idx] : null;
-    setInvites((xs) => xs.filter((i) => i.id !== id));
-    try {
-      const res = await fetch(`/api/org/invites?org=${encodeURIComponent(slug)}&id=${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
-    } catch {
-      if (removed) {
-        setInvites((xs) => {
-          if (xs.some((i) => i.id === id)) return xs; // already present — don't duplicate
-          const next = [...xs];
-          next.splice(Math.min(idx, next.length), 0, removed);
-          return next;
-        });
-      }
-      setInviteError("Failed to revoke the invite.");
-    }
-  }
-
-  function inviteLink(token: string): string {
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    return `${origin}/invite/${token}`;
-  }
-
-  async function copyLink(token: string) {
-    try {
-      await navigator.clipboard.writeText(inviteLink(token));
-      setCopied(token);
-      setTimeout(() => setCopied((c) => (c === token ? null : c)), 1500);
-    } catch {
-      /* clipboard blocked — the link is shown inline as a fallback */
-    }
-  }
+export function MemberInvites({
+  slug,
+  initialInvites,
+  members = NO_MEMBERS,
+}: {
+  slug: string;
+  initialInvites: InviteRow[];
+  /** The roster already on the page: the batch preview judges a paste against it with no fetch. */
+  members?: readonly Member[];
+}) {
+  const {
+    invites, inviteTarget, setInviteTarget, inviteRole, setInviteRole, inviteBusy, inviteError, copied,
+    delivery, preview, batchResults, dismissResults, submit, resendInvite, revokeInvite, copyLink,
+  } = useMemberInvites(slug, initialInvites, members);
 
   return (
     <div className="mt-6 border-t border-slate-800 pt-4">
@@ -152,10 +71,10 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              sendInvite();
+              void submit();
             }
           }}
-          placeholder="GitHub login or email"
+          placeholder="GitHub login or email (paste several to invite a team)"
           className="min-w-[14rem] flex-1 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 type-mono-sm text-slate-200 outline-none focus:border-accent"
         />
         <select
@@ -170,14 +89,26 @@ export function MemberInvites({ slug, initialInvites }: { slug: string; initialI
             </option>
           ))}
         </select>
-        <button
-          onClick={sendInvite}
-          disabled={inviteBusy || !inviteTarget.trim()}
-          className="rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
-        >
-          {inviteBusy ? "Creating…" : "Create invite"}
-        </button>
+        {!preview && (
+          <button
+            onClick={() => void submit()}
+            disabled={inviteBusy || !inviteTarget.trim()}
+            className="rounded-md border border-accent/50 bg-accent/10 px-3 py-1.5 type-body-sm font-medium text-white transition hover:bg-accent/20 disabled:opacity-50"
+          >
+            {inviteBusy ? "Creating…" : "Create invite"}
+          </button>
+        )}
       </div>
+      {preview && (
+        <InviteBatchPreview
+          rows={preview.rows}
+          counts={preview.counts}
+          tooMany={preview.tooMany}
+          busy={inviteBusy}
+          onConfirm={() => void submit()}
+        />
+      )}
+      {batchResults && <InviteBatchResults results={batchResults} onResend={resendInvite} onDismiss={dismissResults} />}
       {inviteError && (
         <p role="alert" className="mt-2 type-body-sm text-danger-soft">
           {inviteError}
