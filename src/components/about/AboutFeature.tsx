@@ -52,7 +52,7 @@ export function AboutFeature({
             <GlowBackdrop
               strataOpacity="opacity-40"
               pointerEventsNone
-              glow="radial-gradient(70% 60% at 50% 0%, rgba(59,158,255,0.10), transparent 70%)"
+              glow="radial-gradient(70% 60% at 50% 0%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%)"
             >
               {children}
             </GlowBackdrop>

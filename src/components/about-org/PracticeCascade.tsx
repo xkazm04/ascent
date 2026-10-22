@@ -91,7 +91,7 @@ export function PracticeCascade() {
               y1={0}
               x2={Math.round(x * 100) / 100}
               y2={34}
-              stroke="#3b9eff"
+              stroke="var(--color-accent)"
               strokeWidth={0.6}
               initial={reduced ? false : { opacity: 0 }}
               animate={{ opacity: 0.45 }}

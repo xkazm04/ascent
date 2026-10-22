@@ -28,7 +28,7 @@ export function PassportHero({ passport, repo }: { passport: AppPassport; repo: 
   return (
     <Surface radius="2xl" className="relative overflow-hidden p-6" data-testid="passport-hero">
       <div aria-hidden className="strata pointer-events-none absolute inset-0 opacity-70" />
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(34rem_16rem_at_85%_-20%,rgba(59,158,255,0.08),transparent_70%)]" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(34rem_16rem_at_85%_-20%,color-mix(in_srgb,var(--color-accent)8%,transparent),transparent_70%)]" />
 
       <div className="relative">
         {/* Header — title on the left, the two achieved ratings stamped into the top-right corner */}

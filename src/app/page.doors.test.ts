@@ -24,6 +24,7 @@ vi.mock("@/lib/db", () => ({
   getPublicScanGallery: h.getPublicScanGallery,
   recordQuotaEvent: h.recordQuotaEvent,
 }));
+vi.mock("@/lib/theme/server", () => ({ getTheme: async () => "altimeter" }));
 vi.mock("@/lib/first-run", () => ({ resolveFirstRun: h.resolveFirstRun }));
 // server-only + cookies/headers: not what this page owns.
 vi.mock("@/lib/auth", () => ({ isAuthConfigured: () => false }));

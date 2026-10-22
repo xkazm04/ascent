@@ -45,7 +45,7 @@ export const SKELETON_STARS = 9;
 export const DENSE_FLEET_STARS = 240;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 export const CENTER = 60;
-export const ACCENT = "#3b9eff";
+export const ACCENT = "var(--color-accent)";
 export const FAINT = "#64748b";
 /** The org-core beacon's inner disc (slate-200). Shared by the live map and the public, data-free
  *  field so the constellation's center reads identically on both surfaces. */

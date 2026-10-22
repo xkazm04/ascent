@@ -107,7 +107,7 @@ export function FlightLog({ fold, sel, setSel, onOpen }: { fold: RoundsFold; sel
         <text x={L - 8} y={g.dotTop + 4} textAnchor="end">
           lanes
         </text>
-        <polyline points={cumulativePoints(rounds, g, totals.closes)} fill="none" stroke="#8fb4e8" strokeOpacity={0.55} strokeWidth={1.5} />
+        <polyline points={cumulativePoints(rounds, g, totals.closes)} fill="none" stroke="var(--blue-soft)" strokeOpacity={0.55} strokeWidth={1.5} />
         <text x={g.W - R + 8} y={top + 4}>
           {totals.closes}
         </text>

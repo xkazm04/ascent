@@ -52,7 +52,7 @@
 .item .m { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
 .item button.h { background: none; border: 0; padding: 0; color: var(--text); cursor: pointer; text-align: left; font: inherit; font-weight: 600; }
 .item button.h:hover { color: var(--blue); }
-.dimTag { font-family: var(--desk-mono); font-size: 12px; font-weight: 600; color: #a9d0ff; background: #15233d; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+.dimTag { font-family: var(--desk-mono); font-size: 12px; font-weight: 600; color: var(--blue-ink); background: var(--blue-well2); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 .fileChip { font-family: var(--desk-mono); font-size: 12px; color: var(--dim); background: #121a2a; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
 button.fileChip { cursor: pointer; color: var(--blue); }
 .check { font-family: var(--desk-mono); font-weight: 700; width: 16px; display: inline-block; flex: none; }
@@ -60,7 +60,7 @@ button.fileChip { cursor: pointer; color: var(--blue); }
 .batchLine { display: flex; gap: 8px; }
 .lanecards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .lanecard { display: flex; flex-direction: column; gap: 10px; background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; padding: 14px 16px; color: var(--text); cursor: pointer; text-align: left; font: inherit; }
-.lanecard:hover { border-color: #3d4e70; background: #101829; }
+.lanecard:hover { border-color: var(--line3); background: #101829; }
 .top1 { display: flex; justify-content: space-between; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
 .top1 b { white-space: nowrap; font-size: 16px; }
 .top1 small { font-family: var(--desk-mono); font-size: 12px; color: var(--faint); font-weight: 400; margin-left: 6px; }
@@ -99,7 +99,7 @@ button.fileChip { cursor: pointer; color: var(--blue); }
 .empty { padding: 14px 16px; color: var(--dim); font-size: 14px; }
 .pn { display: flex; justify-content: space-between; gap: 12px; margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--line); }
 .pn button { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border: 1px solid var(--line2); border-radius: 10px; min-width: 220px; color: var(--text); background: transparent; cursor: pointer; text-align: left; font: inherit; }
-.pn button:hover { border-color: #3d4e70; background: #101829; }
+.pn button:hover { border-color: var(--line3); background: #101829; }
 .pn button small { font-family: var(--desk-mono); font-size: 12px; color: var(--faint); }
 .pn button.next { text-align: right; margin-left: auto; align-items: flex-end; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; }

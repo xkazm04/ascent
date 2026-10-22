@@ -14,7 +14,7 @@
 /* ON AIR is the desk's live-feed chip */
 .onair { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: calc(.7 * var(--u)); padding: calc(.55 * var(--u)) calc(1.2 * var(--u)); border: 1px solid var(--line2); border-radius: 999px; background: var(--panel); font: 500 max(12px, calc(1.45 * var(--u)))/1 var(--mono); letter-spacing: .1em; color: var(--faint); white-space: nowrap; overflow: hidden; }
 .lamp { flex: 0 0 auto; width: calc(.9 * var(--u)); height: calc(.9 * var(--u)); min-width: 8px; min-height: 8px; border-radius: 50%; background: var(--line2); }
-.onair[data-state="on"] { background: var(--panel); border-color: #27406a; color: #a9d0ff; box-shadow: none; }
+.onair[data-state="on"] { background: var(--panel); border-color: var(--blue-line); color: var(--blue-ink); box-shadow: none; }
 .onair[data-state="on"] .lamp { background: var(--green); }
 .onair[data-state="lost"] { color: var(--amber); border-color: rgba(243, 178, 58, .45); background: var(--amberbg); }
 .onair[data-state="lost"] .lamp { background: var(--amber); }
@@ -45,7 +45,7 @@
 .mk { font: 500 max(12px, calc(1.1 * var(--u)))/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .mv { font: 600 max(12px, calc(1.5 * var(--u)))/1 var(--mono); color: var(--text2); overflow: hidden; text-overflow: ellipsis; }
 .bar { flex: 0 0 auto; height: max(6px, calc(.6 * var(--u))); background: #1a2336; border-radius: 99px; overflow: hidden; }
-.bar i { display: block; height: 100%; width: 0; background: #8fb4e8; border-radius: 99px; }
+.bar i { display: block; height: 100%; width: 0; background: var(--blue-soft); border-radius: 99px; }
 .bar[data-hot] i { background: var(--amber); }
 .tsub { font: 400 max(12px, calc(1.45 * var(--u)))/1.25 var(--sans); color: var(--green); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tsub[data-asof] { color: var(--amber); }

@@ -69,7 +69,7 @@ export function ReportConversionCta({ repo }: { repo?: string }) {
     <Surface radius="2xl" className="relative overflow-hidden p-6" data-testid="report-conversion-cta">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-[radial-gradient(36rem_14rem_at_50%_-28%,rgba(59,158,255,0.12),transparent_68%)]"
+        className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-[radial-gradient(36rem_14rem_at_50%_-28%,color-mix(in_srgb,var(--color-accent)12%,transparent),transparent_68%)]"
       />
       <div className="relative flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>

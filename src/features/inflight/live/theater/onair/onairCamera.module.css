@@ -16,7 +16,7 @@
 .f i { font-style: normal; }
 [data-kind="pgm"] .f { font-size: max(12px, calc(1.65 * var(--u))); padding: calc(1.05 * var(--u)) calc(.9 * var(--u)); }
 [data-kind="pvw"] .f { font-size: max(12px, calc(1.1 * var(--u))); padding: calc(.4 * var(--u)) calc(.5 * var(--u)); }
-.f.r { background: var(--tiledone); border-color: transparent; color: #9dbbe6; }
+.f.r { background: var(--tiledone); border-color: transparent; color: var(--blue-hi); }
 .f.e { background: var(--amberbg); border-color: rgba(243, 178, 58, .35); color: #f3cf86; }
 .f.lit { position: relative; z-index: 2; font-weight: 600; }
 .f.litRead { background: var(--blue2); border-color: var(--blue); color: #fff; box-shadow: none; }

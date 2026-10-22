@@ -33,7 +33,7 @@ export const RadarComposition: React.FC = () => {
     <AbsoluteFill
       style={{
         backgroundColor: INK,
-        backgroundImage: "radial-gradient(55% 55% at 50% 50%, rgba(59,158,255,0.07), transparent 70%)",
+        backgroundImage: "radial-gradient(55% 55% at 50% 50%, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 70%)",
       }}
     >
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ position: "absolute", inset: 0 }}>

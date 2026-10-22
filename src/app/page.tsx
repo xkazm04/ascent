@@ -13,6 +13,7 @@ import { resolveFirstRun } from "@/lib/first-run";
 import { PLAN_FEATURES, planPriceLabel, type PlanId } from "@/lib/plans";
 import { PUBLIC_SCAN_WINDOW_DAYS, publicScanAllowance } from "@/lib/public-scan-limit";
 import { degradeTo } from "@/lib/scan-read-door";
+import { getTheme } from "@/lib/theme/server";
 
 /** "Starter ($5/mo)" — the tier's customer-facing NAME and price, both read from the plan model. */
 const paidTier = (id: PlanId) => `${PLAN_FEATURES[id].label} (${planPriceLabel(id).amount}/mo)`;
@@ -90,7 +91,7 @@ const FAQ_LD = {
   ],
 };
 
-/** `/?landing=prism` selects the Prism landing (the contest-winning brand and page) beside the current one. */
+/** The Prism landing (the contest-winning brand and page) shows for the Prism theme, and `/?landing=prism` still previews it under Altimeter. */
 type HomeSearch = Promise<{ [key: string]: string | string[] | undefined }>;
 const wantsPrism = (sp: Awaited<HomeSearch>) => sp.landing === "prism";
 
@@ -100,7 +101,7 @@ export async function generateMetadata({ searchParams }: { searchParams: HomeSea
 }
 
 export default async function Home({ searchParams }: { searchParams: HomeSearch }) {
-  const prism = wantsPrism(await searchParams);
+  const prism = wantsPrism(await searchParams) || (await getTheme()) === "prism";
   // Cookieless visit counter — the top of the visit → signup → activation funnel (the other two
   // stages already come from kpi-metrics.ts; read back on GET /api/kpi). Fire-and-forget exactly
   // like the scan route's quota tallies: recordQuotaEvent no-ops when no DB is configured and

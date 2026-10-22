@@ -57,9 +57,9 @@ function Legend() {
   return (
     <div className={r.legend}>
       <span><i className={r.sw} style={{ background: "#37cf8c" }} />verified closes</span>
-      <span><i className={r.sw} style={{ background: "#4d9dff" }} />reported $</span>
+      <span><i className={r.sw} style={{ background: "var(--blue)" }} />reported $</span>
       <span><i className={r.sw} style={{ border: "1px dashed #56617a" }} />$ not reported</span>
-      <span><i className={r.sw} style={{ background: "#8fb4e8", height: 2 }} />cumulative closes</span>
+      <span><i className={r.sw} style={{ background: "var(--blue-soft)", height: 2 }} />cumulative closes</span>
       <span style={{ color: "var(--faint)" }}>lanes:</span>
       <span><i className={r.dot} style={{ background: "#37cf8c" }} />verified</span>
       <span><i className={r.dot} style={{ background: "#ff5f5f" }} />rejected</span>

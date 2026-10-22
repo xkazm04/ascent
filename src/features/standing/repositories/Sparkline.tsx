@@ -5,7 +5,7 @@
 // 1.5px floor so a non-zero week is always visible, and empty weeks draw a faint 1px stub so the grid
 // reads as a full span. Renders nothing for an empty series (the caller shows "—" instead).
 
-const ACCENT = "#3b9eff";
+const ACCENT = "var(--color-accent)";
 
 export function Sparkline({
   values,

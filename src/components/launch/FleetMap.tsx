@@ -137,7 +137,7 @@ export function FleetMap({
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
-        style={{ background: "radial-gradient(60rem 40rem at 50% -10%, rgba(59,158,255,0.08), transparent 60%)" }}
+        style={{ background: "radial-gradient(60rem 40rem at 50% -10%, color-mix(in srgb, var(--color-accent) 8%, transparent), transparent 60%)" }}
       />
 
       <div className="relative mx-auto w-full max-w-6xl px-5 py-10">

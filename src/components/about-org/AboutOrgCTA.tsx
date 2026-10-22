@@ -31,7 +31,7 @@ export function AboutOrgCTA() {
             <Surface tone="strong" radius="2xl" className="tick-corners relative overflow-hidden p-10 text-center 2xl:p-14">
               <GlowBackdrop
                 strataOpacity="opacity-50"
-                glow="radial-gradient(50% 60% at 50% 0%, rgba(59,158,255,0.14), transparent 70%)"
+                glow="radial-gradient(50% 60% at 50% 0%, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 70%)"
               >
                 <h2 className="deck-h2 type-heading font-bold text-white sm:type-display">Index your organization</h2>
                 <p className="deck-lede mx-auto mt-3 max-w-xl type-body text-slate-300 2xl:max-w-2xl">

@@ -3,14 +3,14 @@
    Ported from theater.css (base + ONE TONE, flattened). Kind is data-kind="pgm|pvw|wire". */
 .mon { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); display: flex; flex-direction: column; overflow: hidden; min-height: 0; min-width: 0; }
 [data-stale] .mon { border-color: var(--line2); }
-.mon[data-tone="red"] { border-color: #27406a; }
+.mon[data-tone="red"] { border-color: var(--blue-line); }
 .mon[data-tone="green"] { border-color: rgba(55, 207, 140, .6); }
 .mon[data-tone="amber"] { border-color: rgba(243, 178, 58, .6); }
 
 /* the head */
 .tab { flex: 0 0 auto; display: flex; align-items: center; gap: calc(.9 * var(--u)); height: max(28px, calc(3.8 * var(--u))); padding: 0 calc(1.6 * var(--u)); background: transparent; border-bottom: 1px solid var(--line); font: 600 max(12px, calc(1.2 * var(--u)))/1 var(--mono); letter-spacing: .14em; color: var(--head); white-space: nowrap; overflow: hidden; }
 .tag { flex: 0 0 auto; font-weight: 500; color: var(--faint); background: transparent; border: 1px solid var(--line2); border-radius: 999px; padding: calc(.3 * var(--u)) calc(.9 * var(--u)); letter-spacing: .1em; }
-[data-kind="pgm"] .tag { color: #a9d0ff; border-color: #27406a; }
+[data-kind="pgm"] .tag { color: var(--blue-ink); border-color: var(--blue-line); }
 [data-kind="pgm"][data-blank] .tag, [data-stale] [data-kind="pgm"] .tag { color: var(--faint); border-color: var(--line2); }
 .src { flex: 0 1 auto; min-width: 0; color: var(--head); font-weight: 600; letter-spacing: .06em; overflow: hidden; text-overflow: ellipsis; }
 .arm { flex: 0 1 auto; min-width: 0; margin-left: auto; color: var(--faint); font-weight: 500; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; }
@@ -59,7 +59,7 @@
 [data-kind="pvw"] .stages { width: 100%; margin: calc(.6 * var(--u)) 0 0; }
 .stg { height: max(22px, calc(2.6 * var(--u))); border-radius: calc(.4 * var(--u)); background: var(--tile); font: 500 max(12px, calc(1.15 * var(--u)))/max(22px, calc(2.6 * var(--u))) var(--mono); text-align: center; color: #56627c; overflow: hidden; }
 [data-kind="pvw"] .stg { height: max(20px, calc(2 * var(--u))); line-height: max(20px, calc(2 * var(--u))); font-size: max(12px, calc(1 * var(--u))); }
-.stg[data-state="done"] { background: var(--tiledone); color: #6f8fc0; }
+.stg[data-state="done"] { background: var(--tiledone); color: var(--blue-mid); }
 .stg[data-state="on"] { background: var(--blue2); color: #fff; font-weight: 600; }
 .stg[data-state="on"][data-land] { background: #1f8a5c; }
 .path { font: 500 max(12px, calc(1.7 * var(--u)))/1.3 var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: calc(.45 * var(--u)); }
@@ -102,7 +102,7 @@
 [data-kind="pvw"] .slate em { font-size: max(12px, calc(1.2 * var(--u))); }
 
 /* cut wipe */
-.wipe { position: absolute; inset: 0; z-index: 8; pointer-events: none; transform: translateX(-101%); background: linear-gradient(90deg, var(--well) 0%, var(--well) 94%, rgba(77, 157, 255, .9) 97%, rgba(242, 246, 255, 1) 100%); }
+.wipe { position: absolute; inset: 0; z-index: 8; pointer-events: none; transform: translateX(-101%); background: linear-gradient(90deg, var(--well) 0%, var(--well) 94%, color-mix(in srgb, var(--blue) 90%, transparent) 97%, rgba(242, 246, 255, 1) 100%); }
 .wipeGo { animation: wipe .55s cubic-bezier(.6, 0, .3, 1) 1; }
 @keyframes wipe { 0% { transform: translateX(-101%); } 45% { transform: translateX(0); } 100% { transform: translateX(101%); } }
 

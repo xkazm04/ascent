@@ -33,12 +33,12 @@ export function AboutOrgHero() {
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(58rem 34rem at 78% -8%, rgba(59,158,255,0.15), transparent 62%), linear-gradient(180deg, rgba(8,13,26,0.15) 0%, #080d1a 84%)",
+              "radial-gradient(58rem 34rem at 78% -8%, color-mix(in srgb, var(--color-accent) 15%, transparent), transparent 62%), linear-gradient(180deg, color-mix(in srgb, var(--color-ink) 15%, transparent) 0%, var(--color-ink) 84%)",
           }}
         />
         {/* The horizon — the same fading accent hairline that closes the landing masthead, so the
             decks share a bottom edge rather than each dissolving into the ink on its own terms. */}
-        <div className="absolute inset-x-0 bottom-0 h-px bg-[linear-gradient(90deg,transparent,rgba(59,158,255,0.34)_28%,rgba(59,158,255,0.34)_72%,transparent)]" />
+        <div className="absolute inset-x-0 bottom-0 h-px bg-[linear-gradient(90deg,transparent,color-mix(in_srgb,var(--color-accent)34%,transparent)_28%,color-mix(in_srgb,var(--color-accent)34%,transparent)_72%,transparent)]" />
       </div>
 
       {/* The copy column takes the larger share: the instrument is a fixed-size dial, so a 50/50 split
@@ -72,7 +72,7 @@ export function AboutOrgHero() {
             <GlowBackdrop
               strataOpacity="opacity-30"
               pointerEventsNone
-              glow="radial-gradient(70% 65% at 50% 0%, rgba(59,158,255,0.12), transparent 72%)"
+              glow="radial-gradient(70% 65% at 50% 0%, color-mix(in srgb, var(--color-accent) 12%, transparent), transparent 72%)"
             >
               <OrgIndexInstrument size={260} className="max-w-full" />
               <div className="mt-2 text-center type-label tracking-[0.22em] text-slate-600">

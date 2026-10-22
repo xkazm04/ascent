@@ -19,7 +19,7 @@ export function RoundColumn({ round, i, g, sel }: { round: DeskRound; i: number;
       <rect className={r.hit} x={cx - g.step / 2} y={top - 8} width={g.step} height={bottom - top - 14} rx={3} />
       {round.closes > 0 ? <rect x={cx - half} y={g.yC(round.closes)} width={bw} height={axis - g.yC(round.closes)} rx={1.5} fill="#37cf8c" /> : null}
       {round.costMicros != null && round.costMicros > 0 ? (
-        <rect x={cx - half} y={axis + 1} width={bw} height={Math.max(2, g.yK(round.costMicros) - axis)} rx={1.5} fill="#4d9dff" fillOpacity={round.costUnknown ? 0.5 : 1} />
+        <rect x={cx - half} y={axis + 1} width={bw} height={Math.max(2, g.yK(round.costMicros) - axis)} rx={1.5} fill="var(--blue)" fillOpacity={round.costUnknown ? 0.5 : 1} />
       ) : round.costMicros == null ? (
         <rect x={cx - half + 0.5} y={axis + 3} width={bw - 1} height={9} fill="none" stroke="#56617a" strokeDasharray="2 2" />
       ) : null}

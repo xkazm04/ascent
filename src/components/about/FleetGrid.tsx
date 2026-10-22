@@ -139,7 +139,7 @@ export function FleetGrid({ fleet = ILLUSTRATIVE_FLEET }: { fleet?: AboutFleet }
           <motion.div
             aria-hidden
             className="pointer-events-none absolute inset-y-0 w-px bg-accent"
-            style={{ boxShadow: "0 0 14px 2px rgba(59,158,255,0.65)" }}
+            style={{ boxShadow: "0 0 14px 2px color-mix(in srgb, var(--color-accent) 65%, transparent)" }}
             initial={{ left: "-2%", opacity: 0 }}
             whileInView={{ left: "102%", opacity: [0, 1, 1, 0] }}
             viewport={{ once: true, margin: "-60px" }}

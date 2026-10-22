@@ -45,7 +45,7 @@ export function AboutHero({ bg }: { bg?: string }) {
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(60rem 36rem at 80% -10%, rgba(59,158,255,0.14), transparent 60%), linear-gradient(180deg, rgba(8,13,26,0.2) 0%, #080d1a 82%)",
+              "radial-gradient(60rem 36rem at 80% -10%, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 60%), linear-gradient(180deg, color-mix(in srgb, var(--color-ink) 20%, transparent) 0%, var(--color-ink) 82%)",
           }}
         />
       </div>
