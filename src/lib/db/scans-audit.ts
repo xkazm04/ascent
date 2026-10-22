@@ -5,7 +5,8 @@ import { getPrisma, isDbConfigured, withRetry } from "@/lib/db/client";
 import { resolveOrgId } from "@/lib/db/scans-shared";
 import { getOrgId } from "@/lib/db/org-rollup";
 import { normalizeOrgSlug } from "@/lib/db/org-shared";
-import { withAuditSignature, verifyAudit, type AuditVerdict } from "@/lib/db/audit-integrity";
+import { verifyAudit, type AuditVerdict } from "@/lib/db/audit-integrity";
+import { appendAudit } from "@/lib/db/audit-append";
 import { noteAuditWriteFailure } from "@/lib/db/audit-health";
 
 /**
@@ -22,21 +23,9 @@ export async function recordAudit(
 ): Promise<boolean> {
   if (!isDbConfigured()) return true;
   try {
-    // Stamp the time explicitly so the value we SIGN matches the value we STORE, then fold a per-row
-    // HMAC signature into meta (migration-free tamper-evidence; inert without a signing secret).
-    const at = new Date();
-    const orgId = opts.orgId ?? null;
-    const actorId = opts.actorId ?? null;
-    const signedMeta = withAuditSignature({ action, orgId, actorId, createdAt: at.toISOString(), meta });
-    await getPrisma().auditLog.create({
-      data: {
-        action,
-        meta: JSON.stringify(signedMeta),
-        orgId,
-        actorId,
-        at,
-      },
-    });
+    // The door stamps the time once (signed instant = stored instant) and folds the per-row HMAC
+    // signature into meta (migration-free tamper-evidence; inert without a signing secret).
+    await appendAudit(getPrisma(), { action, orgId: opts.orgId ?? null, actorId: opts.actorId ?? null, meta });
     return true;
   } catch (err) {
     // Count it before logging: a server log is not a surface anyone watches, and this is the only
@@ -161,13 +150,8 @@ export async function claimOrgAuditOnce(
           const released = markers.length ? await releasedClaimIds(tx, orgId, since) : new Set<string>();
           const existing = markers.find((m) => !released.has(m.id)) ?? null;
           if (existing) return { claimed: false, id: null };
-          const at = new Date();
-          const signedMeta = withAuditSignature({ action, orgId, actorId: actorId ?? null, createdAt: at.toISOString(), meta });
-          const row = await tx.auditLog.create({
-            data: { action, meta: JSON.stringify(signedMeta), orgId, actorId: actorId ?? null, at },
-            select: { id: true },
-          });
-          return { claimed: true, id: row.id };
+          const id = await appendAudit(tx, { action, orgId, actorId: actorId ?? null, meta });
+          return { claimed: true, id };
         }),
       { label: "audit.claim-once" },
     );
@@ -207,26 +191,14 @@ export async function releaseAuditClaim(id: string | null): Promise<void> {
       select: { id: true, action: true, orgId: true, actorId: true, at: true },
     });
     if (!claim) return;
-    const at = new Date();
-    const meta: Record<string, unknown> = {
-      [RELEASED_CLAIM_ID_KEY]: claim.id,
-      releasedAction: claim.action,
-      releasedClaimAt: claim.at.toISOString(),
-    };
-    const signedMeta = withAuditSignature({
+    await appendAudit(prisma, {
       action: AUDIT_CLAIM_RELEASED_ACTION,
       orgId: claim.orgId,
       actorId: claim.actorId,
-      createdAt: at.toISOString(),
-      meta,
-    });
-    await prisma.auditLog.create({
-      data: {
-        action: AUDIT_CLAIM_RELEASED_ACTION,
-        meta: JSON.stringify(signedMeta),
-        orgId: claim.orgId,
-        actorId: claim.actorId,
-        at,
+      meta: {
+        [RELEASED_CLAIM_ID_KEY]: claim.id,
+        releasedAction: claim.action,
+        releasedClaimAt: claim.at.toISOString(),
       },
     });
   } catch (err) {
