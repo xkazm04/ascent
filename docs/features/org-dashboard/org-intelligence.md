@@ -1232,6 +1232,24 @@ to reconcile. Each reader's file header states its rule.
 set, not all-time): "Repos not scanned in-period still count in the fleet average and do not appear
 in movers." Copy matches the `org-rollup.ts` header. The queries are unchanged.
 
+**2026-10-22 (rollups-1): the split is counted, named and actionable on Overview.** The fixed caveat
+named no count and no repo, so a reader could not tell 0 carried repos from 30. `periodCoverage()`
+(`src/lib/org/periodCoverageModel.ts`, pure) derives the split from the rollup rows the Overview fleet
+panel already awaited (no new query): the population is the average's own (scored, mock floor
+excluded), "carried" is every repo whose latest scan predates `window.start`, oldest first, and the
+rescan set is the carried repos that are watched and have no unsettled paid rescore (the bulk route
+scans watched repos only). `PeriodCoverageStrip` renders above the Overview ledger: "7 of 42 repos have
+no scan this period: they count in the fleet average from their earlier scan and do not appear in
+movers.", an expandable list with each repo's age, and one action. `Rescan N`
+(`PeriodCoverageRescan`) hands exactly that set to `useOrgScanButton().run({ repos })`, so credits,
+auth, the watchlist intersection and the durable queue are unchanged; a carried set that is all queued
+shows "N rescans already queued" and no button, and an all-unwatched set says to watch them. All time
+and a fully in-period fleet render nothing. `ScopeFilterBar` takes an optional `coverage` prop that
+counts its caption the same way (and drops it when nothing is carried); without it the static sentence
+stays, which is what the tier-1 bar on Overview (painted before the rollup resolves) and Teams still
+print. Teams has no strip: `getOrgTeamRollup` carries no per-repo latest-scan date or watch state, so
+it would need a second query.
+
 Every calendar-day decision the org dashboard makes (window preset starts, custom-range
 parsing, trend day-keys, due-date bucketing) resolves in **one** reference frame. Before
 this existed each of those picked its own: presets and the custom-range parser used the
@@ -2991,7 +3009,8 @@ survivor is a unit line: that one, `4 open · 9 settled`, and
 | `src/lib/db/org.ts` | Barrel re-exporting the org rollup/aggregate queries (rollup, movers, recs, benchmark, gaps, practices, contributors, **teams** (`getOrgTeamRollup`/`rollupTeams`), governance, activity, PR signals, discrepancies) from the `org-*.ts` sub-modules above. Each fleet aggregate takes an optional `segmentId` to scope it. |
 | `src/lib/db/segments.ts` | User-defined **segments** (`Segment`/`RepoSegment` tags): CRUD + membership, `listTaggableRepos` (the tag manager's repo universe), per-segment summaries, and the side-by-side `compareSegments` (pure diff `buildSegmentComparison`, unit-tested). |
 | `src/components/org/shared/SegmentSelector.tsx` · `RepoSegmentsPanel.tsx` · `SegmentComparePicker.tsx` | Shared `?segment=` filter (Overview, Contributors, Delivery, **Repositories leaderboard**, Passports, …; its "+ Create a segment →" pointer links to `?tab=segments`) · the Segments-view tag manager · A-vs-B comparison picker. The Repositories leaderboard does not invent a second filter: it spreads `barProps` from `resolveOrgScope` into `ScopeFilterBar`. |
-| `src/components/org/shared/ScopeFilterBar.tsx` | Shared segment + tech-stack filter. When a period window is active, a caption discloses that repos not scanned in-period still count in the fleet average and do not appear in movers (`org-rollup.ts` header; queries unchanged). |
+| `src/components/org/shared/ScopeFilterBar.tsx` | Shared segment + tech-stack filter. When a period window is active, a caption discloses that repos not scanned in-period still count in the fleet average and do not appear in movers (`org-rollup.ts` header; queries unchanged). An optional `coverage` prop counts that caption (rollups-1). |
+| `src/components/org/shared/PeriodCoverageStrip.tsx` + `PeriodCoverageRescan.tsx` | Overview's counted in-period strip and its one-click rescan of the carried, watched, unqueued repos (`src/lib/org/periodCoverageModel.ts`). |
 | `src/features/standing/tech-stacks/fleetAnalysis.ts` | Pure cross-stack dimension analysis: classification thresholds, per-dimension leader/laggard/spread, and `coverageOf` (what a verdict rests on, see [above](#tech-stacks--dimension-analysis-and-what-each-verdict-rests-on)). |
 | `src/features/standing/tech-stacks/analysisShared.tsx` | Shared diagnosis chrome: class pill (de-weightable), `CoverageChip`, 0→100 range bar, plain-language note, the `ConsensusRow`. |
 | `src/lib/github/codeowners.ts` | Pure CODEOWNERS → team parser (`parseCodeowners`/`extractTeamOwnership`); run at scan time, persisted as `RepoTeam`. |
