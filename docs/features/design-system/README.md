@@ -389,6 +389,35 @@ retired 2026-08-17; goals are read-only, and `etaDays` prints on the Briefing PD
 this deck. `AboutTransition.test.ts` pins that zero intro clauses restore the old
 "goals and forecast ETAs so the climb stays on pace" pitch.
 
+## Every marketing claim names the capability it rests on
+
+**A claim on `/about` or `/about-org` carries `anchors`, and a retired capability
+fails the suite (2026-10-22).** The decks had kept selling the org what-if simulator,
+leverage ranking, settable goals and the Backlog for two months after all four retired
+with the Plan tab on 2026-08-17, two of them inside the FAQPage rich result; six earlier
+commits had corrected the same defect class by hand after a reader found it.
+
+`src/components/about/claimAnchors.ts` declares `ClaimAnchor`: `{ tab }` (an org tab
+id that renders: a panel or the developer route), `{ route }` (a public route such as
+`/report`) or `{ illustrative: true }` (the sentence describes the demo diagram beside
+it). `resolveClaimAnchor` derives its verdict from `ORG_TAB_REACH`, never from a hand
+list: an unknown id fails, and an **alias** (`followups`, `surfaces`) fails naming its
+target, because a claim anchored to an alias still names the retired surface.
+`assertClaimsAnchored` throws on any unresolved anchor and on an empty anchor list
+("unanchored claim") unless the claim is marked illustrative.
+
+All four claim sources are anchored: `ABOUT_FEATURES` (`features.ts`) and
+`ABOUT_ORG_FEATURES` (`orgFeatures.ts`) carry `anchors.body` / `anchors.points`
+beside the unchanged rendered strings; `LOOP_STEPS` is keyed by tab already; and the
+FAQ moved out of `src/app/about-org/page.tsx` into `src/components/about-org/orgFaq.ts`
+(`ORG_FAQ`), which the page serializes through `orgFaqLd()`, so the rich result is
+mapped from the anchored list rather than kept beside it. The `roi` body and the
+practices/FAQ backlog lines now name the Proposals ledger and the Briefing, and the
+loop's scan step reads `DIMENSIONS.length` instead of "nine". `claimAnchors.test.ts`
+runs the gate over every source, checks each route anchor exists under `src/app`,
+bans the retired phrases and em dashes in claim text, and seeds an alias-anchored and an
+unanchored claim to prove the gate still throws.
+
 ## `/about-org`: the organization edition deck
 
 Seven snap sections: masthead · the five questions · three feature deep-dives
