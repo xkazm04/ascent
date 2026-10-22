@@ -810,6 +810,14 @@ never silently truncated); `leaseMinutes` honours its minimum; `cite_memory` dec
 self-asserted, unverified label (the verified identity is on the audit row). The door's rate limit is a
 ladder: the per-IP `GATE_RATE_LIMIT` before auth, then `MCP_RATE_LIMIT` keyed on the token id
 (300/min per token, 3,000/min global, env-overridable, basis stated in code), plus a 64 KB body cap.
+
+**One registry dispatches every tool (2026-10-22).** `runTool` no longer keeps a switch that
+re-lists the catalog. `src/lib/mcp/tool-registry.ts` binds each `MCP_TOOLS` name to its handler and
+to `holder: true|false`; a structural test pins its keys to the catalog, so a tool without a binding
+fails the suite instead of answering `Unknown tool`. A `holder: true` tool reached with no principal
+is refused in words ("on behalf of a named holder, and this call carried none"). The wire format is
+untouched: `tools/list` is still built from `tools.ts` alone and is pinned to its pre-change digest.
+Athena derives her catalog from the same bindings and dispatches recall through the same handler.
 `get_fix_brief` re-runs `claimability` per repo and refuses `repo-closed` rows by id, so admission
 binds the agent already holding a lease, not only the next claimer. `list_open_recommendations`
 filters by repository before the cap and names an empty result (it used to filter after, on bare repo
@@ -1006,7 +1014,7 @@ disagree.
   `WRITE_TOOL_POLICY` seam is where they will attach.
 - **Athena is stricter than this door.** The companion dispatches the same handlers in-process and is
   offered **no** write tool on any plan, derived from the `mutates` marker rather than from a list
-  that could be forgotten. Skill, lesson, subject and memory bodies reach her model inside the
+  that could be forgotten, and no tool whose registry binding needs a named holder. Skill, lesson, subject and memory bodies reach her model inside the
   untrusted fence: the org wrote that text, ascent did not.
 - **Bearer tokens, not OAuth 2.1.** The revision describes MCP servers as OAuth resource servers
   validating tokens from a paired authorization server. This uses the org API tokens that already

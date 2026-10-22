@@ -323,15 +323,22 @@ dispatches through `runTool` (`src/lib/mcp/handlers.ts`). One catalog, one seria
 asking the MCP endpoint and Athena answering from the dashboard cannot disagree about the fleet,
 because neither owns a copy.
 
-**`recall_org_memory` is the exception.** Prefetch already packs with `recallMemories`
-(`src/lib/memory/recall.ts`) over `lifecycleWorkingSet`. The MCP handler still filters by term
-overlap and slices `scoreMemories` by `limit`, so a tool-calling turn that borrowed it could
-disagree with the Memory tab about which note matters. Until that handler uses the value model,
-Athena executes this one tool locally: same working set (every namespace, never the write-check
-helper), same packer, then the shared `toolResultText` serializer. She still **offers** the tool;
-she will not borrow a ranking that is not the org's. Deliveries are not bumped on this path -
-counting a companion side-read would feed the Memory tab's ranking from chat, and she cannot
-`cite_memory` to distinguish use from delivery.
+**`recall_org_memory` goes through the same door (2026-10-22).** There is no exception any more.
+Athena used to pack recall locally over the newest 60 `lifecycleWorkingSet` rows and filter by the
+query afterwards, so a matching memory older than those 60 was answered "No stored memory matched",
+the false absence the MCP handler had already fixed by putting the query terms into
+`recallPopulation` before the cap. That private copy is deleted. She now calls
+`runTool("recall_org_memory", org, args, undefined, { countDeliveries: false })`: the door's
+population, the shared `recallMemories` packer, `usedChars` / `charBudget` / `citing`, and
+`notConsideredCount` when matching rows sit past the population cap. Same answer as an MCP agent
+with the same arguments, never more, then the untrusted fence. Deliveries are still not counted on
+this path (`countDeliveries: false`): a companion side-read must not feed the Memory tab's ranking
+from chat, and she cannot `cite_memory` to distinguish use from delivery.
+
+**Her tool set is computed by exclusion from the one registry.** `athenaToolCatalog` drops every
+tool marked `mutates` and every tool whose binding in `src/lib/mcp/tool-registry.ts` declares
+`holder: true` (today `claim_followups`, `get_fix_brief`, `report_attempt`), because she has no
+principal to be a holder. A name with no binding is withheld as well.
 
 **`runTool` performs no tenancy check.** Its own comment says scope enforcement happens in the route,
 and `org` goes straight into `getOrgRollup(org)` / `getActiveOrgStance(org)` /
