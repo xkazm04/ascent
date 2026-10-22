@@ -4,7 +4,9 @@
 // Owner Settings control for the four Organization retention/compaction columns. Reads and writes
 // those columns; a configured-but-nonzero window below RETENTION_MIN_* is refused. `preview: true`
 // dry-runs the proposed policy for this org (same counters as ?dryRun=1 on /api/cron/purge) and
-// writes nothing. A save writes the columns only — it never purges. See docs/features/data/retention.md.
+// writes nothing; when the draft differs from the stored columns it also dry-runs the stored policy
+// and returns it as `baseline`, so the card can show what the edit adds.
+// A save writes the columns only; it never purges. See docs/features/data/retention.md.
 //
 // Route shape: flat `/api/org/<verb>` with the tenant in the body / `?org=`, like erase/branding.
 // Guards: GET is owner-gated; POST is same-origin then owner (requireOrgOwnerPost), and refuses the
@@ -19,11 +21,9 @@ import { resolveViewerLogin } from "@/lib/access";
 import { getOrgRetention, previewOrgRetention, setOrgRetention } from "@/lib/db/retention";
 import {
   parseOrgRetentionBody,
-  resolveRetention,
-  envRetentionDefaults,
   RETENTION_MIN_SCANS_PER_REPO,
   RETENTION_MIN_AUDIT_DAYS,
-  type OrgPurgeResult,
+  type OrgRetentionColumns,
 } from "@/lib/db/retention-policy";
 
 export const runtime = "nodejs";
@@ -32,30 +32,9 @@ export const dynamic = "force-dynamic";
 const MISSING =
   "Provide { org, retentionMaxScans, retentionAuditDays, retentionCompact, retentionDigestMonths }.";
 
-function emptyPreview(org: string): OrgPurgeResult {
-  const policy = resolveRetention(envRetentionDefaults(), {
-    retentionMaxScans: null,
-    retentionAuditDays: null,
-  });
-  return {
-    orgSlug: org,
-    policy,
-    scansDeleted: 0,
-    dimensionsDeleted: 0,
-    recommendationsDeleted: 0,
-    recommendationEventsDeleted: 0,
-    auditDeleted: 0,
-    outcomesDeleted: 0,
-    usageEventsDeleted: 0,
-    conformanceReportsDeleted: 0,
-    conformanceFindingsDeleted: 0,
-    memoryCitationsDeleted: 0,
-    controlObservationsDeleted: 0,
-    digestsWritten: 0,
-    scansCompacted: 0,
-    digestsDeleted: 0,
-    digestsWouldWrite: null,
-  };
+/** The four columns in a fixed order, so "is the draft the stored policy?" is a string compare. */
+function columnsKey(c: OrgRetentionColumns): string {
+  return JSON.stringify([c.retentionMaxScans, c.retentionAuditDays, c.retentionCompact, c.retentionDigestMonths]);
 }
 
 export async function GET(request: Request) {
@@ -99,13 +78,22 @@ export async function POST(request: Request) {
   if (!existing) return NextResponse.json({ error: "Unknown organization." }, { status: 404 });
 
   if (body.preview === true) {
+    // What MY edit adds over the policy in force: the same dry run under the stored columns, then
+    // under the draft. A draft equal to the stored policy runs once and is its own baseline. A
+    // missing row is sent as null (unknown), never as a zero-filled row.
+    const same = columnsKey(parsed.stored) === columnsKey(existing.stored);
+    const base = same ? null : await previewOrgRetention(org, existing.stored);
     const summary = await previewOrgRetention(org, parsed.stored);
-    if (!summary) return NextResponse.json({ error: "Retention requires a database." }, { status: 503 });
+    if (!summary || (!same && !base)) {
+      return NextResponse.json({ error: "Retention requires a database." }, { status: 503 });
+    }
+    const preview = summary.results[0] ?? null;
     return NextResponse.json({
       dryRun: true,
       stored: parsed.stored,
-      preview: summary.results[0] ?? emptyPreview(org),
-      errors: summary.errors,
+      preview,
+      baseline: same ? preview : (base?.results[0] ?? null),
+      errors: [...(base?.errors ?? []), ...summary.errors],
     });
   }
 

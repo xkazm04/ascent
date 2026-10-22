@@ -129,6 +129,46 @@ describe("POST /api/org/retention", () => {
     expect(h.recordOrgAudit).not.toHaveBeenCalled();
   });
 
+  it("preview of a draft that differs from the stored policy runs stored then proposed and returns both", async () => {
+    const draft = { ...COLUMNS, retentionAuditDays: 14 };
+    h.previewOrgRetention
+      .mockResolvedValueOnce({ dryRun: true, results: [{ orgSlug: "acme", scansDeleted: 3, controlObservationsDeleted: 0 }], errors: [] })
+      .mockResolvedValueOnce({ dryRun: true, results: [{ orgSlug: "acme", scansDeleted: 3, controlObservationsDeleted: 40 }], errors: ["acme: usage sweep failed"] });
+    const res = await post({ org: "acme", ...draft, preview: true });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(h.previewOrgRetention).toHaveBeenCalledTimes(2);
+    expect(h.previewOrgRetention.mock.calls[0]).toEqual(["acme", COLUMNS]);
+    expect(h.previewOrgRetention.mock.calls[1]).toEqual(["acme", draft]);
+    expect(json.baseline.controlObservationsDeleted).toBe(0);
+    expect(json.preview.controlObservationsDeleted).toBe(40);
+    expect(json.errors).toEqual(["acme: usage sweep failed"]);
+    expect(h.setOrgRetention).not.toHaveBeenCalled();
+  });
+
+  it("preview of a draft equal to the stored policy runs once and baseline is the preview", async () => {
+    const res = await post({ org: "acme", ...COLUMNS, preview: true });
+    const json = await res.json();
+    expect(h.previewOrgRetention).toHaveBeenCalledTimes(1);
+    expect(json.baseline).toEqual(json.preview);
+    expect(json.errors).toEqual([]);
+  });
+
+  it("preview with no result row sends null, never a zero-filled row", async () => {
+    h.previewOrgRetention.mockResolvedValue({ dryRun: true, results: [], errors: [] });
+    const json = await (await post({ org: "acme", ...COLUMNS, preview: true })).json();
+    expect(json.preview).toBeNull();
+    expect(json.baseline).toBeNull();
+  });
+
+  it("merges the errors of both runs", async () => {
+    h.previewOrgRetention
+      .mockResolvedValueOnce({ dryRun: true, results: [], errors: ["base failed"] })
+      .mockResolvedValueOnce({ dryRun: true, results: [], errors: ["draft failed"] });
+    const json = await (await post({ org: "acme", ...COLUMNS, retentionMaxScans: 20, preview: true })).json();
+    expect(json.errors).toEqual(["base failed", "draft failed"]);
+  });
+
   it("save writes columns, never purges, and audits purged: false", async () => {
     const res = await post({ org: "acme", ...COLUMNS });
     expect(res.status).toBe(200);
