@@ -150,8 +150,12 @@ through the [one claim path](#one-claim-path) with a timeline note ("Handed off:
 generated from the Follow-ups ledger"), then `router.refresh()`. It is a claim like any other:
 executor `human`, no lease (the sweep never reclaims it), `claimActor` = the viewer's login (or
 `browser hand-off` when no login resolves), one `followup.claim` audit row, so the row's claim line
-reads "claimed by <login>" after a hand-off. Already-handed-off items are included in the prompt and
-not re-marked; closed or held items are skipped and reported as `{ id, reason }` (`held` /
+reads "claimed by <login>" after a hand-off. The viewer's own already-handed-off items are included
+in the prompt and not re-marked. A picked row **somebody else holds** (another worker's live lease,
+or another person's hand-off) is **left out of the prompt** and named in one "N held elsewhere, left
+out: <holders>" line (`promptPlan`, `claimActionsModel.ts`, 2026-10-22): a prompt naming work
+somebody else holds is a prompt asking for a merge conflict, which the loop lane already refused. A
+needs-human row and a lapsed lease stay in. Closed or held items are skipped and reported as `{ id, reason }` (`held` /
 `not-open`). Tenancy: `requireOrgAccess(org)`, every id must belong to the org (whole-request 403
 otherwise, with nothing claimed: `claimFollowups`' `allOrNothingTenancy`), public funnel refused,
 ≤ 50 ids per hand-off.
@@ -204,7 +208,7 @@ not take, instead of stealing rows and having two workers write into the same ga
 | `claimActor` | Who holds it: `agent:<token id>` (the token's id, not its name, since 2026-09-05), `autopilot`, a login. |
 | `claimExecutor` | *What* holds it: `local` \| `remote-agent` \| `human`. |
 | `leaseUntil` | When the claim lapses. **`null` on an in-progress row means a human took it** — an unleased claim the sweep must never reclaim, and never read as "expired". |
-| `needsHuman` | An agent tried and stopped deliberately. An **escalation flag, not a status**: the row stays `in_progress` and stays counted as open. A fifth status would have hidden it from every "what is open" figure in the product. |
+| `needsHuman` | An agent tried and stopped deliberately. An **escalation flag, not a status**: the row stays `in_progress` and stays counted as open. A fifth status would have hidden it from every "what is open" figure in the product. A person clears it with take over or send back (below). |
 
 `assigneeLogin` is deliberately not reused for any of this. It is the human planning layer — who is
 *accountable*, over a sprint — and an agent holding a row for forty minutes is a different fact.
@@ -281,6 +285,35 @@ looked exactly like the stale holder, so a report from the first session landed 
   unleased row reported on in that form can still be briefed or re-reported. It is removed when the
   door stops populating it.
 
+### A person answers a held row: take over, send back, release (2026-10-22)
+
+The needs-human chip is the one state a machine raises and only a person clears, and until this
+landed nothing could clear it: the row stayed `in_progress` with a null lease (the human-claim
+shape, so the sweep never returns it), a rescan carried the flag forward, and `npx ascent work run`
+reports `needs_human` for every id it claimed. A person who handed off a batch and never pasted it
+could not give it back either. Three verbs close both:
+
+| Verb | Who | Effect |
+| --- | --- | --- |
+| **take over** | any member, on a needs-human row | Stays `in_progress`, now the viewer's unleased human claim; `needsHuman` clears. The event note names the displaced holder. |
+| **send back** | any member on a needs-human row; an admin on any claim | Back to `open`, every claim column cleared, `needsHuman` false. |
+| **release** | the holder of a human hand-off; an admin on any human hand-off | Same effect as send back, named for the holder. Never a leased machine claim. |
+
+- **One table.** `claimActionsFor(row, viewer)` (`src/components/org/followups/claimActionsModel.ts`,
+  pure) decides which verbs draw in the expanded row (`ClaimRowActions`), which rows the batch bar's
+  **Take over N** / **Send back N** count (`claimBatchActions.ts`; never a loop proposal), and what the
+  route admits. `ProposalsTab` resolves the viewer's login and admin role server-side.
+- **`POST /api/org/followups/claims { org, action, ids }`**, gate-then-constrain: the public org is
+  refused, `requireOrgAccess(org)`, then every id is read constrained to the org (one foreign id is a
+  whole-request 403 with the same body an unknown id gets), then `requireOrgAdmin` only when the table
+  says the admin role alone admits the verb on some row. At most 50 ids. All of it before any write.
+- **Compare-and-set on the generation read**, never a blind write
+  (`src/lib/db/followup-claims-human.ts`): the update repeats the `claimActor` and `leaseUntil` (the
+  fence) it read, so a row re-claimed, swept or reported on in between comes back
+  `skipped: { id, reason: "not-held" }` with nothing written. A worker an admin displaced is then
+  refused at its next report, which is the intended loud failure. One `status` event per row, one
+  audit row per batch: `followup.takeover`, or `followup.release` for send back and release.
+
 ### Nothing in the protocol closes a row
 
 This is load-bearing, and the section below ("Only the trailer and title-disappearance close a row")
@@ -310,6 +343,9 @@ is exactly as much of a claim as the trailer it also wrote — and every claim a
 | `src/lib/db/scans-persist.ts` (+ `.test.ts`, "follow-up feedback") | Applies the rule at carry-forward; writes resolved rows + events. Returns `closedFollowUpIds` — the adjudicated set, not the trailer claims. |
 | `src/app/api/org/local/rescan/route.ts` (+ `route.test.ts`) | Local Rescan. `closedFollowUps` is persist's adjudicated set; `claimedFollowUps` is the trailer set. |
 | `src/app/api/org/followups/handoff/route.ts` | The hand-off write. |
+| `src/app/api/org/followups/claims/route.ts` (+ `route.test.ts`) | The human claim verbs: take over, send back, release. |
+| `src/lib/db/followup-claims-human.ts` (+ `.test.ts`) | Their compare-and-set writes, events and `followup.takeover` / `followup.release` audit rows. |
+| `src/components/org/followups/claimActionsModel.ts` (+ `.test.ts`) | The pure verb table (`claimActionsFor`) and the prompt's held-work partition (`promptPlan`). |
 | `src/features/inflight/proposals/` | `ProposalsTab` (server; renders `PersonalBacklog` for a personal workspace) · `ProposalsWorklist` · `ProposalColumns` · `ProposalDetail` · `proposalsModel.ts` (+ `.test.ts`: the loop fold and the cross-source filters). |
 | `src/components/org/followups/` | The row vocabulary Proposals reuses: `FollowupsPromptModal` · `FollowupsFilterBar` (takes a `children` slot for extra menus) · `FollowupChips` · `FollowupHistory` · `followupsModel.ts` · `LocalRescanButton` (counts persist-closed rows, not trailer claims). |
 | `src/components/org/shared/DecisionTable.tsx` | The shared decision-ledger shape (selection, in-place expander, source-aware bulk bar) behind Proposals and Lessons. |

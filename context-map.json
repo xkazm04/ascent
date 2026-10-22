@@ -2474,7 +2474,16 @@
             "src/features/inflight/proposals/proposalsModel.test.ts",
             "src/components/org/shared/DecisionTable.tsx",
             "src/components/org/shared/DecisionTable.hidden.dom.test.tsx",
-            "src/lib/db/followup-attempts.ts"
+            "src/lib/db/followup-attempts.ts",
+            "src/lib/db/followup-claims-human.ts",
+            "src/lib/db/followup-claims-human.test.ts",
+            "src/app/api/org/followups/claims/route.ts",
+            "src/app/api/org/followups/claims/route.test.ts",
+            "src/components/org/followups/claimActionsModel.ts",
+            "src/components/org/followups/claimActionsModel.test.ts",
+            "src/components/org/followups/ClaimRowActions.tsx",
+            "src/features/inflight/proposals/claimBatchActions.ts",
+            "src/features/inflight/proposals/claimBatchActions.test.ts"
           ],
           "target": null,
           "apiRoutes": [

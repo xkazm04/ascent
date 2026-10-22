@@ -236,6 +236,7 @@
         "src/app/api/org/backlog/**",
         "src/lib/db/followup-claims.ts",
         "src/lib/db/followup-attempts.ts",
+        "src/lib/db/followup-claims-human.ts",
         "src/lib/mcp/work-tools.ts",
         "scripts/ascent-work.mjs"
       ]
