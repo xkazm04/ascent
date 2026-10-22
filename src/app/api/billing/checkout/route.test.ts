@@ -173,10 +173,20 @@ describe("GET /api/billing/checkout — money-in guards", () => {
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ products: ["plan_pro"] }));
   });
 
+  // The banner follows THIS purchase: Polar substitutes {CHECKOUT_ID} into the success URL, so the
+  // placeholder must reach Polar literally (not percent-encoded) and the error URL must not carry it.
+  it("carries Polar's {CHECKOUT_ID} placeholder back on the success URL, unencoded", async () => {
+    await GET(req());
+    const arg = (create.mock.calls[0] as unknown as [{ successUrl: string }])[0];
+    expect(arg.successUrl).toBe("https://ascent.test/org/acme?credits=pending&checkout_id={CHECKOUT_ID}");
+    expect(arg.successUrl.endsWith("?credits=pending&checkout_id={CHECKOUT_ID}")).toBe(true);
+  });
+
   it("303-redirects to the org error URL when the Polar session creation fails (no crash)", async () => {
     create.mockRejectedValue(new Error("polar down"));
     const res = await GET(req());
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toContain("credits=error");
+    expect(res.headers.get("location")).not.toContain("checkout_id");
   });
 });

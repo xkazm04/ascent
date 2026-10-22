@@ -105,7 +105,10 @@ export async function GET(request: Request) {
   try {
     const checkout = await polar.checkouts.create({
       products: [pack],
-      successUrl: orgUrl("pending"),
+      // Polar substitutes {CHECKOUT_ID} on redirect (CheckoutCreate.successUrl), so the return banner can ask
+      // /api/billing/checkout/status what happened to THIS purchase. Appended raw: encoding the braces
+      // would stop Polar recognising the placeholder.
+      successUrl: `${orgUrl("pending")}&checkout_id={CHECKOUT_ID}`,
       externalCustomerId: org,
       metadata: { org },
     });

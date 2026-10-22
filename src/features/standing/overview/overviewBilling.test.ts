@@ -29,4 +29,18 @@ describe("resolveBillingReturn", () => {
   it("encodes the slug", () => {
     expect(resolveBillingReturn("a b", { credits: "error" })?.dismissHref).toBe("/org/a%20b");
   });
+
+  it("carries the checkout id and strips it from the dismiss href with the credits param", () => {
+    expect(resolveBillingReturn("acme", { credits: "pending", checkout_id: "co_1", tab: "x" })).toEqual({
+      status: "pending",
+      checkoutId: "co_1",
+      dismissHref: "/org/acme?tab=x",
+    });
+  });
+
+  it("has no checkout id on a bookmarked/legacy return or an error return", () => {
+    expect(resolveBillingReturn("acme", { credits: "pending" })?.checkoutId).toBeNull();
+    expect(resolveBillingReturn("acme", { credits: "pending", checkout_id: "" })?.checkoutId).toBeNull();
+    expect(resolveBillingReturn("acme", { credits: "error", checkout_id: "co_1" })?.checkoutId).toBeNull();
+  });
 });

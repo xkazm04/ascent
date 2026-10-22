@@ -31,7 +31,9 @@ import { getTheme } from "@/lib/theme/server";
 
 export async function OverviewTab({ slug, sp }: { slug: string; sp: OverviewSearchParams }) {
   const billing = resolveBillingReturn(slug, sp);
-  const billingNotice = billing ? <BillingReturnNotice status={billing.status} dismissHref={billing.dismissHref} /> : null;
+  const billingNotice = billing ? (
+    <BillingReturnNotice status={billing.status} org={slug} checkoutId={billing.checkoutId} dismissHref={billing.dismissHref} />
+  ) : null;
 
   // A PERSONAL workspace renders the individual overview (the watchlist lens over the shared public corpus)
   // instead of the fleet rollup, whose reads would find nothing. One cheap read, deduped per request with
