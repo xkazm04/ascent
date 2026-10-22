@@ -1,0 +1,863 @@
+[
+ {
+  "context": "Org Branding & White-label",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "The logo is a validated asset snapshotted at save, not a URL fetched per render",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "prisma/schema.prisma",
+   "prisma/init.sql",
+   "src/lib/net/logo-fetch.ts",
+   "src/lib/db/org-logo-snapshot.ts",
+   "src/lib/branding/deliverable.ts",
+   "src/lib/net/pinned-get.ts",
+   "src/app/api/org/branding/route.ts",
+   "src/app/api/org/briefing/pdf/route.ts",
+   "src/app/share/briefing/[token]/page.tsx",
+   "src/lib/net/logo-fetch.test.ts",
+   "src/lib/branding/deliverable.test.ts",
+   "src/app/api/org/branding/route.test.ts",
+   "src/app/api/org/briefing/pdf/route.test.ts",
+   "prisma/migrations/20261024090000_org_logo_snapshot/migration.sql"
+  ],
+  "new_files": [
+   "src/lib/net/pinned-get.ts",
+   "src/lib/db/org-logo-snapshot.ts",
+   "src/lib/branding/deliverable.ts",
+   "src/lib/branding/deliverable.test.ts",
+   "prisma/migrations/20261024090000_org_logo_snapshot/migration.sql"
+  ],
+  "shared_surfaces": [
+   "context-map.json",
+   "docs/features/org-planning/plan.md",
+   "docs/features/data/data-model.md",
+   "next.config.ts"
+  ],
+  "loc_check": [
+   "src/lib/net/logo-fetch.ts: 68 -> ~115 (.ts outside features, no hard cap; keep < 300)",
+   "src/lib/net/pinned-get.ts: new -> ~75",
+   "src/lib/db/org-logo-snapshot.ts: new -> ~60",
+   "src/lib/branding/deliverable.ts: new -> ~70",
+   "src/app/api/org/branding/route.ts: 89 -> ~95",
+   "src/app/api/org/briefing/pdf/route.ts: 128 -> ~120",
+   "src/app/share/briefing/[token]/page.tsx: 291 -> ~286 (cap 300 .tsx; net shrinks: the getCreditState + planAllowsWhiteLabel re-check moves into the door)",
+   "src/app/api/org/branding/route.test.ts: 202 -> ~240",
+   "src/app/api/org/briefing/pdf/route.test.ts: 364 -> ~395 (.ts test outside features)",
+   "src/lib/net/logo-fetch.test.ts: 64 -> ~150",
+   "src/lib/branding/deliverable.test.ts: new -> ~130",
+   "prisma/schema.prisma: 3183 -> ~3195; prisma/init.sql: 2792 -> ~2805 (init-sql.test.ts parity)"
+  ],
+  "acceptance": [
+   "fetchSafeLogo('https://cdn.acme.com/l.png') where dns lookup answers 93.184.216.34 -> the HTTPS request is opened against 93.184.216.34 via a pinned lookup (lookup mock called exactly once; a second answer of 10.0.0.5 queued on the mock is never consumed) and SNI/Host stay 'cdn.acme.com'",
+   "fetchSafeLogo on a 200 'content-type: image/webp' body starting 'RIFF....WEBP' -> { ok:false, reason:'unsupported-format' } (today resolveSafeLogoDataUri returns a data:image/webp URI that @react-pdf/image rejects)",
+   "fetchSafeLogo on 'content-type: image/png' whose bytes are '<!doctype html>' -> { ok:false, reason:'not-an-image' }; on a 600 KB valid PNG -> { ok:false, reason:'too-large' } (cap 512 KB so the data URI fits a TEXT row and the share HTML)",
+   "POST /api/org/branding (owner, Team) with a logoUrl that serves WebP -> 200, logoUnreachable:true and setOrgLogoSnapshot not called; with a PNG -> setOrgLogoSnapshot(org, { sourceUrl: logoUrl, sha256, mime:'image/png', dataUri }) called once",
+   "readDeliverableBranding('acme') when getCreditState -> plan 'free' -> null, and neither getOrgLogoSnapshot nor fetch is called (the paid-feature re-check survives the move)",
+   "readDeliverableBranding('acme') when the stored snapshot.sourceUrl === branding.logoUrl -> { brandName, brandColor, logoUrl: snapshot.dataUri } and global fetch is never called (no egress at render)",
+   "readDeliverableBranding('acme') when snapshot.sourceUrl !== branding.logoUrl (owner changed the URL, or a pre-migration row) -> one fetchSafeLogo, snapshot persisted, new data URI returned; a failed fetch is recorded as a negative snapshot and not retried for 1 h",
+   "GET /api/org/briefing/pdf where the branded render rejects -> retries with { brandName:'Acme Corp', brandColor, logoUrl:null } before falling back to unbranded; the rendered BriefingDocument receives brandName 'Acme Corp' (today: branding undefined)"
+  ],
+  "guards": [
+   "pdf route.test.ts 'falls back to an unbranded render (still 200) when the branded render rejects on a bad logo' stays green (unbranded remains the last rung)",
+   "branding route.test.ts entitlement cases (Free -> 403, getCreditState throws -> 503, public org refused) stay green",
+   "src/app/share/briefing/[token]/page.test.tsx stays green unmodified (it mocks getOrgBranding -> null in @/lib/db, which the door short-circuits on)",
+   "src/lib/db/init-sql.test.ts stays green (new OrgLogoSnapshot table mirrored in init.sql)"
+  ],
+  "premise": [
+   "src/app/api/org/briefing/pdf/route.ts:102-104 - every PDF download re-fetches the owner-supplied logo over the network (resolveSafeLogoDataUri) at render time",
+   "src/lib/net/logo-fetch.ts:36-44 - DNS is resolved and checked, then fetch(url) resolves the host AGAIN; the comment at :22-23 concedes a residual lookup->connect window, and src/lib/db/branding.ts:32-33 names resolve-and-pin as a tracked follow-up never done",
+   "src/lib/net/logo-fetch.ts:55 - any 'image/*' content-type is accepted; node_modules/@react-pdf/image/lib/index.js:186-192 isValidFormat admits only jpg/jpeg/png/svg, and resolveBase64Image (:221-228) throws 'Base64 image invalid format' for webp/gif/avif",
+   "src/app/api/org/branding/route.ts:85 - the save-time probe only asks resolveSafeLogoDataUri(...) === null, so a WebP/GIF logo saves green with logoUnreachable:false",
+   "src/app/api/org/briefing/pdf/route.ts:112-115 - when the branded render rejects, the retry is render(undefined): brand name and accent are dropped with the logo, while :122 still names the file after the brand",
+   "src/app/share/briefing/[token]/shareChrome.tsx:21 - the anonymous share page renders <img src={branding.logoUrl}>, so every board member's browser calls the owner's third-party host (IP, UA, view time) and may see bytes that differ from what was validated at save",
+   "src/app/api/org/briefing/pdf/route.ts:94-98 and src/app/share/briefing/[token]/page.tsx:140-152 - the same getOrgBranding + getCreditState + planAllowsWhiteLabel re-check is hand-copied in both deliverables (ExecutiveTab.tsx:54-57 is a third, owner-only variant)",
+   "next.config.ts:10 - CSP img-src keeps 'https:' partly because of 'org-configured branding' logos"
+  ],
+  "rollback": "Revert the series; the migration only CREATEs OrgLogoSnapshot (a cache keyed by orgId + sourceUrl, never a source of truth), so a revert plus DROP TABLE loses nothing: Organization.logoUrl is untouched and the old per-render fetch path comes back verbatim.",
+  "gate": "architecture",
+  "doc": "docs/features/org-planning/plan.md",
+  "runner_up": "One readDeliverableBranding door alone (entitlement re-check de-duplicated across PDF and share) - folded into this card as its read side.",
+  "body": "## Summary\nThe white-label logo is stored as a URL and re-fetched from the owner's host on every PDF download and every anonymous share view. Make it an asset: at save time one pinned, format-sniffed fetch produces a snapshot (data URI + sha256 + sourceUrl) in its own table, and both client-facing deliverables read the snapshot through one entitlement-checked door. The render path stops making network calls, the DNS-rebinding window closes, an unsupported format is refused at save instead of silently unbranding the PDF, and board viewers stop beaconing a third-party host.\n\n## Description\n- `src/lib/net/pinned-get.ts`: a dependency-free HTTPS GET (`node:https` with a `lookup` option that returns the single address validated by `isPrivateOrInternalHost`), no redirects, timeout, byte cap. This is the resolve-and-pin the branding.ts:32 comment defers.\n- `src/lib/net/logo-fetch.ts`: `fetchSafeLogo(url) -> {ok, bytes, mime, sha256} | {ok:false, reason}` over pinned-get; sniffs magic bytes and admits exactly the formats @react-pdf/image renders (png, jpeg, svg) at <= 512 KB. `resolveSafeLogoDataUri` stays as a thin wrapper so no other caller changes.\n- `OrgLogoSnapshot` table (orgId PK, sourceUrl, dataUri TEXT, sha256, mime, status ok|failed, reason, fetchedAt). Its own table so the hot Organization row never carries a 700 KB string; TEXT not bytea per the schema's DSQL-safety contract. `src/lib/db/org-logo-snapshot.ts` reads/writes it.\n- `POST /api/org/branding`: the save-time probe becomes the snapshot (one fetch, not a probe then a second fetch at render); `logoUnreachable` now also covers unsupported formats.\n- `src/lib/branding/deliverable.ts` `readDeliverableBranding(org)`: entitlement re-check (planAllowsWhiteLabel, unchanged semantics) -> branding -> snapshot when `sourceUrl` matches, else heal once (pre-migration rows, or a URL changed outside the form) with a 1 h negative cache. PDF route and share page call it; the share page's `<img>` now gets a same-document data URI.\n- PDF fallback ladder: branded -> branded without logo -> unbranded, so a logo failure never strips the brand name and accent.\n\nWhat is paid for does not change: the door applies the same `planAllowsWhiteLabel(credit?.plan)` check both call sites apply today, and a downgraded org still gets no branding. Sanitization only tightens (pinned connect, magic-byte sniff, smaller cap); no URL or CSS is newly accepted.\n\n## Flow\n- Owner saves logo URL -> literal-host SSRF check (unchanged) -> pinned fetch -> sniff -> snapshot row -> response warns if not ok.\n- Board member opens share link / owner downloads PDF -> readDeliverableBranding -> snapshot data URI -> render, zero egress.\n- Legacy org with logoUrl and no snapshot -> first render heals once -> cached.\n\n## Expected impact\nRender-time egress to owner-supplied hosts goes from 1 per PDF download and 1 per share view to 0 (only save and heal). The rebinding TOCTOU named at logo-fetch.ts:22 closes. A WebP/GIF logo is refused with a reason at save instead of yielding a PDF that loses its whole brand. One door replaces two hand-copied entitlement re-checks. Applies registry settings > save-experience ('what you see here is what the system will do') and the one-validation-door law; governance on this context is weak, so the egress part leans on the existing SSRF conventions rather than a registry subject.\n\n## Evaluation\nClaim: the deliverables render the logo the owner saved, from a pinned, sniffed snapshot, with no render-time network call and no loss of name/accent on a logo failure.\nBefore: 0 of 8 cases pass\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture (new cache table + init.sql mirror; additive, droppable)",
+  "evidence": "logo-fetch.ts:36 `const addrs = await lookup(host, { all: true });` then :44 `res = await fetch(url, {` (fetch re-resolves); :55 `if (!contentType.startsWith(\"image/\")) return null;`. @react-pdf/image/lib/index.js:186 `const isValidFormat = (format) => { ... 'jpg' || 'jpeg' || 'png' || 'svg' || 'svg+xml'` and :226 `throw new Error(`Base64 image invalid format: ${format}`)`. pdf/route.ts:112-115 `buffer = await render(brandingForRender).catch((err) => { if (!brandingForRender) throw err; noteReadFailure(...); return render(undefined); });`. shareChrome.tsx:21 `<img src={branding.logoUrl} alt=\"\" .../>`. grep planAllowsWhiteLabel in non-test src: branding/route.ts:49, briefing/pdf/route.ts:98, share/briefing/[token]/page.tsx:152, ExecutiveTab.tsx:57. grep logoData|logoSnapshot in src+prisma: 0 hits."
+ },
+ {
+  "context": "Org Branding & White-label",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Check branding before you save: the server's verdict per field, live",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "src/lib/branding/normalize.ts",
+   "src/lib/branding/normalize.test.ts",
+   "src/lib/db/branding.ts",
+   "src/app/api/org/branding/check/route.ts",
+   "src/app/api/org/branding/check/route.test.ts",
+   "src/features/bought/executive/useBrandingCheck.ts",
+   "src/features/bought/executive/useBrandingCheck.test.ts",
+   "src/features/bought/executive/brandingVerdictModel.ts",
+   "src/features/bought/executive/brandingVerdictModel.test.ts",
+   "src/features/bought/executive/BrandingVerdict.tsx",
+   "src/features/bought/executive/useBrandingSettings.ts",
+   "src/features/bought/executive/BrandingSettings.tsx",
+   "src/features/bought/executive/BrandingSettings.v2.tsx",
+   "src/features/bought/executive/BrandingPreview.tsx"
+  ],
+  "new_files": [
+   "src/lib/branding/normalize.ts",
+   "src/lib/branding/normalize.test.ts",
+   "src/app/api/org/branding/check/route.ts",
+   "src/app/api/org/branding/check/route.test.ts",
+   "src/features/bought/executive/useBrandingCheck.ts",
+   "src/features/bought/executive/useBrandingCheck.test.ts",
+   "src/features/bought/executive/brandingVerdictModel.ts",
+   "src/features/bought/executive/brandingVerdictModel.test.ts",
+   "src/features/bought/executive/BrandingVerdict.tsx"
+  ],
+  "shared_surfaces": [
+   "context-map.json",
+   "docs/features/org-planning/plan.md",
+   "docs/features/org-dashboard/org-intelligence.md",
+   "src/lib/net/logo-fetch.ts"
+  ],
+  "loc_check": [
+   "src/lib/db/branding.ts: 79 -> ~55 (normalization moves out; setOrgBranding calls normalizeBranding)",
+   "src/lib/branding/normalize.ts: new -> ~70",
+   "src/app/api/org/branding/check/route.ts: new -> ~60",
+   "src/features/bought/executive/useBrandingCheck.ts: new -> ~70 (cap 200)",
+   "src/features/bought/executive/brandingVerdictModel.ts: new -> ~80 (cap 200)",
+   "src/features/bought/executive/BrandingVerdict.tsx: new -> ~45 (cap 200, no hooks, no 'use client')",
+   "src/features/bought/executive/useBrandingSettings.ts: 74 -> ~95 (cap 200)",
+   "src/features/bought/executive/BrandingSettings.tsx: 155 -> ~166 (cap 200)",
+   "src/features/bought/executive/BrandingSettings.v2.tsx: 122 -> ~132 (cap 200)",
+   "src/features/bought/executive/BrandingPreview.tsx: 43 -> ~55 (cap 200)",
+   "tests: normalize.test ~90, check/route.test ~120, useBrandingCheck.test ~110, brandingVerdictModel.test ~100 (each cap 200 where under src/features)"
+  ],
+  "acceptance": [
+   "normalizeBranding over [{logoUrl:'http://acme.com/l.png'}, {logoUrl:'https://10.0.0.1/l.png'}, {logoUrl:'https://acme.com/'+'x'.repeat(600)}, {brandColor:'blue'}, {brandName:'x'.repeat(90)}, {}] -> the same {branding, rejected} setOrgBranding persists today, plus reasons {logoUrl:'not-https'|'private-host'|'too-long'}, {brandColor:'not-hex'}; setOrgBranding now calls it (prisma.organization.update data unchanged for all six)",
+   "POST /api/org/branding/check (owner, Team, same-origin) {org, logoUrl:'https://acme.com/logo.png', probeLogo:true} with resolveSafeLogoDataUri -> null -> 200 { branding, rejected:[], reasons:{}, logo:'unreachable', contrast:{onWhite, onDark} }; prisma.organization.update and recordOrgAudit never called; response text contains no 'data:' (fetched bytes are never echoed, per logo-fetch.ts:23)",
+   "POST /api/org/branding/check on a Free plan -> 403 'Briefing branding is a Team-plan feature.'; getCreditState throws -> 503; the public org -> refused; cross-origin -> 403 (identical gate stack to POST /api/org/branding)",
+   "brandingVerdictModel({ storedLogoUrl:'https://old.acme.com/l.png', draft:{logoUrl:'http://new.acme.com/l.png'}, verdict:{rejected:['logoUrl'], reasons:{logoUrl:'not-https'}} }) -> saveIntent 'destructive', saveLabel 'Save and remove the current logo', logo note 'Must be an https URL'",
+   "brandingVerdictModel with a clean verdict (no rejections, logo 'ok', contrast >= 3 on both) -> saveIntent 'plain', saveLabel 'Save', no field notes; with logo 'unreachable' -> saveIntent 'warn', logo note 'This URL didn't return an image, so the PDF would have no logo'",
+   "useBrandingCheck: two draft edits 200 ms apart -> exactly one POST after the 600 ms debounce; a response for edit 1 resolving after edit 2's is discarded (verdict reflects edit 2); probeLogo is true only when logoUrl changed since the last probe",
+   "BrandingPreview given logoVerdict 'unreachable' or 'rejected' -> renders no <img> and shows 'No logo in the PDF' (today it loads the URL in the owner's browser, which can succeed where the server's no-redirect fetch fails)"
+  ],
+  "guards": [
+   "src/lib/db/branding.test.ts stays green unmodified (normalization is relocated, not changed)",
+   "BrandingSettings.test.tsx and BrandingSettings.preview.test.tsx save-path cases (warn on dropped logo, colorSet clear semantics, contrast warning) stay green",
+   "src/app/api/org/branding/route.test.ts stays green (POST route untouched by this card)"
+  ],
+  "premise": [
+   "src/lib/db/branding.ts:71,77 - a rejected logo is stored as null over the previous value: saving a mistyped URL deletes the working logo, and the owner only learns it from the post-save warning (useBrandingSettings.ts:43)",
+   "src/app/api/org/branding/route.ts:56-60 then :85 - validation and the logo probe both happen only inside the write; there is no way to ask 'what would this do' without committing it, and the write is audited (:66-78)",
+   "src/features/bought/executive/BrandingPreview.tsx:30-32 - the PDF-header mock renders <img src={logo}> from the owner's browser, while the PDF uses the server's guarded fetch with redirect:'manual' and an image-only content-type (src/lib/net/logo-fetch.ts:44-55); a URL that 301s or is hotlink-protected looks fine in the mock and is absent from the PDF",
+   "src/features/bought/executive/useBrandingSettings.ts:43-45 - the 'ignored' / 'shortened' warnings are derived client-side by diffing submitted vs stored AFTER the save; the server already knows the reason (not https, private host, too long) at src/lib/db/branding.ts:68-71 but returns only a field list",
+   "src/features/bought/executive/BrandingSettings.v2.tsx:15 - the Prism form shares the same hook, so both themes inherit the blind save",
+   "src/lib/net/logo-fetch.ts:23 - the guarded fetch's bytes must never be echoed to a caller, so the check returns a verdict, not a thumbnail"
+  ],
+  "rollback": "Revert the series: the check route and the verdict modules are additive, normalizeBranding is a pure relocation with a parity test, and the forms fall back to today's save-then-warn path untouched.",
+  "gate": "contract",
+  "doc": "docs/features/org-planning/plan.md",
+  "runner_up": "Restore previous branding: the org.branding.updated audit rows already carry brandName/brandColor/logoUrl (route.ts:66-78), so a one-click revert to the last-known-good brand is derivable.",
+  "body": "## Summary\nToday the branding form only finds out what the server thinks after it has saved, and saving a bad logo URL overwrites the working one with null. Add a no-write check endpoint with the same gate as the save, debounce it under the form, and show a per-field verdict (with the reason), a preview that only shows a logo the PDF will really get, and a Save button that names what it is about to destroy.\n\n## Description\n- `src/lib/branding/normalize.ts`: the pure normalization `setOrgBranding` runs today (trim/80-char name, hex colour, https + public host + <= 500 chars logo), plus a `reasons` map. `setOrgBranding` calls it, so the save and the check cannot drift (one-validation-door).\n- `POST /api/org/branding/check`: `requireOrgOwnerPost` + `refusePublicOrgAdmin` + `planAllowsWhiteLabel` (503 on plan read failure), exactly the POST's gate. No write, no audit. Returns normalized values, rejections with reasons, an optional logo reachability verdict from the existing `resolveSafeLogoDataUri` (`probeLogo` only when the URL changed), and contrast on both surfaces. It never echoes fetched bytes.\n- `useBrandingCheck.ts`: 600 ms debounce, abort/stale-drop, probe-only-on-logo-change.\n- `brandingVerdictModel.ts`: pure; maps (stored, draft, verdict) to field notes, a preview logo state and a save intent: plain / warn / destructive ('Save and remove the current logo').\n- `BrandingVerdict.tsx` renders the notes in both the Altimeter and Prism forms; `BrandingPreview` hides the browser-loaded image when the server says the PDF won't have it.\n\nNothing about what is paid for changes: the check is Team+ and owner-only like the save. No validation rule is loosened; the check reports the existing rules earlier.\n\n## Flow\n- Owner types a logo URL -> 600 ms later the form shows 'Must be an https URL' or 'Didn't return an image, so the PDF would have no logo' next to the field -> preview shows 'No logo in the PDF' -> Save reads 'Save and remove the current logo' -> owner fixes the URL before anything is overwritten.\n\n## Expected impact\nThe decision the owner makes blind today (save, then discover the drop) becomes a decision made with the server's own verdict in front of them. A mistyped URL no longer silently deletes a working logo. Applies registry settings > save-experience (honest feedback: what you see is what the system will do; never a green state for a write that changed something else).\n\n## Evaluation\nClaim: every rejection or unreachable logo the save would produce is visible, with its reason, before the save, and the save button names the destructive case.\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (new read-only owner endpoint, same gate as the write)",
+  "evidence": "db/branding.ts:71 `const logoUrl = trimmedLogo && trimmedLogo.length <= MAX_LOGO_URL_LEN && isSafeLogoUrl(trimmedLogo) ? trimmedLogo : null;` then :77 `await prisma.organization.update({ where: { id: org.id }, data: { brandName, brandColor, logoUrl } });`. useBrandingSettings.ts:43 `if (submitted.logoUrl && !stored.logoUrl) warnings.push(\"Logo URL ignored: ...\")` (post-save). BrandingPreview.tsx:32 `<img src={logo} alt=\"PDF header logo\" .../>` vs logo-fetch.ts:45 `redirect: \"manual\"` and :55 image-only. ls src/app/api/org/branding -> route.ts, route.test.ts, route.public.test.ts (no check/preview route). BrandingSettings.v2.tsx:15 `const s = useBrandingSettings(slug, initial);`."
+ },
+ {
+  "context": "Playbooks",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Playbook lift as a named-status before/after pair, read through the scan door",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/lib/db/playbook-adoption.ts",
+   "src/lib/db/playbooks.test.ts",
+   "src/features/shared/practices/PlaybookCardAdoption.tsx"
+  ],
+  "new_files": [
+   "src/lib/db/playbook-lift.ts",
+   "src/lib/org/playbookLiftModel.ts",
+   "src/lib/org/playbookLiftModel.test.ts",
+   "src/lib/db/playbook-lift.queries.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/practices.md"
+  ],
+  "loc_check": [
+   "src/lib/db/playbook-adoption.ts: 155 -> ~100 (no .tsx cap; lift read moves out, getPlaybookAdoption keeps its signature)",
+   "src/lib/db/playbook-lift.ts: new -> ~120 (door reads only)",
+   "src/lib/org/playbookLiftModel.ts: new -> ~110 (pure pairing + sample note)",
+   "src/lib/org/playbookLiftModel.test.ts: new -> ~160",
+   "src/lib/db/playbook-lift.queries.test.ts: new -> ~110 (built on org-rollup-latest-scans.test-helpers.ts)",
+   "src/lib/db/playbooks.test.ts: 667 -> ~690 (fake gains the groupBy/pair-fetch reads via latestScanReads; existing cases unchanged)",
+   "src/features/shared/practices/PlaybookCardAdoption.tsx: 125 -> ~132 (cap 200)"
+  ],
+  "acceptance": [
+   "playbookLiftModel.pair: application at T, readings 40 @ T-1d, 60 @ exactly T, 70 @ T+5d -> status 'paired', before=40, after=70, delta +30 (a reading AT the adoption instant is after-side; today it is the baseline and the delta is +10)",
+   "pair for a scan-stamped mark (appliedBy 'scan', appliedAt = landing scan + 2s): readings 40 @ L-7d, 65 @ L (the landing scan, which already contains the playbook file), 70 @ L+7d -> before=40 (the landing scan is after-side), delta +30; today before=65, delta +5",
+   "latest reading has engineProvider 'mock' -> status 'mock-reading', not counted in measured, unpaired.mock = 1; a mock pre-adoption reading is likewise 'mock-reading', never swapped for an older live scan (the door's drop-not-swap rule)",
+   "application with no reading before T -> 'no-before'; with no reading after T -> 'no-after'; playbook dimension absent on one side -> 'no-dimension'. getPlaybookAdoption returns PlaybookAdoption.unpaired = { noBefore, noAfter, mock, noDimension } beside lift/measured, and measured + sum(unpaired) = applications",
+   "query volume: 10 repos x 60 scans each, 2 playbooks applied per repo -> getPlaybookAdoption fetches <= 2 Scan rows per application (<= 40), not 600, and the count is unchanged at 120 scans/repo",
+   "liftSampleNote({ measured: 3, repos: 12, unpaired: { noAfter: 5, noBefore: 2, mock: 2, noDimension: 0 } }) -> 'measured in 3 of 12 · 5 not re-scanned since · 2 adopted before their first scan · 2 mock scans excluded' and the card's lift title renders exactly that string"
+  ],
+  "guards": [
+   "src/lib/db/playbooks.test.ts:133 - a single scan exactly at appliedAt still yields lift null / measured 0 (it becomes 'no-before' instead of 'baseline with no after'; same output)",
+   "src/lib/db/playbooks.test.ts:283 distinct-repo dedupe and :305 negative delta (70->40 = -30) stay green unchanged"
+  ],
+  "premise": [
+   "src/lib/db/playbook-adoption.ts:103-107 - lift reads EVERY scan of every adopting repo (`prisma.scan.findMany({ where: { repoId: { in } }, ... orderBy scannedAt asc })`) with no bound and no engineProvider filter, then keeps two points per application",
+   "src/lib/db/playbook-adoption.ts:138 - baseline is `series.reverse().find((p) => p.at <= a.appliedAt)`: a reading at the adoption instant is assigned to BEFORE",
+   "src/lib/db/playbook-adoption.ts:47-51 + prisma/schema.prisma:1117 - stampLandedPlaybook creates the mark with appliedAt @default(now()), and it runs from reconcilePracticeAdoption (src/lib/db/practice-adoption.ts:265-267) inside runScanConsequences (src/lib/scan-consequences.ts:94-96), i.e. after the landing scan persisted, so the landing scan (which already carries docs/playbooks/<id>-<slug>.md) is <= appliedAt and becomes the baseline",
+   "src/lib/db/playbook-adoption.ts:139 - `current` is series[length-1] whatever its engine; mock scans are excluded elsewhere (src/lib/db/org-rollup.ts:933 `engineProvider: { not: MOCK_ENGINE }`, src/lib/maturity/attribution.ts:32) but not here",
+   "src/lib/db/playbook-adoption.ts:20-30 - PlaybookAdoption reports only lift + measured; the unpaired population (why the other N-measured applications have no number) is not carried",
+   "src/lib/db/org-rollup-latest-scans.ts:42,53,59 - latestScanAtPerRepo / scanAtBeforePerRepo / atPairs exist and are the house shape for 'one or two scans per repo'; src/lib/db/org-latest-scan-guard.test.ts:19 scopes the guard to src/lib/db/org-*.ts, so playbook-adoption.ts is outside it",
+   "callers whose numbers move: src/features/shared/practices/PracticesTab.tsx:44 and src/lib/org/briefing.ts:331 (the executive briefing proof line, via src/lib/org/practice-library.ts)"
+  ],
+  "rollback": "Revert the series: getPlaybookAdoption's body returns to the history read; PlaybookAdoption.unpaired is optional so no caller breaks either way; no schema change.",
+  "gate": "contract",
+  "doc": "docs/features/org-dashboard/practices.md",
+  "runner_up": "One revision door for practices AND playbooks: the house-pattern 'behind' rollout (src/app/api/practices/rollout/route.ts) hits the same base-file 409 in openDraftPr that blocks a playbook re-roll.",
+  "body": "## Summary\nPlaybook lift is the number the Practices card and the executive briefing's proof line print as evidence a standard worked. Today it is computed from the org's whole scan history, counts mock scans, and puts the landing scan (which already contains the playbook) on the baseline side. Move the pairing into a pure model with a closed status set and read exactly two scans per application through the latest-scan door.\n\n## Description\nRegistry: software-engineering / adoption-measurement, technique before-after-outcome-pairing (steps 4, 5, 6, 7): resolve the boundary toward 'after', compare only what both sides scored, emit a named status for every attempt, report the unpaired population beside the delta. The current reader violates 4 (playbook-adoption.ts:138 `<=`), 6 (failed pairs are silently dropped) and 7 (only `measured` travels). It also re-opens the exact whole-history transfer that today's rollups door closed for every org-*.ts reader, from a file the guard does not scan.\n\n## Flow\n- playbook-lift.ts: per application round (at most one application per repo per round), `latestScanAtPerRepo` for the reading at-or-before the instant when the mark is scan-stamped, `scanAtBeforePerRepo` for the strict-before reading, the latest per repo, then one `atPairs` fetch selecting engineProvider + the playbook dimension only.\n- playbookLiftModel.ts (pure): pair(application, before, after) -> paired | no-before | no-after | mock-reading | no-dimension; fold to { lift, measured, unpaired }; liftSampleNote for the card.\n- getPlaybookAdoption keeps its signature and adds the optional `unpaired`.\n- PlaybookCardAdoption's lift title uses liftSampleNote.\n\n## Expected impact\nThe proof line stops crediting or debiting a playbook with the score of a scan it already shaped, mock scores stop entering a published lift, and the read is constant in history depth instead of linear.\n\n## Evaluation\nClaim: quality - lift is a before/after pair with a stated unpaired population, read in O(applications) rows\nBefore: 0 of 6 cases pass\nAfter: 6 of 6\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (PlaybookAdoption gains an optional field; displayed lift numbers change for scan-stamped marks and mock-latest repos, and practices.md must say so)",
+  "evidence": "playbook-adoption.ts:103 `const scanRows = await prisma.scan.findMany({ where: { repoId: { in: [...repoIdByName.values()] } }, select: { repoId: true, scannedAt: true, dimensions: ... }, orderBy: { scannedAt: \"asc\" } })`; :138 `const baseline = [...series].reverse().find((p) => p.at <= a.appliedAt);`; schema.prisma:1117 `appliedAt DateTime @default(now())`; practice-adoption.ts:265-266 stampLandedPlaybook on the proposed->adopted edge inside reconcile; scan-consequences.ts:94-96 reconcile runs after persist. grep `engineProvider` in playbook-adoption.ts: 0 hits."
+ },
+ {
+  "context": "Playbooks",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Re-roll an edited playbook to the repos still on an older version",
+  "size": "L",
+  "effort": 8,
+  "impact": 8,
+  "risk": 7,
+  "write_set": [
+   "src/lib/github/write.ts",
+   "src/lib/github/write.test.ts",
+   "src/lib/org/playbook-apply.ts",
+   "src/lib/practices/reconcile.ts",
+   "src/lib/practices/reconcile.test.ts",
+   "src/lib/db/practice-adoption.ts",
+   "src/features/shared/practices/PlaybookCard.tsx"
+  ],
+  "new_files": [
+   "src/lib/db/playbook-revision.ts",
+   "src/lib/org/playbookRevisionModel.ts",
+   "src/lib/org/playbookRevisionModel.test.ts",
+   "src/app/api/org/playbooks/[id]/revise/route.ts",
+   "src/app/api/org/playbooks/[id]/revise/route.test.ts",
+   "src/features/shared/practices/PlaybookRevisionRollout.tsx",
+   "src/features/shared/practices/usePlaybookRevision.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/practices.md",
+   "docs/features/org-planning/plan.md",
+   "src/features/admin/audit/auditActions.ts",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/github/write.ts: 147 -> ~180 (opt-in replaceIfBaseDigest; default path unchanged)",
+   "src/lib/github/write.test.ts: 367 -> ~405",
+   "src/lib/org/playbook-apply.ts: 120 -> ~160 (revision input: ledger artifactPath + expected digest; ledger row carries the playbook version)",
+   "src/lib/practices/reconcile.ts: 127 -> ~150 (rebaseline edge)",
+   "src/lib/practices/reconcile.test.ts: 130 -> ~165",
+   "src/lib/db/practice-adoption.ts: 425 -> ~440 (select proposedHash/patternVersion, call the revision stamp)",
+   "src/features/shared/practices/PlaybookCard.tsx: 144 -> ~152 (cap 200)",
+   "src/features/shared/practices/PlaybookRevisionRollout.tsx: new -> ~150 (cap 200)",
+   "src/features/shared/practices/usePlaybookRevision.ts: new -> ~90 (cap 200)",
+   "src/lib/db/playbook-revision.ts: new -> ~110; src/lib/org/playbookRevisionModel.ts: new -> ~80; revise/route.ts: new -> ~150"
+  ],
+  "acceptance": [
+   "playbookRevisionModel.classify({ playbookVersion: 3, appliedVersion: 1, ledger: { state: 'adopted', adoptedHash: 'h1' } }) -> 'behind' (offered); ledger state 'drifted' or 'removed' -> 'diverged' (never offered: a hand edit is the user's decision, as the practices drift strip holds); appliedVersion null -> 'unversioned' (listed, not preselected); appliedVersion 3 -> 'current'; ledger 'proposed' -> 'in-flight'",
+   "openDraftPr({ ..., replaceIfBaseDigest: contentDigest(baseBytes) }) when the file exists on base with exactly those bytes -> one contents PUT on the branch and a draft PR; with a different digest -> AppApiError 409 and ZERO PUTs; with the option absent -> 409 and zero PUTs exactly as today (write.test.ts:126 stays green)",
+   "applyPlaybookToRepo in revision mode after the playbook title was edited -> commits to the ledger row's artifactPath (docs/playbooks/<id>-<old-slug>.md), never to a freshly slugged second file, and the ledger row's proposedHash/patternVersion become the v3 digest/3 while state stays 'adopted'",
+   "reconcileAdoption: an 'adopted' row whose census bodyHash equals its proposedHash (and differs from adoptedHash) -> { to: 'adopted', adoptedHash: <new>, adoptedOutline: <new> } (rebaseline), not 'drifted' and not 'checked'; reconcilePracticeAdoption then stamps PlaybookApplication.appliedVersion = the row's patternVersion",
+   "POST /api/org/playbooks/:id/revise as a member -> 403; as admin with 30 behind repos -> 25 attempted, 5 skipped; a repo not in the playbook's behind set -> refused row, no PR; dryRun: true -> { repos, fromVersions, starter } with zero GitHub calls; an archived playbook -> 409",
+   "GET /api/org/playbooks/:id/revise (member) -> { version: 3, behind: [{ repo, appliedVersion }], diverged: [...], unversioned: [...] }; usePlaybookRevision enters 'ready' with behind preselected and exposes a confirm naming the org and the exact repos, and after a run moves succeeded repos to 'in-flight'"
+  ],
+  "guards": [
+   "src/lib/github/write.test.ts:126 base-file-present => 409 and zero PUTs stays green for every caller that does not pass replaceIfBaseDigest",
+   "src/lib/practices/reconcile.test.ts existing drift/cosmetic/self-heal cases stay green (the rebaseline edge needs proposedHash equality, which no existing fixture sets)"
+  ],
+  "premise": [
+   "src/lib/db/playbooks.ts:161-162 - every content edit bumps Playbook.version, and src/features/shared/practices/PlaybookCard.tsx:43-47 prints v{n} on the card",
+   "src/lib/db/playbooks.ts:212-213 and src/lib/db/playbook-adoption.ts:50 - PlaybookApplication.appliedVersion is stamped; grep `appliedVersion` across src finds only these writers and tests (the open optimize-2026-09-30 Lane B item 'Show which playbook version a repo adopted', S, which this card adopts and grows)",
+   "src/lib/github/write.ts:79-88 - openDraftPr throws 409 whenever the path exists on the base branch; once a playbook PR has landed its file IS on base, so re-applying the edited playbook to an adopter is refused with 'refusing to overwrite it with a starter artifact'",
+   "src/lib/org/playbook-apply.ts:54 - the committed path is derived from the CURRENT title slug, so after a title edit an apply targets a different path and would seed a second standard file beside the landed one",
+   "src/lib/org/playbook-apply.ts:93-106 - playbook ledger rows record patternVersion: null, and docs/features/org-dashboard/practices.md:586-587 states playbook adoptions are 'not version-tracked'; src/lib/db/practice-adoption.ts:291-313 counts behind for source 'house' only, so a playbook row carrying its version cannot leak into the house behind tiles",
+   "src/lib/db/practice-adoption.ts:170-182 - re-proposing over an adopted row refreshes proposedHash and keeps state, and src/lib/practices/reconcile.ts:94-112 compares only adoptedHash/outline, so a landed revision whose headings moved would read as DRIFT",
+   "src/lib/analyze/practice-shape.ts:160,203 - the census covers docs/playbooks/*.md and its bodyHash is contentDigest(content), the same digest playbook-apply.ts:108 records as proposedHash, so 'base bytes are what Ascent landed' is checkable",
+   "src/features/shared/practices/PlaybookApplyBatch.tsx:11-13 - the batch leaves adopted repos selectable claiming a re-apply 're-surfaces the same branch'; for a landed file it 409s instead"
+  ],
+  "rollback": "Revert the series: replaceIfBaseDigest is opt-in and only the revise route passes it; the rebaseline edge only fires when proposedHash differs from adoptedHash on an adopted row; ledger rows written with a playbook patternVersion are ignored by every house-only reader. No schema change.",
+  "gate": "contract",
+  "doc": "docs/features/org-dashboard/practices.md",
+  "runner_up": "Rank the fleet rollout's default selection by the playbook dimension's gap (weakest repos first, repos with an open playbook draft excluded) instead of 'every repo not yet adopted'.",
+  "body": "## Summary\nAn org edits its playbook to v3. The card says v3. Every repo that adopted v1 stays on v1 forever: re-applying is refused because the landed file exists on the default branch, and a title edit would seed a second file. Add a 'behind' set and a capped, admin, typed-confirm revision rollout that replaces only a file whose bytes are exactly what Ascent saw land.\n\n## Description\nThis is the playbook half of the 're-convergence' the practices library has for house patterns (practices.md 'Reuse doesn't update' closed for house patterns only). Registry: software-engineering / versioning-snapshots (an adoption cites the version it landed) and adoption-measurement (count-carries-predicate). The overwrite guard's invariant is kept for every caller and narrowed for one: never replace a base file whose content Ascent did not itself land. A hand-edited (drifted) file is never offered and the write refuses it anyway, because its digest no longer matches.\n\n## Flow\n- playbookRevisionModel.classify per (repo, ledger row, appliedVersion, playbook version) -> behind | diverged | unversioned | current | in-flight.\n- playbook-revision.ts lists the sets and stamps appliedVersion on a rebaseline.\n- revise route: GET member, POST admin, dedupe then cap 25, dryRun, archived 409, every coordinate must be in the behind set, audit `playbook.revision_opened` with the version span.\n- applyPlaybookToRepo revision mode: path from the ledger, replaceIfBaseDigest = ledger adoptedHash, ledger patternVersion = playbook.version.\n- reconcile: adopted + census == proposedHash -> rebaseline, then appliedVersion = patternVersion.\n- PlaybookRevisionRollout on the card: 'N repos on v1-v2 -> update to v3', preselected, confirm naming org + repos.\n\n## Expected impact\nEditing a standard stops being a silent fork between the library and the fleet; an admin sees who is behind and closes the gap in one confirmed action, and the adoption ledger keeps telling the truth after the revision lands.\n\n## Evaluation\nClaim: user - an edited playbook can reach the repos on its older version\nBefore: 0 of 6 cases pass (re-apply to an adopter 409s)\nAfter: 6 of 6\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (openDraftPr gains an opt-in, digest-bound replace; the overwrite invariant is unchanged for every existing caller - a critic should confirm this is a narrowing, not a policy loosen)",
+  "evidence": "write.ts:79-88 `const baseFileSha = await existingFileSha(token, owner, repo, path, base); if (baseFileSha) { throw new AppApiError(409, path, ...refusing to overwrite it with a starter artifact.) }`; playbook-apply.ts:54 `const playbookPath = `docs/playbooks/${id}-${slug(playbook.title)}.md``; playbook-apply.ts:106 `patternVersion: null`; grep -rn appliedVersion src (non-test): playbooks.ts:212,213 and playbook-adoption.ts:50 only - all writers; practice-shape.ts:203 `bodyHash: contentDigest(content)`; practices.md:586-587 'patternVersion is null for generic/registry/playbook adoptions, meaning not version-tracked'.",
+  "notes_from_critic": "opt-in replaceIfBaseDigest ruled an in-scope contract narrowing: compare the base files fetched content to the digest Ascent landed and carry its blob sha on the PUT; default path + its pinned test unchanged"
+ },
+ {
+  "context": "Landing Page Prototypes",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One public-ranking door: landing register reads register/data, mock never ranked",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/lib/register/data.ts",
+   "src/lib/db/scans-read.ts",
+   "src/lib/db/scans-gallery.test.ts",
+   "src/components/leaderboard/LeaderboardTable.tsx",
+   "src/components/landing/prototypes/index/IndexGallery.tsx",
+   "src/components/landing/prototypes/index/IndexGallery.test.tsx",
+   "src/components/about/aboutFleetModel.ts"
+  ],
+  "new_files": [
+   "src/lib/register/gallery.ts",
+   "src/lib/register/gallery.test.ts",
+   "src/lib/register/public-ranking-door.test.ts",
+   "src/components/leaderboard/RegisterChips.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "docs/features/design-system/README.md",
+   "src/lib/db/wire-safe.ts"
+  ],
+  "loc_check": [
+   "src/lib/register/data.ts: 416 -> ~430 (no .ts cap outside src/features; export REGISTER_REPO_SELECT + byRank, add posture/archetype to the select and RegisterEntry)",
+   "src/lib/db/scans-read.ts: 1568 -> ~1400 (GALLERY_REPO_SELECT, galleryCardFrom, loadPublicGalleryCards, getPublicScanGallery deleted; PublicRepoCard/PublicScanGallery/getPublicScanGallery re-exported from register/gallery so db/index.ts and db/scans.ts barrels are unchanged)",
+   "src/lib/db/scans-gallery.test.ts: 193 -> ~120 (DB-down degrade cases stay, import moves to the re-export; provenance cases move to register/gallery.test.ts)",
+   "src/components/leaderboard/LeaderboardTable.tsx: 177 -> ~150 (cap 300)",
+   "src/components/landing/prototypes/index/IndexGallery.tsx: 184 -> ~172 (cap 300)",
+   "src/components/landing/prototypes/index/IndexGallery.test.tsx: 126 -> ~160 (cap 300)",
+   "src/components/about/aboutFleetModel.ts: 150 -> ~152",
+   "src/lib/register/gallery.ts: new ~150",
+   "src/lib/register/gallery.test.ts: new ~170",
+   "src/lib/register/public-ranking-door.test.ts: new ~90",
+   "src/components/leaderboard/RegisterChips.tsx: new ~70 (no hooks, no handlers: no \"use client\")"
+  ],
+  "acceptance": [
+   "gallery read over fixture rows {acme/mock: engineProvider 'mock', overall 95; acme/a: claude, 80; acme/b: claude, 70} -> topAiNative is [acme/a, acme/b]; acme/mock is absent from topAiNative and present in recent with verified:false",
+   "same fixture through src/app/page.tsx's derivation (gallery.topAiNative.slice(0,3)) -> exampleRepos is ['acme/a','acme/b'], so the hero's 'See a sample report' link (IndexHero.tsx:31) opens acme/a, never the mock report",
+   "id-keyed extra-window fetch returns a row with isPrivate:true -> the row appears in neither rail, and the Prisma call for that fetch carries isPrivate:false in its where (asserted on the mock call args)",
+   "for one fixture set, getPublicScanGallery().topAiNative order equals getPublicRegister().entries order over the same rows (one byRank comparator, fullName tie-break included)",
+   "IndexGallery with topAiNative [] and recent [a mock row] -> the row renders a 'demo' chip and the rank cell is '·' (the recency fallback, never numbered)",
+   "fleetFrom(gallery) where gallery.recent holds one verified and one mock current-rubric row -> cells and repos contain only the verified row",
+   "public-ranking-door guard: stripping comments and string literals, no non-test file outside src/lib/register/ assigns currentRubric or verified from a scan row -> fails today on src/lib/db/scans-read.ts:915, and a seeded violation string-in-a-fixture keeps it failing",
+   "the literal 'rubric unknown' appears in exactly one .tsx file (RegisterChips.tsx) -> fails today with two (IndexGallery.tsx:63, LeaderboardTable.tsx:141)"
+  ],
+  "guards": [
+   "the DB-down degrade cases in scans-gallery.test.ts (configured-but-unreachable -> null; genuine query bug propagates) are green before and must stay green after the move"
+  ],
+  "premise": [
+   "src/lib/register/data.ts:13-18 - invariant 2: a mock-engine score 'is NEVER interleaved into the ranked board - a register that silently ranks a mock score against a real one is worse than no register'",
+   "src/lib/register/data.ts:213 - verified: s.engineProvider !== \"mock\"; data.ts:306 - getPublicRegister ranks only verified entries",
+   "src/lib/db/scans-read.ts:860-889 - GALLERY_REPO_SELECT selects no engineProvider, so the landing gallery cannot tell a mock score from a real one",
+   "src/lib/db/scans-read.ts:979-981 - topAiNative sorts every card by overall with no provenance predicate; IndexGallery.tsx:74-75 renders it as the ranked board numbered 01.. under the kicker 'Live from the index'",
+   "src/app/page.tsx:114 - exampleRepos = gallery?.topAiNative.slice(0, 3); IndexHero.tsx:31 - sampleRepo = exampleRepos?.[0], the 'See a sample report' link",
+   "src/app/about/page.tsx:30 + src/components/about/aboutFleetModel.ts:70 - /about's X-Ray and ROI panes (run-1 card about-1) filter gallery.recent on currentRubric only, so a mock row enters the 'real scanned public fleet'",
+   "src/lib/db/scans-read.ts:964 - the extra-window repository fetch is where: { id: { in: extraIds } } with no isPrivate re-assertion, and galleryCardFrom (scans-read.ts:891) has no per-row isPrivate check; register/data.ts:190 and :265-275 re-assert both on every read",
+   "src/lib/db/scans-read.ts:915 and src/lib/register/data.ts:218 - currentRubric derived twice; docs/BACKLOG.md MC-B42 'Same derivation, second surface' fixed the rubric chip by copy, so IndexGallery.tsx:52-66 and LeaderboardTable.tsx:132-143 carry byte-identical chip markup",
+   "git grep getPublicScanGallery: the only production callers are src/app/page.tsx:113 and src/app/about/page.tsx:30, both through the @/lib/db barrel (src/lib/db/index.ts:40, scans.ts:23)"
+  ],
+  "rollback": "Revert the series in reverse: the guard test and RegisterChips first (pure additions), then the IndexGallery/LeaderboardTable/aboutFleetModel call-site commits, then the move commit that deletes the scans-read gallery block - restoring it brings back the original getPublicScanGallery behind the unchanged barrels.",
+  "gate": "contract",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "IndexOrg's ORG_USE_CASES hand-list (IndexOrg.tsx:20-52) mixes untyped demoOrgHref(string) with orgTabHref and already hand-notes a 404; derive it as anchored claims through claimAnchors.ts so a retired tab fails CI on the landing too.",
+  "body": "## Summary\nThe product has two public rankings over the same corpus built by two different read paths. /leaderboard reads src/lib/register/data.ts, which records the engine, never ranks a mock score, re-asserts tenancy per row and qualifies stale rubrics. The landing register (and the hero's sample-report link, and /about's 'real fleet' panes) reads getPublicScanGallery in scans-read.ts, which selects no engine at all: a scan that degraded to the deterministic mock floor can be ranked #01 under 'Live from the index' and become the sample report a first-time visitor opens. Every past fix to this surface (MC-B18, MC-B42) was a copy from one path to the other. This card makes the gallery a projection of the register module, so there is one door and the next qualifier lands once.\n\n## Description\nMove the gallery read into src/lib/register/gallery.ts on the register's own REGISTER_REPO_SELECT and registerEntryFrom (extended with posture and archetype, which /about needs). The two candidate windows (recency, top score) and the 60 s unstable_cache with the 'public-scan-gallery' key stay; topAiNative becomes verified-only and ordered by the register's byRank; recent carries verified so the unranked tail is labelled. scans-read.ts keeps its barrel surface by re-exporting the type and function. The chip markup (demo, rubric) becomes one RegisterChips.tsx both tables render. aboutFleetModel drops unverified rows. A source-scanning guard (comments and strings stripped, seeded violation, per AGENTS.md) pins that provenance flags are derived only under src/lib/register/.\n\n## Flow\n- register/data.ts exports REGISTER_REPO_SELECT, registerEntryFrom, byRank; adds posture + archetype\n- register/gallery.ts: getPublicScanGallery = two windows -> registerEntryFrom -> verified-only topAiNative, recent with flags\n- scans-read.ts: delete the old block, re-export from register/gallery\n- RegisterChips.tsx used by LeaderboardTable and IndexGallery; IndexGallery shows demo on an unverified row\n- aboutFleetModel filters verified\n- guard test + equivalence test\n\n## Expected impact\nA mock score can no longer be ranked, seeded as a 'Try:' example, or opened as the sample report on the highest-traffic page; /about's 'real fleet' becomes real; private-repo tenancy is re-asserted on the landing path the way it is on /leaderboard; the next provenance rule is written once.\n\n## Evaluation\nClaim: the landing register obeys the same comparability predicate as /leaderboard because it is the same code\nBefore: 0 of 8 cases pass\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (PublicRepoCard gains verified/engineProvider/confidence; a public surface's ranked set shrinks by the mock rows). Registry: software-engineering/peer-benchmarking, technique comparability-filters ('only rows from the ranking engine enter the ranking'; 'unknown provenance is excluded'), with corpus-tenancy-boundary for the per-row isPrivate re-assertion.",
+  "evidence": "scans-read.ts:860-889 GALLERY_REPO_SELECT scans.select = {headSha, overallScore, level, levelName, adoptionScore, rigorScore, posture, scannedAt, rubricVersion, archetype, dimensions} - no engineProvider. scans-read.ts:978-981: const topAiNative = [...cards].sort((a, b) => b.overall - a.overall || b.scannedAt.localeCompare(a.scannedAt)).slice(0, topLimit). register/data.ts:213 verified: s.engineProvider !== \"mock\"; :306 const verified = candidates.filter((e) => e.verified). scans-read.ts:964 await prisma.repository.findMany({ where: { id: { in: extraIds } }, select: GALLERY_REPO_SELECT }). grep 'rubric unknown' *.tsx -> IndexGallery.tsx:63, LeaderboardTable.tsx:141. grep getPublicScanGallery (non-test) -> app/page.tsx:113, app/about/page.tsx:30, db/index.ts:40, db/scans.ts:23."
+ },
+ {
+  "context": "Landing Page Prototypes",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Read the register through one lens: Solo/Team/Org re-rank live rows, moves shown",
+  "size": "M",
+  "effort": 5,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "src/components/landing/prototypes/index/IndexGallery.tsx"
+  ],
+  "new_files": [
+   "src/components/landing/prototypes/shared/registerLensModel.ts",
+   "src/components/landing/prototypes/shared/registerLensModel.test.ts",
+   "src/components/landing/prototypes/index/RegisterLensSwitch.tsx",
+   "src/components/landing/prototypes/index/IndexGallery.lens.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/design-system/README.md"
+  ],
+  "loc_check": [
+   "src/components/landing/prototypes/index/IndexGallery.tsx: 184 -> ~215 (cap 300; if card A lands first it starts at ~172)",
+   "src/components/landing/prototypes/shared/registerLensModel.ts: new ~90 (pure, no \"use client\")",
+   "src/components/landing/prototypes/shared/registerLensModel.test.ts: new ~130",
+   "src/components/landing/prototypes/index/RegisterLensSwitch.tsx: new ~60 (\"use client\": button handlers)",
+   "src/components/landing/prototypes/index/IndexGallery.lens.test.tsx: new ~110 (@vitest-environment jsdom)"
+  ],
+  "acceptance": [
+   "registerLens(cards, 'as-scored') -> rows in the incoming order with their stored overall, rank i+1, move 0, and lensesOnBoard = number of distinct archetypes (fixture solo/team/org -> 3)",
+   "fixture A {archetype org, D3 100, D9 100, other dims 50} and B {archetype solo, D1 100, D2 100, other dims 50}, both stored at their own-lens overallScoreFor -> under 'org' A ranks above B; under 'solo' B ranks above A; each row's move is the signed rank change vs as-scored",
+   "every re-weighted row's score === overallScoreFor(presentDims, lens) and its level === levelForScore(score).id (the engine's own functions from maturity/model, no copy of the weights)",
+   "a row whose stored overall !== overallScoreFor(its dims, its own archetype) (e.g. dimensions {}) -> reweightable:false, excluded from every lens ranking, counted in withheld; the as-scored board still shows it",
+   "re-weighted rows keep currentRubric/rubricVersion (and verified, once card A lands) unchanged, so the rubric chip still renders under any lens",
+   "registerLens on a recency-fallback board (ranked=false) -> lens options are not offered (switch not rendered), because a lens view is a ranking",
+   "DOM: clicking 'Solo' sets aria-pressed on Solo, reorders the rows, shows a move marker on each moved row, and renders the note that scores were re-weighted in the browser with the engine's lens weights while each report keeps the score it was scored under; row links still point at each card's href"
+  ],
+  "guards": [
+   "as-scored is the default and renders exactly today's board (existing IndexGallery.test.tsx cases stay green)"
+  ],
+  "premise": [
+   "src/lib/scoring/engine.ts:361 - a scan's headline is overallScoreFor(dimensions, archetype): each repo is weighted under its OWN lens",
+   "src/lib/db/scans-read.ts:835 and :916 - every gallery card already carries that archetype; IndexGallery.tsx never reads it",
+   "src/lib/db/scans-read.ts:980 and IndexGallery.tsx:74-75 - the landing board ranks cards by stored overall across lenses with no disclosure, while it discloses mixed RUBRICS (IndexGallery.tsx:79, :147-157)",
+   "src/lib/maturity/model.ts:624-626 - the lenses really diverge: D3 CI/CD 0.14 org vs 0.07 solo, D1/D2 0.15 org vs 0.20 solo, D9 0.09 vs 0.04",
+   "src/lib/maturity/model.ts:677-687 - overallScoreFor is pure and renormalizes over present dims; IndexGallery.tsx already imports from @/lib/maturity/model client-side",
+   "src/components/landing/prototypes/index/DimensionMatrix.tsx + shared/matrixData.ts:30-41 - the deck's only lens content is a static weight table; nothing on the page shows what a lens does to a real repo",
+   "src/lib/scoring/projections.ts:66-80 - projectedGain already recomputes persisted scans with overallScoreFor for display, the precedent this follows"
+  ],
+  "rollback": "Delete the four new files and revert IndexGallery.tsx to render the as-scored board; nothing outside the landing reads the model.",
+  "gate": "none",
+  "doc": "docs/features/design-system/README.md",
+  "runner_up": "ScanModal (ScanModal.tsx:155-158) promises a multi-minute scan for every repo while /api/scan's free peek (route.ts:185-217) would hydrate an already-rated one instantly; check the typed repo against the peek and offer 'open its report now' before the visitor commits.",
+  "body": "## Summary\nThe register on the landing page puts repos in one numbered order, but each number was weighted under that repo's own archetype lens (solo, team or org), and the lenses disagree by up to 2x on a dimension. The deck explains lenses only as a static weight table (DimensionMatrix), so the visitor ranks a solo library against a platform monorepo without knowing, and cannot see what the lens they would be scored under does to a real repo. Add a lens switch to the register: 'As scored' (today's board, plus a 'rows weighted under N lenses' note) or Solo / Team / Org, which re-weights every live row in the browser with the engine's own overallScoreFor and shows each row's rank move.\n\n## Description\nA pure model, registerLensModel.ts, takes the board cards and a lens and returns rows {card, score, level, rank, move, reweightable} plus lensesOnBoard and withheld. A row is re-weightable only when the engine's function reproduces its stored overall under its own archetype, so the page never prints a recompute that disagrees with the report the row links to; others stay on the as-scored board and are counted, not re-ranked. RegisterLensSwitch.tsx is a four-button aria-pressed group; IndexGallery holds the lens in state, renders the model's rows, keeps the rubric chip and links, and adds one line saying the figures are re-weighted in the browser and each report keeps its own score. The switch only appears on a ranked board.\n\n## Flow\n- Visitor reaches The register, sees 'As scored - rows weighted under 3 lenses'\n- Clicks 'Solo' (the lens their single-author repo would get) -> rows re-order, moves marked, scores re-weighted\n- Clicks a row -> its report, which shows the score it was actually scored under\n- Back to 'As scored' -> today's board exactly\n\n## Expected impact\nThe lens stops being an abstract table and becomes something the visitor can test on real repos before scanning their own, and the register stops implying that numbers from three weightings are one scale.\n\n## Evaluation\nClaim: the register can be read under one lens, with every re-weighted figure reproducible by the engine's function\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: none. Registry: software-engineering/peer-benchmarking, technique comparability-filters (a weight-set change is an instrument change; rank within one instrument), with measurement-honesty/co-published-numbers-must-reconcile for the own-lens reproduction check that withholds rows whose recompute would contradict their report.",
+  "evidence": "engine.ts:361 const overallScore = overallScoreFor(dimensions, archetype); model.ts:624 org: { D1: 0.15, D2: 0.15, D3: 0.14, ... D9: 0.09 }, :626 solo: { D1: 0.2, D2: 0.2, D3: 0.07, ... D9: 0.04 }; scans-read.ts:916 archetype: s.archetype; grep -n archetype IndexGallery.tsx -> no match; IndexGallery.tsx:79 const staleRubric = board.filter((c) => !c.currentRubric).length (mixed rubric disclosed, mixed lens not)."
+ },
+ {
+  "context": "Credits & Entitlements",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "A scan credit reservation is a keyed ledger object: refund names its debit",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/lib/db/credits.ts",
+   "src/lib/scan-credit.ts",
+   "src/lib/scan-gates.ts",
+   "src/lib/scan-queue-worker.ts",
+   "src/app/api/org/import/route.ts",
+   "src/lib/scan-credit.test.ts",
+   "docs/features/fleet/rescan.md"
+  ],
+  "new_files": [
+   "src/lib/db/credit-reservations.ts",
+   "src/lib/db/credit-reservations.test.ts",
+   "src/lib/scan-queue-worker.credit.test.ts"
+  ],
+  "shared_surfaces": [
+   "src/lib/db/index.ts",
+   "src/lib/db/scan-jobs.ts",
+   "docs/features/billing/billing.md"
+  ],
+  "loc_check": [
+   "src/lib/db/credits.ts: 575 -> ~585 (no .tsx cap; .ts outside src/features - growth kept to a param, the new reads go to credit-reservations.ts)",
+   "src/lib/scan-credit.ts: 145 -> ~185 (no cap)",
+   "src/lib/scan-gates.ts: 239 -> ~245 (no cap)",
+   "src/lib/scan-queue-worker.ts: 412 -> ~425 (no cap)",
+   "src/app/api/org/import/route.ts: 726 -> ~732 (no cap)",
+   "src/lib/db/credit-reservations.ts: new ~80",
+   "src/lib/scan-credit.test.ts: 67 -> ~160",
+   "src/lib/db/credit-reservations.test.ts: new ~150",
+   "src/lib/scan-queue-worker.credit.test.ts: new ~180"
+  ],
+  "acceptance": [
+   "Kill between reserve and markJobCredit: job J reserved on attempt 1 (ledger row externalId scan-job:J:1, creditCharged still false), reaped, re-claimed as attempt 2 -> heldScanReservation(org,J) returns scan-job:J:1, consumeScanCredit is NOT called again, ledger holds exactly one -1 row for J, balance down by exactly 1",
+   "Refund committed but settleJob write lost (degradedRead swallows it), row reaped with creditCharged=true, retry dedups and refunds again -> exactly one +1 row (externalId refund:scan-job:J:1); org net 0, not +1",
+   "Attempt 1 reserved and refunded (scan-job:J:1 + refund:scan-job:J:1), settle lost, attempt 2 runs REAL inference -> heldScanReservation returns null, a new debit scan-job:J:2 is written; the delivered scan is charged once, not served free on a refunded key",
+   "refundScanCredit when grantCredits throws -> returns { refunded:false, balance:null }; the worker passes creditRefunded:false to settleJob, so creditCharged stays true and the held credit remains attributable (today it is cleared and the credit vanishes)",
+   "Same for /api/org/import: a failed refund sets outcome.creditRefunded=false (today `refundCredit` returns `reserved` regardless of whether the grant landed)",
+   "scanCreditGate: hold.refund() invoked from two separate code paths for one reservation -> one +1 row keyed refund:scan-hold:<id>; the second is a P2002 no-op",
+   "getCreditReconciliation still buckets the keyed refund rows as `refunded` (reason stays CREDIT_REASON.REFUND) -> debited/refunded/net unchanged for a debit+refund pair",
+   "Owner grant with no externalId still writes an auto:<uuid> key and two separate grants still both land"
+  ],
+  "guards": [
+   "getCreditReconciliation still buckets the keyed refund rows as `refunded` (reason stays CREDIT_REASON.REFUND) -> debited/refunded/net unchanged for a debit+refund pair",
+   "Owner grant with no externalId still writes an auto:<uuid> key and two separate grants still both land"
+  ],
+  "premise": [
+   "src/lib/db/credits.ts:154 - a refund with no caller-supplied externalId gets a fresh `auto:${randomUUID()}` key, so a refund is idempotent only per INVOCATION, never per debit it reverses",
+   "src/lib/db/credits.ts:379 - the debit key is `scan:<scanId>` or `auto:<uuid>`; scan-credit.ts:21-27 states scanId is usually absent at reserve time, so the fleet paths always debit on auto:<uuid>",
+   "src/lib/scan-credit.ts:119-127 - refundScanCredit passes no externalId and swallows failure with .catch(() => null)",
+   "src/lib/scan-queue-worker.ts:345-349 - refundCredit returns `charged` whether or not the refund landed; lines 371-377, 383-389 and 403-406 feed that into settleJob({creditRefunded})",
+   "src/app/api/org/import/route.ts:569-575 - same shape: refundCredit returns `reserved` unconditionally after refundScanCredit",
+   "src/lib/db/scan-jobs.ts:420 - settleJob clears creditCharged on creditRefunded:true, so a LOST refund erases the only record that a credit is held",
+   "src/lib/db/scan-jobs.ts:416-422 - settleJob is itself best-effort (.catch(degradedRead)); a lost settle after a committed refund leaves creditCharged=true and the reaper (scan-jobs.ts:438-441) requeues it, and scan-queue-worker.ts:316 then carries a credit that was already refunded -> second refund on a fresh auto key mints a credit",
+   "src/lib/scan-queue-worker.ts:310-315 + docs/features/fleet/rescan.md:394-397 - the kill between reserveScanCredit and markJobCredit is a documented, accepted double-debit window",
+   "src/lib/db/hosted-credits.ts:84 and :137-138 - the hosted lane already does this right: debit keyed hosted:<reservationId>, refund keyed hosted-refund:<reservationId>. Two implementations of one rule; only one was fixed",
+   ".ai/registry-map.json (Credits & Entitlements x cost-metering) - recorded deviation: 'consumeScanCredit uses a static scan:<scanId> idempotency key that allows retries of refunded operations to execute for free without attempt walking'"
+  ],
+  "rollback": "Revert the series; reservation keys are new externalId VALUES in an existing unique column (no schema change), so old auto:<uuid> rows and new scan-job:/refund: rows coexist and reconciliation reads both identically.",
+  "gate": "contract",
+  "doc": "docs/features/fleet/rescan.md",
+  "runner_up": "One manual-grant door: the grant route takes a client idempotency key and returns grantCredits' own appliedDelta (today a double-click mints twice and appliedDelta is derived from two racing reads).",
+  "body": "## Summary\nA fleet scan's credit reservation has no identity. The debit is written on a fresh auto:<uuid> key and its refund on ANOTHER fresh auto:<uuid> key, so nothing ties a refund to the debit it reverses; the job row's creditCharged boolean is the only record, and it is written and cleared by best-effort writes. Make the reservation a keyed ledger object - debit `scan-job:<jobId>:<attempt>`, refund `refund:<debitKey>` - and derive 'does this job hold a credit' from the ledger, exactly as the hosted lane already does.\n\n## Description\nRegistry: software-engineering / cost-metering, technique `reversible-debit-and-settle` (laws creation-names-reaper, identity-survives-reuse): 'the debit hands back its own undo', 'a retry of a refunded request running the paid call for free'. The map already records this as a deviation on this exact pair. Three money defects fall out of the missing identity: (1) LOST REFUND - refundScanCredit swallows a failed grant and both callers still report creditRefunded:true, so settleJob clears creditCharged and the held credit disappears with no trace; (2) DOUBLE REFUND - a committed refund whose settle write is lost leaves creditCharged=true, the reaper requeues, the retry carries a credit that was already returned and refunds it again on a new auto key: +2 for one -1; (3) DOUBLE DEBIT - the documented kill window between reserveScanCredit and markJobCredit re-reserves. src/lib/db/hosted-credits.ts:84/137 is the in-repo proof the pattern works here.\n\n## Flow\n- consumeScanCredit gains an optional `reservationKey` (used as the debit externalId; existing auto/scan keys unchanged when absent).\n- New src/lib/db/credit-reservations.ts: `scanJobReservationKey(jobId, attempt)`, `refundKeyFor(debitKey)`, `heldScanReservation(orgSlug, jobId)` = the newest `scan-job:<jobId>:*` debit with no matching `refund:` row.\n- reserveScanCredit returns `reservationKey`; refundScanCredit takes it, passes `refund:<key>` as externalId, and returns `{ refunded, balance }` truthfully.\n- Queue worker and import: `carriedCredit` comes from heldScanReservation (creditCharged stays as the display cache /api/org/scan/queue reads); settleJob gets creditRefunded only when the refund actually landed.\n- scanCreditGate keys its hold `scan-hold:<uuid>` so the at-most-once refund is structural, not a closure boolean.\n- rescan.md: delete the 'Not atomic, stated rather than hidden' residue paragraph; state the keyed reservation.\n\n## Expected impact\nNo credit amount, price or charging rule moves: the same scans are charged the same one credit and refunded under the same shouldRefundScan policy. What changes is that every debit/refund pair is joinable, idempotent per reservation, and survives a lost settle, a lost refund and a mid-reserve kill.\n\n## Evaluation\nClaim: one reservation identity removes the lost-refund, double-refund and double-debit windows.\nBefore: 0 of 6 non-guard cases pass (2 guards green by design)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first against vitest db doubles (the existing credits.test.ts style)\nResult: better\nGate: contract (ledger externalId shape for scan reservations; no schema change, no policy change)",
+  "evidence": "credits.ts:154 `const externalId = opts.externalId ?? `auto:${randomUUID()}`;` | credits.ts:379 `const externalId = ctx.scanId ? `scan:${ctx.scanId}` : `auto:${randomUUID()}`;` | scan-credit.ts:119-127 `return await grantCredits(orgSlug, 1, { reason: CREDIT_REASON.REFUND, actor: ..., repoFullName, scanId }).catch(() => null);` (no externalId) | scan-queue-worker.ts:345-349 `await refundScanCredit(slug, charged, {...}); return charged;` | import/route.ts:572-574 `await refundScanCredit(org, reserved, {...}); await refundQuota(); return reserved;` | scan-jobs.ts:420 `...(out.creditRefunded ? { creditCharged: false } : {})` | scan-jobs.ts:440 `// creditCharged omitted on purpose` | hosted-credits.ts:84 `const externalId = `hosted:${reservationId}`;` and :138 `externalId: `hosted-refund:${args.reservationId}`` | grep externalId in scan-credit.ts: 0 hits",
+  "notes_from_critic": "name in docs/features/fleet/rescan.md: a scan served free on a refunded key is now charged once (the stated policy applied correctly)"
+ },
+ {
+  "context": "Credits & Entitlements",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Credits shows the fleet scans it skipped, and resumes them in one click",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/app/api/org/credits/route.ts",
+   "src/components/org/shared/CreditsControl.tsx",
+   "src/components/org/shared/useCreditsControl.ts",
+   "src/components/org/shared/CreditsControl.test.tsx",
+   "docs/features/billing/billing.md"
+  ],
+  "new_files": [
+   "src/lib/credit-backlog-model.ts",
+   "src/lib/credit-backlog-model.test.ts",
+   "src/lib/db/credit-backlog.ts",
+   "src/components/org/shared/CreditsControl.backlogUi.tsx",
+   "src/components/org/shared/CreditsControl.backlog.test.tsx",
+   "src/app/api/org/credits/route.backlog.test.ts"
+  ],
+  "shared_surfaces": [
+   "src/lib/db/wire-safe.ts",
+   "src/lib/db/index.ts",
+   "docs/features/fleet/rescan.md"
+  ],
+  "loc_check": [
+   "src/app/api/org/credits/route.ts: 37 -> ~60 (no cap)",
+   "src/components/org/shared/CreditsControl.tsx: 200 -> ~212 (cap 300; the new section is extracted to CreditsControl.backlogUi.tsx)",
+   "src/components/org/shared/useCreditsControl.ts: 144 -> ~158 (no cap)",
+   "src/components/org/shared/CreditsControl.test.tsx: 196 -> 196 (new cases go to CreditsControl.backlog.test.tsx)",
+   "src/components/org/shared/CreditsControl.backlogUi.tsx: new ~95 (cap 300, \"use client\")",
+   "src/lib/credit-backlog-model.ts: new ~90",
+   "src/lib/db/credit-backlog.ts: new ~60"
+  ],
+  "acceptance": [
+   "foldCreditBacklog: repo a [rescore skipped 'insufficient credits' Oct 3, rescore done Oct 5] + repo b [done Oct 1, skipped 'insufficient credits' Oct 4] -> owed = [b] with skippedAt '2026-10-04T..' (ISO string), a is not owed",
+   "foldCreditBacklog excludes probe-lane jobs and rescore skips with any other error ('no token', degraded) -> those repos never appear",
+   "resumePlan(7 owed, {balance:3, allowanceRemaining:2, unlimited:false}) -> repos = the 5 oldest-skipped, deferred = 2, drawsUpTo = 3 (via immediateScanCredits), reason null",
+   "resumePlan(7 owed, {balance:0, allowanceRemaining:0}) -> repos = [], action disabled with reason 'top-up-first'; unlimited -> all 7, drawsUpTo null",
+   "GET /api/org/credits: a viewer who passes requireOrgRead but fails requireOrgAccess gets no creditBacklog field; an access-holder gets { count, repos:[{repo, skippedAt, via:'cadence'|'push'|'import'}], oldestSkippedAt } with string timestamps",
+   "Popover with backlog count 4 and capacity 4 -> renders '4 watched repos missed a scan for credits since <date>' and a 'Scan 4 now - draws up to N credits' button; clicking calls useOrgScanButton.run({ repos: plan.repos }) so POST /api/org/scan carries exactly those repos",
+   "Backlog count 0 -> no backlog section renders (no empty-state noise on a healthy org)"
+  ],
+  "guards": [
+   "Backlog count 0 -> no backlog section renders (no empty-state noise on a healthy org)"
+  ],
+  "premise": [
+   "src/lib/scan-queue-worker.ts:325-340 - a cadence job that cannot reserve a credit calls settleCadence (advanceToFullCadence, :193-198) and settles 'skipped'/'insufficient credits': after a top-up that repo waits its FULL cadence before it is scanned again",
+   "src/lib/scan-queue-worker.ts:327-333 - only the PUSH path records a scan outcome on a credit skip; a cadence skip leaves its trace only on the ScanJob row",
+   "src/components/org/shared/CreditsControl.tsx:137-141 - the paused state is a sentence ('Private scans are paused until you top up') with no count of what was skipped and no action",
+   "src/app/api/org/scan/route.ts:43 and :80-83 - the bulk scan route already accepts an explicit `repos` list and caps it to balance + allowance (:103-111), so the resume needs no new mutation route",
+   "src/components/org/shared/useOrgScanButton.ts:39-41 - ScanScope { repos } and run(scope) already exist and drive the SSE + roster",
+   "src/components/credit/WatchCostTail.tsx:23-29 - immediateScanCredits(count, credit) already computes the up-front draw honestly",
+   "src/components/org/shared/scanRunRosterModel.ts:18 - the roster's insufficient_credits bucket covers only an INTERACTIVE run the user watched; unattended cadence/push skips surface nowhere",
+   "prisma/schema.prisma:2972,2986 - ScanJob carries state and settledAt, so 'newest rescore job per repo is a credit skip' is one bounded read"
+  ],
+  "rollback": "Revert the series: the GET field is additive (the client ignores its absence), the popover section is a new file, and no mutation route or schema changed.",
+  "gate": "none",
+  "doc": "docs/features/billing/billing.md",
+  "runner_up": "Pair each scan debit with its refund in Recent activity (net per repo, refunds folded under the row they reverse, human labels for hosted-run/polar-refund) instead of five raw reason strings.",
+  "body": "## Summary\nWhen an org runs dry, the fleet keeps trying: every cadence and push scan that cannot reserve a credit is skipped, and a cadence skip pushes the repo a FULL cadence out. The owner who tops up sees the balance go up and nothing else; their skipped repos stay stale for a week or a month. The credits popover knows the balance, the allowance and (through ScanJob) exactly which repos were skipped - show them and resume them in one click.\n\n## Description\nRegistry: software-engineering / cost-metering, technique `spend-observability` (legible while it can still change behaviour) and the plan-entitlements subject's honest-gate line; also ui-surfaces async-ui-states (a surface that reports a state should offer its exit). The paused banner is a dead end today. A pure `credit-backlog-model.ts` folds the org's recent rescore ScanJob rows to 'repos whose newest job is a credit skip' and plans a resume against balance + allowance with the same immediateScanCredits disclosure the watch flow uses. GET /api/org/credits returns the backlog only to viewers who pass requireOrgAccess (the same gate the resume POST enforces), so a read-only viewer sees no repo list. The action is the existing /api/org/scan { repos } via useOrgScanButton - no new mutation, no new price, the same per-scan charge the route already applies and caps.\n\n## Flow\n- src/lib/db/credit-backlog.ts: bounded read of rescore ScanJob rows (last 35 days, org-constrained) -> wire rows with ISO strings (added to wire-safe.ts).\n- credit-backlog-model.ts: foldCreditBacklog + resumePlan (pure, red-first tests).\n- route.ts: additive `creditBacklog` field behind requireOrgAccess.\n- CreditsControl.backlogUi.tsx: 'N watched repos missed a scan for credits since <date>' + 'Scan N now - draws up to M credits' (or 'Top up first'); after the checkout return lands, the same section is what the owner sees next.\n- billing.md: document the section; rescan.md cross-reference that a credit skip is resumable.\n\n## Expected impact\nTop-up to fresh fleet becomes one click instead of a full-cadence wait the owner cannot see. Nothing about what is charged moves: the user clicks, the existing route reserves one credit per repo beyond the allowance, exactly as Scan all does today, and the draw is disclosed before the click.\n\n## Evaluation\nClaim: the credits surface turns 'paused' into an actionable, honestly-priced backlog.\nBefore: 0 of 6 non-guard cases pass (1 guard green by design)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first (model unit tests, route test, component test)\nResult: better\nGate: none",
+  "evidence": "scan-queue-worker.ts:334-338 `} else { // The repo waits its full cadence rather than re-qualifying every pass and jamming the queue. await settleCadence(job); } await settleJob(job.id, { state: \"skipped\", error: \"insufficient credits\" });` | CreditsControl.tsx:139 `Out of credits. Private scans are paused until you top up.` | org/scan/route.ts:80-82 `if (Array.isArray(body.repos) && body.repos.length > 0) { const want = new Set(...); repos = repos.filter(...)` | useOrgScanButton.ts:39 `export type ScanScope = { staleOnlyDays?: number; repos?: string[] };` | grep 'insufficient credits' in src/components/org/shared/CreditsControl*: 0 hits"
+ },
+ {
+  "context": "Portfolio & Public Leaderboard",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One public-corpus door: the landing register stops ranking mock floors",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/lib/register/data.ts",
+   "src/lib/register/data.test.ts",
+   "src/lib/db/scans-read.ts",
+   "src/lib/db/scans-gallery.test.ts",
+   "src/components/landing/prototypes/index/IndexGallery.tsx",
+   "src/components/about/aboutFleetModel.ts",
+   "src/components/about/aboutFleetModel.test.ts",
+   "src/components/landing/RegisterChips.tsx",
+   "src/app/leaderboard/LeaderboardTable.tsx"
+  ],
+  "new_files": [
+   "src/lib/register/corpus.ts",
+   "src/lib/register/corpus.test.ts",
+   "src/lib/register/gallery.ts",
+   "src/lib/register/gallery.test.ts",
+   "src/lib/register/public-corpus-door.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "docs/features/design-system/README.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/register/data.ts: 416 -> ~385 (no .tsx cap; tenancy predicate + mock rule move out to corpus.ts)",
+   "src/lib/register/data.test.ts: 328 -> ~350 (no cap; outside src/features)",
+   "src/lib/db/scans-read.ts: 1568 -> ~1390 (no .tsx cap; gallery block lines ~800-1018 relocates to register/gallery.ts, scans-read keeps a re-export so db/index.ts and db/scans.ts barrels are unchanged)",
+   "src/lib/db/scans-gallery.test.ts: 193 -> ~195 (imports unchanged via re-export; one assertion updated for the verified field)",
+   "src/components/landing/prototypes/index/IndexGallery.tsx: 184 -> ~205 (cap 300)",
+   "src/components/about/aboutFleetModel.ts: 150 -> ~153 (no .tsx cap)",
+   "src/components/about/aboutFleetModel.test.ts: 109 -> ~125",
+   "NEW src/lib/register/corpus.ts: ~80",
+   "NEW src/lib/register/gallery.ts: ~200",
+   "NEW src/lib/register/corpus.test.ts: ~110; gallery.test.ts: ~140; public-corpus-door.test.ts: ~90"
+  ],
+  "acceptance": [
+   "galleryCardFrom({...row, isPrivate: true}) -> null (today GALLERY_REPO_SELECT does not even select isPrivate, so a private row that reaches the mapper is published)",
+   "loadPublicGalleryCards: topScoreScans yields a repoId whose extra-window fetch is issued -> that findMany's where contains orgId AND isPrivate:false beside id:{in} (today it is { id: { in: extraIds } } alone)",
+   "gallery with a mock scan at 95 and a model scan at 70 -> topAiNative === [the 70 card]; no card with verified:false ever appears in topAiNative",
+   "PublicRepoCard for a scan with engineProvider 'mock' -> verified:false and still present in recent; IndexGallery rendered on a recency-fallback board with that card -> a 'demo' chip on its row and no rank number",
+   "fleetFrom(gallery whose recent holds LIVE_MIN current-rubric cards of which one is verified:false) -> that card absent from cells, and with fewer than LIVE_MIN verified cards -> ILLUSTRATIVE_FLEET",
+   "getPublicRegister over 500 repos whose best scan is a mock 99 plus 3 model-scored repos at 40 -> totalVerified === 3 (today the groupBy _max window over ALL scans fills REGISTER_CANDIDATE_CAP with mock-high repos and the model-scored ones never load)",
+   "register entry verified and gallery card verified for the same scan row both come from corpus.ts isRankableScan(engine) -> isRankableScan('mock') === false, isRankableScan('anthropic') === true, isRankableScan(null) === false",
+   "public-corpus-door guard: a seeded register module calling prisma.repository.findMany({ where: { id: { in: ids } } }) without publicCorpusWhere -> guard fails; the same text inside a comment or string literal -> guard passes (comments and strings stripped first)",
+   "MERGE (from landing-0): the landing register order equals the /leaderboard byRank order over the same eligible rows (equivalence case); both tables render the shared demo/rubric qualifier chips"
+  ],
+  "guards": [
+   "data.test.ts 'scopes BOTH queries to the public org AND isPrivate:false' and 'drops a private row that slipped past the where clause' stay green unchanged",
+   "scans-gallery.test.ts rubric-qualifier cases stay green (currentRubric derivation unchanged)"
+  ],
+  "premise": [
+   "src/lib/register/data.ts:6-10 - states the TENANCY invariant: every public ranking query pinned to the public org AND isPrivate:false, re-asserted on the id-keyed fetch and per row",
+   "src/lib/register/data.ts:12-17 - states the PROVENANCE invariant: a mock-engine score is never interleaved into a ranked board",
+   "src/lib/register/data.ts:190 - registerEntryFrom refuses a private row per row; src/lib/register/data.ts:213 - verified: s.engineProvider !== 'mock' (a third hand copy of the rule beside src/lib/db/org-rollup.ts:101 isMockScore and src/lib/corpus/eligibility.ts:35 BENCHMARK_ELIGIBLE)",
+   "src/lib/db/scans-read.ts:860-883 - GALLERY_REPO_SELECT selects neither isPrivate nor engineProvider",
+   "src/lib/db/scans-read.ts:891-917 - galleryCardFrom has no private check and no provenance field",
+   "src/lib/db/scans-read.ts:963-964 - the leaderboard-only extra repos are fetched with where: { id: { in: extraIds } } - no orgId, no isPrivate re-assertion",
+   "src/lib/db/scans-read.ts:979-981 - topAiNative sorts every card by overall, mock floors included",
+   "src/components/landing/prototypes/index/IndexGallery.tsx:74-75,85 - the landing board is titled 'The register' and ranks topAiNative; src/app/page.tsx:114 picks the landing example repos from topAiNative",
+   "src/components/about/aboutFleetModel.ts:69 - the /about 'real scanned public fleet' filters currentRubric only, so mock floors feed the X-Ray and ROI panes",
+   "src/lib/register/data.ts:256-262 - the candidate window is chosen by groupBy _max overallScore over ALL scans (mock included) before the verified split at :306"
+  ],
+  "rollback": "Series of 3 commits (corpus.ts + register switches to it; gallery relocates to register/gallery.ts behind a scans-read re-export and gains tenancy + provenance; IndexGallery/aboutFleetModel consume verified + guard test). Each reverts independently; the re-export keeps every import path stable, so reverting commit 2 restores the old gallery byte-for-byte.",
+  "gate": "policy-tighten",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "Portfolio rollups re-run N full getOrgRollup reads per request with no cache; a cached cross-org summary read (one query shape) would let the page scale past a handful of orgs.",
+  "body": "## Summary\nThe app has TWO public rankings over the same public corpus, and only one of them carries the rules. `/leaderboard` reads `src/lib/register/data.ts`, which pins tenancy per query and per row and never ranks a mock floor. The landing page's board - literally titled \"The register\" - and /about's \"real scanned public fleet\" read `getPublicScanGallery` in `scans-read.ts`, which does neither: no per-row private check, an id-only extra fetch, and mock floors ranked against model scores. Make one public-corpus door and route both through it.\n\n## Description\nApplies peer-benchmarking `corpus-tenancy-boundary` (\"route every corpus-building read through one door; filter per row at assembly\") and `comparability-filters` (\"only rows from the ranking engine enter the ranking; unknown provenance is excluded\"). New `src/lib/register/corpus.ts` owns `publicCorpusWhere(orgId)`, the per-row `publicRowOrNull`, and `isRankableScan(engine)` (derived from `BENCHMARK_ELIGIBLE`, not a fourth literal). `register/data.ts` and a relocated `register/gallery.ts` both build on it; `scans-read.ts` keeps a thin re-export. The register's candidate window ranks model-scored repos in their own groupBy so mock-high repos cannot crowd them out of the 500 cap; the unranked tail gets its own bounded window. A source-scanning guard (comments/strings stripped, seeded violation) pins that every Prisma read under `src/lib/register/**` spreads `publicCorpusWhere`.\n\n## Flow\n- corpus.ts: tenancy where + per-row check + rankable predicate\n- data.ts: loadCandidates uses them; verified window and preview window split\n- gallery.ts: GALLERY_REPO_SELECT gains isPrivate + engineProvider; extra fetch re-asserts tenancy; topAiNative = verified only; card carries verified\n- IndexGallery: demo chip on a verified:false row of the recency board\n- aboutFleetModel.fleetFrom: verified only\n\n## Expected impact\nThe public front door stops publishing a deterministic floor as a rank under the word \"register\"; a private row reaching the landing query is dropped the same way it is on /leaderboard; /about's live fleet stops being part-mock. One rule to change on the next rubric or engine decision instead of three.\n\n## Evaluation\nClaim: both public rankings enforce the same tenancy and provenance rules through one module\nBefore: 0 of 8 cases pass\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: policy-tighten (narrows what the landing board ranks; widens nothing public)",
+  "evidence": "scans-read.ts:963-964 `const extraRepos = extraIds.length ? await prisma.repository.findMany({ where: { id: { in: extraIds } }, select: GALLERY_REPO_SELECT }) : [];` | scans-read.ts:979 `const topAiNative = [...cards].sort((a, b) => b.overall - a.overall || ...)` | GALLERY_REPO_SELECT (860-883): id, owner, name, fullName, primaryLanguage, stars, scans{headSha, overallScore, level, levelName, adoptionScore, rigorScore, posture, scannedAt, rubricVersion, archetype, dimensions} - no isPrivate, no engineProvider | register/data.ts:213 `verified: s.engineProvider !== \"mock\"` | aboutFleetModel.ts:69 `(gallery?.recent ?? []).filter((c) => c.currentRubric)` | IndexGallery.tsx:85 `<h2 ...>The register</h2>` | grep 'mock|verified|engine' in IndexGallery.tsx and app/about/page.tsx: no provenance hits. Not in prior cards: MC-B42 added only the rubric chip to the gallery; today's about.json card moved /about onto the gallery without a mock filter.",
+  "revise_applied": "MERGED with voided landing-0: absorb its byRank ordering + equivalence case, the shared RegisterChips.tsx (demo/rubric qualifier chips, also used by LeaderboardTable.tsx). Derive the rankable predicate from the ENGINE half of BENCHMARK_ELIGIBLE only (stale-rubric rows stay ranked, mock never ranked).",
+  "merged_from": {
+   "title": "One public-ranking door: landing register reads register/data, mock never ranked",
+   "acceptance": [
+    "gallery read over fixture rows {acme/mock: engineProvider 'mock', overall 95; acme/a: claude, 80; acme/b: claude, 70} -> topAiNative is [acme/a, acme/b]; acme/mock is absent from topAiNative and present in recent with verified:false",
+    "same fixture through src/app/page.tsx's derivation (gallery.topAiNative.slice(0,3)) -> exampleRepos is ['acme/a','acme/b'], so the hero's 'See a sample report' link (IndexHero.tsx:31) opens acme/a, never the mock report",
+    "id-keyed extra-window fetch returns a row with isPrivate:true -> the row appears in neither rail, and the Prisma call for that fetch carries isPrivate:false in its where (asserted on the mock call args)",
+    "for one fixture set, getPublicScanGallery().topAiNative order equals getPublicRegister().entries order over the same rows (one byRank comparator, fullName tie-break included)",
+    "IndexGallery with topAiNative [] and recent [a mock row] -> the row renders a 'demo' chip and the rank cell is '·' (the recency fallback, never numbered)",
+    "fleetFrom(gallery) where gallery.recent holds one verified and one mock current-rubric row -> cells and repos contain only the verified row",
+    "public-ranking-door guard: stripping comments and string literals, no non-test file outside src/lib/register/ assigns currentRubric or verified from a scan row -> fails today on src/lib/db/scans-read.ts:915, and a seeded violation string-in-a-fixture keeps it failing",
+    "the literal 'rubric unknown' appears in exactly one .tsx file (RegisterChips.tsx) -> fails today with two (IndexGallery.tsx:63, LeaderboardTable.tsx:141)"
+   ],
+   "write_set": [
+    "src/lib/register/data.ts",
+    "src/lib/db/scans-read.ts",
+    "src/lib/db/scans-gallery.test.ts",
+    "src/components/leaderboard/LeaderboardTable.tsx",
+    "src/components/landing/prototypes/index/IndexGallery.tsx",
+    "src/components/landing/prototypes/index/IndexGallery.test.tsx",
+    "src/components/about/aboutFleetModel.ts"
+   ]
+  }
+ },
+ {
+  "context": "Portfolio & Public Leaderboard",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "/portfolio opens on your readable book and names each company's weakest dimension",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "src/lib/org/portfolio.ts",
+   "src/lib/org/portfolio.test.ts",
+   "src/app/portfolio/page.tsx",
+   "src/app/portfolio/PortfolioTable.tsx",
+   "src/components/Brand.tsx"
+  ],
+  "new_files": [
+   "src/lib/org/portfolioBookModel.ts",
+   "src/lib/org/portfolioBookModel.test.ts",
+   "src/app/portfolio/PortfolioMatrix.tsx",
+   "src/app/portfolio/BookChips.tsx",
+   "src/app/portfolio/page.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/org/portfolio.ts: 183 -> ~200 (no .tsx cap; book/matrix logic goes to portfolioBookModel.ts)",
+   "src/lib/org/portfolio.test.ts: 188 -> ~215 (no cap outside src/features)",
+   "src/app/portfolio/page.tsx: 90 -> ~125 (cap 300)",
+   "src/app/portfolio/PortfolioTable.tsx: 89 -> ~105 (cap 300)",
+   "src/components/Brand.tsx: 270 -> ~282 (cap 300)",
+   "NEW src/lib/org/portfolioBookModel.ts: ~110; portfolioBookModel.test.ts: ~150",
+   "NEW src/app/portfolio/PortfolioMatrix.tsx: ~95 (server, no hooks, no 'use client'); BookChips.tsx: ~50 (plain links, no 'use client'); page.test.tsx: ~110"
+  ],
+  "acceptance": [
+   "resolveBook({ requested: [], explicit: false, workspaceOptions: ['acme', 'Beta', 'public'] }) -> { orgs: ['acme', 'beta'], source: 'workspace' } (public is never added implicitly)",
+   "resolveBook({ requested: ['x'], explicit: true, workspaceOptions: ['acme'] }) -> { orgs: ['x'], source: 'query' }; resolveBook({ requested: [], explicit: true, ... }) -> { orgs: [], source: 'query' } (an explicitly emptied book stays empty -> 'prompt')",
+   "bookToggleHref(['acme', 'beta'], 'beta') -> '/portfolio?orgs=acme'; bookToggleHref(['acme'], 'beta') -> '/portfolio?orgs=acme%2Cbeta'; bookToggleHref(['acme'], 'acme') -> '/portfolio?orgs='",
+   "buildPortfolio over a rollup with dimAverages [{dimId:'D1',avg:60},{dimId:'D3',avg:20}], realScoredCount 4, mockCount 2, scannedCount 6 -> company.dims { D1: 60, D3: 20 } with D2 absent (undefined, not 0), realScoredCount 4, mockCount 2",
+   "summarizePortfolio over companies with realScoredCount 4/3 and mockCount 2/0 -> totalRepos 7 and mockExcluded 2 (today totalRepos sums scannedCount, counting mock floors the averages exclude)",
+   "portfolioMatrix(companies) -> per company weakest = lowest PRESENT dim (tie broken by DIMENSIONS order); bookGap = dim with the lowest one-vote-per-company mean, carrying n = companies that have it; a dim present in 1 of 3 companies reports n 1 and is not chosen over one with n >= 2",
+   "page: no ?orgs, workspace options ['acme','beta','public'], canReadOrg('beta') false -> buildPortfolio called with ['acme'] only, and no chip or row named beta is rendered (the page re-gates every workspace org; nothing widens)"
+  ],
+  "guards": [
+   "the canReadOrg re-gate case passes before the change for the ?orgs= path by design; it is red only for the new default-book path, which does not exist yet",
+   "existing portfolioEmptyKind and PORTFOLIO_EMPTY_COPY cases stay green unchanged"
+  ],
+  "premise": [
+   "src/app/portfolio/page.tsx:21-26 - the only way to form a book is typing comma-separated slugs; with no ?orgs the page renders the 'prompt' empty state (src/lib/org/portfolio.ts:87)",
+   "grep -rn '\"/portfolio|`/portfolio|href=\"/portfolio' src (non-test) -> zero hits: no link anywhere in the app reaches /portfolio",
+   "src/lib/viewer-workspace.ts:29-48 - resolveViewerWorkspace already returns the viewer's canReadOrg-filtered orgs; src/components/Brand.tsx:77 resolves it on every page for the org switcher, so the app holds the book the user types blind",
+   "src/lib/db/org-rollup.ts:405,911-916 - rollup.dimAverages is computed over the live-scored population, yet src/lib/org/portfolio.ts:144-162 drops it: the table has no per-dimension column (src/app/portfolio/PortfolioTable.tsx:46-54)",
+   "src/lib/db/org-rollup.ts:398-403 - realScoredCount is the denominator of avgOverall and mockCount 'obliges the surface to disclose it'; src/lib/org/portfolio.ts:148 publishes scannedCount and :117 sums it into 'Repos in scope' (PortfolioTable.tsx:39), so the denominator beside the average is the wrong one and mocks are undisclosed",
+   "src/components/Brand.tsx:47-52 - IDENTITY_MENU_ITEMS is a fixed list with no portfolio entry"
+  ],
+  "rollback": "Two commits: (1) portfolio.ts carries dims/realScoredCount/mockCount + portfolioBookModel + matrix render; (2) default book from the workspace, chips, and the identity-menu entry. Reverting (2) returns the page to typed-slug-only with the richer table intact; reverting both restores today's page exactly.",
+  "gate": "contract",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "/leaderboard ?dim=D4 re-rank and a language filter: the context description still promises a 'top-20 per-dimension board' the page no longer has, and every entry already carries all nine dimension scores.",
+  "body": "## Summary\nA portfolio lead today reaches /portfolio only by URL (nothing links to it), types slugs they must already know, and gets one overall number per company with a repo count that counts mock floors the average excluded. The app already holds the viewer's readable orgs and every org's per-dimension averages. Open the page on that book, let the user toggle companies in one click, and show the company x dimension matrix with each company's weakest dimension and the book-wide gap.\n\n## Description\nNew pure `src/lib/org/portfolioBookModel.ts` (`resolveBook`, `bookToggleHref`, `portfolioMatrix`). With no `?orgs`, the page seeds the book from `resolveViewerWorkspace().options` minus the public org, then re-gates EVERY slug through `canReadOrg` exactly as the typed path does - the default never widens what a viewer can read. `BookChips` renders each workspace org as an include/exclude link (plain hrefs; works without JS). `PortfolioCompany` gains `dims`, `realScoredCount`, `mockCount`; the Repos column becomes `real of scanned` with an `N mock excluded` note, per executive-reporting `denominator-naming` and the rollup's own disclosure obligation. `PortfolioMatrix` draws nine cells per company, an absent dimension as a void mark (measurement-honesty `unmeasurable-vs-zero`), the weakest one marked, and a one-line book gap ('D4 is the weakest dimension in 3 of 4 companies'). The identity menu gains 'Portfolio' when the workspace holds two or more non-public orgs.\n\n## Flow\n- Visit /portfolio signed in -> book = your readable orgs, table + matrix render immediately\n- Click a chip -> that company leaves or joins the book (URL updates, shareable)\n- Read the matrix -> the weakest dimension per company and across the book is named, not inferred\n\n## Expected impact\nFive steps (find URL, recall slugs, type, submit, compare one number) become one visit; the committee question 'where is the book weakest' is answered by the page, not by opening N dashboards. The repo count stops overstating the scored population.\n\n## Evaluation\nClaim: the portfolio opens on the viewer's readable book and names each company's weakest dimension with honest denominators\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (PortfolioCompany/Portfolio gain fields; the authorization path is unchanged and re-applied per slug)",
+  "evidence": "page.tsx:21-26 parses only sp.orgs; portfolio.ts:87 `if (args.requested <= 0) return \"prompt\"` | grep for '/portfolio' hrefs in src (non-test): no output | portfolio.ts:148 `scannedCount: rollup.scannedCount,` and :117 `totalRepos: sorted.reduce((a, c) => a + c.scannedCount, 0)` vs org-rollup.ts:401-403 'mockCount ... EXCLUDED from every average ... Nonzero obliges the surface to disclose it' | org-rollup.ts:912 `for (const r of realScored) for (const d of r.latest!.dims) dimSum.add(...)` -> dimAverages unused by portfolio.ts (grep dimAverages src/lib/org/portfolio.ts: no hits) | Brand.tsx:77-79 `const workspace = await resolveViewerWorkspace();` | No prior card on this context in 2026-10-05, 10-22, 10-22b/c/d."
+ },
+ {
+  "context": "Dev Inspector",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "DEV_INSPECT gets one definition with its production floor; dev surfaces pinned",
+  "size": "M",
+  "effort": 5,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "next.config.ts",
+   "scripts/dev-inspector/source-loc-loader.cjs",
+   "docs/development/devinspector.md"
+  ],
+  "new_files": [
+   "scripts/dev-inspector/dev-inspect-flag.cjs",
+   "src/lib/dev/dev-inspect-flag.test.ts",
+   "src/app/api/dev/dev-surfaces-gated.test.ts"
+  ],
+  "shared_surfaces": [
+   "context-map.json"
+  ],
+  "loc_check": [
+   "next.config.ts: 121 -> ~124 (no cap, .ts outside features)",
+   "scripts/dev-inspector/source-loc-loader.cjs: 79 -> ~80 (no cap)",
+   "scripts/dev-inspector/dev-inspect-flag.cjs: new ~25",
+   "src/lib/dev/dev-inspect-flag.test.ts: new ~110",
+   "src/app/api/dev/dev-surfaces-gated.test.ts: new ~140",
+   "docs/development/devinspector.md: 38 -> ~46"
+  ],
+  "acceptance": [
+   "devInspectEnabled({NODE_ENV:'production', DEV_INSPECT:'1'}) -> false (red: no definition exists; today both readers would arm)",
+   "devInspectEnabled({NODE_ENV:'development', DEV_INSPECT:'1'}) -> true; DEV_INSPECT unset/'0'/'true' -> false (the one spelling the dev:inspect script sets)",
+   "source-loc-loader invoked with NODE_ENV=production + DEV_INSPECT=1 on a src/x/Foo.tsx resource -> callback receives the source unchanged, no data-loc attribute, @babel/core never required (red today: it stamps)",
+   "next.config.ts evaluated (vi.resetModules + stubbed env) with NODE_ENV=production + DEV_INSPECT=1 -> nextConfig.turbopack?.rules has no '*.tsx'/'*.jsx' loader entry (red today: registered)",
+   "guard: comment- and string-stripped source of next.config.ts, scripts/dev-inspector/** and src/** contains no raw DEV_INSPECT env read outside dev-inspect-flag.cjs; a seeded fixture `if (process.env.DEV_INSPECT === \"1\")` is detected and a prose-only mention is not",
+   "guard: every exported HTTP handler in src/app/api/dev/**/route.ts calls seedRequestAuthorized before any other statement; a seeded fixture whose gate follows a prisma call fails the matcher",
+   "guard: the only importer of src/app/_dev-inspector/DevInspector outside its folder is src/app/layout.tsx, and its JSX mount sits behind `process.env.NODE_ENV === \"development\"`"
+  ],
+  "guards": [
+   "devInspectEnabled dev/unset cases (behaviour today, now from one definition)",
+   "seedRequestAuthorized-first guard (all four seed routes comply today; pins it)",
+   "DevInspector mount guard (layout.tsx:80 complies today; pins it)"
+  ],
+  "premise": [
+   "next.config.ts:100 - `if (process.env.DEV_INSPECT === \"1\")` registers the source-loc loader for *.tsx/*.jsx with no NODE_ENV/phase check, while next.config.ts:98-99 claims 'every production build [is] completely unaffected'",
+   "scripts/dev-inspector/source-loc-loader.cjs:29 - the loader's own re-check is again a raw `process.env.DEV_INSPECT !== \"1\"`, a second spelling of the flag and no production floor",
+   "package.json:16 - `build` is `next build` (Turbopack in Next 16), so turbopack.rules registered by next.config.ts:102-108 apply to a production build launched with a stray DEV_INSPECT=1, stamping repo-relative source paths into every shipped host element",
+   "src/app/layout.tsx:80 - the overlay's production exclusion is a call-site check; the stamping has none anywhere",
+   "src/lib/env.ts:112-115,125-128,226-229 - authBypassEnabled/creditGrantsEnabled/registryPreviewEnabled: the house pattern, floor first inside the definition (AGENTS.md 'A dangerous env flag is hard-disabled inside its OWN definition')",
+   "src/lib/dev/seed-auth.ts:56-63 - the seed gate is the only gate for the four dev routes; no test asserts every src/app/api/dev route calls it (grep for seedRequestAuthorized in *.test.*: only src/lib/dev/seed-auth.test.ts and a mock in src/app/api/dev/seed-history/route.test.ts:5)",
+   "src/app/api/dev/seed-ai-usage/route.ts is tracked (git ls-files) but absent from context-map.json Dev Inspector filePaths (context-map.json:499-513 (ends at seed-auth.ts)) - the hand-list already drifted once; the guard derives the route set from the filesystem instead"
+  ],
+  "rollback": "Revert the series: the .cjs definition and the two guard tests are new files; next.config.ts and the loader each change one condition back to the raw read.",
+  "gate": "policy-tighten",
+  "doc": "docs/development/devinspector.md (no feature-doc-map entry covers src/app/_dev-inspector or scripts/dev-inspector; not hook-enforced)",
+  "runner_up": "Seeders write fabricated scans into any caller-named org (seed-fleet/route.ts:62 body.org) on a deployed instance once the secret is presented; restrict seed targets to declared demo slugs (demo-data-plane containment).",
+  "body": "## Summary\nDEV_INSPECT is read raw in two places and neither carries a production floor. Give it one definition (`devInspectEnabled(env)` in a .cjs both next.config.ts and the Turbopack loader can require), with `NODE_ENV === 'production'` checked first, and pin every dev surface with a comment-stripped, seeded-violation guard.\n\n## Description\nThe overlay is production-excluded at its mount (layout.tsx:80), but the build transform that stamps `data-loc=\"src/...:LINE:COL\"` onto every host element is not: next.config.ts:100 registers it on `DEV_INSPECT === \"1\"` alone, and the loader's gate two (source-loc-loader.cjs:29) re-checks the same raw string. A `DEV_INSPECT=1 next build` (a copied .env, a CI job reusing a dev profile) ships source paths in every page's markup and pays Babel on every module. This is exactly the flag shape AGENTS.md forbids, and the registry technique opt-in-instrumentation-gate (agent-addressable-ui) says both gates must read one flag from one declaration (one-authority-per-vocabulary) and the transform must observe the actual invocation. The card moves the flag into one definition with the floor first, makes both gates call it, and adds one guard file for the context's three dev surfaces: no raw DEV_INSPECT read anywhere else, every /api/dev route gates with seedRequestAuthorized first (derived from the filesystem, so the next seeder is covered without a hand-list), and the overlay is only mounted behind the development check.\n\n## Flow\n- add scripts/dev-inspector/dev-inspect-flag.cjs: `devInspectEnabled(env = process.env)` -> production false, else env.DEV_INSPECT === '1'\n- next.config.ts and source-loc-loader.cjs require it in place of their raw reads\n- src/lib/dev/dev-inspect-flag.test.ts: definition table + loader no-op under production + next.config registration under production\n- src/app/api/dev/dev-surfaces-gated.test.ts: three guards, each with a seeded violation and a prose-only non-violation\n- docs/development/devinspector.md: state the floor lives in the definition\n\n## Expected impact\nA stray DEV_INSPECT on a production build becomes inert instead of leaking the source tree into shipped HTML; the dev route gate and overlay mount stop being unguarded conventions.\n\n## Evaluation\nClaim: no production build can register or run the source-stamping transform, and every dev surface's gate is pinned by code-level guards\nBefore: 0 of 7 cases pass (3 are green-before by design once the definition exists; they fail today only because the module and guard file are absent)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: policy-tighten (closes a production path; loosens nothing)",
+  "evidence": "next.config.ts:100 `if (process.env.DEV_INSPECT === \"1\") {` | scripts/dev-inspector/source-loc-loader.cjs:29 `if (process.env.DEV_INSPECT !== \"1\") {` | package.json:11 `\"dev:inspect\": \"cross-env DEV_INSPECT=1 next dev\"`, :16 `\"build\": \"next build\"` | src/app/layout.tsx:80 `{process.env.NODE_ENV === \"development\" && <DevInspector />}` | grep -rln seedRequestAuthorized --include=*.test.* src -> src/lib/dev/seed-auth.test.ts, src/app/api/dev/seed-history/route.test.ts (mock only) | ls src/app/api/dev -> seed-ai-usage seed-fleet seed-history seed-vercel-demo; context-map Dev Inspector filePaths omit seed-ai-usage"
+ },
+ {
+  "context": "Dev Inspector",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Collect mode: pin several elements across pages, paste one agent-ready list",
+  "size": "M",
+  "effort": 5,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "src/app/_dev-inspector/DevInspector.tsx",
+   "src/app/_dev-inspector/devInspectorKeys.ts",
+   "docs/development/devinspector.md"
+  ],
+  "new_files": [
+   "src/app/_dev-inspector/devBasketModel.ts",
+   "src/app/_dev-inspector/devBasketModel.test.ts",
+   "src/app/_dev-inspector/useDevBasket.ts",
+   "src/app/_dev-inspector/devBasketUi.tsx",
+   "src/app/_dev-inspector/DevInspector.basket.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/app/_dev-inspector/DevInspector.tsx: 244 -> ~275 (cap 300; state lives in useDevBasket.ts, chrome in devBasketUi.tsx)",
+   "src/app/_dev-inspector/devInspectorKeys.ts: 119 -> ~150 (no .ts cap outside features)",
+   "src/app/_dev-inspector/devInspectorUi.tsx: 283, deliberately NOT touched (17 lines of headroom)",
+   "src/app/_dev-inspector/devBasketModel.ts: new ~90",
+   "src/app/_dev-inspector/useDevBasket.ts: new ~60 (\"use client\")",
+   "src/app/_dev-inspector/devBasketUi.tsx: new ~120 (\"use client\", cap 300)",
+   "src/app/_dev-inspector/devBasketModel.test.ts: new ~130",
+   "src/app/_dev-inspector/DevInspector.basket.dom.test.tsx: new ~120",
+   "docs/development/devinspector.md: 38 -> ~50"
+  ],
+  "acceptance": [
+   "addPick(empty, 'src/a/A.tsx:10:3') -> basket of 1; adding the same loc again -> {added:false, reason:'duplicate'}, length stays 1",
+   "togglePick(basket containing X, X) -> X removed; order of remaining picks preserved",
+   "addPick on a basket at the cap (12) -> {added:false, reason:'full'}, basket unchanged (the tray says why, never a silent no-op)",
+   "formatBasket([A.tsx:10:3, B.tsx:5:1]) -> 'src/a/A.tsx:10\\nsrc/b/B.tsx:5' via formatHudCopy per item (one vocabulary with single copy); formatBasket([]) -> null, not ''",
+   "parseBasket of garbage JSON / wrong version / entries not shaped path:line -> empty basket; serialize -> parse round-trips exactly (sessionStorage read in try/catch, so a blocked store yields an empty basket, not a throw)",
+   "keys: armed + 'a' with a selected crumb -> onAdd(crumb.loc); 'b' with a non-empty basket in any mode -> doCopy(formatBasket(...)) and the rung is reported; 'a'/'b' while focus is in an input -> ignored",
+   "Shift+right-click on a stamped element toggles the default pick into the basket and does NOT trigger the single-loc copy (plain and Alt right-click behave as today)"
+  ],
+  "guards": [
+   "plain and Alt right-click copy behaviour (unchanged; pinned so collect mode cannot regress it)"
+  ],
+  "premise": [
+   "src/app/_dev-inspector/DevInspector.tsx:70-76 - doCopy holds exactly one loc; every copy overwrites the clipboard, so naming N components to an agent is N copy-switch-paste round trips",
+   "src/app/_dev-inspector/DevInspector.tsx:127-135 - right-click has two forms (default pick, Alt = innermost); there is no additive form",
+   "src/app/_dev-inspector/devInspectorKeys.ts:108-112 - armed keys copy the selected crumb and nothing accumulates; :71 isTypingTarget guard is reusable for the new keys",
+   "src/app/_dev-inspector/devLocate.ts:29 - formatHudCopy is the single formatter a basket line must reuse",
+   "src/app/_dev-inspector/devCopy.ts:10 - copyText already reports its rung (async/legacy/failed), so a basket copy can say whether it landed",
+   "grep -rn 'sessionStorage|localStorage' src/app/_dev-inspector -> no hits: nothing survives a reload, so a bug spanning two routes cannot be collected today",
+   "docs/development/devinspector.md:3-4 - the tool exists to paste references 'straight into an AI coding CLI'; a change touching three components is the common case"
+  ],
+  "rollback": "Revert the series: four new files drop out; DevInspector.tsx loses the hook call and tray mount, devInspectorKeys.ts loses the a/b/x branches; no persisted state outlives a session.",
+  "gate": "none",
+  "doc": "docs/development/devinspector.md (no feature-doc-map entry covers src/app/_dev-inspector; not hook-enforced)",
+  "runner_up": "Open in editor in one key through Next's own dev-only /__nextjs_launch-editor (node_modules/next/dist/server/dev/middleware-turbopack.js:312) instead of copying a `code -g` line to paste into a terminal.",
+  "body": "## Summary\nAdd a collect mode to the DevInspector: Shift+right-click (or `a` on the selected crumb) pins an element into a numbered basket that survives navigation and reload for the session; `b` copies the whole basket as one deduped, agent-pasteable list; `x` clears it.\n\n## Description\nThe inspector answers 'which file is this?' one element at a time. The real request to an agent is almost always plural: 'the header chip, the empty state on /org, and the card it links to'. Today that takes a copy, a window switch and a paste per element, and anything on a second route means doing it across a navigation with the clipboard as the only memory. A pure devBasketModel.ts owns add/toggle/cap/dedupe/format/parse; useDevBasket.ts holds it in state with a try/catch sessionStorage mirror (a per-viewer convenience, never relied on); devBasketUi.tsx draws the tray (count, list, remove-one, copy, clear, the full/duplicate reason) and numbered markers on pinned elements still on screen. Lines reuse formatHudCopy, so a basket line is exactly what a single copy would produce (agent-pasteable-reference-format: one authority per vocabulary; an empty basket copies nothing and says so - failure is not an empty success). The overlay stays mounted only in development; nothing here adds a production path.\n\n## Flow\n- arm the inspector, Shift+right-click three elements (tray shows 1 2 3)\n- navigate to another route, pin a fourth; reload keeps the four\n- press `b`: one paste carries four `path:line` lines; HUD reports the copy rung\n\n## Expected impact\nN round trips become one paste; cross-route collection becomes possible at all.\n\n## Evaluation\nClaim: several source references can be collected across navigations and copied as one list in the same format as a single copy\nBefore: 0 of 7 cases pass (the guard case is green-before by design)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first (model in vitest node env; keys and Shift+right-click in a jsdom dom test)\nResult: better\nGate: none",
+  "evidence": "DevInspector.tsx:70 `const doCopy = useCallback(async (loc: string) => {` | DevInspector.tsx:134 `const pick = e.altKey ? chain[0] : (chain[di] ?? chain[0]);` | devInspectorKeys.ts:108 `if (isArmedCopyKey(e.key)) {` | devLocate.ts:29 `export function formatHudCopy(loc: string, format: HudCopyFormat = \"claude\"): string {` | devCopy.ts:8 `export type CopyRung = \"async\" | \"legacy\" | \"failed\";` | wc -l devInspectorUi.tsx = 283 (left untouched) | grep sessionStorage/localStorage in src/app/_dev-inspector -> none"
+ }
+]
