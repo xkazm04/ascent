@@ -20,6 +20,7 @@ import { GrantSection, LedgerSection, ManageBillingLink, PacksSection, Unlimited
 import { creditPressure } from "@/lib/autorecharge";
 import { AutoRechargeSection, LowBalanceNotice } from "./CreditsControl.autorechargeUi";
 import { useCreditsControl } from "./useCreditsControl";
+import { CreditBacklogSection } from "./CreditsControl.backlogUi";
 
 // The purchasable credit-pack shape is `CreditPack` from @/lib/polar. It's imported type-only, so the
 // TS/SWC compiler fully erases the import — this client component never pulls lib/polar (or the Polar
@@ -45,6 +46,8 @@ export function CreditsControl({
   allowanceRemaining?: number;
 }) {
   const {
+    backlog,
+    refreshCredits,
     balance,
     allowanceLeft,
     open,
@@ -139,6 +142,14 @@ export function CreditsControl({
               Out of credits. Private scans are paused until you top up.
             </p>
           )}
+          {/* credits-1: the skipped scans and their one-click resume, under the state that caused them. */}
+          <CreditBacklogSection
+            org={org}
+            backlog={backlog}
+            balance={balance}
+            allowanceLeft={freeScansLeft}
+            onSettled={refreshCredits}
+          />
           {coveredByAllowance && (
             <p className="mt-2 rounded-md border border-slate-700 bg-slate-800/40 px-2.5 py-1.5 type-body-sm text-slate-300">
               {freeScansLeft} free {freeScansLeft === 1 ? "scan" : "scans"} left this month (resets on

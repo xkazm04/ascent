@@ -8,6 +8,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { LedgerEntry } from "./CreditsControl.sections";
 import { useAutoRechargePref } from "./CreditsControl.autorechargeUi";
+import type { CreditBacklog } from "@/lib/credit-backlog-model";
 
 export function useCreditsControl({
   org,
@@ -31,6 +32,9 @@ export function useCreditsControl({
   // empty ledger made a 503/403/network error masquerade as an empty (successful) ledger on a money screen.
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState(false);
+  // credits-1: watched repos whose newest scan was skipped for credits. The route sends it only to a
+  // viewer who could run the resume scan (requireOrgAccess); absent for everyone else, so null.
+  const [backlog, setBacklog] = useState<CreditBacklog | null>(null);
   // Opt-in low-balance preference (see src/lib/autorecharge.ts) — loaded lazily when the popover
   // first opens, defaulting to OFF until the org's real setting is known.
   const { pref, saving: prefSaving, error: prefError, save: savePref } = useAutoRechargePref(org, open);
@@ -78,6 +82,7 @@ export function useCreditsControl({
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
         setLedger(d?.ledger ?? []);
+        setBacklog(d?.creditBacklog ?? null);
         // Reconcile the chip from the AUTHORITATIVE server balance the SAME response already carries.
         // `balance` was seeded once from SSR initialBalance and only bumped by local grants, so after
         // private scans spent credits elsewhere this session it showed a stale, too-high number that the
@@ -119,7 +124,15 @@ export function useCreditsControl({
     }
   }
 
+  // Re-read balance, ledger and backlog on the next render (after a grant or a resume run settles).
+  function refreshCredits() {
+    setLedger(null);
+    setLedgerError(false);
+  }
+
   return {
+    backlog,
+    refreshCredits,
     balance,
     allowanceLeft,
     open,

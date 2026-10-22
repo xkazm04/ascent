@@ -515,6 +515,35 @@ purchase that would silently never happen. **The one genuinely recurring top-up 
   with a direct `/api/billing/checkout` link for the chosen pack, and the opt-in "Warn me before I run
   out" toggle. Help copy says this warns and offers a one-click top-up; it does not buy credits.
 
+## Missed scans for credits (credit backlog)
+
+When an org runs dry the fleet keeps trying: every cadence, push or import scan that cannot reserve a
+credit settles its `ScanJob` `skipped` / "insufficient credits", and a cadence skip also moves the repo
+a **full cadence** out (`settleCadence` in `src/lib/scan-queue-worker.ts`). So after a top-up the
+balance goes up and the skipped repos stay stale for a week or a month. The credits popover now shows
+them and resumes them in one click.
+
+- **The read**: `getCreditBacklog(org)` (`src/lib/db/credit-backlog.ts`) reads the org's rescore
+  `ScanJob` rows touched in the last 35 days (bounded, org-constrained, newest first), keeps watched
+  repos only, and folds them with the pure `foldCreditBacklog` (`src/lib/credit-backlog-model.ts`): a
+  repo is owed when its **newest** rescore job is a credit skip. A newer job of any state (done, failed
+  for another reason, still queued), or a scan that landed after the skip by another path
+  (`Repository.lastScanAt`), clears it. Probe-lane jobs and skips with any other error never count. A
+  skip is read from the job's settled state, never from `creditCharged`.
+- **The gate**: `GET /api/org/credits` adds `creditBacklog: { count, repos: [{ repo, skippedAt, via }],
+  oldestSkippedAt }` (ISO strings; `via` is `cadence | push | import | manual`) **only** for a viewer
+  who passes `requireOrgAccess`, the gate `POST /api/org/scan` enforces. A read-only viewer gets the
+  balance and no repo list; a failed backlog read omits the field rather than failing the response.
+- **The action** (`CreditsControl.backlogUi.tsx`): "N watched repos missed a scan for credits since
+  <date>" and a **Scan N now - draws up to M credits** button. `resumePlan` takes the oldest skips up
+  to the same cap the scan route applies (balance plus free allowance left) and states the draw with
+  `immediateScanCredits`'s arithmetic (count minus free scans left); the rest are named as still
+  waiting. With no capacity the button reads **Top up first** and is inert. The click is the existing
+  `useOrgScanButton().run({ repos })`, so no new route, price or reservation path exists: the scan
+  route reserves one credit per repo beyond the allowance exactly as "Scan all watched" does. A latch
+  makes a double click one run; when the run ends the popover re-reads balance, ledger and backlog.
+- **Healthy org**: a backlog of 0 renders nothing, and the scan hook is not mounted.
+
 ## Ledger & consumption safety (`src/lib/db/credits.ts`)
 
 - `Organization.scanCredits` is the balance; `CreditLedger` is the append-only audit trail (`delta`,
