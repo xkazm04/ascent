@@ -5,7 +5,8 @@
 // arithmetic, that arithmetic belongs in the module that owns the data, not here — otherwise the
 // agent door and the dashboard would eventually disagree about the same fact.
 //
-// This module keeps the FLEET-STANDING tools and the dispatcher. The org's own curated corpus (skills,
+// This module keeps the FLEET-STANDING tools and the dispatcher; which handler runs for a catalog
+// name is the one table in `tool-registry.ts`. The org's own curated corpus (skills,
 // registry subjects, lessons) is projected by `registry-reads.ts`, and the two write tools by
 // `registry-writes.ts` — see those files for why the split is by rule and not by size.
 //
@@ -28,12 +29,9 @@ import { deliveredMemoryIds, recallMemories } from "@/lib/memory/recall";
 import { describeGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
 import { resolveFleetGatePolicies } from "@/lib/scoring/gate-resolve";
 import { PRACTICES } from "@/lib/practices";
-import { findSkills, getGoverningSubject, getSkill, getSkillLessons } from "@/lib/mcp/registry-reads";
 import { fail, str, type Args, type ToolResult } from "./tool-result";
 export { toolResultText, type ToolResult } from "./tool-result";
-import { citeMemory, reportSkillInvoke } from "@/lib/mcp/registry-writes";
-import { compareAgainstExemplar } from "@/lib/mcp/exemplar-tool";
-import { claimFollowupsTool, getFixBriefTool, reportAttemptTool } from "@/lib/mcp/work-tools";
+import { toolBinding } from "@/lib/mcp/tool-registry";
 import { MCP_TOOLS } from "@/lib/mcp/tools";
 import { validateArgs } from "@/lib/mcp/validate-args";
 
@@ -47,7 +45,7 @@ const num = (a: Args, k: string, dflt: number, max: number): number => {
   return Number.isFinite(n) ? Math.max(1, Math.min(max, Math.floor(n))) : dflt;
 };
 
-async function repoStanding(org: string, args: Args): Promise<ToolResult> {
+export async function repoStanding(org: string, args: Args): Promise<ToolResult> {
   const rollup = await getOrgRollup(org);
   if (!rollup) return fail(`No data for organization "${org}".`);
   const repo = str(args, "repo");
@@ -89,7 +87,7 @@ async function repoStanding(org: string, args: Args): Promise<ToolResult> {
   };
 }
 
-async function gateVerdict(org: string, args: Args): Promise<ToolResult> {
+export async function gateVerdict(org: string, args: Args): Promise<ToolResult> {
   const repo = str(args, "repo");
   if (!repo) return fail("Provide a repository as \"owner/name\".");
   const rollup = await getOrgRollup(org);
@@ -136,7 +134,7 @@ async function gateVerdict(org: string, args: Args): Promise<ToolResult> {
   };
 }
 
-async function openRecommendations(org: string, args: Args): Promise<ToolResult> {
+export async function openRecommendations(org: string, args: Args): Promise<ToolResult> {
   const limit = num(args, "limit", 10, 50);
   const repo = str(args, "repo");
   // THE REPO FILTER RUNS BEFORE THE CAP, inside the query. This handler used to ask for the fleet's
@@ -171,7 +169,7 @@ async function openRecommendations(org: string, args: Args): Promise<ToolResult>
   };
 }
 
-async function aiStance(org: string, args: Args): Promise<ToolResult> {
+export async function aiStance(org: string, args: Args): Promise<ToolResult> {
   const published = await getActiveOrgStance(org);
   if (!published) {
     return fail(
@@ -272,7 +270,7 @@ async function aiStance(org: string, args: Args): Promise<ToolResult> {
   };
 }
 
-function practiceShape(args: Args): ToolResult {
+export function practiceShape(args: Args): ToolResult {
   const id = str(args, "practiceId");
   if (!id) {
     return {
@@ -297,7 +295,7 @@ function practiceShape(args: Args): ToolResult {
   };
 }
 
-async function recallMemory(org: string, args: Args): Promise<ToolResult> {
+export async function recallMemory(org: string, args: Args, opts: RunToolOptions = {}): Promise<ToolResult> {
   const query = str(args, "query");
   if (!query) return fail("Provide a `query` describing what you are about to do or decide.");
   const limit = num(args, "limit", 5, 20);
@@ -341,7 +339,10 @@ async function recallMemory(org: string, args: Args): Promise<ToolResult> {
   // DELIVERIES ARE NOW COUNTED AT THIS DOOR. They never were: the REST recall route bumped
   // `accessCount` and this handler did not, so every memory an agent read through MCP looked, to
   // decay.ts, like one nobody had ever asked for. Best-effort by contract, and only what was returned.
-  await bumpMemoryAccessCounts(org, deliveredMemoryIds({ ...result, selected })).catch(() => 0);
+  // A companion side-read (Athena) opts out: an operator's chat turn is not an agent using a memory.
+  if (opts.countDeliveries !== false) {
+    await bumpMemoryAccessCounts(org, deliveredMemoryIds({ ...result, selected })).catch(() => 0);
+  }
 
   return {
     structuredContent: {
@@ -407,21 +408,37 @@ export interface McpPrincipal {
   label?: string | null;
 }
 
+/** Per-call dispatch options. Optional and trailing, so every existing `runTool` call is unchanged. */
+export interface RunToolOptions {
+  /**
+   * Whether `recall_org_memory` counts what it returned as DELIVERED (`bumpMemoryAccessCounts`).
+   * Default true, the MCP door's contract. Athena passes false: a companion side-read must not feed
+   * the Memory tab's ranking from an operator conversation.
+   */
+  countDeliveries?: boolean;
+}
+
 /**
  * Dispatch by tool name. SCOPE, PLAN and WRITE enforcement all happen BEFORE this, in the route or in
  * Athena's grounding — this function trusts its caller completely, as it always has, and each door
  * carries its own gate rather than assuming the other ran. Load-bearing now that four tools WRITE.
  *
- * `principal` is OPTIONAL and its absence FAILS CLOSED: a work tool reached without one is refused
- * rather than run under an invented actor. Athena passes none (it refuses `mutates` tools outright),
- * and the MCP route always passes one, so the refusal is unreachable in practice — which is exactly
+ * `principal` is OPTIONAL and its absence FAILS CLOSED: a tool whose binding declares `holder: true`
+ * is refused rather than run under an invented actor. Athena passes none (she is offered no holder
+ * tool), and the MCP route always passes one, so the refusal is unreachable in practice, which is exactly
  * the state a fail-closed default should be in.
  */
-export async function runTool(name: string, org: string, args: Args, principal?: McpPrincipal): Promise<ToolResult> {
-  // THE SCHEMA IS ENFORCED HERE, BEFORE THE SWITCH — at the dispatcher rather than at either door, so
+export async function runTool(
+  name: string,
+  org: string,
+  args: Args,
+  principal?: McpPrincipal,
+  opts: RunToolOptions = {},
+): Promise<ToolResult> {
+  // THE SCHEMA IS ENFORCED HERE, BEFORE THE LOOKUP, at the dispatcher rather than at either door, so
   // the MCP route and Athena's in-process grounding cannot disagree about what a tool accepts, and a
   // handler added by a future lane is validated without remembering to be. `null` for an unknown
-  // tool: that is the default branch's answer to give, not a schema complaint.
+  // tool: that is the lookup's answer to give, not a schema complaint.
   const def = MCP_TOOLS.find((t) => t.name === name);
   const violation = def ? validateArgs(def.inputSchema, args) : null;
   if (violation) {
@@ -429,40 +446,10 @@ export async function runTool(name: string, org: string, args: Args, principal?:
     // is something the caller can fix on its next call. See `validate-args.ts`.
     return fail(`${violation} Fix the argument and call ${name} again — nothing was done.`);
   }
-  switch (name) {
-    case "claim_followups":
-      return principal ? claimFollowupsTool(org, args, principal) : unattributed(name);
-    case "get_fix_brief":
-      return principal ? getFixBriefTool(org, args, principal) : unattributed(name);
-    case "report_attempt":
-      return principal ? reportAttemptTool(org, args, principal) : unattributed(name);
-    case "report_skill_invoke":
-      return reportSkillInvoke(org, args, Date.now());
-    case "cite_memory":
-      return citeMemory(org, args);
-    case "find_skills":
-      return findSkills(org, args);
-    case "get_skill":
-      return getSkill(org, args);
-    case "get_skill_lessons":
-      return getSkillLessons(org, args);
-    case "get_governing_subject":
-      return getGoverningSubject(org, args);
-    case "compare_against_exemplar":
-      return compareAgainstExemplar(org, args);
-    case "get_repo_standing":
-      return repoStanding(org, args);
-    case "get_gate_verdict":
-      return gateVerdict(org, args);
-    case "list_open_recommendations":
-      return openRecommendations(org, args);
-    case "get_ai_stance":
-      return aiStance(org, args);
-    case "get_practice_shape":
-      return practiceShape(args);
-    case "recall_org_memory":
-      return recallMemory(org, args);
-    default:
-      return fail(`Unknown tool "${name}".`);
-  }
+  // ONE TABLE, keyed by the catalog (`tool-registry.ts`). Needing a named holder is the binding's
+  // declared property, so the fail-closed refusal below is one line rather than a ternary per arm.
+  const binding = toolBinding(name);
+  if (!binding) return fail(`Unknown tool "${name}".`);
+  if (binding.holder) return principal ? binding.run(org, args, principal, opts) : unattributed(name);
+  return binding.run(org, args, principal, opts);
 }
