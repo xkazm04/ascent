@@ -85,7 +85,7 @@ export function LiveWarRoom({
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10"
-        style={{ background: "radial-gradient(60rem 40rem at 50% -16%, rgba(59,158,255,0.08), transparent 60%)" }}
+        style={{ background: "radial-gradient(60rem 40rem at 50% -16%, color-mix(in srgb, var(--color-accent) 8%, transparent), transparent 60%)" }}
       />
 
       {dynamicTv ? (
