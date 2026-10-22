@@ -2,7 +2,7 @@
 
 // Registry history, fetched on open. A missing version stays unresolved. It is never borrowed from a neighbour.
 import { useState } from "react";
-import { Caption, CellMark, GhostAction, type CellState } from "@/components/kit";
+import { Caption, CellMark, GhostAction, type CellState, Notice } from "@/components/kit";
 import { timeAgo } from "@/lib/ui";
 import { groupLessonsByVersion, traceGroupLabel } from "@/lib/registry/trace";
 import { fetchSkillTrace, type TraceResponse } from "./skillTrace";
@@ -27,10 +27,9 @@ export function SkillTraceV2({ slug, skill }: { slug: string; skill: string }) {
       )}
       <Caption className="mt-2">Every version of this skill in the registry, and the lessons each run recorded against it.</Caption>
       {state === "done" && trace?.error && (
-        <p role="alert" className="mt-2 type-body-sm text-slate-100">
-          <span aria-hidden>! </span>
+        <Notice className="mt-2">
           {trace.error}
-        </p>
+        </Notice>
       )}
       {state === "done" && trace && !trace.error && <TraceBody trace={trace} />}
     </div>

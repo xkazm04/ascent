@@ -1,5 +1,5 @@
-// Dev-only kit specimen: every composition part in its states, plus the foundations, in whichever theme
-// the header switch has active. Synthetic data throughout (nothing here is a measurement). Not linked
+// Dev-only kit specimen: every composition part in its states, plus the foundations, always in Prism (the
+// single reference for the look; PrismLock pins the theme, so the header switch does not matter). Synthetic data throughout (nothing here is a measurement). Not linked
 // from anywhere; a production build serves 404.
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/Brand";
@@ -7,6 +7,9 @@ import { KitParts } from "./KitParts";
 import { KitV2 } from "./KitV2";
 import { KitBatch3 } from "./KitBatch3";
 import { KitBatch4 } from "./KitBatch4";
+import { KitViz } from "./KitViz";
+import { KitBatch6 } from "./KitBatch6";
+import { PrismLock } from "./PrismLock";
 
 export const dynamic = "force-dynamic";
 
@@ -43,13 +46,14 @@ export default function KitSpecimen() {
   if (process.env.NODE_ENV === "production") notFound();
   return (
     <>
+      <PrismLock />
       <SiteHeader />
       <main id="main" className="mx-auto w-full max-w-6xl space-y-12 px-5 py-10">
         <header>
           <p className="type-label tracking-[0.22em] text-slate-500">Dev only · synthetic data</p>
           <h1 className="mt-2 type-display font-semibold text-white">The composition kit</h1>
           <p className="mt-2 max-w-2xl type-body text-slate-400">
-            Switch Altimeter / Prism in the header. Parts live in src/components/kit; the Prism expression is src/app/kit.css.
+            The Prism reference. Parts live in src/components/kit; the expression is src/app/kit.css, kit-viz.css and kit-modules.css.
           </p>
         </header>
 
@@ -78,7 +82,7 @@ export default function KitSpecimen() {
         </section>
 
         <section className="space-y-3" data-specimen="spectral">
-          <h2 className="type-label tracking-[0.22em] text-slate-500">The Spectral Nine (Prism: names a dimension, never decorates)</h2>
+          <h2 className="type-label tracking-[0.22em] text-slate-500">The Spectral Nine (names a dimension, never decorates)</h2>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-9">
             {Array.from({ length: 9 }, (_, i) => (
               <div key={i} className="rounded-md border border-divider p-2 type-mono-sm text-slate-300">
@@ -87,8 +91,7 @@ export default function KitSpecimen() {
               </div>
             ))}
           </div>
-          <p className="type-note text-slate-500">In Altimeter the swatches are empty: the spectral tokens exist only under the Prism theme.</p>
-        </section>
+                  </section>
 
         <section className="space-y-3" data-specimen="status">
           <h2 className="type-label tracking-[0.22em] text-slate-500">Status colours (meaning, unchanged across themes)</h2>
@@ -105,6 +108,8 @@ export default function KitSpecimen() {
         <KitV2 />
         <KitBatch3 />
         <KitBatch4 />
+        <KitViz />
+        <KitBatch6 />
 
         <KitParts />
       </main>

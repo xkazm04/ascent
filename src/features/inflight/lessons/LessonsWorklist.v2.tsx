@@ -1,10 +1,10 @@
 "use client";
 
 // The Lessons ledger, Prism composition. Same props and the same useLessonsView as LessonsWorklist; the ledger
-// is the kit-built DecisionLedgerV2 and the status travels as a glyph and a word, not a coloured pill.
+// is the kit-built DecisionLedger and the status travels as a glyph and a word, not a coloured pill.
 import { timeAgo } from "@/lib/ui";
 import type { LoopLessonRow } from "@/features/inflight/live/cockpit/loopTypes";
-import { DecisionLedgerV2, type LedgerAction, type LedgerColumn } from "@/features/inflight/proposals/DecisionLedger.v2";
+import { DecisionLedger, type LedgerAction, type LedgerColumn } from "@/components/kit";
 import { LessonsFilterBarV2 } from "./LessonsFilterBar.v2";
 import { isPendingLesson, lessonNamespace } from "./lessonsModel";
 import { useLessonsView } from "./useLessonsView";
@@ -59,7 +59,7 @@ export function LessonsWorklistV2({ org, initial }: { org: string; initial: Loop
         duplicate check any memory write does.
       </p>
       <LessonsFilterBarV2 rows={lessons} filters={filters} onChange={setFilters} shown={shown.length} />
-      <DecisionLedgerV2
+      <DecisionLedger
         caption="Lesson candidates"
         rows={shown}
         allRows={lessons}

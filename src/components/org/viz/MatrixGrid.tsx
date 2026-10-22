@@ -96,7 +96,7 @@ export function MatrixGrid({ axes, rows, title = "Matrix", className = "" }: Mat
     <div className={className}>
       {/* One accessible name for the grid, built from the cells it paints. The sr-only table sits
           OUTSIDE this element: it is the headers' home, so the grid adds no second set. */}
-      <div role="grid" aria-label={matrixAriaLabel(title, axes, rows)} onKeyDown={onKeyDown} className="relative">
+      <div role="grid" aria-label={matrixAriaLabel(title, axes, rows)} onKeyDown={onKeyDown} data-kit="matrix-grid" className="relative">
         <MatrixHatchDefs />
         <div aria-hidden="true" className="grid" style={{ gridTemplateColumns: columns }}>
           <div className="type-micro self-end border-b border-divider pb-1.5 font-mono uppercase tracking-[0.18em] text-slate-600">
@@ -155,7 +155,7 @@ export function MatrixGrid({ axes, rows, title = "Matrix", className = "" }: Mat
                   }}
                   className={`focus-ring relative h-10 cursor-pointer motion-safe:transition-shadow${here && roving.pinned ? " shadow-[inset_0_0_0_1px_var(--color-accent)]" : ""}`}
                 >
-                  <MatrixMark state={cell.state} base={base} alpha={FILL_ALPHA} />
+                  <MatrixMark state={cell.state} base={base} alpha={FILL_ALPHA} heat={isNum(cell.score) ? cell.score / 100 : undefined} />
                   {printed && (
                     <span
                       data-score

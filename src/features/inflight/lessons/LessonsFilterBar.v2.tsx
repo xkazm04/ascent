@@ -2,7 +2,7 @@
 
 // The Lessons ledger's filter chrome, Prism composition: the same facets and LessonFilters state as
 // LessonsFilterBar (Namespace, Kind, search), with the review-queue / settled-archive switch as a kit Segmented.
-import { FilterMenu, Input, Segmented, type FilterOption } from "@/components/kit";
+import { FilterBar, FilterCount, FilterMenu, Input, Segmented, type FilterOption } from "@/components/kit";
 import type { LoopLessonRow } from "@/features/inflight/live/cockpit/loopTypes";
 import { emptyLessonFilters, lessonFiltersActive, lessonNamespace, type LessonFilters } from "./lessonsModel";
 
@@ -25,7 +25,7 @@ export function LessonsFilterBarV2({
     onChange({ ...filters, [k]: next });
   };
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <FilterBar>
       <FilterMenu label="Namespace" options={uniq(rows.map(lessonNamespace))} selected={filters.namespaces} onToggle={(v) => toggle("namespaces", v)} onClear={() => onChange({ ...filters, namespaces: new Set() })} />
       <FilterMenu label="Kind" options={uniq(rows.map((r) => r.kind))} selected={filters.kinds} onToggle={(v) => toggle("kinds", v)} onClear={() => onChange({ ...filters, kinds: new Set() })} />
       <Input
@@ -45,17 +45,7 @@ export function LessonsFilterBarV2({
           { key: "archive", label: "Settled archive" },
         ]}
       />
-      <span className="ml-auto type-caption text-slate-400">
-        {shown} of {rows.length}
-        {lessonFiltersActive(filters) && (
-          <>
-            {" · "}
-            <button type="button" onClick={() => onChange(emptyLessonFilters())} className="focus-ring text-accent hover:text-white">
-              Clear filters
-            </button>
-          </>
-        )}
-      </span>
-    </div>
+      <FilterCount shown={shown} total={rows.length} active={lessonFiltersActive(filters)} onClear={() => onChange(emptyLessonFilters())} />
+    </FilterBar>
   );
 }

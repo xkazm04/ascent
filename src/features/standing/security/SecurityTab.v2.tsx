@@ -40,7 +40,7 @@ export function securityV2(d: SecurityTabData) {
     { label: "Security gate", value: gate.failing > 0 ? `${gate.failing} fail` : "all pass", tone: gate.failing > 0 ? "risk" : "good", detail: `${gate.passing} of ${sec.scanned} pass` },
   ];
   return (
-    <div className="stagger-children space-y-8">
+    <div data-role="security-v2" className="stagger-children space-y-8">
       <Masthead
         eyebrow="Security"
         statement={atRisk > 0 ? `${atRisk} of ${sec.scanned} repos` : `${sec.scanned} repos,`}

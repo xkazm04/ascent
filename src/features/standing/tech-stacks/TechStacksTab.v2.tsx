@@ -23,7 +23,7 @@ export function techStacksV2(slug: string, stackCount: number) {
     );
   }
   return (
-    <div className="stagger-children space-y-8">
+    <div data-role="tech-stacks-v2" className="stagger-children space-y-8">
       <Masthead
         eyebrow="Tech stacks"
         statement={`${stackCount} stacks,`}

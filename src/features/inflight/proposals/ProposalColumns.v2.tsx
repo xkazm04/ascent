@@ -4,12 +4,11 @@
 // words and glyphs (status never travels by hue), a dimension named by its mark, and no mono caps.
 // Where a loop proposal has no value for a column it prints a dash rather than inventing one.
 import Link from "next/link";
-import { Chip, DimensionMark } from "@/components/kit";
+import { Chip, DimensionMark, type LedgerColumn } from "@/components/kit";
 import { STATUS_LABEL, type FollowUpStatus } from "@/components/org/followups/followupsModel";
 import { ClaimLine } from "@/components/org/followups/FollowupChips";
 import { reportPermalink, timeAgo } from "@/lib/ui";
 import type { DimensionSpread } from "@/components/org/followups/followupsModel";
-import type { LedgerColumn } from "./DecisionLedger.v2";
 import type { ProposalRow } from "./proposalsModel";
 
 const GLYPH: Record<FollowUpStatus, string> = { open: "○", in_progress: "◐", done: "✓", dismissed: "–" };

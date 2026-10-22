@@ -761,3 +761,5 @@ contradictions only. See [org-intelligence.md](./org-intelligence.md) for the st
   playbook PR closed without merging: its ledger row stays `proposed` and the repo keeps reading as
   proposed (not adopted) on the card. Re-opening the PR and merging it, or the file landing another
   way, moves it to adopted.
+
+**Prism kit parts (2026-10-22, phase 2):** the Prism practice playbook and new-practice error lines now render their error lines through the kit `Notice` (a ruled line with a `!` glyph and the words, `role="alert"`), not an ad hoc paragraph. Same messages and behavior; see `docs/features/design-system/README.md`.

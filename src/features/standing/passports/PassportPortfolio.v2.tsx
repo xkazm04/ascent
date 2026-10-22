@@ -38,7 +38,7 @@ export function PassportPortfolioV2({ rows, org, decisions }: { rows: PassportRo
         <SectionHead id="passport-table-heading" eyebrow="Repositories" title="Every passport" named="in this cohort." />
         <div className="mt-5">
           {visible.length === 0 ? (
-            <p className="text-[1.0625rem] text-slate-300">
+            <p className="type-body text-slate-300">
               No repos in the {scopeLabel} cohort for the current scope. Click the highlighted quadrant again (or the ✕ above) to clear it.
             </p>
           ) : (

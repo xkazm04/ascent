@@ -41,6 +41,7 @@ export function MatrixMark({
   alpha,
   radius = 3,
   inset = "inset-[3px]",
+  heat,
 }: {
   state: VizState;
   /** Score-derived paint (`scoreHex`) where the cell has one; the accent otherwise. */
@@ -48,6 +49,8 @@ export function MatrixMark({
   alpha: number;
   radius?: number;
   inset?: string;
+  /** 0..1 score share, read by the Prism heat ramp (lightness, not hue). */
+  heat?: number;
 }) {
   return (
     <div aria-hidden className={`pointer-events-none absolute ${inset}`}>
@@ -56,6 +59,8 @@ export function MatrixMark({
         {!isVoid(state) && (
           <rect
             data-mark
+            data-state={state}
+            style={heat == null || !Number.isFinite(heat) ? undefined : ({ "--heat": Math.max(0, Math.min(1, heat)) } as React.CSSProperties)}
             x={0}
             y={0}
             width="100%"

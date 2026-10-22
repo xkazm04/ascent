@@ -43,7 +43,7 @@ export function ControlMatrixGridV2({
                     {c.label}
                   </button>
                 ) : (
-                  <span className="font-mono text-[0.8125rem] text-slate-400">{c.label}</span>
+                  <span className="font-mono type-note text-slate-400">{c.label}</span>
                 )}
                 <span className="mt-1 block type-caption text-slate-400">{tally}</span>
               </th>

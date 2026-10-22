@@ -83,7 +83,7 @@ export function PassportFactsV2({
         ]}
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-divider pt-3 md:col-span-2">
-        <span className="min-w-0 truncate text-[0.9375rem] text-slate-400" title={d.purpose}>
+        <span className="min-w-0 truncate type-body-sm text-slate-400" title={d.purpose}>
           {d.purpose} · scan confidence {Math.round(d.confidence * 100)}%
         </span>
         <GhostAction href={`/report?repo=${encodeURIComponent(fullName)}`}>Full report</GhostAction>

@@ -4,7 +4,7 @@
 // the Gaps cell (failing and not-judged as words), and the advisories cell. Same inputs as the v1 parts in
 // SecurityRiskRegisterParts.tsx and securityRegisterShared.ts; status travels by glyph and word, not hue.
 import type { ReactNode } from "react";
-import { Chip, VoidMark } from "@/components/kit";
+import { Chip, SortHead, VoidMark } from "@/components/kit";
 import type { SecurityRegisterRow } from "@/lib/org/security";
 import { checkTally, type SecurityMatrixInput } from "./securityMatrixModel";
 import type { RegisterAdvisories } from "./securityRegisterShared";
@@ -12,17 +12,10 @@ import type { ThSort } from "./SecurityRiskRegisterParts";
 import type { SortKey } from "./securityRegisterShared";
 
 export function ThV2({ k, label, align = "left", title, sort, badge }: { k: SortKey; label: string; align?: "left" | "center" | "right"; title?: string; sort: ThSort; badge?: ReactNode }) {
-  const on = sort.key === k;
   return (
-    <th className={`px-4 py-3 font-normal text-${align}`} aria-sort={on ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}>
-      <button type="button" onClick={() => sort.onSort(k)} title={title} className="focus-ring inline-flex items-center gap-1.5 transition hover:text-white">
-        {label}
-        <span aria-hidden className={on ? "text-white" : "text-slate-500"}>
-          {on ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
-        </span>
-      </button>
-      {badge}
-    </th>
+    <SortHead active={sort.key === k} dir={sort.dir} onSort={() => sort.onSort(k)} title={title} align={align} idle after={badge}>
+      {label}
+    </SortHead>
   );
 }
 

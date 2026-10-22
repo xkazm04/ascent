@@ -2,7 +2,7 @@
 
 // Mint, list and revoke org API tokens. Same requests as the Altimeter panel. The secret is shown once.
 import { useState } from "react";
-import { Caption, Chip, ChipRow, FormField, Frame, GhostAction, HairlineList, Input, Panel, PrimaryAction, SectionHead } from "@/components/kit";
+import { Caption, Chip, ChipRow, FormField, Frame, GhostAction, HairlineList, Input, Panel, PrimaryAction, SectionHead, Notice } from "@/components/kit";
 import type { ApiTokenSummary, SkillTokenScope } from "@/lib/db";
 import { DEFAULT_PICKED_SCOPES } from "./apiTokenDefaults";
 
@@ -153,10 +153,9 @@ export function ApiTokensPanelV2({
         </div>
       </div>
       {error && (
-        <p role="alert" className="mt-3 type-body-sm text-slate-100">
-          <span aria-hidden>! </span>
+        <Notice className="mt-3">
           {error}
-        </p>
+        </Notice>
       )}
     </Frame>
   );

@@ -1,4 +1,4 @@
-# Prism migration gaps (phase 1 of retiring Altimeter)
+# Prism migration gaps (phases 1 and 2 of retiring Altimeter)
 
 Status: **2026-10-22.** Phase 1 of 3: find everything not yet in Prism, migrate what can be migrated
 without changing the Altimeter render. Phase 2 finishes what is listed under "Remaining"; phase 3 deletes the
@@ -92,32 +92,22 @@ inline Altimeter blue (`#3b9eff`) and cannot read the theme: needs a decision (R
 * 13 org tabs gained `*.v2.tsx` compositions (table above); `NextMoveLink` kept in the three admin v2 files so
   `tab-link-graph.test.ts` keeps seeing the edges.
 
-## Remaining (for phase 2)
+## Done in phase 2 (2026-10-22)
 
-1. **Visual verification of every v2 added here** (Altimeter pair-check at 0 px, Prism shots at 1280x800, 1920x1080, 1440x3200,
-   `scripts/kit/roles/<module>.json`, drive scripts). None were possible without a dev server.
-2. **Interior components** reused by the new v2 files that are Altimeter-shaped (card boxes, mono caps, `rounded-*`): `StackRadarChart`,
-   `MatrixGrid`, `SecurityCheckMatrix`, `SecurityFindings`, `AdoptionCurve`, `DigestDimChart`, `TeamsMatrix`, `AuditLogCells`,
-   `MembersTable`, Care* bodies, Loom grid, `ProposalDetail`. The per-module `data-role="<module>-v2"` flattening rules in
-   `kit.css` exist for the older modules (governance, passports, practices, delivery, executive, memory, registry, settings, skills)
-   and **not yet** for the new ones.
-3. **Out-of-layout / non-themeable surfaces**: `global-error.tsx`; Remotion-style about compositions; canvas in `FleetMap`
-   (star palette); `chartScale.ts` canvases; OG images, email and PDF (intentionally brand-fixed, skip).
-4. **Data hues that are Altimeter blue** (decision, not a leak): `passport-display.ts` (`#3b9eff`, `#7dd3fc`), deploy marker
-   `trends/deployTone.ts` `#60a5fa`, `STACK_COLORS` `#3987e5`/`#1596b0`, `repoTrajectoryFilters.ts` and `liveWarRoomShared.ts`
-   `manual: #38bdf8`, segment default colour `#3b9eff` (`lib/db/segments.ts`, stored in the DB), brand colour defaults `#2563eb`.
-5. **Public routes have no Prism composition**: `/pricing`, `/report/**`, `/launch`, `/about*`, `/onboarding`, `/portfolio`, `/usage`,
-   `/leaderboard`, `/scorecard`, `/trends` render through tokens only. HANDOFF decision "poster scale vs dashboards" applies.
+* **Kit is Prism-only** (`PrismLock`) and now specimens ScoreRing, AltimeterGauge, RadarChart, StackRadarChart, MatrixGrid heat cells, LevelBadge/ScorePill, the Live desk and the On Air wall (`KitViz`, `KitBatch6`, `KitLive`); treatments in `src/app/kit-viz.css`.
+* **Parts promoted** from the v2 files: `Notice`, `FilterBar`/`FilterCount`, `SortHead`, `DecisionLedger`, `FillBar`/`BarRow`, `Display as="span"`, `Caption as`. Call sites repointed; the local `DecisionLedger.v2.tsx` is gone. Not built, by decision: a section header with a `WhyChip` slot (`SectionHead actions` already is the slot), `RowCard`/`PersonRow` beyond `BarRow` (one reuse), a client drawer theme read (`useIsPrism` stays).
+* **Flattening rules** for the new v2 modules: `src/app/kit-modules.css` (roots gained `data-role` on Security, Adoption, Tech stacks, Proposals, Lessons; the others already had one). Remaining item 2 below is therefore half done: the interiors still carry their markup, now with their radius, muting floor, caps and inputs corrected by CSS.
+* **Polish**: Prism focus floor for bare links and buttons, `type-*` roles in place of `text-[..rem]` in Passports v2, ad hoc error paragraphs became `Notice`.
+* Still **not seen rendered** (no dev server was running on :3100 for either phase); see the report of this pass.
+
+## Remaining (for phase 3 and the owner)
+
+1. **Visual verification of every v2 and of the new kit sections** (Altimeter pair-check at 0 px, Prism shots at 1280x800, 1920x1080, 1440x3200, `scripts/kit/roles/<module>.json`, drive scripts). Never done for the phase-1 or phase-2 work. Check first: the MatrixGrid heat ramp (white text on paper at up to 36%), AltimeterGauge rope hues, the focus floor next to `outline-none` components.
+2. **Interior components** reused by the v2 files that are still Altimeter-shaped in markup: `StackRadarChart`, `SecurityCheckMatrix`, `SecurityFindings`, `AdoptionCurve`, `DigestDimChart`, `TeamsMatrix`, `AuditLogCells`, `MembersTable`, Care* bodies, Loom grid, `ProposalDetail`. CSS corrects radius, caps, floor and inputs; card boxes and layout remain. One-off figure sizes (`text-[1.75rem] font-light` in SegmentMaturity, ContextDecayRows) want a Prism figure role.
+3. **Out-of-layout / non-themeable surfaces**: `global-error.tsx`; the `/about` Remotion compositions (`components/about/compositionShared.tsx` re-declares `#3b9eff`/`#080d1a` as hex and lerps them, so it cannot read CSS variables); canvas in `FleetMap`; `chartScale.ts` canvases; OG images, email and PDF (intentionally brand-fixed, skip).
+4. **Data hues that are Altimeter blue** (decision, not a leak): `passport-display.ts`, `trends/deployTone.ts`, `STACK_COLORS`, `repoTrajectoryFilters.ts`, `liveWarRoomShared.ts`, segment default colour `#3b9eff` (`lib/db/segments.ts`, stored in the DB), brand colour defaults `#2563eb`.
+5. **Public routes have no Prism composition**: `/pricing`, `/report/**`, `/launch`, `/about*`, `/onboarding`, `/portfolio`, `/usage`, `/leaderboard`, `/scorecard`, `/trends` render through tokens only. HANDOFF decision "poster scale vs dashboards" applies.
 6. **Prism landing parity**: self-hosted setup block, gallery rail, header/footer, `selfHosted` flag.
-7. **AGENTS.md import-rule conflict**: the new v2 files import `ScopeFilterBar`, `NextMoveLink`, `TechStackSelector`,
-   `RepoDimensionModal`, `DIMS`/`fmtHours`/`postureLabel` from `components/org/shared` (as the older v2 files already do).
-8. Not run: `npx next build`, `npx eslint`, `npm run copy:check`.
-
-## Kit parts the new v2 files wanted (Prism specimens for `/kit`)
-
-`DecisionLedger` (selectable rows plus sticky batch bar; now local in `features/inflight/proposals/DecisionLedger.v2.tsx`),
-`FilterBar` (filter menus + search + archive switch), `Display` accepting `span`, a paper-fill bar / meter, sortable table head,
-`Caption` as `div`/`span`, ruled status banner (red boxed notices in audit), section header with `WhyChip` slot, `RowCard` /
-`PersonRow` (Care profile, contributors), a client-drawer theme read other than `useIsPrism`. Altimeter-only components with
-no specimen at all: `AltimeterGauge`, `RadarChart`, `StackRadarChart`, `MatrixGrid` heat cells, `LevelBadge`, score rings, the
-Live desk and on-air wall (they carry their own palette module).
+7. **AGENTS.md import-rule conflict**: v2 files import `ScopeFilterBar`, `NextMoveLink`, `TechStackSelector`, `RepoDimensionModal`, `DIMS`/`fmtHours`/`postureLabel` from `components/org/shared`.
+8. **Phase 3 must know**: delete `PrismLock` and the Altimeter notes in `docs/features/design-system/README.md`; the kit CSS lives in three files (`kit.css`, `kit-viz.css`, `kit-modules.css`) that all key on `html[data-theme="prism"]`, so removing the switch means either keeping the attribute on `<html>` or dropping that prefix. Components with hooks added this pass (`data-kit`, `data-role`, `data-dimension`, `--heat`) are inert in Altimeter. `useIsPrism` is still used by Athena, the Live headline sparkline and the war room.
+9. Not run: `npx eslint`, `npm run copy:check`.

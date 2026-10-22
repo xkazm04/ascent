@@ -29,7 +29,7 @@ function PlanRowButton({
         onClick={() => onSelect(active ? null : { to, id: row.id, label: row.label, repos: row.repos })}
         className={`focus-ring flex w-full items-baseline justify-between gap-3 px-2 py-2 text-left hover:bg-slate-900 ${active ? "bg-slate-900" : ""}`}
       >
-        <span className="min-w-0 text-[0.9375rem] text-slate-200">
+        <span className="min-w-0 type-body-sm text-slate-200">
           {row.label}
           {row.placeholderRepos.length > 0 && (
             <span className="ml-2 type-caption text-slate-400">
@@ -85,7 +85,7 @@ export function PromotionPlanV2({
                   ))}
                 </HairlineList>
               ) : (
-                <p className="mt-2 text-[0.9375rem] text-slate-400">No assessable repo on this step.</p>
+                <p className="mt-2 type-body-sm text-slate-400">No assessable repo on this step.</p>
               )}
             </section>
           );

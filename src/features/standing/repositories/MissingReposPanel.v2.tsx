@@ -4,7 +4,7 @@
 // MissingReposPanel. The name stays text: RepoRow's link cannot open an external URL in a new tab.
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Caption, Chip, Frame, GhostAction, HairlineList, Lede, RepoRow, RepoRowCell, SectionHead } from "@/components/kit";
+import { Caption, Chip, Frame, GhostAction, HairlineList, Lede, RepoRow, RepoRowCell, SectionHead, Notice } from "@/components/kit";
 import { timeAgo } from "@/lib/ui";
 import type { MissingRepoRow } from "./MissingReposPanel";
 
@@ -92,10 +92,9 @@ export function MissingReposPanelV2({ org, repos }: { org: string; repos: Missin
         })}
       </HairlineList>
       {error && (
-        <p role="alert" className="mt-3 type-body-sm text-slate-100">
-          <span aria-hidden>! </span>
+        <Notice className="mt-3">
           {error}
-        </p>
+        </Notice>
       )}
     </Frame>
   );

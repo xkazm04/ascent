@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "./theme-prism.css";
 @import "./kit.css";
+@import "./kit-viz.css";
+@import "./kit-modules.css";
 
 /* Ascent — "Altimeter" identity: cold slate canvas, a single confident azure accent,
    elevation-strata motif, mono tabular stats. */

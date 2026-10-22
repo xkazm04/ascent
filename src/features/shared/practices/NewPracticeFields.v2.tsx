@@ -1,7 +1,7 @@
 "use client";
 
 // Labeled fields for the Prism new-practice dialog. Ids match the labels; values stay controlled.
-import { FormField, Input, Select, Textarea } from "@/components/kit";
+import { FormField, Input, Select, Textarea, Notice } from "@/components/kit";
 import { PLAYBOOK_TEMPLATES } from "@/lib/org/playbook-templates";
 
 export function NewPracticeFieldsV2({
@@ -86,10 +86,9 @@ export function NewPracticeFieldsV2({
         />
       </FormField>
       {error && (
-        <p role="alert" className="type-note text-slate-100">
-          <span aria-hidden>! </span>
+        <Notice>
           {error}
-        </p>
+        </Notice>
       )}
     </div>
   );

@@ -5,7 +5,7 @@
 import { CopyForLlm } from "@/components/CopyForLlm";
 import { ConfirmAction, draftPrConfirm } from "@/components/ConfirmAction";
 import { playbookMarkdown, playbookStarterFile } from "@/lib/org/playbook-brief";
-import { Chip, ChipRow, DimensionMark, GhostAction, parseDimension } from "@/components/kit";
+import { Chip, ChipRow, DimensionMark, GhostAction, parseDimension, Notice } from "@/components/kit";
 import { PlaybookApplyControlsV2 } from "./PlaybookApplyControls.v2";
 import { PlaybookAdoptionRow } from "./PlaybookCardAdoption";
 import { PlaybookApplyBatch } from "./PlaybookApplyBatch";
@@ -108,16 +108,14 @@ export function PlaybookCardV2({
           : { title: "", body: "", confirmLabel: "", tone: "default" as const })}
       />
       {c.markError && (
-        <p role="alert" className="mt-2 text-slate-100">
-          <span aria-hidden>! </span>
+        <Notice className="mt-2">
           {c.markError}
-        </p>
+        </Notice>
       )}
       {c.prError && (
-        <p role="alert" className="mt-2 text-slate-100">
-          <span aria-hidden>! </span>
+        <Notice className="mt-2">
           {c.prError}
-        </p>
+        </Notice>
       )}
       {c.prResult && (
         <p className="mt-2 text-slate-200">

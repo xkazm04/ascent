@@ -989,3 +989,5 @@ than that window, or reworded past it, could not be superseded from the product.
   is still history. Another author's private predecessor is left out and counted
   in `lineageHidden`. A `v2` with no predecessor on record was edited in place
   (`PATCH` also raises the version), and the list says so.
+
+**Prism kit parts (2026-10-22, phase 2):** the Memory list-read error now render their error lines through the kit `Notice` (a ruled line with a `!` glyph and the words, `role="alert"`), not an ad hoc paragraph. Same messages and behavior; see `docs/features/design-system/README.md`.

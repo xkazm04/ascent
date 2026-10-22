@@ -43,7 +43,7 @@ export function CapabilityMatrixV2({ repos, rollout = [] }: { repos: CapabilityM
         <StatTile label="Repos assessed" value={matrix.totals.repos} sub={`${matrix.unassessed.length} not assessed`} />
         <StatTile
           label="Capabilities proven"
-          value={ratio === null ? <span className="text-[0.9375rem] font-normal text-slate-400">not measured</span> : `${matrix.totals.verified}/${matrix.totals.declared}`}
+          value={ratio === null ? <span className="type-body-sm font-normal text-slate-400">not measured</span> : `${matrix.totals.verified}/${matrix.totals.declared}`}
           sub={ratio === null ? "no manifest read yet" : `${ratio}% of what the fleet declares`}
         />
         <StatTile label="Declarations with a control" value={matrix.totals.wired} sub="pre-push or CI hard pass" />
@@ -94,7 +94,7 @@ export function CapabilityMatrixV2({ repos, rollout = [] }: { repos: CapabilityM
             These repositories are counted in no ratio above. Their latest scan did not read a manifest, so the honest
             statement is that we do not know what they declare: not that they declare nothing.
           </Lede>
-          <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[0.9375rem] text-slate-300">
+          <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 type-body-sm text-slate-300">
             {matrix.unassessed.map((u) => (
               <li key={u.fullName}>
                 {u.fullName}

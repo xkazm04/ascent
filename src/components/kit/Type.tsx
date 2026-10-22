@@ -24,7 +24,7 @@ export function Display({
   className = "",
   id,
 }: {
-  as?: "h1" | "h2" | "h3" | "h4" | "p" | "div";
+  as?: "h1" | "h2" | "h3" | "h4" | "p" | "div" | "span";
   level?: DisplayLevel;
   /** The named phrase, rendered as `<b>` so it takes the 600 weight and, for `figure`, stays inline. */
   named?: ReactNode;
@@ -66,16 +66,28 @@ export function Lede({ children, className = "" }: { children: ReactNode; classN
 }
 
 /** Metadata and fine print: 13px mute (`note` = 15px dim for footnotes under a figure). */
-export function Caption({ children, tone = "caption", className = "" }: { children: ReactNode; tone?: "caption" | "note"; className?: string }) {
+export function Caption({
+  children,
+  tone = "caption",
+  className = "",
+  as: Tag = "p",
+}: {
+  children: ReactNode;
+  tone?: "caption" | "note";
+  className?: string;
+  /** `span` / `div` where a caption sits inside inline text or beside a control. */
+  as?: "p" | "div" | "span";
+}) {
+  const T = Tag as ElementType;
   return (
-    <p
+    <T
       data-kit="caption"
       data-tone={tone}
       data-role="caption"
       className={`${tone === "note" ? "type-body-sm text-slate-500" : "type-caption text-slate-400"} ${className}`}
     >
       {children}
-    </p>
+    </T>
   );
 }
 

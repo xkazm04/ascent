@@ -4,7 +4,7 @@
 // the rest, pending invites), then hairline Frames for the roster and for invites instead of a heading over
 // a boxed table. Same hook, same table and invite panel as v1.
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
-import { Caption, Frame, Masthead, SectionHead, type MastheadFigure } from "@/components/kit";
+import { Caption, Frame, Masthead, Notice, SectionHead, type MastheadFigure } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { MemberInvites } from "./MemberInvites";
 import { MembersTable } from "./MembersTable";
@@ -35,9 +35,7 @@ export function MembersPanelV2({ slug, initial, initialInvites, selfLogin, canMa
         pattern="dots"
       />
       {p.error && (
-        <p role="alert" className="type-body-sm text-danger-soft">
-          {p.error}
-        </p>
+        <Notice>{p.error}</Notice>
       )}
       <Frame edge="both" aria-label="Roster">
         <SectionHead eyebrow="Roster" title="Who holds" named="which role." />

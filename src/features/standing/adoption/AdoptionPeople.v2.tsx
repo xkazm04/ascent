@@ -3,7 +3,7 @@
 // pull apart stay apart here: a withheld list leads with the not-judged hatch, a measured zero with the void.
 // Server-safe.
 import Link from "next/link";
-import { Frame, HairlineList, SectionHead } from "@/components/kit";
+import { BarRow, Frame, HairlineList, SectionHead } from "@/components/kit";
 import { orgTabHref } from "@/lib/org/orgTabs";
 import { CHAMPION_MIN_POP } from "@/lib/org/champions";
 import { Legend, MatrixGrid, StateSwatch, WhyChip } from "@/components/org/viz";
@@ -51,19 +51,14 @@ export function ChampionsV2({ champions, totalContributors, slug }: { champions:
       ) : (
         <HairlineList className="mt-4">
           {champions.map((c) => (
-            <li
+            <BarRow
               key={c.login}
-              className="grid grid-cols-[minmax(0,9rem)_1fr_auto] items-center gap-4 py-3"
+              name={c.login}
+              value={c.aiShare}
+              label={`${c.aiShare}% AI-attributed`}
               title={`${c.login}: ${c.aiShare}% AI-attributed across ${c.commits} commits in ${c.repos} repo${c.repos === 1 ? "" : "s"}`}
-            >
-              <span className="truncate font-mono type-caption text-white">{c.login}</span>
-              <span className="h-1 rounded-[2px] bg-divider" role="img" aria-label={`${c.aiShare}% AI-attributed`}>
-                <span className="block h-full rounded-[2px] bg-accent" style={{ width: `${Math.max(0, Math.min(100, c.aiShare))}%` }} />
-              </span>
-              <span className="type-caption tabular-nums text-slate-300">
-                {c.aiShare}% · {c.aiCommits}/{c.commits}
-              </span>
-            </li>
+              readout={`${c.aiShare}% · ${c.aiCommits}/${c.commits}`}
+            />
           ))}
         </HairlineList>
       )}

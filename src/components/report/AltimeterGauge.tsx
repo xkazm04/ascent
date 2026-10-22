@@ -58,11 +58,13 @@ export function AltimeterGauge({
       className="h-auto w-full"
       role="group"
       aria-label="Elevation gauge: each dimension's score against the five maturity bands"
+      data-kit="altimeter-gauge"
     >
       {/* Strata — the five level bands, floor rules + band names on the gutter. */}
       {LEVELS.map((l, i) => (
         <g key={l.id}>
           <rect
+            data-role="gauge-stratum"
             x={GUTTER}
             y={y(l.band[1])}
             width={W - GUTTER}
@@ -96,12 +98,14 @@ export function AltimeterGauge({
             tabIndex={0}
             aria-pressed={selected}
             aria-label={label}
+            data-dimension={f.id.replace(/D/g, "")}
             className="focus-ring cursor-pointer outline-none"
             onClick={() => onSelect(f.id)}
             onKeyDown={(e) => onKey(e, i)}
           >
             <rect x={x - colW / 2} y={PAD_TOP} width={colW} height={PLOT_H + PAD_BOTTOM - 4} fill="var(--color-accent)" opacity={selected ? 0.08 : 0} rx={6} />
             <line
+              data-role="gauge-rope"
               x1={x}
               x2={x}
               y1={y(0)}
@@ -120,6 +124,7 @@ export function AltimeterGauge({
               </g>
             )}
             <circle
+              data-role="gauge-marker"
               cx={x}
               cy={y(f.d.score)}
               r={selected ? 7 : 5}
@@ -129,7 +134,7 @@ export function AltimeterGauge({
               opacity={drawn ? 1 : 0}
               style={reduced ? undefined : { transition: `opacity 0.3s ease-out calc(${delay} + 0.45s), r 0.15s ease-out` }}
             />
-            <text x={x} y={y(f.d.score) - 12} textAnchor="middle" fontSize={12} fontWeight={700} className="font-mono" fill={color} opacity={drawn ? 1 : 0}>
+            <text data-role="gauge-score" x={x} y={y(f.d.score) - 12} textAnchor="middle" fontSize={12} fontWeight={700} className="font-mono" fill={color} opacity={drawn ? 1 : 0}>
               {f.d.score}
             </text>
             <text x={x} y={H - 22} textAnchor="middle" fontSize={11} className={`font-mono ${selected ? "fill-white" : "fill-slate-400"}`}>

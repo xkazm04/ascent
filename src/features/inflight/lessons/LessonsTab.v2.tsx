@@ -8,7 +8,7 @@ import type { LessonsTabData } from "./lessonsTabData";
 
 export function lessonsV2({ slug, lessons, counts: c }: LessonsTabData) {
   return (
-    <div className="stagger-children space-y-8">
+    <div data-role="lessons-v2" className="stagger-children space-y-8">
       <Masthead
         eyebrow="In flight"
         statement="What the loop learned,"

@@ -1,0 +1,71 @@
+/* ── Flattening rules for the phase-1 Prism compositions (docs/design/PRISM-MIGRATION-GAPS.md) ─────────
+   The same four rules kit.css applies to the older modules (governance, passports, practices, delivery),
+   written once for the modules phase 1 added. Each v2 root carries data-role="<module>-v2". They exist
+   because the v2 frames still host v1 interiors (tables, care bodies, chart legends, forms) written with
+   card radii, mono caps and the slate-600 floor:
+     1. the muted floor is slate-400 (slate-600 was an Altimeter-only contrast concession);
+     2. no radius above 4px on a working surface (kit parts keep their own 3/4px);
+     3. leftover mono caps become the sentence-case eyebrow, except honesty tags (they ARE mono caps);
+     4. inputs take the 3px hairline control.
+   Status hues are NOT flattened here: severity in security, audit and teams is meaning, not decoration.
+   The masthead aside clears the shell's guided-setup tab at <= 1360px. Prism only. */
+html[data-theme="prism"] :is(
+  [data-role="security-v2"], [data-role="adoption-v2"], [data-role="tech-stacks-v2"], [data-role="proposals-v2"],
+  [data-role="lessons-v2"], [data-role="members-v2"], [data-role="audit-v2"], [data-role="pairing-v2"],
+  [data-role="digest-v2"], [data-role="teams-v2"], [data-role="contributors-v2"], [data-role="knowledge-v2"],
+  [data-role="surfaces-v2"], [data-role="developer-v2"], [data-role="care-v2"], [data-role="integrations-v2"]
+) .text-slate-600 {
+  color: var(--color-slate-400);
+}
+html[data-theme="prism"] :is(
+  [data-role="security-v2"], [data-role="adoption-v2"], [data-role="tech-stacks-v2"], [data-role="proposals-v2"],
+  [data-role="lessons-v2"], [data-role="members-v2"], [data-role="audit-v2"], [data-role="pairing-v2"],
+  [data-role="digest-v2"], [data-role="teams-v2"], [data-role="contributors-v2"], [data-role="knowledge-v2"],
+  [data-role="developer-v2"], [data-role="care-v2"], [data-role="integrations-v2"]
+) :is(.rounded-2xl, .rounded-xl, .rounded-lg, .rounded-md):not([data-kit]) {
+  border-radius: 4px;
+}
+html[data-theme="prism"] :is(
+  [data-role="security-v2"], [data-role="adoption-v2"], [data-role="tech-stacks-v2"], [data-role="proposals-v2"],
+  [data-role="lessons-v2"], [data-role="members-v2"], [data-role="audit-v2"], [data-role="pairing-v2"],
+  [data-role="digest-v2"], [data-role="teams-v2"], [data-role="contributors-v2"], [data-role="knowledge-v2"],
+  [data-role="developer-v2"], [data-role="care-v2"], [data-role="integrations-v2"]
+) .uppercase:not([data-kit="honesty-tag"]) {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+}
+html[data-theme="prism"] :is(
+  [data-role="security-v2"], [data-role="adoption-v2"], [data-role="tech-stacks-v2"], [data-role="proposals-v2"],
+  [data-role="lessons-v2"], [data-role="members-v2"], [data-role="audit-v2"], [data-role="pairing-v2"],
+  [data-role="digest-v2"], [data-role="teams-v2"], [data-role="contributors-v2"], [data-role="knowledge-v2"],
+  [data-role="developer-v2"], [data-role="care-v2"], [data-role="integrations-v2"]
+) :is(input, select, textarea):not([type="checkbox"], [type="radio"]) {
+  border-radius: 3px;
+  border-color: var(--hair-strong);
+}
+@media (max-width: 1360px) {
+  html[data-theme="prism"] :is(
+    [data-role="security-v2"], [data-role="adoption-v2"], [data-role="tech-stacks-v2"], [data-role="proposals-v2"],
+    [data-role="lessons-v2"], [data-role="members-v2"], [data-role="audit-v2"], [data-role="pairing-v2"],
+    [data-role="digest-v2"], [data-role="teams-v2"], [data-role="contributors-v2"], [data-role="knowledge-v2"],
+    [data-role="developer-v2"]
+  ) [data-role="masthead-aside"] {
+    flex-basis: 100%;
+    margin-left: 0;
+    padding-right: 3.25rem;
+  }
+}
+
+/* ── Focus floor (phase 2 polish) ─────────────────────────────────────────────────────────────────────
+   Many phase-1 compositions write bare buttons and links without `.focus-ring`; on void the browser's default
+   ring is a dark blue that disappears. Every interactive element that does not carry its own ring gets the same
+   2px paper outline `.focus-ring` draws, so keyboard focus is visible on every Prism surface. */
+html[data-theme="prism"] :is(a[href], button, summary, [role="button"], [role="tab"], [tabindex="0"]):focus-visible:not(.focus-ring, [data-no-ring]) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+html[data-theme="prism"] :is(input, select, textarea):focus-visible:not([data-kit="field-control"], .focus-ring) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}

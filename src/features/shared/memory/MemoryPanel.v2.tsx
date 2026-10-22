@@ -2,7 +2,7 @@
 
 // Prism library. The same useMemoryLibrary hook as Altimeter owns filters, the write form, the
 // duplicate check and archive. Which row is open lives in the URL hash.
-import { Frame, SectionHead } from "@/components/kit";
+import { Frame, Notice, SectionHead } from "@/components/kit";
 import { useMemoryLibrary } from "./useMemoryLibrary";
 import { useMemoryScene } from "./useMemoryScene";
 import { MemoryTrustV2 } from "./MemoryTrust.v2";
@@ -74,7 +74,7 @@ export function MemoryPanelV2({
       </div>
       <div className="mt-5">
         {m.listError ? (
-          <p role="alert" data-list-read-error className="type-body text-orange-300">{m.listError}</p>
+          <Notice data-list-read-error>{m.listError}</Notice>
         ) : m.memories.length === 0 && !sceneId ? (
           <p className="type-body text-slate-400">{m.loading ? "Loading…" : m.filtered ? "No memories match your filters." : EMPTY}</p>
         ) : (

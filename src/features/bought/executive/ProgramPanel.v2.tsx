@@ -1,7 +1,7 @@
 "use client";
 
 // Prism transition programme. The ladder replaces the score-band baseline. The form keeps every id and save.
-import { Caption, FormField, Frame, GhostAction, Input, Ladder, PrimaryAction, SectionHead, Select } from "@/components/kit";
+import { Caption, FormField, Frame, GhostAction, Input, Ladder, PrimaryAction, SectionHead, Select, Notice } from "@/components/kit";
 import { LEVELS } from "@/lib/maturity/model";
 import type { ProgramCadence, TransitionProgramRow } from "@/lib/db/org-program";
 import type { LevelId } from "@/lib/types";
@@ -76,10 +76,9 @@ export function ProgramPanelV2({ slug, initial, now = null }: { slug: string; in
                 : "Starting freezes today's fleet standing as the baseline. It is never recomputed."}
             </p>
             {s.error && (
-              <p role="alert" className="type-body-sm text-slate-200">
-                <span aria-hidden>! </span>
+              <Notice>
                 {s.error}
-              </p>
+              </Notice>
             )}
             <div className="flex flex-wrap gap-2">
               <PrimaryAction type="submit" disabled={s.busy || !s.name.trim()}>

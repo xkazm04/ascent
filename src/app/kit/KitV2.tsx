@@ -1,6 +1,6 @@
 // The "v2 language" specimen: every v2 primitive and the upgraded parts, each beside a crop of the landing it
 // is measured from (public/dev/kit-ref/*.png, taken from /?landing=prism at 1440x900). In Prism the two columns
-// should read as the same identity; in Altimeter the kit column is the shipped fallback. Synthetic data only.
+// should read as the same identity. Synthetic data only.
 import {
   Caption, Chip, ChipRow, DataTable, CELL, CELL_NUM, DimensionLine, Display, EvidencePanel, Eyebrow, Frame, GhostAction,
   HonestyTag, LevelNav, Lede, MonoPath, Panel, Plate, PrimaryAction, SectionHead, Segmented, SpectralRule, StatStrip, StatTile,

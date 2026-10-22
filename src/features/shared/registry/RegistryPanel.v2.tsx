@@ -1,5 +1,6 @@
 // Prism registry: masthead, the six steps, then the machine. Altimeter stays in RegistryPanel.v1.
 
+import { Notice } from "@/components/kit";
 import { timeAgo } from "@/lib/ui";
 import { NextMoveLink } from "@/components/org/shared/NextMoveLink";
 import { orgTabHref } from "@/lib/org/orgTabs";
@@ -13,10 +14,9 @@ import { RegistryOnboarding } from "./RegistryOnboarding.v2";
 function RegistryFault({ view }: { view: RegistryView }) {
   if (!view.error) return null;
   return (
-    <p role="alert" className="type-body-sm text-slate-100">
-      <span aria-hidden>! </span>
+    <Notice>
       Last index failed {timeAgo(view.error.at)}: {view.error.message}
-    </p>
+    </Notice>
   );
 }
 

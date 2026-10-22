@@ -1,7 +1,7 @@
 "use client";
 
 // Prism library. The same useSkillsLibrary hook owns filters and archive. Which skill is open is the URL hash.
-import { Frame, Masthead, SectionHead } from "@/components/kit";
+import { Frame, Masthead, SectionHead, Notice } from "@/components/kit";
 import { unmirroredRegistryUsage, type SkillUsage } from "@/lib/org/skill-usage";
 import type { SkillOutcome } from "@/lib/org/skill-outcomes";
 import type { SkillAdoption, SkillRow } from "@/lib/db";
@@ -130,10 +130,9 @@ export function SkillsPanelV2({
         )}
       </Frame>
       {s.error && (
-        <p role="alert" className="mt-3 type-body-sm text-slate-100">
-          <span aria-hidden>! </span>
+        <Notice className="mt-3">
           {s.error}
-        </p>
+        </Notice>
       )}
     </>
   );

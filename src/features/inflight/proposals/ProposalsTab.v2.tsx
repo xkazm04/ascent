@@ -13,7 +13,7 @@ import type { ProposalsTabData } from "./proposalsTabData";
 export function proposalsV2(d: ProposalsTabData) {
   const { slug, rows, counts } = d;
   return (
-    <div className="stagger-children space-y-8">
+    <div data-role="proposals-v2" className="stagger-children space-y-8">
       <Masthead
         eyebrow="In flight"
         statement="Proposed changes,"

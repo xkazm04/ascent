@@ -1,6 +1,7 @@
 // The last registry call, said next to the control that made it. Glyph plus word, never a status hue.
 // Outbound links repeat the ghost action hook because PrimaryAction and GhostAction do not forward target.
 
+import { Notice } from "@/components/kit";
 import type { RegistryMutation } from "./useRegistryMutation";
 
 const GHOST =
@@ -28,10 +29,9 @@ export function RegistryOutcome({ m, action }: { m: RegistryMutation; action?: s
   const ok = m.outcome && (!action || m.outcome.action === action) ? m.outcome : null;
   if (err) {
     return (
-      <p className="type-body-sm text-slate-100" role="alert">
-        <span aria-hidden>! </span>
+      <Notice>
         {err.message}
-      </p>
+      </Notice>
     );
   }
   if (!ok) return null;

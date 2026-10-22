@@ -48,3 +48,13 @@ export { Masthead } from "./Masthead";
 export type { MastheadFigure, MastheadTone } from "./Masthead";
 export { useHashFlag } from "./useHashFlag";
 export { DimensionMark, parseDimension } from "./DimensionMark";
+
+// Prism-era parts promoted from the phase-1 v2 compositions (docs/design/PRISM-MIGRATION-GAPS.md).
+export { Notice } from "./Notice";
+export type { NoticeTone } from "./Notice";
+export { FilterBar, FilterCount } from "./FilterBar";
+export { FillBar, BarRow } from "./FillBar";
+export { SortHead } from "./SortHead";
+export type { SortDir } from "./SortHead";
+export { DecisionLedger } from "./DecisionLedger";
+export type { LedgerAction, LedgerCellContext, LedgerColumn } from "./DecisionLedger";

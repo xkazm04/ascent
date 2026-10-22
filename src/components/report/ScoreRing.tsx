@@ -59,6 +59,7 @@ export function ScoreRing({
       viewBox={`0 0 ${size} ${size}`}
       role="img"
       aria-labelledby={`${titleId} ${descId}`}
+      data-kit="score-ring"
     >
       {/* Screen-reader title/desc — the arc length already encodes the score without color. */}
       <title id={titleId}>Overall maturity score</title>
@@ -85,8 +86,9 @@ export function ScoreRing({
           </mask>
         </defs>
       )}
-      <circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--color-divider)" strokeWidth={stroke} />
+      <circle data-role="ring-track" cx={cx} cy={cx} r={r} fill="none" stroke="var(--color-divider)" strokeWidth={stroke} />
       <circle
+        data-role="ring-arc"
         cx={cx}
         cy={cx}
         r={r}
@@ -101,10 +103,10 @@ export function ScoreRing({
         data-mock={mock || undefined}
         style={{ transition: reduced || mock ? undefined : "stroke-dashoffset 0.8s ease" }}
       />
-      <text x={cx} y={cx - 6} textAnchor="middle" className="fill-white" fontSize={size * 0.26} fontWeight={700}>
+      <text data-role="ring-score" x={cx} y={cx - 6} textAnchor="middle" className="fill-white" fontSize={size * 0.26} fontWeight={700}>
         {displayScore}
       </text>
-      <text x={cx} y={cx + 22} textAnchor="middle" fill={color} fontSize={size * 0.085} fontWeight={600}>
+      <text data-role="ring-level" x={cx} y={cx + 22} textAnchor="middle" fill={color} fontSize={size * 0.085} fontWeight={600}>
         {LEVEL_GLYPH[level.id]} {level.id} · {level.name}
       </text>
     </svg>

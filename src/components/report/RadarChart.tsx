@@ -131,6 +131,7 @@ export function RadarChart({
         className="h-auto w-full"
         role="img"
         aria-labelledby={`${titleId} ${descId}`}
+        data-kit="radar"
         style={{ touchAction: "none", cursor: onSelect ? "pointer" : undefined }}
         onPointerMove={onPointerMove}
         // Also snap on pointer-down so a stationary touch tap (which may not fire pointermove) still
@@ -165,11 +166,11 @@ export function RadarChart({
       {/* axes */}
       {dimensions.map((_, i) => {
         const [x, y] = point(i, 1);
-        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--color-divider)" strokeWidth={1} />;
+        return <line key={i} data-role="radar-axis" data-dimension={i + 1} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--color-divider)" strokeWidth={1} />;
       })}
       {/* data polygon — follows the brand tokens (--color-accent + its soft tint) so a re-skin /
           white-label retunes the chart with the buttons instead of leaving it on the old azure. */}
-      <polygon points={dataPath} fill="var(--color-accent)" fillOpacity={mock ? 0.08 : 0.22} stroke="var(--color-accent)" strokeWidth={2} strokeDasharray={mock ? "4 4" : undefined} />
+      <polygon data-role="radar-shape" points={dataPath} fill="var(--color-accent)" fillOpacity={mock ? 0.08 : 0.22} stroke="var(--color-accent)" strokeWidth={2} strokeDasharray={mock ? "4 4" : undefined} />
       {markPts.map(([x, y], i) => {
         const r = i === active || i === highlightIdx ? 4.5 : 3;
         const d = dimensions[i]!;

@@ -7,7 +7,7 @@
 // ruling): hue names the dimension. An absent measurement is the void, never a zero.
 import { useState } from "react";
 import Link from "next/link";
-import { CELL, DataTable, Frame, HEAD_CELL, SectionHead, VoidMark } from "@/components/kit";
+import { CELL, DataTable, Frame, HEAD_CELL, SectionHead, SortHead, VoidMark } from "@/components/kit";
 import { RepoDimensionModal, type HeatTarget } from "@/components/org/shared/RepoDimensionModal";
 import { Legend } from "@/components/org/viz";
 import { DIMENSION_SHORT } from "@/lib/ui";
@@ -77,18 +77,18 @@ export function DimensionMatrix({ org, rows, dims, initialSortDim }: { org: stri
             {dims.map((d) => {
               const active = sort?.dim === d;
               return (
-                <th key={d} scope="col" aria-sort={active ? (sort.dir === 1 ? "ascending" : "descending") : undefined} className="px-2 py-3 text-center font-normal">
-                  <button
-                    type="button"
-                    onClick={() => cycleSort(d)}
-                    title={`Sort by ${d}: weakest first, again for strongest, again to reset`}
-                    className={`focus-ring rounded px-1 transition hover:text-white ${active ? "text-white" : ""}`}
-                  >
-                    <span aria-hidden data-role="matrix-hue" className="mr-1.5 inline-block h-[3px] w-3 rounded-[1px] align-middle" style={{ background: hue(d) }} />
-                    {short(d)}
-                    {active ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
-                  </button>
-                </th>
+                <SortHead
+                  key={d}
+                  active={active}
+                  dir={sort?.dir === 1 ? "asc" : "desc"}
+                  onSort={() => cycleSort(d)}
+                  title={`Sort by ${d}: weakest first, again for strongest, again to reset`}
+                  align="center"
+                  dense
+                >
+                  <span aria-hidden data-role="matrix-hue" className="mr-1.5 inline-block h-[3px] w-3 rounded-[1px] align-middle" style={{ background: hue(d) }} />
+                  {short(d)}
+                </SortHead>
               );
             })}
           </tr>

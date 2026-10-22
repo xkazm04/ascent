@@ -3,7 +3,7 @@
 // The Proposals ledger's filter chrome, Prism composition: the same facets and the same FollowUpFilters
 // state as FollowupsFilterBar (Repo, Dimension, Impact, Status, plus Source), with the working-set /
 // resolved-archive switch and the org-wide scope as kit Segmented controls instead of hand-rolled pills.
-import { FilterMenu, Input, Segmented, type FilterOption } from "@/components/kit";
+import { FilterBar, FilterCount, FilterMenu, Input, Segmented, type FilterOption } from "@/components/kit";
 import { STATUS_LABEL, filtersActive, type FollowUpFilters } from "@/components/org/followups/followupsModel";
 import { DIMENSION_SHORT } from "@/lib/ui";
 import type { DimensionId } from "@/lib/types";
@@ -52,7 +52,7 @@ export function ProposalFiltersV2({
   const archive = filters.statuses.has("done") || filters.statuses.has("dismissed");
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <FilterBar>
       {menu("repos", "Repo")}
       {menu("dims", "Dimension")}
       {menu("impacts", "Impact")}
@@ -86,21 +86,12 @@ export function ProposalFiltersV2({
           ]}
         />
       )}
-      <span className="ml-auto type-caption text-slate-400">
-        {shown} of {rows.length}
-        {filtersActive(filters) && (
-          <>
-            {" · "}
-            <button
-              type="button"
-              onClick={() => onChange({ repos: new Set(), dims: new Set(), impacts: new Set(), statuses: new Set(), query: "", orgWide: false })}
-              className="focus-ring text-accent hover:text-white"
-            >
-              Clear filters
-            </button>
-          </>
-        )}
-      </span>
-    </div>
+      <FilterCount
+        shown={shown}
+        total={rows.length}
+        active={filtersActive(filters)}
+        onClear={() => onChange({ repos: new Set(), dims: new Set(), impacts: new Set(), statuses: new Set(), query: "", orgWide: false })}
+      />
+    </FilterBar>
   );
 }

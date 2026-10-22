@@ -1172,3 +1172,5 @@ as Trace.
 | `src/app/org/[slug]/skills/page.tsx` | Page composition. |
 | `src/lib/db/org-skill-pending-invokes.ts` | Held `registry:<name>` invokes from `report_skill_invoke`, and their attach on the next index pass. |
 | `src/lib/org/skill-write-gate.ts` | The ONE write-door entitlement decision: the closed `SkillWriteDoor` union, the `SKILL_WRITE_DOORS` rule table, the enumerated decision and its status mapping. |
+
+**Prism kit parts (2026-10-22, phase 2):** the Skills, API tokens and skill trace error lines (Prism) now render their error lines through the kit `Notice` (a ruled line with a `!` glyph and the words, `role="alert"`), not an ad hoc paragraph. Same messages and behavior; see `docs/features/design-system/README.md`.

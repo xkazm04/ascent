@@ -1,12 +1,12 @@
 "use client";
 
 // The Proposals ledger, Prism composition. Same props and the same useProposalsView as ProposalsWorklist; the
-// ledger is the kit-built DecisionLedgerV2 (ruled rows, a Frame bar) and the filters are ProposalFiltersV2.
+// ledger is the kit-built DecisionLedger (ruled rows, a Frame bar) and the filters are ProposalFiltersV2.
 import { useMemo } from "react";
 import { FollowupsPromptModal } from "@/components/org/followups/FollowupsPromptModal";
 import { isSelectable } from "@/components/org/followups/followupsModel";
 import type { ClaimViewer } from "@/components/org/followups/claimActionsModel";
-import { DecisionLedgerV2 } from "./DecisionLedger.v2";
+import { DecisionLedger } from "@/components/kit";
 import { ProposalDetail } from "./ProposalDetail";
 import { proposalColumnsV2 } from "./ProposalColumns.v2";
 import { ProposalFiltersV2 } from "./ProposalFilters.v2";
@@ -53,7 +53,7 @@ export function ProposalsWorklistV2({
         onToggleSource={v.toggleSource}
         onClearSources={v.clearSources}
       />
-      <DecisionLedgerV2
+      <DecisionLedger
         caption="Proposals ledger"
         rows={v.shown}
         allRows={rows}

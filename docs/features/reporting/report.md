@@ -1816,3 +1816,5 @@ reading and an undated one are statements, not calls to spend a scan slot.
   and on rows where the model omitted it, so old reports and sparse exports render exactly as before.
   The same guardrail keeps counted evidence lines as bullets in the LLM briefing; a templating pass
   must not flatten them into the dimension catalogue table.
+
+**Prism treatments (2026-10-22, phase 2):** `ScoreRing`, `AltimeterGauge`, `RadarChart` and `LevelBadge` gained `data-kit`/`data-role` hooks and a Prism expression in `src/app/kit-viz.css` (paper arc and ring, dimension-hued gauge ropes and radar axes, lightness-ranked level tags). Altimeter rendering and all chart data are unchanged; see `docs/features/design-system/README.md`.

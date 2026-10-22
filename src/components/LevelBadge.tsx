@@ -14,6 +14,8 @@ export function LevelBadge({ id, name, className = "" }: { id: LevelId; name: st
   const glyph = LEVEL_GLYPH[id] ?? LEVEL_GLYPH.L1;
   return (
     <span
+      data-kit="level-badge"
+      data-level={LEVEL_CLASSES[id] ? id : "L1"}
       className={`inline-flex w-fit items-center gap-2 rounded-full border ${lc.border} ${lc.bg} px-3 py-1 type-body font-semibold ${lc.text} ${className}`}
     >
       <span aria-hidden>{glyph}</span>
@@ -35,7 +37,7 @@ export function ScorePill({ level, overall, className = "" }: { level: LevelId; 
   const lc = LEVEL_CLASSES[level] ?? LEVEL_CLASSES.L1;
   const glyph = LEVEL_GLYPH[level] ?? LEVEL_GLYPH.L1;
   return (
-    <span className={`rounded border ${lc.border} ${lc.bg} ${lc.text} ${className}`}>
+    <span data-kit="level-badge" data-compact data-level={LEVEL_CLASSES[level] ? level : "L1"} className={`rounded border ${lc.border} ${lc.bg} ${lc.text} ${className}`}>
       <span aria-hidden>{glyph} </span>
       {level} · {overall}
     </span>

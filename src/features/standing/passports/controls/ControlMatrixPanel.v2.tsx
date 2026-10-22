@@ -30,11 +30,11 @@ export function ControlMatrixPanelV2({ org }: { org: string }) {
         actions={<WhyChip hint={AUDIT_HINT} label="how these rows are stored" align="end" />}
       />
 
-      {loading && <p className="text-[0.9375rem] text-slate-400">Loading the doctor-check matrix…</p>}
+      {loading && <p className="type-body-sm text-slate-400">Loading the doctor-check matrix…</p>}
 
       {error && (
         <Frame>
-          <p className="text-[1.0625rem] text-slate-300">
+          <p className="type-body text-slate-300">
             <span aria-hidden>▲ </span>
             {error} Nothing is shown rather than an empty grid: an unanswered request is not evidence that the fleet has no controls.
           </p>

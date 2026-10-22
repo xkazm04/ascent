@@ -56,6 +56,7 @@ export function StackRadarChart({
         viewBox="0 0 260 260"
         className="h-full w-full overflow-visible"
         role="img"
+        data-kit="stack-radar"
         aria-label={`Maturity profiles across ${dims.length} dimensions for ${series.map((s) => s.name).join(", ") || "no selected stacks"}`}
       >
         {/* concentric grid rings + their scale ticks */}

@@ -29,7 +29,7 @@ export function adoptionV2({ a, slug, filterBar, md }: AdoptionViewProps) {
     },
   ];
   return (
-    <div className="space-y-8">
+    <div data-role="adoption-v2" className="space-y-8">
       <Masthead
         eyebrow="AI adoption"
         statement={`${a.orgAiShare}% of commits`}
