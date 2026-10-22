@@ -1,6 +1,6 @@
 // GET /api/audit?org=<slug>[&action=&actorId=&since=&until=&cursor=&limit=][&format=csv]
 // Org-scoped audit trail with keyset pagination. Requires DATABASE_URL. `format=csv` streams ALL
-// matching rows (cursor-looped, capped) as a download for compliance evidence.
+// matching rows (walkAuditLog, capped) as a download for compliance evidence.
 //
 // The result is always scoped to the requested org (getAuditLog filters by orgId), so no
 // cross-tenant entries can leak. Authorization mirrors the org dashboard it powers: when
@@ -12,6 +12,7 @@ import { getAuditLog, isDbConfigured } from "@/lib/db";
 import { sha256Hex } from "@/lib/db/audit-integrity";
 import { requireOrgRead } from "@/lib/authz";
 import { csvField } from "@/lib/export/csv";
+import { AUDIT_WALK_MAX_ROWS, auditFiltersFromParams, walkAuditLog, type AuditWalkFilters } from "@/lib/db/audit-walk";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,20 +27,16 @@ export const dynamic = "force-dynamic";
 // verified one. Stating the verdict per row is what makes the export self-describing rather than merely
 // self-hashing.
 const CSV_COLUMNS = ["at", "action", "actorId", "orgId", "repo", "level", "overall", "headSha", "integrity", "meta"] as const;
-const CSV_MAX_ROWS = 10000; // safety cap so one export can't loop the whole table unbounded
+// Safety cap so one export can't loop the whole table unbounded. It is the walk's cap, shared with the
+// integrity sweep (/api/audit/integrity), so both cover the same rows.
+const CSV_MAX_ROWS = AUDIT_WALK_MAX_ROWS;
 
-/** Stream the full filtered audit trail as a CSV download (cursor-looped over getAuditLog). */
-async function exportCsv(
-  org: string,
-  filters: { action?: string; actorId?: string; since?: string; until?: string },
-): Promise<Response> {
+/** Stream the full filtered audit trail as a CSV download (walkAuditLog over getAuditLog pages). */
+async function exportCsv(org: string, filters: AuditWalkFilters): Promise<Response> {
   const lines = [CSV_COLUMNS.join(",")];
-  let cursor: string | null = null;
-  let total = 0;
-  do {
-    const page = await getAuditLog(org, { ...filters, cursor, limit: 100 });
-    if (!page) break;
-    for (const e of page.entries) {
+  const { scanned: total, truncated } = await walkAuditLog(org, filters, {
+    cap: CSV_MAX_ROWS,
+    visit: (e) => {
       lines.push(
         [
           e.at,
@@ -56,17 +53,14 @@ async function exportCsv(
           .map((v) => csvField(v, true)) // audit trail quotes every field uniformly
           .join(","),
       );
-      total += 1;
-    }
-    cursor = page.nextCursor;
-  } while (cursor && total < CSV_MAX_ROWS);
+    },
+  });
 
   // TRUNCATION HONESTY: the loop also exits at CSV_MAX_ROWS (newest-first, so the OLDEST evidence is
-  // dropped). The SHA below signs whatever bytes we emit, so a truncated file would otherwise be filed
-  // as complete compliance evidence with a valid integrity hash — false confidence. A still-set cursor
-  // means more rows remained, so flag it explicitly (header + a -PARTIAL filename) and tell the operator
-  // to narrow the filters to export the rest. The integrity hash still certifies the bytes delivered.
-  const truncated = cursor != null;
+  // dropped); walkAuditLog reports that as `truncated` (a cursor still set). The SHA below signs
+  // whatever bytes we emit, so a truncated file would otherwise be filed as complete compliance evidence
+  // with a valid integrity hash: false confidence. A still-set cursor means more rows remained, so flag
+  // it explicitly (header + a -PARTIAL filename) and tell the operator to narrow the filters to export the rest. The integrity hash still certifies the bytes delivered.
   if (truncated) {
     console.warn(`[audit] csv export for "${org}" truncated at ${CSV_MAX_ROWS} rows — older entries omitted`);
   }
@@ -105,12 +99,7 @@ export async function GET(request: Request) {
   const denied = await requireOrgRead(org);
   if (denied) return denied;
 
-  const filters = {
-    action: searchParams.get("action") ?? undefined,
-    actorId: searchParams.get("actorId") ?? undefined,
-    since: searchParams.get("since") ?? undefined,
-    until: searchParams.get("until") ?? undefined,
-  };
+  const filters = auditFiltersFromParams(searchParams);
 
   if (searchParams.get("format") === "csv") {
     try {
