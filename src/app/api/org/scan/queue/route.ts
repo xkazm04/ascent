@@ -56,6 +56,9 @@ export async function GET(request: Request) {
     // Deliberately not a fabricated ETA: the caller knows how many are left, and nothing here can
     // honestly say when the next cron pass runs (the cadence lives in deploy config).
     pending: queued + running,
-    repos: jobs.map((j) => ({ repo: j.repoFullName, state: j.state })),
+    // Each row names its outcome (the scan-run roster): the failure reason, and `charged` = a FAILED
+    // job still holding its credit (the org paid for a scan it did not keep), the same meaning as the
+    // stream's per-repo `charged`. Additive: useImportReattach checks only repo/state per row.
+    repos: jobs.map((j) => ({ repo: j.repoFullName, state: j.state, error: j.error ?? null, charged: j.state === "failed" && j.creditCharged === true })),
   });
 }

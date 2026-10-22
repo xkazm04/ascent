@@ -98,3 +98,24 @@ describe("a failed read is not an empty run", () => {
     err.mockRestore();
   });
 });
+
+describe("each row names its outcome (scan-run roster)", () => {
+  const row = (state: string, repo: string, error: string | null, creditCharged: boolean) =>
+    ({ state, repoFullName: repo, error, creditCharged }) as unknown as Awaited<ReturnType<typeof listJobsForRun>>[number];
+
+  it("carries the failure reason and whether the failed scan was already charged", async () => {
+    mockJobs.mockResolvedValue([row("failed", "acme/x", "boom", true), row("done", "acme/y", null, false)]);
+    const out = (await (await get("?org=acme&runId=run_1")).json()) as Record<string, unknown>;
+    expect(out.repos).toEqual([
+      { repo: "acme/x", state: "failed", error: "boom", charged: true },
+      { repo: "acme/y", state: "done", error: null, charged: false },
+    ]);
+    expect(out).toMatchObject({ total: 2, pending: 0 });
+  });
+
+  it("charged means a failure the org paid for: a settled job holding no failure reads false", async () => {
+    mockJobs.mockResolvedValue([row("done", "acme/y", null, true), row("skipped", "acme/z", "LLM unavailable: not persisted", false)]);
+    const out = (await (await get("?org=acme&runId=run_1")).json()) as { repos: { charged: boolean }[] };
+    expect(out.repos.map((r) => r.charged)).toEqual([false, false]);
+  });
+});
