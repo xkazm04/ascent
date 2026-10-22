@@ -4,7 +4,8 @@
 // shared chrome can be assumed to have loaded. It REPLACES the document, so it must render its own
 // <html>/<body> and stays fully self-contained with inline styles (no Tailwind, no imports that
 // could be the thing that failed). Ordinary page/segment errors are handled by nearer error.tsx
-// boundaries with the full branded UI.
+// boundaries with the full branded UI. Colours are the Prism palette (src/app/theme-prism.css) as literals,
+// since no stylesheet can be assumed here.
 
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
@@ -44,8 +45,8 @@ export default function GlobalError({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#080d1a",
-          color: "#e2e8f0",
+          background: "#05060a",
+          color: "#f2eee6",
           fontFamily: "ui-sans-serif, system-ui, sans-serif",
         }}
       >
@@ -57,15 +58,15 @@ export default function GlobalError({
               fontSize: 13,
               letterSpacing: 4,
               textTransform: "uppercase",
-              color: "#3b9eff",
+              color: "#d6d4d0",
             }}
           >
             500
           </p>
-          <h1 style={{ margin: "16px 0 0", fontSize: 26, color: "#fff" }}>
+          <h1 style={{ margin: "16px 0 0", fontSize: 26, color: "#f2eee6" }}>
             Ascent hit an unexpected error
           </h1>
-          <p style={{ margin: "12px 0 0", fontSize: 16, lineHeight: 1.5, color: "#94a3b8" }}>
+          <p style={{ margin: "12px 0 0", fontSize: 16, lineHeight: 1.5, color: "#a8a6a2" }}>
             Something failed while loading the application shell. This is usually transient. Try
             again, and if it persists, reload the page.
           </p>
@@ -75,7 +76,7 @@ export default function GlobalError({
                 margin: "12px 0 0",
                 fontFamily: "ui-monospace, monospace",
                 fontSize: 13,
-                color: "#64748b",
+                color: "#7a7874",
               }}
             >
               Reference: {error.digest}
@@ -93,8 +94,8 @@ export default function GlobalError({
                 padding: "10px 18px",
                 fontSize: 15,
                 fontWeight: 600,
-                background: "#3b9eff",
-                color: "#04070e",
+                background: "#f2eee6",
+                color: "#05060a",
               }}
             >
               Try again
@@ -108,8 +109,8 @@ export default function GlobalError({
                 padding: "10px 18px",
                 fontSize: 15,
                 textDecoration: "none",
-                border: "1px solid #334155",
-                color: "#e2e8f0",
+                border: "1px solid rgba(242, 238, 230, 0.18)",
+                color: "#f2eee6",
               }}
             >
               Back to home
