@@ -518,7 +518,8 @@
             "src/lib/dev/empty-gate.test.ts",
             "src/lib/dev/empty-gate.ts",
             "src/lib/dev/seed-auth.test.ts",
-            "src/lib/dev/seed-auth.ts"
+            "src/lib/dev/seed-auth.ts",
+            "src/app/api/dev/seed-ai-usage/route.ts"
           ],
           "target": null,
           "apiRoutes": []
