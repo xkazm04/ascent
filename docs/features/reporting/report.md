@@ -210,7 +210,7 @@ it names a different default-branch artifact, or ColdScanGate.
    elevation gauge (`AltimeterGauge`: the five level bands as strata, a rope per dimension up to
    its score, a hollow marker where the previous scan left it, a takeaway line naming the
    leader, the trailer and the biggest lever), a synced **climber list** (`DimensionClimberList`:
-   level, weighted headroom "in reach" = `weight × (100 − score)` overall points, since-last
+   level, weighted headroom "in reach" = `share × (100 − score)` overall points, since-last
    delta, score; sortable by rubric order / score / lever, which re-orders the gauge too), and
    for the selected dimension a four-cell **reading strip** (`DimensionReading`: level + delta,
    next rung, in reach, model vs detectors — or why the model's number was not used) over the
@@ -220,6 +220,23 @@ it names a different default-branch artifact, or ColdScanGate.
    An empty `dimensions` array (nothing could be scored) renders a section empty state.
    Counted evidence lines also travel in the LLM briefing as their own bullets (G2: they are not
    flattened into the dimension catalogue table).
+   **One share derivation.** A dimension's `share` is its lens weight over the sum of the
+   PRESENT dimensions' weights: `dimensionShares(dims)` in `src/lib/scoring/projections.ts`
+   (returns `Map<DimensionId, number>`). `contributions()` (the Scoring tab's `ScoreWaterfall`,
+   "40 x 16%") and `dimFacts` (the climber list's "in reach", `DimensionReading`'s weight%, the
+   `DimensionDetail` headline via its `share` prop) all read it, so the two tabs print the same
+   number. On a full scan every lens sums to 1 and the share is the raw weight; on a
+   dropped-dimension scan (D9 unmeasured, org lens summing to 0.91) D2 reads weight 16% and
+   +9.9 in reach, where the raw weight said 15% and +9.0. `dimensionShareParity.test.ts` runs
+   both sides over full / dropped / single / all-zero / team fixtures. Build any new
+   "share of the headline" reading (for example a since-last-scan bridge) on `dimensionShares`,
+   never on `d.weight` directly. `RepoDimensionModal` mounts `DimensionDetail` without a share
+   and still shows the raw lens weight.
+   **Level bands come from the rubric.** `chartScale.ts` derives `LEVEL_BANDS`, `BAND_EDGES` and
+   `L4_FLOOR` from `LEVELS` (`@/lib/maturity/model`, the source `AltimeterGauge` reads); only
+   the band tints live there. The explorer's "at Integrated or above" count, the `Sparkline`
+   reference line and `DimLine`'s threshold label read `L4_FLOOR`, so a band retune in the
+   rubric moves every chart.
 
    `ProvenanceTrack` draws **the mechanism that actually produced that dimension's number**,
    and only that mechanism (`src/lib/scoring/provenance.ts` classifies it from the dimension id
