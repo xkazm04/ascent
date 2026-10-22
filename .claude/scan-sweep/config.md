@@ -319,3 +319,16 @@ a parallel run has already swept an in-flight version bump into its own commit h
   of the four was predictable from the write set. `idea_score` ambition 3.92 / grounding 5.00 /
   falsifiability 4.42; the critic also marked four `impact: 8` cards as really 7, which matches the
   run's outcome (the four are the four smallest).
+
+- **2026-10-22 (`--challenge --until-covered`, six cohorts in one session: 63 of 63 approved cards
+  landed, 4 integration failures, all fixed forward, 0 reverts) - the four integration breaks were
+  one class, and the brief lines that stopped each repeat are worth carrying.** Every builder ran
+  "its tests plus every test importing a changed module", and every break was a guard that does
+  not import the changed module the way grep expects: (1) an older sibling `error.test.tsx` beside
+  a rewritten `error.tsx` (relative import `./error`); (2) `deps.test.ts` with a partial
+  `vi.mock("@/lib/maturity/model")` that lacked an export a changed module started importing; (3)
+  an exact-count silent-catch allowlist in a sibling guard; (4) `WIRE_TYPES` in `wire-safe.ts`
+  needing a new client-facing type (AGENTS.md rule, no test fails until a Date sneaks in). Put all
+  four in the builder brief up front. Also: two migrations landed in the same session and a third
+  card's planned name collided by timestamp - re-list `prisma/migrations` at dispatch and name the
+  highest one in the brief.
