@@ -28,6 +28,7 @@ const row = (fullName: string, over: Record<string, unknown> = {}) => ({
   href: "/report/acme/web",
   rubricVersion: SCORING_RUBRIC_VERSION,
   currentRubric: true,
+  verified: true,
   ...over,
 });
 
@@ -122,5 +123,26 @@ describe("IndexGallery — the register footer's path onto /leaderboard", () => 
     expect(hrefs).toContain("/?scan=1");
     expect(screen.getByRole("link", { name: /the full register/i })).toHaveAttribute("href", "/leaderboard");
     expect(screen.getByRole("link", { name: /scan your repo/i })).toHaveAttribute("href", "/?scan=1");
+  });
+});
+
+// Card portfolio-0. A mock-engine score is a preview, never a rating: it cannot reach topAiNative, so it
+// only shows on the recency fallback, where it is un-numbered and carries the same `demo` chip
+// /leaderboard draws (one RegisterChips component for both tables).
+describe("IndexGallery - a mock row on the recency board", () => {
+  it("wears a 'demo' chip and no rank number", () => {
+    const { container } = render(
+      <IndexGallery gallery={gallery({ totalRepos: 1, recent: [row("acme/demo", { verified: false })] as never })} />,
+    );
+    expect(screen.getByText("demo")).toBeInTheDocument();
+    const rank = container.querySelector("section#gallery a[href='/report/acme/web'] > span");
+    expect(rank?.textContent).toBe("·");
+    expect(container.textContent).not.toMatch(/\b01\b/);
+    expect(screen.getByText("demo").getAttribute("title")).not.toContain("—");
+  });
+
+  it("a verified row carries no demo chip", () => {
+    render(<IndexGallery gallery={gallery({ totalRepos: 1, recent: [row("acme/web")] as never })} />);
+    expect(screen.queryByText("demo")).toBeNull();
   });
 });

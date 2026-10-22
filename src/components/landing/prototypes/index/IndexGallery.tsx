@@ -16,13 +16,14 @@
 // register needs the worded state back — `scans-gallery.test.ts` pins that contract.
 
 import Link from "next/link";
-import type { PublicRepoCard, PublicScanGallery } from "@/lib/db";
+import type { PublicScanGallery } from "@/lib/db";
 import { dbModeLabel } from "@/lib/db/mode";
 import type { DimensionId } from "@/lib/types";
 import { SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
 import { scoreHex, timeAgo, DIMENSION_SHORT } from "@/lib/ui";
 import { DeckSection } from "@/components/deck/DeckSection";
 import { Kicker } from "@/components/ui";
+import { RegisterChips } from "@/components/landing/RegisterChips";
 
 // The five headline dimensions surfaced as register columns — the highest-weighted signals in the
 // rubric (AI Tooling, Testing, CI/CD, Agentic, AI Process). The sixth column is the overall average.
@@ -45,38 +46,21 @@ function ScoreCell({ score, big = false, className = "" }: { score?: number; big
   );
 }
 
-/** The provenance chip for a row scored on an earlier ruler. Same derivation, same vocabulary and same
- *  tone as the one MC-B18 put on the /leaderboard register (`LeaderboardTable.tsx`) — this is the
- *  SECOND public ranking over the same corpus, and two surfaces disagreeing about what a stale rubric
- *  is called would be worse than neither saying it (MC-B42). Qualified, never de-ranked. */
-function RubricChip({ card }: { card: PublicRepoCard }) {
-  if (card.currentRubric) return null;
-  return (
-    <span
-      className="ml-2 rounded border border-violet-500/40 px-1.5 py-0.5 type-micro normal-case tracking-normal text-violet-300/90"
-      title={
-        card.rubricVersion
-          ? `Scored under rubric ${card.rubricVersion}; the current rubric is ${SCORING_RUBRIC_VERSION}. The rubric changed what some dimensions measure, so this row's number is not strictly comparable with a freshly scored one. Re-scanning the repo puts it on the current ruler.`
-          : `This scan predates the rubric stamp, so which ruler produced it is unknown — and unknown is not the current one (${SCORING_RUBRIC_VERSION}). Re-scanning the repo puts it on the current ruler.`
-      }
-    >
-      {card.rubricVersion ? `rubric ${card.rubricVersion}` : "rubric unknown"}
-    </span>
-  );
-}
-
 export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
   const { recent, topAiNative, totalRepos, dbMode } = gallery;
   // The board is RANKED (score order) only when the leaderboard query returned rows; otherwise it
   // falls back to recency order — and the UI must say so: rank badges become a neutral "·" and the
   // kicker swaps to "Latest public scans", so a recency list is never numbered 01… as if it were
   // the "most AI-native" ranking the surrounding copy promises.
+  // topAiNative holds VERIFIED cards only (db/scans-gallery.ts), so a mock floor can reach this board
+  // only through the recency fallback, where it is un-numbered and chipped `demo` (card portfolio-0).
   const ranked = topAiNative.length > 0;
   const board = ranked ? topAiNative : recent;
   const latestScannedAt = recent[0]?.scannedAt;
   // Counted over the board ACTUALLY RENDERED (ranked or recency), never over the whole corpus: the note
   // says "on this page", so it has to be about the rows on this page.
-  const staleRubric = board.filter((c) => !c.currentRubric).length;
+  // A demo row carries the demo chip instead of the rubric one, so it is not counted here.
+  const staleRubric = board.filter((c) => c.verified && !c.currentRubric).length;
   return (
     <DeckSection id="gallery" justify="startLgCenter">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-divider pb-4">
@@ -132,7 +116,7 @@ export function IndexGallery({ gallery }: { gallery: PublicScanGallery }) {
               </span>
               <span className="type-label tracking-widest text-slate-500">
                 {c.levelName} · {timeAgo(c.scannedAt)}
-                <RubricChip card={c} />
+                <RegisterChips row={c} className="normal-case tracking-normal" />
               </span>
             </span>
             {FEATURED_DIMS.map((d) => (

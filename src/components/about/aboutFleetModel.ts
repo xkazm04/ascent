@@ -12,7 +12,7 @@ import type { PublicRepoCard, PublicScanGallery } from "@/lib/db";
 import { POSTURE_META, levelForScore, levelIndex, overallScoreFor } from "@/lib/maturity/model";
 import type { DimensionId, RepoArchetype } from "@/lib/types";
 
-/** Fewer current-rubric public repos than this and the panes do not claim to be live. */
+/** Fewer verified, current-rubric public repos than this and the panes do not claim to be live. */
 export const LIVE_MIN = 6;
 /** The X-Ray never renders more cells than the illustration did. */
 export const FLEET_MAX = 40;
@@ -66,8 +66,10 @@ export const ILLUSTRATIVE_FLEET: AboutFleet = {
 
 export function fleetFrom(gallery: PublicScanGallery | null | undefined): AboutFleet {
   // A stale-rubric score is a real rating on an earlier instrument, but not one the engine would give
-  // today: it is excluded before the threshold, so it can never carry the panes over LIVE_MIN.
-  const current = (gallery?.recent ?? []).filter((c) => c.currentRubric).slice(0, FLEET_MAX);
+  // today: it is excluded before the threshold, so it can never carry the panes over LIVE_MIN. A mock
+  // floor (verified:false) is not a rating at all and is excluded the same way (card portfolio-0), so the
+  // "real scanned public fleet" never counts a deterministic preview toward going live.
+  const current = (gallery?.recent ?? []).filter((c) => c.verified && c.currentRubric).slice(0, FLEET_MAX);
   if (current.length < LIVE_MIN) return ILLUSTRATIVE_FLEET;
   const present = new Set(current.map((c) => c.posture));
   return {

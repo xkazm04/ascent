@@ -8,9 +8,10 @@
 import Link from "next/link";
 import type { RegisterEntry } from "@/lib/register/data";
 import type { DimensionId } from "@/lib/types";
-import { DIMENSIONS, DIMENSION_BY_ID, SCORING_RUBRIC_VERSION } from "@/lib/maturity/model";
+import { DIMENSIONS, DIMENSION_BY_ID } from "@/lib/maturity/model";
 import { DIMENSION_SHORT, scoreHex, timeAgo } from "@/lib/ui";
 import { GitHubMark } from "@/components/auth/buttonChrome";
+import { DemoChip, RubricChip } from "@/components/landing/RegisterChips";
 
 // Every rubric dimension, in canonical order — the full per-category breakdown (vs. the register's 5).
 const DIMS: DimensionId[] = DIMENSIONS.map((d) => d.id);
@@ -105,14 +106,8 @@ export function LeaderboardTable({
                   · {c.levelName} · {timeAgo(c.scannedAt)}
                   {/* Provenance, carried onto the public surface exactly as every other public verdict carries
                       it: a deterministic-rubric score is a preview, never a rating. Never silent. */}
-                  {!c.verified && (
-                    <span
-                      className="ml-2 rounded border border-amber-500/40 px-1.5 py-0.5 type-micro text-amber-300/90"
-                      title="Scored by the deterministic preview rubric. No model contributed. Not ranked."
-                    >
-                      demo
-                    </span>
-                  )}
+                  {/* Shared with the landing register (RegisterChips.tsx): one vocabulary for both tables. */}
+                  {!c.verified && <DemoChip />}
                   {/* Honesty qualifiers for real scores. Every ranked number here was computed
                       OUTSIDE-IN, from public artifacts only — these two chips mark the rows where
                       that limit bites hardest, so a low score reads as "measured less", not "worse". */}
@@ -129,18 +124,7 @@ export function LeaderboardTable({
                       invalidates the cache without re-scanning, so an un-rescanned repo keeps its old
                       row (UAT `TOMAS-L1-11`). It is CHIPPED, not de-ranked — a stale score is a real
                       rating on an earlier instrument, whereas a mock score is not a rating at all. */}
-                  {c.verified && !c.currentRubric && (
-                    <span
-                      className="ml-2 rounded border border-violet-500/40 px-1.5 py-0.5 type-micro text-violet-300/90"
-                      title={
-                        c.rubricVersion
-                          ? `Scored under rubric ${c.rubricVersion}; the current rubric is ${SCORING_RUBRIC_VERSION}. The rubric changed what some dimensions measure, so this row's number is not strictly comparable with a freshly scored one. Re-scanning the repo puts it on the current ruler.`
-                          : `This scan predates the rubric stamp, so which ruler produced it is unknown — and unknown is not the current one (${SCORING_RUBRIC_VERSION}). Re-scanning the repo puts it on the current ruler.`
-                      }
-                    >
-                      {c.rubricVersion ? `rubric ${c.rubricVersion}` : "rubric unknown"}
-                    </span>
-                  )}
+                  {c.verified && !c.currentRubric && <RubricChip rubricVersion={c.rubricVersion} />}
                   {c.verified && c.confidence > 0 && c.confidence < 0.75 && (
                     <span
                       className="ml-2 rounded border border-slate-500/40 px-1.5 py-0.5 type-micro text-slate-400"

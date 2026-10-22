@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import { projectedGain } from "@/lib/scoring/projections";
 import { overallScoreFor } from "@/lib/maturity/model";
 import type { DimensionId } from "@/lib/types";
-import { LIVE_MIN, fleetCaption, fleetFrom, projectFleet } from "./aboutFleetModel";
+import { ILLUSTRATIVE_FLEET, LIVE_MIN, fleetCaption, fleetFrom, projectFleet } from "./aboutFleetModel";
 import { galleryOf as gallery, liveCard as card } from "./aboutFleet.fixture";
 
 const twelve = Array.from({ length: 12 }, (_, i) => card(i));
@@ -105,5 +105,22 @@ describe("fleetCaption", () => {
     expect(text).toBe("Live · 12 public repos scanned by Ascent · newest 2026-10-20");
     expect(text).not.toMatch(/demo weighting|not customer data/i);
     expect(text).not.toContain(String.fromCharCode(0x2014));
+  });
+});
+
+// Card portfolio-0. The /about "real scanned public fleet" was part-mock: it filtered on the rubric
+// only, so a deterministic floor fed the X-Ray and ROI panes as if it were a rating.
+describe("fleetFrom - mock floors are not the live fleet", () => {
+  it("a verified:false card is absent from cells and repos", () => {
+    const cards = twelve.slice(0, LIVE_MIN + 1).map((c, i) => (i === 2 ? { ...c, verified: false } : c));
+    const f = fleetFrom(gallery(cards));
+    expect(f.mode).toBe("live");
+    expect(f.cells.map((c) => c.name)).not.toContain(cards[2]!.fullName);
+    expect(f.repos.map((r) => r.fullName)).not.toContain(cards[2]!.fullName);
+  });
+
+  it("fewer than LIVE_MIN verified cards -> the illustration, even with LIVE_MIN current-rubric cards", () => {
+    const cards = twelve.slice(0, LIVE_MIN).map((c, i) => (i === 0 ? { ...c, verified: false } : c));
+    expect(fleetFrom(gallery(cards))).toBe(ILLUSTRATIVE_FLEET);
   });
 });
