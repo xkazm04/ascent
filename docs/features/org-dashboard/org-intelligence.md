@@ -3564,3 +3564,7 @@ review is declared and no repo sits there, not measured when the stance takes no
 remain `RepoRow`s. Three shared sentences no longer use an em dash, in both themes: the unread-chain
 detail from `ledgerIntegrityLine`, `FLEET_UNJUDGED_NOTE`, and the incomplete reason label
 ("Scored nothing, not judged"). Roles: `scripts/kit/roles/governance.json`.
+
+## Prism compositions for the remaining tabs (2026-10-22)
+
+Under `data-theme="prism"` the Security, Adoption, Tech stacks, Proposals, Lessons, Members, Audit, Pairing, Weekly digest, Teams, Contributors, Knowledge, UI surfaces and Developer home tabs now render a kit composition (a masthead that states the finding, ruled Frames instead of cards, status as a glyph and a word); the Athena drawer swaps its two actions for kit actions. Each entry reads the theme and picks `*.v1.tsx` (Altimeter, unchanged) or `*.v2.tsx`, sharing one view hook, so behavior, data and every next-move link are identical in both themes. Interior tables, charts and Care or Loom bodies are still the shared components restyled by tokens; the open list is `docs/design/PRISM-MIGRATION-GAPS.md`.

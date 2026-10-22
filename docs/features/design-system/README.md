@@ -27,7 +27,7 @@ input state. A newly mounted `Defer` instance still applies its own arrival poli
 | --- | --- | --- |
 | Design System: UI Primitives & Deck | — | `src/components/ui/**`, `src/components/deck/**`, `src/components/ConfirmAction.tsx` |
 | Landing Page Prototypes | `/` | `src/components/landing/**` |
-| Prism landing (preview beside `/`) | `/?landing=prism` | `src/components/landing/prism/**` |
+| Prism landing (`/` under the Prism theme; preview beside `/` with `?landing=prism`) | `/` | `src/components/landing/prism/**` |
 | Marketing About Page | `/about` | `src/app/about`, `src/components/about/**` |
 | Marketing Org Page | `/about-org` | `src/app/about-org`, `src/components/about-org/**` |
 
@@ -178,6 +178,8 @@ floor of, both read from `LEVELS`. `levelRamp.test.ts` pins that it stays a real
 floor and is not the posture threshold.
 
 ## The Prism landing (`/?landing=prism`, 2026-09-29)
+
+**2026-10-22:** `/` now follows the theme cookie as well: with `data-theme="prism"` the page renders this landing, with Altimeter it renders the deck, and `?landing=prism` still previews Prism under Altimeter. The `noindex` metadata stays on the explicit query only. Prism landing does not yet render the self-hosted setup panel or the public gallery that the deck carries (see `docs/design/PRISM-MIGRATION-GAPS.md`).
 
 The winner of the `landing-brand` contest (variant A/1, "Prism"), ported next to the
 current deck and selected with `/?landing=prism`. **`/` is unchanged and remains the
@@ -672,6 +674,10 @@ the URL hash (`#outcome`; the browser Back button closes it, a deep link opens i
 never scrolls). `scripts/kit/drive-live-v2.mjs` drives the level chrome; `scripts/kit/roles/live.json` is the
 Live cockpit's computed-style contract for `roles-check.mjs`.
 
+
+## Prism blue sweep (2026-10-22)
+
+Phase 1 of retiring Altimeter. `theme-prism.css` now re-points the stock `sky`, `blue`, `indigo` and `cyan` colour ramps onto the cool slate ramp (info chips, categorical badges and links stop leaking default-palette blue), and mirrors the literal-rgba Altimeter blue in `globals.css` (selection, deck progress, deck scroll cue, launch sky, constellation hover, row flash) with paper-toned Prism rules. Hero and CTA glows in `/about`, `/about-org`, `/launch` and the report use `color-mix` over `--color-accent` / `--color-ink` so Altimeter is unchanged. The Live desk and on-air wall CSS modules route their blues through scope variables with a Prism override block. Inventory and remainder: `docs/design/PRISM-MIGRATION-GAPS.md`.
 
 ## Prism readability and patterns (2026-09-30)
 
